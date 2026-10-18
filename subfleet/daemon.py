@@ -51,7 +51,7 @@ from .adapters.base import AdapterError, open_stream
 from .adapters.registry import get_adapter
 from .alerts import operator_session
 from .contracts import (
-    CAPACITY_RECHECK_CEILING_S, EXIT_SETTLE_S, PIN_NOTICE_AFTER_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
+    CAPACITY_RECHECK_CEILING_S, EXIT_SETTLE_S, MODEL_CAPACITY_STEER_S, PIN_NOTICE_AFTER_S, TRANSIENT_RETRY_DELAY_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
     OWNED_CENSUS_INTERVAL_S, PROBE_RETRY_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
     WAIT_POLL_MAX_S, WAIT_RECHECK_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
     AttestationResult, ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
@@ -287,6 +287,16 @@ def _lane_fault_of(evidence_json: str | None) -> dict | None:
         return None
     fault = evidence.get("lane_fault") if isinstance(evidence, dict) else None
     return fault if isinstance(fault, dict) else None
+
+
+def _capacity_steer_of(evidence_json: str | None) -> dict | None:
+    """C-9.5: the capacity steer an attempt's evidence records (`Daemon._finalize`), or None.
+    `_retry_pin` asks on every pass, so evidence that cannot hold one is not parsed."""
+    if not isinstance(evidence_json, str) or '"capacity_steer"' not in evidence_json:
+        return None
+    steer = _evidence_key(evidence_json, "capacity_steer")
+    return (steer if isinstance(steer, dict) and isinstance(steer.get("model_id"), str)
+            and isinstance(steer.get("until"), str) else None)
 
 
 def _evidence_key(evidence_json: str | None, key: str) -> Any:
@@ -1944,10 +1954,11 @@ class Daemon:
         demand = []
         for job in scheduler.ordered_jobs(self.policy, rows):
             try:
-                _, exclusions, retry = self._retry_pin(job)
+                previous, exclusions, retry = self._retry_pin(job)
                 if retry and self._retry_waits_on_a_slot(retry, exclusions, desktop):
                     continue
-                decision = self._pick(job, extra_exclusions=exclusions, desktop=desktop)
+                # C-9.5: as admission routes it, its capacity steer included.
+                decision = self._pick(self._route_job(job, previous), extra_exclusions=exclusions, desktop=desktop)
             except (*ROUTE_ERRORS, Unroutable):
                 continue            # C-6.12: a route that cannot be evaluated is no demand
             demand.append({"job_id": job["job_id"], "tier": job["tier"], **demand_verdict(decision)})
@@ -1995,7 +2006,11 @@ class Daemon:
         A `limited` attempt excludes its lane, and so does a second `transient`
         one. After a first `transient` attempt the job is tried once more on the
         same lane and model (C-9.5), while that pair can run at all
-        (`_retry_pair_routable`); the pin is a job dict carrying the pair.
+        (`_retry_pair_routable`); the pin is a job dict carrying the pair. An
+        attempt whose model refused the job for capacity and steered it
+        (`capacity_steer`, C-9.5) sets no pin: the same model on any lane would
+        refuse it the same, and the job is routed as submitted, the model skipped
+        while its steer lasts (`_capacity_steer`).
         """
         previous = self.store.list_attempts(job["job_id"])
         roster = self._pin_roster() if previous else []
@@ -2013,8 +2028,32 @@ class Daemon:
         last = previous[-1] if previous else None
         pin = ({**job, "pinned_lane": last["lane_id"], "pinned_model": last["model_requested"]}
                if last and last["outcome_class"] == "transient" and transient[lane_of[last["lane_id"]]] == 1
-               and self._retry_pair_routable(last) else None)
+               and not _capacity_steer_of(last["evidence_json"]) and self._retry_pair_routable(last) else None)
         return previous, exclusions, pin
+
+    def _capacity_steer(self, job: dict, previous: list[dict], now: datetime | None = None) -> dict[str, str]:
+        """C-9.5, D-CAP1: the models this job's own attempts found at capacity whose steer has not
+        ended at `now` (default: the wall clock), model id to the end of its steer: what admission
+        hands `scheduler.prepare` as the job's `capacity_steer`, read once per look so a job's
+        early evaluation and its reservation's check consult the same recorded steers at their own
+        clocks (C-6.3). Empty for a job no
+        steer applies to (`scheduler.capacity_steerable`). Only the job's own `transient` attempts
+        count: one job's refusal moves no other job, and no lane or account is touched."""
+        if not scheduler.capacity_steerable(job):
+            return {}
+        now = now or datetime.now(timezone.utc)
+        steer: dict[str, str] = {}
+        for attempt in previous:
+            found = _capacity_steer_of(attempt.get("evidence_json")) if attempt.get("outcome_class") == "transient" else None
+            if found is None or _epoch(found["until"]) is None or _epoch(found["until"]) <= now.timestamp():
+                continue
+            steer[found["model_id"]] = max(steer.get(found["model_id"], ""), found["until"])
+        return steer
+
+    def _route_job(self, job: dict, previous: list[dict]) -> dict:
+        """C-9.5: `job` as admission routes it, carrying its live capacity steer when it has one."""
+        steer = self._capacity_steer(job, previous)
+        return {**job, "capacity_steer": steer} if steer else job
 
     def _retry_waits_on_a_slot(self, retry: dict, exclusions: tuple[str, ...], desktop) -> bool:
         """C-4.5, C-6.12: is the retry's lane refusing it only for want of a slot?
@@ -5639,6 +5678,10 @@ class Daemon:
         # #147: a waiting hard-tier priority job let later standard and trivial
         # jobs take the slots it was waiting for).
         priority_waiters: list[tuple[str, frozenset[str] | None, frozenset[str] | None, frozenset[str]]] = []
+        # A waiter may still demand another model in its chain. A later job
+        # trying a model this waiter is steered away from is compared again
+        # on its actual selection, before any reservation.
+        steered_demands: dict[str, frozenset[str]] = {}
 
         def wait(tier, klass, waiter):
             waiters.setdefault(tier, []).append(waiter)
@@ -5771,7 +5814,15 @@ class Daemon:
             verdict = self._retry_verdicts.get(job["job_id"])
             let_go = bool(retry and verdict and verdict[0] == previous[-1]["attempt_id"] and not verdict[1]
                           and job["next_check_at"] and job["next_check_at"] > utcnow())
-            models = scheduler.demand_models(self.policy, job if let_go else retry or job)
+            # C-6.9, C-9.5: FIFO must see the same live steer as routing,
+            # including when a backed-off waiter is not due for evaluation.
+            routed_job = self._route_job(job, previous)
+            models = scheduler.demand_models(self.policy, routed_job if let_go else retry or routed_job)
+            if routed_job.get("capacity_steer"):
+                original = scheduler.demand_models(self.policy, job)
+                remaining = scheduler.demand_models(self.policy, routed_job)
+                if original is not None and remaining is not None:
+                    steered_demands[job["job_id"]] = original - remaining
             lanes = scheduler.demand_lanes(roster, job if let_go else retry or job, self.policy)
             pool = "turn" if job["kind"] == "turn" else "detached"
             pool_cap = turns_cap if pool == "turn" else cap
@@ -5806,7 +5857,7 @@ class Daemon:
                 job has run (review of PR #72)."""
                 return not (waiter[3] and waiter[3] & own_leases())
 
-            def ahead(models, lanes):
+            def ahead(models, lanes, *, chosen=None):
                 """The oldest waiter this job may not pass (C-6.9), or None: only one
                 waiting for a slot. A waiter on a lease waits for no slot this job
                 could take; its lease keeps its place in `lease_queue`, and the last
@@ -5817,9 +5868,19 @@ class Daemon:
                 waited for the other until `max_wall_s`)."""
                 if fifo_scope is None:
                     return None
+
+                def compared_models(waiter):
+                    skipped = steered_demands.get(waiter[0], frozenset())
+                    if skipped and models is not None and skipped & models:
+                        # The later job may run on a model the waiter cannot use.
+                        # Defer only this comparison until selection; if it selects
+                        # the waiter's remaining model, FIFO still applies.
+                        return frozenset({chosen}) if chosen else frozenset()
+                    return models
+
                 return next((waiter[0] for waiter in older_waiters(tier)
                              if not waiter[3]
-                             and scheduler.competes(models, waiter[1], lanes, waiter[2])
+                             and scheduler.competes(compared_models(waiter), waiter[1], lanes, waiter[2])
                              and (fifo_scope == "pool" or family & self._ancestors(waiter[0], ancestry))), None)
 
             def unadmittable_now():
@@ -6080,7 +6141,9 @@ class Daemon:
                     tx.execute("UPDATE jobs SET state='queued',wait_reason=NULL,next_check_at=NULL "
                                "WHERE job_id=? AND state='waiting' AND wait_reason='workspace'", (job["job_id"],))
                 job = {**job, "state": "queued", "wait_reason": None, "next_check_at": None}
-            decision_job = job
+            # Keep the steers read for FIFO above, with the job's current workspace
+            # fields. Each evaluation checks their expiry against its own clock.
+            decision_job = {**job, "capacity_steer": routed_job.get("capacity_steer", {})}
             turn_block = None
             if job["kind"] == "turn":
                 turn_block = (self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}).get("turn") or {}
@@ -6098,7 +6161,7 @@ class Daemon:
                     # C-4.5 "then next candidate": the pair's lane refuses it for
                     # something a slot will not end, so the job routes as submitted,
                     # and as submitted it keeps C-6.9's place behind older jobs.
-                    models = scheduler.demand_models(self.policy, job)
+                    models = scheduler.demand_models(self.policy, decision_job)
                     lanes = scheduler.demand_lanes(roster, job, self.policy)
                     behind = None if defer_fifo else ahead(models, lanes)
                     # C-6.12: exclusions that cannot be merged are its route's problem, so such a
@@ -6323,7 +6386,9 @@ class Daemon:
                                                    if models is not None else frozenset(
                                                        name for name, model in self.policy["models"].items()
                                                        if model["provider"] == provider))
-                                fifo_behind = ahead(selected_models, lanes)
+                                fifo_behind = ahead(selected_models, lanes, chosen=decision.chosen_model)
+                            elif steered_demands:
+                                fifo_behind = ahead(models, lanes, chosen=decision.chosen_model)
                             provider_limit = scheduler.provider_cap(self.policy, provider)
                             if provider_limit is not None:
                                 # C-6.4: both pools share this count. Check inside the
@@ -6351,6 +6416,13 @@ class Daemon:
                             for_good = (None if decision.chosen_lane or rotation
                                         else scheduler.refused_for_good(self.policy, decision, decision_job,
                                                                         pin_view()["lanes"]))
+                            if (not decision.chosen_lane and not rotation
+                                    and decision_job.get("capacity_steer")
+                                    and (not decision.evaluations or for_good)):
+                                # C-6.9, C-9.5: a steer ends, so standing refusal must
+                                # cover the whole chain, as while the job's clock runs.
+                                # A fully steered chain has no refusal evaluations.
+                                for_good = unadmittable_now()[0]
                             if not for_good:
                                 wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
                             # C-6.10: a wait that reaches the verdict it reached last time
@@ -6399,7 +6471,8 @@ class Daemon:
                             # recorded an unchanged verdict again on each fleet turnover.
                             rechecks = self._capacity_wait(job["job_id"], scheduler.verdict_signature(decision), hold,
                                                            lane_wait=not decision.chosen_lane)
-                            waiting = scheduler.waiting_metadata(decision, rechecks=rechecks)
+                            waiting = scheduler.waiting_metadata(
+                                decision, rechecks=rechecks, capacity_steer=decision_job.get("capacity_steer"))
                             if not rechecks:
                                 self.store.add_decision(job["job_id"], decision)
                             tx.execute("UPDATE jobs SET state='waiting',wait_reason=?,next_check_at=? WHERE job_id=?",
@@ -6675,7 +6748,12 @@ class Daemon:
                 self._count_route(deferred=1)
                 # C-11.8: never from a decision with rotation's lanes left out, which read
                 # `excluded`, a standing refusal they are not (review of #153 r2, P3-B).
-                if rotation or not scheduler.refused_for_good(self.policy, decision, decision_job, pin_view()["lanes"]):
+                moved_for_good = None if rotation else scheduler.refused_for_good(
+                    self.policy, decision, decision_job, pin_view()["lanes"])
+                if (not rotation and decision_job.get("capacity_steer")
+                        and (not decision.evaluations or moved_for_good)):
+                    moved_for_good = unadmittable_now()[0]      # C-6.9, C-9.5: whole chain, as above
+                if not moved_for_good:
                     wait(tier, klass, (job["job_id"], models, lanes, frozenset()))
                 holds[job["job_id"]] = {"reason": "route-moved", "tries": ROUTE_TRIES}
                 self._refresh_hold(job["job_id"], holds[job["job_id"]])     # C-6.11: the last look's finding
@@ -8533,9 +8611,19 @@ class Daemon:
                 evidence["lane_fault"] = fault
             if again:
                 evidence["auth_dead_again"] = {"lane_id": a["lane_id"], "lane_left_enabled": True}
+            finished = actual.get("finished_at") or utcnow()
+            # C-9.5, D-CAP1: the provider refused this job's model for capacity. A job a steer
+            # applies to walks that model last until MODEL_CAPACITY_STEER_S after this attempt
+            # finished, and is due at the next pass rather than on the same pair 60 s on; a job
+            # pinned to the model keeps that retry. No closure, no lane disabled or excluded.
+            steered = (not lost and outcome.cls == OutcomeClass.TRANSIENT
+                       and outcome.evidence.get("model_capacity") is True and scheduler.capacity_steerable(job))
+            if steered:
+                evidence["capacity_steer"] = {"model_id": a["model_requested"],
+                                              "until": _later(finished, MODEL_CAPACITY_STEER_S)}
             tx.execute("UPDATE attempts SET state=?,rc=?,outcome_class=?,outcome_detail=?,evidence_json=?,attestation=?,model_served=?,native_session_id=COALESCE(?,native_session_id),transcript_path=?,finished_at=COALESCE(finished_at,?) WHERE attempt_id=?",
                        (attempt_state, rc, outcome.cls.value, outcome.detail, json.dumps(evidence), attest_status, served_model,
-                        outcome.native_session_id, outcome.transcript_path, utcnow(), a["attempt_id"]))
+                        outcome.native_session_id, outcome.transcript_path, finished, a["attempt_id"]))
             for artifact in artifacts:
                 self.store.add_artifact(a["attempt_id"], **artifact)
             if outcome.cls == OutcomeClass.AUTH_DEAD and not again:
@@ -8552,7 +8640,8 @@ class Daemon:
                 job_rc = {OutcomeClass.LIMITED: 4,  # C-17.3: a final limited attempt reports 4, pinned or not
                           OutcomeClass.AUTH_DEAD: 5, OutcomeClass.CLI_TOO_OLD: 6}.get(outcome.cls, rc)
             accepted = a["attempt_id"] if ok and not cancel else None
-            next_check = after(60 if outcome.cls == OutcomeClass.TRANSIENT else 0) if retry else None
+            next_check = after(TRANSIENT_RETRY_DELAY_S if outcome.cls == OutcomeClass.TRANSIENT and not steered
+                               else 0) if retry else None
             tx.execute("UPDATE jobs SET state=?,rc=?,accepted_attempt_id=?,finished_at=?,wait_reason=?,next_check_at=? WHERE job_id=?",
                        (job_state, job_rc, accepted, None if retry else utcnow(), "capacity" if retry else None, next_check, job["job_id"]))
             if accepted and job.get("push_branch") is not None:

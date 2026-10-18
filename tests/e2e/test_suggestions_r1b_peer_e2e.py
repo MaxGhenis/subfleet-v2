@@ -71,6 +71,7 @@ def test_r1b_a_caller_with_no_terminal_is_refused_whatever_its_markers(r1b_daemo
                             capture_output=True, text=True, timeout=30, env=environment, start_new_session=True)
     response = json.loads(direct.stdout.split("RESPONSE ", 1)[1])
     assert response["ok"] is False and response["error"]["code"] == 7
+    assert response["error"]["message"] == "person-only: starting or dismissing a suggestion is a person's decision"
     assert conv.call("suggestion.list", suggestion_ids=[sid])["suggestions"][0]["state"] == "open"
 
 
@@ -144,3 +145,6 @@ def test_r1b_a_reparented_child_with_its_own_terminal_cannot_decide(r1b_daemon, 
                 os.kill(pid, signal.SIGKILL)          # never leave the fixture's own child behind
     assert "error" not in result, result
     assert result["response"]["ok"] is False and result["response"]["error"]["code"] == 7, result
+    assert result["response"]["error"]["message"] == (
+        "person-only: starting or dismissing a suggestion is a person's decision"), result
+    assert conv.call("suggestion.list", suggestion_ids=[sid])["suggestions"][0]["state"] == "open"
