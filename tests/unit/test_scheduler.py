@@ -128,11 +128,11 @@ def test_codex_weekly_waterfall_fuller_lane_resetting_tomorrow_wins(policy):
     assert decision.evaluations[0]["candidates"] == ["codex-1", "codex-2"]
 
 
-def test_codex_in_flight_never_reorders_equal_weekly_resets(policy):
-    """C-11.3: the lane id breaks tied weekly resets even when that lane is busier."""
+def test_codex_equal_weekly_resets_prefer_more_weekly_headroom(policy):
+    """C-11.3: weekly headroom breaks tied resets before in-flight and lane id."""
     snapshot = view([lane("codex-2"), lane("codex-1")],
                     [reading("codex-1", .8), reading("codex-2", .2)], attempts=[attempt("codex-1")])
-    assert evaluate(policy, snapshot, job(pinned_model="astra")).chosen_lane == "codex-1"
+    assert evaluate(policy, snapshot, job(pinned_model="astra")).chosen_lane == "codex-2"
 
 
 @pytest.mark.parametrize("utilization", [.85, .9, 1, 1.47])
@@ -146,14 +146,14 @@ def test_codex_any_window_at_or_above_floor_is_ineligible_even_with_soon_reset(p
     assert decision.evaluations[0]["rejections"][0]["reason"] == "below-floor"
 
 
-def test_claude_worst_window_headroom_then_in_flight_then_id(policy):
-    """C-11.3: Claude uses the worst window, then fewer attempts, then lane id."""
+def test_claude_weekly_headroom_then_in_flight_then_id(policy):
+    """C-11.3: equal resets prefer weekly headroom; a short window above reserve does not reorder."""
     snapshot = view([lane("claude-4"), lane("claude-3"), lane("claude-2"), lane("claude-1")],
                     [reading("claude-1", .1), reading("claude-1", .7, window="five_hour"),
                      reading("claude-2", .3), reading("claude-3", .3), reading("claude-4", .3)],
                     attempts=[attempt("claude-2")])
     decision = evaluate(policy, snapshot, job(pinned_model="opus"))
-    assert decision.evaluations[0]["candidates"] == ["claude-3", "claude-4", "claude-2", "claude-1"]
+    assert decision.evaluations[0]["candidates"] == ["claude-1", "claude-3", "claude-4", "claude-2"]
 
 
 def test_fable_model_scoped_closure_leaves_opus_eligible(policy):
@@ -474,14 +474,14 @@ def test_c11_7_only_the_usage_sensor_measures_the_shared_window(reserve_policy):
     assert rejection(decision, "opus", "claude-1")["reasons"] == ["reserve:fable:unmeasured"]
 
 
-def test_c11_7_non_reserved_work_orders_lanes_by_slack(reserve_policy):
+def test_c11_7_slack_preserves_eligibility_but_weekly_rule_orders_candidates(reserve_policy):
     lanes = [lane("claude-1"), lane("claude-2"), lane("claude-3")]
     rows = (usage("claude-1", .50, .95) + usage("claude-2", .20, .95) + usage("claude-3", .10, .60))
     decision = decision_for(reserve_policy, lanes, rows, pinned_model="sonnet", task=None, tier=None)
     evaluation = next(e for e in decision.evaluations if e["model"] == "sonnet")
-    # slack: claude-1 .50-.10=.40; claude-2 .80-.10=.70; claude-3 .90-.80=.10
-    assert evaluation["candidates"] == ["claude-2", "claude-1", "claude-3"]
-    assert decision.chosen_lane == "claude-2"
+    # All have eligible slack; equal weekly resets prefer account headroom.
+    assert evaluation["candidates"] == ["claude-3", "claude-2", "claude-1"]
+    assert decision.chosen_lane == "claude-3"
 
 
 def test_c11_7_a_stale_usage_read_does_not_count(reserve_policy):

@@ -54,6 +54,87 @@ def test_codex_uses_weekly_reset_order_and_preserves_input(policy):
     assert result["advisory"] is True
 
 
+def test_picker_and_why_explain_each_candidates_reserve_and_binding_window(policy, monkeypatch, capsys):
+    """C-11.5: real decisions expose the scoped window that supplies the reset."""
+    from dataclasses import asdict
+    from subfleet.scheduler import evaluate
+
+    policy["headroom_floor"] = 0
+    model = policy["models"]["astra"]["id"]
+    data = view([lane(), lane("codex-2")], [
+        reading(used=.2),
+        reading(used=.985, scope=model, resets_at="2026-09-20T20:00:00Z"),
+        reading(used=.96, window="five_hour", observed_at="2026-09-20T15:59:30Z"),
+        reading("codex-2", .4),
+        reading("codex-2", .3, window="five_hour"),
+    ])
+    result = picker.rank(policy, data, model="astra")
+    assert [row["lane_id"] for row in result["ranked"]] == ["codex-2", "codex-1"]
+    detail = result["ranked"][1]
+    assert detail["reserve_class"] == "weekly+five-hour"
+    assert detail["weekly_scope"] == model
+    assert detail["weekly_reset_at"] == "2026-09-20T20:00:00Z"
+    assert detail["weekly_headroom"] == pytest.approx(.015)
+    assert detail["five_hour_headroom"] == pytest.approx(.04)
+    assert detail["reading_age_s"] == 30
+
+    class Client:
+        def call(self, op, args):
+            return result
+
+    monkeypatch.setattr(cli, "_client", lambda args: Client())
+    assert cli.main(["pick", "--model", "astra", "--all"]) == 0
+    captured = capsys.readouterr()
+    assert captured.out == "/lanes/codex-2\n"
+    for identity in ("codex-1", "codex-2"):
+        assert f"{identity}: reserve=" in captured.err
+    assert f"weekly-scope={model}" in captured.err
+    assert "weekly-headroom=1.5% five-hour-headroom=4.0% reading-age=30.0s" in captured.err
+    decision = json.loads(json.dumps(asdict(evaluate(policy, data,
+        {"pinned_model": "astra", "sandbox": "read-only"}))))
+    text = cli._format_decision(decision)
+    assert "codex-1: reserve=weekly+five-hour" in text
+    assert "codex-2: reserve=clear" in text
+    assert "weekly-reset=2026-09-20T20:00:00Z" in text
+    assert "reading-age=30.0s" in text
+
+
+def test_unknown_model_picker_retains_each_models_scoped_evidence(policy):
+    """An unspecified model still exposes each model's binding weekly bucket."""
+    model = policy["models"]["terra"]["id"]
+    data = view(readings=[reading(), reading(used=.7, scope=model,
+                resets_at="2026-09-20T20:00:00Z")])
+    detail = picker.rank(policy, data)["ranked"][0]
+    assert detail["weekly_scope"] == model
+    assert detail["weekly_headroom"] == pytest.approx(.3)
+    assert detail["weekly_reset_at"] == "2026-09-20T20:00:00Z"
+    assert detail["model_details"]["astra"]["weekly_scope"] == "account"
+    assert detail["model_details"]["terra"]["weekly_scope"] == model
+
+
+def test_unknown_model_picker_ranks_the_same_binding_evidence_it_displays(policy):
+    """C-11.3, C-11.5: a later model's binding reset and reserve affect unknown-model order."""
+    policy["headroom_floor"] = 0
+    model = policy["models"]["terra"]["id"]
+    data = view([lane(), lane("codex-2")], [reading(used=.1),
+        reading(used=.9, scope=model, resets_at="2026-09-23T16:00:00Z"),
+        reading("codex-2", .6, resets_at="2026-09-22T16:00:00Z")])
+    assert picker.rank(policy, data, model="astra")["best"] == "/lanes/codex-1"
+    result = picker.rank(policy, data)
+    assert [row["lane_id"] for row in result["ranked"]] == ["codex-2", "codex-1"]
+    assert result["ranked"][0]["weekly_reset_at"] < result["ranked"][1]["weekly_reset_at"]
+    # A later model can also put an account under reserve despite an earlier reset.
+    data["readings"][1].update(utilization=.99, resets_at=LATER)
+    result = picker.rank(policy, data)
+    assert [row["reserve_class"] for row in result["ranked"]] == ["clear", "weekly"]
+
+
+def test_picker_keeps_admission_freshness_after_an_applicable_window_renews(policy):
+    """Renewal uncertainty is a ranking preference, not a pick exclusion."""
+    data = view(readings=[reading(), reading(used=.9, window="five_hour", resets_at=NOW)])
+    assert [row["lane_id"] for row in picker.rank(policy, data)["ranked"]] == ["codex-1"]
+
+
 @pytest.mark.parametrize("changes,reason", [
     ({"owner": "v1"}, "owner-v1"), ({"enabled": False}, "disabled"),
     ({"desktop": True}, "desktop"), ({"identity_status": "mismatch"}, "identity-mismatch"),

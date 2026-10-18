@@ -130,10 +130,11 @@ func dispatchableLanes(_ snapshot: Snapshot) -> [String: Int] {
     return counts
 }
 
-/// Auto's pick: the provider with more lanes ready, Claude on a tie or when
-/// nothing is known.
+/// Claude is the default, including unknown readiness and a tie at zero.
+/// Codex needs a ready lane and a known absence of ready Claude lanes.
 func autoProvider(_ counts: [String: Int]) -> String {
-    (counts["codex"] ?? 0) > (counts["claude"] ?? 0) ? "codex" : "claude"
+    guard let claude = counts["claude"] else { return "claude" }
+    return claude == 0 && (counts["codex"] ?? 0) > 0 ? "codex" : "claude"
 }
 
 // C-17.7, C-18.2: jobs submitted together by `run --batch` carry one label.
@@ -168,11 +169,24 @@ struct JobsSection: Decodable {
     var recent: [JobRow]?
 }
 
+// C-18.4: an alert in force, as `status.json` lists it, most severe first.
+struct AlertRow: Decodable, Identifiable {
+    var key: String
+    var severity: String?
+    var subject: String?
+    var body: String?
+    var since: String?
+    var last_sent: String?
+    var id: String { key }
+}
+
 struct Snapshot: Decodable {
     var generated_at: String
     var offline: Bool?
     // Optional: a snapshot written by a daemon that predates C-18.2 has no jobs.
     var jobs: JobsSection?
+    // Optional: one that predates C-18.4 has no alerts.
+    var alerts: [AlertRow]?
     var codex: CodexSection
     var claude: ClaudeSection
 
@@ -226,6 +240,27 @@ struct JobDisplay {
     var detail: String
     var status: String
     var tone: LaneTone
+}
+
+struct AlertDisplay {
+    var title: String
+    var detail: String
+    var since: String?
+    var tone: LaneTone
+}
+
+/// C-18.4: an alert's subject, then its body, which names what to run (C-23.52).
+/// Critical is an error, info is neutral, and anything else is a warning.
+func alertDisplay(_ alert: AlertRow) -> AlertDisplay {
+    let subject = alert.subject ?? ""
+    let tone: LaneTone = alert.severity == "critical" ? .error : alert.severity == "info" ? .neutral : .warning
+    return AlertDisplay(title: subject.isEmpty ? alert.key : subject, detail: alert.body ?? "",
+                        since: alert.since, tone: tone)
+}
+
+/// C-18.4: an alert other than `info` is a problem the menu bar icon shows.
+func alertsNeedAttention(_ snapshot: Snapshot) -> Bool {
+    (snapshot.alerts ?? []).contains { alertDisplay($0).tone != .neutral }
 }
 
 /// C-18.2: a waiting job says why; a failed one says its exit code.

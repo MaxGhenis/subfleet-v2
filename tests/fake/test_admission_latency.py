@@ -102,7 +102,7 @@ def test_c6_3_no_capacity_view_is_built_with_the_store_lock_held_across_100_rese
     service.policy["caps"].update(max_active_attempts=200, max_in_flight_per_lane=50, reading_ttl_s=3600)
     jobs = [submit(service, harness, pinned_model="astra") for _ in range(100)]
     # No git here: one subprocess per job is not what this measures.
-    monkeypatch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+    monkeypatch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))
     held: list[str] = []
     rows, build, evaluate = service._capacity_rows, capacity.build_view, scheduler.evaluate
 
@@ -468,7 +468,7 @@ def test_c26_9_a_queued_turn_is_placed_before_a_detached_backlog_is_evaluated(ro
     service.policy["caps"].update(max_active_attempts=40, max_in_flight_per_lane=20, reading_ttl_s=3600)
     backlog = [submit(service, harness, pinned_model="astra", tier="trivial") for _ in range(30)]
     turn = submit_turn(service, harness, 1)
-    monkeypatch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))   # no git per job
+    monkeypatch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))   # no git per job
     pick, order = service._pick, []
 
     def recording(job, **options):
@@ -537,7 +537,7 @@ def test_c6_3_a_lane_enrolled_under_a_reset_credit_override_is_never_reserved_as
                              subject="codex-3", state="confirmed",
                              request_json=json.dumps({"account_key": "codex:codex-3"}))
     job_id = submit(service, harness, pinned_model="astra", tier="hard")
-    monkeypatch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None))
+    monkeypatch.setattr(service, "_workspace", lambda job: (job["workdir"], None, None, []))
     pick, early = service._pick, []
 
     def pick_then_commit(job, **options):

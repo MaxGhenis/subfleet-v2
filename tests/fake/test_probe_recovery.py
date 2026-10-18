@@ -52,6 +52,11 @@ def test_c11_probe_rechecks_lane_before_reserving_after_selection(routing_state,
 
     def pick_then_change(*args, **kwargs):
         decision = original_pick(*args, **kwargs)
+        if selected:
+            # C-11.4: a lane whose probe could not be reserved is passed over and the
+            # look evaluates again (review of #153); here no other lane takes the job.
+            assert decision.chosen_lane is None
+            return decision
         assert decision.chosen_lane == "codex-1"
         assert not service.store.conn.in_transaction
         service.store.update_lane(decision.chosen_lane, **change)
@@ -172,7 +177,7 @@ def test_c5_probe_gate_opens_after_durable_identity_and_readonly_launch(routing_
         assert stored["state"] == "starting"
         assert stored["guardian_pid"] == 900001
         assert stored["proc_start"] == "fixture-start"
-        assert not service.store.conn.in_transaction
+        assert service.store.conn.in_transaction  # Gate and cancellation serialize.
         writes.append((fd, value))
     monkeypatch.setattr(daemon_module.os, "write", release)
     def spawn(command, **kwargs):

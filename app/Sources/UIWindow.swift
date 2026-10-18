@@ -7,46 +7,72 @@ import SwiftUI
 
 struct MainWindow: View {
     @ObservedObject var model: UIModel
+    /// The ⌘K palette (C-29.12); its overlay observes it.
+    let palette: SearchPaletteModel
+    /// C-29.13: every conversation text size follows this scale.
+    @AppStorage(TextScale.defaultsKey) private var textScale = TextScale.actual
     @State private var selection: String?
-    @State private var search = ""
-    @State private var showNew = false
+    @State private var columnVisibility = NavigationSplitViewVisibility.all
 
     var body: some View {
-        NavigationSplitView {
-            SidebarView(model: model, selection: $selection)
-                .navigationSplitViewColumnWidth(min: 240, ideal: 300, max: 420)
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            SidebarView(model: model, selection: $selection, search: { palette.toggle(model) })
+                .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 420)
         } detail: {
             VStack(spacing: 0) {
                 if let banner = model.state.availability.banner {
                     StatusBanner(title: banner.title, detail: banner.detail, symbol: "bolt.slash")
                 }
-                if let locked = model.lockedEntry {
+                if model.newDraft.isPresented {
+                    NewConversationDraftView(model: model)
+                } else if let draft = model.selectedFailedDraft {
+                    FailedConversationDraftView(draft: draft, changeFolder: { model.changeFailedDraftFolder(draft) },
+                                                copy: { model.copyFailedDraft(draft) },
+                                                discard: { model.discardFailedDraft(draft.id) })
+                } else if let suggestion = model.selectedSuggestion {
+                    SuggestionDetailView(model: model, suggestion: suggestion)
+                } else if let locked = model.lockedEntry {
                     LockedSessionView(entry: locked)
                 } else if let conversation = model.state.focusedConversation {
                     ConversationView(model: model, conversation: conversation)
                 } else {
-                    VStack(spacing: 12) {
-                        Image(systemName: "bubble.left.and.bubble.right").font(.largeTitle).foregroundStyle(.secondary)
-                        Text("Choose a conversation or start a new one").foregroundStyle(.secondary)
-                        Button("New conversation") { showNew = true }.keyboardShortcut("n")
-                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                    EmptyConversationView { model.openNewDraft() }
                 }
                 if let problem = model.problem {
-                    HStack {
-                        Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
-                        Text(problem).font(.callout).lineLimit(2)
-                        Spacer()
-                        Button { model.problem = nil } label: { Image(systemName: "xmark") }.buttonStyle(.borderless)
-                    }
-                    .padding(8)
-                    .background(.bar)
+                    NoticeRow(symbol: "exclamationmark.triangle") {
+                        HStack {
+                            if !model.failedDrafts.isEmpty {
+                                Button(problem) { model.selectFailedDraft() }.buttonStyle(.link).readingFont(.secondary)
+                            } else { Text(problem).readingFont(.secondary) }
+                            Spacer()
+                            Button { model.problem = nil } label: { Image(systemName: "xmark") }
+                                .buttonStyle(.borderless).accessibilityLabel("Dismiss notice").help("Dismiss notice")
+                        }
+                    }.padding(Theme.space.inset)
                 }
             }
         }
-        .searchable(text: $search, placement: .sidebar, prompt: "Search conversations")
-        .onChange(of: search) { _, value in model.setSearch(value) }
+        .toolbar(removing: .sidebarToggle)
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button {
+                    columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+                } label: { Label("Toggle sidebar", systemImage: "sidebar.left") }
+                    .keyboardShortcut("s", modifiers: [.command, .control])
+                    .help("Show or hide the sidebar (⌃⌘S)")
+            }
+        }
         .onChange(of: selection) { _, value in
             guard let value else { return }
+            if value.hasPrefix("failed:") {
+                model.selectFailedDraft(String(value.dropFirst("failed:".count)))
+                return
+            }
+            if value.hasPrefix("sg:") {
+                let id = String(value.dropFirst("sg:".count))
+                if model.selectedSuggestionID != id { model.selectSuggestion(id) }
+                return
+            }
             if let entry = model.state.sidebarEntries().first(where: { $0.id == value }) { model.select(entry) }
         }
         .onChange(of: model.state.focusedConversationID) { _, id in
@@ -54,21 +80,28 @@ struct MainWindow: View {
             // conversation) moves the highlight, so clicking a row always selects.
             if let id, selection != "cv:" + id { selection = "cv:" + id }
         }
-        .toolbar {
-            ToolbarItemGroup {
-                Picker("Provider", selection: Binding(get: { model.state.providerFilter ?? "all" },
-                                                      set: { model.setProviderFilter($0 == "all" ? nil : $0) })) {
-                    Text("All").tag("all")
-                    Text("Claude").tag("claude")
-                    Text("Codex").tag("codex")
-                }.pickerStyle(.segmented)
-                Button { showNew = true } label: { Label("New conversation", systemImage: "square.and.pencil") }
-                    .keyboardShortcut("n")
-            }
+        .foregroundStyle(Theme.text.primary.color)
+        .background(Theme.surface.conversation.color)
+        .tint(Theme.accent)
+        .toolbarBackground(Theme.surface.conversation.color, for: .windowToolbar)
+        .onChange(of: model.newDraft.isPresented) { _, visible in if visible { selection = nil } }
+        .onChange(of: model.selectedFailedDraftID) { _, id in
+            if let id { selection = "failed:" + id }
         }
-        .sheet(isPresented: $showNew) { NewConversationSheet(model: model, isPresented: $showNew) }
+        .onChange(of: model.selectedSuggestionID) { _, id in
+            if let id, selection != "sg:" + id { selection = "sg:" + id }
+        }
         .onAppear { model.start() }
-        .onReceive(NotificationCenter.default.publisher(for: .subfleetNewConversation)) { _ in showNew = true }
+        .onReceive(NotificationCenter.default.publisher(for: .subfleetNewConversation)) { _ in
+            palette.close(restoringFocus: false)
+            model.openNewDraft()
+        }
+        .modifier(PaletteModal(palette: palette))
+        .overlay { SearchPaletteOverlay(palette: palette) }
+        .onDisappear { palette.close(restoringFocus: false) }
+        .background(TextScaleEqualsShortcut(scale: $textScale))
+        .environment(\.textScale, textScale)
+        .environment(\.searchPalette, palette)
     }
 }
 
@@ -83,10 +116,10 @@ struct LockedSessionView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            Image(systemName: "lock").font(.largeTitle).foregroundStyle(.secondary)
-            Text(entry.title).font(.headline).multilineTextAlignment(.center)
-            if !entry.subtitle.isEmpty { Text(entry.subtitle).font(.caption).foregroundStyle(.secondary) }
-            Text(lockedWords(entry)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            Image(systemName: "lock").font(.largeTitle).foregroundStyle(Theme.text.secondary.color)
+            Text(entry.title).readingFont(.subheading).multilineTextAlignment(.center)
+            if !entry.subtitle.isEmpty { Text(entry.subtitle).readingFont(.caption).foregroundStyle(Theme.text.secondary.color) }
+            Text(lockedWords(entry)).readingFont(.body).foregroundStyle(Theme.text.secondary.color).multilineTextAlignment(.center)
                 .frame(maxWidth: 460)
         }
         .padding(24)
@@ -115,18 +148,13 @@ struct StatusBanner: View {
     let title: String
     let detail: String
     let symbol: String
-
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: symbol).foregroundStyle(.orange)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).bold()
-                Text(detail).font(.callout).foregroundStyle(.secondary)
+        NoticeRow(symbol: symbol) {
+            VStack(alignment: .leading, spacing: Theme.space.step) {
+                Text(title).readingFont(.body)
+                Text(detail).readingFont(.secondary).foregroundStyle(Theme.text.secondary.color)
             }
-            Spacer()
         }
-        .padding(10)
-        .background(Color.orange.opacity(0.12))
     }
 }
 
@@ -135,89 +163,145 @@ struct StatusBanner: View {
 struct SidebarView: View {
     @ObservedObject var model: UIModel
     @Binding var selection: String?
+    var search: () -> Void = {}
+    @FocusState private var listFocused: Bool
+
+    private var sections: [SidebarSection] {
+        let sections = model.state.sidebar()
+        guard model.state.grouping == .recency else { return sections }
+        let recent = sections.filter { ["Today", "Yesterday"].contains($0.title) }
+        let earlier = sections.filter { !["Today", "Yesterday"].contains($0.title) }.flatMap(\.entries)
+        return recent + (earlier.isEmpty ? [] : [SidebarSection(id: "earlier", title: "Earlier", entries: earlier)])
+    }
 
     var body: some View {
-        List(selection: $selection) {
-            ForEach(model.state.sidebar()) { section in
-                Section(section.title) {
+        VStack(alignment: .leading, spacing: Theme.space.step) {
+            Button { model.openNewDraft() } label: {
+                Label("New conversation", systemImage: "square.and.pencil")
+                    .frame(maxWidth: .infinity, alignment: .leading).frame(height: Theme.space.row)
+            }.keyboardShortcut("n").buttonStyle(QuietButtonStyle()).windowFont(.sidebar)
+            Button(action: search) {
+                HStack {
+                    Label("Search", systemImage: "magnifyingglass")
+                    Spacer()
+                    Text("⌘K").foregroundStyle(Theme.text.tertiary.color)
+                }.frame(height: Theme.space.row)
+            }.buttonStyle(QuietButtonStyle()).windowFont(.sidebar).help("Search conversations and messages (⌘K)")
+            HStack {
+                Menu {
+                    Button("Recent") { model.setGrouping(.recency) }
+                    Button("Workspace") { model.setGrouping(.workspace) }
+                } label: {
+                    Text(model.state.grouping == .recency ? "Recent" : "Workspace")
+                }.menuStyle(.borderlessButton).fixedSize().help("Group conversations by date or workspace")
+                Spacer()
+                Menu {
+                    Picker("Provider", selection: Binding(get: { model.state.providerFilter ?? "" }, set: {
+                        model.setProviderFilter($0.isEmpty ? nil : $0)
+                    })) {
+                        Text("All providers").tag("")
+                        Text("Claude").tag("claude")
+                        Text("Codex").tag("codex")
+                    }
+                } label: {
+                    Label(model.state.providerFilter?.capitalized ?? "All providers", systemImage: "line.3.horizontal.decrease")
+                }.menuStyle(.borderlessButton).fixedSize().accessibilityLabel("Filter by provider")
+            }.windowFont(.heading).foregroundColor(Theme.text.secondary.color).padding(.vertical, Theme.space.inset)
+            List(selection: $selection) {
+                // C-29.14: every suggestion waiting on the person, with or without an origin.
+                let suggested = model.state.openSuggestions
+                if !suggested.isEmpty {
+                    SuggestedHeader(count: model.state.openSuggestionCount)
+                        .tag(nil as String?)
+                        .selectionDisabled()
+                    ForEach(suggested) { suggestion in
+                        SuggestionSidebarRow(suggestion: suggestion, origin: model.state.suggestionOrigin(suggestion))
+                            .padding(.horizontal, Theme.space.inset)
+                            .tag("sg:" + suggestion.suggestion_id)
+                            .help(suggestion.title + "\n" + suggestion.tldr)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                    }
+                }
+                if !model.failedDrafts.isEmpty {
+                    Text("Drafts that need you").windowFont(.heading).foregroundStyle(Theme.text.tertiary.color)
+                        .tag(nil as String?)
+                        .selectionDisabled()
+                    ForEach(model.failedDrafts) { draft in
+                        Label(draft.text.isEmpty ? "Could not start" : draft.text, systemImage: "exclamationmark.triangle")
+                            .windowFont(.sidebar).lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading).frame(height: Theme.space.row)
+                            .tag("failed:" + draft.id).help(draft.failure.message)
+                    }
+                }
+                ForEach(sections) { section in
+                    Text(section.title).windowFont(.heading).foregroundStyle(Theme.text.tertiary.color)
+                        .padding(.top, Theme.space.inset).padding(.bottom, Theme.space.step)
+                        .tag(nil as String?)
+                        .selectionDisabled()
                     ForEach(section.entries) { entry in
                         SidebarRow(entry: entry) {
-                            // The hand badge opens the conversation at its oldest waiting card.
                             if case .conversation(let id) = entry.target { model.revealApprovals(in: id) }
                             selection = entry.id
                         }
-                        .tag(entry.id)
+                        .padding(.horizontal, Theme.space.inset)
+                        .tag(entry.id).help(entry.title + "\n" + entry.subtitle)
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
                     }
                 }
             }
-        }
-        .listStyle(.sidebar)
-        .safeAreaInset(edge: .bottom) {
-            Picker("Group by", selection: Binding(get: { model.state.grouping }, set: { model.setGrouping($0) })) {
-                Text("Recent").tag(SidebarGrouping.recency)
-                Text("Workspace").tag(SidebarGrouping.workspace)
+            .listStyle(.sidebar).scrollContentBackground(.hidden)
+            .focused($listFocused)
+            .background {
+                Button("Focus conversations") { listFocused = true }
+                    .keyboardShortcut("s", modifiers: [.command, .option])
+                    .frame(width: 0, height: 0).opacity(0).accessibilityHidden(true)
             }
-            .pickerStyle(.segmented)
-            .padding(8)
         }
+        .padding(Theme.space.inset)
+        .foregroundStyle(Theme.text.primary.color)
+        .background(Theme.surface.sidebar.color)
     }
 }
 
 struct SidebarRow: View {
     let entry: SidebarEntry
-    /// The hand badge's action: show the conversation's waiting cards.
     let showApprovals: () -> Void
+    @Environment(\.textScale) private var scale
 
     var body: some View {
-        HStack(spacing: 8) {
-            ProviderBadge(provider: entry.provider)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 4) {
-                    Text(entry.title).lineLimit(1)
-                    if case .native = entry.target {
-                        Image(systemName: "arrow.uturn.right.circle").font(.caption2).foregroundStyle(.secondary)
-                            .help("An existing \(entry.provider == "codex" ? "Codex" : "Claude") session; opening it continues it here")
-                    }
-                }
-                Text(entry.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
-            Spacer(minLength: 4)
+        HStack(spacing: Theme.space.inset) {
+            Text(entry.title).windowFont(.sidebar).lineLimit(1)
+            Spacer(minLength: Theme.space.step)
             if entry.pendingApprovals > 0 {
                 Button(action: showApprovals) {
-                    Label("\(entry.pendingApprovals)", systemImage: "hand.raised.fill").labelStyle(.titleAndIcon)
-                        .font(.caption).foregroundStyle(.orange)
+                    Label("\(entry.pendingApprovals)", systemImage: "hand.raised")
+                        .windowFont(.heading).foregroundStyle(Theme.state.attention)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Capsule().fill(Theme.surface.raised.color))
                 }
                 .buttonStyle(.borderless)
                 .help("Waiting for your approval; click to show it")
                 .accessibilityLabel(approvalsWaitingWords(entry.pendingApprovals))
             }
-            if entry.blockedBy != nil {
-                Image(systemName: "exclamationmark.octagon").foregroundStyle(.red).help("Needs your decision")
+            if let words = entry.needsYouLabel {
+                Image(systemName: "exclamationmark.octagon").foregroundStyle(Theme.state.attention)
+                    .help("Needs your decision: " + words).accessibilityLabel("Needs your decision: " + words)
             }
             if entry.active {
-                ProgressView().controlSize(.mini)
+                ProgressView().controlSize(.mini).help("A turn is running").accessibilityLabel("Running")
             }
             if entry.liveElsewhere {
-                Image(systemName: "rectangle.on.rectangle").foregroundStyle(.secondary)
-                    .help("Also open in the Claude app or a terminal")
+                Image(systemName: "rectangle.on.rectangle").foregroundStyle(Theme.text.secondary.color)
+                    .help("Open in another app or terminal").accessibilityLabel("Open elsewhere")
             }
             if !entry.continuable {
-                Image(systemName: "lock").foregroundStyle(.secondary).help(entry.continueBlocker ?? "Cannot continue here")
+                Image(systemName: "lock").foregroundStyle(Theme.text.secondary.color)
+                    .help(entry.continueBlocker ?? "Cannot continue here").accessibilityLabel("Cannot continue here")
             }
         }
-        .padding(.vertical, 2)
-    }
-}
-
-struct ProviderBadge: View {
-    let provider: String
-    var body: some View {
-        Text(provider == "codex" ? "CX" : "CL")
-            .font(.system(size: 9, weight: .bold, design: .rounded))
-            .foregroundStyle(.white)
-            .frame(width: 22, height: 16)
-            .background(RoundedRectangle(cornerRadius: 4).fill(provider == "codex" ? Color.teal : Color.orange))
-            .help(provider == "codex" ? "Codex" : "Claude")
+        .frame(height: Theme.space.row * max(1, scale))
     }
 }
 
@@ -230,8 +314,12 @@ struct ConversationView: View {
     /// Whether the end of the timeline is on screen: streamed text is followed
     /// only then, so reading further up is not interrupted.
     @State private var atBottom = true
+    @State private var renaming = false
+    @State private var renamedTitle = ""
     /// The waiting cards already brought into view, so each is scrolled to once.
     @State private var approvals = ApprovalFollower()
+    /// Useful for previews of the same expansion users can open.
+    var initiallyExpandedWork = false
 
     var body: some View {
         let timeline = model.state.timelines[conversation.conversation_id]
@@ -240,34 +328,35 @@ struct ConversationView: View {
             header
             RunsStrip(runs: model.runs[conversation.conversation_id] ?? [])
             if let banner = model.state.blockedBanner(for: conversation.conversation_id) {
-                VStack(alignment: .leading, spacing: 6) {
-                    StatusBanner(title: banner.title, detail: banner.detail, symbol: "exclamationmark.octagon")
-                    HStack {
-                        ForEach(Array(banner.choices.enumerated()), id: \.offset) { _, choice in
-                            Button(choice.label) { model.perform(choice, conversationID: conversation.conversation_id) }
-                                .help(choice.detail)
-                        }
-                    }.padding(.horizontal, 10).padding(.bottom, 8)
+                BlockedConversationBanner(banner: banner) {
+                    model.perform($0, conversationID: conversation.conversation_id)
                 }
             }
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
+                    LazyVStack(alignment: .leading, spacing: Theme.space.reply) {
                         if let timeline, !timeline.historyComplete, timeline.historyPagesLoaded > 0 {
                             Button("Load earlier") {
                                 Task { await model.loadHistory(conversation.conversation_id, follow: true) }
                             }.buttonStyle(.link)
                         }
-                        ForEach(timeline?.items ?? []) { item in
-                            TimelineRow(model: model, conversation: conversation, item: item, review: review)
-                                .id(item.id)
+                        ForEach(timeline.map(WorkPresentation.rows) ?? []) { row in
+                            switch row {
+                            case .item(let item):
+                                TimelineRow(model: model, conversation: conversation, item: item, review: review).id(item.id)
+                            case .work(let group):
+                                WorkGroupView(group: group, initiallyExpanded: initiallyExpandedWork,
+                                    served: group.completed ? group.items.first?.messageID.flatMap {
+                                        model.state.servedChip(conversationID: conversation.conversation_id, messageID: $0)
+                                    } : nil).id(group.id)
+                            }
                         }
-                        Color.clear.frame(height: 1).id("bottom")
+                        Theme.clear.frame(height: 1).id("bottom")
                             .onAppear { atBottom = true }
                             .onDisappear { atBottom = false }
                     }
-                    .padding(16)
-                    .frame(maxWidth: 900, alignment: .leading)
+                    .padding(Theme.space.column)
+                    .conversationColumn(conversation.conversation_id, proxy: proxy)
                     .frame(maxWidth: .infinity)
                 }
                 .onChange(of: timeline?.items.last?.id) { _, _ in
@@ -292,6 +381,10 @@ struct ConversationView: View {
                 }
                 .onChange(of: approvalKey(timeline, pendingRows)) { _, _ in followApprovals(proxy) }
                 .onChange(of: model.approvalReveal) { _, _ in followApprovals(proxy) }
+                .onChange(of: conversation.conversation_id) { _, _ in
+                    atBottom = true
+                    proxy.scrollTo("bottom", anchor: .bottom)
+                }
                 .onAppear {
                     proxy.scrollTo("bottom", anchor: .bottom)
                     followApprovals(proxy)
@@ -308,19 +401,27 @@ struct ConversationView: View {
             }
             if conversation.live_elsewhere == true {
                 HStack(alignment: .top, spacing: 6) {
-                    Image(systemName: "rectangle.on.rectangle").foregroundStyle(.orange)
+                    Image(systemName: "rectangle.on.rectangle").foregroundStyle(Theme.state.attention)
                     // No fixedSize here: outside the scroll view, a text sized to its ideal
                     // height at the narrowest width set the window's minimum height, and the
                     // window's content overflowed it (2.1.2 build 7).
                     Text("Open in the Claude app or a terminal. Close it there to continue here; "
                          + "a message you send waits until then.")
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                        .readingFont(.caption).foregroundStyle(Theme.text.secondary.color).lineLimit(3)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(.horizontal, 14).padding(.top, 6)
             }
+            if timeline?.pendingApprovalCards.contains(where: { $0.kind == "question" }) == true {
+                Text("The agent is waiting on you. Pick a reply in the question card or type your own there.")
+                    .font(.caption).foregroundStyle(Theme.text.secondary.color)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14).padding(.top, 6)
+            }
             ComposerView(model: model, conversation: conversation)
         }
+        .foregroundStyle(Theme.text.primary.color)
+        .background(Theme.surface.conversation.color)
         .task(id: conversation.conversation_id) {
             // Sub-agents change outside this conversation's event log: look every 10 s.
             while !Task.isCancelled {
@@ -332,6 +433,12 @@ struct ConversationView: View {
             if let approval {
                 ApprovalSheet(model: model, card: approval.card, approvalID: approval.id) { self.approval = nil }
             }
+        }
+        .alert("Rename conversation", isPresented: $renaming) {
+            TextField("Title", text: $renamedTitle)
+            Button("Rename") { model.renameConversation(conversation.conversation_id, title: renamedTitle) }
+                .disabled(renamedTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            Button("Cancel", role: .cancel) {}
         }
         .inspector(isPresented: Binding(get: { model.changesScope?.conversationID == conversation.conversation_id },
                                         set: { if !$0 { model.changesScope = nil } })) {
@@ -360,11 +467,13 @@ struct ConversationView: View {
     }
 
     /// The strip's Review: the oldest waiting card, brought into view and opened.
+    /// A question is answered on its own inline card, which this brings into view;
+    /// the request sheet has no form for its answers (C-27.2).
     private func reviewOldest() {
         guard let card = model.state.timelines[conversation.conversation_id]?.pendingApprovalItems.first?.pendingCard
         else { return }
         model.revealApprovals(in: conversation.conversation_id)
-        review(card)
+        if reviewOpensRequestSheet(card) { review(card) }
     }
 
     /// What moves the view to a card: the conversation, whether its log has been
@@ -394,12 +503,22 @@ struct ConversationView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            ProviderBadge(provider: conversation.provider)
             VStack(alignment: .leading, spacing: 1) {
-                Text(model.state.conversationTitle(conversation)).font(.headline).lineLimit(1)
-                Text(abbreviatedPath(conversation.workspace)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(model.state.conversationTitle(conversation)).windowFont(.title).lineLimit(1)
+                    .contextMenu {
+                        Button("Rename…") {
+                            renamedTitle = model.state.conversationTitle(conversation)
+                            renaming = true
+                        }
+                    }
+                Text(abbreviatedPath(conversation.workspace)).windowFont(.heading).foregroundStyle(Theme.text.secondary.color).lineLimit(1)
             }
             Spacer()
+            Button {
+                renamedTitle = model.state.conversationTitle(conversation)
+                renaming = true
+            } label: { Image(systemName: "pencil") }
+                .buttonStyle(.borderless).help("Rename").accessibilityLabel("Rename")
             if model.canShowChanges {
                 Button { model.showChanges(.conversation(conversation.conversation_id)) } label: {
                     Label("Changes", systemImage: "plus.forwardslash.minus")
@@ -407,16 +526,10 @@ struct ConversationView: View {
                 .buttonStyle(.borderless)
                 .help("What this conversation changed in its checkout since its first writable turn")
             }
-            Text(PermissionPolicy(rawValue: conversation.settings.permission)?.label ?? conversation.settings.permission)
-                .font(.caption).padding(.horizontal, 6).padding(.vertical, 2)
-                .background(Capsule().fill(Color.secondary.opacity(0.15)))
-                .help("Permission policy")
-            if conversation.origin == "native" || conversation.origin == "legacy" {
-                Text(conversation.origin == "legacy" ? "Imported" : "Continued").font(.caption).foregroundStyle(.secondary)
-            }
+            AccountUsageChip(model: model, conversation: conversation)
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
-        .background(.bar)
+        .background(Theme.surface.conversation.color)
     }
 }
 
@@ -433,7 +546,7 @@ struct TimelineRow: View {
                 PersonBubble(text: text, footer: nil)
             } else if let tool {
                 Label(tool + (text.isEmpty ? "" : ": " + text), systemImage: "wrench.and.screwdriver")
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    .readingFont(.caption).foregroundStyle(Theme.text.secondary.color).lineLimit(2)
             } else {
                 MarkdownView(text: text)
             }
@@ -449,38 +562,63 @@ struct TimelineRow: View {
             .frame(maxWidth: .infinity, alignment: .trailing)
         case .text(let text, let final):
             MarkdownView(text: text, streaming: !final)
-        case .thinking(let text, let final):
-            DisclosureGroup {
-                Text(text).font(.callout).italic().foregroundStyle(.secondary).textSelection(.enabled)
-            } label: {
-                Label(final ? "Thought" : "Thinking…", systemImage: "brain").font(.caption).foregroundStyle(.secondary)
-            }
+        case .thinking:
+            EmptyView() // Visible summaries live only inside WorkGroupView.
         case .tool(let activity):
             ToolRow(activity: activity)
         case .approval(let card):
-            ApprovalCardView(card: card, review: { review(card) })
+            ApprovalCardView(model: model, conversationID: conversation.conversation_id, card: card,
+                             review: { review(card) })
         case .error(let message, let kind, let willRetry):
-            Label((kind.map { "\($0): " } ?? "") + message + (willRetry ? " (retrying)" : ""),
-                  systemImage: "exclamationmark.triangle")
-                .font(.callout).foregroundStyle(.red)
+            NoticeRow(symbol: "exclamationmark.triangle") {
+                Text((kind.map { "\($0): " } ?? "") + message + (willRetry ? " (retrying)" : ""))
+            }
         case .notice(let words):
-            Text(words).font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity)
+            VStack(alignment: .leading, spacing: Theme.space.step) {
+                NoticeRow(symbol: "info.circle") { Text(words) }
+                if item.id.hasPrefix("person:"), let id = item.messageID,
+                   let turn = model.state.timelines[conversation.conversation_id]?.turn(id) {
+                    TurnStatusLine(model: model, conversation: conversation, turn: turn)
+                }
+            }
+        case .taskNotification(let notice):
+            TaskNotificationView(notice: notice)
+        case .steered:
+            // `Timeline.items` draws the steered message's own bubble in this place.
+            EmptyView()
+        case .suggestion(let suggestion):
+            SuggestionCardView(model: model, suggestion: suggestion)
         }
+    }
+}
+
+/// Read by the provider: a double check, as a messaging app marks it.
+struct ReadMark: View {
+    var body: some View {
+        ZStack(alignment: .leading) {
+            Image(systemName: "checkmark")
+            Image(systemName: "checkmark").offset(x: 4)
+        }
+        .font(.caption2.weight(.semibold)).foregroundStyle(Theme.text.secondary.color)
+        .padding(.trailing, 4)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Read")
     }
 }
 
 struct PersonBubble: View {
     let text: String
     let footer: String?
+    @Environment(\.textScale) private var scale
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(text).textSelection(.enabled)
-            if let footer { Label(footer, systemImage: "photo").font(.caption).foregroundStyle(.secondary) }
+            Text(text).readingFont(.body).textSelection(.enabled)
+            if let footer { Label(footer, systemImage: "photo").readingFont(.caption).foregroundStyle(Theme.text.secondary.color) }
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.accentColor.opacity(0.14)))
-        .frame(maxWidth: 640, alignment: .trailing)
+        .background(RoundedRectangle(cornerRadius: Theme.radius.container).fill(Theme.surface.raised.color))
+        .frame(maxWidth: ReadingStyle.bubbleWidth(scale: scale), alignment: .trailing)
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 }
@@ -491,26 +629,27 @@ struct TurnStatusLine: View {
     let turn: TurnTimeline
 
     var body: some View {
-        HStack(spacing: 8) {
-            let live = turn.messageState.map { [.waiting, .starting, .running, .approvalNeeded].contains($0) } ?? (turn.state == "sending")
-            if live { ProgressView().controlSize(.mini) }
-            Text(turn.statusText).font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: Theme.space.step) {
+            HStack(spacing: 8) {
+                if turn.showsMessageAcknowledgment {
+                    if turn.isReadSteer { ReadMark() }
+                    else if turn.isUnreadSteer || turn.state == "sending" { ProgressView().controlSize(.mini) }
+                    Text(model.state.timelines[conversation.conversation_id]?.statusText(
+                        of: turn.messageID, assistant: conversation.provider == "codex" ? "Codex" : "Claude") ?? turn.statusText)
+                        .readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
+                }
+                if let stats = model.turnChanges[turn.messageID], stats.files > 0 {
+                    Button {
+                        model.showChanges(.turn(conversationID: conversation.conversation_id, messageID: turn.messageID))
+                    } label: {
+                        Label(diffStatsWords(stats), systemImage: "plus.forwardslash.minus")
+                    }
+                    .buttonStyle(.link).readingFont(.caption)
+                    .help("What this turn changed")
+                }
+            }
             if let chip = model.state.servedChip(conversationID: conversation.conversation_id, messageID: turn.messageID) {
                 ServedChipView(chip: chip)
-            }
-            if live {
-                Button("Stop") {
-                    model.stop(stopAction(for: turn.messageID, state: turn.state, outboxEntry: nil))
-                }.buttonStyle(.link).font(.caption)
-            }
-            if let stats = model.turnChanges[turn.messageID], stats.files > 0 {
-                Button {
-                    model.showChanges(.turn(conversationID: conversation.conversation_id, messageID: turn.messageID))
-                } label: {
-                    Label(diffStatsWords(stats), systemImage: "plus.forwardslash.minus")
-                }
-                .buttonStyle(.link).font(.caption)
-                .help("What this turn changed")
             }
         }
         .task(id: askChanges ? turn.messageID : nil) {
@@ -519,9 +658,10 @@ struct TurnStatusLine: View {
     }
 
     /// A finished turn of a conversation that may write: its counts are worth asking for.
+    /// A steered message has no turn of its own; its host's line shows the changes.
     private var askChanges: Bool {
         guard model.canShowChanges, conversation.settings.permission != PermissionPolicy.readOnly.rawValue,
-              let state = turn.messageState else { return false }
+              let state = turn.messageState, state != .steered else { return false }
         return MessageState.terminal.contains(state)
     }
 }
@@ -540,18 +680,18 @@ struct ChangesPane: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top, spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.headline).lineLimit(1)
-                    if let subtitle { Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+                    Text(title).readingFont(.subheading).lineLimit(1)
+                    if let subtitle { Text(subtitle).readingFont(.caption).foregroundStyle(Theme.text.secondary.color).lineLimit(2) }
                 }
                 Spacer()
                 if case .turn = scope {
                     Button("Whole conversation") { model.showChanges(.conversation(conversation.conversation_id)) }
-                        .buttonStyle(.link).font(.caption)
+                        .buttonStyle(.link).readingFont(.caption)
                 }
                 Button { Task { await model.loadChanges(scope) } } label: { Image(systemName: "arrow.clockwise") }
-                    .buttonStyle(.borderless).help("Compare again")
+                    .buttonStyle(.borderless).help("Compare again").accessibilityLabel("Compare again")
                 Button { model.changesScope = nil } label: { Image(systemName: "xmark") }
-                    .buttonStyle(.borderless).help("Close")
+                    .buttonStyle(.borderless).help("Close").accessibilityLabel("Close")
             }
             .padding(10)
             Divider()
@@ -588,10 +728,21 @@ struct ChangesPane: View {
             if !result.available {
                 PaneNote(text: diffUnavailableWords(result), symbol: "info.circle")
             } else if result.files.isEmpty {
-                PaneNote(text: "No changes.", symbol: "checkmark.circle")
+                // Overlapping edits can cancel out. Disclose the sharing and
+                // any nested repositories the snapshot could not show.
+                PaneNote(text: diffEmptyWords(result),
+                         symbol: diffNotes(result).isEmpty && diffSharedWords(result) == nil
+                             ? "checkmark.circle" : "info.circle")
             } else {
+                if let shared = diffSharedWords(result) {
+                    // C-26.14: another conversation wrote in this folder meanwhile.
+                    Label(shared, systemImage: "person.2")
+                        .font(.caption).foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 10).padding(.top, 6)
+                }
                 ForEach(diffNotes(result), id: \.self) { note in
-                    Label(note, systemImage: "info.circle").font(.caption).foregroundStyle(.secondary)
+                    Label(note, systemImage: "info.circle").readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
                         .padding(.horizontal, 10).padding(.top, 6)
                 }
                 List(selection: $selected) {
@@ -601,7 +752,7 @@ struct ChangesPane: View {
                 .frame(minHeight: 80, idealHeight: min(CGFloat(result.files.count) * 24 + 8, 220), maxHeight: 220)
                 .fixedSize(horizontal: false, vertical: true)
                 if selected != nil {
-                    Button("Show every file") { selected = nil }.buttonStyle(.link).font(.caption)
+                    Button("Show every file") { selected = nil }.buttonStyle(.link).readingFont(.caption)
                         .padding(.horizontal, 10).padding(.vertical, 4)
                 }
                 Divider()
@@ -611,25 +762,13 @@ struct ChangesPane: View {
     }
 }
 
-/// What the daemon cut or hid, so a short diff is not taken for the whole one.
-func diffNotes(_ result: DiffResult) -> [String] {
-    var notes: [String] = []
-    if result.files_truncated { notes.append("Only the first \(result.files.count) files are listed.") }
-    if !result.stats.complete { notes.append("Git's listing was cut; the counts cover the listed files only.") }
-    if result.truncated { notes.append("The diff is cut at its size limit; the rest is not shown.") }
-    if result.scrubbed > 0 {
-        notes.append("\(result.scrubbed) value\(result.scrubbed == 1 ? "" : "s") that looked like credentials are replaced.")
-    }
-    return notes
-}
-
 struct PaneNote: View {
     let text: String
     let symbol: String
 
     var body: some View {
         VStack {
-            Label(text, systemImage: symbol).foregroundStyle(.secondary).padding(14)
+            Label(text, systemImage: symbol).readingFont(.secondary).foregroundStyle(Theme.text.secondary.color).padding(14)
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -646,13 +785,13 @@ struct DiffFileRow: View {
             Text(file.from.map { "\($0) → \(file.path)" } ?? file.path).lineLimit(1).truncationMode(.middle)
             Spacer(minLength: 4)
             if file.binary {
-                Text("binary").foregroundStyle(.secondary)
+                Text("binary").foregroundStyle(Theme.text.secondary.color)
             } else {
-                if let added = file.additions, added > 0 { Text("+\(added)").foregroundStyle(.green) }
-                if let removed = file.deletions, removed > 0 { Text("−\(removed)").foregroundStyle(.red) }
+                if let added = file.additions, added > 0 { Text("+\(added)").foregroundStyle(Theme.state.success) }
+                if let removed = file.deletions, removed > 0 { Text("−\(removed)").foregroundStyle(Theme.state.error) }
             }
         }
-        .font(.system(.caption, design: .monospaced))
+        .readingFont(.caption, design: .monospaced)
     }
 }
 
@@ -670,10 +809,10 @@ func diffStatusLetter(_ status: String) -> String {
 
 func diffStatusColor(_ status: String) -> Color {
     switch status {
-    case "added": return .green
-    case "deleted": return .red
-    case "renamed", "copied": return .blue
-    default: return .orange
+    case "added": return Theme.state.success
+    case "deleted": return Theme.state.error
+    case "renamed", "copied": return Theme.accent
+    default: return Theme.state.attention
     }
 }
 
@@ -700,13 +839,13 @@ struct DiffLinesView: View {
             ScrollView([.vertical, .horizontal]) {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(sections) { section in
-                        Text(section.path).font(.system(.caption, design: .monospaced).bold())
+                        Text(section.path).readingFont(.caption, weight: .bold, design: .monospaced)
                             .padding(.horizontal, 8).padding(.vertical, 5)
                             .frame(minWidth: width, alignment: .leading)
-                            .background(Color.secondary.opacity(0.12))
+                            .background(Theme.surface.raised.color)
                         if section.lines.isEmpty {
                             Text(section.binary ? "Binary file: no text to show." : "No line changes (a mode or a rename).")
-                                .font(.caption).foregroundStyle(.secondary).padding(8)
+                                .readingFont(.caption).foregroundStyle(Theme.text.secondary.color).padding(8)
                         }
                         ForEach(section.lines) { line in DiffLineRow(line: line, minWidth: width) }
                     }
@@ -723,15 +862,18 @@ struct DiffLinesView: View {
 struct DiffLineRow: View {
     let line: DiffLine
     var minWidth: CGFloat = 520
+    @Environment(\.textScale) private var scale
 
     var body: some View {
+        // Line numbers of five digits fit at every text size.
+        let size = ReadingStyle.caption.pointSize(scale: scale)
         HStack(spacing: 0) {
-            Text(line.old.map(String.init) ?? "").frame(width: 40, alignment: .trailing).foregroundStyle(.tertiary)
-            Text(line.new.map(String.init) ?? "").frame(width: 40, alignment: .trailing).foregroundStyle(.tertiary)
-            Text(marker).frame(width: 18).foregroundStyle(markerColor)
-            Text(shown).fixedSize().foregroundStyle(line.kind == .hunk || line.kind == .meta ? Color.secondary : Color.primary)
+            Text(line.old.map(String.init) ?? "").frame(width: ceil(size * 3.4), alignment: .trailing).foregroundStyle(Theme.text.tertiary.color)
+            Text(line.new.map(String.init) ?? "").frame(width: ceil(size * 3.4), alignment: .trailing).foregroundStyle(Theme.text.tertiary.color)
+            Text(marker).frame(width: ceil(size * 1.5)).foregroundStyle(markerColor)
+            Text(shown).fixedSize().foregroundStyle(line.kind == .hunk || line.kind == .meta ? Theme.text.secondary.color : Theme.text.primary.color)
         }
-        .font(.system(size: 11, design: .monospaced))
+        .readingFont(.caption, design: .monospaced)
         .padding(.trailing, 12)
         .frame(minWidth: minWidth, alignment: .leading)
         .background(background)
@@ -751,14 +893,14 @@ struct DiffLineRow: View {
         }
     }
 
-    private var markerColor: Color { line.kind == .added ? .green : line.kind == .removed ? .red : .secondary }
+    private var markerColor: Color { line.kind == .added ? Theme.state.success : line.kind == .removed ? Theme.state.error : Theme.text.secondary.color }
 
     private var background: Color {
         switch line.kind {
-        case .added: return Color.green.opacity(0.12)
-        case .removed: return Color.red.opacity(0.12)
-        case .hunk: return Color.blue.opacity(0.07)
-        default: return .clear
+        case .added: return Theme.state.added
+        case .removed: return Theme.state.removed
+        case .hunk: return Theme.state.changed
+        default: return Theme.clear
         }
     }
 }
@@ -778,19 +920,19 @@ struct LiveTurnStrip: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            ProgressView().controlSize(.mini)
+            ProgressView().controlSize(.mini).accessibilityLabel("Turn in progress")
             if let since = turn.statusSince {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     Text("\(turn.statusText) · \(elapsedWords(from: since, to: context.date))")
-                        .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                        .readingFont(.caption).foregroundStyle(Theme.text.secondary.color).monospacedDigit()
                 }
             } else {
-                Text(turn.statusText).font(.caption).foregroundStyle(.secondary)
+                Text(turn.statusText).readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
             }
             Spacer()
             if let label = reviewButtonLabel(pending: pendingApprovals) {
                 Button(action: review) { Label(label, systemImage: "hand.raised.fill") }
-                    .buttonStyle(.borderedProminent).tint(.orange).controlSize(.small)
+                    .buttonStyle(.bordered).tint(Theme.accent).controlSize(.small)
                     .help("Open the oldest request waiting for your approval")
             }
             if let stop { Button("Stop", action: stop).buttonStyle(.link).font(.caption) }
@@ -808,17 +950,17 @@ struct RunsStrip: View {
         let live = runs.filter(\.isLive)
         if !runs.isEmpty {
             HStack(spacing: 8) {
-                Image(systemName: "arrow.triangle.branch").foregroundStyle(.secondary)
+                Image(systemName: "arrow.triangle.branch").foregroundStyle(Theme.text.secondary.color)
                 if live.isEmpty {
                     Text("\(runs.count) sub-agent run\(runs.count == 1 ? "" : "s"), none running")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
                 } else {
                     Text(live.prefix(3).map(runLine).joined(separator: "   "))
-                        .font(.caption).lineLimit(1).truncationMode(.tail)
-                    if live.count > 3 { Text("+\(live.count - 3)").font(.caption).foregroundStyle(.secondary) }
+                        .readingFont(.caption).lineLimit(1).truncationMode(.tail)
+                    if live.count > 3 { Text("+\(live.count - 3)").readingFont(.caption).foregroundStyle(Theme.text.secondary.color) }
                 }
                 Spacer()
-                Button(showAll ? "Hide" : "All runs") { showAll.toggle() }.buttonStyle(.link).font(.caption)
+                Button(showAll ? "Hide" : "All runs") { showAll.toggle() }.buttonStyle(.link).readingFont(.caption)
             }
             .padding(.horizontal, 14).padding(.vertical, 4)
             .popover(isPresented: $showAll, arrowEdge: .bottom) { RunsList(runs: runs) }
@@ -844,11 +986,11 @@ struct RunsList: View {
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: runSymbol(run.state)).foregroundStyle(runColor(run.state))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(run.name ?? run.job_id).font(.callout).lineLimit(1)
+                    Text(run.name ?? run.job_id).readingFont(.secondary).lineLimit(1)
                     Text([run.task.map { t in run.tier.map { "\(t) · \($0)" } ?? t }, run.lane_id,
                           run.model_served ?? run.model_requested, run.state]
                         .compactMap { $0 }.joined(separator: "  ·  "))
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        .readingFont(.caption).foregroundStyle(Theme.text.secondary.color).lineLimit(1)
                 }
             }
             .help(run.job_id)
@@ -869,9 +1011,9 @@ func runSymbol(_ state: String) -> String {
 
 func runColor(_ state: String) -> Color {
     switch state {
-    case "succeeded": return .green
-    case "failed", "lost": return .red
-    default: return .secondary
+    case "succeeded": return Theme.state.success
+    case "failed", "lost": return Theme.state.error
+    default: return Theme.text.secondary.color
     }
 }
 
@@ -895,322 +1037,104 @@ struct ServedChipView: View {
     let chip: ServedChip
 
     var body: some View {
-        let parts = [chip.account, chip.model, chip.effort, chip.fast].compactMap { $0 }.filter { !$0.isEmpty }
-        HStack(spacing: 4) {
+        let parts = [chip.account, chip.model, chip.effort, chip.fast.map { "Fast " + $0 }].compactMap { $0 }.filter { !$0.isEmpty }
+        VStack(alignment: .leading, spacing: Theme.space.step) {
             if !parts.isEmpty {
-                Text(parts.joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary)
+                Text(parts.joined(separator: " · ")).readingFont(.footnote).foregroundStyle(Theme.text.secondary.color)
             }
             ForEach(chip.warnings, id: \.self) { warning in
-                Label(warning, systemImage: "exclamationmark.triangle").font(.caption2).foregroundStyle(.orange)
+                Label(warning, systemImage: "exclamationmark.triangle").readingFont(.footnote).foregroundStyle(Theme.state.attention)
             }
         }
         .padding(.horizontal, 6).padding(.vertical, 1)
-        .background(Capsule().fill(Color.secondary.opacity(0.1)))
+        .background(RoundedRectangle(cornerRadius: Theme.radius.control).fill(Theme.surface.raised.color))
+    }
+}
+
+struct WorkGroupView: View {
+    let group: WorkGroup
+    let served: ServedChip?
+    @State private var expanded: Bool
+    init(group: WorkGroup, initiallyExpanded: Bool = false, served: ServedChip? = nil) {
+        self.group = group
+        self.served = served
+        _expanded = State(initialValue: initiallyExpanded)
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.space.inset) {
+            Button { expanded.toggle() } label: {
+                HStack(spacing: Theme.space.inset) {
+                    if group.running != nil && !group.completed { ProgressView().controlSize(.mini) }
+                    Text(group.label)
+                    if group.failed > 0 {
+                        Image(systemName: "xmark.circle").foregroundStyle(Theme.state.error)
+                        Text("\(group.failed) failed")
+                    }
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                    if let running = group.running, !group.completed {
+                        Text(running.label).lineLimit(1).truncationMode(.tail)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(QuietButtonStyle())
+            .help(group.tooltip(served: served, expanded: expanded))
+            .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+            if expanded {
+                ForEach(group.items) { item in
+                    switch item.content {
+                    case .tool(let activity): ToolRow(activity: activity)
+                    case .thinking(let text, _):
+                        Text(text).italic().readingFont(.secondary).foregroundStyle(Theme.text.secondary.color)
+                            .textSelection(.enabled)
+                    default: EmptyView()
+                    }
+                }
+            }
+        }
+        .padding(.vertical, Theme.space.step)
+        .overlay(alignment: .bottom) {
+            if group.completed { Rectangle().fill(Theme.line.hairline).frame(height: 1).offset(y: Theme.space.inset) }
+        }
     }
 }
 
 struct ToolRow: View {
     let activity: ToolActivity
     @State private var expanded = false
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                switch activity.state {
-                case .running: ProgressView().controlSize(.mini)
-                case .succeeded: Image(systemName: "checkmark.circle").foregroundStyle(.green)
-                case .failed: Image(systemName: "xmark.circle").foregroundStyle(.red)
-                case .unfinished: Image(systemName: "circle.dashed").foregroundStyle(.secondary)
-                }
-                Text(activity.name).font(.caption.bold())
-                Text(activity.summary).font(.system(.caption, design: .monospaced)).lineLimit(1).truncationMode(.middle)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                if activity.preview != nil {
-                    Button { expanded.toggle() } label: { Image(systemName: expanded ? "chevron.up" : "chevron.down") }
-                        .buttonStyle(.borderless)
-                }
+        VStack(alignment: .leading, spacing: Theme.space.step) {
+            Button { expanded.toggle() } label: {
+                HStack(spacing: Theme.space.inset) {
+                    switch activity.state {
+                    case .running: ProgressView().controlSize(.mini)
+                    case .succeeded: Image(systemName: "checkmark").foregroundStyle(Theme.text.tertiary.color)
+                    case .failed: Image(systemName: "xmark.circle").foregroundStyle(Theme.state.error)
+                    case .unfinished: Image(systemName: "circle.dashed").foregroundStyle(Theme.text.tertiary.color)
+                    }
+                    Text(activity.label).readingFont(.caption, design: .monospaced).lineLimit(1)
+                    Text(activity.name).readingFont(.footnote).foregroundStyle(Theme.text.tertiary.color)
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                    Spacer(minLength: 0)
+                }.foregroundStyle(Theme.text.secondary.color).contentShape(Rectangle())
             }
-            if expanded, let preview = activity.preview {
-                Text(preview).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                    .padding(6).frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(Color.secondary.opacity(0.08)))
+            .buttonStyle(QuietButtonStyle()).help("\(activity.state.rawValue): \(activity.label). Show input and output")
+            .accessibilityValue(activity.state.rawValue)
+            if expanded && !activity.hidden {
+                Text(activity.summary).readingFont(.code, design: .monospaced).textSelection(.enabled)
+                    .padding(Theme.space.inset).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: Theme.radius.card).fill(Theme.surface.raised.color))
+                if let preview = activity.preview, !preview.isEmpty {
+                    Text(preview).readingFont(.code, design: .monospaced).textSelection(.enabled)
+                        .padding(Theme.space.inset).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: Theme.radius.card).fill(Theme.surface.raised.color))
+                }
             }
         }
-        .padding(.horizontal, 8).padding(.vertical, 4)
-        .background(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.2)))
+        .padding(.leading, Theme.space.inset)
     }
 }
 
-struct ApprovalCardView: View {
-    let card: ApprovalCard
-    let review: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Image(systemName: "hand.raised.fill").foregroundStyle(.orange)
-                Text(title).bold()
-                Spacer()
-                switch card.state {
-                case .pending: Button("Review", action: review).buttonStyle(.borderedProminent)
-                case .answered(let decision): Text(decision.map { "Answered: \($0)" } ?? "Answered").font(.caption)
-                case .withdrawn: Text("Withdrawn").font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            if let command = card.display.command ?? card.display.input {
-                Text(command).font(.system(.callout, design: .monospaced)).lineLimit(6).textSelection(.enabled)
-            }
-            if let reason = card.display.reason ?? card.display.description {
-                Text(reason).font(.caption).foregroundStyle(.secondary)
-            }
-        }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(card.isPending ? 0.12 : 0.05)))
-    }
-
-    private var title: String {
-        switch card.kind {
-        case "question": return "Question"
-        case "command": return "Run a command?"
-        case "file-change": return "Change files?"
-        case "permissions": return "Grant permissions?"
-        default: return "Use \(card.display.tool ?? "a tool")?"
-        }
-    }
-}
-
-// MARK: - Approval sheet
-
-struct ApprovalSheet: View {
-    @ObservedObject var model: UIModel
-    let card: ApprovalCard
-    let approvalID: String
-    let done: () -> Void
-    @State private var detail: ApprovalDetail?
-    @State private var revealed = false
-    @State private var confirmMasked = false
-    @State private var answers: [String: String] = [:]
-    @State private var note = ""
-    @State private var sending = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(card.kind == "question" ? "Answer the question" : "Approve this request?").font(.title3.bold())
-            if let detail {
-                if card.kind == "question" {
-                    ForEach(Array(card.questions.enumerated()), id: \.offset) { _, question in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(question.question).bold()
-                            if let options = question.options, !options.isEmpty {
-                                Picker(question.header ?? "Choice", selection: Binding(
-                                    get: { answers[question.question] ?? "" },
-                                    set: { answers[question.question] = $0 })) {
-                                    Text("Choose…").tag("")
-                                    ForEach(options, id: \.label) { option in
-                                        Text(option.label + (option.description.map { " — \($0)" } ?? "")).tag(option.label)
-                                    }
-                                }.labelsHidden()
-                            }
-                            TextField("Or type an answer", text: Binding(get: { answers[question.question] ?? "" },
-                                                                        set: { answers[question.question] = $0 }))
-                        }
-                    }
-                } else {
-                    ScrollView {
-                        Text(pretty(detail.request)).font(.system(.caption, design: .monospaced))
-                            .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .frame(minHeight: 120, maxHeight: 320)
-                    .padding(6)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.08)))
-                    if !detail.masked.isEmpty && !revealed {
-                        HStack {
-                            Label("\(detail.masked.count) value(s) that look like secrets are masked",
-                                  systemImage: "eye.slash").font(.callout)
-                            Spacer()
-                            Button("Reveal") { Task { await load(reveal: true) } }
-                        }
-                        Toggle("I have reviewed the masked values", isOn: $confirmMasked).font(.callout)
-                    }
-                }
-                TextField("Note to the agent (optional)", text: $note)
-                HStack {
-                    Button("Cancel", role: .cancel, action: done).keyboardShortcut(.cancelAction)
-                    Spacer()
-                    ForEach(detail.approval.options.reversed(), id: \.self) { option in
-                        Button(label(option)) { Task { await answer(option, detail: detail) } }
-                            .disabled(sending || !canChoose(option, detail: detail))
-                            .buttonStyle(.bordered)
-                            .tint(option == primaryOption(detail) ? Color.accentColor : nil)
-                    }
-                }
-            } else {
-                ProgressView("Loading the request…")
-            }
-        }
-        .padding(18)
-        .frame(width: 560)
-        .task { await load(reveal: false) }
-    }
-
-    private func load(reveal: Bool) async {
-        if let fresh = await model.approvalDetail(approvalID, reveal: reveal) {
-            detail = fresh
-            if reveal { revealed = true }
-        } else if detail == nil {
-            done()
-        }
-    }
-
-    private func primaryOption(_ detail: ApprovalDetail) -> String {
-        detail.approval.options.first { ["allow", "answer", "allow-turn"].contains($0) } ?? detail.approval.options.first ?? ""
-    }
-
-    private func canChoose(_ option: String, detail: ApprovalDetail) -> Bool {
-        let allowing = ["allow", "allow-session", "allow-turn", "answer"].contains(option)
-        if allowing && !detail.masked.isEmpty && !revealed && !confirmMasked { return false }
-        if option == "answer" { return !answers.values.allSatisfy { $0.isEmpty } }
-        return true
-    }
-
-    private func answer(_ option: String, detail: ApprovalDetail) async {
-        sending = true
-        defer { sending = false }
-        let chosen = option == "answer" ? answers.filter { !$0.value.isEmpty } : nil
-        if await model.respond(detail, decision: option, answers: chosen, message: note.isEmpty ? nil : note,
-                               reviewedMasked: revealed || confirmMasked) {
-            done()
-        }
-    }
-
-    private func label(_ option: String) -> String {
-        switch option {
-        case "allow": return "Allow"
-        case "allow-session": return "Allow for this session"
-        case "allow-turn": return "Allow for this turn"
-        case "deny": return "Deny"
-        case "cancel-turn": return "Deny and stop"
-        case "answer": return "Answer"
-        default: return option
-        }
-    }
-
-    private func pretty(_ value: JSONValue) -> String {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        return (try? encoder.encode(value)).flatMap { String(data: $0, encoding: .utf8) } ?? "\(value)"
-    }
-}
-
-// MARK: - New conversation
-
-struct NewConversationSheet: View {
-    @ObservedObject var model: UIModel
-    @Binding var isPresented: Bool
-    @AppStorage("lastWorkspace") private var workspace = NSHomeDirectory()
-    /// "auto", "claude" or "codex"; Auto takes whichever has more lanes ready.
-    @AppStorage("providerChoice") private var providerChoice = "auto"
-    @AppStorage("lastModel.claude") private var claudeModel = ""
-    @AppStorage("lastModel.codex") private var codexModel = ""
-    @AppStorage("lastPermission") private var lastPermission = PermissionPolicy.ask.rawValue
-    @State private var permission = PermissionPolicy.ask.rawValue
-    @State private var title = ""
-    @State private var message = ""
-    @State private var confirmWiden = false
-    @State private var capacity: [String: Int] = [:]
-
-    private var provider: String { providerChoice == "auto" ? autoProvider(capacity) : providerChoice }
-    private var modelValue: Binding<String> { provider == "codex" ? $codexModel : $claudeModel }
-
-    var body: some View {
-        let models = model.state.models[provider] ?? []
-        let writableCodex = model.state.availability.capabilities?.codex_writable == true
-        VStack(alignment: .leading, spacing: 12) {
-            Text("New conversation").font(.title3.bold())
-            HStack {
-                TextField("Folder", text: $workspace)
-                Menu("Recent") {
-                    ForEach(model.recentWorkspaces(), id: \.self) { path in
-                        Button(abbreviatedPath(path)) { workspace = path }
-                    }
-                }
-                .fixedSize()
-                Button("Choose…") {
-                    let panel = NSOpenPanel()
-                    panel.canChooseDirectories = true
-                    panel.canChooseFiles = false
-                    panel.directoryURL = URL(fileURLWithPath: workspace)
-                    if panel.runModal() == .OK, let url = panel.url { workspace = url.path }
-                }
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                Picker("Provider", selection: $providerChoice) {
-                    Text("Auto").tag("auto")
-                    Text("Claude").tag("claude")
-                    Text("Codex").tag("codex")
-                }.pickerStyle(.segmented)
-                Text(capacityWords).font(.caption).foregroundStyle(.secondary)
-            }
-            Picker("Model", selection: modelValue) {
-                ForEach(models) { entry in Text(entry.id).tag(entry.value) }
-            }
-            Picker("Permission", selection: $permission) {
-                ForEach(PermissionPolicy.allCases, id: \.rawValue) { policy in
-                    Text(policy.label).tag(policy.rawValue)
-                        .disabled(provider == "codex" && policy != .readOnly && !writableCodex)
-                }
-            }
-            if PermissionPolicy.widens(from: PermissionPolicy.ask.rawValue, to: permission) {
-                Toggle("I understand the agent will act without asking", isOn: $confirmWiden).font(.callout)
-            }
-            TextField("Title (optional)", text: $title)
-            TextField("First message", text: $message, axis: .vertical).lineLimit(3...10)
-            HStack {
-                Button("Cancel", role: .cancel) { isPresented = false }.keyboardShortcut(.cancelAction)
-                Spacer()
-                Button("Start") {
-                    let settings = ConversationSettings(model: modelValue.wrappedValue, permission: permission)
-                    lastPermission = permission
-                    model.create(provider: provider, workspace: workspace, settings: settings,
-                                 title: title.isEmpty ? nil : title, firstMessage: message, staged: [],
-                                 confirmWiden: confirmWiden)
-                    isPresented = false
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(modelValue.wrappedValue.isEmpty || workspace.isEmpty
-                          || (PermissionPolicy.widens(from: PermissionPolicy.ask.rawValue, to: permission) && !confirmWiden))
-            }
-        }
-        .padding(18)
-        .frame(width: 560)
-        .onAppear {
-            capacity = model.providerCapacity()
-            permission = lastPermission
-            pickDefaults()
-        }
-        .onChange(of: providerChoice) { _, _ in pickDefaults() }
-    }
-
-    private var capacityWords: String {
-        guard !capacity.isEmpty else { return "Lane readiness unknown; Auto uses Claude." }
-        let words = ["claude", "codex"].compactMap { name in
-            capacity[name].map { "\(name == "claude" ? "Claude" : "Codex"): \($0) lane\($0 == 1 ? "" : "s") ready" }
-        }.joined(separator: " · ")
-        return providerChoice == "auto" ? words + " — Auto uses \(provider == "codex" ? "Codex" : "Claude")" : words
-    }
-
-    private func pickDefaults() {
-        let models = model.state.models[provider] ?? []
-        if !models.contains(where: { $0.value == modelValue.wrappedValue }) {
-            modelValue.wrappedValue = models.first?.value ?? ""
-        }
-        if provider == "codex" && model.state.availability.capabilities?.codex_writable != true {
-            permission = PermissionPolicy.readOnly.rawValue
-        } else if permission == PermissionPolicy.readOnly.rawValue && provider == "claude"
-                    && lastPermission != PermissionPolicy.readOnly.rawValue {
-            permission = lastPermission
-        }
-    }
-}
 #endif

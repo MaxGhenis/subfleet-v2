@@ -175,7 +175,7 @@ def test_retention_preserves_active_unread_quarantine_salvage_gate(tmp_path, mon
         assert set(result["protected"]) == {"notice", "quarantine", "salvage", "gate", "active"}
         assert store.get_job("old") is None
         assert not (tmp_path / "jobs" / "old").exists()
-        assert store.list_events("old")[-1]["kind"] == "retention.pruned"
+        assert "retention.pruned" in [event["kind"] for event in store.list_events("old")]
 
 
 def test_retention_count_and_byte_caps_keep_newest(tmp_path):

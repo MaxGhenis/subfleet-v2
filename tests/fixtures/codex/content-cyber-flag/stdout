@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"01a120d9-ee6a-7411-82bb-e07bc577f5ea"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"I’ll use the PR review skill, read the design and build brief, and run the attacks against local bare repositories. I’ll preserve the checkout, make no commits or network pushes, and report findings with file locations and test evidence.\n"}}
+{"type":"error","message":"This content was flagged for possible cybersecurity risk. If this seems wrong, try rephrasing your request. If you’re doing authorized security work that requires more cyber permissive safeguards, apply for Daybreak access via https://platform.openai.com/settings/organization/status-and-access before retrying."}
+{"type":"turn.failed","error":{"message":"This content was flagged for possible cybersecurity risk. If this seems wrong, try rephrasing your request. If you’re doing authorized security work that requires more cyber permissive safeguards, apply for Daybreak access via https://platform.openai.com/settings/organization/status-and-access before retrying."}}
