@@ -119,3 +119,25 @@ def test_c17_3_refusals_keep_their_codes_and_an_old_daemon_is_69(call, capsys):
 def test_c17_1_suggest_is_a_permanent_verb():
     assert compat.PERMANENT[("suggest",)] == ["suggest"]
     assert "subfleet suggest" in cli.__doc__
+
+
+@pytest.mark.parametrize("retired, successor", [("fable", "opus"), ("claude-fable-5", "opus"),
+                                                ("claude-fable-5-1", "opus"), ("sol", "astra")])
+def test_c17_2_a_retired_suggest_model_sends_its_successor(call, tmp_path, capsys, retired, successor):
+    """C-17.2: `suggest --model` is a model flag; a retired name or Fable id is remapped with
+    a stderr note before the daemon sees it (review round 3 of PR #66, finding 2)."""
+    brief = tmp_path / "brief.md"
+    brief.write_text("Do it.\n")
+    assert run("--title", "T", "--tldr", "S", "--brief-file", str(brief), "--workspace", str(tmp_path),
+               "--model", retired) == 0
+    assert call.call_args.args[1]["model"] == successor
+    assert f"suggest: --model {retired} is retired; using {successor}" in capsys.readouterr().err
+
+
+def test_c17_2_a_current_suggest_model_is_sent_as_given(call, tmp_path, capsys):
+    brief = tmp_path / "brief.md"
+    brief.write_text("Do it.\n")
+    assert run("--title", "T", "--tldr", "S", "--brief-file", str(brief), "--workspace", str(tmp_path),
+               "--model", "claude-opus-5-5[1m]") == 0
+    assert call.call_args.args[1]["model"] == "claude-opus-5-5[1m]"
+    assert "is retired" not in capsys.readouterr().err

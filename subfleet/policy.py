@@ -56,10 +56,12 @@ def flatten_chain(chain: Sequence[str | list[str]], tier_index: int = 0) -> list
 #: than fable").
 RETIRED_MODELS: dict[str, str] = {"sol": "astra", "fable": "opus"}
 
-#: Fable's exact ids. `cli._retire_model` remaps them with RETIRED_MODELS for every
-#: CLI model flag; only `pick --model` takes free text, the others' `choices=` keep
-#: ids out. (`sessions revive`/`continue --model` are free text too, and resolve
-#: ids through `revive.live_model`.) Sol's `gpt-5.6-sol` is not here: the shipped
+#: Fable's exact ids. `cli._retire_model` remaps them, with RETIRED_MODELS, at `run -m`
+#: and `-t`, `why -m`, `pick --model` and `suggest --model`; only the last two take free
+#: text (the others' `choices=` keep ids out). Elsewhere: `sessions` flags remap short
+#: names through `sessions.cli.retire_models`, an exact id at `sessions revive`/`continue
+#: --model` resolves through `revive.live_model` (recorded, with no stderr note), and
+#: `gate --peer` reads RETIRED_MODELS. Sol's `gpt-5.6-sol` is not here: the shipped
 #: `retired` map has no alias for it, so an imported Sol run keeps its own id. The
 #: shipped `retired` map is exactly RETIRED_MODELS plus these (a tested invariant).
 RETIRED_MODEL_IDS: dict[str, str] = {"claude-fable-5": "opus", "claude-fable-5-1": "opus"}

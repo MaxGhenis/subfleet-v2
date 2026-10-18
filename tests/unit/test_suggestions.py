@@ -220,6 +220,18 @@ def test_c25_7_the_model_is_one_the_fleet_routes(svc):
     refused("bad-model", 2, suggest, svc, model="m" * 81)
 
 
+@pytest.mark.parametrize("retired", ["fable", "claude-fable-5-1", "claude-fable-5-1[1m]"])
+def test_c25_7_a_retired_model_is_refused_as_a_new_pick(svc, retired):
+    """A spelling that routes only through the policy's `retired` map names a retired model.
+    A stored conversation on it continues on the successor (C-26.8), but a suggestion is a
+    new pick and is refused, as `models.list` marks retired models (review round 3 of
+    PR #66, finding 4: `_suggestion_model`'s check was untested)."""
+    svc.daemon.policy = {**svc.daemon.policy,
+                         "retired": {"fable": "opus", "claude-fable-5": "opus", "claude-fable-5-1": "opus"}}
+    refused("unknown-model", 2, suggest, svc, model=retired)
+    assert suggest(svc, model="opus")["suggestion"]["model"] == "claude-opus-5-5"   # its successor is fine
+
+
 def test_c25_7_open_suggestions_are_bounded_per_origin_and_in_all(svc, monkeypatch):
     first, second = conversation(svc), conversation(svc)
     job_a, _ = turn_of(svc, first)

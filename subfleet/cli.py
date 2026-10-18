@@ -182,6 +182,9 @@ def cmd_suggest(args: argparse.Namespace) -> int:
     elif args.list:
         op, payload = "suggestion.list", {}
     else:
+        # C-17.2: `--model` is free text, so a retired short name or exact id is remapped
+        # like `pick --model`'s, with the same stderr note, whatever the running policy lists.
+        _retire_model(args, "suggest", "--model", "model")
         missing = [flag for flag, value in (("--title", args.title), ("--tldr", args.tldr),
                                             ("--brief-file or --brief -", args.brief_file or args.brief)) if not value]
         if missing:
