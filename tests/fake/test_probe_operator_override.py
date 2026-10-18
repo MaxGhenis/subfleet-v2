@@ -1,0 +1,1386 @@
+"""C-5.7a: an operator resolves a quarantined probe as C-5.7 resolves an attempt.
+
+A quarantined probe keeps its one lease, a lane slot, and before this clause only
+a verified-empty census ended that: `kill --confirm-dead` and `--force-release`
+looked only at quarantined attempts, and a timer's or a re-enrolment's probe has
+no job at all. On 2026-09-27 four probes on the release line were quarantined on
+censuses `ps` could not complete, and each held its lane for the life of the
+daemon. Now `kill <job>` resolves a job's quarantined probes, `lanes
+release-probe <lane|holder>` resolves any probe, `--confirm-dead` releases only
+on a verified-empty census, and `--force-release` releases only with the
+operator's override recorded in `events`.
+
+These tests drive the daemon in-process through PR #50's fixtures: a fake
+monotonic clock, the census and the guardian identity check replaced by
+counters, and every signal forbidden (nothing recorded is alive, and neither
+resolution may signal).
+"""
+
+from __future__ import annotations
+
+import copy
+import dataclasses
+from datetime import datetime, timedelta, timezone
+import json
+import sqlite3
+from pathlib import Path
+from uuid import uuid4
+
+import pytest
+from hypothesis import HealthCheck, event, example, given, settings
+from hypothesis import strategies as st
+
+from subfleet import cli, daemon as daemon_module, procs, protocol, render
+from subfleet.adapters import registry
+from subfleet.contracts import Exit
+from subfleet.daemon import PROBE_RESOLUTION_KINDS, Daemon, after, merge_probe_requests, utcnow
+from subfleet.offline import Offline
+from tests.fake.conftest import Harness
+from tests.fake.test_probe_quarantine_pacing import (HOLDER, OTHER, SURVIVOR, UNVERIFIABLE, World, census,
+                                                     started_probe, submitted)
+from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401 - fixture
+from tests.fake_adapter import FakeAdapter
+
+EMPTY = procs.Containment()
+NOT_VERIFIABLE = census(errors=UNVERIFIABLE)
+
+
+# --- fixtures ------------------------------------------------------------------
+
+def second_lane(service, lane_id: str = "codex-2") -> str:
+    lane = service.store.get_lane("codex-1")
+    service.store.put_lane(dataclasses.replace(lane, lane_id=lane_id))
+    return lane_id
+
+
+def started_turn(service, kind: str, lanes: tuple[str, ...] = ("codex-1",)) -> str:
+    """A timer's (`keepalive`, `probe`) or a re-enrolment's (`enroll`) probe whose
+    guardian started and exited, lease(s) held, holder no longer in a turn: what
+    `_recover_probes` owns once the turn has returned."""
+    holder = ("probe:timer:enroll:" if kind == "enroll" else "probe:timer:") + str(uuid4())
+    directory = service.root / "lanes" / lanes[0] / "probes" / holder.rsplit(":", 1)[-1]
+    directory.mkdir(parents=True)
+    record = {"holder": holder, "job_id": None, "lane_id": lanes[0], "timer_kind": kind,
+              "model_id": "enrollment" if kind == "enroll" else "gpt-6-terra",
+              "directory": str(directory), "state": "starting", "created_at": utcnow(),
+              "deadline_at": after(60), "guardian_pid": 900101, "pgid": 900101,
+              "boot_id": "fixture-boot", "proc_start": "fixture-start", "owned_identities": {}}
+    for lane in lanes:
+        assert service.store.acquire_lease(f"lane:{lane}:slot:0", holder)
+    service._save_probe(record)
+    return holder
+
+
+def quarantined(service, world: World, holder: str) -> None:
+    """The look that quarantines it: the census finds a survivor after the kill protocol."""
+    service.term_grace_s = 0
+    world.table = census(SURVIVOR)
+    service._recover_probes()
+    assert service._probe_record(holder)["state"] == "quarantined"
+    assert service.store.list_leases(holder)
+
+
+def admission_probe(service, harness, monkeypatch) -> tuple[str, World]:
+    job_id = submitted(service, harness)
+    started_probe(service, job_id)
+    world = World(service, monkeypatch, census(SURVIVOR))
+    quarantined(service, world, HOLDER)
+    assert service.store.get_job(job_id)["wait_reason"] == "uncertain"
+    return job_id, world
+
+
+def kinds(service, kind: str) -> list[dict]:
+    """The events of `kind` that name a holder (an insert's empty audit twin does not)."""
+    rows = []
+    for row in service.store.query("SELECT * FROM events WHERE kind=? ORDER BY event_id", (kind,)):
+        data = json.loads(row["data_json"])
+        if data.get("holder"):
+            rows.append({**row, "data": data})
+    return rows
+
+
+def kill(service, job_id: str, **flags) -> dict:
+    return service.dispatch("kill", {"job_id": job_id, **flags})
+
+
+def release_probe(service, target: str, **flags) -> dict:
+    return service.dispatch("lanes", {"action": "release-probe", "lane_id": target, **flags})["release_probe"]
+
+
+def records(service, holder: str) -> list[dict]:
+    return [json.loads(row["data_json"]) for row in service.store.query(
+        "SELECT data_json FROM events WHERE kind='probe.state' ORDER BY event_id")
+        if json.loads(row["data_json"]).get("holder") == holder]
+
+
+# --- --confirm-dead -----------------------------------------------------------------
+
+def test_c5_7a_kill_confirm_dead_releases_a_probe_on_a_verified_empty_census(routing_state, monkeypatch):
+    """The request is recorded, not acted on, by the handler (C-16.4: no census
+    there); the next pass takes the census whatever the recheck clock says, and a
+    verified-empty one finishes the probe as `_finish_probe` does, with an
+    `unknown` outcome, in one `probe.confirmed_dead` transaction."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    directory = Path(service._probe_record(HOLDER)["directory"])
+    readings = len(service.store.list_readings())
+    world.table = EMPTY                                   # the operator checked: gone
+    censuses = len(world.censuses)
+    answer = kill(service, job_id, confirm_dead=True, operator_note="pids 900003 gone (checked)")
+    assert answer["status"] == "resolution requested"
+    assert [probe["holder"] for probe in answer["probes"]] == [HOLDER]
+    assert HOLDER in answer["detail"] and "--confirm-dead" in answer["detail"]
+    assert len(world.censuses) == censuses, "a request handler takes no census (C-16.4)"
+    assert service.store.list_leases(HOLDER), "nothing is released until the census says so"
+    assert world.now < service._probe_rechecks[HOLDER][1], "the clock is not due"
+    service._recover_probes()
+    assert len(world.censuses) == censuses + 1, "one census, now, not when the clock is due"
+    assert not service.store.list_leases(HOLDER)
+    record = service._probe_record(HOLDER)
+    assert record["state"] == "completed" and record["outcome"]["cls"] == "unknown"
+    [confirmed] = kinds(service, "probe.confirmed_dead")
+    assert confirmed["job_id"] == job_id and confirmed["lane_id"] == "codex-1"
+    assert confirmed["data"]["operator_note"] == "pids 900003 gone (checked)"
+    assert confirmed["data"]["class"] == "unknown" and confirmed["data"]["via"] == "kill"
+    assert confirmed["data"]["containment"]["live_pids"] == [] and not confirmed["data"]["containment"]["unverifiable"]
+    assert not kinds(service, "probe.force_released") and not kinds(service, "probe.still_live")
+    job = service.store.get_job(job_id)
+    assert (job["state"], job["wait_reason"]) == ("waiting", "capacity")
+    assert len(service.store.list_readings()) == readings, "an unknown outcome admits nothing and closes nothing"
+    assert not directory.exists()
+    assert HOLDER not in service._probe_rechecks and HOLDER not in service._probe_resolutions
+    looks = len(world.looks)
+    service._recover_probes()
+    assert len(world.looks) == looks, "a released probe is never looked at again"
+
+
+@pytest.mark.parametrize("table", [census(SURVIVOR), census(OTHER, SURVIVOR), NOT_VERIFIABLE],
+                         ids=["the-survivor", "another-survivor", "unverifiable"])
+def test_c5_7a_confirm_dead_that_finds_it_live_keeps_the_lease_and_records_the_look(routing_state, monkeypatch, table):
+    """Anything but verified empty, an unverifiable census included, leaves it
+    quarantined; the look is recorded as `probe.still_live` for the operator,
+    and backs the recheck clock off like any look."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    world.table = table
+    looks_before = service._probe_rechecks[HOLDER][0]
+    kill(service, job_id, confirm_dead=True, operator_note="looked")
+    service._recover_probes()
+    assert service.store.list_leases(HOLDER)
+    assert service._probe_record(HOLDER)["state"] == "quarantined"
+    [look] = kinds(service, "probe.still_live")
+    assert look["job_id"] == job_id and look["data"]["operator_note"] == "looked"
+    assert look["data"]["containment"] == table.to_dict()
+    assert service.store.get_job(job_id)["wait_reason"] == "uncertain"
+    assert service._probe_rechecks[HOLDER][0] == looks_before + 1
+    assert not kinds(service, "probe.confirmed_dead")
+    assert HOLDER not in service._probe_resolutions, "one request, one look"
+
+
+# --- --force-release ----------------------------------------------------------------
+
+def test_c5_7a_force_release_releases_without_a_census_or_a_signal(routing_state, monkeypatch):
+    """The override is for a census that cannot complete: it takes none, sends no
+    signal (World forbids both signal calls), and records the override with the
+    last look's evidence. The record says `released`, never `completed`, and the
+    directory stays, since a survivor may still be running in it."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    directory = Path(service._probe_record(HOLDER)["directory"])
+    world.table = NOT_VERIFIABLE                     # what `ps` would say now, if asked
+    censuses, looks = len(world.censuses), len(world.looks)
+    answer = kill(service, job_id, force_release=True, operator_note="ps is failing; lane needed")
+    assert answer["status"] == "resolution requested" and "--force-release" in answer["detail"]
+    service._recover_probes()
+    assert (len(world.censuses), len(world.looks)) == (censuses, looks), "no census, no look"
+    assert not service.store.list_leases(HOLDER)
+    record = service._probe_record(HOLDER)
+    assert record["state"] == "released" and record["override"] is True
+    [override] = kinds(service, "probe.force_released")
+    assert override["job_id"] == job_id and override["data"]["override"] is True
+    assert override["data"]["operator_note"] == "ps is failing; lane needed"
+    assert override["data"]["containment"]["live_pids"] == [SURVIVOR], "the last recorded look's evidence"
+    assert not kinds(service, "probe.confirmed_dead")
+    job = service.store.get_job(job_id)
+    assert (job["state"], job["wait_reason"]) == ("waiting", "capacity")
+    assert directory.is_dir()
+    service._recover_probes()
+    assert len(world.looks) == looks
+
+
+def test_c5_7a_the_latest_request_wins(routing_state, monkeypatch):
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    kill(service, job_id, confirm_dead=True)
+    kill(service, job_id, force_release=True, operator_note="changed my mind")
+    service._recover_probes()
+    assert [row["data"]["operator_note"] for row in kinds(service, "probe.force_released")] == ["changed my mind"]
+    assert not kinds(service, "probe.still_live")
+
+
+# --- naming the probe ----------------------------------------------------------------
+
+def test_c5_7a_a_plain_kill_leaves_the_probe_and_a_resolution_still_reaches_it(routing_state, monkeypatch):
+    """Cancelling the job does not release its probe's slot (only C-5.7a's two
+    ends do); the finished job can still be named to resolve it."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    assert kill(service, job_id)["status"] == "cancel requested"
+    service._recover_probes()
+    assert service.store.get_job(job_id)["state"] == "cancelled"
+    assert service.store.list_leases(HOLDER)
+    world.table = EMPTY
+    assert kill(service, job_id, confirm_dead=True)["status"] == "resolution requested"
+    service._recover_probes()
+    assert not service.store.list_leases(HOLDER)
+    assert service.store.get_job(job_id)["state"] == "cancelled", "a finished job stays finished"
+
+
+def test_c5_7a_a_job_with_nothing_quarantined_answers_as_before(routing_state, monkeypatch):
+    service, harness = routing_state
+    job_id = submitted(service, harness)
+    assert kill(service, job_id, confirm_dead=True) == {"job_id": job_id, "probes": [], "status": "not quarantined"}
+    started_probe(service, job_id)                        # starting, not quarantined
+    assert kill(service, job_id, force_release=True)["status"] == "not quarantined"
+    assert not service._probe_resolutions
+
+
+@pytest.mark.parametrize("kind", ["keepalive", "probe", "enroll"])
+def test_c5_7a_lanes_release_probe_names_a_turn_by_its_lane(routing_state, monkeypatch, kind):
+    """A timer's or a re-enrolment's probe has no job: its lane names it."""
+    service, _ = routing_state
+    holder = started_turn(service, kind)
+    world = World(service, monkeypatch, census(SURVIVOR))
+    quarantined(service, world, holder)
+    directory = Path(service._probe_record(holder)["directory"])
+    world.table = EMPTY
+    answer = release_probe(service, "codex-1", operator_note="checked")
+    assert answer["status"] == "resolution requested" and answer["holder"] == holder
+    assert answer["mode"] == "confirm-dead" and answer["kind"] == kind and answer["job_id"] is None
+    service._recover_probes()
+    assert not service.store.list_leases(holder)
+    assert service._probe_record(holder)["state"] == "completed"
+    [confirmed] = kinds(service, "probe.confirmed_dead")
+    assert confirmed["job_id"] is None and confirmed["lane_id"] == "codex-1"
+    assert confirmed["data"]["holder"] == holder and confirmed["data"]["via"] == "lanes release-probe"
+    assert not directory.exists()
+
+
+def test_c5_7a_lanes_release_probe_names_a_probe_by_its_holder(routing_state, monkeypatch):
+    service, _ = routing_state
+    holder = started_turn(service, "keepalive")
+    world = World(service, monkeypatch, census(SURVIVOR))
+    quarantined(service, world, holder)
+    answer = release_probe(service, holder, force_release=True, operator_note="override")
+    assert answer["status"] == "resolution requested" and answer["mode"] == "force-release"
+    service._recover_probes()
+    assert not service.store.list_leases(holder)
+    assert [row["data"]["holder"] for row in kinds(service, "probe.force_released")] == [holder]
+    # Asked again (C-16.3: an answer lost the first time), it finds nothing to resolve.
+    assert release_probe(service, holder, force_release=True)["status"] == "no probe"
+    assert release_probe(service, "codex-1")["status"] == "no probe"
+
+
+def test_c5_7a_a_re_enrolment_probe_is_looked_at_once_and_releases_every_binding(routing_state, monkeypatch):
+    """A re-enrolment's holder fences every binding of its account. A pass looks
+    at a holder once, not once per lease: the first look that released it used
+    to be followed by another census through its second lease, and on a force
+    release that second look would have run the kill protocol on its survivors."""
+    service, _ = routing_state
+    other = second_lane(service)
+    holder = started_turn(service, "enroll", ("codex-1", other))
+    world = World(service, monkeypatch, census(SURVIVOR))
+    quarantined(service, world, holder)
+    assert len(world.looks) == 1, "one look for two leases"
+    assert release_probe(service, other, force_release=True)["lane_ids"] == ["codex-1", other]
+    looks = len(world.looks)
+    service._recover_probes()
+    assert len(world.looks) == looks, "a force release takes no census, through either lease"
+    assert not service.store.list_leases(holder)
+    assert records(service, holder)[-1]["state"] == "released"
+    assert len(kinds(service, "probe.force_released")) == 1
+
+
+def test_c5_7a_a_verified_empty_look_at_a_re_enrolment_probe_is_one_look(routing_state, monkeypatch):
+    service, _ = routing_state
+    holder = started_turn(service, "enroll", ("codex-1", second_lane(service)))
+    world = World(service, monkeypatch, census(SURVIVOR))
+    quarantined(service, world, holder)
+    world.table, world.now = EMPTY, 1
+    service._recover_probes()
+    assert len(world.looks) == 2 and not service.store.list_leases(holder)
+    assert [record["state"] for record in records(service, holder)][-2:] == ["contained", "completed"]
+
+
+def test_c5_7a_a_request_asked_during_a_look_waits_for_the_next_pass(routing_state, monkeypatch):
+    """A pass looks at each holder once (C-5.7a), and that includes a request
+    asked while its look runs: a re-enrolment's holder has two leases, and a pass
+    that walked leases rather than holders would take the new request through the
+    second one and census the probe twice in one pass."""
+    service, _ = routing_state
+    holder = started_turn(service, "enroll", ("codex-1", second_lane(service)))
+    world = World(service, monkeypatch, census(SURVIVOR))
+    quarantined(service, world, holder)
+    world.now += 61                                       # the holder's clock is due
+    look = service._probe_census
+    asked = []
+
+    def census_then_ask(record):
+        found = look(record)
+        if not asked:
+            asked.append(release_probe(service, holder, confirm_dead=True))
+        return found
+    monkeypatch.setattr(service, "_probe_census", census_then_ask)
+    censuses = len(world.censuses)
+    service._recover_probes()
+    assert asked[0]["status"] == "resolution requested"
+    assert len(world.censuses) == censuses + 1, "one look per holder per pass"
+    assert service._probe_resolutions[holder]["requests"][0]["mode"] == "confirm-dead"
+    service._recover_probes()
+    assert len(world.censuses) == censuses + 2 and holder not in service._probe_resolutions
+    assert len(kinds(service, "probe.still_live")) == 1 and service.store.list_leases(holder)
+
+
+def test_c5_7a_confirm_dead_never_signals_a_live_guardian(routing_state, monkeypatch):
+    """I2 with the guardian still alive. A quarantined record is looked at with a
+    census and nothing else, whoever asks: the pass's own look and an operator's
+    `--confirm-dead` must not run the kill protocol even when the recorded leader
+    is still the recorded process and its survivors are owned (signals raise)."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    record = service._probe_record(HOLDER)
+    service._save_probe({**record, "owned_identities": {
+        str(pid): dataclasses.asdict(procs.ProcessIdentity(pid, "fixture-boot", "fixture-start"))
+        for pid in world.table.live_pids}})
+    monkeypatch.setattr(procs, "same_process", lambda *args: True)   # the guardian is alive
+    world.now += 61
+    service._recover_probes()                                         # the pass's own look
+    kill(service, job_id, confirm_dead=True)
+    service._recover_probes()                                         # the operator's
+    assert [event["data"]["holder"] for event in kinds(service, "probe.still_live")] == [HOLDER]
+    assert service._probe_record(HOLDER)["state"] == "quarantined" and service.store.list_leases(HOLDER)
+
+
+def test_c5_7a_a_timer_turn_gives_its_lease_back_before_it_lets_the_holder_go(routing_state, monkeypatch):
+    """`Timers._release` releases while the holder is still the turn's, so a pass
+    never looks at a lease on its way out (C-5.7a)."""
+    service, _ = routing_state
+    holder = "probe:timer:" + str(uuid4())
+    assert service.store.acquire_lease("lane:codex-1:slot:0", holder)
+    service.timers.active_holders.add(holder)
+    seen = []
+    release = service.store.release_leases
+
+    def watched(name, **kwargs):
+        seen.append(name in service.timers.active_holders)
+        return release(name, **kwargs)
+    monkeypatch.setattr(service.store, "release_leases", watched)
+    service.timers._release(holder)
+    assert seen == [True]
+    assert holder not in service.timers.active_holders and not service.store.list_leases(holder)
+
+
+def test_c5_7a_release_probe_answers(routing_state, monkeypatch):
+    service, harness = routing_state
+    with pytest.raises(protocol.ProtocolError) as unknown:
+        release_probe(service, "codex-9")
+    assert unknown.value.code == Exit.INVALID_INPUT
+    with pytest.raises(protocol.ProtocolError) as never:
+        release_probe(service, "probe:never-recorded")
+    assert never.value.code == Exit.INVALID_INPUT
+    with pytest.raises(protocol.ProtocolError):
+        release_probe(service, " ")
+    assert release_probe(service, "codex-1") == {"lane_id": "codex-1", "holder": None, "status": "no probe"}
+    job_id = submitted(service, harness)
+    started_probe(service, job_id)
+    answer = release_probe(service, "codex-1")
+    assert (answer["status"], answer["state"], answer["holder"]) == ("not quarantined", "starting", HOLDER)
+    assert not service._probe_resolutions
+
+
+# --- serialization with the thread that looks -----------------------------------------
+
+def test_c5_7a_a_request_waits_while_a_turn_owns_its_probe(routing_state, monkeypatch):
+    """A holder still in a timer turn or an enrolment (`timers.active_holders`) is
+    that turn's; the request is acted on once the turn has let it go."""
+    service, _ = routing_state
+    holder = started_turn(service, "probe")
+    world = World(service, monkeypatch, census(SURVIVOR))
+    quarantined(service, world, holder)
+    world.table = EMPTY
+    release_probe(service, "codex-1")
+    service.timers.active_holders.add(holder)
+    looks = len(world.looks)
+    service._recover_probes()
+    assert len(world.looks) == looks and holder in service._probe_resolutions
+    service.timers.active_holders.discard(holder)
+    service._recover_probes()
+    assert not service.store.list_leases(holder)
+
+
+def test_c5_7a_a_request_for_a_probe_released_another_way_is_dropped(routing_state, monkeypatch):
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    kill(service, job_id, force_release=True)
+    service.store.release_leases(HOLDER)
+    service._recover_probes()
+    assert not service._probe_resolutions and not kinds(service, "probe.force_released")
+
+
+def test_c5_7a_a_request_for_a_contained_probe_that_still_holds_its_lease_waits(routing_state, monkeypatch):
+    """A look found the probe contained and could not finish it (the record says
+    `contained`, the lease is held). That is not the operator's to resolve, and
+    the request is not dropped either: it waits, the pass's look is the ordinary
+    one, and once that look quarantines the probe again (its census found
+    survivors), the next pass acts on the request."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    kill(service, job_id, force_release=True, operator_note="kept")
+    service._save_probe({**service._probe_record(HOLDER), "state": "contained"})
+    service._recover_probes()
+    assert service.store.list_leases(HOLDER) and not kinds(service, "probe.force_released")
+    assert service._probe_record(HOLDER)["state"] == "quarantined", "the ordinary look quarantined it again"
+    assert service._probe_resolutions[HOLDER]["operator_note"] == "kept"
+    service._recover_probes()
+    [forced] = kinds(service, "probe.force_released")
+    assert forced["data"]["operator_note"] == "kept" and not service.store.list_leases(HOLDER)
+
+
+def test_c5_7a_a_request_asked_while_a_look_that_contained_the_probe_fails_to_finish_is_kept(
+        routing_state, monkeypatch):
+    """The safety review's interleaving (2026-09-29): the daemon's own look
+    finds the probe verified empty and records `contained`; a --force-release is
+    asked during its census; the look's finish fails. The request is not lost:
+    the next looks find survivors again and quarantine it, and the request is
+    then acted on."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    world.table, world.now = EMPTY, world.now + 61
+    look = service._probe_census
+    asked = []
+
+    def census_then_ask(record):
+        found = look(record)
+        if not asked:
+            asked.append(release_probe(service, "codex-1", force_release=True, operator_note="during"))
+        return found
+    monkeypatch.setattr(service, "_probe_census", census_then_ask)
+
+    def broken(record, outcome, **kwargs):
+        raise RuntimeError("store unavailable")
+    service._finish_probe = broken
+    try:
+        with pytest.raises(RuntimeError, match="store unavailable"):
+            service._recover_probes()
+    finally:
+        del service._finish_probe
+    assert asked[0]["status"] == "resolution requested"
+    assert service._probe_record(HOLDER)["state"] == "contained" and service.store.list_leases(HOLDER)
+    world.table = census(SURVIVOR)
+    service._recover_probes()                           # waits; the ordinary look quarantines it again
+    assert service._probe_record(HOLDER)["state"] == "quarantined"
+    assert service._probe_resolutions[HOLDER]["operator_note"] == "during"
+    service._recover_probes()
+    [forced] = kinds(service, "probe.force_released")
+    assert forced["data"]["operator_note"] == "during" and not service.store.list_leases(HOLDER)
+
+
+def test_c5_7a_a_restart_forgets_a_request_and_asking_again_is_safe(routing_state, monkeypatch):
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    kill(service, job_id, force_release=True)
+    service.close()
+    fresh = Daemon(service.root)
+    try:
+        again = World(fresh, monkeypatch, census(SURVIVOR))
+        fresh._recover_probes()
+        assert fresh.store.list_leases(HOLDER), "the request did not survive the restart"
+        assert kill(fresh, job_id, force_release=True)["status"] == "resolution requested"
+        fresh._recover_probes()
+        assert not fresh.store.list_leases(HOLDER)
+        assert len(kinds(fresh, "probe.force_released")) == 1
+        assert again.looks == [0.0], "the restart's own first look, and none for the override"
+    finally:
+        fresh.close()
+
+
+# --- what the operator sees ---------------------------------------------------------
+
+def test_c5_7a_show_why_status_and_lanes_name_the_probe_and_how_to_resolve_it(routing_state, monkeypatch):
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    commands = [f"subfleet kill {job_id} --confirm-dead", f"subfleet kill {job_id} --force-release"]
+    shown = service.dispatch("show", {"job_id": job_id})
+    [probe] = shown["probes"]
+    assert (probe["holder"], probe["lane_ids"], probe["state"], probe["kind"]) == (HOLDER, ["codex-1"], "quarantined", "admission")
+    assert probe["live_pids"] == [SURVIVOR] and probe["resolve"] == commands
+    assert probe["recorded_at"] and probe["looks"] == 1 and probe["next_look_in_s"] == 1.0
+    assert shown["probe_resolutions"] == []
+    why = service.dispatch("why", {"job_id": job_id})
+    assert why["job"]["probes"] == [probe]
+    assert f"probe {HOLDER} (job {job_id}) holds codex-1: quarantined" in why["text"]
+    assert commands[0] in why["text"] and commands[1] in why["text"]
+    status = service.dispatch("daemon.status", {})
+    assert status["probes"] == [probe]
+    text = cli.format_status(status)
+    assert "probes" in text.splitlines() and commands[0] in text
+    assert service.dispatch("lanes", {})["probes"] == [probe]
+    # A pending request, then the operator's look that found it live.
+    kill(service, job_id, confirm_dead=True, operator_note="n")
+    requested = service.dispatch("show", {"job_id": job_id})["probes"][0]["requested"]
+    assert requested["mode"] == "confirm-dead" and requested["via"] == "kill"
+    service._recover_probes()
+    probe = service.dispatch("show", {"job_id": job_id})["probes"][0]
+    assert probe["requested"] is None and probe["operator_look"]["containment"]["live_pids"] == [SURVIVOR]
+    assert "operator's last --confirm-dead" in "\n".join(render.probe_lines(probe))
+    resolutions = service.dispatch("show", {"job_id": job_id})["probe_resolutions"]
+    assert [(row["event"], row["holder"], row["operator_note"]) for row in resolutions] == [
+        ("probe.still_live", HOLDER, "n")]
+    # Released, it is gone from every view, and `show` keeps what was done.
+    kill(service, job_id, force_release=True, operator_note="o")
+    service._recover_probes()
+    assert service.dispatch("show", {"job_id": job_id})["probes"] == []
+    assert [row["event"] for row in service.dispatch("show", {"job_id": job_id})["probe_resolutions"]] == [
+        "probe.still_live", "probe.force_released"]
+    assert service.dispatch("daemon.status", {})["probes"] == []
+    assert set(PROBE_RESOLUTION_KINDS) >= {row["event"] for row in resolutions}
+
+
+def test_c5_7a_a_turns_probe_is_resolved_through_its_lane(routing_state, monkeypatch):
+    service, _ = routing_state
+    holder = started_turn(service, "keepalive")
+    world = World(service, monkeypatch, census(SURVIVOR))
+    quarantined(service, world, holder)
+    [probe] = service.dispatch("daemon.status", {})["probes"]
+    assert probe["resolve"] == ["subfleet lanes release-probe codex-1 --confirm-dead",
+                                "subfleet lanes release-probe codex-1 --force-release"]
+    assert f"probe {holder} (keepalive turn) holds codex-1: quarantined" in cli.format_status({"probes": [probe]})
+
+
+def test_c5_7a_a_job_retention_has_pruned_still_names_its_probe(routing_state, monkeypatch):
+    """The probes are found by their records, not through the job row."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    with service.store.transaction("test.pruned") as tx:
+        tx.execute("DELETE FROM jobs WHERE job_id=?", (job_id,))
+    [probe] = service._probe_rows()
+    assert probe["job_id"] == job_id and probe["resolve"][1] == f"subfleet kill {job_id} --force-release"
+    assert kill(service, job_id, force_release=True)["status"] == "resolution requested"
+    service._recover_probes()
+    assert not service.store.list_leases(HOLDER)
+    with pytest.raises(protocol.ProtocolError):
+        kill(service, job_id, force_release=True)           # nothing left that names it
+
+
+def test_c5_7a_offline_status_and_show_list_the_same_probes(routing_state, monkeypatch):
+    """C-17.5: with the daemon down, `status` and `runs show` read the same rows
+    from the store (all but the clock and a pending request, which only a
+    running daemon has)."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    started_turn(service, "keepalive", (second_lane(service),))       # one row with a job, one without
+    kill(service, job_id, confirm_dead=True, operator_note="looked")
+    service._recover_probes()                           # a `probe.still_live`: the operator's last look
+    online = service._probe_rows()
+    shared = ("holder", "lane_id", "lane_ids", "job_id", "kind", "state", "created_at", "recorded_at",
+              "live_pids", "unverifiable", "errors", "containment", "operator_look", "operator_looks", "resolve")
+    offline = Offline(service.root)
+    assert [{key: row[key] for key in shared} for row in offline.status()["probes"]] == \
+        [{key: row[key] for key in shared} for row in online]
+    assert len(online) == 2 and online[0]["operator_look"]["operator_note"] == "looked"
+    shown = offline.show_job(job_id)
+    assert [row["holder"] for row in shown["probes"]] == [HOLDER]
+    assert shown["probe_resolutions"] == service.dispatch("show", {"job_id": job_id})["probe_resolutions"]
+    assert [event["event"] for event in shown["probe_resolutions"]] == ["probe.still_live"]
+
+
+# --- the design review's findings (2026-09-27) -----------------------------------------
+
+LONG_AGO = "2000-01-01T00:00:00Z"
+
+
+def test_c5_7a_a_resolution_reaches_only_probes_that_existed_when_it_was_issued(routing_state, monkeypatch):
+    """A force release sent again after its answer was lost (C-16.3), or a
+    command repeated, must not reach a probe the job started since: the job of a
+    released probe is admitted again and, on the same failing census, its next
+    probe is quarantined too. `issued_at` is minted once per command."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    answer = kill(service, job_id, force_release=True, issued_at=LONG_AGO)
+    assert answer["status"] == "not quarantined" and answer["probes"] == []
+    assert [row["holder"] for row in answer["newer_probes"]] == [HOLDER]
+    assert f"subfleet lanes release-probe {HOLDER}" in answer["detail"]
+    assert release_probe(service, "codex-1", force_release=True, issued_at=LONG_AGO)["status"] == "newer probe"
+    assert not service._probe_resolutions
+    service._recover_probes()
+    assert service.store.list_leases(HOLDER)
+    # Named by its holder, it is the probe the operator means, whenever asked.
+    assert release_probe(service, HOLDER, force_release=True, issued_at=LONG_AGO)["status"] == "resolution requested"
+    # And a request issued after it was created reaches it by job.
+    assert kill(service, job_id, confirm_dead=True, issued_at=after(5))["probes"][0]["holder"] == HOLDER
+    with pytest.raises(protocol.ProtocolError) as refused:
+        kill(service, job_id, force_release=True, issued_at="yesterday")
+    assert refused.value.code == Exit.INVALID_INPUT
+
+
+def test_c5_7a_a_later_confirm_dead_does_not_replace_a_pending_force_release(routing_state, monkeypatch):
+    """An override an operator was told had been accepted is never quietly
+    downgraded, and both requests, with their notes, are kept in the record."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    kill(service, job_id, force_release=True, operator_note="ps is failing")
+    answer = release_probe(service, "codex-1", operator_note="just checking")
+    assert answer["mode"] == "force-release" and "does not replace it" in answer["absorbed"]
+    assert service.dispatch("show", {"job_id": job_id})["probes"][0]["requested"]["requests"] == 2
+    censuses = len(world.censuses)
+    service._recover_probes()
+    assert len(world.censuses) == censuses and not service.store.list_leases(HOLDER)
+    [override] = kinds(service, "probe.force_released")
+    assert [(item["mode"], item["operator_note"], item["via"]) for item in override["data"]["requests"]] == [
+        ("force-release", "ps is failing", "kill"), ("confirm-dead", "just checking", "lanes release-probe")]
+
+
+def test_c5_7a_an_escalation_asked_during_the_census_is_acted_on_next(routing_state, monkeypatch):
+    """The request is taken before it is acted on: a --force-release asked while
+    a --confirm-dead's census is running (seconds, when `ps` is slow) is the next
+    pass's, not lost when the first finishes."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    census_now = service._probe_census
+
+    def slow_census(record):
+        release_probe(service, "codex-1", force_release=True, operator_note="escalated")
+        return census_now(record)
+    kill(service, job_id, confirm_dead=True)
+    monkeypatch.setattr(service, "_probe_census", slow_census)
+    service._recover_probes()
+    assert len(kinds(service, "probe.still_live")) == 1 and service.store.list_leases(HOLDER)
+    assert service._probe_resolutions[HOLDER]["force_release"] is True
+    monkeypatch.setattr(service, "_probe_census", census_now)
+    service._recover_probes()
+    assert not service.store.list_leases(HOLDER) and len(kinds(service, "probe.force_released")) == 1
+
+
+def test_c5_7a_a_pass_that_raises_keeps_the_request(routing_state, monkeypatch):
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    kill(service, job_id, force_release=True, operator_note="first")
+
+    def broken(record, resolution):
+        release_probe(service, "codex-1", operator_note="asked meanwhile")
+        raise RuntimeError("store unavailable")
+    monkeypatch.setattr(service, "_force_release_probe", broken)
+    with pytest.raises(RuntimeError):
+        service._recover_probes()
+    pending = service._probe_resolutions[HOLDER]
+    assert pending["force_release"] is True and len(pending["requests"]) == 2
+    # The request the pass took is the older one: the one asked meanwhile is
+    # newer, and its note, time and route are the merged request's.
+    assert [entry["operator_note"] for entry in pending["requests"]] == ["first", "asked meanwhile"]
+    assert (pending["operator_note"], pending["via"]) == ("asked meanwhile", "lanes release-probe")
+    monkeypatch.undo()
+
+
+def test_c5_7a_each_request_has_an_id_that_the_look_acting_on_it_names(routing_state, monkeypatch):
+    """`--wait` takes a look as its answer only if the look acted on its own
+    request: each request gets an id, the answers return it, and the event of
+    the look that acts on it (and `operator_look` in the probe rows, online and
+    offline) lists it."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    by_kill = kill(service, job_id, confirm_dead=True)
+    by_lane = release_probe(service, "codex-1", confirm_dead=True)
+    ids = [by_kill["probes"][0]["request_id"], by_lane["request_id"]]
+    assert all(ids) and len(set(ids)) == 2
+    service._recover_probes()
+    [look] = kinds(service, "probe.still_live")
+    assert [entry["id"] for entry in look["data"]["requests"]] == ids
+    [row] = service._probe_rows()
+    assert [entry["id"] for entry in row["operator_look"]["requests"]] == ids
+    assert Offline(service.root).status()["probes"][0]["operator_look"] == row["operator_look"]
+    later = release_probe(service, "codex-1", confirm_dead=True)["request_id"]
+    assert later not in ids and all(entry["id"] != later for entry in service._probe_rows()[0]["operator_look"]["requests"])
+
+
+def test_c5_7a_a_request_is_recorded_by_one_resolution_even_when_the_pass_raises_after_it(
+        routing_state, monkeypatch):
+    """Each request is recorded by one resolution at most: a pass that raises
+    after its `probe.still_live` committed does not put the request back, so the
+    retried pass does not take a second census and record the same request
+    again."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    kill(service, job_id, confirm_dead=True, operator_note="once")
+    add_event = service.store.add_event
+
+    def then_raise(kind, *args, **kwargs):
+        written = add_event(kind, *args, **kwargs)
+        if kind == "probe.still_live":
+            raise RuntimeError("raised after the commit")
+        return written
+    monkeypatch.setattr(service.store, "add_event", then_raise)
+    with pytest.raises(RuntimeError, match="after the commit"):
+        service._recover_probes()
+    monkeypatch.setattr(service.store, "add_event", add_event)
+    assert HOLDER not in service._probe_resolutions
+    censuses = len(world.censuses)
+    service._recover_probes()
+    assert len(kinds(service, "probe.still_live")) == 1
+    assert len(world.censuses) == censuses, "the clock, not the request, decides the next look"
+
+
+def test_c5_7a_a_probe_lists_its_latest_operator_looks_with_the_requests_each_acted_on(routing_state, monkeypatch):
+    """`--wait` reads `operator_looks` to find the look that acted on its own
+    request, even behind a later request's look: newest first, each with the ids
+    it acted on, online and offline alike."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    first = kill(service, job_id, confirm_dead=True)["probes"][0]["request_id"]
+    service._recover_probes()
+    second = release_probe(service, "codex-1", confirm_dead=True)["request_id"]
+    service._recover_probes()
+    [row] = service._probe_rows()
+    assert [look["ids"] for look in row["operator_looks"]] == [[second], [first]]
+    assert row["operator_looks"][0]["event_id"] == row["operator_look"]["event_id"]
+    assert Offline(service.root).status()["probes"][0]["operator_looks"] == row["operator_looks"]
+
+
+def test_c5_7a_a_store_that_cannot_say_whether_a_request_was_recorded_keeps_it(routing_state, monkeypatch):
+    """Before acting, a pass asks the store which entries a committed resolution
+    already recorded. If the store cannot answer, the pass raises and keeps the
+    request whole; once the store answers again, the request is acted on once."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    kill(service, job_id, force_release=True, operator_note="kept")
+    query = service.store.query
+
+    def failing(sql, params=()):
+        if RESOLUTIONS_BY_HOLDER in sql:
+            raise sqlite3.OperationalError("database is locked")
+        return query(sql, params)
+    monkeypatch.setattr(service.store, "query", failing)
+    with pytest.raises(sqlite3.OperationalError):
+        service._recover_probes()
+    monkeypatch.setattr(service.store, "query", query)
+    assert service._probe_resolutions[HOLDER]["operator_note"] == "kept" and service.store.list_leases(HOLDER)
+    service._recover_probes()
+    assert len(kinds(service, "probe.force_released")) == 1
+
+
+def test_c5_7a_a_request_recorded_before_a_raise_the_store_could_not_confirm_is_not_acted_on_again(
+        routing_state, monkeypatch):
+    """The safety review's interleaving (2026-09-29, second round): a
+    `probe.still_live` commits, the pass raises before it marks the request
+    acted, and the store cannot then say whether the request was recorded, so it
+    is kept. The next pass reconciles before it acts: the entry already recorded
+    is not acted on again, and a request asked meanwhile, merged with it, is."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    first = kill(service, job_id, confirm_dead=True, operator_note="first")["probes"][0]["request_id"]
+    add_event, query = service.store.add_event, service.store.query
+    outage = {"on": False}
+
+    def then_raise(kind, *args, **kwargs):
+        written = add_event(kind, *args, **kwargs)
+        if kind == "probe.still_live":
+            outage["on"] = True                         # the store goes away right after the commit
+            raise RuntimeError("raised after the commit")
+        return written
+
+    def failing(sql, params=()):
+        if outage["on"] and RESOLUTIONS_BY_HOLDER in sql:
+            raise sqlite3.OperationalError("database is locked")
+        return query(sql, params)
+    monkeypatch.setattr(service.store, "add_event", then_raise)
+    monkeypatch.setattr(service.store, "query", failing)
+    with pytest.raises(RuntimeError, match="after the commit"):
+        service._recover_probes()
+    monkeypatch.setattr(service.store, "add_event", add_event)
+    kept = service._probe_resolutions[HOLDER]
+    assert [entry["id"] for entry in kept["requests"]] == [first], "kept whole: the store could not say"
+    second = release_probe(service, "codex-1", force_release=True, operator_note="second")["request_id"]
+    outage["on"] = False
+    service._recover_probes()
+    looks, forced = kinds(service, "probe.still_live"), kinds(service, "probe.force_released")
+    assert [[entry["id"] for entry in look["data"]["requests"]] for look in looks] == [[first]]
+    assert [[entry["id"] for entry in event["data"]["requests"]] for event in forced] == [[second]]
+    assert forced[0]["data"]["operator_note"] == "second" and not service.store.list_leases(HOLDER)
+
+
+def test_c5_7a_an_unreadable_resolution_event_does_not_lose_a_request(routing_state, monkeypatch):
+    """A resolution event whose `requests` cannot be read (no writer makes one)
+    names no request: the pass that raised keeps its request, and raises its own
+    error, not the reader's."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    service.store.add_event("probe.still_live", job_id=job_id, lane_id="codex-1", data={"holder": HOLDER, "requests": 5})
+    kill(service, job_id, confirm_dead=True, operator_note="kept")
+
+    def broken(holder, request):
+        raise RuntimeError("store unavailable")
+    service._resolve_probe = broken
+    try:
+        with pytest.raises(RuntimeError, match="store unavailable"):
+            service._recover_probes()
+    finally:
+        del service._resolve_probe
+    assert service._probe_resolutions[HOLDER]["operator_note"] == "kept"
+
+
+def test_c5_7a_a_pass_keeps_a_request_whose_holder_its_first_read_missed(routing_state, monkeypatch):
+    """The pass reads the leases first and prunes last. A timer turn can take its
+    lease, be quarantined and let go, and be asked about in between: the pass
+    reads that holder's lease again before it drops anything of it."""
+    service, _ = routing_state
+    holder = started_turn(service, "keepalive")
+    world = World(service, monkeypatch, census(SURVIVOR))
+    quarantined(service, world, holder)
+    release_probe(service, holder, force_release=True)
+    query = service.store.query
+
+    def stale(sql, params=()):
+        if sql == "SELECT * FROM leases WHERE holder LIKE 'probe:%'":
+            return []                                   # read before the turn took its lease
+        return query(sql, params)
+    monkeypatch.setattr(service.store, "query", stale)
+    service._recover_probes()
+    monkeypatch.setattr(service.store, "query", query)
+    assert holder in service._probe_resolutions and holder in service._probe_rechecks
+    service._recover_probes()
+    assert len(kinds(service, "probe.force_released")) == 1 and not service.store.list_leases(holder)
+
+
+def test_c5_7a_a_timer_turn_owns_its_holder_before_it_takes_the_lease(routing_state, monkeypatch):
+    """The safety review's blocker (2026-09-29): a pass that found a timer's
+    lease before the turn had claimed the holder could act on the probe while
+    the turn did, and the turn could then write `quarantined` over a lease the
+    pass had released. The holder is in `timers.active_holders` before the
+    lease is taken, and a refused reservation leaves nothing behind."""
+    service, _ = routing_state
+    lane = service.store.get_lane("codex-1")
+    seen = []
+    acquire = service.store.acquire_lease
+
+    def watched(key, holder, *args, **kwargs):
+        seen.append(holder in service.timers.active_holders)
+        return acquire(key, holder, *args, **kwargs)
+    monkeypatch.setattr(service.store, "acquire_lease", watched)
+    holder = service.timers._reserve(lane, "probe")
+    assert holder and seen == [True] and holder in service.timers.active_holders
+    service.timers._release(holder)
+    assert service.timers._reserve(lane, "probe") is not None
+    blocked = second_lane(service, "codex-9")
+    service.dispatch("lanes", {"action": "hold", "lane_id": blocked, "until": after(3600)})
+    before = set(service.timers.active_holders)
+    assert service.timers._reserve(service.store.get_lane(blocked), "probe") is None
+    assert set(service.timers.active_holders) == before, "a refused reservation owns nothing"
+
+
+def test_c5_7a_a_pass_keeps_the_clock_and_request_of_a_holder_a_turn_owns(routing_state, monkeypatch):
+    """A timer turn can take its lease, quarantine its probe (setting the clock)
+    and be asked about after a pass read the leases: the pass does not prune
+    what belongs to a holder a turn still owns."""
+    service, _ = routing_state
+    holder = "probe:timer:" + str(uuid4())
+    service.timers.active_holders.add(holder)
+    service._probe_rechecks[holder] = (1, 5.0)
+    service._probe_resolutions[holder] = daemon_module.merge_probe_requests(None, {
+        "force_release": False, "operator_note": None, "requested_at": utcnow(), "via": "kill",
+        "requests": [{"id": "x", "mode": "confirm-dead", "operator_note": None, "at": utcnow(), "via": "kill"}]})
+    service._recover_probes()
+    assert holder in service._probe_rechecks and holder in service._probe_resolutions
+    service.timers.active_holders.discard(holder)
+    service._recover_probes()                          # let go, with no lease: pruned
+    assert holder not in service._probe_rechecks and holder not in service._probe_resolutions
+
+
+@pytest.mark.parametrize("mode", ["force-release", "confirm-dead"])
+def test_c5_7a_a_pass_that_raises_with_nothing_asked_meanwhile_keeps_the_request(routing_state, monkeypatch, mode):
+    """The usual pass that raises: nothing was asked while it ran. The request it
+    took goes back exactly as it was, the pass raises its own exception (putting
+    the request back once raised a TypeError instead, and lost it), and the next
+    pass acts on it."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    kill(service, job_id, **{mode.replace("-", "_"): True}, operator_note="first")
+    taken = copy.deepcopy(service._probe_resolutions[HOLDER])
+    target = "_force_release_probe" if mode == "force-release" else "_probe_census"
+    working = getattr(service, target)
+
+    def broken(*args):
+        raise RuntimeError("store unavailable")
+    monkeypatch.setattr(service, target, broken)
+    with pytest.raises(RuntimeError, match="store unavailable"):
+        service._recover_probes()
+    pending = service._probe_resolutions[HOLDER]
+    assert pending == taken
+    assert (pending["force_release"], pending["operator_note"], len(pending["requests"])) == (
+        mode == "force-release", "first", 1)
+    assert service.store.list_leases(HOLDER)
+    monkeypatch.setattr(service, target, working)
+    world.table = EMPTY
+    service._recover_probes()
+    assert not service.store.list_leases(HOLDER) and HOLDER not in service._probe_resolutions
+    [resolved] = kinds(service, "probe.force_released" if mode == "force-release" else "probe.confirmed_dead")
+    assert [(item["mode"], item["operator_note"]) for item in resolved["data"]["requests"]] == [(mode, "first")]
+
+
+def test_c5_7a_a_pass_whose_lease_check_raises_keeps_the_request(routing_state, monkeypatch):
+    """The pass takes the request before it reads the lease again, and a store
+    error there has not acted on it either: the request stays for the next pass."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    kill(service, job_id, force_release=True, operator_note="first")
+    taken = copy.deepcopy(service._probe_resolutions[HOLDER])
+    one = service.store.one
+
+    def locked(sql, params=()):
+        if sql == "SELECT 1 FROM leases WHERE holder=?":
+            raise sqlite3.OperationalError("database is locked")
+        return one(sql, params)
+    monkeypatch.setattr(service.store, "one", locked)
+    with pytest.raises(sqlite3.OperationalError):
+        service._recover_probes()
+    assert service._probe_resolutions[HOLDER] == taken and service.store.list_leases(HOLDER)
+    monkeypatch.setattr(service.store, "one", one)
+    service._recover_probes()
+    assert not service.store.list_leases(HOLDER) and len(kinds(service, "probe.force_released")) == 1
+
+
+#: The query that finds a holder's committed resolutions (`_probe_unrecorded`).
+RESOLUTIONS_BY_HOLDER = "AND json_extract(data_json,'$.holder')=? UNION ALL SELECT data_json FROM events"
+
+@settings(max_examples=500, deadline=None)
+@given(created=st.integers(0, 7), issued=st.integers(0, 7 * 10**6),
+       offset=st.one_of(st.none(), st.just("Z"), st.integers(-14 * 60, 14 * 60)))
+def test_c5_7a_coverage_is_decided_in_whole_seconds(created, issued, offset):
+    """I5 for any fraction and any offset `issued_at` may carry (`Z`, whole
+    minutes, or none: UTC): a probe created at second `created` (as `utcnow()`
+    writes it) is reached by a request issued at any instant of a later UTC
+    second, and never by one issued in the same second or before."""
+    row = {"created_at": f"2026-09-29T12:00:0{created}Z"}
+    instant = datetime(2026, 9, 29, 12, 0, 0, tzinfo=timezone.utc) + timedelta(microseconds=issued)
+    if offset is None:
+        stamp = instant.replace(tzinfo=None).isoformat()
+    elif offset == "Z":
+        stamp = instant.replace(tzinfo=None).isoformat() + "Z"
+    else:
+        stamp = instant.astimezone(timezone(timedelta(minutes=offset))).isoformat()
+    assert daemon_module.probe_covered(row, stamp) is (created < issued // 10**6)
+
+
+@pytest.mark.parametrize("stamp", [
+    "2026-09-29T12:00:00+00:00:00.500000",      # an offset under a second: 3.12 reads it as none
+    "2026-09-29T12:00:00+00:00:01", "2026-09-29T12:00:00.5-05:00:30",
+    "2026-09-29 12:00:00Z", "2026-09-29T12:00Z", "2026-W40-2T12:00:00Z", "20260929T120000Z",
+    "2026-09-29T12:00:00.1234567Z", "not a time"])
+def test_c5_7a_an_issued_at_outside_the_one_form_is_refused(routing_state, monkeypatch, stamp):
+    """`issued_at` takes one form, `YYYY-MM-DDTHH:MM:SS[.ffffff][Z|±HH:MM]`. Other
+    forms Python reads differently from one version to the next (an offset in
+    seconds or fractions of one), or not at all, so the same stamp could name
+    two instants and reach a probe it should not (I5): both handlers refuse
+    them, with the probe untouched."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    for ask in (lambda: kill(service, job_id, force_release=True, issued_at=stamp),
+                lambda: release_probe(service, "codex-1", force_release=True, issued_at=stamp)):
+        with pytest.raises(protocol.ProtocolError) as refused:
+            ask()
+        assert refused.value.code == Exit.INVALID_INPUT
+    assert HOLDER not in service._probe_resolutions and service.store.list_leases(HOLDER)
+
+
+@settings(max_examples=300, deadline=None)
+@given(entries=st.lists(st.builds(
+    lambda n, force, note, via: {"id": f"r{n}", "mode": "force-release" if force else "confirm-dead",
+                                 "operator_note": note, "at": f"2026-09-29T12:00:0{n % 10}Z", "via": via},
+    st.integers(0, 9), st.booleans(), st.one_of(st.none(), st.sampled_from(["a", "b"])),
+    st.sampled_from(["kill", "lanes release-probe"])), max_size=6, unique_by=lambda entry: entry["id"]),
+       again=st.lists(st.integers(0, 5), max_size=4))
+def test_c5_7a_a_request_is_one_request_by_its_id(entries, again):
+    """Merging is idempotent by id: putting back a request that is already
+    there, whole or in part, changes nothing. And the fold of the requests as
+    they were asked equals `probe_request` of their entries, which is how a
+    request less its recorded entries is rebuilt (a differential check)."""
+    merge = daemon_module.merge_probe_requests
+    one = [daemon_module.probe_request([entry]) for entry in entries]
+    folded = None
+    for request in one:
+        folded = merge(folded, request)
+    assert folded == daemon_module.probe_request(entries)
+    for n in again:
+        if n < len(one):
+            assert merge(folded, one[n]) == folded
+            assert merge(folded, folded) == folded
+
+
+PENDING = st.builds(
+    lambda force, note, at, via: {"force_release": force, "operator_note": note, "requested_at": at, "via": via,
+                                  "requests": [{"mode": "force-release" if force else "confirm-dead",
+                                                "operator_note": note, "at": at, "via": via}]},
+    st.booleans(), st.none() | st.sampled_from(["", "ps is failing", "checked"]),
+    st.sampled_from(["2026-09-29T15:00:00Z", "2026-09-29T15:00:01Z"]), st.sampled_from(["kill", "lanes release-probe"]))
+
+
+def test_c5_7a_merging_with_no_request_keeps_the_one_there_is():
+    """A request handler finds nothing pending (older missing), and a pass that
+    raised puts back what it took when nothing was asked meanwhile (newer missing)."""
+    request = {"force_release": True, "operator_note": "ps is failing", "requested_at": "2026-09-29T15:00:00Z",
+               "via": "kill", "requests": [{"mode": "force-release", "operator_note": "ps is failing",
+                                            "at": "2026-09-29T15:00:00Z", "via": "kill"}]}
+    expected = copy.deepcopy(request)
+    assert merge_probe_requests(None, request) == expected
+    assert merge_probe_requests(request, None) == expected
+    assert merge_probe_requests(None, None) is None
+
+
+@settings(deadline=None)
+@given(first=st.none() | PENDING, second=st.none() | PENDING, third=st.none() | PENDING)
+def test_c5_7a_merging_requests_is_associative_and_keeps_every_request(first, second, third):
+    """However the pending requests are grouped as they are merged (a handler's,
+    or a raised pass putting back what it took), the result is the same: a
+    --force-release asked by any of them, every request in order, and the
+    newest note given."""
+    merged = merge_probe_requests(merge_probe_requests(first, second), third)
+    assert merged == merge_probe_requests(first, merge_probe_requests(second, third))
+    asked = [request for request in (first, second, third) if request]
+    if not asked:
+        assert merged is None
+        return
+    assert merged["force_release"] == any(request["force_release"] for request in asked)
+    assert merged["requests"] == [item for request in asked for item in request["requests"]]
+    notes = [request["operator_note"] for request in asked if request["operator_note"] is not None]
+    assert merged["operator_note"] == (notes[-1] if notes else None)
+    assert (merged["requested_at"], merged["via"]) == (asked[-1]["requested_at"], asked[-1]["via"])
+
+
+def test_c5_7a_a_confirm_dead_whose_finish_raises_stays_quarantined_and_keeps_the_request(routing_state, monkeypatch):
+    """A verified-empty census on a `--confirm-dead` finishes the probe in one
+    `probe.confirmed_dead` transaction. If that transaction fails, nothing was
+    written ahead of it: the record still says quarantined (not `contained`), the
+    lease is held and the request kept, and the next pass finishes it as the
+    operator's (`probe.confirmed_dead`, with the note), never as an ordinary
+    look's `probe.completed` with an outcome read from the old receipt."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    kill(service, job_id, confirm_dead=True, operator_note="checked")
+    world.table = EMPTY
+
+    def broken(record, outcome, **kwargs):
+        raise RuntimeError("store unavailable")
+    service._finish_probe = broken                     # the instance's, removed below
+    try:
+        with pytest.raises(RuntimeError, match="store unavailable"):
+            service._recover_probes()
+    finally:
+        del service._finish_probe
+    assert service._probe_record(HOLDER)["state"] == "quarantined"
+    assert service.store.list_leases(HOLDER)
+    assert service._probe_resolutions[HOLDER]["operator_note"] == "checked"
+    service._recover_probes()
+    [confirmed] = kinds(service, "probe.confirmed_dead")
+    assert confirmed["data"]["operator_note"] == "checked" and not service.store.list_leases(HOLDER)
+    assert not service.store.query("SELECT 1 FROM events WHERE kind='probe.completed'")
+    assert [record["state"] for record in records(service, HOLDER)][-1] == "completed"
+
+
+def test_c5_7a_the_receipt_is_kept_with_a_confirm_dead(routing_state, monkeypatch):
+    """The finish records an `unknown` outcome (C-5.7a), and the directory goes,
+    so what the turn's receipt said is kept in the event."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    world.table = EMPTY
+    kill(service, job_id, confirm_dead=True)
+    service._recover_probes()
+    [confirmed] = kinds(service, "probe.confirmed_dead")
+    assert confirmed["data"]["receipt"] == {"rc": 0, "signal": None, "wall_s": .1, "child_pid": 900002,
+                                            "spawn_error": None}
+
+
+def test_c5_7a_a_force_released_job_keeps_its_probe_clock(routing_state, monkeypatch):
+    """C-6.10: an inconclusive probe's job waits its own 60 s before it is looked
+    at again, and survivors may still be running on the lane just given back."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    kill(service, job_id, force_release=True)
+    service._recover_probes()
+    job = service.store.get_job(job_id)
+    assert job["wait_reason"] == "capacity"
+    assert after(50) <= job["next_check_at"] <= after(70)
+
+
+def test_c5_7a_a_pass_never_looks_at_a_lease_released_since_it_read_the_leases(routing_state, monkeypatch):
+    """A turn's lease can go between the pass's read of the leases and its look;
+    the pass reads again before it acts, so it neither looks nor acts on a request."""
+    service, _ = routing_state
+    holder = started_turn(service, "keepalive")
+    world = World(service, monkeypatch, census(SURVIVOR))
+    quarantined(service, world, holder)
+    stale = service.store.query("SELECT * FROM leases WHERE holder LIKE 'probe:%'")
+    release_probe(service, "codex-1", force_release=True)
+    service.store.release_leases(holder)
+    query = service.store.query
+    monkeypatch.setattr(service.store, "query", lambda sql, params=(): stale
+                        if sql == "SELECT * FROM leases WHERE holder LIKE 'probe:%'" else query(sql, params))
+    looks = len(world.looks)
+    service._recover_probes()
+    assert len(world.looks) == looks and not kinds(service, "probe.force_released")
+
+
+@pytest.mark.parametrize("state,released", [("quarantined", False), ("starting", False), ("containing", False),
+                                            ("contained", True), ("completed", True), ("reserved", True)])
+def test_c5_7a_a_turns_release_asks_the_record(routing_state, monkeypatch, state, released):
+    """A turn that raised after its probe was quarantined never reported it; the
+    record, not the turn's flag, decides whether its lease goes. The holder is let
+    go after the lease, so `_recover_probes` takes over a lease that stays."""
+    service, _ = routing_state
+    holder = started_turn(service, "keepalive")
+    service._save_probe({**service._probe_record(holder), "state": state})
+    service.timers.active_holders.add(holder)
+    order = []
+    release = service.store.release_leases
+    monkeypatch.setattr(service.store, "release_leases",
+                        lambda h, **kw: (order.append(("release", holder in service.timers.active_holders)),
+                                         release(h, **kw))[1])
+    service.timers._release(holder, quarantined=False)
+    assert bool(service.store.list_leases(holder)) is not released
+    assert holder not in service.timers.active_holders
+    assert order == ([("release", True)] if released else [])
+
+
+def test_c5_7a_a_turn_with_no_record_gives_its_lease_back(routing_state):
+    service, _ = routing_state
+    holder = "probe:timer:" + str(uuid4())
+    assert service.store.acquire_lease("lane:codex-1:slot:0", holder)
+    service.timers.active_holders.add(holder)
+    service.timers._release(holder)
+    assert not service.store.list_leases(holder)
+
+
+def test_c5_7a_why_names_the_probes_that_fill_the_fleet(routing_state, monkeypatch):
+    """Each probe lease counts toward max_active_attempts (scheduler
+    `reserved_probes`): four quarantined probes filled the fleet on 2026-09-27,
+    and `why` for every other job said only that the fleet was full."""
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    other = submitted(service, harness)
+    service._holds = {other: {"reason": "fleet-full", "max_active_attempts": 4}}
+    why = service.dispatch("why", {"job_id": other})
+    assert [row["holder"] for row in why["job"]["fleet_probes"]] == [HOLDER]
+    assert "Probes hold 1 lane slot(s), and each counts toward max_active_attempts:" in why["text"]
+    assert f"subfleet kill {job_id} --force-release" in why["text"]
+    service._holds = {other: {"reason": "behind-older-job", "behind": job_id, "tier": "hard"}}
+    assert service.dispatch("why", {"job_id": other})["job"]["fleet_probes"] == []
+
+
+def test_c5_7a_lanes_release_says_it_released_no_hold_and_names_the_probe(routing_state, monkeypatch):
+    service, harness = routing_state
+    job_id, world = admission_probe(service, harness, monkeypatch)
+    answer = service.dispatch("lanes", {"action": "release", "lane_id": "codex-1"})
+    assert answer["released"] == "codex-1" and answer["holds_released"] == 0
+    assert answer["probe"] == {"holder": HOLDER, "state": "quarantined"}
+    assert service.store.list_leases(HOLDER), "`release` ends holds; it never touches a probe"
+    service.dispatch("lanes", {"action": "hold", "lane_id": "codex-1", "until": after(3600)})
+    assert service.dispatch("lanes", {"action": "release", "lane_id": "codex-1"})["holds_released"] == 1
+
+
+# --- the property ----------------------------------------------------------------------
+
+#: What can happen to a quarantined probe, weighted so that most examples reach
+#: a release one way or the other and many are still quarantined when they end.
+VALUES = {"pass": st.sampled_from([.05, .5, 1, 3, 30, 61]),
+          "table": st.sampled_from(["survivor", "other", "empty", "empty", "empty", "unverifiable"]),
+          "confirm": st.sampled_from(["kill", "lane", "holder"]),
+          "force": st.sampled_from(["kill", "lane", "holder"]),
+          "cancel": st.none(), "restart": st.none(), "turn": st.sampled_from([.05, 1, 30]),
+          "stale": st.sampled_from(["kill", "lane"]), "turn-ends": st.none(),
+          "fault": st.tuples(st.sampled_from(["resolve", "lease", "finish"]), st.sampled_from([.05, 1, 61])),
+          "leader": st.booleans()}
+OPS = st.lists(st.sampled_from(["pass"] * 5 + ["table"] * 3 + ["confirm"] * 3 + ["force"] * 2
+                               + ["cancel", "restart", "turn", "stale", "turn-ends", "fault", "leader"])
+               .flatmap(lambda op: st.tuples(st.just(op), VALUES[op])), min_size=12, max_size=50)
+
+#: The lease `_recover_probes` reads again after it takes a request.
+LEASE_CHECK = "SELECT 1 FROM leases WHERE holder=?"
+
+TABLES = {"survivor": census(SURVIVOR), "other": census(OTHER), "empty": EMPTY, "unverifiable": NOT_VERIFIABLE}
+
+
+#: Sequences the property always runs, whatever it draws: a `--confirm-dead`
+#: whose census comes back empty and whose finishing transaction fails, then a
+#: pass that finishes it; for an admission probe (by job) and a re-enrolment's
+#: (by holder, with the guardian alive).
+ALWAYS = [("admission", [("confirm", "kill"), ("table", "empty"), ("fault", ("finish", 1)), ("pass", 1)]),
+          ("enroll", [("leader", True), ("confirm", "holder"), ("table", "empty"), ("fault", ("finish", 61)),
+                      ("pass", 1), ("pass", 61)])]
+
+
+@settings(max_examples=200, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@example(kind=ALWAYS[0][0], ops=ALWAYS[0][1])
+@example(kind=ALWAYS[1][0], ops=ALWAYS[1][1])
+@given(kind=st.sampled_from(["admission", "keepalive", "enroll"]), ops=OPS)
+def test_c5_7a_no_path_releases_a_quarantined_probe_but_a_verified_empty_census_or_a_recorded_override(
+        tmp_path_factory, kind, ops):
+    """For any sequence of passes, process-table changes, operator requests (by
+    job, lane or holder), cancels, restarts (the in-memory clock and requests
+    forgotten) and passes while a turn still owns the holder, and for each kind
+    of probe:
+
+    - I1: the lease goes only in a step whose last census came back verified
+      empty, or in a step that recorded a `probe.force_released` naming the
+      holder, which only a `--force-release` request produces;
+    - I2: nothing is ever signalled (World forbids it), whether or not the
+      recorded guardian is still alive and its survivors are recorded as owned;
+    - I3: once released it stays released, no later record says quarantined,
+      and its job, if still waiting, is not held `uncertain`;
+    - I4: a request handler takes no census;
+    - a force release issued before the probe existed reaches nothing, and a
+      turn's release that reports nothing quarantined never frees it;
+    - a pass that raises after taking a request (reading the lease again, or
+      resolving) raises its own error and keeps the request as it was;
+    - while the lease is held, the record says quarantined.
+    """
+    root = tmp_path_factory.mktemp("override") / "state"
+    root.mkdir()
+    harness = Harness(root)
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "fixture-boot")
+        monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "fixture-start")
+        monkeypatch.setattr(daemon_module.capacity, "read_desktop_account", lambda: None)
+        monkeypatch.setattr(registry, "_factories", {"codex": FakeAdapter, "claude": FakeAdapter})
+        service = Daemon(root)
+        try:
+            job_id = None
+            if kind == "admission":
+                job_id = submitted(service, harness)
+                started_probe(service, job_id)
+                holder = HOLDER
+            else:
+                lanes = ("codex-1", second_lane(service)) if kind == "enroll" else ("codex-1",)
+                holder = started_turn(service, kind, lanes)
+            world = World(service, monkeypatch, census(SURVIVOR))
+            quarantined(service, world, holder)
+            # `leader` ops make the recorded guardian alive, with the survivors
+            # recorded as owned: the kill protocol would have a target to signal.
+            leader = {"alive": False}
+            monkeypatch.setattr(procs, "same_process", lambda *args: leader["alive"])
+            record = service._probe_record(holder)
+            service._save_probe({**record, "owned_identities": {
+                str(pid): dataclasses.asdict(procs.ProcessIdentity(pid, "fixture-boot", "fixture-start"))
+                for pid in (SURVIVOR, OTHER)}})
+            forced, released = 0, False
+            for op, value in ops:
+                held = bool(service.store.list_leases(holder))
+                censuses = len(world.censuses)
+                overrides = len(kinds(service, "probe.force_released"))
+                if op == "pass":
+                    world.now += value
+                    service._recover_probes()
+                elif op == "table":
+                    world.table = TABLES[value]
+                elif op in ("confirm", "force"):
+                    flags = {"force_release": True} if op == "force" else {"confirm_dead": True}
+                    if value == "kill" and job_id:
+                        kill(service, job_id, **flags)
+                    else:
+                        release_probe(service, holder if value == "holder" else "codex-1", **flags)
+                    assert len(world.censuses) == censuses, "I4: a request handler takes no census"
+                    if op == "force" and held:
+                        forced += 1
+                elif op == "stale":
+                    # A force release issued before this probe existed (sent again
+                    # after a lost answer, C-16.3): it must reach nothing.
+                    if value == "kill" and job_id:
+                        kill(service, job_id, force_release=True, issued_at=LONG_AGO)
+                    else:
+                        release_probe(service, "codex-1", force_release=True, issued_at=LONG_AGO)
+                    assert len(world.censuses) == censuses, "I4: a request handler takes no census"
+                elif op == "turn-ends":
+                    # A turn that raised after quarantining returns no outcome: its
+                    # release reports nothing quarantined, and the record decides.
+                    service.timers.active_holders.add(holder)
+                    service.timers._release(holder, quarantined=False)
+                elif op == "cancel" and job_id:
+                    kill(service, job_id)
+                elif op == "restart":
+                    service._probe_rechecks.clear()
+                    service._probe_resolutions.clear()
+                elif op == "turn":
+                    # A pass while a turn still owns the holder (it has quarantined
+                    # the probe and not yet returned): the pass must leave it alone.
+                    service.timers.active_holders.add(holder)
+                    looks = len(world.looks)
+                    world.now += value
+                    service._recover_probes()
+                    service.timers.active_holders.discard(holder)
+                    assert len(world.looks) == looks, "a turn's probe is the turn's"
+                elif op == "leader":
+                    leader["alive"] = value
+                elif op == "fault":
+                    # The next pass raises after it has taken a pending request: a
+                    # store error reading the lease again, while resolving, or in
+                    # the transaction that finishes a verified-empty
+                    # `--confirm-dead`. It acts on nothing and keeps the request,
+                    # and (checked below) the record still says quarantined.
+                    where, step = value
+                    pending = service._probe_resolutions.get(holder)
+                    one = service.store.one
+
+                    def broken(*args, **kwargs):
+                        raise RuntimeError("store unavailable")
+
+                    def locked(sql, params=()):
+                        if sql == LEASE_CHECK:
+                            raise RuntimeError("store unavailable")
+                        return one(sql, params)
+                    if where == "resolve":
+                        service._resolve_probe = broken
+                    elif where == "finish":
+                        service._finish_probe = broken
+                    else:
+                        service.store.one = locked
+                    world.now += step
+                    try:
+                        if pending is not None and held and where != "finish":
+                            with pytest.raises(RuntimeError, match="store unavailable"):
+                                service._recover_probes()
+                            assert service._probe_resolutions.get(holder) == pending, "the request is kept"
+                        elif pending is not None and held:
+                            # Only a --confirm-dead whose census comes back empty
+                            # reaches the finish; any other resolution completes.
+                            try:
+                                service._recover_probes()
+                            except RuntimeError:
+                                assert service._probe_resolutions.get(holder) == pending, "the request is kept"
+                        elif where == "resolve":
+                            service._recover_probes()
+                    finally:
+                        service.__dict__.pop("_resolve_probe", None)
+                        service.__dict__.pop("_finish_probe", None)
+                        service.store.__dict__.pop("one", None)
+                now_held = bool(service.store.list_leases(holder))
+                record = service._probe_record(holder)
+                new_overrides = len(kinds(service, "probe.force_released")) - overrides
+                if released:
+                    assert not now_held, "I3: a released lease stays released"
+                    assert record["state"] in ("completed", "released"), "I3: nothing resurrects it"
+                    assert new_overrides == 0
+                    continue
+                if held and not now_held:
+                    verified = len(world.censuses) > censuses and world.seen[-1].verified_empty
+                    assert verified or new_overrides == 1, "I1: released without either end"
+                    assert not (verified and new_overrides), "one end or the other, not both"
+                    assert record["state"] == ("released" if new_overrides else "completed")
+                    if job_id:
+                        job = service.store.get_job(job_id)
+                        assert not (job["state"] == "waiting" and job["wait_reason"] == "uncertain"), "I3: not stranded"
+                    released = True
+                    event("released by an override" if new_overrides else "released on a verified-empty census")
+                    continue
+                assert new_overrides == 0, "I1: an override is recorded only with its release"
+                assert now_held and record["state"] == "quarantined"
+            assert len(kinds(service, "probe.force_released")) <= forced, "I1: only a --force-release request overrides"
+            if not released:
+                event("still quarantined")
+        finally:
+            service.close()

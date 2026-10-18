@@ -741,7 +741,9 @@ def test_c16_3_an_unknown_resolution_says_to_repeat_the_resolution(daemon, capsy
     err = capsys.readouterr().err
     assert f"the {flag} resolution may have been requested" in err
     assert f"subfleet kill 'JOB$1' {flag} --note 'checked by hand' again is safe" in err
-    assert "subfleet runs show 'JOB$1' shows whether the attempt is still quarantined" in err
+    # C-5.7a: the job's probes resolve with it, and a repeat is a new command.
+    assert ("subfleet runs show 'JOB$1' shows whether the attempt, or a probe of the job, "
+            "is still quarantined, and which") in err
     assert "cancel_requested_at" not in err and "leases" not in err
 
 
