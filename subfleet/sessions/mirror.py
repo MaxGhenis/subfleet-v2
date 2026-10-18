@@ -814,13 +814,16 @@ def _raised_at(exc: BaseException) -> str:
 
     The daemon's timer keeps an exception's type and nothing else, so the
     pass's record is the one place that can say where. Read from the
-    traceback's frames: no source file is opened.
+    traceback's frames: no source file is opened. A frame is this module's
+    by its module name, not its file name: imported from a `.pyc` alone,
+    `__file__` names the `.pyc` and the code names the source it was
+    compiled from (review of #170).
     """
     here = last = None
     step = exc.__traceback__
     while step is not None:
         last = step
-        if step.tb_frame.f_code.co_filename == __file__:
+        if step.tb_frame.f_globals.get("__name__") == __name__:
             here = step
         step = step.tb_next
     found = here or last
@@ -2228,7 +2231,10 @@ class Mirror:
         A pass that took the lock ends its record however it ends, so that
         only a pass in flight reads as one. Cancellation and OSError are
         recorded here and returned. Any other exception is recorded by
-        `_record_raised` and raised again.
+        `_record_raised` and raised again, unless the pass had already written
+        the record of its end (`_holds_end`): an interrupt that arrives after
+        a pass recorded `ok` leaves that record, and the `last_ok_at` it
+        wrote, as they are.
         """
         options = options or Options()
         current = Pass(started_at=_iso(self.now()), dry_run=options.dry_run)
@@ -2270,8 +2276,9 @@ class Mirror:
                 self._record(current, load_gap=self._settle(options))
         except BaseException as exc:
             # Whatever else ends a pass ends its record too, and is raised
-            # again (`_record_raised`). Only a pass that holds the lock writes.
-            if lock is not None:
+            # again (`_record_raised`). Only a pass that holds the lock writes,
+            # and a record of the pass's end already written stands.
+            if lock is not None and not self._holds_end(current):
                 self._record_raised(current, exc, options)
             raise
         finally:
@@ -2361,9 +2368,23 @@ class Mirror:
         except BaseException as exc:
             # As in `run_once`. Raised inside a full pass's checkpoint, it
             # ends that pass too, which records its own end the same way.
-            self._record_raised(current, exc, options)
+            if not self._holds_end(current):
+                self._record_raised(current, exc, options)
             raise
         return current
+
+    def _holds_end(self, current: Pass) -> bool:
+        """Whether the sidecar already holds this pass's end as the pass wrote it.
+
+        An interrupt can arrive inside the write of a pass's end, after the
+        file is in place (the review of #170 delivered SIGINT there). That
+        pass ended as its record says, and recording it again as `cancelled`
+        would leave a `cancelled` record beside the `last_ok_at` it wrote.
+        """
+        if current.state == "running" or current.finished_at is None:
+            return False
+        block = self.sidecar().get("hot" if current.kind == "hot" else "pass")
+        return block == json.loads(json.dumps(current.to_dict()))
 
     def _record_raised(self, current: Pass, exc: BaseException, options: Options) -> None:
         """Finish the record of a pass that an exception no pass expects is ending.
@@ -2382,9 +2403,10 @@ class Mirror:
         type, in a `timer.error` event and in `timers.<name>.last_error_type`
         of `daemon.status`, and that is all the daemon's store learns of a
         failed pass: a pass that returned would read there as a clean run.
-        No exception of this method's own takes its place. A report that
-        fails is left out of the record, and a record that cannot be
-        written is a note on the exception.
+        No exception of this method's own takes its place, short of a new
+        interrupt while it writes (which then leaves the record as it was). A
+        report that fails is left out of the record, and a record that
+        cannot be written is a note on the exception, when one can be added.
         """
         try:
             current.state = "error" if isinstance(exc, Exception) else "cancelled"
@@ -2399,7 +2421,10 @@ class Mirror:
             else:
                 self._record(current, load_gap=gap)
         except Exception as failed:             # noqa: BLE001 - as above
-            exc.add_note(f"the mirror's sidecar does not record this: {type(failed).__name__}")
+            try:
+                exc.add_note(f"the mirror's sidecar does not record this: {type(failed).__name__}")
+            except Exception:                   # noqa: BLE001 - e.g. `__notes__` is no list
+                pass
 
     def _borrow(self) -> dict[str, Any]:
         """Before a dry run: put copies in place of everything a pass changes

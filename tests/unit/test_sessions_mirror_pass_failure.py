@@ -15,18 +15,23 @@ and a hot pass's `hot` record:
 
 * finished: once `run_once` or `run_hot` has returned or raised, the record of
   a pass that took the lock is `ok`, `error` or `cancelled` and has a finish,
-  whenever the sidecar could be written;
+  whenever the sidecar could be written and no second interrupt arrived while
+  the pass recorded its end;
 * one account of the end: a pass that returns left its own record in the
   sidecar; a pass that raises left `error` (`cancelled` for an interrupt) with
-  the exception's type, and raises that same exception;
+  the exception's type, and raises that same exception, unless the record of
+  its end was already written, which then stands;
 * OSError and cancellation still return, and no other exception that ends a
-  pass does;
-* `last_ok_at` moves only when a full pass ends `ok`; a hot pass changes
-  nothing of the full pass's record;
-* the lock is free afterwards, and a pass that never held it wrote nothing;
+  pass does (an OSError from the write of the pass's end is raised, as
+  before);
+* `last_ok_at` moves only when a full pass's `ok` is written; a hot pass
+  changes nothing of the full pass's record;
+* the lock is free afterwards, and an exception other than OSError that ends
+  a pass before it takes the lock writes nothing;
 * health follows: `healthy` after an `ok` full pass, `stalled` after any
   other, and never `running` for a pass that is over;
-* the timer's `timer.error` event and the sidecar name the same type.
+* a pass has a `timer.error` event exactly when it raised an exception, and
+  the event and the sidecar name the same type.
 
 Every test names the clause it proves (C-20.5). The desktop store, the
 transcripts, the app's log and the state root live under `tmp_path`, through
@@ -36,9 +41,9 @@ SUBFLEET_HOME; nothing here reads or writes the operator's own.
 
 from __future__ import annotations
 
-import builtins
 import errno
 import fcntl
+import functools
 import io
 import json
 import re
@@ -472,6 +477,119 @@ def test_the_record_says_where_in_the_mirror_the_exception_came_from():
         pytest.fail("`activity_targets(None, 1)` no longer raises: pick another raise inside the mirror")
 
 
+def test_the_record_names_this_module_by_its_name_not_its_file():
+    """C-23.28: imported from a `.pyc` alone, `mirror.__file__` names the
+    `.pyc` and the code the source it was compiled from, so a file name names
+    the wrong frame (review of #170). A frame is the mirror's by module name."""
+    mine, theirs = {"__name__": mirror.__name__}, {"__name__": "caller"}
+    exec(compile("def inner(call):\n    call()\n", "/build/somewhere/mirror.py", "exec"), mine)
+    exec(compile("def boom():\n    raise RuntimeError('past the mirror')\n",
+                 "/elsewhere/caller.py", "exec"), theirs)
+    with pytest.raises(RuntimeError) as caught:
+        mine["inner"](theirs["boom"])               # through the mirror, raised past it
+    assert mirror._raised_at(caught.value) == " (mirror.py:2 in inner)"
+    mine["__name__"] = "not.the.mirror"
+    with pytest.raises(RuntimeError) as caught:
+        mine["inner"](theirs["boom"])               # through none of it: the innermost
+    assert mirror._raised_at(caught.value) == " (caller.py:2 in boom)"
+
+
+def test_a_note_that_cannot_be_added_does_not_replace_the_exception(world, monkeypatch):
+    """C-23.28: an exception whose notes are not a list cannot take a note.
+    The pass still raises its own exception, not the TypeError of the note."""
+    unspread(world)
+    error = RuntimeError("no pass expects this")
+    error.__notes__ = ("a tuple",)
+    record = mirror.Mirror._record
+
+    def start_only(self, current, **kwargs):
+        if current.state != "running":
+            raise OSError(errno.EIO, "no write")
+        return record(self, current, **kwargs)
+
+    monkeypatch.setattr(mirror.Mirror, "_record", start_only)
+    monkeypatch.setattr(mirror.Mirror, "_spread", raising(error))
+    _result, raised = attempt(world.full)
+    assert raised is error and raised.__notes__ == ("a tuple",)
+    assert world.lock_is_free()
+
+
+@pytest.mark.parametrize("ending", ["ok", "error"])
+def test_an_interrupt_after_the_end_is_recorded_leaves_that_record(world, monkeypatch, ending):
+    """C-23.28: the review of #170 delivered SIGINT just after a pass recorded
+    `ok`, and the record became `cancelled` beside the `last_ok_at` of that
+    same pass. A record of a pass's end, once written, now stands: the pass
+    did end that way. The interrupt still reaches the caller."""
+    unspread(world)
+    if ending == "error":
+        monkeypatch.setattr(mirror.Mirror, "folders", raising(OSError("store not listed")))
+    record = mirror.Mirror._record
+
+    def then_interrupted(self, current, **kwargs):
+        record(self, current, **kwargs)
+        if current.state != "running":
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(mirror.Mirror, "_record", then_interrupted)
+    _result, raised = attempt(world.full)
+    assert isinstance(raised, KeyboardInterrupt)
+    data = world.sidecar()
+    assert data["pass"]["state"] == ending and data["pass"]["finished_at"] == fx.iso(CLOCK)
+    if ending == "ok":
+        assert data["pass"]["error"] is None and data["last_ok_at"] == fx.iso(CLOCK)
+        assert world.holds(ONE) == [0, 1, 2] and world.health()["status"] == "healthy"
+    else:
+        assert data["pass"]["error"] == "OSError: store not listed"
+        assert data["last_ok_at"] is None and world.health()["status"] == "stalled"
+    assert world.lock_is_free()
+
+
+def test_an_interrupt_after_a_hot_pass_recorded_its_error_leaves_that_record(world, monkeypatch):
+    """C-23.28: as for the full pass: the hot record says how the pass ended."""
+    inventoried(world)
+    world.wait(2)
+    monkeypatch.setattr(mirror.Mirror, "folders", raising(OSError("store not listed")))
+    record = mirror.Mirror._record_hot
+
+    def then_interrupted(self, current, load_gap):
+        record(self, current, load_gap)
+        if current.state != "running":
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(mirror.Mirror, "_record_hot", then_interrupted)
+    _result, raised = attempt(world.hot)
+    assert isinstance(raised, KeyboardInterrupt)
+    hot = world.sidecar()["hot"]
+    assert hot["state"] == "error" and hot["error"] == "OSError: store not listed"
+    assert world.lock_is_free()
+
+
+@pytest.mark.parametrize("first", ["ok", "raised"])
+def test_a_pass_without_flag_sync_services_no_helper_left_by_the_pass_before(
+        tmp_path, monkeypatch, first):
+    """C-23.28: a full pass forks its flag-only helper only when it syncs
+    flags, and drops it however it ends. A helper left from a pass before,
+    one that raised included, would sync flags in a pass told not to (review
+    of #170: no test failed when the drop was removed)."""
+    world = World(tmp_path, monkeypatch, hot_interval=1e-9)
+    inventoried(world)
+    world.wait(60)
+    if first == "raised":
+        with monkeypatch.context() as patch:
+            patch.setattr(mirror.Mirror, "_pass", raising(RuntimeError("after the fork")))
+            with pytest.raises(RuntimeError):
+                world.full()
+    else:
+        assert world.full().state == "ok"
+    assert world.running._hot_worker is None and world.running._hot_options is None
+    world.save(0, ONE, isStarred=True)              # the user stars it under login a
+    world.wait(60)
+    result = world.full(flag_sync=False)
+    assert result.state == "ok" and world.running._hot_services == 0
+    assert [json.loads(world.path(index).read_text())["isStarred"] for index in range(3)] == [
+        True, False, False]
+
+
 # --- a hot pass ----------------------------------------------------------------------
 
 def test_a_hot_pass_that_raises_is_recorded_at_once_and_leaves_the_full_record_alone(
@@ -754,9 +872,10 @@ EDITS = st.one_of(
               st.sampled_from([{"isArchived": True}, {"isArchived": False}, {"isStarred": True},
                                {"title": "renamed", "titleSource": "manual"}])),
 )
-#: The app's saves, which pass runs, how long since the last one, and what ends it.
+#: The app's saves, which pass runs, how long since the last one, what ends
+#: it, and whether it syncs flags (a pass without flag sync forks no helper).
 STEPS = st.tuples(st.lists(EDITS, max_size=2), st.sampled_from(["full", "hot", "hot"]),
-                  st.sampled_from([2, 2, 61]), faults())
+                  st.sampled_from([2, 2, 61]), faults(), st.sampled_from([True, True, False]))
 
 
 def edit(world: World, step: tuple) -> None:
@@ -802,7 +921,7 @@ def ended_as(record: dict, result, raised, when: str) -> None:
 
 
 @settings(max_examples=250, deadline=None,
-          suppress_health_check=[HealthCheck.function_scoped_fixture])
+          suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow])
 @given(interval=st.sampled_from([0, 1e-9]), steps=st.lists(STEPS, min_size=1, max_size=6))
 def test_every_pass_that_starts_is_recorded_as_finished(interval, steps, tmp_path_factory,
                                                         monkeypatch):
@@ -816,7 +935,7 @@ def test_every_pass_that_starts_is_recorded_as_finished(interval, steps, tmp_pat
         for index in range(3):
             world.put(index, ONE)
         world.put(0, TWO)
-        for edits, kind, pause, fault in steps:
+        for edits, kind, pause, fault, flags in steps:
             for step in edits:
                 edit(world, step)
             world.wait(pause)
@@ -824,7 +943,8 @@ def test_every_pass_that_starts_is_recorded_as_finished(interval, steps, tmp_pat
             full = kind == "full" or not world.running._inventoried    # a first hot pass is a full one
             with pytest.MonkeyPatch.context() as faulty:
                 armed = arm(world, faulty, fault)
-                result, raised = attempt(world.full if kind == "full" else world.hot)
+                result, raised = attempt(functools.partial(
+                    world.full if kind == "full" else world.hot, flag_sync=flags))
             stopped = world.cancel.is_set()
             world.cancel.clear()
             error = fault[4] if armed is not None and armed.fired else None
@@ -870,13 +990,15 @@ def test_every_pass_that_starts_is_recorded_as_finished(interval, steps, tmp_pat
 
 
 @settings(max_examples=80, deadline=None,
-          suppress_health_check=[HealthCheck.function_scoped_fixture])
+          suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow])
 @given(timer=st.sampled_from(["mirror", "mirror_hot"]), fault=faults())
 def test_the_timer_and_the_sidecar_name_the_same_ending(timer, fault, tmp_path_factory,
                                                         monkeypatch):
     """C-23.28: two records of one pass, the daemon's `timer.error` event and
-    the mirror's sidecar. A pass has an error event exactly when its record is
-    an `error` that is no OSError's, and both name the same type."""
+    the mirror's sidecar. A pass has an error event exactly when it raised;
+    its record then names the place it was raised (only a raised exception's
+    record does), and both name the same type. That includes an OSError that
+    the pass's own write of its end raised, which is raised too."""
     from subfleet.store import Store
     from subfleet.timers import Timers
     if fault is not None and fault[0] == "raise" and isinstance(fault[4], BASE):
@@ -904,15 +1026,14 @@ def test_the_timer_and_the_sidecar_name_the_same_ending(timer, fault, tmp_path_f
             record = data["pass" if timer == "mirror" else "hot"]
             assert record["state"] in FINISHED and record["finished_at"] is not None
             named = (record["error"] or "").split(":")[0]
-            returned = isinstance(getattr(builtins, named, None), type) and issubclass(
-                getattr(builtins, named), OSError)
+            raised = bool(WHERE.search(record["error"] or ""))
             if logged:
                 assert logged == [{"timer": timer, "error_type": named}]
-                assert record["state"] == "error" and not returned
+                assert record["state"] == "error" and raised, record
                 assert timers.status()[timer]["last_error_type"] == named
             else:
                 assert timers.status()[timer]["last_error_type"] is None
-                assert record["state"] != "error" or returned, record
+                assert not raised, record
         finally:
             timers.stop()
             store.close()
