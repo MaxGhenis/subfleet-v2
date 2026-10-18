@@ -1346,9 +1346,9 @@ each wait took between 30 and 70 minutes.
 
 `6477b8ec1` (merge), `77840b88b`, `3ad63b9d1`, `299e7b133`, `508e754d5`,
 `d68ec288a` and `bbadfc780` (tests), `37ba6cd9a` (P2-1, P3-1), `526f7da17`
-(P3-2 to P3-4), `8f64e0eb8` (contract), and `87d4f1b7c`, `c0e60e0f3` and
-this commit (report). All sit on a detached HEAD in the shared Git index.
-Nothing was pushed.
+(P3-2 to P3-4), `8f64e0eb8` (contract), and the report commits from
+`87d4f1b7c` on. All sit on a detached HEAD in the shared Git index. Nothing
+was pushed.
 
 ### Cleanup
 
