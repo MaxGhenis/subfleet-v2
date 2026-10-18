@@ -9,9 +9,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
 import json
+import os
 from pathlib import Path
+import re
+import sqlite3
+import tempfile
 import threading
 import time
+import traceback
 from uuid import uuid4
 
 from . import capacity, claude_cards
@@ -35,6 +40,292 @@ def instant(value=None):
 
 def iso(value):
     return instant(value).astimezone(timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
+
+
+#: The timers `Timers.status()` reports (C-18.1).
+TIMERS = ('probe', 'keepalive', 'reset_credits', 'alerts', 'retention', 'mirror', 'mirror_hot', 'claude_cards')
+#: C-18.5: a failure stays in `status` and `doctor` this long after the timer's
+#: next run that no exception ended.
+FAILURE_VISIBLE_S = 86400
+#: C-18.5: a timer that keeps failing writes a `timer.error` event at least this
+#: often, by the daemon's monotonic clock.
+FAILURE_HEARTBEAT_S = 3600
+#: C-18.5: each timer's failure record, exactly, in the state root. Rewritten
+#: whenever a record changes, read back at start and by `doctor`, so a restart
+#: or a reader loses nothing the bounded event stream leaves out.
+RECORDS_FILE = 'timers.json'
+#: C-18.5: the most of RECORDS_FILE a reader takes.
+RECORDS_MAX_BYTES = 1 << 20
+#: C-18.5: the `timer.error` events a refused store write leaves for the timer's
+#: next run to write: the first not written, and the latest.
+UNSENT_MAX = 2
+#: C-18.5: the most kinds of one failure, by type and place, that each get a
+#: `timer.error` event of their own.
+FAILURE_KINDS_MAX = 8
+#: C-18.5: the most of an exception's message that is kept, after the scrub.
+FAILURE_MESSAGE_CHARS = 240
+#: C-18.5: a longer message is not scrubbed on a timer's worker, and is left out.
+FAILURE_SCRUB_MAX_CHARS = 1_000_000
+#: C-18.5: the innermost frames under this package that a `timer.error` event names.
+FAILURE_TRACE_FRAMES = 6
+#: C-18.5: a timer whose clean runs are not recorded (`mirror_hot`) records a
+#: change between failing and not at most this often, by the monotonic clock.
+FAILURE_CHANGE_S = 60
+#: C-18.5: what a failure message may not carry, past the handoff scrub (C-23.14):
+#: three dot-separated base64url segments holding a digit (a JWT whose header is
+#: not `eyJ`); a run of 20 or more token characters with an upper-case letter, a
+#: lower-case letter and a digit; and 32 or more hexadecimal digits. A path's
+#: components are judged one by one; a run never starts at a `/`.
+_JWT_SHAPE = re.compile(r'(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}(?![A-Za-z0-9_-])')
+_OPAQUE_RUN = re.compile(r'(?<![A-Za-z0-9_+=-])[A-Za-z0-9_+=-]{20,}(?![A-Za-z0-9_+=-])')
+_HEX_RUN = re.compile(r'(?<![A-Za-z0-9])[0-9A-Fa-f]{32,}(?![A-Za-z0-9])')
+_REDACTED = '[REDACTED]'
+#: C-18.5: what `doctor` and an offline `status` read, newest first, through
+#: `events_kind`. `Store.add_event` writes an empty event of the same kind beside
+#: each one, which is skipped. At five runs a minute this reaches back about a week.
+RECORDED_QUERY = ("SELECT data_json FROM events WHERE kind='timer.run' AND data_json<>'{}' "
+                  "ORDER BY event_id DESC LIMIT 50000")
+_PACKAGE = os.path.dirname(os.path.abspath(__file__)) + os.sep
+_FAILURE_TIMES = ('first_at', 'since', 'last_at')
+
+
+def _utf8(text):
+    """C-18.5: `text` as valid UTF-8: a lone surrogate (a path decoded with
+    `surrogateescape`, say) becomes its `\\udcxx` escape. One in a record could be
+    neither stored nor sent: every write for the timer raised, and `daemon.status`
+    could not be encoded (review of #171, round 2)."""
+    return text.encode('utf-8', 'backslashreplace').decode('utf-8') if isinstance(text, str) else text
+
+
+def raised_from(exc):
+    """C-18.5: where `exc` was raised, as `(place, trace)`.
+
+    `place` is the innermost frame under this package that `exc` came through
+    (`sessions/mirror.py:1535 in _spread`), or the innermost of all when it came
+    through none. `trace` is the last FAILURE_TRACE_FRAMES frames under this
+    package, outermost first: a `sqlite3` error's place is the store's own
+    method, and only its callers say which step of a cycle it was. Read from
+    the traceback's frames: no source file is opened, and no value is kept.
+    """
+    own, last = [], None
+    for frame, line in traceback.walk_tb(exc.__traceback__):
+        path = os.path.abspath(frame.f_code.co_filename)
+        inside = path.startswith(_PACKAGE)
+        last = _utf8(f"{path[len(_PACKAGE):] if inside else os.path.basename(path)}:{line} in {frame.f_code.co_name}")
+        if inside:
+            own.append(last)
+    return (own[-1] if own else last), own[-FAILURE_TRACE_FRAMES:]
+
+
+def redact_opaque(text):
+    """C-18.5: `text` with every token-shaped run the handoff list may miss replaced.
+
+    The handoff list (C-23.14) knows credentials by their names and prefixes; a
+    message can carry one with neither, such as a JWT whose header does not
+    encode to `eyJ` (review of #171). A failure message is for finding a
+    defect, so anything shaped like a token goes, a hash or an id with it.
+    """
+    def opaque(match):
+        run = match.group(0)
+        mixed = (any(ch.isupper() for ch in run) and any(ch.islower() for ch in run)
+                 and any(ch.isdigit() for ch in run))
+        return _REDACTED if mixed else run
+    text = _JWT_SHAPE.sub(lambda match: _REDACTED if any(ch.isdigit() for ch in match.group(0))
+                          else match.group(0), text)
+    return _HEX_RUN.sub(_REDACTED, _OPAQUE_RUN.sub(opaque, text))
+
+
+def failure_message(exc):
+    """C-18.5: an exception's message as one bounded line, credentials scrubbed.
+
+    A provider or keychain error can carry a credential in its message, so the
+    text goes through the handoff scrub list (C-23.14) whole, then through
+    `redact_opaque`, and only then is cut: a cut made first can part a
+    credential from the name that marks it. Never raises; a message that cannot
+    be rendered is None.
+    """
+    try:
+        text = str(exc)
+        if len(text) > FAILURE_SCRUB_MAX_CHARS:
+            return f"(a message of {len(text):,} characters, left out)"
+        from .sessions.handoff import scrub_bounded
+        text = _utf8(' '.join(redact_opaque(scrub_bounded(text, None)[0]).split()))
+    except Exception:
+        return None
+    if len(text) > FAILURE_MESSAGE_CHARS:
+        text = text[:FAILURE_MESSAGE_CHARS - 1].rstrip() + '…'
+    return text or None
+
+
+def failure_record(value):
+    """C-18.5: `value` if it has the shape of a failure record, else None."""
+    if not isinstance(value, dict):
+        return None
+    times = {}
+    try:
+        for key in (*_FAILURE_TIMES, *(('recovered_at',) if value.get('recovered_at') is not None else ())):
+            if not isinstance(value[key], str) or instant(value[key]).utcoffset() is None:
+                return None
+            times[key] = iso(value[key])            # canonical: `fromisoformat` takes any separator
+        whole = all(isinstance(value[key], int) and not isinstance(value[key], bool) and value[key] >= 1
+                    for key in ('runs', 'failed_runs'))
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return None
+    if not whole or not isinstance(value.get('error_type'), str):
+        return None
+    # Strings read back are made valid UTF-8 as new ones are: a record written
+    # before that rule could otherwise break every write and reply again.
+    return {**{key: value[key] for key in ('runs', 'failed_runs')}, **times,
+            'error_type': _utf8(value['error_type']),
+            **{key: _utf8(value.get(key)) if isinstance(value.get(key), str) else None
+               for key in ('message', 'raised_at')},
+            'recovered_at': times.get('recovered_at')}
+
+
+def failure_shown(failure, now):
+    """C-18.5: is `failure` still to be shown at `now`? While the timer fails,
+    always; after a clean run, for FAILURE_VISIBLE_S."""
+    if failure is None:
+        return False
+    try:
+        return (failure['recovered_at'] is None
+                or (instant(now) - instant(failure['recovered_at'])).total_seconds() < FAILURE_VISIBLE_S)
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return True                         # unreadable: shown, never a reader's crash
+
+
+def advance(failure, at, raised=None):
+    """C-18.5: a timer's failure record after one more run.
+
+    `failure` is the record before the run, None when the timer is clear; `at`
+    is the run's time; `raised` is None when no exception ended the run, else
+    its `error_type`, `message` and `raised_at`. The record that comes back is
+    a new one. `runs` counts the failed runs in a row ending at `last_at`, from
+    `since`; `failed_runs` counts every failed run from `first_at`, across the
+    clean runs between them, until the record is a day past a clean run and the
+    next failure starts another.
+    """
+    if not failure_shown(failure, at):
+        failure = None
+    if raised is None:
+        if failure is None or failure['recovered_at'] is not None:
+            return failure
+        return {**failure, 'recovered_at': at}
+    if failure is None:
+        return {'first_at': at, 'since': at, 'last_at': at, 'runs': 1, 'failed_runs': 1,
+                **raised, 'recovered_at': None}
+    resumed = failure['recovered_at'] is not None
+    return {**failure, **raised, 'since': at if resumed else failure['since'], 'last_at': at,
+            'runs': 1 if resumed else failure['runs'] + 1, 'failed_runs': failure['failed_runs'] + 1,
+            'recovered_at': None}
+
+
+def _rev(value):
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
+
+
+def write_records_file(path, data):
+    """C-18.5: publish `data` at `path` as `guardian.atomic_publish` does (a new
+    file, fsync, rename, directory fsync) and return the identity of the file this
+    wrote (inode, size, modification time), read from its own descriptor before
+    the rename: a file anything else puts there afterwards, or its absence, is
+    never taken for it (review of #171, round 4)."""
+    path = Path(path)
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}-", dir=path.parent)
+    try:
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+            info = os.fstat(stream.fileno())
+        os.rename(temporary, path)
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+    return info.st_ino, info.st_size, info.st_mtime_ns
+
+
+def file_identity(path):
+    """The identity of the file at `path` as `write_records_file` returns it; None
+    when there is none."""
+    try:
+        info = os.stat(path)
+    except OSError:
+        return None
+    return info.st_ino, info.st_size, info.st_mtime_ns
+
+
+def load_records(root):
+    """C-18.5: RECORDS_FILE's entry for each timer it names: `failure` (None: no
+    record), `rev`, and the `last_run` and `last_error_type` it was written with;
+    {} when there is no such file or it cannot be read."""
+    try:
+        data = json.loads(read_regular(Path(root) / RECORDS_FILE, RECORDS_MAX_BYTES))
+    except (OSError, ValueError):
+        return {}
+    timers = data.get('timers') if isinstance(data, dict) else None
+    if not isinstance(timers, dict):
+        return {}
+    return {name: {'failure': failure_record(value.get('failure')), 'rev': _rev(value.get('rev')),
+                   **{key: _utf8(value.get(key)) if isinstance(value.get(key), str) else None
+                      for key in ('last_run', 'last_error_type')}}
+            for name, value in timers.items() if name in TIMERS and isinstance(value, dict)}
+
+
+def recorded(rows, now=None, records=None):
+    """C-18.5: each timer's status as the daemon last recorded it.
+
+    `rows` are `timer.run` events newest first (RECORDED_QUERY); `records` are
+    RECORDS_FILE's (`load_records`). Each carries the record's revision, which
+    goes up whenever the record changes; the newer revision wins. The file is
+    written before a run's events and is exact while its writes succeed (a hot
+    timer's events are bounded and lag); an event newer than the file means a
+    write of it failed, and the timer is marked `file_behind`. A timer with
+    neither is left out. For readers that have no daemon to ask: `doctor`, which
+    reads files only (C-17.5), and an offline `status`.
+    """
+    found, revs, carried = {}, {}, set()
+    for row in rows:
+        try:
+            data = json.loads(row['data_json'])
+        except (TypeError, ValueError):
+            continue
+        name = data.get('timer') if isinstance(data, dict) else None
+        if name not in TIMERS or name in found or not data.get('last_run'):
+            continue
+        failure = failure_record(data.get('failure'))
+        revs[name] = _rev(data.get('rev'))
+        if 'rev' in data:
+            carried.add(name)
+        found[name] = {**{key: _utf8(data.get(key)) for key in ('last_run', 'next_due', 'last_error_type')},
+                       'failure': failure if failure_shown(failure, now) else None, 'rev': revs[name]}
+        if len(found) == len(TIMERS):
+            break
+    if records is not None:
+        # An event with a revision means the daemon meant the file to hold that
+        # timer: no file, or no entry for it, is a file behind too.
+        for name in carried:
+            if name not in records:
+                found[name]['file_behind'] = True
+    for name, entry in (records or {}).items():
+        if name in revs and revs[name] > entry['rev']:
+            found[name]['file_behind'] = True
+            continue
+        shown = entry['failure'] if failure_shown(entry['failure'], now) else None
+        if name in revs and revs[name] == entry['rev']:
+            found[name]['failure'] = shown          # the same revision; the event's run is the later
+        elif shown or entry['last_run']:
+            found[name] = {'last_run': entry['last_run'] or shown['recovered_at'] or shown['last_at'],
+                           'next_due': None, 'last_error_type': entry['last_error_type'], 'failure': shown,
+                           'rev': entry['rev']}
+    return found
 
 
 class Timers:
@@ -108,9 +399,29 @@ class Timers:
         cards = claude_cards.settings(policy)
         if cards['enabled']:
             self.intervals['claude_cards'] = float(cards['interval_min']) * 60
-        self._status = {name: {'last_run': None, 'next_due': None, 'last_error_type': None}
-                        for name in ('probe', 'keepalive', 'reset_credits', 'alerts',
-                                     'retention', 'mirror', 'mirror_hot', 'claude_cards')}
+        self._status = {name: {'last_run': None, 'next_due': None, 'last_error_type': None, 'failure': None}
+                        for name in TIMERS}
+        # C-18.5: what this process has written of each timer's failure, which
+        # paces its `timer.error` events: the failure it belongs to (`first_at`),
+        # the kinds told and when (monotonic) the last event was written.
+        self._told = {}
+        # C-18.5: `timer.error` events a store write refused, for the timer's next
+        # run to write; one timer's are written by one thread at a time.
+        self._unsent = {name: [] for name in TIMERS}
+        self._sending = {name: threading.Lock() for name in TIMERS}
+        # C-18.5: each record's revision, up by one whenever it changes, in
+        # RECORDS_FILE and in every `timer.run`: the newer copy wins.
+        self._rev = {name: 0 for name in TIMERS}
+        # C-18.5: where each revision is durable, so that none is in neither: the
+        # highest each timer's events hold (they are never taken back), and the
+        # revisions RECORDS_FILE holds, counted only while the file there is the
+        # one this process wrote (`_records_identity`). Why its last write failed
+        # (None: it did not).
+        self._records_lock = threading.Lock()
+        self._event_rev = {name: 0 for name in TIMERS}
+        self._file_rev = {name: 0 for name in TIMERS}
+        self._records_identity = None
+        self._records_failure = None
         self.metadata = self._latest('timer.verdict')
         # Failure pacing is sensor state, not a credential/admission verdict.
         # Busy failures are withheld from metadata but still need a durable
@@ -126,7 +437,23 @@ class Timers:
         for row in store.query("SELECT data_json FROM events WHERE kind='timer.run' ORDER BY event_id"):
             data = json.loads(row['data_json'])
             if data.get('timer') in self._status and data.get('last_run'):
-                self._status[data['timer']].update({k: data.get(k) for k in ('last_run', 'next_due', 'last_error_type')})
+                self._status[data['timer']].update({k: _utf8(data.get(k)) for k in ('last_run', 'next_due', 'last_error_type')},
+                                                   failure=failure_record(data.get('failure')))
+                self._rev[data['timer']] = _rev(data.get('rev'))
+                self._event_rev[data['timer']] = max(self._event_rev[data['timer']], _rev(data.get('rev')))
+        # C-18.5: whether the last `timer.run` written for each timer says it is
+        # failing, and when (monotonic) a change of that was last written (None:
+        # before this process).
+        self._kept = {name: (self._failing(value['failure']), None) for name, value in self._status.items()}
+        # C-18.5: the exact records, where the events' copies lag (`mirror_hot`);
+        # an event newer than the file (a write of it failed) wins.
+        for name, entry in load_records(self.root).items():
+            if entry['rev'] >= self._rev[name]:
+                self._status[name]['failure'] = entry['failure']
+            if entry['rev'] > self._rev[name]:
+                self._status[name].update(last_error_type=entry['last_error_type'],
+                                          **({'last_run': entry['last_run']} if entry['last_run'] else {}))
+                self._rev[name] = entry['rev']
 
     def _latest(self, kind):
         result = {}
@@ -150,20 +477,165 @@ class Timers:
             self._status['retention']['next_due'] = iso(self.now() + timedelta(hours=1))
 
     def status(self):
+        """C-18.1, C-18.5: each timer's last run, next due time, failure record and its revision."""
+        now = self.now()
         with self._lock:
-            return {name: dict(value) for name, value in self._status.items()}
+            return {name: {**value, 'failure': value['failure'] if failure_shown(value['failure'], now) else None,
+                           'rev': self._rev[name]}
+                    for name, value in self._status.items()}
+
+    @staticmethod
+    def _failing(failure):
+        return failure is not None and failure['recovered_at'] is None
+
+    def _error_due(self, name, failure, mono):
+        """C-18.5: is this failed run one the store is told of? Under `_lock`.
+
+        The first of a failure always is, and so is the first that this process
+        has written of one a restart carried over. After that: a kind (type and
+        place) not told yet, up to FAILURE_KINDS_MAX of them; each time the
+        failed runs reach a power of two; and whenever FAILURE_HEARTBEAT_S have
+        passed since the last event written, so a failure that goes on is in
+        every hour's events. Time here is the monotonic clock `mono`: a wall
+        clock set back adds no event (review of #171).
+        """
+        told = self._told.get(name)
+        if told is None or told['first_at'] != failure['first_at']:
+            return True
+        runs = failure['failed_runs']
+        return ((failure['error_type'], failure['raised_at']) not in told['kinds']
+                and len(told['kinds']) < FAILURE_KINDS_MAX
+                or runs & (runs - 1) == 0
+                or mono - told['mono'] >= FAILURE_HEARTBEAT_S)
 
     def mark(self, name, *, error=None, next_due=None, persist=True):
+        """One run of `name` has ended (C-18.1, C-18.5).
+
+        `error` is None, the exception that ended the run, or the name of an
+        error type a run reported without raising (a probe cycle one of whose
+        reads failed, a retention pass its deadline stopped). Only an exception
+        opens or extends the timer's failure record. `persist=False` keeps a
+        run out of the store unless C-18.5 has something of it to record.
+        """
+        raised = trace = None
+        if isinstance(error, BaseException):
+            place, trace = raised_from(error)
+            raised = {'error_type': _utf8(type(error).__name__), 'message': failure_message(error), 'raised_at': place}
+            error = raised['error_type']
+        at, mono = iso(self.now()), time.monotonic()
         with self._lock:
-            self._status[name].update(last_run=iso(self.now()), last_error_type=error)
+            status = self._status[name]
+            failure = advance(status['failure'], at, raised)
+            if failure != status['failure']:
+                self._rev[name] += 1
+            status.update(last_run=at, last_error_type=error, failure=failure)
             if next_due is not None:
-                self._status[name]['next_due'] = next_due
-            data = {'timer': name, **self._status[name]}
+                status['next_due'] = next_due
+            data = {'timer': name, **status, 'rev': self._rev[name]}
+            event = None
+            if raised and self._error_due(name, failure, mono):
+                event = {'timer': name, **{key: value for key, value in failure.items() if key != 'recovered_at'},
+                         'trace': trace}
+                unsent = self._unsent[name]
+                if len(unsent) < UNSENT_MAX:
+                    unsent.append(event)
+                else:
+                    unsent[-1] = event          # the first not written stays
+            failing, kept = self._failing(failure), self._kept[name]
+            changed = failing != kept[0]
+            persist = bool(persist or event or changed and (
+                kept[1] is None or mono - kept[1] >= FAILURE_CHANGE_S))
         # C-3.7: written after `_lock` is let go. The control loop takes that
         # lock every tick (`tick`), so a store write waiting for the store lock
-        # while holding it kept the loop from scheduling anything.
+        # while holding it kept the loop from scheduling anything. C-18.5: the
+        # records file first, so it is never older than the events; then the
+        # events, of which one the store refuses stays to be written later.
+        self._publish_records()
+        with self._lock:
+            # C-18.5: a revision the file does not hold is written with this run,
+            # paced or not: it must be in one of the two.
+            persist = persist or data['rev'] > max(self._event_rev[name], self._file_rev[name])
+        self._send_errors(name)
         if persist:
             self.store.add_event('timer.run', data=data)
+            with self._lock:
+                self._kept[name] = (failing, mono if changed else kept[1])
+                self._event_rev[name] = max(self._event_rev[name], data['rev'])
+
+    def _send_errors(self, name):
+        """C-18.5: write `name`'s unsent `timer.error` events, oldest first, one
+        thread at a time. One the store refuses (`OSError`, `sqlite3.Error`) stays,
+        with those after it, and the refusal is raised; one it can never take
+        (it cannot be encoded) is dropped, so it holds back none after it."""
+        with self._sending[name]:
+            while True:
+                with self._lock:
+                    if not self._unsent[name]:
+                        return
+                    event = self._unsent[name][0]
+                try:
+                    self.store.add_event('timer.error', data=event)
+                except (OSError, sqlite3.Error):
+                    raise
+                except Exception:                   # noqa: BLE001 - never writable: dropped
+                    with self._lock:
+                        if self._unsent[name] and self._unsent[name][0] is event:
+                            self._unsent[name].pop(0)
+                    continue
+                with self._lock:
+                    if self._unsent[name] and self._unsent[name][0] is event:
+                        self._unsent[name].pop(0)
+                    told = self._told.get(name)
+                    if told is None or told['first_at'] != event['first_at']:
+                        told = self._told[name] = {'first_at': event['first_at'], 'kinds': set()}
+                    told['mono'] = time.monotonic()
+                    if len(told['kinds']) < FAILURE_KINDS_MAX:
+                        told['kinds'].add((event['error_type'], event['raised_at']))
+
+    def _publish_records(self):
+        """C-18.5: rewrite RECORDS_FILE when a revision has changed since this
+        process last wrote it, or when the file there is not the one it wrote
+        (deleted, truncated or replaced; until it is written again, no revision
+        counts as held by it). Records and revisions are copied in one critical
+        section, so no entry pairs a record with another revision. Never raises:
+        a write that fails is kept for `records_status()` (`daemon.status`,
+        `status`, `doctor --live`), and the next run tries again."""
+        path = self.root / RECORDS_FILE
+        with self._records_lock:
+            on_disk = file_identity(path)           # a stat, outside `_lock`
+            with self._lock:
+                revs = dict(self._rev)
+                entries = {name: {'failure': value['failure'], 'rev': revs[name], 'last_run': value['last_run'],
+                                  'last_error_type': value['last_error_type']}
+                           for name, value in self._status.items()}
+                at = iso(self.now())
+                current = self._records_identity is not None and on_disk == self._records_identity
+                if current and revs == self._file_rev:
+                    return
+            # Not current: the write below sets what the file holds, and a failed
+            # one holds nothing. Both readers of `_file_rev` (`mark`, `stop`) run
+            # this method first, which waits for this one, so neither reads it between.
+            try:
+                text = json.dumps({'version': 1, 'timers': entries}, sort_keys=True, allow_nan=False) + '\n'
+                identity = write_records_file(path, text.encode())
+            except Exception as exc:                # noqa: BLE001 - kept and shown, never raised
+                with self._lock:
+                    self._records_identity = None
+                    self._file_rev = {name: 0 for name in TIMERS}
+                    before = self._records_failure or {'since': at, 'tries': 0}
+                    self._records_failure = {'since': before['since'], 'last_at': at, 'tries': before['tries'] + 1,
+                                             'error_type': _utf8(type(exc).__name__), 'message': failure_message(exc)}
+                return
+            with self._lock:
+                self._records_failure = None
+                self._records_identity = identity
+                self._file_rev = revs
+
+    def records_status(self):
+        """C-18.5: why RECORDS_FILE is behind (`since`, `last_at`, `tries`, the
+        last error's type and message), or None while its writes succeed."""
+        with self._lock:
+            return dict(self._records_failure) if self._records_failure else None
 
     def tick(self):
         with self._lock:
@@ -221,34 +693,51 @@ class Timers:
             if name == 'probe':
                 error = self._cycle_error
         except Exception as exc:
-            error = type(exc).__name__
-            self.store.add_event('timer.error', data={'timer': name, 'error_type': error})
+            # C-18.5: `mark` keeps its type, its scrubbed message and where it
+            # was raised, and decides which failed runs the store is told of.
+            error = exc
         finally:
-            if name == 'probe':
-                # The automatic cadence starts at cycle completion. Every
-                # subsequent cycle reads each usable lane; operator requests
-                # may start another cycle before the automatic deadline.
+            try:
+                self._settle(name, error, result)
+            finally:
+                # C-18.5: whatever the record's own writes raise, the timer is
+                # no longer running. A `timer.run` or `timer.error` write that
+                # raised here used to skip this, and the timer was "already
+                # running" until the daemon restarted: no tick started it again.
                 with self._lock:
-                    interval = self.intervals[name]
-                    self._due[name] = time.monotonic() + interval
-                    next_due = iso(self.now() + timedelta(seconds=interval))
-                    self._status[name]['next_due'] = next_due
-                    # These passes run inside probe_cycle, so their displayed
-                    # deadlines must follow its completion-based schedule too.
-                    # Preserve last_run/error if the cycle failed before them.
-                    companions = []
-                    for companion in ('reset_credits', 'alerts'):
-                        self._status[companion]['next_due'] = next_due
-                        companions.append({'timer': companion, **self._status[companion]})
-                for data in companions:             # outside `_lock` (C-3.7, see `mark`)
-                    self.store.add_event('timer.run', data=data)
-            # A hot mirror pass runs every few seconds; the store keeps its
-            # timer.run events forever and replays them at start, so only a
-            # pass that changed something or failed is recorded there.
-            self.mark(name, error=error,
-                      persist=name != 'mirror_hot' or error is not None or bool(result))
+                    self._running.discard(name)
+
+    def _settle(self, name, error, result):
+        """Record one finished run: the probe's companions' deadlines, then the run."""
+        companions = []
+        if name == 'probe':
+            # The automatic cadence starts at cycle completion. Every
+            # subsequent cycle reads each usable lane; operator requests
+            # may start another cycle before the automatic deadline.
             with self._lock:
-                self._running.discard(name)
+                interval = self.intervals[name]
+                self._due[name] = time.monotonic() + interval
+                next_due = iso(self.now() + timedelta(seconds=interval))
+                self._status[name]['next_due'] = next_due
+                # These passes run inside probe_cycle, so their displayed
+                # deadlines must follow its completion-based schedule too.
+                # Preserve last_run/error if the cycle failed before them.
+                for companion in ('reset_credits', 'alerts'):
+                    status = self._status[companion]
+                    status['next_due'] = next_due
+                    companions.append({'timer': companion, **status, 'rev': self._rev[companion]})
+        # A hot mirror pass runs every few seconds; the store keeps its
+        # timer.run events forever and replays them at start, so only a pass
+        # that changed something is recorded there for its own sake. `mark`
+        # adds the passes C-18.5 records: a failed one the store is told of,
+        # and a change between failing and not.
+        try:
+            for data in companions:             # outside `_lock` (C-3.7, see `mark`)
+                self.store.add_event('timer.run', data=data)
+                with self._lock:
+                    self._event_rev[data['timer']] = max(self._event_rev[data['timer']], data['rev'])
+        finally:
+            self.mark(name, error=error, persist=name != 'mirror_hot' or bool(result))
 
     def mirror_cycle(self):
         """One desktop sidebar pass (C-23.28). Never calls a provider.
@@ -501,6 +990,25 @@ class Timers:
         self._lanes.shutdown(wait=True, cancel_futures=True)
         self._mirror.shutdown(wait=True, cancel_futures=True)
         self._cards.shutdown(wait=True, cancel_futures=True)
+        # C-18.5: a last try at what refused writes left: the records file, then
+        # for each timer on its own (one refusal stops no other), its events and a
+        # `timer.run` for a revision in neither.
+        self._publish_records()
+        for name in TIMERS:
+            try:
+                self._send_errors(name)
+            except Exception:                   # noqa: BLE001 - the store may refuse or be gone
+                pass
+            try:
+                with self._lock:
+                    pending = (self._rev[name] > max(self._event_rev[name], self._file_rev[name])
+                               and {'timer': name, **self._status[name], 'rev': self._rev[name]})
+                if pending:
+                    self.store.add_event('timer.run', data=pending)
+                    with self._lock:
+                        self._event_rev[name] = max(self._event_rev[name], pending['rev'])
+            except Exception:                   # noqa: BLE001
+                pass
 
     def record_auth_dead(self, lane_id):
         meta = {'verdict': 'auth-dead', 'probe_status': 'auth-dead'}
@@ -1061,7 +1569,17 @@ class Timers:
         offline = bool(codex) and all(p.get('status') == 'network-error' for p in codex)
         snapshot = self.snapshot()
         if not offline:
-            result = self.evaluate_resets(snapshot)
+            try:
+                result = self.evaluate_resets(snapshot)
+            except Exception as exc:
+                # C-18.5: the pass is reset_credits' run, and an exception ended
+                # it; the cycle ends with it, as before, and with its error, not
+                # one a write of its record raised.
+                try:
+                    self.mark('reset_credits', error=exc, next_due=self.status()['probe']['next_due'])
+                except Exception:                   # noqa: BLE001 - `exc` is the one to raise
+                    pass
+                raise
             self.mark('reset_credits', error=result.get('error_type'), next_due=self.status()['probe']['next_due'])
             if result.get('status') == 'confirmed':
                 row = next(row for row in snapshot['lanes'] if row['lane_id'] == result['lane_id'])
@@ -1073,7 +1591,14 @@ class Timers:
             snapshot['reset_policy'] = result
         snapshot['offline'] = offline
         snapshot['claude_cards'] = self.cards_view()       # C-9.10: alerts and status.json read it
-        self.alerts.evaluate(snapshot, now=self.now(), offline=offline)
+        try:
+            self.alerts.evaluate(snapshot, now=self.now(), offline=offline)
+        except Exception as exc:
+            try:                                    # C-18.5, as above
+                self.mark('alerts', error=exc, next_due=self.status()['probe']['next_due'])
+            except Exception:                       # noqa: BLE001
+                pass
+            raise
         self.mark('alerts', next_due=self.status()['probe']['next_due'])
         self.publish_status(snapshot)
         self.store.add_event('timer.cycle', data={'offline': offline, 'at': iso(self.now()),

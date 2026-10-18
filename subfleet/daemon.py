@@ -181,6 +181,12 @@ RETENTION_INTERVAL_S = 3600
 RETENTION_DORMANT_ENV = "SUBFLEET_RETENTION_DORMANT"
 #: d635: seconds between passes while a backlog is being worked off.
 RETENTION_CATCH_UP_S = 5
+
+
+class RetentionCatchUp(TimeoutError):
+    """A retention pass its deadline stopped after it made progress. Raised so the
+    pass stays due on the worker clock (C-5.10); the timer reports it as a
+    `TimeoutError` and opens no failure record for it (C-18.5)."""
 #: C-16.5: the ops a PostToolUse or prompt hook sends, which only read the store.
 #: They have their own pool, so they never queue behind a view build or a write
 #: waiting for the store lock on the general request pool.
@@ -3421,6 +3427,7 @@ class Daemon:
                 view["ramp"] = self._ramp.status(utcnow())
             return {**view, "status": render.status(view), "pid": os.getpid(), "version": __version__, "state_root": str(self.root),
                     "timers": self.timers.status(), "alerts": self.timers.alerts.active(),  # C-18.4
+                    "timers_file": self.timers.records_status(),     # C-18.5
                     "claude_cards": self.timers.cards_view(),  # C-9.10
                     "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"],
                     "admission": self._admission_status(view),
@@ -3971,7 +3978,10 @@ class Daemon:
                     delay = worker_retry_delay(count)
                     self._worker_retry_at[key] = time.monotonic() + delay
                 if key == "retention":
-                    self.timers.mark("retention", error=type(exc).__name__, next_due=after(delay))
+                    # C-18.5: an exception that ended a pass is a failure, kept with
+                    # its message and place; a catch-up pass's deadline is not.
+                    self.timers.mark("retention", next_due=after(delay),
+                                     error="TimeoutError" if isinstance(exc, RetentionCatchUp) else exc)
                 if count & (count - 1) == 0:     # 1, 2, 4, 8, ...: the log stays bounded
                     self.log.error("worker %s failed: %s (%d in a row, next try in %g s)",
                                    key, type(exc).__name__, count, delay)
@@ -4268,7 +4278,7 @@ class Daemon:
             self.log.warning("retention: deadline reached after progress (%d jobs pruned); "
                              "%d jobs in the store; retrying on the worker clock", pruned, result.get("jobs_after", 0))
             # Stay due. _schedule records the error and applies C-5.10.
-            raise TimeoutError("retention deadline reached after progress")
+            raise RetentionCatchUp("retention deadline reached after progress")
         for error in (result.get("errors") or [])[:5]:
             self.log.warning("retention: %s: %s", error.get("job_id"), str(error.get("error"))[:300])
         if result.get("more") and progressed:
