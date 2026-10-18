@@ -148,6 +148,11 @@ def freeze_stream(adir: Path, launch: Launch, publish: Callable[[str, Path, byte
         return restored
     if _entry_exists(adir / "stream.freeze.json"):
         raise InvalidFrozenStream(errno.ESTALE, "recorded frozen stream is missing or invalid", str(adir))
+    # A crash can leave the copy before its receipt, or a partial atomic-write
+    # temp. With no receipt yet, neither can be authoritative or an artifact.
+    for pattern in ("stream.frozen-*.jsonl", ".stream.frozen-*"):
+        for abandoned in adir.glob(pattern):
+            abandoned.unlink(missing_ok=True)
     raw = Path(launch.raw_stream_path) if launch.raw_stream_path else None
     source = next((path for path in (raw, adir / "stream.jsonl")
                    if path is not None and _entry_exists(path)), None)
