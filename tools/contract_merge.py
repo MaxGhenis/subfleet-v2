@@ -6,7 +6,7 @@ the three versions Git staged (base, ours, theirs), not the conflicted working c
 brings each to the current layout:
 
 - the changes section is the pointer to `docs/contract-history/`, and each entry a side
-  added to the old list is written there as a file of its own (C-20.6);
+  added to the old list is written there as a file of its own (C-20.7);
 - every paragraph is one sentence per line (`tools/contract_layout.py`).
 
 Then `git merge-file` merges the three and the result is written to the contract. Nothing

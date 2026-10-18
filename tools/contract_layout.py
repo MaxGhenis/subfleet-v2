@@ -11,7 +11,7 @@ A list item's later lines are indented to its content, as continuation lines, so
 rendered document is unchanged: Markdown joins a paragraph's lines with soft breaks.
 Headings, tables, fenced code and blank lines are left alone, and so is a paragraph with
 a hard line break. Of the 185 merges from 2026-10-01 to 2026-10-14 in which both sides
-changed the contract, 128 conflicted on it; with the history moved out (C-20.6) 71 would
+changed the contract, 128 conflicted on it; with the history moved out (C-20.7) 71 would
 have, and with this layout as well, 37 (`docs/reports/2026-10-14-d-mrg3-contract-replay.md`).
 
     python3 tools/contract_layout.py            # exit 1 and name the paragraphs to fix

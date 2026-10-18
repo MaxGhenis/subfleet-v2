@@ -3,7 +3,7 @@
 For every two-parent merge commit reachable from the remote branches in a date range,
 take the contract at the merge base and at both parents, and when both sides changed it,
 merge the three with `git merge-file` as they were, with the changes list moved out
-(C-20.6), and with the list out and the current layout (`tools/contract_layout.py`). It
+(C-20.7), and with the list out and the current layout (`tools/contract_layout.py`). It
 counts the conflicting merges and hunks for each. For the current layout it also sorts
 the hunks that remain: both sides inserted at one place, mergeable word by word
 (`tools/contract_merge.py --words`), or a word changed on both sides.

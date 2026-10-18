@@ -1,4 +1,4 @@
-"""C-20.6: the contract's change history is one file per entry in `docs/contract-history/`.
+"""C-20.7: the contract's change history is one file per entry in `docs/contract-history/`.
 
 The contract lists no change of its own (defect D-MRG3: every pull request prepended to
 one list there, so each merge made every other open pull request conflict). These tests
@@ -23,12 +23,12 @@ TODAY = dt.date(2026, 10, 14)
 
 
 def test_the_history_folder_is_well_formed_and_complete():
-    """C-20.6 `contract_history.problems` finds nothing wrong in the repository."""
+    """C-20.7 `contract_history.problems` finds nothing wrong in the repository."""
     assert history.problems(today=dt.date.today()) == []
 
 
 def test_the_migrated_list_is_whole_and_in_order():
-    """C-20.6 the 157 entries the contract listed are 001 to 157, byte for byte."""
+    """C-20.7 the 157 entries the contract listed are 001 to 157, byte for byte."""
     entries = [e for e in history.read_entries() if e.migrated]
     assert [e.order for e in entries] == list(range(1, history.MIGRATED_COUNT + 1))
     assert history.MIGRATED_COUNT == 157
@@ -41,7 +41,7 @@ def test_the_migrated_list_is_whole_and_in_order():
 
 
 def test_the_contract_lists_no_change():
-    """C-20.6 the changes section holds only its pointer: no list item, no other text."""
+    """C-20.7 the changes section holds only its pointer: no list item, no other text."""
     lines = (ROOT / "docs" / "acceptance-contract.md").read_text().split("\n")
     start, end = history.section(lines)
     assert lines[start] == history.HEADING
@@ -51,7 +51,7 @@ def test_the_contract_lists_no_change():
 
 
 def test_the_index_shows_every_entry_once_newest_first():
-    """C-20.6 the index: dated entries newest first, then the migrated list in its order."""
+    """C-20.7 the index: dated entries newest first, then the migrated list in its order."""
     entries = history.read_entries()
     text = history.index()
     items = re.findall(r"^- ", text, re.M)
@@ -66,7 +66,7 @@ def test_the_index_shows_every_entry_once_newest_first():
 
 
 def test_the_index_is_not_checked_in():
-    """C-20.6 a checked-in index would be one more file every pull request edits."""
+    """C-20.7 a checked-in index would be one more file every pull request edits."""
     names = {p.name for p in (ROOT / "docs" / "contract-history").iterdir()}
     assert not names & {"INDEX.md", "index.md", "CHANGES.md", "history.md"}
 
@@ -87,12 +87,12 @@ def _entry(root: Path, name: str, text: str) -> Path:
     return path
 
 
-GOOD = "C-20.6 (2026-10-14, a test): an entry that is fine.\n"
+GOOD = "C-20.7 (2026-10-14, a test): an entry that is fine.\n"
 
 
 def _list_again(_root: Path, contract: Path) -> None:
     text = contract.read_text().replace(
-        history.HEADING + "\n", history.HEADING + "\n\n- C-20.6 (2026-10-14): listed here.\n", 1)
+        history.HEADING + "\n", history.HEADING + "\n\n- C-20.7 (2026-10-14): listed here.\n", 1)
     contract.write_text(text)
 
 
@@ -133,7 +133,7 @@ BREAKAGES = {
     "first date is not the file's": (
         lambda r, c: _entry(r, "2026-10-13-fix.md", GOOD), "first date the entry gives"),
     "no date in the text": (
-        lambda r, c: _entry(r, "2026-10-14-fix.md", "C-20.6: no date.\n"),
+        lambda r, c: _entry(r, "2026-10-14-fix.md", "C-20.7: no date.\n"),
         "first date the entry gives"),
     "cites no clause": (
         lambda r, c: _entry(r, "2026-10-14-fix.md", "Something (2026-10-14): changed.\n"),
@@ -142,7 +142,7 @@ BREAKAGES = {
         lambda r, c: _entry(r, "2026-10-14-fix.md", "C-99.1 (2026-10-14): changed.\n"),
         "cites no clause"),
     "two paragraphs": (
-        lambda r, c: _entry(r, "2026-10-14-fix.md", GOOD + "\nC-20.6 more.\n"),
+        lambda r, c: _entry(r, "2026-10-14-fix.md", GOOD + "\nC-20.7 more.\n"),
         "one paragraph"),
     "a list marker": (lambda r, c: _entry(r, "2026-10-14-fix.md", "- " + GOOD),
                       "the index adds the list marker"),
@@ -160,7 +160,7 @@ BREAKAGES = {
 
 @pytest.mark.parametrize("name", sorted(BREAKAGES))
 def test_each_breakage_is_named(copy, name):
-    """C-20.6 every way the folder or the contract can drift is reported, with its rule."""
+    """C-20.7 every way the folder or the contract can drift is reported, with its rule."""
     root, contract = copy
     assert history.problems(root, contract, TODAY) == []
     breakage, expected = BREAKAGES[name]
@@ -170,14 +170,14 @@ def test_each_breakage_is_named(copy, name):
 
 
 def test_a_good_entry_and_a_second_from_the_same_branch_pass(copy):
-    """C-20.6 the documented names: `<date>-<branch>.md`, then `-2`, `-3`."""
+    """C-20.7 the documented names: `<date>-<branch>.md`, then `-2`, `-3`."""
     root, contract = copy
     first = history.free_path(root, "2026-10-14", history.branch_slug("fix/Some_Thing"))
     assert first.name == "2026-10-14-fix-some-thing.md"
     first.write_text(GOOD)
     second = history.free_path(root, "2026-10-14", "fix-some-thing")
     assert second.name == "2026-10-14-fix-some-thing-2.md"
-    second.write_text("C-20.6 (2026-10-14, a test, round 2): an entry that is also fine,\n"
+    second.write_text("C-20.7 (2026-10-14, a test, round 2): an entry that is also fine,\n"
                       "written one sentence per line;\nso it has three lines.\n")
     assert history.problems(root, contract, TODAY) == []
     index = history.index(root)
@@ -186,7 +186,7 @@ def test_a_good_entry_and_a_second_from_the_same_branch_pass(copy):
 
 
 def test_new_starts_an_entry_the_check_refuses_until_filled(copy, monkeypatch, capsys):
-    """C-20.6 `contract_history.py new` names the file after the branch and today."""
+    """C-20.7 `contract_history.py new` names the file after the branch and today."""
     root, contract = copy
     monkeypatch.setattr(history, "HISTORY", root)
     monkeypatch.setattr(history, "REPO", root.parent)
@@ -199,7 +199,7 @@ def test_new_starts_an_entry_the_check_refuses_until_filled(copy, monkeypatch, c
 
 
 def test_branch_slugs():
-    """C-20.6 a branch name as an entry name: lowercase `[a-z0-9]` runs joined by `-`."""
+    """C-20.7 a branch name as an entry name: lowercase `[a-z0-9]` runs joined by `-`."""
     assert history.branch_slug("fix/d-mrg3-contract-history") == "fix-d-mrg3-contract-history"
     assert history.branch_slug("Feat/Clone__Worktree.Allocation") == "feat-clone-worktree-allocation"
     assert history.branch_slug("///") == "change"
@@ -221,7 +221,7 @@ def living_docs() -> list[Path]:
 
 
 def test_no_doc_an_author_follows_points_at_the_old_list():
-    """C-20.6 every mention of the old changes list in a living doc names its new home."""
+    """C-20.7 every mention of the old changes list in a living doc names its new home."""
     stale = []
     for path in living_docs():
         rel = path.relative_to(ROOT).as_posix()
@@ -234,9 +234,9 @@ def test_no_doc_an_author_follows_points_at_the_old_list():
 
 
 def test_the_docs_tell_authors_to_add_a_file():
-    """C-20.6 the contract, the README and the folder's README say what to do instead."""
+    """C-20.7 the contract, the README and the folder's README say what to do instead."""
     contract = " ".join((ROOT / "docs" / "acceptance-contract.md").read_text().split())
-    assert "with an entry in `docs/contract-history/` that records the change (C-20.6)" in contract
+    assert "with an entry in `docs/contract-history/` that records the change (C-20.7)" in contract
     readme = (ROOT / "README.md").read_text()
     assert "add one file of your own to `docs/contract-history/`" in readme
     guide = (ROOT / "docs" / "contract-history" / "README.md").read_text()
@@ -245,7 +245,7 @@ def test_the_docs_tell_authors_to_add_a_file():
 
 
 def test_the_living_docs_scan_sees_the_docs_it_must():
-    """C-20.6 the scan above reads the contract, the README and the lane briefs."""
+    """C-20.7 the scan above reads the contract, the README and the lane briefs."""
     seen = {p.relative_to(ROOT).as_posix() for p in living_docs()}
     assert {"README.md", "docs/acceptance-contract.md", "docs/lanes/identity.md",
             "docs/desktop/maps/v2-docs-contract.md", "docs/invariant-gaps.md"} <= seen

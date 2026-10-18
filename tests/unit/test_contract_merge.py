@@ -1,4 +1,4 @@
-"""C-20.6: `tools/contract_merge.py` merges a branch from before the history moved out.
+"""C-20.7: `tools/contract_merge.py` merges a branch from before the history moved out.
 
 Each open pull request from before the move needs one last merge of the release line,
 which conflicts on the old changes list and on every paragraph the layout split. The
@@ -57,7 +57,7 @@ def moved(text: str) -> str:
 
 
 def test_an_old_branch_merges_cleanly_with_the_moved_release():
-    """C-20.6 the branch's clause edit and list entry both arrive; nothing conflicts."""
+    """C-20.7 the branch's clause edit and list entry both arrive; nothing conflicts."""
     base = contract(CLAUSES)
     ours = contract(edit(CLAUSES, 0, 1, "Ours changed this."),
                     ["C-1.1 (2026-10-11, z): ours.", *ENTRIES])
@@ -73,7 +73,7 @@ def test_an_old_branch_merges_cleanly_with_the_moved_release():
 
 
 def test_the_merge_is_symmetric():
-    """C-20.6 the release merged into the branch, or the branch into the release: the same."""
+    """C-20.7 the release merged into the branch, or the branch into the release: the same."""
     base = contract(CLAUSES)
     ours = moved(contract(edit(CLAUSES, 4, 0, "Theirs changed this.")))
     theirs = contract(edit(CLAUSES, 0, 1, "Ours changed this."),
@@ -85,7 +85,7 @@ def test_the_merge_is_symmetric():
 
 
 def test_two_moved_branches_merge_as_git_would():
-    """C-20.6 after the move nothing is listed, so nothing is added; the merge is Git's."""
+    """C-20.7 after the move nothing is listed, so nothing is added; the merge is Git's."""
     base = moved(contract(CLAUSES))
     ours = moved(contract(edit(CLAUSES, 0, 0, "Ours.")))
     theirs = moved(contract(edit(CLAUSES, 3, 2, "Theirs.")))
@@ -95,7 +95,7 @@ def test_two_moved_branches_merge_as_git_would():
 
 
 def test_one_sentence_edited_on_both_sides_conflicts_and_words_can_settle_it():
-    """C-20.6 different words of one sentence: a conflict, which `--words` merges."""
+    """C-20.7 different words of one sentence: a conflict, which `--words` merges."""
     base = contract(CLAUSES)
     ours = contract(edit(CLAUSES, 2, 1, "Sentence two of clause 3."))
     theirs = moved(contract(edit(CLAUSES, 2, 1, "Sentence 2 of clause three.")))
@@ -109,7 +109,7 @@ def test_one_sentence_edited_on_both_sides_conflicts_and_words_can_settle_it():
 
 
 def test_one_word_changed_on_both_sides_stays_a_conflict():
-    """C-20.6 `--words` never picks a side: the hunk stays, with its base, for a person."""
+    """C-20.7 `--words` never picks a side: the hunk stays, with its base, for a person."""
     base = contract(CLAUSES)
     ours = contract(edit(CLAUSES, 2, 1, "Sentence 2 of clause seven."))
     theirs = moved(contract(edit(CLAUSES, 2, 1, "Sentence 2 of clause eight.")))
@@ -119,7 +119,7 @@ def test_one_word_changed_on_both_sides_stays_a_conflict():
 
 
 def test_an_edited_old_entry_is_reported_not_carried():
-    """C-20.6 the migrated list is not edited, so a branch's edit to it goes to a person."""
+    """C-20.7 the migrated list is not edited, so a branch's edit to it goes to a person."""
     base = contract(CLAUSES)
     ours = contract(CLAUSES, [ENTRIES[0].replace("older", "old"), ENTRIES[1]])
     result = merge_tool.merge(base, ours, moved(base))
@@ -146,7 +146,7 @@ def two_edits(draw):
 @SETTINGS
 @given(two_edits())
 def test_merging_after_the_move_is_moving_the_merge(edits):
-    """C-20.6 differential: for edits in clauses at least one apart, the tool's merge is
+    """C-20.7 differential: for edits in clauses at least one apart, the tool's merge is
     the move applied to the contract with both edits, and the branch's new entries are
     exactly those it added to the list."""
     i, s, ours_text, j, t, theirs_text, new, ours_moved = edits
@@ -163,7 +163,7 @@ def test_merging_after_the_move_is_moving_the_merge(edits):
 
 
 def test_merge_messages_name_the_branch():
-    """C-20.6 an entry the other side added is named after the branch the merge names."""
+    """C-20.7 an entry the other side added is named after the branch the merge names."""
     assert merge_tool.theirs_branch("Merge branch 'fix/a-b'\n\n# Conflicts:") == "fix/a-b"
     assert merge_tool.theirs_branch("Merge remote-tracking branch 'origin/release/217' into x") \
         == "release/217"
@@ -217,7 +217,7 @@ def repo(tmp_path):
 
 
 def test_the_release_merge_into_an_old_branch_end_to_end(repo):
-    """C-20.6 `git merge` conflicts; the tool resolves it and names the entry's file."""
+    """C-20.7 `git merge` conflicts; the tool resolves it and names the entry's file."""
     merged = git(repo, "merge", "release", check=False)
     assert merged.returncode == 1 and "CONFLICT" in merged.stdout
     result = run_tool(repo)
@@ -241,7 +241,7 @@ def test_the_release_merge_into_an_old_branch_end_to_end(repo):
 
 
 def test_a_dry_run_writes_nothing(repo):
-    """C-20.6 `--dry-run` says what it would write and leaves the conflicted file."""
+    """C-20.7 `--dry-run` says what it would write and leaves the conflicted file."""
     git(repo, "merge", "release", check=False)
     before = (repo / merge_tool.PATH).read_text()
     result = run_tool(repo, "--dry-run")
@@ -252,7 +252,7 @@ def test_a_dry_run_writes_nothing(repo):
 
 
 def test_it_refuses_outside_a_merge_and_between_two_old_branches(repo):
-    """C-20.6 exit 2: not mid-merge, or neither side has moved (not the move's merge)."""
+    """C-20.7 exit 2: not mid-merge, or neither side has moved (not the move's merge)."""
     assert run_tool(repo).returncode == 2
     git(repo, "checkout", "-q", "-b", "other", "release~1")
     write(repo, merge_tool.PATH, contract(CLAUSES, ["C-1.4 (2026-10-12, w): other.", *ENTRIES]))
@@ -264,7 +264,7 @@ def test_it_refuses_outside_a_merge_and_between_two_old_branches(repo):
 
 
 def test_the_replay_sorts_leftover_hunks():
-    """C-20.6 `contract_replay.kinds`: an insert at one place, a word-mergeable hunk, and a
+    """C-20.7 `contract_replay.kinds`: an insert at one place, a word-mergeable hunk, and a
     word changed on both sides, as the report counts them."""
     from tools import contract_replay
     base = "a\nb c d\nx\ne f g\ny\n"

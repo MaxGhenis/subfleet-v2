@@ -8,7 +8,7 @@ This document binds milestones 1 to 3 of `plan.md` and milestone 9, the desktop 
 sections 23 to 30 name the milestone each clause is first tested in.
 Code is built against it;
 tests cite its clauses by number (for example `C-5.4`).
-A clause changes only by editing this file in the same commit as the code and tests that depend on it, with an entry in `docs/contract-history/` that records the change (C-20.6).
+A clause changes only by editing this file in the same commit as the code and tests that depend on it, with an entry in `docs/contract-history/` that records the change (C-20.7).
 Where this file and `plan.md` disagree, this file wins.
 
 Language: Python 3.12 or newer, standard library only.
@@ -2186,11 +2186,6 @@ A pull request that changes a clause adds its own file there, as `docs/contract-
   Disk-full is simulated by a write hook that raises `ENOSPC` at each publication step.
 - **C-20.4** Release gates before the `run` cutover are plan amendment 10, each as a named test or a recorded measurement in `docs/release-gates.md`.
 - **C-20.5** Every test names the clause it proves in its docstring, for example `"""C-5.6 kill quarantines when a setsid grandchild survives."""`.
-- **C-20.6** Changes to this contract are recorded one file per entry under `docs/contract-history/`, never as a list in this file (defect D-MRG3: every pull request prepended to one list here, so each merge made every other open pull request conflict, and GitHub runs no CI on a conflicting pull request).
-  A pull request that changes a clause adds `docs/contract-history/<YYYY-MM-DD>-<branch>.md`, one paragraph that names the clauses it changes and gives that date first;
-  `python3 tools/contract_history.py` prints every entry, newest first, ending with the 157 entries this file listed before the move, kept in `docs/contract-history/version-3/` in their order and not edited.
-  This file starts a line at each sentence and after each semicolon (`python3 tools/contract_layout.py --write`), because Git merges line by line and conflicts on adjacent lines: of the 185 merges from 2026-10-01 to 2026-10-14 in which both sides changed this file, 128 conflicted on it, and in this layout, with the history moved out, 37 would have (`docs/reports/2026-10-14-d-mrg3-contract-replay.md`).
-  `tests/unit/test_contract_history.py` and `tests/unit/test_contract_layout.py` check both, and `tools/contract_merge.py` merges a branch that still lists its changes here.
 
 - **C-20.6** (D-ST1, test isolation) Guard production code, and fixtures that wrap or replace `subprocess`, `os` and file APIs, against accidental access to the person's live stores or keychain reader, including fixture undo.
   Before collection, `tests/conftest.py` gives every test an isolated HOME in a temporary session directory, sets safe store overrides and puts a recording reader first on PATH;
@@ -2205,6 +2200,11 @@ A pull request that changes a clause adds its own file there, as `docs/contract-
   Tests may read non-store account-home paths (v1 source, the home directory's spelling) using `pwd`, and the original `UV_CACHE_DIR` is carried before HOME changes.
   [owner unit;
   modules `tests/conftest.py`, `tests/live_store_trap.py`, `subfleet/credentials.py`, `subfleet/home_paths.py`]
+- **C-20.7** Changes to this contract are recorded one file per entry under `docs/contract-history/`, never as a list in this file (defect D-MRG3: every pull request prepended to one list here, so each merge made every other open pull request conflict, and GitHub runs no CI on a conflicting pull request).
+  A pull request that changes a clause adds `docs/contract-history/<YYYY-MM-DD>-<branch>.md`, one paragraph that names the clauses it changes and gives that date first;
+  `python3 tools/contract_history.py` prints every entry, newest first, ending with the 157 entries this file listed before the move, kept in `docs/contract-history/version-3/` in their order and not edited.
+  This file starts a line at each sentence and after each semicolon (`python3 tools/contract_layout.py --write`), because Git merges line by line and conflicts on adjacent lines: of the 185 merges from 2026-10-01 to 2026-10-14 in which both sides changed this file, 128 conflicted on it, and in this layout, with the history moved out, 37 would have (`docs/reports/2026-10-14-d-mrg3-contract-replay.md`).
+  `tests/unit/test_contract_history.py` and `tests/unit/test_contract_layout.py` check both, and `tools/contract_merge.py` merges a branch that still lists its changes here.
 
 ## 21. Milestone acceptance
 

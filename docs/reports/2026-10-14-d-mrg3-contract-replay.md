@@ -1,6 +1,6 @@
 # D-MRG3: the contract's history out, one sentence per line
 
-Measured on 2026-10-14 for C-20.6 (PR #218, base release/217 at 3f50142ac).
+Measured on 2026-10-14 for C-20.7 (PR #218, base release/217 at 3f50142ac).
 
 ## The defect
 
@@ -22,7 +22,7 @@ So each merge into release/217 made every other open pull request conflict, GitH
   `git show 3f50142ac:docs/acceptance-contract.md | sed -n '8,177p' | grep '^- ' | sed 's/^- //'` diffs empty against `cat docs/contract-history/version-3/*.md`.
   The SHA-256 of the texts joined by newlines is `5a72c934…bea22d` both ways (`MIGRATED_SHA256`).
   The old section held nothing but list items and blank lines.
-- **Clauses.** All 252 clauses of 3f50142ac read the same in the new contract when line breaks and runs of spaces are read as one space (`contract_layout.clauses`). C-8.5 is among them; its bold marker carries a title. C-20.6 is the only new clause.
+- **Clauses.** All 252 clauses of 3f50142ac read the same in the new contract when line breaks and runs of spaces are read as one space (`contract_layout.clauses`). C-8.5 is among them; its bold marker carries a title. C-20.7 is the only new clause.
 - **Rendering.** The laid-out contract and the same contract with each paragraph on one line render to the same HTML, whitespace collapsed, in markdown-it-py 3.0.0 (CommonMark with tables) and in cmarkgfm 2024.11.20 (cmark-gfm, GitHub's renderer).
 - **Properties.** `tests/unit/test_contract_layout.py` checks with Hypothesis that relayout is idempotent, keeps every paragraph's words and every other line, never starts a Markdown block on a line it makes, and keeps every clause's text.
   Each property also passed 4,000 random examples once outside the suite.

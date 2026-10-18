@@ -1,6 +1,6 @@
 # Contract history
 
-Each change to `docs/acceptance-contract.md` is recorded here, one file per entry (C-20.6).
+Each change to `docs/acceptance-contract.md` is recorded here, one file per entry (C-20.7).
 Until 2026-10-14 the contract kept these entries as a list under "Changes in version 3", and every pull request prepended to it.
 So each merge into the release line made every other open pull request conflict on that list (defect D-MRG3).
 GitHub runs no CI on a conflicting pull request, so each one then needed a merge and a fresh CI run before it could land.

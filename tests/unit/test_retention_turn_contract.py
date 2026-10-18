@@ -26,7 +26,7 @@ def test_c84_claim_that_a_turn_row_keeps_no_in_place_job(tmp_path, location):
         store.acquire_lease(folders.turn_key(str(folder), "live-turn", writable=False), "live-turn")
         reasons = retention._pin_reasons(store, set(), None, only="retired", root=root)
         assert reasons == ({"retired": "turn-folder"} if location == "job-directory" else {})
-        # C-20.6: the contract is one sentence per line, so read whole clauses.
+        # C-20.7: the contract is one sentence per line, so read whole clauses.
         contract = Path("docs/acceptance-contract.md").read_text()
         c84 = contract_layout.clauses(contract)["C-8.4"]
         assert "a row on the in-place workspace keeps no in-place job" in c84

@@ -1,4 +1,4 @@
-"""C-20.6: the contract starts a line at each sentence and after each semicolon.
+"""C-20.7: the contract starts a line at each sentence and after each semicolon.
 
 Git merges line by line, so the layout decides how often two pull requests conflict on
 the contract. `tools/contract_layout.py` moves only line breaks: every paragraph keeps
@@ -23,13 +23,13 @@ SETTINGS = settings(max_examples=300, deadline=None, derandomize=True,
 
 
 def test_the_contract_is_one_sentence_per_line():
-    """C-20.6 `contract_layout.py` would change nothing; run it with --write if this fails."""
+    """C-20.7 `contract_layout.py` would change nothing; run it with --write if this fails."""
     assert layout.unlaid(CONTRACT) == []
     assert layout.relayout(CONTRACT) == CONTRACT
 
 
 def test_the_cli_names_a_paragraph_to_fix(tmp_path, capsys):
-    """C-20.6 the check exits 1 and names the line; --write fixes it."""
+    """C-20.7 the check exits 1 and names the line; --write fixes it."""
     path = tmp_path / "contract.md"
     path.write_text("# T\n\n- **C-1.1** One. Two; three.\n- **C-1.2** Fine.\n")
     assert layout.main([str(path)]) == 1
@@ -40,7 +40,7 @@ def test_the_cli_names_a_paragraph_to_fix(tmp_path, capsys):
 
 
 def test_every_clause_is_read_whole():
-    """C-20.6 `clauses` reads each `- **C-x.y**` item with all its lines, each id once.
+    """C-20.7 `clauses` reads each `- **C-x.y**` item with all its lines, each id once.
 
     The other tests that parse the contract find clause ids on an item's first line
     (`test_desktop_ledger`, `test_invariants_index`); every id they find is here too.
@@ -62,7 +62,7 @@ def test_every_clause_is_read_whole():
 
 
 def test_examples():
-    """C-20.6 where lines break and where they do not."""
+    """C-20.7 where lines break and where they do not."""
     cases = {
         # Sentences and semicolons; a list item continues, indented to its content.
         "- **C-1.1** A. B; c! D? E.": "- **C-1.1** A.\n  B;\n  c!\n  D?\n  E.",
@@ -145,7 +145,7 @@ def _structure(text: str) -> list[str]:
 @SETTINGS
 @given(DOCUMENT)
 def test_relayout_is_idempotent(document):
-    """C-20.6 laying out a laid-out document changes nothing."""
+    """C-20.7 laying out a laid-out document changes nothing."""
     once = layout.relayout(document)
     assert layout.relayout(once) == once
     assert layout.unlaid(once) == []
@@ -154,7 +154,7 @@ def test_relayout_is_idempotent(document):
 @SETTINGS
 @given(DOCUMENT)
 def test_relayout_keeps_every_paragraph_and_its_words(document):
-    """C-20.6 the same paragraphs with the same words, and every other line untouched."""
+    """C-20.7 the same paragraphs with the same words, and every other line untouched."""
     once = layout.relayout(document)
     assert layout.paragraph_texts(once) == layout.paragraph_texts(document)
     assert _structure(once) == _structure(document)
@@ -164,7 +164,7 @@ def test_relayout_keeps_every_paragraph_and_its_words(document):
 @SETTINGS
 @given(DOCUMENT)
 def test_relayout_never_starts_a_block(document):
-    """C-20.6 no line relayout adds can start a list, quote, heading, table, fence or HTML."""
+    """C-20.7 no line relayout adds can start a list, quote, heading, table, fence or HTML."""
     lines = document.split("\n")
     for start, end in layout._paragraphs(lines):
         before = lines[start:end]
@@ -179,7 +179,7 @@ def test_relayout_never_starts_a_block(document):
 @SETTINGS
 @given(st.lists(SENTENCE, min_size=1, max_size=8))
 def test_sentences_join_back(parts):
-    """C-20.6 splitting a line into sentences loses nothing: rejoined, it is the line."""
+    """C-20.7 splitting a line into sentences loses nothing: rejoined, it is the line."""
     text = " ".join(" ".join(parts).split())
     pieces = layout.sentences(text)
     assert " ".join(pieces) == text
@@ -189,5 +189,5 @@ def test_sentences_join_back(parts):
 @SETTINGS
 @given(DOCUMENT)
 def test_clauses_survive_relayout(document):
-    """C-20.6 every clause reads the same, whole, before and after."""
+    """C-20.7 every clause reads the same, whole, before and after."""
     assert layout.clauses(layout.relayout(document)) == layout.clauses(document)
