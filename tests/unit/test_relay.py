@@ -196,23 +196,34 @@ def test_stop_finishes_the_exchange_already_read(server, monkeypatch, op):
     peer, conn = socket.socketpair()
     peer.settimeout(5)
     applied = threading.Event()
+    shutdown_finished = threading.Event()
     real_apply = relay.apply
+
+    class ObservedConnection:
+        def __getattr__(self, name):
+            return getattr(conn, name)
+
+        def shutdown(self, how):
+            conn.shutdown(how)
+            shutdown_finished.set()
+
+    observed = ObservedConnection()
 
     def apply_then_child_exits(frame):
         answer = real_apply(frame)
         applied.set()
-        assert relay._stop.wait(5), "guardian did not observe the child's exit"
+        assert shutdown_finished.wait(5), "guardian did not shut down the read half"
         return answer
 
     monkeypatch.setattr(relay, "apply", apply_then_child_exits)
     def serve_connection():
         # The real accept loop also handles a peer/stop closing the stream.
         try:
-            relay._serve_connection(conn)
+            relay._serve_connection(observed)
         except OSError:
             pass
 
-    relay._conn = conn
+    relay._conn = observed
     relay._thread = threading.Thread(target=serve_connection)
     relay._thread.start()
     frame = F(1, "close") if op == "close" else {"op": "status"}
@@ -233,6 +244,7 @@ def test_stop_finishes_the_exchange_already_read(server, monkeypatch, op):
             assert not relay.log_path.exists()
         assert not relay._thread.is_alive()
     finally:
+        shutdown_finished.set()
         try:
             conn.shutdown(socket.SHUT_RDWR)
         except OSError:
