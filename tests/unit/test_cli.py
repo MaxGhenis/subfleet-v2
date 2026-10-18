@@ -6,7 +6,11 @@ Every test names the clause it proves (C-20.5).
 from __future__ import annotations
 
 import json
+import io
 import os
+import socket
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -1800,3 +1804,145 @@ def test_c16_3_runs_request_id_finds_the_job_offline_too(root, capsys):
     assert [row["job_id"] for row in rows] == [job_id]
     assert run_cli(["runs", "--request-id", "no-such-request", "--json"]) == 0
     assert capsys.readouterr().out == ""
+
+
+# C-17.8: readers must finish even when the producer keeps its descriptor open.
+# Closing the writer in finally also frees an intentionally regressed reader.
+def bounded_stdin_call(argv, stream, close_writer, monkeypatch):
+    monkeypatch.setattr(cli.sys, "stdin", stream)
+    monkeypatch.setenv("SUBFLEET_PING_STDIN_WAIT_S", "0.05")
+    results, errors = [], []
+
+    def invoke():
+        try:
+            results.append(run_cli(argv))
+        except BaseException as exc:
+            errors.append(exc)
+
+    worker = threading.Thread(target=invoke)
+    started = time.monotonic()
+    try:
+        worker.start()
+        worker.join(0.75)
+        finished = not worker.is_alive()
+        elapsed = time.monotonic() - started
+    finally:
+        close_writer()
+        worker.join(5)
+        stream.close()
+    assert not worker.is_alive(), "stdin reader did not finish even after EOF"
+    assert not errors, errors
+    assert finished, "stdin read blocked while its writer stayed open"
+    assert elapsed < 0.75
+    return results[0]
+
+
+@pytest.mark.parametrize("payload", [b"", b"partial message"])
+def test_ping_open_pipe_is_bounded(daemon, monkeypatch, capsys, payload):
+    """C-17.8 neither an empty pipe nor one readable byte authorizes read-to-EOF."""
+    server = daemon({"ping": lambda request: {"pong": True, "version": "test"}})
+    read_fd, write_fd = os.pipe()
+    if payload:
+        os.write(write_fd, payload)
+    stream = os.fdopen(read_fd, "r")
+    code = bounded_stdin_call(["ping", "--session", "sess-1"], stream,
+                              lambda: os.close(write_fd), monkeypatch)
+    assert code == (0 if payload else int(Exit.INVALID_INPUT))
+    if payload:
+        assert server.args("ping")["text"] == payload.decode()
+    else:
+        assert server.ops() == []
+        assert "within" in capsys.readouterr().err
+
+
+def test_ping_open_socket_is_bounded(daemon, monkeypatch):
+    """C-17.8 a socket writer that stays open has the same bound as a pipe."""
+    server = daemon({"ping": lambda request: {"pong": True}})
+    reader, writer = socket.socketpair()
+    stream = reader.makefile("r")
+    writer.sendall(b"socket message")
+    try:
+        assert bounded_stdin_call(["ping"], stream, writer.close, monkeypatch) == 0
+        assert server.args("ping")["text"] == "socket message"
+    finally:
+        reader.close()
+        writer.close()
+
+
+def test_suggest_open_pipe_is_bounded(daemon, monkeypatch):
+    """C-17.8, C-25.7 suggest --brief - shares ping's bounded stdin reader."""
+    server = daemon({"suggestion.create": lambda request: {"suggestion": {
+        "suggestion_id": "sg-1", "worktree": False, "origin_conversation_id": None, "title": "T"}}})
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, b"a complete brief")
+    assert bounded_stdin_call(["suggest", "--title", "T", "--tldr", "S", "--brief", "-"],
+                              os.fdopen(read_fd, "r"), lambda: os.close(write_fd), monkeypatch) == 0
+    assert server.args("suggestion.create")["brief"] == "a complete brief"
+
+
+def test_ping_regular_file_is_read(daemon, monkeypatch, tmp_path):
+    """C-17.8 files still supply the complete UTF-8 message."""
+    server = daemon({"ping": lambda request: {"pong": True}})
+    path = tmp_path / "message"
+    path.write_text("the sweep finished\n")
+    with path.open() as stream:
+        monkeypatch.setattr(cli.sys, "stdin", stream)
+        started = time.monotonic()
+        assert run_cli(["ping"]) == 0
+        assert time.monotonic() - started < 0.75
+    assert server.args("ping")["text"] == "the sweep finished\n"
+
+
+def test_ping_dev_null_keeps_release_health_check(daemon, monkeypatch):
+    """C-17.8 /dev/null reaches EOF immediately and release sends a health check."""
+    server = daemon({"ping": lambda request: {"pong": True, "version": "test"}})
+    with open(os.devnull) as stream:
+        monkeypatch.setattr(cli.sys, "stdin", stream)
+        started = time.monotonic()
+        assert run_cli(["ping"]) == 0
+        assert time.monotonic() - started < 0.75
+    assert server.args("ping")["text"] == ""
+
+
+@pytest.mark.parametrize("missing", [False, True])
+def test_ping_terminal_or_missing_stdin_keeps_release_health_check(daemon, monkeypatch, missing):
+    """C-15.8, C-17.8 release's terminal/no-stdin health check must never read."""
+    class Terminal:
+        def isatty(self):
+            return True
+
+        def read(self, *args):
+            pytest.fail("a terminal must never be read")
+
+    server = daemon({"ping": lambda request: {"pong": True, "version": "test"}})
+    monkeypatch.setattr(cli.sys, "stdin", None if missing else Terminal())
+    assert run_cli(["ping"]) == 0
+    assert server.args("ping")["text"] == ""
+
+
+def test_ping_pipe_with_eof_and_memory_stream(daemon, monkeypatch):
+    """C-17.8 EOF and in-memory streams read the whole message."""
+    server = daemon({"ping": lambda request: {"pong": True}})
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, b"closed pipe\n")
+    os.close(write_fd)
+    with os.fdopen(read_fd, "r") as stream:
+        monkeypatch.setattr(cli.sys, "stdin", stream)
+        assert run_cli(["ping"]) == 0
+    assert server.args("ping")["text"] == "closed pipe\n"
+    monkeypatch.setattr(cli.sys, "stdin", io.StringIO("memory message"))
+    assert run_cli(["ping"]) == 0
+    assert server.args("ping")["text"] == "memory message"
+
+
+@pytest.mark.parametrize("value", ["inf", "-inf", "nan", "1e9", "-1", "soon"])
+def test_unusable_stdin_wait_falls_back_to_default(monkeypatch, value):
+    """C-17.8 a malformed or unbounded wait never reaches select."""
+    monkeypatch.setenv("SUBFLEET_PING_STDIN_WAIT_S", value)
+    assert cli._ping_stdin_wait_s() == cli.PING_STDIN_WAIT_S
+
+
+def test_stdin_wait_can_be_overridden(monkeypatch):
+    """C-17.8 the environment can accommodate a slow producer."""
+    monkeypatch.setenv("SUBFLEET_PING_STDIN_WAIT_S", "7.5")
+    assert cli._ping_stdin_wait_s() == 7.5
