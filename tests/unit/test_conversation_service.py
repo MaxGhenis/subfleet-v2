@@ -60,6 +60,7 @@ class FakeDaemon:
     _job = Daemon._job
     _running_s = Daemon._running_s
     _request_cancel = Daemon._request_cancel
+    _cancel_info = Daemon._cancel_info
     _cancel_requester = staticmethod(Daemon._cancel_requester)
     _notice = Daemon._notice
     _earlier_attempt = Daemon._earlier_attempt

@@ -42,6 +42,7 @@ class Daemon:
     _job = RealDaemon._job
     _running_s = RealDaemon._running_s
     _request_cancel = RealDaemon._request_cancel
+    _cancel_info = RealDaemon._cancel_info
     _cancel_requester = staticmethod(RealDaemon._cancel_requester)
     _notice = RealDaemon._notice
     _earlier_attempt = RealDaemon._earlier_attempt
