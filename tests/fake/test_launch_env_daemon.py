@@ -204,7 +204,7 @@ def test_env_kind_lane_credentials_reach_only_their_own_lane(routing_state, monk
 
 
 def test_daemon_refuses_a_policy_passing_a_lane_credential(tmp_path, monkeypatch):
-    """Policy validation at startup, after the roster is seeded; the lock is released."""
+    """Policy validation at startup, before the roster is seeded; the lock is released."""
     root = tmp_path / "state"
     root.mkdir()
     Harness(root)
@@ -260,8 +260,8 @@ def test_daemon_startup_refuses_a_lane_variable_every_launch_inherits(tmp_path, 
     with pytest.raises(PolicyError) as error:
         daemon_module.Daemon(root).close()
     assert error.value.key == "credential_ref" and reference in str(error.value)
-    # The refusal released the lock: a second start reaches the same check
-    # (from the store now), not "already running".
+    # The refusal released the lock: a second start reaches the same check,
+    # not "already running", and still from lanes.json: nothing was stored.
     with pytest.raises(PolicyError) as again:
         daemon_module.Daemon(root).close()
     assert again.value.key == "credential_ref"
@@ -635,3 +635,21 @@ def test_bounded_property_stored_lanes_never_refuse_startup(startup_property, ro
                     service._credential_environment(Store.lane_from_row(row))
     finally:
         service.close()
+
+
+@pytest.mark.parametrize("where", ["lanes.json", "the store"])
+def test_daemon_main_names_the_lane_an_env_pass_entry_belongs_to(tmp_path, monkeypatch, where):
+    """Review r4, P3-1, at daemon startup: `env.pass[i]`, the variable and the lane
+    with where it came from; never the value, and nothing is stored."""
+    root, _ = nine_root(tmp_path, monkeypatch, "E2E_LANE_NINE_TOKEN")
+    if where == "the store":
+        store_as_round_four_left_it(root)
+        write_roster(root, [row for row in roster(root) if row["lane_id"] != "claude-9"])
+    policy = json.loads((root / "policy.json").read_text())
+    (root / "policy.json").write_text(json.dumps({**policy, "env": {"pass": ["GIT_CONFIG_GLOBAL", "E2E_LANE_NINE_TOKEN"]}}))
+    before = stored(root)
+    code, err, served = launchd_start(root, monkeypatch, lambda service: pytest.fail("a refused policy served"))
+    assert (code, served) == (2, [])
+    assert all(text in err for text in ("env.pass[1]", "E2E_LANE_NINE_TOKEN", "claude-9", where)), err
+    assert "dummy-nine" not in err and "Traceback" not in err
+    assert stored(root) == before
