@@ -710,11 +710,13 @@ def lane_windows(view: Mapping[str, Any], policy: Mapping[str, Any], *,
     (`scheduler.evaluate` with kind `turn`) when it is dispatched. A turn never
     runs on the desktop login, so that is not the window it spends. The lanes
     are found by the scheduler's own rules, not by imitating them: the
-    candidates now; the candidates once every turn in flight has ended (a slot
+    candidates now, and the candidates with every turn in flight ended (a slot
     frees up, and rankings that count turns in flight move as the batch is
-    placed); and the candidates `horizon_s` later (`sessions.wake_settle_min`,
-    the time a wake counts as running), when closures and readings that end
-    before then have ended. `view` is the daemon's `daemon.status` answer,
+    placed) at every moment the scheduler's answer can change within
+    `horizon_s` (`sessions.wake_settle_min`, the time a wake counts as running):
+    just after each closure ends, each reading leaves the scheduler's freshness
+    window and each window resets, and on a one-minute grid besides
+    (`_sample_times`). `view` is the daemon's `daemon.status` answer,
     which is a capacity view. With no lane to take a turn, or no way to
     evaluate one, the one window returned has no reading, and the pace fails
     closed."""
@@ -734,8 +736,9 @@ def lane_windows(view: Mapping[str, Any], policy: Mapping[str, Any], *,
                        source=f"no lane would take a {short} turn now: {decision.reason}")]
     reachable: list[str] = [lane]
     free = {**view, "in_flight_turns": {}, "unavailable_lanes": {}}
-    later = {**free, "now": _iso(now + timedelta(seconds=max(0.0, horizon_s)))}
-    for snapshot, picked in ((view, decision), (free, None), (later, None)):
+    snapshots = [(view, decision)] + [({**free, "now": _iso(at)}, None)
+                                      for at in _sample_times(view, policy, now, horizon_s)]
+    for snapshot, picked in snapshots:
         try:
             picked = picked or scheduler.evaluate(policy, snapshot, _turn_job(policy, short))
         except Exception as exc:                        # noqa: BLE001 - unknown reach: nothing goes
@@ -748,6 +751,48 @@ def lane_windows(view: Mapping[str, Any], policy: Mapping[str, Any], *,
     lane_slots, fleet_slots = _turn_slots(policy, view, short)
     return [_lane_reading(view, other, slots=lane_slots(other), fleet_slots=fleet_slots)
             for other in dict.fromkeys(reachable)]
+
+
+#: The grid between the known moments the scheduler's answer changes, and the
+#: most moments one pacing reads.
+SAMPLE_GRID_S = 60.0
+SAMPLE_LIMIT = 256
+
+
+def _sample_times(view: Mapping[str, Any], policy: Mapping[str, Any], now: datetime,
+                  horizon_s: float) -> list[datetime]:
+    """The moments in [now, now + horizon_s] to ask the scheduler at.
+
+    Its answer for a turn changes when a closure ends (`until_at`), when a
+    reading leaves its freshness window (`observed_at` + `caps.reading_ttl_s`)
+    and when a window resets (`resets_at`); each such moment is sampled a
+    second after it. The one-minute grid catches any change those do not name.
+    """
+    end = now + timedelta(seconds=max(0.0, horizon_s))
+    caps = policy.get("caps", {}) if isinstance(policy, Mapping) else {}
+    try:
+        ttl = float(caps.get("reading_ttl_s", 120))
+    except (TypeError, ValueError):
+        ttl = 120.0
+    moments: set[datetime] = {now}
+    for row in view.get("closures", ()) or ():
+        if isinstance(row, Mapping):
+            moments.add(_instant(row.get("until_at")) or now)
+    for row in view.get("readings", ()) or ():
+        if not isinstance(row, Mapping):
+            continue
+        observed = _instant(row.get("observed_at"))
+        if observed is not None and math.isfinite(ttl):
+            moments.add(observed + timedelta(seconds=ttl))
+        moments.add(_instant(row.get("resets_at")) or now)
+    known = sorted(at + timedelta(seconds=1) for at in moments if now <= at <= end)
+    grid = [now + timedelta(seconds=SAMPLE_GRID_S * step)
+            for step in range(int(max(0.0, horizon_s) // SAMPLE_GRID_S) + 1)]
+    picked = sorted({*known, *grid, end})
+    if len(picked) > SAMPLE_LIMIT:
+        # Too many to ask: the known moments first, then as much of the grid as fits.
+        picked = sorted({*known[:SAMPLE_LIMIT], *grid[:max(0, SAMPLE_LIMIT - len(known))]})
+    return picked
 
 
 def _turn_slots(policy: Mapping[str, Any], view: Mapping[str, Any],
@@ -1094,6 +1139,13 @@ def admits(row: Dormant, settings: Settings, *, wake: Mapping[str, Any] | None =
         return False, "no desktop record", None
     if record.archived:
         return False, "archived in the desktop app", None
+    if record.cli_session_id and record.local_id.lower() == f"local_{record.cli_session_id}".lower():
+        # The mirror names a copy `local_<cliSessionId>` only where the session's
+        # own name holds another session (`Mirror._spread`), so the name its other
+        # copies carry is not known here, and one of them may be archived or a
+        # scheduled task's. Finding them would mean reading every record.
+        return False, ("its desktop record is the mirror's fallback copy, so its other copies "
+                       "cannot all be found"), "continue it by hand in the desktop app"
     if record.scheduled:
         return False, "a scheduled-task run", None
     if record.model != settings.model:

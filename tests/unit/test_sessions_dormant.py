@@ -46,18 +46,26 @@ def world(tmp_path, monkeypatch):
             "tmp": tmp_path}
 
 
+def app_local(session_id: str) -> str:
+    """The app's own id for a session's record: not `local_<cliSessionId>`, which is
+    the mirror's fallback name (`Mirror._spread`)."""
+    return f"local_app-{session_id}"
+
+
 def dormant_session(world, session_id: str = S1, *, age_s: float = 1800, entries=None,
                     model: str = OPUS, quiet_s: float = 3600, cwd: str | None = None,
-                    account: str = ACCOUNT, org: str = ORG, **record) -> Path:
+                    account: str = ACCOUNT, org: str = ORG, name: str | None = None,
+                    **record) -> Path:
     """A desktop session interrupted `age_s` ago whose transcript has been quiet
-    for `quiet_s`: its record in the store, its transcript where the record's
-    cwd puts it."""
+    for `quiet_s`: its record in the store under the app's own name (or `name`),
+    its transcript where the record's cwd puts it."""
     where = cwd or world["cwd"]
     rows = entries if entries is not None else fx.interrupted(age_s=age_s)
     path = fx.transcript(world["home"], session_id, rows, cwd=where)
     stamp = NOW.timestamp() - quiet_s
     os.utime(path, (stamp, stamp))
     fx.index_entry(world["store"], account, org, session_id, cwd=where, model=model,
+                   name=name or f"{app_local(session_id)}.json",
                    title=f"session {session_id[:4]}", last_activity=int(stamp * 1000), **record)
     return path
 
@@ -81,7 +89,7 @@ def test_c23_56_a_dead_quiet_desktop_session_cut_off_mid_turn_is_eligible(world)
     dormant_session(world)
     item = row_of(scan(world))
     assert item.verdict.state == "interrupted" and item.eligible, item.reason
-    assert item.record.local_id == f"local_{S1}" and item.record.model == OPUS
+    assert item.record.local_id == app_local(S1) and item.record.model == OPUS
 
 
 @pytest.mark.parametrize("entries, state", [
@@ -512,7 +520,7 @@ def test_c23_60_the_strict_check_reads_every_copy_before_acting(world):
     an archive found there holds the session and does not spend the place."""
     dormant_session(world, S1, age_s=4000)
     dormant_session(world, S2, age_s=2000)
-    archived = dormant.DesktopRecord(local_id=f"local_{S1}", cli_session_id=S1, model=OPUS,
+    archived = dormant.DesktopRecord(local_id=app_local(S1), cli_session_id=S1, model=OPUS,
                                      cwd=world["cwd"], archived=True)
     service = FakeConversations()
     chosen = probes(copies=lambda store, local, cli, flags: archived if S1 in local
@@ -528,7 +536,7 @@ def test_c23_60_the_real_copies_are_read_across_accounts(world):
     dormant_session(world)
     fx.index_entry(world["store"], "acct-2", "org-2", S1, cwd=world["cwd"], model=OPUS,
                    archived=True, last_activity=1)
-    merged = dormant.all_copies(world["store"], f"local_{S1}")
+    merged = dormant.all_copies(world["store"], app_local(S1), cli_session_id=S1)
     assert merged.copies == 2 and merged.archived
 
 
@@ -619,7 +627,7 @@ def test_c23_60_the_desktop_transport_plans_and_counts_its_recent_wakes(world):
     daemon = fx.FakeSessions()
     report = wake(world, daemon, None, transport="desktop")
     plan = dormant.plan(report)
-    assert {item["local_id"] for item in plan} == {f"local_{S1}", f"local_{S2}"}
+    assert {item["local_id"] for item in plan} == {app_local(S1), app_local(S2)}
     assert all(item["message"].startswith(transcripts.WAKE_MARKER) for item in plan)
     assert {record["detail"]["transport"] for record in daemon.records} == {"desktop"}
     answer = daemon.state(None)
@@ -824,6 +832,48 @@ def test_c23_59_a_closure_ending_inside_the_horizon_brings_its_lane_in():
     assert dormant.pace_lanes(soon_windows, now=SCHED_INSTANT).allowed == 0
 
 
+def reserved_weekly(identity, *, observed_at=None):
+    """Weekly account and reserved-model readings from one usage snapshot, which
+    the C-11.7 reserve reads as slack while they are fresh (0.7 shared left,
+    0.1 reserved left at cap ratio 2: 0.5 slack)."""
+    at = observed_at or SCHED_NOW
+    return [sched_reading(identity, .3, source="oauth-usage", observed_at=at),
+            sched_reading(identity, .9, scope="claude-fable-5-1", source="oauth-usage", observed_at=at)]
+
+
+def test_c23_59_sols_repro_a_lane_open_only_between_the_samples_is_paced():
+    """C-23.59, Sol r4 (blocking), with the reserve on: B (75%) is closed for 30 s
+    and is a candidate at +60 s; by +1800 s its weekly readings are stale and the
+    reserve hides it. Sampling just after the closure ends finds it, so nothing
+    goes out."""
+    from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
+    policy = load_policy(DEFAULT_POLICY_PATH)
+    assert policy["reserve"]["models"], "the reserve must be on for this case"
+    lanes = [sched_lane("claude-1"), sched_lane("claude-2")]
+    rows = (reserved_weekly("claude-1") + reserved_weekly("claude-2")
+            + [five_hour("claude-1", .10), five_hour("claude-2", .75)])
+    ends = sched_closure("claude-2", until=fx.iso(SCHED_INSTANT + timedelta(seconds=30)))
+    windows = dormant.lane_windows(sched_view(lanes, rows, closures=[ends]), policy, model=OPUS,
+                                   now=SCHED_INSTANT, horizon_s=1800)
+    assert {window.lane for window in windows} == {"claude-1", "claude-2"}
+    assert dormant.pace_lanes(windows, now=SCHED_INSTANT).allowed == 0
+
+
+def test_c23_59_the_sample_times_are_every_change_and_a_minute_grid():
+    """C-23.59: the scheduler is asked just after each closure ends, each reading
+    leaves its freshness window and each window resets inside the horizon, and
+    every minute besides; nothing outside the horizon."""
+    policy = shipped_policy()
+    rows = [five_hour("claude-1", .1)]
+    closes = sched_closure("claude-1", until=fx.iso(SCHED_INSTANT + timedelta(seconds=95)))
+    outside = sched_closure("claude-1", until=fx.iso(SCHED_INSTANT + timedelta(hours=3)))
+    snapshot = sched_view([sched_lane("claude-1")], rows, closures=[closes, outside])
+    times = dormant._sample_times(snapshot, policy, SCHED_INSTANT, 600)
+    offsets = {int((at - SCHED_INSTANT).total_seconds()) for at in times}
+    ttl = int(policy["caps"]["reading_ttl_s"])
+    assert {0, 60, 96, ttl + 1, 600} <= offsets and max(offsets) == 600
+
+
 def test_c23_59_no_lane_for_a_turn_paces_nothing():
     """C-23.59: with every lane closed there is nowhere to pace against."""
     policy = shipped_policy()
@@ -936,10 +986,10 @@ def test_c23_58_a_copy_that_cannot_be_looked_at_counts_as_unread(world):
     locked = world["store"] / "acct-2" / "org-2"
     locked.chmod(0o600)
     try:
-        merged = dormant.all_copies(world["store"], f"local_{S1}")
+        merged = dormant.all_copies(world["store"], app_local(S1), cli_session_id=S1)
     finally:
         locked.chmod(0o700)
-    assert merged is not None and merged.unreadable == 1
+    assert merged is not None and merged.unreadable >= 1    # each name a copy could have there
 
 
 def test_c23_58_astras_repro_a_copy_under_the_mirrors_fallback_name_is_read(world):
@@ -956,12 +1006,40 @@ def test_c23_58_astras_repro_a_copy_under_the_mirrors_fallback_name_is_read(worl
     assert all(S2 not in (path or "") for path in [merged.path])
 
 
+def test_c23_58_sols_repro_a_fallback_named_record_is_held(world):
+    """C-23.58, Sol r4 (blocking): the loaded folder's copy is the mirror's
+    fallback `local_<cliSessionId>.json`, so its original name, which another
+    account's copy carries (archived and a scheduled task's here), is not known.
+    The session is held rather than woken on the copies that can be found."""
+    fx.index_entry(world["store"], "acct-b", "org-b", S1, name="local_original-name.json",
+                   cwd=world["cwd"], model=OPUS, archived=True, scheduledTaskId="task_9")
+    old = NOW.timestamp() - 7200
+    os.utime(world["store"] / "acct-b" / "org-b", (old, old))   # the app's folder is written last
+    dormant_session(world, name=f"local_{S1}.json")     # the mirror's fallback name
+    assert dormant.loaded_folder(world["store"]).name == ORG
+    item = row_of(scan(world))
+    assert not item.eligible and "fallback copy" in item.reason
+
+
+def test_c23_58_a_record_under_its_own_name_is_judged_on_every_copy(world):
+    """C-23.58: a record under its own name has every other copy under that name
+    or the fallback, and is judged on all of them."""
+    local = "local_original-name"
+    fx.index_entry(world["store"], ACCOUNT, ORG, S1, name=f"{local}.json", cwd=world["cwd"], model=OPUS)
+    path = fx.transcript(world["home"], S1, fx.interrupted(age_s=1800), cwd=world["cwd"])
+    stamp = NOW.timestamp() - 3600
+    os.utime(path, (stamp, stamp))
+    assert row_of(scan(world)).eligible
+    fx.index_entry(world["store"], "acct-b", "org-b", S1, cwd=world["cwd"], model=OPUS, archived=True)
+    assert dormant.all_copies(world["store"], local, cli_session_id=S1).archived
+
+
 def test_c23_58_a_folder_that_cannot_be_looked_into_counts_as_unread(world):
     """C-23.58, Opus r3: an account folder whose entry cannot be stat'ed (a
     symlink loop here) may hold the archived copy, so it counts as unread."""
     dormant_session(world)
     (world["store"] / "acct-loop").symlink_to(world["store"] / "acct-loop")
-    merged = dormant.all_copies(world["store"], f"local_{S1}", cli_session_id=S1)
+    merged = dormant.all_copies(world["store"], app_local(S1), cli_session_id=S1)
     assert merged is not None and merged.unreadable >= 1
 
 

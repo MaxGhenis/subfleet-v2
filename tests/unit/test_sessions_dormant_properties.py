@@ -399,3 +399,92 @@ def test_c23_57_the_process_table_is_read_as_ps_prints_it(rows):
     assert all(start == START for start in seen.starts.values())
     flagged = {"--resume={id}", "--resume {id}", "-r {id}", "--session-id {id}", "--resume '{id}'"}
     assert seen.named == {sid.lower() for _pid, form, sid in live if form in flagged}
+
+
+# --- the lanes a wake's turn may land on (C-23.59), against the real scheduler ---
+
+from tests.unit.test_scheduler import (closure as sched_closure, lane as sched_lane,  # noqa: E402
+                                       reading as sched_reading, view as sched_view)
+from tests.unit.test_scheduler import NOW as SCHED_NOW  # noqa: E402
+
+SCHED_INSTANT = datetime.fromisoformat(SCHED_NOW.replace("Z", "+00:00"))
+LANES = ("claude-1", "claude-2", "claude-3")
+HORIZON = 1800
+
+
+def _iso_at(seconds: float) -> str:
+    return fx.iso(SCHED_INSTANT + timedelta(seconds=seconds))
+
+
+lane_states = st.fixed_dictionaries({
+    "closed_for": st.one_of(st.none(), st.integers(min_value=-60, max_value=2 * HORIZON)),
+    "weekly_age": st.integers(min_value=0, max_value=200),
+    "five_hour": st.one_of(st.none(), st.floats(min_value=0, max_value=1)),
+    "resets_in": st.integers(min_value=-60, max_value=2 * HORIZON),
+})
+
+
+def _world(states):
+    lanes, rows, closures = [], [], []
+    for identity, state in zip(LANES, states):
+        lanes.append(sched_lane(identity))
+        observed = _iso_at(-state["weekly_age"])
+        rows += [sched_reading(identity, .3, source="oauth-usage", observed_at=observed),
+                 sched_reading(identity, .9, scope="claude-fable-5-1", source="oauth-usage",
+                               observed_at=observed)]
+        if state["five_hour"] is not None:
+            rows.append(sched_reading(identity, state["five_hour"], window="five_hour",
+                                      reset=_iso_at(state["resets_in"]), observed_at=observed))
+        if state["closed_for"] is not None:
+            closures.append(sched_closure(identity, until=_iso_at(state["closed_for"])))
+    return sched_view(lanes, rows, closures=closures)
+
+
+@settings(max_examples=60, deadline=None, derandomize=True, database=None,
+          suppress_health_check=[HealthCheck.too_slow])
+@given(states=st.lists(lane_states, min_size=1, max_size=3),
+       at=st.integers(min_value=0, max_value=HORIZON))
+def test_c23_59_every_lane_the_scheduler_picks_inside_the_horizon_is_paced(states, at):
+    """C-23.59, Sol r4, differential with the real scheduler and the shipped policy
+    (the reserve on): whenever pacing lets a wake out, at any second inside the
+    horizon and with any number of turns in flight, every candidate the
+    scheduler names for a wake's turn is a lane pacing measured."""
+    from subfleet import scheduler
+    from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
+    policy = load_policy(DEFAULT_POLICY_PATH)
+    snapshot = _world(states)
+    windows = dormant.lane_windows(snapshot, policy, model="claude-opus-5-5", now=SCHED_INSTANT,
+                                   horizon_s=HORIZON)
+    paced = {window.lane for window in windows}
+    allowed = dormant.pace_lanes(windows, now=SCHED_INSTANT).allowed
+    if allowed == 0:
+        return                                      # nothing goes out: no lane to land on
+    assert all(dormant.distrust(window, now=SCHED_INSTANT) is None for window in windows)
+    later = {**snapshot, "now": _iso_at(at), "in_flight_turns": {}, "unavailable_lanes": {}}
+    decision = scheduler.evaluate(policy, later, dormant._turn_job(policy, "opus"))
+    for evaluation in decision.evaluations:
+        if evaluation.get("model") == "opus":
+            assert set(evaluation.get("candidates") or []) <= paced, (at, paced)
+
+
+#: Lanes a wake can go out against: measured, under the ceiling, with closures
+#: that end inside the horizon and weekly readings that age out inside it.
+open_lane_states = st.fixed_dictionaries({
+    "closed_for": st.one_of(st.none(), st.integers(min_value=1, max_value=100),
+                            st.integers(min_value=1, max_value=HORIZON)),
+    "weekly_age": st.integers(min_value=0, max_value=30),
+    "five_hour": st.floats(min_value=0, max_value=0.4),
+    "resets_in": st.integers(min_value=HORIZON + 60, max_value=3 * HORIZON),
+})
+
+
+@settings(max_examples=200, deadline=None, derandomize=True, database=None,
+          suppress_health_check=[HealthCheck.too_slow])
+@given(states=st.lists(open_lane_states, min_size=2, max_size=3),
+       at=st.one_of(st.integers(min_value=0, max_value=120),
+                    st.integers(min_value=0, max_value=HORIZON)))
+def test_c23_59_a_lane_that_opens_inside_the_horizon_is_always_paced(states, at):
+    """C-23.59, Sol r4: the same differential where wakes do go out. Whatever
+    second inside the horizon a wake's turn is placed at, its lane was paced."""
+    test_c23_59_every_lane_the_scheduler_picks_inside_the_horizon_is_paced.hypothesis.inner_test(
+        states, at)
