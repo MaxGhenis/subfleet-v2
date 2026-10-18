@@ -71,8 +71,9 @@ def test_retained_suggestion_event_excludes_round3_diagnostic():
         response = wire_reply(service, op="suggestion.start", args={"suggestion_id": sid})
         assert response["ok"] is False
         assert service.suggestions.get(sid)["state"] == suggestions.STARTING
-        # Exactly the pre-round-4 renderer: dict args are converted before scrubbing.
-        legacy = suggestions.scrubbed_line(str({"x": VALUE}))
+        # An older build may have retained arbitrary diagnostic text. Keep this
+        # fixture independent of the current scrubber, which now removes it.
+        legacy = str({"x": VALUE})
         assert "SECRET7-left" in legacy and "TAIL8" in legacy
         event = service.store.one("SELECT seq,data_json FROM events WHERE conversation_id=? AND kind='suggestion' "
                                   "ORDER BY seq DESC LIMIT 1", (cid,))

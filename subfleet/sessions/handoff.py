@@ -120,10 +120,17 @@ _SENSITIVE_KEY = (
 _IDENTIFIER_RE = re.compile(r"[A-Za-z0-9_-]+", re.IGNORECASE)
 _SENSITIVE_SUFFIX_RE = re.compile(_SENSITIVE_WORD + r"\Z", re.IGNORECASE)
 _SENSITIVE_FLAG_RE = re.compile(_SENSITIVE_KEY, re.IGNORECASE)
-_ASSIGN_SEPARATOR_RE = re.compile(r"[\"']?\s*[:=]\s*")
-_PLAIN_VALUE_RE = re.compile(r"[^\s,;\"']+")
+# A key's closing quote may be escaped, by a repr (`\'password\': …`) or by JSON
+# encoded more than once (`\"password\": …`, `\\\"password\\\": …`).
+_ASSIGN_SEPARATOR_RE = re.compile(r"(?:\\*[\"'])?\s*[:=]\s*")
+# A value that opens with a quote, escaped or not, is the quoted rule's.
+_PLAIN_VALUE_RE = re.compile(r"(?!\\*[\"'])[^\s,;\"']+")
 _FLAG_VALUE_RE = re.compile(r"[ \t]+(?P<value>[^\s-][^\s]*)")
 _QUOTE_EVENT_RE = re.compile(r"\\[^\n]|[\"'\r\n]")
+#: A run of backslashes, a quote or a line break: each run is one match.
+_ESCAPE_EVENT_RE = re.compile(r"\\+|[\"'\r\n]")
+_VALUE_QUOTE_RE = re.compile(r"\\*[\"']")
+_LINE_END_RE = re.compile(r"[\r\n]|\Z")
 _SYSTEM_REMINDER_RE = re.compile(
     r"<system-reminder>.*?</system-reminder>", re.DOTALL | re.IGNORECASE
 )
@@ -302,15 +309,44 @@ def _quoted_ends(text: str, *, multiline: bool = False) -> dict[int, int]:
     return ends
 
 
+def _escaped_quote_ends(text: str, *, multiline: bool = False) -> dict[int, int]:
+    """`_quoted_ends` for quotes a run of backslashes escapes (a repr's `\\'`, JSON
+    encoded twice's `\\"`, three times' `\\\\\\"`): from the start of each such run,
+    the start of the next run of the same length before the same quote, which is
+    where a value that opens with it closes. One scan, where each run is one match;
+    except in whole-text mode, a line break ends every open quote."""
+    ends: dict[int, int] = {}
+    previous: dict[tuple[int, str], int] = {}
+    run_start = run_end = -1
+    for match in _ESCAPE_EVENT_RE.finditer(text):
+        char = match.group()
+        if char[0] == "\\":
+            run_start, run_end = match.start(), match.end()
+        elif char in "\r\n":
+            if not multiline:
+                previous.clear()
+        elif run_end == match.start():
+            kind = (run_end - run_start, char)
+            if kind in previous:
+                ends[previous[kind]] = run_start
+            previous[kind] = run_start
+    return ends
+
+
 def _scrub_named_values(text: str, replace: Callable[[str, str], str],
                        *, quoted: bool = False, flags: bool = False, multiline: bool = False) -> str:
     """Replace assignment/flag values in linear scans, preserving rule order."""
     parts: list[str] = []
     cursor = 0
     quote_ends: dict[int, int] | None = None
+    escaped_ends: dict[int, int] | None = None
+    line_ends = None
+    line_end = -1
     ranges: list[tuple[int, int, str]] = []
     for token in _IDENTIFIER_RE.finditer(text):
-        if token.start() < cursor and not (quoted and multiline):
+        # Inside the previous plain replacement (the quoted rule keeps no cursor).
+        nested = token.start() < cursor
+        if nested and flags:
             continue
         key = token.group()
         if not _SENSITIVE_SUFFIX_RE.search(key[-17:]):
@@ -333,31 +369,64 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
             if start > cursor and text[start - 1] in "\"'":
                 start -= 1
             value_start = separator.end()
-            if quoted:
-                if value_start == len(text) or text[value_start] not in "\"'":
-                    continue
-                if quote_ends is None:
-                    quote_ends = _quoted_ends(text, multiline=multiline)
-                closing = quote_ends.get(value_start)
+            if nested and value_start < cursor:
+                continue                        # its value is in the previous replacement
+            opening = _VALUE_QUOTE_RE.match(text, value_start) if quoted else None
+            if quoted and opening is None and not (ranges and start < ranges[-1][1] <= value_start):
+                # A plain value is the plain rule's, after this pass, unless its key
+                # is in a quoted match that ends before its value starts.
+                continue
+            if opening is not None:
+                if opening.end() - value_start == 1:
+                    if quote_ends is None:
+                        quote_ends = _quoted_ends(text, multiline=multiline)
+                    closing = quote_ends.get(value_start)
+                else:
+                    # Escaped (`\'`, `\"`, `\\\"`): it closes at the next quote of
+                    # its kind escaped by a run of the same length.
+                    if escaped_ends is None:
+                        escaped_ends = _escaped_quote_ends(text, multiline=multiline)
+                    closing = escaped_ends.get(value_start)
                 if closing is None:
-                    continue
-                end = closing + 1
-                out = text[start:value_start + 1] + REDACTED + text[closing]
+                    # An unterminated quote must never expose its value. Without
+                    # a closing delimiter, redact to the line/record boundary.
+                    # Advance one shared iterator so nested candidates cannot
+                    # repeatedly scan the same suffix.
+                    if line_ends is None:
+                        line_ends = _LINE_END_RE.finditer(text)
+                    while line_end < value_start:
+                        line_end = next(line_ends).start()
+                    end = line_end
+                    out = text[start:value_start] + REDACTED
+                else:
+                    end = closing + opening.end() - value_start
+                    out = text[start:opening.end()] + REDACTED + text[closing:end]
             else:
                 value = _PLAIN_VALUE_RE.match(text, value_start)
                 if value is None:
                     continue
                 end = value.end()
                 out = text[start:value_start] + REDACTED
-        if quoted and multiline:
+        if quoted:
             # A surrounding assignment can end at an inner value's opening
-            # quote. Mask the union of overlapping matches, including the inner
-            # value beyond that quote, instead of skipping its candidate key.
+            # quote, and an unterminated value at the next one of its kind (`a='x
+            # b='y'`) or at its line's end, past a key whose value is on the next
+            # line (`a='x b:\n y`, plain or quoted). Mask the union of overlapping
+            # matches, including the inner value beyond, instead of skipping its
+            # candidate key or leaving its value to a rule that no longer sees
+            # the key. Outside whole-text mode a match spans a line break only
+            # between its key and its value, which `_neutral_break` never cuts,
+            # so neither does a union.
             if ranges and start < ranges[-1][1]:
                 previous_start, previous_end, previous_out = ranges[-1]
                 ranges[-1] = (previous_start, max(previous_end, end), previous_out)
             else:
                 ranges.append((start, end, out))
+        elif nested:
+            # A plain value that ends in a key whose own value follows (`a=xtoken
+            # = y`): that value goes too, though its key went with the first.
+            parts.extend((text[cursor:value_start], replace(text[value_start:end], REDACTED)))
+            cursor = end
         else:
             parts.extend((text[cursor:start], replace(text[start:end], out)))
             cursor = end
@@ -444,7 +513,8 @@ def _neutral_break(text: str, visible: int, after: int) -> bool:
     - a `:` or `=` after a key, its quote and whitespace, to the value;
     - a key (an identifier with a sensitive ending, which `Authorization`,
       `Cookie` and `Set-Cookie` headers have), or a key's closing quote
-      (`"password"`), to a `:` or `=` after the break;
+      (`"password"`, and escaped as `\\'password\\'` or `\\"password\\"`), to
+      a `:` or `=` after the break;
     - `Bearer`, to a token character after the break.
     A quote or separator after anything else, a key followed by anything else,
     and a word ending the text are ordinary. No rule's replacement puts a `:`,
@@ -457,11 +527,11 @@ def _neutral_break(text: str, visible: int, after: int) -> bool:
     if last in ":=":
         before = _last_visible(text, visible)   # the separator may follow blank lines
         if before >= 0 and text[before] in "\"'":
-            before -= 1                         # a quoted key's closing quote
+            return not _key_ends_at(text, before, quoted=True)
         return not _key_ends_at(text, before)
     separator = following in (":", "=")
     if last in "\"'":
-        return not (separator and _key_ends_at(text, visible - 1))
+        return not (separator and _key_ends_at(text, visible, quoted=True))
     if _key_ends_at(text, visible):
         return not separator
     if _last_word(text, visible).lower().endswith("bearer"):
@@ -485,8 +555,14 @@ def _last_word(text: str, end: int) -> str:
     return text[start:end + 1]
 
 
-def _key_ends_at(text: str, end: int) -> bool:
-    """Whether an identifier the scrubber reads as a key ends at `end`."""
+def _key_ends_at(text: str, end: int, *, quoted: bool = False) -> bool:
+    """Whether an identifier the scrubber reads as a key ends at `end`; `quoted`:
+    whether one ends before the quote at `end` and the backslashes escaping it, as
+    `_ASSIGN_SEPARATOR_RE` reads a key's closing quote (`"password"`, `\\'password\\'`)."""
+    if quoted:
+        end -= 1
+        while end >= 0 and text[end] == "\\":
+            end -= 1
     return bool(_SENSITIVE_SUFFIX_RE.search(_last_word(text, end)))
 
 
@@ -565,6 +641,11 @@ def _scrub(text: str, strip_reminders: bool, *, multiline: bool = False) -> tupl
         # closing quote. Whole-text callers never cut through these assignments.
         text = _scrub_named_values(text, tally, quoted=True, multiline=True)
     text = _resolve_blocks(text, strip_reminders, tally)
+    if not multiline:
+        # An excerpt's blocks are resolved over the whole text first; then mask
+        # quoted values before a token rule can take their key (`Bearer
+        # okPASSWORD='…'`), as the whole-text pass above does.
+        text = _scrub_named_values(text, tally, quoted=True)
     text = _apply_rules(text, (
         (_JWT_RE, REDACTED),
         (_PREFIXED_TOKEN_RE, REDACTED),

@@ -190,8 +190,7 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     "unknown-provider": ("unknown provider", None),
     "adapter-missing": ("{provider} adapter has no constructor", None),
     "guard-missing": ("Codex guard preflight is not installed", "install the Codex adapter and reviewed guard files"),
-    "guard-preflight": ("Codex guard trust preflight refused the writable job ({guard_kind}); "
-                        "verify hook SHA-256, TRUST and the pinned Codex version", "rerun subfleet doctor"),
+    "guard-preflight": ("Codex guard preflight refused the writable job ({guard_kind})", "rerun subfleet doctor"),
     # A verdict that rests on no answer says so, and never asks for a restore (C-14.2):
     # the fixes are `guard.preflight`'s own (`_TIMEOUT_FIX`, `_PROBE_FIX`).
     "guard-preflight-timeout": ("Guard preflight timed out: guard trust is unverified, not mismatched",
@@ -334,7 +333,7 @@ LESS_SPECIFIC: dict[str, tuple[tuple[str, str | None], ...]] = {
     "push-checkout": (("host push workspace refused: {checkout_problem}", "{checkout_fix}"),
                       ("host push workspace refused; the daemon log names the check",
                        "resubmit from a full clone whose origin and HEAD still name the commit to start from, or omit --push-branch")),
-    "guard-preflight": (("Codex guard trust preflight refused the writable job", "rerun subfleet doctor"),),
+    "guard-preflight": (("Codex guard preflight refused the writable job", "rerun subfleet doctor"),),
     "unknown-job": (("unknown job", None),),
     "different-payload": (("request id already used with a different payload", None),),
     "policy-workdir": (("these jobs write by policy, and {repository}", HANDLER_MESSAGES["policy-workdir"][1]),
@@ -389,6 +388,16 @@ _SHAPES = {
 }
 
 
+#: A guard preflight verdict kind (`guard.preflight`) and its repair (C-14.2): the
+#: kinds `checked` admits are this table's, so each one renders its own repair.
+GUARD_REPAIRS = {
+    "trust": "rerun subfleet doctor",
+    "version": "install the supported Codex version, then rerun subfleet doctor",
+    "config": "correct the guard preflight configuration, then rerun subfleet doctor",
+    "environment": "restore the required directories and binaries, then rerun subfleet doctor",
+}
+
+
 def _choices() -> dict[str, tuple[str, ...]]:
     from .adapters.isolation import CODEX_LAYERS, MANAGED_ENV
     return {
@@ -400,7 +409,7 @@ def _choices() -> dict[str, tuple[str, ...]]:
         "branch": ("main", "master"),
         "provider": ("claude", "codex"),
         "session_verb": ("resume", "revive"),
-        "guard_kind": ("trust", "version", "config", "environment"),
+        "guard_kind": tuple(GUARD_REPAIRS),
         "checkout_problem": tuple(message for message, _ in CHECKOUT_REFUSALS.values()),
         "checkout_fix": tuple(fix for _, fix in CHECKOUT_REFUSALS.values()),
         "errno_name": tuple(errno.errorcode.values()),
@@ -451,6 +460,12 @@ def render(reason: Any, details: Any = None) -> tuple[str, str | None]:
             break
     else:                                   # unreachable while the last forms name no value
         return FALLBACK
+    if reason == "guard-preflight" and checked("guard_kind", details.get("guard_kind")):
+        kind = details["guard_kind"]
+        if kind == "trust":
+            message += "; verify hook SHA-256, TRUST and the pinned Codex version"
+        # The renderer never raises: a kind admitted without a repair gets the generic one.
+        fix = GUARD_REPAIRS.get(kind, HANDLER_MESSAGES["guard-preflight"][1])
     if details.get(BY_POLICY) is True:
         # d261: a writer's refusal of a job its caller did not ask to write.
         task = details.get("task") if checked("task", details.get("task")) else "these"
