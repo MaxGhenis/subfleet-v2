@@ -16,6 +16,7 @@ import sys
 
 from .contracts import JobSpec, Launch
 from .guardian import atomic_publish
+from .publish_rule import gh_read, git_publishes  # noqa: F401 - gh_read is this module's API too
 
 # Explicit launch authority, added AFTER #222's ambient environment allowlist.
 # Its guardian_pass_args(env) passes these names across the guardian boundary.
@@ -36,46 +37,9 @@ def publishing_denied(job: JobSpec) -> bool:
     return job.task == "review" or job.kind == "gate-review"
 
 
-def gh_read(args: list[str]) -> bool:
-    """Fail closed on aliases/extensions/unknown verbs and ambiguous API options."""
-    args = list(args)
-    while args and args[0].startswith('-'):
-        flag = args.pop(0)
-        if flag in ('-R', '--repo', '--hostname') and args:
-            args.pop(0)
-        elif flag.startswith(('--repo=', '--hostname=')) or (flag.startswith('-R') and len(flag) > 2):
-            continue
-        else:
-            return False
-    if len(args) >= 2 and args[0] == 'pr':
-        return args[1] in ('view', 'diff', 'checks')
-    if not args or args[0] != 'api':
-        return False
-    index = 1
-    while index < len(args):
-        arg = args[index]
-        if arg.startswith(('-f', '-F', '--field', '--raw-field', '--input')) or arg == 'graphql':
-            return False
-        if arg in ('-X', '--method'):
-            index += 1
-            if index == len(args) or args[index] != 'GET':
-                return False
-        elif arg.startswith('-X'):
-            if arg[2:] != 'GET':
-                return False
-        elif arg.startswith('--method='):
-            if arg.partition('=')[2] != 'GET':
-                return False
-        elif arg == '--':
-            # Do not let a downstream parser reinterpret options after a separator.
-            return False
-        index += 1
-    return True
-
-
 def wrapper_main(tool: str, target: str | None) -> None:
     args = sys.argv[1:]
-    allowed = 'push' not in args if tool == 'git' else gh_read(args)
+    allowed = not git_publishes(args) if tool == 'git' else gh_read(args)
     if not allowed:
         print(f'subfleet review publish: denied ({tool})', file=sys.stderr)
         raise SystemExit(7)

@@ -125,3 +125,74 @@ def test_review_launch_never_allows_push(provider, sandbox, kind, options):
 def test_non_review_launch_is_unchanged(tmp_path):
     launch = protected(tmp_path, task='build')
     assert 'PATH' not in launch.env_add and not launch.notes.get('publish_denied')
+
+
+# #221 review r1b, P2: gh's flag parser lets a boolean flag lead a cluster, so
+# `-iXPOST` is `-i -X POST` and `-ifbody=x` is `-i -f body=x`. Real gh 2.100.0
+# sent POST for both (GH_DEBUG=api against a closed localhost port). Every
+# input the review executed, plus the cluster shapes the rule names.
+CLUSTER_WRITES = [
+    ['api', '-ifbody=published', 'repos/o/r/issues/1/comments'],
+    ['api', '-iXPOST', 'repos/o/r/issues/1/comments'],
+    ['api', '-iX', 'POST', 'repos/o/r/pulls/1/merge'],
+    ['api', '-iFbody=@file', 'repos/o/r/issues/1/comments'],
+    ['api', '-iX', 'GET', 'repos/o/r'],             # only -XGET and -X GET are exempt
+    ['api', '-Xget', 'repos/o/r'],
+    ['api', '-HAccept:x', '-f', 'a=b', 'repos/o/r'],
+    ['api', '--method', 'PATCH', 'repos/o/r'],
+]
+
+
+@pytest.mark.parametrize('args', CLUSTER_WRITES, ids=lambda args: ' '.join(args))
+@pytest.mark.parametrize('provider', ['codex', 'claude'])
+def test_gh_flag_clusters_that_real_gh_sends_as_writes_are_refused(tmp_path, monkeypatch, args, provider):
+    fake = tmp_path / 'bin'
+    fake.mkdir()
+    (fake / 'gh').write_text('#!/bin/sh\necho fake-gh "$@"\n')
+    (fake / 'gh').chmod(0o755)
+    monkeypatch.setenv('PATH', str(fake) + os.pathsep + os.environ['PATH'])
+    launch = protected(tmp_path, provider=provider)
+    result = run(['gh', *args], launch)
+    assert result.returncode == 7 and 'fake-gh' not in result.stdout, result.stdout
+    assert 'publish: denied' in result.stderr
+
+
+@pytest.mark.parametrize('args', [
+    ['api', '-XGET', 'repos/o/r'], ['api', '-X', 'GET', 'repos/o/r'], ['api', '-i', 'repos/o/r'],
+    ['api', '--method=GET', '-H', 'Accept: x', 'repos/o/r'], ['api', '--paginate', '-q', '.[]', 'repos/o/r/pulls'],
+])
+def test_gh_api_get_clusters_still_read(args):
+    from subfleet.review_publish import gh_read
+    assert gh_read(args)
+
+
+# P3-7: the reads a review needs once the wrapper and hook refuse the rest.
+REVIEW_READS = [
+    ['run', 'view', '123', '--log-failed'], ['run', 'view', '123', '--log'], ['run', 'list'],
+    ['run', 'watch', '123'], ['issue', 'view', '7'], ['issue', 'list'], ['pr', 'list'],
+    ['pr', 'status'], ['repo', 'view'], ['release', 'list'], ['release', 'view', 'v1'],
+    ['workflow', 'list'], ['workflow', 'view', 'tests.yml'], ['search', 'prs', 'q'],
+    ['label', 'list'], ['pr', 'view', '7', '--comments'], ['-R', 'o/r', 'run', 'view', '1'],
+]
+
+
+@pytest.mark.parametrize('args', REVIEW_READS, ids=lambda args: ' '.join(args))
+def test_gh_review_reads_reach_gh(tmp_path, monkeypatch, args):
+    fake = tmp_path / 'bin'
+    fake.mkdir()
+    (fake / 'gh').write_text('#!/bin/sh\necho fake-gh "$@"\n')
+    (fake / 'gh').chmod(0o755)
+    monkeypatch.setenv('PATH', str(fake) + os.pathsep + os.environ['PATH'])
+    launch = protected(tmp_path)
+    result = run(['gh', *args], launch)
+    assert result.returncode == 0 and 'fake-gh' in result.stdout, result.stderr
+
+
+@pytest.mark.parametrize('args', [
+    ['run', 'rerun', '1'], ['run', 'cancel', '1'], ['workflow', 'run', 'x'], ['issue', 'close', '1'],
+    ['release', 'create', 'v1'], ['repo', 'edit'], ['label', 'create', 'x'], ['issue', 'edit', '1'],
+    ['run', 'delete', '1'], ['secret', 'list'], ['gist', 'create', 'x'], ['auth', 'token'],
+])
+def test_gh_other_verbs_stay_refused(args):
+    from subfleet.review_publish import gh_read
+    assert not gh_read(args)
