@@ -48,6 +48,7 @@ def daemon(tmp_path, monkeypatch):
     core.stopping = threading.Event()
     core.term_grace_s, core.kill_settle_s, core.exit_settle_s = .05, .3, .3
     core._exit_settle = {}
+    core._stream_check_failures = {}
     core._children, core._pending_launches, core._starting_deadlines = {}, set(), {}
     # C-5.12: a shared process table that shows no process, so every verdict is the injected `liveness`.
     core._inspect_next, core.inspect_interval_s, core._inspect_retry = {}, .5, set()
