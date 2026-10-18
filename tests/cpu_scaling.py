@@ -9,7 +9,7 @@ from collections.abc import Callable
 
 def best_cpu_samples(make_call: Callable[[int], Callable[[], None]],
                      sizes: tuple[int, int]) -> dict:
-    """Best of five equal batches; the smaller batch costs at least 50 ms.
+    """Best of five equal batches; the smaller batch costs at least 20 ms.
 
     Equal batch counts preserve the growth ratio. Calibrate on the best sample,
     rather than a possibly interrupted warmup, so even the fastest small sample
@@ -30,8 +30,8 @@ def best_cpu_samples(make_call: Callable[[int], Callable[[], None]],
 
     batch = 1
     small = best(calls[sizes[0]], batch)
-    while small < 0.05:
-        batch *= max(2, math.ceil(0.05 / max(small, 1e-9)))
+    while small < 0.02:
+        batch *= max(2, math.ceil(0.02 / max(small, 1e-9)))
         small = best(calls[sizes[0]], batch)
     large = best(calls[sizes[1]], batch)
     return {str(sizes[0]): small / batch, str(sizes[1]): large / batch,
