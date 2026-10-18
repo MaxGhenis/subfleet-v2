@@ -310,3 +310,22 @@ def test_deferred_wall_cascade_rolls_back_and_replays_with_parent(clocked, monke
     assert service.store.get_job(jid)["state"] == "cancelled"
     assert service.store.get_job(queued)["state"] == "cancelled"
     assert service.store.get_job(live)["cancel_requested_at"]
+
+
+def test_client_precedence_does_not_let_a_late_turn_completion_claim_ok(clocked, monkeypatch):
+    service, _, clock, jid, aid, adir = setup_running(clocked, monkeypatch)
+    service.store.update_job(jid, kind="turn")
+    monkeypatch.setattr(service.conversations, "adapter", lambda provider: daemon_module.get_adapter(provider))
+    monkeypatch.setattr(service, "_turn_trees", lambda *args, **kwargs: {})
+    wall_request(service, aid, jid)
+    def signal(*args, **kwargs):
+        ask_client(service, jid)
+        clock.t += timedelta(seconds=2)
+        publish(adir, clock.t.isoformat())
+        return True
+    monkeypatch.setattr(procs, "signal_group", signal)
+    service._kill_attempt(service.store.get_attempt(aid))
+    service._process_attempt(aid)
+    assert service.store.get_job(jid)["state"] == "cancelled"
+    assert service._cancel_info(jid)["session_id"] == "operator-session"
+    assert service.store.get_attempt(aid)["outcome_class"] == "unknown"
