@@ -16,12 +16,16 @@
 //   `attach` has seen that approval, also when a reset makes the card again);
 //   `approval.resolved` answers or withdraws it;
 //   `turn.completed` records the outcome and withdraws what is still pending
-//   (the driver withdraws pending requests when a turn ends without an event).
+//   (the daemon writes `approval.resolved {withdrawn}` for each request a turn's
+//   end withdraws, ahead of it, and for one a provider that exited without a
+//   result left pending, which has no `turn.completed`; C-27.3).
 // - `steer.delivered` (on the host turn, `data.message_id` the steered message,
 //   C-24.9) marks where the provider read a steered message: its bubble, drawn in
 //   send order until then, is anchored there, once, and reads "Read".
 //   `steer.missed` says the turn ended before reading it (it runs next);
 //   `steer.sent` and `steer.refused` change nothing shown.
+// - `suggestion` (C-25.7) makes one card per suggested conversation, on the turn
+//   that suggested it, and each later `suggestion` event of it updates that card.
 // - `reset: true` means compacted deltas were missed: the event-derived state is
 //   dropped and the log is read again from 0 (C-25.4).
 //
@@ -93,6 +97,9 @@ enum TimelineContent: Equatable {
     /// Where the provider took a steered message into this turn (`steer.delivered`).
     /// `Timeline.items` draws that message's bubble here instead, so it is never shown.
     case steered(messageID: String)
+    /// A conversation this turn's agent suggested (`suggestion` events, C-25.7): its
+    /// card, as the latest event left it; the view prefers the watch feed's newer word.
+    case suggestion(Suggestion)
 }
 
 struct TimelineItem: Identifiable, Equatable {
@@ -678,6 +685,23 @@ struct Timeline: Equatable {
         case "steer.sent", "steer.refused":
             // The steered message's receipts say the rest.
             break
+        case "suggestion":
+            // C-25.7: one card per suggestion, where the turn suggested it; each change
+            // of its state is an event, which updates the card in place.
+            guard let suggestion = try? data.decode(Suggestion.self) else {
+                unknownKinds[event.kind, default: 0] += 1
+                break
+            }
+            let itemID = "suggestion:\(suggestion.suggestion_id)"
+            if let index = turn.items.firstIndex(where: { $0.id == itemID }),
+               case .suggestion(let known) = turn.items[index].content {
+                if suggestionRank(suggestion.state) >= suggestionRank(known.state) {
+                    turn.items[index].content = .suggestion(known.merged(with: suggestion))
+                }
+            } else {
+                turn.items.append(TimelineItem(id: itemID, messageID: id == Timeline.conversationKey ? nil : id,
+                                               content: .suggestion(suggestion), ts: event.ts))
+            }
         default:
             unknownKinds[event.kind, default: 0] += 1
         }

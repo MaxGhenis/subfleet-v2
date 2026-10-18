@@ -19,6 +19,8 @@ needs_swift = pytest.mark.skipif(sys.platform != "darwin" or shutil.which("xcrun
                                  reason="native Swift frontend validation requires macOS developer tools")
 # The ⌘K palette's matching and the text scale (C-29.12, C-29.13).
 CORE_PROBE.append(ROOT / "tests/frontend/CoreProbeSearch.swift")
+# Suggested conversations: the Suggested section and the timeline's card (C-29.14).
+CORE_PROBE.append(ROOT / "tests/frontend/CoreProbeSuggestions.swift")
 
 
 @pytest.fixture(scope="session")
@@ -27,6 +29,16 @@ def core_probe(tmp_path_factory) -> Path:
     if sys.platform != "darwin" or shutil.which("xcrun") is None:
         pytest.skip("native Swift frontend validation requires macOS developer tools")
     return compile_probe(tmp_path_factory.mktemp("subfleet-core") / "probe", CORE_PROBE, "SUBFLEET_MODEL_TEST")
+
+
+# A test's failure is not raised into its fixtures: a fixture that keeps a failed run's
+# state (test_core_live.py's `dev_daemon`) reads the phase's report from the item, as the
+# e2e and fake harnesses' fixtures do (tests/e2e/conftest.py, tests/fake/conftest.py).
+@pytest.hookimpl(tryfirst=True, hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    report = outcome.get_result()
+    setattr(item, "rep_" + report.when, report)
 
 
 @pytest.fixture(scope="session")

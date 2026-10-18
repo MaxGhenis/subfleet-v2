@@ -38,6 +38,8 @@ from subfleet.daemon import Daemon
 from subfleet.guardian import atomic_publish
 from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
 from subfleet.store import Store
+from tests.fake.conftest import process_inspection_available  # noqa: F401 - shared host prerequisite
+
 from tests.legacy_fixtures import outbox_row, write_outbox, write_transcript
 
 SESSION = "5e551011-0000-4000-8000-0000000000c1"
@@ -850,7 +852,7 @@ def test_registration_setup_failure_reaps_its_child(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("subfleet", [False, True])
-def test_a_live_claude_process_outside_subfleet_is_a_dispatch_wait(core, monkeypatch, subfleet):
+def test_a_live_claude_process_outside_subfleet_is_a_dispatch_wait(core, monkeypatch, subfleet, process_inspection_available):
     """C-26.3, D-17 (review M3), as the desktop line checks it: a Claude turn whose
     session a live process outside Subfleet holds (a registry row whose
     `procStart` is its pid's, without `SUBFLEET_ATTEMPT`) waits at dispatch,
@@ -883,7 +885,7 @@ def test_a_live_claude_process_outside_subfleet_is_a_dispatch_wait(core, monkeyp
 @pytest.mark.parametrize("direction, subfleet", [("same", False), ("same", True), ("upper-stored", False),
                                                  ("lower-stored", False)])
 def test_a_live_claude_process_that_takes_the_session_after_its_job_is_made_is_a_launch_wait(
-        core, monkeypatch, direction, subfleet):
+        core, monkeypatch, direction, subfleet, process_inspection_available):
     """C-26.3, D-17 (review M3's second case, dropped by the merge and restored
     after the review of 3c1a34e): the turn job is made, and only then does a live
     Claude process outside Subfleet register for the session (the Claude app took

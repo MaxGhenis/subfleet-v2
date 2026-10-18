@@ -23,12 +23,15 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator, Sequence
 
 from ..lockwatch import WatchedLock
 from ..sessions.transcripts import NotRegularFile
 from ..state_files import read_state
-from .turn import APPROVAL_NEEDED, CANCELLED, COMPLETE, LIVE_STATES, MESSAGE_STATES, PERMISSIONS, QUEUED, TERMINAL_STATES, WAITING
+from .turn import (
+    APPROVAL_NEEDED, CANCELLED, COMPLETE, LIVE_STATES, MESSAGE_STATES, PERMISSIONS, QUEUED, RUNNING, TERMINAL_STATES,
+    WAITING,
+)
 
 SCHEMA_VERSION = 2
 PROVIDERS = ("claude", "codex")
@@ -342,6 +345,10 @@ class ConversationStore:
             self._db.executescript(SCHEMA)
             from .wakes import SCHEMA as WAKE_SCHEMA
             self._db.executescript(WAKE_SCHEMA)
+            # C-25.7: suggested conversations, an additive table as the wake tables are.
+            from .suggestions import SCHEMA as SUGGESTION_SCHEMA, add_columns as add_suggestion_columns
+            self._db.executescript(SUGGESTION_SCHEMA)
+            add_suggestion_columns(self._db)
             # Additive columns need no numbered step: a build without them still reads the
             # rows (it selects by name and ignores what it does not know).
             columns = {row["name"] for row in self._db.execute("PRAGMA table_info(conversations)")}
@@ -357,8 +364,12 @@ class ConversationStore:
                              "WHERE title IS NOT NULL AND title_source IS NULL")
             # A waiting message's reason (another writer, a deferral) reaches the
             # app with its state (design §12).
-            if "state_reason" not in {row["name"] for row in self._db.execute("PRAGMA table_info(changes)")}:
+            change_columns = {row["name"] for row in self._db.execute("PRAGMA table_info(changes)")}
+            if "state_reason" not in change_columns:
                 self._db.execute("ALTER TABLE changes ADD COLUMN state_reason TEXT")
+            # C-25.7: a suggestion's feed row names it; additive, as `state_reason` was.
+            if "suggestion_id" not in change_columns:
+                self._db.execute("ALTER TABLE changes ADD COLUMN suggestion_id TEXT")
             self._add_turn_windows()
             if version is None:
                 self._db.execute("INSERT INTO schema_version VALUES (?,?)", (SCHEMA_VERSION, utcnow()))
@@ -571,16 +582,36 @@ class ConversationStore:
                 row = tx.execute("SELECT reason FROM legacy_sessions WHERE session_key IN (?, '*') "
                                  "ORDER BY session_key='*' LIMIT 1", (f"{provider}:{native_session_id}",)).fetchone()
                 held = row["reason"] if row else None
-            cid = new_id("cv")
-            tx.execute(
-                "INSERT INTO conversations(conversation_id,provider,native_session_id,title,title_source,workspace,workspace_kind,"
-                "allow_main,lane_id,settings_json,origin,handoff_from_json,request_id,legacy_hold,created_at,"
-                "updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (cid, provider, native_session_id, title, "person" if title else None, workspace, workspace_kind, int(allow_main), lane_id,
-                 json.dumps(settings), origin, json.dumps(handoff_from) if handoff_from else None, request_id,
-                 held, now, now))
-            self._change(tx, cid, None, None)
+            cid = self.insert_conversation(tx, provider=provider, workspace=workspace, workspace_kind=workspace_kind,
+                                           settings=settings, origin=origin, native_session_id=native_session_id,
+                                           title=title, allow_main=allow_main, lane_id=lane_id, request_id=request_id,
+                                           handoff_from=handoff_from, legacy_hold=held, now=now)
         return self.conversation(cid), True
+
+    def insert_conversation(self, tx: sqlite3.Connection, *, provider: str, workspace: str, workspace_kind: str,
+                            settings: dict, origin: str, native_session_id: str | None = None,
+                            title: str | None = None, allow_main: bool = False, lane_id: str | None = None,
+                            request_id: str | None = None, handoff_from: dict | None = None,
+                            legacy_hold: str | None = None, now: str | None = None) -> str:
+        """A new conversation's row and its feed row, inside the caller's transaction
+        (`create_conversation`, and a suggestion's start, C-25.7, which writes it with
+        its own claim). The caller has checked the request id and native session."""
+        if provider not in PROVIDERS:
+            raise ConversationError("bad-provider", "provider must be claude or codex")
+        settings = validate_settings(provider, settings)
+        if isinstance(title, str):
+            title = title.strip() or None
+        now = now or utcnow()
+        cid = new_id("cv")
+        tx.execute(
+            "INSERT INTO conversations(conversation_id,provider,native_session_id,title,title_source,workspace,workspace_kind,"
+            "allow_main,lane_id,settings_json,origin,handoff_from_json,request_id,legacy_hold,created_at,"
+            "updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (cid, provider, native_session_id, title, "person" if title else None, workspace, workspace_kind, int(allow_main), lane_id,
+             json.dumps(settings), origin, json.dumps(handoff_from) if handoff_from else None, request_id,
+             legacy_hold, now, now))
+        self._change(tx, cid, None, None)
+        return cid
 
     def rename_conversation(self, conversation_id: str, title: str) -> dict:
         """A person's rename permanently takes precedence over an in-flight title."""
@@ -974,11 +1005,19 @@ class ConversationStore:
                        text: str, attachments: list[str], settings: dict, origin: str = "person",
                        wake_claim: dict | None = None,
                        continues: str | None = None, state: str = QUEUED,
-                       state_reason: str | None = None) -> tuple[dict, bool]:
+                       state_reason: str | None = None,
+                       on_accept: Callable[[sqlite3.Connection], None] | None = None,
+                       starts_suggestion: str | None = None) -> tuple[dict, bool]:
         """Durably accept a message (C-24.2, C-24.3). Idempotent by id and digest;
         in order by the client's predecessor. A row Subfleet writes already
         settled (a withdrawal tombstone, IR-7) is born in its final `state`, so
-        the dispatcher never sees it queued."""
+        the dispatcher never sees it queued. `on_accept` runs inside the
+        transaction that inserts the row, and only then (a suggestion's start
+        records `started` with its first message, C-25.7); a repeat that finds
+        the message accepted already does not call it. A conversation a
+        suggestion's Start made takes no message until its brief, which that
+        Start submits naming the suggestion (`starts_suggestion`), and the brief
+        only as its first (`suggestions.admit_message`, in this transaction)."""
         if state not in (QUEUED, *TERMINAL_STATES):
             raise ValueError(f"a message is accepted queued or terminal, not {state}")
         message_id = canonical_uuid(message_id)
@@ -1009,6 +1048,8 @@ class ConversationStore:
                 if again["digest"] != digest:
                     raise ConversationError("message-id-conflict", "message id already used with different content")
                 return _decode_message(dict(again)), False
+            from .suggestions import admit_message
+            admit_message(tx, conversation_id, starts_suggestion)
             if wake_claim is not None:
                 from .wakes import claim
                 claim(tx, conversation_id, message_id, wake_claim, accepted_at=now)
@@ -1040,6 +1081,8 @@ class ConversationStore:
                            "WHERE conversation_id=? AND title IS NULL AND title_source IS NULL",
                            (fallback_title(text), message_id, conversation_id))
             self._change(tx, conversation_id, message_id, state)
+            if on_accept is not None:
+                on_accept(tx)
         return self.message(message_id), True
 
     def insert_legacy_history(self, *, conversation_id: str, message_id: str, text: str, state: str,
@@ -1088,6 +1131,8 @@ class ConversationStore:
             again = tx.execute("SELECT * FROM messages WHERE message_id=?", (message_id,)).fetchone()
             if again:
                 return same(again), False
+            from .suggestions import admit_message
+            admit_message(tx, conversation_id, None)      # C-25.7: not before a suggestion's brief
             if tx.execute("SELECT 1 FROM messages WHERE conversation_id=? AND origin<>'legacy' LIMIT 1",
                           (conversation_id,)).fetchone():
                 raise ConversationError("history-after-messages",
@@ -1320,7 +1365,8 @@ class ConversationStore:
                       title: "TitleUpdate | None" = None) -> list[tuple[dict, bool]]:
         """A provider's requests (C-27.1, design §8): each one's approval; with `events`,
         the batch that announces them and the attempt's watermark (as `append_events`);
-        with `expect`, the message's move to `approval-needed` from those states. All in
+        with `expect`, the message's move to `approval-needed` from those states if
+        an approval remains pending. All in
         one transaction, so no reader sees an `approval.requested` event whose approval
         `approval.list` does not list yet: the app lists approvals as soon as the event
         shows the card, to answer it, and found none when the event had been committed
@@ -1364,7 +1410,12 @@ class ConversationStore:
                 pending = tx.execute("SELECT COUNT(*) FROM approvals WHERE message_id=? AND state='pending'",
                                      (message_id,)).fetchone()[0]
                 self._change(tx, conversation_id, message_id, None, pending=pending)
-            if expect is not None:
+            # Replayed requests may already be answered or withdrawn. Only a
+            # pending approval can move the message back to approval-needed;
+            # check in this transaction, after inserting any new requests.
+            if expect is not None and tx.execute(
+                    "SELECT 1 FROM approvals WHERE message_id=? AND state='pending'",
+                    (message_id,)).fetchone():
                 self._set_state(tx, message_id, APPROVAL_NEEDED, expect=expect)
         return [(self._approval_row(attempt_id, a["provider_request_id"]), new is not None) for a, new in staged]
 
@@ -1388,28 +1439,80 @@ class ConversationStore:
         return [_decode_approval(r) for r in self.query(sql + " ORDER BY created_at", tuple(params))]
 
     def answer_approval(self, approval_id: str, decision: dict) -> bool:
+        """A person's answer (C-27.1). The row, its `approval.resolved` event, a
+        change-feed row and, once nothing of the message is pending, its move back to
+        running commit together (C-27.3): a client that reads any of them finds the
+        others, so it never meets a card still pending with no approval to answer it
+        by, and the card reads answered even when the provider ends before the runner
+        hands the answer over (a replay applies EOF before its queued answers). The
+        event carries the key the driver's own event for the answer gets in the
+        runner's batch (`respond`: source `cmd:approval:<id>`), so the log keeps one."""
         with self.transaction() as tx:
             cur = tx.execute("UPDATE approvals SET state='answered', decision_json=?, answered_at=? "
                              "WHERE approval_id=? AND state='pending'",
                              (json.dumps(decision), utcnow(), approval_id))
             if cur.rowcount:
-                row = tx.execute("SELECT conversation_id, message_id FROM approvals WHERE approval_id=?",
-                                 (approval_id,)).fetchone()
+                row = tx.execute("SELECT conversation_id, message_id, attempt_id, provider_request_id FROM approvals "
+                                 "WHERE approval_id=?", (approval_id,)).fetchone()
+                rid = row["provider_request_id"]
+                self._resolved_event(tx, row, f"cmd:approval:{rid}", decision.get("decision"))
                 pending = tx.execute("SELECT COUNT(*) FROM approvals WHERE message_id=? AND state='pending'",
                                      (row["message_id"],)).fetchone()[0]
                 self._change(tx, row["conversation_id"], row["message_id"], None, pending=pending)
+                if not pending:
+                    self._set_state(tx, row["message_id"], RUNNING, expect=(APPROVAL_NEEDED,))
             return bool(cur.rowcount)
 
     def withdraw_approvals(self, *, attempt_id: str, provider_request_ids: list[str] | None = None) -> int:
-        sql = "UPDATE approvals SET state='withdrawn', answered_at=? WHERE attempt_id=? AND state='pending'"
-        params: list[Any] = [utcnow(), attempt_id]
-        if provider_request_ids is not None:
-            if not provider_request_ids:
-                return 0
-            sql += f" AND provider_request_id IN ({','.join('?' * len(provider_request_ids))})"
-            params += provider_request_ids
+        """Withdraw an attempt's pending approvals (those named, or all of them), each
+        with its `approval.resolved {withdrawn}` event and a change-feed row, in one
+        transaction (C-27.3). Returns how many were withdrawn; a second call finds
+        none and writes nothing."""
+        if provider_request_ids is not None and not provider_request_ids:
+            return 0
         with self.transaction() as tx:
-            return tx.execute(sql, tuple(params)).rowcount
+            return self._withdraw(tx, attempt_id, provider_request_ids)
+
+    def _withdraw(self, tx: sqlite3.Connection, attempt_id: str, provider_request_ids: Sequence[str] | None,
+                  *, announced: frozenset[str] = frozenset()) -> int:
+        """`withdraw_approvals` inside a transaction the caller holds. A row moved from
+        pending gets an `approval.resolved {withdrawn}` event unless `announced` holds
+        its request id (the provider's own withdrawal, a `withdrawn` event in the same
+        batch), so
+        each withdrawal is said once, in the commit that makes it; one change-feed row
+        per message whose approvals moved. A row already answered or withdrawn is left
+        as it is and gets no event."""
+        sql = ("SELECT approval_id, message_id, conversation_id, attempt_id, provider_request_id FROM approvals "
+               "WHERE attempt_id=? AND state='pending'")
+        params: list[Any] = [attempt_id]
+        if provider_request_ids is not None:
+            sql += f" AND provider_request_id IN ({','.join('?' * len(provider_request_ids))})"
+            params += list(provider_request_ids)
+        rows = tx.execute(sql + " ORDER BY created_at, approval_id", tuple(params)).fetchall()
+        now = utcnow()
+        moved: dict[str, str] = {}
+        for row in rows:
+            tx.execute("UPDATE approvals SET state='withdrawn', answered_at=? WHERE approval_id=? AND state='pending'",
+                       (now, row["approval_id"]))
+            rid = row["provider_request_id"]
+            if rid not in announced:
+                self._resolved_event(tx, row, f"cmd:withdrawn:{rid}", "withdrawn")
+            moved[row["message_id"]] = row["conversation_id"]
+        for message_id, conversation_id in moved.items():
+            self._change(tx, conversation_id, message_id, None)
+        return len(rows)
+
+    def _resolved_event(self, tx: sqlite3.Connection, approval: sqlite3.Row, position: str,
+                        decision: str | None) -> None:
+        """The `approval.resolved` event for an approval the store resolves, at a key
+        only that resolution uses (`cmd:approval:<id>` the driver's own for an answer,
+        `cmd:withdrawn:<id>` for a withdrawal): a replay, or the driver's event for the
+        same answer, adds no second row (C-26.6)."""
+        data = {"request_id": approval["provider_request_id"], "decision": decision}
+        tx.execute("INSERT OR IGNORE INTO events(conversation_id,message_id,attempt_id,source,position,ordinal,kind,"
+                   "data_json,ts) VALUES (?,?,?,?,?,?,?,?,?)",
+                   (approval["conversation_id"], approval["message_id"], approval["attempt_id"], "command", position, 0,
+                    "approval.resolved", json.dumps(data, separators=(",", ":"), ensure_ascii=False), utcnow()))
 
     # --- attachments -----------------------------------------------------------
 
@@ -1432,20 +1535,46 @@ class ConversationStore:
 
     def append_events(self, *, conversation_id: str, message_id: str, attempt_id: str,
                       events: list[tuple[str, str, int, str, dict]], stdout_offset: int, stdin_seq: int,
-                      title: "TitleUpdate | None" = None) -> int:
+                      title: "TitleUpdate | None" = None, resolved: Sequence[str] = (),
+                      resume: bool = False) -> int:
         """One batch (C-25.4): events `(source, position, ordinal, kind, data)` and the
         attempt's watermark, in one transaction. Duplicates are ignored (C-26.6).
 
         `title` carries the first turn's optional title work (titles.py) into the same
         transaction: its claim, with the batch that records the turn's result, and a
         generated title the provider answered. It has a savepoint of its own, so a
-        failure there costs the title, never the batch; the store sets its results."""
+        failure there costs the title, never the batch; the store sets its results.
+
+        `resolved` names the attempt's provider requests no longer pending (a driver
+        step's `resolved`). The ones still pending are withdrawn in the same
+        transaction, each with its `approval.resolved {withdrawn}` event unless the
+        batch carries the provider's own, ahead of a `turn.completed` in the batch, and
+        a change-feed row (C-27.3); with `resume` (the turn is still going), a message
+        left with nothing pending moves back to running. A reader of the batch's events
+        never meets a pending card the store has withdrawn, or the reverse."""
         with self.transaction() as tx:
             if title is not None:
                 self._apply_title(tx, conversation_id, message_id, title)
-            return self._insert_events(tx, conversation_id=conversation_id, message_id=message_id,
-                                       attempt_id=attempt_id, events=events, stdout_offset=stdout_offset,
-                                       stdin_seq=stdin_seq)
+            if not resolved:
+                return self._insert_events(tx, conversation_id=conversation_id, message_id=message_id,
+                                           attempt_id=attempt_id, events=events, stdout_offset=stdout_offset,
+                                           stdin_seq=stdin_seq)
+            announced = frozenset(str(data.get("request_id")) for _, _, _, kind, data in events
+                                  if kind == "approval.resolved" and isinstance(data, dict)
+                                  and data.get("decision") == "withdrawn")
+            end = next((i for i, event in enumerate(events) if event[3] == "turn.completed"), len(events))
+            written = self._insert_events(tx, conversation_id=conversation_id, message_id=message_id,
+                                          attempt_id=attempt_id, events=events[:end], stdout_offset=stdout_offset,
+                                          stdin_seq=stdin_seq)
+            self._withdraw(tx, attempt_id, resolved, announced=announced)
+            if end < len(events):
+                written += self._insert_events(tx, conversation_id=conversation_id, message_id=message_id,
+                                               attempt_id=attempt_id, events=events[end:],
+                                               stdout_offset=stdout_offset, stdin_seq=stdin_seq)
+            if resume and not tx.execute("SELECT 1 FROM approvals WHERE message_id=? AND state='pending'",
+                                         (message_id,)).fetchone():
+                self._set_state(tx, message_id, RUNNING, expect=(APPROVAL_NEEDED,))
+            return written
 
     def _apply_title(self, tx: sqlite3.Connection, conversation_id: str, message_id: str,
                      title: "TitleUpdate") -> None:
@@ -1507,8 +1636,12 @@ class ConversationStore:
             size += len(row["data_json"]) + 64
             if out and size > max_bytes:
                 break
+            data = json.loads(row["data_json"])
+            if row["kind"] == "suggestion":
+                from .suggestions import event_view
+                data = event_view(data)
             out.append({"seq": row["seq"], "message_id": row["message_id"], "kind": row["kind"], "ts": row["ts"],
-                        "data": json.loads(row["data_json"])})
+                        "data": data})
             nxt = row["seq"]
         return {"events": out, "next": nxt, "reset": reset, "floor": floor}
 
@@ -1741,8 +1874,15 @@ class ConversationStore:
         rows = self.query("SELECT ch.*,c.title,c.title_source FROM changes ch "
                           "LEFT JOIN conversations c ON c.conversation_id=ch.conversation_id "
                           "WHERE ch.seq>? ORDER BY ch.seq LIMIT ?", (after, max(1, min(limit, 1000))))
+        # C-25.7: a suggestion's row carries the suggestion as it is now (its brief cut
+        # to a preview), so a client updates its card without asking again.
+        from .suggestions import Suggestions
+        named = [row["suggestion_id"] for row in rows if row.get("suggestion_id")]
+        views = Suggestions(self).views_for_changes(named) if named else {}
         for row in rows:
             row["steered_into"] = steered_into(row.get("state_reason"))
+            if row.get("suggestion_id"):
+                row["suggestion"] = views.get(row["suggestion_id"])
         return {"changes": rows, "next": rows[-1]["seq"] if rows else after}
 
     def wait(self, predicate, timeout_s: float) -> bool:

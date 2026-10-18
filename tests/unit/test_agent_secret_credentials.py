@@ -16,6 +16,7 @@ def test_daemon_and_enrollment_use_same_agent_helper(monkeypatch, tmp_path, over
     helper = tmp_path / ("custom helper" if override else "bin/agent-secret")
     helper.parent.mkdir(exist_ok=True)
     helper.touch()
+    monkeypatch.setenv("SUBFLEET_AGENT_SECRET", str(helper))
     if override:
         monkeypatch.setenv("CLAUDE_LANE_AGENT_SECRET", str(helper))
     else:
@@ -30,7 +31,7 @@ def test_daemon_and_enrollment_use_same_agent_helper(monkeypatch, tmp_path, over
 
     monkeypatch.setattr("subfleet.credentials.subprocess.run", run)
     credential = Credential("claude", reference, "keychain-token")
-    assert resolve_credential(credential) == {"CLAUDE_CODE_OAUTH_TOKEN": "test-private-value"}
+    assert resolve_credential(credential, runner=run) == {"CLAUDE_CODE_OAUTH_TOKEN": "test-private-value"}
     assert ClaudeAdapter(runner=run).credential_env(credential) == {
         "CLAUDE_CODE_OAUTH_TOKEN": "test-private-value"}
     assert calls == [[str(helper), "get", reference]] * 2
@@ -49,7 +50,8 @@ def test_failed_helper_never_falls_back_or_discloses_output(monkeypatch, failure
 
     monkeypatch.setattr("subfleet.credentials.subprocess.run", run)
     credential = Credential("claude", "claude-quota-test-reference", "keychain-token")
-    for resolve in (resolve_credential, ClaudeAdapter(runner=run).credential_env):
+    for resolve in (lambda credential: resolve_credential(credential, runner=run),
+                    ClaudeAdapter(runner=run).credential_env):
         with pytest.raises(AdapterError) as error:
             resolve(credential)
         assert "test-private-value" not in str(error.value)

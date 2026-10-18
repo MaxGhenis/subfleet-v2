@@ -233,11 +233,13 @@ def test_c15_3_state_a_pin_notice_is_a_message_surfaced_once(fleet, no_wake, lau
 
 @pytest.mark.parametrize("bad", ["-3", 1.5, True, None])
 def test_c15_3_state_notice_ids_are_integers(state_daemon, bad):
-    """C-15.3 a notice id names a table by its sign, so anything but an integer is refused."""
+    """C-15.3 a notice id names a table by its sign, so anything but an integer is refused,
+    with C-25.7's argument template (`bad-notice-id`)."""
     daemon, _ = state_daemon
     for op in ("notice.mark", "notice.ack"):
-        with pytest.raises(protocol.ProtocolError, match="notice id must be an integer"):
+        with pytest.raises(protocol.ProtocolError, match=re.escape(protocol.REFUSAL_MESSAGES["bad-notice-id"])) as refused:
             daemon.dispatch(op, {"session_id": "s", "notice_ids": [bad], "state": "surfaced"})
+        assert refused.value.reason == "bad-notice-id"
 
 
 def stamp(age: timedelta) -> str:

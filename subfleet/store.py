@@ -41,6 +41,8 @@ from .contracts import Closure, Credential, Decision, IdentityStatus, Lane, Lane
 from .lockwatch import WatchedLock, thread_name
 
 SCHEMA_VERSION = 7
+#: C-9.6: closure reasons that each keep a row of their own (`Store.put_closure`).
+HOLD_REASONS = ("operator-hold", "auth-dead")
 Row = dict[str, Any]
 
 # Canonical observations use the partial time index; offset/fractional clocks
@@ -209,7 +211,13 @@ class SnapshotWriteError(RuntimeError):
 
 class Store:
     def __init__(self, path: str | Path, read_only: bool = False, *, readonly: bool | None = None,
-                 readers: int = 0, read_wait_s: float = READ_WAIT_S):
+                 readers: int = 0, read_wait_s: float = READ_WAIT_S, initialize: bool = True):
+        """Open a store, optionally without applying any schema DDL.
+
+        `initialize=False` requires an existing, current-version database. It
+        lets maintenance back up and prove the original store without repairing
+        tables or indexes before taking its baseline.
+        """
         self.path = Path(path)
         self.read_only = read_only if readonly is None else readonly
         # C-3.7: read connections, opened on first use, at most `readers` of them.
@@ -241,9 +249,10 @@ class Store:
         # A reader compares it without taking `_lock` (an int read is atomic)
         # to learn whether anything it derived from the store can have changed.
         self.generation = 0
-        if not self.read_only:
+        if not self.read_only and initialize:
             self.path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
-        uri = self.path.resolve().as_uri() + ("?mode=ro" if self.read_only else "?mode=rwc")
+        mode = "ro" if self.read_only else ("rwc" if initialize else "rw")
+        uri = self.path.resolve().as_uri() + f"?mode={mode}"
         self.connection = sqlite3.connect(uri, uri=True, isolation_level=None,
                                           check_same_thread=False, timeout=5)
         self.connection.row_factory = sqlite3.Row
@@ -254,14 +263,19 @@ class Store:
             version = self.connection.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] if exists else 0
             if version and version > SCHEMA_VERSION:
                 raise SchemaVersionError(f"store schema {version} is newer than supported schema {SCHEMA_VERSION}")
+            if not self.read_only and not initialize and version != SCHEMA_VERSION:
+                raise SchemaVersionError(
+                    f"store schema {version or 0} requires initialization or migration; "
+                    f"supported schema {SCHEMA_VERSION}")
             if self.read_only:
                 if not version:
                     raise SchemaVersionError(f"store schema {version or 0} is uninitialized; supported schema {SCHEMA_VERSION}")
                 self.connection.execute("PRAGMA query_only=ON")
-            else:
+            if not self.read_only:
                 self.connection.execute("PRAGMA journal_mode=WAL")
                 self.connection.execute("PRAGMA synchronous=FULL")
                 self.connection.execute(f"PRAGMA journal_size_limit={int(WAL_SIZE_LIMIT)}")
+            if not self.read_only and initialize:
                 # Columns first, then the schema file: `store_schema.sql` always
                 # describes the newest version, and its indexes cannot be created
                 # over an older table until that table has caught up (C-3.1).
@@ -840,7 +854,17 @@ class Store:
         return self.query(WEEKLY_HISTORY_SQL, weekly_history_params(now))
 
     def put_closure(self, closure: Closure) -> int:
-        """One open closure per lane and scope: a later end extends the row in place.
+        """One open closure per lane, scope and kind: a later end extends the row in place.
+
+        C-9.6 (D-HOLD1): a hold (`operator-hold`, `auth-dead`) keeps a row of its
+        own, apart from the limits (`provider-limit`, `credits`, `cooldown`),
+        which share one. A limit never extends or replaces a hold's row, so a
+        reset, a reset credit or `lanes release --limits`, which release limit
+        rows, never end a hold; and a hold never swallows a limit that ends
+        sooner, so `lanes release` leaves the limit in force. Before, a weekly
+        limit reported on a held lane rewrote the hold's row as its own, and the
+        usage read that saw the window reset then opened the lane hours before
+        the hold's end.
 
         Every call leaves a `closure.recorded` event for the lane, including a
         limit reported again that ends no later than the open row's and so
@@ -849,8 +873,12 @@ class Store:
         the closure. The row is rewritten as it is so that the transaction has a
         change to record.
         """
+        reason = str(getattr(closure.reason, "value", closure.reason))
+        kind, values = (("reason=?", (reason,)) if reason in HOLD_REASONS else
+                        (f"reason NOT IN ({','.join('?' * len(HOLD_REASONS))})", HOLD_REASONS))
         with self.transaction("closure.recorded", lane_id=closure.lane_id) as conn:
-            existing = self.one("SELECT * FROM closures WHERE lane_id=? AND scope=? AND released_at IS NULL ORDER BY until_at DESC LIMIT 1", (closure.lane_id, closure.scope))
+            existing = self.one(f"SELECT * FROM closures WHERE lane_id=? AND scope=? AND released_at IS NULL AND {kind} "
+                                "ORDER BY until_at DESC LIMIT 1", (closure.lane_id, closure.scope, *values))
             if existing:
                 if closure.until_at > existing["until_at"]:
                     self._update("closures", "closure_id", existing["closure_id"], asdict(closure))

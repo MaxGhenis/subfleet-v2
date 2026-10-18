@@ -160,6 +160,14 @@ def still_stands(policy: Mapping[str, Any], job: Mapping[str, Any], decision: De
     skeleton = {"now": capacity._iso(instant), "lanes": list(now_lanes.values()), "in_flight": detached,
                 "in_flight_turns": turns, "reserved_probes": reserved_probes, "attempts": attempts,
                 "jobs": [dict(row) for row in jobs]}
+    # A reservation/completion in the OTHER pool or on another lane can change
+    # this provider's count. Refresh every lane of that provider, including the
+    # count in its evidence, even when the cap has not become full yet.
+    if scheduler.provider_caps_on(policy):
+        provider_then, provider_now = scheduler.provider_live(view), scheduler.provider_live(skeleton)
+        changed.update(lane_id for lane_id, lane in now_lanes.items()
+                       if scheduler.provider_cap(policy, lane["provider"]) is not None
+                       and provider_then.get(lane["provider"], 0) != provider_now.get(lane["provider"], 0))
     try:
         setup = scheduler.prepare(policy, skeleton, job)
         if setup["pin"]:
@@ -204,15 +212,14 @@ def still_stands(policy: Mapping[str, Any], job: Mapping[str, Any], decision: De
     # used to send the route to be evaluated again, off the lock, and a cap that
     # flipped between each evaluation and its check (a timer probe's lease counts
     # toward the fleet's) kept a job from being placed (review of 5d14f98).
-    blocks = decision.evaluations[0]["capacity_blocks"] if decision.evaluations else []
-    every = list(setup["capacity_blocks"]) != list(blocks)
     walk = tuple(setup["chain"])
     if walk[:len(decision.chain)] != tuple(decision.chain):
         return "moved", 0, None      # not the job's chain: only a pin or the policy makes it, checked before
     for index, short in enumerate(walk):
         # Past the models the early decision judged, every lane is judged now.
         evaluation = decision.evaluations[index] if index < len(decision.evaluations) else None
-        found = judge(short, every=every or evaluation is None)
+        every = evaluation is None or scheduler.capacity_blocks(setup, short) != evaluation["capacity_blocks"]
+        found = judge(short, every=every)
         standing = {lane_id: detail for lane_id, (reasons, detail) in found.items() if not reasons}
         if evaluation is not None and not every:
             # Every lane that did not change is judged as it was: a candidate at the
@@ -294,11 +301,11 @@ def as_now(decision: Decision, setup: Mapping[str, Any], replaced: list[set[str]
                                              by_key, aged=True),
                             "capacity_readings": kept(evaluation["capacity_readings"], fresh, by_key, aged=True),
                             "closures": kept(evaluation["closures"], [row for row in open_ if scoped(row)], by_id),
-                            "capacity_blocks": list(setup["capacity_blocks"]),
+                            "capacity_blocks": scheduler.capacity_blocks(setup, short),
                             "stranding_closures": kept(evaluation["stranding_closures"],
                                                        [row for row in open_ if row["scope"] in higher], by_id),
                             "reason": scheduler.model_reason(setup, index, short, ranked, details),
                             "evaluated_at": capacity._iso(instant)})
     lane, model = chosen or (None, None)
     return Decision(tuple(row["model"] for row in evaluations), tuple(evaluations), lane, model,
-                    scheduler.decision_reason(evaluations, lane, instant), decision.policy_hash)
+                    scheduler.decision_reason(evaluations, lane, instant, setup["steered"]), decision.policy_hash)

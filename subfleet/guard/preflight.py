@@ -8,7 +8,8 @@ and session stores are never copied or modified.
 
 A verified verdict is cached the way v1 cached it (C-23.5, invariant 52): the
 marker is keyed on the installed Codex version, the lane home, the override
-string, and a fingerprint of the seeded ``config.toml`` and ``hooks.json``, it
+string, a fingerprint of the seeded ``config.toml`` and ``hooks.json``, and
+the selected CA environment (C-10.8), it
 is discarded after 30 days, and only the app-server probe is skipped on a hit —
 the hook bytes, the TRUST pins, ``jq`` and the Codex version are checked on
 every call. A refusal is never cached.
@@ -21,6 +22,8 @@ diagnosed from the attempt directory alone (2026-09-20 incident).
 """
 
 from __future__ import annotations
+
+from collections.abc import Mapping
 
 import collections
 from dataclasses import dataclass, field
@@ -38,6 +41,9 @@ import subprocess
 import tempfile
 import time
 from typing import Any
+
+from ..policy import PolicyError, load_policy
+from ..provider_env import CA_SOURCES, ProviderEnvironment
 
 from ..sessions.transcripts import NotRegularFile, read_regular
 
@@ -272,7 +278,8 @@ def seed_fingerprint(home: str | Path | None = None, *, seeds: dict[str, bytes] 
 
 
 def cache_key(version: str, home: str | Path, override: str, fingerprint: str,
-              *, overlay: dict[str, Any] | None = None) -> str:
+              *, overlay: dict[str, Any] | None = None,
+              ca_sources: Mapping[str, str] | None = None) -> str:
     """Key the runtime verdict on the launch inputs and reviewed overlay pins.
 
     The overlay includes its hook SHA, so even an approved replacement at the
@@ -281,6 +288,8 @@ def cache_key(version: str, home: str | Path, override: str, fingerprint: str,
     material = f"{version}|{home}|{override}|{fingerprint}"
     if overlay is not None:
         material += "|" + json.dumps(overlay, sort_keys=True, separators=(",", ":"))
+    if ca_sources is not None:
+        material += "|ca=" + json.dumps(dict(ca_sources), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(material.encode()).hexdigest()
 
 
@@ -527,7 +536,8 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
               workdir: str | Path | None = None, hook_path: str | Path | None = None,
               trust_path: str | Path | None = None, timeout_s: float | None = None,
               use_cache: bool = True, cache_directory: str | Path | None = None,
-              state_root: str | Path | None = None) -> PreflightResult:
+              state_root: str | Path | None = None,
+              env: Mapping[str, str] | None = None) -> PreflightResult:
     """Fail closed on file, version, override, or runtime hooks trust drift.
 
     Callers should pass the lane home and job workdir. Omitting ``home`` uses
@@ -541,6 +551,9 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
     ``state_root`` (the daemon's root) places the scratch home and the markers;
     it defaults to ``$SUBFLEET_HOME``. Every refusal has code 7, a ``kind`` and an
     actionable fix. No provider work is run.
+    ``env`` is the daemon's provider launch environment (C-10.8); an omitted
+    environment reads the selected state root's policy (or uses defaults when
+    there is no policy yet) and keeps operator overrides.
     """
     version = None
     hooks_hash = None
@@ -566,7 +579,16 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
         if found is None:
             raise _Refusal(ENVIRONMENT, "Codex binary was not found or is not executable", _ENVIRONMENT_FIX)
         executable = str(Path(found).resolve())
-        env = {key_name: value for key_name, value in os.environ.items() if key_name not in _SECRET_ENV}
+        source_env = env
+        if source_env is None:
+            root = Path(state_root).expanduser() if state_root is not None else Path(_state_root())
+            policy_path = root / "policy.json"
+            try:
+                policy = load_policy(policy_path) if policy_path.exists() else {}
+            except PolicyError as exc:
+                raise _Refusal(CONFIG, str(exc), "Correct policy.json, then rerun subfleet doctor.") from None
+            source_env = ProviderEnvironment(policy).build("codex")
+        env = {key_name: value for key_name, value in source_env.items() if key_name not in _SECRET_ENV}
         status, stdout, stderr_text = _version(executable, env=env, timeout_s=deadline)
         if status is None:
             said = f"; stderr: {_clip(stderr_text.strip(), 400)}" if stderr_text.strip() else ""
@@ -606,7 +628,8 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
                 raise _Refusal(ENVIRONMENT, f"preflight cannot read the lane's seed files: {exc}",
                                _ENVIRONMENT_FIX) from None
             fingerprint = seed_fingerprint(seeds=seeds)
-            key = cache_key(version, source_home, override, fingerprint, overlay=trust)
+            key = cache_key(version, source_home, override, fingerprint, overlay=trust,
+                            ca_sources={name: env[name] for name in CA_SOURCES if name in env})
             if use_cache and read_cached_verdict(markers, key) is not None:
                 return PreflightResult(True, 0, "Codex never-rules guard trust verified (cached verdict)",
                                        version=version, hooks_hash=hooks_hash, override=override,
@@ -696,7 +719,9 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
 
 
 def _state_root() -> str:
-    return os.path.expanduser(os.environ.get("SUBFLEET_HOME", "~/.subfleet"))
+    from ..home_paths import home_path
+    return os.path.expanduser(str(home_path("SUBFLEET_HOME", lambda: "~/.subfleet",
+                                           accept_empty=True)))
 
 
 def _scratch_root(state_root: str | Path | None = None) -> str:

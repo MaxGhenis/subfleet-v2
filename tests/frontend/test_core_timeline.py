@@ -276,7 +276,8 @@ def test_legacy_approval_list_without_request_ids_keeps_its_own_immutable_card(c
 
 
 def test_c27_3_a_turn_that_ends_withdraws_its_pending_card(core_probe, tmp_path, harness):
-    """The driver withdraws pending requests at the end without an approval.resolved event."""
+    """The provider's own end while a card is pending: the store withdraws the request
+    and says so, `approval.resolved {withdrawn}` ahead of `turn.completed` in one commit."""
     cid = harness.create()["conversation_id"]
     mid = harness.submit(cid, "ask")["message_id"]
     turn = harness.attempt(cid, mid)
@@ -284,10 +285,72 @@ def test_c27_3_a_turn_that_ends_withdraws_its_pending_card(core_probe, tmp_path,
     claude_approval(turn, mid, "perm-2")
     turn.feed(claude_result(ok=False, subtype="error_during_execution"))
     events = page(harness, cid)
-    assert "approval.resolved" not in [e["kind"] for e in events["events"]]
+    kinds = [e["kind"] for e in events["events"]]
+    assert kinds.index("approval.resolved") < kinds.index("turn.completed") == len(kinds) - 1, kinds
+    assert [e["data"] for e in events["events"] if e["kind"] == "approval.resolved"] == [
+        {"request_id": "perm-2", "decision": "withdrawn"}]
     result = fold(core_probe, tmp_path, cid, [{"page": events}])
     assert items_of(result, mid, "approval")[0]["card"]["state"] == "withdrawn"
-    assert result["turns"][mid]["outcome"]["state"] == "failed"
+    assert result["turns"][mid]["outcome"]["state"] == "failed" and result["pending_cards"] == []
+
+
+def codex_asks(turn, cwd: str, request_id: int) -> None:
+    """A Codex turn past its handshake (the rows `codex app-server` sends), then a
+    command approval request."""
+    turn.feed({"id": 1, "result": {"userAgent": "codex"}},
+              {"id": 2, "result": {"data": [{"cwd": cwd, "hooks": [{"key": HOOK_KEY, "enabled": True,
+                                                                  "trustStatus": "trusted"}], "errors": []}]}},
+              {"id": 3, "result": {"data": [{"id": "gpt-6-astra", "model": "gpt-6-astra",
+                                             "supportedReasoningEfforts": [{"reasoningEffort": "high"}],
+                                             "serviceTiers": [{"id": "priority"}], "inputModalities": ["text"]}]}},
+              {"id": 4, "result": {"thread": {"id": "th-1", "status": {"type": "idle"}}, "model": "gpt-6-astra",
+                                   "reasoningEffort": "high", "serviceTier": None, "approvalPolicy": "never"}},
+              {"id": 5, "result": {"turn": {"id": "turn-1"}}},
+              {"id": request_id, "method": "item/commandExecution/requestApproval", "params": {
+                  "threadId": "th-1", "turnId": "turn-1", "itemId": "it-1", "command": "echo hi", "cwd": cwd,
+                  "reason": "fake: asks every time"}})
+
+
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_c27_3_a_provider_that_exits_without_a_result_withdraws_its_card(core_probe, tmp_path, harness, provider):
+    """The provider exits (stdout ends) without a result while a card is pending. Its
+    withdrawal is in the log: the events alone clear the card, so an app that clears
+    cards only on `approval.resolved` or `turn.completed` shows none; a client that
+    opens the conversation afterwards shows none; and the watch feed carried the
+    withdrawal as it happened, the pending count back to 0."""
+    cid = harness.create()["conversation_id"]
+    mid = harness.submit(cid, "ask")["message_id"]
+    turn = harness.attempt(cid, mid, provider=provider)
+    if provider == "claude":
+        turn.feed(claude_init(), replay(mid))
+        claude_approval(turn, mid, "perm-3")
+        request_id = "perm-3"
+    else:
+        codex_asks(turn, str(harness.workspace), 9)
+        request_id = "9"
+    asked = page(harness, cid)
+    approvals = harness.call("approval.list", conversation_id=cid)["approvals"]
+    fed = harness.call("conversation.watch", after=0)["next"]
+    turn.eof()
+    after = page(harness, cid, after=asked["next"])
+    assert [(e["kind"], e["data"]) for e in after["events"]] == [
+        ("approval.resolved", {"request_id": request_id, "decision": "withdrawn"})]
+    changes = harness.call("conversation.watch", after=fed)["changes"]
+    assert [(c["state"], c["pending_approvals"]) for c in changes] == [(None, 0), ("failed", 0)], changes
+
+    events_only = fold(core_probe, tmp_path, cid, [{"page": asked, "snapshot": True}, {"approvals": approvals},
+                                                   {"page": after}])
+    [card] = events_only["snapshots"][0]["pending_cards"]
+    assert card["request_id"] == request_id
+    assert [i["card"]["state"] for i in items_of(events_only, mid, "approval")] == ["withdrawn"]
+    assert events_only["pending_cards"] == []
+
+    opened = harness.call("conversation.open", conversation_id=cid)
+    assert opened["pending_approvals"] == []
+    later = fold(core_probe, tmp_path, cid, [{"receipts": opened["messages"]}, {"approvals": opened["pending_approvals"]},
+                                             {"page": page(harness, cid)}])
+    assert later["pending_cards"] == [] and later["turns"][mid]["state"] == "failed"
+    assert [i["card"]["state"] for i in items_of(later, mid, "approval")] == ["withdrawn"]
 
 
 def test_c25_4_a_reset_reads_the_log_again_from_zero(core_probe, tmp_path, harness):

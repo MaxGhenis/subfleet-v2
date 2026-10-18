@@ -164,7 +164,9 @@ sort ahead of detached jobs within their tier. A turn that cannot be placed
 never enters `waiters` for detached jobs, so it neither holds them
 `behind-older-job` nor causes `slot-kept`; turns hold back only other
 competing turns (review F-04), and only while the policy sets a turn cap
-(C-26.9, 2026-09-27). Turns never trigger an admission probe: a lane
+(C-26.9, 2026-09-27); a turn waiting for a lease holds none back and
+keeps the last turn slot instead (C-6.9, 2026-10-06). Turns never
+trigger an admission probe: a lane
 whose verdict would require one (C-11.4 unmeasured writable, C-11.7
 `requires_probe`) is not a candidate for a turn, reason `probe-required`
 (review F-03). Turns have their own capacity, counted apart from detached
@@ -187,11 +189,15 @@ are `approval.respond`, `approval.get` (full input), `message.resolve`,
 with `LOCAL_PEERPID` (verified available from Python on this macOS) and
 refuses (exit 7) when the caller or any ancestor is a live guardian's
 descendant or carries `SUBFLEET_ATTEMPT`/`SUBFLEET_ROOT`, and accepts only
-when the caller is the installed Subfleet app's executable or has a
-controlling terminal. Approval nonces appear only in person-only results.
-This is a boundary against agents Subfleet launched and headless agents; any
-process of the same user that drives a terminal remains inside the trust
-boundary, as with `daemon.sock` today (review SEC-1).
+when the caller is the installed Subfleet app's executable (or, on a
+development state root, the development build, D-21). Approval nonces appear
+only in person-only results. This is a boundary against agents Subfleet
+launched and headless agents. A controlling terminal is not a person
+(D-PB1, 2026-10-11): an agent's process can drop its markers, keep a
+pseudo-terminal and outlive its parent, and once launchd adopts it nothing
+above it is Subfleet's; an SSH login looks the same. So these operations are
+the app's alone, and every other op stays open to any process of the same
+user, as with `daemon.sock` today (review SEC-1).
 
 **D-9. Permission policy.** Per conversation, part of every message's
 settings and digest. Mapping from an existing Claude session's last recorded
