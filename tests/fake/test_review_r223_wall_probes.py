@@ -311,7 +311,7 @@ def test_probe_kill_without_a_peer_token_records_null_pid(clocked):
                                           'reason': 'client-request'}]
 
 
-def test_probe_kill_after_the_wall_keeps_the_wall_as_first_request(clocked, monkeypatch):
+def test_probe_client_kill_after_the_wall_becomes_effective_request(clocked, monkeypatch):
     service, harness, clock = clocked
     monkeypatch.setattr(service, '_kill_attempt', lambda a: None)
     jid, attempt, adir = reserve(service, harness, caller_session='caller')
@@ -322,9 +322,9 @@ def test_probe_kill_after_the_wall_keeps_the_wall_as_first_request(clocked, monk
     service._process_attempt(attempt['attempt_id'])
     socket_kill(service, {'job_id': jid, 'session_id': 'other', 'reason': 'late'}, os.getpid())
     shown = service.dispatch('show', {'job_id': jid})['cancel']
-    assert (shown['by'], shown['reason']) == ('daemon', 'max_wall_s')
-    assert Offline(harness.root).show_job(jid)['cancel']['reason'] == 'max_wall_s'
-    assert [e['reason'] for e in cancel_events(service, jid)] == ['max_wall_s']
+    assert (shown['by'], shown['reason'], shown['session_id'], shown['pid']) == ('client', 'late', 'other', os.getpid())
+    assert Offline(harness.root).show_job(jid)['cancel']['reason'] == 'late'
+    assert [e['reason'] for e in cancel_events(service, jid)] == ['max_wall_s', 'late']
 
 
 def test_probe_legacy_empty_cancel_event_shows_without_attribution(clocked, capsys, monkeypatch):
