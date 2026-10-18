@@ -8748,7 +8748,9 @@ class Daemon:
                 self._supersede_wall_cancel(actual, receipt)
                 job = self._job(a["job_id"])
                 actual = self.store.get_attempt(a["attempt_id"])
-            if actual.get("killed_by") and (stopped_ok and job["kind"] != "turn" or actual["killed_by"] == "max_wall_s"):
+            turn_exit_proven = (job["kind"] == "turn" and actual.get("killed_by")
+                                and self._receipt_precedes_signal(actual, receipt or {}))
+            if actual.get("killed_by") and (stopped_ok and not turn_exit_proven or actual["killed_by"] == "max_wall_s"):
                 # C-9.2: an attempt the daemon signalled (an operator's kill, the
                 # wall limit, recovery) did not finish, whatever its rc and its
                 # deliverable say. Codex exits 0 on SIGTERM and leaves its last
@@ -8756,11 +8758,10 @@ class Daemon:
                 # turn (incident: 2026-09-24, three cancelled Codex jobs recorded
                 # `ok` with rc 0 and deliverables of 32 to 61 words such as "I am
                 # checking the newer validation code before finalizing").
-                # A conversation turn is exempt: its `ok` is the driver's recorded
-                # `complete` (turn.json, the provider's own end-of-turn event), never
-                # an exit status or a last message, so a signal after it (a stop
-                # that came too late, or containment of a process that lingered)
-                # does not undo it (C-24.4, merge review 2026-09-25).
+                # A turn's recorded completion (C-24.4) can survive containment
+                # only when no daemon signal was delivered or its provider exit
+                # provably preceded that signal. Changing the effective requester
+                # to a client cannot turn a post-signal completion back into ok.
                 outcome = dataclasses.replace(
                     outcome, cls=OutcomeClass.UNKNOWN,
                     detail=f"stopped by {actual['killed_by']}: exit {rc} after the daemon's signal "
