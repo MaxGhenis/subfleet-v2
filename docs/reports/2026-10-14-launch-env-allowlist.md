@@ -1010,3 +1010,142 @@ counts `subprocess.run` itself passed as the runner, the same identity D-ST1's
 - **The projects folder.** For every mode and HOME spelling outside pytest:
   `new = release ∘ selected-environment`. It equals release under explicit
   authority.
+
+## Round 5: review r4 (2026-10-18)
+
+Base: `b27681e16`, with `origin/release/217` at `3fbc4b7c5` (#225 and #227)
+merged first as `6477b8ec1`. That merge conflicted only in the contract's
+change log, where both sides had added entries at the top: both are kept,
+this branch's D-ENV1 entries first and release's #225 entries after them,
+each block in its own order. No module this round touches changed on
+release. Review r4 (`~/reviews/subfleet-hub/launch-env-2026-10-14/review-r4.md`)
+asked for changes: one P2 and four P3s. The hub's five decisions are
+implemented as given; the choices it left open are under "Choices". No
+credential store, secret loader, live store, live daemon or live process was
+read or changed, and every test value is a dummy.
+
+### P2-1: a refused lane is never stored, and a stored one never wedges the daemon
+
+**Check first.** Both callers now build the same list before anything is
+written: `credentials.startup_lanes(roster, stored)` gives each env-kind
+lane's (lane id, variable, source), where the source is `lanes.json` for
+every roster row and `the store` for each stored lane that no roster row
+repairs. `policy.check_lane_credentials(policy, path, lanes)` takes it:
+
+- an `env.pass` entry naming a lane's credential variable raises, naming
+  `env.pass[i]`, the variable and each such lane with its source (P3-1);
+- a `lanes.json` row whose variable some launch inherits raises at
+  `lanes.json`, key `credential_ref`, naming the lane, the variable and the
+  fix;
+- a stored lane whose variable some launch inherits is returned as (lane id,
+  variable): it is held, never fatal.
+
+Daemon startup now calls `Daemon._open_lanes`, which reads `lanes.json` once,
+runs the check, then seeds that same roster (`_seed_lanes(roster)`), then
+writes one `daemon.log` warning per held lane. Seeding the very rows that
+were checked means the file cannot change between the check and the write.
+`daemon start` runs the same check in `cli.daemon_env` and prints each held
+lane's warning on stderr before it spawns.
+
+**A stored lane is held.** Nothing about a held lane is stored or changed.
+It is refused wherever a launch could start:
+
+- **Admission.** `scheduler.judge_lane` refuses it as `credential-refused`,
+  computed from the lane row's own `credential_kind` and `credential_ref`
+  (both already in `LANE_FACTS`, so C-6.3's judged-as-it-was check holds).
+  It is a standing refusal (`STANDING_REFUSALS`, `actions.UNUSABLE_REASONS`),
+  so a job pinned to it is held `pin-unadmittable` under C-11.8. The notice
+  reads "claude-9 names HOME, a variable every launch inherits, so it holds
+  no credential of its own (D-ENV1); point it at a daemon variable off the
+  launch allowlist in lanes.json, same lane id, provider and account, and
+  restart the daemon". An unpinned job routes to the other lanes.
+- **Resolution, the second line.** `resolve_credential` still refuses the
+  variable (`credential-env-inherited`). Every probe, keepalive, heal and
+  relaunch resolves its credential before it spawns, and the Claude
+  adapter's enrolment refuses an env-kind credential outright, so none of
+  them reaches a guardian on a held lane.
+- **Status.** Both status views flag the lane `credential-refused=<variable>`.
+
+The warning, in `daemon.log` and on `daemon start`'s stderr, reads "lane
+claude-9 in the store names HOME, a variable every launch inherits, so it
+cannot hold one lane's credential; the lane is held and nothing launches on
+it; fix: store the lane's OAuth token under a daemon variable off the launch
+allowlist, point the lane at it in lanes.json (same lane id, provider and
+account) and restart the daemon". It holds names only, never a value.
+
+**Recovery.** `credentials.reference_repair(stored, row)` gives a stored lane
+a roster row's variable only when:
+
+- the stored lane is env-kind and its variable is refused;
+- the row has the same lane id, provider and account;
+- the row is env-kind and its variable is not refused.
+
+`Store.repair_lane_reference` then rewrites `credential_ref` and moves the
+credential epoch on by one, guarded on the old variable, with a
+`lane.reference_repaired` event (`from`, `to`, `epoch`). This is C-1.3's one
+in-place binding. Such a lane never held a credential this release could
+resolve, so nothing that was bound is rebound. Without such a row, a held
+lane stays held, and it never blocks startup.
+
+**A held lane's variable is no credential.** `credentials.env_references`
+now leaves refused variables out. So the daemon is not handed one by name
+(`cli.daemon_env`), `env.pass` may name one, and doctor's
+`lane_credentials` omits it. `credentials.withheld_references`, which every
+launch withholds, keeps a held lane's harness hook (production never reads
+one, and round 3's `harness` channel test withholds it) but not a listed or
+session name. Withholding those would take HOME or PATH from every other
+lane, or a test child's session names.
+
+### P3-1: the `env.pass` refusal names its entry, the variable and the lane
+
+At both callers: "policy.json: env.pass[1]: E2E_LANE_NINE_TOKEN is the
+credential variable of lane claude-9 (lanes.json), which reaches only its
+own lane; remove it (the daemon holds each lane's credential without it)".
+A store-only lane reads `(the store)`. C-11.1 says so.
+
+### P3-2: a name popped between iterating and reading is skipped
+
+`launch_env._present(parent, names)` reads each name and skips one that
+raises `KeyError`. Both the session probe and the selection read through it.
+The probe still reads only `SESSION_PROBE_NAMES`, and the selection reads
+only names it has accepted. `ProviderEnvironment.additions` and its CA
+sources use it too.
+
+### P3-3: no withheld value is read
+
+`ProviderEnvironment.additions` tests `name not in withheld` before
+`name in environ`.
+
+### P3-4: session names only with the marker
+
+`_selected` decides `PYTEST_MARKER in probe and under_pytest(probe)`. A bare
+`PYTEST_CURRENT_TEST` selects no session name, with or without a copied
+session folder. `under_pytest` is unchanged for its other callers:
+`credentials`' import-time guard, the keychain refusals and the home-path
+refusals still count a bare `PYTEST_CURRENT_TEST` as a test process, which
+only refuses more there.
+
+The review's table, as the code now decides it (each row through helpers,
+both providers, and the guardian's authorized and bare reselections):
+
+| Parent | `under_pytest` | Session names selected |
+| --- | --- | --- |
+| marker, live sentinel | yes | all present |
+| marker, deleted sentinel | no | none |
+| marker, sentinel recreated with the same token on a new inode | no | none |
+| marker, session with no identity | no | none |
+| bare marker (`1` or `0`) | yes | all present |
+| bare `PYTEST_CURRENT_TEST` | yes | **none** (round 4: all present) |
+| marker, expired session, copied `PYTEST_CURRENT_TEST` | no | none |
+| expired session, copied `PYTEST_CURRENT_TEST`, no marker | yes | **none** (round 4: all present) |
+| none of these | no | none |
+
+C-20.6's sentence now reads: "copied markers revive no isolation, even
+beside a copied `PYTEST_CURRENT_TEST`. A copied `PYTEST_CURRENT_TEST`
+without the marker selects none of the session's names either (C-12.3),
+whether or not a session folder was copied with it; it only makes
+`home_paths.under_pytest` count the child a test process, so the child
+refuses personal fallbacks and keychain reads, which only refuses more."
+Round 4's change-log line now says that it selected while `under_pytest`
+decided the parent was in a live session, which included a bare
+`PYTEST_CURRENT_TEST`, and that round 5 drops that case.
