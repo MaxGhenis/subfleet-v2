@@ -95,7 +95,7 @@ def holder(root, monkeypatch):
         # the SIGCONT is missed; the wait keeps it from lingering as a zombie,
         # which `proc_start` would then read as a dead holder (C-5.5).
         with contextlib.suppress(OSError):
-            os.kill(child.pid, signal.SIGCONT)
+            child.send_signal(signal.SIGCONT)
         with contextlib.suppress(OSError):
             child.kill()
         child.wait(timeout=5)
@@ -115,13 +115,16 @@ def stop(child: subprocess.Popen) -> None:
     `client.is_stopped`, which is under test.
     """
     pid = child.pid
-    os.kill(pid, signal.SIGSTOP)
+    child.send_signal(signal.SIGSTOP)
     deadline = time.monotonic() + STOP_SETTLE_S
     while True:
         if pid in CHILD_STATES:
             waited, status = os.waitpid(pid, os.WUNTRACED | os.WNOHANG)
             if waited and os.WIFSTOPPED(status):
                 CHILD_STATES[pid][0] = "T"
+            elif waited:
+                child.returncode = os.waitstatus_to_exitcode(status)
+                pytest.fail(f"holder exited before its stop was observed: {child.returncode}")
         rc, output = client_module._run(["/bin/ps", "-p", str(pid), "-o", "state="])
         state = output.strip() if rc == 0 else None
         if state and state[0] == "T":
@@ -309,7 +312,7 @@ def test_a_refused_connect_asks_the_holder_too(running_holder, root, monkeypatch
         with pytest.raises(client_module.DaemonStopped):
             probe.call("daemon.status", {})
     finally:
-        os.kill(running_holder.pid, signal.SIGCONT)
+        running_holder.send_signal(signal.SIGCONT)
 
 
 def test_a_refused_connect_with_no_holder_is_the_plain_absence(root):
@@ -535,10 +538,10 @@ def test_every_client_call_refuses_a_stopped_holder(root, monkeypatch, method, o
 
 from hypothesis import given, settings, strategies as st
 
-settings.register_profile("stopped-ci", max_examples=40, derandomize=True, database=None, deadline=None)
+settings.register_profile("ci", max_examples=40, derandomize=True, database=None, deadline=None)
 
 
-@settings(settings.get_profile("stopped-ci"))
+@settings(settings.get_profile("ci"))
 @given(letter=st.sampled_from(["R", "S", "T", "Z", "U", "I"]),
        flags=st.lists(st.sampled_from(["s", "+", "<"]), unique=True, max_size=3).map("".join))
 def test_ps_state_classification_is_exact(letter, flags):
