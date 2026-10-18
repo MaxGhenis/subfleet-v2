@@ -205,8 +205,15 @@ def test_stop_finishes_the_exchange_already_read(server, monkeypatch, op):
         return answer
 
     monkeypatch.setattr(relay, "apply", apply_then_child_exits)
+    def serve_connection():
+        # The real accept loop also handles a peer/stop closing the stream.
+        try:
+            relay._serve_connection(conn)
+        except OSError:
+            pass
+
     relay._conn = conn
-    relay._thread = threading.Thread(target=relay._serve_connection, args=(conn,))
+    relay._thread = threading.Thread(target=serve_connection)
     relay._thread.start()
     frame = F(1, "close") if op == "close" else {"op": "status"}
     try:
@@ -226,7 +233,10 @@ def test_stop_finishes_the_exchange_already_read(server, monkeypatch, op):
             assert not relay.log_path.exists()
         assert not relay._thread.is_alive()
     finally:
-        conn.shutdown(socket.SHUT_RDWR)
+        try:
+            conn.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
         peer.close()
         relay._thread.join(5)
         conn.close()
@@ -240,6 +250,14 @@ def test_stop_covers_a_connection_accepted_before_it_was_published(server, monke
     relay, _ = server
     peer, conn = socket.socketpair()
     checking = threading.Event()
+    publish = threading.Event()
+
+    class Accepter(threading.Thread):
+        def join(self, timeout=None):
+            # stop has already inspected _conn by this point. Publishing after
+            # that inspection used to escape the shutdown wakeup entirely.
+            publish.set()
+            super().join(timeout)
 
     class Listener:
         def accept(self):
@@ -250,12 +268,12 @@ def test_stop_covers_a_connection_accepted_before_it_was_published(server, monke
 
     def allowed(_pid):
         checking.set()
-        assert relay._stop.wait(5)
+        assert publish.wait(5)
         return True
 
     relay._server = Listener()
     relay._allowed_peer = allowed
-    relay._thread = threading.Thread(target=relay._accept_loop)
+    relay._thread = Accepter(target=relay._accept_loop)
     relay._thread.start()
     try:
         assert checking.wait(5)
