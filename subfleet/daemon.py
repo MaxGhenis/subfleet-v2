@@ -9557,9 +9557,8 @@ def _dump_stop_stacks(fd: int, grace_s: float) -> None:
     No source lines or locals are read. Build the bounded snapshot before any
     write releases the GIL, and use the descriptor reserved at startup. JSON
     is already loaded: a diagnostic codec lookup could need a new descriptor.
-    A GIL
-    hog, allocation failure or blocked write is still covered by the independent
-    C watchdog and kernel alarm.
+    A GIL hog, allocation failure or blocked write is still covered by the
+    independent C watchdog and kernel alarm.
     """
     frames = sys._current_frames()
     names = {thread.ident: thread.name[:100] for thread in threading.enumerate()}
