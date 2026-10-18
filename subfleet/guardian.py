@@ -104,7 +104,7 @@ def _receipt(path: Path, value: dict) -> None:
 
 
 def _utc() -> str:
-    return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def _output(path: Path):
@@ -207,6 +207,7 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
                     try:
                         relay.serve(write_end, child=child)
                         rc = child.wait()
+                        finished_at, ended = _utc(), time.monotonic()
                     finally:
                         relay.stop()
                 else:
@@ -217,7 +218,9 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
                             _receipt(attempt_dir / "request.json", {"requested_at": _utc()})
                         child = subprocess.Popen(command, cwd=cwd, stdin=stdin, stdout=stdout, stderr=stderr)
                         rc = child.wait()
+                        finished_at, ended = _utc(), time.monotonic()
         except OSError as exc:
+            finished_at, ended = _utc(), time.monotonic()
             rc = 127
             # OSError contains the executable/path and errno, never child env.
             spawn_error = str(exc)
@@ -234,8 +237,8 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
                 except OSError:
                     pass
         exit_receipt = {
-            "rc": rc, "signal": -rc if rc < 0 else None, "finished_at": _utc(),
-            "wall_s": round(time.monotonic() - started, 6),
+            "rc": rc, "signal": -rc if rc < 0 else None, "finished_at": finished_at,
+            "wall_s": round(ended - started, 6),
             "child_pid": child.pid if child else None,
         }
         if spawn_error:

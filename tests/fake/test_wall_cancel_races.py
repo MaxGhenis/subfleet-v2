@@ -112,7 +112,7 @@ def test_exit_between_last_receipt_read_and_signal_keeps_own_outcome(clocked, mo
         answer = read(path)
         if path == adir / "exit.json":
             reads += 1
-            if reads == 2:
+            if reads == 3:  # Census, preflight, then the final pre-signal read.
                 publish(adir, clock.t.isoformat(), rc)
                 clock.t += timedelta(milliseconds=2)
         return answer
@@ -203,7 +203,7 @@ def test_wall_interleaving_property(clocked, monkeypatch, exit_stage, client_sta
             answer = read(path)
             if killing and path == adir / "exit.json":
                 kill_reads += 1
-                if kill_reads == 2 and exit_stage == "last-read":
+                if kill_reads == 3 and exit_stage == "last-read":
                     publish(adir, clock.t.isoformat(), rc)
                     clock.t += timedelta(milliseconds=2)
             return answer
