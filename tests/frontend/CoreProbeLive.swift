@@ -204,8 +204,9 @@ private func driveLive(_ arguments: [String], _ run: LiveRun) throws {
     // Another events poll from this app supersedes a waiting one (C-29.9). The
     // daemon takes the waiting poll's slot when it reads that request, which
     // this thread cannot see, so newer polls go out until the waiting one
-    // returns, for at most 10 s of its 20 s wait. No event can follow `after`,
-    // so only a newer poll can end it early, and it must come back superseded.
+    // returns. None starts after 10 s of its 20 s wait (each takes at most the
+    // client's own timeout). No event can follow `after`, so only a newer poll
+    // can end it early, and it must come back superseded.
     let waitingReturned = DispatchSemaphore(value: 0)
     let waitingLock = NSLock()
     var waitingPage: EventsPage?
@@ -217,10 +218,10 @@ private func driveLive(_ arguments: [String], _ run: LiveRun) throws {
         waitingReturned.signal()
     }
     background.start()
-    let supersedeStart = Date()
+    let supersedeStart = ProcessInfo.processInfo.systemUptime
     var newerPolls = 0
     var returned = false
-    while !returned && Date().timeIntervalSince(supersedeStart) < 10 {
+    while !returned && ProcessInfo.processInfo.systemUptime - supersedeStart < 10 {
         _ = try? engine.events(conversationID: cid, after: state.timelines[cid]?.cursor ?? 0, wait: 0)
         newerPolls += 1
         returned = waitingReturned.wait(timeout: .now() + 0.5) == .success
@@ -232,7 +233,8 @@ private func driveLive(_ arguments: [String], _ run: LiveRun) throws {
     run.check("a newer poll supersedes the waiting one",
               returned && superseded.map { probe.apply(page: $0) } == .superseded,
               ["returned": returned, "superseded": (superseded?.superseded).map { $0 as Any } ?? NSNull(),
-               "newer_polls": newerPolls, "seconds": Date().timeIntervalSince(supersedeStart)] as [String: Any])
+               "newer_polls": newerPolls, "seconds": ProcessInfo.processInfo.systemUptime - supersedeStart]
+              as [String: Any])
 
     // 4. Stop the follow-up: it is running, so Stop interrupts it.
     refresh([slow.key])

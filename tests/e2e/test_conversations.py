@@ -447,8 +447,8 @@ def test_a_tool_approval_is_a_persons_decision_and_reaches_the_provider_once(con
 
 def test_a_person_request_whose_chain_cannot_be_read_fails_closed_and_may_be_asked_again(conv_with, tmp_path):
     """C-25.6, C-17.3: the daemon's peer check runs a `ps` that hangs (the real
-    one behind a wrapper, 1 s per try). A person's approval.get and
-    approval.respond from a terminal fail with exit 1 `person-check-failed` naming
+    one behind a wrapper, 1 s per try). The person's approval.get and
+    approval.respond, from the development app (D-21), fail with exit 1 `person-check-failed` naming
     the cause, not the bare "operation failed" of an unexpected exception: no
     nonce is shown, the approval stays pending and nothing reaches the provider.
     Once `ps` answers, the same answer goes through."""

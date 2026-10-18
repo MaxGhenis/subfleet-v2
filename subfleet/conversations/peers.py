@@ -39,13 +39,16 @@ first token read. The follow-up, an app-held credential that proves each
 person-only request, is what closes this remaining case.
 
 The chain is read with `ps`, which a loaded machine can slow. Each `ps` gets
-`PS_TIMEOUT_S` and one more try when it does not answer, cannot start, or (the
-process table) lists nothing, and the whole chain `CHAIN_BUDGET_S`. Past either
-the chain is unreadable. A caller whose image is not the app is refused all the
-same, since the vetoes could only refuse it too. The app itself is neither
-accepted nor refused: the request fails closed with the cause named (the
-service's `person-check-failed`, exit 1), nothing is done, and asking again is
-safe. An ancestor that was not read is never taken to be free of the markers.
+`PS_TIMEOUT_S` and one more try when it does not answer, cannot start, or
+answers nothing, and no `ps` starts after `CHAIN_BUDGET_S` or runs past it (only
+the time the system takes to launch one can add to that). A read that fails,
+or a walk that does not reach launchd (a parent missing from the table, a loop,
+more than 64 processes), leaves the chain unreadable: an ancestor that was not
+read is never taken to be free of the markers. A caller whose image is not the
+app is then refused all the same, since the vetoes could only refuse it too.
+The app itself is neither accepted nor refused: the request fails closed with
+the cause named (the service's `person-check-failed`, exit 1), nothing is done,
+and asking again is safe.
 """
 
 from __future__ import annotations
@@ -66,11 +69,13 @@ NO_TERMINAL = ("??", "-", "")
 PS = "/bin/ps"
 #: Each `ps` answers within this, or is tried once more.
 PS_TIMEOUT_S = 5.0
-#: The whole chain is read within this, however long it is: well inside the
-#: 15 s the app waits for a person-only op's answer (`DaemonOperation.timeout`),
-#: so the app hears the cause instead of timing out, and no longer than this
-#: is a request thread held by the check.
+#: No `ps` of a chain read starts after this or runs past it, however long the
+#: chain: well inside the 15 s the app waits for a person-only op's answer
+#: (`DaemonOperation.timeout`), so the app hears the cause instead of timing
+#: out. Only the system's time to launch a `ps` can add to it.
 CHAIN_BUDGET_S = 10.0
+#: A chain longer than this is not followed to its end, so it is unreadable.
+MAX_CHAIN = 64
 #: The pause before a second try, for a `ps` that could not start (EAGAIN).
 RETRY_PAUSE_S = 0.1
 _PS_ENV = {"LC_ALL": "C", "LANG": "C", "PATH": "/usr/bin:/bin"}
@@ -144,8 +149,9 @@ def _seconds(value: float) -> str:
 
 
 class PsReader:
-    """`ps` for one chain read: each call is tried at most twice, and every try
-    ends by one deadline, `budget_s` from when the reader is made."""
+    """`ps` for one chain read: each call is tried at most twice, no try starts
+    after one deadline, `budget_s` from when the reader is made, and none is
+    allowed to run past it (`subprocess.run`'s timeout counts from the launch)."""
 
     def __init__(self, budget_s: float | None = None, *, run: Callable = subprocess.run,
                  clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep):
@@ -153,9 +159,10 @@ class PsReader:
         self.run, self.clock, self.sleep = run, clock, sleep
         self.deadline = clock() + self.budget_s
 
-    def __call__(self, args: list[str], *, rows_required: bool = False) -> str:
-        """`ps <args>`'s output. `rows_required`: output with no rows is a failed
-        try (the process table is never empty). Raises `ChainUnreadable`."""
+    def __call__(self, args: list[str]) -> str:
+        """`ps <args>`'s output. An answer with nothing in it is a failed try: the
+        process table is never empty, and a live process always has a command
+        line. Raises `ChainUnreadable`."""
         shown = "`ps " + " ".join(args) + "`"
         failures: list[str] = []
         for attempt in range(2):
@@ -166,16 +173,16 @@ class PsReader:
                 break
             timeout = min(PS_TIMEOUT_S, remaining)
             try:
-                done = self.run([PS, *args], capture_output=True, text=True, timeout=timeout, env=_PS_ENV,
-                                check=False)
+                done = self.run([PS, *args], capture_output=True, text=True, errors="replace", timeout=timeout,
+                                env=_PS_ENV, check=False)
             except subprocess.TimeoutExpired:
                 failures.append(f"did not answer within {_seconds(timeout)} s")
                 continue
             except OSError as exc:
                 failures.append(f"could not start ({exc.strerror or exc})")
                 continue
-            if rows_required and not (done.stdout or "").strip():
-                failures.append(f"listed no processes (exit {done.returncode})")
+            if not (done.stdout or "").strip():
+                failures.append(f"answered nothing (exit {done.returncode})")
                 continue
             return done.stdout or ""
         budget = f"the check's {_seconds(self.budget_s)} s"
@@ -218,26 +225,34 @@ def executable_path_for_token(token: AuditToken) -> str | None:
 
 def process_chain(pid: int, *, read: Callable[..., str] | None = None) -> list[Proc]:
     """The caller and its ancestors, each with its environment (read in memory,
-    never stored). Raises `ChainUnreadable` when `ps` cannot answer in time:
-    part of a chain says nothing about the ancestors not read."""
+    never stored), up to launchd. Raises `ChainUnreadable` when `ps` cannot
+    answer in time or the walk does not reach launchd: part of a chain says
+    nothing about the ancestors not read. A caller missing from the table (it
+    has exited) has no chain: `[]`."""
     read = read or PsReader()
     table: dict[int, tuple[int, str]] = {}
-    for line in read(["-axo", "pid=,ppid=,tty="], rows_required=True).splitlines():
+    for line in read(["-axo", "pid=,ppid=,tty="]).splitlines():
         parts = line.split()
         if len(parts) >= 3 and parts[0].isdigit() and parts[1].isdigit():
             table[int(parts[0])] = (int(parts[1]), parts[2])
     chain: list[Proc] = []
     seen: set[int] = set()
     current = pid
-    while current and current not in seen and current in table and len(chain) < 64:
+    while current and current not in seen and current in table and len(chain) < MAX_CHAIN:
         seen.add(current)
         ppid, tty = table[current]
         command = read(["-Ewwp", str(current), "-o", "command="]).strip()
         chain.append(Proc(current, ppid, tty, command))
         if current == 1:
-            break
+            return chain
         current = ppid
-    return chain
+    if not chain:
+        return chain
+    if current in seen:
+        raise ChainUnreadable(f"the process table loops at pid {current}")
+    if len(chain) >= MAX_CHAIN:
+        raise ChainUnreadable(f"the chain is longer than {MAX_CHAIN} processes")
+    raise ChainUnreadable(f"pid {current}, the parent of pid {chain[-1].pid}, is not in the process table")
 
 
 def judge(peer: AuditToken | None, *, chain: Callable[[int], list[Proc]] = process_chain,

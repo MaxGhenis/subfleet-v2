@@ -66,18 +66,19 @@ class Clock:
 class ScriptedPs:
     """`ps` answering from `procs`, one scripted outcome per call in order (then
     "ok"): a float is how long the call takes (it times out at its timeout),
-    "eagain" fails to start, "empty" lists no processes. A live process always
-    has a command line, so "empty" affects only the table read."""
+    "eagain" fails to start, "empty" answers nothing (exit 1). `missing` leaves
+    those pids out of the table, as a parent gone between two reads would be."""
 
-    def __init__(self, procs: list[Proc], clock: Clock, outcomes=(), answer_s: float = 0.01):
+    def __init__(self, procs: list[Proc], clock: Clock, outcomes=(), answer_s: float = 0.01, missing=()):
         self.procs = {p.pid: p for p in procs}
+        self.missing = set(missing)
         self.clock = clock
         self.outcomes = list(outcomes)
         self.answer_s = answer_s
         self.calls: list[tuple[list[str], float]] = []
 
-    def __call__(self, argv, *, capture_output, text, timeout, env, check):
-        assert argv[0] == peers.PS and capture_output and text and not check
+    def __call__(self, argv, *, capture_output, text, errors, timeout, env, check):
+        assert argv[0] == peers.PS and capture_output and text and errors == "replace" and not check
         assert env == {"LC_ALL": "C", "LANG": "C", "PATH": "/usr/bin:/bin"}
         assert 0 < timeout <= peers.PS_TIMEOUT_S
         self.calls.append((argv[1:], timeout))
@@ -90,10 +91,11 @@ class ScriptedPs:
             self.clock.now += timeout
             raise subprocess.TimeoutExpired(argv, timeout)
         self.clock.now += took
-        if outcome == "empty" and table:
-            return subprocess.CompletedProcess(argv, 1, "", "ps: no processes\n")
+        if outcome == "empty":
+            return subprocess.CompletedProcess(argv, 1, "", "")
         if table:
-            rows = [f"{p.pid:>5} {p.ppid:>5} {p.tty}" for p in self.procs.values()] + ["77777 1 ??"]
+            rows = [f"{p.pid:>5} {p.ppid:>5} {p.tty}" for p in self.procs.values() if p.pid not in self.missing]
+            rows.append("77777 1 ??")
             return subprocess.CompletedProcess(argv, 0, "\n".join(rows) + "\n", "")
         pid = int(argv[2])
         if pid not in self.procs:
@@ -108,8 +110,8 @@ def chain_procs(*links: tuple[str, str]) -> list[Proc]:
     return procs + [Proc(1, 0, "??", "/sbin/launchd")]
 
 
-def reading(procs, clock, outcomes=(), budget_s=None):
-    ps = ScriptedPs(procs, clock, outcomes)
+def reading(procs, clock, outcomes=(), budget_s=None, missing=()):
+    ps = ScriptedPs(procs, clock, outcomes, missing=missing)
     reader = PsReader(budget_s, run=ps, clock=clock, sleep=clock.sleep)
     return ps, (lambda pid: process_chain(pid, read=reader))
 
@@ -199,13 +201,52 @@ def test_an_empty_process_table_is_a_failed_try():
     _, chain = reading(procs, Clock(), outcomes=["empty", 9.0])
     verdict = judge(token(100), chain=chain, executable=image(APP))
     assert verdict.unreadable
-    assert verdict.reason.endswith("listed no processes (exit 1), then did not answer within 5 s")
+    assert verdict.reason.endswith("answered nothing (exit 1), then did not answer within 5 s")
+
+
+def test_an_ancestor_whose_command_comes_back_empty_is_not_read():
+    """C-25.6: a live process always has a command line, so an empty answer is a
+    failed try, not "no markers"; twice, the chain is unreadable."""
+    procs = chain_procs(("??", APP), ("??", "node claude SUBFLEET_ATTEMPT=j/a1"), ("??", "login"))
+    _, chain = reading(procs, Clock(), outcomes=["ok", "ok", "empty"])
+    assert judge(token(100), chain=chain, executable=image(APP)) == judge(
+        token(100), chain=lambda pid: procs, executable=image(APP))           # one empty answer absorbed
+    _, chain = reading(procs, Clock(), outcomes=["ok", "ok", "empty", "empty"])
+    verdict = judge(token(100), chain=chain, executable=image(APP))
+    assert verdict.unreadable and not verdict.person
+    assert verdict.reason.endswith("`ps -Ewwp 101 -o command=` answered nothing (exit 1), twice")
+
+
+@pytest.mark.parametrize("shape", ["missing parent", "loop", "too long"])
+def test_a_walk_that_does_not_reach_launchd_is_unreadable(shape):
+    """C-25.6: a chain judged on part of its ancestry could miss a guardian above
+    the break, so a walk that stops short of launchd decides nothing for the app,
+    and a caller that is not the app is refused as it would be anyway."""
+    if shape == "missing parent":
+        procs, missing, cause = (chain_procs(("??", APP), ("??", "node"), ("??", "login")), {101},
+                                 "pid 101, the parent of pid 100, is not in the process table")
+    elif shape == "loop":
+        procs = [Proc(100, 101, "??", APP), Proc(101, 102, "??", "node"), Proc(102, 101, "??", "sh"),
+                 Proc(1, 0, "??", "/sbin/launchd")]
+        missing, cause = (), "the process table loops at pid 101"
+    else:
+        procs = chain_procs(("??", APP), *[("??", f"/bin/sh -c step{i}") for i in range(peers.MAX_CHAIN)])
+        missing, cause = (), f"the chain is longer than {peers.MAX_CHAIN} processes"
+    _, chain = reading(procs, Clock(), missing=missing, budget_s=1e9)
+    verdict = judge(token(100), chain=chain, executable=image(APP))
+    assert verdict == Verdict(False, f"the caller's process chain could not be read: {cause}", 100, unreadable=True)
+    _, chain = reading(procs, Clock(), missing=missing, budget_s=1e9)
+    assert judge(token(100), chain=chain, executable=image(SHELL)) == NOT_THE_APP
+    # A caller missing from the table has no chain at all: refused, as before.
+    _, chain = reading(procs, Clock(), missing={100})
+    assert judge(token(100), chain=chain, executable=image(APP)) == Verdict(
+        False, "the caller's process could not be inspected", 100)
 
 
 def test_the_whole_chain_is_read_within_its_budget_however_long():
     """C-25.6: 64 ancestors each answering in 0.9 s (under the per-call 5 s)
     cannot hold the check past its 10 s: the read stops, closed, at the budget."""
-    procs = chain_procs(("??", APP), *[("??", f"/bin/sh -c step{i}") for i in range(63)])
+    procs = chain_procs(("??", APP), *[("??", f"/bin/sh -c step{i}") for i in range(peers.MAX_CHAIN - 1)])
     clock = Clock()
     _, chain = reading(procs, clock, outcomes=[0.9] * 200)
     verdict = judge(token(100), chain=chain, executable=image(APP))
@@ -247,15 +288,15 @@ OUTCOME = st.one_of(st.just("ok"), st.just("eagain"), st.just("empty"),
 
 def reference(procs: list[Proc], outcomes: list) -> bool:
     """Whether the chain can be read with no deadline: every read gets two tries,
-    and a try fails when it hangs past 5 s, cannot start, or (the table only) lists
-    nothing. Independent of `PsReader`: it walks the reads the chain needs."""
+    and a try fails when it hangs past 5 s, cannot start, or answers nothing.
+    Independent of `PsReader`: it walks the reads the chain needs."""
     pending = list(outcomes)
     reads = [True] + [False] * len(procs)               # the table, then each process's command
     for table in reads:
         for _try in range(2):
             outcome = pending.pop(0) if pending else "ok"
-            failed = (outcome == "eagain" or (isinstance(outcome, float) and outcome >= peers.PS_TIMEOUT_S)
-                      or (outcome == "empty" and table))
+            failed = (outcome == "eagain" or outcome == "empty"
+                      or (isinstance(outcome, float) and outcome >= peers.PS_TIMEOUT_S))
             if not failed:
                 break
         else:
@@ -266,19 +307,22 @@ def reference(procs: list[Proc], outcomes: list) -> bool:
 @settings(max_examples=400, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(links=st.lists(LINKS, min_size=1, max_size=8), outcomes=st.lists(OUTCOME, max_size=30),
        executable=st.sampled_from([APP, SHELL]),
-       budget=st.one_of(st.just(10.0), st.floats(min_value=0.0, max_value=40.0, allow_nan=False)))
-def test_no_schedule_of_ps_failures_makes_the_check_more_permissive(links, outcomes, executable, budget):
+       budget=st.one_of(st.just(10.0), st.floats(min_value=0.0, max_value=40.0, allow_nan=False)),
+       gone=st.one_of(st.none(), st.integers(min_value=1, max_value=8)))
+def test_no_schedule_of_ps_failures_makes_the_check_more_permissive(links, outcomes, executable, budget, gone):
     """C-25.6 invariants over every chain, caller image and schedule of `ps` answers:
     (1) a caller accepted is accepted with the fully read chain's verdict, so a
     failure never accepts a caller the whole chain would refuse; (2) only the app
     is ever told its chain was unreadable; (3) otherwise the verdict is the whole
     chain's, or, for a caller that is not the app, the plain "needs the app"
     refusal; (4) the check ends within its budget; (5) at most two tries per read,
-    each cut to at most 5 s and to what is left of the budget."""
+    each cut to at most 5 s and to what is left of the budget. `gone` takes an
+    ancestor out of the table, as a parent that exited between reads."""
     procs = chain_procs(*links)
     whole = judge(token(100), chain=lambda pid: procs, root="/r/root", executable=image(executable))
     clock = Clock()
-    ps, chain = reading(procs, clock, outcomes, budget_s=budget)
+    missing = {procs[gone].pid} if gone is not None and gone < len(procs) else set()
+    ps, chain = reading(procs, clock, outcomes, budget_s=budget, missing=missing)
     verdict = judge(token(100), chain=chain, root="/r/root", executable=image(executable))
     if verdict.person:
         assert verdict == whole
@@ -294,16 +338,19 @@ def test_no_schedule_of_ps_failures_makes_the_check_more_permissive(links, outco
 
 @settings(max_examples=400, deadline=None)
 @given(links=st.lists(LINKS, min_size=1, max_size=8), outcomes=st.lists(OUTCOME, max_size=30),
-       executable=st.sampled_from([APP, SHELL]))
-def test_with_time_to_spare_the_chain_is_unreadable_exactly_when_a_read_fails_twice(links, outcomes, executable):
+       executable=st.sampled_from([APP, SHELL]), gone=st.one_of(st.none(), st.integers(min_value=1, max_value=8)))
+def test_with_time_to_spare_the_chain_is_unreadable_exactly_when_a_read_fails_twice(links, outcomes, executable,
+                                                                                    gone):
     """C-25.6 against an independent model: with no deadline, one failed try per
     read is absorbed (the verdict is the whole chain's); two fail it closed, the
-    app's request as unreadable and anyone else's as a refusal."""
+    app's request as unreadable and anyone else's as a refusal. So does a walk
+    that cannot reach launchd because an ancestor left the table."""
     procs = chain_procs(*links)
     whole = judge(token(100), chain=lambda pid: procs, root="/r/root", executable=image(executable))
-    _, chain = reading(procs, Clock(), outcomes, budget_s=1e9)
+    missing = {procs[gone].pid} if gone is not None and gone < len(procs) else set()
+    _, chain = reading(procs, Clock(), outcomes, budget_s=1e9, missing=missing)
     verdict = judge(token(100), chain=chain, root="/r/root", executable=image(executable))
-    if reference(procs, outcomes):
+    if not missing and reference(procs, outcomes):
         assert verdict == whole
     elif executable == APP:
         assert verdict.unreadable and not verdict.person
@@ -334,6 +381,17 @@ def sleepers(hung: str) -> str:
     return subprocess.run(["/usr/bin/pgrep", "-f", f"sleep {hung}"], capture_output=True, text=True).stdout.strip()
 
 
+def ps_runs() -> bool:
+    try:
+        return bool(subprocess.run(["/bin/ps", "-Ewwp", str(os.getpid()), "-o", "command="], capture_output=True,
+                                   text=True, timeout=30).stdout.strip())
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+needs_ps = pytest.mark.skipif(not ps_runs(), reason="this sandbox does not let /bin/ps inspect processes")
+
+
 @pytest.fixture
 def quick(monkeypatch):
     """A hang is detected in 1 s a try; the chain keeps its whole budget, so a real
@@ -341,12 +399,14 @@ def quick(monkeypatch):
     monkeypatch.setattr(peers, "PS_TIMEOUT_S", 1.0)
 
 
+@needs_ps
 def test_process_chain_reads_this_process_with_the_real_ps():
     chain = process_chain(os.getpid())
     assert chain[0].pid == os.getpid() and chain[0].command
     assert all(later.pid == earlier.ppid for earlier, later in zip(chain, chain[1:]))
 
 
+@needs_ps
 def test_a_real_ps_that_hangs_is_killed_and_the_request_is_unreadable(tmp_path, monkeypatch, quick):
     script, count, hung = fake_ps(tmp_path, hang_first=99)
     monkeypatch.setattr(peers, "PS", str(script))
@@ -360,6 +420,7 @@ def test_a_real_ps_that_hangs_is_killed_and_the_request_is_unreadable(tmp_path, 
     assert sleepers(hung) == ""                       # each hung `ps` was killed, none left behind
 
 
+@needs_ps
 def test_a_real_ps_that_hangs_once_reads_the_same_chain_as_the_real_ps(tmp_path, monkeypatch, quick):
     """Differential: one hang absorbed, the chain equals /bin/ps's own."""
     script, count, hung = fake_ps(tmp_path, hang_first=1)
@@ -394,6 +455,7 @@ def answer(service, op: str, args: dict, peer: AuditToken | None) -> dict:
         right.close()
 
 
+@needs_ps
 def test_the_service_fails_an_unreadable_chain_closed_with_the_cause(tmp_path, monkeypatch, quick, caplog):
     """C-25.6, C-17.3: through the service's own answer, the app's request whose
     chain cannot be read (the real `ps`, wrapped to hang) is exit 1
@@ -418,6 +480,7 @@ def test_the_service_fails_an_unreadable_chain_closed_with_the_cause(tmp_path, m
     assert sleepers(hung) == ""
 
 
+@needs_ps
 def test_the_service_refuses_a_caller_that_is_not_the_app_even_when_its_chain_hangs(tmp_path, monkeypatch, quick):
     """C-25.6 with D-PB1: a terminal or an agent is never told to try again; with
     its chain unread it gets the same exit 7 it would get with the chain read."""
@@ -447,3 +510,54 @@ def test_the_service_keeps_refusing_an_agent_with_exit_7(tmp_path, monkeypatch):
     with pytest.raises(ConversationError) as failed:
         bare_service(tmp_path)._person(token(10), "answering an approval")
     assert (failed.value.code, failed.value.reason) == (1, "person-check-failed")
+
+
+# --- through the real service ---------------------------------------------------------
+
+from tests.unit.test_conversation_service import SETTINGS, conversation, svc  # noqa: E402,F401 (a fixture)
+
+
+def unreadable_for_the_app(monkeypatch, calls: list | None = None):
+    """The service's own `judge` on the app's image, whose chain cannot be read."""
+    from subfleet.conversations import service as service_module
+
+    def hung(pid):
+        raise peers.ChainUnreadable("`ps -axo pid=,ppid=,tty=` did not answer within 5 s, twice")
+
+    def counted(peer, **kwargs):
+        if calls is not None:
+            calls.append(kwargs)
+        return peers.judge(peer, chain=hung, executable=image(APP), **kwargs)
+    monkeypatch.setattr(service_module, "judge", counted)
+
+
+@pytest.mark.parametrize("op", ["suggestion.start", "suggestion.dismiss"])
+def test_a_suggestion_op_keeps_the_retry_when_the_chain_cannot_be_read(svc, monkeypatch, op):
+    """C-25.6 with C-25.7: a suggestion op answers only from fixed templates, and
+    `person-check-failed` is one of them, so the app still hears exit 1 with the
+    retry, not "the suggestion operation failed"."""
+    unreadable_for_the_app(monkeypatch)
+    response = answer(svc, op, {"suggestion_id": str(uuid.uuid4())}, token(10))
+    assert response["error"] == {
+        "code": 1,
+        "message": "person-check-failed: starting or dismissing a suggestion is a person's decision, and the "
+                   "caller's process chain could not be read in time",
+        "fix": "nothing was done; try again"}
+
+
+def test_a_settings_change_that_widens_and_allows_main_is_checked_once(svc, monkeypatch):
+    """C-25.6: one request, one chain read within one budget. Two checks, each up
+    to the budget, could together pass the app's 15 s."""
+    calls: list = []
+    unreadable_for_the_app(monkeypatch, calls)
+    cid = conversation(svc)
+    widened = {**SETTINGS, "permission": "bypass"}
+    with pytest.raises(ConversationError) as failed:
+        svc.handle("conversation.settings", {"conversation_id": cid, "settings": widened, "confirm_widen": True,
+                                             "allow_main": True}, token(10))
+    assert (failed.value.code, failed.value.reason) == (1, "person-check-failed")
+    assert str(failed.value).startswith("widening a conversation's permissions and working on main is a "
+                                        "person's decision, and ")
+    assert len(calls) == 1
+    view = svc.store.conversation(cid)
+    assert view["settings"]["permission"] == "ask" and not view["allow_main"]       # nothing was done
