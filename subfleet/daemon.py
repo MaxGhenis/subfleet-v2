@@ -1969,7 +1969,7 @@ class Daemon:
         `auth-dead` is the lane's (it disables the lane, C-23.44) and its answer proves
         the lane. Then a second `auth-dead` on a proven lane points at the job."""
         try:
-            if scheduler.probe_required(decision, job):
+            if scheduler.probe_required(decision, job, self.policy):
                 return True
         except ROUTE_ERRORS as exc:
             raise Unroutable(exc) from exc
@@ -2098,6 +2098,21 @@ class Daemon:
             return False
         return bool(lane) and bool(lane.get("enabled", True)) and lane.get("owner") == "v2" \
             and not capacity.identity_blocked(lane) and self.policy["models"][short]["provider"] == lane["provider"]
+
+    def _resume_model(self, recorded: str, model: dict) -> bool:
+        """May a resume whose source ran on `recorded` (a model id) launch on `model`?
+
+        The source's own model, or, when the running policy retires it (C-11.1),
+        the successor admission resolved the resume's pin to: a session last
+        served by Fable continues on Opus, as a revive does (C-23.39), rather than
+        failing every attempt against its own pin.
+        """
+        if recorded == model["id"]:
+            return True
+        try:
+            return self.policy["models"][resolve_model(self.policy, recorded, note=False)]["id"] == model["id"]
+        except (PolicyError, KeyError):
+            return False
 
     def _resume_lane(self, recorded: str, lane: Lane) -> bool:
         """C-12.3, C-11.2: may a resume recorded on `recorded` run on `lane`?
@@ -7395,7 +7410,7 @@ class Daemon:
             elif job["kind"] == "resume":
                 manifest = self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}
                 resume = manifest.get("resume")
-                if not resume or not self._resume_lane(resume["lane_id"], lane) or resume["model_id"] != model["id"]:
+                if not resume or not self._resume_lane(resume["lane_id"], lane) or not self._resume_model(resume["model_id"], model):
                     raise AdapterError("resume source identity is missing or does not match this attempt",
                                        fix="resubmit the resume from the original job", reason="resume-identity-mismatch")
             if turn_block is not None:

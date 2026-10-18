@@ -43,7 +43,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from . import capacity, descriptors, ids, protocol, render
+from . import capacity, descriptors, ids, policy, protocol, render
 from .client import (
     LOG_NAME,
     SOCKET_NAME,
@@ -73,9 +73,10 @@ EXIT_CODES = {int(code) for code in Exit}
 TERMINAL_STATES = {state.value for state in JobState if state.terminal}
 LIVE_STATES = {state.value for state in JobState if not state.terminal}
 
-# Deprecated but accepted through milestone 8 with a stderr note (C-17.2).
-RETIRED_MODELS = {"sol": "astra"}
+# Retired pins stay accepted with a stderr note and dispatch their successor (C-17.2).
+RETIRED_MODELS = policy.RETIRED_MODELS
 LEGACY_TASK_CLASSES = {"review": "review", "build": "build", "sweep": "sweep"}
+# v1's `-t fable` pinned the writing model; Fable is retired, so it lands on opus.
 LEGACY_MODEL_CLASSES = {"fable": "fable"}
 
 MODEL_CHOICES = ("fable", "opus", "sonnet", "haiku", "astra", "terra", "sol")
@@ -181,6 +182,9 @@ def cmd_suggest(args: argparse.Namespace) -> int:
     elif args.list:
         op, payload = "suggestion.list", {}
     else:
+        # C-17.2: `--model` is free text, so a retired short name or exact id is remapped
+        # like `pick --model`'s, with the same stderr note, whatever the running policy lists.
+        _retire_model(args, "suggest", "--model", "model")
         missing = [flag for flag, value in (("--title", args.title), ("--tldr", args.tldr),
                                             ("--brief-file or --brief -", args.brief_file or args.brief)) if not value]
         if missing:
@@ -632,6 +636,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 def cmd_pick(args: argparse.Namespace) -> int:
     """Permanent v1 path/email output; routing evidence and authority are v2's."""
+    _retire_model(args, "pick", "--model", "model")
     try:
         data = _client(args).call("pick", {"family": args.family, "model": args.model,
             "exclusions": args.exclude, "min_headroom": args.min_headroom})
@@ -689,10 +694,22 @@ def _apply_deprecations(args: argparse.Namespace) -> None:
     if getattr(args, "overflow", False):
         note(f"{PROG} run: --overflow is deprecated and ignored; the daemon "
              f"walks the chain upward on its own")
-    if args.m in RETIRED_MODELS:
-        replacement = RETIRED_MODELS[args.m]
-        note(f"{PROG} run: -m {args.m} is retired; dispatching {replacement}")
-        args.m = replacement
+    _retire_model(args, "run", "-t" if legacy in LEGACY_MODEL_CLASSES and args.m == legacy else "-m")
+
+
+def _retire_model(args: argparse.Namespace, verb: str, flag: str = "-m", attr: str = "m") -> None:
+    """C-17.2: a retired pin is accepted, noted on stderr, and replaced by its successor.
+
+    A value with the 1M-context suffix (`claude-fable-5-1[1m]`, the value a catalog
+    lists for Fable) keeps it: the base is remapped and `[1m]` put back (`opus[1m]`),
+    as a retired conversation keeps its 1M context (C-26.8)."""
+    value = getattr(args, attr, None)
+    base, suffix = (value[:-4], "[1m]") if isinstance(value, str) and value.endswith("[1m]") else (value, "")
+    successor = policy.retired_successor(base)
+    replacement = successor + suffix if successor is not None else None
+    if replacement is not None:
+        note(f"{PROG} {verb}: {flag} {value} is retired; using {replacement}")
+        setattr(args, attr, replacement)
 
 
 INBOX_KEEP_S = 7 * 24 * 3600
@@ -2269,6 +2286,7 @@ def cmd_why(args: argparse.Namespace) -> int:
         return fail(Exit.INVALID_INPUT, "why: name a job id, or --task T --tier X")
     if args.task and not args.tier:
         return fail(Exit.INVALID_INPUT, "why: --tier is required with --task")
+    _retire_model(args, "why")
     why = protocol.WhyArgs(job_id=args.id, task=args.task, tier=args.tier,
                            pinned_model=args.m, exclusions=list(args.exclude or []),
                            allow_desktop=bool(args.allow_desktop))
@@ -3136,7 +3154,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--tier", choices=TIER_CHOICES,
                        help="minimum capability for --task")
     p_run.add_argument("-m", dest="m", choices=MODEL_CHOICES,
-                       help="pin one model; never falls back (sol is retired → astra)")
+                       help="pin one model; never falls back (retired: fable → opus, sol → astra)")
     pins = p_run.add_mutually_exclusive_group()
     pins.add_argument("-a", dest="a", metavar="EMAIL", help="pin a Claude lane account")
     pins.add_argument("-H", dest="H", metavar="CODEX_HOME", help="pin a Codex lane home")

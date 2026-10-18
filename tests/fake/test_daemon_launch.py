@@ -27,7 +27,7 @@ def launch_state(tmp_path, monkeypatch):
     # These tests exercise the launch path itself; the C-11.4 pre-launch probe
     # for unmeasured lanes has its own tests (test_probe_recovery) and would
     # otherwise run `ps` through the fake Popen below.
-    monkeypatch.setattr(module.scheduler, "probe_required", lambda decision, job: False)
+    monkeypatch.setattr(module.scheduler, "probe_required", lambda decision, job, policy=None: False)
     register("codex", FakeAdapter)
     daemon = Daemon(root)
     calls = []

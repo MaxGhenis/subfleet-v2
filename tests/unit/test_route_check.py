@@ -121,7 +121,7 @@ def test_c6_3_still_stands_exactly_when_evaluate_now_chooses_the_same(case, data
     if verdict is None:            # `decision` is the decision now
         assert scheduler.verdict_signature(decision) == scheduler.verdict_signature(full)
         if decision.chosen_lane:
-            assert scheduler.probe_required(decision, job) == scheduler.probe_required(full, job)
+            assert scheduler.probe_required(decision, job, policy) == scheduler.probe_required(full, job, policy)
 
 
 @SETTINGS
@@ -149,7 +149,7 @@ def test_c6_3_still_stands_exactly_when_commits_land_on_the_lanes_it_walked(case
     if verdict is None:            # `decision` is the decision now
         assert scheduler.verdict_signature(decision) == scheduler.verdict_signature(full)
         if decision.chosen_lane:
-            assert scheduler.probe_required(decision, job) == scheduler.probe_required(full, job)
+            assert scheduler.probe_required(decision, job, policy) == scheduler.probe_required(full, job, policy)
 
 
 @SETTINGS

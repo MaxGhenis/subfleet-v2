@@ -85,7 +85,10 @@ def test_allowed_readings_percentages_and_raw_stream(e2e):
 
 
 def test_credits_rejection_closes_model_and_retry_explains_exclusion(e2e):
-    """C-4.5, C-9.1, C-9.4, C-9.6, C-9.8, C-11.5: rejected Fable retries with evidence."""
+    """C-4.5, C-9.1, C-9.4, C-9.6, C-9.8, C-11.5: a credits rejection retries with evidence.
+
+    The replayed payload was recorded from a Fable request; a credits rejection closes the
+    requested model, which since Fable's retirement (2026-09-27) is Opus."""
     scenario = "rejected-credits-fable"
     want = expected(scenario)
     # Both fake lanes replay the rejection; two attempts give a terminal result.
@@ -94,7 +97,8 @@ def test_credits_rejection_closes_model_and_retry_explains_exclusion(e2e):
     policy["caps"]["max_attempts"] = 2
     policy_path.write_text(json.dumps(policy))
     e2e.start(scenario=scenario)
-    result = e2e.cli(*e2e.run_args("fable", "--wait"))
+    requested = policy["models"]["opus"]["id"]
+    result = e2e.cli(*e2e.run_args("opus", "--wait"))
     assert result.rc == 4, result  # C-17.3: the final attempt was limited; 3 is for a job never admitted
     job_id = submitted(result)
     shown = e2e.show(job_id)
@@ -106,7 +110,8 @@ def test_credits_rejection_closes_model_and_retry_explains_exclusion(e2e):
         assert attempt["outcome_class"] == "limited"
         assert attempt["rc"] == want["rc"]
         closure, = e2e.rows("SELECT * FROM closures WHERE lane_id=?", (attempt["lane_id"],))
-        assert closure["scope"] == want["closure"]["scope"] == "claude-fable-5-1"
+        assert want["closure"]["scope"] == want["requested_model"] == "claude-fable-5-1"
+        assert closure["scope"] == attempt["model_requested"] == requested
         assert closure["reason"] == "credits"
         assert closure["clock_source"] == "reported"
         assert closure["until_at"] == iso_epoch(want["closure"]["until_at_epoch"])
@@ -114,7 +119,7 @@ def test_credits_rejection_closes_model_and_retry_explains_exclusion(e2e):
         reading, = e2e.rows("SELECT * FROM readings WHERE attempt_id=?", (attempt["attempt_id"],))
         assert reading["label"] == "admission-observed"
         assert reading["window"] == "admission"
-        assert reading["scope"] == "claude-fable-5-1"
+        assert reading["scope"] == requested
         assert reading["utilization"] is None
         assert reading["resets_at"] == closure["until_at"]
         evidence = json.loads(attempt["evidence_json"])["classification"]
@@ -160,16 +165,20 @@ def test_limit_without_clock_is_guessed_one_hour(e2e):
 
 
 def test_model_downgrade_persists_transcript_attestation(e2e):
-    """C-12.5, C-17.1: runs show exposes mismatch and the transcript's served model."""
+    """C-12.5, C-17.1: runs show exposes mismatch and the transcript's served model.
+
+    The fixture models a Fable request answered by an older Opus; with Fable retired
+    (2026-09-27) the request is Opus 5.5, and an Opus 5 answer is the same downgrade."""
     want = expected("model-downgrade")
     e2e.start(scenario="model-downgrade")
-    result = e2e.cli(*e2e.run_args("fable", "--wait"))
+    result = e2e.cli(*e2e.run_args("opus", "--wait"))
     assert result.rc == 0, result
     shown = e2e.show(submitted(result))
     assert shown["job"]["state"] == "succeeded"
     attempt, = shown["attempts"]
     assert attempt["outcome_class"] == "ok"
-    assert attempt["model_requested"] == want["requested_model"]
+    assert want["requested_model"] == "claude-fable-5-1"
+    assert attempt["model_requested"] == "claude-opus-5-5"
     assert attempt["attestation"] == "mismatch"
     assert attempt["model_served"] == want["attestation"]["served_model"] == "claude-opus-5"
     assert Path(attempt["transcript_path"]).is_file()

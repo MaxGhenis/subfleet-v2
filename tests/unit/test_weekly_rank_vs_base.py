@@ -36,7 +36,7 @@ import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
 
 from subfleet import capacity as head_capacity, picker as head_picker, scheduler as head_scheduler
-from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
+from tests.fable_reserve import load_fable_reserve_policy
 
 REPO = Path(__file__).resolve().parents[2]
 NOW = datetime(2026, 10, 3, 12, tzinfo=timezone.utc)
@@ -70,7 +70,10 @@ def iso(seconds: float) -> str:
 
 
 def policy(floor=0.0, reserve_models=()):
-    rules = copy.deepcopy(load_policy(DEFAULT_POLICY_PATH))
+    # These fleets pin and reserve Fable, which the shipped policy retired on
+    # 2026-09-27; they start from the shipped policy with Fable restored
+    # (`tests/fable_reserve.py`), the model set the base and head were written for.
+    rules = copy.deepcopy(load_fable_reserve_policy())
     rules["headroom_floor"] = floor
     rules["reserve"]["models"] = list(reserve_models)
     return rules

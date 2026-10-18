@@ -381,11 +381,10 @@ class ConversationService:
             if provider and entry["provider"] != provider:
                 continue
             seen = observed.get(entry["provider"], {}).get(entry["id"], {})
-            # `default` is whatever one account's settings pick; a conversation names a model.
-            values = [v for v in seen.get("values") or [] if v != "default"]
+            values = _catalog_values(observed, entry)
             models.append({"short": short, "id": entry["id"], "provider": entry["provider"],
                            "retired": short in retired or entry["id"] in retired,
-                           "value": values[0] if values else entry["id"], "values": values or [entry["id"]],
+                           "value": values[0], "values": values,
                            "efforts": (claude_turn.offered_efforts([str(x) for x in seen["efforts"]])
                                        if entry["provider"] == "claude" and isinstance(seen.get("efforts"), list)
                                        else seen.get("efforts")),
@@ -1013,7 +1012,10 @@ class ConversationService:
         short = policy_model(self.daemon.policy, provider, value)
         entry = next((m for m in self.op_models_list({"provider": provider}, None)["models"] if m["short"] == short),
                      None)
-        if entry is None or entry["retired"]:
+        # A spelling that routes only through the policy's `retired` map names a retired
+        # model: a stored conversation continues on its successor, a new pick is refused.
+        named = _base_model(value) in (short, self.daemon.policy["models"][short]["id"])
+        if entry is None or entry["retired"] or not named:
             raise ConversationError("unknown-model", "model must name an active model this fleet routes",
                                     fix="pick a model from models.list")
         return entry["value"] if value == short and value != entry["id"] else value
@@ -2748,10 +2750,12 @@ class ConversationService:
         settings = message["settings"]
         # Recheck persisted/native conversations and paths that changed since creation.
         self._check_workspace(provider, conversation["workspace"], settings)
-        short = policy_model(daemon.policy, provider, settings["model"])
+        # A retired model runs its successor (C-11.1); the message keeps the model picked.
+        settings, short = self._successor_settings(provider, settings)
+        entry = daemon.policy["models"][short]
         effort_default = None
         if not settings.get("effort"):
-            effort_default = self._default_effort(provider, daemon.policy["models"][short]["id"])
+            effort_default = self._default_effort(provider, entry["id"])
             if effort_default:
                 settings = {**settings, "effort": effort_default}
         images = []
@@ -2870,6 +2874,8 @@ class ConversationService:
             return True
         notes = launch.get("notes") or {}
         lane = self.daemon.store.get_lane(attempt["lane_id"])
+        # The model the attempt was launched with, for a turn queued before its model retired.
+        turn = self._runnable_turn(turn, notes.get("model_id"))
         spec = spec_from_manifest(turn, lane_email=lane_email(lane) if lane else None,
                                   guard_hash=notes.get("guard_hash"), model_ref=notes.get("model_id"))
         held = self._writer_check(turn, adir)
@@ -3173,6 +3179,41 @@ class ConversationService:
 
     # --- the daemon's launch and finalize seams --------------------------------
 
+    def _successor_settings(self, provider: str, settings: dict) -> tuple[dict, str]:
+        """A message's settings as its turn runs them, and the policy model admission
+        routes (D-19). A model the running policy retires (C-11.1) runs its successor,
+        spelled as `models.list` offers it; anything else is returned unchanged.
+
+        A value picked with the 1M context (`claude-fable-5-1[1m]`) keeps it: the
+        successor's `[1m]` value when its catalog lists one, else its first value
+        (`_on_catalog` lists the value without the 1M context first). Moving a long
+        session onto the smaller window is never chosen when the larger one is offered."""
+        short = policy_model(self.daemon.policy, provider, settings["model"])
+        entry = self.daemon.policy["models"][short]
+        if _base_model(settings["model"]) in (short, entry["id"]):
+            return settings, short
+        values = _catalog_values(self._catalog_cache(), entry)
+        if settings["model"].endswith("[1m]"):
+            values = [value for value in values if value.endswith("[1m]")] or values
+        return {**settings, "model": values[0]}, short
+
+    def _runnable_turn(self, turn: dict, model_id: str | None) -> dict:
+        """A Claude turn manifest as it launches on `model_id`, the model admission
+        routed it to. A manifest written before its model retired still names that
+        model (`claude-fable-5-1[1m]`) while admission resolved its pin to the
+        successor; the provider is asked for the successor, as for a turn submitted
+        after the retirement. Anything else, including a model that no longer routes,
+        is left for the driver's model check (C-26.8)."""
+        if turn.get("provider") != "claude" or not model_id:
+            return turn
+        try:
+            settings, short = self._successor_settings("claude", turn["settings"])
+        except ConversationError:
+            return turn
+        if settings is turn["settings"] or self.daemon.policy["models"][short]["id"] != model_id:
+            return turn
+        return {**turn, "settings": settings}
+
     def launch(self, job: dict, attempt: dict, lane, credential_env: dict, adir: Path, model_id: str,
                guard_result=None):
         manifest = _read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}
@@ -3181,6 +3222,7 @@ class ConversationService:
             raise AdapterError("turn job has no turn manifest", fix="the dispatcher creates turn jobs",
                                reason="turn-manifest")
         if lane.provider == "claude":
+            turn = self._runnable_turn(turn, model_id)
             return claude_launch(turn, attempt_id=attempt["attempt_id"], attempt_dir=adir, lane=lane,
                                  credential_env=credential_env, model_id=model_id)
         if guard_result is None or not guard_result.override:
@@ -3209,15 +3251,36 @@ class ConversationService:
         return TurnAdapter(provider)
 
 
+def _base_model(value: str) -> str:
+    """A conversation's model value without its context-window suffix (`opus[1m]`)."""
+    return value[:-4] if value.endswith("[1m]") else value
+
+
+def _catalog_values(observed: dict, entry: dict) -> list[str]:
+    """The values a conversation may store for a policy model: what its provider's
+    catalog last listed, else its id (design D-19). `default` is whatever one
+    account's settings pick; a conversation names a model."""
+    seen = observed.get(entry["provider"], {}).get(entry["id"], {})
+    values = [v for v in seen.get("values") or [] if v != "default"]
+    return values or [entry["id"]]
+
+
 def policy_model(policy: dict, provider: str, value: str) -> str:
-    """A conversation's model value to the policy model admission routes (D-19)."""
-    base = value[:-4] if value.endswith("[1m]") else value
+    """A conversation's model value to the policy model admission routes (D-19).
+
+    A name or id the policy lists under `retired` routes to its successor
+    (C-11.1): a conversation picked on Fable continues on Opus once the running
+    policy retires Fable, rather than failing every message as an unknown model."""
+    base = _base_model(value)
     models = policy["models"]
     if base in models and models[base]["provider"] == provider:
         return base
     for short, entry in models.items():
         if entry["provider"] == provider and entry["id"] == base:
             return short
+    successor = (policy.get("retired") or {}).get(base)
+    if successor in models and models[successor]["provider"] == provider:
+        return successor
     raise ConversationError("unknown-model", "model must name a known alias or model id this fleet routes",
                             fix="pick a model from models.list")
 

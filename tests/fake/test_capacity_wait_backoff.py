@@ -321,7 +321,7 @@ def test_c6_10_a_pair_that_changed_after_its_probe_waits_on_a_clock(fleet, monke
     from subfleet import daemon as daemon_module
     service, harness = fleet
     job_id = submit(service, harness, pinned_model="astra")
-    monkeypatch.setattr(daemon_module.scheduler, "probe_required", lambda decision, job: True)
+    monkeypatch.setattr(daemon_module.scheduler, "probe_required", lambda decision, job, policy=None: True)
     service._prepare_route = lambda job, decision_job, exclusions: (set(), service._desktop_identity())
     looked = []
     real = service._workspace
@@ -342,7 +342,7 @@ def test_c6_10_a_reservation_that_does_not_happen_leaves_no_probe_directory(flee
     from subfleet import daemon as daemon_module
     service, harness = fleet
     job_id = submit(service, harness, pinned_model="astra")
-    monkeypatch.setattr(daemon_module.scheduler, "probe_required", lambda decision, job: bool(decision.chosen_lane))
+    monkeypatch.setattr(daemon_module.scheduler, "probe_required", lambda decision, job, policy=None: bool(decision.chosen_lane))
     assert service.store.acquire_lease("lane:codex-1:slot:0", "another-job/a1")
     job = service.store.get_job(job_id)
     approved, _ = service._prepare_route(job, job, ())

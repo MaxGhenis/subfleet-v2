@@ -32,7 +32,13 @@ def test_default_policy_exact_models_and_caps():
     and keeps the bounds that are not counts."""
     policy = load_policy(DEFAULT_POLICY_PATH)
     assert policy["models"]["astra"] == {"provider": "codex", "id": "gpt-6-astra", "effort": "ultra"}
-    assert policy["models"]["fable"]["scope"] == "fable"
+    assert policy["models"]["opus"]["id"] == "claude-opus-5-5"
+    # Fable retired 2026-09-27: no model entry, every spelling an alias of opus, no reserve.
+    assert "fable" not in policy["models"]
+    assert {alias: policy["retired"][alias] for alias in ("fable", "claude-fable-5", "claude-fable-5-1")} \
+        == dict.fromkeys(("fable", "claude-fable-5", "claude-fable-5-1"), "opus")
+    assert all(policy["chains"][task] == ["opus"] * 4 for task in ("authored-prose", "strategy", "adjudication"))
+    assert policy["reserve"]["models"] == []
     for key in ("max_active_attempts", "max_in_flight_per_lane", "max_in_flight_unmeasured",
                 "max_active_attempts_per_parent", "max_writable_per_session", "max_child_jobs"):
         assert policy["caps"][key] is None

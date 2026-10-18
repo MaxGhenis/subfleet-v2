@@ -46,6 +46,34 @@ def flatten_chain(chain: Sequence[str | list[str]], tier_index: int = 0) -> list
                              for name in (entry if isinstance(entry, list) else [entry])))
 
 
+#: Short names retired from dispatch, whatever a policy file still lists (C-17.2).
+#: Every flag that takes a model to dispatch from a person (`run -m` and `-t`, batch
+#: manifests, `why -m`, `pick --model`, `suggest --model`, `sessions handoff --to`,
+#: `sessions revive --model`, `gate --peer`) remaps these with a stderr note, so an
+#: older `policy.json` that still carries one cannot be asked to dispatch it.
+#: (`gate --main-model` only names the main's family and dispatches nothing.) The shipped policy's `retired` map says the same for pins
+#: that arrive by other routes (queued jobs, retries, revives of a recorded model).
+#: Sol went on 2026-09-04; Fable on 2026-09-27 (Max: "opus 5.5 is strictly better
+#: than fable").
+RETIRED_MODELS: dict[str, str] = {"sol": "astra", "fable": "opus"}
+
+#: Fable's exact ids. `cli._retire_model` remaps them, with RETIRED_MODELS, at `run -m`
+#: and `-t`, `why -m`, `pick --model` and `suggest --model`; only the last two take free
+#: text (the others' `choices=` keep ids out). Elsewhere: `sessions` flags remap short
+#: names through `sessions.cli.retire_models`, an exact id at `sessions revive`/`continue
+#: --model` resolves through `revive.live_model` (recorded, with no stderr note), and
+#: `gate --peer` reads RETIRED_MODELS. Sol's `gpt-5.6-sol` is not here: the shipped
+#: `retired` map has no alias for it, so an imported Sol run keeps its own id. The
+#: shipped `retired` map is exactly RETIRED_MODELS plus these (a tested invariant).
+RETIRED_MODEL_IDS: dict[str, str] = {"claude-fable-5": "opus", "claude-fable-5-1": "opus"}
+
+
+def retired_successor(name: str | None) -> str | None:
+    """The current model a retired short name or exact id is replaced by, else None."""
+    if name is None:
+        return None
+    return RETIRED_MODELS.get(name) or RETIRED_MODEL_IDS.get(name)
+
 #: `sessions.handoff_caps` (C-23.36): a character cap per brief section, carried
 #: forward from v1 `handoff.py`'s module constants so a ported brief is the same
 #: size it always was. `recent_records` is a count of main-chain entries, not

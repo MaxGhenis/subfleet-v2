@@ -15,6 +15,7 @@ from subfleet.contracts import (
     Outcome, OutcomeClass, Reading, ReadingLabel,
 )
 from subfleet.daemon import after, utcnow
+from tests.fable_reserve import fable_reserve_data
 from tests.fake.test_state_contract import receipt_fixture, state_daemon
 from tests.fake_adapter import FakeAdapter
 
@@ -31,6 +32,10 @@ def reserve_state(state_daemon, monkeypatch):
     monkeypatch.setattr(registry, "_factories", {"codex": FakeAdapter, "claude": FakeAdapter})
     monkeypatch.setattr(daemon_module.capacity, "read_desktop_account", lambda: None)
     service.desktop_prober = lambda: None
+    # Fable is retired from the shipped policy (2026-09-27); the reserve rule is not, so
+    # this state reserves Fable as the shipped policy did (tests/fable_reserve.py).
+    reserved = fable_reserve_data()
+    service.policy.update(models=reserved["models"], retired=reserved["retired"])
     service.policy["reserve"] = {"models": ["fable"], "cap_ratio": 2., "min_slack": .05}
     home = service.root / "claude-home"
     home.mkdir()
@@ -192,3 +197,25 @@ def test_authorization_reason_is_part_of_durable_request_identity(reserve_state)
             service.dispatch("submit", {**args, "unmeasured_reserve_reason": reason})
     assert len(service.store.list_jobs()) == 1
     assert service.store.get_job(first["job_id"])["unmeasured_reserve_reason"] == REASON
+
+
+def test_an_authorization_pinned_to_fable_probes_and_runs_on_opus_once_the_policy_retires_fable(
+        reserve_state, monkeypatch):
+    """C-11.7a with C-11.1: an authorized job stored with a `fable` pin before the retirement
+    is admitted on Opus, the pin's resolution under the running policy, through the daemon's
+    own call of `probe_required` with its policy (review round 3 of PR #66, finding 3:
+    without that argument the job failed with no probe, and no test noticed)."""
+    service, harness = reserve_state
+    calls = install_probe(service, monkeypatch)
+    job_id = service.dispatch("submit", submit_args(harness, authorized=True, pinned_model="fable"))["job_id"]
+    assert service.store.get_job(job_id)["pinned_model"] == "fable"
+    # The upgrade: the running policy retires Fable, as the shipped one does.
+    del service.policy["models"]["fable"]
+    service.policy["retired"] = {"sol": "astra", "fable": "opus", "claude-fable-5": "opus",
+                                 "claude-fable-5-1": "opus"}
+    service.policy["reserve"] = {**service.policy["reserve"], "models": []}
+    service._admit()
+    assert calls == [(job_id, LANE, MODEL)]
+    attempt, = service.store.list_attempts(job_id)
+    assert attempt["lane_id"] == LANE and attempt["model_requested"] == MODEL
+    assert service.store.get_job(job_id)["state"] != "failed"

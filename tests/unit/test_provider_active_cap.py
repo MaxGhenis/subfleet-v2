@@ -68,8 +68,9 @@ def test_missing_cap_preserves_bytes_and_hash(tmp_path, section):
     assert loaded["_policy_hash"] == hashlib.sha256(raw).hexdigest()
     if section is None:
         assert not provider_caps_on(loaded)
-        # Shipped bytes at release/217 (after #179 and #190), including the trailing newline.
-        assert hashlib.sha256(raw).hexdigest() == "29e76475f03eb5f27b7ca83a0a321e1d296c4701a6fd33733b104d5d7844d2a2"
+        # Shipped bytes at release/217 (after #179, #190 and #66's Fable retirement),
+        # including the trailing newline.
+        assert hashlib.sha256(raw).hexdigest() == "89991080329a1820580b0aaac6e1b93d934708f369a18f5cda6727d3aa10648c"
 
 
 @pytest.mark.parametrize("providers,on", [

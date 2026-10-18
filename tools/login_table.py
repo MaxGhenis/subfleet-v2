@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """Full-scope login drive: which accounts are logged in under ~/.subfleet/logins/<email>/,
-and the slack table from the usage endpoint for those that are (C-9.9, C-11.7).
+and their usage-endpoint windows for those that are (C-9.9).
 
     uv run python tools/login_table.py [--logins ~/.subfleet/logins] [--cap-ratio 2.0]
+
+The Fable column is the provider's own weekly bucket, still reported after Fable's
+retirement from dispatch (2026-09-27). The shipped policy reserves no model, so the
+slack column (C-11.7) is printed only when `--cap-ratio` is passed, for a policy
+that still reserves Fable.
 
 Reads `claude auth status --json` per config directory (local), then one paced usage GET
 per logged-in account with that directory's own credential, never printing a token.
@@ -47,7 +52,8 @@ def usage(token: str) -> tuple[str, dict | None]:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--logins", default="~/.subfleet/logins")
-    ap.add_argument("--cap-ratio", type=float, default=2.0)
+    ap.add_argument("--cap-ratio", type=float, default=None,
+                    help="print C-11.7 slack for a policy that still reserves Fable")
     ap.add_argument("--spacing", type=float, default=4.0)
     args = ap.parse_args()
     root = Path(args.logins).expanduser()
@@ -74,8 +80,9 @@ def main() -> int:
         shared = (payload.get("seven_day") or {}).get("utilization")
         fable = next((l.get("percent") for l in payload.get("limits") or [] if l.get("kind") == "weekly_scoped"
                       and ((l.get("scope") or {}).get("model") or {}).get("display_name") == "Fable"), None)
-        slack = None if shared is None or fable is None else round((100 - shared) - args.cap_ratio * (100 - fable), 1)
-        note = "" if slack is None else ("Opus may spend the slack" if slack > 0 else "FABLE-ONLY")
+        slack = (None if args.cap_ratio is None or shared is None or fable is None
+                 else round((100 - shared) - args.cap_ratio * (100 - fable), 1))
+        note = "" if slack is None else ("Opus may spend the slack" if slack > 0 else "reserved for Fable")
         fmt = lambda v: "?" if v is None else f"{v:.0f}"
         print(f"{entry['n']:>2} {entry['email']:28} {login:10} {fmt(five):>5} {fmt(shared):>5} {fmt(fable):>7} {fmt(slack) if slack is not None else '?':>6}  {note}")
     return 0

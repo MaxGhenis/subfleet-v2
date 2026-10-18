@@ -530,9 +530,9 @@ def _future_closure(closure: Mapping[str, Any], now: datetime) -> bool:
 def _higher_model_scopes(policy: Mapping[str, Any], short: str) -> set[str]:
     """C-23.37: stronger models come from policy, never provider name guesses.
 
-    Explicit priorities compare models across separate task chains (Fable's
-    writing chain and the general-work chain). Older policies still express
-    ordering within their upward-only chains.
+    Explicit priorities compare models across separate task chains (a writing
+    chain and the general-work chain; until 2026-09-27 Fable's). Older policies
+    still express ordering within their upward-only chains.
     """
     model = policy["models"][short]
     higher = set()
@@ -1282,7 +1282,7 @@ def reserve_verdict(identity: str, reserved_id: str, readings: Iterable[Mapping[
             "min_slack": min_slack}
 
 
-def probe_required(decision: Decision, job: Any) -> bool:
+def probe_required(decision: Decision, job: Any, policy: Mapping[str, Any] | None = None) -> bool:
     """C-11.4: probe the requested model before expensive unmeasured work.
 
     C-23.20 makes a revive stricter than expensive: it admits a lane only on a
@@ -1292,6 +1292,10 @@ def probe_required(decision: Decision, job: Any) -> bool:
     were out of Fable, and a revive that lands on one burns the window with no
     reader. `_prepare_route` converges after one probe because the approved pair
     short-circuits the loop.
+
+    `policy`, the running policy, lets an authorized pin (C-11.7a) that the policy
+    retires (C-11.1) be authorized on its successor: admission evaluates a pinned
+    job on its pin's resolution. Without it the pin must name the chosen model.
     """
     job = _row(job)
     authorization_reason = _unmeasured_reserve_reason(job)
@@ -1300,8 +1304,17 @@ def probe_required(decision: Decision, job: Any) -> bool:
     if authorization_reason:
         evaluation = next((row for row in decision.evaluations
                            if row["model"] == decision.chosen_model), None)
+        # The pin as the running policy resolves it: a retired pin (`fable`, C-11.1) is
+        # authorized on its successor, the one model admission evaluates it on (C-11.2).
+        resolved = None
+        if policy is not None:
+            try:
+                resolved = resolve_model(policy, job["pinned_model"], note=False)
+            except PolicyError:
+                resolved = None
         if (decision.chosen_lane != job["pinned_lane"] or evaluation is None
-                or job["pinned_model"] not in (decision.chosen_model, evaluation["model_id"])):
+                or (job["pinned_model"] not in (decision.chosen_model, evaluation["model_id"])
+                    and resolved != decision.chosen_model)):
             raise RouteError("unmeasured_reserve_reason: the probe must use the authorized lane and model",
                              policy_dependent=True)
         # An admission observation or a newly measured window cannot remove

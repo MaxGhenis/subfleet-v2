@@ -14,8 +14,8 @@ import pytest
 from hypothesis import given, settings, strategies as st
 
 from subfleet.capacity import build_view
-from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
 from subfleet.scheduler import evaluate, prepare, rank_key
+from tests.fable_reserve import load_fable_reserve_policy
 from tests.reference_scheduler import reference_evaluate
 
 
@@ -30,7 +30,11 @@ def reset(seconds: int) -> str:
 
 
 def policy(spread=2):
-    result = copy.deepcopy(load_policy(DEFAULT_POLICY_PATH))
+    # Fable was retired from the shipped policy on 2026-09-27. These laws keep the
+    # second Claude model above Opus that stranded capacity (C-23.37) and the model
+    # reserve (C-11.7) need, so they start from the shipped policy with Fable
+    # restored (`tests/fable_reserve.py`), as the other reserve and stranding cases do.
+    result = copy.deepcopy(load_fable_reserve_policy())
     result["reserve"]["models"] = []
     # The live policy has zero floor; the shipped default remains 15%. These
     # laws must reach the new preference classes without an admission refusal.
