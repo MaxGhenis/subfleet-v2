@@ -4,7 +4,8 @@ Each change to `docs/acceptance-contract.md` is recorded here, one file per entr
 Until 2026-10-14 the contract kept these entries as a list under "Changes in version 3", and every pull request prepended to it.
 So each merge into the release line made every other open pull request conflict on that list (defect D-MRG3).
 GitHub runs no CI on a conflicting pull request, so each one then needed a merge and a fresh CI run before it could land.
-A file per entry, named after the branch that adds it, means two pull requests never write the same path.
+A file per entry, named after the branch that adds it, means two pull requests write the same path only when their branch names differ in nothing but case or punctuation (`fix/a_b` and `fix/a-b`).
+Git then reports an add/add conflict on that one file, and renaming one of the two settles it.
 
 ## Adding an entry
 
@@ -53,9 +54,15 @@ Merge the release line into it, and when the contract conflicts run:
 
     python3 tools/contract_merge.py
 
-It reads the three versions Git staged (base, the branch, the release line), not the conflicted file.
-It brings each to the current layout, writes each entry the branch added to the old list as a file here, named after the branch, and merges the three with `git merge-file`.
-A conflict it cannot settle is left in the contract with diff3 markers, and it exits 1.
+It reads the three versions Git staged for the contract (base, the branch, the release line), not the conflicted file, and refuses (exit 2) unless all three are there.
+So once the contract is resolved and added, or when the merge left it alone, it rebuilds nothing.
+It brings each version to the current layout, writes each entry the branch added to the old list, whole, as a file here named after the branch, and merges the three with `git merge-file`.
+On a detached HEAD, name the branch with `--ours-branch`.
+A conflict it cannot settle is left in the contract with diff3 markers, longer than any marker-shaped line in the contract, and it exits 1.
+It also exits 1, naming them, for an old-list entry the branch edited or removed and for text in the old section that is not a list item: the move would otherwise drop them.
 `--words` also merges each remaining hunk one word at a time when no word was changed by both sides;
 read what it merged.
-It stages nothing, and prints the `git add` to run.
+`--dry-run` names the files it would write.
+It stages nothing, and prints a `git add` naming the contract and every entry file of the merge, including any an earlier run wrote.
+
+`python3 tools/contract_dry_run.py` tries this merge on many pull request heads at once, writing nothing (see its help).

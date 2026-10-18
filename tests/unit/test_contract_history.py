@@ -73,9 +73,13 @@ def test_the_index_is_not_checked_in():
 
 @pytest.fixture
 def copy(tmp_path):
-    """A copy of the history folder and the contract to break."""
+    """A folder to break: the README and the migrated list, but none of the dated entries,
+    which keep arriving and would meet the fixed clock below (review r1b, finding 6).
+    The real folder is checked against the real date above."""
     root = tmp_path / "contract-history"
-    shutil.copytree(history.HISTORY, root)
+    root.mkdir()
+    shutil.copy2(history.HISTORY / "README.md", root / "README.md")
+    shutil.copytree(history.HISTORY / history.MIGRATED_DIR, root / history.MIGRATED_DIR)
     contract = tmp_path / "acceptance-contract.md"
     contract.write_text(history.CONTRACT.read_text(encoding="utf-8"), encoding="utf-8")
     return root, contract
@@ -150,9 +154,17 @@ BREAKAGES = {
                          "then one newline"),
     "empty": (lambda r, c: _entry(r, "2026-10-14-fix.md", "\n"), "empty"),
     "duplicate of another entry": (
-        lambda r, c: _entry(r, "2026-10-14-fix-2.md",
-                            (r / "2026-10-14-fix-d-mrg3-contract-history.md").read_text()),
+        lambda r, c: (_entry(r, "2026-10-14-fix.md", GOOD), _entry(r, "2026-10-14-fix-2.md", GOOD)),
         "the same text as"),
+    "a second block in the entry": (
+        lambda r, c: _entry(r, "2026-10-14-fix.md", GOOD + "- A second item\n"),
+        "a later line may not start"),
+    "a heading after the entry": (
+        lambda r, c: _entry(r, "2026-10-14-fix.md", GOOD + "# Heading\n"),
+        "a later line may not start"),
+    "a table after the entry": (
+        lambda r, c: _entry(r, "2026-10-14-fix.md", GOOD + "| a | b |\n|---|---|\n"),
+        "a later line may not start"),
     "a folder": (lambda r, c: (r / "drafts").mkdir(), "no folders"),
     "a stray file": (lambda r, c: _entry(r, "INDEX.md", "x\n"), "an entry is named"),
 }
@@ -250,3 +262,32 @@ def test_the_living_docs_scan_sees_the_docs_it_must():
     assert {"README.md", "docs/acceptance-contract.md", "docs/lanes/identity.md",
             "docs/desktop/maps/v2-docs-contract.md", "docs/invariant-gaps.md"} <= seen
     assert not any(s.startswith(("docs/reports/", "docs/contract-history/")) for s in seen)
+
+
+def test_an_entry_citing_only_a_titled_clause_passes(copy):
+    """C-20.7 review r1b, finding 10: C-8.5 is written `- **C-8.5 Host push ...**`; an
+    entry that cites only it cites a clause the contract defines."""
+    root, contract = copy
+    _entry(root, "2026-10-14-fix.md", "C-8.5 (2026-10-14, clarify host push): changed.\n")
+    assert history.problems(root, contract, TODAY) == []
+    assert "C-8.5" in history.clause_ids(contract.read_text())
+
+
+def test_a_later_entry_passes_on_its_own_date(copy):
+    """C-20.7 review r1b, finding 6: an entry dated after the test's clock is fine on its
+    date; only an entry dated after the day it is checked fails."""
+    root, contract = copy
+    _entry(root, "2026-10-16-fix.md", "C-20.7 (2026-10-16, later): changed.\n")
+    assert history.problems(root, contract, dt.date(2026, 10, 16)) == []
+    assert history.problems(root, contract, None) == []
+    assert any("after today" in p for p in history.problems(root, contract, TODAY))
+
+
+def test_old_list_items_are_read_whole():
+    """C-20.7 review r1b, finding 5: a wrapped item keeps its later lines, lazy or indented."""
+    old = (f"{history.HEADING}\n\n- C-1.1 (2026-10-14, fix): first line.\n  second line.\n"
+           "- C-1.2 (2026-10-13, x): one.\nlazy line.\n\nA stray paragraph.\n\n## 1. S\n")
+    assert history.listed_entries(old) == [
+        "C-1.1 (2026-10-14, fix): first line.\nsecond line.", "C-1.2 (2026-10-13, x): one.\nlazy line."]
+    assert history.unrecognised(old) == ["A stray paragraph."]
+    assert not history.moved(old) and history.moved(history.without_list(old))

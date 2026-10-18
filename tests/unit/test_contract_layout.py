@@ -11,9 +11,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
+from tests.markdown_signature import signature
 from tools import contract_layout as layout
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -61,6 +63,30 @@ def test_every_clause_is_read_whole():
     assert "## " not in " ".join(found.values())
 
 
+#: Inputs generated documents found whose rendering relayout once changed, and what it
+#: does with each now: a pipe row before a `<pre>` block; an empty list item; backticks
+#: that become a fence once split; an item holding a heading; an HTML block that runs to
+#: the blank line; a raw `<pre>` around a paragraph; a fence inside a list item; code
+#: spans across a line read as a block start (two); a tag that does not open an HTML
+#: block; a delimiter row without a pipe (cmark-gfm); a span open across several blocks.
+FOUND_BY_GENERATION = {
+    "| a. B | c; D |\n<pre>\n\nA. B; c\n</pre>": "| a. B | c; D |\n<pre>\n\nA. B; c\n</pre>",
+    "1.\nv1. Admission.": "1.\nv1.\nAdmission.",
+    "a. a. a. a.\n``` v1. `code`.": "a. a. a. a.\n``` v1. `code`.",
+    "- # a.\na.": "- # a.\na.",
+    "<div>\n\nA. B\n</div>\na.\n```.\n<pre>\n\nA. B; c\n</pre>\n~~~\n```\nA. B\n~~~":
+        "<div>\n\nA.\nB\n</div>\na.\n```.\n<pre>\n\nA. B; c\n</pre>\n~~~\n```\nA. B\n~~~",
+    "<div>\n\nA. B\n</div>\n<pre>\n\nA. B; c\n</pre>": "<div>\n\nA.\nB\n</div>\n<pre>\n\nA. B; c\n</pre>",
+    "- a. a. a. a. a.\n  ```. a.\n~~~\n```\nA. B\n~~~": "- a. a. a. a. a.\n  ```. a.\n~~~\n```\nA. B\n~~~",
+    "a. `.\n  a.\n``` `code`.": "a. `.\n  a.\n``` `code`.",
+    "- >. `.\na.  `code`. a.": "- >. `.\na.  `code`. a.",
+    "a. a.\n<span>.\na.\n~~~. a. a. a.\n<div>\n\nA. B\n</div>":
+        "a. a.\n<span>. a.\n~~~. a. a. a.\n<div>\n\nA. B\n</div>",
+    "a.\n-:": "a.\n-:",
+    "a. ```.\n<b>.\n  <b>;\na ```.": "a. ```.\n<b>.\n  <b>;\na ```.",
+}
+
+
 def test_examples():
     """C-20.7 where lines break and where they do not."""
     cases = {
@@ -96,6 +122,21 @@ def test_examples():
         "A. B\n* * *\nC. D": "A.\nB\n* * *\nC.\nD",
         "- **C-1.1** a.\nLazy. Line\n===": "- **C-1.1** a.\n  Lazy.\n  Line\n===",
         "A. B\n> quote. C": "A.\nB\n> quote. C",
+        # Review r1b of #218: each of these once rendered differently after a relayout.
+        "A; ***": "A; ***",
+        "[a]: /u\n[b]: /v\n\n[a] [b]": "[a]: /u\n[b]: /v\n\n[a] [b]",
+        "~~~\n```\nA. B\n~~~": "~~~\n```\nA. B\n~~~",
+        "````\n```\nA. B\n````": "````\n```\nA. B\n````",
+        "-     A. B": "-     A. B",
+        "- A.  \n  2. B": "- A.  \n  2. B",
+        "A. B | C\n---|---\nD | E": "A. B | C\n---|---\nD | E",
+        "<pre>\n\nA. B\n</pre>": "<pre>\n\nA. B\n</pre>",
+        "`a\n b`": "`a\n b`",
+        '[a](u "A; B") then. More.': '[a](u "A; B") then.\nMore.',
+        "\\`a `X.  Y`": "\\`a `X.  Y`",
+        "Tag <span title=\"A. B\">x</span>. Next.": "Tag <span title=\"A. B\">x</span>.\nNext.",
+        # Found by the generated documents below while review r1b was being fixed.
+        **FOUND_BY_GENERATION,
     }
     for given_, expected in cases.items():
         assert layout.relayout(given_) == expected, given_
@@ -108,6 +149,8 @@ WORD = st.sampled_from([
     "a", "the", "Admission", "C-6.9", "e.g.", "i.e.", "etc.", "vs.", "v1.", "2.1.11.", "(x)",
     "`code`", "`a. B`", "``x ` y``", "`", "**bold**", "*em*", "_u_", "[link](u)", "\"Q.\"",
     "(see C-5.5.)", "-", "--", "1.", "2)", "#", ">", "<b>", "|", "=", "---", "&lt;", "'s",
+    '[t](u "A; B. C")', "<span>", "</span>", "\\`", "&quot;", "***", "* * *", "___", "~~~",
+    "```", "<x y=\"a. B\">", "\\", "[r]", "x|y",
 ])
 END = st.sampled_from([".", ";", "!", "?", ",", ":", "", ".)", ".\"", "...", ".;"])
 SENTENCE = st.builds(lambda ws, e: " ".join(ws) + e, st.lists(WORD, min_size=1, max_size=6), END)
@@ -129,6 +172,10 @@ BLOCK = st.one_of(
     st.just(""), st.just("## Heading. With; marks"), st.just("| a. B | c; D |"),
     st.just("```\nA. B; c\n```"), st.just("    code. Line; two"), st.just("> quote. Two"),
     st.just("A.  \nhard break. B"), st.just("Setext. Title\n==="),
+    st.just("~~~\n```\nA. B\n~~~"), st.just("````\n```\nA. B\n````"),
+    st.just("<pre>\n\nA. B; c\n</pre>"), st.just("<!--\nA. B\n-->"), st.just("<div>\n\nA. B\n</div>"),
+    st.just("A. B | C\n---|---\nD. E | F"), st.just("[r]: /u \"A. B\"\n[s]: /v"),
+    st.just("-     A. B"), st.just("- A.  \n  2. B"), st.just("A.\\\nB. C"),
 )
 DOCUMENT = st.lists(BLOCK, min_size=1, max_size=8).map("\n".join)
 
@@ -172,8 +219,7 @@ def test_relayout_never_starts_a_block(document):
         assert after[0].startswith(layout._prefix(before[0])[0])
         if after != before:
             for line in after[1:]:
-                assert not layout.BLOCK_START.match(line.lstrip()), line
-                assert not layout.ITEM.match(line), line
+                assert not layout.starts_block(line), line
 
 
 @SETTINGS
@@ -191,3 +237,39 @@ def test_sentences_join_back(parts):
 def test_clauses_survive_relayout(document):
     """C-20.7 every clause reads the same, whole, before and after."""
     assert layout.clauses(layout.relayout(document)) == layout.clauses(document)
+
+
+@SETTINGS
+@given(DOCUMENT)
+def test_relayout_renders_the_same(document):
+    """C-20.7 differential against a real renderer, not this module's own block reader:
+    markdown-it-py (CommonMark with GFM tables) renders the document the same before and
+    after, tags, attributes and code exactly, whitespace in text read as one space."""
+    markdown_it = pytest.importorskip("markdown_it")
+    render = markdown_it.MarkdownIt("commonmark").enable("table").render
+    assert signature(render(layout.relayout(document))) == signature(render(document))
+
+
+def test_the_contract_renders_the_same_on_one_line_per_paragraph():
+    """C-20.7 the laid-out contract renders as it would with each paragraph on one line."""
+    markdown_it = pytest.importorskip("markdown_it")
+    render = markdown_it.MarkdownIt("commonmark").enable("table").render
+    lines, out, done = CONTRACT.split("\n"), [], 0
+    for start, end in layout._paragraphs(lines):
+        first, _ = layout._prefix(lines[start])
+        out += lines[done:start]
+        out.append(first + " ".join([lines[start][len(first):].strip(),
+                                     *(line.strip() for line in lines[start + 1:end])]))
+        done = end
+    joined = "\n".join(out + lines[done:])
+    assert joined != CONTRACT
+    assert signature(render(joined)) == signature(render(CONTRACT))
+
+
+def test_the_found_inputs_render_the_same():
+    """C-20.7 each input generation found, and each review r1b case above, renders the
+    same before and after (markdown-it-py; cmark-gfm was checked by hand, see the report)."""
+    markdown_it = pytest.importorskip("markdown_it")
+    render = markdown_it.MarkdownIt("commonmark").enable("table").render
+    for document in FOUND_BY_GENERATION:
+        assert signature(render(layout.relayout(document))) == signature(render(document)), document

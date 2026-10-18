@@ -31,6 +31,11 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from tools import contract_layout as layout  # noqa: E402
+
 REPO = Path(__file__).resolve().parents[1]
 CONTRACT = REPO / "docs" / "acceptance-contract.md"
 HISTORY = REPO / "docs" / "contract-history"
@@ -56,7 +61,8 @@ ENTRY_NAME = re.compile(r"^(\d{4}-\d{2}-\d{2})-([a-z0-9]+(?:-[a-z0-9]+)*)\.md$")
 MIGRATED_NAME = re.compile(r"^(\d{3})\.md$")
 DATE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
 CLAUSE_REF = re.compile(r"\bC-(\d+)\.(\d+[a-z]?)\b")
-CLAUSE_DEF = re.compile(r"^- \*\*(C-\d+\.\d+[a-z]?)\*\*", re.M)
+#: A clause's first line, titled ones (C-8.5) included: `contract_layout.CLAUSE`.
+CLAUSE_DEF = re.compile(layout.CLAUSE.pattern, re.M)
 
 
 @dataclass(frozen=True)
@@ -87,13 +93,49 @@ def section(lines: list[str]) -> tuple[int, int] | None:
     return start, end
 
 
-def listed_entries(contract: str) -> list[str]:
-    """The entries a contract still lists in its changes section (the old layout)."""
+def _section_items(contract: str) -> tuple[list[str], list[str]]:
+    """The changes section's list items, each whole (its continuation lines too, one per
+    line, indentation removed), and every other line that is neither blank nor the
+    pointer: text this reader does not recognise."""
     lines = contract.split("\n")
     span = section(lines)
     if span is None:
-        return []
-    return [line[2:] for line in lines[span[0] + 1:span[1]] if line.startswith("- ")]
+        return [], []
+    body = lines[span[0] + 1:span[1]]
+    if " ".join(" ".join(body).split()) == POINTER:
+        return [], []
+    items, other, current = [], [], None
+    for line in body:
+        if line.startswith("- "):
+            current = [line[2:].strip()]
+            items.append(current)
+        elif line.strip() and current is not None and not layout.starts_block(line):
+            current.append(line.strip())  # a continuation line, indented or lazy
+        elif line.strip():
+            other.append(line)
+            current = None
+        else:
+            current = None
+    return ["\n".join(item) for item in items], other
+
+
+def listed_entries(contract: str) -> list[str]:
+    """The entries a contract still lists in its changes section (the old layout), each
+    whole: a wrapped item keeps its later lines."""
+    return _section_items(contract)[0]
+
+
+def unrecognised(contract: str) -> list[str]:
+    """Lines in the changes section that are neither the pointer, blank, nor a list item:
+    the move would drop them, so a person must place them."""
+    return _section_items(contract)[1]
+
+
+def moved(contract: str) -> bool:
+    """Whether the contract's changes section is the pointer (the new layout)."""
+    lines = contract.split("\n")
+    span = section(lines)
+    return span is not None and " ".join(" ".join(lines[span[0] + 1:span[1]]).split()) == POINTER
 
 
 def without_list(contract: str) -> str:
@@ -198,11 +240,17 @@ def problems(root: Path = HISTORY, contract_path: Path = CONTRACT,
             continue
         if not raw.endswith("\n") or raw.endswith("\n\n") or raw.startswith("\n"):
             found.append(f"{rel}: the text, then one newline")
-        if "\n\n" in entry.text or any(not line.strip() for line in entry.text.split("\n")):
+        lines = entry.text.split("\n")
+        if any(not line.strip() for line in lines):
             found.append(f"{rel}: one paragraph, no blank lines")
-        first = entry.text.lstrip()
-        if first.startswith(("- ", "* ", "+ ", "#", ">")):
-            found.append(f"{rel}: the entry's text only; the index adds the list marker")
+        if layout.starts_block(lines[0]) or layout.HEADING.match(lines[0]) \
+                or layout.TABLE.match(lines[0]) or layout.LINK_DEFINITION.match(lines[0]):
+            found.append(f"{rel}: the entry's text only, as a paragraph; the index adds the"
+                         " list marker")
+        if any(line.strip() and (layout.starts_block(line) or layout.HEADING.match(line)
+                                 or layout.TABLE.match(line)) for line in lines[1:]):
+            found.append(f"{rel}: one paragraph: a later line may not start a list, heading,"
+                         " quote, table, fence, rule or HTML")
         if entry.text in seen_text:
             found.append(f"{rel}: the same text as {seen_text[entry.text].relative_to(root)}")
         seen_text.setdefault(entry.text, entry.path)
@@ -250,11 +298,13 @@ def current_branch() -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
-def free_path(root: Path, date: str, slug: str) -> Path:
-    """`<date>-<slug>.md`, or the first free `<date>-<slug>-<n>.md` from n = 2."""
+def free_path(root: Path, date: str, slug: str,
+              taken: set[Path] | frozenset = frozenset()) -> Path:
+    """`<date>-<slug>.md`, or the first `<date>-<slug>-<n>.md` from n = 2 that neither
+    exists nor is in `taken` (names chosen already, written or not)."""
     path = root / f"{date}-{slug}.md"
     n = 2
-    while path.exists():
+    while path.exists() or path in taken:
         path = root / f"{date}-{slug}-{n}.md"
         n += 1
     return path
@@ -276,8 +326,12 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if found else 0
     if args.command == "new":
         dt.date.fromisoformat(args.date)
+        branch = args.branch or current_branch()
+        if not branch:
+            print("HEAD is detached: name the branch with --branch <name>", file=sys.stderr)
+            return 2
         HISTORY.mkdir(parents=True, exist_ok=True)
-        path = free_path(HISTORY, args.date, branch_slug(args.branch or current_branch()))
+        path = free_path(HISTORY, args.date, branch_slug(branch))
         path.write_text(f"C-x.y ({args.date}, why): what changed.\n", encoding="utf-8")
         print(path.relative_to(REPO))
         return 0

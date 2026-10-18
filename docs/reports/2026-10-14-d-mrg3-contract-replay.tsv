@@ -1,4 +1,4 @@
-merge	as it was	history out	history out, current layout	both inserted	word-mergeable	same word	subject
+merge	as it was	history out	history out, current layout	both inserted	word-mergeable	still conflicts by word	subject
 c5278e4c92a115cf9a540a5573e30cb139602dec	3	2	0	0	0	0	Merge release/217 (#208, #201) into fix/model-capacity-steer
 a8efd9e7c3cd6943143c11a9b50de0222ce7dcda	1	0	0	0	0	0	Merge release/217 (#208, #209, #201) into fix/census-responsibility
 ce81215369726f83a2c99320a26df83b0657e4a5	0	0	0	0	0	0	Merge release/217 (#201) into fix/test-live-store-guard

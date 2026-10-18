@@ -1,25 +1,36 @@
 """Replay past merges of `docs/acceptance-contract.md` under each layout (defect D-MRG3).
 
-For every two-parent merge commit reachable from the remote branches in a date range,
-take the contract at the merge base and at both parents, and when both sides changed it,
-merge the three with `git merge-file` as they were, with the changes list moved out
-(C-20.7), and with the list out and the current layout (`tools/contract_layout.py`). It
-counts the conflicting merges and hunks for each. For the current layout it also sorts
-the hunks that remain: both sides inserted at one place, mergeable word by word
-(`tools/contract_merge.py --words`), or a word changed on both sides.
+For every two-parent merge commit taken, read the contract at the merge base and at both
+parents, and when both sides changed it, merge the three with `git merge-file` as they
+were, with the changes list moved out (C-20.7), and with the list out and the current
+layout (`tools/contract_layout.py`). It counts the conflicting merges and hunks for
+each. For the current layout it also sorts the hunks that remain by what settles them:
 
-    python3 tools/contract_replay.py --since 2026-10-01 --until 2026-10-14T11:00:00Z \\
-        --tsv docs/reports/2026-10-14-d-mrg3-contract-replay.tsv
+- `both inserted`: the base side of the hunk is empty, both sides added text there;
+- `word-mergeable`: `tools/contract_merge.py --words` merges it;
+- `still conflicts by word`: a word merge conflicts too. This says what the tool does,
+  not why: an insertion beside a deletion of the same words lands here as well.
+
+Merges come from one of two places:
+
+    python3 tools/contract_replay.py --since 2026-10-01 --until 2026-10-14T10:05:00Z
+    python3 tools/contract_replay.py --merges-from docs/reports/2026-10-14-d-mrg3-contract-replay.tsv
+
+A range reads every merge on the remote branches committed in it. A bare date means
+midnight UTC (git alone would take the current time of day on that date), and the range
+used is printed. Branches deleted after merging take their merge commits out of
+`--remotes`, so a range can see fewer merges later; `--merges-from` replays exactly the
+merges listed (the first column of a `--tsv` file this tool wrote), as long as those
+commits exist.
 
 Merges with more than one merge base are skipped (their base is not one commit), and so
-are merges where either side left the contract as the base had it. Branches deleted
-after merging take their merge commits out of `--remotes`, so a later run of the same
-range can see fewer merges.
+are merges where either side left the contract as the base had it.
 """
 
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -28,7 +39,6 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tools import contract_history as history  # noqa: E402
-from tools import contract_layout as layout    # noqa: E402
 from tools import contract_merge as merge_tool  # noqa: E402
 
 PATH = "docs/acceptance-contract.md"
@@ -37,6 +47,7 @@ LAYOUTS = {
     "history out": history.without_list,
     "history out, current layout": merge_tool.normalize,
 }
+KINDS = ("both inserted", "word-mergeable", "still conflicts by word")
 
 
 def _git(*args: str) -> str:
@@ -48,24 +59,36 @@ def _contract(rev: str) -> str | None:
     return result.stdout if result.returncode == 0 else None
 
 
-def kinds(merged: str) -> dict[str, int]:
+def cutoff(value: str) -> str:
+    """A date as git should read it: a bare `YYYY-MM-DD` is midnight UTC that day."""
+    return f"{value}T00:00:00Z" if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) else value
+
+
+def kinds(merged: str, size: int = 7) -> dict[str, int]:
     """The conflict hunks of one diff3 merge, sorted by what would settle them."""
-    found = {"both inserted": 0, "word-mergeable": 0, "same word": 0}
-    for _, _, ours, base, theirs in merge_tool._hunks(merged):
+    found = dict.fromkeys(KINDS, 0)
+    for _, _, ours, base, theirs in merge_tool._hunks(merged, size):
         if not any(line.strip() for line in base):
             found["both inserted"] += 1
         elif merge_tool.merge_words("\n".join(ours), "\n".join(base), "\n".join(theirs)) is None:
-            found["same word"] += 1
+            found["still conflicts by word"] += 1
         else:
             found["word-mergeable"] += 1
     return found
 
 
-def replay(since: str, until: str | None):
-    args = ["rev-list", "--merges", f"--since={since}", "--remotes=origin"]
+def candidates(since: str | None, until: str | None, listed: Path | None) -> list[str]:
+    if listed:
+        rows = listed.read_text(encoding="utf-8").split("\n")[1:]
+        return [row.split("\t", 1)[0] for row in rows if row.strip()]
+    args = ["rev-list", "--merges", f"--since={cutoff(since)}", "--remotes=origin"]
     if until:
-        args.insert(3, f"--until={until}")
-    for merge in _git(*args).split():
+        args.insert(3, f"--until={cutoff(until)}")
+    return _git(*args).split()
+
+
+def replay(merges: list[str]):
+    for merge in merges:
         parents = _git("rev-list", "--parents", "-n1", merge).split()[1:]
         if len(parents) != 2:
             continue
@@ -78,22 +101,30 @@ def replay(since: str, until: str | None):
             continue
         row = {"merge": merge, "subject": _git("log", "-1", "--format=%s", merge).strip()}
         for name, shape in LAYOUTS.items():
-            merged, conflicts = merge_tool._merge_file(shape(ours), shape(base), shape(theirs),
-                                                       "--diff3")
+            texts = (shape(ours), shape(base), shape(theirs))
+            size = merge_tool.marker_size(*texts)
+            merged, conflicts = merge_tool._merge_file(*texts, "--diff3", size=size)
             row[name] = conflicts
-        row.update(kinds(merged))         # the last layout's merge: the current one
+        row.update(kinds(merged, size))   # the last layout's merge: the current one
         yield row
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--since", required=True, help="first commit date, as git takes it")
-    parser.add_argument("--until", help="last commit date, as git takes it")
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--since", help="first commit date (a bare date is midnight UTC)")
+    source.add_argument("--merges-from", type=Path, help="replay the merges a --tsv listed")
+    parser.add_argument("--until", help="last commit date (a bare date is midnight UTC)")
     parser.add_argument("--tsv", type=Path, help="also write one row per merge here")
     args = parser.parse_args(argv)
-    rows = list(replay(args.since, args.until))
+    if args.merges_from:
+        print(f"merges listed in {args.merges_from}")
+    else:
+        print(f"merges on the remote branches from {cutoff(args.since)}"
+              f" to {cutoff(args.until) if args.until else 'now'}")
+    rows = list(replay(candidates(args.since, args.until, args.merges_from)))
     if args.tsv:
-        columns = ["merge", *LAYOUTS, "both inserted", "word-mergeable", "same word", "subject"]
+        columns = ["merge", *LAYOUTS, *KINDS, "subject"]
         lines = ["\t".join(columns)]
         lines += ["\t".join(str(row[c]).replace("\t", " ") for c in columns) for row in rows]
         args.tsv.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -104,10 +135,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  {name:30s} {merges:4d} conflicting merges, {hunks:4d} hunks")
     left = [row for row in rows if row["history out, current layout"]]
     print("  hunks left in the current layout: "
-          + ", ".join(f"{k} {sum(r[k] for r in left)}"
-                      for k in ("both inserted", "word-mergeable", "same word")))
-    print(f"  merges a person settles even with --words: "
-          f"{sum(1 for r in left if r['both inserted'] or r['same word'])}")
+          + ", ".join(f"{k} {sum(r[k] for r in left)}" for k in KINDS))
+    print(f"  merges that still conflict after --words: "
+          f"{sum(1 for r in left if r['both inserted'] or r['still conflicts by word'])}")
     return 0
 
 
