@@ -60,7 +60,7 @@ from .contracts import (
 from .credentials import resolve_credential
 from .provider_env import ProviderEnvironment
 from .guardian import atomic_publish, stream_digest
-from .frozen_stream import freeze_stream, read_freeze_receipt, restore_stream
+from .frozen_stream import InvalidFrozenStream, freeze_stream, read_freeze_receipt, restore_stream
 from .lockwatch import LockWatch
 from .waits import WaitHub
 from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as policy_cap, disk_settings, flatten_chain, load_policy,
@@ -242,6 +242,9 @@ TURN_TREE_TRIES = 3
 #: finished attempts held Codex lanes for hours on a snapshot that could not
 #: succeed). The worktree is kept either way (C-13.4).
 SALVAGE_TRIES = 3
+#: C-4.3/C-9.2: tries to check a saved verdict's copy before recording that it
+#: cannot be checked. Like salvage, this count is in memory and resets on restart.
+STREAM_CHECK_TRIES = 3
 #: C-6.8: how an attempt ends whose launch-time main/master re-check git gave no answer
 #: to (`_launch`), and how `_defer_after_launch` counts those in a row.
 LAUNCH_CHECK_UNFINISHED = "workdir-branch-check-unfinished:"
@@ -667,6 +670,8 @@ class Daemon:
         self._tree_failures: dict[str, int] = {}
         # C-13.1: attempt id -> transient failures of its salvage so far.
         self._salvage_failures: dict[str, int] = {}
+        # C-4.3: attempt id -> interrupted checks of its recorded stream so far.
+        self._stream_check_failures: dict[str, int] = {}
         self.guardian_start_delay_s = guardian_start_delay_s
         # C-5.8a: how long `watch_stop` lets a stopping process live, and what
         # `close()` calls first, on its own thread, to start that bound. Only
@@ -8302,15 +8307,27 @@ class Daemon:
                     if result is not None and stream_receipt.get("reset_finalization"):
                         # An older daemon replaced the copy but did not bind
                         # this legacy verdict to it before interruption.
-                        raise OSError(errno.ESTALE, "legacy verdict predates replacement stream copy")
+                        raise InvalidFrozenStream(errno.ESTALE, "legacy verdict predates replacement stream copy")
             except Exception as exc:
-                # A missing/changed recorded copy fails capture; it never grants
-                # another read of the provider's live candidate. Only this
-                # validation failure may replace an earlier saved verdict.
+                uncheckable = result is not None and not isinstance(exc, InvalidFrozenStream)
+                if uncheckable:
+                    failures = self._stream_check_failures[a["attempt_id"]] = (
+                        self._stream_check_failures.get(a["attempt_id"], 0) + 1)
+                    if failures < STREAM_CHECK_TRIES:
+                        # An interrupted check proves nothing about the copy.
+                        # Keep the verdict untouched; the worker retries with
+                        # its existing backoff, as it does for salvage errors.
+                        raise
+                # Proven invalidity or exhausted checks fail capture, without
+                # another read of the live candidate. Initial capture failures
+                # still settle immediately and remain sticky on every replay.
                 result = None
                 frozen_stream, stream_receipt = None, {}
                 stream_failure = {"status": "unreadable", "error_type": type(exc).__name__,
                                   "error": refusals.scrubbed_words(exc)[:500]}
+                if uncheckable:
+                    stream_failure["reason"] = "copy cannot be checked"
+            self._stream_check_failures.pop(a["attempt_id"], None)
         if frozen_stream is not None:
             launch = dataclasses.replace(launch, raw_stream_path=str(frozen_stream))
         stream_token = stream_receipt.get("file")

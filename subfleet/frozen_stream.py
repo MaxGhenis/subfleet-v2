@@ -19,6 +19,10 @@ from .guardian import atomic_copy, stream_digest
 from .sessions.transcripts import NotRegularFile
 
 
+class InvalidFrozenStream(OSError):
+    """The recorded copy failed validation, rather than the check being interrupted."""
+
+
 def _entry_exists(path: Path) -> bool:
     try:
         path.lstat()
@@ -133,7 +137,7 @@ def restore_stream(adir: Path, launch: Launch, expected_file: str) -> tuple[Path
         restored = _restored_copy(adir, receipt, launch)
         if restored is not None:
             return restored, receipt
-    raise OSError(errno.ESTALE, "recorded frozen stream is missing or invalid", str(adir))
+    raise InvalidFrozenStream(errno.ESTALE, "recorded frozen stream is missing or invalid", str(adir))
 
 
 def freeze_stream(adir: Path, launch: Launch, publish: Callable[[str, Path, bytes], None],
@@ -143,7 +147,7 @@ def freeze_stream(adir: Path, launch: Launch, publish: Callable[[str, Path, byte
     if (restored := _restored_copy(adir, receipt, launch)) is not None:
         return restored
     if _entry_exists(adir / "stream.freeze.json"):
-        raise OSError(errno.ESTALE, "recorded frozen stream is missing or invalid", str(adir))
+        raise InvalidFrozenStream(errno.ESTALE, "recorded frozen stream is missing or invalid", str(adir))
     raw = Path(launch.raw_stream_path) if launch.raw_stream_path else None
     source = next((path for path in (raw, adir / "stream.jsonl")
                    if path is not None and _entry_exists(path)), None)
