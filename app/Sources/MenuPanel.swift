@@ -95,6 +95,7 @@ final class QuotaStore: ObservableObject {
     var hasProblem: Bool {
         guard let snap else { return true }
         if snap.offline == true || snap.isStale(now: loadedAt) || snap.codex.fleet.dispatchable_now == 0 { return true }
+        if alertsNeedAttention(snap) { return true }
         let rows = snap.codex.homes.map { codexDisplay($0, snapshot: snap, now: loadedAt) }
             + (snap.claude.accounts ?? []).map { claudeDisplay($0, snapshot: snap, now: loadedAt) }
         return rows.contains { $0.tone == .error || $0.tone == .warning }
@@ -119,10 +120,10 @@ func shortHome(_ home: String) -> String {
 
 func toneColor(_ tone: LaneTone) -> Color {
     switch tone {
-    case .good: return .green
-    case .warning: return .orange
-    case .error: return .red
-    case .neutral: return .gray
+    case .good: return Theme.state.success
+    case .warning: return Theme.state.attention
+    case .error: return Theme.state.error
+    case .neutral: return Theme.text.tertiary.color
     }
 }
 
@@ -134,8 +135,8 @@ struct UsageBar: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(.quaternary)
-                Capsule().fill(stale ? Color.gray : pct >= 95 ? .red : pct >= 75 ? .orange : .green)
+                Capsule().fill(Theme.surface.selected.color)
+                Capsule().fill(stale ? Theme.text.tertiary.color : pct >= 95 ? Theme.state.error : pct >= 75 ? Theme.state.attention : Theme.state.success)
                     .frame(width: max(3, geo.size.width * pct / 100))
             }
         }.frame(width: 48, height: 5)
@@ -152,8 +153,8 @@ struct LaneRow: View {
             Circle().fill(toneColor(display.tone)).frame(width: 7, height: 7).padding(.top, 5)
             VStack(alignment: .leading, spacing: 2) {
                 Text(name).font(.system(.body, design: .rounded).weight(.medium))
-                if !subtitle.isEmpty { Text(subtitle).font(.caption2).foregroundStyle(.secondary) }
-                if !display.detail.isEmpty { Text(display.detail).font(.caption2).foregroundStyle(.secondary) }
+                if !subtitle.isEmpty { Text(subtitle).font(.caption2) .foregroundStyle(Theme.text.secondary.color) }
+                if !display.detail.isEmpty { Text(display.detail).font(.caption2) .foregroundStyle(Theme.text.secondary.color) }
                 HStack(spacing: 6) {
                     if let pct = display.percentage {
                         Text("5h \(Int(pct.rounded()))% used").monospacedDigit()
@@ -161,12 +162,12 @@ struct LaneRow: View {
                     } else { Text("5h unknown") }
                     Text(display.weeklyPercentage.map { "week \(Int($0.rounded()))% used" } ?? "week unknown")
                         .monospacedDigit()
-                }.font(.caption2).foregroundStyle(.secondary)
+                }.font(.caption2) .foregroundStyle(Theme.text.secondary.color)
                 let resets = [display.fiveHourReset.map { "5h \(clock($0))" },
                               display.weeklyReset.map { "week \(clock($0))" }].compactMap { $0 }
                 if !resets.isEmpty {
                     Text("Resets: " + resets.joined(separator: " · "))
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .font(.caption2) .foregroundStyle(Theme.text.secondary.color)
                 }
             }
             Spacer(minLength: 4)
@@ -185,12 +186,39 @@ struct JobRowView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(display.title).font(.callout).lineLimit(1).truncationMode(.middle)
                 if !display.detail.isEmpty {
-                    Text(display.detail).font(.caption2).foregroundStyle(.secondary)
+                    Text(display.detail).font(.caption2) .foregroundStyle(Theme.text.secondary.color)
                         .lineLimit(1).truncationMode(.middle)
                 }
             }
             Spacer()
             Text(display.status).font(.caption).foregroundStyle(toneColor(display.tone))
+        }
+    }
+}
+
+struct AlertsView: View {
+    let alerts: [AlertRow]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("ALERTS").font(.caption.weight(.semibold)) .foregroundStyle(Theme.text.secondary.color)
+            ForEach(alerts) { alert in
+                let display = alertDisplay(alert)
+                HStack(alignment: .top, spacing: 6) {
+                    Circle().fill(toneColor(display.tone)).frame(width: 7, height: 7).padding(.top, 5)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(display.title).font(.callout).foregroundStyle(toneColor(display.tone))
+                        // Selectable, so the command it names can be copied.
+                        if !display.detail.isEmpty {
+                            Text(display.detail).font(.caption2) .foregroundStyle(Theme.text.secondary.color)
+                                .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                        }
+                        if let since = display.since {
+                            Text("since \(clock(since))").font(.caption2) .foregroundStyle(Theme.text.secondary.color)
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -207,21 +235,21 @@ struct JobsView: View {
     var body: some View {
         let live = jobs?.live ?? []
         VStack(alignment: .leading, spacing: 6) {
-            Text("JOBS").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            Text("JOBS").font(.caption.weight(.semibold)) .foregroundStyle(Theme.text.secondary.color)
             if live.isEmpty {
-                Text("Nothing running or waiting.").font(.caption).foregroundStyle(.secondary)
+                Text("Nothing running or waiting.").font(.caption) .foregroundStyle(Theme.text.secondary.color)
             }
             ForEach(jobGroups(live), id: \.id) { group in
                 if let title = group.title {
-                    Text(title).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                    Text(title).font(.caption2.weight(.semibold)) .foregroundStyle(Theme.text.secondary.color)
                 }
                 ForEach(group.jobs) { job in JobRowView(display: jobDisplay(job)) }
             }
             if !recentGroups.isEmpty {
-                Text("RECENT").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text("RECENT").font(.caption.weight(.semibold)) .foregroundStyle(Theme.text.secondary.color)
                 ForEach(recentGroups, id: \.id) { group in
                     if let title = group.title {
-                        Text(title).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                        Text(title).font(.caption2.weight(.semibold)) .foregroundStyle(Theme.text.secondary.color)
                     }
                     ForEach(group.jobs) { job in JobRowView(display: jobDisplay(job)) }
                 }
@@ -239,7 +267,7 @@ struct ContentView: View {
                 Text("AI quota").font(.headline)
                 Spacer()
                 if let snap = store.snap {
-                    Text("as of \(clock(snap.generated_at))").font(.caption).foregroundStyle(.secondary)
+                    Text("as of \(clock(snap.generated_at))").font(.caption) .foregroundStyle(Theme.text.secondary.color)
                 }
             }
             if let snap = store.snap {
@@ -248,17 +276,17 @@ struct ContentView: View {
                 ScrollView { snapshotContent(snap) }.frame(height: 520)
             } else {
                 Label("Snapshot unavailable", systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.orange)
-                Text(store.readError ?? "Waiting for the daemon snapshot.").font(.callout).foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.state.attention)
+                Text(store.readError ?? "Waiting for the daemon snapshot.").font(.callout) .foregroundStyle(Theme.text.secondary.color)
                 Text(store.url.path).font(.system(.caption2, design: .monospaced)).textSelection(.enabled)
             }
             Divider()
             footer
             if let message = store.reloadMessage {
-                Text(message).font(.caption2).foregroundStyle(.secondary)
+                Text(message).font(.caption2) .foregroundStyle(Theme.text.secondary.color)
                     .accessibilityIdentifier("snapshot-reload-result")
             }
-            if let loginError = store.loginError { Text(loginError).font(.caption2).foregroundStyle(.red) }
+            if let loginError = store.loginError { Text(loginError).font(.caption2).foregroundStyle(Theme.state.error) }
         }
         .padding(12).frame(width: 430)
         .onAppear { store.load() }
@@ -268,28 +296,32 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 10) {
             if snap.offline == true {
                 Label("Offline — showing cached usage", systemImage: "wifi.slash")
-                    .font(.caption).foregroundStyle(.orange)
+                    .font(.caption).foregroundStyle(Theme.state.attention)
             }
             if snap.isStale(now: store.loadedAt) {
                 Label("Snapshot is stale. Check that the daemon is running.", systemImage: "clock.badge.exclamationmark")
-                    .font(.caption).foregroundStyle(.orange)
+                    .font(.caption).foregroundStyle(Theme.state.attention)
+            }
+            if let alerts = snap.alerts, !alerts.isEmpty {
+                Divider()
+                AlertsView(alerts: alerts).accessibilityIdentifier("alerts-section")
             }
             Divider()
             JobsView(jobs: snap.jobs).accessibilityIdentifier("jobs-section")
             Divider()
-            Text("CODEX").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            Text("CODEX").font(.caption.weight(.semibold)) .foregroundStyle(Theme.text.secondary.color)
             ForEach(snap.codex.homes, id: \.id) { lane in
                 LaneRow(name: lane.lane_id ?? shortHome(lane.home), subtitle: lane.email ?? "",
                         display: codexDisplay(lane, snapshot: snap, now: store.loadedAt))
             }
-            if snap.codex.homes.isEmpty { Text("No Codex lanes.").font(.caption).foregroundStyle(.secondary) }
+            if snap.codex.homes.isEmpty { Text("No Codex lanes.").font(.caption) .foregroundStyle(Theme.text.secondary.color) }
             Divider()
-            Text("CLAUDE").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            Text("CLAUDE").font(.caption.weight(.semibold)) .foregroundStyle(Theme.text.secondary.color)
             ForEach(snap.claude.accounts ?? [], id: \.id) { lane in
                 LaneRow(name: lane.email, subtitle: lane.lane_id ?? "",
                         display: claudeDisplay(lane, snapshot: snap, now: store.loadedAt))
             }
-            if (snap.claude.accounts ?? []).isEmpty { Text("No Claude lanes.").font(.caption).foregroundStyle(.secondary) }
+            if (snap.claude.accounts ?? []).isEmpty { Text("No Claude lanes.").font(.caption) .foregroundStyle(Theme.text.secondary.color) }
         }
     }
 

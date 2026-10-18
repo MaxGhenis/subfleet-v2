@@ -175,6 +175,15 @@ enum MarkdownBounds {
     /// span or bare URL; past it, the rest of those are shown as text.
     static let scanBudget = 2_000_000
 
+    /// Lines "Show more lines" adds to a code block each time.
+    static let codeExpansion = 400
+
+    /// The lines a code block shows after "Show more lines": `codeExpansion`
+    /// more than it showed, at most all `total`.
+    static func expandedCodeLines(from shown: Int, total: Int) -> Int {
+        min(max(total, 0), max(shown, codeLines) + codeExpansion)
+    }
+
     static func code(_ text: String, maxLines: Int = codeLines) -> (shown: String, hiddenLines: Int) {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
         guard lines.count > maxLines else { return (text, 0) }

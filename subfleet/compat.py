@@ -123,11 +123,14 @@ PERMANENT: dict[tuple[str, ...], list[str]] = {
     ("jobs",): ["runs"],                                # C-17.1, not v1
     ("show",): ["runs", "show"],                        # C-17.1, not v1
     ("wait",): ["wait"],
+    ("wake",): ["wake"],
+    ("suggest",): ["suggest"],                          # C-25.7, not v1
     ("kill",): ["kill"],
     ("resume",): ["resume"],
     ("resume-codex",): ["resume"],
     ("notify",): ["ping"],
     ("ping",): ["ping"],
+    ("notices",): ["notices"],                         # C-15.8: v1's spelling, back
     ("run",): ["run"],
     ("lanes",): ["lanes"],
     ("enroll",): ["lanes", "enroll"],

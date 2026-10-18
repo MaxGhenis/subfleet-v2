@@ -37,7 +37,7 @@ from subfleet.conversations.claude_turn import ClaudeTurn
 from subfleet.conversations.codex_turn import CodexTurn
 from subfleet.conversations.peers import Verdict, peer_pid
 from subfleet.conversations.service import ConversationService
-from subfleet.conversations.turn import APPROVAL_NEEDED, RUNNING, TurnSpec
+from subfleet.conversations.turn import RUNNING, TurnSpec
 from subfleet.daemon import busy_answer
 
 REPO = Path(__file__).resolve().parents[2]
@@ -129,34 +129,49 @@ class Attempt:
             self.offset += len(line) + 1
 
     def respond(self, request_id: str, decision: str, message: str | None = None, answers: dict | None = None) -> None:
+        """A person's answer as `approval.respond` makes it: recorded in the store, then
+        handed to the driver."""
+        row = self.store.one("SELECT approval_id FROM approvals WHERE attempt_id=? AND provider_request_id=? "
+                             "AND state='pending'", (self.attempt_id, request_id))
+        if row:
+            self.store.answer_approval(row["approval_id"], {"decision": decision, "message": message,
+                                                            "answers": answers})
         if isinstance(self.driver, ClaudeTurn):
             step = self.driver.respond(request_id, decision, message, answers=answers)
         else:
             step = self.driver.respond(request_id, decision, message)
         self._apply(step)
 
+    def eof(self) -> None:
+        """The provider's stdout ended (its process exited), as the runner applies it."""
+        self._apply(self.driver.eof(self.offset))
+
     def _apply(self, step) -> None:
-        """runner.TurnRunner._apply, without the relay."""
+        """runner.TurnRunner._apply and `_flush`, without the relay, then the settlement
+        `ConversationService._on_outcome` makes when the turn has an outcome."""
         batch = [("command" if e.source.startswith("cmd:") else "stdout", e.source, 0, e.kind, e.data)
                  for e in step.events]
-        if batch:
+        if step.approvals:
+            # C-27.1: the approvals, the batch announcing them and approval-needed in one
+            # commit. No driver step carries both an approval and `accepted`.
+            self.store.add_approvals(
+                message_id=self.mid, conversation_id=self.cid, attempt_id=self.attempt_id,
+                approvals=[{"provider_request_id": a.provider_request_id, "kind": a.kind, "request": a.request,
+                            "display": a.summary, "options": a.options} for a in step.approvals],
+                events=batch, stdout_offset=self.offset, stdin_seq=self.stdin_seq, expect=("running", "starting"))
+        if (batch and not step.approvals) or step.resolved:
+            # C-27.3: a withdrawal commits with its `approval.resolved` and the batch.
             self.store.append_events(conversation_id=self.cid, message_id=self.mid, attempt_id=self.attempt_id,
-                                     events=batch, stdout_offset=self.offset, stdin_seq=self.stdin_seq)
+                                     events=[] if step.approvals else batch, stdout_offset=self.offset,
+                                     stdin_seq=self.stdin_seq, resolved=step.resolved,
+                                     resume=self.driver.outcome is None)
         self.stdin_seq += len(step.frames)
         for event in step.events:
             if event.kind == "accepted":
                 self.store.set_state(self.mid, RUNNING, expect=("queued", "waiting", "starting"))
-        for approval in step.approvals:
-            self.store.add_approval(message_id=self.mid, conversation_id=self.cid, attempt_id=self.attempt_id,
-                                    provider_request_id=approval.provider_request_id, kind=approval.kind,
-                                    request=approval.request, display=approval.summary, options=approval.options)
-            self.store.set_state(self.mid, APPROVAL_NEEDED, expect=("running", "starting"))
-        if step.resolved:
-            self.store.withdraw_approvals(attempt_id=self.attempt_id, provider_request_ids=list(step.resolved))
-            if not self.store.approvals(message_id=self.mid) and self.driver.outcome is None:
-                self.store.set_state(self.mid, RUNNING, expect=("approval-needed",))
         if step.outcome is not None:
             state = step.outcome.state
+            self.store.withdraw_approvals(attempt_id=self.attempt_id)
             self.store.set_state(self.mid, state, reason=step.outcome.reason,
                                  expect=("running", "approval-needed", "starting", "waiting", "queued"),
                                  served={"lane_id": "claude-1", "model": step.outcome.served_model})
@@ -218,6 +233,126 @@ def claude_assistant(message_id: str, blocks: list[dict], model: str = "claude-o
 def claude_result(ok: bool = True, subtype: str = "success") -> dict:
     return {"type": "result", "subtype": subtype, "is_error": not ok, "num_turns": 1, "result": "",
             "errors": [], "permission_denials": [], "duration_ms": 5}
+
+
+# --- steer (C-24.9): the daemon's real `message.steer`, into a real runner ------------------
+#
+# `message.steer` is the service's own op. It steers only into a live host: a message
+# running or asking whose `TurnRunner` takes steers. `make_live` builds that runner
+# for a host message, its driver fed the provider's answers up to a steerable turn
+# and its relay a journal (no guardian socket, no provider process); the op then
+# claims, refuses and answers exactly as the daemon does. `go_live_when_submitted`
+# does it the moment the app's own `message.submit` of the host lands, for tests
+# whose conversation the app creates. `record_state` and `record_steer_event` still
+# write what a settlement or the driver would, where a test needs a later state.
+
+STEER_REFUSALS = ("not-queued", "not-next", "no-live-turn", "settings-narrower", "not-steerable")
+STEER_CAPS = {"type": "system", "subtype": "init", "capabilities": ["msg_lifecycle_v1", "interrupt_receipt_v1",
+                                                                    "interrupt_cancel_queued_v1"]}
+
+
+class JournalRelay:
+    """The guardian's relay log (intent, then written) without a provider pipe."""
+
+    def __init__(self, adir: Path):
+        self.path = adir / "stdin.jsonl"
+
+    def send(self, seq, op, *, line=None, tag=None, sig=None):
+        from subfleet.relay import Ack, frame_sha256
+        with self.path.open("a") as stream:
+            stream.write(json.dumps({"kind": "intent", "seq": seq, "op": op, "tag": tag,
+                                     "sha256": frame_sha256(op, line, sig), "line": line}) + "\n")
+            stream.write(json.dumps({"kind": "written", "seq": seq}) + "\n")
+        return Ack(seq, True)
+
+    def close(self) -> None:
+        pass
+
+
+def make_live(harness: ServiceHarness, cid: str, mid: str):
+    """A running host with a real runner that takes steers (C-24.9). Returns the runner."""
+    from subfleet.conversations.runner import TurnRunner
+    harness.store.set_state(mid, RUNNING, expect=("queued", "waiting", "starting"))
+    message = harness.store.message(mid)
+    attempt_id = f"job-{mid[:8]}/a1"
+    adir = harness.root / "jobs" / attempt_id
+    adir.mkdir(parents=True, exist_ok=True)
+    spec = TurnSpec(provider="claude", message_id=mid, text="host", model_id=message["settings"]["model"],
+                    permission=message["settings"]["permission"], native_session_id=None,
+                    new_session_id=str(uuid.uuid4()), cwd=str(harness.workspace))
+    runner = TurnRunner(store=harness.store, attempt={"attempt_id": attempt_id, "lane_id": "claude-1"}, spec=spec,
+                        conversation_id=cid, attempt_dir=adir, control_socket=str(adir / "unused.sock"),
+                        on_outcome=lambda r: None, on_contain=lambda a: None)
+    runner.relay = JournalRelay(adir)
+    runner.handshaken = runner.handshake_done_once = runner.replay_caught_up = True
+    runner._restore_steers()
+    runner._apply(runner.driver.start())
+    # The host has started (`command_lifecycle started`): a steer goes into its own running turn (C-26.5).
+    started = {"type": "command_lifecycle", "command_uuid": mid, "state": "started"}
+    for offset, row in enumerate((claude_init(), STEER_CAPS, started)):
+        runner._apply(runner.driver.feed(json.dumps(row), offset))
+    assert runner.steerable
+    harness.service.runners[attempt_id] = runner
+    return runner
+
+
+def steer_frames(runner) -> list[str]:
+    """The steer frames the runner wrote to its relay, in order (after draining its commands)."""
+    from subfleet.relay import read_log
+    runner._drain_commands()
+    return [r["tag"].removeprefix("steer:") for r in read_log(runner.adir / "stdin.jsonl")
+            if str(r.get("tag")).startswith("steer:")]
+
+
+def go_live_when_submitted(harness: ServiceHarness, *mids: str, then: Callable[[str, str], None] | None = None) -> dict:
+    """Make each named message a live host (`make_live`) when the app's submit of it
+    lands; `then(cid, mid)` runs after. Returns the runners, filled as it happens."""
+    real = harness.service.op_message_submit
+    waiting, runners = set(mids), {}
+
+    def submit(args, peer):
+        receipt = real(args, peer)
+        mid = receipt["message_id"]
+        if mid in waiting and receipt["state"] == "queued":
+            waiting.discard(mid)
+            runners[mid] = make_live(harness, receipt["conversation_id"], mid)
+            if then is not None:
+                then(receipt["conversation_id"], mid)
+        return receipt
+
+    harness.service.op_message_submit = submit
+    return runners
+
+
+def after_submitted(harness: ServiceHarness, mid: str, action: Callable[[dict], None]) -> None:
+    """Run `action(receipt)` once the app's submit of `mid` lands (before its steer)."""
+    real = harness.service.op_message_submit
+
+    def submit(args, peer):
+        receipt = real(args, peer)
+        if receipt["message_id"] == mid:
+            action(receipt)
+        return receipt
+
+    harness.service.op_message_submit = submit
+
+
+def steer_requests(server: "ServiceServer") -> list[str]:
+    return [r["args"].get("message_id") for r in server.requests if r["op"] == "message.steer"]
+
+
+def record_state(harness: ServiceHarness, mid: str, state: str, reason: str | None = None,
+                 served: dict | None = None) -> None:
+    """A message's state as the daemon records it (the store's `set_state`: its row and change row)."""
+    fields = {"served": served} if served is not None else {}
+    harness.store.set_state(mid, state, reason=reason, **fields)
+
+
+def record_steer_event(turn: "Attempt", kind: str, steered: str, **data) -> None:
+    """A steer event on the host's stream (`steer.delivered` where the provider took it)."""
+    turn.store.append_events(conversation_id=turn.cid, message_id=turn.mid, attempt_id=turn.attempt_id,
+                             events=[("stdout", f"{kind}:{steered}", 0, kind, {"message_id": steered, **data})],
+                             stdout_offset=turn.offset, stdin_seq=turn.stdin_seq)
 
 
 # --- a socket server around the service ---------------------------------------------

@@ -161,7 +161,7 @@ def test_c26_5_a_startup_failure_still_ends_the_turn():
                   startup_failure_reason="cwd_unavailable", errors=["The working directory was deleted"])
     turn, steps = run([failure])
     assert (turn.outcome.state, turn.outcome.reason, turn.outcome.accepted) == (
-        "failed", "error_during_execution", False)
+        "failed", "startup-failed:cwd_unavailable", False)
     assert frames(steps) == ["init", "close"]
     assert steps[-1].events[-1].data["session_failure"] == "cwd_unavailable"
 
@@ -250,7 +250,7 @@ def test_c26_5_a_session_failure_before_acknowledgement_takes_the_waiting_messag
     session failure that ends the turn before the message started sends the interrupt
     with `cancel_queued` ahead of the close; the message never runs unwatched after it."""
     failure = row(type="result", subtype="error_during_execution", is_error=True, num_turns=0, errors=["boom"])
-    turn, steps = run([INIT_OK, lifecycle("queued"), failure])
+    turn, steps = run([INIT_OK, lifecycle("queued"), SYS_INIT, failure])
     assert frames(steps) == ["init", "user-message", "settings", "interrupt", "close"]
     assert json.loads(steps[-1].frames[0].line)["request"]["cancel_queued"] is True
     assert (turn.outcome.state, turn.outcome.reason) == ("failed", "error_during_execution")
@@ -264,7 +264,7 @@ def test_c26_5_a_startup_failure_ends_the_turn_whatever_else_the_result_says():
     odd = row(type="result", subtype="success", is_error=False, num_turns=0, startup_failure_reason="bypass_root",
               user_message_uuid=MID)
     turn, steps = run([INIT_OK, ECHO, odd])
-    assert (turn.outcome.state, turn.outcome.reason) == ("failed", "success")
+    assert (turn.outcome.state, turn.outcome.reason) == ("failed", "startup-failed:bypass_root")
     assert steps[-1].events[-1].data["session_failure"] == "bypass_root"
 
 
@@ -356,7 +356,7 @@ def test_c24_7_cancelling_another_turn_s_request_before_the_message_started_stop
     cancel-turn there also takes the message out of the queue."""
     ask = row(type="control_request", request_id="r1", request={"subtype": "can_use_tool", "tool_name": "Bash",
                                                                 "input": {"command": "ls"}, "tool_use_id": "tu1"})
-    turn, _ = run([INIT_OK, lifecycle("queued"), ask])
+    turn, _ = run([INIT_OK, lifecycle("queued"), SYS_INIT, ask])
     step = turn.respond("r1", "cancel-turn")
     assert [f.tag for f in step.frames] == ["approval:r1", "interrupt"]
     assert json.loads(step.frames[1].line)["request"]["cancel_queued"] is True
@@ -365,6 +365,44 @@ def test_c24_7_cancelling_another_turn_s_request_before_the_message_started_stop
     assert (turn.outcome.state, turn.outcome.reason, turn.outcome.not_run) == ("interrupted", "stopped", "cancelled")
     turn, _ = run([INIT_OK, ECHO, ask])                                # the message's own request: no second stop
     assert [f.tag for f in turn.respond("r1", "cancel-turn").frames] == ["approval:r1"]
+
+
+def test_c24_7_cancelling_another_turn_s_request_while_initialize_is_unanswered_never_sends_the_message():
+    """C-24.7, C-26.5 (review of e9f55aee, finding 1): a turn the CLI runs before it
+    answers `initialize` asks for a tool; the person's cancel-turn there stops the
+    message as a stop would before sending: it is never written, and nothing runs."""
+    ask = row(type="control_request", request_id="r1", request={"subtype": "can_use_tool", "tool_name": "Bash",
+                                                                "input": {"command": "ls"}, "tool_use_id": "tu1"})
+    turn, _ = run([ask])
+    step = turn.respond("r1", "cancel-turn")
+    assert [f.tag for f in step.frames] == ["approval:r1", "close"]
+    assert (step.outcome.state, step.outcome.reason) == ("interrupted", "stopped-before-send")
+    assert turn.feed(INIT_OK, 900).frames == []
+
+
+def test_c26_5_a_cancelled_after_the_message_started_is_never_read_as_it_not_running():
+    """C-26.5 (review of e9f55aee, nit 3): after the driver's own end, a `cancelled` for the
+    message that comes after its `started` (its aborted turn's members) is no "will not run"."""
+    wrong = row(type="system", subtype="init", model="claude-haiku-4-5", session_id=SID)
+    turn, _ = run([INIT_OK, lifecycle("queued"), wrong, lifecycle("started"), lifecycle("cancelled")])
+    assert turn.outcome.reason == "model-mismatch" and turn.not_run is None
+
+
+def test_c26_5_another_turn_ended_before_initialize_is_answered_says_the_provider_is_starting():
+    """Design §12 (review of e9f55aee, nit 6): the status strip says where the message is,
+    so another turn's result before anything was sent does not announce `sent`."""
+    turn, steps = run([REQUESTING, notification_result()])
+    phases = [e.data["phase"] for e in events(steps) if e.kind == "status"]
+    assert phases == ["starting-provider", "requesting", "starting-provider"]
+
+
+def test_c26_5_no_steer_goes_into_a_message_that_has_not_started():
+    """C-26.5: while the message waits behind a turn the CLI began itself (whose approval
+    can make the host `approval-needed`), a steer with `priority: next` would run first."""
+    turn, _ = run([INIT_OK, SYS_INIT, lifecycle("queued")])
+    assert not turn.steerable
+    turn.feed(lifecycle("started"), 900)
+    assert turn.steerable
 
 
 def test_c24_6_a_stop_the_driver_sent_itself_that_swept_the_message_is_recorded():
@@ -390,7 +428,8 @@ def test_c24_6_a_session_failure_is_reconciled_not_taken_as_the_message_s_end():
     assert turn.outcome.ended_by == "driver"
     gone = reconcile.Evidence(acknowledged=False, frame="absent", process_gone=True, native="absent")
     settled = reconcile.settle(turn.outcome.__dict__, provider="claude", turn_seq=0, gather=lambda: gone)
-    assert (settled.state, settled.reason, settled.block) == ("failed", "not-delivered: error_during_execution", None)
+    assert (settled.state, settled.reason, settled.block) == (
+        "failed", "not-delivered: startup-failed:cwd_unavailable", None)
 
 
 def test_c26_6_a_replay_of_the_traced_case_is_identical():
@@ -548,8 +587,9 @@ def oracle(tagged: list[tuple[str, str]], stop: int | None) -> tuple[int | None,
             return -1, others, acked_at                  # stopped while `initialize` was unanswered
         body = json.loads(line)
         ok = body.get("is_error") is False and body.get("subtype") == "success"
-        if tag in ("ack", "started") and not acked:
-            acked, started = True, tag == "started"
+        if tag in ("ack", "started"):
+            acked = True
+            started = started or tag == "started"      # it drained into the running turn, whenever said
         acked_at[index] = acked or tag == "named-ours"
         if tag == "not-run" and not acked:
             return index, others, acked_at

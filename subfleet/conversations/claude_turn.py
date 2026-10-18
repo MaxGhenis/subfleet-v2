@@ -14,9 +14,9 @@ its own for the task's notification, and ends it with a `result` (`num_turns`
 0, `origin.kind` `task-notification`) while our message waits in its command
 queue. That `result` had ended 43 of the 108 Claude turn attempts recorded
 under ~/.subfleet/jobs by 2026-09-29 (2.1.280 and 2.1.284) before their message
-started, 12 of 24 revived sessions on 2026-09-28 among them. `_whose` decides
-which turn a `result` closes; one that is not ours is recorded as `turn.other`
-and the turn goes on.
+started, 12 of 24 revived sessions on 2026-09-28 among them, and 34 of 77 in
+October. `_whose` decides which turn a `result` closes; one that is not ours is
+recorded as `turn.other` and the turn goes on.
 
 Shapes are those Claude Code 2.1.280 accepted and produced in a local probe
 (2026-09-24: `initialize` answered with `account`, `models`,
@@ -36,7 +36,7 @@ from ..adapters.claude_stream import is_synthetic_api_error
 from . import redact
 from .reconcile import SETTINGS_FRAME
 from .turn import (
-    COMPLETE, FAILED, INTERRUPTED, Approval, Event, Frame, Outcome, Step, TurnSpec,
+    COMPLETE, FAILED, INTERRUPTED, Approval, Event, Frame, Image, Outcome, Step, SteerTracking, TurnSpec,
 )
 
 INIT_REQUEST_ID = "subfleet-init"
@@ -44,19 +44,10 @@ SETTINGS_REQUEST_ID = "subfleet-settings"
 INTERRUPT_REQUEST_ID = "subfleet-interrupt"
 UNSUPPORTED = "Subfleet does not support this request; answer it in the provider's own app."
 
-#: The interrupt a stop and a model mismatch send (C-24.7, C-26.8). `cancel_queued`
-#: also takes the message out of the command queue when it has not started, so a
-#: stop that lands while the session runs a turn of its own never lets the message
-#: run after it: the queue answers with a `cancelled` lifecycle for it. 2.1.280 and
-#: 2.1.284 advertise it (`interrupt_cancel_queued_v1` in `system init`
-#: `capabilities`); a CLI without it ignores the field and the stop escalates.
-INTERRUPT_LINE = json.dumps({"type": "control_request", "request_id": INTERRUPT_REQUEST_ID,
-                             "request": {"subtype": "interrupt", "cancel_queued": True}}, separators=(",", ":"))
-
 #: `command_lifecycle` states that say a queued message will not run in this
 #: session: swept by an interrupt with `cancel_queued`, the session ended with it
 #: queued, or its receive-side policy declined it (2.1.284 schema). Before the
-#: message started, each is the provider's last word on it.
+#: message started, each is the provider's last word on it (C-26.5).
 NOT_RUN = ("cancelled", "discarded", "refused")
 
 #: Claude Code's ultracode (C-26.8): xhigh effort plus standing dynamic-workflow
@@ -191,8 +182,8 @@ def _line(value: dict) -> str:
     return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
 
 
-class ClaudeTurn:
-    def __init__(self, spec: TurnSpec, *, read_bytes: Callable[[str], bytes],
+class ClaudeTurn(SteerTracking):
+    def __init__(self, spec: TurnSpec, *, read_bytes: Callable[[Image], bytes],
                  frame_recorded: Callable[[str], bool] = lambda tag: False):
         self.spec = spec
         self._read_bytes = read_bytes
@@ -202,11 +193,12 @@ class ClaudeTurn:
         self.started = False          # `command_lifecycle started`: the message drained into a turn
         self.answered = False
         self.limited = False                              # this message's own turn met a limit
-        self.limit_seen = False                           # any turn of the session did (before acknowledgement too)
+        self.limit_seen = False                           # any turn of the session did (C-26.5)
         self._turn_limit = False                          # the turn under way did (reset at another turn's result)
         self._turn_output = False                         # the turn under way wrote something (likewise)
-        self.interrupt_requested = False
         self.not_run: str | None = None                   # the provider said the message will not run (C-26.5)
+        self._last_whose = "ours"                         # whose turn the held result closed
+        self.interrupt_requested = False
         self.served_model: str | None = None
         self.expected_model: str | None = None            # from the initialize catalog (D-19)
         self.catalog: list[dict] | None = None            # the initialize catalog, for models.json
@@ -224,6 +216,21 @@ class ClaudeTurn:
         # counts each.
         self._completed: dict[str, int] = {}
         self._phase: str | None = None                    # the last block phase announced
+        self._init_steers()
+        self.capabilities: set[str] = set()
+        self.steer_waiting = False
+        # Counts the spells of `steer_waiting`: each time it turns on. The runner's
+        # watchdog clock starts afresh with each, however briefly it was off.
+        self.steer_watch = 0
+        # The unseen steers the watchdog's current round asked the CLI to cancel
+        # (`expire_steers`); None while no round is under way.
+        self._steer_round: set[str] | None = None
+        # Steers the CLI started after the held result: they run as their own turn,
+        # which the next result ends, or stdout's end cuts short (C-26.5).
+        self._steer_turns: set[str] = set()
+        self._last_result: dict | None = None
+        self._last_result_offset = 0
+        self._queued_turn_count = 0
 
     # --- lifecycle -------------------------------------------------------------
 
@@ -247,8 +254,90 @@ class ClaudeTurn:
         if self.phase in ("new", "initializing"):
             # The message was never written: nothing reached the model.
             return self._end(INTERRUPTED, "stopped-before-send", source="cmd:interrupt")
-        return Step(frames=[Frame("interrupt", "write", INTERRUPT_LINE)],
+        request = {"type": "control_request", "request_id": INTERRUPT_REQUEST_ID,
+                   "request": self._interrupt_request()}
+        return Step(frames=[Frame("interrupt", "write", _line(request))],
                     events=[Event("status", {"phase": "stopping"}, "cmd:interrupt")])
+
+    def _interrupt_request(self) -> dict:
+        request: dict[str, Any] = {"subtype": "interrupt"}
+        if (self.steers or not self.accepted) and "interrupt_cancel_queued_v1" in self.capabilities:
+            # A turn with steers has queued commands to sweep; so does one whose
+            # message waits behind a turn the CLI began itself (C-26.5): `cancel_queued`
+            # takes it out of the queue, which answers with a `cancelled` for it. An
+            # acknowledged turn with no steers sends the interrupt it sent before steer
+            # (design §5, invariant 5).
+            request["cancel_queued"] = True
+        return request
+
+    @property
+    def steerable(self) -> bool:
+        # A steer goes into the message's own running turn (C-26.5): not while the
+        # message still waits behind a turn the CLI began itself (its approval can make
+        # the host `approval-needed` first), where `priority: next` would run it first.
+        return (self.phase == "sent" and self.outcome is None and not self.interrupt_requested
+                and self.accepted and self._steer_round is None and "msg_lifecycle_v1" in self.capabilities)
+
+    def steer(self, message_id: str, text: str, images: tuple[Image, ...] = ()) -> Step:
+        if message_id in self.steers:
+            return Step()
+        if not self.steerable:
+            return self.drop_steer(message_id, "not-steerable")
+        # Built before the steer is tracked: an image that cannot be read raises,
+        # and the runner sends the steer back to the queue (`TurnRunner._steer`).
+        content = self._content(text, images)
+        self.restore_steer(message_id, "unsent")
+        message = {"type": "user", "uuid": message_id, "priority": "next", "parent_tool_use_id": None,
+                   "session_id": self.spec.native_session_id or self.spec.new_session_id,
+                   "message": {"role": "user", "content": content}}
+        return Step(frames=[Frame(f"steer:{message_id}", "write", _line(message))],
+                    events=[Event("steer.sent", {"message_id": message_id}, f"cmd:steer:{message_id}")])
+
+    def drop_steer(self, message_id: str, detail: str) -> Step:
+        """A steer that is not written after all (a stop or its cancel won the
+        handover, its frame is over the relay cap, its input could not be built):
+        a result held only for it ends the turn now, not after the watchdog's two
+        rounds (C-26.5)."""
+        step = super().drop_steer(message_id, detail)
+        if self.outcome is None and self._last_result is not None:
+            self._refresh_steer_waiting()
+            step.extend(self._finish_held())
+        return step
+
+    def expire_steers(self) -> Step:
+        """The runner's watchdog: called once `steer_waiting` has held for 15 s, and
+        again 15 s later (`runner.STEER_GRACE_S`).
+
+        `steer_waiting` holds only while the host's result is held for steers the
+        CLI has not shown taking, and no steer runs as its own turn
+        (`_refresh_steer_waiting`). The first call asks the CLI to cancel those
+        unseen steers, and takes no new steer until the round resolves. The second,
+        with no receipt either, gives up on the steers it named and no other, and
+        the turn ends with its held result. A silent CLI is bounded, but absence of
+        a cancellation receipt is NOT evidence of non-delivery: those steers settle
+        unknown, never blindly requeued.
+        """
+        if not self.steer_waiting or self.outcome is not None:
+            return Step()
+        if self._steer_round is not None:
+            for mid in self._steer_round:
+                self._steer_pending.discard(mid)
+            self._steer_round = None
+            if not self._steer_pending:
+                self._queued_turn_count = 0     # the queued turns the result counted were those
+            self._refresh_steer_waiting()
+            return self._finish_held()
+        self._steer_round = {mid for mid in self._steer_pending if self.steers[mid]["fate"] == "unknown"}
+        step = Step()
+        for mid in sorted(self._steer_round):
+            step.frames.append(self._cancel_frame(mid))
+        return step
+
+    @staticmethod
+    def _cancel_frame(mid: str) -> Frame:
+        request = {"type": "control_request", "request_id": f"cancel-steer:{mid}",
+                   "request": {"subtype": "cancel_async_message", "message_uuid": mid}}
+        return Frame(f"cancel-steer:{mid}", "write", _line(request))
 
     def interrupted_earlier(self) -> None:
         """Replay (C-26.6): the relay's log shows an interrupt an earlier runner
@@ -262,6 +351,24 @@ class ClaudeTurn:
             return Step()
         self.interrupt_requested = True
         return self._end(INTERRUPTED, "stopped-before-send", source="cmd:interrupt")
+
+    def restore_answer(self, request_id: str, decision: str) -> Step:
+        """Replay a recorded answer whose reply was written, without rebuilding it."""
+        if self.pending.pop(request_id, None) is None:
+            return Step()
+        step = Step(resolved=[request_id],
+                    events=[Event("approval.resolved", {"request_id": request_id, "decision": decision},
+                                  f"cmd:approval:{request_id}")])
+        if decision == "cancel-turn":
+            self.interrupt_requested = True
+            if self._steer_pending or (not self.accepted and self.phase == "sent"):
+                # The reply can have been written before the separate interrupt
+                # that sweeps queued steers, or the message itself (C-26.5). Its own
+                # tag still deduplicates it.
+                step.frames.append(Frame("interrupt", "write", _line({
+                    "type": "control_request", "request_id": INTERRUPT_REQUEST_ID,
+                    "request": self._interrupt_request()})))
+        return step
 
     def respond(self, request_id: str, decision: str, message: str | None = None,
                 answers: dict | None = None) -> Step:
@@ -288,29 +395,51 @@ class ClaudeTurn:
         response = {"type": "control_response",
                     "response": {"subtype": "success", "request_id": request_id, "response": result}}
         frames = [Frame(f"approval:{request_id}", "write", _line(response))]
+        events = [Event("approval.resolved", {"request_id": request_id, "decision": decision},
+                        f"cmd:approval:{request_id}")]
         if decision == "cancel-turn":
-            if not self.accepted and not self.interrupt_requested and self.phase == "sent":
-                # C-26.5: the request came from a turn the session ran before this message
-                # started; cancelling it stops this message too, taken out of the queue.
-                frames.append(Frame("interrupt", "write", INTERRUPT_LINE))
+            if not self.accepted and not self.interrupt_requested:
+                # C-26.5: the request came from a turn the session ran ahead of this
+                # message; cancelling it stops this message too, as a Stop would: one
+                # not written yet never is, one written leaves the queue.
+                stop = self.interrupt()
+                return Step(frames=frames + stop.frames, resolved=[request_id, *stop.resolved],
+                            events=events + stop.events, outcome=stop.outcome)
             self.interrupt_requested = True
-        return Step(frames=frames,
-                    resolved=[request_id],
-                    events=[Event("approval.resolved", {"request_id": request_id, "decision": decision},
-                                  f"cmd:approval:{request_id}")])
+            if self._steer_pending:
+                # The permission reply aborts only the active turn. A separate SDK
+                # interrupt must sweep queued messages, or the CLI runs them next.
+                frames.append(Frame("interrupt", "write", _line({
+                    "type": "control_request", "request_id": INTERRUPT_REQUEST_ID,
+                    "request": self._interrupt_request()})))
+        return Step(frames=frames, resolved=[request_id], events=events)
 
     def eof(self, offset: int) -> Step:
-        """stdout ended. Without a `result`, the turn's fate is for reconciliation (C-24.6)."""
+        """stdout ended. Without a `result`, the turn's fate is for reconciliation (C-24.6).
+
+        With the host's result held for steers the CLI never showed taking (a stop
+        whose receipt never came, the process ending), the turn ended with that
+        result: the outcome is the last result's (C-26.5), and those steers settle
+        on their own evidence. Only a steer's own turn that stdout cut short leaves
+        the turn's fate to reconciliation."""
         if self.outcome is not None:
             return Step()
         step = self._flush(f"{offset}:eof")
+        if self._last_result is not None and not self._steer_turn_running():
+            return step.extend(self._finish_result())
         reason = "stopped" if self.interrupt_requested else "ended-without-result"
         # Any limit the session met: with no result, the account's refusal is the
         # best evidence of why (C-26.7 records the closure at finalization).
         self.outcome = Outcome(INTERRUPTED if self.interrupt_requested else FAILED, reason,
                                accepted=self.accepted, answered=self.answered,
-                               limited=self.limited or self.limit_seen, served_model=self.served_model, ended_by="eof")
+                               limited=self.limited or self.limit_seen, served_model=self.served_model, ended_by="eof",
+                               steers=self.steers, not_run=self.not_run)
         self.phase = "ended"
+        # A request still pending went with the process (C-27.3), as at `_end`: the
+        # store withdraws it and says so in the log. No `turn.completed`: whether the
+        # turn was delivered is reconciliation's to say (C-24.6).
+        step.resolved = sorted(self.pending)
+        self.pending.clear()
         step.outcome = self.outcome
         return step
 
@@ -326,18 +455,23 @@ class ClaudeTurn:
             return Step()
         source = _Sources(offset)
         kind = row.get("type")
+        if kind == "command_lifecycle":
+            return self._lifecycle(row, source)
+        if kind == "control_response" and ((row.get("response") or {}).get("request_id") == INTERRUPT_REQUEST_ID
+                or str((row.get("response") or {}).get("request_id", "")).startswith("cancel-steer:")):
+            return self._steer_control(row.get("response") or {}, source)
         if self.phase == "ended":
             # After the terminal event: background output belongs to the same
             # message and never changes its outcome (C-26.5). A `result` after the
             # driver itself ended the turn (a model mismatch) says the provider
-            # finished it (C-24.8), unless it closes a turn that was not this
-            # message's (a background task's notification run after it).
-            if kind == "result" and self._whose(row, live=False) != "other":
-                self.terminal_after_end = True
-            if not self.accepted and self.not_run is None and self._says_not_run(row):
-                # A stop the driver sent with its own end (a model mismatch) took the
-                # message out of the queue: evidence for reconciliation (C-24.6).
-                self.not_run = self._says_not_run(row)
+            # finished it (C-24.8), when it closes this message's turn: not a
+            # background task's notification turn run after it (C-26.5).
+            if kind == "result":
+                self.terminal_after_end = self.terminal_after_end or self._whose(row, live=False) == "ours"
+                step = Step()
+                for mid in row.get("user_message_uuids") or [row.get("user_message_uuid")]:
+                    step.extend(self._steer_delivered(mid, source.next(), fate="consumed"))
+                return step
             if kind == "control_response" and (row.get("response") or {}).get("request_id") == SETTINGS_REQUEST_ID:
                 return self._settings(row["response"], source)      # C-26.8: evidence, not an outcome
             if kind in ("assistant", "user", "stream_event") and not row.get("parent_tool_use_id"):
@@ -355,17 +489,6 @@ class ClaudeTurn:
                 return Step(resolved=[request_id],
                             events=[Event("approval.resolved", {"request_id": request_id, "decision": "withdrawn"},
                                           source.next())])
-            return Step()
-        if kind == "command_lifecycle":
-            if row.get("command_uuid") != self.spec.message_id or self.accepted:
-                return Step()
-            state = row.get("state")
-            if state == "started":
-                self.accepted = self.started = True
-                return Step(events=[Event("accepted", {"message_id": self.spec.message_id, "by": "lifecycle"},
-                                          source.next())])
-            if state in NOT_RUN:
-                return self._not_run(str(state), source)
             return Step()
         if row.get("parent_tool_use_id"):
             return Step()                       # a subagent's frames stay inside its tool call
@@ -389,11 +512,6 @@ class ClaudeTurn:
         response = row.get("response") or {}
         if response.get("request_id") == SETTINGS_REQUEST_ID:
             return self._settings(response, source)
-        if response.get("request_id") == INTERRUPT_REQUEST_ID:
-            # The interrupt's receipt lists what `cancel_queued` took out of the queue
-            # (`interrupt_receipt_v1`), as the `cancelled` lifecycle does (C-26.5).
-            state = self._says_not_run(row)
-            return self._not_run(state, source) if state and not self.accepted else Step()
         if response.get("request_id") != INIT_REQUEST_ID or self.phase != "initializing":
             return Step()
         if response.get("subtype") != "success":
@@ -470,12 +588,13 @@ class ClaudeTurn:
         effort = ULTRACODE if applied.get("ultracode") is True else (applied.get("effort") or "none")
         return Step(events=[Event("served", {"effort": str(effort)}, source.next())])
 
-    def _content(self) -> list[dict]:
+    def _content(self, text: str | None = None, images: tuple[Image, ...] | None = None) -> list[dict]:
         content: list[dict] = []
-        if self.spec.text:
-            content.append({"type": "text", "text": self.spec.text})
-        for image in self.spec.images:
-            data = base64.b64encode(self._read_bytes(image.path)).decode("ascii")
+        text = self.spec.text if text is None else text
+        if text:
+            content.append({"type": "text", "text": text})
+        for image in self.spec.images if images is None else images:
+            data = base64.b64encode(self._read_bytes(image)).decode("ascii")
             content.append({"type": "image", "source": {"type": "base64", "media_type": image.media_type,
                                                         "data": data}})
         return content
@@ -517,6 +636,8 @@ class ClaudeTurn:
                                   source.next())])
 
     def _system(self, row: dict, source: "_Sources") -> Step:
+        if row.get("subtype") == "init":
+            self.capabilities = {v for v in row.get("capabilities", []) if isinstance(v, str)}
         if row.get("subtype") == "status":
             if row.get("status") is None and row.get("compact_result"):
                 # A compaction ended (either way); the request it held up goes next.
@@ -644,6 +765,9 @@ class ClaudeTurn:
             self.accepted = True
             return Step(events=[Event("accepted", {"message_id": self.spec.message_id}, source.next())])
         step = Step()
+        if str(row.get("uuid")) in self.steers:
+            step.extend(self._steer_delivered(str(row.get("uuid")), source.next()))
+            self._refresh_steer_waiting()
         content = (row.get("message") or {}).get("content")
         if isinstance(content, list):
             for block in content:
@@ -664,36 +788,34 @@ class ClaudeTurn:
                                              "resets_at": info.get("resetsAt"), "windows": windows}, source.next())])
 
     def _whose(self, row: dict, *, live: bool = True) -> str:
-        """Which turn a `result` closes (C-26.5): `ours`, `other` (a turn Claude Code
-        ran for something else), or `session` (a failure of the session itself,
-        which ends every turn, ours included).
+        """Which turn a `result` closes (C-26.5): `ours` (the message's, or a turn one
+        of its steers ran in), `other` (a turn Claude Code ran for something else), or
+        `session` (a failure of the session itself, which ends every turn).
 
         In this order. A startup failure (`startup_failure_reason`, the zeroed
         result written before exiting) is the session's. Then the result's own join
         key: `user_message_uuid` and `user_message_uuids` name the client messages
         its turn consumed, folds included (2.1.284 schema). All 91 of our results
         recorded under ~/.subfleet/jobs by 2026-09-29 named our uuid (2.1.280 and
-        2.1.284), and none of the 50 notification turns' results named any. An unnamed result whose
-        `origin` says Claude Code began the turn itself (a task notification, a
-        peer's or a channel's message; not `human`) is another turn's: every
-        producer that stamps `origin` names the message on the message's own
-        result. A result that names none and says nothing of its origin (an older
+        2.1.284), and none of the 50 notification turns' results named any. Once
+        the message's `command_lifecycle started` came and before its first result
+        (or a steer's, after that result), the next result closes the one turn it
+        drained into, a fold into a turn Claude Code began included, even unnamed.
+        An unnamed result whose `origin` says Claude Code began the turn itself (a
+        task notification, a peer's or a channel's message; not `human`) is another
+        turn's: every producer that stamps `origin` names the message on its own
+        result. One that names none and says nothing of its origin (an older
         producer, or a session-scoped failure) is ours once the message was
-        acknowledged (C-24.4): a message that has started owns the session's one
-        running turn; once its `command_lifecycle started` came (it drained into a
-        turn, a fold into a turn Claude Code began included), even an unnamed result
-        with such an origin is its turn's, rather than leave the message waiting on a
-        result that named nobody. Before that, the message has run in no turn, so a success
-        closes some other turn; an error is taken as the session's failure and ends
-        ours, as before, rather than leave it waiting on a session that may be gone."""
+        acknowledged (C-24.4). Before that, the message has run in no turn, so a
+        success closes some other turn; an error is taken as the session's failure."""
         if row.get("startup_failure_reason"):
             return "session"
         named = {str(row["user_message_uuid"])} if row.get("user_message_uuid") else set()
         if isinstance(row.get("user_message_uuids"), list):
             named |= {str(u) for u in row["user_message_uuids"] if u}
         if named:
-            return "ours" if self.spec.message_id in named else "other"
-        if live and self.started:
+            return "ours" if self.spec.message_id in named or named & set(self.steers) else "other"
+        if live and ((self.started and self._last_result is None) or self._steer_turns):
             return "ours"                 # it drained into the one turn running, a fold included
         origin = row.get("origin")
         began = origin.get("kind") if isinstance(origin, dict) else None
@@ -718,25 +840,60 @@ class ClaudeTurn:
             self._turn_limit = self._turn_output = False   # that turn's limit and output were its own
             if self._phase is not None:
                 # The strip no longer shows that other turn's work as this message's.
-                step.extend(self._announce("sent", source))
+                step.extend(self._announce("sent" if self.phase == "sent" else "starting-provider", source))
             return step
-        if whose == "ours" and not self.accepted:
+        if whose == "ours" and not self.accepted and self.spec.message_id in (
+                [row.get("user_message_uuid")] + list(row.get("user_message_uuids") or [])):
             # The result names the message: the provider consumed it (C-24.4), and what
             # its turn wrote before was the answer.
             self.accepted = True
             self.answered = self.answered or self._turn_output
             step.events.append(Event("accepted", {"message_id": self.spec.message_id, "by": "result"}, source.next()))
-        # A session's failure is never this message's success. Its limit is any the
-        # session met; the message's own turn is classified by its own (C-26.7).
-        ok = whose == "ours" and row.get("is_error") is False and row.get("subtype") == "success"
+        # A session's failure classifies by any limit the session met; the message's
+        # own turn by its own, including one met before the result named it (C-26.7).
         if (whose == "session" and self.limit_seen) or (whose == "ours" and self._turn_limit):
             self.limited = True
+        self._last_whose = whose
+        if whose == "session":
+            # The session failed: nothing it waits for is coming, steers included.
+            self._last_result = row
+            self._last_result_offset = source.offset
+            return step.extend(self._finish_result(source))
+        consumed = row.get("user_message_uuids") or [row.get("user_message_uuid")]
+        for mid in consumed:
+            if mid in self.steers:
+                step.extend(self._steer_delivered(mid, source.next(), fate="consumed"))
+                self._steer_pending.discard(mid)
+        # A result ends the turn every started steer is part of, folded into it or
+        # its own: one the CLI started (delivered) waits for nothing more, listed
+        # here or not, and no steer's own turn runs past it.
+        self._steer_pending -= {mid for mid in self._steer_pending if self.steers[mid]["fate"] == "delivered"}
+        self._steer_turns.clear()
+        self._last_result = row
+        self._last_result_offset = source.offset
+        self._queued_turn_count = row.get("queued_turn_count") or 0
+        if self.steers and (self._steer_pending or self._queued_turn_count > 0):
+            self._refresh_steer_waiting()
+            return step
+        return step.extend(self._finish_result(source))
+
+    def _finish_result(self, source: "_Sources | None" = None) -> Step:
+        if self._last_result is None or self.outcome is not None:
+            return Step()
+        row = self._last_result
+        source = source or _Sources(self._last_result_offset)
+        self.steer_waiting = False
+        whose = self._last_whose
+        # A session's failure is never this message's success.
+        ok = whose == "ours" and row.get("is_error") is False and row.get("subtype") == "success"
         if ok:
             state, reason = COMPLETE, None
         elif self.interrupt_requested:
             state, reason = INTERRUPTED, "stopped"
         elif self.limited:
             state, reason = FAILED, "limited"
+        elif row.get("startup_failure_reason"):
+            state, reason = FAILED, f"startup-failed:{row['startup_failure_reason']}"   # its cause, not a subtype
         else:
             state, reason = FAILED, str(row.get("subtype") or "error")
         detail = None if ok else redact.bounded_text(
@@ -744,18 +901,106 @@ class ClaudeTurn:
         denials = row.get("permission_denials") or []
         extra = {"permission_denials": len(denials), "num_turns": row.get("num_turns"),
                  "fast_mode_state": row.get("fast_mode_state"), "stop_too_late": ok and self.interrupt_requested}
+        frames = []
         if whose == "session":
             extra["session_failure"] = str(row.get("startup_failure_reason") or "unattributed")
-            if self.phase == "sent" and not self.accepted and not self.interrupt_requested:
+            if (self.phase == "sent" and not self.accepted and not self.interrupt_requested
+                    and "interrupt_cancel_queued_v1" in self.capabilities):
                 # The message waits in the queue, and closing stdin would let it run
-                # after, unwatched: `cancel_queued` takes it out first (C-26.5).
-                step.frames.append(Frame("interrupt", "write", INTERRUPT_LINE))
+                # after, unwatched: `cancel_queued` takes it out first (C-26.5). A CLI
+                # that cannot sweep its queue gets no interrupt that would do nothing.
+                frames.append(Frame("interrupt", "write", _line({
+                    "type": "control_request", "request_id": INTERRUPT_REQUEST_ID,
+                    "request": self._interrupt_request()})))
                 self.interrupt_requested = True
         # A session's failure is not the message's terminal event: whether the message
         # was delivered is reconciled (C-24.6), as when the driver ends a turn itself.
         end = self._end(state, reason, detail=detail, source=source.next(), extra=extra,
                         ended_by="driver" if whose == "session" else "provider")
-        return step.extend(end)
+        end.frames[:0] = frames
+        return end
+
+    def _finish_held(self, source: "_Sources | None" = None) -> Step:
+        """End the turn with the held result once nothing it waits for is left:
+        no steer the CLI has not settled, no queued turn it counted, and no steer
+        running as its own turn (whose result, not the held one, ends the turn)."""
+        if self._steer_pending or self._queued_turn_count > 0 or self._steer_turn_running():
+            return Step()
+        return self._finish_result(source)
+
+    def _steer_turn_running(self) -> bool:
+        """A steer the CLI started after the held result runs as its own turn until
+        the next result, even one a stop's receipt then calls cancelled: that turn
+        was started, and only its result or stdout's end says how it ended."""
+        return self._last_result is not None and bool(self._steer_turns)
+
+    def _refresh_steer_waiting(self) -> None:
+        # The 15 s watchdog bounds only a held result's unseen steers. While a steer
+        # runs as its own turn the process is working: model and tool latency is
+        # unrestricted, and a steer written meanwhile folds at that turn's next tool
+        # boundary or runs after its result, which is then the one held (C-26.5).
+        waiting = self._last_result is not None and not self._steer_turn_running() and (
+            any(self.steers[mid]["fate"] == "unknown" for mid in self._steer_pending)
+            or (not self._steer_pending and self._queued_turn_count > 0))
+        if waiting and not self.steer_waiting:
+            self.steer_watch += 1
+        self.steer_waiting = waiting
+        if not self.steer_waiting:
+            self._steer_round = None            # steering resumes; a later round starts afresh
+
+    def _lifecycle(self, row: dict, source: "_Sources") -> Step:
+        mid, state = row.get("command_uuid"), row.get("state")
+        if mid == self.spec.message_id:
+            if state == "started":
+                self.started = True             # in the ended phase too: a later `cancelled` is not "will not run"
+                if not self.accepted and self.phase != "ended":
+                    self.accepted = True
+                    return Step(events=[Event("accepted", {"message_id": self.spec.message_id, "by": "lifecycle"},
+                                              source.next())])
+            elif state in NOT_RUN and not self.accepted and not self.started:
+                return self._not_run(str(state), source)
+            return Step()
+        if mid not in self.steers:
+            return Step()
+        step = Step()
+        if state == "started" and self._last_result is not None:
+            self._steer_turns.add(mid)          # after the held result: its own turn
+        if state in ("started", "completed"):
+            step.extend(self._steer_delivered(mid, source.next(), fate="consumed" if state == "completed" else "delivered"))
+        if state == "completed":
+            self._steer_pending.discard(mid)
+        elif state in ("cancelled", "discarded", "refused"):
+            step.extend(self._steer_refused(mid, str(state), source.next(),
+                                           fate="cancelled" if state != "refused" else "refused"))
+        self._refresh_steer_waiting()
+        # The lifecycle of a newly started turn follows its own result. A fold's
+        # terminal lifecycle precedes it; only finish here when a result waits.
+        return step.extend(self._finish_held(source))
+
+    def _steer_control(self, response: dict, source: "_Sources") -> Step:
+        if response.get("subtype") != "success":
+            return Step()
+        rid, body = str(response.get("request_id")), response.get("response") or {}
+        step = Step()
+        if rid.startswith("cancel-steer:") and body.get("cancelled") is True:
+            step.extend(self._steer_refused(rid.partition(":")[2], "cancelled-after-result", source.next(), fate="cancelled"))
+        elif rid == INTERRUPT_REQUEST_ID:
+            for mid in body.get("cancelled") or []:
+                if mid == self.spec.message_id and not self.accepted and not self.started:
+                    # The receipt lists what `cancel_queued` took out of the queue, as the
+                    # `cancelled` lifecycle does (`interrupt_receipt_v1`, C-26.5).
+                    step.extend(self._not_run("cancelled", source))
+                    continue
+                step.extend(self._steer_refused(mid, "interrupt-cancelled", source.next(), fate="cancelled"))
+            for mid in body.get("still_queued") or []:
+                if mid in self.steers:
+                    step.frames.append(self._cancel_frame(mid))
+        if self._last_result is not None and not self._steer_pending:
+            # The CLI's own receipts settled every steer the held result waited for:
+            # the queued turns it counted were those, and the turn ends with it.
+            self._queued_turn_count = 0
+        self._refresh_steer_waiting()
+        return step.extend(self._finish_held(source))
 
     # --- helpers ---------------------------------------------------------------
 
@@ -764,20 +1009,6 @@ class ClaudeTurn:
         under way's, which a result then shows to be another turn's or the message's own."""
         self._turn_output = True
         self.answered = self.answered or self.accepted
-
-    def _says_not_run(self, row: dict) -> str | None:
-        """The provider's word that the message will not run in this session: its
-        `command_lifecycle` cancelled, discarded or refused, or the interrupt's receipt
-        listing it `cancelled`. Meaningful only before the message started."""
-        if row.get("type") == "command_lifecycle" and row.get("command_uuid") == self.spec.message_id:
-            state = row.get("state")
-            return str(state) if state in NOT_RUN else None
-        response = (row.get("response") or {}) if row.get("type") == "control_response" else {}
-        if response.get("request_id") == INTERRUPT_REQUEST_ID and response.get("subtype") == "success":
-            cancelled = (response.get("response") or {}).get("cancelled")
-            if isinstance(cancelled, list) and self.spec.message_id in cancelled:
-                return "cancelled"
-        return None
 
     def _limit(self) -> None:
         """A limit the provider reported. Before the message is acknowledged it is
@@ -791,9 +1022,13 @@ class ClaudeTurn:
     def _not_run(self, state: str, source: "_Sources") -> Step:
         """C-26.5: the provider says the message will not run in this session (after a
         stop, `cancel_queued` took it out of the queue). No `result` will come for it.
-        Its delivery is reconciled (C-24.6): a fold that a stop swept may already be
-        in the transcript as a `queued_command` attachment (2.1.284 schema)."""
-        self.not_run = state
+        Its delivery is reconciled (C-24.6): a fold that a stop swept may already be in
+        the transcript as a `queued_command` attachment (2.1.284 schema). After the
+        driver ended the turn itself (a model mismatch's interrupt) it is recorded."""
+        if self.not_run is None:
+            self.not_run = state
+        if self.phase == "ended":
+            return Step()
         stopped = self.interrupt_requested
         return self._end(INTERRUPTED if stopped else FAILED, "stopped" if stopped else f"provider-{state}",
                          source=source.next(), extra={"lifecycle": state}, ended_by="provider")
@@ -807,7 +1042,8 @@ class ClaudeTurn:
         if served == expected or model_matches_requested(served, expected):
             return Step()
         # C-26.8: stop at once; a turn on the wrong model is not the turn asked for.
-        step = Step(frames=[] if self.interrupt_requested else [Frame("interrupt", "write", INTERRUPT_LINE)])
+        step = Step(frames=[] if self.interrupt_requested else [Frame("interrupt", "write", _line(
+            {"type": "control_request", "request_id": INTERRUPT_REQUEST_ID, "request": self._interrupt_request()}))])
         self.interrupt_requested = True
         return step.extend(self._end(FAILED, "model-mismatch", detail=f"asked for {self.spec.model_id}, served {model}",
                                      source=source.next()))
@@ -817,7 +1053,7 @@ class ClaudeTurn:
         if self.outcome is not None:
             return Step()
         self.outcome = Outcome(state, reason, detail, accepted=self.accepted, answered=self.answered,
-                               limited=self.limited, served_model=self.served_model, ended_by=ended_by,
+                               limited=self.limited, served_model=self.served_model, ended_by=ended_by, steers=self.steers,
                                not_run=self.not_run)
         self.phase = "ended"
         withdrawn = sorted(self.pending)

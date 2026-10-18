@@ -1,0 +1,72 @@
+PR #148, fix round 4 — 2026-10-09
+
+Base: 82cc04e47bf1586299feec44fe246cc77628e89e.
+Work stayed in the assigned workspace and its fresh Darwin temporary directory.
+No live native state, subagents, background processes, history rewrites or pushes.
+
+Fixes
+
+1. tools/prepare_identity_rollback.py:68 uses database.as_uri() + "?mode=rw".
+   Literal percent escapes, query delimiters and fragments cannot redirect SQLite
+   away from the store whose daemon.lock was acquired.
+   tests/fake/test_identity_rollback.py:107 checks %2F plus roots containing ?, #
+   and % against a live decoy store at the unescaped URI's destination. Preview
+   leaves both stores unchanged; apply repairs only the requested store; replay
+   is idempotent. Decoy leases and events remain identical.
+   Commit: 08e4212b85b34f5d4599dc2fc6686fc0cd19146f.
+
+2. subfleet/daemon.py:453 walks prefixes with os.stat, continuing past ENOENT
+   and preserving symlink-parent / '..' semantics. Submit at :1896 probes both
+   requested and resolved spellings, contains non-strict RuntimeError, and
+   refuses ELOOP with exit 7 and the existing fix line. Validation at :2013
+   also contains pathlib RuntimeError for other submission paths.
+   tests/fake/test_canonical_identity_fix4.py covers parent/final loops, loops
+   after Missing/.., later missing components, later '..', a hidden symlink
+   target, simulated 3.14 suppression, simulated 3.12 RuntimeError, and healthy
+   symlink parents/dangling output links. No job or leases are created on refusal.
+   Commit: b26258892 (full code head in evidence/environment.json).
+
+URI audit: inspected every uri=True call in tools/ and subfleet/ and compared
+the PR scope against 7e8b4a58c. The other connection in a touched file,
+subfleet/conversations/store.py:1799, already uses path.resolve().as_uri().
+Store writer/readers and OfflineSnapshot also encode paths. No additional
+PR-added/touched raw URI needed a change. The full search is in uri-audit.txt.
+
+Evidence: docs/reports/2026-10-09-pr148-fix4/
+
+                     Python 3.12.14             Python 3.14.4
+Reviewer reproductions before fixes: 4 failures  4 failures
+Rollback targeted checks:            6 passed   6 passed
+Output-loop targeted checks:        18 passed  18 passed
+Identity + reviewer reproductions: 103 passed 103 passed
+Round-4 review mutations:           26/26 killed 26/26 killed
+New fix mutations:                   2/2 killed   2/2 killed
+
+Each identity run also has 4 environment skips (the isolated HOME firmlink
+check and three denied hdiutil images) and the existing strict deadline xfail.
+The deferred deadline and CPU follow-up remain out of scope.
+
+All mutation controls passed; every kill is pytest exit 1 with assertion
+evidence. Source bytes were restored after every mutation and verified by
+SHA-256 after each phase. The review's same 26 executable definitions were
+used: 11 builder, 4 recovered, 10 reconstructed, 1 attempt-holder. Their
+original provenance limit is unchanged. New definitions and serial runner:
+tools/check_identity_fix4_mutations.py. Per-version JSON preserves controls
+and assertion failures; verification-summary.json preserves commands/hashes;
+environment.json preserves runtime versions and reviewer source hashes.
+
+Runs used uv run --python 3.12 and --python 3.14, one targeted pytest process
+at a time, without -n. TMPDIR, uv environments/caches and Hypothesis data lived
+in a fresh sf-pr148-fix4.* directory directly below DARWIN_USER_TEMP_DIR,
+outside HOME with no 'tmp' path component. That directory has been removed.
+
+Delivery
+
+Shared Git staging was denied (index.lock: Operation not permitted). Commits
+are on refs/heads/fix/canonical-identity in .git-local, with the requested
+Claude Opus 5.5 coauthor footer as each commit's last line.
+Bundle: docs/reports/2026-10-09-pr148-fix4.bundle.
+Prerequisite: 82cc04e47bf1586299feec44fe246cc77628e89e.
+Named head: refs/heads/fix/canonical-identity (git bundle list-heads reports SHA).
+Delivery verification checks the bundle prerequisite and imports the bundle
+into a separate repository that initially has only the base object store.

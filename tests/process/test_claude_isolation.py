@@ -208,12 +208,12 @@ def test_read_only_carries_the_flags_that_fail_closed(tmp_path):
     assert "Write" not in argv[argv.index("--allowedTools") + 1]
 
 
-def test_workspace_write_carries_the_bypass_and_nothing_else(tmp_path):
-    """C-14.3 a writable Claude launch relies on the global never-rules hook in
-    `~/.claude/settings.json`; there is no per-launch guard override to pass."""
+def test_workspace_write_carries_the_bypass_and_strict_empty_mcp(tmp_path):
+    """C-14.3, C-12.9: a writable child retains bypass and gets no MCP servers."""
     _adapter_, launch = _build(tmp_path, Sandbox.WORKSPACE_WRITE)
     _rc, report = _spawn(launch, scenario="success-allowed")
-    assert report["argv"][-1] == "--dangerously-skip-permissions"
+    assert report["argv"][-4:] == ["--dangerously-skip-permissions", "--strict-mcp-config",
+                                  "--mcp-config", '{"mcpServers":{}}']
     assert "--permission-mode" not in report["argv"]
 
 

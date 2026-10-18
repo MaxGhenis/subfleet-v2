@@ -52,11 +52,13 @@ def rig(tmp_path, monkeypatch):
     with Store(tmp_path / "state.sqlite3") as store:
         timer = Timers(store, tmp_path, policy, adapter_factory=lambda _: adapter, now=clock)
 
-        def enroll(identity="codex-1", *, enabled=True, owner=LaneOwner.V2, desktop=False, account=None):
+        def enroll(identity="codex-1", *, enabled=True, owner=LaneOwner.V2, desktop=False, account=None,
+                   provider="codex"):
             home = tmp_path / identity
             home.mkdir(exist_ok=True)
             (home / "auth.json").write_text(json.dumps({"last_refresh": "first"}))
-            lane = Lane(identity, "codex", account or "codex:" + identity, Credential("codex", str(home), "home"),
+            lane = Lane(identity, provider, account or provider + ":" + identity,
+                        Credential(provider, str(home), "home"),
                         str(home), owner, desktop, enabled)
             store.put_lane(lane)
             return lane
@@ -71,21 +73,25 @@ def events(store, kind, lane_id=None):
             if (lane_id is None or row["lane_id"] == lane_id) and json.loads(row["data_json"])]
 
 
-def test_probe_once_per_idle_enabled_lane_per_window(rig):
-    """C-18.1, C-8.4, C-9.1: each idle enabled lane writes readings once per window without jobs."""
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_probe_once_per_idle_enabled_lane_per_cycle(rig, monkeypatch, provider):
+    """C-18.1, C-8.4, C-9.1: every cycle reads each enabled lane without jobs, even immediately."""
     timer, store, clock, adapter, enroll = rig
-    enroll("codex-1")
-    enroll("codex-2")
-    enroll("disabled", enabled=False)
-    enroll("legacy", owner=LaneOwner.V1)
+    monkeypatch.setattr(timer, "_pace_usage", lambda: None)
+    lane_ids = [provider + "-1", provider + "-2"]
+    for lane_id in lane_ids:
+        enroll(lane_id, provider=provider)
+    enroll("disabled", enabled=False, provider=provider)
+    enroll("legacy", owner=LaneOwner.V1, provider=provider)
+    enroll("desktop", desktop=True, provider=provider)
     timer.probe_cycle()
     timer.probe_cycle()
-    assert sorted(adapter.calls) == ["codex-1", "codex-2"]
-    assert len(store.list_readings()) == 2
+    assert sorted(adapter.calls) == sorted(lane_ids * 2)
+    assert len(store.list_readings()) == 4
     clock.advance()
     timer.probe_cycle()
-    assert sorted(adapter.calls) == ["codex-1", "codex-1", "codex-2", "codex-2"]
-    assert len(store.list_readings()) == 4
+    assert sorted(adapter.calls) == sorted(lane_ids * 3)
+    assert len(store.list_readings()) == 6
     assert store.list_jobs() == []
     assert (timer.root / "status.json").exists()
 
@@ -153,8 +159,9 @@ def test_revoked_token_stays_latched_until_auth_epoch_changes(rig):
 
 
 @pytest.mark.parametrize("busy", ["lease", "attempt", "desktop"])
-def test_busy_or_desktop_lane_does_not_probe(rig, busy):
-    """C-18.1, C-10.3: occupied and protected desktop lanes send no monitoring request."""
+def test_busy_or_desktop_lane_probe(rig, busy):
+    """C-18.1, C-18.3, C-10.3: a protected desktop lane sends no monitoring request; an occupied Codex
+    lane is read beside its work and holds nothing (`tests/unit/test_timers_busy_read.py`)."""
     timer, store, _, adapter, enroll = rig
     lane = enroll(desktop=busy == "desktop")
     if busy == "lease":
@@ -164,9 +171,15 @@ def test_busy_or_desktop_lane_does_not_probe(rig, busy):
                       state="running", workdir=str(timer.root), prompt_path="/prompt", sandbox="read-only")
         store.add_attempt(attempt_id="job/a1", job_id="job", seq=1, lane_id=lane.lane_id,
                           model_requested="gpt-6-astra", state="running")
+    before = store.list_leases()
     timer.probe_cycle()
-    assert adapter.calls == []
-    assert store.list_readings(lane.lane_id) == []
+    assert store.list_leases() == before
+    if busy == "desktop":
+        assert adapter.calls == []
+        assert store.list_readings(lane.lane_id) == []
+    else:
+        assert adapter.calls == [lane.lane_id]
+        assert [row["label"] for row in store.list_readings(lane.lane_id)] == ["provider"]
 
 
 def test_probe_lane_reservation_covers_verdict_publication(rig, monkeypatch):
@@ -536,3 +549,106 @@ def test_c29_6_a_conversation_reader_failure_never_stops_the_status_write(rig, m
     assert payload["conversations"]["available"] is False and payload["conversations"]["error"] == error
     assert payload["conversations"]["counts"] is None
     assert "claude" in payload and "jobs" in payload
+
+
+def test_a_lane_that_raises_never_leaves_another_lanes_hold(rig, monkeypatch):
+    """Review of PR #72: a probe future that raised before the cycle's `finally`
+    left every other lane's `slot:0` held until a restart. Every holder is
+    released, and the error still surfaces."""
+    timer, store, _, adapter, enroll = rig
+    first, second = enroll("codex-1"), enroll("codex-2")
+    original = timer._probe_lane
+
+    def probe(lane):
+        if lane.lane_id == second.lane_id:
+            raise RuntimeError("database is locked")
+        return original(lane)
+    monkeypatch.setattr(timer, "_probe_lane", probe)
+    with pytest.raises(RuntimeError, match="database is locked"):
+        timer.probe_cycle()
+    assert store.list_leases() == [] and not timer.active_holders
+
+
+@pytest.mark.parametrize("in_use,dispatchable", [(None, False), (True, False), (False, True)])
+def test_published_capacity_judges_the_desktop_lane_as_admission_does(rig, in_use, dispatchable):
+    """C-10.3, C-18.2: `status.json` is built from the timers' snapshot; it judges the
+    desktop login's lane with the daemon's in-use signal (review of PR #72's plan: it
+    read the lane excluded while admission placed work there). No signal is use."""
+    timer, store, _, _, _ = rig
+    store.put_lane(Lane("claude-4", "claude", "claude:desk@example.invalid",
+                        Credential("claude", "desk", "keychain-token"), None, LaneOwner.V2, True))
+    timer.desktop_in_use = None if in_use is None else (lambda: in_use)
+    row, = [lane for lane in timer.snapshot()["lanes"] if lane["lane_id"] == "claude-4"]
+    assert row["dispatchable"] is dispatchable
+
+
+# --- C-11.8: a spent heal is on the verdict -----------------------------------------------------
+
+def test_c11_8_a_codex_heal_that_misses_marks_the_verdict_heal_spent(rig):
+    """C-11.8, C-23.47: a Codex lane gets one heal per credential epoch. When it has run and
+    the token is still expired, the verdict says so (`heal_spent`), on this cycle and every
+    later one of the epoch, so admission can tell a pin there only a new login ends it; a new
+    epoch (a new login) clears it."""
+    timer, store, clock, adapter, enroll = rig
+    lane = enroll()
+    turns = []
+    timer.turn = lambda lane, purpose, holder, *, cancel, deadline: (
+        turns.append(purpose) or Outcome(OutcomeClass.TRANSIENT, "codex exited 1"))
+    expired = {"status": "expired-token", "readings": ()}
+    adapter.responses[lane.lane_id] = [dict(expired), dict(expired)]
+    timer.probe_cycle()
+    assert turns == ["heal"] and timer.metadata[lane.lane_id]["heal_spent"] is True
+    clock.advance(1200)
+    adapter.responses[lane.lane_id] = [dict(expired)]
+    timer.probe_cycle()
+    assert turns == ["heal"] and timer.metadata[lane.lane_id]["heal_spent"] is True       # no second heal
+    assert events(store, "timer.verdict", lane.lane_id)[-1]["heal_spent"] is True          # survives a restart
+    (Path(lane.home) / "auth.json").write_text(json.dumps({"last_refresh": "second"}))    # a person logs in
+    clock.advance(1200)
+    adapter.responses[lane.lane_id] = [{"status": "ok", "readings": ()}]
+    timer.probe_cycle()
+    assert "heal_spent" not in timer.metadata[lane.lane_id]
+
+
+def test_c11_8_an_expired_token_the_heal_renews_or_has_not_tried_is_not_heal_spent(rig):
+    """C-11.8: before its heal, and after one that worked, an expired token may still heal:
+    no `heal_spent`."""
+    timer, store, clock, adapter, enroll = rig
+    lane = enroll()
+    timer.turn = lambda lane, purpose, holder, *, cancel, deadline: Outcome(OutcomeClass.OK, "refreshed")
+    adapter.responses[lane.lane_id] = [{"status": "expired-token", "readings": ()}]      # then ok (the default)
+    timer.probe_cycle()
+    assert timer.metadata[lane.lane_id]["probe_status"] == "ok" and "heal_spent" not in timer.metadata[lane.lane_id]
+    other = enroll("codex-2")
+    store.add_event("timer.heal", lane_id=other.lane_id, data={"epoch": "stale", "at": iso(clock())})
+    clock.advance(600)                                                     # its heal is not due yet
+    adapter.responses[other.lane_id] = [{"status": "expired-token", "readings": ()}]
+    timer.turn = lambda lane, purpose, holder, *, cancel, deadline: pytest.fail("no heal is due")
+    timer.probe_cycle()
+    assert timer.metadata[other.lane_id]["probe_status"] == "expired-token"
+    assert "heal_spent" not in timer.metadata[other.lane_id]                # this epoch's heal is still to come
+
+
+def test_c11_8_a_claude_home_heal_is_retried_so_it_is_never_heal_spent(rig, tmp_path):
+    """C-11.8, C-23.47: a Claude home lane's heal is retried every 20 minutes, so a heal that
+    misses says nothing lasting: no `heal_spent`, and the next heal can land with no one
+    acting (round 3 of the review of PR #85: the lane had been called one only a login ends)."""
+    timer, store, clock, adapter, enroll = rig
+    home = tmp_path / "claude-home"
+    home.mkdir()
+    lane = Lane("claude-h", "claude", "claude:h", Credential("claude", str(home), "home"), str(home),
+                LaneOwner.V2, False, True)
+    store.put_lane(lane)
+    outcomes = [Outcome(OutcomeClass.TRANSIENT, "claude exited 1"),      # the first heal misses
+                Outcome(OutcomeClass.OK, "refreshed")]                   # the retry works
+    turns = []
+    timer.turn = lambda lane, purpose, holder, *, cancel, deadline: (turns.append(purpose) or outcomes.pop(0))
+    expired = {"status": "expired-token", "readings": ()}
+    adapter.responses[lane.lane_id] = [dict(expired), dict(expired)]
+    timer.probe_cycle()
+    assert turns == ["heal"] and timer.metadata[lane.lane_id]["probe_status"] == "expired-token"
+    assert "heal_spent" not in timer.metadata[lane.lane_id]
+    clock.advance(1200)
+    adapter.responses[lane.lane_id] = [dict(expired)]                  # probe; the re-read is ok (default)
+    timer.probe_cycle()
+    assert turns == ["heal", "heal"] and timer.metadata[lane.lane_id]["probe_status"] == "ok"

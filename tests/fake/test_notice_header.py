@@ -88,9 +88,12 @@ def test_c15_1_a_failed_attempt_names_its_class_and_rc_under_the_jobs(state_daem
     ]
 
 
-def test_c15_1_a_lost_attempt_is_announced_lost_with_the_jobs_rc(state_daemon):
+def test_c15_1_a_lost_attempt_is_announced_lost_with_the_jobs_rc(state_daemon, monkeypatch):
     """C-4.4, C-15.1 a loss without a receipt: `lost; rc=125`, the attempt's rc unknown."""
     daemon, harness = state_daemon
+    # The fixture guardian is absent; don't inspect the host's real process table.
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: daemon_module.procs.ProcessTable({}))
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
     job_id, attempt, _ = reserve(daemon, harness, max_attempts=1)
     daemon.store.update_attempt(attempt["attempt_id"], state="running", guardian_pid=42001,
                                 pgid=42001, boot_id="unit-test-boot", proc_start="unit-test-start")
@@ -126,13 +129,17 @@ def test_c15_1_c6_12_a_job_refused_at_admission(state_daemon, cancel):
 
 
 def test_c15_1_c6_8_a_workspace_that_cannot_be_prepared(state_daemon):
-    """C-6.8, C-15.1 a non-transient workspace failure: `failed; rc=1` and git's own words."""
+    """C-6.8, C-15.1 a non-transient workspace failure: `failed; rc=1` and how it failed.
+    An exception's own words go to daemon.log only (C-25.7); git's are C-6.8's record's."""
     daemon, harness = state_daemon
     job_id = daemon.dispatch("submit", harness.submit_args())["job_id"]
     daemon._workspace_failed(daemon.store.get_job(job_id), ValueError("fixture: not a repository"))
     assert notice_lines(daemon, job_id) == [
         dashes(job_id, "failed", 1),
-        "workspace preparation failed: ValueError: fixture: not a repository"]
+        "workspace preparation failed: ValueError: its text is in daemon.log"]
+    daemon._log_handler.flush()
+    assert "workspace preparation failed: ValueError: fixture: not a repository" in (
+        daemon.root / "daemon.log").read_text()
 
 
 def test_c15_1_c23_55_a_skipped_revive_is_announced_failed_with_rc_7(state_daemon):

@@ -42,9 +42,9 @@ For the last two the delivery is reconciled from evidence (D-14):
    a person's `message.resolve` (C-24.6).
 
 A Claude turn that ends without a terminal event after delivery blocks its
-conversation `unfinished-turn` (C-24.8): the next `--resume` could continue
-it. A message with unknown delivery also blocks (as `delivery-unknown`), so a
-written message frame always holds the conversation (review IR-5).
+conversation `unfinished-turn` (C-24.8), unless the person asked to stop it:
+their stop settles the turn and lets queued messages run next. Unknown delivery
+still blocks (as `delivery-unknown`), including after a person's stop.
 """
 
 from __future__ import annotations
@@ -140,7 +140,7 @@ def settle(turn: dict, *, provider: str, turn_seq: int, gather: Callable[[], Evi
         # C-24.4: the provider's success stands even when a stop came too late.
         return Settlement(COMPLETE, "stop-too-late" if turn.get("stop_too_late") else None, session_known=True)
     if turn.get("not_run"):
-        return _not_run(turn, provider, gather())
+        return _not_run(turn, provider, gather(), person_stopped=person_stopped)
     if ended_by == "provider":
         if state == INTERRUPTED:
             return Settlement(INTERRUPTED, stop if stop in STOPS else reason, session_known=True)
@@ -160,6 +160,12 @@ def settle(turn: dict, *, provider: str, turn_seq: int, gather: Callable[[], Evi
     if delivery == UNKNOWN:
         detail = f"{reason or 'ended'}: frame {evidence.frame}, native record {evidence.native}"
         return result(DELIVERY_UNKNOWN, detail, "delivery-unknown")
+
+    if person_stopped:
+        # C-24.7: the person's recorded stop ends this work. Whether delivery was
+        # proved or ruled out, it neither retries nor holds up queued messages.
+        # Unknown delivery above still needs the person's explicit resolution.
+        return result(INTERRUPTED, "stopped")
 
     if ended_by == "driver":
         if delivery == NOT_DELIVERED:
@@ -195,13 +201,15 @@ def settle(turn: dict, *, provider: str, turn_seq: int, gather: Callable[[], Evi
     return result(state, reason, "unfinished-turn" if provider == "claude" else None)
 
 
-def _not_run(turn: dict, provider: str, evidence: Evidence) -> Settlement:
+def _not_run(turn: dict, provider: str, evidence: Evidence, *, person_stopped: bool = False) -> Settlement:
     """C-24.6, C-24.8, C-26.5: the provider said the message will not run in this
     session (a Claude `command_lifecycle` cancelled, discarded or refused before it
     started). That word stands where a relay log with no message frame would: the
     message was not delivered unless the native record holds it, which it can when a
     stop swept a message already folded into a running turn (its `queued_command`
-    attachment is in the transcript, and the next `--resume` would read it)."""
+    attachment is in the transcript, and the next `--resume` would read it). A
+    person's recorded stop ends that work whatever was delivered, and blocks
+    nothing (C-24.7)."""
     state, reason, stop = turn.get("state"), turn.get("reason"), turn.get("stop_reason")
     found = evidence.acknowledged or evidence.native == "found"
     delivery = DELIVERED if found else NOT_DELIVERED if evidence.native == "absent" else UNKNOWN
@@ -209,6 +217,8 @@ def _not_run(turn: dict, provider: str, evidence: Evidence) -> Settlement:
     if delivery == UNKNOWN:
         return Settlement(DELIVERY_UNKNOWN, f"{reason}: native record {evidence.native}", block="delivery-unknown",
                           delivery=delivery, evidence=evidence, session_known=known)
+    if person_stopped:
+        return Settlement(INTERRUPTED, "stopped", delivery=delivery, evidence=evidence, session_known=known)
     if state == INTERRUPTED and stop in STOPS:
         reason = stop
     block = "unfinished-turn" if delivery == DELIVERED and provider == "claude" else None

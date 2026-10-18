@@ -1,0 +1,14 @@
+{
+  "class": "transient",
+  "native_session_id": "01991c18-2680-7000-8000-00000000f00d",
+  "closure": false,
+  "scope": null,
+  "clock_source": null,
+  "synthetic": true,
+  "provenance": {
+    "source": "synthetic",
+    "reason": "Reproduce rc-0 host reboot with a completed interim item.",
+    "incident": "2026-10-12 D-SHUT1, user-supplied aggregate evidence; no live store read",
+    "normalization": "Synthetic rc-0 cut-off stream with an interim agent message, no turn.completed and no last.md; last event is item.completed"
+  }
+}

@@ -1,0 +1,20 @@
+file	passed	failed	status
+tests/unit/test_conversation_steer_service.py	45	0	complete
+tests/unit/test_steer_invariants.py	248	0	complete
+tests/unit/test_conversation_titles.py	88	0	complete
+tests/unit/test_title_review_regressions.py	4	0	complete
+tests/unit/test_turn_runner.py	76	0	complete
+tests/unit/test_claude_turn.py	60	0	complete
+tests/unit/test_codex_turn.py	58	0	complete
+tests/unit/test_conversation_service.py	90	1	complete; environment failure on both baselines
+tests/fake/test_interactive_steer.py	13	0	complete
+tests/fake/test_interactive_claude_titles.py	6	0	complete
+tests/fake/test_conversation_pools.py	2	0	complete
+tests/fake/test_admission_priority.py	24	4	complete; environment failures on release; absent on candidate
+tests/unit/test_scheduler_turns.py	10	0	complete
+tests/unit/test_admission_uncapped.py			incomplete; timeout120.91s; no JUnit
+tests/fake/test_admission_latency.py			incomplete; timeout440.40s; no JUnit
+tests/fake/test_admission_liveness.py			incomplete; slice remainder30.08s; no JUnit
+tests/frontend/*	0	0	assertions did not run; compile timeout440s
+app/build.sh			final build unconfirmed; timeout540s; resumer400s
+Swift syntax: all app sources and CoreProbe.swift			parse-only (26 files) passed20.03s; no typecheck/link

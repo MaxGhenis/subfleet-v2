@@ -8,7 +8,8 @@ answered as the app would answer them. The probe (`CoreProbeLive.swift`)
 drives the daemon through the app's own engine, outbox and store state and
 records every exchange; this test checks its results, the daemon's store,
 and that every answer decodes into the app's models without losing a field.
-Nothing here touches ~/.subfleet.
+Nothing here touches ~/.subfleet. A failed run's state root and the probe's
+record are kept under /tmp/sf-failed, which CI uploads.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import sqlite3
 import sys
@@ -34,7 +36,7 @@ PNG = bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001
 
 
 @pytest.fixture
-def dev_daemon(core_probe, tmp_path):
+def dev_daemon(request, core_probe, tmp_path):
     from subfleet.procs import InspectionError, boot_id, proc_start
     try:
         boot_id()
@@ -62,17 +64,51 @@ def dev_daemon(core_probe, tmp_path):
                                                               "content": [{"type": "text", "text": "Here are the files."}]}},
     ]
     (project / f"{session}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
-    failed = True
+    started = closed = False
     try:
         harness.start(env={"SUBFLEET_DEV_APP_EXECUTABLE": str(core_probe.resolve())})
+        started = True
         yield harness, session
-        failed = False
     finally:
-        harness.close()
-        if not failed:
-            shutil.rmtree(root, ignore_errors=True)
-        else:
-            print(f"\n[frontend live] kept state root at {root}", file=sys.stderr)
+        try:
+            harness.close()
+            closed = True
+        finally:
+            # A test's failure is not raised into its fixture: pytest resumes this
+            # generator normally, so a flag cleared after the yield read every run as
+            # passed and deleted a failed run's root. The phase reports (conftest.py's
+            # hook) say whether it failed, and a failed run's root is kept under
+            # /tmp/sf-failed, as the e2e and fake harnesses keep theirs, for CI to upload.
+            reports = [getattr(request.node, "rep_" + when, None) for when in ("setup", "call")]
+            if not (started and closed) or any(report is not None and report.failed for report in reports):
+                keep_failed_root(request.node.name, root, tmp_path)
+            else:
+                shutil.rmtree(root, ignore_errors=True)
+
+
+def keep_failed_root(name: str, root: Path, record: Path) -> Path | None:
+    """Copy a failed run's state root to /tmp/sf-failed/<test>, with the probe's record
+    beside it under probe/ (its checks, its stopped state, every exchange, the app's
+    outbox and staged attachments), and delete the original. Sockets are left out, as
+    the other harnesses leave them out. A copy that fails leaves the original in place."""
+    from tests.e2e.conftest import _sockets
+    keep = Path("/tmp/sf-failed") / re.sub(r"[^A-Za-z0-9_.-]", "_", name)
+    try:
+        shutil.rmtree(keep, ignore_errors=True)
+        shutil.copytree(root, keep, symlinks=True, ignore_dangling_symlinks=True, ignore=_sockets)
+        for item in ("live-checks.json", "live-state.json", "exchanges.jsonl", "app"):
+            source = record / item
+            if source.is_dir():
+                shutil.copytree(source, keep / "probe" / item, symlinks=True, ignore=_sockets)
+            elif source.exists():
+                (keep / "probe").mkdir(exist_ok=True)
+                shutil.copy2(source, keep / "probe" / item)
+    except OSError as error:
+        print(f"\n[frontend live] could not copy the state root ({error}); kept it at {root}", file=sys.stderr)
+        return None
+    shutil.rmtree(root, ignore_errors=True)
+    print(f"\n[frontend live] kept state root at {keep}", file=sys.stderr)
+    return keep
 
 
 def test_the_app_core_drives_a_development_daemon(core_probe, tmp_path, dev_daemon):
@@ -85,7 +121,11 @@ def test_the_app_core_drives_a_development_daemon(core_probe, tmp_path, dev_daem
     checks = out["checks"]
     failures = [c for c in checks if not c["passed"]]
     (tmp_path / "live-checks.json").write_text(json.dumps(checks, indent=1))
-    assert not failures, json.dumps(failures, indent=1)
+    # A required step that failed stopped the run there (`LiveRun.require`), with the app
+    # core's state and the daemon's view of the same turns in the notes.
+    stopped = {key: out["notes"][key] for key in ("stopped_at", "state") if key in out["notes"]}
+    (tmp_path / "live-state.json").write_text(json.dumps(stopped, indent=1))
+    assert not failures, json.dumps({"failures": failures, **stopped}, indent=1)
     names = {c["name"] for c in checks}
     for required in ("the outbox sent create, first and follow-up in order", "approval.get answers the development app",
                      "the card resolves from approval.resolved", "the follow-up ends interrupted (stopped)",
