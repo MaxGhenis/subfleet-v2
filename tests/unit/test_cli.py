@@ -116,6 +116,8 @@ def test_lanes_actions_reach_the_lanes_op_with_their_arguments(daemon, capsys):
         elif action in ("hold", "release"):
             result["held" if action == "hold" else "released"] = request.args.get("lane_id")
             result["closures"] = []
+        elif action == "release-limits":
+            result.update(released=request.args.get("lane_id"), limits_released=[1], limits_reported=[2])
         return result
     server = daemon({"lanes": answer})
     cases = [
@@ -127,6 +129,8 @@ def test_lanes_actions_reach_the_lanes_op_with_their_arguments(daemon, capsys):
         (["lanes", "hold", "codex-1", "--until", "2026-09-05T18:00:00Z"],
          {"action": "hold", "lane_id": "codex-1", "until": "2026-09-05T18:00:00Z"}),
         (["lanes", "release", "codex-1"], {"action": "release", "lane_id": "codex-1"}),
+        (["lanes", "release", "codex-1", "--limits", "--note", "false positive"],
+         {"action": "release-limits", "lane_id": "codex-1", "note": "false positive"}),
         (["lanes", "transfer", "codex-1", "--to", "v1"],
          {"action": "transfer", "lane_id": "codex-1", "owner": "v1"}),
     ]
@@ -136,6 +140,41 @@ def test_lanes_actions_reach_the_lanes_op_with_their_arguments(daemon, capsys):
         for key, value in expected.items():
             assert sent[key] == value, argv
     capsys.readouterr()
+
+
+@pytest.mark.parametrize("argv,message", [
+    (["lanes", "release", "codex-1", "--limits"], "--note is required"),
+    (["lanes", "release", "codex-1", "--limits", "--note", "   "], "--note is required"),
+    (["lanes", "release", "codex-1", "--note", "reason"], "--note requires --limits"),
+])
+def test_release_limits_requires_a_nonblank_note(argv, message, capsys):
+    assert run_cli(argv) == 2
+    assert message in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("json_flag", ([], ["--json"]))
+def test_release_limits_refuses_an_older_daemon(daemon, capsys, json_flag):
+    server = daemon({"lanes": lambda request: {"lanes": []}})
+    assert run_cli(["lanes", "release", "codex-1", "--limits", "--note", "reason", *json_flag]) == 69
+    assert server.args("lanes")["action"] == "release-limits"
+    assert "older than this CLI" in capsys.readouterr().err
+
+
+def test_release_limits_reports_clocks_kept(daemon, capsys):
+    daemon({"lanes": lambda request: {"released": "codex-1", "limits_released": [1, 2], "limits_reported": [3]}})
+    assert run_cli(["lanes", "release", "codex-1", "--limits", "--note", "reason"]) == 0
+    output = capsys.readouterr().out
+    assert "guessed limits released: 2" in output
+    assert "reported clocks kept: 1; cannot release by hand" in output
+
+
+def test_release_limits_help_names_reported_clock_rule(capsys):
+    with pytest.raises(SystemExit) as done:
+        cli.build_parser().parse_args(["lanes", "release", "--help"])
+    assert done.value.code == 0
+    output = " ".join(capsys.readouterr().out.split())
+    assert "--limits" in output and "--note" in output
+    assert "Provider-reported clocks cannot be released by hand" in output
 
 
 @pytest.mark.parametrize("answer,expected", [
@@ -153,6 +192,22 @@ def test_why_prints_a_refusal_or_a_route_error_not_no_decision(daemon, capsys, a
     daemon({"why": lambda request: answer})
     assert run_cli(["why", "j"]) == 0
     assert capsys.readouterr().out.splitlines() == expected
+
+
+@pytest.mark.parametrize("decision", [None, {"chosen_model": "astra", "chosen_lane": "codex-1"}])
+def test_why_prints_recorded_cut_off_attempt_with_or_without_routing(daemon, capsys, decision):
+    """D-SHUT1: the CLI keeps the daemon's attempt reason alongside routing."""
+    explanation = "Last attempt a1: Codex exited before its turn completed (last event: item.completed)"
+    daemon({"why": lambda request: {"queue": [f"Job: {JOB} is failed"],
+                                    "decision": decision, "attempt_explanation": explanation}})
+    assert run_cli(["why", JOB]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == f"Job: {JOB} is failed"
+    assert lines[-1] == explanation
+    assert lines.count(explanation) == 1
+    assert ("No decision recorded." in lines) == (decision is None)
+    if decision is not None:
+        assert any("astra on codex-1" in line for line in lines)
 
 
 def test_why_and_ping_reach_their_ops(daemon, capsys):
@@ -578,11 +633,18 @@ def test_daemon_error_response_carries_its_exit_code(daemon, capsys, root, workd
     assert "refused" in captured.err and "--allow-tmp" in captured.err
 
 
-def test_malformed_response_is_an_operational_error(daemon, capsys, root, workdir):
-    """C-16.1, C-17.3 a malformed response line is exit 1, not a traceback."""
-    daemon({"submit": lambda request: b"{not json at all\n"})
+@pytest.mark.parametrize("body", (b"{not json at all\n", b"{password=SECRET7-left\n"))
+def test_malformed_response_is_an_operational_error(daemon, capsys, root, workdir, body):
+    """C-16.3 malformed replies resend once and name the unsettled submission."""
+    server = daemon({"submit": lambda request: body})
     assert run_cli(["run", "-m", "opus", "-C", str(workdir), "hi"]) == 1
-    assert "malformed response" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "malformed response" in err
+    assert "SECRET7-left" not in err and "sending the same submission again" in err
+    submits = [request for request in server.requests if request.op == "submit"]
+    assert len(submits) == 2 and submits[0].args == submits[1].args
+    assert "outcome unknown" in err and submits[0].args["request_id"] in err
+    assert "--request-id" in err
 
 
 def test_empty_response_is_an_operational_error(daemon, capsys, root, workdir):
@@ -613,8 +675,11 @@ def test_a_tmp_workdir_is_refused_with_exit_7(daemon, capsys):
 
 # --- daemon liveness (C-5.8) --------------------------------------------------
 
-def test_a_lock_whose_holder_is_dead_is_no_daemon(daemon, root, capsys, workdir):
+def test_a_lock_whose_holder_is_dead_is_no_daemon(daemon, root, capsys, workdir, monkeypatch):
     """C-5.8 the CLI treats a lock with a dead recorded identity as no daemon."""
+    from subfleet import client as client_module
+    monkeypatch.setattr(client_module, "boot_id", lambda: "1")
+    monkeypatch.setattr(client_module, "proc_start", lambda pid: "")
     daemon({"submit": submit_ok, "wait": lambda request: terminal("succeeded", rc=0)})                 # a socket that would answer
     (root / "daemon.lock").write_text(json.dumps(
         {"pid": 999999, "boot_id": "1", "proc_start": "Mon Jan  1 00:00:00 2001",
@@ -676,8 +741,9 @@ def test_runs_show_prints_metadata_and_out(daemon, root, capsys):
     deliverable.write_text("# the answer\n")
     job = {"job_id": JOB, "state": "succeeded", "rc": 0, "workdir": "/Users/x/repo",
            "model_requested": "opus", "lane_id": "claude-2",
+           "accepted_attempt_id": f"{JOB}/a1",
            "artifacts": [{"role": "deliverable", "path": str(deliverable),
-                          "bytes": 13}]}
+                          "bytes": 13, "attempt_id": f"{JOB}/a1"}]}
     server = daemon({"show": lambda request: job})
     assert run_cli(["show", JOB]) == 0
     assert JOB in capsys.readouterr().out
@@ -940,6 +1006,67 @@ def test_show_out_online_prefers_the_accepted_attempt(daemon, root, capsys, enve
     assert capsys.readouterr().out == "# the accepted attempt\n"
 
 
+@pytest.mark.parametrize("envelope", [False, True])
+@pytest.mark.parametrize("accepted", [None, f"{JOB}/a2"])
+@pytest.mark.parametrize("recorded_attempt", [None, f"{JOB}/a1"])
+def test_show_out_never_falls_back_to_unaccepted_artifacts_or_export(
+        daemon, root, capsys, envelope, accepted, recorded_attempt):
+    interim = root / "a1.md"
+    interim.write_text("unaccepted interim text\n")
+    old_export = root / "out.md"
+    old_export.write_text("previous job's output\n")
+    response = {"job_id": JOB, "state": "failed" if accepted is None else "succeeded",
+                "accepted_attempt_id": accepted, "out_path": str(old_export),
+                "deliverable_path": str(interim), "artifacts": [
+                    {"role": "deliverable", "path": str(interim), "attempt_id": recorded_attempt}]}
+    if envelope:
+        artifacts = response.pop("artifacts")
+        response = {"job": response, "artifacts": artifacts}
+    daemon({"show": lambda request: response})
+    assert run_cli(["runs", "show", JOB, "--out"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "no deliverable recorded" in captured.err
+
+
+@pytest.mark.parametrize("state, code", [("failed", 1), ("running", 0)])
+def test_bare_show_without_an_accepted_result_keeps_v1s_shape(daemon, root, capsys, state, code):
+    """C-17.1, C-12.6: callers split the bare form at `--- out.md ---` and parse the
+    metadata object before it; with no accepted result nothing follows the line, and
+    the unaccepted evidence is named on stderr, never printed."""
+    interim = root / "a1.md"
+    interim.write_text("unaccepted interim text\n")
+    daemon({"show": lambda request: {"job_id": JOB, "state": state, "accepted_attempt_id": None, "artifacts": [
+        {"role": "deliverable", "path": str(interim), "attempt_id": f"{JOB}/a1"}]}})
+    assert run_cli(["runs", "show", JOB]) == code
+    captured = capsys.readouterr()
+    metadata, result = captured.out.split("\n--- out.md ---\n")
+    assert json.loads(metadata)["job_id"] == JOB
+    assert result == ""
+    assert "unaccepted interim text" not in captured.out
+    assert f"Unaccepted evidence ({JOB}/a1): {interim}" in captured.err
+
+
+@pytest.mark.parametrize("export_error", [None, "a newer owner holds the output"])
+def test_show_out_of_an_accepted_job_with_no_recorded_deliverable_is_its_export(
+        daemon, root, capsys, export_error):
+    """C-8.3, C-12.6: with no deliverable recorded for any attempt (a v1 import whose
+    run kept only its export), an accepted job's `-o` export is its result, unless
+    that export failed and the file there is not this job's copy."""
+    export = root / "out.md"
+    export.write_text("the accepted export\n")
+    daemon({"show": lambda request: {"job_id": JOB, "state": "succeeded", "rc": 0,
+                                     "accepted_attempt_id": f"{JOB}/a1", "out_path": str(export),
+                                     "export_error": export_error, "artifacts": []}})
+    captured_code = run_cli(["runs", "show", JOB, "--out"])
+    captured = capsys.readouterr()
+    if export_error is None:
+        assert (captured_code, captured.out) == (0, "the accepted export\n")
+    else:
+        assert (captured_code, captured.out) == (1, "")
+        assert "no deliverable recorded" in captured.err
+
+
 def test_last_zero_means_no_limit_on_both_sides(daemon, capsys):
     """C-17.1 `--last 0` is unbounded online exactly as it is offline."""
     server = daemon({"list": lambda request: {"jobs": []}})
@@ -1081,12 +1208,19 @@ def test_a_daemon_failure_numbered_zero_is_not_success(daemon, capsys, workdir):
 
 
 @pytest.mark.parametrize("body", [b"[1, 2, 3]\n", b'"a string"\n', b"null\n",
-                                  b'{"v": 1, "ok": false, "error": 7}\n'])
+                                  b'{"v": 1, "ok": false, "error": 7}\n',
+                                  b'{"v": "password=SECRET7-left", "ok": true}\n'])
 def test_a_wrong_shaped_response_is_exit_one(daemon, capsys, workdir, body):
     """C-16.1 valid JSON of the wrong shape is an exit code, not a traceback."""
-    daemon({"submit": lambda request: body})
+    server = daemon({"submit": lambda request: body})
     assert run_cli(["run", "-m", "opus", "-C", str(workdir), "hi"]) == 1
-    assert "malformed response" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "malformed response" in err
+    assert "SECRET7-left" not in err and "sending the same submission again" in err
+    submits = [request for request in server.requests if request.op == "submit"]
+    assert len(submits) == 2 and submits[0].args == submits[1].args
+    assert "outcome unknown" in err and submits[0].args["request_id"] in err
+    assert "--request-id" in err
 
 
 def test_a_response_from_another_protocol_version_is_refused(daemon, capsys, workdir):
@@ -1107,8 +1241,8 @@ def test_an_unclosed_response_line_does_not_hang(daemon, capsys, workdir):
 
 
 def test_a_request_id_can_never_name_a_path(daemon, root, workdir, capsys):
-    """C-2.1, C-1.5 a caller-supplied request id stages inside the state root."""
-    daemon({"submit": submit_ok, "wait": lambda request: terminal("succeeded", rc=0)})
+    """C-2.1, C-1.5: path-like keys stage only under a hashed inbox filename."""
+    server = daemon({"submit": submit_ok, "wait": lambda request: terminal("succeeded", rc=0)})
     victim = root / "victim.md"
     victim.write_text("do not truncate me\n")
     assert run_cli(["run", "-m", "opus", "-C", str(workdir), "-d",
@@ -1116,16 +1250,48 @@ def test_a_request_id_can_never_name_a_path(daemon, root, workdir, capsys):
     assert victim.read_text() == "do not truncate me\n"
     staged = list((root / "inbox").glob("*.md"))
     assert len(staged) == 1 and staged[0].parent == root / "inbox"
-    capsys.readouterr()
-
-
-def test_the_request_id_reaches_the_wire_unchanged(daemon, root, workdir, capsys):
-    """C-1.5 a request id is the caller's string on the wire, whatever it looks like."""
-    server = daemon({"submit": submit_ok})
-    assert run_cli(["run", "-m", "opus", "-C", str(workdir), "-d",
-                    "--request-id", "../victim", "hi"]) == 0
     assert server.args("submit")["request_id"] == "../victim"
     capsys.readouterr()
+
+
+@pytest.mark.parametrize("identity", ("Caller-ID_09", "a" * 128))
+def test_the_request_id_reaches_the_wire_unchanged(daemon, root, workdir, capsys, identity):
+    """C-1.5 a valid caller id is unchanged in both wire fields."""
+    server = daemon({"submit": submit_ok})
+    assert run_cli(["run", "-m", "opus", "-C", str(workdir), "-d",
+                    "--request-id", identity, "hi"]) == 0
+    assert server.args("submit")["request_id"] == identity
+    assert next(request.id for request in server.requests if request.op == "submit") == identity
+    capsys.readouterr()
+
+
+@pytest.mark.parametrize("identity", [
+    "Caller:ID_09", "/victim", "folder/file", "folder\\file", "clé:résumé / 1",
+])
+def test_submission_request_id_is_separate_from_correlation_id(
+        daemon, root, workdir, capsys, identity):
+    """C-6.2: caller keys keep punctuation/Unicode while wire ids stay safe."""
+    server = daemon({"submit": submit_ok})
+    assert run_cli(["run", "-m", "opus", "-C", str(workdir), "-d",
+                    "--request-id", identity, "hi"]) == 0
+    request = next(request for request in server.requests if request.op == "submit")
+    assert request.args["request_id"] == identity
+    assert request.id and protocol.correlation_id(request.id) == request.id
+    assert request.id != identity
+    assert len(list((root / "inbox").glob("*.md"))) == 1
+    capsys.readouterr()
+
+
+@pytest.mark.parametrize("argv", [
+    ["run", "-m", "opus", "hello"],
+    ["resume", JOB],
+    ["handoff", "--last", "--to", "astra"],
+])
+@pytest.mark.parametrize("identity", ["Caller:ID_09", "../victim", "clé:résumé / 1"])
+def test_submission_commands_accept_opaque_request_ids(argv, identity):
+    """C-6.2: run, resume and handoff share the submission-key rule."""
+    parsed = cli.build_parser().parse_args([*argv, "--request-id", identity])
+    assert parsed.request_id == identity
 
 
 @pytest.mark.parametrize("second_prompt", ["first prompt", "different prompt"])
@@ -1145,7 +1311,8 @@ def test_pending_submission_prompts_never_overwrite_each_other(root, second_prom
     ["resume", JOB],
     ["handoff", "--last", "--to", "astra"],
 ])
-@pytest.mark.parametrize("identity", ["", "x" * 129])
+@pytest.mark.parametrize("identity", ["", "x" * 129,
+                                      "password=SECRET7-left", "ghp_" + "A" * 36])
 def test_invalid_request_ids_are_rejected_without_truncation(
         argv, identity, root, monkeypatch, capsys):
     """C-1.5, C-6.2: invalid caller ids cannot silently alias a different request."""
@@ -1154,7 +1321,9 @@ def test_invalid_request_ids_are_rejected_without_truncation(
 
     monkeypatch.setattr(cli, "_client", no_transport)
     assert run_cli([*argv, "--request-id", identity]) == 2
-    assert "--request-id" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "--request-id" in err
+    assert "SECRET7-left" not in err and "ghp_" + "A" * 36 not in err
     assert not (root / "inbox").exists()
 
 
@@ -1343,13 +1512,15 @@ def test_a_lane_id_that_is_not_a_string_still_renders(capsys):
     capsys.readouterr()
 
 
-def test_an_identity_mismatch_names_the_rendering_trap(root, capsys, workdir):
+def test_an_identity_mismatch_names_the_rendering_trap(root, capsys, workdir, monkeypatch):
     """C-5.3 a start time that differs is reported with why, not just as dead.
 
     The recorded value is rendered by whoever wrote it, so a mismatch is either
     a reused pid or two sides rendering `lstart` in different locales; the
     message has to let a reader tell those apart.
     """
+    from subfleet import client as client_module
+    monkeypatch.setattr(client_module, "proc_start", lambda pid: "Sun Oct 11 00:00:00 2026")
     (root / "daemon.lock").write_text(json.dumps(
         {"pid": os.getpid(), "proc_start": "Sat Jan  1 00:00:00 2000"}))
     assert run_cli(["run", "-m", "opus", "-C", str(workdir), "hi"]) == 69

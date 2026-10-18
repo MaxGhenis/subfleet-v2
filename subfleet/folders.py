@@ -12,13 +12,19 @@ release site frees a turn's row with the job's other leases.
   it only keeps retention from removing the folder under it (C-8.4, C-13.4).
   A turn whose provider cwd differs from its Git hold also has a reader row
   on that canonical cwd, preserving the Git hold's exact-folder writer rules.
+  Detached jobs also hold a reader row on their resolved reservation cwd for
+  the job lease's lifetime, including retries and quarantined attempts.
 - `worktree:<folder>` held by `retention:<job id>`: a retirement's fence on a
-  job's tree. No turn, writable or read-only, starts on that folder or on one
-  inside it while it is held (`retiring`, C-8.4).
+  job's tree. No turn, writable or read-only, and no detached job starts on
+  that folder or on one inside it while it is held (`retiring`, C-8.4): not a
+  detached writer, nor a read-only job, which takes no lease there, nor a
+  writer whose worktree would be cut from a repository there.
 
 `<folder>` is a real path and may itself contain `:`; a job id never does
 (C-1.1), so a key names a folder exactly when what follows `<prefix><folder>:`
 has no colon. Rows are found by a range on the primary key and that check.
+Admission reserves a row only on a folder it has just spelled in full
+(`present`), so a row's folder is the one spelling of a folder that was there.
 
 Keys compare folders as strings, so one folder must have one spelling:
 `canonical` gives it, symlinks resolved and each name in the case the file
@@ -110,7 +116,7 @@ def identity(path: str | os.PathLike[str]) -> str:
         # Dotless i is equivalent under exFAT's uppercase comparison. APFS
         # can distinguish it; that over-collision is intentional (C-6.5).
         comparable = _DEFAULT_IGNORABLES.sub("", spelled).replace("ı", "i")
-        return unicodedata.normalize("NFD", unicodedata.normalize("NFD", comparable).casefold())
+        return fold(comparable)
     except OSError as exc:
         return identity_fallback(raw, exc)
 
@@ -147,6 +153,33 @@ def spelling(path: str | os.PathLike[str]) -> tuple[str, str | None]:
     Otherwise (a directory above it that cannot be searched, a path too long, no
     getattrlist on this system) the second value says why, and a caller that must
     not be wrong about a folder (C-26.10) refuses instead of comparing it."""
+    out, doubt, _ = _spelled(path)
+    return out, doubt
+
+
+def present(path: str | os.PathLike[str]) -> tuple[str, OSError | None]:
+    """`path`'s one spelling (`spelling`), and, when some name in it could not be
+    looked up now, the error that said so (None when every name was).
+
+    A name `spelling` cannot look up because it does not exist stays as given, and
+    that is the one spelling only while it does not exist. A folder that is not
+    there now can come back under the name its volume stores, in another case than
+    the one given: retention moves a finished job's tree into quarantine and,
+    rolling the retirement back, moves it back, and a native session's recorded
+    cwd may say `…/worktrees/jOB/vendor/lib` for the tree `Job`. A lease row names
+    its folder for as long as it lives, and a row on `jOB` is one that no check on
+    the tree's spelling matches (review of 8a112986, finding 1). So admission
+    reserves a row only on a folder this finds there, spelled in full (C-8.4).
+
+    Where the kernel spells nothing (no getattrlist) a folder is there when its
+    real path is: such a system compares names as given."""
+    out, _, missing = _spelled(path)
+    return out, missing
+
+
+def _spelled(path: str | os.PathLike[str]) -> tuple[str, str | None, OSError | None]:
+    """`spelling`'s two values, and the error for the first name of the path that
+    was not looked up (None when the kernel looked up all of it), for `present`."""
     real = os.path.realpath(os.path.expanduser(os.fspath(path)))
     head, tail, first = real, [], None
     while True:
@@ -156,12 +189,19 @@ def spelling(path: str | os.PathLike[str]) -> tuple[str, str | None]:
         except OSError as exc:
             parent, name = os.path.split(head)
             if parent == head:                  # not even `/`: nothing of it can be spelled
-                return real, f"{real}: {exc.strerror or exc}"
+                there = exc.errno == errno.ENOSYS and os.path.lexists(real)
+                gone = None if there else (exc if exc.errno != errno.ENOSYS
+                                           else FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), real))
+                return real, f"{real}: {exc.strerror or exc}", gone
             head, tail, first = parent, [name, *tail], exc     # `first`: the first name not looked up
     out = os.path.join(spelled, *tail)
-    if first is None or first.errno in (errno.ENOENT, errno.ENOTDIR):
-        return out, None
-    return out, f"{os.path.join(spelled, tail[0])}: {first.strerror or first}"
+    if first is None:
+        return out, None, None
+    name = os.path.join(spelled, tail[0])
+    missing = OSError(first.errno, first.strerror, name)      # the name as far as spelled, its subclass by errno
+    if first.errno in (errno.ENOENT, errno.ENOTDIR):
+        return out, None, missing
+    return out, f"{name}: {first.strerror or first}", missing
 
 
 # getattrlist(2), <sys/attr.h> and <unistd.h> (LP64).
@@ -266,19 +306,92 @@ def above(folder: str) -> list[str]:
     return found
 
 
-def retiring(read: Callable[[str, tuple], Iterable[Any]], folder: str) -> list[str]:
+def fold(path: str) -> str:
+    """`path` as a case-insensitive volume compares names: Unicode's canonical
+    caseless form, NFD(casefold(NFD(path))) (The Unicode Standard §3.13, D145), so
+    `Job`, `jOB` and `JOB`, or a name in NFC and in NFD, fold alike. On APFS
+    (checked 2026-10-05, nine pairs) a lookup found a folder by another name
+    exactly when the two fold alike: `jOB` for `Job`, `STRASSE` for `straße`, `FI`
+    for `ﬁ`, `ς` for `Σ`, NFD for NFC, and not `i` for `İ`, which do not. `/`
+    folds to itself, so `within` holds between folded spellings as between
+    spellings."""
+    return unicodedata.normalize("NFD", unicodedata.normalize("NFD", path).casefold())
+
+
+def under_git(folder: str) -> bool:
+    """Whether `folder` or a folder above it (`above`) holds a `.git`, a directory or
+    a linked worktree's file, where git looks for one. Filesystem work, outside any
+    store transaction. An entry does not prove Git accepts the repository (it
+    may be ignored or broken); after a failed discovery it warrants one more
+    Git look for a tree restored during spelling (`Daemon._row_folder`)."""
+    return any(os.path.lexists(os.path.join(each, ".git")) for each in (folder, *above(folder)))
+
+
+def retiring(read: Callable[[str, tuple], Iterable[Any]], folder: str, *, folded: bool = False) -> list[str]:
     """The `worktree:` keys retention holds (`RETENTION`) on `folder` or on a
     folder it is inside (`above`), nearest first. While one is held a retirement
-    is archiving and moving that tree, so no turn starts there: also not one in
-    a repository nested in the tree, whose row is keyed on that repository, not
-    on the tree (C-8.4). A detached writer's `worktree:` on a folder above is
-    not among them: a checkout's top level is the hold, and a repository nested
-    in it is a hold of its own (C-6.5). `read(sql, params)` as for `turn_holds`;
-    no filesystem work."""
+    is archiving and moving that tree, so no turn or detached job starts
+    there: also not one in a repository nested in the tree, whose row or lease
+    is keyed on that repository, not on the tree, nor a detached job that takes
+    no lease on its folder (read-only, or writing in a worktree cut from the
+    repository there), whose folder submit recorded (C-8.4). A detached writer's
+    `worktree:` on a folder above is not among them: a checkout's top level is
+    the hold, and a repository nested in it is a hold of its own (C-6.5).
+    `read(sql, params)` as for `turn_holds`; no filesystem work.
+
+    `folded` is for a folder `present` could not spell in full, whose names it
+    could not look up stay as given: its tree may be in quarantine under that
+    very fence, spelled `Job` where the folder says `jOB`. Every fence of
+    retention's is read then, and each compared `fold`ed. On a volume that tells
+    case apart this also names a fence on another folder whose name differs from
+    one of these only in case; the job then only waits for that retirement."""
+    if folded:
+        rows = read("SELECT lease_key, holder FROM leases WHERE lease_key >= ? AND lease_key < ?",
+                    (EXCLUSIVE, EXCLUSIVE[:-1] + ";"))      # ':' + 1: every `worktree:` key
+        mine = fold(folder)
+        found = [key for key, holder in map(_row, rows)
+                 if str(holder or "").startswith(RETENTION) and within(mine, fold(key[len(EXCLUSIVE):]))]
+        return sorted(found, key=lambda key: (-key.count("/"), key))
     keys = [exclusive_key(each) for each in (folder, *above(folder))]
     held = dict(_row(row) for row in read(
         f"SELECT lease_key, holder FROM leases WHERE lease_key IN ({','.join('?' * len(keys))})", tuple(keys)))
     return [key for key in keys if str(held.get(key) or "").startswith(RETENTION)]
+
+
+def fences(key: str, folder: str, *, fold: bool = False) -> bool:
+    """Whether the `worktree:` key `key` is on `folder` or on a folder it is inside
+    (`within`), with names compared folded (`folded`) when `fold`, as
+    `retiring_folded` compares them."""
+    tree = key[len(EXCLUSIVE):]
+    return key.startswith(EXCLUSIVE) and (within(folded(folder), folded(tree)) if fold else within(folder, tree))
+
+
+def folded(folder: str) -> str:
+    """NFC and casefold for legacy detached retention-fence lookups when kernel
+    spelling may be unavailable. Resource ownership uses `resource_identity`
+    and its volume-specific comparison instead."""
+    return unicodedata.normalize("NFC", folder).casefold()
+
+
+def retiring_folded(read: Callable[[str, tuple], Iterable[Any]], folder: str) -> list[str]:
+    """`retiring` for a folder that may not be spelled as its volume stores it: a
+    detached job's workdir that a daemon queued before submit spelled it once
+    (`canonical`), as typed, perhaps in another case. Spelled again while retention
+    has its tree in quarantine, the names that are gone keep the case they were
+    typed in, so the exact keys `retiring` reads would miss the fence (review of
+    49651181, P2). Here every fence retention holds is read, and one counts when
+    `folder` is its tree or inside it with names compared folded (`folded`). On a
+    volume that tells case apart this may hold such a job on a tree whose name
+    differs only in case, which costs it a wait, never a tree. Nearest first, as
+    `retiring`; `read(sql, params)` as for `turn_holds`; no filesystem work."""
+    mine = folded(folder)
+    found = []
+    for row in read("SELECT lease_key, holder FROM leases WHERE lease_key >= ? AND lease_key < ?",
+                    (EXCLUSIVE, EXCLUSIVE[:-1] + ";")):
+        key, holder = _row(row)
+        if str(holder).startswith(RETENTION) and within(mine, folded(key[len(EXCLUSIVE):])):
+            found.append(key)
+    return sorted(found, key=lambda key: -len(key))
 
 
 def turn_holds(read: Callable[[str, tuple], Iterable[Any]], folder: str,

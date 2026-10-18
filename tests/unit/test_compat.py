@@ -11,6 +11,7 @@ from __future__ import annotations
 import ast
 import json
 import os
+import pwd
 import re
 import subprocess
 import sys
@@ -239,7 +240,7 @@ def test_no_v1_mirror_flag_is_unaccounted_for():
     `add_argument` lines instead, and each one must be on `sessions mirror` or
     in `V1_ONLY_FLAGS["mirror"]`.
     """
-    script = Path("~/chief-of-staff/subfleet/bin/subfleet-mirror").expanduser()
+    script = Path(pwd.getpwuid(os.getuid()).pw_dir) / "chief-of-staff/subfleet/bin/subfleet-mirror"
     if not script.exists():
         pytest.skip("the v1 install is not present on this machine")
     options = set(re.findall(r'add_argument\(\s*"(--[a-z-]+)"', script.read_text()))
@@ -268,7 +269,7 @@ def _v2_option_map() -> dict[str, set[str]]:
 
 def _v1_option_map() -> dict[str, list[str]] | None:
     """C-17.1: inspect v1 source as data; never import or invoke its commands."""
-    root = Path("~/chief-of-staff/subfleet/subfleet").expanduser()
+    root = Path(pwd.getpwuid(os.getuid()).pw_dir) / "chief-of-staff/subfleet/subfleet"
     if not (root / "cli.py").is_file():
         return None
     tree = ast.parse((root / "cli.py").read_text())

@@ -103,6 +103,28 @@ def test_c4_2_absent_guardian_identity_never_releases_launch_gate(launch_state, 
 
 
 
+def test_c25_7_a_guardian_that_cannot_start_is_named_by_its_errno_not_its_words(launch_state, monkeypatch):
+    """C-4.2 with C-25.7: Popen's OS error names a path. The attempt's detail (which a
+    turn's `state_reason` and a job's notice read) names its class and errno; its words
+    are in daemon.log only, scrubbed whole."""
+    daemon, harness, calls = launch_state
+    a = reserve(daemon, harness)
+    said = "password='SECRET7-left\n右秘密-TAIL8'"
+
+    def refuse(command, **kwargs):
+        raise PermissionError(13, "Permission denied", str(harness.root / said))
+    monkeypatch.setattr(module.subprocess, "Popen", refuse)
+    daemon._launch(a)
+    attempt = daemon.store.get_attempt(a["attempt_id"])
+    assert attempt["outcome_detail"] == "guardian-identity-unavailable: PermissionError: [Errno 13] Permission denied"
+    recorded = json.dumps([daemon.store.query(f"SELECT * FROM {table}") for table in ("attempts", "events", "notices")])
+    assert "SECRET7" not in recorded and "TAIL8" not in recorded
+    daemon._log_handler.flush()
+    log = (daemon.root / "daemon.log").read_text()
+    assert f"attempt {a['attempt_id']} guardian identity unavailable: PermissionError: [Errno 13]" in log
+    assert "SECRET7" not in log and "TAIL8" not in log
+
+
 def test_c5_12_a_new_attempt_is_first_inspected_with_a_table_read_after_its_guardian_started(launch_state,
                                                                                                monkeypatch):
     """C-5.12 an attempt this daemon launches falls due one interval after its guardian started, so its first
@@ -184,6 +206,54 @@ def guarded_launch(launch_state, monkeypatch):
         register("codex", FakeAdapter)
 
 
+@pytest.mark.parametrize("initially_valid", [True, False])
+def test_ca_selection_is_shared_by_adapter_preflight_and_guardian(guarded_launch, monkeypatch,
+                                                               initially_valid):
+    """C-14.2: changing the bundle mid-launch cannot change selected CA values."""
+    from subfleet.provider_env import CA_SOURCES, ProviderEnvironment
+    from subfleet.guard import preflight as guard
+    daemon, harness, calls, fake_preflight, seen = guarded_launch
+    for key in CA_SOURCES:
+        monkeypatch.delenv(key, raising=False)
+    certificate = (Path(__file__).parents[1] / "fixtures/codex-ca.pem").read_bytes()
+    bundle = daemon.root / "ca.pem"
+    bundle.write_bytes(certificate if initially_valid else b"")
+    daemon._provider_environment = ProviderEnvironment({"providers": {"codex": {"ca_bundle": str(bundle)}}})
+    a = reserve(daemon, harness)
+    selections = []
+    original_select = daemon._provider_environment.additions
+    def select(*args, **kwargs):
+        result = original_select(*args, **kwargs)
+        selections.append(result)
+        if len(selections) == 1:
+            bundle.write_bytes(b"" if initially_valid else certificate)
+        return result
+    monkeypatch.setattr(daemon._provider_environment, "additions", select)
+    def preflight(*args, **kwargs):
+        result = fake_preflight(*args, **kwargs)
+        bundle.write_bytes(certificate if initially_valid else b"")
+        return result
+    monkeypatch.setattr(guard, "preflight", preflight)
+    adapter_envs = []
+    original_build = FakeAdapter.build_launch
+    def build(self, job, aid, adir, lane, credential_env, *args, **kwargs):
+        adapter_envs.append({**module.os.environ, **credential_env})
+        return original_build(self, job, aid, adir, lane, credential_env, *args, **kwargs)
+    monkeypatch.setattr(FakeAdapter, "build_launch", build)
+    daemon._launch(a)
+    def ca_values(env):
+        return {key: env[key] for key in CA_SOURCES if key in env}
+    expected = {"SSL_CERT_FILE": str(bundle)} if initially_valid else {}
+    assert len(calls) == len(seen) == len(adapter_envs) == 1
+    assert ca_values(adapter_envs[0]) == ca_values(seen[0]["env"]) == ca_values(calls[0][1]["env"]) == expected
+    assert len(selections) == 1
+    # Recovery after a restart deliberately selects against the current file.
+    bundle.write_bytes(b"" if initially_valid else certificate)
+    recovery = daemon._relaunch_env(a["lane_id"])
+    assert ca_values(recovery) == ({} if initially_valid else {"SSL_CERT_FILE": str(bundle)})
+    assert len(selections) == 2
+
+
 def test_c14_2_refused_preflight_is_recorded_in_the_attempt_directory_and_daemon_log(guarded_launch):
     """2026-09-20: a timeout refusal leaves guard-preflight.json beside exit.json and one log line."""
     daemon, harness, calls, fake_preflight, seen = guarded_launch
@@ -191,8 +261,10 @@ def test_c14_2_refused_preflight_is_recorded_in_the_attempt_directory_and_daemon
     a = reserve(daemon, harness)
     daemon._launch(a)
     assert calls == [], "a refused launch starts no guardian"
-    assert seen == [{"binary": "fixture-codex", "home": str(harness.root / "home"),
-                     "workdir": str(harness.workdir), "state_root": daemon.root}]
+    assert [{key: value for key, value in call.items() if key != "env"} for call in seen] == [
+        {"binary": "fixture-codex", "home": str(harness.root / "home"),
+         "workdir": str(harness.workdir), "state_root": daemon.root}]
+    assert seen[0]["env"]["CODEX_HOME"] == str(harness.root / "home")
     adir = daemon.root / "jobs" / a["job_id"] / "a1"
     record = json.loads((adir / "guard-preflight.json").read_text())
     assert record["ok"] is False and record["kind"] == "timeout" and record["code"] == 7

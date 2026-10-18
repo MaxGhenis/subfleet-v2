@@ -16,7 +16,7 @@ from hypothesis import given, strategies as st
 import pytest
 
 from subfleet import protocol
-from subfleet.conversations import catalog
+from subfleet.conversations import catalog, suggestions
 from subfleet.conversations.service import ConversationService
 from subfleet.conversations.store import ConversationError
 from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
@@ -39,7 +39,10 @@ def accepted(service, args):
     try:
         service.handle("conversation.create", args, None)
     except ConversationError as exc:
-        return False, f"{exc.reason}: {exc}", exc.fix
+        # The protected-folder exception keeps raw paths for direct callers.
+        # The preview publishes only its checked name, as suggestion.start does.
+        reason = suggestions.scrub_error(exc) if exc.reason == "protected-workspace" else f"{exc.reason}: {exc}"
+        return False, reason, exc.fix
     return True, None, None
 
 

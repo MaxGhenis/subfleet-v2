@@ -1,9 +1,11 @@
 """Conversations end to end: the real daemon, guardian, relay, drivers and adapters,
 with the fake interactive providers on PATH (C-24 to C-30, design §4 to §11).
 
-Person-only operations (C-25.6) are sent from a process with a controlling
-terminal, which `script(1)` provides, so the daemon's real peer check decides
-them; nothing here stubs the check.
+Person-only operations (C-25.6) are sent from the development app (D-21): a
+small native client compiled once per session, which the `e2e` fixture names to
+each daemon by `SUBFLEET_DEV_APP_EXECUTABLE`, so the daemon's real peer check
+decides them; nothing here stubs the check. A terminal is not a person (D-PB1,
+2026-10-11): the same request from `script(1)`'s terminal is refused.
 """
 
 from __future__ import annotations
@@ -21,7 +23,9 @@ import uuid
 
 import pytest
 
+from subfleet import hooks
 from subfleet.conversations.service import CONTINUATION_TEXT
+from tests.e2e import dev_app as development_app
 
 pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="LOCAL_PEERPID is macOS")
 TERMINAL_JOB_STATES = ("succeeded", "failed", "cancelled", "lost")
@@ -61,14 +65,34 @@ class Conversations:
         return response["result"]
 
     def as_person(self, op: str, **args) -> dict:
-        """The request from a process with a controlling terminal (C-25.6)."""
+        """The request from the development app (C-25.6, D-21), started in a session of
+        its own, so it has no controlling terminal: the app's image alone admits it."""
         if IN_A_SUBFLEET_ATTEMPT:
             # The peer check walks every ancestor, and a Subfleet guardian sits above
             # any process a turn or job starts: its descendants are agents by design
             # (C-25.6), so no person request can be made from here.
             pytest.skip("person-only requests cannot come from inside a Subfleet turn or job; "
-                        "run this test from a terminal")
-        request = json.dumps({"v": 1, "id": "p", "op": op, "args": args})
+                        "run this test outside Subfleet (CI runs it)")
+        app = self.e2e.env.get(development_app.ENV)
+        if not app:
+            # The `e2e` fixture names the stand-in to every daemon it starts
+            # (tests/e2e/conftest.py). Only a host with no C compiler may skip; a stand-in
+            # that did not compile, or a harness made some other way, is a test fault.
+            why = getattr(self.e2e, "no_person", None)
+            if why == development_app.NO_COMPILER:
+                pytest.skip(why)
+            pytest.fail(why or "this daemon was not told of the development app (D-21): make the harness with "
+                        f"the e2e fixture, which names the stand-in in {development_app.ENV}")
+        return development_app.request(app, self.e2e.root / "daemon.sock",
+                                       {"v": 1, "id": "p", "op": op, "args": args})
+
+    def as_terminal(self, op: str, **args) -> dict:
+        """The same request from a process with a controlling terminal, which `script(1)`
+        provides, and no Subfleet ancestry: a person's Terminal, an SSH login, or an
+        orphan an agent left holding a pseudo-terminal look alike here (D-PB1)."""
+        if IN_A_SUBFLEET_ATTEMPT:
+            pytest.skip("inside a Subfleet turn or job the markers refuse first; run this test outside Subfleet")
+        request = json.dumps({"v": 1, "id": "t", "op": op, "args": args})
         out = subprocess.run(["/usr/bin/script", "-q", "/dev/null", sys.executable, "-c", CLIENT,
                               str(self.e2e.root / "daemon.sock"), request],
                              capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
@@ -134,6 +158,17 @@ class Conversations:
         turns = {row["pid"] for row in log if "argv" in row
                  and ("--listen" in row["argv"] or "--input-format" in row["argv"])}
         return [json.loads(row["stdin"]) for row in log if "stdin" in row and row.get("pid") in turns]
+
+
+def test_every_e2e_harness_names_the_development_app_to_its_daemon(e2e, dev_app):
+    """C-25.6, D-21: the `e2e` fixture names the compiled stand-in to every daemon it
+    starts, so any module's `Conversations(e2e).as_person` has a person (D-PB1: a
+    terminal is not one). Only a host with no C compiler goes without."""
+    if dev_app == development_app.NO_COMPILER:
+        pytest.skip(dev_app)
+    assert isinstance(dev_app, Path), dev_app                       # it compiled
+    assert e2e.env[development_app.ENV] == str(dev_app) and e2e.no_person is None
+    assert dev_app.is_file() and " " in str(dev_app)                 # a path with spaces, as the build's
 
 
 @pytest.fixture
@@ -205,6 +240,13 @@ def test_a_claude_conversation_streams_completes_and_continues_in_the_same_sessi
     assert "opus[1m]" in models["claude"]["claude-opus-5-5"]["values"]
 
 
+def hook_context(row: dict) -> str | None:
+    """What a hook run added to the session's context: its `additionalContext`, or None."""
+    if not row.get("stdout"):
+        return None
+    return json.loads(row["stdout"])["hookSpecificOutput"]["additionalContext"]
+
+
 @pytest.fixture
 def hooked(e2e):
     """Conversations whose fake Claude runs `subfleet hook <event>` the way
@@ -239,7 +281,10 @@ def test_a_turns_session_hooks_see_the_daemons_markers_and_surface_no_ping(hooke
     assert [(row["hook"], row["source"]) for row in ran] == [
         ("SessionStart", "startup"), ("UserPromptSubmit", None),
         ("SessionStart", "resume"), ("UserPromptSubmit", None)], ran
-    assert all(row.get("rc") == 0 and row.get("stdout") == "" for row in ran), ran
+    assert all(row.get("rc") == 0 for row in ran), ran
+    # C-25.7: the new session's SessionStart tells the agent about `subfleet suggest`
+    # (a resumed one already holds it); nothing else is said, the ping included.
+    assert [hook_context(row) for row in ran] == [hooks.SUGGEST_HINT, None, None, None], ran
     jobs = [conv.e2e.rows("SELECT job_id FROM jobs WHERE request_id=?", (f"turn:{mid}:0",))[0]["job_id"]
             for mid in (first, second)]
     for row, job_id in zip(ran, [jobs[0], jobs[0], jobs[1], jobs[1]]):
@@ -302,7 +347,9 @@ def test_a_job_a_turn_dispatched_reaches_the_next_turn_and_a_ping_does_not(dispa
         ("SessionStart", "resume"), ("UserPromptSubmit", None)], hooks_ran
     started, prompted = hooks_ran[2], hooks_ran[3]
     assert started["rc"] == 0 and prompted["rc"] == 0
-    assert all(row["stdout"] == "" for row in hooks_ran), "the conversation message carries the job's notice once"
+    # The conversation message carries the job's notice once; the new session's
+    # SessionStart says only how to suggest a conversation (C-25.7).
+    assert [hook_context(row) for row in hooks_ran] == [hooks.SUGGEST_HINT] + [None] * 5
     assert "resume nudge" not in started["stdout"] + prompted["stdout"]
     assert e2e.rows("SELECT state, transport FROM notices WHERE job_id=?", (job_id,)) == [
         {"state": "surfaced", "transport": "conversation"}]
@@ -368,6 +415,9 @@ def test_a_tool_approval_is_a_persons_decision_and_reaches_the_provider_once(con
 
     refused = conv.as_agent("approval.get", approval_id=approval["approval_id"])
     assert not refused["ok"] and "person-only" in refused["error"]["message"]
+    # D-PB1: a terminal with no Subfleet ancestry is not the person either.
+    terminal = conv.as_terminal("approval.get", approval_id=approval["approval_id"])
+    assert not terminal["ok"] and "this needs the Subfleet app" in terminal["error"]["message"], terminal
     shown = conv.as_person("approval.get", approval_id=approval["approval_id"])
     assert shown["ok"], shown
     detail = shown["result"]
@@ -375,6 +425,8 @@ def test_a_tool_approval_is_a_persons_decision_and_reaches_the_provider_once(con
                   request_sha256=detail["request_sha256"])
     agent = conv.as_agent("approval.respond", **answer)
     assert not agent["ok"] and "person-only" in agent["error"]["message"]
+    terminal = conv.as_terminal("approval.respond", **answer)
+    assert not terminal["ok"] and "this needs the Subfleet app" in terminal["error"]["message"], terminal
     assert conv.message(mid)["state"] == "approval-needed"
 
     person = conv.as_person("approval.respond", **answer)
@@ -416,6 +468,33 @@ def test_a_denied_question_and_an_answered_question(conv):
     assert conv.until_state(second, "complete", "failed")["state"] == "complete"
     text = [e for e in conv.events(cid) if e["kind"] == "text"][-1]["data"]["text"]
     assert text == 'You chose {"Which color?": "Blue"}.'
+
+
+@pytest.mark.parametrize("directive,kind", [("[fake:approval]", "tool"), ("[fake:question]", "question")])
+def test_an_approval_is_listed_as_soon_as_its_event_is_read(conv_with, directive, kind):
+    """C-27.1, C-27.5, design §8: the app draws a card from `approval.requested` and
+    answers it by the id `approval.list` gives, joined on the provider's request id, so
+    whoever reads the event finds the approval listed and the message approval-needed,
+    however slow the disk under the request file. Its publish is slowed by a second
+    here; when the event committed before the approval (before 4a97e16b), the list read
+    right after it came back empty and the card could not be answered (the CI failures
+    of tests/frontend/test_core_live.py)."""
+    conv = conv_with(env={"SUBFLEET_E2E_APPROVAL_PUBLISH_DELAY_S": "1"})
+    cid = conv.create()
+    mid = conv.submit(cid, f"run something {directive}")
+    after, requested, deadline = 0, None, time.monotonic() + 60
+    while requested is None and time.monotonic() < deadline:
+        page = conv.call("conversation.events", conversation_id=cid, after=after, wait_s=5)
+        requested = next((e for e in page["events"] if e["kind"] == "approval.requested"), None)
+        after = page["next"]
+    assert requested is not None, conv.events(cid)
+    # Read at once, as the app does when the event shows the card.
+    listed = conv.call("approval.list", conversation_id=cid)["approvals"]
+    state = conv.message(mid)["state"]
+    display = {k: v for k, v in requested["data"].items() if k not in ("request_id", "kind", "options")}
+    assert [(a["message_id"], a["request_id"], a["kind"], a["state"], a["display"]) for a in listed] == [
+        (mid, requested["data"]["request_id"], kind, "pending", display)], listed
+    assert state == "approval-needed"
 
 
 def test_multiple_question_answers_reach_the_provider_once_and_a_new_message_keeps_them_pending(conv):
@@ -516,6 +595,8 @@ def test_a_turn_that_ends_without_a_result_blocks_the_conversation_until_a_perso
     assert unfinished["available"] and unfinished["files"] == []
     refused = conv.as_agent("conversation.unblock", conversation_id=cid, choice="leave", confirm=True)
     assert not refused["ok"]
+    terminal = conv.as_terminal("conversation.unblock", conversation_id=cid, choice="leave", confirm=True)
+    assert not terminal["ok"] and "this needs the Subfleet app" in terminal["error"]["message"], terminal
     unblocked = conv.as_person("conversation.unblock", conversation_id=cid, choice="leave", confirm=True)
     assert unblocked["ok"], unblocked
     assert conv.until_state(nxt, "complete", "failed")["state"] == "complete"
@@ -582,6 +663,36 @@ def test_a_codex_approval_and_limit(conv):
     assert closures and closures[-1]["clock_source"] == "reported"
 
 
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_a_provider_that_exits_with_an_approval_pending_withdraws_it_in_the_log(conv, provider):
+    """C-27.3: the provider exits without a result while its request waits for the
+    person. The approval is withdrawn with an `approval.resolved {withdrawn}` event and
+    a change-feed row before the message settles: no reader of the log, the approval
+    list or the watch feed is left with a pending card on an ended turn."""
+    if provider == "codex":
+        flag = conv.e2e.root / "conversations" / "codex-writable-verified.json"
+        flag.parent.mkdir(exist_ok=True)
+        flag.write_text(json.dumps({"verified_at": "test"}))
+        cid = conv.create(provider="codex", model="gpt-6-astra", permission="ask")
+    else:
+        cid = conv.create()
+    fed = conv.call("conversation.watch", after=0)["next"]
+    mid = conv.submit(cid, "[fake:approval-exit]")
+    ended = conv.until_state(mid, "failed", "interrupted", "complete", "delivery-unknown")
+    assert ended["state"] == "failed" and ended["state_reason"] == "ended-without-result", ended
+    assert conv.call("approval.list", conversation_id=cid)["approvals"] == []
+    events = conv.events(cid)
+    [requested] = [e for e in events if e["kind"] == "approval.requested"]
+    resolved = [e for e in events if e["kind"] == "approval.resolved"]
+    assert [e["data"] for e in resolved] == [{"request_id": requested["data"]["request_id"], "decision": "withdrawn"}]
+    assert requested["seq"] < resolved[0]["seq"]
+    assert "turn.completed" not in [e["kind"] for e in events]
+    rows = [(c["state"], c["pending_approvals"]) for c in conv.call("conversation.watch", after=fed)["changes"]
+            if c["message_id"] == mid]
+    asked, withdrawn, settled = rows.index(("approval-needed", 1)), rows.index((None, 0)), rows.index(("failed", 0))
+    assert asked < withdrawn < settled, rows
+
+
 def test_a_daemon_restart_mid_turn_adopts_the_turn_and_sends_nothing_twice(conv):
     """C-26.4, C-27.3, design §11: the guardian and provider outlive the daemon; the new
     daemon replays stdout, finds the approval it already stored, and the relay log keeps
@@ -634,6 +745,8 @@ def test_a_steer_joins_the_running_turn_once_without_its_own_job(conv, provider)
     host = conv.submit(cid, "wait for my correction [fake:steer]")
     conv.until_state(host, "running")
     mid = conv.submit(cid, "include the correction", after_message_id=host)
+    terminal = conv.as_terminal("message.steer", message_id=mid)        # D-PB1
+    assert not terminal["ok"] and "this needs the Subfleet app" in terminal["error"]["message"], terminal
     receipt = steer_as_person(conv, mid)
     assert receipt["state"] in ("steering", "steered") and receipt["steered_into"] == host
     assert conv.until_state(host, "complete", "failed")["state"] == "complete"
@@ -949,6 +1062,8 @@ def test_a_message_read_but_never_acknowledged_is_delivery_unknown_until_a_perso
     assert conv.message(nxt)["state"] == "queued"
     refused = conv.as_agent("message.resolve", message_id=mid, resolution="not-delivered", confirm=True)
     assert not refused["ok"] and "person-only" in refused["error"]["message"]
+    terminal = conv.as_terminal("message.resolve", message_id=mid, resolution="not-delivered", confirm=True)
+    assert not terminal["ok"] and "this needs the Subfleet app" in terminal["error"]["message"], terminal
     resolved = conv.as_person("message.resolve", message_id=mid, resolution="not-delivered", confirm=True)
     assert resolved["ok"], resolved
     assert (resolved["result"]["state"], resolved["result"]["state_reason"]) == ("failed", "resolved-not-delivered")

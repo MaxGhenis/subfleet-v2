@@ -754,6 +754,52 @@ def test_assignment_scanner_retains_sensitive_suffixes_and_escaped_quotes(key):
     assert count == 1
 
 
+def _lines_of_length(length: int) -> str:
+    """Ordinary lines, `length` characters in all, ending in a line break."""
+    line = "ordinary line\n"
+    count, extra = divmod(length, len(line))
+    return line * count + ("." * (extra - 1) + "\n" if extra else "")
+
+
+@pytest.mark.parametrize("text,scrubbed", [
+    ("export PASSWORD='SECRET7aa TOKEN='SECRET8bb", "export PASSWORD='[REDACTED]'"),
+    ("password='SECRET7aa token='SECRET8bb' ok", "password='[REDACTED]' ok"),
+])
+def test_an_excerpt_hides_a_second_assignment_whose_quote_closed_the_first(text, scrubbed):
+    """Review r1 of #225, P2: with no closing quote of its own, the first value pairs
+    with the second's opening quote. An excerpt merges the overlapping assignments as
+    the whole-text scrub does, within their one line, so neither value survives."""
+    excerpt, count = handoff.clean(text, 4000)
+    assert excerpt == scrubbed and count >= 1
+    assert handoff.scrub_secrets(text, whole=True)[0] == scrubbed
+    # The same line in a long text's head and tail excerpts; the lines after it stay.
+    long_text = text + "\nkept after it\n" + _lines_of_length(handoff.MAX_SCRUB_CHARS) + text + "\nkept at the end"
+    bounded, _ = handoff.scrub_bounded(long_text, None)
+    assert "characters omitted" in bounded and "SECRET7aa" not in bounded and "SECRET8bb" not in bounded
+    assert bounded.startswith(scrubbed + "\nkept after it\n")
+    assert bounded.endswith(scrubbed + "\nkept at the end")
+
+
+@pytest.mark.parametrize("assignment", [
+    "\\'password\\'\n: \\'{secret}\\'",
+    "\\'password\\' :\n \\'{secret}\\'",
+    '\\\\\\"api_key\\\\\\"\n= \\\\\\"{secret}\\\\\\"',
+], ids=["before-colon", "after-colon", "double-encoded"])
+def test_a_long_text_is_never_cut_between_a_repr_quoted_key_and_its_value(assignment):
+    """Review r1 of #225, P2: a cut skips the backslashes before a key's closing quote
+    (`\\'password\\'`) as the separator does, so the tail excerpt never starts with a
+    value whose key it cut off."""
+    secret = "SECRET7tailcut9"
+    key_line, value_line = assignment.format(secret=secret).split("\n")
+    # The tail's first line break, `EXCERPT_CHARS` from the end, is the one after the key.
+    rest = value_line + "\n" + _lines_of_length(handoff.EXCERPT_CHARS - 3 - len(value_line) - 1)
+    text = _lines_of_length(handoff.MAX_SCRUB_CHARS) + key_line + "\n" + rest
+    assert text.find("\n", len(text) - handoff.EXCERPT_CHARS - 1) == len(text) - len(rest) - 1
+    assert secret not in handoff.scrub_secrets(text, whole=True)[0]
+    bounded, _ = handoff.scrub_bounded(text, None)
+    assert "characters omitted" in bounded and secret not in bounded
+
+
 def test_scrubber_bounds_input_before_matching_without_exposing_cut_credentials(monkeypatch):
     """C-23.14: an oversized block is matched only in line-bounded excerpts, never
     whole, and a line an excerpt would cut is left out, so a secret is never shown

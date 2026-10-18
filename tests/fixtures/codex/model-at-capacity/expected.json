@@ -1,5 +1,6 @@
 {
   "class": "transient",
+  "model_capacity": true,
   "scope": null,
   "clock_source": null,
   "closure": false,

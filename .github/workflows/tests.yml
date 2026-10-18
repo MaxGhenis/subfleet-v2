@@ -14,24 +14,33 @@ concurrency:
 
 jobs:
   tests:
-    name: Python ${{ matrix.python }} on macOS
+    name: Python ${{ matrix.python }} on macOS, shard ${{ matrix.shard }}
     runs-on: macos-15
-    # The release line's suite (6,228 tests, the desktop workspace's included)
-    # took 12 min 22 s on Python 3.12 on 2026-09-27; 15 min cancelled 3.14.
-    # Retention by archive (#76) adds about 22 minutes: its real-filesystem tests
-    # took the 3.14 job to 26.5 minutes on 2026-10-04, and the 2.1.11 integration
-    # ran past 30. Raised until those tests are made faster (hub follow-up).
-    # On the public runners the suite takes 42 to 49 minutes (one passing job
-    # took 48 min 42 s), and on 2026-10-08 two jobs were cancelled at 50 while
-    # still running, 97% and 99% through, so their results were lost. A limit on
-    # the whole job does not bound a single hung test; per-test timeouts are the
-    # hub's follow-up.
-    timeout-minutes: 75
+    # The release line's suite outgrew one job: 12 min 22 s on 2026-09-27 (6,228
+    # tests), and the limit went 15 -> 30 -> 50 -> 75 as it grew. On 2026-10-12/13
+    # (12,658 tests) the test step took 64 min at the median and 71 at the 95th
+    # percentile of 82 passing jobs, and 3.14 was cancelled at 75 three times
+    # (D-CI2). Each job now runs one shard, serially as before, so timing-sensitive
+    # tests see the same load (pytest-xdist on one runner made them fail far more
+    # often: #94, #98). tools/ci_shard_plugin.py splits the test files by measured
+    # time (.github/test-shards.json). On 2026-10-12/13 five of this repository's
+    # macOS jobs ran at once most of the time while the rest queued, so five
+    # shards per interpreter make two full waves of five jobs.
+    # The limit leaves room for one test to run to its 20-minute bound.
+    # tests/unit/test_ci_shard_plugin.py fails once a predicted shard passes half
+    # the limit: then add a shard and regenerate the map.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         python: ["3.12", "3.14"]
+        # Every entry is I/N for one N, I = 1..N (tests/unit/test_ci_shard_plugin.py checks).
+        shard: ["1/5", "2/5", "3/5", "4/5", "5/5"]
+    env:
+      SHARD: ${{ matrix.shard }}
     steps:
+      - name: Name this shard's artifacts
+        run: echo "SHARD_SLUG=${SHARD/\//-of-}" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -47,13 +56,52 @@ jobs:
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"
           HOMEBREW_NO_INSTALL_CLEANUP: "1"
+      # The two build checks read no test's output, so they run once per
+      # interpreter, on its first shard.
       - name: Build source and wheel distributions
+        if: startsWith(matrix.shard, '1/')
         run: uv build
       - name: Compile native menu bar app without launching
+        if: startsWith(matrix.shard, '1/')
         run: app/build.sh "$RUNNER_TEMP/subfleet-frontend"
       - name: Unit, fake-provider, process, and end-to-end contracts
-        # Retry once only when all 1–5 failing pytest node IDs are allowlisted.
-        # Every retry must pass, including setup/teardown; skips and xfails fail.
-        run: uv run --no-sync python tools/ci_retry_known_flakes.py --reports-dir "$RUNNER_TEMP/known-flakes-outcomes"
+        # Retry once only when all 1–5 of this shard's failing pytest node IDs are
+        # allowlisted. Every retry must pass, including setup/teardown; skips and
+        # xfails fail. A test that runs past 20 minutes fails with every thread's
+        # stack (pytest-timeout), above the tests' own bounds of up to 900 s.
+        run: uv run --no-sync python tools/ci_retry_known_flakes.py --shard "$SHARD" --reports-dir "$RUNNER_TEMP/known-flakes-outcomes"
         env:
           SUBFLEET_LIVE: "0"
+          PYTEST_ADDOPTS: "--timeout=1200 --durations=30"
+      - name: Seeded admission state machines (review r4c, PR 207)
+        # Keep the default CI search above, and cover more refusal outcomes once
+        # per interpreter. The seed retains ci's 40 examples and 30 steps.
+        if: startsWith(matrix.shard, '1/')
+        run: uv run --no-sync pytest -q -p no:cacheprovider tests/fake/test_admission_stateful.py --hypothesis-seed=314159
+        env:
+          SUBFLEET_LIVE: "0"
+          HYPOTHESIS_PROFILE: ci
+          HYPOTHESIS_STORAGE_DIRECTORY: ${{ runner.temp }}/hypothesis-seed-314159
+          PYTEST_ADDOPTS: "--timeout=900 --durations=10"
+      # Every phase's node ID, outcome and duration: what the retry read, and what
+      # tools/ci_shard_durations.py rebuilds .github/test-shards.json from.
+      - name: Upload pytest outcomes
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pytest-outcomes-python-${{ matrix.python }}-shard-${{ env.SHARD_SLUG }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/known-flakes-outcomes
+          if-no-files-found: ignore
+          retention-days: 14
+      # The daemon harnesses (tests/e2e, tests/fake, tests/frontend/test_core_live.py)
+      # copy a failed test's state root to /tmp/sf-failed/<test>; the live app test adds
+      # the probe's record under probe/.
+      - name: Upload failed tests' state roots
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sf-failed-python-${{ matrix.python }}-shard-${{ env.SHARD_SLUG }}-attempt-${{ github.run_attempt }}
+          path: /tmp/sf-failed
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 14

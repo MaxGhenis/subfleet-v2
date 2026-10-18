@@ -1,0 +1,99 @@
+{
+  "base": "35b8207f3",
+  "run": "2026-10-11T03:45Z, one suites-lock hold, one pytest process per mutation; source restored in finally and checked by SHA-256",
+  "mutations": [
+    {
+      "mutation": "own-pass-count",
+      "what": "drop the count of this pass's own placements (no PlacementRamp.reserve after a committed reservation)",
+      "edits": [
+        {
+          "file": "subfleet/daemon.py",
+          "original": "                self._ramp.reserve(aid, reserved_at)\n",
+          "mutated": "                pass  # mutation: omit this pass's committed starts\n"
+        }
+      ],
+      "tests": [
+        "tests/fake/test_admission_ramp.py::test_committed_placements_this_pass_fill_window_and_rows_read_once",
+        "tests/fake/test_admission_ramp.py::test_disk_reopening_56_jobs_on_10_lanes"
+      ],
+      "summary": "2 failed, 1 passed in 4.71s",
+      "failed": [
+        "tests/fake/test_admission_ramp.py::test_committed_placements_this_pass_fill_window_and_rows_read_once",
+        "tests/fake/test_admission_ramp.py::test_disk_reopening_56_jobs_on_10_lanes[after-12]"
+      ],
+      "source_restored": true,
+      "seconds": 6.4,
+      "result": "killed"
+    },
+    {
+      "mutation": "count-attended",
+      "what": "count attended turns: the census reads turn attempts and PlacementRamp keeps them",
+      "edits": [
+        {
+          "file": "subfleet/daemon.py",
+          "original": "\"WHERE j.kind NOT IN ('turn','probe') AND a.reserved_at>=?\"",
+          "mutated": "\"WHERE j.kind NOT IN ('probe') AND a.reserved_at>=?\""
+        },
+        {
+          "file": "subfleet/ramp.py",
+          "original": "            if row.get(\"kind\") in (\"turn\", \"probe\"):\n",
+          "mutated": "            if row.get(\"kind\") == \"probe\":\n"
+        }
+      ],
+      "tests": [
+        "tests/fake/test_admission_ramp.py::test_attended_turn_never_reads_waits_on_or_counts_against_ramp"
+      ],
+      "summary": "1 failed in 3.65s",
+      "failed": [
+        "tests/fake/test_admission_ramp.py::test_attended_turn_never_reads_waits_on_or_counts_against_ramp"
+      ],
+      "source_restored": true,
+      "seconds": 5.2,
+      "result": "killed"
+    },
+    {
+      "mutation": "drop-reconstruction",
+      "what": "drop the restart reconstruction: PlacementRamp.begin_pass ignores the attempt rows",
+      "edits": [
+        {
+          "file": "subfleet/ramp.py",
+          "original": "        for row in attempts:\n",
+          "mutated": "        for row in ():\n"
+        }
+      ],
+      "tests": [
+        "tests/fake/test_admission_ramp.py::test_real_restart_counts_completed_attempt_and_retry_until_each_expires"
+      ],
+      "summary": "1 failed in 3.23s",
+      "failed": [
+        "tests/fake/test_admission_ramp.py::test_real_restart_counts_completed_attempt_and_retry_until_each_expires"
+      ],
+      "source_restored": true,
+      "seconds": 4.5,
+      "result": "killed"
+    },
+    {
+      "mutation": "process-memory-only",
+      "what": "keep only starts this daemon process reserved itself (an in-memory bucket): every pass still reads the ledger, but a restarted daemon forgets earlier starts",
+      "edits": [
+        {
+          "file": "subfleet/daemon.py",
+          "original": "            self._ramp.begin_pass(self.policy, self._ramp_rows(since), now)\n",
+          "mutated": "            self._ramp.begin_pass(self.policy, [row for row in self._ramp_rows(since)\n                                                if row[\"attempt_id\"] in self._ramp.reservations], now)\n"
+        }
+      ],
+      "tests": [
+        "tests/fake/test_admission_ramp.py::test_real_restart_counts_completed_attempt_and_retry_until_each_expires",
+        "tests/fake/test_admission_ramp.py::test_gate_review_counts_holds_and_reconstructs_completed_start_after_restart"
+      ],
+      "summary": "2 failed in 3.22s",
+      "failed": [
+        "tests/fake/test_admission_ramp.py::test_real_restart_counts_completed_attempt_and_retry_until_each_expires",
+        "tests/fake/test_admission_ramp.py::test_gate_review_counts_holds_and_reconstructs_completed_start_after_restart"
+      ],
+      "source_restored": true,
+      "seconds": 4.6,
+      "result": "killed"
+    }
+  ]
+}
