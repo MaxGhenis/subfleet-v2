@@ -73,18 +73,12 @@ func codec<A: Codable, R: Codable>(_ op: DaemonOperation<A, R>) -> OpCodec {
         call: { client, args in try sortedEncoder.encode(client.call(op, JSONDecoder().decode(A.self, from: args))) })
 }
 
+struct OpCodecVisitor: DaemonOperationVisitor {
+    func visit<A: Codable, R: Codable>(_ op: DaemonOperation<A, R>) -> OpCodec { codec(op) }
+}
+
 let codecs: [String: OpCodec] = {
-    let all = [
-        codec(Ops.capabilities), codec(Ops.conversationList), codec(Ops.conversationOpen), codec(Ops.conversationCreate),
-        codec(Ops.conversationSettings), codec(Ops.conversationRename), codec(Ops.conversationUnblock), codec(Ops.conversationHistory),
-        codec(Ops.conversationEvents), codec(Ops.conversationWatch), codec(Ops.messageSubmit), codec(Ops.messageStatus),
-        codec(Ops.messageCancel), codec(Ops.messageSteer), codec(Ops.turnInterrupt), codec(Ops.messageResolve), codec(Ops.approvalList),
-        codec(Ops.approvalGet), codec(Ops.approvalRespond), codec(Ops.attachmentAdd), codec(Ops.catalogRefresh),
-        codec(Ops.modelsList), codec(Ops.conversationRuns), codec(Ops.turnDiff), codec(Ops.conversationDiff),
-        codec(Ops.conversationHandoff), codec(Ops.workspaceCheck), codec(Ops.conversationWake),
-        codec(Ops.suggestionCreate), codec(Ops.suggestionList), codec(Ops.suggestionStart), codec(Ops.suggestionDismiss),
-        codec(Ops.suggestionWithdraw),
-    ]
+    let all = Ops.all(OpCodecVisitor())
     return Dictionary(uniqueKeysWithValues: all.map { ($0.name, $0) })
 }()
 

@@ -235,9 +235,10 @@ def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path,
     assert status["conversation"]["conversation_id"] == cid
     assert status["conversation"]["legacy_hold"] == "legacy-owner"
     assert status["message_ids"] == [fixture[key]["message_id"] for key in ("first", "second", "third")]
-    assert set(results) == set(protocol.CONVERSATION_OPS)
-    for op, result in results.items():
-        assert_lossless(core_probe, tmp_path, op, result)
+    ops = run_probe(core_probe, "ops")
+    assert set(results) == set(ops) == set(protocol.CONVERSATION_OPS)
+    for op in ops:
+        assert_lossless(core_probe, tmp_path, op, results[op])
 
     # Spot checks on what the app reads from them.
     assert results["capabilities"]["capabilities"] == list(CAPABILITIES)
