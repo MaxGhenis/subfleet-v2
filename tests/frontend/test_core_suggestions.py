@@ -10,16 +10,14 @@ one card per suggestion. Requests the Swift side encodes reach the daemon's own
 
 from __future__ import annotations
 
+from contextlib import closing
 import json
-from pathlib import Path
-import shutil
-import tempfile
 import uuid
 
 import pytest
 
 from subfleet import protocol
-from tests.frontend.conftest import needs_swift, run_probe, write_json
+from tests.frontend.conftest import needs_swift, run_probe, state_root, write_json
 from tests.frontend.daemon_harness import ServiceHarness
 from tests.frontend.test_core_protocol import assert_lossless
 
@@ -29,12 +27,9 @@ BRIEF = "Port the importer to the new manifest.\n\n- Read `docs/plan.md`\n- Run 
 
 
 @pytest.fixture
-def harness():
-    root = Path(tempfile.mkdtemp(prefix="sf-app-sg-", dir="/tmp"))
-    harness = ServiceHarness(root)
-    yield harness
-    harness.close()
-    shutil.rmtree(root, ignore_errors=True)
+def harness(request):
+    with state_root(request, "sf-app-sg-") as root, closing(ServiceHarness(root)) as harness:
+        yield harness
 
 
 def origin(harness) -> tuple[str, str]:

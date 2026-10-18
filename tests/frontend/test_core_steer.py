@@ -12,16 +12,16 @@ real `conversation.watch`, events from the real `conversation.events`.
 
 from __future__ import annotations
 
+from contextlib import closing
 import json
 from pathlib import Path
-import tempfile
 import time
 import uuid
 
 import pytest
 
 from subfleet import protocol
-from tests.frontend.conftest import needs_swift, run_probe, write_json
+from tests.frontend.conftest import needs_swift, run_probe, state_root, write_json
 from tests.frontend.daemon_harness import (
     STEER_REFUSALS, ServiceHarness, ServiceServer, after_submitted, claude_assistant, claude_block, claude_init,
     claude_result, go_live_when_submitted, make_live, record_state, record_steer_event, steer_frames, steer_requests,
@@ -50,19 +50,16 @@ REFUSED_WORDS = {
 
 
 @pytest.fixture
-def harness():
-    harness = ServiceHarness(Path(tempfile.mkdtemp(prefix="sf-steer-", dir="/tmp")))
-    yield harness
-    harness.close()
+def harness(request):
+    with state_root(request, "sf-steer-") as root, closing(ServiceHarness(root)) as harness:
+        yield harness
 
 
 @pytest.fixture
-def daemon():
-    harness = ServiceHarness(Path(tempfile.mkdtemp(prefix="sf-steer-ob-", dir="/tmp")))
-    server = ServiceServer(harness)
-    yield harness, server
-    server.close()
-    harness.close()
+def daemon(request):
+    with (state_root(request, "sf-steer-ob-") as root, closing(ServiceHarness(root)) as harness,
+          closing(ServiceServer(harness)) as server):
+        yield harness, server
 
 
 # --- helpers -----------------------------------------------------------------------

@@ -3,7 +3,8 @@
 The service harness fixtures put each test's state root under /tmp, where a
 macOS AF_UNIX path fits, and until 2026-09-28 removed none: one machine held
 783 protocol and 194 Changes-pane roots, and about 5,600 more from the
-timeline, store, outbox and watch fixtures. They now make their roots with
+timeline, store, outbox and watch fixtures. They, and the steer, suggestions
+and approval-reach roots added since, now make their roots with
 `conftest.state_root`, which removes a root after a passing test and, after a
 failed one, first copies it without its sockets to /tmp/sf-failed/<test name>,
 as the e2e and fake-daemon harnesses keep theirs. Pytest never raises a test's
@@ -34,6 +35,10 @@ FIXTURES = [
     ("test_core_store", "harness", "sf-st-"),
     ("test_core_outbox", "daemon", "sf-ob-"),
     ("test_core_client", "service", "sf-wl-"),
+    ("test_core_steer", "harness", "sf-steer-"),
+    ("test_core_steer", "daemon", "sf-steer-ob-"),
+    ("test_core_suggestions", "harness", "sf-app-sg-"),
+    ("test_core_suggestions_r1b", "harness", "sf-app-sg-r1b-"),
 ]
 
 #: The inner session gets the frontend conftest's report hook and leftover check.
@@ -204,7 +209,8 @@ def test_failed_roots_are_kept_where_the_other_harnesses_keep_theirs():
     assert FAILED == Path("/tmp/sf-failed")
 
 
-@pytest.mark.parametrize(("module", "fixture", "prefix"), FIXTURES, ids=[module for module, _, _ in FIXTURES])
+@pytest.mark.parametrize(("module", "fixture", "prefix"), FIXTURES,
+                         ids=[f"{module}-{fixture}" for module, fixture, _ in FIXTURES])
 def test_a_fixture_removes_its_root_after_a_pass_and_keeps_it_after_a_failure(inner, module, fixture, prefix):
     result = inner.run(FIXTURE_TESTS, module=module, fixture=fixture)
     result.assert_outcomes(passed=1, failed=1)

@@ -131,10 +131,11 @@ def no_leftover_temporary_directories(request):
 
     The service harness fixtures here removed none of their roots: by 2026-09-28
     one machine held 783 /tmp/sf-app-h-*, 194 /tmp/sf-app-d-* and about 5,600
-    more from the timeline, store, outbox and watch fixtures. The directories a
-    test makes are recorded, not globbed, so another run's roots in /tmp are
-    never taken for this test's. A failed test reports its own failure, and its
-    roots are under /tmp/sf-failed.
+    more from the timeline, store, outbox and watch fixtures, and the steer tests
+    added later left one per test (one per example of a Hypothesis test). The
+    directories a test makes are recorded, not globbed, so another run's roots in
+    /tmp are never taken for this test's. A failed test reports its own failure,
+    and its roots are under /tmp/sf-failed.
     """
     made: list[str] = []
     mkdtemp = tempfile.mkdtemp

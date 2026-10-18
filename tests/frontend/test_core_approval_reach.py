@@ -26,6 +26,7 @@ order with a reference written from the rule above.
 
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
@@ -36,7 +37,7 @@ from hypothesis import HealthCheck, event, given, settings, strategies as st
 import pytest
 
 from subfleet.conversations.store import REPAIR_ORIGINS
-from tests.frontend.conftest import needs_swift, run_probe, write_json
+from tests.frontend.conftest import needs_swift, run_probe, state_root, write_json
 from tests.frontend.daemon_harness import ServiceHarness, claude_init
 from tests.frontend.test_core_timeline import claude_approval, items_of, page, replay
 
@@ -637,11 +638,10 @@ def test_c27_5_a_local_message_not_yet_received_waits_with_the_queue(core_probe)
     assert result["items"][-1]["id"] == "person:m-local"
 
 
-def test_c27_5_real_driver_two_requests_in_one_turn(core_probe, tmp_path):
+def test_c27_5_real_driver_two_requests_in_one_turn(request, core_probe, tmp_path):
     """Two requests the real Claude driver records (a sub-agent's and the main
     agent's) are both behind the strip's Review, oldest first."""
-    harness = ServiceHarness(Path(tempfile.mkdtemp(prefix="sf-reach-", dir="/tmp")))
-    try:
+    with state_root(request, "sf-reach-") as root, closing(ServiceHarness(root)) as harness:
         cid = harness.create()["conversation_id"]
         mid = harness.submit(cid, "clean up")["message_id"]
         later = harness.submit(cid, "then this", after=mid)["message_id"]
@@ -655,8 +655,6 @@ def test_c27_5_real_driver_two_requests_in_one_turn(core_probe, tmp_path):
             {"receipts": opened["messages"]}, {"approvals": opened["pending_approvals"]}, {"page": events},
             {"page": page(harness, cid, after=events["next"])},
         ]}))
-    finally:
-        harness.close()
     assert result["turns"][mid]["state"] == "approval-needed"
     assert result["turns"][later]["state"] == "queued"
     cards = {item["id"]: item["card"] for item in items_of(result, mid, "approval")}
