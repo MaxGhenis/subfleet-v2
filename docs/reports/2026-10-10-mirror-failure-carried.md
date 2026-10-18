@@ -124,9 +124,10 @@ before or after.
   record with nothing. The independent review showed it with a real EMFILE:
   two failed passes, then a third whose read at its start failed, recorded a
   run of one. (The hot record's erasure is older than this change.) Now an
-  absent sidecar, one that holds no JSON object and one that is no regular
-  file have nothing to keep; one that exists and cannot be read is left as it
-  is. A start or progress record is then not written, and the pass's next
+  absent sidecar, one that holds no JSON object and one that no one can read
+  (no regular file, permission denied: `_permanent`) have nothing to keep and
+  are written over, as before; one that cannot be read for a cause that may
+  pass (a full descriptor table, an I/O error) is left as it is. A start or progress record is then not written, and the pass's next
   record reads again; an end raises the OSError, which the pass handles as it
   does a failed write of its end (#170): it ends `error` over the sidecar it
   reads next, or, if no read works, leaves its start for the next pass to
@@ -226,7 +227,7 @@ For the three the full pass's record keeps:
 
 ## Verification
 
-`tests/unit/test_sessions_mirror_failure_carried.py`, 27 tests.
+`tests/unit/test_sessions_mirror_failure_carried.py`, 28 tests.
 
 - Example tests: the pass after a failed one, by RuntimeError and by OSError,
   read by `Mirror.health()`, `--status`, `--status --json` and `doctor`'s row
@@ -238,7 +239,8 @@ For the three the full pass's record keeps:
   raised (3); hot passes, dry runs and passes without the lock (4); a sidecar
   written before the change (5); five hand edits of the three (8); a read of
   the sidecar that fails at a pass's start, at its end, at every read of its
-  end, and in a hot pass, and a FIFO where the sidecar belongs (9); the hang limit itself; passes started by
+  end, and in a hot pass, a FIFO where the sidecar belongs, and a sidecar whose
+  read is denied (9); the hang limit itself; passes started by
   `Timers.tick` on the 60 s interval, read every 5 s, where every reading
   after the first failure names one (6, 7).
 - `test_the_run_is_carried_across_every_sequence_of_passes` (Hypothesis,
@@ -268,7 +270,10 @@ For the three the full pass's record keeps:
   and missed C22 (a negative count). Both had been caught only by a random
   draw, as had C09, C11 and C26, so each now has a fixed case. Eight more
   cover the review's fixes (the read rule, the bound, the field-for-field
-  check, a FIFO where the sidecar belongs). Over all 34 in one run on the fixed tree, 33 were caught; C31 (a sidecar that is no regular file taken for an unreadable one) survived, so it now has a test, and a rerun caught it. The reviewer's three (a snapshot taken after the first
+  check, a FIFO where the sidecar belongs, a sidecar whose read is denied).
+  Over 34 in one run on the fixed tree, 33 were caught; C31 (a sidecar that
+  is no regular file taken for an unreadable one) survived, so it now has a
+  test, and a rerun caught it; C35 came with its test. The reviewer's three (a snapshot taken after the first
   write, a pass known by its start, the hang limit's boundary) are now tests.
   The script and its results are with the review's evidence, outside the
   repository.

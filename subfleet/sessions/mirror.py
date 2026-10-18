@@ -1216,17 +1216,21 @@ class Mirror:
         record with nothing. Review of #172: two failed passes, then an
         EMFILE when the third read the sidecar at its start, read as a run
         of one. An absent sidecar, one that holds no JSON object and one
-        that is no regular file have nothing to keep. One that exists and
-        cannot be read is left as it is: a start or progress record is not
-        written (None), and the pass's next record reads again; an end
-        raises the OSError, which the pass handles as it does a failed
-        write of its end.
+        that no one can read (`_permanent`: no regular file, permission
+        denied) have nothing to keep, and writing over them heals them, as
+        before. One that cannot be read for a cause that may pass (a full
+        descriptor table, an I/O error) is left as it is: a start or
+        progress record is not written (None), and the pass's next record
+        reads again; an end raises the OSError, which the pass handles as
+        it does a failed write of its end.
         """
         try:
             return _load(self.sidecar_path, strict=True)
-        except (FileNotFoundError, transcripts.NotRegularFile, ValueError):
+        except (FileNotFoundError, ValueError):
             return {}
-        except OSError:
+        except OSError as exc:
+            if _permanent(exc):
+                return {}
             if current.state == "running":
                 return None
             raise

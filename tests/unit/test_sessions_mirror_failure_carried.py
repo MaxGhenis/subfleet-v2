@@ -33,8 +33,9 @@ started). The invariants these tests hold the mirror to:
   did not end `ok`, and how many in a row, whenever there was one;
 * no value in the three, from an older mirror or a hand edit, makes a
   reading or a pass raise;
-* a sidecar that exists and cannot be read is never taken for an empty one:
-  no record is written over it, so the run survives the read that failed.
+* a sidecar that cannot be read for a cause that may pass is never taken for
+  an empty one: no record is written over it, so the run survives the read
+  that failed; one no one can read is written over, as before.
 
 Every test names the clause it proves (C-20.5). The desktop store, the
 transcripts, the app's log and the state root live under `tmp_path`, through
@@ -487,6 +488,29 @@ def test_a_fifo_where_the_sidecar_belongs_is_written_over(world, monkeypatch):
     data = world.sidecar()
     assert world.running.sidecar_path.is_file() and data["pass"]["state"] == "ok"
     assert data["not_ok_passes"] == 0 and data["last_end"] == end_of(data["pass"])
+
+
+def test_a_sidecar_no_one_can_read_is_written_over(world, monkeypatch):
+    """C-23.28: a sidecar whose read is denied (EACCES, as for a file of
+    mode 000) holds nothing to keep, as one that is no regular file holds
+    nothing: the pass writes over it and heals it, as before this change. A
+    cause that may pass is the one that leaves the sidecar alone."""
+    unspread(world)
+    fail_once(world, monkeypatch, RuntimeError("before the sidecar was locked"))
+    world.wait(61)
+    with monkeypatch.context() as patch:
+        load = mirror._load
+
+        def denied(path, *, strict=False):
+            if strict and Path(path) == world.running.sidecar_path:
+                raise PermissionError(errno.EACCES, "Permission denied")
+            return load(path, strict=strict)
+
+        patch.setattr(mirror, "_load", denied)
+        assert world.full().state == "ok"
+    data = world.sidecar()
+    assert data["pass"]["state"] == "ok" and data["not_ok_passes"] == 0
+    assert data["last_end"] == end_of(data["pass"])
 
 
 # --- passes in the same second, a start that half failed, the hang limit ----------------
