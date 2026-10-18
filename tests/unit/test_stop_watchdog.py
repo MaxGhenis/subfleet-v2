@@ -403,9 +403,9 @@ def test_c5_8a_a_stop_that_finishes_in_time_exits_with_its_own_status(tmp_path):
                                  "overlap-cancel-fails", "arm-fails-gil", "rearm-arm-fails"])
 def test_c5_8a_a_stop_still_ends_when_faulthandler_cannot_arm(tmp_path, kind):
     """The kernel bound survives an unset/deadlocked stop event, reentrant
-    cancellation, a permanent GIL hog, and later arms that keep coming: with no
-    faulthandler timer to exit first, only an ITIMER_REAL that a later `arm`
-    leaves alone ends the process on time (round-4 review, low 1)."""
+    cancellation, a permanent GIL hog, and later arms that keep coming. The
+    Python watcher exits where it can progress; otherwise only an ITIMER_REAL
+    that a later `arm` leaves alone ends the process (round-4 review, low 1)."""
     rc, lines, elapsed, text = run_child(tmp_path, kind, grace=1.0)
     # C-5.8a promises the bound, not that a missing C timer prevents the
     # preexisting Python watcher from exiting first. A deadlocked stop event
