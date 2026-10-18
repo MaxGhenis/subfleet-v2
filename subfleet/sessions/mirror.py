@@ -281,19 +281,25 @@ def take_turns(behind: dict[str, Any], since: dict[str, int], turn: int,
                bound: int) -> list[str]:
     """Which of the sessions `behind` one flag sync raises, at most `bound`.
 
-    `behind` is `<session> -> how far its stalest copy trails`. First come,
-    first served. `since` says when each started waiting: twice the number of
-    the sync that first saw it behind. A session a sync takes goes to the
-    back, with twice that sync's number plus one, behind every session that
-    was already waiting and before any that arrives later; whether its raise
-    was then published does not matter. Sessions that started waiting
-    together go furthest behind first. `since` is updated in place.
+    `behind` is `<session> -> how far its stalest copy trails`. Least
+    recently served first. `since` is each session's place: twice the number
+    of the sync that last took it, plus one, or twice the number of the sync
+    that first saw it behind. A session a sync takes goes to the back, behind
+    every place there is; whether its raise was then published does not
+    matter. Sessions with one place go furthest behind first. `since` is
+    updated in place, and nothing else ever moves a place: a session that
+    caught up keeps its place, so no snapshot, however old, can cost a
+    session its place by seeing it caught up (the fourth review of #167
+    found two that did, when places were dropped on catching up).
 
-    So a session waits only for those that were waiting before it: with `r`
-    of them, it is taken within `r // bound + 1` syncs that consider it,
-    whatever arrives, fails or succeeds meanwhile. Three rounds of review
-    found a schedule that starved a session under each rule that looked at
-    outcomes (furthest behind first; yield after a failure; count failures).
+    So a session that is behind waits only for sessions placed no later than
+    it. Each of those is taken at most once before it, since a session taken
+    goes behind it, and every place given later is later than its own. With
+    `r` of them, it is passed over at most `r // bound` times, whatever
+    arrives, fails, succeeds or is seen stale meanwhile. Three rounds of
+    review found a schedule that starved a session under each rule that
+    looked at outcomes (furthest behind first; yield after a failure; count
+    failures), and a fourth found two that cost one its place.
     """
     for identity in behind:
         since.setdefault(identity, 2 * turn)
@@ -943,6 +949,12 @@ class Mirror:
         self._splits: dict[str, Any] | None = None
         #: The queue for the bound on date raises (`take_turns`).
         self._activity_turns = _Turns()
+        #: The inventory under way met a folder, account or copy that may not
+        #: be read. No sidebar shows it, so it holds no flag decision; but
+        #: what it holds is unknown, so the split report and the queue's
+        #: housekeeping do not take that inventory for whole. Reset by
+        #: `folders()`, which starts every inventory.
+        self._denied = False
         #: The last transcript discovery listed every project directory.
         self._stems_whole = True
 
@@ -1022,6 +1034,8 @@ class Mirror:
                 # the session it belongs to.
                 self._unread[key] = str(known) or self._unread.get(key, "")
                 self._why[key] = f"unreadable ({errno.errorcode.get(exc.errno or 0, exc)})"
+            else:
+                self._denied = True
             return {}
         try:
             digest = hashlib.sha256(raw).digest()
@@ -1188,6 +1202,7 @@ class Mirror:
         found: list[tuple[str, str, Path]] = []
         self._store_error = None
         self._unlisted_accounts = []
+        self._denied = False
         base = store_dir()
 
         def subdirectories(where: Path) -> list[Path]:
@@ -1204,6 +1219,7 @@ class Mirror:
         except OSError as exc:
             if not _permanent(exc):
                 self._store_error = exc
+            self._denied = True
             return found
         for account in accounts:
             if any(value in account.name for value in excluded):
@@ -1216,6 +1232,7 @@ class Mirror:
             except OSError as exc:
                 if not _permanent(exc):
                     self._unlisted_accounts.append(account)
+                self._denied = True
                 continue
             self._account_orgs[account] = (signature, frozenset(orgs))
             for org in orgs:
@@ -1311,11 +1328,16 @@ class Mirror:
                                 # whole directory's transcripts were dropped
                                 # with it (third review of #167).
                                 try:
-                                    regular, link = item.is_file(), item.is_symlink()
+                                    link = item.is_symlink()
+                                    regular = link or item.is_file()
                                 except OSError as exc:
                                     unsure = unsure or not _no_transcript(exc)
                                     continue
                                 if regular:
+                                    # A link is kept whatever it names now,
+                                    # and looked at again below and on every
+                                    # pass: its target can come and go
+                                    # without the directory changing.
                                     found[item.name[:-6]] = Path(item.path)
                                     if link:
                                         links.add(item.name[:-6])
@@ -1334,9 +1356,9 @@ class Mirror:
                     self._stem_dirs.pop(directory, None)     # look again next pass
                 else:
                     self._stem_dirs[directory] = (mtime, found, frozenset(links))
-                stems.update(found)
-                continue
-            listed, links = cached[1], cached[2]
+                listed = found
+            else:
+                listed, links = cached[1], cached[2]
             for stem, path in listed.items():
                 if stem in links:
                     # `Path.is_file` answers False for any error at all; a link
@@ -1431,6 +1453,8 @@ class Mirror:
             # folder holds and invite copies over them. List it again next pass.
             self._dirty.add(path)
             transient = not (isinstance(exc, FileNotFoundError) or _permanent(exc))
+            if not isinstance(exc, FileNotFoundError):
+                self._denied = True     # unknown to the report, whatever the cause
             raise _Unlisted(str(path), transient=transient) from exc
         _remove_leftovers(leftovers)
         previous = state.names if state is not None else frozenset()
@@ -1840,7 +1864,7 @@ class Mirror:
         moved: the write keeps the later of what the copy holds and what the
         pass decided, and a copy that needs nothing after that is not
         written. A sync raises at most `ACTIVITY_SESSIONS_PER_PASS` sessions,
-        first come first served (`take_turns`). A date
+        least recently served first (`take_turns`). A date
         more than `ACTIVITY_FUTURE_S` past this pass's clock, or not above
         zero, is no voice: it is not raised and it is never the newest. A
         write that changed only a date does not invalidate the full pass's
@@ -1874,8 +1898,6 @@ class Mirror:
         owners: dict[tuple[Path, str], str] = {}
         lag_ms = options.activity_lag_s * 1000.0 if options.activity_lag_s > 0 else 0.0
         horizon_ms = (self.now().timestamp() + ACTIVITY_FUTURE_S) * 1000.0
-        #: The sessions this sync decided, as against those it held undecided.
-        reached: set[str] = set()
         #: `(how far its stalest copy trails, session, [(folder, name, date)])`.
         lagging: list[tuple[Any, str, list[tuple[Path, str, Any]]]] = []
 
@@ -1992,7 +2014,6 @@ class Mirror:
 
             # The date each row shows. A session archived everywhere is in no
             # sidebar list, so its copies' dates are left as they are.
-            reached.add(identity)
             if lag_ms and not base["isArchived"]:
                 # A date from the future is no voice (`ACTIVITY_FUTURE_S`), nor
                 # is zero or less, which the app takes for no date.
@@ -2015,22 +2036,20 @@ class Mirror:
             fresh[identity] = record
 
         # The dates join the same publish, a bounded number of sessions a sync
-        # (`ACTIVITY_SESSIONS_PER_PASS`), first come first served (`take_turns`).
+        # (`ACTIVITY_SESSIONS_PER_PASS`), least recently served first (`take_turns`).
         turns = self._activity_turns
         behind = {identity: lag for lag, identity, _targets in lagging}
         since = turns.since
         if options.dry_run:
-            since = dict(since)                 # a preview takes no one's turn
+            since = dict(since)                 # a preview takes no one's place
         else:
             turns.turn += 1
-            # A session that needs no raise any more, or is gone, stops waiting,
-            # and starts again from the back if it falls behind later. Only one
-            # this sync decided: a session held before its decision (a copy
-            # that could not be read) is not known to need none, and dropping
-            # it put it first again (third review of #167).
-            for identity in [key for key in since if key not in behind and (
-                    key in reached or (complete and key not in groups))]:
-                del since[identity]
+            # Only a session that is gone leaves, and only by a whole inventory:
+            # every folder listed and every copy read, so that gone is not
+            # merely unseen.
+            if complete and not self._denied:
+                for identity in [key for key in since if key not in groups]:
+                    del since[identity]
         taken = set(take_turns(behind, since, turns.turn, ACTIVITY_SESSIONS_PER_PASS))
         for _lag, identity, targets in lagging:
             if identity in taken:
@@ -2309,7 +2328,8 @@ class Mirror:
             self._drop_folders(folders)
             self._inventoried = True            # an empty store is a complete inventory
             self._splits = self._split_report({}, set(), {})
-            self._activity_turns.since.clear()  # and no session is left waiting
+            if not options.dry_run and not self._denied:
+                self._activity_turns.since.clear()   # no session is left to place
             return
         sweep = self._sweep_due()
         current.swept = sweep
@@ -2382,12 +2402,13 @@ class Mirror:
                 if identity not in canonical or score > canonical[identity][0]:
                     canonical[identity] = (score, data, name, path / name)
         current.sessions = len(canonical)
-        if self._stems_whole and not (unlisted or unknown or failed or self._unread):
+        if self._stems_whole and not (unlisted or unknown or failed or self._unread
+                                      or self._denied):
             # Only from every folder, every copy and every project directory: a
-            # folder that did not list this pass may hold the other half of a
-            # split, and a transcript the pass could not see makes its
-            # conversation look dead. A report without them would read as
-            # clean. The last whole report stands until then.
+            # folder that did not list this pass, for any cause, may hold the
+            # other half of a split, and a transcript the pass could not see
+            # makes its conversation look dead. A report without them would
+            # read as clean. The last whole report stands until then.
             self._splits = self._split_report(bound, shown, canonical)
         # A new record this pass read before its transcript existed is no
         # longer fresh to the hot pass, so hand it over to the hot pass's retry.

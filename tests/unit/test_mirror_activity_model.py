@@ -29,9 +29,9 @@ The pure decision the mirror ships (`mirror.activity_targets`) is held to the
 same properties on random inputs, and to the model's own statement of it.
 
 The models are of one session. Which sessions a sync raises when more are
-behind than its bound allows is `mirror.take_turns`, first come first served;
+behind than its bound allows is `mirror.take_turns`, least recently served;
 its property is here too, for any schedule of sessions falling behind,
-catching up, and being taken.
+catching up, being taken and going.
 """
 
 from __future__ import annotations
@@ -148,51 +148,59 @@ def test_a_deferred_pass_decides_no_date_and_still_publishes_its_flag_copies():
 
 # --- whose turn it is ------------------------------------------------------------------
 
-@settings(max_examples=400, deadline=None)
+@settings(max_examples=500, deadline=None)
 @given(bound=st.integers(min_value=1, max_value=4),
        syncs=st.lists(st.tuples(
            st.dictionaries(st.integers(min_value=0, max_value=11),
                            st.integers(min_value=1, max_value=9), max_size=12),
-           st.sets(st.integers(min_value=0, max_value=11), max_size=4)),
-           min_size=1, max_size=14))
-def test_a_session_waits_only_for_those_that_were_waiting_before_it(bound, syncs):
-    """C-23.28 (the three reviews of #167 each found a schedule that starved a
-    session under a rule that looked at outcomes): first come, first served,
-    for any schedule at all. Each sync names the sessions behind, with how far,
-    and some that turned out to need no raise. Whatever arrives, leaves, or is
-    taken and comes back:
+           st.sets(st.integers(min_value=0, max_value=11), max_size=3)),
+           min_size=1, max_size=16))
+def test_a_session_waits_only_for_those_placed_before_it(bound, syncs):
+    """C-23.28 (four reviews of #167 found a schedule that starved a session,
+    or cost one its place, under every rule that looked at outcomes or let a
+    view of a session move its place): least recently served, for any schedule
+    at all. Each sync names the sessions behind, with how far, and some that
+    are gone. A session behind in one sync may be caught up in the next and
+    behind again later, and nothing but a turn moves a place:
 
-    * a sync takes `bound` of them, or all, and never one that was not behind;
-    * no session is passed over for one that started waiting later;
-    * a session that started waiting with `r` others waiting no later than it
-      is passed over at most `r // bound` times."""
+    * a sync takes `bound` of those behind, or all, and only those behind;
+    * no session is passed over for one placed after it;
+    * a session taken goes behind every place there is, and nothing else
+      moves a place;
+    * a session with `r` others placed no later than it, when it got its
+      place, is passed over at most `r // bound` times before it is taken."""
     since: dict[str, int] = {}
-    waiting: dict[str, list[int]] = {}        # session -> [its stamp, r, times passed over]
-    for turn, (lags, done) in enumerate(syncs, start=1):
-        behind = {str(identity): lag for identity, lag in lags.items()}
-        for identity in [str(key) for key in done if str(key) not in behind]:
-            since.pop(identity, None)          # the caller's pruning: it needs no raise
-            waiting.pop(identity, None)
+    budget: dict[str, list[int]] = {}        # session -> [its place, r, times passed over]
+    for turn, (lags, gone) in enumerate(syncs, start=1):
+        gone_ids = {str(key) for key in gone}
+        for identity in gone_ids:             # the caller's only housekeeping
+            since.pop(identity, None)
+            budget.pop(identity, None)
+        behind = {str(key): lag for key, lag in lags.items() if str(key) not in gone_ids}
         before = dict(since)
         taken = mirror.take_turns(behind, since, turn, bound)
         assert len(taken) == min(bound, len(behind)) and set(taken) <= set(behind)
-        stamp = {identity: before.get(identity, 2 * turn) for identity in behind}
+        place = {identity: before.get(identity, 2 * turn) for identity in behind}
         passed = [identity for identity in behind if identity not in taken]
-        assert all(stamp[one] <= stamp[other] for one in taken for other in passed), \
-            "no one is passed over for a session that started waiting later"
-        assert all(since[identity] == 2 * turn + 1 for identity in taken)
-        assert all(since[identity] == stamp[identity] for identity in passed)
+        assert all(place[one] <= place[other] for one in taken for other in passed), \
+            "no one is passed over for a session placed after it"
+        assert all(since[identity] == 2 * turn + 1 > max(before.values(), default=0)
+                   for identity in taken)
+        assert all(since[identity] == place[identity] for identity in passed)
+        assert all(since[key] == value for key, value in before.items() if key not in behind), \
+            "a session that is not behind keeps its place"
+        everyone = {**before, **place}
         for identity in behind:
-            if identity not in waiting or waiting[identity][0] != stamp[identity]:
-                others = sum(1 for other, value in {**before, **stamp}.items()
-                             if other != identity and value <= stamp[identity])
-                waiting[identity] = [stamp[identity], others, 0]
+            if identity not in budget or budget[identity][0] != place[identity]:
+                others = sum(1 for other, value in everyone.items()
+                             if other != identity and value <= place[identity])
+                budget[identity] = [place[identity], others, 0]
         for identity in passed:
-            waiting[identity][2] += 1
-            assert waiting[identity][2] <= waiting[identity][1] // bound, \
-                "it waited longer than for those that were waiting before it"
+            budget[identity][2] += 1
+            assert budget[identity][2] <= budget[identity][1] // bound, \
+                "it waited longer than for those placed before it"
         for identity in taken:
-            waiting.pop(identity, None)
+            budget.pop(identity, None)
 
 
 def test_those_that_started_waiting_together_go_furthest_behind_first():

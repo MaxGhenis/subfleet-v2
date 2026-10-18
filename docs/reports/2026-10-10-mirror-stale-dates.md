@@ -113,11 +113,12 @@ also raises `lastActivityAt`:
   133 files on every turn;
 - zero switches the sync off, as zero does for every window under `sessions`;
 - a session whose flag decision is archived keeps its dates;
-- one flag sync raises at most ten sessions, those furthest behind first, and
-  counts the rest in `activity_waiting`, so the 750-session backlog drains
-  over about 75 passes and no publish is long;
-- the sessions that are behind are taken first come, first served; those
-  that started waiting together go furthest behind first.
+- one flag sync raises at most ten sessions and counts the rest in
+  `activity_waiting`, so the 750-session backlog drains over about 75 passes
+  and no publish is long;
+- which ten is least recently served first: a session's place is when a sync
+  last took it, or when one first saw it behind. Among sessions with one
+  place, which on the first pass is all of them, the furthest behind go first.
 
 A date is a voice only if it is a number above zero, within JavaScript's safe
 integers, and not more than five minutes past the pass's own clock. Anything
@@ -131,9 +132,11 @@ could be copied from the older record.
 **2. Split ids are reported.** A full pass records each record name whose
 copies hold more than one conversation with a transcript, and how many of them
 still show two rows. Only a pass that listed every folder, read every copy and
-listed every project directory replaces the report. The report is written
-once, by the pass that took the inventory. `sessions mirror --status` names each of those with both
-conversations, the folders that open each, and each one's newest date.
+listed every project directory, whatever kept it from one, replaces the
+report. The report is written once, by the pass that took the inventory.
+`sessions mirror --status` names up to ten of the ids that show two rows, each
+with both conversations, the folders that open each, and each one's newest
+date, and says how many more there are.
 `doctor` has a row for it: `warn` while one shows, and `unknown` when no pass
 has replaced the report for thirty minutes. The mirror archives, retitles and
 rebinds none of them.
@@ -161,28 +164,35 @@ For one session, with the date in each folder's copy:
   the store held one.
 - **Any number.** Whatever number a record holds in the field, no pass fails
   on it. A number not above zero, or outside JavaScript's safe integers, is
-  no voice. Within them one millisecond before a date is a different number,
-  exactly.
+  no voice. For an integer within them, one millisecond before it is a
+  different number, exactly; a float may round, so the decision checks every
+  date it would write against the copy's own and the newest.
 - **A date is not a flag write.** A write that changed only a date changes no
   field a flag decision reads, so it does not make the full pass read the
   flags again. Flags, titles and bases keep the liveness they had.
-- **First come, first served under the bound** (`take_turns`). A session
-  that is behind joins a queue. A sync takes the first ten. A session it
-  takes goes to the back, whether or not its raise was published; one that
-  needs no raise any more leaves; one held before its decision keeps its
-  place. So a session waits only for those that were waiting no later than
-  it: with `r` of them, it is passed over at most `r // 10` times, whatever
-  arrives, fails or succeeds meanwhile. Those that started waiting together
-  go furthest behind first. The full pass, the hot pass and the hot pass a
-  full pass runs at its checkpoints share the one queue. A sync orders only
-  the sessions its pass looked at, which for a hot pass are those that
-  changed; the full pass looks at all of them every minute.
+- **Least recently served under the bound** (`take_turns`). Each session
+  has a place: when a sync last took it, or when one first saw it behind. A
+  sync takes the ten that are behind with the earliest places, and a session
+  it takes goes behind every place there is, whether or not its raise was
+  published. Nothing else moves a place. A session that caught up keeps its
+  place, so no view of it, however stale, can cost it one; only a session
+  with no copy left, in an inventory that listed every folder and read every
+  copy, leaves. So a session that is behind waits only for sessions placed no
+  later than it, each at most once: with `r` of them, it is passed over at
+  most `r // 10` times, whatever arrives, fails, succeeds or is seen stale
+  meanwhile. Among sessions with one place the furthest behind go first. The
+  full pass, the hot pass and the hot pass a full pass runs at its
+  checkpoints share the one queue. A sync orders only the sessions its pass
+  looked at, which for a hot pass are those that changed; the full pass
+  looks at all of them every minute.
 - **The report is whole or it is the last whole one.** A pass that could not
   list a folder, read a copy, list a project directory, or look at one of
-  its entries does not replace the split report. One entry the app could not
-  open either is no transcript and hides no other. A report is written once,
-  by its own pass and inside its lock, so the latest inventory's is the last
-  written.
+  its entries, for any cause, does not replace the split report. A folder or
+  a record the app cannot read either holds no flag decision, but what it
+  holds is unknown to the report. One transcript entry the app could not
+  open either is no transcript and hides no other. A linked transcript is
+  looked at again on every pass. A report is written once, by its own pass
+  and inside its lock, so the latest inventory's is the last written.
 - **Idempotence.** With every copy within the lag, nothing is decided and
   nothing is written.
 - **No lost update.** The mirror writes only a copy nobody rewrote since its
@@ -254,7 +264,8 @@ example, not explored.
   schedule of sessions falling behind, catching up and being taken. No
   session is passed over for one that started waiting later, and none is
   passed over more than `r // bound` times.
-- **75 tests on real files** (`tests/unit/test_sessions_mirror_activity.py`),
+- **84 tests on real files** (`tests/unit/test_sessions_mirror_activity.py`, and
+  `test_mirror_activity_queue_races.py` with the fourth review's own cases),
   among them the 2026-10-10 store, the put-back of a date with a flag, the
   bound of ten and its fairness, the new folder copied from the record that
   leads, numbers of any size, a date from the future, the reviewer's schedule
@@ -262,14 +273,18 @@ example, not explored.
   inventory, and the status and doctor output. One is a property: any three
   dates around the pass's clock, and the bounds above on the files a pass
   leaves.
-- **Mutation check:** 53 deliberate faults, one at a time, 49 in `mirror.py`
+- **Mutation check:** 58 deliberate faults, one at a time, 54 in `mirror.py`
   and four in `doctor.py` and the CLI (raise to the newest, raise at exactly
   the lag, write over a later date, raise an archived session, rewrite a copy
   that needs nothing, ignore the switch, take a future date for a voice,
   count a date as a flag write, take a partial inventory for a report, drop a
   directory for one unreadable entry, take whoever is furthest behind over
-  whoever was waiting, give the hot worker a queue of its own, and 41 more).
-  On the final code each fails a test. Earlier runs left three alive, and
+  whoever was placed first, drop the place of a session that caught up, give
+  the hot worker a queue of its own, and 45 more). On the final code each
+  fails a test (`~/reviews/subfleet-v2-pr167/mutation/`). Two survived the
+  last full run, both in how one unreadable entry is handled, because the
+  test that had caught them now takes another path; a test of that entry by
+  cause kills both. Earlier runs left three alive, and
   each changed something. The needless rewrite was real; its test now checks
   that the file is not replaced. Taking zero for a date at the decision
   changed no file once the write refused it, but chose the session again
@@ -380,6 +395,27 @@ partly, and asked for changes a third time.
   writes it. An emptied store kept the ledger's entries; it clears them. The
   cancellation invariant here said less than the contract; it now says
   "before it publishes".
+
+Round 4 (at `3314f06c0`) confirmed the pure queue's bound, and that four of
+round 3's items were fixed and one partly. It asked for changes again, on
+real files with real app saves.
+
+- **A stale view cost a session its place.** The full pass read one copy
+  before the app saved and the other after, saw the session caught up, and
+  dropped the place its own embedded hot pass had just given it. A folder
+  that lost read permission did the same, every time the permission came
+  and went. Both came from one rule: a place was dropped when a sync saw the
+  session caught up. Now nothing but a turn moves a place, and only a
+  session with no copy left, in an inventory that saw everything, leaves.
+- **A folder that will not list, for any cause, keeps the last report.** It
+  had counted as whole when the cause was a permission the app shares.
+- **Notes.** A dry run of an empty or wholly excluded store emptied the
+  queue; it no longer does. A linked transcript whose target was missing
+  when its directory was listed stayed unseen after the target came back,
+  until the next sweep; links are kept and looked at again on every pass.
+  A test now fails if a linked transcript whose target is gone is counted
+  as present. Three sentences here said more than the code does, and are
+  qualified.
 
 ## Cost
 

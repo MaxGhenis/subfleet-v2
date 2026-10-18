@@ -615,7 +615,7 @@ def test_sessions_that_cannot_be_published_yield_the_bound_to_the_rest(world, mo
 def test_two_groups_that_cannot_be_published_do_not_take_turns_for_ever(world, monkeypatch):
     """C-23.28 (second review of #167): with a memory of one sync, twenty
     failing sessions alternated in tens and the twenty-first was never chosen.
-    First come, first served: all twenty-one started waiting together, so the
+    Least recently served: all twenty-one got their places together, so the
     twenty-first is taken once the twenty furthest behind have had their turn."""
     refused = stuck_and_one_writable(world, monkeypatch, 2 * mirror.ACTIVITY_SESSIONS_PER_PASS)
     running = engine(world)
@@ -631,7 +631,7 @@ def test_two_groups_that_cannot_be_published_do_not_take_turns_for_ever(world, m
     assert chosen[2] == (names[:9], 9, NEW - 1), "the writable one, and nine behind it"
     assert chosen[3] == (names[9:19], 10, NEW - 1), "then those that have waited longest"
     since = running._activity_turns.since
-    assert WRITABLE not in since, "one that needs no raise any more stops waiting"
+    assert since[WRITABLE] == 7, "it keeps the place its turn gave it"
     assert min(since, key=since.get).startswith(names[19]), "and this one is next"
 
 
@@ -741,26 +741,45 @@ def test_an_emptied_store_empties_the_ledger(world, monkeypatch):
     assert running._activity_turns.since == {}
 
 
-def test_a_session_that_no_longer_needs_a_raise_stops_waiting(world, monkeypatch):
-    """C-23.28: the queue holds only sessions that are behind. One the app has
-    since run, one that is gone, and one whose raise went through all leave it,
-    and would start from the back if they fell behind again."""
+def test_only_a_session_that_is_gone_leaves_the_queue(world, monkeypatch):
+    """C-23.28 (fourth review of #167): a place is moved only by a turn. One
+    the app has since run keeps its place, so a stale view of it never costs
+    it one; one whose raise went through keeps the place that turn gave it;
+    only one with no copy left in a whole inventory leaves."""
     running = engine(world)
     with monkeypatch.context() as patch:
         stuck_and_one_writable(world, patch, 3)
         running.run_once(options(running))
     since = running._activity_turns.since
-    assert len(since) == 4
-    third = "00000002-0000-4000-8000-00000000dead"
-    rewrite(path(world, 1, "00000000-0000-4000-8000-00000000dead"),
-            lastActivityAt=NEW)                             # the app runs one in B
-    for index in (0, 1):                                    # one is deleted
-        path(world, index, "00000001-0000-4000-8000-00000000dead").unlink()
+    assert since == {**{f"{index:08d}-0000-4000-8000-00000000dead": 3 for index in range(3)},
+                     WRITABLE: 3}
+    caught_up, gone, third = (f"{index:08d}-0000-4000-8000-00000000dead" for index in range(3))
+    rewrite(path(world, 1, caught_up), lastActivityAt=NEW)  # the app runs one in B
+    for index in (0, 1):
+        path(world, index, gone).unlink()                    # one is deleted
     running.run_once(options(running))                      # and the third's write goes through
     assert record(world, 1, third)["lastActivityAt"] == NEW - 1
-    assert set(since) == {third}, "taken this sync; the others stopped waiting"
-    running.run_once(options(running))
-    assert since == {}
+    assert since == {caught_up: 3, third: 5, WRITABLE: 3}
+
+
+def test_a_folder_that_may_not_be_listed_takes_no_session_out_of_the_queue(
+        world, monkeypatch):
+    """C-23.28: a session whose only copies sit in a folder that will not list
+    is unseen, not gone."""
+    running = engine(world)
+    with monkeypatch.context() as patch:
+        stuck_and_one_writable(world, patch, 1)
+        running.run_once(options(running))
+    only_in_a = "77777777-0000-4000-8000-000000000077"
+    fx.index_entry(world[1], *FOLDERS[0], only_in_a, last_activity=NEW,
+                   settings={"ultracode": True})
+    fx.transcript(world[0], only_in_a, fx.completed())
+    running._activity_turns.since[only_in_a] = 1
+    with monkeypatch.context() as patch:
+        listing_fails(patch, world[1] / "acct-a" / "org-a", error=13)
+        assert running.run_once(options(running)).state == "ok"
+    assert running._denied is True
+    assert running._activity_turns.since[only_in_a] == 1
 
 
 def test_a_dry_run_takes_no_ones_turn(world):
@@ -1224,6 +1243,121 @@ def test_no_failure_while_looking_for_transcripts_reads_as_a_whole_inventory(
     assert running.splits() == whole
     after = running.run_once(options(running))
     assert after.sessions == 2 and running._stems_whole is True
+
+
+def test_an_entry_the_app_could_not_open_either_hides_no_other_transcript(
+        world, monkeypatch):
+    """C-23.28: looking at one entry is refused for a cause the app shares
+    (EACCES). That entry is no transcript; the directory's other transcripts
+    are, and the discovery is whole. The same entry failing for a cause that
+    may pass (EIO) leaves the discovery unknown instead."""
+    split(world)
+    running = engine(world)
+    running.run_once(options(running))
+    whole = running.splits()
+    project = world[0] / "projects" / fx.project_slug()
+    (project / "sealed.jsonl").write_text("{}")
+    scan = mirror.os.scandir
+
+    class Entry:
+        def __init__(self, item, error):
+            self.item, self.error = item, error
+
+        def __getattr__(self, name):
+            return getattr(self.item, name)
+
+        def is_file(self, *args, **kwargs):
+            if self.item.name == "sealed.jsonl":
+                raise OSError(self.error, os.strerror(self.error))
+            return self.item.is_file(*args, **kwargs)
+
+    class Listing:
+        def __init__(self, items):
+            self.items = items
+
+        def __enter__(self):
+            return iter(self.items)
+
+        def __exit__(self, *args):
+            return False
+
+    for error, whole_after in ((13, True), (5, False)):
+        running._last_sweep = None
+
+        def scanning(where=".", error=error):
+            if Path(where) == project:
+                with scan(where) as listing:
+                    return Listing([Entry(item, error) for item in listing])
+            return scan(where)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(mirror.os, "scandir", scanning)
+            result = running.run_once(options(running))
+        assert result.state == "ok" and running._stems_whole is whole_after, error
+        assert {REAL, FORK} <= set(running._stems), "the other transcripts are there"
+        assert "sealed" not in running._stems
+        assert running.splits()["live"] == 1
+    assert running.splits()["count"] == whole["count"]
+
+
+def test_a_linked_transcript_whose_target_is_gone_is_no_transcript(world):
+    """C-23.28: the app cannot open it either. The conversation is dead, and
+    the inventory that says so is whole."""
+    split(world)
+    home = world[0]
+    link = home / "projects" / fx.project_slug() / f"{FORK}.jsonl"
+    target = home / "fork-target.jsonl"
+    link.rename(target)
+    link.symlink_to(target)
+    running = engine(world)
+    running.run_once(options(running))
+    assert running.splits()["live"] == 1
+    target.unlink()
+    result = running.run_once(options(running))
+    assert result.sessions == 1 and running._stems_whole is True
+    assert FORK not in running._stems and running.splits()["count"] == 0
+
+
+def test_a_linked_transcript_whose_target_comes_back_is_seen_at_once(world):
+    """C-23.28 (fourth review of #167): a link whose target was missing when
+    its directory was listed was left out of the kept listing, and its target
+    coming back moves no directory's mtime, so it stayed unseen until the next
+    sweep while the report said no id was split. A link is kept whatever it
+    names, and looked at again on every pass."""
+    split(world)
+    home = world[0]
+    link = home / "projects" / fx.project_slug() / f"{FORK}.jsonl"
+    target = home / "elsewhere" / "fork-target.jsonl"
+    target.parent.mkdir()
+    link.rename(target)
+    hidden = home / "elsewhere-aside"
+    target.parent.rename(hidden)
+    link.symlink_to(target)                                  # dangling when listed
+    running = engine(world)
+    running.run_once(options(running))
+    assert FORK not in running._stems and running._stems_whole is True
+    hidden.rename(target.parent)                             # no project directory moved
+    running.run_once(options(running))
+    assert FORK in running._stems
+    assert running.splits()["live"] == 1
+
+
+def test_a_record_that_may_not_be_read_keeps_the_last_whole_report(world):
+    """C-23.28: the app cannot read it either, so it is in no sidebar and holds
+    no flag decision; but what it holds is unknown, so the report stands."""
+    split(world)
+    running = engine(world)
+    running.run_once(options(running))
+    whole = running.splits()
+    sealed = path(world, 2, name="local_app.json")
+    rewrite(sealed, lastFocusedAt=11)                        # so the pass reads it again
+    sealed.chmod(0)
+    try:
+        result = running.run_once(options(running))
+    finally:
+        sealed.chmod(0o600)
+    assert result.state == "ok" and running._denied is True
+    assert running.splits() == whole
 
 
 def test_a_report_whose_record_could_not_be_written_is_written_by_the_next_record(
