@@ -264,7 +264,7 @@ def test_freeze_failure_records_the_attempt_end_in_the_same_pass(
     assert ended["attestation"] == "unattested"
     classification = json.loads(ended["evidence_json"])["classification"]
     assert classification["stream_capture"]["status"] == "unreadable"
-    error_type = "OSError" if cached else type(error).__name__
+    error_type = "InvalidFrozenStream" if cached else type(error).__name__
     assert classification["stream_capture"]["error_type"] == error_type
     if has_receipt and provider == "codex":
         assert classification["turn_completed"] is False
