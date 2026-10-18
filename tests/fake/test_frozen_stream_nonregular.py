@@ -418,13 +418,14 @@ def test_capture_failure_is_sticky_after_io_recovers(
 
 
 @pytest.mark.parametrize("restart", (False, True), ids=("replay", "restart"))
-@pytest.mark.parametrize("name,failure", (
-    ("codex", "copy-eio"), ("codex", "copy-emfile"),
-    ("codex", "stdout-permission"), ("codex", "stderr-permission"),
-    ("codex", "last-permission"), ("claude", "copy-eio"),
+@pytest.mark.parametrize("name,failure,legacy", (
+    ("codex", "copy-eio", False), ("codex", "copy-emfile", False),
+    ("codex", "stdout-permission", False), ("codex", "stderr-permission", False),
+    ("codex", "last-permission", False), ("claude", "copy-eio", False),
+    ("codex", "copy-eio", True), ("claude", "copy-eio", True),
 ))
 def test_valid_verdict_survives_a_later_freeze_failure_and_last_md(
-        state_daemon, monkeypatch, restart, name, failure):
+        state_daemon, monkeypatch, restart, name, failure, legacy):
     """C-4.3/C-9.2: an interrupted real restore cannot replace a valid verdict."""
     from subfleet.frozen_stream import _restored_copy, read_freeze_receipt
     daemon, harness = state_daemon
@@ -440,6 +441,11 @@ def test_valid_verdict_survives_a_later_freeze_failure_and_last_md(
     saved = (adir / "finalization.json").read_bytes()
     captured = (adir / "deliverable.md").read_bytes()
     frozen = adir / json.loads(saved)["stream"]
+    if legacy:
+        result = json.loads(saved)
+        result.pop("stream")  # A legacy verdict can still have a valid copy receipt.
+        (adir / "finalization.json").write_text(json.dumps(result))
+        saved = (adir / "finalization.json").read_bytes()
     opened = []
     denied = None
     try:
@@ -478,6 +484,61 @@ def test_valid_verdict_survives_a_later_freeze_failure_and_last_md(
         assert (adir / "deliverable.md").read_bytes() == captured == b"Finished."
         assert out.read_bytes() == captured
         assert (adir / "finalization.json").read_bytes() == saved
+    finally:
+        if restart:
+            active.close()
+
+
+@pytest.mark.parametrize("restart", (False, True), ids=("replay", "restart"))
+@pytest.mark.parametrize("name,expected", (("codex", "transient"), ("claude", "unknown")))
+def test_legacy_verdict_cannot_retry_a_failed_first_capture(
+        state_daemon, monkeypatch, restart, name, expected):
+    """C-4.3: a cached verdict without any copy cannot authorize a later live read."""
+    daemon, harness = state_daemon
+    out = harness.root / "out.md"
+    out.write_bytes(b"previous export\n")
+    job_id, attempt, adir, adapter, launch, finalizing = stage_provider(daemon, harness, name, out)
+    monkeypatch.setattr(module, "get_adapter", lambda _: adapter)
+    (adir / "stdout").write_bytes(b"")
+    (adir / "deliverable.md").write_bytes(b"Cached interim.")
+    (adir / "finalization.json").write_text(json.dumps({
+        "outcome": {"cls": "ok", "detail": "legacy cached success"},
+        "attestation": {"status": "unattested", "served_model": None},
+        "rule": module.FINALIZATION_RULE,
+    }))
+    salvage = daemon._salvage
+    def interrupt(*args):
+        raise RuntimeError("interrupted salvage")
+    monkeypatch.setattr(daemon, "_salvage", interrupt)
+    original_open = os.open
+    failed = []
+    with pytest.MonkeyPatch.context() as patch:
+        def unreadable(path, *args, **kwargs):
+            if os.fspath(path) == launch.stdout_path and not failed:
+                failed.append(path)
+                raise OSError(errno.EIO, "first capture failed")
+            return original_open(path, *args, **kwargs)
+        patch.setattr(os, "open", unreadable)
+        with pytest.raises(RuntimeError, match="interrupted salvage"):
+            daemon._finalize(finalizing)
+    assert len(failed) == 1
+    saved = (adir / "finalization.json").read_bytes()
+    assert json.loads(saved)["outcome"]["cls"] == expected
+    assert json.loads(saved)["stream_capture"]["status"] == "unreadable"
+    (adir / "stdout").write_bytes(
+        b'{"type":"turn.completed"}\n' if name == "codex" else
+        b'{"type":"result","is_error":false,"result":"Late answer."}\n')
+    monkeypatch.setattr(daemon, "_salvage", salvage)
+    active = replay(daemon, harness, attempt, finalizing, restart, monkeypatch)
+    try:
+        assert active.store.get_attempt(attempt["attempt_id"])["outcome_class"] == expected
+        assert active.store.get_job(job_id)["state"] == "failed"
+        assert (adir / "finalization.json").read_bytes() == saved
+        assert not (adir / "stream.freeze.json").exists()
+        assert not list(adir.glob("stream.frozen-*"))
+        assert not [r for r in active.store.list_artifacts(attempt["attempt_id"])
+                    if r["role"] in ("raw-stream", "deliverable", "export")]
+        assert out.read_bytes() == b"previous export\n"
     finally:
         if restart:
             active.close()
