@@ -185,3 +185,32 @@ def test_d_cen1_provider_exceptions_always_linger(tmp_path, monkeypatch, guardia
             stdout_path=str(tmp_path / "stdout"), stderr_path=str(tmp_path / "stderr"),
             control_socket=str(tmp_path / "control.sock") if failure == "relay-serve" else None)
     assert events == (["relay.stop", "linger"] if failure == "relay-serve" else ["linger"])
+
+
+def test_guardian_exit_time_has_milliseconds_and_precedes_output_cleanup(tmp_path, monkeypatch, guardian_identity):
+    from contextlib import contextmanager
+    from datetime import datetime, timedelta, timezone
+
+    finished = datetime(2026, 10, 18, 12, 0, 0, 123456, tzinfo=timezone.utc)
+    clock = [finished]
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return clock[0]
+    class Child:
+        pid = 424242
+        def wait(self):
+            return 0
+    output = guardian._output
+    @contextmanager
+    def slow_close(path):
+        with output(path) as stream:
+            yield stream
+        clock[0] += timedelta(seconds=2)
+    monkeypatch.setattr(guardian, "datetime", Clock)
+    monkeypatch.setattr(guardian, "_output", slow_close)
+    monkeypatch.setattr(guardian.subprocess, "Popen", lambda *args, **kwargs: Child())
+    assert guardian.run_guardian(["fixture"], attempt_dir=tmp_path, cwd=str(tmp_path), stdin_path=None,
+                                stdout_path=str(tmp_path / "stdout"), stderr_path=str(tmp_path / "stderr")) == 0
+    receipt = json.loads((tmp_path / "exit.json").read_text())
+    assert receipt["finished_at"] == "2026-10-18T12:00:00.123Z"
