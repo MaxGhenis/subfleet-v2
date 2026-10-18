@@ -860,9 +860,9 @@ def test_c23_59_sols_repro_a_lane_open_only_between_the_samples_is_paced():
 
 
 def test_c23_59_the_sample_times_are_every_change_and_a_minute_grid():
-    """C-23.59: the scheduler is asked just after each closure ends, each reading
-    leaves its freshness window and each window resets inside the horizon, and
-    every minute besides; nothing outside the horizon."""
+    """C-23.59: the scheduler is asked at each moment `capacity.decision_horizon`
+    names inside the horizon (a closure's end, a reading's expiry and the second
+    after it), and every minute besides; nothing outside the horizon."""
     policy = shipped_policy()
     rows = [five_hour("claude-1", .1)]
     closes = sched_closure("claude-1", until=fx.iso(SCHED_INSTANT + timedelta(seconds=95)))
@@ -871,7 +871,55 @@ def test_c23_59_the_sample_times_are_every_change_and_a_minute_grid():
     times = dormant._sample_times(snapshot, policy, SCHED_INSTANT, 600)
     offsets = {int((at - SCHED_INSTANT).total_seconds()) for at in times}
     ttl = int(policy["caps"]["reading_ttl_s"])
-    assert {0, 60, 96, ttl + 1, 600} <= offsets and max(offsets) == 600
+    assert {0, 60, 95, ttl, ttl + 1, 600} <= offsets and max(offsets) == 600
+
+
+def test_c23_59_sols_n1_a_reading_dated_ahead_opens_its_lane_for_a_moment():
+    """C-23.59, Sol r5 N1: B's weekly readings are stamped 10 s ahead and its 90%
+    five-hour reading 40 s ahead, so B is a candidate only from +10 s to +40 s.
+    That window is sampled, B is paced, and nothing goes out."""
+    from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
+    policy = load_policy(DEFAULT_POLICY_PATH)
+    ahead = lambda seconds: fx.iso(SCHED_INSTANT + timedelta(seconds=seconds))
+    rows = (reserved_weekly("claude-1") + [five_hour("claude-1", .10)]
+            + reserved_weekly("claude-2", observed_at=ahead(10))
+            + [five_hour("claude-2", .90, age_s=-40)])
+    windows = dormant.lane_windows(sched_view([sched_lane("claude-1"), sched_lane("claude-2")], rows),
+                                   policy, model=OPUS, now=SCHED_INSTANT, horizon_s=1800)
+    assert {window.lane for window in windows} == {"claude-1", "claude-2"}
+    assert dormant.pace_lanes(windows, now=SCHED_INSTANT).allowed == 0
+
+
+def test_c23_59_sols_n2_an_override_that_ends_gives_its_lane_back():
+    """C-23.59, Sol r5 N2: a confirmed reset-credit override holds B's readings out
+    (`stale-provider`) until it ends inside the horizon; then admission sees them
+    again and B can take a turn, so B is paced."""
+    from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
+    policy = load_policy(DEFAULT_POLICY_PATH)
+    rows = reserved_weekly("claude-1") + [five_hour("claude-1", .10)]
+    held = [dict(row, label="stale-provider")
+            for row in reserved_weekly("claude-2") + [five_hour("claude-2", .80)]]
+    snapshot = sched_view([sched_lane("claude-1"), sched_lane("claude-2")], rows + held)
+    for lane in snapshot["lanes"]:
+        if lane["lane_id"] == "claude-2":
+            lane["reset_override"] = {"weekly_reset_at": fx.iso(SCHED_INSTANT + timedelta(seconds=20))}
+    windows = dormant.lane_windows(snapshot, policy, model=OPUS, now=SCHED_INSTANT, horizon_s=1800)
+    assert {window.lane for window in windows} == {"claude-1", "claude-2"}
+    assert dormant.pace_lanes(windows, now=SCHED_INSTANT).allowed == 0
+
+
+def test_c23_59_sols_n3_too_many_moments_pace_nothing(monkeypatch):
+    """C-23.59, Sol r5 N3: past the sample limit pacing cannot say where a turn
+    may land, so it lets nothing out rather than pace on part of the horizon."""
+    policy = shipped_policy()
+    monkeypatch.setattr(dormant, "SAMPLE_LIMIT", 2)
+    rows = [five_hour("claude-1", .1)] + [
+        sched_reading("claude-1", .2, scope=f"model-{n}", observed_at=fx.iso(SCHED_INSTANT - timedelta(seconds=n)))
+        for n in range(10)]
+    windows = dormant.lane_windows(sched_view([sched_lane("claude-1")], rows), policy, model=OPUS,
+                                   now=SCHED_INSTANT, horizon_s=1800)
+    assert dormant.pace_lanes(windows, now=SCHED_INSTANT).allowed == 0
+    assert "too many moments" in windows[0].source
 
 
 def test_c23_59_no_lane_for_a_turn_paces_nothing():

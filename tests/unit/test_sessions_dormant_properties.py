@@ -418,7 +418,7 @@ def _iso_at(seconds: float) -> str:
 
 lane_states = st.fixed_dictionaries({
     "closed_for": st.one_of(st.none(), st.integers(min_value=-60, max_value=2 * HORIZON)),
-    "weekly_age": st.integers(min_value=0, max_value=200),
+    "weekly_age": st.integers(min_value=-300, max_value=200),         # negative: stamped ahead
     "five_hour": st.one_of(st.none(), st.floats(min_value=0, max_value=1)),
     "resets_in": st.integers(min_value=-60, max_value=2 * HORIZON),
 })
@@ -472,7 +472,7 @@ def test_c23_59_every_lane_the_scheduler_picks_inside_the_horizon_is_paced(state
 open_lane_states = st.fixed_dictionaries({
     "closed_for": st.one_of(st.none(), st.integers(min_value=1, max_value=100),
                             st.integers(min_value=1, max_value=HORIZON)),
-    "weekly_age": st.integers(min_value=0, max_value=30),
+    "weekly_age": st.integers(min_value=-60, max_value=30),           # negative: stamped ahead
     "five_hour": st.floats(min_value=0, max_value=0.4),
     "resets_in": st.integers(min_value=HORIZON + 60, max_value=3 * HORIZON),
 })

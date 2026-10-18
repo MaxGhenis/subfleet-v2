@@ -713,10 +713,10 @@ def lane_windows(view: Mapping[str, Any], policy: Mapping[str, Any], *,
     candidates now, and the candidates with every turn in flight ended (a slot
     frees up, and rankings that count turns in flight move as the batch is
     placed) at every moment the scheduler's answer can change within
-    `horizon_s` (`sessions.wake_settle_min`, the time a wake counts as running):
-    just after each closure ends, each reading leaves the scheduler's freshness
-    window and each window resets, and on a one-minute grid besides
-    (`_sample_times`). `view` is the daemon's `daemon.status` answer,
+    `horizon_s` (`sessions.wake_settle_min`, the time a wake counts as running),
+    as `capacity.decision_horizon` names them, and on a one-minute grid besides
+    (`_sample_times`). A reading that arrives later is a new row, not a moment,
+    and is outside what this can see. `view` is the daemon's `daemon.status` answer,
     which is a capacity view. With no lane to take a turn, or no way to
     evaluate one, the one window returned has no reading, and the pace fails
     closed."""
@@ -736,8 +736,12 @@ def lane_windows(view: Mapping[str, Any], policy: Mapping[str, Any], *,
                        source=f"no lane would take a {short} turn now: {decision.reason}")]
     reachable: list[str] = [lane]
     free = {**view, "in_flight_turns": {}, "unavailable_lanes": {}}
-    snapshots = [(view, decision)] + [({**free, "now": _iso(at)}, None)
-                                      for at in _sample_times(view, policy, now, horizon_s)]
+    times = _sample_times(view, policy, now, horizon_s)
+    if times is None:
+        return [Window(None, None, label="unknown",
+                       source="too many moments inside the horizon to know where a turn may land")]
+    ends = _override_ends(view)
+    snapshots = [(view, decision)] + [(_at(free, at, ends), None) for at in times]
     for snapshot, picked in snapshots:
         try:
             picked = picked or scheduler.evaluate(policy, snapshot, _turn_job(policy, short))
@@ -753,46 +757,77 @@ def lane_windows(view: Mapping[str, Any], policy: Mapping[str, Any], *,
             for other in dict.fromkeys(reachable)]
 
 
-#: The grid between the known moments the scheduler's answer changes, and the
-#: most moments one pacing reads.
+#: A grid between the moments the view names, and the most moments one pacing
+#: reads; past that it cannot say which lanes a turn may reach, and paces nothing.
 SAMPLE_GRID_S = 60.0
 SAMPLE_LIMIT = 256
 
 
-def _sample_times(view: Mapping[str, Any], policy: Mapping[str, Any], now: datetime,
-                  horizon_s: float) -> list[datetime]:
-    """The moments in [now, now + horizon_s] to ask the scheduler at.
+def _override_ends(view: Mapping[str, Any]) -> dict[str, datetime]:
+    """Lane id -> the end of its confirmed reset-credit override (C-23.7): the view
+    holds that lane's readings out (`Timers.enrich_view` labels them
+    `stale-provider`; admission drops them) until then."""
+    ends: dict[str, datetime] = {}
+    for lane in view.get("lanes", ()) or ():
+        if not isinstance(lane, Mapping) or not isinstance(lane.get("reset_override"), Mapping):
+            continue
+        at = _instant(lane["reset_override"].get("weekly_reset_at"))
+        if at is not None and isinstance(lane.get("lane_id"), str):
+            ends[lane["lane_id"]] = at
+    return ends
 
-    Its answer for a turn changes when a closure ends (`until_at`), when a
-    reading leaves its freshness window (`observed_at` + `caps.reading_ttl_s`)
-    and when a window resets (`resets_at`); each such moment is sampled a
-    second after it. The one-minute grid catches any change those do not name.
-    """
-    end = now + timedelta(seconds=max(0.0, horizon_s))
+
+def _at(view: Mapping[str, Any], at: datetime, ends: Mapping[str, datetime]) -> dict[str, Any]:
+    """`view` as the scheduler would see it at `at`: its clock moved, and the
+    readings of each override that has ended by then given back (`provider`
+    again; `fresh_provider` still judges their age)."""
+    rows = []
+    for row in view.get("readings", ()) or ():
+        if isinstance(row, Mapping) and row.get("lane_id") in ends and ends[row["lane_id"]] <= at \
+                and row.get("label") == "stale-provider":
+            row = {**row, "label": "provider"}
+        rows.append(row)
+    return {**view, "now": _iso(at), "readings": rows}
+
+
+def _sample_times(view: Mapping[str, Any], policy: Mapping[str, Any], now: datetime,
+                  horizon_s: float) -> list[datetime] | None:
+    """Every moment in [now, now + horizon_s] at which the scheduler's answer for
+    a turn may change with no row changing, and a one-minute grid besides; None
+    when there are more than `SAMPLE_LIMIT`.
+
+    The moments are the codebase's own (`capacity.decision_horizon`: a reading
+    turning fresh at a future `observed_at` or ceasing to be fresh, a window's
+    reset, a closure's end, and an override's end), walked one after another
+    from `now`, each read on the view as it stands at the moment before."""
+    from .. import capacity
+    if not horizon_s or horizon_s <= 0:
+        return [now]
+    end = now + timedelta(seconds=horizon_s)
     caps = policy.get("caps", {}) if isinstance(policy, Mapping) else {}
     try:
-        ttl = float(caps.get("reading_ttl_s", 120))
+        ttl = int(caps.get("reading_ttl_s", 120))
     except (TypeError, ValueError):
-        ttl = 120.0
-    moments: set[datetime] = {now}
-    for row in view.get("closures", ()) or ():
-        if isinstance(row, Mapping):
-            moments.add(_instant(row.get("until_at")) or now)
-    for row in view.get("readings", ()) or ():
-        if not isinstance(row, Mapping):
-            continue
-        observed = _instant(row.get("observed_at"))
-        if observed is not None and math.isfinite(ttl):
-            moments.add(observed + timedelta(seconds=ttl))
-        moments.add(_instant(row.get("resets_at")) or now)
-    known = sorted(at + timedelta(seconds=1) for at in moments if now <= at <= end)
+        ttl = 120
+    ends = _override_ends(view)
+    moments = [now]
+    at = now
+    while True:
+        try:
+            following = capacity.decision_horizon(_at(view, at, ends), reading_ttl_s=ttl,
+                                                  ends=[end_at for end_at in ends.values() if end_at > at])
+        except Exception:                               # noqa: BLE001 - unknown moments: pace nothing
+            return None
+        if following is None or following > end:
+            break
+        following = max(following, at + timedelta(seconds=1))   # the view counts whole seconds
+        moments.append(following)
+        at = following
+        if len(moments) > SAMPLE_LIMIT:
+            return None
     grid = [now + timedelta(seconds=SAMPLE_GRID_S * step)
             for step in range(int(max(0.0, horizon_s) // SAMPLE_GRID_S) + 1)]
-    picked = sorted({*known, *grid, end})
-    if len(picked) > SAMPLE_LIMIT:
-        # Too many to ask: the known moments first, then as much of the grid as fits.
-        picked = sorted({*known[:SAMPLE_LIMIT], *grid[:max(0, SAMPLE_LIMIT - len(known))]})
-    return picked
+    return sorted({*moments, *grid, end})
 
 
 def _turn_slots(policy: Mapping[str, Any], view: Mapping[str, Any],
