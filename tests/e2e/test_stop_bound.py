@@ -21,7 +21,7 @@ import pytest
 from subfleet.procs import same_process
 
 
-#: Give the held worker time to drain before faulthandler ends the process.
+#: Give the held worker time to drain before the stop snapshot ends the process.
 GRACE_S = 5.0
 #: Scheduling slack past the grace on a loaded machine.
 SLACK_S = 10.0
@@ -163,8 +163,8 @@ def test_c5_8a_a_worker_that_never_returns_cannot_keep_the_lock(e2e):
     dump = log[log.index("Timeout ("):]
     # The dump names the thread that would not return: the held worker, in
     # the harness's hold, under the daemon's boundary, and the main thread
-    # joining it from close(). Thread names appear in faulthandler's headers
-    # from Python 3.14.
+    # joining it from close(). The primary dump holds managed Python frame
+    # references; the C fallback can abandon a racy raw frame on Python 3.14.
     for frame in (" in hold\n", " in _boundary\n", " in _process_attempt\n", " in close\n"):
         assert frame in dump, (frame, dump)
     if sys.version_info >= (3, 14):
