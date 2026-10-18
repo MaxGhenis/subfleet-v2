@@ -99,9 +99,9 @@ def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path,
     cid = fixture["cid"]
     # Exercise the import hold too: null stripping must not hide a missing
     # optional Conversation field in the Swift model.
-    harness.store.update_conversation(cid, legacy_hold="legacy-owner")
+    harness.store.set_legacy_hold(cid, "legacy-owner")
     status = harness.call("conversation.status", conversation_id=cid)
-    harness.store.update_conversation(cid, legacy_hold=None)
+    harness.store.set_legacy_hold(cid, None)
     approval = harness.call("approval.list", conversation_id=cid)["approvals"][0]
     # A catalog with one native session, as catalog.build writes it.
     (harness.root / "catalog.json").write_text(json.dumps({"generated_at": "2026-09-24T12:00:00.000Z", "complete": True,
@@ -263,6 +263,7 @@ def test_c25_2_requests_the_app_encodes_are_the_daemons_requests(core_probe, tmp
         "conversation.watch": {"after": 0, "wait_s": 0},
         "message.status": {"message_ids": [mid]},
         "conversation.open": {"conversation_id": cid},
+        "conversation.status": {"conversation_id": cid},
         "conversation.list": {"query": "fix", "limit": 5, "include_catalog": True},
         "models.list": {"provider": "claude"},
         "workspace.check": {"workspace": str(harness.workspace), "provider": "claude", "permission": "ask"},
