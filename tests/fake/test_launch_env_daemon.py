@@ -336,6 +336,9 @@ def nine_root(tmp_path, monkeypatch, reference):
     root.mkdir()
     harness = Harness(root)
     daemon_fixture(tmp_path, monkeypatch)
+    # `daemon start` takes its root from SUBFLEET_HOME alone, never its arguments.
+    monkeypatch.setenv("SUBFLEET_HOME", str(root))
+    assert cli._root(SimpleNamespace()).resolve() == root.resolve()
     write_roster(root, [*roster(root), nine_row(reference)])
     if reference != "HOME":
         monkeypatch.setenv(reference, "dummy-nine")
@@ -393,6 +396,7 @@ def launchd_start(root, monkeypatch, check=None):
 
 def cli_start(root, monkeypatch):
     """`subfleet daemon start` up to a spawn that answers: (exit code, stderr, environments)."""
+    assert cli._root(SimpleNamespace()).resolve() == root.resolve(), "daemon start would leave the test's root"
     seen, alive = [], iter([False])
 
     class Child:
@@ -466,6 +470,7 @@ def test_review_r4_a_refused_first_start_stores_nothing(tmp_path, monkeypatch, r
     assert all(text in err for text in ("claude-9", reference, "lanes.json")), err
     assert "Traceback" not in err and "dummy-nine" not in err
     assert stored(root) == {}, "the check runs before lanes.json is seeded"
+    assert cli._root(SimpleNamespace()).resolve() == root.resolve(), "daemon start would leave the test's root"
     monkeypatch.setattr(cli, "_daemon_alive", lambda *args: False)
     monkeypatch.setattr(cli.subprocess, "Popen", lambda *args, **kwargs: pytest.fail("a refused roster spawned"))
     err = io.StringIO()

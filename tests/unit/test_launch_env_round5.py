@@ -294,6 +294,18 @@ def test_provider_environment_never_reads_a_withheld_value(provider, live):
 # --- P3-1 and P2-1 at `daemon start` -----------------------------------------------------
 
 
+def daemon_start_environ(monkeypatch, root, **names):
+    """`os.environ` as a plain dict that still names the test's own state root.
+
+    `daemon start` resolves its root from SUBFLEET_HOME alone (`cli._root`
+    ignores its arguments), and without the session's marker its default is the
+    person's `~/.subfleet`. So every replaced environment names `root`, and this
+    checks that the command would act on it before any test calls it.
+    """
+    monkeypatch.setattr(os, "environ", {"PATH": "/usr/bin:/bin", "SUBFLEET_HOME": str(root), **names})
+    assert cli._root(SimpleNamespace()).resolve() == root.resolve(), "daemon start would leave the test's root"
+
+
 def no_spawn(monkeypatch):
     monkeypatch.setattr(cli, "_daemon_alive", lambda *args: False)
     monkeypatch.setattr(cli.subprocess, "Popen", lambda *args, **kwargs: pytest.fail("a refused start spawned"))
@@ -325,7 +337,7 @@ def test_env_pass_refusal_names_its_entry_variable_and_lane(where, tmp_path, mon
         with Store(tmp_path / "state.sqlite3") as store:
             store.put_lane(lane)
     write_policy(tmp_path, ["GIT_CONFIG_GLOBAL", "E2E_LANE_NINE_TOKEN"])
-    monkeypatch.setattr(os, "environ", {"PATH": "/usr/bin:/bin", "E2E_LANE_NINE_TOKEN": "dummy-nine"})
+    daemon_start_environ(monkeypatch, tmp_path, E2E_LANE_NINE_TOKEN="dummy-nine")
     with pytest.raises(PolicyError) as error:
         cli.daemon_env(tmp_path)
     assert error.value.key == "env.pass[1]"
@@ -343,7 +355,7 @@ def test_a_refused_lanes_json_row_still_refuses_daemon_start_and_names_its_lane(
                                                                                 monkeypatch, capsys):
     """Review r4, P2-1: as before, refused before any spawn; now the lane and its file are named."""
     write_lanes(tmp_path, env_lane("claude-1", "E2E_LANE_ONE_TOKEN"), env_lane("claude-9", reference))
-    monkeypatch.setattr(os, "environ", {"PATH": "/usr/bin:/bin", reference: "dummy-nine"})
+    daemon_start_environ(monkeypatch, tmp_path, **{reference: "dummy-nine"})
     with pytest.raises(PolicyError) as error:
         cli.daemon_env(tmp_path)
     assert error.value.key == "credential_ref"
@@ -362,8 +374,7 @@ def test_daemon_start_warns_of_a_stored_refused_lane_and_starts(reference, tmp_p
     with Store(tmp_path / "state.sqlite3") as store:
         store.put_lane(env_lane("claude-9", reference))
         store.put_lane(env_lane("claude-1", "E2E_LANE_ONE_TOKEN"))
-    monkeypatch.setattr(os, "environ", {"PATH": "/usr/bin:/bin", "E2E_LANE_ONE_TOKEN": "dummy-one",
-                                       reference: "dummy-nine"})
+    daemon_start_environ(monkeypatch, tmp_path, E2E_LANE_ONE_TOKEN="dummy-one", **{reference: "dummy-nine"})
     seen = spawned(monkeypatch)
     assert cli.cmd_daemon_start(SimpleNamespace(state_root=str(tmp_path))) == 0
     err = capsys.readouterr().err
@@ -380,7 +391,7 @@ def test_daemon_start_takes_a_fixed_lanes_json_row_for_a_stored_refused_lane(tmp
     with Store(tmp_path / "state.sqlite3") as store:
         store.put_lane(env_lane("claude-9", "SUBFLEET_FAKE_LANE_NINE"))
     write_lanes(tmp_path, env_lane("claude-9", "SUBFLEET_TEST_OAUTH"))
-    monkeypatch.setattr(os, "environ", {"PATH": "/usr/bin:/bin", "SUBFLEET_TEST_OAUTH": "dummy-oauth"})
+    daemon_start_environ(monkeypatch, tmp_path, SUBFLEET_TEST_OAUTH="dummy-oauth")
     seen = spawned(monkeypatch)
     assert cli.cmd_daemon_start(SimpleNamespace(state_root=str(tmp_path))) == 0
     assert "claude-9" not in capsys.readouterr().err
