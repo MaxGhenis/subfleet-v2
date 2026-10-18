@@ -779,6 +779,10 @@ END_FIELDS = ("state", "error", "started_at", "finished_at", "stage")
 #: `last_end`'s state for a pass that recorded no end: the next pass to take
 #: the lock found its record still `running`.
 UNFINISHED = "unfinished"
+#: No run is longer: a billion passes a minute apart take 1,900 years. A larger
+#: `not_ok_passes` is a hand edit, and one past 4,300 digits could not even be
+#: written back (review of #172).
+RUN_LIMIT = 10 ** 9
 
 
 def _in_flight(record: dict[str, Any]) -> bool:
@@ -791,12 +795,14 @@ def _carried(data: dict[str, Any]) -> tuple[dict[str, Any] | None, int, str | No
 
     No pass and a run of none from a sidecar without them, or with values
     that are not theirs: one an earlier mirror wrote, or one edited by hand.
+    A count is a whole number from 0 to `RUN_LIMIT`, and a start one `_instant`
+    reads.
     """
     last, count, since = data.get("last_end"), data.get("not_ok_passes"), data.get("not_ok_since")
     if (not isinstance(last, dict) or isinstance(count, bool) or not isinstance(count, int)
-            or count < 0):
+            or not 0 <= count <= RUN_LIMIT):
         return None, 0, None
-    return last, count, since if count and isinstance(since, str) else None
+    return last, count, since if count and isinstance(since, str) and _instant(since) else None
 
 
 def _over(data: dict[str, Any]) -> tuple[dict[str, Any] | None, int, str | None]:
@@ -813,7 +819,9 @@ def _over(data: dict[str, Any]) -> tuple[dict[str, Any] | None, int, str | None]
       and it joins the run.
     * One that the three do not describe: written by a mirror that kept
       none of them, or edited by hand. The record is then the whole run
-      that is known, so a failed one is a run of one.
+      that is known, so a failed one is a run of one. The three describe
+      the record only when `last_end` is it, field for field, as every end
+      the mirror writes leaves them.
     """
     last, count, since = _carried(data)
     record = data.get("pass")
@@ -825,7 +833,7 @@ def _over(data: dict[str, Any]) -> tuple[dict[str, Any] | None, int, str | None]
         return {**end, "state": UNFINISHED}, count + 1, since or start
     if record.get("state") not in ("error", "cancelled"):
         return end, 0, None
-    if last is None or not count or last.get("started_at") != record.get("started_at"):
+    if last != end or not count:
         return end, 1, start
     return end, count, since or start
 
@@ -1199,6 +1207,30 @@ class Mirror:
     def sidecar(self) -> dict[str, Any]:
         return _load(self.sidecar_path)
 
+    def _writable(self, current: Pass) -> dict[str, Any] | None:
+        """The sidecar a record of `current` is written over (C-23.28).
+
+        Each record is written whole, from what the sidecar held, so a read
+        that fails must not be taken for an empty sidecar: the record would
+        replace the run of failed passes, `last_ok_at` and the other pass's
+        record with nothing. Review of #172: two failed passes, then an
+        EMFILE when the third read the sidecar at its start, read as a run
+        of one. An absent sidecar, one that holds no JSON object and one
+        that is no regular file have nothing to keep. One that exists and
+        cannot be read is left as it is: a start or progress record is not
+        written (None), and the pass's next record reads again; an end
+        raises the OSError, which the pass handles as it does a failed
+        write of its end.
+        """
+        try:
+            return _load(self.sidecar_path, strict=True)
+        except (FileNotFoundError, transcripts.NotRegularFile, ValueError):
+            return {}
+        except OSError:
+            if current.state == "running":
+                return None
+            raise
+
     def _record(self, current: Pass, *, last_ok: str | None = None,
                 load_gap: dict[str, Any] | None = None) -> None:
         """Write the full pass's record, and what was over before it (C-23.28).
@@ -1218,13 +1250,15 @@ class Mirror:
 
         A pass's start and its progress carry the three as the pass found
         them. Its end replaces them. Both are worked out from what stood
-        when the pass first recorded, so an end that is written twice counts
-        once.
+        when the pass first read the sidecar (`_writable`), before its own
+        first record, so an end that is written twice counts once.
         """
         if current.dry_run:
             return
         self.dir.mkdir(parents=True, mode=0o700, exist_ok=True)
-        previous = self.sidecar()
+        previous = self._writable(current)
+        if previous is None:
+            return
         if self._began is None or self._began[0] is not current:
             self._began = (current, _over(previous))
         last, count, since = self._began[1]
@@ -1266,7 +1300,9 @@ class Mirror:
                     and last[1] == seen):
                 return
         self.dir.mkdir(parents=True, mode=0o700, exist_ok=True)
-        value = self.sidecar()
+        value = self._writable(current)
+        if value is None:
+            return                          # sampled as unrecorded: the next hot pass records
         value["hot"] = current.to_dict()
         if load_gap is not None:
             value["load_gap"] = load_gap
