@@ -442,17 +442,18 @@ def lane_launch_environment(service, harness, lane_id):
     return service._launch_environment(lane, launch)
 
 
-def other_lane_launches(service, harness, monkeypatch, reference):
-    """codex-1 launches with the parent's names; a refused variable is withheld only when
-    it is a harness hook, never a name every launch needs (HOME)."""
+def other_lane_launches(service, harness, monkeypatch, reference, *, held):
+    """codex-1 launches with the parent's names and no lane's credential. A held
+    lane's variable is withheld only when it is a harness hook, never a name every
+    launch needs (HOME); once repaired, no lane names it at all."""
     _, spawns = launch(service, harness, monkeypatch)
     assert len(spawns) == 1, "codex-1 reached its guardian"
     _, env = spawns[0]
-    assert "dummy-nine" not in env.values()
+    assert TOKEN not in env and "dummy-lane-nine" not in env.values(), "no lane's credential"
     if reference == "HOME":
         assert env["HOME"] == os.environ["HOME"], "every other lane keeps HOME"
-    else:
-        assert reference not in env
+    elif held:
+        assert reference not in env and "dummy-nine" not in env.values(), "a held lane's hook is withheld"
 
 
 @pytest.mark.parametrize("reference", STEP_REFERENCES)
@@ -492,7 +493,7 @@ def test_review_r4_a_fixed_variable_repairs_the_stored_lane(tmp_path, monkeypatc
         assert service.store.get_lane("claude-9").credential == Credential("claude", TOKEN, "env", 2)
         own = lane_launch_environment(service, harness, "claude-9")
         assert own["CLAUDE_CODE_OAUTH_TOKEN"] == "dummy-lane-nine" and TOKEN not in own
-        other_lane_launches(service, harness, monkeypatch, reference)
+        other_lane_launches(service, harness, monkeypatch, reference, held=False)
         return "served"
 
     code, err, served = launchd_start(root, monkeypatch, check)
@@ -531,7 +532,7 @@ def test_review_r4_a_removed_lane_is_held_and_never_blocks_startup(tmp_path, mon
         with pytest.raises(AdapterError) as refused:
             service._credential_environment(lane)
         assert refused.value.reason == "credential-env-inherited"
-        other_lane_launches(service, harness, monkeypatch, reference)
+        other_lane_launches(service, harness, monkeypatch, reference, held=True)
         return "served"
 
     code, err, served = launchd_start(root, monkeypatch, check)
