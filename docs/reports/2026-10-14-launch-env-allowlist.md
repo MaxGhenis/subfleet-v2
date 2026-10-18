@@ -1149,3 +1149,60 @@ refuses personal fallbacks and keychain reads, which only refuses more."
 Round 4's change-log line now says that it selected while `under_pytest`
 decided the parent was in a live session, which included a bare
 `PYTEST_CURRENT_TEST`, and that round 5 drops that case.
+
+### Choices
+
+- **Held, not disabled.** A held lane is not written to: its `enabled` flag,
+  its readings and its closures stay as they were. The hold is computed from
+  the lane's own row each time it is judged, so it ends the moment a repair
+  rewrites the variable, and an operator's `enabled` stays the operator's.
+- **The repair is narrow.** It needs a stored variable that is refused and a
+  row for the same lane id, provider and account. A stored lane whose
+  variable is fine still ignores `lanes.json`, as before. Moving the epoch on
+  marks the new credential for the timers' revoked and heal bookkeeping,
+  which key on it.
+- **Startup checks a superset.** For `env.pass`, the check counts every
+  `lanes.json` row's variable, including a row for a lane id already stored,
+  which seeding skips. `daemon start` did this already, and the daemon now
+  matches it.
+- **Seeding takes the rows it checked.** `_seed_lanes(roster)` stores exactly
+  the roster `_open_lanes` checked. `tests/unit/test_daemon_init_release.py`'s
+  stand-in for `_seed_lanes` now accepts that argument. That is the one
+  existing test outside this PR's files that this round changes.
+- **The timers are unchanged.** A periodic probe of a held Claude lane fails
+  at resolution, reads as `unknown` and backs off, as for any credential that
+  cannot be resolved. Nothing is spawned, and no request is sent.
+- **Doctor is unchanged.** `lane_credentials` lists credential variables. A
+  held lane's variable is none, so doctor leaves it out. The lane shows in
+  both status views as `credential-refused=<variable>`, and in `daemon.log`.
+
+### Invariants
+
+- **Startup.** For every `lanes.json` and store pair *(R, S)* and every
+  policy *P* that loads, the daemon starts iff no row of *R* names a refused variable
+  and `env.pass(P)` names no credential variable of *R* or of *S* after
+  repair. No stored lane decides the outcome except through `env.pass`. A
+  refused startup writes nothing to the store. A successful one stores
+  exactly *S*, with repairs applied, plus each new row of *R*, so no refused
+  row is ever newly stored. Every stored lane with a refused variable is
+  refused by `scheduler.pin_unadmittable` as `credential-refused`, and its
+  resolution raises. `daemon start` reaches the same verdict before the
+  daemon runs. Bounded Hypothesis property:
+  `test_bounded_property_stored_lanes_never_refuse_startup`, 25
+  derandomized examples, each a real `Daemon` on a temporary root, over up
+  to three roster and three stored lanes. Lane ids overlap, accounts differ,
+  variables come from two credential and three refused names, and three
+  `env.pass` names are drawn.
+- **Selection.** For every parent *p*:
+  `session_names(build(p)) = S(p)` if `PYTEST_MARKER ∈ p` and its session is
+  live (or *p* has no session folder), else `∅`. This holds for helpers,
+  both providers and the report, for `dict`, `MappingProxyType`, `ChainMap`
+  and a custom `Mapping`, and the selection is the same for each mapping
+  type. Bounded Hypothesis property:
+  `test_bounded_property_session_names_iff_marker_and_live_session`, 120
+  derandomized examples. It draws four marker values, seven session states
+  (none, live, deleted, recreated, no identity, foreign identity, empty) and
+  three `PYTEST_CURRENT_TEST` values, plus up to 15 session names and 10
+  other names.
+- **No withheld value is read; a popped name reads as absent.** Shown with
+  strict and vanishing parents.
