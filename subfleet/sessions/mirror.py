@@ -994,6 +994,8 @@ class Mirror:
         self._activity_turns = _Turns()
         #: The last transcript discovery listed every project directory.
         self._stems_whole = True
+        #: The pass whose end this instance last began to write (`_holds_end`).
+        self._ending: Pass | None = None
 
     @staticmethod
     def _signature(path: Path) -> tuple[int, ...]:
@@ -1200,6 +1202,8 @@ class Mirror:
             # lock: passes are ordered by that lock, so the latest report is
             # the last one written, whatever any clock says.
             value["splits"] = pending
+        if current.state != "running":
+            self._ending = current              # `_holds_end`: this pass wrote this end
         _write_json(self.sidecar_path, value)
         if pending is not None:
             self._splits = None                 # only once it is on disk
@@ -1223,6 +1227,8 @@ class Mirror:
         value["hot"] = current.to_dict()
         if load_gap is not None:
             value["load_gap"] = load_gap
+        if current.state != "running":
+            self._ending = current              # `_holds_end`: this pass wrote this end
         _write_json(self.sidecar_path, value)
         self._hot_recorded = (instant, seen)
 
@@ -2374,16 +2380,26 @@ class Mirror:
         return current
 
     def _holds_end(self, current: Pass) -> bool:
-        """Whether the sidecar already holds this pass's end as the pass wrote it.
+        """Whether the sidecar holds this pass's end, written by this pass.
 
         An interrupt can arrive inside the write of a pass's end, after the
         file is in place (the review of #170 delivered SIGINT there). That
         pass ended as its record says, and recording it again as `cancelled`
         would leave a `cancelled` record beside the `last_ok_at` it wrote.
+
+        Only a write this pass began counts (`_ending`), not a block that
+        merely reads the same: records are stamped to the second, and an idle
+        hot pass, whose start and end are sampled away, can run in the second
+        of one that wrote an equal `ok` (review r2 of #170). The read is
+        guarded, so that it never takes the place of the exception.
         """
-        if current.state == "running" or current.finished_at is None:
+        if (current.state == "running" or current.finished_at is None
+                or self._ending is not current):
+            return False                        # no end this pass began to write
+        try:
+            block = self.sidecar().get("hot" if current.kind == "hot" else "pass")
+        except Exception:                       # noqa: BLE001 - the exception is the one to raise
             return False
-        block = self.sidecar().get("hot" if current.kind == "hot" else "pass")
         return block == json.loads(json.dumps(current.to_dict()))
 
     def _record_raised(self, current: Pass, exc: BaseException, options: Options) -> None:

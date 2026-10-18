@@ -138,11 +138,14 @@ For a full pass's `pass` record and a hot pass's `hot` record:
    sidecar (a hot pass that changed nothing is sampled: its record is written
    at most once a minute). A pass that raises left `error` (`cancelled` for
    an interrupt) with the exception's type, and raises that same exception,
-   unless the record of its end was already written: that record stands.
+   unless the pass had already written the record of its end: that record
+   stands. A record that only reads the same (an earlier pass's) does not
+   count.
 3. **Expected endings return.** `OSError` and cancellation are recorded and
    returned, as before. No other exception that ends a pass returns. An
-   `OSError` from the pass's own write of its end is raised, as before, now
-   after one more try at the record.
+   `OSError` from a full pass's own write of its end is raised, as before,
+   now after one more try at the record; a hot pass's is not raised, as
+   before.
 4. **Success is a full pass that ended `ok`.** `last_ok_at` moves only when a
    full pass's `ok` is written, and an interrupt after that undoes nothing.
    A hot pass changes nothing of `pass`, `updated_at` or `last_ok_at`.
@@ -152,23 +155,27 @@ For a full pass's `pass` record and a hot pass's `hot` record:
    `stalled` after any other, never `running` for a pass that is over.
 7. **Two records agree.** A pass has a `timer.error` event exactly when it
    raised an exception; its record then names the place it was raised, and
-   both name the same type. That includes an `OSError` from the write of its
-   end. (An interrupt is no `Exception`, and the timer does not catch it.)
+   both name the same type. That includes an `OSError` from a full pass's
+   write of its end. (An interrupt is no `Exception`, and the timer does not
+   catch it.)
 
 Not an invariant: a pass that failed stays visible once the next pass starts.
 The sidecar holds one pass, so the next start replaces the record.
 
 ## Verification
 
-`tests/unit/test_sessions_mirror_pass_failure.py`, 41 tests.
+`tests/unit/test_sessions_mirror_pass_failure.py`, 49 tests.
 
 - Example tests for each row of the table above, for the lock, a dry run, a
   report that raises (as a pass's last step, and inside the handler that
   records an `OSError`), a sidecar that cannot be written, an earlier pass's
   split report, the hot pass after a serviced one that raised, the timer's
   events, the place the record names, an interrupt after a pass's end is
-  written, a note that cannot be added, and a pass without flag sync after
-  one that forked a helper.
+  written, a note that cannot be added, a pass without flag sync after one
+  that forked a helper, a hot pass that raises beside an equal or earlier
+  `ok`, an interrupt before a hot `ok` is in place (in the same second and
+  two seconds on), and a sidecar that cannot be parsed when the end check
+  reads it.
 - `test_every_pass_that_starts_is_recorded_as_finished` (Hypothesis, 250
   cases): up to six passes, full and hot, with the app saving records between
   them. Each pass ends by nothing, by the daemon's stop at some checkpoint, or
@@ -181,16 +188,24 @@ The sidecar holds one pass, so the next start replaces the record.
   reads `healthy`. In one run the cases held full passes that raised an
   exception (24% of cases) and an interrupt (16%), hot passes that raised
   (8%, 13%), and passes of both kinds that returned `cancelled`, `error` and
-  `ok` after meeting the fault.
+  `ok` after meeting the fault. It does not reach three cases, which example
+  tests cover: an exception after a pass's own end is written, a pass
+  without flag sync right after one that forked a helper, and an `OSError`
+  from the end's write after an `OSError`. Nor does it check flags.
 - `test_the_timer_and_the_sidecar_name_the_same_ending` (Hypothesis, 80
-  cases): one faulted pass run by `Timers._run`; invariant 7.
-- Mutants: 27, each one change to the fix: the record not written,
+  cases): one faulted pass run by `Timers._run`; invariant 7. With one fault
+  per pass it never makes the end's write fail; an example test runs that
+  case through the timer.
+- Mutants: 35, each one change to the fix: the record not written,
   the exception swallowed, written without the lock, the wrong state, no
   finish, no type, no place, `last_ok_at` advanced, an `OSError` raised
-  instead of returned, a written end overwritten, an unguarded note, frames
-  found by file name, the helper kept, and so on. The test file fails on all
-  27, each time at an example test. The script
-  and its results are with the review's evidence, outside the repository.
+  instead of returned, a written end overwritten, an end taken for this
+  pass's because it reads the same, an unguarded note or read, frames found
+  by file name or by any `subfleet` module, the helper kept, and so on. Six
+  of them are mutants of the second review's that survived the file then.
+  The test file fails on all 35, each time at an example test. The script
+  and its results are with the review's evidence,
+  outside the repository.
 
 ## What it does not do
 
@@ -227,8 +242,8 @@ notes it rated P3. Fixed after it:
   frame outside the mirror. It matches by module name.
 - **A coverage gap.** Removing `run_once`'s drop of its flag-only helper
   failed no test; a later pass without flag sync then synced flags through
-  the old helper. An example test now covers it, and the property varies
-  flag sync.
+  the old helper. An example test now covers it. The property varies flag
+  sync too, but never reaches that sequence.
 - **A health check.** One property failed Hypothesis's data-generation speed
   check under load. Both properties suppress it.
 - **Claims.** The contract, this report and the test docstrings no longer say
@@ -247,6 +262,36 @@ Noted, not changed. Each is older than this change:
 Cost, measured by the review: 30 failing hot ticks wrote the sidecar 31
 times where the base wrote it once, and both called `_settle` 30 times. An
 error is recorded at once by design.
+
+Round 2 (GPT-6.1 Sol, at `4745eec0a`): APPROVE, with notes it rated P3. It
+found the two merges right, every round-1 note fixed or narrowed, and one
+regression in the round-1 fix. Fixed after it:
+
+- **An end taken for this pass's because it read the same (F1).** Records
+  are stamped to the second, and an idle hot pass's start and end are
+  sampled away. A hot pass that ran in the second of one that wrote `ok`,
+  and then raised, found an equal `ok` in the sidecar and was not recorded:
+  the failure was in `timer.error` and nowhere in the sidecar. The review
+  saw it three times in 130 s under the daemon's own scheduling with an
+  injected fault. Now a pass remembers the end it began to write
+  (`_ending`), and only that one stands. The fix is the review's.
+- **Nothing pinned that identity (F2).** Weaker comparisons (the state
+  alone; the state and the start; no counts) failed no test. Example tests
+  now do: a hot pass that raises beside an equal or an earlier `ok`, and an
+  interrupt before a hot pass's `ok` is in place, in the same second (where
+  only the counts differ) and two seconds on.
+- **The read could replace the exception (F5).** A sidecar too deep to
+  parse raised `RecursionError`, which `_load` does not catch. The read is
+  guarded, and a pass that began no write reads nothing; a test spoils the
+  sidecar after a pass wrote its end.
+- **The module match was not pinned (F6).** Counting any `subfleet` module's
+  frame as the mirror's failed no test; the module-name test now runs a
+  frame of another `subfleet` module.
+- **Claims (F3, F4, F7).** An `OSError` from the end's write is raised for a
+  full pass only; a hot pass's is not, as before. The timer property never
+  makes that write fail, and the sequence property never reaches the
+  helper case; this report and the docstrings say so, and an example test
+  runs the end-write `OSError` through the timer.
 
 ## Not established
 

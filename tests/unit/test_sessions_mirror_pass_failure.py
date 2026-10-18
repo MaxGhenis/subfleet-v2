@@ -19,8 +19,8 @@ and a hot pass's `hot` record:
   the pass recorded its end;
 * one account of the end: a pass that returns left its own record in the
   sidecar; a pass that raises left `error` (`cancelled` for an interrupt) with
-  the exception's type, and raises that same exception, unless the record of
-  its end was already written, which then stands;
+  the exception's type, and raises that same exception, unless the pass had
+  already written the record of its end, which then stands;
 * OSError and cancellation still return, and no other exception that ends a
   pass does (an OSError from the write of the pass's end is raised, as
   before);
@@ -488,6 +488,11 @@ def test_the_record_names_this_module_by_its_name_not_its_file():
     with pytest.raises(RuntimeError) as caught:
         mine["inner"](theirs["boom"])               # through the mirror, raised past it
     assert mirror._raised_at(caught.value) == " (mirror.py:2 in inner)"
+    sibling = {"__name__": "subfleet.sessions.desktop"}
+    exec(compile("def relay(call):\n    call()\n", "/build/somewhere/desktop.py", "exec"), sibling)
+    with pytest.raises(RuntimeError) as caught:     # another subfleet module is not the mirror
+        mine["inner"](lambda: sibling["relay"](theirs["boom"]))
+    assert mirror._raised_at(caught.value) == " (mirror.py:2 in inner)"
     mine["__name__"] = "not.the.mirror"
     with pytest.raises(RuntimeError) as caught:
         mine["inner"](theirs["boom"])               # through none of it: the innermost
@@ -657,6 +662,126 @@ def test_a_hot_pass_records_and_returns_oserror_and_cancellation_as_before(world
     assert world.sidecar()["pass"]["state"] == "ok" and world.lock_is_free()
 
 
+def test_a_hot_pass_that_raises_after_an_equal_idle_record_is_recorded(world, monkeypatch):
+    """C-23.28 (review r2 of #170, F1): two idle hot passes in one second, as
+    the daemon runs a queued hot pass and the next one 50 ms later. The first
+    writes its `ok`; the second's start and end are sampled away, so the
+    sidecar holds a record equal to its own, and its report raises. Only an
+    end this pass began to write stands, so the failure is recorded."""
+    inventoried(world)
+    world.wait(2)
+    assert world.hot().state == "ok"                # written: the sampling window opens
+    monkeypatch.setattr(mirror.Mirror, "load_gap", raising(RuntimeError("the report")))
+    _result, raised = attempt(world.hot)            # in the same second
+    assert isinstance(raised, RuntimeError)
+    hot = world.sidecar()["hot"]
+    assert hot["state"] == "error" and WHERE.search(hot["error"]), hot
+
+
+def test_a_hot_pass_that_raises_after_an_earlier_sampled_ok_is_recorded(world, monkeypatch):
+    """C-23.28 (review r2 of #170, F2): `hot` already reads an earlier pass's
+    `ok`, and this pass, whose start and end are sampled, raises after `ok`.
+    Its record must not be taken for that earlier one."""
+    inventoried(world)
+    world.wait(2)
+    assert world.hot().state == "ok"
+    world.wait(2)
+    monkeypatch.setattr(mirror.Mirror, "load_gap", raising(RuntimeError("the report")))
+    _result, raised = attempt(world.hot)
+    assert isinstance(raised, RuntimeError)
+    hot = world.sidecar()["hot"]
+    assert hot["state"] == "error" and hot["started_at"] == hot["finished_at"] == fx.iso(world.clock)
+
+
+def test_an_interrupt_after_a_hot_pass_wrote_its_ok_leaves_that_record(world, monkeypatch):
+    """C-23.28: a hot pass that copied a session writes its `ok` at once; an
+    interrupt right after that write leaves it standing."""
+    inventoried(world)
+    world.put(0, TWO)
+    world.wait(2)
+    record = mirror.Mirror._record_hot
+
+    def then_interrupted(self, current, load_gap):
+        record(self, current, load_gap)
+        if current.state != "running":
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(mirror.Mirror, "_record_hot", then_interrupted)
+    _result, raised = attempt(world.hot)
+    assert isinstance(raised, KeyboardInterrupt)
+    hot = world.sidecar()["hot"]
+    assert hot["state"] == "ok" and hot["added"] == 2 and world.holds(TWO) == [0, 1, 2]
+
+
+def test_reading_the_sidecar_for_its_end_never_replaces_the_exception(world, monkeypatch):
+    """C-23.28 (review r2 of #170, F5): a sidecar too deeply nested to parse
+    raises RecursionError, which `_load` does not catch. An interrupt at the
+    end of a dry run is still the exception raised."""
+    inventoried(world)
+    world.running.sidecar_path.write_text("[" * 200_000 + "]" * 200_000)
+    settle = mirror.Mirror._settle
+
+    def interrupted(self, options):
+        if options.dry_run:
+            raise KeyboardInterrupt
+        return settle(self, options)
+
+    monkeypatch.setattr(mirror.Mirror, "_settle", interrupted)
+    _result, raised = attempt(lambda: world.full(dry_run=True))
+    assert isinstance(raised, KeyboardInterrupt), repr(raised)
+
+
+@pytest.mark.parametrize("gap", [0, 2], ids=["same-second", "two-seconds-on"])
+def test_an_interrupt_before_a_hot_ok_is_in_place_is_recorded_over_the_older_ok(
+        world, monkeypatch, gap):
+    """C-23.28: `hot` reads an earlier pass's `ok`. This pass's start is sampled
+    away (inside the minute), and it copies a session, so its `ok` is written
+    at once; an interrupt lands before that file is in place. The sidecar then
+    holds the earlier `ok`, of the same state but not this pass's, so the
+    interrupt is recorded. In the same second the two `ok` records have the
+    same stamps too, and differ only in what each pass did."""
+    inventoried(world)
+    world.wait(2)
+    assert world.hot().state == "ok"
+    earlier = world.sidecar()["hot"]
+    world.put(0, TWO)                               # a copy to make: the end is not sampled away
+    world.wait(gap)
+    write, fired = mirror._write_json, []
+
+    def interrupted(path, value, **kwargs):
+        if not fired and (value.get("hot") or {}).get("state") == "ok" and value["hot"] != earlier:
+            fired.append(True)
+            raise KeyboardInterrupt                 # before the file is in place
+        return write(path, value, **kwargs)
+
+    monkeypatch.setattr(mirror, "_write_json", interrupted)
+    _result, raised = attempt(world.hot)
+    assert fired and isinstance(raised, KeyboardInterrupt)
+    hot = world.sidecar()["hot"]
+    assert hot["state"] == "cancelled" and hot["started_at"] == fx.iso(world.clock), hot
+    assert hot["added"] == 2 and world.holds(TWO) == [0, 1, 2]
+
+
+def test_an_unreadable_sidecar_after_the_end_was_written_does_not_replace_the_exception(
+        world, monkeypatch):
+    """C-23.28: the end was written, then the sidecar became too deep to parse,
+    then an interrupt landed. The check reads the sidecar, and that read's
+    RecursionError must not be what the caller gets."""
+    unspread(world)
+    record = mirror.Mirror._record
+
+    def written_then_spoiled(self, current, **kwargs):
+        record(self, current, **kwargs)
+        if current.state != "running":
+            self.sidecar_path.write_text("[" * 200_000 + "]" * 200_000)
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(mirror.Mirror, "_record", written_then_spoiled)
+    _result, raised = attempt(world.full)
+    assert isinstance(raised, KeyboardInterrupt), repr(raised)
+    assert world.lock_is_free()
+
+
 def test_a_hot_pass_that_fails_every_time_never_reads_in_flight(world, monkeypatch):
     """C-23.28: every recorded start is finished. 90 hot passes 2 s apart, each
     of which raises: the start sampled once a minute had stayed `running`."""
@@ -791,6 +916,31 @@ def test_the_timer_keeps_its_error_event_for_a_pass_that_raises(world, timed, mo
         assert events("timer.run", timer)[-1]["last_error_type"] == "Odd"
         assert record["state"] == "error" and record["error"].startswith("Odd: no pass expects this")
     assert world.health()["status"] == "stalled"
+
+
+def test_an_oserror_from_writing_the_end_reaches_the_timer_and_the_record_names_it(
+        world, timed, monkeypatch):
+    """C-23.28: the one OSError a pass does not return. It raises from the
+    pass's write of its end, so the timer logs it, and the record, written on
+    the second try, carries its type and place."""
+    timers, events = timed
+    unspread(world)
+    record = mirror.Mirror._record
+    calls = []
+
+    def end_fails_once(self, current, **kwargs):
+        calls.append(current.state)
+        if current.state != "running" and calls.count(current.state) == 1:
+            raise OSError(errno.EIO, "end not written")
+        return record(self, current, **kwargs)
+
+    monkeypatch.setattr(mirror.Mirror, "folders", raising(OSError("store not listed")))
+    monkeypatch.setattr(mirror.Mirror, "_record", end_fails_once)
+    timers._run("mirror")                           # noqa: SLF001
+    assert calls[-2:] == ["error", "error"] and set(calls[:-2]) == {"running"}
+    assert events("timer.error", "mirror") == [{"timer": "mirror", "error_type": "OSError"}]
+    error = world.sidecar()["pass"]["error"]
+    assert error.startswith("OSError: [Errno 5] end not written (") and WHERE.search(error)
 
 
 def test_the_timer_records_no_error_for_the_endings_a_pass_expects(world, timed, monkeypatch):
@@ -997,8 +1147,9 @@ def test_the_timer_and_the_sidecar_name_the_same_ending(timer, fault, tmp_path_f
     """C-23.28: two records of one pass, the daemon's `timer.error` event and
     the mirror's sidecar. A pass has an error event exactly when it raised;
     its record then names the place it was raised (only a raised exception's
-    record does), and both name the same type. That includes an OSError that
-    the pass's own write of its end raised, which is raised too."""
+    record does), and both name the same type. It puts one fault in a pass,
+    so it never makes the end's write fail after an OSError; an example test
+    covers that OSError."""
     from subfleet.store import Store
     from subfleet.timers import Timers
     if fault is not None and fault[0] == "raise" and isinstance(fault[4], BASE):
