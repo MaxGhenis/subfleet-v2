@@ -1983,8 +1983,21 @@ def test_ping_character_device_with_no_eof_is_bounded(daemon, monkeypatch):
     """C-17.8 /dev/zero is readable forever; the finite read budget still applies."""
     daemon({"ping": lambda request: {"pong": True}})
     monkeypatch.setenv("SUBFLEET_PING_STDIN_WAIT_S", "0.05")
+    class Device:
+        def __init__(self, stream):
+            self.stream = stream
+
+        def fileno(self):
+            return self.stream.fileno()
+
+        def isatty(self):
+            return False
+
+        def read(self, *args):
+            pytest.fail("an endless character device must not be read through EOF")
+
     with open("/dev/zero", "rb") as stream:
-        monkeypatch.setattr(cli.sys, "stdin", stream)
+        monkeypatch.setattr(cli.sys, "stdin", Device(stream))
         started = time.monotonic()
         assert run_cli(["ping"]) == int(Exit.INVALID_INPUT)
         assert time.monotonic() - started < 0.75
@@ -2004,3 +2017,18 @@ def test_select_failure_never_falls_back_to_an_unbounded_read(monkeypatch):
             assert text is None and "readiness unavailable" in reason
     finally:
         os.close(write_fd)
+
+
+def test_ping_prints_the_notice_the_daemon_queued(daemon, capsys):
+    """C-17.8 render the notice id in the reply without inventing a delivery."""
+    daemon({"ping": lambda request: {"pong": True, "session_id": "sess-1", "notice_id": -7}})
+    assert run_cli(["ping", "--session", "sess-1", "hi"]) == 0
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "queued notice -7 for sess-1" and captured.err == ""
+
+
+def test_ping_still_renders_a_reported_delivery(daemon, capsys):
+    """C-15.2 a transport's explicit delivery answer is still rendered."""
+    daemon({"ping": lambda request: {"delivered": True, "name": "cli-1"}})
+    assert run_cli(["ping", "--session", "sess-1", "hi"]) == 0
+    assert capsys.readouterr().out.strip() == "delivered to cli-1"
