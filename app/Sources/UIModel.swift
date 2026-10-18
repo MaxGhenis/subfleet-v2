@@ -169,6 +169,7 @@ final class UIModel: ObservableObject {
         baseline.focus(state.focusedConversationID)
         state = baseline
         state.watchBaselined = true
+        fetchNamedMessages()
         startWatchLoop()
         if let focused = state.focusedConversationID {
             startEventsLoop(focused)
@@ -288,11 +289,31 @@ final class UIModel: ObservableObject {
     private func fold(watch page: WatchPage) {
         let known = Set(state.conversations.map(\.conversation_id))
         state.apply(watch: page)
+        fetchNamedMessages()
         for intent in state.drainNotifications() { post(intent) }
         updateBadge()
         refreshApprovalsIfStale()
         if page.changes.contains(where: { !$0.conversation_id.isEmpty && !known.contains($0.conversation_id) }) {
             Task { await refreshList() }
+        }
+    }
+
+    /// The messages the feed named that a timeline has no receipt for (one this
+    /// app did not send), asked for with `message.status` on the outbox queue,
+    /// never on the feed's thread: one batch at a time, the next as soon as it is
+    /// answered. A batch that fails waits for the feed's next page (C-29.9).
+    private func fetchNamedMessages() {
+        guard let engine else { return }
+        let batch = state.takeMessageFetch()
+        guard !batch.isEmpty else { return }
+        Task {
+            do {
+                let receipts = try await onOutbox { try engine.status(batch) }
+                state.apply(fetched: receipts, asked: batch)
+                fetchNamedMessages()
+            } catch {
+                state.messageFetchFailed(batch)
+            }
         }
     }
 

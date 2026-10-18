@@ -149,10 +149,14 @@ struct TurnTimeline: Equatable {
     var createdTS: String?
     var attachments: [String] = []
     /// A message state, or `sending` before the first receipt.
-    var state: String
-    var stateReason: String?
+    var state: String { didSet { if state != oldValue { standingChanges += 1 } } }
+    var stateReason: String? { didSet { if stateReason != oldValue { standingChanges += 1 } } }
     var settings: ConversationSettings?
-    var stopRequested = false
+    var stopRequested = false { didSet { if stopRequested != oldValue { standingChanges += 1 } } }
+    /// How many times where the message stands (its state, reason or stop) has
+    /// changed, from any source: its events, a receipt, the watch feed. A
+    /// `message.status` answer asked for before one of them is older (C-29.9).
+    var standingChanges = 0
     var phases: [PhaseStamp] = []
     /// When the person last answered an approval: a tool waiting on it starts then.
     var answeredTS: String?
@@ -185,6 +189,10 @@ struct TurnTimeline: Equatable {
     /// Events first, then the settled receipt's facts (lane, served model).
     var served: Served { eventServed.merging(receiptServed) }
     var messageState: MessageState? { MessageState(rawValue: state) }
+    /// No receipt has said what this message is (its sequence, origin and text)
+    /// and this app is not sending it: the turn came from its events or an
+    /// approval alone. The watch feed has `message.status` fetch it (C-29.9).
+    var lacksReceipt: Bool { seq == nil && origin == nil }
     var pendingApprovals: [ApprovalCard] {
         items.compactMap { if case .approval(let card) = $0.content, card.isPending { return card } else { return nil } }
     }
@@ -770,24 +778,38 @@ struct Timeline: Equatable {
     }
 
     mutating func apply(receipt: Receipt) {
+        apply(receipt, standing: true)
+    }
+
+    /// What a receipt says the message is (its sequence, origin, what it
+    /// continues, settings, the person's text), not where it stands: for a
+    /// `message.status` answer that may be older than a watch row the timeline
+    /// has folded since it was asked (C-29.9).
+    mutating func apply(identity receipt: Receipt) {
+        apply(receipt, standing: false)
+    }
+
+    private mutating func apply(_ receipt: Receipt, standing: Bool) {
         guard receipt.conversation_id == nil || receipt.conversation_id == conversationID else { return }
         ensureTurn(receipt.message_id)
         guard var turn = turns[receipt.message_id] else { return }
-        if receipt.messageState != .unknown {
-            turn.state = receipt.state
-            turn.stateReason = receipt.state_reason
-            turn.steeredInto = receipt.steered_into ?? steeredInto(stateReason: receipt.state_reason)
-            // A queued receipt may be its submit's, ahead of its steer's answer.
-            if receipt.messageState != .queued { turn.steerRequested = false }
-            if receipt.messageState == .steering || receipt.messageState == .steered { turn.steerRefusal = nil }
+        if standing {
+            if receipt.messageState != .unknown {
+                turn.state = receipt.state
+                turn.stateReason = receipt.state_reason
+                turn.steeredInto = receipt.steered_into ?? steeredInto(stateReason: receipt.state_reason)
+                // A queued receipt may be its submit's, ahead of its steer's answer.
+                if receipt.messageState != .queued { turn.steerRequested = false }
+                if receipt.messageState == .steering || receipt.messageState == .steered { turn.steerRefusal = nil }
+            }
+            turn.stopRequested = receipt.stop_requested ?? turn.stopRequested
+            if let served = receipt.served { turn.receiptServed = served }
         }
         turn.seq = receipt.seq ?? turn.seq
         turn.origin = receipt.origin ?? turn.origin
         turn.createdTS = receipt.created_at ?? turn.createdTS
         turn.continues = receipt.continues ?? turn.continues
         turn.settings = receipt.settings ?? turn.settings
-        turn.stopRequested = receipt.stop_requested ?? turn.stopRequested
-        if let served = receipt.served { turn.receiptServed = served }
         if turn.personText == nil, let text = receipt.text {
             turn.personText = text + (receipt.text_truncated == true ? "\n…" : "")
         }

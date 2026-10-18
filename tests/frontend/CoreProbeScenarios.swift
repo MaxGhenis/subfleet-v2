@@ -586,6 +586,7 @@ func extraCommand(_ arguments: [String]) throws -> Any? {
     case "live":
         return try runLive(arguments)
     default:
-        return try searchProbeCommand(arguments)
+        if let handled = try searchProbeCommand(arguments) { return handled }
+        return try watchCommand(arguments)
     }
 }
