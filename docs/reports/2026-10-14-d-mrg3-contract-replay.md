@@ -1,6 +1,6 @@
 # D-MRG3: the contract's history out, one sentence per line
 
-Measured on 2026-10-14, and revised on 2026-10-18 after review r1b, for C-20.7 (PR #218).
+Measured on 2026-10-14, and revised on 2026-10-18 after reviews r1b and r2, for C-20.7 (PR #218).
 
 ## The defect
 
@@ -24,23 +24,37 @@ So each merge into release/217 made every other open pull request conflict, GitH
   `git show 3f50142ac:docs/acceptance-contract.md | sed -n '8,177p' | grep '^- ' | sed 's/^- //'` diffs empty against `cat docs/contract-history/version-3/*.md`.
   The SHA-256 of the texts joined by newlines is `5a72c934…bea22d` both ways (`MIGRATED_SHA256`).
   The old section held nothing but list items and 13 blank lines.
-- **Clauses.** All 252 clauses of 3f50142ac read the same in the contract at 1e65b60d9 when line breaks and runs of spaces are read as one space (`contract_layout.clauses`), C-8.5 among them; C-20.7 is the only clause this change adds.
+- **Clauses.** All 252 clauses of 3f50142ac read the same at 8c0414587, before release/217 was merged in, when line breaks and runs of spaces are read as one space (`contract_layout.clauses`); C-8.5, whose bold carries a title, is among them.
+  C-20.7 is the only clause this change adds.
   The merge of release/217 at 3fbc4b7c5 changed none of its 255 clauses.
-- **Rendering.** The laid-out contract and the same contract with each paragraph on one line render alike in markdown-it-py 3.0.0 (CommonMark with tables) and cmarkgfm 2024.11.20 (cmark-gfm, GitHub's renderer).
+- **Rendering.** The laid-out contract and the same contract with each paragraph on one line render alike in markdown-it-py (3.0.0 by hand; 4.2.0, the locked dev dependency, in the test) and in cmarkgfm 2024.11.20 (cmark-gfm, GitHub's renderer).
   "Alike" is `tests/markdown_signature.py`: every tag, every attribute and the text of code exactly, other text with each run of whitespace as one space.
-  `tests/unit/test_contract_layout.py` checks this for the contract and, with Hypothesis, for generated documents; markdown-it-py is a dev dependency for it.
-- **What relayout leaves alone.** Review r1b found inputs whose rendering relayout changed: thematic breaks after a semicolon, link reference definitions, mixed fences, indented code in list items, hard breaks, tables without a leading pipe, `<pre>` blocks, code spans and link titles across lines, escaped backticks.
-  The block reader now follows CommonMark's fence, HTML block (kinds 1-7) and GFM table rules, and leaves a paragraph as written wherever a line break may carry meaning.
-  It leaves everything from a fence or HTML block opened inside a list item to the end of the document as written, because it does not track where the item ends.
-  The reviewer's 47 cases render alike in both renderers.
-  While this was being fixed, generated documents found twelve more such inputs (eleven kinds); each kind is fixed and is among the test's examples.
-  On 2026-10-18, two runs outside the suite of 20,000 random generated documents each found no difference in either renderer; their seeds were not recorded.
+  `tests/unit/test_contract_layout.py` checks this for the contract and, with Hypothesis, for generated documents.
+
+## What relayout leaves alone
+
+Reviews r1b and r2 found inputs whose rendering relayout changed, none of them in the contract.
+The block reader now follows CommonMark's fence, HTML block (kinds 1-7) and GFM table rules, reads footnote definitions as blocks as cmark-gfm does, and counts indentation in spaces.
+Inline, it reads code spans, autolinks and raw HTML left to right with their CommonMark precedence and honours escapes, and it never breaks a line inside any of them or inside a link destination or title.
+It leaves as written:
+
+- a paragraph whose line breaks may carry meaning (a hard break, a tab, a raw `<pre>`-like element, a span that crosses a line);
+- a paragraph inside an open raw `<pre>`, or one that may continue a list item, definition or quote, or a block that left a span open (until the next blank line);
+- everything from a fence or HTML block opened inside a list item, or a line indented with a tab, to the end of the document;
+- a document with carriage returns.
+
+Every input the reviews and the fuzzing found is an example in the test, with what relayout now does with it.
+`tools/contract_layout_fuzz.py`, adapted from the fuzzer review r2 wrote, renders each generated document in markdown-it-py and in cmark-gfm with footnotes on:
+
+    uv run --no-project --with markdown-it-py==4.2.0 --with cmarkgfm==2024.11.20 \
+        python tools/contract_layout_fuzz.py exotic 1 3000
+
+At f85ea2a5b, seeds 1 to 12 of `exotic` and 1 to 6 of `real`, 3,000 documents each, found no difference.
 
 ## Replaying past merges
 
-The sample is the 185 merges in `docs/reports/2026-10-14-d-mrg3-contract-replay.tsv`, one row per merge with its commit.
-They are every two-parent merge on the remote branches, committed before 2026-10-14T10:05:00Z and selected with `--since 2026-10-01`, in which both sides changed the contract.
-Git read that bare date at the time of day of the run, so the sample begins on 2026-10-01 but not at midnight (review r1b, finding 15).
+The sample is the 185 merges in `docs/reports/2026-10-14-d-mrg3-contract-replay.tsv`, one row per merge with its commit: two-parent merges on the remote branches, committed before 2026-10-14T10:05:00Z, in which both sides changed the contract.
+They were selected with `--since 2026-10-01`, which Git read at the time of day of the run, so the sample begins at about 12:06Z that day; at least two such merges from earlier on 2026-10-01 (a914f38d8, 16f6bd196) are not in it (review r2).
 `tools/contract_replay.py` now reads a bare date as midnight UTC, and replays a fixed sample exactly:
 
     python3 tools/contract_replay.py --merges-from docs/reports/2026-10-14-d-mrg3-contract-replay.tsv
@@ -51,8 +65,7 @@ Git read that bare date at the time of day of the run, so the sample begins on 2
 | History moved out | 71 | 95 |
 | History out, one sentence per line, a line after each semicolon (this change) | 37 | 48 |
 
-The reviewer reproduced every cell of the TSV.
-On 2026-10-18 the command above, run with the revised layout code, gave the same rows and totals.
+Both reviewers reproduced every cell of the TSV, and so did the command above at b624670a4 and at f85ea2a5b.
 
 Of the 48 hunks left in the new layout:
 - 2 are both sides inserting at one place;
@@ -69,13 +82,20 @@ The blank line was not adopted in any case, because it changes how the list rend
 
 ## The one release merge each open pull request needs
 
-`docs/reports/2026-10-18-d-mrg3-open-prs.tsv` is `tools/contract_dry_run.py` on the 47 open release/217 pull requests other than #218, with their heads as of 2026-10-18 16:10Z.
-It ran with `--target HEAD` (this branch at 1e65b60d9, after the merge of release/217 at 3fbc4b7c5) and `--baseline origin/release/217`.
+`tools/contract_merge.py` reads the three versions Git staged, normalizes them, and merges; what it does with entries and with a person's work is in `docs/contract-history/README.md`.
+In short, it stages every entry file of the merge, never writes over a contract or entry a person changed (`--force` rebuilds the contract after a backup), and puts a new round of an entry another pull request on the same work landed first into that entry's file.
+When both had their own round, it writes neither beside the other and names them for a person.
+Review r2 replayed the mirror pull requests in a scratch clone, #168 landing first and #167 after it: #167's release merge has two merge bases and both carry their own round of one incident entry.
+The tool, as of f85ea2a5b, reads that base as Git built it, writes no second copy, and names #168's file for a person.
 
-- 36 of them conflict on the contract with release/217 as it is (`baseline conflicts`), and 44 would with the move as plain Git merges it (`git conflicts`).
-- After `tools/contract_merge.py`, 25 have no contract conflict left; with `--words`, 33.
-  Among the 32 that are not drafts, `--words` leaves none for 23, including every one opened since #204 (#204, #212, #219, #222, #223, #226).
-- None edited or removed an old-list entry, and none has text in the old section that is not a list item; together they would write 73 entries.
-- The tool leaves more hunks than the head has with release/217 today for 5 of the 47: #78, #82, #84, #92 and #131.
+`docs/reports/2026-10-18-d-mrg3-open-prs.tsv` is `tools/contract_dry_run.py` on the 48 open release/217 pull requests other than #218, with their heads as of 2026-10-18 19:05Z.
+It ran with `--target HEAD` (this branch at f85ea2a5b, after the merge of release/217 at 3fbc4b7c5) and `--baseline origin/release/217`.
+
+- 30 of them conflict on the contract with release/217 as it is (`baseline conflicts`), and 45 would with the move as plain Git merges it (`git conflicts`).
+- After `tools/contract_merge.py`, 32 have no contract conflict left; with `--words`, 36.
+  Draft status, from `gh pr list` at the same time and not in the TSV: among the 32 that are not drafts, `--words` leaves none for 24, including every one from #204 on (#204, #212, #219, #222, #223, #226).
+- None edited or removed an old-list entry, and none has text in the old section that is not a list item; together they would write 74 entries.
+  None has more than one merge base with this branch (that comes when a sibling lands first, as above).
+- The tool leaves more hunks than the head has with release/217 today for 5 of the 48: #78, #82, #84, #92 and #131.
   All five also conflict on code files; the finer layout splits one long-line conflict into several sentence-level hunks.
 - For every head, the files besides the contract that would conflict with this branch are the ones that conflict with release/217 (`git merge-tree`): the move adds no other conflict.
