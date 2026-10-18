@@ -638,7 +638,7 @@ def test_bounded_property_stored_lanes_never_refuse_startup(startup_property, ro
 
 
 @pytest.mark.parametrize("where", ["lanes.json", "the store"])
-def test_daemon_main_names_the_lane_an_env_pass_entry_belongs_to(tmp_path, monkeypatch, where):
+def test_review_r4_daemon_main_names_the_lane_an_env_pass_entry_belongs_to(tmp_path, monkeypatch, where):
     """Review r4, P3-1, at daemon startup: `env.pass[i]`, the variable and the lane
     with where it came from; never the value, and nothing is stored."""
     root, _ = nine_root(tmp_path, monkeypatch, "E2E_LANE_NINE_TOKEN")
