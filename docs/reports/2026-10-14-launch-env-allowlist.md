@@ -1206,3 +1206,153 @@ decided the parent was in a live session, which included a bare
   other names.
 - **No withheld value is read; a popped name reads as absent.** Shown with
   strict and vanishing parents.
+
+### Tests that changed because of a decision
+
+| Test | Decision | What it encoded | Change |
+| --- | --- | --- | --- |
+| `test_launch_env_round4.py::test_bounded_property_a_session_changes_only_session_names` | P3-4 | Its `none` state with `PYTEST_CURRENT_TEST` drawn counted as live for selection, so it expected every session name present to be selected: round 4's bare-`PYTEST_CURRENT_TEST` rule. | Its `under_pytest` assertion is unchanged; selection now expects session names only when the marker is present too. |
+| `test_daemon_init_release.py::test_a_failing_release_step_does_not_hide_why_construction_failed` | P2-1 | Its stand-in for `Daemon._seed_lanes` took no roster. | It takes the roster it is handed; it still raises, and the test is otherwise unchanged. |
+| `test_launch_env_daemon.py::test_daemon_refuses_a_policy_passing_a_lane_credential`, `::test_daemon_startup_refuses_a_lane_variable_every_launch_inherits` | P2-1 | A docstring said the check ran after seeding, and a comment said the second start read the store. | Words only: the check runs before seeding, and the second start reads lanes.json again, because nothing was stored. |
+
+No other existing test changed. Every D-ST1 test that ran (the main hold's
+`test_live_store_guard*.py`, 546 of them) passed unchanged. None of them
+relied on a bare `PYTEST_CURRENT_TEST` selecting session names: each one
+that sets it alone checks `under_pytest`'s in-process refusals, which are
+kept.
+
+### Control: the regressions at the tests-only commit
+
+`77840b88b` holds the tests and no fix. Its tree was exported, with
+`3ad63b9d1`'s, `299e7b133`'s and `508e754d5`'s version of
+`tests/fake/test_launch_env_daemon.py`, which were copied in before the run
+began. The new regressions ran there under one hold
+(`-k "round5 or review_r4 or never_refuse_startup"`): **29 failed and 19
+passed** in 421 s.
+
+- Every regression failed, each on the round-4 behaviour it targets:
+  - a refused first start stored claude-9 and named no lane;
+  - steps 2 and 3 exited 2;
+  - the env.pass refusal named no variable and no lane, at both callers;
+  - `KeyError` for a popped `PYTEST_CURRENT_TEST`, session identity or
+    HOME;
+  - the withheld value was read, for both providers, live session and not;
+  - the bare-`PYTEST_CURRENT_TEST` rows selected session names;
+  - both bounded properties found counterexamples, four for startup.
+- The 19 that passed are not regressions:
+  - the eight rows of the review's table that this round leaves unchanged;
+  - ten rows showing `under_pytest` keeps its meaning;
+  - the guard showing a bare `PYTEST_CURRENT_TEST` still refuses a personal
+    fallback.
+
+### A test defect that reached the live state root
+
+`cli._root` ignores its arguments and resolves `SUBFLEET_HOME`. With no
+session marker, the default is the person's `~/.subfleet`. Four of the new
+unit tests replaced `os.environ` with a dict that had no `SUBFLEET_HOME` and
+no marker:
+
+- `test_daemon_start_warns_of_a_stored_refused_lane_and_starts`, three cases;
+- `test_daemon_start_takes_a_fixed_lanes_json_row_for_a_stored_refused_lane`.
+
+In the control run above, between 13:46 and 13:52 EDT, each of those four
+ran round 4's `cmd_daemon_start` against `~/.subfleet`. The spawn,
+`_daemon_alive` and `Client.lock_info` were stubbed. By the code, each call:
+
+- ran `os.chmod(~/.subfleet, 0o700)` (afterwards the mode reads
+  `drwx------`, the mode `daemon start` always sets);
+- read `policy.json` and `lanes.json`, and read the store through
+  `Offline`'s `mode=ro` connection;
+- opened `daemon.log` for append and closed it without writing;
+- built an environment in memory that was neither printed nor kept.
+
+Nothing was spawned, no file's content was written, and no value was
+printed. The other two CLI tests failed at their first assertion at that
+commit, so they never reached `cmd_daemon_start`. The main hold ran after
+the fix (`d68ec288a`): every replaced environment now names the test's own
+root, and each test asserts the root `daemon start` resolves before calling
+it. The fake tests' CLI steps had used the session's isolated
+`SUBFLEET_HOME`, not the live root. They now set their own root.
+
+### Mutations
+
+Each fix has a mutant, run in memory by `tests/unit/test_launch_env_mutations.py`.
+Each is killed by its named regression:
+
+| Mutant | Killed by |
+| --- | --- |
+| seed `lanes.json` before the check (`Daemon._open_lanes` seeding first) | `test_review_r4_a_refused_first_start_stores_nothing`: "the check runs before lanes.json is seeded" |
+| refuse the whole daemon on a stored lane (`check_lane_credentials` raising on a held lane) | `test_review_r4_a_removed_lane_is_held_and_never_blocks_startup`: launchd's start exits 2 |
+| drop the `KeyError` tolerance (`_present` reading every name) | `test_a_name_popped_between_iterating_and_reading_is_skipped`: `KeyError` |
+| put `name in environ` back first (`ProviderEnvironment.additions`, both providers) | `test_provider_environment_never_reads_a_withheld_value`: the withheld value is read |
+| select on a bare `PYTEST_CURRENT_TEST` (`_selected`'s `session = under_pytest(probe)`) | `test_session_names_need_the_marker_and_a_live_session`, both changed rows |
+
+All seven mutation cases pass, which means each mutant is killed. The
+removed-lane case was rerun in the second hold, after its oracle's own fix
+below.
+
+### Validation
+
+Every hold was one locked pytest with one worker, on Python 3.12.14 with the
+GIL, from the job's own `.venv`, run as
+`env -u PYTHONPATH .venv/bin/python -c '<pytest.main under a 1,140 s alarm>'`
+(the brief's `uv run pytest`, without the uv cache lock). `TMPDIR` and the
+Hypothesis store were in scratch. The lock queue held 10 to 16 waiters, and
+each wait took between 30 and 70 minutes.
+
+| Hold | Head | Files | Result | Time |
+| --- | --- | --- | --- | --- |
+| control | `77840b88b` export | round-5 regressions (above) | 29 failed, 19 passed | 421 s |
+| 1 | `d68ec288a` | `test_launch_env_*` (allowlist 27, helpers 20, mutations 41, policy 26, round2 67, round3 67, round4 40, round5 39), fake daemon 49, fake providers 6, `test_claude_adapter` 170, `test_policy_support` 14; `test_live_store_guard` 324, round3 22, round4 8, round5 11, round6 112, round7 50, round7 mutations 19 | 1,108 passed, 4 failed; stopped by the alarm in `test_live_store_guard_round8` | 1,168 s at load 60 |
+| 2 | `c0e60e0f3` | fake daemon 49, `test_launch_env_mutations` 41, `test_unadmittable_pin` 12, `test_daemon_init_release` 2, e2e `test_milestone2_claude` 7, process `test_claude_isolation` 15, `test_codex_isolation` 38, `test_guardian_process` 5, `test_state_contract` 37, `test_test_module_names` 1, `test_render` 20, `test_store_ids` 27, `test_scheduler` 97 | 351 passed | 211 s |
+| 3 | `c0e60e0f3` | `test_policy` 178, `test_doctor` 44, `test_handler_refusals` 317, `test_agent_secret_credentials` 7, `test_live_store_guard_round8` 100, round8 mutations 4, `test_live_store_guard_state_root` 22, fake `test_lanes_enroll` 15, `test_lanes_reenroll` 19, `test_daemon_verbs` 20, `test_lanes_transfer` 79 | 805 passed | 62 s |
+
+- **Hold 1's four failures** were steps 2 and 3 of the new daemon test, and
+  the fault was in the test. Its stand-in for `cli.subprocess.Popen`
+  replaced the process's own `subprocess.Popen` for the rest of the test.
+  The test daemon's Git inspection at submit then got the stand-in's child
+  and refused the job. `bbadfc780` undoes the stand-in before any daemon
+  runs. In hold 2 the file passed whole (49), with the startup property's 25
+  daemons, and the mutation file passed again (41).
+- **Code under test.** No production module changed after `d68ec288a`;
+  holds 2 and 3 ran the same code. In both, the one uncommitted tracked
+  change was this report.
+- **Brief coverage.** All six of the brief's runs are covered across the
+  three holds. No `tests/fake/test_daemon_restart*.py` exists. Process
+  inspection was allowed, and the e2e file ran all 7 cases with none
+  skipped.
+- **2,264 distinct tests passed** at the final code, counting each file once
+  at its last run: 1,108 from hold 1, less the fake daemon file's 45 and the
+  mutation file's 41, plus 351 and 805, with nothing failing.
+- **No other import breaks.** A static pass found no code or test that
+  imports a name this round removed, and every `from` import of the changed
+  modules resolves.
+
+**Not run:**
+- Python 3.14.
+- The full suite, a whole-suite `--collect-only`, `tests/frontend` and
+  `tests/live`.
+- The other `test_scheduler_*`, `test_doctor_*` and `test_render_*` files.
+- `tests/e2e/test_conversations.py`.
+- A control rerun of the four corrected CLI unit tests. At `77840b88b`,
+  `cli.daemon_env` raises for the stored refused lane (in
+  `test_daemon_start_warns_…`) or for the stored lane's inherited variable
+  (in `test_daemon_start_takes_…`). So each returns 2 where the test needs
+  0. That is read from the code; no run shows it.
+- Live authentication and a real `launchctl kickstart`. The launchd path was
+  run as `daemon.main`, which is what launchd runs.
+
+### Commits
+
+`6477b8ec1` (merge), `77840b88b`, `3ad63b9d1`, `299e7b133`, `508e754d5`,
+`d68ec288a` and `bbadfc780` (tests), `37ba6cd9a` (P2-1, P3-1), `526f7da17`
+(P3-2 to P3-4), `8f64e0eb8` (contract), and `87d4f1b7c`, `c0e60e0f3` and
+this commit (report). All sit on a detached HEAD in the shared Git index.
+Nothing was pushed.
+
+### Cleanup
+
+The scratch folder is removed, with both exports, the logs and the
+Hypothesis store, and no `.hypothesis` folder was written in the
+repository. The ignored `.venv` (14 MB) remains. No process of mine is
+running, and no `lockf` is held or waiting.
