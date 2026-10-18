@@ -16,18 +16,17 @@ answer and feed page; the app's compiled Swift core folds them.
 
 from __future__ import annotations
 
+from contextlib import closing
 import os
 from pathlib import Path
-import shutil
 import subprocess
-import tempfile
 import uuid
 
 import pytest
 
 from subfleet.conversations.store import ConversationError
 
-from tests.frontend.conftest import needs_swift, run_probe, write_json
+from tests.frontend.conftest import needs_swift, run_probe, state_root, write_json
 from tests.frontend.daemon_harness import ServiceHarness
 
 pytestmark = needs_swift
@@ -37,12 +36,9 @@ GIT_ENV = {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_AUT
 
 
 @pytest.fixture
-def harness():
-    root = Path(tempfile.mkdtemp(prefix="sf-app-sg-r1b-", dir="/tmp"))
-    harness = ServiceHarness(root)
-    yield harness
-    harness.close()
-    shutil.rmtree(root, ignore_errors=True)
+def harness(request):
+    with state_root(request, "sf-app-sg-r1b-") as root, closing(ServiceHarness(root)) as harness:
+        yield harness
 
 
 def suggest(harness, title: str, **extra) -> dict:

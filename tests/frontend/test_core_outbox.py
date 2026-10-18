@@ -8,28 +8,26 @@ handled). What the store holds afterwards is read directly.
 
 from __future__ import annotations
 
+from contextlib import closing
 import json
 from pathlib import Path
-import tempfile
 import uuid
 
 import pytest
 
 from subfleet import protocol
 from subfleet.daemon import busy_answer
-from tests.frontend.conftest import needs_swift, run_probe, write_json
+from tests.frontend.conftest import needs_swift, run_probe, state_root, write_json
 from tests.frontend.daemon_harness import ServiceHarness, ServiceServer
 
 pytestmark = needs_swift
 
 
 @pytest.fixture
-def daemon():
-    harness = ServiceHarness(Path(tempfile.mkdtemp(prefix="sf-ob-", dir="/tmp")))
-    server = ServiceServer(harness)
-    yield harness, server
-    server.close()
-    harness.close()
+def daemon(request):
+    with (state_root(request, "sf-ob-") as root, closing(ServiceHarness(root)) as harness,
+          closing(ServiceServer(harness)) as server):
+        yield harness, server
 
 
 def run_steps(core_probe, tmp_path, server, steps, journal: Path | None = None) -> dict:

@@ -27,13 +27,14 @@ a `/` command, or a steer of the running message itself):
 
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 import tempfile
 import uuid
 
 from hypothesis import HealthCheck, given, settings, strategies as st
 
-from tests.frontend.conftest import needs_swift, run_probe, write_json
+from tests.frontend.conftest import needs_swift, run_probe, state_root, write_json
 from tests.frontend.daemon_harness import (
     STEER_REFUSALS, ServiceHarness, ServiceServer, go_live_when_submitted, steer_frames,
 )
@@ -163,15 +164,10 @@ def expected_refusal(kind: str, live: bool, host: bool) -> str | None:
 @settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(ops=st.lists(op, min_size=1, max_size=16), fates=st.lists(fate, min_size=16, max_size=16),
        b_live=st.booleans())
-def test_o1_o4_the_outbox_sends_in_order_and_steers_exactly_once(core_probe, ops, fates, b_live):
-    root = Path(tempfile.mkdtemp(prefix="sf-steer-o-", dir="/tmp"))
-    harness = ServiceHarness(root / "daemon")
-    server = ServiceServer(harness)
-    try:
+def test_o1_o4_the_outbox_sends_in_order_and_steers_exactly_once(request, core_probe, ops, fates, b_live):
+    with (state_root(request, "sf-steer-o-") as root, closing(ServiceHarness(root / "daemon")) as harness,
+          closing(ServiceServer(harness)) as server):
         run_outbox_history(core_probe, root, harness, server, ops, fates, b_live)
-    finally:
-        server.close()
-        harness.close()
 
 
 def run_outbox_history(core_probe, root: Path, harness, server, ops, fates, b_live) -> None:

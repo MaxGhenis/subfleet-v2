@@ -10,15 +10,15 @@ numbers.
 
 from __future__ import annotations
 
+from contextlib import closing
 import json
 from pathlib import Path
 import subprocess
-import tempfile
 
 import pytest
 
 from subfleet.conversations import diff as turn_diff
-from tests.frontend.conftest import needs_swift, run_probe, write_json
+from tests.frontend.conftest import needs_swift, run_probe, state_root, write_json
 from tests.frontend.daemon_harness import ServiceHarness
 from tests.frontend.test_core_protocol import assert_lossless, roundtrip
 
@@ -32,22 +32,20 @@ def git(repo: Path, *args: str) -> str:
 
 
 @pytest.fixture
-def harness():
-    root = Path(tempfile.mkdtemp(prefix="sf-app-d-", dir="/tmp"))
-    harness = ServiceHarness(root)
-    repo = harness.workspace
-    git(repo, "init", "-q", "-b", "feature/diff")
-    git(repo, "config", "user.name", "Test")
-    git(repo, "config", "user.email", "test@example.invalid")
-    (repo / "keep.txt").write_text("one\ntwo\nthree\nfour\nfive\n")
-    (repo / "gone.txt").write_text("to be removed\n")
-    (repo / "old name.txt").write_text("moved as is\n" * 5)
-    (repo / "run.sh").write_text("echo hi\n")
-    (repo / "logo.bin").write_bytes(b"\x00\x01\x02" * 10)
-    git(repo, "add", "-A")
-    git(repo, "commit", "-q", "-m", "base")
-    yield harness
-    harness.close()
+def harness(request):
+    with state_root(request, "sf-app-d-") as root, closing(ServiceHarness(root)) as harness:
+        repo = harness.workspace
+        git(repo, "init", "-q", "-b", "feature/diff")
+        git(repo, "config", "user.name", "Test")
+        git(repo, "config", "user.email", "test@example.invalid")
+        (repo / "keep.txt").write_text("one\ntwo\nthree\nfour\nfive\n")
+        (repo / "gone.txt").write_text("to be removed\n")
+        (repo / "old name.txt").write_text("moved as is\n" * 5)
+        (repo / "run.sh").write_text("echo hi\n")
+        (repo / "logo.bin").write_bytes(b"\x00\x01\x02" * 10)
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "base")
+        yield harness
 
 
 def change_everything(repo: Path) -> None:
