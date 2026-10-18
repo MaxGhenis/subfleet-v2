@@ -8639,6 +8639,12 @@ class Daemon:
         if receipt and actual["state"] != "finalizing":
             self._begin_finalizing(a, receipt)
         rc = None if lost else receipt["rc"]
+        if not lost and actual.get("killed_by") == "max_wall_s":
+            # Receipt precedence must also reach legacy verdict reconciliation:
+            # a superseded wall cannot keep a stale text failure authoritative.
+            self._supersede_wall_cancel(actual, receipt)
+            actual = self.store.get_attempt(a["attempt_id"])
+            job = self._job(a["job_id"])
         older_verdict = False
         if lost:
             outcome = Outcome(OutcomeClass.UNKNOWN, "guardian lost without exit receipt" if receipt is None
