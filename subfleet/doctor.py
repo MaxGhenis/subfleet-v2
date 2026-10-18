@@ -469,9 +469,14 @@ def check_module(name: str) -> dict[str, Any]:
 
 
 def check_live(root: Path) -> dict[str, Any]:
-    """`--live`: one `ping` against the daemon (C-16.2)."""
+    """`--live`: one `ping` against the daemon (C-16.2).
+
+    Without text: a ping with text parks a notice (C-15.8), and a liveness
+    question has nothing to tell anyone. Until 2026-10-03 every `doctor --live`
+    parked a "doctor" notice for the literal session `operator`, which nothing
+    reads."""
     try:
-        result = Client(root, timeout=5).call("ping", {"text": "doctor"})
+        result = Client(root, timeout=5).call("ping", {})
     except DaemonUnavailable as exc:
         return row("ping the daemon", FAIL, str(exc), "`subfleet daemon start`")
     except (DaemonError, ProtocolError, OSError) as exc:

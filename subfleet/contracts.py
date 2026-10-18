@@ -202,6 +202,11 @@ WORKSPACE_RETRY_CEILING_S = 300
 #: consecutive recheck that reaches the same verdict, to the ceiling.
 CAPACITY_RECHECK_BASE_S = 1
 CAPACITY_RECHECK_CEILING_S = 30
+#: C-6.10: one job's admission probes are reserved at least this far apart. The
+#: clock runs from the reservation, so a probe that ran this long (its deadline
+#: stopped it) leaves its job due at once, and one that failed in a second does
+#: not become a probe a second.
+PROBE_RETRY_S = 60
 READING_TTL_S = 120
 GUESSED_CLOSURE_S = 3600
 TRANSIENT_RETRY_DELAY_S = 60
@@ -237,6 +242,10 @@ STOP_DUMP_MARGIN_S = 3.0
 # could not arm because a thread held the GIL through the signal.
 STOP_BACKSTOP_S = 10
 HEADROOM_FLOOR = 0.15
+#: C-6.15: the host-pressure hold is off as shipped. Switched on, it holds at
+#: the occupancy where the 2026-10-01 study saw decompressions rise a
+#: thousandfold on a 128 GiB host, on a reading at most `sample_s` old.
+HOST_PRESSURE_DEFAULTS: dict[str, Any] = {"enabled": False, "compressor_max_gib": 40, "sample_s": 15}
 WAIT_POLL_MAX_S = 60
 PROBE_INTERVAL_S = 300
 KEEPALIVE_INTERVAL_S = 18300

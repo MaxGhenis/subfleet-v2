@@ -19,10 +19,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .alerts import LATCH_QUERY, active_alerts, load_latches
 from .client import same_process
 from .contracts import READING_TTL_S, Exit, JobState
 from .render import operator_looks, probe_resolutions
 from .store import SCHEMA_VERSION as KNOWN_SCHEMA_VERSION
+from .store import notice_rows
 
 STORE_NAME = "state.sqlite3"
 #: C-5.7a: as the daemon's OPERATOR_LOOKS, the latest operator looks a probe row lists.
@@ -341,6 +343,10 @@ class Offline:
                         LIVE_ATTEMPT_STATES):
                     in_flight[row["lane_id"]] = row["n"]
             version = self.schema_version(conn)
+            # C-18.4: the alerts in force, from their latches, in the words they
+            # last fired with (no cycle runs without the daemon).
+            latches = (load_latches(conn.execute(LATCH_QUERY).fetchall())
+                       if "events" in tables else {})
             probes = self.probes(conn)
         for lane in lanes:
             lane["in_flight"] = in_flight.get(lane.get("lane_id"), 0)
@@ -356,7 +362,14 @@ class Offline:
             "closures": closures,
             "probes": probes,
             "running": self.list_jobs(running=True, last=50),
+            "alerts": active_alerts(latches),
         }
+
+    def notices(self, session_id: str | None = None, *, resolved: bool = False) -> list[dict[str, Any]]:
+        """C-15.8: `notices` with no daemon; the same rows `notice.list` returns."""
+        with self.reading() as conn:
+            return notice_rows(lambda sql, params: conn.execute(sql, params).fetchall(),
+                               session_id, resolved=resolved)
 
     def probes(self, conn: sqlite3.Connection, job_id: str | None = None) -> list[dict[str, Any]]:
         """C-5.7a, C-17.5: the probes that hold a lane slot, as the daemon's `status`

@@ -90,6 +90,26 @@ def test_success_exports_by_rename_and_exposes_notices_and_artifacts(e2e):
                    and row["directory"] for row in operations[index + 1:])
 
 
+def test_read_only_run_outside_a_repository_succeeds(e2e):
+    """C-12.3: `run -s read-only -C <dir>` where <dir> is in no git repository reaches the
+    provider (the fake keeps codex's "Not inside a trusted directory" refusal) and passes
+    --skip-git-repo-check exactly once."""
+    plain = e2e.root / "plain"
+    plain.mkdir()
+    assert not any((directory / ".git").exists() for directory in (plain, *plain.parents))
+    e2e.start()
+    out = plain / "out.md"
+    submitted = e2e.cli("run", "-m", "astra", "-s", "read-only", "-C", str(plain),
+                        "-p", str(e2e.prompt), "--allow-tmp", "-o", str(out), "--wait")
+    assert submitted.rc == 0, submitted
+    shown = e2e.show(job_id(submitted))
+    assert shown["job"]["state"] == "succeeded"
+    assert out.read_bytes() == (FIXTURE / "last.md").read_bytes()
+    launch = next(artifact for artifact in shown["artifacts"] if artifact["role"] == "launch")
+    argv = json.loads(Path(launch["path"]).read_text())["argv"]
+    assert argv.count("--skip-git-repo-check") == 1
+
+
 def test_detached_cli_exit_does_not_end_provider_work(e2e):
     """C-5.1, C-5.2, C-15.4: the CLI process exits while the guardian keeps working."""
     e2e.start(scenario="slow", delay_s=2)

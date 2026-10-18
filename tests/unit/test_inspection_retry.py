@@ -19,6 +19,7 @@ def daemon(settle_daemon):
     core._table, core._table_lock = (None, 0.0), threading.Lock()
     core.inspect_interval_s = 30
     core._inspect_retry = set()
+    core._native, core._v1_unread = set(), {}
     core._busy_lock, core._busy = threading.Lock(), set()
     core._worker_failures, core._worker_retry_at = {}, {}
     with core.store.transaction("test.identity") as tx:

@@ -397,6 +397,16 @@ def test_the_cold_sweep_sees_neither_live_sessions_nor_lanes(world, policy):
     assert [item.session_id for item in found] == [COLD]
 
 
+def test_the_cold_sweep_reads_the_writer_not_the_prompt_source(world, policy):
+    """C-23.31: a desktop session one message started has a lane's prompt shape
+    (one `sdk` prompt) and is a cold candidate; a `claude -p` run the ledger no
+    longer holds is not, however many prompts it took."""
+    cold_session(world, entries=fx.desktop_interrupted(age_s=1800))
+    cold_session(world, LANE, entries=fx.notified_lane(age_s=1800), desktop_owned=False)
+    found = revive.cold_candidates(fx.FakeSessions(), policy, now=fx.NOW)
+    assert [(item.session_id, item.lane) for item in found] == [(COLD, False)]
+
+
 # --- the CLI's own vocabulary (C-17.3) ----------------------------------------
 
 def test_old_claude_cli_reported_as_host_fault_not_no_lane(world, policy, tmp_path):

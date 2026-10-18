@@ -7,6 +7,7 @@ credential sanitation required at the process boundary, without importing it.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 from pathlib import Path
@@ -38,6 +39,9 @@ def _launch(tmp_path, sandbox=Sandbox.READ_ONLY):
     home = tmp_path / "codex-home"
     for directory in (workdir, attempt, home):
         directory.mkdir(parents=True)
+    if sandbox == Sandbox.WORKSPACE_WRITE:
+        # C-13.2: a writable job's workdir is a repository; codex refuses one outside it (C-12.3).
+        subprocess.run(["git", "init", "-q", str(workdir)], check=True, capture_output=True, timeout=10)
     prompt = tmp_path / "prompt.md"
     prompt.write_text("Return the fixture's final message.\n")
     job = JobSpec(
@@ -95,6 +99,19 @@ def test_fake_child_receives_sandbox_stdin_and_sanitized_environment(tmp_path, m
     assert Path(launch.raw_stream_path).parent == Path(launch.stderr_path).parent
     assert Path(launch.raw_stream_path).read_bytes() == (FIXTURES / "success" / "stdout").read_bytes()
     assert (Path(launch.stderr_path).parent / "last.md").read_bytes()
+
+
+def test_fake_enforces_the_repository_check_and_rejects_a_doubled_flag(tmp_path):
+    """C-12.3 The fake keeps codex's repository check: a writable launch outside a repository
+    exits 1 with codex's message, and the flag given twice is a usage error (exit 2)."""
+    launch = _launch(tmp_path, Sandbox.WORKSPACE_WRITE)
+    subprocess.run(["rm", "-rf", str(Path(launch.cwd) / ".git")], check=True, timeout=10)
+    refused = _spawn_fake(launch, "success")
+    assert refused.returncode == 1
+    assert "Not inside a trusted directory" in Path(launch.stderr_path).read_text()
+    doubled = dataclasses.replace(launch, argv=(*launch.argv[:3], "--skip-git-repo-check",
+                                               "--skip-git-repo-check", *launch.argv[3:]))
+    assert _spawn_fake(doubled, "success").returncode == 2
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS)

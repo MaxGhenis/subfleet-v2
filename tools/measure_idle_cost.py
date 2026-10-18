@@ -30,6 +30,7 @@ revisions, run it from a checkout of each.
 from __future__ import annotations
 
 import argparse
+import json
 import resource
 import subprocess
 import sys
@@ -108,10 +109,15 @@ def settle(daemon: Daemon, quiet_s: float, deadline_s: float) -> bool:
 
 
 def measure(window_s: float = 10, history: int = 300, waiting: int = 12, settle_s: float = 1,
-            closed_settle_s: float = 40, deadline_s: float = 60) -> dict:
+            closed_settle_s: float = 40, deadline_s: float = 60, running: int = RUNNING,
+            evidence_bytes: int = 2) -> dict:
     """`settle_s` is how long the decision count must stay unchanged before a window
     starts, and `deadline_s` how long to wait for that before measuring anyway;
     `settled` in the result says which windows had it."""
+    # What an attempt's `evidence_json` holds once its processes are recorded: on
+    # the live store of 2026-10-02 a running attempt's averaged 8.4 KB, which
+    # SQLite keeps on overflow pages that every `SELECT *` of the row reads.
+    evidence = json.dumps({"owned": "x" * max(0, evidence_bytes - 13)}) if evidence_bytes > 2 else "{}"
     with tempfile.TemporaryDirectory(prefix="sfm-", dir="/tmp") as directory:
         root = Path(directory)
         harness = Harness(root)
@@ -121,7 +127,7 @@ def measure(window_s: float = 10, history: int = 300, waiting: int = 12, settle_
         # The timers are periodic work with costs of their own, and the sessions mirror
         # would read this machine's real transcripts: what is measured is the control loop.
         daemon.timers.intervals.clear()
-        daemon.policy["caps"].update(max_active_attempts=RUNNING, max_in_flight_per_lane=RUNNING * 2)
+        daemon.policy["caps"].update(max_active_attempts=running, max_in_flight_per_lane=running * 2)
         daemon.store.add_reading(Reading("codex-1", "account", "seven_day", .2, after(86400),
                                          ReadingLabel.PROVIDER, "fixture", utcnow()))
         for index in range(history):
@@ -130,7 +136,7 @@ def measure(window_s: float = 10, history: int = 300, waiting: int = 12, settle_
                                  state="succeeded", workdir=str(root), prompt_path=str(root / "prompt.md"),
                                  sandbox="read-only")
             daemon.store.add_attempt(attempt_id=job_id + "/a1", job_id=job_id, seq=1, lane_id="codex-1",
-                                     model_requested="gpt-6-astra", state="succeeded", evidence_json="{}")
+                                     model_requested="gpt-6-astra", state="succeeded", evidence_json=evidence)
             daemon.store.update_job(job_id, accepted_attempt_id=job_id + "/a1")
         server = threading.Thread(target=daemon.serve_forever, daemon=True)
         server.start()
@@ -139,7 +145,7 @@ def measure(window_s: float = 10, history: int = 300, waiting: int = 12, settle_
         try:
             settled["idle"] = settle(daemon, settle_s, deadline_s)
             idle = share(window_s)
-            for index in range(RUNNING):
+            for index in range(running):
                 child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(3600)"],
                                          start_new_session=True)
                 guardians.append(child)
@@ -156,10 +162,14 @@ def measure(window_s: float = 10, history: int = 300, waiting: int = 12, settle_
                                 str(root / "prompt.md"), "read-only", "astra", utcnow(), utcnow()))
                     tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,"
                                "guardian_pid,child_pid,pgid,boot_id,proc_start,started_at,reserved_at,evidence_json) "
-                               "VALUES(?,?,1,'codex-1','gpt-6-astra','running',?,?,?,?,?,?,?,'{}')",
+                               "VALUES(?,?,1,'codex-1','gpt-6-astra','running',?,?,?,?,?,?,?,?)",
                                (f"{job_id}/a1", job_id, child.pid, child.pid, child.pid, procs.boot_id(),
-                                started, utcnow(), utcnow()))
+                                started, utcnow(), utcnow(), evidence))
                 attempt_dir(root, job_id, 1).mkdir(parents=True, exist_ok=True)
+                # The receipt a guardian leaves once it has started, as every running attempt has.
+                (attempt_dir(root, job_id, 1) / "start.json").write_text(json.dumps({
+                    "guardian_pid": child.pid, "pgid": child.pid, "boot_id": procs.boot_id(),
+                    "proc_start": started, "started_at": utcnow()}))
             for index in range(waiting):
                 daemon.dispatch("submit", harness.submit_args(
                     name=f"waiting-{index}", tier=("easy", "standard", "hard")[index % 3],
@@ -215,11 +225,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--window", type=float, default=10, help="seconds per measurement (default 10)")
     parser.add_argument("--history", type=int, default=300, help="accepted terminal jobs already in the store")
     parser.add_argument("--waiting", type=int, default=12, help="jobs queued behind the full fleet")
+    parser.add_argument("--running", type=int, default=RUNNING, help=f"running attempts (default {RUNNING})")
+    parser.add_argument("--evidence-bytes", type=int, default=2,
+                        help="size of each attempt's evidence_json (default 2: `{}`; 8192 is the live store's)")
     args = parser.parse_args(argv)
-    result = measure(args.window, args.history, args.waiting)
+    result = measure(args.window, args.history, args.waiting, running=args.running,
+                     evidence_bytes=args.evidence_bytes)
     print("| state | daemon | children |\n|---|---:|---:|")
     print(f"| idle, empty queue | {result['idle'][0]:.1f}% | {result['idle'][1]:.1f}% |")
-    print(f"| {RUNNING} running, {args.waiting} waiting | {result['saturated'][0]:.1f}% | {result['saturated'][1]:.1f}% |")
+    print(f"| {args.running} running, {args.waiting} waiting | {result['saturated'][0]:.1f}% | {result['saturated'][1]:.1f}% |")
     print(f"| every lane closed, {args.waiting} waiting | {result['closed'][0]:.1f}% | {result['closed'][1]:.1f}% |")
     print(f"\nrows written in {args.window:g} s under a full fleet: "
           f"{result['events_written']} events, {result['decisions_written']} decisions")

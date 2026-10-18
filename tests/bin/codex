@@ -99,6 +99,12 @@ def sigterm_exit_0(argv: list[str]) -> int:
     return 1
 
 
+def inside_repository(cwd: Path) -> bool:
+    """codex exec starts in a git work tree. (Real codex also starts in a directory its
+    config marks trusted; no test relies on that, so the fake does not model it.)"""
+    return any((directory / ".git").exists() for directory in (cwd, *cwd.parents))
+
+
 def main() -> int:
     # Metadata requests made by the real guard preflight, before any exec.
     if sys.argv[1:] == ["--version"]:
@@ -120,6 +126,18 @@ def main() -> int:
                     }],
                 }]}}), flush=True)
         return 0
+    if sys.argv[1:2] == ["exec"]:
+        # C-12.3: codex-cli 0.153.3-0.159.0 rejects the flag given twice (a usage error)
+        # and exits at once outside a repository without it.
+        if sys.argv.count("--skip-git-repo-check") > 1:
+            print("error: the argument '--skip-git-repo-check' cannot be used multiple times",
+                  file=sys.stderr)
+            return 2
+        if ("--skip-git-repo-check" not in sys.argv
+                and not inside_repository(Path.cwd().resolve())):
+            print("Not inside a trusted directory and --skip-git-repo-check was not specified.",
+                  file=sys.stderr)
+            return 1
     scenario = os.environ.get("SUBFLEET_FAKE_SCENARIO", "success")
     if os.environ.get("SUBFLEET_PROBE"):
         # C-11.4: a probe is a tiny read-only turn; the fake answers it at once
