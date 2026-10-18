@@ -172,6 +172,11 @@ def _row(path: Path) -> SessionRow | None:
         data = json.loads(transcripts.read_regular(path, ROW_MAX).decode("utf-8"))
     except (OSError, ValueError):                   # a UnicodeDecodeError is a ValueError
         return None
+    return _parsed(path, data)
+
+
+def _parsed(path: Path, data: Any) -> SessionRow | None:
+    """A registry file's parsed JSON as a row; None when it names no session."""
     if not isinstance(data, dict) or not isinstance(data.get("sessionId"), str):
         return None
     if not data["sessionId"]:

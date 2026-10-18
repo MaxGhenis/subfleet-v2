@@ -60,7 +60,7 @@ from .transcripts import TurnState
 #: including its exception, which exists because a session whose last message
 #: asked Max a question must not answer it on his behalf.
 REVIVE_MESSAGE = (
-    "subfleet: this session was cut off (usage limit or account switch) and its "
+    f"{transcripts.REVIVE_MARKER} and its "
     "process died; you are on a fresh account now. Continue where you left off. "
     "Before redoing anything: `git log --oneline -5` in your worktree and "
     "`subfleet runs --mine` — detached runs survived and may be finished. "
