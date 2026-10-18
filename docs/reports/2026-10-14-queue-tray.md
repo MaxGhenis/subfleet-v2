@@ -1104,3 +1104,34 @@ delivery. Every pytest invocation uses its
 own foreground shared-lock hold, one pytest process and the bounded CI
 Hypothesis profile. Scratch and uv caches are isolated under that hold's
 `TMPDIR`; `PYTHONPATH` and `SUBFLEET_RETENTION_DORMANT` are unset.
+
+### 4h30 cutoff status — 20:21 UTC
+
+No further pytest invocations will start. The 22-file frontend hold passed
+all **333 cases in 323.31 s**, including all 39 fix-4 review cases. Completed
+runs total **954 passed, 1 failed, 1 skipped**. The sole failure and skip are
+the kernel/sysctl restrictions described above. A final queue tray view hold,
+launched at 20:19 UTC before the cutoff, is still pending.
+
+The following 19 frontend files remain unrun. Python 3.12 and a separate
+full app-bundle build were not run.
+
+- `tests/frontend/test_app_cutover_start.py`
+- `tests/frontend/test_conversation_view.py`
+- `tests/frontend/test_core_draft.py`
+- `tests/frontend/test_disk_ruling.py`
+- `tests/frontend/test_menu_view.py`
+- `tests/frontend/test_pr124_fixes_ui.py`
+- `tests/frontend/test_pr124_recovery_properties.py`
+- `tests/frontend/test_pr124_review_r2_fixes_ui.py`
+- `tests/frontend/test_queue_tray_fix4_mutations.py`
+- `tests/frontend/test_reading_view.py`
+- `tests/frontend/test_review_r219_probes.py`
+- `tests/frontend/test_status_model.py`
+- `tests/frontend/test_visual_review_fixes.py`
+- `tests/frontend/test_visual_round_five.py`
+- `tests/frontend/test_visual_round_four.py`
+- `tests/frontend/test_visual_round_three.py`
+- `tests/frontend/test_visual_round_two.py`
+- `tests/frontend/test_visual_snapshots.py`
+- `tests/frontend/test_visual_suggestions.py`
