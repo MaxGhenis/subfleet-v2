@@ -54,15 +54,21 @@ Merge the release line into it, and when the contract conflicts run:
 
     python3 tools/contract_merge.py
 
-It reads the three versions Git staged for the contract (base, the branch, the release line), not the conflicted file, and refuses (exit 2) unless all three are there.
-So once the contract is resolved and added, or when the merge left it alone, it rebuilds nothing.
-It brings each version to the current layout, writes each entry the branch added to the old list, whole, as a file here named after the branch, and merges the three with `git merge-file`.
-On a detached HEAD, name the branch with `--ours-branch`.
-A conflict it cannot settle is left in the contract with diff3 markers, longer than any marker-shaped line in the contract, and it exits 1.
-It also exits 1, naming them, for an old-list entry the branch edited or removed and for text in the old section that is not a list item: the move would otherwise drop them.
-`--words` also merges each remaining hunk one word at a time when no word was changed by both sides;
-read what it merged.
-`--dry-run` names the files it would write.
-It stages nothing, and prints a `git add` naming the contract and every entry file of the merge, including any an earlier run wrote.
+It reads the three versions Git staged for the contract (base, the branch, the release line), not the conflicted file, brings each to the current layout, and merges the three with `git merge-file`.
+Each entry the branch added to the old list becomes a file here, named after the branch; on a detached HEAD, name the branch with `--ours-branch`.
+
+- It stages every entry file of the merge, so none can be left out of the merge commit, and prints the `git add` for the contract: at once when it merged cleanly, after you resolve what is left otherwise.
+- A conflict it cannot settle is left with diff3 markers, longer than any marker-shaped line in the contract, and it exits 1.
+  `--words` also merges each remaining hunk one word at a time when no word was changed by both sides;
+  read what it merged.
+- It never writes over a person's work.
+  It refuses (exit 2) unless the contract is unmerged with all three stages, so a resolved and added contract is safe.
+  It also refuses over a contract changed since it last wrote it, or one with neither Git's markers nor its last result, and it keeps an entry file a person edited.
+  `--force` rebuilds the contract anyway; the file as it was is copied to `.git/contract-merge-backup.md` (in the worktree's Git directory) first, every time.
+- An old-list entry the branch edited is a new round of that entry.
+  If another pull request on the same work landed that entry first, the round goes into its file;
+  if it is one of the migrated entries, which are not edited, it is named for a person and nothing is written.
+  An entry the branch removed, and text in the old section that is not a list item, are named for a person too, and the tool exits 1.
+- `--dry-run` says what it would write and stage.
 
 `python3 tools/contract_dry_run.py` tries this merge on many pull request heads at once, writing nothing (see its help).

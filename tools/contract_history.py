@@ -5,8 +5,9 @@ and every pull request prepended to it. Each merge into the release line therefo
 every other open pull request conflict on that list; GitHub runs no CI on a conflicting
 pull request (D-CI1), so each one needed a merge and a fresh CI run before it could land.
 
-Now each change is a file of its own under `docs/contract-history/`, named so two pull
-requests never write the same path (see that folder's README):
+Now each change is a file of its own under `docs/contract-history/`, named after the
+branch that adds it, so two pull requests write the same path only when their branch
+names differ in nothing but case or punctuation (see that folder's README):
 
     docs/contract-history/<YYYY-MM-DD>-<branch>[-<n>].md   one entry, newest first in the index
     docs/contract-history/version-3/<NNN>.md               the list as the contract kept it, in order
@@ -243,8 +244,9 @@ def problems(root: Path = HISTORY, contract_path: Path = CONTRACT,
         lines = entry.text.split("\n")
         if any(not line.strip() for line in lines):
             found.append(f"{rel}: one paragraph, no blank lines")
-        if layout.starts_block(lines[0]) or layout.HEADING.match(lines[0]) \
-                or layout.TABLE.match(lines[0]) or layout.LINK_DEFINITION.match(lines[0]):
+        if lines[0][:1].isspace() or layout.starts_block(lines[0]) \
+                or layout.HEADING.match(lines[0]) \
+                or layout.TABLE.match(lines[0]) or layout.LINK_DEFINITION_LINE.match(lines[0]):
             found.append(f"{rel}: the entry's text only, as a paragraph; the index adds the"
                          " list marker")
         if any(line.strip() and (layout.starts_block(line) or layout.HEADING.match(line)

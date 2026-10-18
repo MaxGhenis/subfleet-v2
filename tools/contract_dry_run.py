@@ -5,7 +5,8 @@ For each pull request head, this asks what `git merge <target>` followed by
 own contract conflicts merging the head with the target, the conflicts left after the
 tool's merge and after `--words`, the entries the tool would write, and the other files
 that would conflict (`git merge-tree`). With `--baseline` it also counts the contract
-conflicts the head has with that ref, as the head stands today.
+conflicts the head has with that ref, as the head stands today. A head with more than
+one merge base (`merge bases`) is read from the first, so its row is approximate.
 
     gh pr list --base release/217 --state open --json number,headRefOid \\
         --jq '.[] | [.number, .headRefOid] | @tsv' > heads.tsv
@@ -29,9 +30,9 @@ if __package__ in (None, ""):
 from tools import contract_merge as merge_tool  # noqa: E402
 
 PATH = "docs/acceptance-contract.md"
-COLUMNS = ("pr", "head", "baseline conflicts", "git conflicts", "tool conflicts",
-           "--words conflicts", "entries", "edited or removed", "unrecognised",
-           "other conflicting files")
+COLUMNS = ("pr", "head", "merge bases", "baseline conflicts", "git conflicts",
+           "tool conflicts", "--words conflicts", "entries added", "entries edited",
+           "entries removed", "unrecognised", "other conflicting files")
 
 
 def _git(*args: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -54,14 +55,18 @@ def dry_run(head: str, target: str, baseline: str | None) -> dict[str, object]:
         base = _git("merge-base", head, baseline).stdout.split()[0]
         row["baseline conflicts"] = _git_conflicts(_contract(head), _contract(base),
                                                    _contract(baseline))
-    base = _git("merge-base", head, target).stdout.split()[0]
-    ours, older, theirs = _contract(head), _contract(base), _contract(target)
+    bases = _git("merge-base", "--all", head, target).stdout.split()
+    # With more than one merge base Git merges from a base it builds; this reads the
+    # first, so such a row is approximate.
+    row["merge bases"] = len(bases)
+    ours, older, theirs = _contract(head), _contract(bases[0]), _contract(target)
     row["git conflicts"] = _git_conflicts(ours, older, theirs)
     plain = merge_tool.merge(older, ours, theirs)
     row["tool conflicts"] = plain.conflicts
     row["--words conflicts"] = merge_tool.merge(older, ours, theirs, words=True).conflicts
-    row["entries"] = len(plain.added)
-    row["edited or removed"] = len(plain.dropped)
+    row["entries added"] = len(plain.added)
+    row["entries edited"] = len(plain.replaced)
+    row["entries removed"] = len(plain.dropped)
     row["unrecognised"] = len(plain.unrecognised)
     tree = _git("merge-tree", "--write-tree", "--name-only", "--no-messages", head, target,
                 check=False).stdout.split("\n")[1:]

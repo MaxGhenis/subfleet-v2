@@ -118,13 +118,54 @@ def test_one_word_changed_on_both_sides_stays_a_conflict():
     assert "seven" in result.text and "eight" in result.text and "||||||| base" in result.text
 
 
-def test_an_edited_old_entry_is_reported_not_carried():
-    """C-20.7 the migrated list is not edited, so a branch's edit to it goes to a person."""
+def test_an_edited_old_entry_is_a_replacement():
+    """C-20.7 an old-list entry edited in place reads as a new round of that entry."""
     base = contract(CLAUSES)
     ours = contract(CLAUSES, [ENTRIES[0].replace("older", "old"), ENTRIES[1]])
     result = merge_tool.merge(base, ours, moved(base))
-    assert result.dropped == [("ours", ENTRIES[0])]
-    assert result.added == [("ours", ENTRIES[0].replace("older", "old"))]
+    assert result.replaced == [("ours", ENTRIES[0], ENTRIES[0].replace("older", "old"))]
+    assert (result.added, result.dropped) == ([], [])
+
+
+def test_an_edited_migrated_entry_goes_to_a_person(tmp_path):
+    """C-20.7 review r2, finding 13: the migrated list is not edited, so the new round is
+    named for a person and nothing is written."""
+    root = tmp_path / "contract-history"
+    (root / "version-3").mkdir(parents=True)
+    (root / "version-3" / "001.md").write_text(ENTRIES[0] + "\n")
+    result = merge_tool.Merged("", 0, replaced=[("ours", ENTRIES[0], "C-1.2 (2026-10-10, x): new.")])
+    plan = merge_tool.plan_entries(root, result, {"ours": "fix-x"}, "2026-10-14", {})
+    assert plan.writes == [] and plan.kept == []
+    assert len(plan.people) == 1 and "001.md" in plan.people[0]
+
+
+def test_a_landed_entry_gets_its_new_round(tmp_path):
+    """C-20.7 review r2, finding 4: when another pull request on the same work landed the
+    entry first, a later round goes into that file, not a second one."""
+    root = tmp_path / "contract-history"
+    root.mkdir()
+    landed = root / "2026-10-10-fix-sibling.md"
+    landed.write_text("C-1.1 (2026-10-10, x): round one.\n")
+    result = merge_tool.Merged("", 0, replaced=[(
+        "ours", "C-1.1 (2026-10-10, x): round one.", "C-1.1 (2026-10-10, x): round two.")])
+    plan = merge_tool.plan_entries(root, result, {"ours": "fix-other"}, "2026-10-14", {})
+    assert [(p.name, text) for p, text, _ in plan.writes] == [
+        ("2026-10-10-fix-sibling.md", "C-1.1 (2026-10-10, x): round two.")]
+    assert plan.people == []
+
+
+def test_an_edit_of_an_entry_that_never_landed_is_a_new_entry(tmp_path):
+    """C-20.7 a base entry no file holds was never on the release line: its new round is
+    simply an entry of this branch, and its removal concerns no one."""
+    root = tmp_path / "contract-history"
+    root.mkdir()
+    result = merge_tool.Merged("", 0, replaced=[("ours", "C-1.1 (2026-10-10, x): a.",
+                                                 "C-1.1 (2026-10-10, x): b.")],
+                               dropped=[("ours", "C-1.2 (2026-10-09, y): gone.")])
+    plan = merge_tool.plan_entries(root, result, {"ours": "fix-x"}, "2026-10-14", {})
+    assert [(p.name, text) for p, text, _ in plan.writes] == [
+        ("2026-10-10-fix-x.md", "C-1.1 (2026-10-10, x): b.")]
+    assert plan.people == []
 
 
 @st.composite
@@ -223,8 +264,9 @@ def test_the_release_merge_into_an_old_branch_end_to_end(repo):
     result = run_tool(repo)
     assert result.returncode == 0, result.stderr
     entry = f"{merge_tool.HISTORY}/2026-10-11-fix-thing.md"
-    assert f"wrote {entry}" in result.stdout
-    assert f"then: git add {merge_tool.PATH} {entry}" in result.stdout
+    assert f"wrote and staged {entry}" in result.stdout
+    assert f"then: git add {merge_tool.PATH}" in result.stdout
+    assert entry in git(repo, "diff", "--cached", "--name-only").stdout.split()
     assert (repo / entry).read_text() == "C-1.1 (2026-10-11, z): the branch's entry.\n"
     expected = moved(contract(edit(edit(CLAUSES, 0, 0, "The branch changed this."),
                                    5, 2, "Release changed this.")))
@@ -246,9 +288,11 @@ def test_a_dry_run_writes_nothing(repo):
     before = (repo / merge_tool.PATH).read_text()
     result = run_tool(repo, "--dry-run")
     assert result.returncode == 0
-    assert "would write docs/contract-history/2026-10-11-fix-thing.md" in result.stdout
+    assert "would write and would stage docs/contract-history/2026-10-11-fix-thing.md" \
+        in result.stdout
     assert (repo / merge_tool.PATH).read_text() == before
     assert not list((repo / merge_tool.HISTORY).glob("*.md"))
+    assert git(repo, "diff", "--cached", "--name-only", "--", merge_tool.HISTORY).stdout == ""
 
 
 def test_it_refuses_outside_a_merge_and_between_two_old_branches(repo):
@@ -334,31 +378,37 @@ def test_a_marker_shaped_line_is_never_read_as_a_conflict():
                 if line.startswith(("<" * result.marker_size, ">" * result.marker_size))]
 
 
-def test_a_dry_run_names_files_as_a_real_run_does(tmp_path):
-    """C-20.7 finding 9: two entries of one date and branch get distinct names either way."""
+def test_two_entries_of_one_date_and_branch_get_distinct_names(tmp_path):
+    """C-20.7 review r1b, finding 9: names are chosen before anything is written, so a dry
+    run names what a real run writes."""
     added = [("ours", "C-1.1 (2026-10-14, a): first."), ("ours", "C-1.1 (2026-10-14, b): second.")]
-    dry = merge_tool.write_entries(tmp_path, added, {"ours": "fix-x"}, "2026-10-14", True)
-    real = merge_tool.write_entries(tmp_path, added, {"ours": "fix-x"}, "2026-10-14", False)
-    assert [p.name for p, _ in dry] == [p.name for p, _ in real] == [
-        "2026-10-14-fix-x.md", "2026-10-14-fix-x-2.md"]
+    plan = merge_tool.plan_entries(tmp_path, merge_tool.Merged("", 0, added=added),
+                                   {"ours": "fix-x"}, "2026-10-14", {})
+    assert [p.name for p, _, _ in plan.writes] == ["2026-10-14-fix-x.md", "2026-10-14-fix-x-2.md"]
 
 
-def test_a_rerun_stages_the_entry_the_first_run_wrote(repo):
-    """C-20.7 finding 3: after a run that left a conflict, a rerun with --words prints a
-    `git add` naming the entry the first run wrote; running it commits the entry."""
+def _conflicting_release(repo):
+    """Release also edits the line beside the branch's: a conflict --words settles."""
     git(repo, "checkout", "-q", "release")
     write(repo, merge_tool.PATH, moved(contract(edit(edit(
         CLAUSES, 5, 2, "Release changed this."), 0, 1, "Release words here."))))
     git(repo, "commit", "-q", "-am", "release edits the line beside the branch's")
     git(repo, "checkout", "-q", "fix/thing")
     assert git(repo, "merge", "release", check=False).returncode == 1
+
+
+def test_a_rerun_stages_the_entry_the_first_run_wrote(repo):
+    """C-20.7 review r1b, finding 3: after a run that left a conflict, a rerun with --words
+    keeps the entry the first run wrote staged; its printed `git add` then commits all."""
+    _conflicting_release(repo)
     first = run_tool(repo)
     assert first.returncode == 1 and "1 conflict(s) left" in first.stdout
     second = run_tool(repo, "--words")
     assert second.returncode == 0, second.stdout + second.stderr
     entry = f"{merge_tool.HISTORY}/2026-10-11-fix-thing.md"
+    assert sorted(p.name for p in (repo / merge_tool.HISTORY).glob("*.md")) == [
+        "2026-10-11-fix-thing.md"]
     add = next(line for line in second.stdout.splitlines() if line.startswith("then: "))
-    assert entry in add.split()
     git(repo, *add.removeprefix("then: git ").split())
     git(repo, "commit", "-q", "--no-edit")
     assert "the branch's entry" in git(repo, "show", f"HEAD:{entry}").stdout
@@ -409,3 +459,109 @@ def test_a_detached_head_must_name_its_branch(repo):
     named = run_tool(repo, "--ours-branch", "fix/thing")
     assert named.returncode == 0
     assert (repo / merge_tool.HISTORY / "2026-10-11-fix-thing.md").exists()
+
+
+# Review r2 of #218 (findings 1-3): the landing path when a conflict is left.
+
+def test_an_entry_reaches_the_commit_when_a_person_resolves_the_rest(repo):
+    """C-20.7 review r2, finding 1: with a conflict left, the entry is staged already, so
+    a person who resolves the contract and adds only it still commits the entry."""
+    _conflicting_release(repo)
+    first = run_tool(repo)
+    assert first.returncode == 1
+    assert "after resolving the conflicts: git add docs/acceptance-contract.md" in first.stdout
+    text = (repo / merge_tool.PATH).read_text()
+    size = merge_tool.marker_size(text) - 1     # the markers the tool chose
+    lines, out, skip = text.split("\n"), [], False
+    for line in lines:                          # take ours for each hunk, by hand
+        if line.startswith("<" * size + " "):
+            skip = False
+            continue
+        if line.startswith("|" * size + " "):
+            skip = True
+            continue
+        if line == "=" * size:
+            skip = True
+            continue
+        if line.startswith(">" * size + " "):
+            skip = False
+            continue
+        if not skip:
+            out.append(line)
+    write(repo, merge_tool.PATH, "\n".join(out))
+    git(repo, "add", merge_tool.PATH)
+    git(repo, "commit", "-q", "--no-edit")
+    entry = f"{merge_tool.HISTORY}/2026-10-11-fix-thing.md"
+    assert "the branch's entry" in git(repo, "show", f"HEAD:{entry}").stdout
+    assert git(repo, "status", "--porcelain").stdout == ""
+
+
+def test_a_hand_resolution_is_never_overwritten(repo):
+    """C-20.7 review r2, finding 2: after a run, a person resolves the contract by hand
+    without adding it; a rerun refuses, and with --force rebuilds after a backup."""
+    _conflicting_release(repo)
+    assert run_tool(repo).returncode == 1
+    hand = "# Resolved by a PERSON\n"
+    write(repo, merge_tool.PATH, hand)
+    refused = run_tool(repo, "--words")
+    assert refused.returncode == 2 and "has changed since this tool wrote it" in refused.stderr
+    assert (repo / merge_tool.PATH).read_text() == hand
+    forced = run_tool(repo, "--words", "--force")
+    assert forced.returncode == 0
+    backup = git(repo, "rev-parse", "--git-path", "contract-merge-backup.md").stdout.strip()
+    assert (repo / backup).read_text() == hand
+
+
+def test_a_resolution_made_before_the_first_run_is_never_overwritten(repo):
+    """C-20.7 review r2, finding 2: a contract with neither Git's markers nor the tool's
+    last result is a person's; the first run refuses too."""
+    assert git(repo, "merge", "release", check=False).returncode == 1
+    write(repo, merge_tool.PATH, "# Resolved by a PERSON before any run\n")
+    refused = run_tool(repo)
+    assert refused.returncode == 2 and "since Git left it conflicted" in refused.stderr
+
+
+def test_an_entry_file_a_person_edited_is_kept_on_rerun(repo):
+    """C-20.7 review r2, finding 3: a rerun neither overwrites a person's edit of an entry
+    file the tool wrote nor writes a second copy; the edit stays staged."""
+    _conflicting_release(repo)
+    assert run_tool(repo).returncode == 1
+    entry = repo / merge_tool.HISTORY / "2026-10-11-fix-thing.md"
+    entry.write_text("C-1.1 (2026-10-11, z): the branch's entry, reworded by a person.\n")
+    again = run_tool(repo, "--words")
+    assert again.returncode == 0, again.stderr
+    assert "kept: changed since this tool wrote it" in again.stdout
+    assert sorted(p.name for p in (repo / merge_tool.HISTORY).glob("*.md")) == [
+        "2026-10-11-fix-thing.md"]
+    assert "reworded by a person" in entry.read_text()
+    assert "reworded by a person" in git(repo, "show", f":{merge_tool.HISTORY}/{entry.name}").stdout
+
+
+# Review r2, finding 4, as it happens with the mirror pull requests (#167 to #173): siblings
+# share an entry, the first to land writes its round, and the second has another.
+
+def test_a_second_round_of_a_landed_entry_is_not_written_beside_it(tmp_path):
+    """C-20.7 when both siblings changed the shared entry, the second's round is named for
+    a person, beside the file that holds the first's; nothing is written."""
+    root = tmp_path / "contract-history"
+    root.mkdir()
+    head = "C-23.28, with C-6.4 and C-17.3 (2026-10-10; incident that day: Max opened a copy"
+    (root / "2026-10-10-fix-first.md").write_text(head + ", round two.\n")
+    result = merge_tool.Merged("", 0, added=[("ours", head + ", round three.")])
+    plan = merge_tool.plan_entries(root, result, {"ours": "fix-second"}, "2026-10-14", {})
+    assert plan.writes == []
+    assert len(plan.people) == 1 and "2026-10-10-fix-first.md" in plan.people[0]
+
+
+def test_a_criss_cross_base_is_matched_against_the_files(tmp_path):
+    """C-20.7 with a base Git built from several (markers in its list), a side's new
+    entries are those no file holds; nothing is read as removed or edited."""
+    root = tmp_path / "contract-history"
+    (root / "version-3").mkdir(parents=True)
+    (root / "version-3" / "001.md").write_text(ENTRIES[1] + "\n")
+    (root / "2026-10-10-fix-x.md").write_text(ENTRIES[0] + "\n")
+    ours = contract(CLAUSES, ["C-1.3 (2026-10-12, n): new.", *ENTRIES])
+    result = merge_tool.Merged("", 0, dropped=[("ours", "noise")], replaced=[("ours", "a", "b")])
+    merge_tool.against_files(result, ours, moved(contract(CLAUSES)), root)
+    assert result.added == [("ours", "C-1.3 (2026-10-12, n): new.")]
+    assert (result.dropped, result.replaced) == ([], [])

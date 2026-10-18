@@ -71,7 +71,7 @@ def test_every_clause_is_read_whole():
 #: block; a delimiter row without a pipe (cmark-gfm); a span open across several blocks.
 FOUND_BY_GENERATION = {
     "| a. B | c; D |\n<pre>\n\nA. B; c\n</pre>": "| a. B | c; D |\n<pre>\n\nA. B; c\n</pre>",
-    "1.\nv1. Admission.": "1.\nv1.\nAdmission.",
+    "1.\nv1. Admission.": "1.\nv1. Admission.",    # since r2: an item's lazy tail is kept
     "a. a. a. a.\n``` v1. `code`.": "a. a. a. a.\n``` v1. `code`.",
     "- # a.\na.": "- # a.\na.",
     "<div>\n\nA. B\n</div>\na.\n```.\n<pre>\n\nA. B; c\n</pre>\n~~~\n```\nA. B\n~~~":
@@ -84,6 +84,66 @@ FOUND_BY_GENERATION = {
         "a. a.\n<span>. a.\n~~~. a. a. a.\n<div>\n\nA. B\n</div>",
     "a.\n-:": "a.\n-:",
     "a. ```.\n<b>.\n  <b>;\na ```.": "a. ```.\n<b>.\n  <b>;\na ```.",
+}
+
+
+#: Review r2 of #218: inputs whose rendering relayout changed at b624670a4 (footnotes
+#: under GitHub's renderer, tabs, precedence of code, links and HTML, escapes, a lazy `===`,
+#: closing tags that were not, link labels over lines, CRLF), and what it does with each.
+REVIEW_R2 = {
+    'The limit is 128 characters[^1], measured\n[^1]: Counted in code points, not bytes.\n':
+        'The limit is 128 characters[^1], measured\n[^1]: Counted in code points, not bytes.\n',
+    'A. [^1]: x':
+        'A. [^1]: x',
+    '\t```\nA. B\n```\nC. D\n```':
+        '\t```\nA. B\n```\nC. D\n```',
+    '\xa0```\nA. B. C':
+        '\xa0```\nA. B. C',
+    '<http://a`b> then `X.  Y` and `z`.':
+        '<http://a`b> then `X.  Y` and `z`.',
+    '[a](u "`") then `X.  Y` and `z`.':
+        '[a](u "`") then `X.  Y` and `z`.',
+    'X <span title="a>b. C">x</span>.':
+        'X <span title="a>b. C">x</span>.',
+    'X <!-- a > b. C --> d.':
+        'X <!-- a > b. C --> d.',
+    'A \\` b `\n2. X.  Y` D.':
+        'A \\` b `\n2. X.  Y` D.',
+    '- A `x\n===\nB.  C`':
+        '- A `x\n===\nB.  C`',
+    'Text <pre>\n\nSay `</pre>`.\n\nA. B':
+        'Text <pre>\n\nSay `</pre>`.\n\nA. B',
+    'x <!-- </pre> -->\n\nA. B':
+        'x <!-- </pre> -->\n\nA.\nB',
+    '[a\nb]: /u "A. B"\n\n[a b]':
+        '[a\nb]: /u "A. B"\n\n[a b]',
+    '[a\\]]: /u "A. B"\n\n[a\\]]':
+        '[a\\]]: /u "A. B"\n\n[a\\]]',
+    'A.  \r\nB. C\r\n':
+        'A.  \r\nB. C\r\n',
+    '</pre> <pre>.`\n\nE. F':
+        '</pre> <pre>.`\n\nE. F',
+    '… <pre>...\n+ [^2]: *;\n </pre> [^1].`\n\n<br>; 10:05Z.':
+        '… <pre>...\n+ [^2]: *;\n </pre> [^1].`\n\n<br>; 10:05Z.',
+    # Found by tools/contract_layout_fuzz.py (exotic, seeds 10 and 11) after the r2 fixes:
+    # a list item opening a fence after a quote line, and a footnote's lazy text that
+    # GitHub moves to the end of the page, past an open raw <pre>.
+    '> -->;\n+ ``` X")\n\n  `a. B`."\n --;':
+        '> -->;\n+ ``` X")\n\n  `a. B`."\n --;',
+    '* [^2]: `a. B`!\n "T. X") &#59;,\n\n*** <pre>.; [^2]:':
+        '* [^2]: `a. B`!\n "T. X") &#59;,\n\n*** <pre>.; [^2]:',
+    # Found by the fuzzer when tables and quotes were first stopped at list items: a
+    # code span may run from a table's or quote's text into the paragraph after it.
+    '+ i.e.?\n  B | |\n  |---|---|\nAdmission v1..` ~~gone~~!\n10. "Q." `':
+        '+ i.e.?\n  B | |\n  |---|---|\nAdmission v1..` ~~gone~~!\n10. "Q." `',
+    '+ C-5.5.),\n  B | |\n  |---|---|\n``a 2),\n10. B. ` b``.*':
+        '+ C-5.5.),\n  B | |\n  |---|---|\n``a 2),\n10. B. ` b``.*',
+    '1. a:\n   B | |\n   |---|:-:|\na B..` \n2) \'s." `code`':
+        '1. a:\n   B | |\n   |---|:-:|\na B..` \n2) \'s." `code`',
+    '`x; y` (x).`\ne.g. (x).`\n |\n<b>B</b> b``." _u_:\n10. ` b``? `a. `code`.;':
+        '`x; y` (x).`\ne.g. (x).`\n |\n<b>B</b> b``." _u_:\n10. ` b``? `a. `code`.;',
+    '| ` Ok.:\n10. "Q." ``.**\n </a> \\`':
+        '| ` Ok.:\n10. "Q." ``.**\n </a> \\`',
 }
 
 
@@ -137,6 +197,7 @@ def test_examples():
         "Tag <span title=\"A. B\">x</span>. Next.": "Tag <span title=\"A. B\">x</span>.\nNext.",
         # Found by the generated documents below while review r1b was being fixed.
         **FOUND_BY_GENERATION,
+        **REVIEW_R2,
     }
     for given_, expected in cases.items():
         assert layout.relayout(given_) == expected, given_
@@ -271,5 +332,5 @@ def test_the_found_inputs_render_the_same():
     same before and after (markdown-it-py; cmark-gfm was checked by hand, see the report)."""
     markdown_it = pytest.importorskip("markdown_it")
     render = markdown_it.MarkdownIt("commonmark").enable("table").render
-    for document in FOUND_BY_GENERATION:
+    for document in [*FOUND_BY_GENERATION, *REVIEW_R2]:
         assert signature(render(layout.relayout(document))) == signature(render(document)), document

@@ -162,6 +162,11 @@ BREAKAGES = {
     "a heading after the entry": (
         lambda r, c: _entry(r, "2026-10-14-fix.md", GOOD + "# Heading\n"),
         "a later line may not start"),
+    "an indented first line": (
+        lambda r, c: _entry(r, "2026-10-14-fix.md", "    " + GOOD), "as a paragraph"),
+    "a footnote definition in the entry": (
+        lambda r, c: _entry(r, "2026-10-14-fix.md", GOOD + "[^1]: a note.\n"),
+        "a later line may not start"),
     "a table after the entry": (
         lambda r, c: _entry(r, "2026-10-14-fix.md", GOOD + "| a | b |\n|---|---|\n"),
         "a later line may not start"),
