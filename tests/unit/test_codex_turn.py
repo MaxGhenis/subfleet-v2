@@ -475,3 +475,164 @@ def test_c23_6_the_service_launches_network_turns_with_unified_exec_off(tmp_path
         launch = ConversationService.launch(service, job, {"attempt_id": f"j{n}/a1"}, lane, {}, tmp_path, "gpt-6-astra",
                                             guard_result=guard)
         assert ("features.unified_exec=false" in launch.argv) is off, (permission, network)
+
+
+STEER = "5b8e5c3a-0000-4000-8000-000000000002"
+
+
+def user_steer(turn, offset=10):
+    return turn.feed(note("item/completed", threadId="thr-1", turnId="turn-1", item={
+        "id": "steered-user", "type": "userMessage", "clientId": STEER,
+        "content": [{"type": "text", "text": "new instruction"}]}), offset)
+
+
+def test_steer_uses_schema_valid_input_and_expected_active_turn():
+    turn = CodexTurn(spec())
+    to_running(turn)
+    step = turn.steer(STEER, "new instruction", (Image("b" * 64, "image/png", "/x.png"),))
+    check_frames(step)
+    wire = json.loads(step.frames[0].line)
+    assert wire == {"id": "steer:" + STEER, "method": "turn/steer", "params": {
+        "threadId": "thr-1", "expectedTurnId": "turn-1", "clientUserMessageId": STEER,
+        "input": [{"type": "text", "text": "new instruction"}, {"type": "localImage", "path": "/x.png"}]}}
+    assert not turn.steer(STEER, "duplicate").frames
+    turn.steer_written(STEER)
+    turn.feed(resp("steer:" + STEER, {"turnId": "turn-1"}), 5)
+    assert turn.steers[STEER]["fate"] == "unknown"  # acceptance is not history evidence
+    delivered = user_steer(turn)
+    assert delivered.events[0].kind == "steer.delivered"
+    assert turn.steers[STEER]["fate"] == "unanswered"
+    turn.feed(note("item/completed", threadId="thr-1", item={"id": "answer", "type": "agentMessage", "text": "done"}), 11)
+    assert turn.steers[STEER]["fate"] == "delivered"
+    user_steer(turn, 12)
+    assert turn.steers[STEER]["fate"] == "delivered"  # duplicate item cannot reset answered
+
+
+def test_steer_waits_for_turn_id_then_flushes_once():
+    turn = CodexTurn(spec())
+    to_thread(turn)
+    turn.feed(resp(ID_THREAD, {"thread": {"id": "thr-1", "status": {"type": "idle"}}, "model": "gpt-6-astra"}), 3)
+    assert turn.steerable and not turn.steer(STEER, "held").frames
+    flush = turn.feed(resp(ID_TURN, {"turn": {"id": "turn-1"}}), 4)
+    assert [f.tag for f in flush.frames] == ["steer:" + STEER]
+    check_frames(flush)
+    assert not turn.feed(note("turn/started", threadId="thr-1", turn={"id": "turn-1"}), 5).frames
+
+
+def test_notifications_are_dropped_for_another_turn_only_once_the_turn_id_is_known():
+    """Design §5, invariant 5: a turn with no steers reads its notifications as before
+    steer. One carrying a turn id before the turn/start answer names the turn is read;
+    once the id is known, another turn's is ignored."""
+    turn = CodexTurn(spec())
+    to_thread(turn)
+    turn.feed(resp(ID_THREAD, {"thread": {"id": "thr-1", "status": {"type": "idle"}}, "model": "gpt-6-astra"}), 3)
+    early = turn.feed(note("item/started", threadId="thr-1", turnId="turn-1",
+                           item={"id": "early", "type": "agentMessage", "text": ""}), 4)
+    assert turn.turn_id is None and [e.kind for e in early.events] == ["status"]
+    turn.feed(resp(ID_TURN, {"turn": {"id": "turn-1"}}), 5)
+    other = turn.feed(note("item/started", threadId="thr-1", turnId="turn-9",
+                           item={"id": "other", "type": "commandExecution", "command": "ls"}), 6)
+    assert other.events == [] and other.frames == []
+    own = turn.feed(note("item/started", threadId="thr-1", turnId="turn-1",
+                         item={"id": "own", "type": "commandExecution", "command": "ls"}), 7)
+    assert "tool.started" in [e.kind for e in own.events]
+
+
+def test_withdrawn_held_steer_is_not_sent_when_turn_id_arrives():
+    turn = CodexTurn(spec())
+    to_thread(turn)
+    turn.feed(resp(ID_THREAD, {"thread": {"id": "thr-1", "status": {"type": "idle"}}, "model": "gpt-6-astra"}), 3)
+    turn.steer(STEER, "withdraw")
+    turn.drop_steer(STEER, "cancelled")
+    assert not turn.feed(resp(ID_TURN, {"turn": {"id": "turn-1"}}), 4).frames
+    assert turn.steers[STEER]["frame"] == "unsent"
+
+
+@pytest.mark.parametrize("state", ["idle", "interrupt", "ended"])
+def test_steer_refuses_after_idle_stop_or_completion(state):
+    turn = CodexTurn(spec())
+    to_running(turn)
+    if state == "idle":
+        turn.feed(note("thread/status/changed", threadId="thr-1", status={"type": "idle"}), 5)
+    elif state == "interrupt":
+        turn.interrupt()
+    else:
+        turn.feed(note("turn/completed", threadId="thr-1", turn={"id": "turn-1", "status": "completed"}), 5)
+    assert not turn.steerable
+    assert not turn.steer(STEER, "too late").frames
+    assert turn.steers[STEER]["fate"] == "refused"
+
+
+@pytest.mark.parametrize("delivered", [False, True])
+def test_late_steer_error_and_history_items_are_read_after_end(delivered):
+    turn = CodexTurn(spec())
+    to_running(turn)
+    turn.steer(STEER, "race")
+    turn.steer_written(STEER)
+    end = turn.feed(note("turn/completed", threadId="thr-1", turn={"id": "turn-1", "status": "completed"}), 6)
+    if delivered:
+        user_steer(turn)
+    error = turn.feed(resp("steer:" + STEER, error={"code": -32600, "message": "no active turn"}), 20)
+    assert end.outcome.steers[STEER]["fate"] == ("unanswered" if delivered else "refused")
+    assert not error.frames
+    if delivered:
+        turn.feed(note("item/agentMessage/delta", threadId="thr-1", itemId="last", delta="reply\n"), 21)
+        assert end.outcome.steers[STEER]["fate"] == "delivered"
+
+
+def test_unrelated_thread_or_turn_cannot_acknowledge_steer():
+    turn = CodexTurn(spec())
+    to_running(turn)
+    turn.steer(STEER, "ours")
+    for thread, tid in [("other", "turn-1"), ("thr-1", "other")]:
+        turn.feed(note("item/completed", threadId=thread, turnId=tid, item={
+            "type": "userMessage", "id": "x", "clientId": STEER}), 10)
+    assert turn.steers[STEER]["fate"] == "unknown"
+
+
+def test_replay_restores_written_steer_without_duplicate_request():
+    turn = CodexTurn(spec())
+    turn.restore_steer(STEER)
+    to_running(turn)
+    step = user_steer(turn)
+    assert not step.frames and turn.steers[STEER]["frame"] == "written"
+    assert turn.steers[STEER]["fate"] == "unanswered"
+
+
+@pytest.mark.parametrize("itype", ["contextCompaction", "futureUnknownItem"])
+def test_compaction_or_unknown_item_does_not_claim_to_answer_steer(itype):
+    turn = CodexTurn(spec())
+    to_running(turn)
+    turn.steer(STEER, "last instruction")
+    user_steer(turn)
+    for method in ("item/started", "item/completed"):
+        turn.feed(note(method, threadId="thr-1", item={"id": "later", "type": itype}), 11)
+    assert turn.steers[STEER]["fate"] == "unanswered"
+
+
+@pytest.mark.parametrize("response_first", [False, True])
+def test_proven_interrupt_cancels_accepted_unechoed_steer_but_late_echo_wins(response_first):
+    turn = CodexTurn(spec())
+    to_running(turn)
+    turn.steer(STEER, "pending")
+    turn.steer_written(STEER)
+    if response_first:
+        turn.feed(resp("steer:" + STEER, {"turnId": "turn-1"}), 5)
+    turn.interrupt()
+    assert turn.steers[STEER]["fate"] == "unknown"
+    end = turn.feed(note("turn/completed", threadId="thr-1", turn={"id": "turn-1", "status": "interrupted"}), 6)
+    if not response_first:
+        turn.feed(resp("steer:" + STEER, {"turnId": "turn-1"}), 7)
+    assert end.outcome.steers[STEER]["fate"] == "cancelled"
+    user_steer(turn)
+    assert end.outcome.steers[STEER]["fate"] == "unanswered"
+
+
+def test_interrupt_then_eof_leaves_unechoed_accepted_steer_unknown():
+    turn = CodexTurn(spec())
+    to_running(turn)
+    turn.steer(STEER, "pending")
+    turn.steer_written(STEER)
+    turn.feed(resp("steer:" + STEER, {"turnId": "turn-1"}), 5)
+    turn.interrupt()
+    assert turn.eof(6).outcome.steers[STEER]["fate"] == "unknown"

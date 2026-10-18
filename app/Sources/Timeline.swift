@@ -16,7 +16,16 @@
 //   `attach` has seen that approval, also when a reset makes the card again);
 //   `approval.resolved` answers or withdraws it;
 //   `turn.completed` records the outcome and withdraws what is still pending
-//   (the driver withdraws pending requests when a turn ends without an event).
+//   (the daemon writes `approval.resolved {withdrawn}` for each request a turn's
+//   end withdraws, ahead of it, and for one a provider that exited without a
+//   result left pending, which has no `turn.completed`; C-27.3).
+// - `steer.delivered` (on the host turn, `data.message_id` the steered message,
+//   C-24.9) marks where the provider read a steered message: its bubble, drawn in
+//   send order until then, is anchored there, once, and reads "Read".
+//   `steer.missed` says the turn ended before reading it (it runs next);
+//   `steer.sent` and `steer.refused` change nothing shown.
+// - `suggestion` (C-25.7) makes one card per suggested conversation, on the turn
+//   that suggested it, and each later `suggestion` event of it updates that card.
 // - `reset: true` means compacted deltas were missed: the event-derived state is
 //   dropped and the log is read again from 0 (C-25.4).
 //
@@ -55,8 +64,12 @@ struct ApprovalCard: Equatable {
     var display: ApprovalDisplay
     var options: [String]
     var state: State
+    /// Answers this app successfully submitted, retained on the settled row.
+    var answers: [String: String] = [:]
 
     var isPending: Bool { state == .pending }
+    /// An event summary alone cannot identify the approval the person answers.
+    var isActionable: Bool { isPending && approvalID != nil }
     var questions: [ApprovalQuestion] { display.questions }
 }
 
@@ -79,6 +92,14 @@ enum TimelineContent: Equatable {
     case approval(ApprovalCard)
     case error(message: String, kind: String?, willRetry: Bool)
     case notice(String)
+    /// A whole Claude user transcript turn containing a background completion.
+    case taskNotification(TaskNotification)
+    /// Where the provider took a steered message into this turn (`steer.delivered`).
+    /// `Timeline.items` draws that message's bubble here instead, so it is never shown.
+    case steered(messageID: String)
+    /// A conversation this turn's agent suggested (`suggestion` events, C-25.7): its
+    /// card, as the latest event left it; the view prefers the watch feed's newer word.
+    case suggestion(Suggestion)
 }
 
 struct TimelineItem: Identifiable, Equatable {
@@ -86,6 +107,36 @@ struct TimelineItem: Identifiable, Equatable {
     var messageID: String?
     var content: TimelineContent
     var ts: String?
+
+    /// The card, when this row is an approval still waiting for the person.
+    var pendingCard: ApprovalCard? {
+        if case .approval(let card) = content, card.isPending { return card }
+        return nil
+    }
+
+    /// The card, when this row is an approval in any state.
+    var card: ApprovalCard? {
+        if case .approval(let card) = content { return card }
+        return nil
+    }
+}
+
+/// The pinned strip's Review button: "Review", or "Review (N)" while several
+/// cards wait; nil, and no button, while none does.
+func reviewButtonLabel(pending: Int) -> String? {
+    pending <= 0 ? nil : pending == 1 ? "Review" : "Review (\(pending))"
+}
+
+/// Whether the strip's Review opens the request sheet for `card`, besides
+/// bringing it into view: only for a tool request. A question is answered on its
+/// own inline card, and the sheet has no form for its answers (C-27.2, C-27.5).
+func reviewOpensRequestSheet(_ card: ApprovalCard) -> Bool {
+    card.kind != "question"
+}
+
+/// The sidebar's hand badge, spoken: "1 approval waiting", "3 approvals waiting".
+func approvalsWaitingWords(_ count: Int) -> String {
+    "\(count) approval\(count == 1 ? "" : "s") waiting"
 }
 
 /// One message and its turn.
@@ -95,6 +146,7 @@ struct TurnTimeline: Equatable {
     var origin: String?
     var continues: String?
     var personText: String?
+    var createdTS: String?
     var attachments: [String] = []
     /// A message state, or `sending` before the first receipt.
     var state: String
@@ -108,9 +160,27 @@ struct TurnTimeline: Equatable {
     var eventServed = Served()
     var receiptServed: Served?
     var outcome: TurnOutcome?
+    /// Display timing from the existing public event timestamps.
+    var completedTS: String?
     var limits: JSONValue?
     var diff: String?
     var items: [TimelineItem] = []
+    /// C-24.9: the host this message was steered into (`steered_into`, or its
+    /// `state_reason`), while it is steering or steered.
+    var steeredInto: String?
+    /// The host whose `steer.delivered` placed this message: the provider read it.
+    var steerDeliveredIn: String?
+    /// The host whose `steer.missed` said its turn ended before reading this
+    /// message. It describes that steer only: steered again into another turn,
+    /// the message is unread there until that turn says otherwise.
+    var steerMissedIn: String?
+    /// This app journaled a steer of it and the daemon has not answered yet.
+    var steerRequested = false
+    /// The daemon's refusal of this app's last steer of it (the message stayed queued).
+    var steerRefusal: OutboxFailure?
+    /// The sequence number of the turn's first event: when it began running.
+    /// Compaction removes only deltas (C-25.4), so a re-read finds the same one.
+    var firstEventSeq: Int?
 
     /// Events first, then the settled receipt's facts (lane, served model).
     var served: Served { eventServed.merging(receiptServed) }
@@ -159,17 +229,59 @@ struct TurnTimeline: Equatable {
         return phases.last?.ts.flatMap(parseTimestamp)
     }
 
-    /// The status strip's words for where this turn is (design §12).
-    var statusText: String {
+    /// Drawn inside its host turn: the host's `steer.delivered` placed it, and it
+    /// is steering or steered (or has no receipt yet). One sent back to the queue
+    /// is drawn in its own place, where it runs next.
+    var isPlacedSteer: Bool {
+        steerDeliveredIn != nil && (messageState == .steering || messageState == .steered || state == "sending")
+    }
+
+    /// A steer the provider has not read: asked for, handed over, or back in the
+    /// queue after the turn ended without reading it (it runs next).
+    var isUnreadSteer: Bool {
+        guard steerDeliveredIn == nil else { return false }
         switch messageState {
-        case .queued: return "Queued behind the current turn"
-        case .waiting:
-            if let reason = stateReason, reason.contains("external-writer") {
-                // C-26.3, D-17: another Claude process holds the session.
-                return "Waiting: open in the Claude app or a terminal; close it there to continue here"
-            }
-            if let reason = stateReason, !reason.isEmpty { return "Waiting: \(reason)" }
-            return "Waiting for capacity"
+        case .steering: return true
+        case .queued: return steerRequested || missedSteer
+        case nil: return state == "sending" && steerRequested
+        default: return false
+        }
+    }
+
+    /// The turn ended before reading it: `steer-missed:` on its receipt, or the
+    /// `steer.missed` of the turn it is (or was last) steered into.
+    var missedSteer: Bool {
+        if stateReason?.hasPrefix("steer-missed:") == true { return true }
+        guard let missedIn = steerMissedIn else { return false }
+        return messageState == .steering ? steeredInto == missedIn : messageState == .queued && !steerRequested
+    }
+
+    /// Read by the provider: its `steer.delivered`, or settled `steered`.
+    var isReadSteer: Bool {
+        messageState == .steered || (steerDeliveredIn != nil && (messageState == .steering || state == "sending"))
+    }
+
+    /// The status strip's words for where this turn is (design §12).
+    var statusText: String { statusText(host: nil) }
+
+    /// The words, with a steered message's read state taken from the turn it
+    /// joins (C-24.9; DESIGN.md sections 8 and 9: Claude Code's words).
+    func statusText(host: TurnTimeline?, assistant: String = "Claude") -> String {
+        switch messageState {
+        case .queued:
+            if steerRequested { return TurnTimeline.unreadWords(host: host, assistant: assistant) }
+            if missedSteer { return TurnTimeline.unreadUntilTurnEnds }
+            if let refusal = steerRefusal { return "Queued, not steered: " + steerRefusalWords(refusal) }
+            return "Queued behind the current turn"
+        case .steering:
+            if steerDeliveredIn != nil { return TurnTimeline.read }
+            if missedSteer { return TurnTimeline.unreadUntilTurnEnds }
+            return TurnTimeline.unreadWords(host: host, assistant: assistant)
+        case .steered:
+            // Codex recorded it after the model's last step: nothing answered it.
+            return stateReason?.hasPrefix("steered-unanswered:") == true
+                ? "Read after the turn's last step; ask again for a reply" : TurnTimeline.read
+        case .waiting: return TurnTimeline.waitingWords(stateReason)
         case .starting, .running, .approvalNeeded:
             if state == MessageState.approvalNeeded.rawValue { return "Needs your approval" }
             if stopping { return "Stopping" }
@@ -196,8 +308,70 @@ struct TurnTimeline: Equatable {
         case .cancelled: return "Withdrawn"
         case .deliveryUnknown: return "Delivery unknown: choose whether it was delivered"
         case .unknown: return "Not received by the daemon"
-        case nil: return state == "sending" ? "Sending" : state
+        case nil:
+            guard state == "sending" else { return state }
+            if steerDeliveredIn != nil { return TurnTimeline.read }
+            return steerRequested ? TurnTimeline.unreadWords(host: host, assistant: assistant) : "Sending"
         }
+    }
+
+    /// C-24.4, C-29.11 (I3): a waiting message's `state_reason`, `<kind>: <detail>`,
+    /// in the person's words. Only a `capacity` reason reads as waiting for
+    /// capacity: on 2026-09-28 four messages read "Waiting for capacity" for hours
+    /// while another conversation's turn held their folder and lanes were free.
+    static func waitingWords(_ reason: String?) -> String {
+        guard let reason, !reason.isEmpty else {
+            // A daemon from before 2026-09-29 left a bound message's reason empty.
+            return "Waiting; the daemon has not said why"
+        }
+        // C-26.3, D-17: another Claude process holds the session. Matched by kind,
+        // never anywhere in the text: a lease reason quotes a conversation's title,
+        // and one titled "fix the external-writer wait" is a conversation writing.
+        if reason.hasPrefix("external-writer") || reason == "readmit:external-writer" {
+            return "Waiting: open in the Claude app or a terminal; close it there to continue here"
+        }
+        if reason == "dispatching" { return "Sending to the daemon" }
+        if reason.hasPrefix("readmit:") {
+            return "Waiting to be sent again (\(reason.dropFirst("readmit:".count)))"
+        }
+        guard let split = reason.range(of: ": ") else { return "Waiting: \(reason)" }
+        let kind = reason[..<split.lowerBound]
+        let detail = String(reason[split.upperBound...])
+        switch kind {
+        case "capacity": return "Waiting for capacity: \(detail)"
+        case "placed": return "Starting the provider"
+        case "deferred": return "Waiting to be sent again: \(detail)"
+        case "lease", "closed", "usage-unknown", "no-lane", "blocked", "workspace", "route", "admission":
+            return "Waiting: \(detail)"
+        default: return "Waiting: \(reason)"
+        }
+    }
+
+    static let read = "Read"
+    static let unreadUntilTurnEnds = "Unread until the current turn ends."
+
+    /// An unread steer waits for what the running turn is doing: an approval, a
+    /// tool that is running, or else the model's next step.
+    static func unreadWords(host: TurnTimeline?, assistant: String) -> String {
+        if let host, host.messageState == .approvalNeeded || !host.pendingApprovals.isEmpty {
+            return "Unread. \(assistant) needs your approval first."
+        }
+        if host?.runningTool != nil { return "Unread until the current step finishes." }
+        return "Unread until \(assistant)'s next step."
+    }
+}
+
+/// Why the daemon would not steer a message, as its status line says it (design §6).
+func steerRefusalWords(_ failure: OutboxFailure) -> String {
+    switch failure.reason {
+    case "not-queued": return "it had already left the queue"
+    case "not-next": return "a recovery message goes first"
+    case "no-live-turn": return "the turn it was sent to had ended"
+    case "settings-narrower": return "it asks for a narrower permission than the running turn has"
+    case "not-steerable": return "the running turn could not take it"
+    case "unsupported": return "this daemon cannot steer"
+    case "no-answer": return "the daemon did not answer"
+    default: return failure.message
     }
 }
 
@@ -214,6 +388,7 @@ struct Timeline: Equatable {
     private var arrival: [String: Int] = [:]
     /// Transcript items older than the first Subfleet turn, oldest first.
     private(set) var history: [TimelineItem] = []
+    private var outsideHistoryIDs: Set<String> = []
     private(set) var historyBefore: Int?
     private(set) var historyComplete = false
     private(set) var historyPagesLoaded = 0
@@ -227,6 +402,14 @@ struct Timeline: Equatable {
     /// Every approval `attach` has seen, by approval id. A card the events make
     /// again (after a reset re-reads the log) gets its approval id back from here.
     private var knownApprovals: [String: ApprovalView] = [:]
+    /// Answers submitted by this app are local state, independent of event
+    /// cards which compaction can remove and recreate. Immutable approval ids
+    /// keep them separate from replacement requests with identical questions.
+    private var knownApprovalAnswers: [String: [String: String]] = [:]
+    /// Whether the log has been read to its end since the timeline began or last
+    /// reset (a page that added nothing): until then rows still arrive above
+    /// whatever the view scrolled to.
+    private(set) var caughtUp = false
 
     init(conversationID: String) {
         self.conversationID = conversationID
@@ -241,6 +424,12 @@ struct Timeline: Equatable {
     }
 
     // MARK: Events
+
+    /// A new read of the log begins (the conversation opened again): until it
+    /// reaches the end, rows may still arrive above what the view shows.
+    mutating func startReading() {
+        caughtUp = false
+    }
 
     @discardableResult
     mutating func apply(page: EventsPage) -> PageResult {
@@ -259,6 +448,7 @@ struct Timeline: Equatable {
         if rebuilding && (page.events.isEmpty || !page.reset || page.floor.map { cursor >= $0 } == true) {
             rebuilding = false
         }
+        if count == 0 && !rebuilding && !page.reset { caughtUp = true }
         return .applied(count)
     }
 
@@ -266,6 +456,7 @@ struct Timeline: Equatable {
     mutating func resetEvents() {
         cursor = 0
         resets += 1
+        caughtUp = false
         firstEventTS = nil
         for id in order {
             guard var turn = turns[id] else { continue }
@@ -277,6 +468,9 @@ struct Timeline: Equatable {
             turn.limits = nil
             turn.diff = nil
             turn.items = []
+            turn.steerDeliveredIn = nil
+            turn.steerMissedIn = nil
+            turn.firstEventSeq = nil
             turns[id] = turn
         }
         order.removeAll { $0 == Timeline.conversationKey }
@@ -314,11 +508,15 @@ struct Timeline: Equatable {
         let id = event.message_id ?? Timeline.conversationKey
         ensureTurn(id)
         guard var turn = turns[id] else { return }
+        turn.firstEventSeq = turn.firstEventSeq ?? event.seq
         if firstEventTS == nil, let ts = event.ts {
             firstEventTS = ts
             trimHistory()
         }
         let data = event.data
+        // A steered message this event says the provider read, or did not (`steer.*`).
+        var delivered: String?
+        var missed: String?
         switch event.kind {
         case "status":
             // A new attempt starts its own clock, even after one that never got further.
@@ -334,6 +532,10 @@ struct Timeline: Equatable {
                 turn.items.append(TimelineItem(id: "compacted:\(event.seq)", messageID: id,
                                                content: .notice(words + "; the model now works from a summary of it"),
                                                ts: event.ts))
+            }
+            if data["phase"]?.string == "wake-refused", let detail = data["detail"]?.string {
+                turn.items.append(TimelineItem(id: "wake-refused:\(event.seq)", messageID: id,
+                                               content: .notice(detail), ts: event.ts))
             }
         case "accepted":
             turn.accepted = true
@@ -389,21 +591,29 @@ struct Timeline: Equatable {
             let kind = fields.removeValue(forKey: "kind")?.string ?? "tool"
             let options = fields.removeValue(forKey: "options")?.array?.compactMap(\.string) ?? []
             let display = ApprovalDisplay(fields: fields)
-            if let requestID, turn.items.contains(where: { $0.id == "approval:\(id):\(requestID)" }) { break }
-            if let index = turn.items.firstIndex(where: {
-                if case .approval(let card) = $0.content { return card.requestID == nil && card.display == display && card.kind == kind }
-                return false
-            }), case .approval(var card) = turn.items[index].content {
-                card.requestID = requestID
-                turn.items[index].content = .approval(card)
+            // Known already from a view that carries its request id: the card moves to where
+            // the request came, below what the turn did before asking. A view's request id
+            // joins only its own request: a replacement with identical display text never
+            // takes a stale card's place (C-27.1).
+            if let requestID, let index = turn.items.firstIndex(where: { $0.card?.requestID == requestID }) {
+                // This event read again: nothing to do.
+                guard turn.items[index].id != "approval:\(id):\(requestID)" else { break }
+                var row = turn.items.remove(at: index)
+                row.ts = event.ts ?? row.ts
+                turn.items.append(row)
             } else {
+                let approvalID = knownApprovalID(in: turn, requestID: requestID)
                 let card = ApprovalCard(requestID: requestID,
-                                        approvalID: knownApprovalID(in: turn, kind: kind, display: display),
-                                        kind: kind, display: display, options: options, state: .pending)
+                                        approvalID: approvalID,
+                                        kind: kind, display: display, options: options, state: .pending,
+                                        answers: approvalID.flatMap { knownApprovalAnswers[$0] } ?? [:])
                 turn.items.append(TimelineItem(id: "approval:\(id):\(requestID ?? "seq\(event.seq)")", messageID: id,
                                                content: .approval(card), ts: event.ts))
             }
-            if !(turn.messageState?.isTerminal ?? false) { turn.state = MessageState.approvalNeeded.rawValue }
+            // Only forward: a message the daemon has settled (ended, delivery unknown) stays so.
+            if !(turn.messageState.map { $0.isTerminal || $0 == .deliveryUnknown } ?? false) {
+                turn.state = MessageState.approvalNeeded.rawValue
+            }
         case "approval.resolved":
             let requestID = data["request_id"]?.displayText
             let decision = data["decision"]?.string
@@ -417,6 +627,7 @@ struct Timeline: Equatable {
                 turn.state = MessageState.running.rawValue
             }
         case "turn.completed":
+            turn.completedTS = event.ts
             turn.outcome = TurnOutcome(state: data["state"]?.string ?? "unknown", reason: data["reason"]?.string,
                                        detail: data["detail"]?.string, servedModel: data["served_model"]?.string,
                                        data: data)
@@ -458,10 +669,66 @@ struct Timeline: Equatable {
             }
         case "diff":
             turn.diff = data["diff"]?.string
+        case "steer.delivered":
+            // C-24.9: the provider took the steered message at this point of the turn.
+            guard id != Timeline.conversationKey, let steered = data["message_id"]?.string, steered != id,
+                  steered != Timeline.conversationKey else { break }
+            let itemID = "steer:\(steered)"
+            if !turn.items.contains(where: { $0.id == itemID }) {
+                turn.items.append(TimelineItem(id: itemID, messageID: steered, content: .steered(messageID: steered),
+                                               ts: event.ts))
+            }
+            delivered = steered
+        case "steer.missed":
+            // The turn ended before reading it: it goes back to the queue and runs next.
+            if id != Timeline.conversationKey, let steered = data["message_id"]?.string, steered != id { missed = steered }
+        case "steer.sent", "steer.refused":
+            // The steered message's receipts say the rest.
+            break
+        case "suggestion":
+            // C-25.7: one card per suggestion, where the turn suggested it; each change
+            // of its state is an event, which updates the card in place.
+            guard let suggestion = try? data.decode(Suggestion.self) else {
+                unknownKinds[event.kind, default: 0] += 1
+                break
+            }
+            let itemID = "suggestion:\(suggestion.suggestion_id)"
+            if let index = turn.items.firstIndex(where: { $0.id == itemID }),
+               case .suggestion(let known) = turn.items[index].content {
+                if suggestionRank(suggestion.state) >= suggestionRank(known.state) {
+                    turn.items[index].content = .suggestion(known.merged(with: suggestion))
+                }
+            } else {
+                turn.items.append(TimelineItem(id: itemID, messageID: id == Timeline.conversationKey ? nil : id,
+                                               content: .suggestion(suggestion), ts: event.ts))
+            }
         default:
             unknownKinds[event.kind, default: 0] += 1
         }
+        Timeline.withdrawIfEnded(&turn)
         turns[id] = turn
+        if let delivered {
+            ensureTurn(delivered)
+            turns[delivered]?.steerDeliveredIn = id
+        }
+        if let missed, turns[missed]?.steerDeliveredIn == nil {
+            ensureTurn(missed)
+            turns[missed]?.steerMissedIn = id
+        }
+    }
+
+    /// A turn whose message has ended has no pending card: the daemon withdraws
+    /// an attempt's approvals before it settles the message (C-27.3), and a turn
+    /// that ends without `result` writes no event withdrawing its requests. A
+    /// message whose delivery is unknown was settled the same way.
+    private static func withdrawIfEnded(_ turn: inout TurnTimeline) {
+        guard let state = turn.messageState, state.isTerminal || state == .deliveryUnknown else { return }
+        for index in turn.items.indices {
+            if case .approval(var card) = turn.items[index].content, card.isPending {
+                card.state = .withdrawn
+                turn.items[index].content = .approval(card)
+            }
+        }
     }
 
     private func stream(_ turn: inout TurnTimeline, kind: String, block: String, text: String, final: Bool, ts: String?) {
@@ -509,9 +776,14 @@ struct Timeline: Equatable {
         if receipt.messageState != .unknown {
             turn.state = receipt.state
             turn.stateReason = receipt.state_reason
+            turn.steeredInto = receipt.steered_into ?? steeredInto(stateReason: receipt.state_reason)
+            // A queued receipt may be its submit's, ahead of its steer's answer.
+            if receipt.messageState != .queued { turn.steerRequested = false }
+            if receipt.messageState == .steering || receipt.messageState == .steered { turn.steerRefusal = nil }
         }
         turn.seq = receipt.seq ?? turn.seq
         turn.origin = receipt.origin ?? turn.origin
+        turn.createdTS = receipt.created_at ?? turn.createdTS
         turn.continues = receipt.continues ?? turn.continues
         turn.settings = receipt.settings ?? turn.settings
         turn.stopRequested = receipt.stop_requested ?? turn.stopRequested
@@ -519,20 +791,40 @@ struct Timeline: Equatable {
         if turn.personText == nil, let text = receipt.text {
             turn.personText = text + (receipt.text_truncated == true ? "\n…" : "")
         }
+        Timeline.withdrawIfEnded(&turn)
         turns[receipt.message_id] = turn
         sortOrder()
     }
 
     /// A message this app is sending: shown at once, before its receipt (the
-    /// composer's optimistic row).
+    /// composer's optimistic row). With `steer`, sent to steer the running turn.
     mutating func addLocal(messageID: String, text: String, attachments: [String] = [],
-                           settings: ConversationSettings? = nil) {
+                           settings: ConversationSettings? = nil, steer: Bool = false) {
         ensureTurn(messageID)
         guard var turn = turns[messageID] else { return }
         turn.personText = text
         turn.attachments = attachments
         turn.origin = turn.origin ?? "person"
         turn.settings = turn.settings ?? settings
+        if steer { turn.steerRequested = true }
+        turns[messageID] = turn
+    }
+
+    /// The person asked to steer this message (C-24.9): its status line says so
+    /// until the daemon answers.
+    mutating func requestSteer(messageID: String) {
+        guard var turn = turns[messageID] else { return }
+        turn.steerRequested = true
+        turn.steerRefusal = nil
+        turns[messageID] = turn
+    }
+
+    /// The daemon answered this app's steer: `refusal` nil when it took the
+    /// message (or the steer was taken back), else why not (the message stays queued).
+    mutating func noteSteer(messageID: String, refusal: OutboxFailure?) {
+        guard var turn = turns[messageID] else { return }
+        turn.steerRequested = false
+        turn.steerRefusal = refusal
         turns[messageID] = turn
     }
 
@@ -553,9 +845,23 @@ struct Timeline: Equatable {
 
     // MARK: Approvals
 
+    mutating func noteApprovalAnswer(approvalID: String, answers: [String: String]) {
+        knownApprovalAnswers[approvalID] = answers
+        for messageID in order {
+            guard var turn = turns[messageID] else { continue }
+            for index in turn.items.indices {
+                guard case .approval(var card) = turn.items[index].content, card.approvalID == approvalID else { continue }
+                card.answers = answers
+                turn.items[index].content = .approval(card)
+            }
+            turns[messageID] = turn
+        }
+    }
+
     /// Join the daemon's approvals (which carry `approval_id`) to the cards the
-    /// events made (which carry the provider's request id), by message, kind and
-    /// display; an approval with no card yet gets one.
+    /// events made (which carry the provider's request id): by message and exact
+    /// request id. Summaries cannot identify a request (C-27.1). A legacy view
+    /// without that id gets its own card, keyed by its immutable approval id.
     mutating func attach(approvals: [ApprovalView]) {
         for approval in approvals where approval.conversation_id == conversationID {
             knownApprovals[approval.approval_id] = approval
@@ -567,44 +873,110 @@ struct Timeline: Equatable {
                 if case .approval(let card) = $0.content { return card.approvalID == approval.approval_id }
                 return false
             }), case .approval(var card) = turn.items[index].content {
+                if card.requestID == nil { card.requestID = approval.requestID }
                 if card.isPending { card.state = state }
+                card.answers = knownApprovalAnswers[approval.approval_id] ?? card.answers
                 turn.items[index].content = .approval(card)
-            } else if let index = turn.items.firstIndex(where: {
-                if case .approval(let card) = $0.content {
-                    return card.approvalID == nil && card.kind == approval.kind && card.display == approval.display
-                }
-                return false
+            } else if let index = turn.items.firstIndex(where: { item in
+                guard case .approval(let card) = item.content, card.approvalID == nil else { return false }
+                guard let requestID = approval.requestID else { return false }
+                return card.requestID == requestID && card.kind == approval.kind && card.display == approval.display
+                    && (card.isPending || approval.state != "pending")
             }), case .approval(var card) = turn.items[index].content {
                 card.approvalID = approval.approval_id
+                card.requestID = card.requestID ?? approval.requestID
                 if card.isPending { card.state = state }
+                card.answers = knownApprovalAnswers[approval.approval_id] ?? card.answers
                 turn.items[index].content = .approval(card)
             } else if approval.state == "pending" {
-                let card = ApprovalCard(requestID: nil, approvalID: approval.approval_id, kind: approval.kind,
-                                        display: approval.display, options: approval.options, state: .pending)
-                turn.items.append(TimelineItem(id: "approval:\(approval.message_id):\(approval.approval_id)",
-                                               messageID: approval.message_id, content: .approval(card),
+                let card = ApprovalCard(requestID: approval.requestID, approvalID: approval.approval_id,
+                                        kind: approval.kind, display: approval.display, options: approval.options,
+                                        state: .pending, answers: knownApprovalAnswers[approval.approval_id] ?? [:])
+                let rowID = "approval:\(approval.message_id):\(approval.approval_id)"
+                turn.items.append(TimelineItem(id: rowID, messageID: approval.message_id, content: .approval(card),
                                                ts: approval.created_at))
             }
+            Timeline.withdrawIfEnded(&turn)
             turns[approval.message_id] = turn
         }
     }
 
-    /// The id of a known approval for a card an event is making: same message,
-    /// kind and display, not yet held by another card of the turn; the oldest first.
-    private func knownApprovalID(in turn: TurnTimeline, kind: String, display: ApprovalDisplay) -> String? {
+    /// The daemon's whole pending set for this conversation (`approval.list`,
+    /// `conversation.open`): a card joined to an approval it no longer lists is
+    /// withdrawn, since an approval never returns to pending. An event card that
+    /// the list cannot identify is withdrawn too: legacy views remain actionable
+    /// on their own cards, never on an old event card's drafted answers. That covers
+    /// an attempt that ended without `result`, or was admitted again.
+    mutating func reconcile(pending approvals: [ApprovalView]) {
+        let listed = Set(approvals.filter { $0.conversation_id == conversationID && $0.state == "pending" }
+            .map(\.approval_id))
+        for id in order {
+            guard var turn = turns[id] else { continue }
+            var changed = false
+            for index in turn.items.indices {
+                guard case .approval(var card) = turn.items[index].content, card.isPending,
+                      card.approvalID.map({ !listed.contains($0) }) ?? true else { continue }
+                card.state = .withdrawn
+                turn.items[index].content = .approval(card)
+                changed = true
+            }
+            if changed { turns[id] = turn }
+        }
+    }
+
+    /// The id of a known approval for an event card: same message and exact
+    /// request id, not already held by another card. Display text is not identity.
+    private func knownApprovalID(in turn: TurnTimeline, requestID: String?) -> String? {
+        guard let requestID else { return nil }
         let held = Set(turn.items.compactMap { item -> String? in
             if case .approval(let card) = item.content { return card.approvalID }
             return nil
         })
-        return knownApprovals.values
-            .filter { $0.message_id == turn.messageID && $0.kind == kind && $0.display == display
-                && !held.contains($0.approval_id) }
-            .min { ($0.created_at, $0.approval_id) < ($1.created_at, $1.approval_id) }?
-            .approval_id
+        return knownApprovals.values.first {
+            $0.message_id == turn.messageID && $0.requestID == requestID && !held.contains($0.approval_id)
+        }?.approval_id
     }
 
     /// Every card still waiting for the person.
     var pendingApprovalCards: [ApprovalCard] { order.flatMap { turns[$0]?.pendingApprovals ?? [] } }
+
+    // MARK: Pending approvals within reach
+
+    /// Every pending card's row, oldest asked first (by its time, then where it
+    /// sits; a row with no time after those with one): the rows the pinned
+    /// strip's Review opens in turn, and the ones the view scrolls to.
+    var pendingApprovalItems: [TimelineItem] {
+        let rows = displayOrder.flatMap { id in (turns[id]?.items ?? []).filter { $0.pendingCard != nil } }
+        return rows.enumerated()
+            .map { (row: $0.element, place: $0.offset, at: $0.element.ts.flatMap(parseTimestamp)) }
+            .sorted { a, b in
+                switch (a.at, b.at) {
+                case let (x?, y?) where x != y: return x < y
+                case (.some, nil): return true
+                case (nil, .some): return false
+                default: return a.place < b.place
+                }
+            }
+            .map(\.row)
+    }
+
+    /// The turn the strip pinned above the composer shows: the newest live turn
+    /// the provider has not answered, or else the turn of the oldest pending
+    /// card, so a card waiting on the person always has the strip's Review.
+    var pinnedTurn: TurnTimeline? {
+        if let live = liveMessageID, let turn = turns[live], turn.outcome == nil { return turn }
+        return pendingApprovalItems.first?.messageID.flatMap { turns[$0] }
+    }
+
+    /// The row the conversation scrolls to for an approval: the oldest pending
+    /// card not yet brought into view (`shown`), so each card is scrolled to
+    /// once, when it appears, wherever the person was reading; or, when the
+    /// person asked (`reveal`: the strip's Review, the sidebar badge), the
+    /// oldest pending card. Nil when no card waits.
+    func approvalScrollTarget(shown: Set<String>, reveal: Bool) -> String? {
+        let pending = pendingApprovalItems.map(\.id)
+        return reveal ? pending.first : pending.first { !shown.contains($0) }
+    }
 
     // MARK: History
 
@@ -629,7 +1001,7 @@ struct Timeline: Equatable {
     /// conversation's message ids (a Claude user row's uuid is the message id),
     /// and anything stamped at or after the conversation's first event. Such a
     /// user row gives its message the person's text.
-    mutating func apply(history page: HistoryPage) {
+    mutating func apply(history page: HistoryPage, provider: String = "claude") {
         historyPagesLoaded += 1
         historyBefore = page.next_before
         historyComplete = page.next_before == nil
@@ -644,14 +1016,25 @@ struct Timeline: Equatable {
                 setPersonText(item.text, for: id)
                 continue
             }
-            if let lastSubfleetRow, index <= lastSubfleetRow { continue }
-            if afterBoundary(item.ts) { continue }
+            if item.source == "subfleet" { continue }
+            let outside = item.source == "other-app"
+            if !outside, let lastSubfleetRow, index <= lastSubfleetRow { continue }
+            if !outside, afterBoundary(item.ts) { continue }
             let cursor = item.cursor ?? -1
             let index = perCursor[cursor, default: 0]
             perCursor[cursor] = index + 1
             let itemID = "history:\(cursor):\(index)"
             guard !history.contains(where: { $0.id == itemID }) else { continue }
-            older.append(TimelineItem(id: itemID, messageID: nil, content: Timeline.content(of: item), ts: item.ts))
+            older.append(TimelineItem(id: itemID, messageID: nil, content: Timeline.content(of: item, provider: provider), ts: item.ts))
+            if outside {
+                outsideHistoryIDs.insert(itemID)
+                if item.role == "user", item.kind == "text" {
+                    let labelID = "other-app:\(cursor)"
+                    outsideHistoryIDs.insert(labelID)
+                    older.append(TimelineItem(id: labelID, messageID: nil,
+                                              content: .notice("Made in another app"), ts: item.ts))
+                }
+            }
         }
         history = older.reversed() + history
         historyAddedByLastPage = older.count
@@ -659,7 +1042,7 @@ struct Timeline: Equatable {
 
     /// A history row drawn as the live row of its kind: a tool call with its
     /// result and outcome, a thought, an answer; the person's words as a bubble.
-    static func content(of item: HistoryItem) -> TimelineContent {
+    static func content(of item: HistoryItem, provider: String = "claude") -> TimelineContent {
         switch item.kind {
         case "tool":
             let state: ToolActivity.State = item.is_error == true ? .failed : item.preview != nil ? .succeeded : .unfinished
@@ -668,6 +1051,9 @@ struct Timeline: Equatable {
         case "thinking":
             return .thinking(item.text, final: true)
         default:
+            if provider == "claude", item.role == "user", item.kind == "text", let notice = TaskNotification.parse(item.text) {
+                return .taskNotification(notice)
+            }
             return .history(role: item.role, text: item.text, tool: nil)
         }
     }
@@ -683,21 +1069,129 @@ struct Timeline: Equatable {
 
     private mutating func trimHistory() {
         let boundary = firstEventTS
-        history.removeAll { Timeline.after($0.ts, boundary: boundary) }
+        history.removeAll { !outsideHistoryIDs.contains($0.id) && Timeline.after($0.ts, boundary: boundary) }
     }
 
     // MARK: Display
 
     /// Everything in display order: older transcript rows, then each message
-    /// followed by what its turn did.
+    /// followed by what its turn did. A steered message's bubble is drawn once:
+    /// inside its host turn where the provider took it, or else in its own place.
     var items: [TimelineItem] {
         var out = history
-        for id in order {
+        let placed = placedSteers
+        var drawn: Set<String> = []
+        for id in displayOrder {
             guard let turn = turns[id] else { continue }
-            if let person = personItem(turn) { out.append(person) }
-            out += turn.items
+            if !placed.contains(id), let person = personItem(turn) { out.append(person) }
+            for item in turn.items {
+                guard case .steered(let steered) = item.content else {
+                    out.append(item)
+                    continue
+                }
+                guard placed.contains(steered), turns[steered]?.steerDeliveredIn == id, drawn.insert(steered).inserted,
+                      let message = turns[steered], let person = personItem(message) else { continue }
+                out.append(person)
+            }
+        }
+        // Native rows from another app can fall between or after Subfleet turns.
+        // Stable merge keeps the events within each turn and the queue's order.
+        let outside = out.filter { outsideHistoryIDs.contains($0.id) }
+        out.removeAll { outsideHistoryIDs.contains($0.id) }
+        for item in outside {
+            var index = out.count
+            if let time = item.ts.flatMap(parseTimestamp) {
+                index = out.firstIndex { row in
+                    guard let stamp = row.ts.flatMap(parseTimestamp) else { return false }
+                    return stamp > time
+                } ?? out.count
+            }
+            out.insert(item, at: index)
         }
         return out
+    }
+
+    /// Messages drawn inside a host turn rather than in their own place: at the
+    /// host that last took them (`steerDeliveredIn`, whose words the status line
+    /// shows), and only when that host was sent before them, so the host's bubble
+    /// always comes first and no two messages can hold each other.
+    var placedSteers: Set<String> {
+        let place = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($0.element, $0.offset) })
+        var out: Set<String> = []
+        for (index, id) in order.enumerated() {
+            for item in turns[id]?.items ?? [] {
+                if case .steered(let steered) = item.content, let turn = turns[steered], turn.isPlacedSteer,
+                   turn.steerDeliveredIn == id, (place[steered] ?? -1) > index {
+                    out.insert(steered)
+                }
+            }
+        }
+        return out
+    }
+
+    /// Message ids in the order the timeline shows them: the turns in the order
+    /// they began running (their first event), then the messages still waiting
+    /// in the queue. Sequence order put a failover continuation (D-6) last,
+    /// under the messages queued before the limit and the next turn's approval
+    /// card, although C-26.7 runs it first (2026-09-27), and an unblock note
+    /// (C-24.8) below the person's turn that ran after it. A message that never
+    /// began (withdrawn, refused, or a continuation not yet sent) sits right
+    /// after the latest turn that began among the messages before it. The queue
+    /// shows in dispatch order: repair messages, missed steers, then ordinary
+    /// messages, retaining sequence order within each group (C-24.9).
+    var displayOrder: [String] {
+        let queue = order.filter { turns[$0].map(Timeline.waitsInQueue) ?? false }
+        func priority(_ id: String) -> Int {
+            if Timeline.repairOrigins.contains(turns[id]?.origin ?? "") { return 0 }
+            if turns[id]?.stateReason?.hasPrefix("steer-missed:") == true { return 1 }
+            return 2
+        }
+        let waiting = queue.enumerated().sorted {
+            (priority($0.element), $0.offset) < (priority($1.element), $1.offset)
+        }.map(\.element)
+        let queued = Set(waiting)
+        var latest = 0
+        var placed: [(id: String, key: (Int, Int, Int))] = []
+        for (place, id) in order.enumerated() where !queued.contains(id) {
+            if id == Timeline.conversationKey {
+                placed.append((id, (Int.max, 1, place)))
+            } else if let began = turns[id]?.firstEventSeq {
+                placed.append((id, (began, 0, place)))
+                latest = max(latest, began)
+            } else {
+                placed.append((id, (latest, 1, place)))
+            }
+        }
+        return placed.sorted { $0.key < $1.key }.map(\.id) + waiting
+    }
+
+    /// The origins the daemon sends ahead of queued person messages
+    /// (`REPAIR_ORIGINS`, `next_dispatchable`).
+    static let repairOrigins: Set<String> = ["unblock-note", "failover"]
+
+    /// A message not yet sent to the provider: still queued (or not yet
+    /// received by the daemon), nothing done for it. A continuation belongs
+    /// with the message it continues, which the daemon sends next.
+    static func waitsInQueue(_ turn: TurnTimeline) -> Bool {
+        turn.messageID != conversationKey && turn.continues == nil && turn.items.isEmpty && turn.firstEventSeq == nil
+            && (turn.state == MessageState.queued.rawValue || turn.state == "sending")
+    }
+
+    /// The newest row of the turn that began last: what the view follows while
+    /// the end is on screen. Queued messages sit below it, and a message
+    /// withdrawn from the queue may too; neither changes while a turn streams.
+    var followedItem: TimelineItem? {
+        let begun = turns.values.filter { $0.messageID != Timeline.conversationKey && $0.firstEventSeq != nil }
+        if let turn = begun.max(by: { ($0.firstEventSeq ?? 0) < ($1.firstEventSeq ?? 0) }),
+           let last = turn.items.last ?? personItem(turn) {
+            return last
+        }
+        // Before any turn began: the last row above the queue.
+        for id in displayOrder.reversed() {
+            guard let turn = turns[id], !Timeline.waitsInQueue(turn) else { continue }
+            if let last = turn.items.last ?? personItem(turn) { return last }
+        }
+        return history.last
     }
 
     private func personItem(_ turn: TurnTimeline) -> TimelineItem? {
@@ -714,14 +1208,36 @@ struct Timeline: Equatable {
             return TimelineItem(id: id, messageID: turn.messageID,
                                 content: .notice("The stopped turn was left; the next turn starts without resuming it"),
                                 ts: nil)
+        case "wake":
+            return TimelineItem(id: id, messageID: turn.messageID,
+                                content: .notice(turn.personText ?? "Subfleet check-back"), ts: turn.createdTS)
         default:
             return TimelineItem(id: id, messageID: turn.messageID,
                                 content: .person(text: turn.personText, attachments: turn.attachments, state: turn.state),
-                                ts: nil)
+                                ts: turn.createdTS)
         }
     }
 
     func turn(_ messageID: String) -> TurnTimeline? { turns[messageID] }
+
+    /// A message's status words; a steered one's read state follows the turn it
+    /// joins (the turn it was steered into, or else the live one).
+    func statusText(of messageID: String, assistant: String = "Claude") -> String? {
+        guard let turn = turns[messageID] else { return nil }
+        var host = (turn.steeredInto ?? turn.steerDeliveredIn).flatMap { turns[$0] }
+        if host == nil, let live = liveMessageID, live != messageID { host = turns[live] }
+        return turn.statusText(host: host, assistant: assistant)
+    }
+
+    /// Messages the person meant to steer that the provider has not read, oldest
+    /// first: unread steers, and ones the daemon refused (they wait in the queue).
+    /// Esc takes back the newest it still can (DESIGN.md section 9).
+    var recallableSteers: [String] {
+        order.filter { id in
+            guard let turn = turns[id] else { return false }
+            return turn.isUnreadSteer || (turn.messageState == .queued && turn.steerRefusal != nil)
+        }
+    }
 
     /// The message a Stop acts on: the newest live one.
     var liveMessageID: String? {
@@ -729,6 +1245,48 @@ struct Timeline: Equatable {
             guard let state = turns[id]?.messageState else { return false }
             return [.waiting, .starting, .running, .approvalNeeded].contains(state)
         }
+    }
+}
+
+/// What the conversation view remembers to bring waiting cards into view: each
+/// new card once, when it appears, and the oldest whenever the conversation is
+/// opened or the person asks. It waits until the opened conversation has read
+/// its log, since rows arriving above a card move it out of view, and brings the
+/// card back once when the first page of older history this visit loads adds
+/// rows above it.
+struct ApprovalFollower: Equatable {
+    private(set) var conversationID: String?
+    private(set) var shown: Set<String> = []
+    /// The card last scrolled to in this visit.
+    private(set) var last: String?
+    /// History pages the timeline had when this visit began, and whether a page
+    /// has loaded since (only the first one moves the card back).
+    private(set) var historyPagesAtOpen = 0
+    private(set) var historyLoaded = false
+
+    /// The row to scroll to now, if any, after `timeline` changed or the person
+    /// asked (`reveal`, set to false once a row answers it).
+    mutating func target(in timeline: Timeline, reveal: inout Bool) -> String? {
+        if conversationID != timeline.conversationID {
+            conversationID = timeline.conversationID
+            shown = []
+            last = nil
+            historyPagesAtOpen = timeline.historyPagesLoaded
+            historyLoaded = false
+        }
+        guard timeline.caughtUp else { return nil }
+        let pending = timeline.pendingApprovalItems.map(\.id)
+        var target = timeline.approvalScrollTarget(shown: shown, reveal: reveal)
+        shown.formUnion(pending)
+        if !historyLoaded && timeline.historyPagesLoaded > historyPagesAtOpen {
+            historyLoaded = true
+            if target == nil, timeline.historyAddedByLastPage > 0, let last, pending.contains(last) { target = last }
+        }
+        if let target {
+            last = target
+            reveal = false
+        }
+        return target
     }
 }
 

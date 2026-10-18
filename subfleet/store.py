@@ -23,24 +23,45 @@ wait is reported (rate-limited) through the store lock's `LockWatch`.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import queue
 import sqlite3
 import threading
 import time
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from .contracts import Closure, Credential, Decision, IdentityStatus, Lane, LaneOwner, Reading
 from .lockwatch import WatchedLock, thread_name
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 7
+#: C-9.6: closure reasons that each keep a row of their own (`Store.put_closure`).
+HOLD_REASONS = ("operator-hold", "auth-dead")
 Row = dict[str, Any]
+
+# Canonical observations use the partial time index; offset/fractional clocks
+# use the parsed-time expression index. Both UNION branches search time bounds.
+WEEKLY_HISTORY_SQL = (
+    "SELECT * FROM readings WHERE window='seven_day' AND label IN ('provider','stale-provider') "
+    "AND observed_at BETWEEN ? AND ? AND observed_at GLOB ? "
+    "UNION ALL SELECT * FROM readings WHERE window='seven_day' "
+    "AND label IN ('provider','stale-provider') AND NOT observed_at GLOB ? "
+    "AND julianday(observed_at) BETWEEN julianday(?) AND julianday(?)"
+)
+
+
+def weekly_history_params(now: str | datetime | None = None) -> tuple[str, ...]:
+    from .quota_projection import instant
+    at = instant(now) if now is not None else datetime.now(timezone.utc)
+    end = at.isoformat(timespec="seconds").replace("+00:00", "Z")
+    start = (at - timedelta(hours=24)).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return start, end, Store.CANONICAL_TS, Store.CANONICAL_TS, start, at.isoformat()
 
 #: C-3.7: read connections no snapshot may hold, kept for one-statement reads.
 STATEMENT_RESERVE = 2
@@ -70,6 +91,10 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
     ),
     # A per-job operator authorization; old jobs retain no authorization.
     5: ("ALTER TABLE jobs ADD COLUMN unmeasured_reserve_reason TEXT",),
+    # C-12.9, d714: the MCP servers a job named; an older job named none.
+    6: ("ALTER TABLE jobs ADD COLUMN mcp_servers TEXT NOT NULL DEFAULT '[]'",),
+    7: tuple(f"ALTER TABLE jobs ADD COLUMN {column} TEXT" for column in
+             ("push_branch", "push_remote", "push_default_branch", "push_sha", "push_error")),
 }
 
 
@@ -79,6 +104,96 @@ def utc_now() -> str:
 
 def _json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _pin_notice_key(data_json: str | None) -> tuple | None:
+    """C-11.8: (id, session, creation time) of the service notice a `job.pin_noticed` event names."""
+    try:
+        data = json.loads(data_json or "{}")
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("service_notice_id"), int):
+        return None
+    return data["service_notice_id"], data.get("session_id"), data.get("created_at")
+
+
+#: C-11.8: the expression `events_pin_notice` indexes, character for character.
+PIN_NOTICE_ID = "(CASE WHEN json_valid(data_json) THEN json_extract(data_json,'$.service_notice_id') END)"
+
+
+def pin_notice_jobs(query: Callable[[str, Sequence[Any]], Iterable[Any]],
+                    rows: Iterable[Mapping[str, Any]]) -> dict[int, str]:
+    """C-11.8, C-15.2: service notice id -> the job a pin's notice is about, from its
+    `job.pin_noticed` event. `rows` are service notice rows with their stored
+    (positive) ids. A row matches its event by id, session and creation time
+    together: a service notice's id is reused once the row with the highest id is
+    deleted (it has no AUTOINCREMENT), and a ping, a nudge or an alert that gets an
+    old pin notice's id names none."""
+    wanted = {(row["notice_id"], row["session_id"], row["created_at"]): row["notice_id"] for row in rows}
+    found: dict[int, str] = {}
+    ids = sorted({key[0] for key in wanted})
+    # Exactly the events that name one of these notices, newest first, with no
+    # window (`events_pin_notice`): events naming no notice (a pin with no one to
+    # tell, C-15.8, and every event's empty audit row) once crowded a deliverable
+    # notice's event out of the newest 1,000 and left that notice unnamed. The
+    # CASE keeps json_extract off a payload json_valid refuses, since SQLite does
+    # not promise to test WHERE terms in written order. Such a row names no notice:
+    # a pin record holds strings, ints and lists of strings, never a float, so it
+    # is never a NaN or Infinity payload that json.loads would read and json_valid
+    # refuse. No ORDER BY: it would steer the planner to `events_kind`, which
+    # walks every pin event; the few matches are ordered here, newest first.
+    events = []
+    for start in range(0, len(ids), 500):
+        chunk = ids[start:start + 500]
+        events += query("SELECT event_id,job_id,data_json FROM events WHERE kind='job.pin_noticed' AND "
+                        f"{PIN_NOTICE_ID} IN ({','.join('?' * len(chunk))})", chunk)
+    for event in sorted(events, key=lambda event: event["event_id"], reverse=True):
+        key = _pin_notice_key(event["data_json"])
+        if key in wanted and event["job_id"]:
+            found.setdefault(wanted[key], event["job_id"])
+    return found
+
+
+def notice_fingerprint(row: Mapping[str, Any]) -> str:
+    """C-15.8: what a listed notice is beyond its id: its creation time and a digest
+    of its text. A notice's id is reused once the newest row is deleted (neither
+    notice table has AUTOINCREMENT), so `--ack` and `--withdraw` act on a row only
+    while it still has the fingerprint the listing showed. Two rows alike in id,
+    session, creation second and text are one notice to the session that reads it."""
+    digest = hashlib.sha256(str(row["text"]).encode("utf-8", "surrogatepass")).hexdigest()[:16]
+    return f"{row['created_at']} {digest}"
+
+
+#: C-15.8: the columns `notices` lists, common to job and service notices.
+NOTICE_COLUMNS = "notice_id, session_id, text, state, transport, created_at, offered_at, acknowledged_at"
+
+
+def notice_rows(query: Callable[[str, Sequence[Any]], Iterable[Any]], session_id: str | None = None,
+                *, resolved: bool = False) -> list[dict[str, Any]]:
+    """C-15.8: a session's notices (every session's when None), as `notices` lists them.
+
+    Unresolved (`pending` or `offered`) only, unless `resolved`: then also the
+    `surfaced` and `acknowledged` rows retention still keeps (C-23.26). A
+    service notice carries its id negated, and the job a pin's notice is about
+    (else none), as `notice.pending` returns it, so one id names one row across
+    both tables. Ordered by session
+    (a job notice with no caller session sorts first, as ""), then creation.
+    """
+    where, params = [], []
+    if session_id is not None:
+        where.append("session_id=?")
+        params.append(session_id)
+    if not resolved:
+        where.append("state IN ('pending','offered')")
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+    rows = [dict(row) for row in query(f"SELECT {NOTICE_COLUMNS}, job_id FROM notices{clause}", params)]
+    service = [dict(row) for row in query(f"SELECT {NOTICE_COLUMNS} FROM service_notices{clause}", params)]
+    about = pin_notice_jobs(query, service)
+    rows += [{**row, "notice_id": -row["notice_id"], "job_id": about.get(row["notice_id"])} for row in service]
+    rows.sort(key=lambda row: (row["session_id"] or "", str(row["created_at"]), abs(row["notice_id"])))
+    for row in rows:
+        row["fingerprint"] = notice_fingerprint(row)            # what `--ack`/`--withdraw` send back
+    return rows
 
 
 class SchemaVersionError(RuntimeError):
@@ -96,7 +211,13 @@ class SnapshotWriteError(RuntimeError):
 
 class Store:
     def __init__(self, path: str | Path, read_only: bool = False, *, readonly: bool | None = None,
-                 readers: int = 0, read_wait_s: float = READ_WAIT_S):
+                 readers: int = 0, read_wait_s: float = READ_WAIT_S, initialize: bool = True):
+        """Open a store, optionally without applying any schema DDL.
+
+        `initialize=False` requires an existing, current-version database. It
+        lets maintenance back up and prove the original store without repairing
+        tables or indexes before taking its baseline.
+        """
         self.path = Path(path)
         self.read_only = read_only if readonly is None else readonly
         # C-3.7: read connections, opened on first use, at most `readers` of them.
@@ -128,9 +249,10 @@ class Store:
         # A reader compares it without taking `_lock` (an int read is atomic)
         # to learn whether anything it derived from the store can have changed.
         self.generation = 0
-        if not self.read_only:
+        if not self.read_only and initialize:
             self.path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
-        uri = self.path.resolve().as_uri() + ("?mode=ro" if self.read_only else "?mode=rwc")
+        mode = "ro" if self.read_only else ("rwc" if initialize else "rw")
+        uri = self.path.resolve().as_uri() + f"?mode={mode}"
         self.connection = sqlite3.connect(uri, uri=True, isolation_level=None,
                                           check_same_thread=False, timeout=5)
         self.connection.row_factory = sqlite3.Row
@@ -141,14 +263,19 @@ class Store:
             version = self.connection.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] if exists else 0
             if version and version > SCHEMA_VERSION:
                 raise SchemaVersionError(f"store schema {version} is newer than supported schema {SCHEMA_VERSION}")
+            if not self.read_only and not initialize and version != SCHEMA_VERSION:
+                raise SchemaVersionError(
+                    f"store schema {version or 0} requires initialization or migration; "
+                    f"supported schema {SCHEMA_VERSION}")
             if self.read_only:
                 if not version:
                     raise SchemaVersionError(f"store schema {version or 0} is uninitialized; supported schema {SCHEMA_VERSION}")
                 self.connection.execute("PRAGMA query_only=ON")
-            else:
+            if not self.read_only:
                 self.connection.execute("PRAGMA journal_mode=WAL")
                 self.connection.execute("PRAGMA synchronous=FULL")
                 self.connection.execute(f"PRAGMA journal_size_limit={int(WAL_SIZE_LIMIT)}")
+            if not self.read_only and initialize:
                 # Columns first, then the schema file: `store_schema.sql` always
                 # describes the newest version, and its indexes cannot be created
                 # over an older table until that table has caught up (C-3.1).
@@ -722,12 +849,41 @@ class Store:
     def list_readings(self, lane_id: str | None = None) -> list[Row]:
         return self.query("SELECT * FROM readings" + (" WHERE lane_id=?" if lane_id else "") + " ORDER BY observed_at DESC,reading_id DESC", (lane_id,) if lane_id else ())
 
+    def weekly_projection_samples(self, *, now: str | datetime | None = None) -> list[Row]:
+        """Read only 24 hours of weekly provider history, apart from newest evidence."""
+        return self.query(WEEKLY_HISTORY_SQL, weekly_history_params(now))
+
     def put_closure(self, closure: Closure) -> int:
-        with self.transaction("closure.recorded", lane_id=closure.lane_id):
-            existing = self.one("SELECT * FROM closures WHERE lane_id=? AND scope=? AND released_at IS NULL ORDER BY until_at DESC LIMIT 1", (closure.lane_id, closure.scope))
+        """One open closure per lane, scope and kind: a later end extends the row in place.
+
+        C-9.6 (D-HOLD1): a hold (`operator-hold`, `auth-dead`) keeps a row of its
+        own, apart from the limits (`provider-limit`, `credits`, `cooldown`),
+        which share one. A limit never extends or replaces a hold's row, so a
+        reset, a reset credit or `lanes release --limits`, which release limit
+        rows, never end a hold; and a hold never swallows a limit that ends
+        sooner, so `lanes release` leaves the limit in force. Before, a weekly
+        limit reported on a held lane rewrote the hold's row as its own, and the
+        usage read that saw the window reset then opened the lane hours before
+        the hold's end.
+
+        Every call leaves a `closure.recorded` event for the lane, including a
+        limit reported again that ends no later than the open row's and so
+        changes nothing in it (C-18.3). That event is the only trace of such a
+        report, and a busy lane's usage read looks for it before it releases
+        the closure. The row is rewritten as it is so that the transaction has a
+        change to record.
+        """
+        reason = str(getattr(closure.reason, "value", closure.reason))
+        kind, values = (("reason=?", (reason,)) if reason in HOLD_REASONS else
+                        (f"reason NOT IN ({','.join('?' * len(HOLD_REASONS))})", HOLD_REASONS))
+        with self.transaction("closure.recorded", lane_id=closure.lane_id) as conn:
+            existing = self.one(f"SELECT * FROM closures WHERE lane_id=? AND scope=? AND released_at IS NULL AND {kind} "
+                                "ORDER BY until_at DESC LIMIT 1", (closure.lane_id, closure.scope, *values))
             if existing:
                 if closure.until_at > existing["until_at"]:
                     self._update("closures", "closure_id", existing["closure_id"], asdict(closure))
+                else:
+                    conn.execute("UPDATE closures SET until_at=until_at WHERE closure_id=?", (existing["closure_id"],))
                 return existing["closure_id"]
             return self._insert("closures", {**asdict(closure), "created_at": utc_now()})
 

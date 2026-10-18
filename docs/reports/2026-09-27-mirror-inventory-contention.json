@@ -1,0 +1,142 @@
+{
+  "note": "Synthetic inventory only; three busy Python threads share the GIL. Five samples per phase. This shared Mac was externally loaded, and sample rates vary widely; these are measured medians, not a claimed production latency bound.",
+  "command": ".venv/bin/python tools/measure_mirror_inventory.py [--revision 03de432df957] --entries 200 --rounds 5 --busy-threads 3 --scratch .",
+  "before": {
+    "revision": "03de432df957",
+    "python": "3.14.4 (main, Apr 14 2026, 14:46:33) [Clang 22.1.3 ]",
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "switch_interval_s": 0.005,
+    "busy_threads": 3,
+    "entries": 200,
+    "rounds": 5,
+    "samples": {
+      "cold": [
+        {
+          "seconds": 3.900001,
+          "entries": 200,
+          "entries_per_second": 51.282
+        },
+        {
+          "seconds": 0.425127,
+          "entries": 200,
+          "entries_per_second": 470.448
+        },
+        {
+          "seconds": 2.541478,
+          "entries": 200,
+          "entries_per_second": 78.694
+        },
+        {
+          "seconds": 3.076558,
+          "entries": 200,
+          "entries_per_second": 65.008
+        },
+        {
+          "seconds": 1.346098,
+          "entries": 200,
+          "entries_per_second": 148.578
+        }
+      ],
+      "sweep": [
+        {
+          "seconds": 0.336321,
+          "entries": 200,
+          "entries_per_second": 594.669
+        },
+        {
+          "seconds": 0.172765,
+          "entries": 200,
+          "entries_per_second": 1157.644
+        },
+        {
+          "seconds": 0.416863,
+          "entries": 200,
+          "entries_per_second": 479.774
+        },
+        {
+          "seconds": 0.083383,
+          "entries": 200,
+          "entries_per_second": 2398.569
+        },
+        {
+          "seconds": 0.009809,
+          "entries": 200,
+          "entries_per_second": 20390.043
+        }
+      ]
+    },
+    "median_entries_per_second": {
+      "cold": 78.694,
+      "sweep": 1157.644
+    }
+  },
+  "after": {
+    "revision": "working-tree",
+    "python": "3.14.4 (main, Apr 14 2026, 14:46:33) [Clang 22.1.3 ]",
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "switch_interval_s": 0.005,
+    "busy_threads": 3,
+    "entries": 200,
+    "rounds": 5,
+    "samples": {
+      "cold": [
+        {
+          "seconds": 0.71588,
+          "entries": 200,
+          "entries_per_second": 279.377
+        },
+        {
+          "seconds": 1.424123,
+          "entries": 200,
+          "entries_per_second": 140.437
+        },
+        {
+          "seconds": 0.711112,
+          "entries": 200,
+          "entries_per_second": 281.25
+        },
+        {
+          "seconds": 1.871307,
+          "entries": 200,
+          "entries_per_second": 106.877
+        },
+        {
+          "seconds": 2.399819,
+          "entries": 200,
+          "entries_per_second": 83.34
+        }
+      ],
+      "sweep": [
+        {
+          "seconds": 0.367829,
+          "entries": 200,
+          "entries_per_second": 543.731
+        },
+        {
+          "seconds": 0.066557,
+          "entries": 200,
+          "entries_per_second": 3004.956
+        },
+        {
+          "seconds": 0.002502,
+          "entries": 200,
+          "entries_per_second": 79932.056
+        },
+        {
+          "seconds": 0.108969,
+          "entries": 200,
+          "entries_per_second": 1835.391
+        },
+        {
+          "seconds": 0.397015,
+          "entries": 200,
+          "entries_per_second": 503.759
+        }
+      ]
+    },
+    "median_entries_per_second": {
+      "cold": 140.437,
+      "sweep": 1835.391
+    }
+  }
+}

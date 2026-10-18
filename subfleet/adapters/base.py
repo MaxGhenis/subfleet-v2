@@ -9,7 +9,10 @@ argument construction, classification, attestation, and deliverable capture.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import errno
+import os
 from pathlib import Path
+import stat
 
 from ..contracts import (
     AttestationResult, Credential, ExitInfo, JobSpec, Lane, LaneInfo, Launch, Outcome, Reading,
@@ -17,13 +20,47 @@ from ..contracts import (
 from ..sessions.transcripts import NotRegularFile, open_regular
 
 
+def stream_path(attempt_dir: Path, launch: Launch | None = None) -> Path:
+    """C-4.3: the first existing stream candidate, even empty or non-regular.
+
+    Only an absent object permits fallback. Inspect the directory entry so a
+    dangling symlink is authoritative too; never follow a frozen-path link.
+    """
+    candidates = [launch.raw_stream_path if launch else None, attempt_dir / "stream.jsonl",
+                  launch.stdout_path if launch else None, attempt_dir / "stdout"]
+    for candidate in candidates:
+        if candidate and os.path.lexists(candidate):
+            return Path(candidate)
+    return attempt_dir / "stdout"
+
+
+def open_stream(path: Path, mode: str = "rb", **kwargs):
+    """Read only a regular stream entry, without opening a FIFO or following a link.
+
+    lstat rejects non-regular entries before open (directories can give EINVAL).
+    O_NOFOLLOW and open_regular's descriptor check also protect the actual open
+    if the entry changes after that inspection; O_NONBLOCK bounds a FIFO race.
+    """
+    if not stat.S_ISREG(path.lstat().st_mode):
+        raise NotRegularFile(errno.EINVAL, "not a regular stream", str(path))
+    try:
+        return open_regular(path, mode, follow_symlinks=False, **kwargs)
+    except OSError as exc:
+        if exc.errno in (errno.ELOOP, errno.EINVAL, errno.EISDIR):
+            raise NotRegularFile(exc.errno, "not a regular stream", str(path)) from exc
+        raise
+
+
 class AdapterError(Exception):
     """A refusal or precondition failure the daemon maps to an exit code."""
 
-    def __init__(self, message: str, code: int = 7, fix: str | None = None):
+    def __init__(self, message: str, code: int = 7, fix: str | None = None,
+                 *, reason: str | None = None, details: dict | None = None):
         super().__init__(message)
         self.code = code
         self.fix = fix
+        self.reason = reason
+        self.details = details
 
 
 class Adapter(ABC):
@@ -79,6 +116,19 @@ class Adapter(ABC):
         model may ignore it; the Claude adapter needs it because `--resume`
         takes the model as a flag.
         """
+
+    def model_answered(self, event: object) -> bool:
+        """C-6.14, C-4.5: does this one decoded stream event show the provider's
+        model answering on the lane's credential, not the CLI speaking for it?
+
+        The daemon reads a running attempt's stream line by line and stops at the
+        first event this says yes to: that is the lane proven (C-6.14). Its
+        classification records the same over the whole stream as the outcome's
+        `model_answered` (C-4.5: an `auth-dead` attempt the model never answered
+        ran nothing, so its job may move on). An adapter whose stream it cannot
+        read says no, and its lanes are proven only by an attempt that ends `ok`.
+        """
+        return False
 
     # --- helpers adapters may share -----------------------------------------
 

@@ -1,0 +1,101 @@
+Canonical leased-resource identity — 2026-10-06 (audit L1, L2, L3)
+
+Implemented in the assigned workspace, based on 6b0be1d471e93d82fa88dd459b8d69c877f32d68.
+Local branch: fix/canonical-identity in .git-local. The caller already owns that
+branch in its worktree; its checkout and shared metadata were left unchanged.
+
+Changes
+- subfleet/folders.py:65: identity reuses canonical kernel path spelling, then
+  NFC and casefold only on a case-insensitive volume. Darwin pathconf's
+  _PC_CASE_SENSITIVE (11, verified against the installed SDK) makes that decision.
+  Existing folder display helpers and stored job display fields stay unchanged.
+- subfleet/resource_leases.py:16, :34, :55: shared native comparison keys and
+  output claims cover new canonical leases and old raw spellings. Chosen
+  compatibility strategy: alias-aware lookup, not migration. Multiple legacy
+  holders remain guards; collapsing primary keys could erase an existing owner.
+  Filesystem identities are prepared off the writer lock and rechecked with SQL.
+- subfleet/daemon.py:1965, :2445, :2490, :4735, :4853, :6674: submit conflicts,
+  revive ownership, reservation and export/replay use those identities. Writable
+  caller-session checks also compare canonical UUIDs. Publication preserves the
+  recorded destination spelling; an older replay refuses another alias owner.
+- subfleet/daemon.py:4746: resume/revive re-read conversation binding inside the
+  reservation transaction and fail with exit 7 before any lease or attempt.
+- docs/acceptance-contract.md:9, :204, :443, :453: version-3 change entry and
+  explicit canonical comparison requirements in C-6.5, C-26.3 and C-26.13.
+
+Invariants and tests
+- tests/fake/test_canonical_identity.py: UUID masks (including the minimized
+  ...000a/...000A and verifier prefix/suffix masks), output/parent case and
+  NFC/NFD aliases, trailing slash, dot segments and symlinked parents exercise
+  real submit/admission. Aliases have one live owner; a/b and café/cafe admit
+  independently. Old native/output rows, multiple legacy holders, public-open
+  and turn-attempt bindings, reopened stores and stale export replay are covered.
+- tests/unit/test_resource_identity.py: generated deterministic/idempotent native
+  and path keys, provider scopes, and a simulated case-sensitive-volume control.
+  Native UUIDs have no path/Unicode aliases; opaque native ids keep those strings
+  distinct, with real admission coverage as well as key properties.
+- tests/canonical_identity_privacy.py isolates Path.home and blocks live native
+  state and network access. tools/check_identity_mutations.py runs serially and
+  restores each mutated source byte-for-byte in a finally block.
+
+Executed reproductions (relative to the supplied .invariants-audit directory)
+Script                                      Before                    After
+atomicity/check_atomicity.py                 UUID aliases: 2 attempts  1 attempt, 1 refusal
+verification/native/adversarial_native.py    masks: 2; binding: 1      masks: 1; binding: 0, failed
+verification/coverage/check_output_and_lifecycle.py
+                                            case/NFD: 2 exports,      second alias refused;
+                                            NEWER then OLDER          exact/symlink and lifecycle controls pass
+verification/coverage/check_new_output_paths.py
+                                            absent case/NFD: 2,       absent case/NFD: 1,
+                                            NEWER then OLDER          second alias refused
+verification/coverage/check_parent_output_aliases.py
+                                            case/NFD parents: 2,      both second aliases refused
+                                            NEWER then OLDER
+
+The scripts were copied into this workspace without changing production seams.
+Their privacy guards needed an exemption for this assigned workspace because
+it lives under ~/.subfleet. After fixing production, vulnerability assertions
+were inverted to safety assertions in the copied native scripts; the absent-
+output script now requires the second submit's exit-7 refusal. Original inputs,
+public operations, actual reservation SQL and distinct-name controls were kept.
+All five before/after runs exited 0. Raw run evidence stayed in disposable scratch.
+
+Validation
+Final targeted pytest: 49 passed in 260.86 seconds (33 new identity tests and
+16 existing folder, resume/quarantine and writable-instance checks). Hypothesis
+reported 676 generated passing cases plus 13 explicit alias examples. Earlier
+focused runs passed 9, then 22, then 4 cases; the final run covers all additions.
+Command: .venv/bin/python -B -m pytest -q -p no:cacheprovider
+-p tests.canonical_identity_privacy --hypothesis-show-statistics, targeting
+tests/unit/test_resource_identity.py, tests/fake/test_canonical_identity.py,
+tests/unit/test_folders.py, seven resume/quarantine cases from
+tests/fake/test_resume_contract.py and three writable-instance cases from
+tests/fake/test_writable_fanout.py. See the source selectors and clauses for scope.
+All four mutations were killed (pytest exit 1):
+- drop casefold: second absent Result.md/result.md submit was incorrectly accepted;
+  1 failed, 20 deselected.
+- drop NFC: second absent café.md/NFD submit was incorrectly accepted;
+  1 failed, 1 passed, 20 deselected.
+- raw native lease key: the admitted uppercase UUID lacked its canonical native key;
+  1 failed, 23 deselected.
+- remove reservation recheck: public open during preparation left the revive running;
+  1 failed, 20 deselected.
+Mutation runner: .venv/bin/python -u -B tools/check_identity_mutations.py;
+exit 0, four killed mutants, source bytes restored. The verifier
+verification/coverage/recheck_export_recovery.py passed all 58 cases:
+36 accepted export/crash/reopen cases, 18 probe/restart controls and four
+additional digest/newer-owner/probe-authority controls. Whitespace and AST
+checks passed, and the final pytest ran after all mutations were restored.
+
+Run constraints: fresh TMPDIR below getconf DARWIN_USER_TEMP_DIR, with no path
+component named tmp; one pytest process at a time, no -n and no full suite.
+Provider/process seams were injected; no daemon or provider process was launched.
+The live ~/.subfleet and subfleet/default_policy.json were not modified.
+All scratch and raw evidence are removed at delivery. Full-suite validation is left to CI.
+
+Delivery
+Implementation commit: 250ffdb2dfb38788d6427858cabeec6f541f4aaa.
+This report is committed separately; the bundle includes both coherent steps.
+Verified delivery bundle: docs/reports/2026-10-06-canonical-identity.bundle,
+prerequisite 6b0be1d471e93d82fa88dd459b8d69c877f32d68; head refs/heads/fix/canonical-identity.
+Each commit ends with Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>.

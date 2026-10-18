@@ -26,9 +26,10 @@ import pytest
 
 from subfleet import doctor, protocol, scheduler
 from subfleet import daemon as daemon_module
-from subfleet.contracts import (ClockSource, Closure, ClosureReason, Credential, Exit, Lane, LaneOwner,
-                                Reading, ReadingLabel)
+from subfleet.contracts import (CAPACITY_RECHECK_BASE_S, ClockSource, Closure, ClosureReason, Credential, Exit,
+                                Lane, LaneOwner, Reading, ReadingLabel)
 from subfleet.daemon import Daemon, after, utcnow
+from tests.caps import capped
 from tests.fake.test_admission_visibility import Inline
 from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401  (fixture)
 
@@ -485,15 +486,23 @@ def test_c6_3_a_long_wait_for_the_store_lock_does_not_void_the_decision(fleet, m
             time.sleep(1.5)
         done.set()
 
+    other = threading.Thread(target=holder, name="test-holder")
+
     def pick(job, **options):
         decision = real(job, **options)
-        threading.Thread(target=holder, name="test-holder").start()
+        other.start()
         assert holding.wait(10)
         return decision
     monkeypatch.setattr(service, "_pick", pick)
     started = time.monotonic()
-    service._admit()
-    assert done.is_set() and time.monotonic() - started >= 1.5     # the reservation waited for the lock
+    try:
+        service._admit()
+    finally:
+        elapsed = time.monotonic() - started
+        if other.ident is not None:
+            other.join(10)
+    assert not other.is_alive() and done.is_set()
+    assert elapsed >= 1.5                                        # the reservation waited for the lock
     assert service._route_evaluations == {**ZERO, "reused": 1}
     assert admitted(service, job_id)
 
@@ -524,6 +533,7 @@ def test_c6_3_a_reading_that_ages_out_before_the_reservation_is_judged_again(rou
     and evaluate the whole route again): unmeasured, the lane has no second slot, and
     the decision now is no lane, as an evaluation now makes it."""
     service, harness = routing_state
+    capped(service.policy)                          # C-6.4: the caps of before 2026-09-27 (tests/caps.py)
     busy_codex(service, harness)
     job_id = submit(service, harness, pinned_model="astra")
     real, early, stale = service._pick, [], []
@@ -1232,6 +1242,7 @@ def test_c4_5_a_retry_whose_lane_refuses_it_for_more_than_a_slot_goes_to_the_nex
 def test_c4_5_a_retry_whose_lane_is_only_full_keeps_its_lane(fleet):
     """C-4.5 a slot ends a full lane's refusal: the retry waits for its own lane, not the open one."""
     service, harness = fleet
+    capped(service.policy)                          # C-6.4: the caps of before 2026-09-27 (tests/caps.py)
     service.store.put_lane(claude_lane("claude-b", label="other@example.invalid"))
     measured(service, "claude-b")
     for _ in range(2):                                             # claude-a's two measured slots, taken
@@ -1272,10 +1283,27 @@ def test_c4_5_a_retry_whose_credential_is_latched_goes_to_the_next_candidate(fle
     assert service.store.list_attempts(job_id)[-1]["lane_id"] == "codex-2"
 
 
-def test_c6_9_a_retry_that_lets_its_pin_go_keeps_its_place_behind_older_jobs(fleet):
+class HeldClock(datetime):
+    """The daemon's and the scheduler's wall clock, held where the test puts it."""
+    at: datetime
+
+    @classmethod
+    def now(cls, tz=None):
+        return cls.at.astimezone(tz) if tz else cls.at.replace(tzinfo=None)
+
+
+@pytest.mark.parametrize("stall", [0, CAPACITY_RECHECK_BASE_S], ids=["prompt", "a-loaded-runner"])
+def test_c6_9_a_retry_that_lets_its_pin_go_keeps_its_place_behind_older_jobs(fleet, monkeypatch, stall):
     """C-6.9 routed as submitted, a fallen-back retry competes as submitted: it does not pass an older
-    waiter it competes with, and a younger job it competes with does not pass it."""
+    waiter it competes with, and a younger job it competes with does not pass it. On a held clock:
+    the hold's one-second recheck ran on the wall clock, and a runner slow enough to spend it before
+    the five passes below had them look at the retry again (CI 3.14, run 37389734475, on #133; the
+    second review of #133, R2-4, reproduced it with a 3 s pause). `a-loaded-runner` is that runner."""
     service, harness = fleet
+    capped(service.policy)                          # C-6.4: the caps of before 2026-09-27 (tests/caps.py)
+    HeldClock.at = datetime.now(timezone.utc).replace(microsecond=0)
+    monkeypatch.setattr(daemon_module, "datetime", HeldClock)
+    monkeypatch.setattr(scheduler, "datetime", HeldClock)
     service.store.put_lane(claude_lane("claude-b", label="other@example.invalid"))
     measured(service, "claude-b")
     older = submit(service, harness, pinned_model="opus", pinned_lane="claude-b")
@@ -1297,29 +1325,29 @@ def test_c6_9_a_retry_that_lets_its_pin_go_keeps_its_place_behind_older_jobs(fle
     job = service.store.get_job(retry)
     assert job["state"] == "waiting" and job["wait_reason"] == "capacity" and job["next_check_at"] > utcnow()
     before = dict(looks)
+    time.sleep(stall)
     for _ in range(5):
         service._admit()
     assert looks == before and service._holds[retry]["reason"] == "behind-older-job"
+    # Due, it is looked at again: the clock, not something else, kept the five passes away.
+    HeldClock.at = datetime.fromisoformat(job["next_check_at"].replace("Z", "+00:00"))
+    service._admit()
+    assert looks["pick"] > before["pick"]
 
 
-class HeldClock(datetime):
-    """The daemon's and the scheduler's wall clock, held where the test puts it."""
-    at: datetime
-
-    @classmethod
-    def now(cls, tz=None):
-        return cls.at.astimezone(tz) if tz else cls.at.replace(tzinfo=None)
-
-
+@pytest.mark.parametrize("stall", [0, CAPACITY_RECHECK_BASE_S], ids=["prompt", "a-loaded-runner"])
 @pytest.mark.parametrize("look", [-1, 0, 1], ids=["before-the-retry-is-due", "when-it-is-due", "after"])
-def test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go(fleet, monkeypatch, look):
+def test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go(fleet, monkeypatch, look, stall):
     """The retry's look let its pin go and set a one-second clock; a younger job that
     competes for claude-b arrives. Until the clock is due the younger job waits behind
-    the retry; once it is due both are placed, the retry first (C-6.9). On a held clock:
-    this read the wall clock, and on a loaded machine the one second could run out before
-    the second pass, which then placed both, in order, and had no hold to assert on
-    (review of d04b8b3, which reproduced the three cases under a controlled clock)."""
+    the retry; once it is due both are placed, the retry first (C-6.9). The original
+    test read the wall clock: on a loaded machine the one second could run out before
+    the second pass, which then placed both, in order, and had no younger-job hold
+    to assert on. The held clock makes all three deadline positions explicit.
+    The loaded-runner cases spend that second on the real clock while the test's
+    clock stays held, including before the younger job is submitted."""
     service, harness = fleet
+    capped(service.policy)                          # C-6.4: the caps of before 2026-09-27 (tests/caps.py)
     HeldClock.at = datetime.now(timezone.utc).replace(microsecond=0)
     monkeypatch.setattr(daemon_module, "datetime", HeldClock)
     monkeypatch.setattr(scheduler, "datetime", HeldClock)
@@ -1335,6 +1363,7 @@ def test_c6_9_a_younger_job_does_not_pass_a_retry_that_let_its_pin_go(fleet, mon
     assert first["state"] == "waiting" and service._retry_verdicts[retry][1] is False
     due = datetime.fromisoformat(first["next_check_at"].replace("Z", "+00:00"))
     assert due == HeldClock.at + timedelta(seconds=1)
+    time.sleep(stall)
     service.store.update_lane("claude-b", enabled=1)
     younger = submit(service, harness, pinned_model="opus", pinned_lane="claude-b")
     HeldClock.at = due + timedelta(seconds=look)

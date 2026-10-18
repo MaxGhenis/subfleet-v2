@@ -1,0 +1,108 @@
+Shared-folder fixes continuation, 2026-10-03
+
+P2 — subfleet/folders.py:60,105 and conversations/service.py:1441,2348
+Preserved the inherited getattrlist(ATTR_CMN_FULLPATH) fix, response validation,
+and fail-closed protected-path comparison. Modes 0111 need only search permission;
+EACCES/ENOSYS/EIO produce a clear protected-workspace refusal (code 7).
+Commit 7b1377ca adds workspace checks when permissions change (service.py:551)
+and before persisted/native turns create jobs (service.py:1978).
+Tests: unit/test_folders.py extends the case/Unicode/symlink/dots/tilde property
+with arbitrary unlistable ancestors, including the target. fake/test_folder_spelling.py
+covers protected HOME, sharing leases/annotations, fail-closed spelling and widening.
+The new conversation-service test covers persisted admission without a job or retry.
+
+P3 — app/Sources/UIWindow.swift:593, Diff.swift:213,288; commit 33ca487e
+Empty and unavailable comparisons disclose overlapping conversations; nested-repository
+notices remain. tests/frontend/test_core_diff.py:223 tests real turn/conversation
+results, omitted legacy fields, skipped repositories and unavailable snapshots.
+
+Canonicalization call verified on this case-insensitive macOS workspace volume
+Ran committed docs/reports/2026-10-03-shared-folder-fixes-probe.py (f6f1e5f4).
+Created Secret-Parent/User-Home, looked up sECRET-pARENT/uSER-hOME, then made both
+parent and target 0111. Listing the parent and opening the target raised PermissionError;
+getattrlist returned the exact stored spelling without doubt. F_GETPATH worked only
+once the target was made 0755/openable. All modes restored and temporary folders removed.
+The inherited cold-remounted-APFS experiment is described in prior notes/code;
+this continuation independently verified fresh directories and the extended property.
+
+Regression checks on b0033e5d (task-owned exports)
+- Protected HOME and shared leases: 2 failed in 30.60s; writable create DID NOT RAISE,
+  and only one of two differently spelled jobs had the expected shared lease key.
+- Extended spelling property: 1 failed in 170.97s, minimized to first ancestor 0111
+  and final r swapped to R; listing canonicalization returned InneR instead of Inner.
+- Empty-diff frontend: 1 failed in 12.19s. Focused Swift probe used baseline wire
+  models/Diff.swift and the exact old empty-pane expression extracted from UIWindow;
+  real baseline service returned shared, while pane words were only "No changes."
+
+Three mutations caught, restored with private git checkout -- <file>
+1. Exact baseline listing canonicalization: property + sharing, 2 failed (119.11s).
+2. Ignore spelling doubt: sealed-HOME refusal, 1 failed (8.60s; DID NOT RAISE).
+3. Omit sharing from empty-pane helper: frontend regression, 1 failed (24.34s).
+Primary files never mutated. Restored P2 controls: 3 passed (16.82s); restored
+files matched snapshots/clean Git diffs.
+
+Foreground validation (Python 3.12.14; isolated P2 mutations used 3.14.7 freethreaded)
+- Folders + spelling + turn waits: 20 passed, 193.83s (210.1s supervisor wall).
+- Deterministic liveness: 29 passed, 2 failed, 1 deselected, 267.63s (286.28s wall).
+- Conversation service: 87 passed, 1 failed, 447.26s (463.55s wall).
+- Bounded liveness property: 4 passes / 40 passing case executions; each run
+  generated 10 passing, 0 failing/invalid cases. Two initial runs repeated the
+  same deterministic schedules; two used independent explicit seeds 3 and 4.
+  Pytest durations: 206.31s, 198.71s, 257.69s, 139.27s; all supervisor walls <283s.
+  An ignored runtime plugin limits max_examples to 10 and supplies the two explicit
+  seeds; other settings and repository tests unchanged.
+- Original combined required suites: 137 passed, 3 failed, 1353.99s. Original
+  40-example liveness property passed. This combined run exceeded ten minutes;
+  separate bounded runs above provide the requested slices.
+- Frontend diff suite: 7 passed, 236.83s; final expanded regression: 1 passed, 33.27s.
+- Final full SwiftUI compile-only check: passed, 595.45s, all app sources and existing
+  ConversationViewProbe; no UI executed. Normal nested macro sandbox failed with
+  sandbox-exec: sandbox_apply: Operation not permitted. Compiler -disable-sandbox
+  bypassed only that nested sandbox; outer workspace sandbox and test harness unchanged.
+  Every Swift build stayed within the 900s allowance. Full-run view fixtures
+  produced 10 setup errors (3 conversation, 7 menu): @State macro plugin malformed
+  response, consistent with the nested sandbox failure; none was a compiler timeout.
+  View assertions did not execute in those fixtures.
+- Full uv run pytest -q: 7,302 passed, 149 failed, 131 skipped, 47 errors;
+  10,011.02s pytest / 10,032.9s foreground supervisor. Ordinary settings unchanged.
+  All task regressions passed; see unchanged baseline/environment failures below.
+- git diff --check: clean.
+
+Baseline/environment failures left unchanged
+The two liveness failures report probe-pending before expected live/lease-held.
+The service close test fails during Daemon construction because macOS boot identity
+is unavailable in the sandbox. All three replayed unchanged on b0033e5d: 3 failed,
+81.81s. All four priority cases also fail unchanged on b0033e5d (32.76s): three
+/bin/ps PermissionErrors and the reused-PID missing hold. Its denied process
+snapshot falling back to PID-only lookup explains the missing hold (source inference). Daemon-stack replay: 4 failed, 2 passed, 1 skipped (13.51s); the four stack
+failures cannot read macOS boot identity. The gate case passed on baseline
+and fixed checkout in isolation; the full run exceeded its fixed three-second
+subprocess deadline (TimeoutExpired).
+Session/notice/state replay: all 8 failures reproduced (75.07s); 100 owned
+subprocess handles reaped, including six guardians that exited with rc 1.
+Pin-notice replay: failed unchanged (29.76s); finalization defers while
+containment cannot be verified.
+Representative unit sandbox replay: 9 failed, 2 errors (33.69s), all 11 matching
+full-run outcomes. CLI/daemon-stop/doctor/offline cases cannot inspect process
+identity; daemon construction/inspection/lockwatch cannot read macOS boot identity.
+Overlap replay: 12 failed (85.42s): six legacy-hold ps PermissionErrors, three
+importer conservative classifications and three guard short-deadline/report failures.
+Direct watchdog/probe-record sample: 4 failed (2.71s), all during unchanged
+Daemon construction at the unavailable macOS boot identity, before assertions.
+Final traceback review: qos/hooks/catalog failures are /bin/ps PermissionErrors.
+Status-JSON, store-reader and wait-hub failures also stop at Daemon construction
+before assertions; all 37 Python setup errors report unavailable macOS boot identity.
+All owned replay subprocesses reaped. No unrelated tests edited.
+
+Delivery and cleanup
+Preserved inherited WIP 4c401041, parent b0033e5d. No push, history rewrite, running-daemon
+access or caller-tree writes. Shared Git metadata lies outside the writable sandbox;
+continuation commits use ignored build/shared-folder-fixes.git on the assigned branch.
+All commits include Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>.
+Verified bundle: docs/reports/2026-10-03-shared-folder-fixes.bundle; prerequisite b0033e5d.
+Final head is reported by git bundle list-heads and in the delivery message.
+At 18:44:52 UTC the exact-PID libproc audit covered 175 recorded PIDs / 189
+receipt references: 187 absent, two numerical PIDs reused after original reaping,
+no task-owned original identities still live. Full supervisor/uv/pytest all exited
+naturally; all recorded Swift compiler/plugin PIDs absent. No signals or pattern kills.
+Large logs/dependencies/local Git metadata ignored.

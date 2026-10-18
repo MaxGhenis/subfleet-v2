@@ -44,23 +44,32 @@ the others are read from the code cited.
 
 ## Approvals
 
-5. **An `approval.requested` event does not carry the approval id.** Events
-   carry the provider's `request_id`; `approval.list`, `conversation.open` and
-   `_approval_view` carry `approval_id` but not the `request_id`. The app joins
-   them by message, kind and display fields (which are equal: the event's data
-   minus `request_id`, `kind`, `options` is the stored `display`), and creates a
-   card from the view when the event has not arrived yet (`Timeline.attach`).
-   Two identical requests in one turn would still pair in order. Ask: add
-   `approval_id` to the event's data and `request_id` to the view.
+5. **Resolved (2026-09-28): approval views identify the provider request.**
+   Events carry the provider's `request_id`; `approval.list`,
+   `conversation.open` and `approval.get` views carry `approval_id` and the
+   provider's request id twice: as `request_id` (C-27.5) and as
+   `provider_request_id` (C-27.1), the same value. The app joins by message and
+   exact provider request, including when the list arrives first or the event
+   log is replayed, so identical display text cannot attach a replacement
+   approval to a stale card. A view from a daemon older than both fields,
+   which names no request, stays on an independent actionable card keyed by
+   immutable approval id. Unmatched event cards have no answer controls; a
+   whole pending-list reconciliation withdraws them. Kind and display alone
+   never join cards, so a legacy replacement cannot inherit stale drafts.
 
-6. **A withdrawn approval has no event and no change row.** When a turn ends,
-   the driver withdraws pending requests (`_end` returns them as `resolved`)
-   without an `approval.resolved` event, and `store.withdraw_approvals` writes
-   no `changes` row. The app marks a turn's pending cards withdrawn on
-   `turn.completed`; the badge corrects itself with the next change row for
-   that conversation (the settling `set_state` writes one). Ask: an
-   `approval.resolved {decision:"withdrawn"}` event per withdrawn request, and
-   a change row.
+6. **A withdrawn approval has no event and no change row** (*fixed*, C-27.3).
+   The driver withdrew pending requests at a turn's end (`_end` returned them
+   as `resolved`) without an `approval.resolved` event, `store.withdraw_approvals`
+   wrote no `changes` row, and a provider that exited without a result (`eof`)
+   returned no `resolved` ids at all and wrote no `turn.completed`: its card
+   stayed pending in the log for good, and an app that clears cards only on
+   `approval.resolved` or `turn.completed` showed it answerable ("That approval
+   is no longer pending." on every click). Now every withdrawal writes
+   `approval.resolved {decision:"withdrawn"}` and a change row in the commit that
+   withdraws, ahead of a `turn.completed` in the same batch; a person's answer
+   writes its `approval.resolved`, a change row and the move back to `running`
+   in the answer's commit. The app's own rule (`Timeline.withdrawIfEnded`: an
+   ended message has no pending card) stays as a second line.
 
 7. **`changes.pending_approvals` has two meanings.** Rows written by
    `add_approval` and `answer_approval` carry the count for the *message*;

@@ -13,6 +13,11 @@
 // and then through `message.cancel`, which leaves a tombstone so a late copy
 // cannot land.
 //
+// A steer (C-24.9, design §1) is journaled too, keyed by its message id: the
+// app's steer is `message.submit` then `message.steer`, sent in journal order
+// in the same one-at-a-time lane as its conversation's submits. A refusal
+// closes it without holding the conversation: the message stays queued.
+//
 // The other mutating ops (settings, stop, unblock, resolve, approval answers)
 // are a person's immediate actions without an idempotency key; they are sent
 // directly and not replayed after a restart (docs/desktop/app-needs.md).
@@ -83,6 +88,42 @@ struct OutboxEntry: Codable, Equatable, Identifiable {
     var isOpen: Bool { state == .queued || state == .sending || state == .failed }
 }
 
+/// A person's steer of one message into the running turn (C-24.9). Kept apart
+/// from `entries` so an older app still opens the journal: it ignores this list,
+/// drops it on its next save, and the message simply stays queued.
+struct OutboxSteer: Codable, Equatable, Identifiable {
+    enum State: String, Codable {
+        /// Journaled. Not sent yet, or sent without an answer (`attempts` > 0).
+        case queued
+        /// A send is under way; journaled before the socket write.
+        case sending
+        /// The daemon's receipt is recorded.
+        case acknowledged
+        /// Refused (or never answered): the message stays queued; `failure` says why.
+        case refused
+        /// Taken back unsent: its message was withdrawn or cancelled first.
+        case withdrawn
+    }
+
+    static let keyPrefix = "steer:"
+
+    var messageID: String
+    var conversation: String
+    var order: Int
+    var state: State
+    var attempts: Int = 0
+    var nextAttemptAt: Double?
+    var failure: OutboxFailure?
+    var receipt: Receipt?
+    var createdAt: String
+    /// The running turn it was sent to (C-24.9); absent from older journals.
+    var into: String?
+
+    var key: String { OutboxSteer.keyPrefix + messageID }
+    var id: String { key }
+    var isOpen: Bool { state == .queued || state == .sending }
+}
+
 /// What the outbox knows of a conversation's last accepted person message.
 struct OutboxChain: Codable, Equatable {
     var lastPersonMessageID: String?
@@ -90,10 +131,41 @@ struct OutboxChain: Codable, Equatable {
 
 struct OutboxJournal: Codable, Equatable {
     var version = 1
+    /// Additive 2.1.10 migration; old journals gain recovery rows on first load.
+    var draftRecoveryVersion = 1
     var nextOrder = 1
     var entries: [OutboxEntry] = []
     /// Present for a conversation whose predecessor chain is known.
     var chains: [String: OutboxChain] = [:]
+    /// Steer intents, one per message (C-24.9); absent from older journals.
+    var steers: [OutboxSteer] = []
+
+    init() {}
+
+    private enum CodingKeys: String, CodingKey { case version, draftRecoveryVersion, nextOrder, entries, chains, steers }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        version = try c.decode(Int.self, forKey: .version)
+        draftRecoveryVersion = try c.decodeIfPresent(Int.self, forKey: .draftRecoveryVersion) ?? 0
+        nextOrder = try c.decode(Int.self, forKey: .nextOrder)
+        entries = try c.decode([OutboxEntry].self, forKey: .entries)
+        chains = try c.decode([String: OutboxChain].self, forKey: .chains)
+        steers = try c.decodeIfPresent([OutboxSteer].self, forKey: .steers) ?? []
+    }
+}
+
+/// One thing the outbox may send: a journaled create or submit, or a steer.
+enum OutboxWork: Equatable {
+    case entry(OutboxEntry)
+    case steer(OutboxSteer)
+
+    var key: String {
+        switch self {
+        case .entry(let entry): return entry.key
+        case .steer(let steer): return steer.key
+        }
+    }
 }
 
 enum OutboxRequest: Equatable {
@@ -107,6 +179,11 @@ enum OutboxOutcome {
     case failed(DaemonClientError)
 }
 
+enum OutboxSteerOutcome {
+    case steered(Receipt)
+    case failed(DaemonClientError)
+}
+
 enum OutboxError: Error, Equatable {
     case unknownEntry(String)
     case notSendable(String)
@@ -116,6 +193,11 @@ enum OutboxError: Error, Equatable {
 
 final class Outbox {
     static let draftPrefix = "draft:"
+    /// A steer tried this many times (no answer, or a turn that could not take it
+    /// yet) is given up: it is worth something only while the turn runs, and it may
+    /// hold the messages the person sends after it only briefly (0.5 s doubling:
+    /// 7.5 s at most). The message stays queued; nothing is lost either way.
+    static let steerAttempts = 5
 
     private(set) var journal: OutboxJournal
     let url: URL?
@@ -130,8 +212,16 @@ final class Outbox {
             let data = try Data(contentsOf: url)
             journal = try JSONDecoder().decode(OutboxJournal.self, from: data)
             var recovered = false
+            if journal.draftRecoveryVersion == 0 {
+                journal.draftRecoveryVersion = 1
+                recovered = true
+            }
             for index in journal.entries.indices where journal.entries[index].state == .sending {
                 journal.entries[index].state = .queued
+                recovered = true
+            }
+            for index in journal.steers.indices where journal.steers[index].state == .sending {
+                journal.steers[index].state = .queued
                 recovered = true
             }
             if recovered { try save() }
@@ -141,6 +231,56 @@ final class Outbox {
     }
 
     var entries: [OutboxEntry] { journal.entries }
+
+    /// Refusals are shown even before connecting to the daemon. Messages remain
+    /// queued and are retried with their original ids when the folder is fixed.
+    var failedDrafts: [FailedConversationDraft] {
+        journal.entries.sorted { $0.order > $1.order }.compactMap { entry in
+            guard entry.kind == .conversationCreate, entry.state == .failed,
+                  entry.conversationID == nil, let create = entry.create,
+                  let failure = entry.failure, !failure.retryable else { return nil }
+            let messages = journal.entries.filter {
+                $0.conversation == Outbox.draftKey(entry.key) && $0.kind == .messageSubmit && $0.isOpen
+            }.sorted { $0.order < $1.order }
+            return FailedConversationDraft(id: entry.key, create: create, failure: failure,
+                                           messages: messages, createdAt: entry.createdAt)
+        }
+    }
+
+    /// Editing a refused create retains every queued message and its id. A
+    /// retryable/unknown create may already exist and cannot be edited here.
+    func retryFailedCreate(_ key: String, args: ConversationCreateArgs, text: String,
+                           staged: [StagedAttachment]) throws {
+        guard let draft = failedDrafts.first(where: { $0.id == key }), args.request_id == key else {
+            throw OutboxError.invalidState("only a refused conversation can be changed")
+        }
+        let createIndex = try index(key)
+        journal.entries[createIndex].create = args
+        journal.entries[createIndex].state = .queued
+        journal.entries[createIndex].failure = nil
+        journal.entries[createIndex].nextAttemptAt = nil
+        if let first = draft.messages.first {
+            let firstIndex = try index(first.key)
+            let old = journal.entries[firstIndex].message!
+            let retained = old.attachments.filter { !(old.staged ?? []).map(\.sha256).contains($0) }
+            journal.entries[firstIndex].message = OutboxMessage(text: text, attachments: retained + staged.map(\.sha256),
+                                                               settings: args.settings, staged: staged.isEmpty ? nil : staged)
+            try save()
+        } else {
+            try enqueueSubmit(conversation: Outbox.draftKey(key), text: text, staged: staged, settings: args.settings)
+        }
+    }
+
+    func discardFailedDraft(_ key: String) throws {
+        guard failedDrafts.contains(where: { $0.id == key }) else {
+            throw OutboxError.invalidState("only a refused conversation can be discarded")
+        }
+        let draftKey = Outbox.draftKey(key)
+        for index in journal.entries.indices where journal.entries[index].conversation == draftKey {
+            journal.entries[index].state = .withdrawn
+        }
+        try save()
+    }
 
     func entry(_ key: String) -> OutboxEntry? { journal.entries.first { $0.key == key } }
 
@@ -187,15 +327,19 @@ final class Outbox {
     }
 
     /// Journal a message for a conversation (its daemon id, or the draft key of
-    /// a journaled create). Idempotent by message id.
+    /// a journaled create). Idempotent by message id. With `steer`, its steer is
+    /// journaled right behind it in the same write (C-24.9): submit, then steer.
     @discardableResult
     func enqueueSubmit(conversation: String, messageID: String = Outbox.newMessageID(), text: String,
                        attachments: [String] = [], staged: [StagedAttachment] = [],
-                       settings: ConversationSettings) throws -> OutboxEntry {
-        guard let parsed = UUID(uuidString: messageID), parsed.uuidString.lowercased() == messageID else {
-            throw OutboxError.badMessageID(messageID)
+                       settings: ConversationSettings, steer: Bool = false, into: String? = nil) throws -> OutboxEntry {
+        try Outbox.checkMessageID(messageID)
+        if let existing = entry(messageID) {
+            if steer && !existing.conversation.hasPrefix(Outbox.draftPrefix) {
+                try enqueueSteer(conversation: existing.conversation, messageID: messageID, into: into)
+            }
+            return existing
         }
-        if let existing = entry(messageID) { return existing }
         let entry = OutboxEntry(key: messageID, kind: .messageSubmit, order: journal.nextOrder,
                                 conversation: conversation,
                                 create: nil,
@@ -204,8 +348,131 @@ final class Outbox {
                                 state: .queued, createdAt: stamp())
         journal.nextOrder += 1
         journal.entries.append(entry)
+        if steer && !conversation.hasPrefix(Outbox.draftPrefix) {
+            appendSteer(conversation: conversation, messageID: messageID, into: into)
+        }
         try save()
         return entry
+    }
+
+    private static func checkMessageID(_ messageID: String) throws {
+        guard let parsed = UUID(uuidString: messageID), parsed.uuidString.lowercased() == messageID else {
+            throw OutboxError.badMessageID(messageID)
+        }
+    }
+
+    // MARK: Steers (C-24.9)
+
+    func steer(_ messageID: String) -> OutboxSteer? { journal.steers.first { $0.messageID == messageID } }
+
+    var steers: [OutboxSteer] { journal.steers }
+
+    /// A conversation's steers, in journal order.
+    func steers(in conversation: String) -> [OutboxSteer] {
+        journal.steers.filter { $0.conversation == conversation }.sorted { $0.order < $1.order }
+    }
+
+    /// Journal a steer of a message the daemon has, or that is journaled ahead
+    /// of it. Idempotent by message id while one is open; a closed one (refused,
+    /// withdrawn, or answered and since back in the queue) is journaled again at
+    /// the end, since the person asked again.
+    @discardableResult
+    func enqueueSteer(conversation: String, messageID: String, into: String? = nil) throws -> OutboxSteer {
+        try Outbox.checkMessageID(messageID)
+        guard !conversation.hasPrefix(Outbox.draftPrefix) else {
+            throw OutboxError.notSendable("\(messageID): a conversation not created yet has no running turn")
+        }
+        if let existing = steer(messageID), existing.isOpen { return existing }
+        let steer = appendSteer(conversation: conversation, messageID: messageID, into: into)
+        try save()
+        return steer
+    }
+
+    @discardableResult
+    private func appendSteer(conversation: String, messageID: String, into: String?) -> OutboxSteer {
+        let steer = OutboxSteer(messageID: messageID, conversation: conversation, order: journal.nextOrder,
+                                state: .queued, createdAt: stamp(), into: into)
+        journal.nextOrder += 1
+        journal.steers.removeAll { $0.messageID == messageID }
+        journal.steers.append(steer)
+        return steer
+    }
+
+    private func steerIndex(_ messageID: String) throws -> Int {
+        guard let index = journal.steers.firstIndex(where: { $0.messageID == messageID }) else {
+            throw OutboxError.unknownEntry(OutboxSteer.keyPrefix + messageID)
+        }
+        return index
+    }
+
+    /// Mark a steer as being sent (journaled first) and build its request.
+    func beginSteer(_ messageID: String) throws -> MessageSteerArgs {
+        let index = try steerIndex(messageID)
+        guard journal.steers[index].state == .queued else {
+            throw OutboxError.notSendable("steer of \(messageID) is \(journal.steers[index].state.rawValue)")
+        }
+        journal.steers[index].state = .sending
+        journal.steers[index].attempts += 1
+        try save()
+        return MessageSteerArgs(message_id: messageID, into: journal.steers[index].into)
+    }
+
+    /// Record the daemon's answer to a steer. A refusal closes it: the message
+    /// stays queued in the daemon, and nothing later in the conversation waits.
+    /// A lost answer, or `not-steerable` for a steer that names its turn, is
+    /// asked again briefly first (`steerAttempts`).
+    @discardableResult
+    func finishSteer(_ messageID: String, _ outcome: OutboxSteerOutcome) throws -> OutboxSteer {
+        let index = try steerIndex(messageID)
+        var steer = journal.steers[index]
+        switch outcome {
+        case .steered(let receipt):
+            steer.state = .acknowledged
+            steer.receipt = receipt
+            steer.failure = nil
+            steer.nextAttemptAt = nil
+        case .failed(let error):
+            let daemon = error.daemonError
+            steer.failure = OutboxFailure(code: daemon?.code, reason: daemon?.reason, message: error.summary, retryable: false)
+            steer.nextAttemptAt = nil
+            if let daemon, daemon.isUnknownOp {
+                steer.state = .refused
+                steer.failure?.reason = "unsupported"
+            } else if error.isRetryable || { if case .endpointRefused = error { return true }; return false }() {
+                if steer.attempts >= Outbox.steerAttempts {
+                    steer.state = .refused
+                    steer.failure?.reason = "no-answer"
+                } else {
+                    steer.state = .queued
+                    steer.failure?.retryable = true
+                    steer.nextAttemptAt = now().timeIntervalSince1970 + Outbox.backoff(attempts: steer.attempts)
+                }
+            } else if daemon?.reason == "not-steerable" && steer.into != nil && steer.attempts < Outbox.steerAttempts {
+                // The turn could not take a steer at that moment: its runner still
+                // catching up after a daemon restart, or the provider not ready yet.
+                // It is asked again briefly (0.5 s doubling, `steerAttempts` in all);
+                // `into` has the daemon refuse any try that comes after that turn ended.
+                steer.state = .queued
+                steer.failure?.retryable = true
+                steer.nextAttemptAt = now().timeIntervalSince1970 + Outbox.backoff(attempts: steer.attempts)
+            } else {
+                steer.state = .refused
+            }
+        }
+        journal.steers[index] = steer
+        try save()
+        return steer
+    }
+
+    /// Take back a steer not yet sent (its message is being withdrawn or
+    /// cancelled). Returns whether one was open.
+    @discardableResult
+    func withdrawSteer(_ messageID: String) throws -> Bool {
+        guard let index = journal.steers.firstIndex(where: { $0.messageID == messageID }),
+              journal.steers[index].state == .queued else { return false }
+        journal.steers[index].state = .withdrawn
+        try save()
+        return true
     }
 
     // MARK: Predecessor chains
@@ -250,22 +517,31 @@ final class Outbox {
     // MARK: Scheduling
 
     /// What may be sent now: every due create, and per conversation its first
-    /// open message when nothing of that conversation is outstanding or failed.
-    func sendable(at date: Date? = nil) -> [OutboxEntry] {
+    /// open submit or steer (in journal order) when nothing of that conversation
+    /// is outstanding or failed.
+    func sendable(at date: Date? = nil) -> [OutboxWork] {
         let time = (date ?? now()).timeIntervalSince1970
-        func due(_ entry: OutboxEntry) -> Bool { (entry.nextAttemptAt ?? 0) <= time }
-        var out: [OutboxEntry] = []
+        func due(_ at: Double?) -> Bool { (at ?? 0) <= time }
+        let open = journal.entries.filter(\.isOpen).map { (order: $0.order, work: OutboxWork.entry($0)) }
+            + journal.steers.filter(\.isOpen).map { (order: $0.order, work: OutboxWork.steer($0)) }
+        var out: [OutboxWork] = []
         var seen: Set<String> = []
-        for entry in journal.entries.sorted(by: { $0.order < $1.order }) where entry.isOpen {
-            switch entry.kind {
-            case .conversationCreate:
-                if entry.state == .queued && due(entry) { out.append(entry) }
-            case .messageSubmit:
+        for (_, work) in open.sorted(by: { $0.order < $1.order }) {
+            switch work {
+            case .entry(let entry) where entry.kind == .conversationCreate:
+                if entry.state == .queued && due(entry.nextAttemptAt) { out.append(work) }
+            case .entry(let entry):
                 guard !seen.contains(entry.conversation) else { continue }
                 seen.insert(entry.conversation)
-                if entry.state == .queued, due(entry), !entry.conversation.hasPrefix(Outbox.draftPrefix),
+                if entry.state == .queued, due(entry.nextAttemptAt), !entry.conversation.hasPrefix(Outbox.draftPrefix),
                    chainKnown(entry.conversation) {
-                    out.append(entry)
+                    out.append(work)
+                }
+            case .steer(let steer):
+                guard !seen.contains(steer.conversation) else { continue }
+                seen.insert(steer.conversation)
+                if steer.state == .queued, due(steer.nextAttemptAt), !steer.conversation.hasPrefix(Outbox.draftPrefix) {
+                    out.append(work)
                 }
             }
         }
@@ -316,6 +592,9 @@ final class Outbox {
             for other in journal.entries.indices where journal.entries[other].conversation == draft {
                 journal.entries[other].conversation = cid
             }
+            for other in journal.steers.indices where journal.steers[other].conversation == draft {
+                journal.steers[other].conversation = cid
+            }
             if result.created {
                 journal.chains[cid] = OutboxChain(lastPersonMessageID: nil)
             }
@@ -328,6 +607,7 @@ final class Outbox {
             entry.waitingForPredecessor = false
             if receipt.isTombstone {
                 entry.state = .withdrawn
+                withdrawSteerUnsaved(key)
             } else {
                 entry.state = .acknowledged
                 journal.chains[entry.conversation] = OutboxChain(lastPersonMessageID: key)
@@ -404,12 +684,14 @@ final class Outbox {
         case .queued, .failed:
             if entry.attempts == 0 {
                 journal.entries[index].state = .withdrawn
+                withdrawSteerUnsaved(key)
                 if entry.kind == .conversationCreate {
                     // Its messages can never be sent without it.
                     let draft = Outbox.draftKey(key)
                     for other in journal.entries.indices where journal.entries[other].conversation == draft
                         && journal.entries[other].isOpen {
                         journal.entries[other].state = .withdrawn
+                        withdrawSteerUnsaved(journal.entries[other].key)
                     }
                 }
                 try save()
@@ -433,15 +715,28 @@ final class Outbox {
         let index = try index(key)
         journal.entries[index].state = .withdrawn
         journal.entries[index].receipt = receipt ?? journal.entries[index].receipt
+        withdrawSteerUnsaved(key)
         try save()
     }
 
-    /// Keep the newest `keep` closed entries (their text feeds the timeline).
+    /// A withdrawn message's steer can never be sent.
+    private func withdrawSteerUnsaved(_ messageID: String) {
+        for index in journal.steers.indices where journal.steers[index].messageID == messageID
+            && journal.steers[index].isOpen {
+            journal.steers[index].state = .withdrawn
+        }
+    }
+
+    /// Keep the newest `keep` closed entries (their text feeds the timeline) and
+    /// the newest `keep` closed steers (their refusals feed its status lines).
     func prune(keep: Int = 200) throws {
         let closed = journal.entries.filter { !$0.isOpen }.sorted { $0.order > $1.order }
-        guard closed.count > keep else { return }
+        let closedSteers = journal.steers.filter { !$0.isOpen }.sorted { $0.order > $1.order }
+        guard closed.count > keep || closedSteers.count > keep else { return }
         let drop = Set(closed.dropFirst(keep).map(\.key))
         journal.entries.removeAll { drop.contains($0.key) }
+        let dropSteers = Set(closedSteers.dropFirst(keep).map(\.messageID))
+        journal.steers.removeAll { dropSteers.contains($0.messageID) && !$0.isOpen }
         try save()
     }
 
@@ -464,9 +759,14 @@ final class OutboxSender {
         var failed: [String] = []
         var retrying: [String] = []
         var resynced: [String] = []
+        /// Steers the daemon refused (or that never got an answer): closed, and
+        /// holding nothing; their messages stay queued.
+        var refused: [String] = []
         /// Receipts and created conversations, for the store to fold in.
         var receipts: [Receipt] = []
         var conversations: [Conversation] = []
+        /// Steers answered in this pump, accepted or refused, for the timeline.
+        var steers: [OutboxSteer] = []
     }
 
     init(outbox: Outbox, client: DaemonCalling) {
@@ -505,6 +805,19 @@ final class OutboxSender {
         }
     }
 
+    /// Send one journaled steer and record the answer (C-24.9).
+    @discardableResult
+    func sendSteer(_ messageID: String) throws -> OutboxSteer {
+        let args = try outbox.beginSteer(messageID)
+        do {
+            return try outbox.finishSteer(messageID, .steered(try client.call(Ops.messageSteer, args)))
+        } catch let error as DaemonClientError {
+            return try outbox.finishSteer(messageID, .failed(error))
+        } catch {
+            return try outbox.finishSteer(messageID, .failed(.transport("\(error)")))
+        }
+    }
+
     /// Send everything that may go now, in order, until nothing more can.
     func pump(maxSends: Int = 64) -> Report {
         var report = Report()
@@ -518,22 +831,39 @@ final class OutboxSender {
             let batch = outbox.sendable()
             if batch.isEmpty { break }
             var progressed = false
-            for entry in batch where sends < maxSends {
+            for work in batch where sends < maxSends {
                 sends += 1
-                report.sent.append(entry.key)
-                guard let result = try? send(entry.key) else { continue }
+                report.sent.append(work.key)
+                if case .steer(let steer) = work {
+                    guard let result = try? sendSteer(steer.messageID) else { continue }
+                    switch result.state {
+                    case .acknowledged:
+                        progressed = true
+                        report.acknowledged.append(work.key)
+                        report.steers.append(result)
+                        if let receipt = result.receipt { report.receipts.append(receipt) }
+                    case .refused:
+                        progressed = true
+                        report.refused.append(work.key)
+                        report.steers.append(result)
+                    default:
+                        report.retrying.append(work.key)
+                    }
+                    continue
+                }
+                guard let result = try? send(work.key) else { continue }
                 switch result.state {
                 case .acknowledged:
                     progressed = true
-                    report.acknowledged.append(entry.key)
+                    report.acknowledged.append(work.key)
                     if let receipt = result.receipt { report.receipts.append(receipt) }
                 case .withdrawn:
                     progressed = true
                     if let receipt = result.receipt { report.receipts.append(receipt) }
                 case .failed:
-                    report.failed.append(entry.key)
+                    report.failed.append(work.key)
                 default:
-                    report.retrying.append(entry.key)
+                    report.retrying.append(work.key)
                 }
             }
             if !progressed && outbox.conversationsNeedingChain().allSatisfy(report.resynced.contains) { break }
