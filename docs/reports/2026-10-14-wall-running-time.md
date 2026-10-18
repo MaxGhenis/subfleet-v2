@@ -838,3 +838,74 @@ containing final-report commit is the bundle tip; the preceding steps are below.
 | `69ac18f27` | docs: record passing daemon settlement and pacing properties |
 | `0ad5d1878` | docs: record passing admission, retry, salvage and replay validation |
 | `0da9521bc` | docs: record sixty-five passing native frontend tests |
+
+## Fix round 6 (2026-10-18)
+
+Assigned head: `6b9f054b60d8`. The local `release/217` ref,
+`b053e3de8f2e`, is already an ancestor of that head; no merge or conflict
+resolution was needed. No network remote was accessed. The saved regression
+commit `dcd76ed82` from `wip/pr223-fix6-a1` matched the brief and was retained
+by cherry-picking it as `0302816a8` into workspace-local Git metadata.
+Its last-receipt injection was refined to target the third read, since the
+initial containment census itself reads the receipt.
+
+### Decisions and implementation
+
+- An acknowledged client kill during a pending wall stop records a new
+  `job.cancel_requested` with its session, socket audit pid and reason. It
+  becomes effective, is shown online and offline, and survives any subsequent
+  provider receipt. Repeated client kills retain that client attribution.
+- The wall requests only the parent's cancellation. Dependent cancellation
+  commits atomically with the parent's final `interrupted` settlement;
+  superseding the wall requires no reversal and leaves dependents untouched.
+  Operator and client family cancellation remains immediate.
+- Guardian exit timestamps use milliseconds and are captured immediately
+  after provider wait, before relay or output cleanup. This is an additive
+  ISO timestamp change; old receipts remain readable without a protocol bump.
+  Signal callbacks capture the signal clock after identity reads and directly
+  before the syscall. The durable `attempt.kill_started` intent is enriched
+  with the first delivered signal's millisecond `ts` and `signal_at`.
+- A natural exit proven earlier than every delivered signal keeps its own
+  success or failure class. A post-signal completion remains
+  `interrupted`/`unknown`, `killed_by=max_wall_s`, even with `turn.completed`.
+  Equal milliseconds, second-precision ties, historical missing signal clocks
+  and a crash before signal-clock persistence are conservative.
+- A wall-stopped dependent records `killed_by=max_wall_s` and names its parent
+  in the outcome detail and notice. Client terminal notices include the
+  effective session, audit pid and reason.
+- C-9.2, its summary, C-5.12, D-WALL1, D-KILL1 and the effective `runs show`
+  metadata wording now describe these decisions. `job.wall_cancel_superseded`
+  retains the old wall request in the audit trail; `runs show` exposes
+  `cancel: null`, the provider outcome and any overrun evidence until a
+  subsequent client request becomes effective.
+
+### Validation checkpoint
+
+Before implementation, the retained regressions reproduced **12 failures**
+(**11** in `test_wall_cancel_races.py`, **1** in `test_guardian.py`), alongside
+12 existing guardian passes. After implementation, the focused group passed
+**72**: wall races **11**, guardian **13**, process helpers **48**. An
+intermediate run exposed the extra containment receipt read in the saved
+injection; targeting the actual final read corrected that probe.
+
+The full requested groups are being run in separate foreground holds of
+`lockf -k /private/tmp/claude-501/subfleet-suites.lock`, without a lock timeout
+or xdist. Hypothesis uses bounded ci settings and scratch storage. The
+interleaving property now varies receipt publication separately from provider
+exit and checks client precedence, dependent survival after success, and the
+signal-before-exit veto. Each scratch directory is removed with Python
+`shutil.rmtree`; the unwritable default uv cache is replaced inside scratch.
+
+The separately supplied `review-r3.md` and
+`review-r3-probes/test_review_r223_r3_probes.py` were absent from this
+checkout and the task scratch area. Their location was requested; validation
+currently uses the detailed brief and the saved executed-input regressions.
+The separate r3 probe file has not been run.
+
+### Commit storage
+
+The sandbox rejected writes to the shared `ORIG_HEAD` and index. All new
+commits use `.git-local` on `fix/wall-counts-running-time-217`; the original
+`.git` pointer and shared index are preserved. Only named source, test and
+contract/report files are staged. Every commit carries the requested
+co-author trailer. Nothing has been pushed.
