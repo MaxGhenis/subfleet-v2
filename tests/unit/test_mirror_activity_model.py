@@ -27,6 +27,11 @@ all of them hold in every state. With an app that can re-save an older date
 
 The pure decision the mirror ships (`mirror.activity_targets`) is held to the
 same properties on random inputs, and to the model's own statement of it.
+
+The models are of one session. Which sessions a sync raises when more are
+behind than its bound allows is `mirror.take_turns`, first come first served;
+its property is here too, for any schedule of sessions falling behind,
+catching up, and being taken.
 """
 
 from __future__ import annotations
@@ -139,6 +144,67 @@ def test_a_deferred_pass_decides_no_date_and_still_publishes_its_flag_copies():
     assert decided.target == (None, None, None)
     assert model.pass_check(decided).pending == (1,)
     assert model.pass_publish(decided).act == state.act
+
+
+# --- whose turn it is ------------------------------------------------------------------
+
+@settings(max_examples=400, deadline=None)
+@given(bound=st.integers(min_value=1, max_value=4),
+       syncs=st.lists(st.tuples(
+           st.dictionaries(st.integers(min_value=0, max_value=11),
+                           st.integers(min_value=1, max_value=9), max_size=12),
+           st.sets(st.integers(min_value=0, max_value=11), max_size=4)),
+           min_size=1, max_size=14))
+def test_a_session_waits_only_for_those_that_were_waiting_before_it(bound, syncs):
+    """C-23.28 (the three reviews of #167 each found a schedule that starved a
+    session under a rule that looked at outcomes): first come, first served,
+    for any schedule at all. Each sync names the sessions behind, with how far,
+    and some that turned out to need no raise. Whatever arrives, leaves, or is
+    taken and comes back:
+
+    * a sync takes `bound` of them, or all, and never one that was not behind;
+    * no session is passed over for one that started waiting later;
+    * a session that started waiting with `r` others waiting no later than it
+      is passed over at most `r // bound` times."""
+    since: dict[str, int] = {}
+    waiting: dict[str, list[int]] = {}        # session -> [its stamp, r, times passed over]
+    for turn, (lags, done) in enumerate(syncs, start=1):
+        behind = {str(identity): lag for identity, lag in lags.items()}
+        for identity in [str(key) for key in done if str(key) not in behind]:
+            since.pop(identity, None)          # the caller's pruning: it needs no raise
+            waiting.pop(identity, None)
+        before = dict(since)
+        taken = mirror.take_turns(behind, since, turn, bound)
+        assert len(taken) == min(bound, len(behind)) and set(taken) <= set(behind)
+        stamp = {identity: before.get(identity, 2 * turn) for identity in behind}
+        passed = [identity for identity in behind if identity not in taken]
+        assert all(stamp[one] <= stamp[other] for one in taken for other in passed), \
+            "no one is passed over for a session that started waiting later"
+        assert all(since[identity] == 2 * turn + 1 for identity in taken)
+        assert all(since[identity] == stamp[identity] for identity in passed)
+        for identity in behind:
+            if identity not in waiting or waiting[identity][0] != stamp[identity]:
+                others = sum(1 for other, value in {**before, **stamp}.items()
+                             if other != identity and value <= stamp[identity])
+                waiting[identity] = [stamp[identity], others, 0]
+        for identity in passed:
+            waiting[identity][2] += 1
+            assert waiting[identity][2] <= waiting[identity][1] // bound, \
+                "it waited longer than for those that were waiting before it"
+        for identity in taken:
+            waiting.pop(identity, None)
+
+
+def test_those_that_started_waiting_together_go_furthest_behind_first():
+    """C-23.28: the first pass after the sync is switched on finds every stale
+    session at once, and the stalest rows are raised first."""
+    since: dict[str, int] = {}
+    assert mirror.take_turns({"a": 5, "b": 90, "c": 30, "d": 30}, since, 1, 3) == ["b", "c", "d"]
+    assert since == {"a": 2, "b": 3, "c": 3, "d": 3}
+    assert mirror.take_turns({"a": 5, "b": 90, "e": 400}, since, 2, 1) == ["a"], \
+        "the one already waiting, before the one further behind that has just arrived"
+    assert mirror.take_turns({"b": 90, "e": 400}, since, 3, 1) == ["b"], \
+        "then the one that had its turn first"
 
 
 # --- the shipped decision -----------------------------------------------------------
