@@ -163,15 +163,24 @@ def test_final_wall_cascade_keeps_wall_and_parent_attribution(clocked, monkeypat
                if n["job_id"] == live)
 
 
-@settings(max_examples=40, deadline=None, derandomize=True, phases=[Phase.generate],
+@settings(max_examples=60, deadline=None, derandomize=True, phases=[Phase.generate],
           suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow])
 @given(exit_stage=st.sampled_from(["before-cap", "inspection", "pending", "last-read", "after-signal"]),
-       client_stage=st.sampled_from([None, "before-cap", "pending", "after-signal"]), rc=st.sampled_from([0, 1]))
-def test_wall_interleaving_property(clocked, monkeypatch, exit_stage, client_stage, rc):
+       client_stage=st.sampled_from([None, "before-cap", "pending", "after-signal"]), rc=st.sampled_from([0, 1]),
+       receipt_write=st.sampled_from(["immediate", "settle"]))
+def test_wall_interleaving_property(clocked, monkeypatch, exit_stage, client_stage, rc, receipt_write):
     with monkeypatch.context() as patch:
         service, harness, clock, jid, aid, adir = setup_running(clocked, patch)
         live, queued, _ = children(service, harness, clock, jid)
         acknowledged = []
+        exited_at = None
+        def provider_exit():
+            nonlocal exited_at
+            if exited_at is None:
+                exited_at = clock.t
+                if receipt_write == "immediate":
+                    publish(adir, exited_at.isoformat(), rc)
+                clock.t += timedelta(milliseconds=2)
         def client():
             if not acknowledged:
                 ask_client(service, jid)
@@ -179,10 +188,10 @@ def test_wall_interleaving_property(clocked, monkeypatch, exit_stage, client_sta
         if client_stage == "before-cap":
             client()
         if exit_stage == "before-cap":
-            publish(adir, clock.t.isoformat(), rc)
+            provider_exit()
         def inspect(*args):
             if exit_stage == "inspection":
-                publish(adir, clock.t.isoformat(), rc)
+                provider_exit()
             return True
         patch.setattr(service, "_inspect_running", inspect)
         request = service._request_cancel
@@ -192,7 +201,7 @@ def test_wall_interleaving_property(clocked, monkeypatch, exit_stage, client_sta
                 if client_stage == "pending":
                     client()
                 if exit_stage == "pending":
-                    publish(adir, clock.t.isoformat(), rc)
+                    provider_exit()
             return result
         patch.setattr(service, "_request_cancel", cancel)
         read = service._read_json
@@ -204,7 +213,7 @@ def test_wall_interleaving_property(clocked, monkeypatch, exit_stage, client_sta
             if killing and path == adir / "exit.json":
                 kill_reads += 1
                 if kill_reads == 3 and exit_stage == "last-read":
-                    publish(adir, clock.t.isoformat(), rc)
+                    provider_exit()
                     clock.t += timedelta(milliseconds=2)
             return answer
         patch.setattr(service, "_read_json", receipt)
@@ -215,7 +224,7 @@ def test_wall_interleaving_property(clocked, monkeypatch, exit_stage, client_sta
                 client()
             if exit_stage == "after-signal":
                 clock.t += timedelta(seconds=2)
-                publish(adir, clock.t.isoformat(), rc)
+                provider_exit()
             return True
         patch.setattr(procs, "signal_group", signal)
         kill = service._kill_attempt
@@ -225,6 +234,10 @@ def test_wall_interleaving_property(clocked, monkeypatch, exit_stage, client_sta
             return kill(a)
         patch.setattr(service, "_kill_attempt", kill_attempt)
         service._process_attempt(aid)
+        if exited_at is not None and receipt_write == "settle":
+            # Provider exit and durable receipt publication are independent.
+            # The guardian can publish only after the daemon's signal settles.
+            publish(adir, exited_at.isoformat(), rc)
         service._process_attempt(aid)
         job, attempt = service.store.get_job(jid), service.store.get_attempt(aid)
         if acknowledged:
@@ -232,8 +245,11 @@ def test_wall_interleaving_property(clocked, monkeypatch, exit_stage, client_sta
             assert service._cancel_info(jid)["session_id"] == "operator-session"
         if job["state"] == "succeeded":
             assert all(service.store.get_job(j)["cancel_requested_at"] is None for j in (live, queued))
-        if signal_times and exit_stage == "after-signal":
+        if signal_times and exited_at is not None and signal_times[0] <= exited_at:
             assert attempt["outcome_class"] != "ok"
+        if exited_at is not None and not acknowledged and (not signal_times or exited_at < signal_times[0]):
+            assert (job["state"], job["rc"]) == ("succeeded" if rc == 0 else "failed", rc)
+            assert attempt["killed_by"] is None
         # Release rows so later generated examples cannot be admitted instead.
         for child in (live, queued):
             service.store.update_job(child, state="cancelled", rc=130)
