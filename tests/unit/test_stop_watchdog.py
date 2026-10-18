@@ -248,7 +248,15 @@ if kind == "unstopped":
     report(done=True)
     sys.exit(0)
 
-if kind == "descriptors":
+if kind == "descriptors-cold-codecs":
+    # A fresh daemon need not have loaded a diagnostic-only codec. Force that
+    # cold state even if an unrelated import happened to populate the cache.
+    import codecs, encodings
+    codecs.unregister(encodings.search_function)
+    codecs.register(encodings.search_function)
+    encodings._cache.clear()
+    sys.modules.pop("encodings.unicode_escape", None)
+if kind in ("descriptors", "descriptors-cold-codecs"):
     # A stop that follows running out of descriptors (the EMFILE crashes):
     # nothing can be opened any more, so the dump must use what was opened at start.
     soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
@@ -269,7 +277,7 @@ held = threading.Lock()
 if kind in ("lock", "descriptors", "set-only", "arm-fails", "rearm", "nested-signals",
             "nested-signals-arm-fails", "arm-fails-no-thread", "overlap-cancel-fails",
             "overlap-rearm", "blocked-dump", "nested-before-kernel", "kernel-arm-fails",
-            "rearm-arm-fails", "invalid-frame", "slow-arm"):
+            "rearm-arm-fails", "invalid-frame", "slow-arm", "descriptors-cold-codecs"):
     held.acquire()                     # and never released
     worker = threading.Thread(target=stuck_behind_lock, args=(held,), name="subfleet-api_11")
 elif kind in ("gil", "hog-during-write", "arm-fails-gil"):
@@ -599,3 +607,13 @@ def test_c5_8a_python_snapshot_names_the_held_frame_before_the_backstop(tmp_path
     snapshot = text[text.index("Python thread stacks"):]
     assert "[subfleet-api_11]" in snapshot
     assert " in stuck_behind_lock\n" in snapshot
+
+
+def test_c5_8a_the_managed_snapshot_needs_no_new_descriptor_or_codec(tmp_path):
+    """The descriptor reserved at startup suffices for managed frame names too."""
+    rc, lines, elapsed, text = run_child(tmp_path, "descriptors-cold-codecs", grace=1.0)
+    assert rc == 1, (rc, text)
+    assert {"exhausted": 24} in lines
+    assert 1.0 - 0.05 <= elapsed <= 1.0 + SLACK_S, (elapsed, text)
+    assert "Python thread stacks" in text, text
+    assert " in stuck_behind_lock\n" in text, text
