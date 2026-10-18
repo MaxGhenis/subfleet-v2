@@ -370,6 +370,8 @@ struct CoreProbe {
         switch arguments[1] {
         case "ops":
             emit(Ops.names)
+        case "codec-ops":
+            emit(codecs.keys.sorted())
         case "request":
             // request <op> <args.json> [id]
             let line = try opCodec(arguments[2]).requestLine(readFile(arguments[3]), arguments.count > 4 ? arguments[4] : "probe-1")

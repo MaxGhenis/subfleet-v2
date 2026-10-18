@@ -62,6 +62,11 @@ def test_c25_2_the_app_knows_every_conversation_op(core_probe):
     assert run_probe(core_probe, "ops") == list(protocol.CONVERSATION_OPS)
 
 
+def test_c25_2_every_conversation_op_has_a_probe_codec(core_probe):
+    """Check the codecs actually used, as well as the app's advertised names."""
+    assert run_probe(core_probe, "codec-ops") == sorted(protocol.CONVERSATION_OPS)
+
+
 def populated(harness: ServiceHarness) -> dict:
     """A conversation with a finished turn, an approval turn and a queued follow-up."""
     conversation = harness.create(title="Fixture")
@@ -92,6 +97,11 @@ def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path,
     """C-25.2: each op's real result survives the Swift model unchanged."""
     fixture = populated(harness)
     cid = fixture["cid"]
+    # Exercise the import hold too: null stripping must not hide a missing
+    # optional Conversation field in the Swift model.
+    harness.store.update_conversation(cid, legacy_hold="legacy-owner")
+    status = harness.call("conversation.status", conversation_id=cid)
+    harness.store.update_conversation(cid, legacy_hold=None)
     approval = harness.call("approval.list", conversation_id=cid)["approvals"][0]
     # A catalog with one native session, as catalog.build writes it.
     (harness.root / "catalog.json").write_text(json.dumps({"generated_at": "2026-09-24T12:00:00.000Z", "complete": True,
@@ -105,6 +115,7 @@ def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path,
         "models.list": harness.call("models.list", provider="claude"),
         "workspace.check": harness.call("workspace.check", workspace=str(harness.workspace), permission="ask"),
         "conversation.list": harness.call("conversation.list", limit=2),
+        "conversation.status": status,
         "conversation.open": harness.call("conversation.open", conversation_id=cid),
         "conversation.create": harness.call("conversation.create", request_id="fixed-id", provider="claude",
                                             workspace=str(harness.workspace), settings=harness.settings()),
@@ -216,6 +227,11 @@ def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path,
                                                   suggestion_id=suggest("Withdraw me")["suggestion"]["suggestion_id"])
     suggest("Still open")
     results["suggestion.list"] = harness.call("suggestion.list")
+    status = results["conversation.status"]
+    assert set(status) == {"conversation", "message_ids"}
+    assert status["conversation"]["conversation_id"] == cid
+    assert status["conversation"]["legacy_hold"] == "legacy-owner"
+    assert status["message_ids"] == [fixture[key]["message_id"] for key in ("first", "second", "third")]
     assert set(results) == set(protocol.CONVERSATION_OPS)
     for op, result in results.items():
         assert_lossless(core_probe, tmp_path, op, result)
