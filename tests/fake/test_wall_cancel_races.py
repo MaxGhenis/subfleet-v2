@@ -346,3 +346,24 @@ def test_receipt_winning_pending_wall_reconciles_a_legacy_cached_verdict(clocked
     assert (job["state"], job["accepted_attempt_id"]) == ("succeeded", aid)
     assert job["cancel_requested_at"] is None and attempt["killed_by"] is None
     assert json.loads(attempt["evidence_json"])["provider_verdict"]["class"] == "auth-dead"
+
+
+def test_receipt_caught_before_signal_records_that_no_signal_was_sent(clocked, monkeypatch):
+    from contextlib import contextmanager
+    service, _, clock, jid, aid, adir = setup_running(clocked, monkeypatch)
+    wall_request(service, aid, jid)
+    transaction = service.store.transaction
+    @contextmanager
+    def receipt_after_intent(kind="state.changed", **kwargs):
+        with transaction(kind, **kwargs) as tx:
+            yield tx
+        if kind == "attempt.kill_started":
+            publish(adir, clock.t.isoformat())
+    monkeypatch.setattr(service.store, "transaction", receipt_after_intent)
+    monkeypatch.setattr(procs, "signal_group", lambda *args, **kwargs: pytest.fail("receipt already visible"))
+    service._kill_attempt(service.store.get_attempt(aid))
+    service._process_attempt(aid)
+    assert service.store.get_job(jid)["state"] == "succeeded"
+    [event] = service.store.query("SELECT ts,data_json FROM events WHERE attempt_id=? AND kind='attempt.kill_started'", (aid,))
+    assert json.loads(event["data_json"]) == {"signal_at": None, "signal_sent": False}
+    assert "." in event["ts"]
