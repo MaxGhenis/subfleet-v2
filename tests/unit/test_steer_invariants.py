@@ -379,37 +379,52 @@ def kinds_and_data(events: list) -> list:
 ACCEPTED_BY_RESULT = ["accepted", {"message_id": no_steer.MID, "by": "result"}]
 
 
+#: The interrupt that also takes a waiting message out of the queue (C-26.5), as written.
+SWEEP = json.dumps({"type": "control_request", "request_id": "subfleet-interrupt",
+                    "request": {"subtype": "interrupt", "cancel_queued": True}}, separators=(",", ":"))
+
+
+def expected_end(old: dict, end: str, offers: bool, stopped: bool) -> dict:
+    """The pre-steer end step changed exactly as C-26.5 says, and nothing else."""
+    step = json.loads(json.dumps(old))
+    if end == "success":
+        # The result names the message: acknowledged by it, just before the end (C-24.4).
+        offset = step["events"][-1][2].split(":")[0]
+        completed = step["events"].pop()
+        step["events"] += [[*ACCEPTED_BY_RESULT, f"{offset}:2"], [completed[0], completed[1], f"{offset}:3"]]
+        step["outcome"]["accepted"] = True
+    elif end == "error":
+        # Names nothing, the message unacknowledged: the session's failure, which the
+        # driver ends (reconciled), after `cancel_queued` takes the waiting message out
+        # where the CLI offers it; nothing written before acknowledgement answered it.
+        step["events"][-1][1] = {**step["events"][-1][1], "session_failure": "unattributed"}
+        if offers and not stopped:
+            step["frames"].insert(0, ["interrupt", "write", SWEEP])
+        step["outcome"].update(ended_by="driver", answered=False)
+    else:
+        step["outcome"]["answered"] = False          # stdout's end: no answer before acknowledgement
+    return step
+
+
 @pytest.mark.parametrize("case", no_steer.unacknowledged_cases(), ids=lambda case: case["name"])
 def test_a_turn_whose_message_was_never_acknowledged_differs_only_as_c26_5_says(case):
     """C-26.5, C-24.4, C-24.7: no echo and no `started` before the end. Every step but the
-    stop's and the end's is the pre-steer code's. A stop asks `cancel_queued` where the CLI
-    offers it (the message may wait behind a turn the CLI began itself). A success that
-    names the message acknowledges it (`accepted`, by result) and is its end; an error that
-    names nothing is the session's failure, which the driver ends (it is reconciled) after
-    `cancel_queued` takes the waiting message out; and what was written before
-    acknowledgement is no answer to it unless its own result says so."""
+    stop's and the end's is the pre-steer code's, and those two are the pre-steer code's
+    changed exactly as the clauses say (`expected_end`): a stop asks `cancel_queued` where
+    the CLI offers it, since the message may wait behind a turn the CLI began itself."""
     now, before = as_json(no_steer.drive(case)), PRE_STEER["driver"][case["name"]]
     init, stopped, end = case["name"].split("/")[1], "/stop/" in case["name"], case["name"].split("/")[-1]
     offers = init == "steer-init"
     last = len(case["actions"]) - 1
+    assert len(now["steps"]) == len(before["steps"]) == len(case["actions"])
     for index, (action, step, old) in enumerate(zip(case["actions"], now["steps"], before["steps"])):
         if action == ["interrupt"]:
-            [(tag, op, line)], [(_, _, old_line)] = step["frames"], old["frames"]
-            want = {**json.loads(old_line)["request"], **({"cancel_queued": True} if offers else {})}
-            assert (tag, json.loads(line)["request"]) == ("interrupt", want)
-            assert {k: v for k, v in step.items() if k != "frames"} == {k: v for k, v in old.items() if k != "frames"}
-        elif index == last and end == "success":
-            assert kinds_and_data(step["events"]) == [ACCEPTED_BY_RESULT, *kinds_and_data(old["events"])]
-            assert step["frames"] == old["frames"] and step["outcome"] == {**old["outcome"], "accepted": True}
-        elif index == last and end == "error":
-            [*_, completed], [*_, old_completed] = step["events"], old["events"]
-            assert completed[:2] == ["turn.completed", {**old_completed[1], "session_failure": "unattributed"}]
-            interrupt = [] if stopped or not offers else ["interrupt"]
-            assert [frame[0] for frame in step["frames"]] == [*interrupt, *[frame[0] for frame in old["frames"]]]
-            assert step["outcome"] == {**old["outcome"], "ended_by": "driver", "answered": False}
-        elif index == last:                                                   # stdout's end
-            assert {k: v for k, v in step.items() if k != "outcome"} == {k: v for k, v in old.items() if k != "outcome"}
-            assert step["outcome"] == {**old["outcome"], "answered": False}
+            want = json.loads(json.dumps(old))
+            if offers:
+                want["frames"] = [["interrupt", "write", SWEEP]]
+            assert step == want
+        elif index == last:
+            assert step == expected_end(old, end, offers, stopped)
         else:
             assert step == old
     assert now["outcome"] == now["steps"][last]["outcome"]

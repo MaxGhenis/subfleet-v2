@@ -919,3 +919,20 @@ def test_c24_6_a_model_mismatch_whose_interrupt_swept_the_message_settles_not_de
     assert (turn["reason"], turn["not_run"]) == ("model-mismatch", "cancelled")
     assert world.message() == ("failed", "model-mismatch")
     assert world.svc.store.conversation(world.cid)["blocked_by"] is None
+
+
+def test_c26_7_turn_json_records_a_limit_another_turn_met(ended):
+    """C-26.5, C-26.7: a notification turn ahead of the message was refused for quota.
+    The message's own turn completes, so it is not `limited`; turn.json still says the
+    session met a limit (`limit_seen`), which classification reads for the account."""
+    limit = json.dumps({"type": "rate_limit_event", "rate_limit_info": {"status": "rejected",
+                                                                         "rateLimitType": "five_hour"}})
+    refused = json.dumps({"type": "result", "subtype": "success", "is_error": True, "num_turns": 0,
+                          "result": "You've hit your session limit", "origin": {"kind": "task-notification"}})
+    world = ended([INIT_OK, QUEUED, limit, refused, LIFECYCLE, said("Fixed it.", "msg_1"), SUCCESS])
+    (world.adir / "exit.json").write_text(json.dumps({"rc": 0}))
+    world.end_attempt()
+    world.ticks()
+    turn = json.loads((world.adir / "turn.json").read_text())
+    assert world.message() == ("complete", None)
+    assert (turn["limited"], turn["limit_seen"], turn["not_run"]) == (False, True, None)

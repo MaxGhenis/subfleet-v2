@@ -707,3 +707,173 @@ def test_property_a_codex_turn_ends_once_and_after_its_answer_only_on_its_own_tu
             if json.loads(line)["params"]["turn"]["id"] != "turn-1":
                 assert step.outcome is None and step.frames == []
                 assert [e.kind for e in step.events] in ([], ["turn.other"])
+
+
+# --- classification: the account's refusal in any turn closes the lane (C-26.7) ------------------
+
+
+@pytest.mark.parametrize("seen, want", [(True, "limited"), (False, "unknown")])
+def test_c26_7_a_limit_another_turn_met_still_closes_the_lane(tmp_path, seen, want):
+    """C-26.5, C-26.7 (review of e9f55aee, nit 2): a message that never ran because the
+    queue discarded it is not `limited` (settlement continues only the message's own
+    limit), but the account refused a turn of the session, so finalization classifies
+    the attempt `limited` and records the closure (`limit_seen` in turn.json)."""
+    from types import SimpleNamespace
+    from subfleet.contracts import ExitInfo, Launch, OutcomeClass
+    from subfleet.conversations.classify import TurnAdapter
+    (tmp_path / "turn.json").write_text(json.dumps({
+        "state": "failed", "reason": "provider-discarded", "limited": False, "limit_seen": seen,
+        "not_run": "discarded", "accepted": False, "ended_by": "provider"}))
+    inner = SimpleNamespace(classify=lambda *_: SimpleNamespace(readings=(), closure=None, cls=OutcomeClass.UNKNOWN,
+                                                                 transcript_path=None, detail=""))
+    launch = Launch(argv=("claude",), env_add={}, env_remove=(), cwd=str(tmp_path), stdin_path=None,
+                    stdout_path=str(tmp_path / "stdout"), stderr_path=str(tmp_path / "stderr"), raw_stream_path=None,
+                    native_session_id=SID, lane_id="claude-1", notes={"lane_id": "claude-1"})
+    outcome = TurnAdapter("claude", inner=inner).classify(tmp_path, launch, ExitInfo(rc=0, signal=None, wall_s=1.0,
+                                                                                         child_pid=None))
+    assert outcome.cls.value == want and (outcome.closure is not None) == seen
+
+
+# --- a person's cancel-turn is their stop (C-24.7) --------------------------------------------------
+
+
+def test_c24_7_a_cancel_turn_on_the_turn_ahead_is_the_person_s_stop_of_the_message(tmp_path):
+    """C-24.7, C-26.5 (review of c8771f02, finding 2): the request came from a turn the
+    session ran while the message waited queued. The person's cancel-turn is recorded as
+    `turn.interrupt` records a stop: the message's `stop_requested_at` (so settlement reads
+    the stop as theirs and never sets `unfinished-turn`), and the runner's stop clock, so
+    the stop escalates if the provider stays silent. The approval's reply and the
+    driver's `cancel_queued` interrupt are what is written."""
+    from tests.frontend.daemon_harness import STEER_CAPS, JournalRelay, ServiceHarness, claude_init
+    from subfleet.conversations.runner import TurnRunner
+    from subfleet.conversations.turn import RUNNING, TurnSpec
+    harness = ServiceHarness(tmp_path / "state")
+    try:
+        cid = harness.create()["conversation_id"]
+        mid = harness.submit(cid, "fix the parser")["message_id"]
+        harness.store.set_state(mid, RUNNING, expect=("queued", "waiting", "starting"))
+        adir = harness.root / "jobs" / "job-x" / "a1"
+        adir.mkdir(parents=True)
+        message = harness.store.message(mid)
+        spec_ = TurnSpec(provider="claude", message_id=mid, text="fix the parser", model_id=message["settings"]["model"],
+                         permission=message["settings"]["permission"], native_session_id=None,
+                         new_session_id=str(__import__("uuid").uuid4()), cwd=str(harness.workspace))
+        runner = TurnRunner(store=harness.store, attempt={"attempt_id": "job-x/a1", "lane_id": "claude-1"}, spec=spec_,
+                            conversation_id=cid, attempt_dir=adir, control_socket=str(adir / "unused.sock"),
+                            on_outcome=lambda r: None, on_contain=lambda a: None)
+        runner.relay = JournalRelay(adir)
+        runner.handshaken = runner.handshake_done_once = runner.replay_caught_up = True
+        runner._apply(runner.driver.start())
+        ask = {"type": "control_request", "request_id": "r1", "request": {
+            "subtype": "can_use_tool", "tool_name": "Bash", "input": {"command": "ls"}, "tool_use_id": "tu1"}}
+        for offset, row_ in enumerate((claude_init(), {"type": "command_lifecycle", "command_uuid": mid,
+                                                        "state": "queued"}, STEER_CAPS, ask)):
+            runner._apply(runner.driver.feed(json.dumps(row_), offset))
+        harness.service.runners["job-x/a1"] = runner
+        [approval] = harness.store.approvals(message_id=mid)
+        harness.call("approval.respond", approval_id=approval["approval_id"], decision="cancel-turn",
+                     nonce=approval["nonce"], request_sha256=approval["request_sha256"])
+        assert harness.store.message(mid)["stop_requested_at"] and runner.stop_reason == "stopped"
+        runner._drain_commands()
+        assert runner.stop_at is not None                                     # the stop's clock runs
+        logged = [r for r in __import__("subfleet.relay", fromlist=["read_log"]).read_log(adir / "stdin.jsonl")
+                  if r.get("tag") in ("approval:r1", "interrupt")]
+        assert [r["tag"] for r in logged] == ["approval:r1", "interrupt"]
+        assert json.loads(logged[1]["line"])["request"] == {"subtype": "interrupt", "cancel_queued": True}
+    finally:
+        harness.close()
+
+
+# --- after the host's result is held for its steers (C-26.5, review of c8771f02) -----------------
+
+STEER_MID = "7f1c9a0e-2222-4222-8333-444455556666"
+
+
+def held_for_a_steer(**result) -> ClaudeTurn:
+    """The host started, a steer went out, and the host's own result is held for it."""
+    from tests.unit.test_claude_turn import steer_running
+    turn = steer_running()
+    turn.steer(STEER_MID, "and the second point")
+    turn.steer_written(STEER_MID)
+    held = turn.feed(row(type="result", subtype=result.pop("subtype", "error_during_execution"),
+                         is_error=result.pop("is_error", True), num_turns=3, result="", errors=["aborted"],
+                         user_message_uuids=[MID], queued_turn_count=0), 50)
+    assert held.outcome is None and turn._last_result is not None
+    return turn
+
+
+def test_c26_5_a_turn_after_the_held_result_keeps_its_limit_and_words_to_itself():
+    """C-26.5, C-26.7 (review of c8771f02, finding 1): with the host's result held for a
+    steer, the session runs a notification turn that meets a limit and writes. That turn's
+    result is another turn's; when the steer is then refused, the host ends on its own held
+    result: its reason, not `limited`, and no answer it did not write."""
+    turn = held_for_a_steer()
+    turn.feed(LIMIT, 60)
+    turn.feed(text("msg_n", "The background build finished."), 61)
+    other = turn.feed(notification_result(), 62)
+    assert other.outcome is None and other.events[-1].kind == "turn.other"
+    turn.feed(lifecycle("refused", STEER_MID), 63)
+    outcome = turn.outcome
+    assert (outcome.state, outcome.reason, outcome.limited, outcome.answered) == (
+        "failed", "error_during_execution", False, False)
+    assert turn.limit_seen                                    # the account's refusal, for classify
+
+
+def test_c26_5_a_session_failure_ends_a_turn_held_for_its_steers_at_once():
+    """C-26.5: the session failed, so nothing the held result waits for is coming."""
+    from tests.unit.test_claude_turn import steer_running
+    turn = steer_running()
+    turn.steer(STEER_MID, "and the second point")
+    turn.steer_written(STEER_MID)
+    failure = turn.feed(row(type="result", subtype="error_during_execution", is_error=True, num_turns=0,
+                            startup_failure_reason="temp_dir_unusable"), 50)
+    assert (failure.outcome.state, failure.outcome.reason) == ("failed", "startup-failed:temp_dir_unusable")
+
+
+def live_runner(harness, cid: str, mid: str):
+    """A real runner for the message, its relay a journal, fed by the test as the provider."""
+    import uuid as uuid_
+    from tests.frontend.daemon_harness import JournalRelay
+    from subfleet.conversations.runner import TurnRunner
+    from subfleet.conversations.turn import RUNNING, TurnSpec
+    harness.store.set_state(mid, RUNNING, expect=("queued", "waiting", "starting"))
+    adir = harness.root / "jobs" / "job-x" / "a1"
+    adir.mkdir(parents=True)
+    message = harness.store.message(mid)
+    spec_ = TurnSpec(provider="claude", message_id=mid, text=message.get("text") or "host",
+                     model_id=message["settings"]["model"], permission=message["settings"]["permission"],
+                     native_session_id=None, new_session_id=str(uuid_.uuid4()), cwd=str(harness.workspace))
+    runner = TurnRunner(store=harness.store, attempt={"attempt_id": "job-x/a1", "lane_id": "claude-1"}, spec=spec_,
+                        conversation_id=cid, attempt_dir=adir, control_socket=str(adir / "unused.sock"),
+                        on_outcome=lambda r: None, on_contain=lambda a: None)
+    runner.relay = JournalRelay(adir)
+    runner.handshaken = runner.handshake_done_once = runner.replay_caught_up = True
+    runner._apply(runner.driver.start())
+    harness.service.runners["job-x/a1"] = runner
+    return runner, adir
+
+
+def test_c26_5_the_runner_keeps_the_host_s_words_when_another_turn_writes_after_its_held_result(tmp_path):
+    """C-26.5 (review of c8771f02, finding 1): the deliverable is the host's own text, not
+    what a notification turn wrote after the host's result was held for a steer."""
+    from tests.frontend.daemon_harness import STEER_CAPS, ServiceHarness, claude_init
+    harness = ServiceHarness(tmp_path / "state")
+    try:
+        cid = harness.create()["conversation_id"]
+        mid = harness.submit(cid, "fix the parser")["message_id"]
+        runner, _ = live_runner(harness, cid, mid)
+        rows = [claude_init(), STEER_CAPS, {"type": "command_lifecycle", "command_uuid": mid, "state": "started"},
+                {"type": "assistant", "message": {"id": "msg_1", "model": MODEL,
+                                                  "content": [{"type": "text", "text": "Fixed the parser."}]}}]
+        for offset, line_ in enumerate(rows):
+            runner._apply(runner.driver.feed(json.dumps(line_), offset))
+        runner._apply(runner.driver.steer(STEER_MID, "and the second point"))
+        runner.driver.steer_written(STEER_MID)
+        for offset, line_ in enumerate([
+                our_result(names=(mid,), num_turns=2, words="Fixed the parser."),
+                text("msg_n", "The background build finished."), notification_result(),
+                lifecycle("refused", STEER_MID)], 20):
+            runner._apply(runner.driver.feed(line_, offset))
+        assert runner.driver.outcome.state == "complete" and runner.final_text == "Fixed the parser."
+    finally:
+        harness.close()

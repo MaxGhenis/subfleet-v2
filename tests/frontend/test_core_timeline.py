@@ -705,6 +705,6 @@ def test_c26_5_a_turn_the_provider_ran_itself_is_marked_where_it_ended(core_prob
     result = fold(core_probe, tmp_path, cid, [{"page": page(harness, cid)}])
     shown = [(i["type"], i.get("text")) for i in items_of(result, mid) if i["type"] in ("notice", "text")]
     assert shown == [("text", "The background build finished."),
-                     ("notice", "Claude Code finished a turn for a background task before starting this message"),
+                     ("notice", "Claude Code finished a turn for a background task"),
                      ("text", "Fixed.")]
     assert result["turns"][mid]["outcome"]["state"] == "complete" and result["turns"][mid]["accepted"] is True

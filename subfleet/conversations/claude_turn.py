@@ -198,6 +198,7 @@ class ClaudeTurn(SteerTracking):
         self._turn_output = False                         # the turn under way wrote something (likewise)
         self.not_run: str | None = None                   # the provider said the message will not run (C-26.5)
         self._last_whose = "ours"                         # whose turn the held result closed
+        self.claimed_results = 0                          # results attributed to the message (the runner reads it)
         self.interrupt_requested = False
         self.served_model: str | None = None
         self.expected_model: str | None = None            # from the initialize catalog (D-19)
@@ -844,15 +845,17 @@ class ClaudeTurn(SteerTracking):
             return step
         if whose == "ours" and not self.accepted and self.spec.message_id in (
                 [row.get("user_message_uuid")] + list(row.get("user_message_uuids") or [])):
-            # The result names the message: the provider consumed it (C-24.4), and what
-            # its turn wrote before was the answer.
+            # The result names the message: the provider consumed it (C-24.4).
             self.accepted = True
-            self.answered = self.answered or self._turn_output
             step.events.append(Event("accepted", {"message_id": self.spec.message_id, "by": "result"}, source.next()))
         # A session's failure classifies by any limit the session met; the message's
-        # own turn by its own, including one met before the result named it (C-26.7).
+        # own turn by its own, including one met before the result named it (C-26.7),
+        # and what that turn wrote is the answer.
         if (whose == "session" and self.limit_seen) or (whose == "ours" and self._turn_limit):
             self.limited = True
+        if whose == "ours":
+            self.answered = self.answered or self._turn_output
+            self.claimed_results += 1
         self._last_whose = whose
         if whose == "session":
             # The session failed: nothing it waits for is coming, steers included.
@@ -1004,19 +1007,27 @@ class ClaudeTurn(SteerTracking):
 
     # --- helpers ---------------------------------------------------------------
 
+    @property
+    def claims_output(self) -> bool:
+        """Whether what the model writes now is the message's (C-26.5): once it is
+        acknowledged and until its result, or while one of its steers runs as its own
+        turn. Otherwise it is the turn under way's (before acknowledgement, or after the
+        host's result is held for steers, when the session may run a notification
+        turn), which its result then shows to be another turn's or the message's."""
+        return self.accepted and (self._last_result is None or bool(self._steer_turns))
+
     def _output(self) -> None:
-        """The model wrote something. Before the message is acknowledged it is the turn
-        under way's, which a result then shows to be another turn's or the message's own."""
+        """The model wrote something: the message's answer, or the turn under way's."""
         self._turn_output = True
-        self.answered = self.answered or self.accepted
+        self.answered = self.answered or self.claims_output
 
     def _limit(self) -> None:
-        """A limit the provider reported. Before the message is acknowledged it is
-        the turn under way's, which a result then shows to be another turn (C-26.5)
-        or the message's own (one that names it with no acknowledgement before). Any
-        limit classifies a failure of the session itself."""
+        """A limit the provider reported: the message's own turn's, or the turn under
+        way's, which a result then shows to be another turn's (C-26.5) or the
+        message's (one that names it with no acknowledgement before). Any limit
+        classifies a failure of the session itself."""
         self.limit_seen = self._turn_limit = True
-        if self.accepted:
+        if self.claims_output:
             self.limited = True
 
     def _not_run(self, state: str, source: "_Sources") -> Step:

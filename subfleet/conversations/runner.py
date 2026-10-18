@@ -169,6 +169,7 @@ class TurnRunner:
         self.late_stop_at: float | None = None
         self.final_text: str | None = None
         self.unclaimed_text: str | None = None # text of a turn not yet known to be the message's (C-26.5)
+        self.claims_seen = 0                   # the driver's results attributed to the message, so far
         self.contained = False
         self.idle_since: float | None = None
         self.finished = threading.Event()
@@ -587,6 +588,13 @@ class TurnRunner:
     # --- applying a driver step ------------------------------------------------
 
     def _apply(self, step: Step, *, send: bool = True) -> None:
+        claimed = getattr(self.driver, "claimed_results", 0)
+        if claimed > self.claims_seen:
+            # A result was the message's (C-26.5): the text its turn wrote before was its answer.
+            self.claims_seen = claimed
+            if self.unclaimed_text:
+                self.final_text = self.unclaimed_text
+            self.unclaimed_text = None
         for event in step.events:
             source = "command" if event.source.startswith("cmd:") else "stdout"
             self.batch.append((source, event.source, 0, event.kind, event.data))
@@ -597,16 +605,15 @@ class TurnRunner:
                 # Text from before the message was acknowledged belongs to the turn under
                 # way, which a result shows to be another's (never the answer) or, when
                 # it names the message, the message's own (C-26.5).
-                if self.driver.accepted:
+                if getattr(self.driver, "claims_output", self.driver.accepted):
                     self.final_text = event.data["text"]
                 else:
                     self.unclaimed_text = event.data["text"]
             if event.kind == "turn.other":
                 self.unclaimed_text = None
             if event.kind == "accepted":
-                if event.data.get("by") == "result" and self.unclaimed_text:
-                    self.final_text = self.final_text or self.unclaimed_text
-                self.unclaimed_text = None
+                if event.data.get("by") != "result":
+                    self.unclaimed_text = None  # what came before was another turn's
                 self._flush()
                 self.store.set_state(self.message_id, RUNNING, expect=("starting", "waiting"),
                                      turn_ref=event.data.get("turn_id") or self.message_id)

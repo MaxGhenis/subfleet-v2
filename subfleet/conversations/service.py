@@ -1587,6 +1587,18 @@ class ConversationService:
         if not self.store.answer_approval(approval["approval_id"], record):
             raise ConversationError("not-pending", "the approval was answered or withdrawn meanwhile")
         runner.respond(approval["provider_request_id"], decision, args.get("message"), args.get("answers"))
+        if decision == "cancel-turn":
+            # C-24.7, C-26.5: cancelling the turn is the person's stop of it, recorded as
+            # `turn.interrupt` records one: settlement reads it as theirs (it never sets
+            # `unfinished-turn`), and the stop escalates on the policy clocks if the
+            # provider stays silent. The answer goes first; the driver's own interrupt
+            # (taking a waiting message out of the queue) rides with it.
+            mid = approval["message_id"]
+            with self._stop_lock(mid):
+                with self._handover(mid):
+                    runner.end_title("stopped")
+                    self.store.update_message(mid, stop_requested_at=utcnow())
+                runner.interrupt("stopped")
         return {"approval": self._approval_view(self.store.approval(approval["approval_id"]))}
 
     # --- ops: changes (C-26.14, design D-25) ------------------------------------
