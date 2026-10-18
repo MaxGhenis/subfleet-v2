@@ -149,10 +149,14 @@ struct TurnTimeline: Equatable {
     var createdTS: String?
     var attachments: [String] = []
     /// A message state, or `sending` before the first receipt.
-    var state: String
-    var stateReason: String?
+    var state: String { didSet { if state != oldValue { standingChanges += 1 } } }
+    var stateReason: String? { didSet { if stateReason != oldValue { standingChanges += 1 } } }
     var settings: ConversationSettings?
-    var stopRequested = false
+    var stopRequested = false { didSet { if stopRequested != oldValue { standingChanges += 1 } } }
+    /// How many times where the message stands (its state, reason or stop) has
+    /// changed, from any source: its events, a receipt, the watch feed. A
+    /// `message.status` answer asked for before one of them is older (C-29.9).
+    var standingChanges = 0
     var phases: [PhaseStamp] = []
     /// When the person last answered an approval: a tool waiting on it starts then.
     var answeredTS: String?

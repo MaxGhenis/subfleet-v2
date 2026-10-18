@@ -1116,9 +1116,11 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   call, oldest first, one batch at a time on the outbox queue, never on the
   feed's thread, so the message shows with its words where its sequence,
   origin and continuation place it (the display order above) without a
-  reopen. A row naming a message while its batch is out has it
-  fetched again, and the answer, which may be older than that row, then sets
-  only what the message is on a turn the timeline has, not its state.
+  reopen. A message that something moved while its batch was out (a row
+  naming it, or its turn's state, reason or stop changing through its events
+  or a receipt: `TurnTimeline.standingChanges`) is fetched again, and the
+  answer, which may be older than that change, then sets only what the
+  message is on a turn the timeline has, not its state.
   `ConversationStoreState.apply(watch:)` records the ids (`MessageFetches`);
   `UIModel.fetchNamedMessages` asks for them.
 - A listed session that cannot continue here (a Codex-app thread) opens as a

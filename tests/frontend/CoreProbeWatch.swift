@@ -4,7 +4,8 @@
 import Foundation
 
 func project(_ fetches: MessageFetches) -> [String: Any] {
-    ["wanted": fetches.wanted, "asked": fetches.asked, "stale": fetches.stale.sorted()]
+    ["wanted": fetches.wanted, "asked": fetches.asked, "stale": fetches.stale.sorted(),
+     "standing_when_asked": fetches.standingWhenAsked]
 }
 
 /// A turn as the fetch tests read it: what the receipt said it is, where it stands.
@@ -12,7 +13,8 @@ func projectFetched(_ turn: TurnTimeline) -> [String: Any] {
     ["seq": turn.seq as Any? ?? NSNull(), "origin": turn.origin as Any? ?? NSNull(),
      "continues": turn.continues as Any? ?? NSNull(), "state": turn.state,
      "state_reason": turn.stateReason as Any? ?? NSNull(), "person_text": turn.personText as Any? ?? NSNull(),
-     "stop_requested": turn.stopRequested, "lacks_receipt": turn.lacksReceipt, "status_text": turn.statusText]
+     "stop_requested": turn.stopRequested, "lacks_receipt": turn.lacksReceipt, "status_text": turn.statusText,
+     "standing_changes": turn.standingChanges]
 }
 
 func projectFetched(_ timeline: Timeline) -> [String: Any] {

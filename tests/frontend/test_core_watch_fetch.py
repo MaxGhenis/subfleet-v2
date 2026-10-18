@@ -24,13 +24,19 @@ Invariants, for every input:
   receipt numbered after them; an answered message has its receipt's sequence,
   origin, continues and text, which place it in the view (`displayOrder`,
   C-27.5: the queue in the order the daemon sends it, a repair message first).
-- No regression: an answer for an id the feed named again while it was asked
-  for never changes where a turn the timeline already has stands; the id is
-  asked for again.
+- No regression: an answer is older than anything that moved its message
+  after it was asked for (a row the feed named it in; its turn's state, reason
+  or stop changing through its events or a receipt). Such an answer never
+  changes where a turn the timeline already has stands, and the id is asked
+  for again.
 - Convergence: once the feed is read to its end and the fetches are drained,
-  every message a row named while its conversation had a timeline (this app's
-  own unacknowledged sends aside) shows the daemon's state, sequence, origin and
-  text.
+  every message a row named while its conversation had a timeline shows the
+  daemon's state, sequence, origin and text. Two kinds are left out: this
+  app's own unacknowledged sends, which the outbox settles, and an id the
+  daemon answered `unknown` for. C-29.9 drops that id, and only a later row
+  naming it asks again; a daemon never answers `unknown` for a message it
+  holds (service.py `op_message_status`), so this generator's `unknown` is a
+  fault it injects, not a state the daemon reaches.
 
 The property tests check them on the probe's state after every step, and
 compare that state with a reference written again from the rules (`Model`).
@@ -77,6 +83,11 @@ def fold(core_probe, steps: list[dict]) -> list[dict]:
     return out["snapshots"]
 
 
+def queues(fetches: dict) -> dict:
+    """The fetch queues without the standings noted at the ask."""
+    return {key: fetches[key] for key in ("wanted", "asked", "stale")}
+
+
 def page(rows: list[dict]) -> dict:
     return {"changes": rows, "next": max((r["seq"] for r in rows), default=0)}
 
@@ -94,15 +105,25 @@ class Turn:
     state_reason: str | None = None
     person_text: str | None = None
     stop_requested: bool = False
+    standing_changes: int = 0
 
     @property
     def lacks_receipt(self) -> bool:
         return self.seq is None and self.origin is None
 
+    def stand(self, **fields) -> None:
+        """Set state, state_reason or stop_requested, counting each real change
+        (`TurnTimeline.standingChanges`)."""
+        for key, value in fields.items():
+            if getattr(self, key) != value:
+                setattr(self, key, value)
+                self.standing_changes += 1
+
     def view(self) -> dict:
         return {"seq": self.seq, "origin": self.origin, "continues": self.continues, "state": self.state,
                 "state_reason": self.state_reason, "person_text": self.person_text,
-                "stop_requested": self.stop_requested, "lacks_receipt": self.lacks_receipt}
+                "stop_requested": self.stop_requested, "lacks_receipt": self.lacks_receipt,
+                "standing_changes": self.standing_changes}
 
 
 @dataclass
@@ -119,9 +140,9 @@ class TimelineModel:
         turn = self.ensure(r["message_id"])
         if standing:
             if r["state"] != "unknown":
-                turn.state, turn.state_reason = r["state"], r.get("state_reason")
+                turn.stand(state=r["state"], state_reason=r.get("state_reason"))
             if r.get("stop_requested") is not None:
-                turn.stop_requested = r["stop_requested"]
+                turn.stand(stop_requested=r["stop_requested"])
         for key in ("seq", "origin", "continues"):
             if r.get(key) is not None:
                 setattr(turn, key, r[key])
@@ -139,7 +160,7 @@ class TimelineModel:
                 continue
             turn = self.ensure(event["message_id"])
             if event["kind"] == "accepted" and turn.state in BEFORE_ACCEPT:
-                turn.state = "running"
+                turn.stand(state="running")
             self.cursor = event["seq"]
         self.cursor = max(self.cursor, events_page["next"])
 
@@ -156,6 +177,7 @@ class Fetches:
     wanted: list[str] = field(default_factory=list)
     asked: list[str] = field(default_factory=list)
     stale: set[str] = field(default_factory=set)
+    standing_when_asked: dict[str, int] = field(default_factory=dict)
 
     def named(self, mid: str) -> None:
         if mid in self.asked:
@@ -165,26 +187,32 @@ class Fetches:
         if mid not in self.wanted and mid not in self.asked:
             self.wanted.append(mid)
 
-    def take(self, limit: int) -> list[str]:
+    def take(self, limit: int, standing=lambda mid: 0) -> list[str]:
         if self.asked or limit <= 0:
             return []
         self.asked, self.wanted = self.wanted[:limit], self.wanted[limit:]
+        self.standing_when_asked = {mid: standing(mid) for mid in self.asked}
         return list(self.asked)
 
     def answered(self, batch: list[str]) -> set[str]:
         renamed = self.stale & set(batch)
         self.asked = [m for m in self.asked if m not in batch]
         self.stale -= set(batch)
+        for mid in batch:
+            self.standing_when_asked.pop(mid, None)
         return renamed
 
     def failed(self, batch: list[str]) -> None:
         back = [m for m in self.asked if m in batch]
         self.asked = [m for m in self.asked if m not in batch]
         self.stale -= set(batch)
+        for mid in batch:
+            self.standing_when_asked.pop(mid, None)
         self.wanted = back + [m for m in self.wanted if m not in back]
 
     def view(self) -> dict:
-        return {"wanted": list(self.wanted), "asked": list(self.asked), "stale": sorted(self.stale)}
+        return {"wanted": list(self.wanted), "asked": list(self.asked), "stale": sorted(self.stale),
+                "standing_when_asked": dict(self.standing_when_asked)}
 
 
 class Model:
@@ -213,7 +241,7 @@ class Model:
         if "watch" in step:
             self.watch(step["watch"])
         if "take" in step:
-            taken = self.fetches.take(step["take"])
+            taken = self.fetches.take(step["take"], self.standing)
             if taken:
                 self.batch = taken
         if "answer" in step:
@@ -222,6 +250,13 @@ class Model:
             self.fetches.failed(self.batch)
             self.batch = []
         return taken
+
+    def standing(self, mid: str) -> int:
+        """Where a message's turn stands now, in whichever timeline has it."""
+        for timeline in self.timelines.values():
+            if mid in timeline.turns:
+                return timeline.turns[mid].standing_changes
+        return 0
 
     def watch(self, watch_page: dict) -> None:
         for row in sorted(watch_page["changes"], key=lambda r: r["seq"]):
@@ -243,6 +278,7 @@ class Model:
 
     def answer(self, receipts: list[dict]) -> None:
         batch, self.batch = self.batch, []
+        when_asked = dict(self.fetches.standing_when_asked)
         renamed = self.fetches.answered(batch)
         answers: dict[str, dict] = {}
         for r in receipts:
@@ -253,9 +289,11 @@ class Model:
                     or r["conversation_id"] not in self.timelines:
                 continue
             timeline = self.timelines[r["conversation_id"]]
-            if mid in renamed:
+            turn = timeline.turns.get(mid)
+            moved = turn is not None and turn.standing_changes != when_asked.get(mid, 0)
+            if mid in renamed or moved:
                 self.fetches.want(mid)
-                if mid in timeline.turns:
+                if turn is not None:
                     timeline.receipt(r, standing=False)
                     continue
             timeline.receipt(r)
@@ -419,7 +457,10 @@ def draw_scenario(data, *, drain: bool) -> Scenario:
         elif how == "receipt":
             emit({"receipts": [world.receipt(mid)]})
         advance(mid)
-        emit({"watch": world.deliver(len(world.rows))})
+        # The rows may reach the app after the answer does (review of 68bc6113:
+        # the turn moved by its events alone while the batch was out).
+        if not data.draw(st.booleans(), label="rows late"):
+            emit({"watch": world.deliver(len(world.rows))})
         answer("old")
 
     # Most scenarios look at a conversation from the start (the focused one).
@@ -506,6 +547,7 @@ def test_c29_9_property_the_probe_matches_the_rules_after_every_step(core_probe,
     for step, snapshot, taken in zip(scenario.steps, snapshots, scenario.taken):
         wanted_before = list(reference.fetches.wanted)
         batch_before, stale_before = list(reference.batch), set(reference.fetches.stale)
+        when_asked = dict(reference.fetches.standing_when_asked)
         assert reference.step(step) == taken
         assert comparable(snapshot) == reference.view(), step
         check_state(snapshot)
@@ -529,7 +571,8 @@ def test_c29_9_property_the_probe_matches_the_rules_after_every_step(core_probe,
                 turn = snapshot["timelines"][r["conversation_id"]]["turns"][mid]
                 assert (turn["seq"], turn["origin"], turn["person_text"]) == (r["seq"], r["origin"], r["text"])
                 had = before["timelines"].get(r["conversation_id"], {}).get("turns", {}).get(mid)
-                if mid in stale_before:
+                moved = had is not None and had["standing_changes"] != when_asked.get(mid, 0)
+                if mid in stale_before or moved:
                     assert mid in snapshot["fetches"]["wanted"]                  # asked again
                     if had is not None:                                          # never regressed
                         assert (turn["state"], turn["state_reason"], turn["stop_requested"]) == \
@@ -544,11 +587,13 @@ def test_c29_9_property_the_probe_matches_the_rules_after_every_step(core_probe,
 def test_c29_9_property_the_timelines_converge_on_the_daemon(core_probe, data):
     """Convergence: after the feed is read to its end and the fetches drained,
     every message a row named while its conversation had a timeline shows what
-    the daemon holds, whatever answers came late, failed or said unknown before."""
+    the daemon holds, whatever answers came late or failed before. An id an
+    answer said `unknown` for is left out: C-29.9 drops it, and a daemon never
+    says so of a message it holds, so here it is an injected fault."""
     scenario = draw_scenario(data, drain=True)
     final = fold(core_probe, scenario.steps)[-1]
     assert comparable(final) == scenario.model.view()
-    assert final["fetches"] == {"wanted": [], "asked": [], "stale": []}
+    assert queues(final["fetches"]) == {"wanted": [], "asked": [], "stale": []}
     for mid in scenario.named_with_timeline - scenario.answered_unknown:
         daemon = scenario.world.messages[mid]
         turn = final["timelines"][daemon["conversation_id"]]["turns"][mid]
@@ -623,7 +668,7 @@ def test_c29_9_the_feed_brings_in_messages_this_app_did_not_send(core_probe, har
     assert watched["fetches"]["wanted"] == expected                              # in the order the feed named them
     assert set(turns(watched, cid)) == {mine["message_id"]}                     # the defect: nothing else, yet
     assert taken["taken"] == expected and taken["fetches"]["asked"] == expected
-    assert answered["fetches"] == {"wanted": [], "asked": [], "stale": []}
+    assert queues(answered["fetches"]) == {"wanted": [], "asked": [], "stale": []}
     assert answered["timelines"][cid]["order"] == [mine["message_id"], cli, note, continuation]
     fetched = turns(answered, cid)
     assert fetched[cli] == {**fetched[cli], "seq": 2, "origin": "person", "state": "queued",
@@ -695,13 +740,45 @@ def test_c29_9_a_row_while_the_fetch_is_out_asks_again_and_keeps_the_newer_state
              {"watch": second}, {"answer": old_queued}, {"take": LIMIT}, {"answer": status(harness, [mid])}]
     snapshots = fold(core_probe, steps)
     during, stale_answer, again, settled = snapshots[4], snapshots[5], snapshots[6], snapshots[7]
-    assert during["fetches"] == {"wanted": [], "asked": [mid], "stale": [mid]}
+    assert queues(during["fetches"]) == {"wanted": [], "asked": [mid], "stale": [mid]}
     assert turns(during, cid)[mid]["state"] == "complete"                      # the row moved the events' turn
     assert turns(stale_answer, cid)[mid] == {**turns(stale_answer, cid)[mid], "state": "complete", "seq": 1,
                                               "person_text": "go"}
     assert stale_answer["fetches"]["wanted"] == [mid]
     assert again["taken"] == [mid]
     assert turns(settled, cid)[mid]["state"] == "complete" and settled["fetches"]["wanted"] == []
+
+
+def test_c29_9_events_while_the_fetch_is_out_keep_the_newer_state(core_probe, harness):
+    """Review of 68bc6113, finding 1. A queued row asks for a message the CLI
+    sent, and the daemon answers as of then (`queued`). Before that answer
+    comes, the turn's `accepted` event makes the turn and moves it to running;
+    the row saying so comes after. No row named it while asked for, but the
+    answer is still older than the turn: it sets what the message is, not where
+    it stands, and the message is asked for again."""
+    cid = harness.create()["conversation_id"]
+    mid = harness.submit(cid, "from the CLI")["message_id"]
+    queued_rows = harness.call("conversation.watch", after=0)
+    asked_then = status(harness, [mid])
+    assert asked_then[0]["state"] == "queued"
+    turn = harness.attempt(cid, mid)
+    turn.feed(claude_init(), {"type": "user", "uuid": mid, "isReplay": True, "message": {"role": "user", "content": "x"}},
+              claude_assistant("a1", [{"type": "text", "text": "Working."}]))
+    events = harness.call("conversation.events", conversation_id=cid, after=0)
+    running_rows = harness.call("conversation.watch", after=queued_rows["next"])
+    steps = [{"focus": cid}, {"watch": queued_rows}, {"take": LIMIT}, {"events": events, "conversation_id": cid},
+             {"answer": asked_then}, {"take": LIMIT}, {"answer": status(harness, [mid])}, {"watch": running_rows}]
+    snapshots = fold(core_probe, steps)
+    evented, answered, again, settled, rows = snapshots[3:]
+    assert turns(evented, cid)[mid]["state"] == "running" and turns(evented, cid)[mid]["lacks_receipt"] is True
+    assert queues(evented["fetches"])["stale"] == []                            # no row named it meanwhile
+    assert turns(answered, cid)[mid] == {**turns(answered, cid)[mid], "state": "running", "seq": 1,
+                                         "origin": "person", "person_text": "from the CLI"}
+    assert turns(answered, cid)[mid]["status_text"] != "Queued behind the current turn"
+    assert queues(answered["fetches"])["wanted"] == [mid]                        # asked again
+    assert again["taken"] == [mid]
+    assert turns(settled, cid)[mid]["state"] == "running" and queues(settled["fetches"])["wanted"] == []
+    assert turns(rows, cid)[mid]["state"] == "running"
 
 
 def test_c29_9_a_failed_batch_waits_again_ahead_of_the_rest(core_probe, harness):
@@ -716,7 +793,7 @@ def test_c29_9_a_failed_batch_waits_again_ahead_of_the_rest(core_probe, harness)
                                   {"take": LIMIT}, {"fail": True}, {"take": LIMIT}])
     assert snapshots[2]["taken"] == ids[:2]
     assert snapshots[4]["taken"] == []                                          # one batch at a time
-    assert snapshots[5]["fetches"] == {"wanted": ids, "asked": [], "stale": []}
+    assert queues(snapshots[5]["fetches"]) == {"wanted": ids, "asked": [], "stale": []}
     assert snapshots[6]["taken"] == ids
 
 
@@ -831,7 +908,7 @@ def test_c29_9_end_to_end_a_second_client_submits_and_the_app_shows_it(served):
     assert out["timelines"][cid]["display"] == [mine, continuation, note, from_cli]
     assert shown(out, cid) == [(mine, "my message"), (continuation, CONTINUED), (note, NOTE),
                                (from_cli, "from the CLI")]
-    assert out["fetches"] == {"wanted": [], "asked": [], "stale": []}
+    assert queues(out["fetches"]) == {"wanted": [], "asked": [], "stale": []}
     quiet = app("watch")
     assert statuses(quiet) == []                                                 # nothing asked twice
 

@@ -458,6 +458,10 @@ struct MessageFetches: Equatable {
     /// Of `asked`, those the feed named again since: the answer may be older
     /// than that row, so each is asked for again once it comes.
     private(set) var stale: Set<String> = []
+    /// Each asked id's `TurnTimeline.standingChanges` when it was asked for (0
+    /// for no turn, as a new turn starts): a turn that has moved since has news
+    /// the answer may predate.
+    private(set) var standingWhenAsked: [String: Int] = [:]
 
     /// The feed named `id` (any row, whatever its state).
     mutating func named(_ id: String) {
@@ -470,11 +474,13 @@ struct MessageFetches: Equatable {
         wanted.append(id)
     }
 
-    /// The next batch, oldest first; none while one is out.
-    mutating func take(limit: Int) -> [String] {
+    /// The next batch, oldest first, noting where each turn stands now; none
+    /// while one is out.
+    mutating func take(limit: Int, standing: (String) -> Int = { _ in 0 }) -> [String] {
         guard asked.isEmpty, limit > 0 else { return [] }
         asked = Array(wanted.prefix(limit))
         wanted.removeFirst(asked.count)
+        standingWhenAsked = Dictionary(uniqueKeysWithValues: asked.map { ($0, standing($0)) })
         return asked
     }
 
@@ -483,6 +489,7 @@ struct MessageFetches: Equatable {
         let renamed = stale.intersection(batch)
         asked.removeAll { batch.contains($0) }
         stale.subtract(batch)
+        for id in batch { standingWhenAsked[id] = nil }
         return renamed
     }
 
@@ -491,6 +498,7 @@ struct MessageFetches: Equatable {
         let back = asked.filter { batch.contains($0) }
         asked.removeAll { batch.contains($0) }
         stale.subtract(batch)
+        for id in batch { standingWhenAsked[id] = nil }
         wanted = back + wanted.filter { !back.contains($0) }
     }
 }
@@ -775,23 +783,32 @@ struct ConversationStoreState: Equatable {
     /// The next `message.status` batch for the messages the feed named: at most
     /// `limit` ids, oldest first; none while a batch is out.
     mutating func takeMessageFetch(limit: Int = MessageStatusArgs.limit) -> [String] {
-        messageFetches.take(limit: limit)
+        let timelines = self.timelines
+        return messageFetches.take(limit: limit) { id in
+            timelines.values.lazy.compactMap { $0.turn(id)?.standingChanges }.first ?? 0
+        }
     }
 
     /// Fold the answer to a batch `takeMessageFetch` gave. Each message the
     /// daemon has enters its conversation's timeline with its text and the
-    /// sequence, origin and continuation its place there follows from (C-27.5). One the feed named again while it was asked for is
-    /// asked for again, and the answer, which may be older than that row, sets
-    /// only what the message is on a turn the timeline already has.
+    /// sequence, origin and continuation its place there follows from (C-27.5).
+    /// The answer is older than anything that moved the message after it was
+    /// asked for: a row the feed named it in, or its turn's state, reason or
+    /// stop changing (its events, a receipt, the person's Stop). Such a message
+    /// is asked for again, and on a turn the timeline has the answer sets only
+    /// what the message is, never where it stands.
     mutating func apply(fetched receipts: [Receipt], asked batch: [String]) {
+        let standingWhenAsked = messageFetches.standingWhenAsked
         let renamed = messageFetches.answered(batch)
         let answers = Dictionary(receipts.map { ($0.message_id, $0) }, uniquingKeysWith: { first, _ in first })
         for id in batch {
             guard let receipt = answers[id], receipt.messageState != .unknown, let cid = receipt.conversation_id,
                   var timeline = timelines[cid] else { continue }
-            if renamed.contains(id) {
+            let turn = timeline.turn(id)
+            let moved = turn.map { $0.standingChanges != standingWhenAsked[id, default: 0] } ?? false
+            if renamed.contains(id) || moved {
                 messageFetches.want(id)
-                if timeline.turn(id) != nil {
+                if turn != nil {
                     timeline.apply(identity: receipt)
                     timelines[cid] = timeline
                     continue
