@@ -123,6 +123,26 @@ Left as follow-ups:
 
 The mutation check now has 24 mutants, and the test file catches each.
 
+## Review of #171, round 3 (2026-10-18)
+
+The GPT-6.1 Sol review (`~/reviews/subfleet-v2-timer-failure-visible/review-171-r3.OUTPUT.md`) marked:
+
+- resolved: the surrogate defect, `doctor`'s mixed revisions, the companion error, the send race and the wording;
+- partial: two test gaps;
+- resolved in part: the file precedence, because of this round's P2.
+
+| finding | fix |
+|---|---|
+| P2: a `mirror_hot` recovery inside its change-pacing minute, with the file write refused, was in neither copy, so a restart joined two separate failures into one streak | Each timer's highest durable revision is tracked. A run whose revision the file did not take writes its `timer.run`, paced or not, and `Timers.stop()` writes the file and any revision still in neither. The reviewer's sequence is a test. |
+| P3: offline readers said nothing when the first file write failed and no file existed | An event revision with no file entry marks the file behind. |
+| P3: a deleted or truncated file was not repaired while revisions stood still | The file's inode, size and mtime are checked on each run, and it is rewritten when it differs. |
+| P3: a record stored before the UTF-8 rule was read back raw and broke `daemon.status` again | Strings are made UTF-8 when read back too. |
+| P3: the frame sanitizer and `failure_shown`'s guard had no test of their own; the malformed-record property drew no naive timestamp | New tests; the property draws naive and offset timestamps and calls `failure_shown` on raw dicts. |
+
+While the file cannot be written, `mirror_hot` writes a `timer.run` for every run that changes its record. That is the price of exactness under a second fault, and C-18.5 says so. Left as follow-ups, unchanged: the residual token shapes and the demand-stage events.
+
+The mutation check now has 31 mutants, and the test file catches each.
+
 ## Tests
 
 `tests/unit/test_timers_failure.py` holds example tests for each reader and each review finding, and four Hypothesis properties:
@@ -132,4 +152,4 @@ The mutation check now has 24 mutants, and the test file catches each.
 - The `timer.error` count per record stays within the bound, and the first failure and every monotonic hour of a continuing failure are written. `mirror_hot` writes at most one `timer.run` per error event, plus one a minute and one per restart.
 - No token-shaped value survives into a failure message, and no malformed record can reach a reader.
 
-Twenty-four deliberate mutants of `timers.py` were each caught (see the review sections above).
+Thirty-one deliberate mutants of `timers.py` were each caught (see the review sections above).

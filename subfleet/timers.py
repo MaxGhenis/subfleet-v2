@@ -170,8 +170,11 @@ def failure_record(value):
         return None
     if not whole or not isinstance(value.get('error_type'), str):
         return None
-    return {**{key: value[key] for key in (*_FAILURE_TIMES, 'runs', 'failed_runs', 'error_type')},
-            **{key: value.get(key) if isinstance(value.get(key), str) else None
+    # Strings read back are made valid UTF-8 as new ones are: a record written
+    # before that rule could otherwise break every write and reply again.
+    return {**{key: value[key] for key in (*_FAILURE_TIMES, 'runs', 'failed_runs')},
+            'error_type': _utf8(value['error_type']),
+            **{key: _utf8(value.get(key)) if isinstance(value.get(key), str) else None
                for key in ('message', 'raised_at', 'recovered_at')}}
 
 
@@ -229,7 +232,7 @@ def load_records(root):
     if not isinstance(timers, dict):
         return {}
     return {name: {'failure': failure_record(value.get('failure')), 'rev': _rev(value.get('rev')),
-                   **{key: value.get(key) if isinstance(value.get(key), str) else None
+                   **{key: _utf8(value.get(key)) if isinstance(value.get(key), str) else None
                       for key in ('last_run', 'last_error_type')}}
             for name, value in timers.items() if name in TIMERS and isinstance(value, dict)}
 
@@ -257,10 +260,16 @@ def recorded(rows, now=None, records=None):
             continue
         failure = failure_record(data.get('failure'))
         revs[name] = _rev(data.get('rev'))
-        found[name] = {**{key: data.get(key) for key in ('last_run', 'next_due', 'last_error_type')},
+        found[name] = {**{key: _utf8(data.get(key)) for key in ('last_run', 'next_due', 'last_error_type')},
                        'failure': failure if failure_shown(failure, now) else None, 'rev': revs[name]}
         if len(found) == len(TIMERS):
             break
+    if records is not None:
+        # An event with a revision means the daemon meant the file to hold that
+        # timer: no file, or no entry for it, is a file behind too.
+        for name in revs:
+            if revs[name] > 0 and name not in records:
+                found[name]['file_behind'] = True
     for name, entry in (records or {}).items():
         if name in revs and revs[name] > entry['rev']:
             found[name]['file_behind'] = True
@@ -364,6 +373,10 @@ class Timers:
         self._records_lock = threading.Lock()
         self._records_written = None
         self._records_failure = None
+        # C-18.5: the file as this process last wrote it (inode, size, mtime), so
+        # one deleted or damaged since is written again; and each timer's highest
+        # revision held by the file or by an event, so no revision is in neither.
+        self._records_stat = None
         self.metadata = self._latest('timer.verdict')
         # Failure pacing is sensor state, not a credential/admission verdict.
         # Busy failures are withheld from metadata but still need a durable
@@ -382,6 +395,7 @@ class Timers:
                 self._status[data['timer']].update({k: data.get(k) for k in ('last_run', 'next_due', 'last_error_type')},
                                                    failure=failure_record(data.get('failure')))
                 self._rev[data['timer']] = _rev(data.get('rev'))
+                self._status[data['timer']]['last_error_type'] = _utf8(self._status[data['timer']]['last_error_type'])
         # C-18.5: whether the last `timer.run` written for each timer says it is
         # failing, and when (monotonic) a change of that was last written (None:
         # before this process).
@@ -395,6 +409,7 @@ class Timers:
                 self._status[name].update(last_error_type=entry['last_error_type'],
                                           **({'last_run': entry['last_run']} if entry['last_run'] else {}))
                 self._rev[name] = entry['rev']
+        self._durable = dict(self._rev)
 
     def _latest(self, kind):
         result = {}
@@ -492,11 +507,16 @@ class Timers:
         # records file first, so it is never older than the events; then the
         # events, of which one the store refuses stays to be written later.
         self._publish_records()
+        with self._lock:
+            # C-18.5: a revision the file could not take is written with this run,
+            # paced or not: it must be in one of the two.
+            persist = persist or self._durable[name] < data['rev']
         self._send_errors(name)
         if persist:
             self.store.add_event('timer.run', data=data)
             with self._lock:
                 self._kept[name] = (failing, mono if changed else kept[1])
+                self._durable[name] = max(self._durable[name], data['rev'])
 
     def _send_errors(self, name):
         """C-18.5: write `name`'s unsent `timer.error` events, oldest first, one
@@ -534,18 +554,21 @@ class Timers:
         `records_status()` (`daemon.status`, `status`, `doctor --live`), and the
         next run tries again; the events stay newer meanwhile, and win."""
         from .guardian import atomic_publish
+        path = self.root / RECORDS_FILE
         with self._records_lock:
             with self._lock:
                 revs = dict(self._rev)
-                if revs == self._records_written:
-                    return
+            if revs == self._records_written and self._stat(path) == self._records_stat:
+                return
+            with self._lock:
                 entries = {name: {'failure': value['failure'], 'rev': revs[name], 'last_run': value['last_run'],
                                   'last_error_type': value['last_error_type']}
                            for name, value in self._status.items()}
                 at = iso(self.now())
             try:
                 text = json.dumps({'version': 1, 'timers': entries}, sort_keys=True, allow_nan=False) + '\n'
-                atomic_publish(self.root / RECORDS_FILE, text.encode())
+                atomic_publish(path, text.encode())
+                written = self._stat(path)
             except Exception as exc:                # noqa: BLE001 - kept and shown, never raised
                 with self._lock:
                     before = self._records_failure or {'since': at, 'tries': 0}
@@ -554,7 +577,18 @@ class Timers:
                 return
             with self._lock:
                 self._records_failure = None
-            self._records_written = revs
+                for name, rev in revs.items():
+                    self._durable[name] = max(self._durable[name], rev)
+            self._records_written, self._records_stat = revs, written
+
+    @staticmethod
+    def _stat(path):
+        """The identity of `path` as written: inode, size and modification time."""
+        try:
+            info = os.stat(path)
+        except OSError:
+            return None
+        return info.st_ino, info.st_size, info.st_mtime_ns
 
     def records_status(self):
         """C-18.5: why RECORDS_FILE is behind (`since`, `last_at`, `tries`, the
@@ -913,11 +947,19 @@ class Timers:
         self._lanes.shutdown(wait=True, cancel_futures=True)
         self._mirror.shutdown(wait=True, cancel_futures=True)
         self._cards.shutdown(wait=True, cancel_futures=True)
-        # C-18.5: a last try at events a refused store write left; the records
-        # themselves are in RECORDS_FILE whatever happens here.
+        # C-18.5: a last try at what refused writes left: the records file, the
+        # events, and a `timer.run` for any revision in neither.
+        self._publish_records()
         for name in TIMERS:
             try:
                 self._send_errors(name)
+                with self._lock:
+                    pending = (self._durable[name] < self._rev[name]
+                               and {'timer': name, **self._status[name], 'rev': self._rev[name]})
+                if pending:
+                    self.store.add_event('timer.run', data=pending)
+                    with self._lock:
+                        self._durable[name] = max(self._durable[name], pending['rev'])
             except Exception:                   # noqa: BLE001 - the store may be gone
                 break
 

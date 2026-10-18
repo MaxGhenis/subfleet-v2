@@ -720,6 +720,138 @@ def test_a_companions_own_error_ends_the_cycle_when_its_record_cannot_be_written
         assert timer.status()["reset_credits"]["failure"]["error_type"] == "ValueError"
 
 
+# --- round 3 of the review of #171 -----------------------------------------------------------
+
+def test_a_hot_recovery_the_file_could_not_take_is_written_with_its_run(monkeypatch):
+    """C-18.5, review round 3 (P2): `mirror_hot` recovered within the minute its change
+    pacing holds back, and the file write failed; the recovery was in neither copy, so
+    a restart showed the next failure as the second in a row. A revision the file could
+    not take now goes into the run's own `timer.run`."""
+    with tempfile.TemporaryDirectory(prefix="sf-timer-") as root:
+        with rig(root) as (timer, store, clock, _):
+            run(timer, "mirror_hot", from_instant)     # rev 1: file and event
+            clock.advance(2)
+            _failing_publish(monkeypatch, PermissionError(13, "Permission denied"))
+            run(timer, "mirror_hot", None)              # rev 2: the file refuses it
+            assert stored(store, Path(root), clock())["mirror_hot"]["failure"]["recovered_at"] == iso(
+                START + timedelta(seconds=2))
+            assert doctor.check_timers(Path(root))["status"] == doctor.WARN
+            clock.advance(2)
+            at, mono = clock(), clock.mono
+        monkeypatch.undo()
+        with rig(root, Clock(at, mono)) as (timer, _, clock, _):
+            run(timer, "mirror_hot", from_instant)
+            failure = timer.status()["mirror_hot"]["failure"]
+            assert (failure["runs"], failure["since"], failure["failed_runs"]) == (1, iso(at), 2)
+
+
+def test_while_the_file_fails_each_changed_revision_is_in_an_event(monkeypatch):
+    """C-18.5: with the file refused, every run that changes a record writes its
+    `timer.run`, and a clean run that changes nothing writes none."""
+    with rig() as (timer, store, clock, _):
+        _failing_publish(monkeypatch)
+        for _ in range(5):
+            run(timer, "mirror_hot", from_instant)
+            clock.advance(2)
+        for _ in range(5):
+            run(timer, "mirror_hot", None)
+            clock.advance(2)
+        revs = [event["rev"] for event in events(store, "timer.run", "mirror_hot")]
+        assert revs == [1, 2, 3, 4, 5, 6]
+
+
+def test_stop_writes_a_revision_still_in_neither_copy(monkeypatch):
+    """C-18.5: a revision the file refused and whose event the store refused is written
+    by `stop()` when the store takes it."""
+    with tempfile.TemporaryDirectory(prefix="sf-timer-") as root:
+        with rig(root) as (timer, store, clock, _):
+            run(timer, "mirror_hot", from_instant)
+            clock.advance(2)
+            _failing_publish(monkeypatch)
+            real = store.add_event
+            refuse = {"on": True}
+            monkeypatch.setattr(store, "add_event", lambda kind, **fields: (
+                (_ for _ in ()).throw(OSError("busy")) if refuse["on"] else real(kind, **fields)))
+            with pytest.raises(OSError):
+                run(timer, "mirror_hot", None)
+            refuse["on"] = False
+            timer.stop()
+            assert events(store, "timer.run", "mirror_hot")[-1]["failure"]["recovered_at"] == iso(
+                START + timedelta(seconds=2))
+
+
+def test_a_file_never_written_is_shown_behind_offline(monkeypatch):
+    """C-18.5, review round 3 (P3): with the first write of `timers.json` refused there
+    was no file, and offline `doctor` and `status` said nothing of it."""
+    with rig() as (timer, _, clock, root):
+        _failing_publish(monkeypatch)
+        run(timer, "keepalive", from_instant)
+        assert not (root / RECORDS_FILE).exists()
+        item = doctor.check_timers(root)
+        assert item["status"] == doctor.FAIL and "timers.json is behind the store's events for keepalive" in item["detail"]
+        monkeypatch.setenv("SUBFLEET_HOME", str(root))
+        assert "timers.json is behind" in status_text(Offline(root).status())
+
+
+@pytest.mark.parametrize("damage", ["delete", "truncate"])
+def test_a_damaged_file_is_written_again_by_the_next_run(damage):
+    """C-18.5, review round 3 (P3): a file deleted or truncated while no record changed
+    stayed so, and offline readers fell back to an older revision."""
+    with rig() as (timer, store, clock, root):
+        run(timer, "mirror_hot", from_instant)
+        clock.advance(2)
+        run(timer, "mirror_hot", None)
+        path = root / RECORDS_FILE
+        path.unlink() if damage == "delete" else path.write_text("{")
+        clock.advance(2)
+        run(timer, "mirror_hot", None)
+        assert load_records(root)["mirror_hot"]["rev"] == 2
+        assert stored(store, root, clock())["mirror_hot"]["failure"]["recovered_at"] == iso(START + timedelta(seconds=2))
+
+
+def test_a_record_read_back_is_made_utf8_too(monkeypatch):
+    """C-18.5, review round 3 (P3): a record stored before messages were made UTF-8 was
+    read back as it was, and broke `daemon.status` and the timer's next write."""
+    record = {"first_at": iso(START), "since": iso(START), "last_at": iso(START), "runs": 1, "failed_runs": 1,
+              "error_type": "OSError", "message": "bad \udcff", "raised_at": "retention.py:1 in f\udcff",
+              "recovered_at": None}
+    with tempfile.TemporaryDirectory(prefix="sf-timer-") as root:
+        Path(root, RECORDS_FILE).write_text(json.dumps({"version": 1, "timers": {"retention": {"failure": record}}}))
+        with rig(root) as (timer, store, clock, _):
+            message = timer.status()["retention"]["failure"]["message"]
+            assert message == "bad \\udcff"
+            json.dumps(timer.status(), ensure_ascii=False).encode("utf-8")
+            clock.advance(3600)
+            timer.mark("retention")
+            assert events(store, "timer.run", "retention")
+
+
+def test_a_source_path_that_is_not_utf8_is_escaped():
+    """C-18.5, review round 3 (P3): the frame sanitizer had no test of its own. A path
+    decoded with `surrogateescape` can name a frame's file; Python refuses a surrogate
+    in a type name, so the type's escape is only a defence."""
+    code = compile("def broken():\n    raise KeyError('x')\n", "/somewhere/b\udcffad.py", "exec")
+    space = {}
+    exec(code, space)
+    exc = _raised(space["broken"])
+    place, trace = timers_module.raised_from(exc)
+    assert place == "b\\udcffad.py:2 in broken" and trace == []
+    with rig() as (timer, store, _, _):
+        run(timer, "mirror", space["broken"])
+        failure = timer.status()["mirror"]["failure"]
+        json.dumps(failure, ensure_ascii=False).encode("utf-8")
+        assert failure["raised_at"].startswith("timers.py:")              # the innermost package frame
+        json.dumps(events(store, "timer.error", "mirror"), ensure_ascii=False).encode("utf-8")
+
+
+def _raised(fn):
+    try:
+        fn()
+    except Exception as exc:                            # noqa: BLE001
+        return exc
+    raise AssertionError("it did not raise")
+
+
 # --- the readers ------------------------------------------------------------------
 
 def status_text(data):
@@ -977,9 +1109,11 @@ def test_advance_is_the_reference_model(outcomes, gaps):
 
 
 #: A value a record's field might hold in a store something else wrote.
-FIELD = st.one_of(st.none(), st.booleans(), st.integers(-2, 3), st.text(max_size=4), st.just(iso(START)))
+FIELD = st.one_of(st.none(), st.booleans(), st.integers(-2, 3), st.text(max_size=4), st.just(iso(START)),
+                  st.sampled_from(["2026-10-10T12:01:00", "2026-10-10T12:01:00+05:30", "2026-10-10 12:01", "\udcff"]))
 
 
+@settings(deadline=None)
 @given(st.one_of(st.none(), st.integers(), st.text(max_size=4),
                  st.fixed_dictionaries({key: FIELD for key in ("first_at", "since", "last_at", "runs", "failed_runs",
                                                                "error_type", "message", "raised_at", "recovered_at")})))
@@ -994,4 +1128,6 @@ def test_a_malformed_record_is_never_read_as_one(value):
         timers_module.failure_shown(record, START)
     status = {"t": {"last_run": iso(START), "last_error_type": None, "failure": record}}
     render.timer_notes(status)
+    if isinstance(value, dict):
+        timers_module.failure_shown(value, START)       # never raises, whatever it holds
     render.timer_notes({"t": {"failure": value, "last_error_type": value}})
