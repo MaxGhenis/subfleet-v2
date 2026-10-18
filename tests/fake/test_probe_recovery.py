@@ -10,6 +10,7 @@ import pytest
 from subfleet import daemon as daemon_module, procs
 from subfleet.contracts import Launch, Outcome, OutcomeClass
 from subfleet.daemon import after, utcnow
+from tests.caps import capped
 from tests.fake.test_routing_end_to_end import routing_state
 from tests.fake_adapter import FakeAdapter
 
@@ -51,6 +52,11 @@ def test_c11_probe_rechecks_lane_before_reserving_after_selection(routing_state,
 
     def pick_then_change(*args, **kwargs):
         decision = original_pick(*args, **kwargs)
+        if selected:
+            # C-11.4: a lane whose probe could not be reserved is passed over and the
+            # look evaluates again (review of #153); here no other lane takes the job.
+            assert decision.chosen_lane is None
+            return decision
         assert decision.chosen_lane == "codex-1"
         assert not service.store.conn.in_transaction
         service.store.update_lane(decision.chosen_lane, **change)
@@ -171,7 +177,7 @@ def test_c5_probe_gate_opens_after_durable_identity_and_readonly_launch(routing_
         assert stored["state"] == "starting"
         assert stored["guardian_pid"] == 900001
         assert stored["proc_start"] == "fixture-start"
-        assert not service.store.conn.in_transaction
+        assert service.store.conn.in_transaction  # Gate and cancellation serialize.
         writes.append((fd, value))
     monkeypatch.setattr(daemon_module.os, "write", release)
     def spawn(command, **kwargs):
@@ -197,6 +203,7 @@ def test_c5_probe_gate_opens_after_durable_identity_and_readonly_launch(routing_
 def test_c6_capacity_waiter_cannot_be_bypassed_by_newer_same_tier(routing_state):
     """C-4.1, C-6.4; amendment 11: FIFO retains an older capacity waiter's place."""
     service, harness = routing_state
+    capped(service.policy)                          # C-6.4: the caps of before 2026-09-27 (tests/caps.py)
     first = service.dispatch("submit", harness.submit_args())["job_id"]
     second = service.dispatch("submit", harness.submit_args())["job_id"]
     service.store.update_job(first, state="waiting", wait_reason="capacity", next_check_at=after(60))

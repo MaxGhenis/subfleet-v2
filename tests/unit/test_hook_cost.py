@@ -49,7 +49,9 @@ def test_the_hooks_build_their_clients_without_the_lock_check(tmp_path, monkeypa
     assert hooks.post_tool_use(payload, tmp_path, budget_s=1) == 0
     assert hooks.session_event("UserPromptSubmit", payload, tmp_path, stdout=open("/dev/null", "w"),
                                env={}) == 0
-    assert built == [{"verify_lock": False}, {"verify_lock": False}]
+    # C-15.6: neither checks the lock. C-16.7: the prompt hook also takes busy at once,
+    # since it reads the store offline instead of waiting out busy answers.
+    assert built == [{"verify_lock": False}, {"verify_lock": False, "retry_busy": False}]
 
 
 def test_the_hook_reads_are_the_lookup_ops():

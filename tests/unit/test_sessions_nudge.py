@@ -252,6 +252,21 @@ def test_a_headless_lane_run_is_never_nudged(home, policy):
     assert report.skipped_lanes == [LANE]
 
 
+def test_a_desktop_session_one_message_started_is_nudged(home, policy):
+    """C-23.31, C-23.33: the desktop app sends its prompts as `sdk`, as a lane
+    does; its `entrypoint` makes it a session, so its cut-off turn is nudged.
+    A `claude -p` run is skipped by its `entrypoint` alone, with no ledger row."""
+    live(home, ALICE, entries=fx.desktop_interrupted(age_s=1800))
+    daemon = fx.FakeSessions()
+    report = sweep(daemon, policy, scope="interrupted", manual=False)
+    assert [session for session, _text in daemon.pings] == [ALICE]
+    live(home, LANE, entries=fx.notified_lane(age_s=1800), started_at=2.0)
+    daemon = fx.FakeSessions()
+    report = sweep(daemon, policy, scope="interrupted", manual=False, only=[LANE])
+    assert daemon.pings == []
+    assert report.skipped_lanes == [LANE]
+
+
 def test_a_retired_session_is_never_nudged(home, policy):
     """C-23.35: retirement is durable and both the listing and the sweep honour it."""
     live(home, ALICE, entries=fx.interrupted(age_s=1800))
@@ -465,11 +480,19 @@ def test_the_sweep_asks_the_daemon_for_state_once(home, policy):
 CONVERSATION = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
 
 
-def test_a_conversations_session_is_never_nudged_by_a_sweep(home, policy):
-    """C-26.13: a live, interrupted session a conversation binds looks like any
-    other after its third turn, and the sweep still leaves it alone: its next
-    message comes from the Subfleet app."""
-    live(home, CONVERSATION, entries=fx.conversation_turns(turns=3))
+@pytest.fixture(params=["unstamped", "app-started"])
+def turns_of(request):
+    """C-26.13 whatever the transcript's shape: an unstamped conversation reads
+    as a session after two turns, one the Subfleet app started (`sdk-cli`) as a
+    lane at any length (C-23.31)."""
+    return fx.conversation_turns if request.param == "unstamped" else fx.app_conversation_turns
+
+
+def test_a_conversations_session_is_never_nudged_by_a_sweep(home, policy, turns_of):
+    """C-26.13: a live, interrupted session a conversation binds is left alone
+    by the sweep whatever its transcript's shape: its next message comes from
+    the Subfleet app."""
+    live(home, CONVERSATION, entries=turns_of(turns=3))
     live(home, ALICE, entries=fx.interrupted(age_s=1800), started_at=2.0)
     daemon = fx.FakeSessions(conversation_sessions=[CONVERSATION])
     report = sweep(daemon, policy, scope="interrupted", manual=False)
@@ -479,10 +502,10 @@ def test_a_conversations_session_is_never_nudged_by_a_sweep(home, policy):
 
 
 @pytest.mark.parametrize("force", [False, True])
-def test_naming_a_conversations_session_is_refused_with_the_reason(home, policy, force):
+def test_naming_a_conversations_session_is_refused_with_the_reason(home, policy, force, turns_of):
     """C-26.13: a person who names one gets the reason, and `--force` does not
     override it; neither a nudge record nor a notice is written."""
-    live(home, CONVERSATION, entries=fx.conversation_turns(turns=3))
+    live(home, CONVERSATION, entries=turns_of(turns=3))
     daemon = fx.FakeSessions(conversation_sessions=[CONVERSATION])
     report = sweep(daemon, policy, scope="interrupted", manual=True,
                    only=[CONVERSATION], force=force)
@@ -492,10 +515,10 @@ def test_naming_a_conversations_session_is_refused_with_the_reason(home, policy,
     assert "C-26.13" in report.outcomes[0].reason
 
 
-def test_a_session_start_wake_for_a_conversations_session_sends_nothing(home, policy):
+def test_a_session_start_wake_for_a_conversations_session_sends_nothing(home, policy, turns_of):
     """C-26.13 behind the hook: even a wake that reached the worker (a hook
     configured by other means, or an older hook) nudges nobody."""
-    live(home, CONVERSATION, entries=fx.conversation_turns(turns=3, age_s=60))
+    live(home, CONVERSATION, entries=turns_of(turns=3, age_s=60))
     daemon = fx.FakeSessions(conversation_sessions=[CONVERSATION])
     report = nudge.wake(daemon, policy, CONVERSATION, source="resume",
                         now=clock, sleep=lambda _s: None, delay_s=0)

@@ -4,7 +4,7 @@
 guard preflight's `hooks/list` exactly as the previous fixture did, and speaks
 enough of the stable 0.153.3 JSON-RPC surface for a turn: `initialize`,
 `model/list`, `thread/start`, `thread/resume`, `turn/start`,
-`turn/interrupt`, one command approval, and the notifications the Codex turn
+`turn/steer`, `turn/interrupt`, one command approval, and the notifications the Codex turn
 driver reads. Message shapes follow the schema kept under
 `tests/fixtures/codex/app-server-0.153.3/`. Threads persist as rollouts under
 `$CODEX_HOME/sessions`, with `turn_context` records carrying the turn id and
@@ -15,10 +15,14 @@ Each turn picks its behaviour with a `[fake:<scenario>]` directive in its text:
 
     (none)            streamed text, then `completed`
     approval          asks to run a command; accept runs it, decline says so, cancel interrupts
+    approval-exit     asks to run a command, then exits while the request is pending
     slow              streams until `turn/interrupt`, then `interrupted`
     limit             a full rate-limit window and a `usageLimitExceeded` failure
     exit-after-ack    `turn/started`, then exits
     wrong-model       the thread serves another model than asked for
+    steer             waits for a steer, echoes its clientId, then answers
+    steer-refuse      refuses the steer as too late, then ends the host turn
+    steer-unanswered  records a steer in history, then ends without an agent item
 
 Like a live 0.153.3 server (docs/desktop/reviews/2026-09-24-live-probes.md), it
 reports the thread `active` when a turn starts and `idle` when it ends, and
@@ -71,6 +75,9 @@ class Server:
         self.thread: dict | None = None
         self.rollout: Path | None = None
         self.tool_used = False
+        self.active_turn: str | None = None
+        self.scenario: str | None = None
+        self.steered = threading.Event()
         self.log({"argv": argv, "pid": os.getpid()})
 
     def log(self, row: dict) -> None:
@@ -100,6 +107,9 @@ class Server:
             if row.get("method") == "turn/interrupt":
                 self.send({"id": row["id"], "result": {}})
                 self.interrupts.put(row)
+                continue
+            if row.get("method") == "turn/steer":
+                self.on_turn_steer(row["id"], row.get("params") or {})
                 continue
             self.inbox.put(row)
         self.inbox.put(None)
@@ -187,6 +197,8 @@ class Server:
         match = DIRECTIVE.search(text)
         scenario = match.group(1) if match else "reply"
         turn_id = f"turn-{uuid.uuid4().hex[:10]}"
+        self.active_turn, self.scenario = turn_id, scenario
+        self.steered.clear()
         thread_id = self.thread["id"]
         served = "gpt-5.6-terra" if scenario == "wrong-model" else (params.get("model") or self.thread["model"])
         self.record("turn_context", {"turn_id": turn_id, "model": served, "cwd": params.get("cwd"),
@@ -200,7 +212,8 @@ class Server:
         self.notify("thread/status/changed", {"threadId": thread_id, "status": {"type": "active", "activeFlags": []}})
         self.notify("turn/started", {"threadId": thread_id, "turn": turn})
         self.notify("item/completed", {"threadId": thread_id, "turnId": turn_id, "completedAtMs": now_ms(),
-                                       "item": {"type": "userMessage", "id": f"u-{turn_id}", "content": []}})
+                                       "item": {"type": "userMessage", "id": f"u-{turn_id}",
+                                                "clientId": params.get("clientUserMessageId"), "content": []}})
         if scenario == "exit-after-ack":
             return 1
         handler = getattr(self, "scenario_" + scenario.replace("-", "_"), None)
@@ -209,6 +222,26 @@ class Server:
                                                                      "codexErrorInfo": "other"})
         reply = f"Fake Codex read {len(text)} characters" + (f" and {len(images)} image(s)" if images else "") + "."
         return handler(thread_id, turn_id, reply)
+
+    def on_turn_steer(self, rid, params):
+        turn_id = self.active_turn
+        if (not turn_id or self.thread is None or params.get("threadId") != self.thread["id"]
+                or params.get("expectedTurnId") != turn_id or self.scenario == "steer-refuse"):
+            self.send({"id": rid, "error": {"code": -32600, "message": "no matching active turn"}})
+            self.steered.set()
+            return
+        self.send({"id": rid, "result": {"turnId": turn_id}})
+        content = params.get("input") or []
+        mid = params.get("clientUserMessageId")
+        item = {"type": "userMessage", "id": f"u-{mid}", "clientId": mid, "content": content}
+        self.record("response_item", {"type": "message", "role": "user", "client_id": mid,
+                                      "content": [{"type": "input_text", "text": i["text"]}
+                                                  for i in content if i.get("type") == "text"]})
+        self.notify("item/started", {"threadId": self.thread["id"], "turnId": turn_id,
+                                    "startedAtMs": now_ms(), "item": item})
+        self.notify("item/completed", {"threadId": self.thread["id"], "turnId": turn_id,
+                                      "completedAtMs": now_ms(), "item": item})
+        self.steered.set()
 
     # --- turn pieces -----------------------------------------------------------
 
@@ -225,6 +258,7 @@ class Server:
                                       "content": [{"type": "output_text", "text": text}]})
 
     def finish(self, thread_id: str, turn_id: str, status: str, *, error: dict | None = None):
+        self.active_turn = None
         turn = {"id": turn_id, "items": [], "status": status, "durationMs": 5, "error": error}
         self.notify("thread/status/changed", {"threadId": thread_id, "status": {"type": "idle"}})
         if not self.tool_used:
@@ -254,7 +288,21 @@ class Server:
             time.sleep(0.05)
         return self.finish(thread_id, turn_id, "completed")
 
-    def scenario_approval(self, thread_id, turn_id, reply):
+    def scenario_steer(self, thread_id, turn_id, reply):
+        for _ in range(1200):
+            if self.interrupted():
+                return self.finish(thread_id, turn_id, "interrupted")
+            if self.steered.wait(0.05):
+                if self.scenario != "steer-unanswered":
+                    self.say(thread_id, turn_id, reply)
+                return self.finish(thread_id, turn_id, "completed")
+        return self.finish(thread_id, turn_id, "failed", error={"message": "no steer arrived"})
+
+    scenario_steer_refuse = scenario_steer
+    scenario_steer_unanswered = scenario_steer
+
+    def request_approval(self, thread_id, turn_id) -> tuple[dict, int]:
+        """A command item and its approval request; returns the item and the request id."""
         item_id = f"cmd-{uuid.uuid4().hex[:8]}"
         command = "echo approved-by-person"
         self.tool_used = True
@@ -265,6 +313,15 @@ class Server:
         self.send({"id": request_id, "method": "item/commandExecution/requestApproval", "params": {
             "threadId": thread_id, "turnId": turn_id, "itemId": item_id, "startedAtMs": now_ms(),
             "command": command, "cwd": self.thread["cwd"], "reason": "fake: asks every time"}})
+        return item, request_id
+
+    def scenario_approval_exit(self, thread_id, turn_id, reply):
+        """The process ends while its request waits for the person: no `turn/completed` (C-27.3)."""
+        self.request_approval(thread_id, turn_id)
+        return 1
+
+    def scenario_approval(self, thread_id, turn_id, reply):
+        item, request_id = self.request_approval(thread_id, turn_id)
         while True:
             if self.interrupted():
                 self.notify("serverRequest/resolved", {"threadId": thread_id, "requestId": request_id})

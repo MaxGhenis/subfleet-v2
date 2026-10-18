@@ -123,7 +123,17 @@ def _note_results(raw: str, results: dict[str, dict]) -> None:
         _note_blocks([b for b in content if isinstance(b, dict)], results)
 
 
-def _claude_items(path: Path, before: int | None, limit: int) -> tuple[list[dict], int | None]:
+def _claude_prompt(row: dict, blocks: list[dict]) -> bool:
+    if row.get("type") != "user" or row.get("isMeta") or row.get("isCompactSummary"):
+        return False
+    if any(b.get("type") == "tool_result" for b in blocks):
+        return False
+    text = "\n".join(b.get("text", "") for b in blocks if b.get("type") == "text").lstrip()
+    return bool(text) and not text.startswith(("[Request interrupted by user", "<task-notification>",
+                                              "This session is being continued from a previous conversation"))
+
+
+def _claude_items(path: Path, before: int | None, limit: int, owned: set[str] | None = None) -> tuple[list[dict], int | None]:
     """A page of rows older than `before`, newest first. The cursor is a row's
     byte offset from the start of the file, which later turns never move, so
     "Load earlier" after a turn returns the next older rows (review, 2026-09-25).
@@ -134,6 +144,7 @@ def _claude_items(path: Path, before: int | None, limit: int) -> tuple[list[dict
     file's start: a cap reached before any item still hands on a cursor, and a
     row too large to read is stepped over rather than ending the history."""
     items: list[dict] = []
+    group_start = 0
     try:
         size = path.stat().st_size
     except OSError:
@@ -175,22 +186,46 @@ def _claude_items(path: Path, before: int | None, limit: int) -> tuple[list[dict
                 tool_id = str(block.get("id")) if block.get("id") else None
                 items.append(_tool_item(str(block.get("name")), block.get("input"), tool_id,
                                         results.get(tool_id or ""), ts=row.get("timestamp"), cursor=index))
-        if len(items) >= limit:
+        if owned is not None and kind == "user" and (row.get("uuid") in owned or _claude_prompt(row, blocks)):
+            source = "subfleet" if row.get("uuid") in owned else "other-app"
+            for item in items[group_start:]:
+                item["source"] = source
+            group_start = len(items)
+        if len(items) >= limit and (owned is None or group_start == len(items)):
             return items, _earlier(path, index)
     return items, _next_cursor(path, top, last)
 
 
-def page(conversation: dict, *, root: Path, before=None, limit: int = 50, lanes: list[dict]) -> dict:
+def page(conversation: dict, *, root: Path, before=None, limit: int = 50, lanes: list[dict],
+         resolved_only: bool = False, owned: set[str] | None = None, owned_turns: set[str] | None = None,
+         known_path: str | None = None) -> dict:
     limit = max(1, min(int(limit), 200))
     before = int(before) if before is not None else None
     sid = conversation.get("native_session_id")
     if not sid:
         return {"items": [], "next_before": None}
+    from .catalog import transcript_record
+    record = transcript_record(root, conversation["provider"], sid)
+    path = Path(record["path"]) if record and record.get("path") else None
+    if path is None and known_path:
+        path = Path(known_path)
+    if path is None and conversation["provider"] == "claude" and conversation.get("workspace"):
+        # A just-created session may precede the first catalog pass. Its exact
+        # workspace path is known, so no native-tree discovery is necessary.
+        from ..adapters.claude import encode_project_dir
+        candidate = transcripts.projects_dir() / encode_project_dir(conversation["workspace"]) / f"{sid}.jsonl"
+        if candidate.is_file():
+            path = candidate
+    if resolved_only and path is None:
+        return {"items": [], "next_before": None, "missing": True}
     if conversation["provider"] == "claude":
-        path = transcripts.transcript_path(sid)
+        path = path or transcripts.transcript_path(sid)
         if path is None:
             return {"items": [], "next_before": None, "missing": True}
-        items, nxt = _claude_items(path, before, limit)
+        items, nxt = _claude_items(path, before, limit, owned=owned)
+        return {"items": items, "next_before": nxt}
+    if path is not None:
+        items, nxt = _codex_items(path, before, limit, owned=owned, owned_turns=owned_turns)
         return {"items": items, "next_before": nxt}
     from .catalog import native_session  # noqa: F401  (Codex: newest first)
     homes = [Path(r["home"]) for r in lanes if r.get("provider") == "codex" and r.get("home")]
@@ -289,11 +324,13 @@ def _note_output(raw: str, outputs: dict[str, dict], row: dict | None = None) ->
         return
 
 
-def _codex_items(path: Path, before: int | None, limit: int) -> tuple[list[dict], int | None]:
+def _codex_items(path: Path, before: int | None, limit: int, *, owned: set[str] | None = None,
+                 owned_turns: set[str] | None = None) -> tuple[list[dict], int | None]:
     """As `_claude_items`: newest first, byte-offset cursors, outputs found across
     a page's edge, the same read cap; a row that cannot be read is skipped, never
     the page."""
     items: list[dict] = []
+    group_start = 0
     outputs: dict[str, dict] = {}
     try:
         size = path.stat().st_size
@@ -309,6 +346,18 @@ def _codex_items(path: Path, before: int | None, limit: int) -> tuple[list[dict]
         last = index
         try:
             row = json.loads(raw)
+            payload = row.get("payload") or {}
+            if owned is not None and row.get("type") == "turn_context":
+                turn_id = payload.get("turn_id") or payload.get("id")
+                client_id = payload.get("client_id")
+                if turn_id or client_id:
+                    source = "subfleet" if turn_id in (owned_turns or set()) or client_id in owned else "other-app"
+                    for item in items[group_start:]:
+                        item["source"] = source
+                group_start = len(items)
+                if len(items) >= limit:
+                    return items, _earlier(path, index)
+                continue
             if row.get("type") != "response_item":
                 continue
             payload = row.get("payload") or {}
@@ -334,6 +383,6 @@ def _codex_items(path: Path, before: int | None, limit: int) -> tuple[list[dict]
                                   "ts": row.get("timestamp"), "id": None, "cursor": index})
         except (ValueError, TypeError, AttributeError):
             continue
-        if len(items) >= limit:
+        if len(items) >= limit and owned is None:
             return items, _earlier(path, index)
     return items, _next_cursor(path, top, last)

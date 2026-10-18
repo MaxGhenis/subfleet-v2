@@ -26,12 +26,13 @@ class FakeGateAdapter(FakeAdapter):
         assert job.isolated_review and job.sandbox == "read-only" and job.review_root
         return Launch(
             argv=(sys.executable, "-m", "tests.fake.gate_peer", "--model", model_id,
-                  "--evidence", str(attempt_dir / "fake-model-evidence.json")),
+                  "--evidence", str(attempt_dir / "fake-model-evidence.json"),
+                  "--stream", str(attempt_dir / "stream.jsonl")),
             env_add={"SUBFLEET_LANE": lane.lane_id},
             env_remove=("CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"),
             cwd=job.workdir, stdin_path=str(prompt_path),
             stdout_path=str(attempt_dir / "stdout"), stderr_path=str(attempt_dir / "stderr"),
-            raw_stream_path=None, native_session_id=None,
+            raw_stream_path=str(attempt_dir / "stream.jsonl"), native_session_id=None,
             notes={"fake_gate_peer": True, "attempt_id": attempt_id,
                    "fixture_sha256": hashlib.sha256(FIXTURE.read_bytes()).hexdigest()},
         )
@@ -61,6 +62,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True)
     parser.add_argument("--evidence", type=Path, required=True)
+    parser.add_argument("--stream", type=Path, required=True)
     args = parser.parse_args(argv)
     prompt = sys.stdin.read()
     assert "artifact_revision" in prompt
@@ -70,6 +72,9 @@ def main(argv=None):
                 "model_served": args.model, "fixture_sha256": hashlib.sha256(fixture).hexdigest()}
     atomic_publish(args.evidence, json.dumps(evidence).encode())
     sys.stdout.write(fixture.decode().replace("REVISION", json.dumps(revision)))
+    # The peer runs on a Codex lane: its finished turn's own stream carries the
+    # completion the daemon checks before accepting (C-9.2).
+    atomic_publish(args.stream, b'{"type":"turn.completed"}\n')
     return 0
 
 

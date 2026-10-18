@@ -20,6 +20,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -63,8 +64,11 @@ class World:
         self.seen: list[procs.Containment] = []  # what each census found
         self.identity_checks: list[float] = []  # when the guardian's identity was asked
         self.looks: list[float] = []          # when `_contain_probe` ran
+        # The clock the probe paths pace by is fake; the wall clock (`time.time`,
+        # read by the desktop-login check a capacity view makes) stays real.
         monkeypatch.setattr(daemon_module, "time", SimpleNamespace(monotonic=lambda: self.now,
-                                                                   sleep=lambda seconds: None))
+                                                                   sleep=lambda seconds: None,
+                                                                   time=time.time))
 
         def take_census(record):
             self.censuses.append(self.now)

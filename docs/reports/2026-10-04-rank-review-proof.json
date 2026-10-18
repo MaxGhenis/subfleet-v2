@@ -1,0 +1,251 @@
+{
+  "baseline_commit": "7bab08169a0f16c277c2ab9d89e9583174b57127",
+  "baseline_method": "Complete actual production module source compiled in memory from git show; original report text read from git show.",
+  "new_regressions": {
+    "total": 46,
+    "baseline_failed": 38,
+    "baseline_passed": 8,
+    "baseline_pass_explanation": "4 existing-correct weekly binding tie cases; 2 unchanged admission comparisons; 2 integer Retry-After cases."
+  },
+  "baselines": [
+    {
+      "group": "reviewer-differential",
+      "failed": 8,
+      "passed": 2,
+      "deselected": 13,
+      "summary": "8 failed, 2 passed, 13 deselected in 64.32s (0:01:04)",
+      "failed_nodes": [
+        "tests/unit/test_weekly_rank_vs_base.py::test_no_lane_newly_needs_a_pre_launch_probe[claude-False]",
+        "tests/unit/test_weekly_rank_vs_base.py::test_no_lane_newly_needs_a_pre_launch_probe[claude-True]",
+        "tests/unit/test_weekly_rank_vs_base.py::test_no_lane_newly_needs_a_pre_launch_probe[codex-False]",
+        "tests/unit/test_weekly_rank_vs_base.py::test_no_lane_newly_needs_a_pre_launch_probe[codex-True]",
+        "tests/unit/test_weekly_rank_vs_base.py::test_pick_excludes_no_lane_the_base_recommended[claude-False]",
+        "tests/unit/test_weekly_rank_vs_base.py::test_pick_excludes_no_lane_the_base_recommended[claude-True]",
+        "tests/unit/test_weekly_rank_vs_base.py::test_pick_excludes_no_lane_the_base_recommended[codex-False]",
+        "tests/unit/test_weekly_rank_vs_base.py::test_pick_excludes_no_lane_the_base_recommended[codex-True]"
+      ]
+    },
+    {
+      "group": "deterministic-ranking",
+      "failed": 12,
+      "passed": 4,
+      "deselected": 10,
+      "summary": "12 failed, 4 passed, 10 deselected in 3.23s",
+      "failed_nodes": [
+        "tests/unit/test_weekly_rank_vs_base.py::test_a_bucket_the_provider_stopped_reporting_does_not_unmeasure_a_freshly_read_lane",
+        "tests/unit/test_weekly_rank_vs_base.py::test_pick_keeps_a_freshly_read_lane_beside_a_bucket_the_provider_stopped_reporting",
+        "tests/unit/test_weekly_rank_vs_base.py::test_stopped_windows_do_not_demote_a_lane_forever[account-claude-fable]",
+        "tests/unit/test_weekly_rank_vs_base.py::test_stopped_windows_do_not_demote_a_lane_forever[account-codex-astra]",
+        "tests/unit/test_weekly_rank_vs_base.py::test_stopped_windows_do_not_demote_a_lane_forever[model-claude-fable]",
+        "tests/unit/test_weekly_rank_vs_base.py::test_stopped_windows_do_not_demote_a_lane_forever[model-codex-astra]",
+        "tests/unit/test_weekly_rank_vs_base.py::test_why_distinguishes_a_recent_renewal_from_admission_freshness[0]",
+        "tests/unit/test_weekly_rank_vs_base.py::test_why_distinguishes_a_recent_renewal_from_admission_freshness[30]",
+        "tests/unit/test_weekly_rank_vs_base.py::test_why_distinguishes_a_recent_renewal_from_admission_freshness[119]",
+        "tests/unit/test_weekly_rank_vs_base.py::test_recent_renewal_uncertainty_ends_at_its_ttl_with_a_stable_horizon",
+        "tests/unit/test_weekly_rank_vs_base.py::test_stale_labeled_reading_recency_has_a_judgement_horizon[2-2]",
+        "tests/unit/test_weekly_rank_vs_base.py::test_stale_labeled_reading_recency_has_a_judgement_horizon[-119-1]"
+      ]
+    },
+    {
+      "group": "sensor-and-idle-availability",
+      "failed": 15,
+      "passed": 2,
+      "deselected": 98,
+      "summary": "15 failed, 2 passed, 98 deselected in 170.01s (0:02:50)",
+      "failed_nodes": [
+        "tests/unit/test_timers_busy_read.py::test_busy_claude_reads_start_after_idle_lanes_are_available[False-claude]",
+        "tests/unit/test_timers_busy_read.py::test_busy_claude_reads_start_after_idle_lanes_are_available[False-codex]",
+        "tests/unit/test_timers_busy_read.py::test_busy_claude_reads_start_after_idle_lanes_are_available[True-claude]",
+        "tests/unit/test_timers_busy_read.py::test_busy_claude_reads_start_after_idle_lanes_are_available[True-codex]",
+        "tests/unit/test_timers_busy_read.py::test_busy_pacing_debt_from_the_previous_cycle_is_paid_before_any_idle_lease",
+        "tests/unit/test_timers_busy_read.py::test_claude_missing_sensor_respects_cadence_and_retry_after_after_restart[no-scope-None-False]",
+        "tests/unit/test_timers_busy_read.py::test_claude_missing_sensor_respects_cadence_and_retry_after_after_restart[no-scope-None-True]",
+        "tests/unit/test_timers_busy_read.py::test_claude_missing_sensor_respects_cadence_and_retry_after_after_restart[identity-unbound-None-False]",
+        "tests/unit/test_timers_busy_read.py::test_claude_missing_sensor_respects_cadence_and_retry_after_after_restart[identity-unbound-None-True]",
+        "tests/unit/test_timers_busy_read.py::test_claude_missing_sensor_respects_cadence_and_retry_after_after_restart[unavailable-None-False]",
+        "tests/unit/test_timers_busy_read.py::test_claude_missing_sensor_respects_cadence_and_retry_after_after_restart[unavailable-None-True]",
+        "tests/unit/test_timers_busy_read.py::test_claude_missing_sensor_respects_cadence_and_retry_after_after_restart[network-error-None-False]",
+        "tests/unit/test_timers_busy_read.py::test_claude_missing_sensor_respects_cadence_and_retry_after_after_restart[network-error-None-True]",
+        "tests/unit/test_timers_busy_read.py::test_claude_missing_sensor_respects_fractional_backoff_and_retry_after[None]",
+        "tests/unit/test_timers_busy_read.py::test_claude_missing_sensor_respects_fractional_backoff_and_retry_after[3600]"
+      ]
+    },
+    {
+      "group": "report",
+      "failed": 3,
+      "summary": "3 failed in 24.01s",
+      "failed_nodes": [
+        "tests/unit/test_rank_review_report.py::test_report_discloses_uncalibrated_replay_and_three_attempt_gain",
+        "tests/unit/test_rank_review_report.py::test_report_limits_five_hour_results_to_the_observed_provider",
+        "tests/unit/test_rank_review_report.py::test_report_discloses_missing_sensor_and_limits_freshness_claim"
+      ]
+    },
+    {
+      "group": "fake-admission-priority-environment",
+      "failed": 4,
+      "passed": 24,
+      "summary": "4 failed, 24 passed in 8.62s",
+      "failed_nodes": [
+        "tests/fake/test_admission_priority.py::test_c6_4_c6_9_one_pass_places_every_job_on_one_lane_by_class",
+        "tests/fake/test_admission_priority.py::test_c6_9_caps_set_in_policy_still_hold_and_the_order_decides_who_waits",
+        "tests/fake/test_admission_priority.py::test_c6_13_the_guard_holds_background_work_at_the_door_and_lets_it_go",
+        "tests/fake/test_admission_priority.py::test_c6_9_a_reused_pid_is_not_the_caller"
+      ]
+    }
+  ],
+  "mutations": [
+    {
+      "name": "renewal-couples-admission",
+      "status": "killed-by-assertion",
+      "failed_tests": 3
+    },
+    {
+      "name": "stopped-window-never-expires",
+      "status": "killed-by-assertion",
+      "failed_tests": 4
+    },
+    {
+      "name": "renewal-ttl-horizon-omitted",
+      "status": "killed-by-assertion",
+      "failed_tests": 1
+    },
+    {
+      "name": "binding-tie-latest-reset",
+      "status": "killed-by-assertion",
+      "failed_tests": 4
+    },
+    {
+      "name": "why-hides-renewal",
+      "status": "killed-by-assertion",
+      "failed_tests": 3
+    },
+    {
+      "name": "why-age-uses-stopped-window",
+      "status": "killed-by-assertion",
+      "failed_tests": 4
+    },
+    {
+      "name": "busy-reads-inside-idle-hold",
+      "status": "killed-by-assertion",
+      "failed_tests": 4
+    },
+    {
+      "name": "failure-cooldown-bypassed",
+      "status": "killed-by-assertion",
+      "failed_tests": 8
+    },
+    {
+      "name": "failure-cooldown-not-restored",
+      "status": "killed-by-assertion",
+      "failed_tests": 8
+    },
+    {
+      "name": "failure-fakes-provider-freshness",
+      "status": "killed-by-assertion",
+      "failed_tests": 10
+    },
+    {
+      "name": "failure-cooldown-truncates-deadline",
+      "status": "killed-by-assertion",
+      "failed_tests": 2
+    },
+    {
+      "name": "stale-observation-horizon-omitted",
+      "status": "killed-by-assertion",
+      "failed_tests": 1
+    },
+    {
+      "name": "busy-pacing-debt-under-idle-hold",
+      "status": "killed-by-assertion",
+      "failed_tests": 1
+    },
+    {
+      "name": "report-omits-calibration",
+      "status": "killed-by-assertion",
+      "failed_tests": 1
+    },
+    {
+      "name": "report-overstates-gain",
+      "status": "killed-by-assertion",
+      "failed_tests": 1
+    },
+    {
+      "name": "report-claims-claude-freshness",
+      "status": "killed-by-assertion",
+      "failed_tests": 1
+    },
+    {
+      "name": "report-overstates-five-hour",
+      "status": "killed-by-assertion",
+      "failed_tests": 1
+    },
+    {
+      "name": "latest-reset-first",
+      "status": "killed-by-assertion",
+      "failed_tests": 1,
+      "failed_node": "tests/unit/test_scheduler_weekly.py::test_earlier_weekly_reset_never_ranks_worse_in_one_band_and_reserve_class[claude-opus]"
+    },
+    {
+      "name": "less-weekly-headroom-first",
+      "status": "killed-by-assertion",
+      "failed_tests": 1,
+      "failed_node": "tests/unit/test_scheduler_weekly.py::test_equal_resets_more_weekly_headroom_never_ranks_worse[claude-opus]"
+    },
+    {
+      "name": "ignore-weekly-reserve",
+      "status": "killed-by-assertion",
+      "failed_tests": 1,
+      "failed_node": "tests/unit/test_scheduler_weekly.py::test_a_lane_under_either_reserve_never_precedes_an_otherwise_equal_clear_lane[claude-opus]"
+    },
+    {
+      "name": "ignore-five-hour-reserve",
+      "status": "killed-by-assertion",
+      "failed_tests": 1,
+      "failed_node": "tests/unit/test_scheduler_weekly.py::test_a_lane_under_either_reserve_never_precedes_an_otherwise_equal_clear_lane[claude-opus]"
+    },
+    {
+      "name": "swap-reserve-precedence",
+      "status": "killed-by-assertion",
+      "failed_tests": 1,
+      "failed_node": "tests/unit/test_scheduler_weekly.py::test_weekly_reserve_precedes_five_hour_reserve[claude-opus]"
+    },
+    {
+      "name": "ignore-load-band",
+      "status": "killed-by-assertion",
+      "failed_tests": 1,
+      "failed_node": "tests/unit/test_scheduler_weekly.py::test_load_band_precedes_measured_and_weekly_preferences[claude-opus]"
+    },
+    {
+      "name": "ignore-measured-precedence",
+      "status": "killed-by-assertion",
+      "failed_tests": 1,
+      "failed_node": "tests/unit/test_scheduler_weekly.py::test_measured_precedes_unmeasured_in_the_same_band[claude-opus]"
+    },
+    {
+      "name": "ignore-desktop-precedence",
+      "status": "killed-by-assertion",
+      "failed_tests": 1,
+      "failed_node": "tests/unit/test_scheduler_weekly.py::test_desktop_last_and_a_turns_affinity_first_before_weekly_preferences[claude-opus]"
+    },
+    {
+      "name": "ignore-affinity-precedence",
+      "status": "killed-by-assertion",
+      "failed_tests": 1,
+      "failed_node": "tests/unit/test_scheduler_weekly.py::test_desktop_last_and_a_turns_affinity_first_before_weekly_preferences[claude-opus]"
+    },
+    {
+      "name": "ignore-claude-stranded-precedence",
+      "status": "killed-by-assertion",
+      "failed_tests": 1,
+      "failed_node": "tests/unit/test_scheduler_weekly.py::test_claude_stranded_term_remains_before_measured_and_reserve_preferences"
+    }
+  ],
+  "mutation_count": 27,
+  "mutation_method": "In-memory function edits; strict pytest exit 1 plus FAILED tests and AssertionError. Import/compilation failures do not count.",
+  "discarded_attempt": "The first fake-freshness mutant had an indentation error and was not counted; its corrected run failed 10 tests by assertion.",
+  "timed_mutation_batches_seconds": {
+    "review_remaining": 27.6,
+    "weekly_first": 112.61,
+    "weekly_second": 21.69
+  }
+}

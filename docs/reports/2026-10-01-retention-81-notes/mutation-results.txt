@@ -1,0 +1,18 @@
+M1 note 1: unchanged() ignores ctime again for a file that had other links: KILLED (13 s) FAILED tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check]
+M2 note 1: still_archived trusts a ctime-only move without comparing the bytes: KILLED (2 s) FAILED tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check]
+M3 note 1: verified deletion strict on ctime (no content check: the over-strict fix): KILLED (2 s) FAILED tests/unit/test_retention_81_notes.py::test_a_hard_link_whose_ctime_moved_only_because_its_sibling_went_is_deleted
+M4 note 1: the final check accepts a ctime-only move without the bytes: KILLED (2 s) FAILED tests/unit/test_retention_81_notes.py::test_a_hard_linked_file_rewritten_with_its_mtime_put_back_is_not_deleted[before-the-final-check]
+M5 note 1: the content check also for a file that had one link: KILLED (2 s) FAILED tests/unit/test_retention_81_notes.py::test_verified_deletion_unlinks_only_the_bytes_the_archive_holds
+M6 note 2: no check for a tree another tool holds aside: KILLED (1 s) FAILED tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_holds_in_quarantine_keeps_its_job_until_it_is_back
+M7 note 2: no presence check between begin and quarantine: KILLED (1 s) FAILED tests/unit/test_retention_81_notes.py::test_a_tree_the_sweep_moves_back_before_quarantine_is_not_archived_without_its_registration
+M7b note 2: the final check does not see a gone tree come back: KILLED (1 s) FAILED tests/unit/test_retention_81_notes.py::test_a_tree_moved_back_while_its_job_retires_without_it_keeps_the_job
+M8 note 2: the survey does not see a tree held aside: KILLED (3 s) FAILED tests/unit/test_retention_81_notes.py::test_the_survey_keeps_a_job_whose_tree_the_sweep_holds
+M9 note 3: no unrecorded allocation is owned: KILLED (1 s) FAILED tests/unit/test_retention_81_notes.py::test_a_tree_admission_allocated_for_a_job_it_never_recorded_retires_with_it
+M10 note 3: no worktree-in-use pin for an unrecorded allocation: KILLED (2 s) FAILED tests/unit/test_retention_81_notes.py::test_a_job_still_to_run_inside_an_unrecorded_allocation_keeps_it
+M11 note 4: the repositories retention knows are not searched: KILLED (1 s) FAILED tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_registration_through_the_repositories_retention_knows
+M12 note 4: the workdir's nearest ancestor is not searched: KILLED (1 s) FAILED tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_finds_its_repository_from_the_workdirs_nearest_ancestor
+M13 note 4: no repository by the job's salvage refs: KILLED (1 s) FAILED tests/unit/test_retention_81_notes.py::test_a_gone_workdirs_job_whose_registration_was_pruned_is_found_by_its_salvage_refs
+M14 note 4: any known repository taken as the job's (salvage refs not required): KILLED (1 s) FAILED tests/unit/test_retention_81_notes.py::test_a_repository_that_does_not_hold_the_jobs_salvage_is_not_taken_for_its_own
+M15 note 4: the reason does not say the repository was not found: KILLED (1 s) FAILED tests/unit/test_retention_81_notes.py::test_a_job_whose_repository_cannot_be_found_says_so
+
+16 killed, 0 survived or not applied
