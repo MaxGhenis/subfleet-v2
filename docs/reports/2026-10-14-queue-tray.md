@@ -1071,67 +1071,126 @@ omissions in the contract list and design table.
 
 ### Validation and delivery
 
-Python 3.14.7 (free-threaded): the requested initial frontend hold completed
-with **15 passed, 1 skipped in 353.34 s**. The live-daemon test skips because
-macOS boot identity is unavailable in this sandbox; its codec failure is
-covered independently by the exhaustive codec check. `test_core_queue_tray.py` then passed all 50 cases. Its hold was interrupted
-after 1,177.27 s to stay below 20 minutes; pytest was confirmed active, not
-governor-stopped. The resumed hold passed the notice (2) and queue engine (75) cases in
-476.75 s. All requested frontend files therefore total **142 passed,
-1 skipped**, with no test failures or errors. The daemon hold completed in 112.27 s: **479 passed, 1 failed**. The failure
-is `test_c16_6_the_kernel_ceiling_is_read_on_macos`: the sandbox denies
-`/usr/sbin/sysctl -n kern.maxfilesperproc` with `Operation not permitted`.
-Both the production function and test are identical to `c7e74a8f6`; this is
-an environment failure. The four new registry/contract cases pass. Remaining
-frontend coverage is in progress.
+Python 3.14.7 (free-threaded): **969 passed, 1 failed, 1 skipped** in the
+completed final runs. Expected tests-first failures are excluded from these
+counts. No pytest invocation was launched after the conservative 4h30 cutoff
+at 20:21 UTC. The last queue view hold launched at 20:19 and completed with
+15 passes; the 22-file core/review hold passed all 333 cases, including all
+39 fix-4 review regressions.
 
-| File | Passed | Failed | Errors | Skipped |
-| --- | ---: | ---: | ---: | ---: |
-| `tests/frontend/test_core_live.py` | 0 | 0 | 0 | 1 |
-| `tests/frontend/test_core_protocol.py` | 10 | 0 | 0 | 0 |
-| `tests/frontend/test_visual_progress.py` | 5 | 0 | 0 | 0 |
-| `tests/frontend/test_core_queue_tray.py` | 50 | 0 | 0 | 0 |
-| `tests/frontend/test_queue_tray_notice.py` | 2 | 0 | 0 | 0 |
-| `tests/frontend/test_core_queue_engine.py` | 75 | 0 | 0 | 0 |
-| `tests/unit/test_conversation_service.py` | 98 | 0 | 0 | 0 |
-| `tests/unit/test_protocol_registry.py` | 4 | 0 | 0 | 0 |
-| `tests/unit/test_protocol_secrecy.py` | 325 | 0 | 0 | 0 |
-| `tests/unit/test_descriptors.py` | 15 | 1 | 0 | 0 |
-| `tests/fake/test_state_contract.py` | 37 | 0 | 0 | 0 |
+The failure is `test_c16_6_the_kernel_ceiling_is_read_on_macos`:
+`/usr/sbin/sysctl -n kern.maxfilesperproc` returns `Operation not permitted`.
+Both `subfleet/descriptors.py` and its test are identical to `c7e74a8f6`.
+The live-daemon case skips because macOS boot identity is unavailable in this
+sandbox; the exhaustive codec regression independently covers its original
+missing-codec failure. Neither test nor production behavior was weakened to
+hide these environment restrictions.
 
-Final per-file outcomes, unrun coverage and commits will be recorded before
-delivery. Every pytest invocation uses its
-own foreground shared-lock hold, one pytest process and the bounded CI
-Hypothesis profile. Scratch and uv caches are isolated under that hold's
-`TMPDIR`; `PYTHONPATH` and `SUBFLEET_RETENTION_DORMANT` are unset.
+Every run used one foreground pytest process under its own shared-lock hold,
+with the bounded CI Hypothesis profile. The queue tray hold was interrupted
+while active at 19m37s to preserve the 20-minute bound, after all 50 tray
+cases completed. Only the unfinished notice/engine files resumed in the next
+hold. The completed active holds all stayed below 20 minutes. `PYTHONPATH`
+and `SUBFLEET_RETENTION_DORMANT` were unset; uv and compiler caches used
+owned scratch directories. There was no deep profile or global cache clean.
 
-### 4h30 cutoff status — 20:21 UTC
+| Hold | Passed | Failed | Errors | Skipped | Pytest seconds |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `frontend-required` | 15 | 0 | 0 | 1 | 353.34 |
+| `queue-required` | 50 | 0 | 0 | 0 | 1177.27 |
+| `queue-tail` | 77 | 0 | 0 | 0 | 476.75 |
+| `unit-required` | 479 | 1 | 0 | 0 | 112.27 |
+| `frontend-rest` | 333 | 0 | 0 | 0 | 323.31 |
+| `frontend-view` | 15 | 0 | 0 | 0 | 122.51 |
 
-No further pytest invocations will start. The 22-file frontend hold passed
-all **333 cases in 323.31 s**, including all 39 fix-4 review cases. Completed
-runs total **954 passed, 1 failed, 1 skipped**. The sole failure and skip are
-the kernel/sysctl restrictions described above. A final queue tray view hold,
-launched at 20:19 UTC before the cutoff, is still pending.
+Per-file counts below cover the requested frontend tree and daemon group.
+`Unrun` means no case from that file ran. The 19 unrun frontend files, Python
+3.12 and a separate full app-bundle build were left unrun at the cutoff.
 
-The following 19 frontend files remain unrun. Python 3.12 and a separate
-full app-bundle build were not run.
+| File | Passed | Failed | Errors | Skipped | Status |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `tests/fake/test_state_contract.py` | 37 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_app_cutover_start.py` | 0 | 0 | 0 | 0 | Unrun: cutoff |
+| `tests/frontend/test_conversation_view.py` | 0 | 0 | 0 | 0 | Unrun: cutoff |
+| `tests/frontend/test_core_app_cutover_reading.py` | 15 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_core_approval_notification.py` | 10 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_core_approval_reach.py` | 41 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_core_client.py` | 18 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_core_diff.py` | 7 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_core_draft.py` | 0 | 0 | 0 | 0 | Unrun: cutoff |
+| `tests/frontend/test_core_idle.py` | 1 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_core_live.py` | 0 | 0 | 0 | 1 | Sandbox boot identity unavailable |
+| `tests/frontend/test_core_live_failure.py` | 1 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_core_markdown.py` | 42 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_core_outbox.py` | 13 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_core_protocol.py` | 10 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_core_question_card.py` | 10 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_core_queue_engine.py` | 75 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_core_queue_tray.py` | 50 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_core_search.py` | 20 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_core_steer.py` | 43 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_core_steer_properties.py` | 2 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_core_store.py` | 10 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_core_suggestions.py` | 7 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_core_suggestions_r1b.py` | 4 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_core_text_scale.py` | 7 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_core_timeline.py` | 23 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_core_titles.py` | 1 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_disk_ruling.py` | 0 | 0 | 0 | 0 | Unrun: cutoff |
+| `tests/frontend/test_menu_view.py` | 0 | 0 | 0 | 0 | Unrun: cutoff |
+| `tests/frontend/test_pr124_fixes_ui.py` | 0 | 0 | 0 | 0 | Unrun: cutoff |
+| `tests/frontend/test_pr124_recovery_properties.py` | 0 | 0 | 0 | 0 | Unrun: cutoff |
+| `tests/frontend/test_pr124_review_r2_fixes_ui.py` | 0 | 0 | 0 | 0 | Unrun: cutoff |
+| `tests/frontend/test_queue_tray_fix4_mutations.py` | 0 | 0 | 0 | 0 | Unrun: cutoff |
+| `tests/frontend/test_queue_tray_notice.py` | 2 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_queue_tray_view.py` | 15 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_reading_view.py` | 0 | 0 | 0 | 0 | Unrun: cutoff |
+| `tests/frontend/test_review_pr127_timeline.py` | 4 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_review_r219_fix4.py` | 39 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_review_r219_probes.py` | 0 | 0 | 0 | 0 | Unrun: cutoff |
+| `tests/frontend/test_status_model.py` | 0 | 0 | 0 | 0 | Unrun: cutoff |
+| `tests/frontend/test_visual_progress.py` | 5 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_visual_report_hygiene.py` | 15 | 0 | 0 | 0 | Passed |
+| `tests/frontend/test_visual_review_fixes.py` | 0 | 0 | 0 | 0 | Unrun: cutoff |
+| `tests/frontend/test_visual_round_five.py` | 0 | 0 | 0 | 0 | Unrun: cutoff |
+| `tests/frontend/test_visual_round_four.py` | 0 | 0 | 0 | 0 | Unrun: cutoff |
+| `tests/frontend/test_visual_round_three.py` | 0 | 0 | 0 | 0 | Unrun: cutoff |
+| `tests/frontend/test_visual_round_two.py` | 0 | 0 | 0 | 0 | Unrun: cutoff |
+| `tests/frontend/test_visual_snapshots.py` | 0 | 0 | 0 | 0 | Unrun: cutoff |
+| `tests/frontend/test_visual_suggestions.py` | 0 | 0 | 0 | 0 | Unrun: cutoff |
+| `tests/unit/test_conversation_service.py` | 98 | 0 | 0 | 0 | Passed |
+| `tests/unit/test_descriptors.py` | 15 | 1 | 0 | 0 | Sandbox sysctl denied |
+| `tests/unit/test_protocol_registry.py` | 4 | 0 | 0 | 0 | Passed |
+| `tests/unit/test_protocol_secrecy.py` | 325 | 0 | 0 | 0 | Passed |
 
-- `tests/frontend/test_app_cutover_start.py`
-- `tests/frontend/test_conversation_view.py`
-- `tests/frontend/test_core_draft.py`
-- `tests/frontend/test_disk_ruling.py`
-- `tests/frontend/test_menu_view.py`
-- `tests/frontend/test_pr124_fixes_ui.py`
-- `tests/frontend/test_pr124_recovery_properties.py`
-- `tests/frontend/test_pr124_review_r2_fixes_ui.py`
-- `tests/frontend/test_queue_tray_fix4_mutations.py`
-- `tests/frontend/test_reading_view.py`
-- `tests/frontend/test_review_r219_probes.py`
-- `tests/frontend/test_status_model.py`
-- `tests/frontend/test_visual_review_fixes.py`
-- `tests/frontend/test_visual_round_five.py`
-- `tests/frontend/test_visual_round_four.py`
-- `tests/frontend/test_visual_round_three.py`
-- `tests/frontend/test_visual_round_two.py`
-- `tests/frontend/test_visual_snapshots.py`
-- `tests/frontend/test_visual_suggestions.py`
+### Commits and transfer
+
+All commits use workspace-local `.git-local` metadata on
+`feat/queue-tray-217`; the caller checkout and original `.git` pointer are
+unchanged. No push or history rewrite occurred. Every new commit carries
+`Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+
+Implementation and validation commits before this final report update:
+
+- `d5cd1dd8b` — Merge cached origin/release/217 for queue tray fix 5
+- `a53c950f8` — test: cover every operation codec and status result field
+- `14b3a1737` — test: use legacy hold fixture API and cover status requests
+- `5c69fd4b1` — test: expose held conversation field loss independently of status codec
+- `ab3405d11` — fix: derive probe codecs from the typed operation registry
+- `a7a74deb0` — test: distinguish bound and unbound waiting acknowledgments
+- `a86c4ee05` — docs: complete the operation and status capability contracts
+- `8a83c9e0f` — docs: record fix5 causes and tests-first regression evidence
+- `1b875f026` — docs: record passing fix5 frontend protocol and visual checks
+- `4b9f27601` — docs: record queue tray passes and bounded hold split
+- `7e97afdcf` — docs: record completed queue notice and engine validation
+- `c15633dd9` — docs: record daemon validation and sandbox kernel restriction
+- `dfa92c941` — docs: preserve historical report sections when updating fix5
+- `948d95b86` — docs: record fix5 cutoff and pending final view hold
+
+The final report update is at the delivered branch head. The ignored transfer
+bundle `docs/reports/2026-10-18-queue-tray-fix5.bundle` contains the delivered
+branch and is not staged. Its prerequisites are the supplied `c7e74a8f6` and
+cached release `3fbc4b7c5`, already present in the shared repository. The
+bundle is verified against local metadata. Test logs, XML/JSON evidence and
+bundles are excluded from commits. Owned test scratch and generated caches
+are removed after validation; `.git-local` and the transfer bundle are kept.
