@@ -1008,3 +1008,71 @@ Checkpoint: final holds are pending or active; pending tests are not counted as
 passes. No new hold will be initiated at or after 19:38 UTC (4 h 30 m). Existing
 foreground lock waiters will finish before cleanup. A final report commit will
 supersede this checkpoint with their results and the remaining unrun files.
+
+
+## Fix-5 — 2026-10-18
+
+Work stays in the assigned workspace. The shared Git metadata is read-only;
+commits use the assigned `feat/queue-tray-217` name in workspace-local
+`.git-local`. The original `.git` pointer and caller checkout are untouched.
+No remote operation, push or history rewrite was performed.
+
+### Base and regressions
+
+Merged the cached `origin/release/217` at `3fbc4b7c5615` before the fixes
+(commit `d5cd1dd8b`). It includes #207, #225 and #227 beyond the supplied head.
+The only conflict was the acceptance contract's Changes list; both sets of
+independent amendments were retained. The Swift protocol and presentation
+sources remain identical to `c7e74a8f6` after that merge.
+
+Tests-first commits `a53c950f8`, `14b3a1737` and `5c69fd4b1` add an exhaustive
+codec check, real status result and request fixtures, an independent check of
+a held conversation through the existing open codec, and registry-based
+documentation checks. The initial locked run reported 12 passed, 3 failed,
+1 skipped in 395.11 s. It exposed an incorrect fixture API; the fixture now
+uses `set_legacy_hold`, as the import does, rather than `update_conversation`.
+The corrected baseline against unchanged production Swift completed with
+12 passed, 7 assertion failures and 1 skipped in 20.79 s: missing codec
+coverage and request encoding, lost non-null `legacy_hold`, the old waiting
+assertion, and three documentation checks. No compilation/setup error counted
+as a regression. Final validation results follow below.
+
+### Causes and corrections
+
+The probe maintained its own codec list separately from `Ops.names`.
+`Ops.all` now supplies typed operations to both name and codec visitors. The
+C-25.2 result test iterates this registry and compares its membership with
+Python's `CONVERSATION_OPS`; a new op must have a codec and a real fixture.
+The live scenario also requires a `conversation.status` exchange.
+
+`ConversationStatusResult` returns `conversation: Conversation` and
+`message_ids: [String]`. The real fixture includes completed, approval-needed
+and queued messages in sequence order. The audit of all 22 conversation view
+fields found `legacy_hold` absent from Swift's `Conversation`; a non-null
+import hold exercises its preservation independently of the status codec.
+The remaining nested fields match `ConversationSettings`, `LastMessage` and
+the existing open-ended JSON fields.
+
+Item 3 comes from round 4's explicit acknowledgment condition,
+`messageState == .waiting && !hasBoundJob`, in `WorkPresentation.swift`.
+The review probe assigns states directly; no re-read, hydration or completion
+event runs in that scenario. The old test assumed every waiting turn had a
+job binding. D1 requires an unbound wait to keep its reason and Withdraw
+action visible, already covered by the external-writer regression. The
+visual fixture now checks both unbound waiting (acknowledgment shown) and
+bound waiting (status in the bottom strip). Production presentation behavior
+is retained.
+
+The operation and read-only descriptor sets already contain the new op, and
+`CAPABILITIES` already advertises `conversation.status.v1`. The contract now
+names its read-only shape and capability in C-25.1/C-25.2; desktop design and
+protocol map documentation agree. Generic op-coverage tests also close older
+omissions in the contract list and design table.
+
+### Validation and delivery
+
+Validation is in progress. Final per-file outcomes, unrun coverage and
+commits will be recorded before delivery. Every pytest invocation uses its
+own foreground shared-lock hold, one pytest process and the bounded CI
+Hypothesis profile. Scratch and uv caches are isolated under that hold's
+`TMPDIR`; `PYTHONPATH` and `SUBFLEET_RETENTION_DORMANT` are unset.
