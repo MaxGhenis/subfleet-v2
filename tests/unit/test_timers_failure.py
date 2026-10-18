@@ -14,6 +14,7 @@ import contextlib
 import io
 import json
 import math
+import os
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -324,10 +325,9 @@ def test_a_hot_timer_restarts_from_its_exact_record(script, expected):
 
 def test_the_records_file_is_written_only_when_a_record_changes(monkeypatch):
     """C-18.5: clean runs of a clear timer rewrite nothing; each failed run does."""
-    from subfleet import guardian
     writes = []
-    real = guardian.atomic_publish
-    monkeypatch.setattr(guardian, "atomic_publish", lambda path, data: (writes.append(path), real(path, data)))
+    real = timers_module.write_records_file
+    monkeypatch.setattr(timers_module, "write_records_file", lambda path, data: (writes.append(path), real(path, data))[1])
     with rig() as (timer, _, clock, root):
         for _ in range(50):
             run(timer, "mirror_hot", None)
@@ -561,10 +561,9 @@ def test_an_event_the_store_can_never_take_holds_back_no_later_one(monkeypatch):
 
 
 def _failing_publish(monkeypatch, error=OSError(28, "No space left on device")):
-    from subfleet import guardian
     def publish(path, data):
         raise error
-    monkeypatch.setattr(guardian, "atomic_publish", publish)
+    monkeypatch.setattr(timers_module, "write_records_file", publish)
 
 
 def test_a_failed_records_file_write_is_shown_and_the_events_win(monkeypatch):
@@ -852,6 +851,152 @@ def _raised(fn):
     raise AssertionError("it did not raise")
 
 
+# --- round 4 of the review of #171 -----------------------------------------------------------
+
+def test_stop_flushes_each_timer_whatever_another_refuses(monkeypatch):
+    """C-18.5, review round 4 (P2): one refused write in `stop()` ended its flush, so a
+    later timer's revision in neither copy was never tried."""
+    with tempfile.TemporaryDirectory(prefix="sf-timer-") as root:
+        with rig(root) as (timer, store, clock, _):
+            run(timer, "mirror_hot", from_instant)       # rev 1 in both
+            clock.advance(2)
+            _failing_publish(monkeypatch)
+            real = store.add_event
+            refused = {"timer.error": True, "timer.run": True}
+
+            def refusing(kind, **fields):
+                if kind in refused and (refused[kind] or fields["data"]["timer"] == "keepalive"):
+                    raise OSError("busy")
+                return real(kind, **fields)
+            monkeypatch.setattr(store, "add_event", refusing)
+            with pytest.raises(OSError):
+                run(timer, "keepalive", from_instant)      # its error event stays queued
+            with pytest.raises(OSError):
+                run(timer, "mirror_hot", None)             # rev 2: in neither
+            refused["timer.run"] = refused["timer.error"] = False     # keepalive's still refused
+            timer.stop()
+            assert events(store, "timer.run", "mirror_hot")[-1]["rev"] == 2
+            at, mono = clock(), clock.mono
+        monkeypatch.undo()
+        with rig(root, Clock(at, mono)) as (timer, _, _, _):
+            assert timer.status()["mirror_hot"]["failure"]["recovered_at"] == iso(START + timedelta(seconds=2))
+
+
+@pytest.mark.parametrize("damage", ["delete", "truncate"])
+def test_a_damaged_file_whose_repair_is_refused_holds_no_revision(monkeypatch, damage):
+    """C-18.5, review round 4 (P2): a revision counted as in the file stayed counted after
+    the file was deleted; with the repair refused, the recovery was in neither copy and
+    a restart joined two failures into one streak."""
+    with tempfile.TemporaryDirectory(prefix="sf-timer-") as root:
+        path = Path(root, RECORDS_FILE)
+        with rig(root) as (timer, store, clock, _):
+            run(timer, "mirror_hot", from_instant)       # rev 1 in both
+            clock.advance(2)
+            run(timer, "mirror_hot", None)               # rev 2 in the file only (paced)
+            path.unlink() if damage == "delete" else path.write_text("{")
+            _failing_publish(monkeypatch)
+            clock.advance(2)
+            run(timer, "mirror_hot", None)               # the repair is refused: rev 2 goes to an event
+            assert events(store, "timer.run", "mirror_hot")[-1]["rev"] == 2
+            clock.advance(2)
+            at, mono = clock(), clock.mono
+        monkeypatch.undo()
+        with rig(root, Clock(at, mono)) as (timer, _, clock, _):
+            run(timer, "mirror_hot", from_instant)
+            failure = timer.status()["mirror_hot"]["failure"]
+            assert (failure["runs"], failure["since"]) == (1, iso(at))
+
+
+@pytest.mark.parametrize("damage", ["replace", "delete"])
+def test_a_file_changed_right_after_it_was_written_is_written_again(monkeypatch, damage):
+    """C-18.5, review round 4 (P3): the identity checked later was read from the path
+    after the rename, so a file put there or removed in between was taken for ours."""
+    with rig() as (timer, store, clock, root):
+        run(timer, "mirror_hot", from_instant)
+        old = (root / RECORDS_FILE).read_bytes()
+        real = timers_module.write_records_file
+
+        def then_damaged(path, data):
+            identity = real(path, data)
+            if damage == "replace":
+                spare = Path(path).with_name("spare")
+                spare.write_bytes(old)
+                os.replace(spare, path)
+            else:
+                Path(path).unlink()
+            return identity
+        monkeypatch.setattr(timers_module, "write_records_file", then_damaged)
+        clock.advance(2)
+        run(timer, "mirror_hot", None)                   # rev 2 written, then damaged
+        monkeypatch.undo()
+        clock.advance(2)
+        run(timer, "mirror_hot", None)                   # nothing changed: the file is written again
+        assert load_records(root)["mirror_hot"]["rev"] == 2
+
+
+def test_snapshots_pair_each_record_with_its_own_revision():
+    """C-18.5, review round 4 (P3): records and revisions were copied in two critical
+    sections, so a mark of another timer between them could pair a new record with an
+    old revision. Two threads mark two timers; every published entry must match the
+    record that timer's own event carries for the same revision."""
+    import threading
+    published = []
+    real = timers_module.write_records_file
+
+    def recording(path, data):
+        published.append(json.loads(data))
+        return real(path, data)
+    with mock.patch.object(timers_module, "write_records_file", recording):
+        with rig() as (timer, store, clock, _):
+            def work(name, faults):
+                for index in range(150):
+                    run_on = FAULTS[index % 3]("x") if index % faults else None
+                    timer.mark(name, error=run_on)
+            threads = [threading.Thread(target=work, args=(name, faults)) for name, faults in (("keepalive", 2), ("mirror", 3))]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(30)
+            for name in ("keepalive", "mirror"):
+                by_rev = {}
+                for event in events(store, "timer.run", name):
+                    by_rev.setdefault(event["rev"], event["failure"])
+                for snapshot in published:
+                    entry = snapshot["timers"][name]
+                    if entry["rev"] in by_rev:
+                        assert entry["failure"] == by_rev[entry["rev"]], (name, entry["rev"])
+
+
+def test_a_clean_first_run_whose_file_was_refused_is_shown_behind(monkeypatch):
+    """C-18.5, review round 4 (P3): an event with revision 0 hid the missing file."""
+    with rig() as (timer, _, _, root):
+        _failing_publish(monkeypatch)
+        run(timer, "keepalive", None)
+        item = doctor.check_timers(root)
+        assert item["status"] == doctor.WARN and "timers.json is behind" in item["detail"]
+
+
+def test_times_and_run_strings_read_back_are_canonical_and_utf8():
+    """C-18.5, review round 4 (P3): `fromisoformat` takes a lone surrogate as its date and
+    time separator, and replayed `last_run` and `next_due` were not made UTF-8."""
+    record = {"first_at": "2026-10-18\udcff12:00:00Z", "since": "2026-10-18T12:00:00+00:00",
+              "last_at": "2026-10-18T13:00:00+01:00", "runs": 1, "failed_runs": 1, "error_type": "OSError",
+              "message": None, "raised_at": None, "recovered_at": None}
+    read = timers_module.failure_record(record)
+    assert (read["first_at"], read["since"], read["last_at"]) == ("2026-10-18T12:00:00Z",) * 3
+    with rig() as (timer, store, clock, _):
+        # As old state holds it: JSON text whose `\\udcff` escapes decode to lone surrogates.
+        store.connection.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)", (iso(START), "timer.run", json.dumps(
+            {"timer": "retention", "last_run": "x\udcff", "next_due": "y\udcff", "last_error_type": None, "failure": record})))
+        store.connection.commit()
+        replayed = Timers(store, timer.root, POLICY)
+        try:
+            json.dumps(replayed.status(), ensure_ascii=False).encode("utf-8")
+            replayed.mark("retention")
+        finally:
+            replayed.stop()
+
+
 # --- the readers ------------------------------------------------------------------
 
 def status_text(data):
@@ -1110,7 +1255,8 @@ def test_advance_is_the_reference_model(outcomes, gaps):
 
 #: A value a record's field might hold in a store something else wrote.
 FIELD = st.one_of(st.none(), st.booleans(), st.integers(-2, 3), st.text(max_size=4), st.just(iso(START)),
-                  st.sampled_from(["2026-10-10T12:01:00", "2026-10-10T12:01:00+05:30", "2026-10-10 12:01", "\udcff"]))
+                  st.sampled_from(["2026-10-10T12:01:00", "2026-10-10T12:01:00+05:30", "2026-10-10 12:01", "\udcff",
+                                   "2026-10-18\udcff18:12:00Z"]))
 
 
 @settings(deadline=None)
@@ -1126,6 +1272,7 @@ def test_a_malformed_record_is_never_read_as_one(value):
                    for key in ("runs", "failed_runs"))
         assert isinstance(record["error_type"], str)
         timers_module.failure_shown(record, START)
+        json.dumps(record, ensure_ascii=False).encode("utf-8")      # every accepted record can be sent
     status = {"t": {"last_run": iso(START), "last_error_type": None, "failure": record}}
     render.timer_notes(status)
     if isinstance(value, dict):

@@ -143,6 +143,21 @@ While the file cannot be written, `mirror_hot` writes a `timer.run` for every ru
 
 The mutation check now has 31 mutants, and the test file catches each.
 
+## Review of #171, round 4 (2026-10-18)
+
+The GPT-6.1 Sol review (`~/reviews/subfleet-v2-timer-failure-visible/review-171-r4.OUTPUT.md`) found two P2s in round 3's bookkeeping, which counted a revision durable once it had ever been published. The fix restructures that bookkeeping instead of patching it.
+
+| finding | fix |
+|---|---|
+| P2: `stop()` ended its flush at the first refused write, so a later timer's revision in neither copy was never tried | Each timer is flushed on its own; a refusal for one stops no other. |
+| P2: a revision counted as in the file stayed counted after the file was deleted, so a refused repair left it in neither copy | Durability is tracked as two facts per timer: the highest revision its events hold (never taken back), and the revisions the file holds. The file's count stands only while the file there is the one this process wrote. A run whose revision neither holds writes its `timer.run`. |
+| P3: records and revisions were copied in two critical sections | One critical section; a two-thread test checks that every published entry matches its revision's event. |
+| P3: the identity used to judge the file was read from the path after the rename, so a file put there or removed meanwhile was taken for ours | `write_records_file` returns the identity read from its own descriptor before the rename. |
+| P3: an event with revision 0 hid a missing file | Whether an event carries `rev` is kept apart from its value. |
+| P3: `fromisoformat` takes a lone surrogate as its separator; replayed `last_run` and `next_due` were raw | Times read back are rewritten in canonical form; replayed run strings are made UTF-8. |
+
+The mutation check now has 36 mutants, and the test file catches each. One mutant written this round removed the file-count reset done when the file is not the one this process wrote. It survived because every path that reads the count publishes first, and the write's success or failure resets it anyway. So the reset was dead code, and it was removed rather than tested.
+
 ## Tests
 
 `tests/unit/test_timers_failure.py` holds example tests for each reader and each review finding, and four Hypothesis properties:
@@ -152,4 +167,4 @@ The mutation check now has 31 mutants, and the test file catches each.
 - The `timer.error` count per record stays within the bound, and the first failure and every monotonic hour of a continuing failure are written. `mirror_hot` writes at most one `timer.run` per error event, plus one a minute and one per restart.
 - No token-shaped value survives into a failure message, and no malformed record can reach a reader.
 
-Thirty-one deliberate mutants of `timers.py` were each caught (see the review sections above).
+Thirty-six deliberate mutants of `timers.py` were each caught (see the review sections above).
