@@ -943,7 +943,9 @@ Targeted mutation checks: **4/4 passed**, review-final (each pass proves its nam
 | `tests/frontend/test_core_protocol.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
 | `tests/frontend/test_core_question_card.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
 | `tests/frontend/test_core_queue_engine.py` | 75 | 0 | 0 | 0 | required |
-| `tests/frontend/test_core_queue_tray.py` | 50 | 0 | 0 | 0 | required |
+| `tests/frontend/test_core_queue_tray.py` | 50 | 0 | 0 | 0 |
+| `tests/frontend/test_queue_tray_notice.py` | 2 | 0 | 0 | 0 |
+| `tests/frontend/test_core_queue_engine.py` | 75 | 0 | 0 | 0 | required |
 | `tests/frontend/test_core_search.py` | 20 | 0 | 0 | 0 | required |
 | `tests/frontend/test_core_steer.py` | 43 | 0 | 0 | 0 | required |
 | `tests/frontend/test_core_steer_properties.py` | 2 | 0 | 0 | 0 | required |
@@ -1076,8 +1078,10 @@ with **15 passed, 1 skipped in 353.34 s**. The live-daemon test skips because
 macOS boot identity is unavailable in this sandbox; its codec failure is
 covered independently by the exhaustive codec check. `test_core_queue_tray.py` then passed all 50 cases. Its hold was interrupted
 after 1,177.27 s to stay below 20 minutes; pytest was confirmed active, not
-governor-stopped. The notice and queue engine files had not run and resume
-in their own hold. Daemon and remaining frontend coverage are pending.
+governor-stopped. The resumed hold passed the notice (2) and queue engine (75) cases in
+476.75 s. All requested frontend files therefore total **142 passed,
+1 skipped**, with no test failures or errors. Daemon and remaining frontend
+coverage are pending.
 
 | File | Passed | Failed | Errors | Skipped |
 | --- | ---: | ---: | ---: | ---: |
@@ -1085,6 +1089,8 @@ in their own hold. Daemon and remaining frontend coverage are pending.
 | `tests/frontend/test_core_protocol.py` | 10 | 0 | 0 | 0 |
 | `tests/frontend/test_visual_progress.py` | 5 | 0 | 0 | 0 |
 | `tests/frontend/test_core_queue_tray.py` | 50 | 0 | 0 | 0 |
+| `tests/frontend/test_queue_tray_notice.py` | 2 | 0 | 0 | 0 |
+| `tests/frontend/test_core_queue_engine.py` | 75 | 0 | 0 | 0 |
 
 Final per-file outcomes, unrun coverage and commits will be recorded before
 delivery. Every pytest invocation uses its
