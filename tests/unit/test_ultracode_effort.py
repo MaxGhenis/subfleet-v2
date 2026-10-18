@@ -20,7 +20,7 @@ from subfleet.conversations.claude_turn import (
     SETTINGS_REQUEST_ID, ULTRACODE, ULTRACODE_EFFORT, ClaudeTurn, argv, observed_catalog, offered_efforts,
 )
 from subfleet.policy import CONVERSATION_DEFAULT_EFFORT
-from tests.unit.test_claude_turn import INIT_OK, SID, spec, started
+from tests.unit.test_claude_turn import INIT_OK, MID, SID, spec, started
 from tests.unit.test_conversation_service import SETTINGS, conversation, submit, svc  # noqa: F401 (a fixture)
 
 LEVELS = ["low", "medium", "high", "xhigh", "max"]
@@ -310,7 +310,7 @@ def test_c26_8_a_settings_answer_after_the_result_still_records_the_served_effor
     turn = ClaudeTurn(spec(effort=ULTRACODE), read_bytes=lambda p: b"")
     started(turn)
     end = turn.feed(json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": "ok",
-                                "session_id": SID}), 800)
+                                "session_id": SID, "user_message_uuid": MID}), 800)
     assert end.outcome is not None
     late = turn.feed(_answer(OPUS_ULTRA), 900)
     assert [e.data for e in late.events if e.kind == "served"] == [{"effort": ULTRACODE}]

@@ -1584,9 +1584,26 @@ class ConversationService:
             raise ConversationError("turn-ended", "the turn that asked has ended")
         record = {"decision": decision, "message": args.get("message"), "answers": args.get("answers"),
                   "by": {"pid": verdict.pid, "as": verdict.reason}, "at": utcnow()}
-        if not self.store.answer_approval(approval["approval_id"], record):
-            raise ConversationError("not-pending", "the approval was answered or withdrawn meanwhile")
-        runner.respond(approval["provider_request_id"], decision, args.get("message"), args.get("answers"))
+        if decision != "cancel-turn":
+            if not self.store.answer_approval(approval["approval_id"], record):
+                raise ConversationError("not-pending", "the approval was answered or withdrawn meanwhile")
+            runner.respond(approval["provider_request_id"], decision, args.get("message"), args.get("answers"))
+            return {"approval": self._approval_view(self.store.approval(approval["approval_id"]))}
+        # C-24.7, C-26.5: cancelling the turn is the person's stop of it, recorded as
+        # `turn.interrupt` records one, under the same per-message stop and handover
+        # locks, and committed with the answer: settlement (which takes the stop lock)
+        # never reads the answer without the stop, so it reads the stop as theirs and
+        # never sets `unfinished-turn`; a crash leaves both or neither, and a restart
+        # replays the recorded stop as the turn's own (C-26.6). The answer is queued
+        # first, then the stop's escalation, should the provider stay silent.
+        mid = approval["message_id"]
+        with self._stop_lock(mid):
+            with self._handover(mid):
+                if not self.store.answer_approval(approval["approval_id"], record, stop=True):
+                    raise ConversationError("not-pending", "the approval was answered or withdrawn meanwhile")
+                runner.end_title("stopped")
+            runner.respond(approval["provider_request_id"], decision, args.get("message"), args.get("answers"))
+            runner.interrupt("stopped")
         return {"approval": self._approval_view(self.store.approval(approval["approval_id"]))}
 
     # --- ops: changes (C-26.14, design D-25) ------------------------------------

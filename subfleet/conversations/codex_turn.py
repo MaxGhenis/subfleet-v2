@@ -156,6 +156,7 @@ class CodexTurn(SteerTracking):
         self.pending: dict[str, tuple[str, dict]] = {}     # request id -> (method, params)
         self.catalog: list[dict] | None = None              # model/list, for models.json
         self.idle_pending = False                           # the thread went idle after our turn started
+        self.turn_sent = False                              # `turn/start` is written (or replayed as written)
         self.final_error: dict | None = None                # an `error` notification that will not be retried
         self._ready = {"hooks": False, "models": False}
         self._tools: dict[str, bool] = {}
@@ -306,7 +307,7 @@ class CodexTurn(SteerTracking):
         if str(msg.get("id", "")).startswith("steer:") and "method" not in msg:
             return self._steer_response(msg, source)
         if self.phase == "ended":
-            if msg.get("method") == "turn/completed":
+            if msg.get("method") == "turn/completed" and self._ours((msg.get("params") or {}).get("turn") or {}):
                 self.terminal_after_end = True
             if "method" in msg and "id" not in msg and msg["method"].startswith("item/"):
                 return Step(events=self._notification(msg["method"], msg.get("params") or {}, source).events)
@@ -373,6 +374,8 @@ class CodexTurn(SteerTracking):
             turn = (result or {}).get("turn") or {}
             step = Step()
             if turn.get("id"):
+                # The answer names the turn this message started; from here on only it is ours (C-26.5).
+                self.turn_id = str(turn["id"])
                 step.extend(self._accept(str(turn["id"]), source))
             self.phase = "running"
             return step
@@ -435,6 +438,7 @@ class CodexTurn(SteerTracking):
         self.phase = "turn"
         events = [Event("served", served, source.next()), Event("status", {"phase": "sent"}, source.next())]
         if self._frame_recorded("user-message"):
+            self.turn_sent = True
             return Step(events=events)
         try:
             inputs = self._input()
@@ -454,6 +458,7 @@ class CodexTurn(SteerTracking):
         }
         if self.spec.effort:
             params["effort"] = self.spec.effort
+        self.turn_sent = True
         return Step(frames=[Frame("user-message", "write", _request(ID_TURN, "turn/start", params))],
                     events=events)
 
@@ -488,6 +493,8 @@ class CodexTurn(SteerTracking):
             # a steer is sent only once it is known, so none of its items come earlier.
             # (`turn/started` and `turn/completed` name their turn in `turn`, not here.)
             return Step()
+        if method in ("turn/started", "turn/completed") and not self._ours(params.get("turn") or {}):
+            return self._other(method, params.get("turn") or {}, source)
         if method == "turn/started":
             turn = params.get("turn") or {}
             return self._accept(str(turn.get("id")), source) if turn.get("id") else Step()
@@ -527,6 +534,22 @@ class CodexTurn(SteerTracking):
         if method == "turn/completed":
             return self._completed(params.get("turn") or {}, source)
         return Step()
+
+    def _ours(self, turn: dict) -> bool:
+        """Whether a turn notification is about the turn this message started (C-26.5):
+        the turn id `turn/start` answered with, or, before that answer, any turn once
+        `turn/start` was sent. A turn announced before then, or under another id, is
+        not this message's (none has been seen: 5 of 5 Codex turn attempts on
+        2026-09-29 ended on their own turn's `turn/completed`)."""
+        turn_id = turn.get("id")
+        if self.turn_id and turn_id:
+            return str(turn_id) == self.turn_id
+        return self.turn_sent
+
+    def _other(self, method: str, turn: dict, source: "_Sources") -> Step:
+        """A turn that is not this message's: recorded; it neither acknowledges nor ends ours."""
+        return Step(events=[Event("turn.other", {"method": method, "turn_id": turn.get("id"),
+                                                 "status": turn.get("status")}, source.next())])
 
     def _thread_status(self, status: dict, source: "_Sources") -> Step:
         kind = status.get("type")

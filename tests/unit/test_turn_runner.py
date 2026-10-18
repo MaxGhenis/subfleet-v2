@@ -581,6 +581,8 @@ def test_approvals_wait_without_limit_unless_policy_caps_tool_approvals(make_run
 STEER_MID = "7f1c9a0e-2222-4222-8333-444455556666"
 STEER_CAPS = json.dumps({"type": "system", "subtype": "init", "session_id": SID,
                         "capabilities": ["msg_lifecycle_v1", "interrupt_receipt_v1", "interrupt_cancel_queued_v1"]})
+#: The host started: a steer goes into its own running turn (C-26.5).
+HOST_STARTED = json.dumps({"type": "command_lifecycle", "command_uuid": MID, "state": "started"})
 
 
 def claim_steer(runner, *, text="remember the second point", message_id=STEER_MID):
@@ -596,6 +598,7 @@ def ready_to_steer(runner, tmp_path):
     answer_up_to_the_message(runner, tmp_path, runner.spec.provider)
     if runner.spec.provider == "claude":
         runner._apply(runner.driver.feed(STEER_CAPS, 20))
+        runner._apply(runner.driver.feed(HOST_STARTED, 21))
     else:
         runner._apply(runner.driver.feed(json.dumps({"id": 5, "result": {"turn": {"id": "turn-one"}}}), 20))
     runner.replay_caught_up = True
@@ -913,7 +916,7 @@ def test_property_replay_at_each_steer_boundary_writes_once_and_preserves_fate(p
     with steer_schedule(provider) as (build, root, adir):
         runner = build()
         ready_to_steer(runner, root)
-        transcript = ([INIT_OK, STEER_CAPS] if provider == "claude" else
+        transcript = ([INIT_OK, STEER_CAPS, HOST_STARTED] if provider == "claude" else
                       codex_replies(str(root)) + [json.dumps({"id": 5, "result": {"turn": {"id": "turn-one"}}})])
         claim_steer(runner)
         for boundary in range(5):
@@ -1173,7 +1176,7 @@ def test_a_steer_whose_input_fails_goes_back_to_the_queue_and_the_host_runs_on(r
 def provider_stdout(provider: str, cwd: str) -> list[str]:
     """What the provider printed up to a running, steerable turn."""
     if provider == "claude":
-        return [INIT_OK, STEER_CAPS]
+        return [INIT_OK, STEER_CAPS, HOST_STARTED]
     return [*codex_replies(cwd), json.dumps({"id": 5, "result": {"turn": {"id": "turn-one"}}})]
 
 

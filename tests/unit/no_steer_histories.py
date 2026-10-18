@@ -18,11 +18,13 @@ code did: commit 52ffde17, the merge base of the steer work. Recorded with
 the recording's first line on stderr names the one it used.)
 
 `test_steer_invariants.py` runs the same histories through the current code and
-compares. Only what steer added to every turn is set aside: the `steers` of an
-outcome and of `turn.json`, and only when empty (anything in it fails). The one
-deliberate difference (`DELIBERATE`: a Codex notification naming another turn,
-ignored once the turn's id is known) is recorded too, and checked to differ in
-that notification's step alone.
+compares. Only what was added to every turn is set aside, and only when empty:
+the `steers` of an outcome and of `turn.json` (anything in it fails), and C-26.5's
+`not_run` (None) and `limit_seen` (false). Two deliberate differences are recorded
+too and checked to differ exactly as their clauses say: `DELIBERATE` (a Codex
+notification naming another turn, ignored once the turn's id is known) in that
+notification's step alone, and `unacknowledged_cases()` (C-26.5: a Claude turn
+whose message is never acknowledged before its end) in its stop and its end.
 """
 
 from __future__ import annotations
@@ -239,9 +241,24 @@ DELIBERATE = {"name": "codex/other-turn-delta", "provider": "codex",
                           *CODEX_ENDS["completed"]]}
 
 
+def _unacknowledged(case: dict) -> bool:
+    return case["name"].startswith("claude/") and "/none/" in case["name"]
+
+
 def cases() -> list[dict]:
     """The histories whose every step is the pre-steer code's."""
-    return claude_cases() + codex_cases() + claude_more_cases() + codex_more_cases()
+    return [case for case in claude_cases() + codex_cases() + claude_more_cases() + codex_more_cases()
+            if not _unacknowledged(case)]
+
+
+def unacknowledged_cases() -> list[dict]:
+    """The second deliberate difference (C-26.5, C-24.4, C-24.7): Claude histories whose
+    message is never acknowledged (no echo, no `started`) before the turn ends. The
+    pre-steer code took any `result` as the message's; a result that names nothing is
+    now another turn's or the session's failure, one that names the message
+    acknowledges it, a stop asks `cancel_queued` where the CLI offers it, and output
+    before acknowledgement is no answer. Recorded like the others."""
+    return [case for case in claude_cases() if _unacknowledged(case)]
 
 
 def deliberate_cases() -> list[dict]:
@@ -258,9 +275,17 @@ RUNNER_MORE = ("claude/steer-init/none/text/run/success", "claude/steer-init/non
                "claude/init-refused", "codex/start-refused", "codex/eof-before-accept", "codex/mismatch")
 
 
+def _runner_case(case: dict) -> bool:
+    return case["name"] in RUNNER_MORE or (
+        "/text/run/" in case["name"] and "/none/" not in case["name"] and "/plain-init/" not in case["name"])
+
+
 def runner_cases() -> list[dict]:
-    return [case for case in cases() if case["name"] in RUNNER_MORE or (
-        "/text/run/" in case["name"] and "/none/" not in case["name"] and "/plain-init/" not in case["name"])]
+    return [case for case in cases() if _runner_case(case)]
+
+
+def unacknowledged_runner_cases() -> list[dict]:
+    return [case for case in unacknowledged_cases() if _runner_case(case)]
 
 
 def spec(provider: str):
@@ -280,11 +305,17 @@ class SteersNotEmpty(AssertionError):
 
 
 def _no_steers(value: dict, where: str) -> dict:
-    """`value` without steer's own field, which a turn with no steers leaves empty
-    (the pre-steer code has none): anything in it fails the recording."""
+    """`value` without the fields added to every turn since the recording, each left
+    empty by these histories (the pre-steer code has none): steer's `steers`, and
+    C-26.5's `not_run`, `limit_seen` and `limit_since_success` (no history here meets a limit or a queue that
+    will not run its message). Anything in them fails the recording."""
     steers = value.pop("steers", None)
     if steers:
         raise SteersNotEmpty(f"{where}: steers {steers!r} for a turn with no steer")
+    not_run, limit_seen = value.pop("not_run", None), value.pop("limit_seen", False)
+    limit_since = value.pop("limit_since_success", False)
+    if not_run is not None or limit_seen or limit_since:
+        raise SteersNotEmpty(f"{where}: not_run {not_run!r}, limit_seen {limit_seen!r} where none was met")
     return value
 
 
@@ -418,8 +449,8 @@ def run(case: dict, timeout: float = 120.0, *, named: bool = True) -> dict:
 
 
 def record() -> dict:
-    return {"driver": {case["name"]: drive(case) for case in cases() + deliberate_cases()},
-            "runner": {case["name"]: run(case) for case in runner_cases()}}
+    return {"driver": {case["name"]: drive(case) for case in cases() + deliberate_cases() + unacknowledged_cases()},
+            "runner": {case["name"]: run(case) for case in runner_cases() + unacknowledged_runner_cases()}}
 
 
 def dump(recording: dict, stream) -> None:

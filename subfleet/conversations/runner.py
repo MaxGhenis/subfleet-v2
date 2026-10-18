@@ -168,6 +168,8 @@ class TurnRunner:
         self.stop_reason: str | None = None
         self.late_stop_at: float | None = None
         self.final_text: str | None = None
+        self.unclaimed_text: str | None = None # text of a turn not yet known to be the message's (C-26.5)
+        self.claims_seen = 0                   # the driver's results attributed to the message, so far
         self.contained = False
         self.idle_since: float | None = None
         self.finished = threading.Event()
@@ -586,6 +588,13 @@ class TurnRunner:
     # --- applying a driver step ------------------------------------------------
 
     def _apply(self, step: Step, *, send: bool = True) -> None:
+        claimed = getattr(self.driver, "claimed_results", 0)
+        if claimed > self.claims_seen:
+            # A result was the message's (C-26.5): the text its turn wrote before was its answer.
+            self.claims_seen = claimed
+            if self.unclaimed_text:
+                self.final_text = self.unclaimed_text
+            self.unclaimed_text = None
         for event in step.events:
             source = "command" if event.source.startswith("cmd:") else "stdout"
             self.batch.append((source, event.source, 0, event.kind, event.data))
@@ -593,8 +602,18 @@ class TurnRunner:
             if event.kind == "served":
                 self.served.update({k: v for k, v in event.data.items() if v is not None})
             if event.kind == "text" and event.data.get("text"):
-                self.final_text = event.data["text"]
+                # Text from before the message was acknowledged belongs to the turn under
+                # way, which a result shows to be another's (never the answer) or, when
+                # it names the message, the message's own (C-26.5).
+                if getattr(self.driver, "claims_output", self.driver.accepted):
+                    self.final_text = event.data["text"]
+                else:
+                    self.unclaimed_text = event.data["text"]
+            if event.kind == "turn.other":
+                self.unclaimed_text = None
             if event.kind == "accepted":
+                if event.data.get("by") != "result":
+                    self.unclaimed_text = None  # what came before was another turn's
                 self._flush()
                 self.store.set_state(self.message_id, RUNNING, expect=("starting", "waiting"),
                                      turn_ref=event.data.get("turn_id") or self.message_id)
@@ -1129,7 +1148,11 @@ class TurnRunner:
             # Only what stdout said after the outcome (C-24.8) is added.
             data = {**recorded, "terminal_after_end": bool(recorded.get("terminal_after_end"))
                     or bool(getattr(self.driver, "terminal_after_end", False)),
-                    "steers": {**recorded.get("steers", {}), **self.steer_facts()}}
+                    "steers": {**recorded.get("steers", {}), **self.steer_facts()},
+                    "not_run": recorded.get("not_run") or getattr(self.driver, "not_run", None),
+                    "limit_seen": bool(recorded.get("limit_seen")) or bool(getattr(self.driver, "limit_seen", False)),
+                    "limit_since_success": bool(recorded.get("limit_since_success"))
+                    or bool(getattr(self.driver, "limit_since_success", False))}
             from ..guardian import atomic_publish
             with self.store.writing():
                 atomic_publish(self.adir / "turn.json", (json.dumps(data, sort_keys=True) + "\n").encode())
@@ -1142,7 +1165,13 @@ class TurnRunner:
                 "user_frame_written": self.sent.get("user-message") == "written",
                 "frame_refused": self.frame_refused, "relay_version": self.relay_version,
                 "steers": self.steer_facts(),
-                "terminal_after_end": bool(getattr(self.driver, "terminal_after_end", False))}
+                "terminal_after_end": bool(getattr(self.driver, "terminal_after_end", False)),
+                # C-26.5: the provider's word that the message will not run, which can come
+                # after the driver ended the turn itself (a model mismatch's interrupt), and
+                # whether any turn of the session met a limit (the account's, for classify).
+                "not_run": outcome.not_run or getattr(self.driver, "not_run", None),
+                "limit_seen": bool(getattr(self.driver, "limit_seen", False)),
+                "limit_since_success": bool(getattr(self.driver, "limit_since_success", False))}
         from ..guardian import atomic_publish
         with self.store.writing():          # never after its service closed (C-25.3)
             atomic_publish(self.adir / "turn.json", (json.dumps(data, sort_keys=True) + "\n").encode())

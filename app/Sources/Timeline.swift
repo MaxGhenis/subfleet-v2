@@ -650,6 +650,17 @@ struct Timeline: Equatable {
                     break
                 }
             }
+        case "turn.other":
+            // C-26.5: the provider ended a turn of its own (a background task's notification,
+            // before this message started or after its result); what that turn wrote above
+            // is not this message's answer.
+            // A Codex turn that only started says nothing yet; its end does.
+            if data["method"]?.string == "turn/started" { break }
+            let words = data["origin"]?.string == "task-notification"
+                ? "Claude Code finished a turn for a background task"
+                : "The provider finished a turn that was not this message's"
+            turn.items.append(TimelineItem(id: "other:\(event.seq)", messageID: id, content: .notice(words),
+                                           ts: event.ts))
         case "error":
             turn.items.append(TimelineItem(id: "error:\(event.seq)", messageID: id,
                                            content: .error(message: data["message"]?.string ?? "error",

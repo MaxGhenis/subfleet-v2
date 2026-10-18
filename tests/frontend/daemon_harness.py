@@ -287,7 +287,9 @@ def make_live(harness: ServiceHarness, cid: str, mid: str):
     runner.handshaken = runner.handshake_done_once = runner.replay_caught_up = True
     runner._restore_steers()
     runner._apply(runner.driver.start())
-    for offset, row in enumerate((claude_init(), STEER_CAPS)):
+    # The host has started (`command_lifecycle started`): a steer goes into its own running turn (C-26.5).
+    started = {"type": "command_lifecycle", "command_uuid": mid, "state": "started"}
+    for offset, row in enumerate((claude_init(), STEER_CAPS, started)):
         runner._apply(runner.driver.feed(json.dumps(row), offset))
     assert runner.steerable
     harness.service.runners[attempt_id] = runner

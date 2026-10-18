@@ -279,6 +279,8 @@ def runner(w, stdout=()):
     r.driver.feed(INIT_OK, 0)
     r.driver.feed(json.dumps({"type": "system", "subtype": "init", "model": "claude-opus-5-5",
                               "capabilities": ["msg_lifecycle_v1", "interrupt_cancel_queued_v1"]}), 1)
+    # The host has started: a steer goes into its own running turn (C-26.5).
+    r.driver.feed(json.dumps({"type": "command_lifecycle", "command_uuid": w.host, "state": "started"}), 2)
     for offset, row in enumerate(stdout, 20):
         r._apply(r.driver.feed(json.dumps(row), offset))
     return r
@@ -364,8 +366,84 @@ def as_json(value):
 
 
 def test_the_pre_steer_recording_covers_every_no_steer_history():
-    assert sorted(PRE_STEER["driver"]) == sorted(case["name"] for case in no_steer.cases() + no_steer.deliberate_cases())
-    assert sorted(PRE_STEER["runner"]) == sorted(case["name"] for case in no_steer.runner_cases())
+    assert sorted(PRE_STEER["driver"]) == sorted(case["name"] for case in no_steer.cases() + no_steer.deliberate_cases()
+                                                 + no_steer.unacknowledged_cases())
+    assert sorted(PRE_STEER["runner"]) == sorted(case["name"] for case in no_steer.runner_cases()
+                                                 + no_steer.unacknowledged_runner_cases())
+
+
+def kinds_and_data(events: list) -> list:
+    return [[kind, data] for kind, data, *_ in events]
+
+
+ACCEPTED_BY_RESULT = ["accepted", {"message_id": no_steer.MID, "by": "result"}]
+
+
+#: The interrupt that also takes a waiting message out of the queue (C-26.5), as written.
+SWEEP = json.dumps({"type": "control_request", "request_id": "subfleet-interrupt",
+                    "request": {"subtype": "interrupt", "cancel_queued": True}}, separators=(",", ":"))
+
+
+def expected_end(old: dict, end: str, offers: bool, stopped: bool) -> dict:
+    """The pre-steer end step changed exactly as C-26.5 says, and nothing else."""
+    step = json.loads(json.dumps(old))
+    if end == "success":
+        # The result names the message: acknowledged by it, just before the end (C-24.4).
+        offset = step["events"][-1][2].split(":")[0]
+        completed = step["events"].pop()
+        step["events"] += [[*ACCEPTED_BY_RESULT, f"{offset}:2"], [completed[0], completed[1], f"{offset}:3"]]
+        step["outcome"]["accepted"] = True
+    elif end == "error":
+        # Names nothing, the message unacknowledged: the session's failure, which the
+        # driver ends (reconciled), after `cancel_queued` takes the waiting message out
+        # where the CLI offers it; nothing written before acknowledgement answered it.
+        step["events"][-1][1] = {**step["events"][-1][1], "session_failure": "unattributed"}
+        if offers and not stopped:
+            step["frames"].insert(0, ["interrupt", "write", SWEEP])
+        step["outcome"].update(ended_by="driver", answered=False)
+    else:
+        step["outcome"]["answered"] = False          # stdout's end: no answer before acknowledgement
+    return step
+
+
+@pytest.mark.parametrize("case", no_steer.unacknowledged_cases(), ids=lambda case: case["name"])
+def test_a_turn_whose_message_was_never_acknowledged_differs_only_as_c26_5_says(case):
+    """C-26.5, C-24.4, C-24.7: no echo and no `started` before the end. Every step but the
+    stop's and the end's is the pre-steer code's, and those two are the pre-steer code's
+    changed exactly as the clauses say (`expected_end`): a stop asks `cancel_queued` where
+    the CLI offers it, since the message may wait behind a turn the CLI began itself."""
+    now, before = as_json(no_steer.drive(case)), PRE_STEER["driver"][case["name"]]
+    init, stopped, end = case["name"].split("/")[1], "/stop/" in case["name"], case["name"].split("/")[-1]
+    offers = init == "steer-init"
+    last = len(case["actions"]) - 1
+    assert len(now["steps"]) == len(before["steps"]) == len(case["actions"])
+    for index, (action, step, old) in enumerate(zip(case["actions"], now["steps"], before["steps"])):
+        if action == ["interrupt"]:
+            want = json.loads(json.dumps(old))
+            if offers:
+                want["frames"] = [["interrupt", "write", SWEEP]]
+            assert step == want
+        elif index == last:
+            assert step == expected_end(old, end, offers, stopped)
+        else:
+            assert step == old
+    assert now["outcome"] == now["steps"][last]["outcome"]
+
+
+@pytest.mark.parametrize("case", no_steer.unacknowledged_runner_cases(), ids=lambda case: case["name"])
+def test_a_never_acknowledged_turn_runs_and_settles_as_before_but_as_c26_5_says(case):
+    """C-26.5, through the runner loop and settlement: the host settles, and blocks its
+    conversation or not, as before. The result naming the message acknowledges it; text
+    written before acknowledgement is its answer only when that result names it."""
+    now, before = as_json(no_steer.run(case)), PRE_STEER["runner"][case["name"]]
+    assert (now["host"], now["blocked_by"], now["changes"], now["frames"]) == (
+        before["host"], before["blocked_by"], before["changes"], before["frames"])
+    added = [event for event in now["events"] if event[:2] == ACCEPTED_BY_RESULT]
+    assert [event[:2] for event in now["events"] if event not in added] == [event[:2] for event in before["events"]]
+    if case["name"].endswith("/success"):
+        assert len(added) == 1 and now["turn"] == {**before["turn"], "accepted": True}
+    else:
+        assert not added and now["turn"] == {**before["turn"], "answered": False, "final_text": None}
 
 
 @pytest.mark.parametrize("case", no_steer.deliberate_cases(), ids=lambda case: case["name"])
@@ -424,13 +502,16 @@ def test_an_untitled_conversation_s_turn_with_no_steers_differs_only_by_its_titl
 @given(ack=st.booleans(), success=st.booleans(), replay=st.integers(0, 4))
 def test_hosts_without_steers_keep_their_delivery_and_outcome_rules(ack, success, replay):
     """Invariant 5, replay: an ordinary host still closes on its first result, and replay
-    preserves its acknowledgement, outcome, empty steer set and exactly one close."""
+    preserves its acknowledgement, outcome, empty steer set and exactly one close. The
+    result names the host, as Claude Code's own result does (2.1.280, 2.1.284): with no
+    other acknowledgement, that name is the host's (C-24.4, C-26.5)."""
     rows = [INIT_OK]
     if ack:
         rows.append(json.dumps({"type": "user", "uuid": spec().message_id,
                                 "message": {"role": "user", "content": "host"}}))
     rows.append(json.dumps({"type": "result", "subtype": "success", "is_error": not success,
-                            "result": "done" if success else "provider failed"}))
+                            "result": "done" if success else "provider failed",
+                            "user_message_uuids": [spec().message_id]}))
     reference = None
     for _ in range(replay + 1):
         turn = ClaudeTurn(spec(), read_bytes=lambda _: b"")
@@ -439,7 +520,7 @@ def test_hosts_without_steers_keep_their_delivery_and_outcome_rules(ack, success
             frames.extend(turn.feed(row, offset).frames)
         outcome = asdict(turn.outcome)
         assert outcome["state"] == ("complete" if success else "failed")
-        assert outcome["accepted"] == ack and outcome["steers"] == {}
+        assert outcome["accepted"] and outcome["steers"] == {}      # by its echo, or else its result's name
         assert len([f for f in frames if f.tag == "user-message"]) == 1
         assert len([f for f in frames if f.tag == "close"]) == 1
         reference = reference or outcome

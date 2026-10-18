@@ -109,6 +109,11 @@ class Outcome:
     # Shared with the driver until stdout drains: lifecycle/steer responses may
     # follow the provider's terminal frame, before settlement runs.
     steers: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # Claude (C-26.5): the provider said the message will not run in this session
+    # (`command_lifecycle` cancelled, discarded or refused before it started). The
+    # transcript may still hold it (a fold swept by `cancel_queued`), so it is
+    # reconciled (C-24.6), with this word standing in for an unwritten frame.
+    not_run: str | None = None
 
 
 @dataclass
