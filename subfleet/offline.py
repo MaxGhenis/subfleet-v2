@@ -254,7 +254,7 @@ class Offline:
             cancel = conn.execute("SELECT ts,data_json FROM events WHERE job_id=? "
                                   "AND kind='job.cancel_requested' AND event_id>COALESCE((SELECT MAX(event_id) "
                                   "FROM events WHERE job_id=? AND kind='job.wall_cancel_superseded'),0) "
-                                  "ORDER BY event_id LIMIT 1", (job_id, job_id)).fetchone()
+                                  "ORDER BY event_id DESC LIMIT 1", (job_id, job_id)).fetchone()
             job["cancel"] = cancel_info(cancel["ts"], cancel["data_json"]) if cancel and job["cancel_requested_at"] else None
             job["attempts"] = [dict(item) for item in conn.execute(
                 "SELECT * FROM attempts WHERE job_id = ? ORDER BY seq", (job_id,))]

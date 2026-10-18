@@ -3887,20 +3887,22 @@ class Daemon:
                 return False
         return self._request_cancel(
             job["job_id"], {"by": "daemon", "reason": "max_wall_s", "running_s": running_s},
-            family=True, attempt_id=a["attempt_id"], killed_by="max_wall_s")
+            attempt_id=a["attempt_id"], killed_by="max_wall_s")
 
     def _cancel_info(self, job_id: str) -> dict | None:
         if not self._job(job_id)["cancel_requested_at"]:
             return None
         row = self.store.one("SELECT ts,data_json FROM events WHERE job_id=? AND kind='job.cancel_requested' "
                              "AND event_id>COALESCE((SELECT MAX(event_id) FROM events WHERE job_id=? "
-                             "AND kind='job.wall_cancel_superseded'),0) ORDER BY event_id LIMIT 1", (job_id, job_id))
+                             "AND kind='job.wall_cancel_superseded'),0) ORDER BY event_id DESC LIMIT 1", (job_id, job_id))
         return cancel_info(row["ts"], row["data_json"]) if row else None
 
     def _supersede_wall_cancel(self, a: dict) -> None:
-        """A natural exit won the wall race. Retain the request in the audit
-        trail, but remove its effective cancellation and killed-attempt veto.
-        An operator's cancellation is never superseded here."""
+        """Supersede only an effective wall request for a proven pre-signal exit.
+
+        The original request stays in the audit trail. A client that has since
+        asked to cancel remains effective, including after a wall signal.
+        """
         with self.store.transaction("job.wall_cancel_superseded", job_id=a["job_id"],
                                     attempt_id=a["attempt_id"], data={"reason": "provider-exited"}) as tx:
             actual = self.store.get_attempt(a["attempt_id"])
@@ -3913,46 +3915,56 @@ class Daemon:
 
     @staticmethod
     def _cancel_requester(job: dict, data: dict) -> str:
+        if data.get("by") == "daemon" and data.get("reason") == "max_wall_s":
+            parent = f" from parent {data['parent_job_id']}" if data.get("parent_job_id") else ""
+            return f"cancel requested by max_wall_s{parent}"
         if data.get("by") != "client" or data.get("session_id") is None or not job.get("caller_session") \
                 or job["caller_session"] == data.get("session_id"):
             return ""
         return (f"cancel requested by session {data.get('session_id') or '(unknown)'} "
                 f"(pid {data.get('pid') if data.get('pid') is not None else 'unknown'}): {data['reason']}")
 
+    def _wall_exited_descendants(self, job_id: str) -> set[str]:
+        """Receipt preflight outside the settlement transaction (C-3.3)."""
+        exited = set()
+        # Read receipts off-lock: a completed dependent's result survives
+        # its parent's wall too, even before its row has been refreshed.
+        descendants = self.store.query(
+            "WITH RECURSIVE family(job_id) AS (SELECT ? UNION ALL SELECT j.job_id "
+            "FROM jobs j JOIN family f ON j.parent_job_id=f.job_id WHERE j.independent=0) "
+            "SELECT a.job_id,a.seq,a.state,a.finished_at FROM attempts a JOIN family f USING(job_id) "
+            "WHERE a.job_id<>? AND a.state IN ('starting','running','finalizing') "
+            "AND a.seq=(SELECT MAX(p.seq) FROM attempts p WHERE p.job_id=a.job_id)", (job_id, job_id))
+        for a in descendants:
+            if a["state"] == "finalizing" or a["finished_at"]:
+                exited.add(a["job_id"])
+                continue
+            try:
+                receipt = self._read_json(attempt_dir(self.root, a["job_id"], a["seq"]) / "exit.json")
+            except (OSError, ValueError, RecursionError):
+                receipt = None  # An unreadable child must not hold back the parent's stop.
+            if receipt:
+                exited.add(a["job_id"])
+        return exited
+
     def _request_cancel(self, job_id: str, data: dict, *, family: bool = False,
                         without_attempt: bool = False, attempt_id: str | None = None,
-                        killed_by: str | None = None) -> bool:
-        """D-KILL1: first request and requester notices commit with cancellation.
+                        killed_by: str | None = None, exited: set[str] | None = None) -> bool:
+        """D-KILL1: requests and requester notices commit with cancellation.
+
+        The first request wins except that a client replaces a pending wall.
+        A wall cascades only after its parent's attempt settles interrupted.
 
         A family shares one instant and transaction; every affected job has its
         own event so inspection never has to guess which parent was cancelled.
         """
         wall_family = family and data.get("by") == "daemon" and data.get("reason") == "max_wall_s"
-        exited = set()
-        if wall_family:
-            # Read receipts off-lock: a completed dependent's result survives
-            # its parent's wall too, even before its row has been refreshed.
-            descendants = self.store.query(
-                "WITH RECURSIVE family(job_id) AS (SELECT ? UNION ALL SELECT j.job_id "
-                "FROM jobs j JOIN family f ON j.parent_job_id=f.job_id WHERE j.independent=0) "
-                "SELECT a.job_id,a.seq,a.state,a.finished_at FROM attempts a JOIN family f USING(job_id) "
-                "WHERE a.job_id<>? AND a.state IN ('starting','running','finalizing') "
-                "AND a.seq=(SELECT MAX(p.seq) FROM attempts p WHERE p.job_id=a.job_id)", (job_id, job_id))
-            for a in descendants:
-                if a["state"] == "finalizing" or a["finished_at"]:
-                    exited.add(a["job_id"])
-                    continue
-                try:
-                    receipt = self._read_json(attempt_dir(self.root, a["job_id"], a["seq"]) / "exit.json")
-                except (OSError, ValueError, RecursionError):
-                    receipt = None  # An unreadable child must not hold back the parent's stop.
-                if receipt:
-                    exited.add(a["job_id"])
+        if exited is None:
+            exited = self._wall_exited_descendants(job_id) if wall_family else set()
         changed = False
         with self.store.transaction("job.cancel_checked", job_id=job_id, attempt_id=attempt_id) as tx:
             job = self._job(job_id)
-            if (job["state"] in TERMINAL and not job["cancel_requested_at"]
-                    or job["cancel_requested_at"] and not family):
+            if job["state"] in TERMINAL and not job["cancel_requested_at"]:
                 return False
             if without_attempt and tx.execute("SELECT 1 FROM attempts WHERE job_id=?", (job_id,)).fetchone():
                 return False
@@ -3963,8 +3975,15 @@ class Daemon:
             now = utcnow()
             for raw in rows:
                 row = dict(raw)
-                if row["state"] in TERMINAL or row["cancel_requested_at"]:
+                if row["state"] in TERMINAL:
                     continue
+                replacing_wall = False
+                if row["cancel_requested_at"]:
+                    effective = self._cancel_info(row["job_id"]) or {}
+                    replacing_wall = (data.get("by") == "client" and effective.get("by") == "daemon"
+                                      and effective.get("reason") == "max_wall_s")
+                    if not replacing_wall:
+                        continue
                 if wall_family and row["job_id"] != job_id:
                     latest = tx.execute("SELECT state,finished_at FROM attempts WHERE job_id=? "
                                         "ORDER BY seq DESC LIMIT 1", (row["job_id"],)).fetchone()
@@ -3980,6 +3999,9 @@ class Daemon:
                                             data=record) as inner:
                     changed = True
                     inner.execute("UPDATE jobs SET cancel_requested_at=? WHERE job_id=?", (now, row["job_id"]))
+                    if replacing_wall:
+                        inner.execute("UPDATE attempts SET killed_by='operator' WHERE job_id=? AND killed_by='max_wall_s' "
+                                      "AND state IN ('starting','running','finalizing')", (row["job_id"],))
                     if row["job_id"] == job_id and killed_by:
                         inner.execute("UPDATE attempts SET killed_by=? WHERE attempt_id=?", (killed_by, attempt_id))
                     active = inner.execute("SELECT 1 FROM attempts WHERE job_id=? AND state IN "
@@ -4042,6 +4064,10 @@ class Daemon:
                                f"({row['state'] if row else 'no job row'})")
         if not again and tx.execute("SELECT 1 FROM notices WHERE job_id=?", (job["job_id"],)).fetchone():
             return
+        if row["state"] == "cancelled":
+            requester = self._cancel_requester(dict(row), self._cancel_info(row["job_id"]) or {})
+            if requester and requester not in summary:
+                summary += "\n" + requester
         text = render.notice_header(dict(row), self.root) + "\n" + summary + self._moved_on(tx, row["job_id"])
         tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) VALUES(?,?,?,'pending',?)",
                    (row["job_id"], row["caller_session"], text, utcnow()))
@@ -8087,7 +8113,20 @@ class Daemon:
         self._boundary("finalizing", a["job_id"], a["attempt_id"])
         self._notify()
 
+    def _cascade_final_wall(self, a: dict, exited: set[str]) -> None:
+        actual = self.store.get_attempt(a["attempt_id"])
+        request = self._cancel_info(a["job_id"]) or {}
+        if actual["state"] == "interrupted" and request.get("by") == "daemon" and request.get("reason") == "max_wall_s":
+            self._request_cancel(a["job_id"], {k: request[k] for k in ("by", "reason", "running_s") if k in request},
+                                 family=True, exited=exited)
+
     def _kill_attempt(self, a: dict, *, lost: bool = False) -> None:
+        # Fresh request attribution matters for descendants and clients that
+        # replaced the wall after the worker read its attempt row.
+        a = self.store.get_attempt(a["attempt_id"])
+        request = self._cancel_info(a["job_id"]) or {}
+        killed_by = "recovery" if lost else ("max_wall_s" if request.get("by") == "daemon"
+                                             and request.get("reason") == "max_wall_s" else "operator")
         census = self._contain(a)
         adir = attempt_dir(self.root, a["job_id"], a["seq"])
         if a.get("killed_by") == "max_wall_s":
@@ -8108,7 +8147,7 @@ class Daemon:
             owned.update({pid: ident for pid, ident in census.identities.items() if pid in census.group_pids})
         evidence["owned_identities"] = {str(pid): dataclasses.asdict(ident) for pid, ident in owned.items()}
         with self.store.transaction("attempt.kill_started", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
-            tx.execute("UPDATE attempts SET killed_by=COALESCE(killed_by,?),evidence_json=? WHERE attempt_id=?", ("recovery" if lost else "operator", json.dumps(evidence), a["attempt_id"]))
+            tx.execute("UPDATE attempts SET killed_by=COALESCE(killed_by,?),evidence_json=? WHERE attempt_id=?", (killed_by, json.dumps(evidence), a["attempt_id"]))
         if a.get("killed_by") == "max_wall_s":
             # Identity reads and the database commit may have waited since the
             # first census. Check once more immediately before the first signal.
@@ -8153,7 +8192,7 @@ class Daemon:
         if receipt is None:
             sig = signal.SIGKILL if escalated else signal.SIGTERM
             receipt = {"rc": -int(sig), "signal": int(sig), "child_pid": a["child_pid"],
-                       "wall_s": age(a["started_at"]), "finished_at": utcnow(), "killed_by": a.get("killed_by") or "operator"}
+                       "wall_s": age(a["started_at"]), "finished_at": utcnow_ms(), "killed_by": killed_by}
             self._publish("exit", adir / "exit.json", json_bytes(receipt))
         self._begin_finalizing(a, receipt)
 
@@ -8635,6 +8674,7 @@ class Daemon:
         else:
             salvage_artifacts, checkpoint, salvage_evidence = self._salvage(job, a)
         artifacts.extend(salvage_artifacts)
+        wall_exited = self._wall_exited_descendants(a["job_id"]) if actual.get("killed_by") == "max_wall_s" else set()
         with self.store.transaction("attempt.accepted", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
             job = self._job(a["job_id"])
             current = tx.execute("SELECT MAX(seq) FROM attempts WHERE job_id=?", (job["job_id"],)).fetchone()[0]
@@ -8668,13 +8708,16 @@ class Daemon:
                     outcome, cls=OutcomeClass.UNKNOWN,
                     detail=f"stopped by {actual['killed_by']}: exit {rc} after the daemon's signal "
                            f"is not a finished deliverable")
+            request = self._cancel_info(job["job_id"]) or {}
+            if actual.get("killed_by") == "max_wall_s" and request.get("parent_job_id"):
+                outcome = dataclasses.replace(outcome, detail=f"stopped by max_wall_s from parent {request['parent_job_id']}: {outcome.detail}")
             cancel = bool(job["cancel_requested_at"])
             ok = not lost and rc == 0 and outcome.cls == OutcomeClass.OK
             if job["kind"] == "turn":
                 # C-24.4: the provider's success decides a turn, whatever the exit
                 # status or a stop that came too late (review F4).
                 ok = not lost and outcome.cls == OutcomeClass.OK
-                cancel = cancel and (not ok or actual.get("killed_by") == "max_wall_s")
+                cancel = cancel and (not ok or actual.get("killed_by") == "max_wall_s" or request.get("by") == "client")
             previous_transient = self._earlier_transients(tx, job["job_id"], a)
             # C-4.5: a lane fault (an `auth-dead` lane, on an unpinned job whose
             # workspace it left as it found it) moves the job on to the next
@@ -8737,6 +8780,7 @@ class Daemon:
             next_check = after(60 if outcome.cls == OutcomeClass.TRANSIENT else 0) if retry else None
             tx.execute("UPDATE jobs SET state=?,rc=?,accepted_attempt_id=?,finished_at=?,wait_reason=?,next_check_at=? WHERE job_id=?",
                        (job_state, job_rc, accepted, None if retry else utcnow(), "capacity" if retry else None, next_check, job["job_id"]))
+            self._cascade_final_wall(a, wall_exited)
             if accepted and job.get("push_branch") is not None:
                 # Recovery and retention use the existing indexed holder query.
                 # Keep the bundle pinned until its post-accept publication ends.
