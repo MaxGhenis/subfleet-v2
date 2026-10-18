@@ -8298,10 +8298,18 @@ class Daemon:
                           if result else None)
         frozen_stream, stream_receipt = None, {}
         if job["kind"] != "turn" and not stream_failure:
+            checking_saved_copy = result is not None
             try:
                 if result is not None and "stream" in result:
                     frozen_stream, stream_receipt = restore_stream(adir, launch, result["stream"])
                 else:
+                    if result is not None:
+                        # A legacy verdict alone does not prove a copy exists.
+                        # Once absence is known, first-capture errors must stick.
+                        try:
+                            (adir / "stream.freeze.json").lstat()
+                        except FileNotFoundError:
+                            checking_saved_copy = False
                     frozen_stream = self._freeze_stream(adir, launch)
                     stream_receipt = read_freeze_receipt(adir) or {}
                     if result is not None and stream_receipt.get("reset_finalization"):
@@ -8309,7 +8317,7 @@ class Daemon:
                         # this legacy verdict to it before interruption.
                         raise InvalidFrozenStream(errno.ESTALE, "legacy verdict predates replacement stream copy")
             except Exception as exc:
-                uncheckable = result is not None and not isinstance(exc, InvalidFrozenStream)
+                uncheckable = checking_saved_copy and not isinstance(exc, InvalidFrozenStream)
                 if uncheckable:
                     failures = self._stream_check_failures[a["attempt_id"]] = (
                         self._stream_check_failures.get(a["attempt_id"], 0) + 1)
