@@ -227,6 +227,99 @@ def test_tool_results_are_not_counted_as_prompts(home):
     assert transcripts.headless_transcript(path) is True
 
 
+# --- the writer's entrypoint decides (C-23.31, 2026-10-03) --------------------
+
+@pytest.mark.parametrize("entrypoint", ["claude-desktop", "cli"])
+def test_a_session_whose_prompts_arrive_as_sdk_is_still_a_session(home, entrypoint):
+    """C-23.31: the desktop app sends its prompts as `promptSource: sdk`, so a
+    desktop session started by one or two messages has a lane's prompt shape.
+    The process that wrote it says otherwise (19 desktop sessions holding
+    pending notices read as lane runs on 2026-10-03)."""
+    one = fx.transcript(home, SESSION, fx.stamped(fx.headless(), entrypoint))
+    assert transcripts.headless_transcript(one) is False
+    two = fx.transcript(home, "two-prompts", fx.stamped([
+        fx.headless_prompt("the task", uuid="h1", at=fx.ago(900)),
+        fx.assistant_text("working", uuid="a1", at=fx.ago(800)),
+        fx.headless_prompt("one more thing", uuid="h2", at=fx.ago(700)),
+        fx.assistant_tool_use(uuid="a2", at=fx.ago(600))], entrypoint))
+    assert transcripts.headless_transcript(two) is False
+
+
+@pytest.mark.parametrize("entrypoint", sorted(transcripts.HEADLESS_ENTRYPOINTS))
+def test_a_headless_entrypoint_is_a_lane_run_however_many_prompts(home, entrypoint):
+    """C-23.31: a `claude -p` or Agent SDK process is a lane run whatever its
+    prompts: a resumed or notified lane takes more than two, and a v1 probe's
+    prompt carries no `promptSource` at all."""
+    notified = fx.transcript(home, "lane-many", fx.stamped([
+        fx.headless_prompt(f"prompt {n}", uuid=f"h{n}", at=fx.ago(900 - n))
+        for n in range(5)] + [fx.assistant_text("ok", uuid="a", at=fx.ago(100))], entrypoint))
+    assert transcripts.headless_transcript(notified) is True
+    probe = fx.transcript(home, "probe", fx.stamped([
+        fx.user_text("Reply with exactly: ok", uuid="p", at=fx.ago(60)),
+        fx.assistant_text("ok", uuid="a", at=fx.ago(59))], entrypoint))
+    assert transcripts.headless_transcript(probe) is True
+
+
+def test_one_entry_from_a_person_driven_process_makes_a_session(home):
+    """C-23.31: a desktop session a headless process later continued (a revive,
+    a Subfleet turn) and a lane run the desktop app later resumed both have a
+    person's process in them; neither is a lane run."""
+    continued = fx.transcript(home, SESSION, [
+        *fx.stamped([fx.headless_prompt("start", uuid="h1", at=fx.ago(900))], "claude-desktop"),
+        *fx.stamped([fx.headless_prompt("continue", uuid="h2", at=fx.ago(800)),
+                     fx.assistant_tool_use(uuid="a", at=fx.ago(700))], "sdk-cli")])
+    assert transcripts.headless_transcript(continued) is False
+    resumed = fx.transcript(home, "resumed-lane", [
+        *fx.stamped(fx.headless(), "sdk-cli"),
+        *fx.stamped([fx.assistant_text("seen", uuid="late", at=fx.ago(10))], "claude-desktop")])
+    assert transcripts.headless_transcript(resumed) is False
+
+
+def test_an_entrypoint_outside_the_headless_set_is_a_session(home):
+    """C-23.31: only `sdk-cli`, `sdk-ts` and `sdk-py` are headless. Another of
+    Claude Code's entrypoints, or one it adds later, is never read as a lane:
+    hiding a person's session is the failure this clause cannot afford."""
+    path = fx.transcript(home, SESSION, fx.stamped(fx.headless(), "claude-vscode"))
+    assert transcripts.headless_transcript(path) is False
+
+
+@pytest.mark.parametrize("value", ["", None, 7, ["sdk-cli"]])
+def test_an_entrypoint_that_names_nothing_falls_back_to_the_prompt_rule(home, value):
+    """C-23.31: an empty or non-string `entrypoint` names no process, so the
+    transcript is read as older Claude Code's: by its prompts."""
+    lane = fx.transcript(home, "lane-1", [{**entry, "entrypoint": value} for entry in fx.headless()])
+    assert transcripts.headless_transcript(lane) is True
+    typed = fx.transcript(home, SESSION, [{**entry, "entrypoint": value} for entry in fx.interrupted()])
+    assert transcripts.headless_transcript(typed) is False
+
+
+def test_a_legacy_prompt_still_speaks_beside_headless_entries(home):
+    """C-23.31: prompts that name no entrypoint keep v1's reading even when a
+    later headless process continued the transcript: a typed prompt from older
+    Claude Code made it a session."""
+    path = fx.transcript(home, SESSION, [
+        fx.typed_prompt("go", uuid="t", at=fx.ago(900)),
+        *fx.stamped([fx.headless_prompt("continue", uuid="h", at=fx.ago(800))], "sdk-cli")])
+    assert transcripts.headless_transcript(path) is False
+    lane = fx.transcript(home, "lane-1", [
+        fx.headless_prompt("brief", uuid="h0", at=fx.ago(900)),
+        *fx.stamped([fx.headless_prompt("resumed", uuid="h1", at=fx.ago(800))], "sdk-cli")])
+    assert transcripts.headless_transcript(lane) is True
+
+
+def test_a_line_that_is_not_an_object_is_skipped(home):
+    """C-23.31: a valid JSON line that is not an object is no entry, and a
+    message that is not an object has no content; reading either never raises
+    (both raised AttributeError before 2026-10-03)."""
+    path = fx.transcript(home, "lane-1", fx.headless())
+    odd = ["[1]", '"text"', json.dumps({"type": "user", "message": "x", "promptSource": "sdk"})]
+    path.write_text("\n".join(odd) + "\n" + path.read_text(encoding="utf-8"), encoding="utf-8")
+    assert transcripts.headless_transcript(path) is True       # two sdk prompts, no entrypoint
+    stamped = fx.transcript(home, "lane-2", fx.stamped(fx.headless(), "sdk-cli"))
+    stamped.write_text("\n".join(odd) + "\n" + stamped.read_text(encoding="utf-8"), encoding="utf-8")
+    assert transcripts.headless_transcript(stamped) is True
+
+
 # --- what revive reads off a transcript (C-23.35, C-23.39) --------------------
 
 def test_the_permission_mode_is_read_from_the_last_stamped_turn(home):

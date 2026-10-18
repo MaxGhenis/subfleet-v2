@@ -223,7 +223,7 @@ def stage(root: Path):
     return write
 
 
-def test_world_shutdown_reaps_a_provider_still_writing_receipts(world, monkeypatch):
+def test_world_shutdown_reaps_a_provider_still_writing_receipts(world, monkeypatch, process_inspection_available):
     """Fixture cleanup waits for detached writers before deleting their root."""
     service, _client, _home, _store, root, _policy, base = world
     release = root / "release-provider"
@@ -461,7 +461,7 @@ def test_a_revive_records_the_requested_model_substitution(world):
     assert len(events) == 1
     assert json.loads(events[0]["data_json"])["job_id"] == result.job_id
 
-def test_revive_probes_lane_before_launch(world):
+def test_revive_probes_lane_before_launch(world, process_inspection_available):
     """C-23.20: revive admits a lane only on a `provider` reading taken in the
     same pass — a stored reading never qualifies it on its own.
 
@@ -507,7 +507,7 @@ def test_revive_probes_lane_before_launch(world):
         "the probe released its lane reservation before the attempt took it"
 
 
-def test_revive_census_refreshed_and_skips_running_twin(world):
+def test_revive_census_refreshed_and_skips_running_twin(world, process_inspection_available):
     """C-23.55: a session has at most one live revive. The lease
     `session:<id>:revive` is taken in the transaction that admits the attempt,
     and a session that already holds it is skipped rather than launched again.
@@ -542,7 +542,7 @@ def test_revive_census_refreshed_and_skips_running_twin(world):
     assert len(service.store.query("SELECT * FROM jobs WHERE kind='revive'")) == 1
 
 
-def test_a_revive_that_loses_the_lease_race_is_skipped_not_queued(world):
+def test_a_revive_that_loses_the_lease_race_is_skipped_not_queued(world, process_inspection_available):
     """C-23.55: "a session that already holds it is skipped rather than launched
     again" — and skipped means terminal, not patient.
 
@@ -574,7 +574,7 @@ def test_a_revive_that_loses_the_lease_race_is_skipped_not_queued(world):
     assert notice["session_id"] == ALICE
 
 
-def test_the_lease_is_session_scoped_and_released_with_the_job(world):
+def test_the_lease_is_session_scoped_and_released_with_the_job(world, process_inspection_available):
     """C-23.55 and C-6.3: the key names the session, the holder is the job, and
     every existing holder-keyed release site frees it.
 
@@ -617,7 +617,7 @@ def test_the_lease_is_session_scoped_and_released_with_the_job(world):
     until(released, timeout=stage_s(service), describe=where)
 
 
-def test_a_revive_resumes_the_named_session_rather_than_starting_a_new_one(world):
+def test_a_revive_resumes_the_named_session_rather_than_starting_a_new_one(world, process_inspection_available):
     """C-23.54: a revive is an ordinary submission whose launch is
     `--resume <session id>`. Starting a fresh conversation would look like a
     revive and not be one."""

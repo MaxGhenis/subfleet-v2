@@ -31,7 +31,7 @@ S2 = "6f1d5f2a-6f0f-4a0a-9f2f-7c1b2d3e4f50"
 S3 = "0b5d9c7e-1a2b-4c3d-8e9f-a0b1c2d3e4f5"
 OPUS = "claude-opus-5-5"
 DEAD = dormant.Processes(starts={}, named=frozenset())
-EMPTY = registry.Reading()
+EMPTY = registry.Listing()
 
 
 @pytest.fixture
@@ -150,7 +150,7 @@ def test_c23_57_a_running_process_makes_it_active(world, how):
     reading = EMPTY
     processes = DEAD
     if how == "registry":
-        reading = registry.Reading(rows=(_row(S1, 4242, "Mon Sep 28 17:19:00 2026"),))
+        reading = registry.Listing(rows=(_row(S1, 4242, "Mon Sep 28 17:19:00 2026"),))
         processes = dormant.Processes(starts={4242: "Mon Sep 28 17:19:00 2026"}, named=frozenset())
     else:
         form = {"argv-equals": "--resume={}", "argv-space": "--resume {}", "argv-short": "-r {}",
@@ -172,17 +172,16 @@ def test_c23_57_a_registry_row_of_a_reused_pid_is_not_evidence(world):
     """C-23.57: a row whose recorded start differs from the live pid's is stale
     (the pid was reused), so it does not hold the wake back."""
     dormant_session(world)
-    reading = registry.Reading(rows=(_row(S1, 4242, "Mon Sep 28 17:19:00 2026"),))
+    reading = registry.Listing(rows=(_row(S1, 4242, "Mon Sep 28 17:19:00 2026"),))
     processes = dormant.Processes(starts={4242: "Tue Sep 29 09:00:00 2026"}, named=frozenset())
     assert row_of(scan(world, reading=reading, processes=processes)).eligible
 
 
 @pytest.mark.parametrize("processes, reading", [
     (None, EMPTY),
-    (DEAD, registry.Reading(error="cannot list: permission denied")),
+    (DEAD, None),                                 # the registry could not be listed
     (dormant.Processes(starts={31: "Mon Sep 28 17:19:00 2026"}, named=frozenset()),
-     registry.Reading(unreadable=(31,))),
-    (DEAD, registry.Reading(unreadable=(None,))),
+     registry.Listing(unreadable=(31,))),
 ])
 def test_c23_57_an_inspection_failure_is_never_a_death(world, processes, reading):
     """C-23.57 (C-4.2): an unreadable process table, an unlistable registry, or an
@@ -196,19 +195,27 @@ def test_c23_57_an_inspection_failure_is_never_a_death(world, processes, reading
 def test_c23_57_an_unreadable_row_of_a_dead_pid_is_ignored(world):
     """C-23.57: a registry file left by a process that is gone says nothing."""
     dormant_session(world)
-    assert row_of(scan(world, reading=registry.Reading(unreadable=(31,)))).eligible
+    assert row_of(scan(world, reading=registry.Listing(unreadable=(31,)))).eligible
 
 
-def test_c23_57_registry_read_reports_what_it_could_not_read(tmp_path, monkeypatch):
-    """C-23.57: `registry.read` names the pid of a file it could not read and the
-    directory it could not list, where `rows()` would have said "no rows"."""
+def test_c23_57_the_registry_listing_reports_what_it_could_not_read(tmp_path, monkeypatch):
+    """C-23.57: `registry.listing` names the pid of a file it could not read and
+    answers None for a directory it could not list, where `rows()` would have
+    said "no rows"; a file not named for a pid names no process, and holds no
+    session back (review r3)."""
     home = fx.claude_home(tmp_path, monkeypatch)
     fx.register(home, S1, 4242)
     (home / "sessions" / "31.json").write_text("{torn")
-    reading = registry.read()
+    (home / "sessions" / "notes.json").write_text("{torn")
+    reading = registry.listing()
     assert [item.session_id for item in reading.rows] == [S1]
-    assert reading.unreadable == (31,) and reading.error is None
-    assert registry.read(tmp_path / "missing") == registry.Reading()
+    assert reading.unreadable == (31,)
+    assert registry.listing(tmp_path / "missing") == registry.Listing()
+    (home / "sessions").chmod(0o000)
+    try:
+        assert registry.listing() is None
+    finally:
+        (home / "sessions").chmod(0o700)
 
 
 @pytest.mark.parametrize("record, reason", [
@@ -423,7 +430,8 @@ class FakeConversations:
 
 def probes(**overrides):
     base = dict(processes=lambda: DEAD, reading=lambda: EMPTY,
-                copies=lambda store, local, flags: dormant.all_copies(store, local, flags=flags),
+                copies=lambda store, local, cli, flags: dormant.all_copies(
+                    store, local, cli_session_id=cli, flags=flags),
                 open_facts=lambda path: (True, None, {"cwd": "/w", "permission": "bypass"}),
                 branch=lambda workspace, permission: None)
     base.update(overrides)
@@ -507,8 +515,8 @@ def test_c23_60_the_strict_check_reads_every_copy_before_acting(world):
     archived = dormant.DesktopRecord(local_id=f"local_{S1}", cli_session_id=S1, model=OPUS,
                                      cwd=world["cwd"], archived=True)
     service = FakeConversations()
-    chosen = probes(copies=lambda store, local, flags: archived if S1 in local
-                    else dormant.all_copies(store, local, flags=flags))
+    chosen = probes(copies=lambda store, local, cli, flags: archived if S1 in local
+                    else dormant.all_copies(store, local, cli_session_id=cli, flags=flags))
     report = wake(world, fx.FakeSessions(), service, probes=chosen,
                   window=open_window(), )
     assert "archived" in row_of(report.scan, S1).reason and service.opened == [S2]
@@ -634,8 +642,8 @@ def test_c23_60_a_reservation_another_pass_took_is_not_sent_twice(world):
 
 
 @pytest.mark.parametrize("copies, why", [
-    (lambda store, local, flags: None, "could not be read"),
-    (lambda store, local, flags: dormant.DesktopRecord(local_id=local, cli_session_id=S1, model=OPUS,
+    (lambda store, local, cli, flags: None, "could not be read"),
+    (lambda store, local, cli, flags: dormant.DesktopRecord(local_id=local, cli_session_id=S1, model=OPUS,
                                                       cwd="/w", unreadable=1), "could not be read"),
 ])
 def test_c23_58_an_unread_copy_holds_the_wake(world, copies, why):
@@ -726,15 +734,104 @@ def test_c23_59_the_pace_is_the_tightest_lane_a_turn_may_land_on(monkeypatch, re
     assert dormant.pace_lanes(windows, now=NOW).allowed == allowed
 
 
-def test_c23_59_a_lane_without_a_reading_is_named_not_trusted(monkeypatch):
-    """C-23.59: the first lane must have a reading; a fallback without one cannot
-    be measured and is named in the reason."""
+def test_c23_59_a_lane_without_a_reading_holds_every_wake():
+    """C-23.59, review r3 (blocking): a wake's turn may land on any lane listed,
+    so one without a reading to pace against holds the batch, wherever it is in
+    the list, and names the lane."""
     first = dormant.Window(10.0, NOW + timedelta(hours=1), as_of=NOW, label="provider", source="lane a")
     blank = dormant.Window(None, None, source="lane b: no five-hour reading")
     decision = dormant.pace_lanes([first, blank], now=NOW)
-    assert decision.allowed == 6 and "not measured: lane b" in decision.reason
+    assert decision.allowed == 0 and "lane b" in decision.reason
     assert dormant.pace_lanes([blank, first], now=NOW).allowed == 0
+    assert dormant.pace_lanes([first], now=NOW).allowed == 6
     assert dormant.pace_lanes([], now=NOW).allowed == 0
+
+
+# --- the real scheduler (review r3): the lanes a wake's turn may land on --------
+
+from tests.unit.test_scheduler import (closure as sched_closure, lane as sched_lane,  # noqa: E402
+                                       reading as sched_reading, view as sched_view)
+from tests.unit.test_scheduler import NOW as SCHED_NOW  # noqa: E402
+
+SCHED_INSTANT = datetime.fromisoformat(SCHED_NOW.replace("Z", "+00:00"))
+
+
+def five_hour(identity, utilization, *, age_s=0.0, label="provider"):
+    return sched_reading(identity, utilization, window="five_hour",
+                         reset=fx.iso(SCHED_INSTANT + timedelta(hours=2)),
+                         observed_at=fx.iso(SCHED_INSTANT - timedelta(seconds=age_s)), label=label)
+
+
+def shipped_policy():
+    """The shipped policy with the C-11.7 reserve switched off, as the scheduler's
+    own admission tests take it: the reserve is not what is under test here."""
+    from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
+    loaded = load_policy(DEFAULT_POLICY_PATH)
+    loaded["reserve"] = {**loaded.get("reserve", {}), "models": []}
+    return loaded
+
+
+def test_c23_59_astras_repro_a_lane_with_no_five_hour_reading_holds_the_batch():
+    """C-23.59, Astra r3: A at 10% five-hour, A and B alike weekly, B with no
+    five-hour reading. Placements alternate A, B, A, B as turns in flight count,
+    so B is a lane a wake lands on; it cannot be measured, so nothing goes."""
+    policy = shipped_policy()
+    lanes = [sched_lane("claude-1"), sched_lane("claude-2")]
+    rows = [sched_reading("claude-1", .3), sched_reading("claude-2", .3), five_hour("claude-1", .10)]
+    windows = dormant.lane_windows(sched_view(lanes, rows), policy, model=OPUS, now=SCHED_INSTANT)
+    assert {window.lane for window in windows} == {"claude-1", "claude-2"}
+    assert dormant.pace_lanes(windows, now=SCHED_INSTANT).allowed == 0
+
+
+def test_c23_59_opus_repro_a_reading_older_than_the_schedulers_ttl_still_counts_the_other_lane():
+    """C-23.59, Opus r3: the chosen lane's reading is ten minutes old, which the
+    scheduler ranks as unmeasured, and another lane has no five-hour reading; the
+    wakes would spread to it, so nothing goes."""
+    policy = shipped_policy()
+    lanes = [sched_lane("claude-1"), sched_lane("claude-2")]
+    rows = [five_hour("claude-1", .20, age_s=600)]
+    windows = dormant.lane_windows(sched_view(lanes, rows), policy, model=OPUS, now=SCHED_INSTANT)
+    assert len(windows) == 2 and dormant.pace_lanes(windows, now=SCHED_INSTANT).allowed == 0
+
+
+def test_c23_59_two_measured_lanes_pace_to_the_tighter():
+    """C-23.59: with both lanes measured, wakes may land on either, and the tighter
+    one sets the count (here 65% at 60% elapsed allows five, not six)."""
+    policy = shipped_policy()
+    lanes = [sched_lane("claude-1"), sched_lane("claude-2")]
+    rows = [five_hour("claude-1", .10), five_hour("claude-2", .65)]
+    windows = dormant.lane_windows(sched_view(lanes, rows), policy, model=OPUS, now=SCHED_INSTANT)
+    tighter = dormant.pace(windows[[w.lane for w in windows].index("claude-2")],
+                           now=SCHED_INSTANT)
+    assert dormant.pace_lanes(windows, now=SCHED_INSTANT).allowed == tighter.allowed < 6
+
+
+def test_c23_59_a_closure_ending_inside_the_horizon_brings_its_lane_in():
+    """C-23.59: a lane closed until ten minutes from now can take a wake's turn
+    while the wake still counts as running (30 minutes), so it is paced; one
+    closed for a day is not reachable in that time."""
+    policy = shipped_policy()
+    lanes = [sched_lane("claude-1"), sched_lane("claude-2")]
+    rows = [five_hour("claude-1", .10)]
+    soon = sched_closure("claude-2", until=fx.iso(SCHED_INSTANT + timedelta(minutes=10)))
+    late = sched_closure("claude-2", until=fx.iso(SCHED_INSTANT + timedelta(days=1)))
+    for closed, expect in ((soon, {"claude-1", "claude-2"}), (late, {"claude-1"})):
+        windows = dormant.lane_windows(sched_view(lanes, rows, closures=[closed]), policy,
+                                       model=OPUS, now=SCHED_INSTANT, horizon_s=1800)
+        assert {window.lane for window in windows} == expect
+    soon_windows = dormant.lane_windows(sched_view(lanes, rows, closures=[soon]), policy,
+                                        model=OPUS, now=SCHED_INSTANT, horizon_s=1800)
+    assert dormant.pace_lanes(soon_windows, now=SCHED_INSTANT).allowed == 0
+
+
+def test_c23_59_no_lane_for_a_turn_paces_nothing():
+    """C-23.59: with every lane closed there is nowhere to pace against."""
+    policy = shipped_policy()
+    lanes = [sched_lane("claude-1")]
+    windows = dormant.lane_windows(sched_view(lanes, [five_hour("claude-1", .1)],
+                                              closures=[sched_closure("claude-1")]),
+                                   policy, model=OPUS, now=SCHED_INSTANT)
+    assert dormant.pace_lanes(windows, now=SCHED_INSTANT).allowed == 0
 
 
 def test_c23_59_a_busy_lane_cannot_take_a_later_wake_of_the_batch(monkeypatch):
@@ -825,7 +922,7 @@ def test_c23_57_an_uninterpretable_registry_row_is_unreadable(tmp_path, monkeypa
     or no pid still names a process (its file name), whose session is unknown."""
     home = fx.claude_home(tmp_path, monkeypatch)
     (home / "sessions" / "31.json").write_text(body)
-    reading = registry.read()
+    reading = registry.listing()
     assert reading.unreadable == (31,) and reading.rows == ()
     live = dormant.Processes(starts={31: "Mon Sep 28 17:19:00 2026"}, named=frozenset())
     assert dormant.liveness(S1, reading=reading, processes=live) == "unknown"
@@ -843,6 +940,29 @@ def test_c23_58_a_copy_that_cannot_be_looked_at_counts_as_unread(world):
     finally:
         locked.chmod(0o700)
     assert merged is not None and merged.unreadable == 1
+
+
+def test_c23_58_astras_repro_a_copy_under_the_mirrors_fallback_name_is_read(world):
+    """C-23.58, Astra r3 (blocking): in account B the session's own file name holds
+    another session (S2), so the mirror wrote S1's copy as `local_<S1>.json`;
+    that copy is archived and scheduled, and the strict check must see it."""
+    local = "local_shared-name"
+    fx.index_entry(world["store"], ACCOUNT, ORG, S1, name=f"{local}.json", cwd=world["cwd"], model=OPUS)
+    fx.index_entry(world["store"], "acct-b", "org-b", S2, name=f"{local}.json", cwd=world["cwd"], model=OPUS)
+    fx.index_entry(world["store"], "acct-b", "org-b", S1, cwd=world["cwd"], model=OPUS,
+                   archived=True, scheduledTaskId="task_9")
+    merged = dormant.all_copies(world["store"], local, cli_session_id=S1)
+    assert merged.copies == 2 and merged.archived and merged.scheduled and merged.unreadable == 0
+    assert all(S2 not in (path or "") for path in [merged.path])
+
+
+def test_c23_58_a_folder_that_cannot_be_looked_into_counts_as_unread(world):
+    """C-23.58, Opus r3: an account folder whose entry cannot be stat'ed (a
+    symlink loop here) may hold the archived copy, so it counts as unread."""
+    dormant_session(world)
+    (world["store"] / "acct-loop").symlink_to(world["store"] / "acct-loop")
+    merged = dormant.all_copies(world["store"], f"local_{S1}", cli_session_id=S1)
+    assert merged is not None and merged.unreadable >= 1
 
 
 def test_c23_59_a_lock_that_cannot_be_opened_is_named(world, monkeypatch):
@@ -973,7 +1093,7 @@ def test_c23_56_doctor_warns_about_dormant_sessions(world, monkeypatch):
     dormant_session(world)
     monkeypatch.setattr(facts, "offline_state", lambda root: fx.FakeSessions().state(None))
     monkeypatch.setattr(dormant, "read_processes", lambda read=None: DEAD)
-    monkeypatch.setattr(registry, "read", lambda directory=None: EMPTY)
+    monkeypatch.setattr(registry, "listing", lambda directory=None: EMPTY)
     result = doctor.check_dormant_sessions(world["root"], now=NOW)
     assert set(result) == {"check", "status", "detail", "fix"}
     assert result["status"] == doctor.WARN and "1 desktop session was killed" in result["detail"]
@@ -994,7 +1114,7 @@ def test_c23_56_doctor_is_unknown_when_ps_fails(world, monkeypatch):
     dormant_session(world)
     monkeypatch.setattr(facts, "offline_state", lambda root: fx.FakeSessions().state(None))
     monkeypatch.setattr(dormant, "read_processes", lambda read=None: None)
-    monkeypatch.setattr(registry, "read", lambda directory=None: EMPTY)
+    monkeypatch.setattr(registry, "listing", lambda directory=None: EMPTY)
     assert doctor.check_dormant_sessions(world["root"], now=NOW)["status"] == doctor.UNKNOWN
 
 

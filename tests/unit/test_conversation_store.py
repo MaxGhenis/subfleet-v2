@@ -269,7 +269,7 @@ def test_an_unbound_move_refuses_a_message_a_job_already_carries(store):
     m = mid()
     store.submit_message(conversation_id=c["conversation_id"], message_id=m, after_message_id=None, text="x",
                          attachments=[], settings=SETTINGS)
-    store.set_state(m, "waiting", expect=("queued",), job_id="job-1")
+    store.set_state(m, "waiting", reason="admission: sent to the daemon, which has not placed it yet", expect=("queued",), job_id="job-1")
     assert not store.set_state(m, "cancelled", expect=("queued", "waiting"), unbound=True)
     assert store.message(m)["state"] == "waiting"
 

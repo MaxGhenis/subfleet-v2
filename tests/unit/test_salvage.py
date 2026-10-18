@@ -385,6 +385,9 @@ def test_a_checkout_whose_name_ends_in_a_space_is_found(tmp_path):
     repo = tmp_path / "repo "
     (repo / "pkg").mkdir(parents=True)
     git(repo, "init", "-q")
+    # TMPDIR may be inside the caller's checkout. A bare parent has no worktree
+    # and stops discovery there; the nested checkout still resolves normally.
+    git(tmp_path, "init", "--bare", "-q")
     top = git_toplevel(repo / "pkg")
     assert top == os.path.realpath(repo) and os.path.isdir(top)
     assert git_toplevel(tmp_path) is None

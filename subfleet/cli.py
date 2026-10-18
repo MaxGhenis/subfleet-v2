@@ -15,6 +15,8 @@
   subfleet doctor [--live]      pass/fail/unknown checks, each with a fix line
   subfleet hook <event>         a Claude Code hook entry point (JSON on stdin)
   subfleet ping [--session ID] TEXT                              (alias: notify)
+  subfleet suggest --title T --tldr S --brief-file F [--worktree]  propose a conversation the owner starts
+  subfleet notices [--session ID] [--all] [--ack|--withdraw]   inboxes and where each stands
 
 The verb spellings are v1's and are permanent (plan amendment 1). Stdout carries
 the contract, stderr the prose, and `--json` emits JSON objects only (C-17.4).
@@ -24,6 +26,7 @@ Exit codes are the one table in C-17.3.
 from __future__ import annotations
 
 import argparse
+import functools
 import hashlib
 import json
 import os
@@ -36,27 +39,32 @@ import sys
 import tempfile
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from . import capacity, ids, protocol
+from . import capacity, descriptors, ids, protocol, render
 from .client import (
     LOG_NAME,
     SOCKET_NAME,
     Client,
     DaemonError,
     DaemonUnavailable,
+    REFUSED_UNVERIFIED_MAX_S,
     busy_pause,
+    refused_while_busy,
     OutcomeUnknown,
     ResponseLost,
     same_process,
     state_root,
 )
-from .contracts import (JOB_KINDS, REQUEST_ID_MAX, STOP_BACKSTOP_S, STOP_GRACE_S, JobState,
-                        Sandbox, WAIT_POLL_MAX_S, Exit)
+from .contracts import (GIT_LOCATION_ENV, GIT_PATHSPEC_ENV, JOB_KINDS, REQUEST_ID_MAX, STOP_BACKSTOP_S,
+                        STOP_GRACE_S, JobState, Sandbox, WAIT_POLL_MAX_S, Exit)
 from .offline import (KNOWN_SCHEMA_VERSION, Offline, OfflineUnavailable,
                       SchemaTooNew, age_adjusted_label)
 from .protocol import ProtocolError
+from .store import notice_fingerprint
+from .home_paths import home_path
 
 PROG = "subfleet"
 START_DAEMON = "subfleet daemon start"
@@ -111,7 +119,126 @@ def fail(code: Exit | int, message: str, fix: str | None = None) -> int:
 
 def session_id(env: dict[str, str] | None = None) -> str | None:
     env = os.environ if env is None else env
-    return (env.get("CLAUDE_CODE_SESSION_ID") or "").strip() or None
+    return (env.get("CLAUDE_CODE_SESSION_ID") or env.get("SUBFLEET_SESSION_ID") or "").strip() or None
+
+
+def cmd_wake(args: argparse.Namespace) -> int:
+    session = session_id()
+    if not session and not os.environ.get("SUBFLEET_TURN_JOB"):
+        return fail(Exit.INVALID_INPUT, "wake needs the calling conversation's session id")
+    try:
+        result = Client(_root(args)).call("conversation.wake", {
+            "session_id": session, "request_id": args.request_id or str(uuid.uuid4()),
+            "calling_job": os.environ.get("SUBFLEET_TURN_JOB"),
+            "runs": args.runs, "prs": args.pr, "at": args.at, "note": args.note})
+    except (DaemonError, DaemonUnavailable) as exc:
+        return fail(getattr(exc, "code", Exit.OPERATIONAL), str(exc))
+    emit(result) if args.json else out("Wake recorded: " + result["request_id"])
+    return 0
+
+
+def _uuid_arg(value: str) -> str:
+    try:
+        return str(uuid.UUID(value))
+    except ValueError:
+        raise argparse.ArgumentTypeError("request_id must be a UUID") from None
+
+
+#: The `suggestion.create` op on the file pool runs the same folder and git checks
+#: `conversation.create` runs, each under its own cap; a start also cuts a worktree.
+SUGGEST_TIMEOUT_S = 150.0
+
+
+
+def _suggest_cli_errors(handler):
+    @functools.wraps(handler)
+    def checked(args):
+        try:
+            return handler(args)
+        except Exception as exc:
+            # Includes unexpected client/result/path/caller failures, before
+            # main's general OSError renderer or Python's traceback can print it.
+            from .conversations.suggestions import error_code, error_fix, scrub_error
+            return fail(error_code(exc), scrub_error(exc), error_fix(exc))
+    return checked
+
+
+@_suggest_cli_errors
+def cmd_suggest(args: argparse.Namespace) -> int:
+    """`subfleet suggest` (C-25.7): propose a separate conversation the owner starts in
+    the Subfleet app with one click; or withdraw one this conversation or session
+    made, list them, and, from a terminal, start or dismiss one."""
+    from .conversations.suggestions import error_code, error_fix, scrub_error
+    caller = {"session_id": session_id(), "calling_job": os.environ.get("SUBFLEET_TURN_JOB") or None}
+    if args.withdraw:
+        op, payload = "suggestion.withdraw", {"suggestion_id": args.withdraw, **caller}
+    elif args.start:
+        op, payload = "suggestion.start", {"suggestion_id": args.start, "permission": args.permission,
+                                           "confirm_widen": True if args.permission in ("accept-edits", "bypass")
+                                           else None}
+    elif args.dismiss:
+        op, payload = "suggestion.dismiss", {"suggestion_id": args.dismiss}
+    elif args.list:
+        op, payload = "suggestion.list", {}
+    else:
+        missing = [flag for flag, value in (("--title", args.title), ("--tldr", args.tldr),
+                                            ("--brief-file or --brief -", args.brief_file or args.brief)) if not value]
+        if missing:
+            return fail(Exit.INVALID_INPUT, "suggest needs " + ", ".join(missing),
+                        "subfleet suggest --title T --tldr S --brief-file BRIEF.md [--worktree]")
+        if args.brief and args.brief != "-":
+            return fail(Exit.INVALID_INPUT, "--brief takes only '-' (read the brief from stdin); "
+                        "use --brief-file for a file")
+        try:
+            if args.brief_file:
+                with open(args.brief_file, encoding="utf-8") as stream:
+                    brief = stream.read()
+            else:
+                brief = sys.stdin.read()
+        except (OSError, UnicodeDecodeError) as exc:
+            return fail(Exit.INVALID_INPUT, scrub_error(exc, prefix="cannot read the brief: "))
+        try:
+            workspace = None if args.no_workspace else str(Path(args.workspace or os.getcwd()).resolve())
+        except OSError as exc:
+            return fail(Exit.OPERATIONAL, scrub_error(exc, prefix="cannot resolve the workspace: "))
+        op, payload = "suggestion.create", {
+            "request_id": args.request_id or str(uuid.uuid4()), "title": args.title, "tldr": args.tldr,
+            "brief": brief, "workspace": workspace, "worktree": bool(args.worktree), "provider": args.provider,
+            "model": args.model, **caller}
+    try:
+        result = Client(_root(args)).call(op, payload, timeout=SUGGEST_TIMEOUT_S)
+    except DaemonError as exc:
+        if exc.suggestion_reason == "unknown-op":
+            return fail(Exit.DAEMON_UNAVAILABLE, "the daemon is older than this CLI and has no suggestions",
+                        RESTART_DAEMON)
+        return fail(error_code(exc), scrub_error(exc), error_fix(exc))
+    except DaemonUnavailable as exc:
+        return fail(Exit.DAEMON_UNAVAILABLE, "the daemon is unavailable", RESTART_DAEMON)
+    except ProtocolError as exc:
+        return fail(error_code(exc), scrub_error(exc), error_fix(exc))
+    if args.json:
+        emit(result)
+        return 0
+    if op == "suggestion.list":
+        for row in result["suggestions"]:
+            out(f"{row['suggestion_id']}\t{row['state']}\t{row['title']}")
+        note(f"{result['open']} open")
+        return 0
+    row = result["suggestion"]
+    out(row["suggestion_id"])
+    if op == "suggestion.create":
+        if result.get("scrubbed"):
+            note(f"note: {result['scrubbed']} secret-shaped value(s) were masked in what you wrote")
+        if row["worktree"] and row.get("workspace_kind") == "in-place":
+            note("note: the folder is not a git checkout, so it starts in place there, not in a worktree")
+        where = ("in this conversation and " if row["origin_conversation_id"] else "") + "under Suggested"
+        note(f"Suggested {row['title']!r}: the owner sees it in the Subfleet app {where}, and starts or "
+             f"dismisses it. Withdraw it if it goes stale: subfleet suggest --withdraw {row['suggestion_id']}")
+    elif op == "suggestion.start":
+        note(f"Started conversation {row['started_conversation_id']}")
+    else:
+        note(f"Suggestion {row['suggestion_id']} is {row['state']}")
+    return 0
 
 
 def in_claude_session(env: dict[str, str] | None = None) -> bool:
@@ -299,14 +426,31 @@ def _percent(value: Any) -> str:
     return f"{number * 100:.0f}%" if number <= 1.0 else f"{number:.0f}%"
 
 
+def format_alerts(alerts: Any) -> list[str]:
+    """C-18.4: the alerts in force, most severe first, each with what to run."""
+    rows = rows_of(alerts)
+    if not rows:
+        return []
+    lines = [f"alerts: {len(rows)} in force"]
+    for row in rows:
+        since = f"  (since {row['since']})" if row.get("since") else ""
+        lines.append(f"  {str(row.get('severity') or 'alert'):<8} {row.get('subject') or row.get('key')}{since}")
+        if row.get("body"):
+            lines.append(f"  {'':<8} {row['body']}")
+    lines.append("")
+    return lines
+
+
 def format_status(data: dict[str, Any]) -> str:
-    """Lanes with their newest readings, live closures, and running jobs."""
-    lines: list[str] = []
-    lanes = rows_of(data.get("lanes"))
-    readings = rows_of(data.get("readings"))
+    """Alerts in force, lanes with their newest readings, live closures, and running jobs."""
+    lines: list[str] = format_alerts(data.get("alerts"))
+    lines.extend(render.provider_cap_text(row) for row in rows_of(data.get("provider_caps")))
+    lanes = [dict(lane) for lane in rows_of(data.get("lanes"))]
+    readings = [dict(row) for row in rows_of(data.get("readings"))]
+    at = render.instant(data["now"]) if data.get("now") else datetime.now(timezone.utc)
     closures = rows_of(data.get("closures"))
-    # `daemon.status` carries every job the store holds as `jobs` (it is the
-    # capacity view); only the live ones belong under this heading. A turn job
+    # `daemon.status` carries nonterminal jobs and live/quarantined attempts'
+    # jobs; older daemons carry the whole ledger, so filter it here too. A turn job
     # is its conversation's (C-26.12): it is counted on its own line, never as
     # a running job.
     live = [row for row in rows_of(data.get("running") or data.get("jobs"))
@@ -318,7 +462,7 @@ def format_status(data: dict[str, Any]) -> str:
     for reading in readings:
         by_lane.setdefault(str(reading.get("lane_id")), []).append(reading)
         reading["label"] = age_adjusted_label(reading.get("label"),
-                                              reading.get("observed_at"))
+                                              reading.get("observed_at"), now=at)
 
     if not lanes:
         lines.append("no lanes enrolled — subfleet lanes enroll <credential>")
@@ -327,13 +471,19 @@ def format_status(data: dict[str, Any]) -> str:
                      f"{'flight':>6}  windows")
         for lane in lanes:
             marks = []
+            lane["weekly_projections"] = render.weekly_projections(
+                {**lane, "readings": by_lane.get(str(lane.get("lane_id")), [])}, now=at,
+                samples=data.get("weekly_samples"))
             for reading in sorted(by_lane.get(str(lane.get("lane_id")), []),
                                   key=lambda r: str(r.get("window"))):
                 label = reading.get("label")
                 stale = " stale" if label == "stale-provider" else ""
                 if label in {"provider", "stale-provider"}:
-                    marks.append(f"{reading.get('window')} "
-                                 f"{_percent(reading.get('utilization'))}{stale}")
+                    mark = f"{reading.get('window')} {_percent(reading.get('utilization'))}{stale}"
+                    projection = lane["weekly_projections"].get(reading.get("scope", "account"))
+                    if reading.get("window") == "seven_day" and projection is not None:
+                        mark += " · " + render.projection_text(projection)
+                    marks.append(mark)
                 else:
                     marks.append(f"{reading.get('window')} {label}")
             flags = []
@@ -353,6 +503,12 @@ def format_status(data: dict[str, Any]) -> str:
                 f"{' · '.join(marks) or 'no reading'}"
                 + (f"  [{', '.join(flags)}]" if flags else "")
             )
+    lines.extend(render.projection_totals(lanes))
+    cards = data.get("claude_cards")
+    if isinstance(cards, dict):
+        # C-9.10: what each Claude account holds that can be lost.
+        lines.append("")
+        lines.extend(render.card_lines(cards, compact=True))
     if closures:
         lines.append("")
         lines.append("closures")
@@ -361,6 +517,15 @@ def format_status(data: dict[str, Any]) -> str:
                          f"until {closure.get('until_at')} "
                          f"({closure.get('reason')}, {closure.get('clock_source')})")
     lines.append("")
+    callers = rows_of(data.get("priority_callers"))
+    if isinstance(data.get("disk"), dict):
+        lines.append(render.disk_line(data["disk"]))
+    if isinstance(data.get("ramp"), dict):
+        lines.append(render.ramp_line(data["ramp"]))
+    if callers:
+        lines.append("priority callers: " + ", ".join(
+            f"{row['name']} ({row['session_id']})" if row.get("name") else str(row.get("session_id"))
+            for row in callers))
     admission = data.get("admission")
     if isinstance(admission, dict) and admission.get("idle_for_s") is not None:
         # C-6.11: jobs are pending and admission has placed none of them.
@@ -481,6 +646,8 @@ def cmd_pick(args: argparse.Namespace) -> int:
     elif data.get("best"):
         out(data["best"])
         note(f"{PROG} pick: advisory only; no lane slot is reserved")
+        for lane in data["ranked"] if args.all else data["ranked"][:1]:
+            note(f"  {lane['lane_id']}: {_format_ranking_usage(lane)}")
         if args.all:
             key = "home" if args.family == "codex" else "email"
             for lane in data["ranked"][1:]:
@@ -601,6 +768,19 @@ def _validate_run(args: argparse.Namespace) -> tuple[str | None, int | None]:
         for key in MANAGED:
             if key in os.environ:
                 return None, fail(Exit.REFUSED, f"isolated review inherits {key} (C-23.3)", "review the managed policy before retrying")
+    mcp = getattr(args, "mcp", None) or []
+    if mcp:
+        from .adapters.claude_mcp import validate_names
+        try:
+            validate_names(mcp)
+        except ValueError as exc:
+            return None, fail(Exit.INVALID_INPUT, f"run --mcp: {exc}")
+        if args.s == "read-only" or getattr(args, "isolated_review", False):
+            return None, fail(Exit.REFUSED, "run --mcp: a read-only job starts no MCP servers (C-12.9)",
+                              "pass -s workspace-write for a job that needs them, or drop --mcp")
+        if args.H:
+            return None, fail(Exit.REFUSED, "run --mcp: only a Claude launch starts MCP servers, and -H pins "
+                                            "a Codex lane (C-12.9)", "pin a Claude lane with -a, or drop --mcp")
     workdir = Path(args.C).expanduser()
     try:
         resolved = workdir.resolve()
@@ -669,19 +849,21 @@ def _prepare_submit(args: argparse.Namespace,
         pinned_provider="claude" if args.a else "codex" if args.H else None,
         unmeasured_reserve_reason=reserve_reason,
         out_path=str(Path(args.o).expanduser().absolute()) if args.o else None,
+        push_branch=getattr(args, "push_branch", None),
         name=args.name,
         exclusions=list(args.exclude or []),
         allow_desktop=bool(args.allow_desktop),
         allow_tmp=bool(args.allow_tmp),
         in_place=bool(args.in_place),
         independent=bool(args.independent),
-        parent_job_id=args.parent,
+        parent_job_id=args.parent or os.environ.get("SUBFLEET_TURN_JOB"),
         caller_session=session_id(),
         caller_pid=caller_pid(),
         no_preamble=bool(args.no_preamble),
         dry_run=bool(args.dry_run or args.why),
         isolated_review=bool(getattr(args, "isolated_review", False)),
         review_root=str(Path(args.review_root).expanduser().resolve()) if getattr(args, "review_root", None) else None,
+        mcp_servers=list(getattr(args, "mcp", None) or []),
         batch=batch,
     ), None
 
@@ -711,6 +893,9 @@ def _submitted(result: dict[str, Any], *, minted: bool) -> tuple[bool, str]:
     if result.get("refused"):
         return True, (" (found by its request id after the re-sent submission was "
                       f"refused: {result['refused']})")
+    if result.get("busy"):
+        return True, (" (found by its request id; the re-sent submission met a busy "
+                      "daemon and was not read)")
     if answered:
         return True, " (created by the re-sent submission; the first went unanswered)"
     if minted:
@@ -766,6 +951,10 @@ def cmd_run(args: argparse.Namespace) -> int:
     minted = not args.request_id
     try:
         client = _client(args)
+        if submit.push_branch is not None:
+            refused = _push_unsupported(client, "run")
+            if refused is not None:
+                return refused
         if submit.dry_run:
             # Explains a placement and creates nothing, so there is nothing to settle.
             result = client.call("submit", _asdict(submit), request_id=request_id)
@@ -853,6 +1042,8 @@ BATCH_KEYS: dict[str, tuple[str, str]] = {
     "in_place": ("in_place", "bool"), "independent": ("independent", "bool"),
     "parent": ("parent", "str"), "no_preamble": ("no_preamble", "bool"),
     "allow_unmeasured_reserve": ("unmeasured_reserve_reason", "str"),
+    "mcp": ("mcp", "list"),
+    "push_branch": ("push_branch", "str"),
 }
 BATCH_CHOICES = {"task": TASK_CHOICES, "tier": TIER_CHOICES, "model": MODEL_CHOICES,
                  "sandbox": SANDBOX_CHOICES}
@@ -984,6 +1175,15 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
         prepared.append((options["name"], submit))
 
     client, root = _client(args), _root(args)
+    if any(submit.push_branch is not None for _, submit in prepared):
+        try:
+            refused = _push_unsupported(client, "run --batch")
+        except DaemonUnavailable as exc:
+            return _daemon_down(exc)
+        except DaemonError as exc:
+            return _daemon_error(exc)
+        if refused is not None:
+            return refused
     minted = not args.request_id
     # C-17.7: the same manifest under the same batch id sends every entry again,
     # and an entry the daemon already holds comes back as its job (C-6.2).
@@ -1096,6 +1296,25 @@ def cmd_run_batch(args: argparse.Namespace) -> int:
     return worst
 
 
+def _format_ranking_usage(detail: dict[str, Any], *, now: str | None = None) -> str:
+    """C-11.5: explain the same weekly/reserve evidence pick and why rank."""
+    def percent(key):
+        value = detail.get(key)
+        return "unknown" if value is None else f"{100 * value:.1f}%"
+    from .scheduler import ranking_reading_age
+    age = ranking_reading_age(detail, now) if now else detail.get("reading_age_s")
+    return (f"reserve={detail.get('reserve_class', 'unknown')} "
+            f"usage={'measured' if detail.get('measured') else 'unmeasured'} "
+            f"ranking={'measured' if detail.get('ranking_measured', detail.get('measured')) else 'unmeasured'} "
+            f"renewal={'pending' if detail.get('reading_renewed') else 'none'} "
+            f"admission-headroom={percent('headroom')} "
+            f"weekly-scope={detail.get('weekly_scope') or 'unknown'} "
+            f"weekly-reset={detail.get('seven_day_reset') or detail.get('weekly_reset_at') or 'unknown'} "
+            f"weekly-headroom={percent('weekly_headroom')} "
+            f"five-hour-headroom={percent('five_hour_headroom')} "
+            f"reading-age={'unknown' if age is None else f'{age:.1f}s'}")
+
+
 def _format_decision(decision: dict[str, Any]) -> str:
     if not isinstance(decision, dict):
         return json.dumps(decision, default=str)
@@ -1103,6 +1322,9 @@ def _format_decision(decision: dict[str, Any]) -> str:
     for evaluation in rows_of(decision.get("evaluations")):
         lines.append(f"  {evaluation.get('model')}: "
                      f"{evaluation.get('reason') or evaluation.get('result') or ''}")
+        details = evaluation.get("candidate_details") or {}
+        for identity in evaluation.get("candidates") or ():
+            lines.append(f"    + {identity}: {_format_ranking_usage(details.get(identity) or {}, now=evaluation.get('evaluated_at'))}")
         for rejected in rows_of(evaluation.get("rejections", evaluation.get("rejected"))):
             lines.append(f"    - {rejected.get('lane_id')}: {rejected.get('reason')}")
     lines.append(f"chosen: {decision.get('chosen_model') or '-'} on "
@@ -1172,6 +1394,7 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
     idle_polls = 0
     busy: DaemonError | None = None
     busy_streak = 0
+    unverified_since: float | None = None     # refused after busy, with a lock that cannot say
     try:
         client = _client(args, timeout=WAIT_POLL_MAX_S + 15)
         while True:
@@ -1189,19 +1412,41 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
             budget = deadline + 15 if remaining is None else min(
                 deadline + 15, remaining)
             try:
-                result = client.call("wait", _asdict(poll), timeout=budget)
+                # C-16.7: busy is an empty poll here, and this loop asks again, so
+                # the next poll has its whole deadline. A retry inside `call` would
+                # ask the daemon to hold a 60 s poll with less than that left of the
+                # transport budget, and a lost answer would end even an unbounded
+                # `wait` (review of 3c8fe55, P1; #55 on main).
+                result = client.call("wait", _asdict(poll), timeout=budget, retry_busy=False)
             except ProtocolError:
                 if timeout is not None and timeout - (time.monotonic() - started) <= 0:
                     timed_out = True
                     break
                 raise
-            except DaemonError as exc:
-                # C-16.1: a daemon at its connection cap answers "try again
+            except (DaemonError, DaemonUnavailable) as exc:
+                # C-16.7: a daemon at its connection cap answers "try again
                 # shortly" before it reads the poll. The loop does, backing off,
-                # inside `--timeout` (review of the descriptor hotfix, F8).
-                if not exc.busy:
+                # inside `--timeout` (review of the descriptor hotfix, F8). A
+                # connect refused after a busy answer is the same busy daemon
+                # behind a full listen backlog, never an absent one (review r2, P1).
+                if isinstance(exc, DaemonUnavailable):
+                    verdict = None if busy is None else refused_while_busy(client, exc)
+                    if busy is None or verdict is False:
+                        raise
+                    if verdict is None and timeout is None:
+                        # The lock cannot say whether the daemon lives: busy for a
+                        # bounded time only, since this loop has no deadline of its
+                        # own; with `--timeout`, that bounds it (review of 1efa0ef, P3).
+                        unverified_since = unverified_since or time.monotonic()
+                        if time.monotonic() - unverified_since > REFUSED_UNVERIFIED_MAX_S:
+                            raise
+                    else:
+                        unverified_since = None
+                elif not exc.busy:
                     raise
-                busy, busy_streak = exc, busy_streak + 1
+                else:
+                    busy, unverified_since = exc, None
+                busy_streak += 1
                 pause = busy_pause(busy_streak)
                 if timeout is not None:
                     left = timeout - (time.monotonic() - started)
@@ -1211,7 +1456,7 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
                     pause = min(pause, left)
                 time.sleep(pause)
                 continue
-            busy, busy_streak = None, 0
+            busy, busy_streak, unverified_since = None, 0, None
             jobs = {job_id: job for job_id, job in _jobs_from_wait(result).items()
                     if adopting or job_id in requested}
             progress = False
@@ -1309,6 +1554,18 @@ def _daemon_capabilities(client: Client) -> frozenset[str]:
     if not isinstance(names, list):
         return frozenset()
     return frozenset(name for name in names if isinstance(name, str))
+
+
+def _push_unsupported(client: Client, verb: str) -> int | None:
+    """C-8.5 (review P3-10): a daemon that does not advertise `push.v1` drops
+    `push_branch` (C-16.2) and would accept the job without ever pushing, so
+    `--push-branch` is refused before anything is sent. Exit 69 with the
+    restart, as `runs --kind` answers a daemon older than the CLI."""
+    if protocol.PUSH_CAPABILITY in _daemon_capabilities(client):
+        return None
+    return fail(Exit.DAEMON_UNAVAILABLE,
+                f"{verb} --push-branch: this daemon does not advertise `{protocol.PUSH_CAPABILITY}`, so it "
+                f"would drop the branch and never push; it is older than this CLI", RESTART_DAEMON)
 
 
 def _listed(row: dict[str, Any], *, kind: str | None, include_turns: bool) -> bool:
@@ -1427,16 +1684,24 @@ def _artifact_path(job: dict[str, Any], role: str) -> str | None:
 
 
 def _shown_deliverable(job: dict[str, Any]) -> str | None:
-    """What `runs show` prints as the deliverable (C-8.2, C-8.3, C-15.1).
+    """What `runs show` prints as the deliverable (C-8.2, C-8.3, C-12.6, C-15.1).
 
-    The recorded artifact, the accepted attempt's first; failing that, the `-o`
-    export, but only of an accepted job. Nothing exported to the `-o` path of
-    a job that was not accepted, so a file there is someone else's or an
-    earlier run's, never this job's output.
+    Only the accepted attempt's recorded artifact can be the result. An
+    attempt's interim text remains in metadata as evidence. With no accepted
+    attempt, `--out` prints nothing and returns Exit.OPERATIONAL (1).
+    An accepted job with no deliverable recorded for any attempt (a v1 import
+    whose run kept only its export) shows its `-o` export, C-8.3's copy of the
+    accepted deliverable, unless that export failed. A deliverable recorded
+    only for another attempt is never the result, and then neither is `-o`.
     """
     merged = {**job, **job["job"]} if isinstance(job.get("job"), dict) else job
-    return _artifact_path(job, "deliverable") or (
-        merged.get("out_path") if merged.get("state") == JobState.SUCCEEDED.value else None)
+    accepted = merged.get("accepted_attempt_id")
+    if not accepted:
+        return None
+    recorded = [artifact for artifact in rows_of(job.get("artifacts")) if artifact.get("role") == "deliverable"]
+    if recorded:
+        return next((artifact.get("path") for artifact in recorded if artifact.get("attempt_id") == accepted), None)
+    return None if merged.get("export_error") else merged.get("out_path")
 
 
 def _cat(label: str, path: str | None, *, header: bool) -> int:
@@ -1472,6 +1737,8 @@ def _format_job(job: dict[str, Any]) -> str:
                        ("sandbox", "sandbox"), ("out_path", "-o"),
                        ("created_at", "created"), ("finished_at", "finished"),
                        ("export_error", "export error"),
+                       ("push_branch", "push branch"), ("push_sha", "pushed"),
+                       ("push_error", "push error"),
                        ("unmeasured_reserve_reason", "unmeasured reserve"),
                        ("cancel_requested_at", "cancel requested")):
         value = job.get(key)
@@ -1503,13 +1770,16 @@ def _format_job(job: dict[str, Any]) -> str:
         for artifact in artifacts:
             lines.append(f"  {str(artifact.get('role') or '-'):<12} "
                          f"{artifact.get('path')} ({artifact.get('bytes')} bytes)")
+    for push in rows_of(job.get("pushes")):
+        lines.append(f"push     [{push.get('result')}] {push.get('remote')} "
+                     f"{push.get('branch')} {push.get('sha') or '-'} at {push.get('finished_at') or push.get('started_at')}")
     for notice in rows_of(job.get("notices")):
         lines.append(f"notice   [{notice.get('state')}] {notice.get('text')}")
     return "\n".join(lines)
 
 
 def _ack_notices(client: Client, job: dict[str, Any]) -> None:
-    """C-15.3 a notice is acknowledged when its session runs `runs show <job>`.
+    """C-15.3 acknowledge notices when their session runs `runs show <job>`.
 
     Best effort: the job was already shown, so a failed acknowledgement must not
     change what the caller sees or the exit code.
@@ -1572,20 +1842,21 @@ def cmd_runs_show(args: argparse.Namespace) -> int:
                                     header=both))
         return worst
     # C-17.1: the bare form keeps v1's shape, which agents parse today: the
-    # metadata object, then `--- out.md ---` and the deliverable, and with
-    # `--err` also `--- err.log ---`. `--out`, `--err` alone, and `--json`
-    # are v2's single-artifact forms.
+    # metadata object, then `--- out.md ---` and the accepted deliverable, or
+    # nothing after it when no result was accepted (C-12.6). Unaccepted
+    # artifacts are evidence paths on stderr, never result text on stdout.
+    # `--out`, `--err` alone, and `--json` are v2's single-artifact forms.
     emit(job)
     out("\n--- out.md ---")
     path = _shown_deliverable(job)
-    if path and Path(path).is_file():
-        # v1 printed whatever out.md held, or nothing, and still exited 0; the
-        # explicit `--out` form is the one that fails on a missing artifact.
-        text = Path(path).read_text(errors="replace")
-        sys.stdout.write(text)
-        if text and not text.endswith("\n"):
-            out()
-    return int(Exit.OK)
+    if path:
+        return _cat("deliverable", path, header=False)
+    note("No accepted result; attempt artifacts are unaccepted evidence.")
+    for artifact in rows_of(job.get("artifacts")):
+        if artifact.get("role") == "deliverable":
+            note(f"Unaccepted evidence ({artifact.get('attempt_id') or 'attempt unknown'}): {artifact.get('path')}")
+    merged = {**job, **job["job"]} if isinstance(job.get("job"), dict) else job
+    return int(Exit.OPERATIONAL if merged.get("state") in ("failed", "cancelled", "lost") else Exit.OK)
 
 
 def _same_process():
@@ -1928,14 +2199,23 @@ def cmd_lanes(args: argparse.Namespace) -> int:
         return fail(Exit.INVALID_INPUT, "lanes transfer: --to must be v1 or v2")
     if action == "hold" and not args.until:
         return fail(Exit.INVALID_INPUT, "lanes hold: --until is required")
+    limits = bool(getattr(args, "limits", False))
+    note = getattr(args, "note", None)
+    if limits and not (note or "").strip():
+        return fail(Exit.INVALID_INPUT, "lanes release --limits: --note is required")
+    if note is not None and not limits:
+        return fail(Exit.INVALID_INPUT, "lanes release: --note requires --limits")
     lanes_args = protocol.LanesArgs(
-        action=action,
+        # Older daemons ignore unknown fields. A distinct action prevents them
+        # from releasing operator holds when asked to release guessed limits.
+        action="release-limits" if limits else action,
         lane_id=getattr(args, "lane", None),
         credential=getattr(args, "credential", None),
         until=getattr(args, "until", None),
         owner=getattr(args, "to", None),
         dry_run=bool(getattr(args, "dry_run", False)),
         confirm_v1_edit=bool(getattr(args, "confirm_v1_edit", False)),
+        note=note,
     )
     try:
         result = _client(args).call("lanes", _asdict(lanes_args))
@@ -1951,6 +2231,10 @@ def cmd_lanes(args: argparse.Namespace) -> int:
         # that as a completed no-op would record a canary transfer that never ran.
         return fail(Exit.DAEMON_UNAVAILABLE,
                     "the daemon did not perform the transfer; it is older than this CLI",
+                    RESTART_DAEMON)
+    if limits and not isinstance(result.get("limits_released"), list):
+        return fail(Exit.DAEMON_UNAVAILABLE,
+                    "the daemon did not release guessed limits; it is older than this CLI",
                     RESTART_DAEMON)
     if args.json:
         emit(result)
@@ -1971,6 +2255,10 @@ def cmd_lanes(args: argparse.Namespace) -> int:
             return fail(Exit.DAEMON_UNAVAILABLE, f"the daemon did not {action} the lane; it is older than this CLI",
                         RESTART_DAEMON)
         out(f"{action}: {result.get('held') or result.get('released')}")
+        if limits:
+            out(f"guessed limits released: {len(result['limits_released'])}")
+            if result.get("limits_reported"):
+                out(f"reported clocks kept: {len(result['limits_reported'])}; cannot release by hand")
         return int(Exit.OK)
     out(_format_lanes(result))
     return int(Exit.OK)
@@ -2011,22 +2299,29 @@ def cmd_why(args: argparse.Namespace) -> int:
         lines.append(f"Decision: none; this job's route could not be evaluated: {result['route_error']}")
     elif not result.get("refused"):
         lines.append("No decision recorded.")
+    # D-SHUT1: routing fields alone omit why the last attempt was rejected.
+    if result.get("attempt_explanation"):
+        lines.append(result["attempt_explanation"])
     out("\n".join(lines))
     return int(Exit.OK)
 
 
 def cmd_ping(args: argparse.Namespace) -> int:
+    """C-15.8: the session named, else this Claude session, else none: the daemon
+    then addresses `alerts.operator_session`, or refuses text addressed to no one.
+    With no text it is a liveness question, answered `pong`."""
     target = args.session or session_id()
-    if not target:
-        return fail(Exit.INVALID_INPUT,
-                    "ping: --session ID is required outside a Claude session")
     if args.text:
         text = " ".join(args.text)
+    elif sys.stdin is None or sys.stdin.isatty():
+        text = ""                                   # at a prompt: a liveness question, not a wait
     else:
         try:
             text = sys.stdin.buffer.read().decode("utf-8", "replace")
         except (OSError, ValueError) as exc:
             return fail(Exit.INVALID_INPUT, f"ping: cannot read the message: {exc}")
+    if not text.strip():
+        text = ""
     try:
         result = _client(args).call(
             "ping", _asdict(protocol.PingArgs(text=text, session_id=target)))
@@ -2039,11 +2334,120 @@ def cmd_ping(args: argparse.Namespace) -> int:
     if args.json:
         emit(result)
         return int(Exit.OK)
-    if result.get("delivered"):
-        out(f"delivered to {result.get('name') or target}")
+    if not text:
+        out(f"pong from subfleet {result.get('version')}")
         return int(Exit.OK)
-    out(f"parked for {result.get('name') or target}")
+    # The daemon names the session it chose (C-15.8: the operator's, when none was named).
+    recipient = result.get("name") or result.get("session_id") or target
+    if result.get("delivered"):
+        out(f"delivered to {recipient}")
+        return int(Exit.OK)
+    out(f"parked for {recipient}")
     note(f"  {result.get('reason') or 'the session has no live inbox'}")
+    return int(Exit.OK)
+
+
+# --- notices (C-15.8; v1's spelling, C-17.1) ----------------------------------
+
+UNRESOLVED_NOTICE_STATES = ("pending", "offered")
+
+
+def format_notices(rows: list[dict[str, Any]], *, resolved: bool) -> str:
+    """Each session's notices under one heading; one line per notice, its first line."""
+    if not rows:
+        return f"{PROG} notices: " + ("none recorded" if resolved else "nothing unresolved")
+    lines: list[str] = []
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        groups.setdefault(str(row.get("session_id") or ""), []).append(row)
+    for session, group in groups.items():
+        service = sum(1 for row in group if int(row.get("notice_id") or 0) < 0)
+        lines.append(f"{session or '(no session)'}: {len(group)} notice(s), "
+                     f"{len(group) - service} job, {service} service")
+        for row in group:
+            subject = str(row.get("text") or "").split("\n", 1)[0]
+            lines.append(f"  {row.get('notice_id'):>8} {str(row.get('state') or '-'):<12} "
+                         f"{str(row.get('created_at') or '-'):<20} {subject}")
+    return "\n".join(lines)
+
+
+def cmd_notices(args: argparse.Namespace) -> int:
+    """C-15.8: every inbox and where each notice stands; acknowledge or withdraw one.
+
+    Listing is read-only and marks nothing, so a session whose inbox is listed
+    is still shown its notices by its own hooks. `--ack` and `--withdraw` act on
+    exactly the unresolved notices the listing returned for one session.
+    """
+    action = "ack" if args.ack else "withdraw" if args.withdraw else None
+    if action and not args.session:
+        return fail(Exit.INVALID_INPUT, f"notices: --{action} acts on one inbox and needs --session ID",
+                    f"see every inbox first: {PROG} notices")
+    if args.reason is not None and action != "withdraw":
+        return fail(Exit.INVALID_INPUT, "notices: --reason is the withdrawal's reason; it needs --withdraw")
+    listing = protocol.NoticeListArgs(session_id=args.session, resolved=bool(args.all) and not action)
+    try:
+        client = _client(args)
+        rows = rows_of(client.call("notice.list", _asdict(listing)).get("notices"))
+    except DaemonUnavailable as exc:
+        if action:
+            return _daemon_down(exc)
+        try:
+            rows = _offline(args).notices(listing.session_id, resolved=listing.resolved)
+        except OfflineUnavailable as missing:
+            return _daemon_down(missing)
+        note(f"{PROG} notices: offline — read from the store")
+    except DaemonError as exc:
+        return _daemon_error(exc)
+    except ProtocolError as exc:
+        return fail(exc.code, str(exc))
+    if not action:
+        if args.json:
+            emit({"notices": rows})
+        else:
+            out(format_notices(rows, resolved=listing.resolved))
+        return int(Exit.OK)
+
+    open_rows = [row for row in rows if row.get("state") in UNRESOLVED_NOTICE_STATES
+                 and isinstance(row.get("notice_id"), int)]
+    try:
+        if action == "ack":
+            ids = [row["notice_id"] for row in open_rows]
+            answer = (client.call("notice.ack", _asdict(protocol.NoticeAckArgs(
+                session_id=args.session, notice_ids=ids,
+                fingerprints=[notice_fingerprint(row) for row in open_rows]))) if ids else {})
+            # A daemon that predates C-15.8 answers without the two lists.
+            result = {"session_id": args.session,
+                      "acknowledged": answer.get("acknowledged", ids) if ids else [],
+                      "kept": answer.get("kept", []) if ids else []}
+        else:
+            service = [row for row in open_rows if row["notice_id"] < 0]
+            ids = [row["notice_id"] for row in service]
+            jobs = [row["notice_id"] for row in open_rows if row["notice_id"] >= 0]
+            result = (client.call("notice.withdraw", _asdict(protocol.NoticeWithdrawArgs(
+                session_id=args.session, notice_ids=ids, reason=args.reason,
+                fingerprints=[notice_fingerprint(row) for row in service]))) if ids
+                else {"session_id": args.session, "withdrawn": [], "kept": []})
+            result["job_notices_left"] = jobs
+    except DaemonUnavailable as exc:
+        return _daemon_down(exc)
+    except DaemonError as exc:
+        return _daemon_error(exc)
+    except ProtocolError as exc:
+        return fail(exc.code, str(exc))
+    if args.json:
+        emit(result)
+        return int(Exit.OK)
+    if action == "ack":
+        out(f"acknowledged {len(result['acknowledged'])} notice(s) for {args.session}")
+        if result["kept"]:
+            note(f"  {len(result['kept'])} no longer the notice listed, or acknowledged already, and kept")
+        return int(Exit.OK)
+    out(f"withdrew {len(result.get('withdrawn') or [])} service notice(s) for {args.session}")
+    if result.get("kept"):
+        note(f"  {len(result['kept'])} no longer unresolved when the withdrawal ran, and kept")
+    if result["job_notices_left"]:
+        note(f"  {len(result['job_notices_left'])} job notice(s) left: a job's notice is acknowledged, "
+             f"never withdrawn — {PROG} notices --session {args.session} --ack")
     return int(Exit.OK)
 
 
@@ -2071,10 +2475,15 @@ def _daemond_argv(root: Path) -> list[str]:
 
 # The daemon outlives the shell that starts it, and by C-5.1 every guardian and
 # provider child inherits its environment. An API key or a session id picked up
-# from one terminal must not become the fleet's ambient environment (C-14.4).
+# from one terminal must not become the fleet's ambient environment (C-14.4), nor
+# a repository a git hook named (`GIT_DIR` and the rest): every git the daemon
+# and its jobs ran would go there (C-13.1; the salvage's own calls drop them too),
+# nor a way to read pathspecs (`GIT_LITERAL_PATHSPECS` and the rest), which turned
+# salvage's exclusion of a nested repository into a file name (C-13.1).
 STRIPPED_ENV = ("ANTHROPIC_API_KEY", "CODEX_API_KEY", "OPENAI_API_KEY",
                 "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDECODE", "CLAUDE_CODE_SESSION_ID",
-                "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_PID", "SUBFLEET_RUN_DETACH")
+                "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_PID", "SUBFLEET_RUN_DETACH",
+                *GIT_LOCATION_ENV, "GIT_INDEX_FILE", *GIT_PATHSPEC_ENV)
 
 
 def daemon_env(root: Path) -> dict[str, str]:
@@ -2302,12 +2711,12 @@ def cmd_daemon_status(args: argparse.Namespace) -> int:
     info = client.lock_info()
     alive = client.lock_holder_alive()
     started = time.monotonic()
-    reachable, busy, detail, connections = False, False, "", None
+    reachable, busy, detail, budget = False, False, "", None
     try:
-        connections = client.call("daemon.status", {}, timeout=5.0).get("connections")
+        budget = client.call("daemon.status", {}, timeout=5.0).get("descriptors")
         reachable = True
     except DaemonError as exc:
-        # It answered, so it is running: busy at its connection cap (C-16.1), or
+        # It answered, so it is running: busy at its connection cap (C-16.7), or
         # refusing this op; not unreachable (review of the descriptor hotfix, F9).
         reachable, busy, detail = True, exc.busy, str(exc) + (f" ({exc.fix})" if exc.fix else "")
     except (DaemonUnavailable, ProtocolError) as exc:
@@ -2317,7 +2726,7 @@ def cmd_daemon_status(args: argparse.Namespace) -> int:
                "socket_present": client.socket_path.exists(), "lock": info,
                "lock_holder_alive": alive, "ping": reachable, "busy": busy,
                "ping_ms": round(elapsed_ms, 1), "detail": detail or None,
-               "connections": connections}
+               "descriptors": budget}
     if args.json:
         emit(payload)
         return int(Exit.OK) if reachable else int(Exit.DAEMON_UNAVAILABLE)
@@ -2331,9 +2740,14 @@ def cmd_daemon_status(args: argparse.Namespace) -> int:
         out(f"holder      {'alive' if alive else ('dead' if alive is False else 'unverifiable')}")
     answer = ("busy" if busy else "refused") if detail and reachable else "ok" if reachable else "unreachable"
     out(f"ping        {answer} ({elapsed_ms:.1f} ms)")
-    if isinstance(connections, dict):
-        out(f"connections {connections.get('reading')} of {connections.get('cap')} read, "
-            f"{connections.get('open')} open, {connections.get('refused_busy')} refused busy")
+    if isinstance(budget, dict):
+        # C-16.6, C-16.7: `null` limits are unlimited.
+        soft = budget.get("soft_limit")
+        out(f"connections {budget.get('connections')} of {budget.get('max_connections')} held, "
+            f"{budget.get('refused', 0)} refused busy, {budget.get('idle_closed', 0)} closed idle, "
+            f"{budget.get('abandoned', 0)} dropped for departed clients")
+        out(f"descriptors {budget.get('open')} open of {'unlimited' if soft is None else soft}, "
+            f"{budget.get('live_turns', 0)} turns running")
     if detail:
         note(f"  {detail}")
     return int(Exit.OK) if reachable else int(Exit.DAEMON_UNAVAILABLE)
@@ -2386,6 +2800,10 @@ def _plist(root: Path) -> bytes:
         # starts each provider under a `utility` clamp itself, so agent work stays below
         # the operator's apps.
         "ProcessType": "Interactive",
+        # C-16.6: launchd would start the daemon at 256 descriptors; every client
+        # connection and every pipe to a child holds one. The daemon raises its
+        # own limit too, and this covers a start where it cannot.
+        "SoftResourceLimits": {"NumberOfFiles": descriptors.launchd_open_files()},
         # C-5.8a: with none set, `launchctl print` reports an exit timeout of
         # 5 s, which SIGKILLs a stop before the daemon's bound can dump.
         "ExitTimeOut": int(STOP_GRACE_S + STOP_BACKSTOP_S),
@@ -2430,13 +2848,18 @@ def cmd_daemon_install_hooks(args: argparse.Namespace) -> int:
     return int(Exit.OK)
 
 
+def launchd_plist_path() -> Path:
+    return Path(home_path("SUBFLEET_LAUNCHD_PLIST", lambda: PLIST_PATH,
+                          test_only=True)).expanduser()
+
+
 def cmd_daemon_install(args: argparse.Namespace) -> int:
     if getattr(args, "hooks", False):
         return cmd_daemon_install_hooks(args)
     root = _root(args)
     already_running = _daemon_alive(Client(root))
     plist = _plist(root)
-    target = Path(PLIST_PATH).expanduser()
+    target = launchd_plist_path()
     if args.dry_run:
         sys.stdout.write(plist.decode())
         note(f"{PROG} daemon install --dry-run: would write {target} and load it")
@@ -2654,8 +3077,21 @@ def _add_json(parser: argparse.ArgumentParser, *, nested: bool = False) -> None:
     parser.add_argument("--json", **kwargs)
 
 
+
+class _SuggestionErrorParser(argparse.ArgumentParser):
+    """Suggestion errors at both parser levels use fixed text, including unknown options."""
+    def parse_args(self, args=None, namespace=None):
+        values = list(sys.argv[1:] if args is None else args)
+        self._suggestion_context = "suggest" in values
+        return super().parse_args(values, namespace)
+
+    def error(self, message):
+        if getattr(self, "_suggestion_context", False) or self.prog.endswith(" suggest"):
+            self.exit(int(Exit.INVALID_INPUT), "subfleet suggest: invalid arguments; see subfleet suggest --help\n")
+        super().error(message)
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = _SuggestionErrorParser(
         prog=PROG, description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-V", "--version", action="store_true",
@@ -2666,7 +3102,12 @@ def build_parser() -> argparse.ArgumentParser:
     from .gate.cli import configure as configure_gate
     configure_gate(sub.add_parser("gate", help="main/peer agreement for an exact revision"))
 
-    p_status = sub.add_parser("status", help="lanes, readings, closures, running jobs")
+    p_status = sub.add_parser("status", help="lanes, readings, closures, running jobs",
+        description="Show current capacity. Online --json includes only reserved, starting, running, "
+                    "finalizing and quarantined attempts (without evidence_json), nonterminal jobs "
+                    "and those attempts' jobs. Attempt fields: attempt_id, job_id, seq, lane_id, "
+                    "model_requested, state, reserved_at. Use runs / runs show --json for history "
+                    "and full attempt evidence.")
     _add_json(p_status)
     p_status.set_defaults(handler=cmd_status)
 
@@ -2709,6 +3150,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("-I", "--independent-review", dest="isolated_review", action="store_true")
     p_run.add_argument("-D", "--review-root", dest="review_root")
     p_run.add_argument("-o", dest="o", metavar="OUT", help="export the deliverable here")
+    p_run.add_argument("--push-branch", metavar="BRANCH",
+                       help="after acceptance, have the host push push.bundle to this branch (requires push policy)")
     p_run.add_argument("-n", "--name", dest="name", metavar="NAME",
                        help="short label for the job id")
     p_run.add_argument("-s", dest="s", choices=SANDBOX_CHOICES,
@@ -2724,7 +3167,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--independent", action="store_true",
                        help="a parent's cancel does not cancel this child (C-7.3)")
     p_run.add_argument("--parent", metavar="JOB", help="parent job id")
-    p_run.add_argument("--request-id", metavar="ID", type=ids.request_id,
+    p_run.add_argument("--request-id", metavar="ID", type=ids.request_id_arg,
                        help="idempotency key (default: a UUID4, printed back)")
     p_run.add_argument("--wait", "--attach", dest="attach", action="store_true",
                        help="block until the job is terminal and return its rc")
@@ -2734,6 +3177,9 @@ def build_parser() -> argparse.ArgumentParser:
                        help="with --json, exit 75 when the job is still queued")
     p_run.add_argument("--no-preamble", action="store_true",
                        help="do not prepend the workspace-write template (C-6.7)")
+    p_run.add_argument("--mcp", action="append", default=[], metavar="NAME",
+                       help="start this MCP server in a writable Claude job (repeatable); such a job "
+                            "starts none otherwise, and a read-only job never does (C-12.9)")
     p_run.add_argument("--dry-run", action="store_true",
                        help="evaluate routing and print the decision; dispatch nothing")
     p_run.add_argument("--why", action="store_true",
@@ -2773,6 +3219,43 @@ def build_parser() -> argparse.ArgumentParser:
     _add_json(p_reap, nested=True)
 
     p_wait = sub.add_parser("wait", help="long-poll until jobs are terminal")
+    p_wake = sub.add_parser("wake", help="wake this conversation on runs, PR changes, or a time")
+    p_wake.add_argument("--runs", nargs="+")
+    p_wake.add_argument("--pr", nargs="+", action="extend")
+    p_wake.add_argument("--at")
+    p_wake.add_argument("--note", default="")
+    p_wake.add_argument("--request-id")
+    _add_json(p_wake, nested=True)
+    p_wake.set_defaults(handler=cmd_wake)
+    p_suggest = sub.add_parser(
+        "suggest", help="propose a separate conversation the owner starts in the Subfleet app with one click",
+        description="Propose an out-of-scope follow-up worth a session of its own. The owner sees a card in "
+                    "the Subfleet app (in this conversation, and under Suggested) and starts it with one click; "
+                    "the brief becomes the new conversation's first message, so make it self-contained. "
+                    "Nothing starts until the owner does (C-25.7).")
+    p_suggest.add_argument("--title", help="what the new conversation is, at most 60 characters")
+    p_suggest.add_argument("--tldr", help="one line on why it is worth doing, at most 300 characters")
+    brief = p_suggest.add_mutually_exclusive_group()
+    brief.add_argument("--brief-file", metavar="FILE", help="the brief, a self-contained first message (32 KiB)")
+    brief.add_argument("--brief", metavar="-", help="'-': read the brief from stdin")
+    where = p_suggest.add_mutually_exclusive_group()
+    where.add_argument("--workspace", metavar="DIR", help="the folder it starts in (default: the current directory)")
+    where.add_argument("--no-workspace", action="store_true", help="start it in a new scratch folder")
+    p_suggest.add_argument("--worktree", action="store_true",
+                           help="start it in a worktree of its own when the folder is a git checkout")
+    p_suggest.add_argument("--provider", choices=("claude", "codex"),
+                           help="who answers (default: this conversation's provider, else claude)")
+    p_suggest.add_argument("--model", help="a model this fleet routes (default: the provider's default)")
+    p_suggest.add_argument("--request-id", type=_uuid_arg, help="idempotency key, a UUID (default: a new UUID4)")
+    act = p_suggest.add_mutually_exclusive_group()
+    act.add_argument("--withdraw", metavar="ID", help="withdraw a suggestion this conversation or session made")
+    act.add_argument("--list", action="store_true", help="list open and recently closed suggestions")
+    act.add_argument("--start", metavar="ID", help="start one (a person's, from a terminal)")
+    act.add_argument("--dismiss", metavar="ID", help="dismiss one (a person's, from a terminal)")
+    p_suggest.add_argument("--permission", choices=("read-only", "ask", "accept-edits", "bypass"),
+                           help="with --start: the new conversation's permission (default Ask)")
+    _add_json(p_suggest, nested=True)
+    p_suggest.set_defaults(handler=cmd_suggest)
     p_wait.add_argument("ids", nargs="*")
     p_wait.add_argument("--mine", action="store_true", help="this session's jobs")
     p_wait.add_argument("--last", action="store_true", help="the most recent job")
@@ -2798,7 +3281,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_resume.add_argument("id")
     p_resume.add_argument("prompt", nargs="?")
     p_resume.add_argument("-o", "--output", help="also write the final response here")
-    p_resume.add_argument("--request-id", metavar="ID", type=ids.request_id)
+    p_resume.add_argument("--request-id", metavar="ID", type=ids.request_id_arg)
     _add_json(p_resume)
     p_resume.set_defaults(handler=cmd_resume)
 
@@ -2818,8 +3301,14 @@ def build_parser() -> argparse.ArgumentParser:
     l_hold.add_argument("lane")
     l_hold.add_argument("--until", required=True, help="ISO 8601 UTC instant")
     _add_json(l_hold, nested=True)
-    l_release = lanes_sub.add_parser("release")
+    l_release = lanes_sub.add_parser("release", help="release operator holds or guessed limits",
+                                     description="Release operator holds, or use --limits --note TEXT to "
+                                     "release guessed provider-limit and credits closures. "
+                                     "Provider-reported clocks cannot be released by hand.")
     l_release.add_argument("lane")
+    l_release.add_argument("--limits", action="store_true",
+                           help="release open guessed provider-limit and credits closures")
+    l_release.add_argument("--note", help="required operator reason for --limits, recorded in an event")
     _add_json(l_release, nested=True)
     l_transfer = lanes_sub.add_parser("transfer")
     l_transfer.add_argument("lane")
@@ -2881,6 +3370,21 @@ def build_parser() -> argparse.ArgumentParser:
     _add_json(p_ping)
     p_ping.set_defaults(handler=cmd_ping)
 
+    # C-15.8: v1's `notices` spelling and flags (C-17.1), with v2's two actions.
+    p_notices = sub.add_parser(
+        "notices", help="notices and where each stands (unresolved by default)")
+    p_notices.add_argument("--session", metavar="ID", help="one session id (default: every session)")
+    p_notices.add_argument("--all", action="store_true",
+                           help="include surfaced and acknowledged notices retention still keeps")
+    acting = p_notices.add_mutually_exclusive_group()
+    acting.add_argument("--ack", action="store_true",
+                        help="acknowledge every unresolved notice listed for --session")
+    acting.add_argument("--withdraw", action="store_true",
+                        help="delete --session's unresolved service notices, recording what went")
+    p_notices.add_argument("--reason", metavar="TEXT", help="why, recorded with --withdraw")
+    _add_json(p_notices)
+    p_notices.set_defaults(handler=cmd_notices)
+
     # The sessions kit (C-17.1: `sessions` and `handoff` are permanent verbs and
     # dispatch to the `subfleet-sessions` entry point). The sub-verbs are
     # registered by that module so the two surfaces cannot drift.
@@ -2902,6 +3406,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_handoff.set_defaults(handler=cmd_handoff)
     from . import operations
     operations.add_verbs(sub)
+    from . import retention_cli
+    retention_cli.add_verbs(sub)
     return parser
 
 

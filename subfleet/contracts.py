@@ -18,6 +18,24 @@ PROVIDERS = ("codex", "claude")
 JOB_ID_SLUG_MAX = 40
 REQUEST_ID_MAX = 128
 HEADLESS_MARKER = "<!-- subfleet:headless -->"  # C-6.7
+#: C-13.1: where git finds a repository, its objects and its index when the
+#: environment names them, before `-C` and before discovery. Inherited by the
+#: daemon (a `subfleet daemon start` run from a git hook passes its caller's
+#: environment through), every salvage call went to that repository instead: a
+#: salvage wrote its ref there and reported success (adversarial review of the
+#: round-3 branch). Salvage's git drops them (`salvage._git_env`, which keeps a
+#: temporary index a caller names), and so does the daemon's environment
+#: (`cli.STRIPPED_ENV`).
+GIT_LOCATION_ENV = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
+                    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE", "GIT_QUARANTINE_PATH")
+#: C-13.1: how git reads every pathspec when the environment says so. Salvage
+#: leaves out a nested repository with no commit by a `:(top,exclude,literal)`
+#: pathspec, which `GIT_LITERAL_PATHSPECS=1` reads as a file of that name: the
+#: exclusion was lost and the snapshot failed on the repository as before, so
+#: the incident's case had no ref again (review of ceacf18b, P3-3). Dropped
+#: where `GIT_LOCATION_ENV` is.
+GIT_PATHSPEC_ENV = ("GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS",
+                    "GIT_ICASE_PATHSPECS")
 
 # C-23.14: the most characters the credential scrubber matches in one call. A
 # longer text is matched as a head and a tail excerpt within the same bound; a
@@ -182,23 +200,31 @@ class Exit(enum.IntEnum):
 
 # --- Defaults (C-6.4, C-9, C-11.3, C-18.1) -----------------------------------
 
-DEFAULT_CAPS: dict[str, int] = {
+DEFAULT_CAPS: dict[str, int | None] = {
     "gate_max_rounds": 4,
-    "max_active_attempts": 4,
-    "max_in_flight_per_lane": 2,
-    "max_in_flight_unmeasured": 1,
+    # C-6.4: every count cap is null by default, which is no cap: a job waits
+    # only for a lane that can take it, and is refused only for what it is, never
+    # for a count Subfleet imposes (Max, 2026-09-27: "we should uncap everything
+    # and instead use prioritization"; 2026-09-28: "remove *all* caps"). A
+    # positive whole number in `policy.json` still sets one. `policy.cap` is
+    # their one reader.
+    "max_active_attempts": None,
+    "max_in_flight_per_lane": None,
+    "max_in_flight_unmeasured": None,
+    "max_active_attempts_per_parent": None,
     "max_wall_s": 21600,
     "max_attempts": 3,
-    "max_child_jobs": 8,
+    "max_child_jobs": None,             # C-6.4: children one parent may create in all
     # C-6.8: one git call's cap while admission prepares a workspace, the cap on
     # `git worktree add`, and how many consecutive transient preparation
     # failures a job waits out before it fails.
     "workspace_git_timeout_s": 60,
     "worktree_add_timeout_s": 180,
     "workspace_retry_max": 8,
-    # C-6.5: live writable jobs one session may hold at once; a runaway backstop,
-    # not a throttle (`max_active_attempts` bounds what runs).
-    "max_writable_per_session": 8,
+    # C-6.5: live writable jobs one session may hold at once (null: no count;
+    # the refusals of a second writer in one checkout and of a second live
+    # instance of one session are not counts and stay).
+    "max_writable_per_session": None,
 }
 # C-6.8: a transient preparation failure waits 5 s, then doubles to this ceiling.
 WORKSPACE_RETRY_BASE_S = 5
@@ -207,9 +233,25 @@ WORKSPACE_RETRY_CEILING_S = 300
 #: consecutive recheck that reaches the same verdict, to the ceiling.
 CAPACITY_RECHECK_BASE_S = 1
 CAPACITY_RECHECK_CEILING_S = 30
+#: C-6.10: one job's admission probes are reserved at least this far apart. The
+#: clock runs from the reservation, so a probe that ran this long (its deadline
+#: stopped it) leaves its vehicle due at once, and one that failed in a second
+#: does not become a probe a second.
+PROBE_RETRY_S = 60
+#: C-11.8: how long a pinned lane must go on refusing its job for a standing
+#: reason before the caller is told it never will: a state that lasts one pass
+#: (a re-enrolment between its two commits, a registry read that failed once)
+#: tells nobody anything false.
+PIN_NOTICE_AFTER_S = 60
 READING_TTL_S = 120
 GUESSED_CLOSURE_S = 3600
 TRANSIENT_RETRY_DELAY_S = 60
+#: C-9.5, D-CAP1: how long after a provider refused a job's model for capacity that job's route
+#: excludes the model while the steer is live. A guess, as no provider reports a clock: of the
+#: gpt-6.1-sol attempts of 2026-10-01 to 2026-10-13 started within 5 minutes of the fleet's last
+#: refusal, 11.5% were refused too, 8.8% at 5 to 15 minutes, 5.7% at 15 to 30 and 3 to 4% for
+#: the rest of an episode, against 0.2% four hours on (docs/reports/2026-10-13-model-capacity-steer.md).
+MODEL_CAPACITY_STEER_S = 900
 START_GRACE_S = 10
 TERM_GRACE_S = 15
 # C-5.6, C-5.9: how long a census may keep finding pids the kernel is still
@@ -244,6 +286,13 @@ STOP_DUMP_MARGIN_S = 3.0
 # could not arm because a thread held the GIL through the signal.
 STOP_BACKSTOP_S = 10
 HEADROOM_FLOOR = 0.15
+#: C-9.10: the reset-card and promotional-credit sensor. It reads every login under
+#: `logins_dir` (relative to the state root) every `interval_min`, spends at most
+#: one minimal turn per `heal_interval_min` renewing an expired login that backs a
+#: lane with no operator hold (`heal`), and warns `warn_days` before anything is lost.
+CLAUDE_CARDS_DEFAULTS: dict[str, Any] = {"enabled": True, "interval_min": 360, "heal": True,
+                                         "heal_interval_min": 60, "warn_days": 5,
+                                         "logins_dir": "logins"}
 WAIT_POLL_MAX_S = 60
 PROBE_INTERVAL_S = 300
 KEEPALIVE_INTERVAL_S = 18300
@@ -257,6 +306,11 @@ RETENTION_MAX_BYTES = 2 * 1024 ** 3
 TURN_RETENTION_MAX_JOBS = 2000
 TURN_RETENTION_MAX_BYTES = 4 * 1024 ** 3
 TURN_RETENTION_KEEP_DAYS = 14
+# d635, final review of e50716e8 (N1): a job whose baseline no network remote
+# holds bundles the shared history no remote holds as well as its own; above
+# this many bytes (git's measure on disk) the job is kept instead. 0 keeps
+# every such job with any such history.
+RETENTION_REMOTE_LESS_HISTORY_BYTES = 64 * 1024 ** 2
 
 # Codex window durations in minutes (C-9.7).
 WINDOW_KEYS = {300: "five_hour", 10080: "seven_day"}
@@ -351,6 +405,11 @@ class JobSpec:
     # (`network.codex_workspace_write`), not the job row; Claude's writable
     # launch has it already, and read-only and isolated launches never do.
     network: bool = False
+    # C-12.9, d714: the MCP servers a writable Claude launch starts, none unless
+    # the job named them (`run --mcp`), and the daemon's copy of their entries
+    # (`jobs/<job>/mcp.json`). Read-only and isolated launches start none.
+    mcp_servers: tuple[str, ...] = ()
+    mcp_config: str | None = None
 
 
 @dataclass(frozen=True)

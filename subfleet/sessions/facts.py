@@ -30,8 +30,10 @@ Query = Callable[[str, Sequence[Any]], Iterable[Mapping[str, Any]]]
 
 
 def revive_lease_key(session_id: str) -> str:
-    """C-23.55: one live revive per session; see `daemon.revive_lease_key`."""
-    return f"session:{session_id}:revive"
+    """C-23.55: one live revive per session; see `daemon.revive_lease_key`. The
+    session id is spelled as `canonical_native` spells it (C-26.3)."""
+    from ..conversations.store import canonical_native
+    return f"session:{canonical_native(session_id)}:revive"
 
 
 def session_events(query: Query, kinds: tuple[str, ...],
@@ -129,8 +131,10 @@ def bound_sessions(query: Query) -> set[str]:
 
 def state(query: Query, session_ids: set[str] | None, *, bound: Iterable[str]) -> dict[str, Any]:
     """The `sessions state` answer (C-23.33, C-23.35, C-23.55, C-26.13)."""
+    from ..resource_leases import canonical_native_key
     latest = session_events(query, SESSION_KINDS, session_ids)
-    leases = {row["lease_key"]: row["holder"] for row in
+    # A lease written before keys were canonical may spell its UUID in upper case.
+    leases = {canonical_native_key(row["lease_key"]): row["holder"] for row in
               query("SELECT lease_key,holder FROM leases WHERE lease_key LIKE 'session:%:revive'", ())}
     answer: dict[str, dict] = {}
     for session in sorted(session_ids or {key.split(":", 1)[1] for key in latest}):

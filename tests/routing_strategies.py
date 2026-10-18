@@ -119,8 +119,11 @@ def stores(draw) -> dict:
     probes = {lane_id: draw(st.sampled_from(["probe:timer:1", "credential-latched"]))
               for lane_id in draw(st.lists(st.sampled_from(lane_ids), max_size=2, unique=True))}
     overridden = set(draw(st.lists(st.sampled_from(lane_ids), max_size=1, unique=True)))
+    # C-10.3: whether Claude Code is using the desktop login; None is a view built
+    # without the signal, which judges the desktop lane in use.
+    in_use = draw(st.sampled_from([None, True, False, False]))
     return {"lanes": lanes, "readings": readings, "closures": closures, "jobs": jobs, "attempts": attempts,
-            "unavailable": probes, "overridden": overridden}
+            "unavailable": probes, "overridden": overridden, "desktop_in_use": in_use}
 
 
 @st.composite
@@ -161,10 +164,13 @@ def policies(draw) -> dict:
     policy = copy.deepcopy(BASE_POLICY)
     if draw(st.booleans()):
         policy["reserve"] = {**policy.get("reserve", {}), "models": []}
-    policy["caps"].update(max_active_attempts=draw(st.sampled_from([1, 3, 4, 8, 8])),
-                          max_in_flight_per_lane=draw(st.sampled_from([1, 2, 3])),
-                          max_in_flight_unmeasured=1,
-                          max_active_attempts_per_parent=draw(st.sampled_from([1, 2, 9])))
+    # C-6.4: null (the default since 2026-09-27) is no cap; a whole number caps.
+    policy["caps"].update(max_active_attempts=draw(st.sampled_from([None, None, 1, 3, 4, 8])),
+                          max_in_flight_per_lane=draw(st.sampled_from([None, None, 1, 2, 3])),
+                          max_in_flight_unmeasured=draw(st.sampled_from([None, None, 1, 2])),
+                          max_active_attempts_per_parent=draw(st.sampled_from([None, None, 1, 2, 9])))
+    # C-11.3: the load band's width; null is no bands.
+    policy.setdefault("admission", {})["lane_spread"] = draw(st.sampled_from([None, 1, 2, 2, 3]))
     # C-26.9: null (the default) is no cap; a whole number caps turns.
     policy.setdefault("conversations", {}).update(max_active_turns=draw(st.sampled_from([None, 1, 3])),
                                                   turn_slots_per_lane=draw(st.sampled_from([None, 1, 2])))
@@ -176,7 +182,8 @@ def view_of(store: dict, now: datetime, ttl: int = 120) -> dict:
     leases and latched credentials as `unavailable_lanes`, overridden lanes' readings
     held out."""
     view = capacity.build_view(store["lanes"], candidates_of(store["readings"]), store["closures"],
-                               store["attempts"], store["jobs"], now=now, reading_ttl_s=ttl)
+                               store["attempts"], store["jobs"], now=now, reading_ttl_s=ttl,
+                               desktop_in_use=store.get("desktop_in_use"))
     view["unavailable_lanes"] = dict(store["unavailable"])
     view["reserved_probes"] = sum(1 for holder in store["unavailable"].values() if holder.startswith("probe:"))
     view["readings"] = [row for row in view["readings"] if row["lane_id"] not in store["overridden"]]
@@ -201,7 +208,7 @@ def commits(draw, store: dict, focus: tuple[str, ...] = ()) -> tuple[dict, float
     for step in range(draw(st.integers(0, 5))):
         what = draw(st.sampled_from(["reading", "reading", "reading", "closure", "release", "extend",
                                      "attempt", "end", "lane", "new-lane", "probe", "unprobe",
-                                     "override", "unoverride"]))
+                                     "override", "unoverride", "desktop-use"]))
         if what == "reading" and lane_ids:
             after["readings"].append(draw(reading_rows(a_lane(), next_reading, later)))
             next_reading += 1
@@ -245,6 +252,8 @@ def commits(draw, store: dict, focus: tuple[str, ...] = ()) -> tuple[dict, float
             after["overridden"] = set(after["overridden"]) | {a_lane()}       # a reset credit confirmed
         elif what == "unoverride" and after["overridden"]:
             after["overridden"] = set(after["overridden"]) - {draw(st.sampled_from(sorted(after["overridden"])))}
+        elif what == "desktop-use":
+            after["desktop_in_use"] = draw(st.sampled_from([None, True, False]))    # C-10.3
     return after, seconds
 
 

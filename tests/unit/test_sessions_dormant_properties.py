@@ -297,17 +297,15 @@ trusted_windows = st.builds(window_at, used_values, resets,
 @PROPERTY
 @given(windows=st.lists(trusted_windows, min_size=1, max_size=4), pending=pendings, rule=rules)
 def test_c23_59_the_batch_fits_every_lane_a_turn_may_land_on(windows, pending, rule):
-    """C-23.59: across the lanes a turn may be placed on, the count is the least
-    any lane with a current reading allows, and nothing unless the first lane
-    (the one admission picks now) has one."""
+    """C-23.59, reviews r2 and r3: across the lanes a turn may be placed on, the
+    count is the least any of them allows, and nothing at all when any of them
+    has no reading to pace against."""
     decision = dormant.pace_lanes(windows, now=NOW, rule=rule, pending=pending)
-    first = dormant.pace(windows[0], now=NOW, rule=rule, pending=pending)
-    if dormant.distrust(windows[0], now=NOW, rule=rule) is not None:
+    if any(dormant.distrust(window, now=NOW, rule=rule) is not None for window in windows):
         assert decision.allowed == 0
         return
-    trusted = [dormant.pace(window, now=NOW, rule=rule, pending=pending).allowed for window in windows
-               if dormant.distrust(window, now=NOW, rule=rule) is None]
-    assert decision.allowed == min(trusted) <= first.allowed
+    each = [dormant.pace(window, now=NOW, rule=rule, pending=pending).allowed for window in windows]
+    assert decision.allowed == min(each)
 
 
 # --- liveness (C-23.57) -----------------------------------------------------------
@@ -332,10 +330,10 @@ tables = st.one_of(st.none(), st.builds(
     starts=st.dictionaries(st.integers(min_value=1, max_value=6), st.sampled_from([START, LATER]),
                            max_size=6),
     named=st.frozensets(st.sampled_from([SESSION, OTHER]), max_size=2)))
-readings = st.builds(registry.Reading, rows=registry_rows.map(tuple),
-                     unreadable=st.lists(st.one_of(st.none(), st.integers(min_value=1, max_value=6)),
-                                         max_size=2).map(tuple),
-                     error=st.sampled_from([None, None, "cannot list"]))
+#: `registry.listing()`: None when the directory cannot be listed.
+readings = st.one_of(st.none(), st.builds(
+    registry.Listing, rows=registry_rows.map(tuple),
+    unreadable=st.lists(st.integers(min_value=1, max_value=6), max_size=2).map(tuple)))
 
 
 @PROPERTY
@@ -347,7 +345,8 @@ def test_c23_57_dead_only_when_every_reading_succeeded_and_found_nothing(reading
     `dead`."""
     verdict = dormant.liveness(SESSION, reading=reading, processes=processes)
     assert verdict in dormant.LIVENESS
-    own = [item for item in reading.rows if item.session_id.lower() == SESSION]
+    own = [item for item in (reading.rows if reading is not None else ())
+           if item.session_id.lower() == SESSION]
     if processes is None:
         assert verdict in ("alive", "unknown")
         return
@@ -356,7 +355,7 @@ def test_c23_57_dead_only_when_every_reading_succeeded_and_found_nothing(reading
                 for item in own) or SESSION in processes.named
     if lives:
         assert verdict == "alive"
-    elif reading.error or any(pid is None or pid in processes.starts for pid in reading.unreadable):
+    elif reading is None or any(pid in processes.starts for pid in reading.unreadable):
         assert verdict == "unknown"
     else:
         assert verdict == "dead"
@@ -371,9 +370,9 @@ def test_c23_57_more_evidence_of_life_never_makes_a_session_dead(reading, proces
     if processes is not None:
         named = dormant.Processes(starts=processes.starts, named=processes.named | {SESSION})
         assert dormant.liveness(SESSION, reading=reading, processes=named) == "alive"
-        if pid in processes.starts:
-            joined = registry.Reading(rows=reading.rows + (row(SESSION, pid, None),),
-                                      unreadable=reading.unreadable, error=reading.error)
+        if pid in processes.starts and reading is not None:
+            joined = registry.Listing(rows=reading.rows + (row(SESSION, pid, None),),
+                                      unreadable=reading.unreadable)
             assert dormant.liveness(SESSION, reading=joined, processes=processes) == "alive"
     assert before != "dead" or processes is not None
 

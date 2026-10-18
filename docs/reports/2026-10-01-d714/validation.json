@@ -1,0 +1,739 @@
+{
+  "ruling": "d714; C-12.9; intended release 2.1.10",
+  "checkpoint": "f1bd2ab586a934e35024d3fae249aa3300028012",
+  "implementation_commits": [
+    "3a6f27fd55845ffcda1e04619ab04c424bef6f1d Replay accepted MCP resumes without requiring source configuration",
+    "4e94b75718d88d87aa1d2ba97a68389f13cf7171 Document d714 launch scope and verify writable child MCP flags",
+    "d12663279efb6dc43338a0872a5d7d36023aa143 Restrict detached Claude jobs to explicit per-job MCP servers (d714)"
+  ],
+  "git_storage": "Shared worktree Git metadata is read-only in this sandbox. Commits were created from the checkpoint on fix/writable-lanes-no-mcp using metadata inside the assigned workspace, and exported as commits.bundle. No original metadata writes, history rewrites or pushes.",
+  "design": [
+    {
+      "file": "subfleet/adapters/claude.py:1204",
+      "invariant": "Writable detached launch and resume pass strict MCP, empty by default; opted configurations expose exactly the named entries. Read-only/isolated flags unchanged."
+    },
+    {
+      "file": "subfleet/adapters/claude_mcp.py:195",
+      "invariant": "Resolve project ancestors (including ~/.mcp.json beneath home), user/local .claude.json and Claude precedence; retain only explicit names; unknown names refused at submit."
+    },
+    {
+      "file": "subfleet/daemon.py:885",
+      "invariant": "Persist names and private snapshots; retries use original entries; resumes inherit the source set; accepted request replays remain digest-gated without rereading MCP sources."
+    },
+    {
+      "file": "subfleet/scheduler.py:150",
+      "invariant": "Opted jobs route only to Claude; policy edits/defaults never broaden authorization or silently drop it."
+    },
+    {
+      "file": "subfleet/store.py:74",
+      "invariant": "Additive schema 6 migration leaves older jobs opted into no servers."
+    },
+    {
+      "file": "subfleet/conversations/launch.py:58",
+      "invariant": "Conversation source files unchanged; 8 exact argv/environment regressions cover every permission mode with fresh and resumed sessions."
+    },
+    {
+      "file": "docs/acceptance-contract.md:234",
+      "invariant": "C-12.9 and the top changelog record the detached scope, empty defaults, opt-in persistence and conversation exception."
+    }
+  ],
+  "verified_sources": [
+    "https://code.claude.com/docs/en/mcp#scope-hierarchy-and-precedence",
+    "https://code.claude.com/docs/en/mcp-quickstart#find-your-configuration-on-disk",
+    "https://code.claude.com/docs/en/cli-reference",
+    "Claude Code 2.1.284 binary offsets recorded in subfleet/adapters/claude_mcp.py"
+  ],
+  "new_mcp_tests": {
+    "passed": 74,
+    "files": {
+      "tests.fake.test_mcp_job_contract": 12,
+      "tests.unit.test_claude_conversation_mcp_scope": 8,
+      "tests.unit.test_claude_mcp": 32,
+      "tests.unit.test_claude_mcp_launch": 11,
+      "tests.unit.test_mcp_cli_contract": 6,
+      "tests.unit.test_mcp_scheduler_contract": 5
+    },
+    "hypothesis": "100 generated valid job launch/resume cases assert visible servers equal the opt-in; resolver property also checks exact config names."
+  },
+  "targeted_checks": [
+    {
+      "scope": "Adapter, launch and v1 argv parity",
+      "passed": 182
+    },
+    {
+      "scope": "New MCP contract before replay edge-case fix",
+      "passed": 72
+    },
+    {
+      "scope": "Replay and migration focused checks after fix",
+      "passed": 17
+    },
+    {
+      "scope": "Claude process suite after updating old bypass-only assertion",
+      "passed": 15
+    },
+    {
+      "scope": "Initial broader adapter/CLI/launch/submit/conversation selection",
+      "passed": 550,
+      "failed": 12,
+      "skipped": 1,
+      "note": "One stale process assertion corrected; other 11 failures reproduced on checkpoint."
+    }
+  ],
+  "full_suite": {
+    "totals": {
+      "tests": 7233,
+      "passed": 6915,
+      "failures": 140,
+      "errors": 47,
+      "skipped": 131
+    },
+    "slices": [
+      {
+        "name": "full-e2e-1",
+        "tests": 35,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 35,
+        "passed": 0,
+        "seconds": 0.64,
+        "capped": false,
+        "command": [
+          ".venv312/bin/python",
+          "-m",
+          "pytest",
+          "-q",
+          "tests/e2e/test_conversations.py",
+          "tests/e2e/test_guard_and_isolation.py",
+          "tests/e2e/test_http_isolation.py"
+        ]
+      },
+      {
+        "name": "full-e2e-2",
+        "tests": 27,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 25,
+        "passed": 2,
+        "seconds": 3.0,
+        "capped": false,
+        "command": [
+          ".venv312/bin/python",
+          "-m",
+          "pytest",
+          "-q",
+          "tests/e2e/test_legacy_cockpit.py",
+          "tests/e2e/test_milestone1_codex.py",
+          "tests/e2e/test_milestone2_claude.py",
+          "tests/e2e/test_notice_job_state.py",
+          "tests/e2e/test_recovery.py",
+          "tests/e2e/test_reserve.py",
+          "tests/e2e/test_stop_bound.py"
+        ]
+      },
+      {
+        "name": "full-fake-1",
+        "tests": 333,
+        "failures": 8,
+        "errors": 0,
+        "skipped": 35,
+        "passed": 290,
+        "seconds": 85.08,
+        "capped": false,
+        "command": [
+          ".venv312/bin/python",
+          "-m",
+          "pytest",
+          "-q",
+          "tests/fake/test_admission_latency.py",
+          "tests/fake/test_admission_liveness.py",
+          "tests/fake/test_admission_priority.py",
+          "tests/fake/test_admission_route_isolation.py",
+          "tests/fake/test_admission_visibility.py",
+          "tests/fake/test_batch_label.py",
+          "tests/fake/test_capacity_wait_backoff.py",
+          "tests/fake/test_conversation_pools.py",
+          "tests/fake/test_crash_matrix.py",
+          "tests/fake/test_daemon_contract.py",
+          "tests/fake/test_daemon_descriptors.py",
+          "tests/fake/test_daemon_launch.py",
+          "tests/fake/test_daemon_stacks.py",
+          "tests/fake/test_enrollment_guardian.py",
+          "tests/fake/test_fake_provider.py",
+          "tests/fake/test_finalization_replay.py",
+          "tests/fake/test_gate_end_to_end.py",
+          "tests/fake/test_idle_cost.py",
+          "tests/fake/test_lanes_enroll.py"
+        ]
+      },
+      {
+        "name": "full-fake-2",
+        "tests": 329,
+        "failures": 8,
+        "errors": 0,
+        "skipped": 18,
+        "passed": 303,
+        "seconds": 106.47,
+        "capped": false,
+        "command": [
+          ".venv312/bin/python",
+          "-m",
+          "pytest",
+          "-q",
+          "tests/fake/test_lanes_reenroll.py",
+          "tests/fake/test_lanes_reenroll_keychain.py",
+          "tests/fake/test_launch_gates_above_stdio.py",
+          "tests/fake/test_lost_acknowledgement.py",
+          "tests/fake/test_main_refusal_write_dir.py",
+          "tests/fake/test_mcp_job_contract.py",
+          "tests/fake/test_native_maintenance_startup.py",
+          "tests/fake/test_notice_header.py",
+          "tests/fake/test_picker_native.py",
+          "tests/fake/test_policy_sandbox.py",
+          "tests/fake/test_probe_recovery.py",
+          "tests/fake/test_prompt_seam.py",
+          "tests/fake/test_provider_qos.py",
+          "tests/fake/test_request_routing.py",
+          "tests/fake/test_reserve_authorization.py",
+          "tests/fake/test_reserve_authorization_validation.py",
+          "tests/fake/test_resume_cli.py",
+          "tests/fake/test_resume_contract.py",
+          "tests/fake/test_routing_end_to_end.py",
+          "tests/fake/test_sessions_end_to_end.py",
+          "tests/fake/test_state_contract.py",
+          "tests/fake/test_tier_hold_by_demand.py",
+          "tests/fake/test_timers_end_to_end.py",
+          "tests/fake/test_turn_listing.py",
+          "tests/fake/test_turn_trees.py",
+          "tests/fake/test_workspace_contract.py",
+          "tests/fake/test_workspace_transient.py"
+        ]
+      },
+      {
+        "name": "full-fake-3",
+        "tests": 28,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 28,
+        "seconds": 7.59,
+        "capped": false,
+        "command": [
+          ".venv312/bin/python",
+          "-m",
+          "pytest",
+          "-q",
+          "tests/fake/test_writable_fanout.py"
+        ]
+      },
+      {
+        "name": "full-frontend-1",
+        "tests": 172,
+        "failures": 0,
+        "errors": 10,
+        "skipped": 1,
+        "passed": 161,
+        "seconds": 102.05,
+        "capped": false,
+        "command": [
+          ".venv312/bin/python",
+          "-m",
+          "pytest",
+          "-q",
+          "tests/frontend/test_conversation_view.py",
+          "tests/frontend/test_core_approval_reach.py",
+          "tests/frontend/test_core_client.py",
+          "tests/frontend/test_core_diff.py",
+          "tests/frontend/test_core_live.py",
+          "tests/frontend/test_core_markdown.py",
+          "tests/frontend/test_core_outbox.py",
+          "tests/frontend/test_core_protocol.py",
+          "tests/frontend/test_core_store.py",
+          "tests/frontend/test_core_timeline.py",
+          "tests/frontend/test_menu_view.py",
+          "tests/frontend/test_status_model.py"
+        ]
+      },
+      {
+        "name": "full-live-1",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 5,
+        "passed": 0,
+        "seconds": 0.64,
+        "capped": false,
+        "command": [
+          ".venv312/bin/python",
+          "-m",
+          "pytest",
+          "-q",
+          "tests/live/test_claude_live.py",
+          "tests/live/test_import_dry_run.py"
+        ]
+      },
+      {
+        "name": "full-process-1",
+        "tests": 62,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 11,
+        "passed": 51,
+        "seconds": 4.38,
+        "capped": false,
+        "command": [
+          ".venv312/bin/python",
+          "-m",
+          "pytest",
+          "-q",
+          "tests/process/test_claude_isolation.py",
+          "tests/process/test_codex_isolation.py",
+          "tests/process/test_guardian_process.py",
+          "tests/process/test_guardian_qos_process.py",
+          "tests/process/test_guardian_relay.py",
+          "tests/process/test_pipe_above_stdio.py"
+        ]
+      },
+      {
+        "name": "full-unit-1",
+        "tests": 865,
+        "failures": 2,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 863,
+        "seconds": 190.68,
+        "capped": false,
+        "command": [
+          ".venv312/bin/python",
+          "-m",
+          "pytest",
+          "-q",
+          "tests/unit/test_admission_uncapped.py",
+          "tests/unit/test_agent_secret_credentials.py",
+          "tests/unit/test_boot_identity.py",
+          "tests/unit/test_capacity_desktop.py",
+          "tests/unit/test_capacity_view.py",
+          "tests/unit/test_claude_adapter.py",
+          "tests/unit/test_claude_attest.py",
+          "tests/unit/test_claude_conversation_mcp_scope.py",
+          "tests/unit/test_claude_identity.py",
+          "tests/unit/test_claude_large_stream.py",
+          "tests/unit/test_claude_mcp.py",
+          "tests/unit/test_claude_mcp_launch.py",
+          "tests/unit/test_claude_stream.py",
+          "tests/unit/test_claude_synthetic_error.py",
+          "tests/unit/test_claude_turn.py",
+          "tests/unit/test_claude_usage.py",
+          "tests/unit/test_claude_v1_parity.py",
+          "tests/unit/test_cli.py",
+          "tests/unit/test_cli_batch.py",
+          "tests/unit/test_cli_turns.py",
+          "tests/unit/test_codex_adapter.py"
+        ]
+      },
+      {
+        "name": "full-unit-2",
+        "tests": 128,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 128,
+        "seconds": 21.34,
+        "capped": false,
+        "command": [
+          ".venv312/bin/python",
+          "-m",
+          "pytest",
+          "-q",
+          "tests/unit/test_codex_probe.py",
+          "tests/unit/test_codex_shim.py",
+          "tests/unit/test_codex_turn.py"
+        ]
+      },
+      {
+        "name": "full-unit-3",
+        "tests": 1615,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 1615,
+        "seconds": 37.35,
+        "capped": false,
+        "command": [
+          ".venv312/bin/python",
+          "-m",
+          "pytest",
+          "-q",
+          "tests/unit/test_compat.py"
+        ]
+      },
+      {
+        "name": "full-unit-4",
+        "tests": 844,
+        "failures": 14,
+        "errors": 18,
+        "skipped": 0,
+        "passed": 812,
+        "seconds": 231.45,
+        "capped": false,
+        "command": [
+          ".venv312/bin/python",
+          "-m",
+          "pytest",
+          "-q",
+          "tests/unit/test_conversation_catalog.py",
+          "tests/unit/test_conversation_catalog_lifecycle.py",
+          "tests/unit/test_conversation_diff.py",
+          "tests/unit/test_conversation_fifo_reads.py",
+          "tests/unit/test_conversation_handoff.py",
+          "tests/unit/test_conversation_handoff_briefs.py",
+          "tests/unit/test_conversation_handoff_dispatch_races.py",
+          "tests/unit/test_conversation_history.py",
+          "tests/unit/test_conversation_peers_attachments.py",
+          "tests/unit/test_conversation_reconcile.py",
+          "tests/unit/test_conversation_redact.py",
+          "tests/unit/test_conversation_service.py",
+          "tests/unit/test_conversation_state_reads.py",
+          "tests/unit/test_conversation_status.py",
+          "tests/unit/test_conversation_store.py",
+          "tests/unit/test_daemon_fifo_reads.py",
+          "tests/unit/test_daemon_inspection_load.py",
+          "tests/unit/test_daemon_inspection_properties.py",
+          "tests/unit/test_daemon_integration.py",
+          "tests/unit/test_daemon_qos_tools.py",
+          "tests/unit/test_daemon_settle.py",
+          "tests/unit/test_daemon_verbs.py",
+          "tests/unit/test_decision_horizon.py",
+          "tests/unit/test_desktop_account_cache.py",
+          "tests/unit/test_desktop_in_use.py",
+          "tests/unit/test_desktop_ledger.py",
+          "tests/unit/test_doctor.py",
+          "tests/unit/test_doctor_identity.py",
+          "tests/unit/test_enrollment_runner.py",
+          "tests/unit/test_fake_codex_http.py",
+          "tests/unit/test_forget_paced.py",
+          "tests/unit/test_fresh_until.py",
+          "tests/unit/test_gate_admission.py",
+          "tests/unit/test_gate_merge.py",
+          "tests/unit/test_gate_replay.py",
+          "tests/unit/test_gate_revision.py",
+          "tests/unit/test_gate_service.py",
+          "tests/unit/test_gate_verdict.py",
+          "tests/unit/test_guard_overlay.py"
+        ]
+      },
+      {
+        "name": "full-unit-5",
+        "tests": 768,
+        "failures": 14,
+        "errors": 3,
+        "skipped": 0,
+        "passed": 751,
+        "seconds": 108.99,
+        "capped": false,
+        "command": [
+          ".venv312/bin/python",
+          "-m",
+          "pytest",
+          "-q",
+          "tests/unit/test_guard_trust.py",
+          "tests/unit/test_guardian.py",
+          "tests/unit/test_guardian_qos.py",
+          "tests/unit/test_hook_cost.py",
+          "tests/unit/test_hooks.py",
+          "tests/unit/test_hooks_native_guard.py",
+          "tests/unit/test_importer.py",
+          "tests/unit/test_inspection_pacing_properties.py",
+          "tests/unit/test_invariants_index.py",
+          "tests/unit/test_lanes_transfer.py",
+          "tests/unit/test_legacy_hold.py",
+          "tests/unit/test_lockwatch.py",
+          "tests/unit/test_mcp_cli_contract.py",
+          "tests/unit/test_mcp_scheduler_contract.py",
+          "tests/unit/test_mirror_flags_faults.py",
+          "tests/unit/test_mirror_flags_model.py",
+          "tests/unit/test_mirror_flags_stateful.py",
+          "tests/unit/test_native_operations.py",
+          "tests/unit/test_notice_rendering.py",
+          "tests/unit/test_notify_push.py",
+          "tests/unit/test_offline.py",
+          "tests/unit/test_outcome_unknown.py",
+          "tests/unit/test_picker.py"
+        ]
+      },
+      {
+        "name": "full-unit-6",
+        "tests": 852,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 852,
+        "seconds": 183.85,
+        "capped": false,
+        "command": [
+          ".venv312/bin/python",
+          "-m",
+          "pytest",
+          "-q",
+          "tests/unit/test_policy.py",
+          "tests/unit/test_policy_support.py",
+          "tests/unit/test_procs.py",
+          "tests/unit/test_reap_liveness.py",
+          "tests/unit/test_relay.py",
+          "tests/unit/test_render.py",
+          "tests/unit/test_reserve_authorization_plumbing.py",
+          "tests/unit/test_retention_turns.py",
+          "tests/unit/test_retention_worktrees.py",
+          "tests/unit/test_route_check.py",
+          "tests/unit/test_salvage.py",
+          "tests/unit/test_scheduler.py",
+          "tests/unit/test_scheduler_split.py",
+          "tests/unit/test_scheduler_turns.py",
+          "tests/unit/test_scoped_stream_capacity.py",
+          "tests/unit/test_sessions_cli.py",
+          "tests/unit/test_sessions_handoff.py",
+          "tests/unit/test_sessions_handoff_excerpts.py",
+          "tests/unit/test_sessions_mirror.py",
+          "tests/unit/test_sessions_mirror_cache_coherence.py"
+        ]
+      },
+      {
+        "name": "full-unit-7",
+        "tests": 892,
+        "failures": 93,
+        "errors": 0,
+        "skipped": 1,
+        "passed": 798,
+        "seconds": 153.01,
+        "capped": false,
+        "command": [
+          ".venv312/bin/python",
+          "-m",
+          "pytest",
+          "-q",
+          "tests/unit/test_sessions_mirror_fifo.py",
+          "tests/unit/test_sessions_mirror_hot_health.py",
+          "tests/unit/test_sessions_mirror_hot_progress.py",
+          "tests/unit/test_sessions_mirror_hot_regressions.py",
+          "tests/unit/test_sessions_mirror_inventory.py",
+          "tests/unit/test_sessions_mirror_load_gap.py",
+          "tests/unit/test_sessions_mirror_safety.py",
+          "tests/unit/test_sessions_mirror_write_churn.py",
+          "tests/unit/test_sessions_nudge.py",
+          "tests/unit/test_sessions_registry.py",
+          "tests/unit/test_sessions_revive.py",
+          "tests/unit/test_sessions_revive_reads.py",
+          "tests/unit/test_sessions_transcripts.py",
+          "tests/unit/test_settle_properties.py",
+          "tests/unit/test_soak_tools.py",
+          "tests/unit/test_status_json.py",
+          "tests/unit/test_stop_alarm.py",
+          "tests/unit/test_stop_watchdog.py",
+          "tests/unit/test_store_contention_queries.py",
+          "tests/unit/test_store_ids.py",
+          "tests/unit/test_store_migration_2.py",
+          "tests/unit/test_store_properties.py",
+          "tests/unit/test_store_readers.py"
+        ]
+      },
+      {
+        "name": "full-unit-8",
+        "tests": 278,
+        "failures": 1,
+        "errors": 16,
+        "skipped": 0,
+        "passed": 261,
+        "seconds": 77.32,
+        "capped": false,
+        "command": [
+          ".venv312/bin/python",
+          "-m",
+          "pytest",
+          "-q",
+          "tests/unit/test_timers_alerts.py",
+          "tests/unit/test_timers_daemon.py",
+          "tests/unit/test_timers_keepalive.py",
+          "tests/unit/test_timers_probe.py",
+          "tests/unit/test_timers_reset_credits.py",
+          "tests/unit/test_timers_retention.py",
+          "tests/unit/test_turn_attachment_replay.py",
+          "tests/unit/test_turn_replay.py",
+          "tests/unit/test_turn_runner.py",
+          "tests/unit/test_ultracode_effort.py",
+          "tests/unit/test_wait_hub.py"
+        ]
+      }
+    ],
+    "foreground": true,
+    "cap_seconds_per_slice": 480,
+    "max_slice_seconds": 231.45,
+    "any_capped": false
+  },
+  "checkpoint_comparison": {
+    "reproduced": 187,
+    "unconfirmed": 0,
+    "evidence": "checkpoint-failures.json",
+    "note": "Includes all timeout cases. Swift failures match compiler diagnostic sets and identical source; stderr tail prefixes differ with checkout path length."
+  },
+  "mutation_checks": [
+    {
+      "name": "drop-strict",
+      "change": "Remove --strict-mcp-config from the writable branch",
+      "selector": "tests/unit/test_claude_mcp_launch.py::test_writable_default_never_reads_a_config_or_enables_servers",
+      "failed": 2,
+      "result": "red",
+      "restored_with": "git --git-dir=validation-d714/git checkout -- <mutated file>",
+      "log": "mutation-drop-strict.log"
+    },
+    {
+      "name": "pass-all",
+      "change": "Write all snapshot servers instead of filtering to opted names",
+      "selector": "tests/unit/test_claude_mcp_launch.py::test_writable_opt_in_exposes_only_named_entries",
+      "failed": 2,
+      "result": "red",
+      "restored_with": "git --git-dir=validation-d714/git checkout -- <mutated file>",
+      "log": "mutation-pass-all.log"
+    },
+    {
+      "name": "drop-retry",
+      "change": "Drop mcp_servers and mcp_config for seq > 1 in Daemon._launch",
+      "selector": "tests/fake/test_mcp_job_contract.py::test_c12_9_provider_limit_retry_keeps_opt_in_and_original_entries",
+      "failed": 1,
+      "result": "red",
+      "restored_with": "git --git-dir=validation-d714/git checkout -- <mutated file>",
+      "log": "mutation-drop-retry.log"
+    }
+  ],
+  "process_checks": {
+    "recorded_pytest_pids": [
+      {
+        "run": "baseline-fake-1",
+        "pid": 95338,
+        "status": "exited"
+      },
+      {
+        "run": "baseline-fake-2",
+        "pid": 99411,
+        "status": "exited"
+      },
+      {
+        "run": "baseline-frontend-1",
+        "pid": 1751,
+        "status": "exited"
+      },
+      {
+        "run": "baseline-unit-4",
+        "pid": 81607,
+        "status": "exited"
+      },
+      {
+        "run": "baseline-unit-5",
+        "pid": 85773,
+        "status": "exited"
+      },
+      {
+        "run": "baseline-unit-7",
+        "pid": 88271,
+        "status": "exited"
+      },
+      {
+        "run": "baseline-unit-8",
+        "pid": 91047,
+        "status": "exited"
+      },
+      {
+        "run": "full-e2e-1",
+        "pid": 98199,
+        "status": "exited"
+      },
+      {
+        "run": "full-e2e-2",
+        "pid": 98231,
+        "status": "exited"
+      },
+      {
+        "run": "full-fake-1",
+        "pid": 88845,
+        "status": "exited"
+      },
+      {
+        "run": "full-fake-2",
+        "pid": 93299,
+        "status": "exited"
+      },
+      {
+        "run": "full-fake-3",
+        "pid": 97200,
+        "status": "exited"
+      },
+      {
+        "run": "full-frontend-1",
+        "pid": 98287,
+        "status": "exited"
+      },
+      {
+        "run": "full-live-1",
+        "pid": 1320,
+        "status": "exited"
+      },
+      {
+        "run": "full-process-1",
+        "pid": 1114,
+        "status": "exited"
+      },
+      {
+        "run": "full-unit-1",
+        "pid": 61537,
+        "status": "exited"
+      },
+      {
+        "run": "full-unit-2",
+        "pid": 70329,
+        "status": "exited"
+      },
+      {
+        "run": "full-unit-3",
+        "pid": 70780,
+        "status": "exited"
+      },
+      {
+        "run": "full-unit-4",
+        "pid": 71313,
+        "status": "exited"
+      },
+      {
+        "run": "full-unit-5",
+        "pid": 80331,
+        "status": "exited"
+      },
+      {
+        "run": "full-unit-6",
+        "pid": 83135,
+        "status": "exited"
+      },
+      {
+        "run": "full-unit-7",
+        "pid": 86238,
+        "status": "exited"
+      },
+      {
+        "run": "full-unit-8",
+        "pid": 87969,
+        "status": "exited"
+      },
+      {
+        "run": "targeted-baseline",
+        "pid": 56618,
+        "status": "exited"
+      },
+      {
+        "run": "targeted",
+        "pid": 46574,
+        "status": "exited"
+      }
+    ],
+    "all_recorded_pids_absent": true,
+    "descendant_audit": "Existing fixture cleanup waits for or terminates its own children. Global /bin/ps is denied by the sandbox; no global process census was available."
+  },
+  "scope": "No ~/.subfleet access, running daemon changes, installation, push or background validation commands. All edits remain in the assigned workspace."
+}

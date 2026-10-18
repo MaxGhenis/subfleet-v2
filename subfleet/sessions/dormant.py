@@ -190,17 +190,20 @@ def read_processes(read: Callable[[list[str]], str] | None = None, *,
     return table if (own_pid or os.getpid()) in table.starts else None
 
 
-def liveness(session_id: str, *, reading: registry.Reading,
+def liveness(session_id: str, *, reading: "registry.Listing | None",
              processes: Processes | None) -> str:
     """C-23.57: `alive`, `dead` or `unknown` for one session id, in either case.
 
-    A registry row is evidence of life only for the process that wrote it. When
-    the row records its process's start and the live pid started at another
-    time, the pid was reused and the row is stale. A row with no recorded start
-    counts whenever its pid is live: a false `alive` only holds a wake back.
+    `reading` is `registry.listing()`: its rows, the pids of the row files whose
+    content could not be trusted, or None when the registry could not be
+    listed. A registry row is evidence of life only for the process that wrote
+    it. When the row records its process's start and the live pid started at
+    another time, the pid was reused and the row is stale. A row with no
+    recorded start counts whenever its pid is live: a false `alive` only holds
+    a wake back.
     """
     wanted = session_id.lower()
-    for row in reading.rows:
+    for row in (reading.rows if reading is not None else ()):
         if row.session_id.lower() != wanted or not row.pid:
             continue
         if processes is None:
@@ -217,7 +220,7 @@ def liveness(session_id: str, *, reading: registry.Reading,
         return "unknown"
     if wanted in processes.named:
         return "alive"
-    if reading.error or any(pid is None or pid in processes.starts for pid in reading.unreadable):
+    if reading is None or any(pid in processes.starts for pid in reading.unreadable):
         return "unknown"
     return "dead"
 
@@ -426,35 +429,64 @@ def mirror_flags(state_root: Path | None) -> dict[str, Mapping[str, Any]] | None
             if isinstance(key, str) and isinstance(value, Mapping)}
 
 
-def all_copies(store: Path, local_id: str, *,
+def all_copies(store: Path, local_id: str, *, cli_session_id: str | None = None,
                flags: Mapping[str, Any] | None = None) -> DesktopRecord | None:
-    """Every account folder's copy of `local_id`, merged (C-23.58): the strict
-    check made just before a wake."""
+    """Every account folder's copy of the session, merged (C-23.58): the strict
+    check made just before a wake.
+
+    A folder holds a session's copy under its own name (`local_id`) or, when
+    that name belongs to another session there, under the mirror's fallback,
+    `local_<cliSessionId>.json` (`Mirror._spread`). Both are read, and a record
+    under either name counts only when it names this session's `cliSessionId`.
+    A folder that cannot be listed or looked into, and a copy that cannot be
+    read, count as unread: either may be the archived one."""
     copies: list[tuple[str, dict[str, Any]]] = []
     unreadable = 0
+    wanted = (cli_session_id or "").lower()
+    names = list(dict.fromkeys([f"{local_id}.json"] + ([f"local_{cli_session_id}.json",
+                                                         f"local_{wanted}.json"]
+                                                        if cli_session_id else [])))
     try:
-        accounts = [entry.path for entry in os.scandir(store) if entry.is_dir()]
+        with os.scandir(store) as found:
+            accounts = list(found)
     except OSError:
         return None
-    for account in accounts:
+
+    def directories(entries) -> list[str]:
+        nonlocal unreadable
+        kept = []
+        for entry in entries:
+            try:
+                if entry.is_dir():
+                    kept.append(entry.path)
+            except OSError:
+                unreadable += 1             # a folder that cannot be looked into
+        return kept
+
+    for account in directories(accounts):
         try:
-            orgs = [entry.path for entry in os.scandir(account) if entry.is_dir()]
+            with os.scandir(account) as found:
+                orgs = directories(list(found))
         except OSError:
             unreadable += 1
             continue
         for org in orgs:
-            path = Path(org) / f"{local_id}.json"
-            try:
-                os.stat(path)
-            except (FileNotFoundError, NotADirectoryError):
-                continue                    # no copy in this folder
-            except OSError:
-                unreadable += 1             # a copy that cannot be looked at may be the archived one
-                continue
-            data = _read_record(path)
-            if data is None:
-                unreadable += 1
-            else:
+            for name in names:
+                path = Path(org) / name
+                try:
+                    os.stat(path)
+                except (FileNotFoundError, NotADirectoryError):
+                    continue                # no copy under this name here
+                except OSError:
+                    unreadable += 1         # a copy that cannot be looked at may be the archived one
+                    continue
+                data = _read_record(path)
+                if data is None:
+                    unreadable += 1
+                    continue
+                cli = (_text(data, "cliSessionId") or "").lower()
+                if wanted and cli != wanted:
+                    continue                # another session's record under the shared name
                 copies.append((str(path), data))
     return merge_copies(local_id, copies, unreadable=unreadable, flags=flags)
 
@@ -473,12 +505,14 @@ class Window:
     #: Free turn slots on this lane (C-26.9), and in the whole fleet; None is no cap.
     slots: int | None = None
     fleet_slots: int | None = None
+    #: The lane the reading is of, for a lane's window.
+    lane: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {"percent_used": self.percent_used,
                 "resets_at": _iso(self.resets_at), "as_of": _iso(self.as_of),
                 "label": self.label, "source": self.source, "slots": self.slots,
-                "fleet_slots": self.fleet_slots}
+                "fleet_slots": self.fleet_slots, "lane": self.lane}
 
 
 @dataclass(frozen=True)
@@ -577,22 +611,22 @@ def pace_lanes(windows: Sequence[Window], *, now: datetime, rule: PaceRule = Pac
                pending: int = 0) -> Pace:
     """C-23.59 across every lane a conversation turn may land on.
 
-    A Claude turn is not pinned to a lane: admission places each one, and a turn
-    that cannot have the lane ranked first goes to the next. So the batch is
-    paced against the tightest lane: the first (the lane a turn would run on
-    now) must have a reading to pace against, and every other candidate that
-    has a current reading can only lower the count. A candidate with no current
-    reading cannot be measured and is named in the reason."""
+    A Claude turn is not pinned to a lane: admission places each wake's turn
+    when it is dispatched, and the batch's own placements, a slot freeing up or
+    a closure ending can move it to another lane (`lane_windows` lists them).
+    So every one of those lanes must have a reading to pace against, or no wake
+    goes out, and the batch is paced against the tightest of them."""
     if not windows:
         return Pace(0, "no lane would take a turn now", pending=pending)
+    for window in windows:
+        refusal = distrust(window, now=now, rule=rule)
+        if refusal is not None:
+            where = window.source or "a lane"
+            return Pace(0, f"{refusal}: {where}, where a wake's turn may land, cannot be "
+                        "measured", pending=pending, window=window)
     chosen = pace(windows[0], now=now, rule=rule, pending=pending)
-    if distrust(windows[0], now=now, rule=rule) is not None:
-        return chosen
     tightest, unmeasured = chosen, []
     for window in windows[1:]:
-        if distrust(window, now=now, rule=rule) is not None:
-            unmeasured.append(window.source or "a lane")
-            continue
         other = pace(window, now=now, rule=rule, pending=pending)
         if other.allowed < tightest.allowed:
             tightest = Pace(other.allowed, f"{other.reason}, on {window.source}, where a turn "
@@ -668,14 +702,19 @@ def pace(window: Window | None, *, now: datetime, rule: PaceRule = PaceRule(),
 
 
 def lane_windows(view: Mapping[str, Any], policy: Mapping[str, Any], *,
-                 model: str, now: datetime) -> list[Window]:
-    """The five-hour reading of every lane admission could give a conversation
-    turn now, the lane it would pick first (C-23.59).
+                 model: str, now: datetime, horizon_s: float = 1800.0) -> list[Window]:
+    """The five-hour reading of every lane admission could give a wake's turn
+    while the wake is in flight, the lane it would pick now first (C-23.59).
 
-    A conversation wake runs as a turn job, and admission picks its lane
-    (`scheduler.evaluate` with kind `turn`), falling to the next candidate when
-    the first cannot take it. A turn never runs on the desktop login, so that
-    is not the window it spends. `view` is the daemon's `daemon.status` answer,
+    A conversation wake runs as a turn job, and admission places it
+    (`scheduler.evaluate` with kind `turn`) when it is dispatched. A turn never
+    runs on the desktop login, so that is not the window it spends. The lanes
+    are found by the scheduler's own rules, not by imitating them: the
+    candidates now; the candidates once every turn in flight has ended (a slot
+    frees up, and rankings that count turns in flight move as the batch is
+    placed); and the candidates `horizon_s` later (`sessions.wake_settle_min`,
+    the time a wake counts as running), when closures and readings that end
+    before then have ended. `view` is the daemon's `daemon.status` answer,
     which is a capacity view. With no lane to take a turn, or no way to
     evaluate one, the one window returned has no reading, and the pace fails
     closed."""
@@ -693,13 +732,22 @@ def lane_windows(view: Mapping[str, Any], policy: Mapping[str, Any], *,
     if not lane:
         return [Window(None, None, label="unknown",
                        source=f"no lane would take a {short} turn now: {decision.reason}")]
-    candidates: list[str] = []
-    for evaluation in getattr(decision, "evaluations", ()) or ():
-        if isinstance(evaluation, Mapping) and evaluation.get("model") == decision.chosen_model:
-            candidates = [item for item in evaluation.get("candidates") or [] if isinstance(item, str)]
+    reachable: list[str] = [lane]
+    free = {**view, "in_flight_turns": {}, "unavailable_lanes": {}}
+    later = {**free, "now": _iso(now + timedelta(seconds=max(0.0, horizon_s)))}
+    for snapshot, picked in ((view, decision), (free, None), (later, None)):
+        try:
+            picked = picked or scheduler.evaluate(policy, snapshot, _turn_job(policy, short))
+        except Exception as exc:                        # noqa: BLE001 - unknown reach: nothing goes
+            return [Window(None, None, label="unknown",
+                           source=f"routing could not be evaluated ahead: {exc}")]
+        for evaluation in getattr(picked, "evaluations", ()) or ():
+            if isinstance(evaluation, Mapping) and evaluation.get("model") == short:
+                reachable += [item for item in evaluation.get("candidates") or []
+                              if isinstance(item, str)]
     lane_slots, fleet_slots = _turn_slots(policy, view, short)
     return [_lane_reading(view, other, slots=lane_slots(other), fleet_slots=fleet_slots)
-            for other in [lane] + [item for item in candidates if item != lane]]
+            for other in dict.fromkeys(reachable)]
 
 
 def _turn_slots(policy: Mapping[str, Any], view: Mapping[str, Any],
@@ -724,7 +772,7 @@ def _turn_slots(policy: Mapping[str, Any], view: Mapping[str, Any],
 def lane_window(view: Mapping[str, Any], policy: Mapping[str, Any], *,
                 model: str, now: datetime) -> Window:
     """The five-hour reading of the lane a conversation turn would run on now."""
-    return lane_windows(view, policy, model=model, now=now)[0]
+    return lane_windows(view, policy, model=model, now=now, horizon_s=0)[0]
 
 
 def _turn_job(policy: Mapping[str, Any], short: str) -> dict[str, Any]:
@@ -746,14 +794,14 @@ def _lane_reading(view: Mapping[str, Any], lane: str, *, slots: int | None = Non
                 best = row
     if best is None:
         return Window(None, None, label="unknown", source=f"lane {lane}: no five-hour reading",
-                      slots=slots, fleet_slots=fleet_slots)
+                      slots=slots, fleet_slots=fleet_slots, lane=lane)
     utilization = best.get("utilization")
     percent = float(utilization) * 100 if isinstance(utilization, (int, float)) \
         and not isinstance(utilization, bool) else None
     return Window(percent, _instant(best.get("resets_at")), as_of=_instant(best.get("observed_at")),
                   label=str(best.get("label") or "unknown"),
                   source=f"lane {lane} ({best.get('source') or 'reading'})",
-                  slots=slots, fleet_slots=fleet_slots)
+                  slots=slots, fleet_slots=fleet_slots, lane=lane)
 
 
 def window_from(percent: float | None, resets_at: Any, *, now: datetime,
@@ -912,7 +960,7 @@ def wake_key(turn: TurnState) -> str:
 def scan(facts: Mapping[str, Any], policy: Mapping[str, Any], *,
          now: datetime | None = None, only: Sequence[str] = (),
          caller: str | None = None, force: bool = False,
-         processes: Any = ..., reading: registry.Reading | None = None,
+         processes: Any = ..., reading: Any = ...,
          store: Path | None = None, state_root: Path | None = None,
          flags: Mapping[str, Mapping[str, Any]] | None | object = ...) -> Scan:
     """Every session whose transcript moved in the window, judged (C-23.56-58).
@@ -953,14 +1001,14 @@ def scan(facts: Mapping[str, Any], policy: Mapping[str, Any], *,
     wanted = [item.lower() for item in dict.fromkeys(only) if isinstance(item, str) and item]
     keys = wanted or sorted(records)
     table = read_processes() if processes is ... else processes
-    registry_reading = reading if reading is not None else registry.read()
+    registry_reading = registry.listing() if reading is ... else reading
     result.process_table = table is not None
     if table is None:
         result.errors.append("the process table could not be read, so no session is "
                              "judged dead (C-4.2)")
-    if registry_reading.error:
-        result.errors.append(f"the session registry could not be listed ({registry_reading.error}), "
-                             "so no session is judged dead (C-4.2)")
+    if registry_reading is None:
+        result.errors.append("the session registry could not be listed, so no session is "
+                             "judged dead (C-4.2)")
     cutoff = instant.timestamp() - settings.max_age_s
     for key in keys:
         local, data = records.get(key, (None, None))
@@ -1230,9 +1278,9 @@ class Probes:
     """What a wake re-reads just before it is reserved. Tests replace them."""
 
     processes: Callable[[], Processes | None] = read_processes
-    reading: Callable[[], registry.Reading] = registry.read
-    copies: Callable[[Path, str, Mapping[str, Any] | None], DesktopRecord | None] = \
-        lambda store, local, flags: all_copies(store, local, flags=flags)
+    reading: Callable[[], "registry.Listing | None"] = registry.listing
+    copies: Callable[[Path, str, str | None, Mapping[str, Any] | None], DesktopRecord | None] = \
+        lambda store, local, cli, flags: all_copies(store, local, cli_session_id=cli, flags=flags)
     open_facts: Callable[[str], tuple[bool, str | None, Mapping[str, Any]]] = predict_open
     branch: Callable[[str, str | None], str | None] = \
         lambda workspace, permission: branch_refusal(workspace, permission)
@@ -1245,7 +1293,7 @@ def wake_pass(sessions, policy: Mapping[str, Any], *, transport: str,
               only: Sequence[str] = (), caller: str | None = None,
               dry_run: bool = False, force: bool = False,
               now: datetime | None = None, processes: Any = ...,
-              reading: registry.Reading | None = None,
+              reading: Any = ...,
               store: Path | None = None, state_root: Path | None = None,
               probes: Probes = Probes()) -> WakeReport:
     """Scan, pace, and wake the eligible dormant sessions, oldest first (C-23.60).
@@ -1304,7 +1352,7 @@ def _wake_pass(sessions, policy: Mapping[str, Any], *, transport: str,
                window: Window | None,
                window_reader: Callable[[], Window | Sequence[Window]] | None,
                only: Sequence[str], caller: str | None, dry_run: bool, force: bool,
-               now: datetime | None, processes: Any, reading: registry.Reading | None,
+               now: datetime | None, processes: Any, reading: Any,
                store: Path | None, state_root: Path | None, probes: "Probes") -> WakeReport:
     instant = now or datetime.now(timezone.utc)
     settings = Settings.from_policy(policy)
@@ -1370,9 +1418,9 @@ class _Recheck:
         self.probes, self.clock = probes, clock or _time.monotonic
         self.read_at: float | None = None
         self.processes: Processes | None = None
-        self.reading: registry.Reading = registry.Reading()
+        self.reading: "registry.Listing | None" = None
 
-    def current(self) -> tuple[registry.Reading, Processes | None]:
+    def current(self) -> tuple["registry.Listing | None", Processes | None]:
         now = self.clock()
         if self.read_at is None or now - self.read_at > RECHECK_TABLE_S:
             self.reading, self.processes = self.probes.reading(), self.probes.processes()
@@ -1396,7 +1444,7 @@ def _wake_one(row: Dormant, sessions, settings: Settings, *, transport: str,
     # The strict record check: every account folder's copy, just before acting.
     # A copy that cannot be read may be the archived one, so it holds the wake.
     local = row.record.local_id if row.record else None
-    strict = probes.copies(store, local, flags) if local else None
+    strict = probes.copies(store, local, row.session_id, flags) if local else None
     if strict is None:
         return _hold(row, "its desktop record's copies could not be read, so whether it "
                      "is archived is unknown", "run the pass again")
@@ -1567,9 +1615,10 @@ def automatic_pass(root: str | Path, *, cancel, timeout_s: float = PASS_TIMEOUT_
                    now: Callable[[], datetime] | None = None) -> dict[str, Any]:
     """Run one wake pass as a child process and record what it did (C-23.60).
 
-    `cancel` is the daemon's stop event: a stop ends the child within
-    `PASS_TERM_S` plus a second, so a pass can never hold a daemon stop
-    (C-5.8a). A pass stopped mid-way can leave one wake reserved and unsent,
+    `cancel` is the daemon's stop event, looked at every second: a stop ends the
+    child's process group within that second plus `PASS_TERM_S`, `PASS_KILL_S`
+    and one reap of `PASS_KILL_S` (7 s in all), so a pass can never hold a
+    daemon stop (C-5.8a). A pass stopped mid-way can leave one wake reserved and unsent,
     which the next survey names with its `--force` fix. The summary is written
     to `pass_path(root)` and returned."""
     import subprocess

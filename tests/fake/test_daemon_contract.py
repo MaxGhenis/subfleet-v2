@@ -11,6 +11,8 @@ import threading
 
 import pytest
 
+from tests.caps import capped
+
 
 def test_c6_2_request_id_is_idempotent_and_digest_conflicts_are_code_2(daemon):
     """C-6.2 equal request digests reuse a job; different digests return code 2."""
@@ -31,7 +33,11 @@ def test_c6_2_request_id_is_idempotent_and_digest_conflicts_are_code_2(daemon):
 
 
 def test_c6_3_concurrent_submits_take_exactly_one_unmeasured_lane_slot(daemon):
-    """C-6.3, C-6.4 concurrent one-slot admission leaves the other job at capacity."""
+    """C-6.3, C-6.4 concurrent one-slot admission leaves the other job at capacity,
+    under the caps of before 2026-09-27 (tests/caps.py); with none, both run."""
+    policy = json.loads((daemon.root / "policy.json").read_text())
+    capped(policy)
+    (daemon.root / "policy.json").write_text(json.dumps(policy, indent=2) + "\n")
     daemon.start()
     barrier = threading.Barrier(2)
 
@@ -300,6 +306,18 @@ def test_c16_1_malformed_line_keeps_connection_handler_alive(daemon):
         client.sendall(b'{"v":1,"id":"after-error","op":"daemon.status","args":{}}\n')
         response = json.loads(stream.readline())
         assert response["ok"] is True and response["id"] == "after-error"
+
+
+def test_content_filter_refusal_is_never_retried(daemon):
+    """C-4.5, C-9.2, invariant 39: a content-filter refusal ends the job on its first attempt, with
+    attempts to spare, and opens no closure; rewording the prompt is the caller's fix, not a retry."""
+    daemon.start()
+    job_id = daemon.submit("rc3-content-filter", max_attempts=3)
+    finished = daemon.finished(job_id)
+    assert finished["state"] == "failed" and finished["rc"] == 3
+    attempts = daemon.attempts(job_id)
+    assert [(row["seq"], row["outcome_class"]) for row in attempts] == [(1, "content-filter")]
+    assert not daemon.rows("SELECT * FROM closures")
 
 
 @pytest.mark.parametrize("scenario,rc", [("ok", 0), ("rc1-crash-after-output", 1),

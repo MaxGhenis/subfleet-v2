@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from ..contracts import Exit
-from ..ids import request_id as validate_request_id
+from ..ids import request_id_arg as validate_request_id
 from . import dormant as dormant_module
 from . import handoff as handoff_module
 from . import mirror as mirror_module
@@ -443,8 +443,9 @@ def _continue_cold_wake(args: argparse.Namespace) -> int:
             view = client.call("daemon.status", {}, timeout=60)
         except Exception as exc:                        # noqa: BLE001 - the pace fails closed
             return [dormant_module.Window(None, None, source=f"daemon.status: {exc}")]
-        return dormant_module.lane_windows(
-            view, policy, model=dormant_module.Settings.from_policy(policy).model, now=now)
+        settings = dormant_module.Settings.from_policy(policy)
+        return dormant_module.lane_windows(view, policy, model=settings.model, now=now,
+                                           horizon_s=settings.settle_s)
 
     report = dormant_module.wake_pass(
         sessions, policy, transport=transport, conversations=conversations, window=window,

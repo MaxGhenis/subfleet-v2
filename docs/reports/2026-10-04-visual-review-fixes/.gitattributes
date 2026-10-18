@@ -1,0 +1,4 @@
+# Preserve captured source excerpts and unified-diff context verbatim.
+*.xml whitespace=-blank-at-eol
+*.log whitespace=-blank-at-eol
+*.patch whitespace=-blank-at-eol

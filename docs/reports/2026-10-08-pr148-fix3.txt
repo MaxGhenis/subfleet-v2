@@ -1,0 +1,189 @@
+PR #148, fix round 3 — 2026-10-08
+
+Prerequisite: e5c2c5422db16188c2735ce6edd87e0c339a4b03.
+Source head: e1a3a4b10 (report commit follows it).
+Delivery: docs/reports/2026-10-08-pr148-fix3.bundle, containing the local
+fix/canonical-identity branch with the prerequisite excluded. Shared Git
+metadata is read-only; commits use .git-local/metadata. Nothing was pushed.
+
+Changes and evidence
+
+1. P2 cost: subfleet/resource_leases.py:68 defaults census=False; only submit
+   opts in at subfleet/daemon.py:2016 and :2545. Admission (:4825) and export
+   (:6773) keep alias-lease checks without scanning other live jobs. Tests at
+   tests/fake/test_canonical_identity_fix3.py:36 and :60 pass for 10/40/160:
+   one target identity call at admission, at most two at export, no unleased
+   other-job output resolved, no live-job census query, and 19/79/319 calls
+   for complete admission passes. Held lease aliases still require identity
+   comparisons; the tests explicitly distinguish those from unused census work.
+
+2. P3-1: subfleet/resource_leases.py:98 and subfleet/daemon.py:6776 include the
+   exporting job's own out: leases. The three cases at
+   tests/fake/test_canonical_identity_fix3.py:82 pass: an identity-only failure
+   still exports; actual permission/loop failures report EACCES/ELOOP rather
+   than "output lease not held", and release all leases.
+
+3. P3-2: subfleet/resource_leases.py:82 checks the exact key and canonical keys
+   held by jobs with the identical stored out_path, including quarantine.
+   The regression at tests/fake/test_canonical_identity_fix3.py:118 passes:
+   identity unavailable, old job lost but attempt quarantined, duplicate
+   refused with exit 7, and only one job stored. C-6.5 (:207) states the limit
+   of fallback honestly: different aliases can temporarily hold leases while
+   identity is unavailable, but export arbitrates one publisher.
+
+4. P3-3: subfleet/conversations/service.py:499 returns an existing native
+   binding directly. tests/fake/test_canonical_identity_fix3.py:163 passes
+   through conversation.open while its own native lease is held. New bindings
+   still serialize their ownership check with reservation; the L3 race and
+   store-read-interface controls also pass.
+
+5. P3-4: docs/canonical-identity-rollback.md:3 describes silent skipped exports,
+   retained out:/native:/native-session:/session:…:revive guards, and blocked
+   new revives on 2.1.11. tools/prepare_identity_rollback.py:56 provides an
+   explicit-root preview/apply repair under daemon.lock, with atomic updates,
+   collision refusal and preserved holder/time/deadline metadata. Run from
+   this checkout after stopping the daemon:
+     python3 tools/prepare_identity_rollback.py --root /path/to/state
+     python3 tools/prepare_identity_rollback.py --root /path/to/state --apply
+   Both tests at tests/fake/test_identity_rollback.py:36 and :90 pass. Real
+   release/current cross-version tests additionally pass: old raw alias pairs
+   settle correctly on upgrade in both export orders; before rollback repair
+   release silently skips both exports and refuses a revive; after the five-key
+   repair it exports both, clears their guards and admits a new revive.
+   Upgrade retains raw rows and canonicalizes ownership comparisons, rather
+   than collapsing primary keys that may have different legacy holders.
+
+6. P3-5: chose the wording fix, not moving the conversation read. C-3.3 at
+   docs/acceptance-contract.md:161 explicitly permits SQLite's commit syncs
+   and describes the conversation-store FULL commit under the main lock.
+   Keeping the SQL ownership recheck there preserves L3's atomicity. The
+   reservation/binding race controls and related conversation tests pass.
+
+7. P3-6 remains deferred as permitted by the request. A raised TimeoutError
+   falls back, but filesystem work still has no true wall-clock deadline.
+   tests/fake/test_canonical_identity_fix3.py:214 is a strict xfail naming that
+   gap; it uses a finite blocked-syscall stand-in and leaves no worker behind.
+   docs/canonical-identity-rollback.md:36 explains why a future timeout cannot
+   cancel hung filesystem work, and signals cannot safely bound daemon worker
+   threads. A supervised bounded worker/shutdown design is required.
+
+8. P3-7: the public-open attempt-holder branch at
+   subfleet/conversations/service.py:538 is covered by both live and
+   lost/quarantined cases at tests/fake/test_canonical_identity_fix3.py:137.
+   Both pass; deleting that UNION branch is killed by an assertion after a
+   passing control. The unreachable outer OSError fallback was deleted from
+   OutputClaim.prepare; folders.identity owns the tested fallback.
+
+9. Requested-output loops: subfleet/daemon.py:1877 probes strict resolution
+   and returns AdapterError exit 7 with a fix line for RuntimeError/ELOOP.
+   Non-loop absence/permission errors retain non-strict resolution. Four
+   regressions at tests/fake/test_canonical_identity_fix3.py:178 and :192
+   pass, covering files, parents and Python 3.13+ ELOOP suppression. A Python
+   3.14 stdlib probe confirmed non-strict suppression and strict ELOOP; the
+   full pytest runs below use Python 3.12.
+
+Cost measurements
+
+Archived profile_admit.py, same real _admit path and 4,500-row fixture,
+100/300/600 queued outputs, three samples per cell. Release snapshot:
+7e8b4a58c802886951d3ef74285e2d2d5a7a51b1 (#147 and #149 included).
+Initial serial release then fix measurement, seconds (median [min,max]):
+  live   release                 fix3                     fix identity calls
+  100    0.392 [0.319,0.445]      0.630 [0.239,0.752]        199
+  300    1.917 [1.759,2.767]      1.315 [1.042,1.530]        599
+  600    5.387 [5.224,6.339]     27.313 [4.132,32.277]      1199
+Release makes no canonical identity calls. The 600-job fix timing was highly
+variable; no wall-clock speedup is claimed. Paired rerun results follow:
+  live   release                 fix3                     fix identity calls
+  100    1.031 [0.992,1.717]      1.211 [1.203,1.748]        199
+  300    4.672 [3.143,6.059]     12.658 [9.178,14.163]       599
+  600   22.866 [21.824,29.706]    8.589 [7.121,9.764]       1199
+Paired means release then fix for each size, with three sequential samples
+per process. One-minute host load at process starts ranged from 17.2 to 42.8.
+These runs establish linear filesystem identity work, not linear total
+admission time or a stable wall-clock advantage over release routing.
+
+Validation (counts overlap; do not sum them as unique tests)
+
+- Existing five identity files, including filesystem_identity_agreement,
+  plus the two rollback tests: 69 passed, 3 skipped (756.90 s).
+  This is 67 passing pre-existing identity cases and two new rollback cases.
+  HFS+, case-sensitive HFS+ and ExFAT image creation was denied by the sandbox:
+  hdiutil "Device not configured". Real APFS checks passed; no image attached.
+- Final submit/export/admission/rollback regressions after the strict probe:
+  29 passed, 1 strict xfailed (30.92 s).
+- Reconstructed 23 related files: 985 passed, 1 skipped (2467.00 s). The skip
+  needs a /Users Data-volume firmlink; the test HOME was isolated. The archive
+  supplies no exact reviewer file list, so this is not claimed as a rerun of
+  the reviewer's precise 668-case selection. File list is below.
+- Privacy guard correction: tests/canonical_identity_privacy.py:39 redirects
+  HOME through the environment so fixture HOME overrides work. Folder-spelling
+  and conversation-store verification: 39 passed; those files then also passed
+  in the 23-file run. Live native-state reads and network connects stay denied.
+- Mutations: 16/16 killed by assertions, with 16 passing controls. All builder
+  11 ran: casefold, normalization, native key, reservation recheck, OSError
+  fallback, superseded release, memo, public-open guard, caseless rule,
+  default-ignorables, dotless-i. Archived reviewer M1/M11/M12/M13 all ran:
+  supersession, oldest-owner arbitration, raw aliases, quarantined job holder.
+  The added attempt-holder mutation was killed too. The unreachable fallback
+  survivor is retired by deleting its unreachable code.
+  LIMIT: supplied extra_mutations.py contains only four of the reported 14;
+  the other ten definitions/results are absent. Full reviewer 14 certification
+  is unavailable; missing evidence was requested during the run.
+
+Related files (all under tests/):
+  fake/test_resume_contract.py
+  fake/test_writable_fanout.py
+  fake/test_folder_spelling.py
+  unit/test_folders.py
+  unit/test_conversation_store.py
+  unit/test_conversation_service.py
+  unit/test_conversation_handoff.py
+  unit/test_conversation_handoff_briefs.py
+  unit/test_conversation_handoff_dispatch_races.py
+  unit/test_conversation_state_reads.py
+  unit/test_conversation_connections.py
+  unit/test_conversation_reconcile.py
+  unit/test_sessions_registry.py
+  unit/test_sessions_revive.py
+  unit/test_sessions_revive_reads.py
+  unit/test_sessions_cli.py
+  unit/test_sessions_nudge.py
+  unit/test_sessions_handoff.py
+  unit/test_sessions_handoff_excerpts.py
+  unit/test_sessions_headless_properties.py
+  unit/test_sessions_transcripts.py
+  unit/test_sessions_mirror_safety.py
+  unit/test_continuation_r2.py
+
+Replacement PR description (remote PR not edited)
+
+Canonical resource identity prevents differently spelled native UUIDs and
+filesystem aliases from taking independent writer leases. UUID subjects use
+their canonical parsed spelling; insensitive filesystem comparisons use
+NFD(casefold(NFD(path))), default-ignorable removal and conservative dotless-i
+equivalence. Display spellings remain intact. Legacy lease aliases remain
+guards, reservation rechecks ownership, and the oldest legacy output owner
+publishes while superseded owners settle and release their leases.
+
+This round confines the live-output census to submit, preserves held output
+leases during export-only identity failures, refuses exact quarantine
+duplicates, permits reopening existing conversation bindings, covers native
+attempt holders, and refuses requested output loops with exit 7. Rolling back
+to 2.1.11 requires draining jobs or the documented atomic spelling repair;
+otherwise exports may be silently skipped and revive guards retained. True
+hung-filesystem deadlines remain documented with a strict xfail.
+
+Execution and delivery
+
+Python 3.12.14, pytest 9.1.1, Hypothesis 6.168.5. One foreground pytest process
+at a time, no -n, no subagents or independently backgrounded validation.
+Every pytest/benchmark TMPDIR was a fresh folder under DARWIN_USER_TEMP_DIR,
+with no component named tmp; it was removed after validation. An initial
+standalone stdlib loop probe used /private/tmp and cleaned itself; it was
+repeated in the required Darwin folder. The dependency-install log there was
+also removed. Live ~/.subfleet was never used. No caller checkout was edited.
+Commits: 1f9014ee5, 8b432694c, 3cf70b5b6, e1a3a4b10, then this report.
+Every commit ends with the required Claude Opus 5.5 coauthor trailer.
+Bundle verification checks its prerequisite and branch head; the delivery
+message names the final report-commit head to avoid a self-referential hash.

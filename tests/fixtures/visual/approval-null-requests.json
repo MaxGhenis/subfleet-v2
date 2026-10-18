@@ -1,0 +1,202 @@
+[
+  {
+    "id": "claude-null-property-delete",
+    "kind": "tool",
+    "display": {
+      "tool": "mcp__notion__API-update-a-data-source",
+      "description": "Update a data source"
+    },
+    "request": {
+      "subtype": "can_use_tool",
+      "tool_name": "mcp__notion__API-update-a-data-source",
+      "tool_use_id": "toolu-review-delete",
+      "input": {
+        "data_source_id": "f336d0bc-b841-465b-8045-024475c079dd",
+        "properties": {
+          "Salary": null,
+          "Owner": null
+        }
+      }
+    },
+    "options": [
+      "allow",
+      "deny"
+    ],
+    "expected": {
+      "input.data_source_id": "f336d0bc-b841-465b-8045-024475c079dd",
+      "input.properties.Salary": "null",
+      "input.properties.Owner": "null"
+    }
+  },
+  {
+    "id": "claude-null-description",
+    "kind": "tool",
+    "display": {
+      "tool": "mcp__issues__update_issue"
+    },
+    "request": {
+      "subtype": "can_use_tool",
+      "tool_name": "mcp__issues__update_issue",
+      "tool_use_id": "toolu-issue",
+      "agent_id": null,
+      "input": {
+        "description": null,
+        "labels": [
+          null
+        ],
+        "title": ""
+      }
+    },
+    "expected": {
+      "input.description": "null",
+      "input.labels[0]": "null",
+      "input.title": "\"\""
+    },
+    "options": [
+      "allow",
+      "deny"
+    ]
+  },
+  {
+    "id": "codex-null-root",
+    "kind": "file-change",
+    "display": {},
+    "request": {
+      "method": "item/fileChange/requestApproval",
+      "params": {
+        "threadId": "thr-1",
+        "turnId": "turn-1",
+        "itemId": "i",
+        "startedAtMs": 1,
+        "reason": null,
+        "grantRoot": null
+      }
+    },
+    "expected": {
+      "params.grantRoot": "null"
+    },
+    "options": [
+      "allow",
+      "deny"
+    ]
+  },
+  {
+    "id": "codex-null-permissions",
+    "kind": "permissions",
+    "display": {},
+    "request": {
+      "method": "item/permissions/requestApproval",
+      "params": {
+        "threadId": "thr-1",
+        "turnId": "turn-1",
+        "itemId": "i",
+        "startedAtMs": 1,
+        "reason": null,
+        "cwd": "/repo",
+        "permissions": {
+          "fileSystem": {
+            "read": null,
+            "write": []
+          },
+          "network": {
+            "enabled": null
+          }
+        }
+      }
+    },
+    "expected": {
+      "params.cwd": "/repo",
+      "params.permissions.fileSystem.read": "null",
+      "params.permissions.fileSystem.write": "[]",
+      "params.permissions.network.enabled": "null"
+    },
+    "options": [
+      "allow",
+      "deny"
+    ]
+  },
+  {
+    "id": "codex-null-command",
+    "kind": "command",
+    "display": {},
+    "request": {
+      "method": "item/commandExecution/requestApproval",
+      "params": {
+        "threadId": "thr-1",
+        "turnId": "turn-1",
+        "itemId": "i",
+        "startedAtMs": 1,
+        "reason": null,
+        "command": null,
+        "cwd": "/repo",
+        "environmentId": null,
+        "networkApprovalContext": null,
+        "proposedExecpolicyAmendment": null,
+        "proposedNetworkPolicyAmendments": []
+      }
+    },
+    "expected": {
+      "params.command": "null",
+      "params.cwd": "/repo",
+      "params.environmentId": "null",
+      "params.networkApprovalContext": "null",
+      "params.proposedExecpolicyAmendment": "null"
+    },
+    "options": [
+      "allow",
+      "deny"
+    ]
+  },
+  {
+    "id": "claude-null-nested",
+    "kind": "tool",
+    "display": {
+      "tool": "mcp__notion__API-update-a-data-source"
+    },
+    "request": {
+      "subtype": "can_use_tool",
+      "tool_name": "mcp__notion__API-update-a-data-source",
+      "tool_use_id": "toolu-nested",
+      "input": {
+        "properties": {
+          "Salary.Year": null,
+          "Owner[0]": null,
+          "": null
+        },
+        "futureGrant": {
+          "method": null,
+          "description": null,
+          "approvalId": null
+        },
+        "values": [
+          null,
+          {},
+          [],
+          "",
+          false,
+          0
+        ]
+      },
+      "newGrant": null
+    },
+    "expected": {
+      "input.properties[\"Salary.Year\"]": "null",
+      "input.properties[\"Owner[0]\"]": "null",
+      "input.properties[\"\"]": "null",
+      "input.futureGrant.method": "null",
+      "input.futureGrant.description": "null",
+      "input.futureGrant.approvalId": "null",
+      "input.values[0]": "null",
+      "input.values[1]": "{}",
+      "input.values[2]": "[]",
+      "input.values[3]": "\"\"",
+      "input.values[4]": "false",
+      "input.values[5]": "0",
+      "newGrant": "null"
+    },
+    "options": [
+      "allow",
+      "deny"
+    ]
+  }
+]
