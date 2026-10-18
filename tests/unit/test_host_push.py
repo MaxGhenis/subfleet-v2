@@ -10,6 +10,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from types import SimpleNamespace
 from uuid import uuid4
@@ -104,7 +105,11 @@ def worlds(tmp_path, monkeypatch):
             actual_git = host_push.git
 
             def watch(quarantine_repo, *args, **kwargs):
-                assert not world.core.store.connection.in_transaction, "Git ran inside a store transaction"
+                # Another thread can commit admission while this worker runs
+                # Git. The invariant forbids a transaction on this thread.
+                held = world.core.store._lock.held
+                assert not (held and held[0] == threading.get_ident()
+                            and world.core.store.connection.in_transaction), "Git ran inside a store transaction"
                 assert world.core.root / "push-quarantine" in quarantine_repo.parents, "job-controlled Git directory"
                 if args[0] in {"push", "ls-remote", "fetch"} and len(args) > 2:
                     # A GitHub spelling a test recorded at submit reaches the
@@ -184,6 +189,9 @@ def accept(world, job=None, bundle=True, include_base=False, settle=True):
     if bundle:
         write_bundle(world, job, include_base)
     (directory / "exit.json").write_text(json.dumps({"rc": 0, "signal": None, "wall_s": 1}))
+    # The lane is Codex's (astra): a finished turn's own stream carries the
+    # completion that the daemon checks before accepting (C-9.2).
+    (directory / "stream.jsonl").write_text('{"type":"turn.completed"}\n')
     core.store.add_attempt(attempt_id=attempt_id, job_id=job, seq=1, lane_id="test-lane",
                            model_requested="astra", state="running", evidence_json="{}")
     with core.store.transaction("test.running") as tx:

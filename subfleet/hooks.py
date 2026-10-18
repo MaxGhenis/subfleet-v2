@@ -162,9 +162,8 @@ def launched_by_subfleet(env: Any = None) -> str | None:
 
 
 def settings_path() -> Path:
-    override = os.environ.get(SETTINGS_ENV)
-    return (Path(override).expanduser() if override
-            else Path("~/.claude/settings.json").expanduser())
+    from .home_paths import home_path
+    return Path(home_path(SETTINGS_ENV, lambda: "~/.claude/settings.json")).expanduser()
 
 
 def hook_command() -> str:
@@ -437,6 +436,29 @@ def names_a_job(row: dict[str, Any]) -> bool:
     return isinstance(job_id, str) and bool(job_id.strip())
 
 
+#: C-25.7: what a conversation turn's agent is told about suggesting a conversation.
+#: One stable line, on a new session (and after a clear or a compaction, which drop
+#: what the session was told); a resumed turn's session already holds it.
+SUGGEST_HINT = (
+    "Subfleet: this session is a conversation in the Subfleet app. When you find an out-of-scope follow-up "
+    "worth a conversation of its own, propose it with `subfleet suggest --title \"...\" --tldr \"...\" "
+    "--brief-file BRIEF.md [--worktree]` (the brief is its self-contained first message; `subfleet suggest "
+    "--help` has the rest). The owner starts or dismisses it in the app; nothing starts until they do.")
+SUGGEST_HINT_SOURCES = ("startup", "clear", "compact")
+
+
+def suggest_hint(event: str, payload: dict[str, Any], env: Any = None) -> str | None:
+    """C-25.7: `SUGGEST_HINT`, for a `SessionStart` inside a conversation turn (the
+    turn's job is in `SUBFLEET_TURN_JOB`, C-26.13) from a new, cleared or compacted
+    session; otherwise nothing. The hook's own `additionalContext` is the channel:
+    it leaves a turn's command line, environment and frames as they were."""
+    values = os.environ if env is None else env
+    if event != "SessionStart" or not str(values.get("SUBFLEET_TURN_JOB") or "").strip():
+        return None
+    source = payload.get("source") if isinstance(payload, dict) else None
+    return SUGGEST_HINT if source in SUGGEST_HINT_SOURCES else None
+
+
 def session_event(event: str, payload: dict[str, Any], root: Path,
                   *, client: Client | None = None,
                   stdout: Any = None, env: Any = None) -> int:
@@ -473,13 +495,14 @@ def session_event(event: str, payload: dict[str, Any], root: Path,
         rows, marked = _offline_pending(root, session), False
     if launched:
         rows = [row for row in rows if names_a_job(row)]
-    if not rows:
-        return int(Exit.OK)
-    context = render_pending(rows)
+    notices = render_pending(rows) if rows else ""
+    context = "\n\n".join(part for part in (notices, suggest_hint(event, payload, env)) if part)
     if not context:
         return int(Exit.OK)
     stdout.write(json.dumps({"hookSpecificOutput": {
         "hookEventName": event, "additionalContext": context}}) + "\n")
+    if not notices:
+        return int(Exit.OK)
     if marked:
         try:
             _mark(client, session, [row["notice_id"] for row in rows

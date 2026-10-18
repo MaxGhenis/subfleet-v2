@@ -202,15 +202,15 @@ _PIN_QUERIES = (
                      "AND holder != 'retention:' || substr(lease_key, 8)"),
     # A job not yet ended whose directory is this job's allocated worktree or
     # inside it (a job an agent submitted from its worktree, still queued):
-    # the tree must still be there when it runs (design review, Opus 9).
-    # SQLite's LIKE ignores ASCII case (the store sets no case_sensitive_like),
-    # so a live job whose folder is *inside* this tree, spelled in another case,
-    # still keeps it. The exact-root comparisons (`=`) stay case-sensitive: a
-    # live job whose folder is the tree's root spelled in another case does not
-    # keep it, which is part of the C-8.4 known limit (review of #134's delta, P3).
+    # the tree must still be there when it runs (design review, Opus 9). A
+    # directory is compared without ASCII case: inside the tree with LIKE (the
+    # store sets no case_sensitive_like), the tree itself with NOCASE. A native
+    # session's cwd may spell the tree `jOB` for `Job`, and its queued turn, which
+    # waits on retention's fence (`folders.retiring`, folded), keeps the tree
+    # (review of 8a112986, finding 1).
     ("worktree-in-use", "SELECT a.job_id FROM jobs a JOIN jobs b ON b.job_id <> a.job_id "
                         "AND b.state NOT IN ('succeeded','failed','cancelled','lost') "
-                        "AND (b.worktree = a.worktree OR b.workdir = a.worktree "
+                        "AND (b.worktree = a.worktree COLLATE NOCASE OR b.workdir = a.worktree COLLATE NOCASE "
                         "OR b.workdir LIKE a.worktree || '/%' OR b.worktree LIKE a.worktree || '/%') "
                         "WHERE a.worktree IS NOT NULL AND a.in_place = 0 AND a.sandbox = 'workspace-write'"),
 )
@@ -218,7 +218,7 @@ _PIN_QUERIES = (
 #: (`jobs.worktree` NULL, `rarch.owned_worktree`); ?1 is `<state>/worktrees/`.
 _UNRECORDED_IN_USE = ("SELECT a.job_id FROM jobs a JOIN jobs b ON b.job_id <> a.job_id "
                       "AND b.state NOT IN ('succeeded','failed','cancelled','lost') "
-                      "AND (b.worktree = ?1 || a.job_id OR b.workdir = ?1 || a.job_id "
+                      "AND (b.worktree = (?1 || a.job_id) COLLATE NOCASE OR b.workdir = (?1 || a.job_id) COLLATE NOCASE "
                       "OR b.workdir LIKE ?1 || a.job_id || '/%' OR b.worktree LIKE ?1 || a.job_id || '/%') "
                       "WHERE a.worktree IS NULL AND a.in_place = 0 AND a.sandbox = 'workspace-write'")
 
@@ -828,8 +828,10 @@ class _Pass:
             # A turn may register after selection. Read its rows, on the tree
             # and on any folder inside it (P3-1), and acquire the fence
             # atomically; daemon reservation checks this same fence before
-            # inserting either a TURN or READER row on the tree or on any
-            # folder inside it (I5, `folders.retiring`).
+            # inserting a TURN or READER row, or a detached writer's
+            # `worktree:` lease, on the tree or on any folder inside it, and
+            # before reserving any other detached job whose folder is there
+            # (I5, `folders.retiring`).
             if reason is None and folder is not None and folders.turn_holds(
                     lambda sql, params: conn.execute(sql, params).fetchall(), folder, inside=True):
                 reason = "turn-folder"

@@ -17,7 +17,7 @@ from .capacity import credential_gone, desktop_excluded, fresh_provider, identit
 from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, DEFAULT_CAPS,
                         HEADROOM_FLOOR, Decision, Exit)
 from .policy import (MEMORY_PRESSURE_LEVELS, PolicyError, admission_settings, cap, flatten_chain, lane_slot_cap,
-                     resolve_model, turn_cap)
+                     provider_cap, provider_caps_on, resolve_model, turn_cap)
 
 ACTIVE_ATTEMPTS = frozenset({"reserved", "starting", "running", "finalizing"})
 
@@ -269,14 +269,15 @@ def ordered_jobs(policy: Mapping[str, Any], jobs: Iterable[Any], live: Liveness 
     return sorted(rows, key=key)
 
 
-def pool_capped(policy: Mapping[str, Any], job: Any) -> bool:
+def pool_capped(policy: Mapping[str, Any], job: Any, *, roster: Iterable[Any] = ()) -> bool:
     """C-6.9: whether the job's pool has a count one job could take from another.
 
     Only then does a job that cannot be placed hold back the later jobs that
     compete with it: in an uncapped pool a later job never takes a slot an
     older one needs, because there are no slots to take. A turn's pool is capped
     by the two turn caps (C-26.9), a detached job's by the fleet and per-lane
-    caps, and a job with a parent also by the parent cap.
+    caps, and a job with a parent also by the parent cap. Either pool is also
+    capped when a provider it could use has `providers.*.max_active_attempts`.
     """
     job = _row(job)
     caps = policy.get("caps") or {}
@@ -287,17 +288,20 @@ def pool_capped(policy: Mapping[str, Any], job: Any) -> bool:
     else:
         capped = any(cap(caps, key) is not None for key in
                      ("max_active_attempts", "max_in_flight_per_lane", "max_in_flight_unmeasured"))
-    return capped or bool(job.get("parent_job_id")) and cap(caps, "max_active_attempts_per_parent") is not None
+    providers = (demand_providers(policy, demand_models(policy, job), demand_lanes(roster, job, policy), roster)
+                 if provider_caps_on(policy) else frozenset())
+    return (capped or any(provider_cap(policy, provider) is not None for provider in providers)
+            or bool(job.get("parent_job_id")) and cap(caps, "max_active_attempts_per_parent") is not None)
 
 
-def hold_scope(policy: Mapping[str, Any], job: Any) -> str | None:
+def hold_scope(policy: Mapping[str, Any], job: Any, *, roster: Iterable[Any] = (),
+               include_providers: bool = True) -> str | None:
     """C-6.9: which older jobs a job may wait behind. `pool`: any that compete with
     it (its pool has a fleet or per-lane count); `family`: only those that share
     an ancestor with it (the parent cap is its pool's only count, and that count is
-    shared only within a family, review of PR #72); None: none."""
+    shared only within a family, review of PR #72); None: none. Admission passes
+    `include_providers=False` to retain this scope separately from provider FIFO."""
     job = _row(job)
-    if not pool_capped(policy, job):
-        return None
     caps = policy.get("caps") or {}
     if job.get("kind") == "turn":
         conversations = policy.get("conversations") or {}
@@ -306,7 +310,11 @@ def hold_scope(policy: Mapping[str, Any], job: Any) -> str | None:
     else:
         pooled = any(cap(caps, key) is not None for key in
                      ("max_active_attempts", "max_in_flight_per_lane", "max_in_flight_unmeasured"))
-    return "pool" if pooled else "family"
+    pooled = pooled or include_providers and provider_caps_on(policy) and any(provider_cap(policy, provider) is not None
+                           for provider in demand_providers(policy, demand_models(policy, job),
+                                                            demand_lanes(roster, job, policy), roster))
+    family = bool(job.get("parent_job_id")) and cap(caps, "max_active_attempts_per_parent") is not None
+    return "pool" if pooled else "family" if family else None
 
 
 def machine_hold(policy: Mapping[str, Any], machine: Mapping[str, Any] | None, klass: str) -> dict[str, Any] | None:
@@ -347,7 +355,9 @@ def waiter_class(job: Any, tier: str) -> str:
 def demand_models(policy: Mapping[str, Any], job: Any) -> frozenset[str] | None:
     """The models a job could run on, exactly as `evaluate` builds its chain (C-11.2).
 
-    A pin is that one model; a task is its chain from the job's tier upward. None
+    A pin is that one model; a task is its chain from the job's tier upward, and a
+    lane-pinned task only the first model of it that the job may run on, which is
+    all `evaluate` walks for a pinned job (`pin_provider` names its provider). None
     means "cannot tell" (a lane pin with no model), which admission treats as
     competing with everything.
     """
@@ -359,7 +369,16 @@ def demand_models(policy: Mapping[str, Any], job: Any) -> frozenset[str] | None:
         if task in policy["chains"]:
             tiers = policy["tiers"]
             default = "standard" if "standard" in tiers else tiers[0]
-            return frozenset(flatten_chain(policy["chains"][task], tiers.index(job.get("tier") or default)))
+            chain = flatten_chain(policy["chains"][task], tiers.index(job.get("tier") or default))
+            if job.get("pinned_lane"):
+                chain = mcp_chain(policy, chain, job)[:1]
+            # C-6.9, C-9.5: a live steer removes this model from the job's
+            # demand as well as its route. Expiry restores its FIFO place.
+            steer = job.get("capacity_steer") or {}
+            now = datetime.now(timezone.utc)
+            return frozenset(short for short in chain if not (
+                capacity_steerable(job) and policy["models"][short]["id"] in steer
+                and _time(steer[policy["models"][short]["id"]]) > now))
     except (PolicyError, ValueError, KeyError):
         pass
     return None
@@ -384,11 +403,26 @@ def demand_lanes(lanes: Iterable[Any], job: Any,
     return frozenset({found["lane_id"]}) if found else None
 
 
+def demand_providers(policy: Mapping[str, Any], models: frozenset[str] | None,
+                     lanes: frozenset[str] | None = None, roster: Iterable[Any] = ()) -> frozenset[str]:
+    """Providers a demand could use; unknown demand conservatively includes all."""
+    providers = frozenset(model["provider"] for name, model in policy["models"].items()
+                          if models is None or name in models)
+    known = frozenset(_row(lane)["provider"] for lane in roster
+                      if lanes is not None and _row(lane)["lane_id"] in lanes)
+    return providers & known if known else providers
+
+
 def competes(models: frozenset[str] | None, other: frozenset[str] | None,
-             lanes: frozenset[str] | None = None, other_lanes: frozenset[str] | None = None) -> bool:
+             lanes: frozenset[str] | None = None, other_lanes: frozenset[str] | None = None, *,
+             policy: Mapping[str, Any] | None = None, roster: Iterable[Any] = ()) -> bool:
     """C-6.9: two jobs compete when some model could serve both AND some lane could
     serve both; either side unknown counts as overlap. Two jobs pinned to
-    different lanes never compete: neither can take a slot the other waits for."""
+    different lanes compete only when their provider has a shared count cap."""
+    if policy and provider_caps_on(policy) and any(provider_cap(policy, provider) is not None for provider in
+                      demand_providers(policy, models, lanes, roster) &
+                      demand_providers(policy, other, other_lanes, roster)):
+        return True  # C-6.4: different models and lanes can share one provider's count.
     if models is not None and other is not None and not models & other:
         return False
     return lanes is None or other_lanes is None or bool(lanes & other_lanes)
@@ -556,6 +590,19 @@ LANE_FACTS = ("lane_id", "provider", "account_key", "credential_ref", "credentia
               "enabled", "desktop", "desktop_in_use", "identity_status", "label", "email")
 
 
+#: C-9.5: the kinds that continue one native session or are their conversation's to fail over.
+_UNSTEERED_KINDS = frozenset({"turn", "resume", "revive"})
+
+
+def capacity_steerable(job: Any) -> bool:
+    """C-9.5, D-CAP1: may a model-capacity refusal steer this job's next attempt to another model
+    of its chain? Not for a job that names a model or a lane (the operator chose it, and a pinned
+    job evaluates one model, C-11.2), nor a conversation turn (its conversation decides, C-26.7),
+    a resume or a revive (each continues one native session, C-12.3)."""
+    job = _row(job)
+    return not job.get("pinned_model") and not job.get("pinned_lane") and job.get("kind") not in _UNSTEERED_KINDS
+
+
 def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dict[str, Any]:
     """C-11.2, C-26.9: what `evaluate` settles before it looks at any lane.
 
@@ -617,6 +664,16 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
         chain = chain[:1]
         if selected and policy["models"][chain[0]]["provider"] != selected["provider"]:
             raise RouteError("pinned_lane and pinned_model/task: different providers", policy_dependent=True)
+    # C-9.5, D-CAP1: the models this job's own attempts found at capacity (`capacity_steer`, model
+    # id to the end of its steer) are excluded while the steer is live. The remaining models
+    # keep chain order. With none admissible the job waits, even for a chain of one model.
+    steer = job.get("capacity_steer") or {}
+    steered = ({short: steer[policy["models"][short]["id"]] for short in chain
+                if policy["models"][short]["id"] in steer
+                and _time(steer[policy["models"][short]["id"]]) > now}
+               if steer and capacity_steerable(job) else {})
+    if steered:
+        chain = [short for short in chain if short not in steered]
     # C-26.9: a conversation turn has its own capacity, counted apart from
     # detached jobs: `conversations.max_active_turns` across the fleet and
     # `conversations.turn_slots_per_lane` per lane, each no cap unless the policy
@@ -642,7 +699,67 @@ def prepare(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> dic
             "lanes": lanes, "caps": caps, "floor": floor, "excluded": excluded, "pin": pin,
             "selected": selected, "chain": chain, "is_turn": is_turn, "conversation_caps": conversation_caps,
             "in_flight": in_flight, "capacity_blocks": capacity_blocks, "higher": {},
-            "lane_spread": admission_settings(policy)["lane_spread"]}
+            "provider_live": provider_live(view) if provider_caps_on(policy) else {},
+            "lane_spread": admission_settings(policy)["lane_spread"], "steered": steered}
+
+
+def uncontained_quarantine(attempt: Mapping[str, Any]) -> bool:
+    """An unresolved quarantine counts until its recorded census verifies empty.
+
+    Resolution changes the attempt's state. Missing or unreadable containment
+    evidence cannot establish that its provider process has gone.
+    """
+    if attempt.get("state") != "quarantined":
+        return False
+    detail = attempt.get("quarantine_reason")
+    try:
+        census = json.loads(detail) if isinstance(detail, str) else detail
+    except (ValueError, TypeError):
+        return True
+    return not (isinstance(census, dict) and census.get("live_pids") == []
+                and census.get("unverifiable") is False)
+
+
+def provider_live(view: Mapping[str, Any]) -> dict[str, int]:
+    """C-6.4: live attempts across both pools, grouped by their lane's provider.
+
+    Uncontained quarantines count in addition to ordinary active attempts.
+    Probes hold leases, not attempts, and never enter this count.
+    """
+    lanes = {_row(lane)["lane_id"]: _row(lane)["provider"] for lane in view.get("lanes", ())}
+    counts: dict[str, int] = dict.fromkeys(lanes.values(), 0)
+    if "in_flight" in view and "in_flight_turns" in view:
+        for key in ("in_flight", "in_flight_turns"):
+            for lane, n in view[key].items():
+                if lane in lanes:
+                    counts[lanes[lane]] += n
+    else:
+        for item in view.get("attempts", ()):
+            attempt = _row(item)
+            if attempt.get("state") in ACTIVE_ATTEMPTS and attempt.get("lane_id") in lanes:
+                counts[lanes[attempt["lane_id"]]] += 1
+    for item in view.get("attempts", ()):
+        attempt = _row(item)
+        if uncontained_quarantine(attempt) and attempt.get("lane_id") in lanes:
+            counts[lanes[attempt["lane_id"]]] += 1
+    return counts
+
+
+def provider_capacity(setup: Mapping[str, Any], short: str) -> dict[str, Any] | None:
+    provider = setup["policy"]["models"][short]["provider"]
+    limit = provider_cap(setup["policy"], provider)
+    return None if limit is None else {"provider": provider, "live": setup["provider_live"].get(provider, 0),
+                                       "max_active_attempts": limit,
+                                       "key": f"providers.{provider}.max_active_attempts"}
+
+
+def capacity_blocks(setup: Mapping[str, Any], short: str) -> list[str]:
+    """Fleet/parent blocks plus this model's provider block, never other providers'."""
+    blocks = list(setup["capacity_blocks"])
+    provider = provider_capacity(setup, short)
+    if provider and provider["live"] >= provider["max_active_attempts"]:
+        blocks.append(f"provider:{provider['provider']}")
+    return blocks
 
 
 def model_lanes(setup: Mapping[str, Any], short: str) -> list[dict[str, Any]]:
@@ -748,6 +865,9 @@ def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
     detail = {**ranking, "ranking_measured": ranking["measured"], "measured": bool(measured_readings),
               "headroom": headroom, "in_flight": in_flight}
     detail["status"] = "eligible" if detail["measured"] else "eligible but unmeasured"
+    provider = provider_capacity(setup, short)
+    if provider:
+        detail["provider_cap"] = provider
     if model["provider"] == "claude":
         detail["stranded_scopes"] = sorted({row["scope"] for row in closures
             if row["scope"] in higher_scopes and _future_closure(row, now)})
@@ -781,7 +901,7 @@ def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
     if identity in unavailable and not (setup["is_turn"] and pilot_block(unavailable[identity])):
         # C-6.14: a pilot's block holds detached attempts only; a turn is never held for one.
         detail["slot_block"] = unavailable[identity]
-    if setup["capacity_blocks"] or (slot_cap is not None and in_flight >= slot_cap) or detail.get("slot_block"):
+    if capacity_blocks(setup, short) or (slot_cap is not None and in_flight >= slot_cap) or detail.get("slot_block"):
         reasons.append("no-slot")
     if any(row["utilization"] >= 1 - setup["floor"] for row in measured_readings):
         reasons.append("below-floor")
@@ -1017,10 +1137,14 @@ def model_reason(setup: Mapping[str, Any], index: int, short: str, candidates: l
     return reason
 
 
-def decision_reason(evaluations: Iterable[Mapping[str, Any]], chosen_lane: str | None, now: datetime) -> str:
-    """C-11.5: a decision's reason: each model's, then, with no lane, the earliest reset."""
+def decision_reason(evaluations: Iterable[Mapping[str, Any]], chosen_lane: str | None, now: datetime,
+                    steered: Mapping[str, str] | None = None) -> str:
+    """C-11.5: a decision's reason: the models skipped for capacity (C-9.5, `prepare`'s
+    `steered`), each model's, then, with no lane, the earliest reset."""
     evaluations = list(evaluations)
-    messages = [row["reason"] for row in evaluations]
+    messages = [f"{short}: at capacity for this job until {until}, skipped by capacity steer (C-9.5)"
+                for short, until in (steered or {}).items()]
+    messages += [row["reason"] for row in evaluations]
     if chosen_lane is None:
         messages.append("earliest reset: " + (_earliest_reset(evaluations, now) or "unknown"))
     return "; ".join(messages)
@@ -1043,7 +1167,7 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
     by_lane_closures: dict[str, list[dict[str, Any]]] = {}
     for row in closures:
         by_lane_closures.setdefault(row["lane_id"], []).append(row)
-    chain, capacity_blocks = setup["chain"], setup["capacity_blocks"]
+    chain = setup["chain"]
     evaluations: list[dict[str, Any]] = []
     chosen_lane = chosen_model = None
     for index, short in enumerate(chain):
@@ -1077,7 +1201,7 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
                             "rejections": rejections, "rejected": rejections,
                             "readings": scoped_readings,
                             "capacity_readings": [row for row in readings if row["lane_id"] in lane_ids],
-                            "closures": scoped_closures, "capacity_blocks": list(capacity_blocks),
+                            "closures": scoped_closures, "capacity_blocks": capacity_blocks(setup, short),
                             "stranding_closures": [row for row in closures if row["lane_id"] in lane_ids
                                 and row["scope"] in higher_scopes and _future_closure(row, now)],
                             "reason": reason, "evaluated_at": _iso(now)})
@@ -1085,7 +1209,7 @@ def evaluate(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any) -> De
             break
     digest = job.get("policy_hash") or policy.get("_policy_hash", "")
     return Decision(tuple(row["model"] for row in evaluations), tuple(evaluations),
-                    chosen_lane, chosen_model, decision_reason(evaluations, chosen_lane, now), digest)
+                    chosen_lane, chosen_model, decision_reason(evaluations, chosen_lane, now, setup["steered"]), digest)
 
 
 def reserve_verdict(identity: str, reserved_id: str, readings: Iterable[Mapping[str, Any]], *,
@@ -1208,7 +1332,8 @@ def capacity_recheck_delay(rechecks: int, ceiling_s: float = CAPACITY_RECHECK_CE
 
 
 def waiting_metadata(decision: Decision, now: str | datetime | None = None, *,
-                     rechecks: int = 0, ceiling_s: float = CAPACITY_RECHECK_CEILING_S) -> dict[str, str]:
+                     rechecks: int = 0, ceiling_s: float = CAPACITY_RECHECK_CEILING_S,
+                     capacity_steer: Mapping[str, str] | None = None) -> dict[str, str]:
     """C-4.1; plan amendment 11: capacity waits always have a recheck clock.
 
     C-6.10: the clock backs off while the verdict repeats, and a known reset
@@ -1219,6 +1344,10 @@ def waiting_metadata(decision: Decision, now: str | datetime | None = None, *,
     earliest = _earliest_reset(decision.evaluations, instant)
     if earliest:
         next_check = min(next_check, _time(earliest))
+    for until in (capacity_steer or {}).values():
+        end = _time(until)
+        if end > instant:
+            next_check = min(next_check, end)
     return {"wait_reason": "capacity", "next_check_at": _iso(next_check)}
 
 
@@ -1285,6 +1414,8 @@ def dominant_rejection(decision: Decision | Mapping[str, Any] | None) -> str:
             return "fleet-full"
         if any(str(block).startswith("parent:") for block in blocks):
             return "parent-cap"
+        if any(str(block).startswith("provider:") for block in blocks):
+            return "provider-cap"
         slot_blocks = [row.get("slot_block") for evaluation in value.get("evaluations", ())
                        for row in evaluation.get("rejections", ())
                        if set(row.get("reasons") or [row.get("reason")]) == {"no-slot"}]

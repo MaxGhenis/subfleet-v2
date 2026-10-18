@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from ..sessions import transcripts
+from ..home_paths import codex_app_home as default_codex_app_home
 from ..state_files import open_state
 from .redact import scrub
 from .store import PROVIDERS, canonical_native
@@ -223,9 +224,10 @@ def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None,
                       "mtime": fresh[str(path)]["mtime"], "continuable": blocker is None,
                       "continue_blocker": blocker, "archived": False})
     # Codex
-    names = _codex_names(codex_app_home or Path.home() / ".codex", opener=open)
+    app_home = codex_app_home or default_codex_app_home()
+    names = _codex_names(app_home, opener=open)
     homes = [(Path(row["home"]), row["lane_id"]) for row in lanes if row.get("provider") == "codex" and row.get("home")]
-    homes.append((codex_app_home or Path.home() / ".codex", None))
+    homes.append((app_home, None))
     for home, lane_id in homes:
         for sub, archived in (("sessions", False), ("archived_sessions", True)):
             base = home / sub
@@ -625,14 +627,14 @@ def native_session(provider: str, session_id: str, *, home: str | None, root: Pa
             return None
         return claude_session(path)
     homes =[(Path(r["home"]), r["lane_id"]) for r in lanes if r.get("provider") == "codex" and r.get("home")]
-    for base, lane_id in homes + [(Path(home) if home else Path.home() / ".codex", None)]:
+    for base, lane_id in homes + [(Path(home) if home else default_codex_app_home(), None)]:
         matches = list((base / "sessions").rglob(f"rollout-*{session_id}.jsonl")) if (base / "sessions").is_dir() else []
         if len(matches) != 1:
             continue
         record = _codex_record(matches[0])
         if lane_id is None:
             return {"continuable": False, "continue_blocker": "codex-app thread: continue by handoff"}
-        return {"cwd": record.get("cwd"), "title": _codex_names(Path.home() / ".codex", only=session_id).get(session_id)
+        return {"cwd": record.get("cwd"), "title": _codex_names(default_codex_app_home(), only=session_id).get(session_id)
                 or record.get("first_prompt"), "model_value": record.get("model") or "",
                 "permission": "read-only", "continuable": True, "lane_id": lane_id}
     return None

@@ -157,7 +157,9 @@ def test_c26_14_an_end_snapshot_failure_that_quotes_a_name_that_is_not_utf8_is_r
     attempt's evidence and the conversation store, and a live diff's error reaches the
     caller; git quoted the name in its own bytes, carried as a surrogate, which none of
     them could encode, so the turn's finalization raised on every try. Only `add -A` is
-    faked (APFS refuses such names); the rest is real."""
+    faked (APFS refuses such names); the rest is real. The records say how git ended;
+    what it printed is in daemon.log only (C-25.7), and the live diff's refusal is
+    `diff-failed`'s fixed text (round 8)."""
     from subfleet.conversations.store import ConversationError
     from tests.unit.test_salvage_unindexable import fake_add
     daemon, harness = state_daemon
@@ -165,7 +167,7 @@ def test_c26_14_an_end_snapshot_failure_that_quotes_a_name_that_is_not_utf8_is_r
     (harness.workdir / "made-by-the-turn.txt").write_text("one\n")
     fake_add(monkeypatch, 128, b'error: open("caf\xe9.txt"): Permission denied\nfatal: adding files failed\n')
     daemon._finalize(receipt_fixture(daemon, attempt, adir))
-    error = 'end snapshot failed: git add failed: error: open("caf\\xe9.txt"): Permission denied\nfatal: adding files failed'
+    error = "end snapshot failed: git add failed (exit 128); daemon.log has its output"
     receipt = json.loads((adir / "trees.json").read_text())
     assert receipt["error"] == error and receipt["end_tree"] is None
     assert json.loads(daemon.store.get_attempt(attempt["attempt_id"])["evidence_json"])["turn_trees"]["error"] == error
@@ -173,7 +175,10 @@ def test_c26_14_an_end_snapshot_failure_that_quotes_a_name_that_is_not_utf8_is_r
     cid = daemon.conversations.store.message(mid)["conversation_id"]
     with pytest.raises(ConversationError) as caught:
         daemon.conversations.op_conversation_diff({"conversation_id": cid}, None)
-    assert str(caught.value) == error.removeprefix("end snapshot failed: ")
+    assert (caught.value.reason, str(caught.value)) == ("diff-failed", "the workspace diff could not be read")
+    daemon._log_handler.flush()
+    assert ('end snapshot failed: SalvageError: git add failed: error: open("caf\\xe9.txt"): Permission denied '
+            "fatal: adding files failed") in (daemon.root / "daemon.log").read_text()
 
 
 def test_c26_14_a_live_diff_says_which_nested_repositories_it_does_not_show(state_daemon):

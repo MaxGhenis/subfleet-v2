@@ -15,6 +15,7 @@
   subfleet doctor [--live]      pass/fail/unknown checks, each with a fix line
   subfleet hook <event>         a Claude Code hook entry point (JSON on stdin)
   subfleet ping [--session ID] TEXT                              (alias: notify)
+  subfleet suggest --title T --tldr S --brief-file F [--worktree]  propose a conversation the owner starts
   subfleet notices [--session ID] [--all] [--ack|--withdraw]   inboxes and where each stands
 
 The verb spellings are v1's and are permanent (plan amendment 1). Stdout carries
@@ -25,6 +26,7 @@ Exit codes are the one table in C-17.3.
 from __future__ import annotations
 
 import argparse
+import functools
 import hashlib
 import json
 import os
@@ -62,6 +64,7 @@ from .offline import (KNOWN_SCHEMA_VERSION, Offline, OfflineUnavailable,
                       SchemaTooNew, age_adjusted_label)
 from .protocol import ProtocolError
 from .store import notice_fingerprint
+from .home_paths import home_path
 
 PROG = "subfleet"
 START_DAEMON = "subfleet daemon start"
@@ -131,6 +134,110 @@ def cmd_wake(args: argparse.Namespace) -> int:
     except (DaemonError, DaemonUnavailable) as exc:
         return fail(getattr(exc, "code", Exit.OPERATIONAL), str(exc))
     emit(result) if args.json else out("Wake recorded: " + result["request_id"])
+    return 0
+
+
+def _uuid_arg(value: str) -> str:
+    try:
+        return str(uuid.UUID(value))
+    except ValueError:
+        raise argparse.ArgumentTypeError("request_id must be a UUID") from None
+
+
+#: The `suggestion.create` op on the file pool runs the same folder and git checks
+#: `conversation.create` runs, each under its own cap; a start also cuts a worktree.
+SUGGEST_TIMEOUT_S = 150.0
+
+
+
+def _suggest_cli_errors(handler):
+    @functools.wraps(handler)
+    def checked(args):
+        try:
+            return handler(args)
+        except Exception as exc:
+            # Includes unexpected client/result/path/caller failures, before
+            # main's general OSError renderer or Python's traceback can print it.
+            from .conversations.suggestions import error_code, error_fix, scrub_error
+            return fail(error_code(exc), scrub_error(exc), error_fix(exc))
+    return checked
+
+
+@_suggest_cli_errors
+def cmd_suggest(args: argparse.Namespace) -> int:
+    """`subfleet suggest` (C-25.7): propose a separate conversation the owner starts in
+    the Subfleet app with one click; or withdraw one this conversation or session
+    made, list them, and, from a terminal, start or dismiss one."""
+    from .conversations.suggestions import error_code, error_fix, scrub_error
+    caller = {"session_id": session_id(), "calling_job": os.environ.get("SUBFLEET_TURN_JOB") or None}
+    if args.withdraw:
+        op, payload = "suggestion.withdraw", {"suggestion_id": args.withdraw, **caller}
+    elif args.start:
+        op, payload = "suggestion.start", {"suggestion_id": args.start, "permission": args.permission,
+                                           "confirm_widen": True if args.permission in ("accept-edits", "bypass")
+                                           else None}
+    elif args.dismiss:
+        op, payload = "suggestion.dismiss", {"suggestion_id": args.dismiss}
+    elif args.list:
+        op, payload = "suggestion.list", {}
+    else:
+        missing = [flag for flag, value in (("--title", args.title), ("--tldr", args.tldr),
+                                            ("--brief-file or --brief -", args.brief_file or args.brief)) if not value]
+        if missing:
+            return fail(Exit.INVALID_INPUT, "suggest needs " + ", ".join(missing),
+                        "subfleet suggest --title T --tldr S --brief-file BRIEF.md [--worktree]")
+        if args.brief and args.brief != "-":
+            return fail(Exit.INVALID_INPUT, "--brief takes only '-' (read the brief from stdin); "
+                        "use --brief-file for a file")
+        try:
+            if args.brief_file:
+                with open(args.brief_file, encoding="utf-8") as stream:
+                    brief = stream.read()
+            else:
+                brief = sys.stdin.read()
+        except (OSError, UnicodeDecodeError) as exc:
+            return fail(Exit.INVALID_INPUT, scrub_error(exc, prefix="cannot read the brief: "))
+        try:
+            workspace = None if args.no_workspace else str(Path(args.workspace or os.getcwd()).resolve())
+        except OSError as exc:
+            return fail(Exit.OPERATIONAL, scrub_error(exc, prefix="cannot resolve the workspace: "))
+        op, payload = "suggestion.create", {
+            "request_id": args.request_id or str(uuid.uuid4()), "title": args.title, "tldr": args.tldr,
+            "brief": brief, "workspace": workspace, "worktree": bool(args.worktree), "provider": args.provider,
+            "model": args.model, **caller}
+    try:
+        result = Client(_root(args)).call(op, payload, timeout=SUGGEST_TIMEOUT_S)
+    except DaemonError as exc:
+        if exc.suggestion_reason == "unknown-op":
+            return fail(Exit.DAEMON_UNAVAILABLE, "the daemon is older than this CLI and has no suggestions",
+                        RESTART_DAEMON)
+        return fail(error_code(exc), scrub_error(exc), error_fix(exc))
+    except DaemonUnavailable as exc:
+        return fail(Exit.DAEMON_UNAVAILABLE, "the daemon is unavailable", RESTART_DAEMON)
+    except ProtocolError as exc:
+        return fail(error_code(exc), scrub_error(exc), error_fix(exc))
+    if args.json:
+        emit(result)
+        return 0
+    if op == "suggestion.list":
+        for row in result["suggestions"]:
+            out(f"{row['suggestion_id']}\t{row['state']}\t{row['title']}")
+        note(f"{result['open']} open")
+        return 0
+    row = result["suggestion"]
+    out(row["suggestion_id"])
+    if op == "suggestion.create":
+        if result.get("scrubbed"):
+            note(f"note: {result['scrubbed']} secret-shaped value(s) were masked in what you wrote")
+        if row["worktree"] and row.get("workspace_kind") == "in-place":
+            note("note: the folder is not a git checkout, so it starts in place there, not in a worktree")
+        where = ("in this conversation and " if row["origin_conversation_id"] else "") + "under Suggested"
+        note(f"Suggested {row['title']!r}: the owner sees it in the Subfleet app {where}, and starts or "
+             f"dismisses it. Withdraw it if it goes stale: subfleet suggest --withdraw {row['suggestion_id']}")
+    elif op == "suggestion.start":
+        note(f"Started conversation {row['started_conversation_id']}")
+    else:
+        note(f"Suggestion {row['suggestion_id']} is {row['state']}")
     return 0
 
 
@@ -352,6 +459,7 @@ def format_timers(timers: Any) -> list[str]:
 def format_status(data: dict[str, Any]) -> str:
     """Alerts in force, failing timers, lanes with their newest readings, live closures, and running jobs."""
     lines: list[str] = format_alerts(data.get("alerts")) + format_timers(data.get("timers"))
+    lines.extend(render.provider_cap_text(row) for row in rows_of(data.get("provider_caps")))
     lanes = [dict(lane) for lane in rows_of(data.get("lanes"))]
     readings = [dict(row) for row in rows_of(data.get("readings"))]
     at = render.instant(data["now"]) if data.get("now") else datetime.now(timezone.utc)
@@ -427,6 +535,8 @@ def format_status(data: dict[str, Any]) -> str:
     callers = rows_of(data.get("priority_callers"))
     if isinstance(data.get("disk"), dict):
         lines.append(render.disk_line(data["disk"]))
+    if isinstance(data.get("ramp"), dict):
+        lines.append(render.ramp_line(data["ramp"]))
     if callers:
         lines.append("priority callers: " + ", ".join(
             f"{row['name']} ({row['session_id']})" if row.get("name") else str(row.get("session_id"))
@@ -1589,16 +1699,24 @@ def _artifact_path(job: dict[str, Any], role: str) -> str | None:
 
 
 def _shown_deliverable(job: dict[str, Any]) -> str | None:
-    """What `runs show` prints as the deliverable (C-8.2, C-8.3, C-15.1).
+    """What `runs show` prints as the deliverable (C-8.2, C-8.3, C-12.6, C-15.1).
 
-    The recorded artifact, the accepted attempt's first; failing that, the `-o`
-    export, but only of an accepted job. Nothing exported to the `-o` path of
-    a job that was not accepted, so a file there is someone else's or an
-    earlier run's, never this job's output.
+    Only the accepted attempt's recorded artifact can be the result. An
+    attempt's interim text remains in metadata as evidence. With no accepted
+    attempt, `--out` prints nothing and returns Exit.OPERATIONAL (1).
+    An accepted job with no deliverable recorded for any attempt (a v1 import
+    whose run kept only its export) shows its `-o` export, C-8.3's copy of the
+    accepted deliverable, unless that export failed. A deliverable recorded
+    only for another attempt is never the result, and then neither is `-o`.
     """
     merged = {**job, **job["job"]} if isinstance(job.get("job"), dict) else job
-    return _artifact_path(job, "deliverable") or (
-        merged.get("out_path") if merged.get("state") == JobState.SUCCEEDED.value else None)
+    accepted = merged.get("accepted_attempt_id")
+    if not accepted:
+        return None
+    recorded = [artifact for artifact in rows_of(job.get("artifacts")) if artifact.get("role") == "deliverable"]
+    if recorded:
+        return next((artifact.get("path") for artifact in recorded if artifact.get("attempt_id") == accepted), None)
+    return None if merged.get("export_error") else merged.get("out_path")
 
 
 def _cat(label: str, path: str | None, *, header: bool) -> int:
@@ -1739,20 +1857,21 @@ def cmd_runs_show(args: argparse.Namespace) -> int:
                                     header=both))
         return worst
     # C-17.1: the bare form keeps v1's shape, which agents parse today: the
-    # metadata object, then `--- out.md ---` and the deliverable, and with
-    # `--err` also `--- err.log ---`. `--out`, `--err` alone, and `--json`
-    # are v2's single-artifact forms.
+    # metadata object, then `--- out.md ---` and the accepted deliverable, or
+    # nothing after it when no result was accepted (C-12.6). Unaccepted
+    # artifacts are evidence paths on stderr, never result text on stdout.
+    # `--out`, `--err` alone, and `--json` are v2's single-artifact forms.
     emit(job)
     out("\n--- out.md ---")
     path = _shown_deliverable(job)
-    if path and Path(path).is_file():
-        # v1 printed whatever out.md held, or nothing, and still exited 0; the
-        # explicit `--out` form is the one that fails on a missing artifact.
-        text = Path(path).read_text(errors="replace")
-        sys.stdout.write(text)
-        if text and not text.endswith("\n"):
-            out()
-    return int(Exit.OK)
+    if path:
+        return _cat("deliverable", path, header=False)
+    note("No accepted result; attempt artifacts are unaccepted evidence.")
+    for artifact in rows_of(job.get("artifacts")):
+        if artifact.get("role") == "deliverable":
+            note(f"Unaccepted evidence ({artifact.get('attempt_id') or 'attempt unknown'}): {artifact.get('path')}")
+    merged = {**job, **job["job"]} if isinstance(job.get("job"), dict) else job
+    return int(Exit.OPERATIONAL if merged.get("state") in ("failed", "cancelled", "lost") else Exit.OK)
 
 
 def _same_process():
@@ -2095,14 +2214,23 @@ def cmd_lanes(args: argparse.Namespace) -> int:
         return fail(Exit.INVALID_INPUT, "lanes transfer: --to must be v1 or v2")
     if action == "hold" and not args.until:
         return fail(Exit.INVALID_INPUT, "lanes hold: --until is required")
+    limits = bool(getattr(args, "limits", False))
+    note = getattr(args, "note", None)
+    if limits and not (note or "").strip():
+        return fail(Exit.INVALID_INPUT, "lanes release --limits: --note is required")
+    if note is not None and not limits:
+        return fail(Exit.INVALID_INPUT, "lanes release: --note requires --limits")
     lanes_args = protocol.LanesArgs(
-        action=action,
+        # Older daemons ignore unknown fields. A distinct action prevents them
+        # from releasing operator holds when asked to release guessed limits.
+        action="release-limits" if limits else action,
         lane_id=getattr(args, "lane", None),
         credential=getattr(args, "credential", None),
         until=getattr(args, "until", None),
         owner=getattr(args, "to", None),
         dry_run=bool(getattr(args, "dry_run", False)),
         confirm_v1_edit=bool(getattr(args, "confirm_v1_edit", False)),
+        note=note,
     )
     try:
         result = _client(args).call("lanes", _asdict(lanes_args))
@@ -2118,6 +2246,10 @@ def cmd_lanes(args: argparse.Namespace) -> int:
         # that as a completed no-op would record a canary transfer that never ran.
         return fail(Exit.DAEMON_UNAVAILABLE,
                     "the daemon did not perform the transfer; it is older than this CLI",
+                    RESTART_DAEMON)
+    if limits and not isinstance(result.get("limits_released"), list):
+        return fail(Exit.DAEMON_UNAVAILABLE,
+                    "the daemon did not release guessed limits; it is older than this CLI",
                     RESTART_DAEMON)
     if args.json:
         emit(result)
@@ -2138,6 +2270,10 @@ def cmd_lanes(args: argparse.Namespace) -> int:
             return fail(Exit.DAEMON_UNAVAILABLE, f"the daemon did not {action} the lane; it is older than this CLI",
                         RESTART_DAEMON)
         out(f"{action}: {result.get('held') or result.get('released')}")
+        if limits:
+            out(f"guessed limits released: {len(result['limits_released'])}")
+            if result.get("limits_reported"):
+                out(f"reported clocks kept: {len(result['limits_reported'])}; cannot release by hand")
         return int(Exit.OK)
     out(_format_lanes(result))
     return int(Exit.OK)
@@ -2178,6 +2314,9 @@ def cmd_why(args: argparse.Namespace) -> int:
         lines.append(f"Decision: none; this job's route could not be evaluated: {result['route_error']}")
     elif not result.get("refused"):
         lines.append("No decision recorded.")
+    # D-SHUT1: routing fields alone omit why the last attempt was rejected.
+    if result.get("attempt_explanation"):
+        lines.append(result["attempt_explanation"])
     out("\n".join(lines))
     return int(Exit.OK)
 
@@ -2724,13 +2863,18 @@ def cmd_daemon_install_hooks(args: argparse.Namespace) -> int:
     return int(Exit.OK)
 
 
+def launchd_plist_path() -> Path:
+    return Path(home_path("SUBFLEET_LAUNCHD_PLIST", lambda: PLIST_PATH,
+                          test_only=True)).expanduser()
+
+
 def cmd_daemon_install(args: argparse.Namespace) -> int:
     if getattr(args, "hooks", False):
         return cmd_daemon_install_hooks(args)
     root = _root(args)
     already_running = _daemon_alive(Client(root))
     plist = _plist(root)
-    target = Path(PLIST_PATH).expanduser()
+    target = launchd_plist_path()
     if args.dry_run:
         sys.stdout.write(plist.decode())
         note(f"{PROG} daemon install --dry-run: would write {target} and load it")
@@ -2948,8 +3092,21 @@ def _add_json(parser: argparse.ArgumentParser, *, nested: bool = False) -> None:
     parser.add_argument("--json", **kwargs)
 
 
+
+class _SuggestionErrorParser(argparse.ArgumentParser):
+    """Suggestion errors at both parser levels use fixed text, including unknown options."""
+    def parse_args(self, args=None, namespace=None):
+        values = list(sys.argv[1:] if args is None else args)
+        self._suggestion_context = "suggest" in values
+        return super().parse_args(values, namespace)
+
+    def error(self, message):
+        if getattr(self, "_suggestion_context", False) or self.prog.endswith(" suggest"):
+            self.exit(int(Exit.INVALID_INPUT), "subfleet suggest: invalid arguments; see subfleet suggest --help\n")
+        super().error(message)
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = _SuggestionErrorParser(
         prog=PROG, description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-V", "--version", action="store_true",
@@ -3025,7 +3182,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--independent", action="store_true",
                        help="a parent's cancel does not cancel this child (C-7.3)")
     p_run.add_argument("--parent", metavar="JOB", help="parent job id")
-    p_run.add_argument("--request-id", metavar="ID", type=ids.request_id,
+    p_run.add_argument("--request-id", metavar="ID", type=ids.request_id_arg,
                        help="idempotency key (default: a UUID4, printed back)")
     p_run.add_argument("--wait", "--attach", dest="attach", action="store_true",
                        help="block until the job is terminal and return its rc")
@@ -3085,6 +3242,35 @@ def build_parser() -> argparse.ArgumentParser:
     p_wake.add_argument("--request-id")
     _add_json(p_wake, nested=True)
     p_wake.set_defaults(handler=cmd_wake)
+    p_suggest = sub.add_parser(
+        "suggest", help="propose a separate conversation the owner starts in the Subfleet app with one click",
+        description="Propose an out-of-scope follow-up worth a session of its own. The owner sees a card in "
+                    "the Subfleet app (in this conversation, and under Suggested) and starts it with one click; "
+                    "the brief becomes the new conversation's first message, so make it self-contained. "
+                    "Nothing starts until the owner does (C-25.7).")
+    p_suggest.add_argument("--title", help="what the new conversation is, at most 60 characters")
+    p_suggest.add_argument("--tldr", help="one line on why it is worth doing, at most 300 characters")
+    brief = p_suggest.add_mutually_exclusive_group()
+    brief.add_argument("--brief-file", metavar="FILE", help="the brief, a self-contained first message (32 KiB)")
+    brief.add_argument("--brief", metavar="-", help="'-': read the brief from stdin")
+    where = p_suggest.add_mutually_exclusive_group()
+    where.add_argument("--workspace", metavar="DIR", help="the folder it starts in (default: the current directory)")
+    where.add_argument("--no-workspace", action="store_true", help="start it in a new scratch folder")
+    p_suggest.add_argument("--worktree", action="store_true",
+                           help="start it in a worktree of its own when the folder is a git checkout")
+    p_suggest.add_argument("--provider", choices=("claude", "codex"),
+                           help="who answers (default: this conversation's provider, else claude)")
+    p_suggest.add_argument("--model", help="a model this fleet routes (default: the provider's default)")
+    p_suggest.add_argument("--request-id", type=_uuid_arg, help="idempotency key, a UUID (default: a new UUID4)")
+    act = p_suggest.add_mutually_exclusive_group()
+    act.add_argument("--withdraw", metavar="ID", help="withdraw a suggestion this conversation or session made")
+    act.add_argument("--list", action="store_true", help="list open and recently closed suggestions")
+    act.add_argument("--start", metavar="ID", help="start one (a person's, from a terminal)")
+    act.add_argument("--dismiss", metavar="ID", help="dismiss one (a person's, from a terminal)")
+    p_suggest.add_argument("--permission", choices=("read-only", "ask", "accept-edits", "bypass"),
+                           help="with --start: the new conversation's permission (default Ask)")
+    _add_json(p_suggest, nested=True)
+    p_suggest.set_defaults(handler=cmd_suggest)
     p_wait.add_argument("ids", nargs="*")
     p_wait.add_argument("--mine", action="store_true", help="this session's jobs")
     p_wait.add_argument("--last", action="store_true", help="the most recent job")
@@ -3110,7 +3296,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_resume.add_argument("id")
     p_resume.add_argument("prompt", nargs="?")
     p_resume.add_argument("-o", "--output", help="also write the final response here")
-    p_resume.add_argument("--request-id", metavar="ID", type=ids.request_id)
+    p_resume.add_argument("--request-id", metavar="ID", type=ids.request_id_arg)
     _add_json(p_resume)
     p_resume.set_defaults(handler=cmd_resume)
 
@@ -3130,8 +3316,14 @@ def build_parser() -> argparse.ArgumentParser:
     l_hold.add_argument("lane")
     l_hold.add_argument("--until", required=True, help="ISO 8601 UTC instant")
     _add_json(l_hold, nested=True)
-    l_release = lanes_sub.add_parser("release")
+    l_release = lanes_sub.add_parser("release", help="release operator holds or guessed limits",
+                                     description="Release operator holds, or use --limits --note TEXT to "
+                                     "release guessed provider-limit and credits closures. "
+                                     "Provider-reported clocks cannot be released by hand.")
     l_release.add_argument("lane")
+    l_release.add_argument("--limits", action="store_true",
+                           help="release open guessed provider-limit and credits closures")
+    l_release.add_argument("--note", help="required operator reason for --limits, recorded in an event")
     _add_json(l_release, nested=True)
     l_transfer = lanes_sub.add_parser("transfer")
     l_transfer.add_argument("lane")

@@ -6,7 +6,9 @@ live daemon is launched. Readers and writers are checked independently.
 from __future__ import annotations
 
 import json
+import shutil
 import tempfile
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -141,9 +143,11 @@ def test_archive_commit_rechecks_turn_rows_and_rolls_back(world, monkeypatch, wr
 def test_retirement_fence_blocks_actual_turn_reservation(tmp_path, writable):
     """Admission and retirement agree on APFS case aliases of a recorded folder.
 
-    Start admission after retention has acquired its fence but before it moves
-    the worktree. No live turn row exists at selection, so only the canonical
-    fence, not a turn pin, can prevent this reservation.
+    Submit and admit the turn after retention has acquired its fence but before it
+    moves the worktree. No live turn row exists at selection, so only the canonical
+    fence, not a turn pin, can prevent this reservation. (Submitted before
+    selection, its queued job kept the tree there, `worktree-in-use`, now also for
+    a tree recorded in another case: review of 8a112986, finding 1.)
     """
     from tests.fake.test_admission_latency import fleet_daemon, measure
     from tests.fake.test_admission_liveness import CODEX, _checkout, _live
@@ -165,11 +169,11 @@ def test_retirement_fence_blocks_actual_turn_reservation(tmp_path, writable):
         directory.mkdir(parents=True)
         (directory / "stdout").write_text("retired output")
         options = {**SETTINGS, "permission": "accept-edits" if writable else "read-only"}
-        _, _, turn = message_in(daemon, harness, "During retirement", workspace=wt, settings=options)
         patch.setattr(daemon, "_workspace", lambda job: (job["workdir"], None, None, []))
         observed = []
 
         def begin(retirement, job, pool):
+            _, _, turn = message_in(daemon, harness, "During retirement", workspace=wt, settings=options)
             daemon._admit_turns()
             observed.append(turn)
             assert not _live(daemon, turn), "turn reserved while retirement held its folder"
@@ -182,7 +186,8 @@ def test_retirement_fence_blocks_actual_turn_reservation(tmp_path, writable):
         patch.setattr(rarch.Retirement, "begin", begin)
         result = retention.maintenance(daemon.store, daemon.root, max_jobs=0, max_bytes=0,
                                        holders=lambda watches, **_: {})
-        assert observed == [turn], result
+        assert len(observed) == 1, result
+        turn = observed[0]
         daemon.store.update_job(turn, next_check_at=None)
         daemon._admit_turns()
         assert _live(daemon, turn), daemon._holds
@@ -452,11 +457,11 @@ def test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it(
         patch.setattr(daemon, "_workspace", lambda job: prepared.append(job["job_id"]) or prepare(job))
         seen = {}
         for path in ("transaction", "look"):
-            patch.setattr(daemon, "_fence_hold", fence_hold if path == "look" else lambda *args: False)
+            patch.setattr(daemon, "_fence_hold", fence_hold if path == "look" else lambda *args, **kwargs: False)
             _, mid, turn = message_in(daemon, harness, path, workspace=workspace, settings=options)
             daemon._admit_turns()
             seen[path] = admitted(daemon, turn, mid, prepared)
-        assert seen["transaction"]["hold"] == {"reason": "lease-held", "leases": fence,
+        assert seen["transaction"]["hold"] == {"reason": "lease-held", "leases": fence, "retiring": fence,
                                                 "folder": folders.canonical(workspace)}, seen
         assert seen["transaction"]["prepared"] == 1 and seen["transaction"]["row"] == ("waiting", "capacity", True)
         assert seen["look"] == {**seen["transaction"], "prepared": 0}, seen
@@ -485,14 +490,14 @@ def test_a_fenced_turn_names_the_fence_whatever_else_holds_it(tmp_path):
         patch.setattr(daemon, "_workspace", lambda job: prepared.append(job["job_id"]) or prepare(job))
         seen = {}
         for path in ("transaction", "look"):
-            patch.setattr(daemon, "_fence_hold", fence_hold if path == "look" else lambda *args: False)
+            patch.setattr(daemon, "_fence_hold", fence_hold if path == "look" else lambda *args, **kwargs: False)
             _, mid, turn = message_in(daemon, harness, path, workspace=nested)
             daemon._admit_turns()
             seen[path] = admitted(daemon, turn, mid, prepared) | {"turn": turn, "mid": mid}
         assert seen["transaction"]["hold"]["reason"].startswith("closed"), seen
         assert seen["transaction"]["reason"].startswith("closed:") and seen["transaction"]["prepared"] == 1, seen
         assert seen["look"]["hold"] == {"reason": "lease-held", "leases": [folders.exclusive_key(tree)],
-                                        "folder": nested}, seen
+                                        "retiring": [folders.exclusive_key(tree)], "folder": nested}, seen
         assert seen["look"]["reason"] == ("lease: retention is removing a finished job's worktree that this "
                                           f"folder is in ({tree})") and seen["look"]["prepared"] == 0
         daemon.store.release_leases("retention:retired")
@@ -615,12 +620,194 @@ def test_fence_hold_against_a_model_of_the_fence(tmp_path):
                 # whole seconds, so a delay of 1 s can read as now.
                 assert (row["state"], row["wait_reason"]) == ("waiting", "capacity")
                 assert backed_off <= row["next_check_at"] <= at_most, (look, row["next_check_at"], backed_off, at_most)
-                assert holds == {turn: {"reason": "lease-held", "leases": expected, "folder": folder,
-                                        "next_check_at": row["next_check_at"]}}, rows
+                assert holds == {turn: {"reason": "lease-held", "leases": expected, "retiring": expected,
+                                        "folder": folder, "next_check_at": row["next_check_at"]}}, rows
                 assert waiters == {"standard": [(turn, None, None, frozenset(expected))]}
                 wait = daemon._capacity_waits[turn]
                 assert wait["signature"] == "lease-held:" + ",".join(sorted(expected)) and wait["rechecks"] == look - 1
-                assert wait["hold"] == {"reason": "lease-held", "leases": expected, "folder": folder}
+                assert wait["hold"] == {"reason": "lease-held", "leases": expected, "retiring": expected, "folder": folder}
+
+        check()
+
+
+def test_early_fences_equal_reservation_before_and_after_quarantine(tmp_path):
+    """Differential C-8.4: real spelling, lease reads and reservation. Generate
+    present/absent folders, case and NFC/NFD aliases, nested folders, separate
+    Git/cwd trees and arbitrary fence sets, on two kinds of submitted row:
+
+    - `spelled`, a folder submit spelled in full, stubbed (`_submitted`) with the
+      workspace snapshot stubbed too, so absent folders reach the reservation guard;
+    - `unspelled`, the row submit wrote while retention had both trees in
+      quarantine, by the real `_row_folder`; the trees are then put back (the
+      retirement rolled back) before admission looks. Its trees are real
+      repositories, `separate` gives the cwd a repository of its own whose
+      persisted `core.worktree` names the Git tree (an external top), and
+      admission's rediscovery (`_rediscovered`) and workspace snapshot
+      (`_workspace`) run for real.
+
+    Each example runs once with its trees there and once with both moved aside
+    again. The look is the admission pass's own (`_admit_turns` with the real
+    `_fence_hold`), compared with the reserving transaction when that look is left
+    out: the same fences and the same folder named, and the look holds exactly the
+    turns the fences hold, before any workspace is prepared. An independent caseless
+    path model of the folder each row names and of the fences checks both, so a
+    shared helper bug cannot make both paths pass together. Failed on 2cbf6fca for
+    `unspelled` rows with a separate cwd fenced on the Git tree: the look read the
+    folder submit recorded, and the workspace was prepared (review of #141, P2-A).
+    """
+    from tests.fake.test_admission_latency import fleet_daemon, measure, submit_turn
+    from tests.fake.test_admission_liveness import CODEX, _checkout
+
+    names = st.lists(st.sampled_from(["Job", "Café", "Ünï", "Σ", "ﬁ", "A:B", "A%_", "Space here"]),
+                     min_size=1, max_size=3)
+    places = ("git", "git-tree", "git-parent", "cwd", "cwd-tree", "cwd-parent",
+              "child", "sibling", "prefix", "unrelated")
+    fold = lambda path: unicodedata.normalize("NFD", unicodedata.normalize("NFD", path).casefold())
+
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        _checkout(harness)
+        for lane in CODEX:
+            measure(daemon, lane)
+        turn = submit_turn(daemon, harness, "fence-differential")
+        daemon.policy["caps"]["reading_ttl_s"] = 3600   # Keep routing stable throughout the generated cases.
+        fence_hold, present, workspace = daemon._fence_hold, folders.present, daemon._workspace
+        prepared, submitted = [], {}
+        patch.setattr(daemon, "_submitted", lambda job_id: submitted)
+        workspaces = {"spelled": lambda job: prepared.append(job["job_id"]) or (job["workdir"], None, None, []),
+                      "unspelled": lambda job: prepared.append(job["job_id"]) or workspace(job)}
+
+        def spell(path):
+            assert not daemon.store._holds_writer(), "filesystem spelling under the store lock"
+            return present(path)
+
+        patch.setattr(folders, "present", spell)
+
+        @settings(max_examples=400, deadline=None, derandomize=True)
+        @example(parts=["Job"], alias="swap", missing="none", separate=False, writable=True,
+                 fenced={"git-tree"}, row="spelled")
+        @example(parts=["Job"], alias="swap", missing="none", separate=True, writable=True,
+                 fenced={"git-tree"}, row="spelled")
+        @example(parts=["Café", "Ünï"], alias="nfd-swap", missing="none", separate=True, writable=False,
+                 fenced={"cwd-tree"}, row="spelled")
+        @example(parts=["Café"], alias="nfc", missing="git", separate=True, writable=True,
+                 fenced={"git-parent", "cwd-tree"}, row="spelled")
+        @example(parts=["Job", "A:B"], alias="swap", missing="both", separate=False, writable=False,
+                 fenced={"child", "sibling", "prefix"}, row="spelled")
+        @example(parts=["Ünï"], alias="nfd", missing="cwd", separate=True, writable=True,
+                 fenced={"git-tree", "cwd-tree", "git-parent", "cwd-parent"}, row="spelled")
+        # The review's case: a cwd whose core.worktree names a fenced top elsewhere.
+        @example(parts=["Job"], alias="swap", missing="none", separate=True, writable=True,
+                 fenced={"git-tree"}, row="unspelled")
+        @example(parts=["Job"], alias="nfc", missing="none", separate=True, writable=False,
+                 fenced={"git-tree"}, row="unspelled")
+        @example(parts=["Café", "Space here"], alias="nfd-swap", missing="none", separate=True, writable=True,
+                 fenced={"git-tree", "cwd-tree"}, row="unspelled")
+        # Submitted from a subdirectory: its row is on the checkout's top, found again.
+        @example(parts=["Job", "Space here"], alias="swap", missing="none", separate=False, writable=False,
+                 fenced={"git-tree"}, row="unspelled")
+        @example(parts=["Σ", "A:B"], alias="nfd", missing="cwd", separate=False, writable=True,
+                 fenced={"cwd-parent", "child"}, row="unspelled")
+        @example(parts=["Job"], alias="swap", missing="none", separate=True, writable=True,
+                 fenced=set(), row="unspelled")
+        @given(parts=names, alias=st.sampled_from(["nfc", "nfd", "swap", "nfd-swap"]),
+               missing=st.sampled_from(["none", "git", "cwd", "both"]), separate=st.booleans(), writable=st.booleans(),
+               fenced=st.sets(st.sampled_from(places)), row=st.sampled_from(["unspelled", "spelled"]))
+        def check(parts, alias, missing, separate, writable, fenced, row):
+            base = tmp_path / "folders"
+            shutil.rmtree(base, ignore_errors=True)
+            git_tree = base / "Git" / parts[0]
+            cwd_tree = base / "Run" / parts[0] if separate else git_tree
+            git_path = git_tree.joinpath(*parts[1:])
+            cwd_path = cwd_tree.joinpath(*parts[1:])
+            for path in {git_path, cwd_path}:
+                path.mkdir(parents=True, exist_ok=True)
+            if row == "unspelled":
+                # The cwd's checkout, on a task branch (C-13.2) with a commit to snapshot.
+                git(cwd_tree, "init", "--quiet", "-b", "task/fence")
+                if separate:
+                    git(cwd_tree, "config", "core.worktree", str(git_tree))
+                git(cwd_tree, "commit", "--quiet", "--allow-empty", "-m", "baseline")
+            if missing in ("git", "both"):
+                git_path /= "Absent"
+            if missing in ("cwd", "both"):
+                cwd_path /= "Absent"
+            actual_git, actual_cwd = folders.canonical(git_path), folders.canonical(cwd_path)
+            tree, cwd_root = folders.canonical(git_tree), folders.canonical(cwd_tree)
+
+            def typed(path):
+                head, tail = path.split("/folders/", 1)
+                if "swap" in alias:
+                    tail = tail.swapcase()
+                return head + "/folders/" + unicodedata.normalize("NFD" if "nfd" in alias else "NFC", tail)
+
+            def quarantine(away):
+                for path in {git_tree, cwd_tree}:
+                    aside = path.with_name(path.name + ".quarantine")
+                    source, target = (path, aside) if away else (aside, path)
+                    source.rename(target)
+
+            git_folder, run_folder = typed(actual_git), typed(actual_cwd)
+            spots = {"git": actual_git, "git-tree": tree, "git-parent": str(Path(tree).parent),
+                     "cwd": actual_cwd, "cwd-tree": cwd_root, "cwd-parent": str(Path(cwd_root).parent),
+                     "child": actual_git + "/child", "sibling": str(Path(actual_git).parent / "Other"),
+                     "prefix": actual_git + "x", "unrelated": str(base / "Elsewhere")}
+            keys = list(dict.fromkeys(folders.exclusive_key(spots[place]) for place in sorted(fenced)))
+            submitted.clear()
+            if row == "unspelled":
+                # Submit spells the cwd's folder while retention has the trees in quarantine.
+                quarantine(True)
+                recorded, unspelled = daemon._row_folder(run_folder)
+                quarantine(False)
+                assert unspelled, (recorded, run_folder)
+                submitted.update({"write_target" if writable else "folder": recorded, "unspelled": True})
+            else:
+                submitted["write_target" if writable else "folder"] = git_folder
+            patch.setattr(daemon, "_workspace", workspaces[row])
+
+            for moved in (False, True):
+                if moved:
+                    quarantine(True)
+                # The model's Git folder: submit's for a spelled row. For an unspelled one,
+                # the checkout's top while the cwd is there (git finds it, through
+                # core.worktree when separate), else the cwd itself (git finds no checkout).
+                git_named = (git_folder if row == "spelled" else
+                             tree if not moved and missing in ("none", "git") else run_folder)
+                spelled = [present(path) for path in (git_named, run_folder)]
+                expected, named = [], spelled[0][0]
+                for index, (path, absent) in enumerate(spelled):
+                    comparable = fold(path) if absent is not None else path
+                    found = [key for key in keys
+                             if comparable == (parent := fold(key[len(folders.EXCLUSIVE):])
+                                               if absent is not None else key[len(folders.EXCLUSIVE):])
+                             or comparable.startswith(parent.rstrip("/") + "/")]
+                    expected.extend(sorted(found, key=lambda key: (-key.count("/"), key)))
+                    if index and found:
+                        named = path                 # the cwd names the hold when it is fenced
+                expected = list(dict.fromkeys(expected))
+                seen = {}
+                for path in ("look", "transaction"):
+                    with daemon.store.transaction("test.reset") as tx:
+                        tx.execute("DELETE FROM leases")
+                        tx.execute("DELETE FROM attempts WHERE job_id=?", (turn,))
+                        tx.executemany("INSERT INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
+                                       [(key, "retention:generated", "now") for key in keys])
+                    daemon.store.update_job(turn, state="queued", wait_reason=None, next_check_at=None,
+                                            workdir=run_folder, worktree=None,
+                                            sandbox="workspace-write" if writable else "read-only")
+                    daemon._capacity_waits.pop(turn, None)
+                    daemon._workspace_deferrals.pop(turn, None)
+                    prepared.clear()
+                    patch.setattr(daemon, "_fence_hold", fence_hold if path == "look" else lambda *args: False)
+                    daemon._admit_turns()
+                    hold = daemon._holds.get(turn, {})
+                    # The look holds a fenced turn before its workspace; otherwise it is prepared.
+                    assert prepared == ([] if path == "look" and expected else [turn]), (path, hold, expected)
+                    seen[path] = ((hold.get("leases", []), hold.get("folder")) if hold.get("reason") == "lease-held"
+                                  else ([], None))
+                assert seen["look"] == seen["transaction"] == (expected, named if expected else None), \
+                    (parts, alias, missing, row, moved, seen)
+                event(f"row={row}, missing={missing}, moved={moved}, "
+                      f"{'separate' if separate else 'shared'}, {'fenced' if expected else 'free'}")
 
         check()
 
@@ -642,8 +829,8 @@ def test_a_fence_let_go_after_the_look_read_it_starts_the_turn_on_that_pass(tmp_
         _, _, turn = message_in(daemon, harness, "Raced", workspace=nested)
         real, reads = folders.retiring, []
 
-        def raced(read, folder):
-            found = real(read, folder)
+        def raced(read, folder, *, folded=False):
+            found = real(read, folder, folded=folded)
             if not reads:
                 daemon.store.release_leases("retention:retired")
             reads.append(found)
@@ -675,8 +862,8 @@ def test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold(tmp_
         patch.setattr(daemon, "_workspace", lambda job: prepared.append(job["job_id"]) or prepare(job))
         real, reads = folders.retiring, []
 
-        def taken(read, folder):
-            found = real(read, folder)
+        def taken(read, folder, *, folded=False):
+            found = real(read, folder, folded=folded)
             if not reads:
                 assert daemon.store.acquire_lease(folders.exclusive_key(tree), "retention:retired")
             reads.append(found)
@@ -689,7 +876,8 @@ def test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold(tmp_
         assert not _live(daemon, turn)
         hold = dict(daemon._holds[turn])
         hold.pop("next_check_at")
-        assert hold == {"reason": "lease-held", "leases": [folders.exclusive_key(tree)], "folder": nested}, hold
+        assert hold == {"reason": "lease-held", "leases": [folders.exclusive_key(tree)],
+                        "retiring": [folders.exclusive_key(tree)], "folder": nested}, hold
         assert prepared == [turn] and any(ran_in(spawn, tree) for spawn in spawned), (prepared, spawned)
 
 
@@ -722,7 +910,7 @@ def test_a_fenced_turn_holds_no_later_turn_back_and_keeps_its_slot_as_its_transa
         seen = {}
         fence_hold = daemon._fence_hold
         for path in ("transaction", "look"):
-            patch.setattr(daemon, "_fence_hold", fence_hold if path == "look" else lambda *args: False)
+            patch.setattr(daemon, "_fence_hold", fence_hold if path == "look" else lambda *args, **kwargs: False)
             _, _, older = message_in(daemon, harness, f"older-{path}", workspace=nested)
             reader = {**SETTINGS, "permission": "read-only"}
             _, _, later = message_in(daemon, harness, f"later-{path}", workspace=elsewhere, settings=reader)

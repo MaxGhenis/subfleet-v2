@@ -52,7 +52,7 @@ from ..contracts import (
     ReadingLabel, Sandbox,
 )
 from ..sessions.transcripts import NotRegularFile, open_regular, read_regular
-from .base import Adapter, AdapterError
+from .base import Adapter, AdapterError, open_stream, stream_path
 from .claude_stream import (
     AUTH_ERROR_KINDS, TRANSIENT_ERROR_KINDS, RateLimitInfo, StreamSummary, message_text,
     is_synthetic_api_error, model_answered, parse_lines, parse_stream,
@@ -379,13 +379,15 @@ def keychain_service_for_home(home: str | Path) -> str:
     return KEYCHAIN_HOME_PREFIX + digest
 
 
-def _keychain_blob(service: str, *, security_bin: str = "security") -> str | None:
+def _keychain_blob(service: str, *, security_bin: str = "security", runner=None) -> str | None:
     """One targeted keychain read of a login blob; None when absent or unreadable.
     The value is returned to the caller and never logged (C-10.5)."""
+    from ..credentials import keychain_command
+    execute = runner or subprocess.run
     try:
-        done = subprocess.run([security_bin, "find-generic-password", "-s", service, "-w"],
-                              capture_output=True, text=True, timeout=15)
-    except (OSError, subprocess.SubprocessError):
+        done = execute(keychain_command(service, security_bin, runner=execute),
+                       capture_output=True, text=True, timeout=15)
+    except (AdapterError, OSError, subprocess.SubprocessError):
         return None
     if done.returncode != 0:
         return None
@@ -524,7 +526,7 @@ class ClaudeAdapter(Adapter):
         self,
         *,
         claude_bin: str = "claude",
-        runner: Callable[..., Any] = subprocess.run,
+        runner: Callable[..., Any] | None = None,
         now: Callable[[], datetime] | None = None,
         new_session_id: Callable[[], str] | None = None,
         projects_dir: str | Path | None = None,
@@ -534,7 +536,7 @@ class ClaudeAdapter(Adapter):
         usage_opener: Callable[[urllib.request.Request, float], tuple[int, bytes]] | None = None,
     ) -> None:
         self.claude_bin = claude_bin
-        self._runner = runner
+        self._runner = runner or subprocess.run
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._new_session_id = new_session_id or (lambda: str(uuid.uuid4()))
         self._projects_dir = Path(projects_dir) if projects_dir else None
@@ -559,7 +561,7 @@ class ClaudeAdapter(Adapter):
         from ..credentials import keychain_command
         try:
             done = self._runner(
-                keychain_command(ref, self._security_bin),
+                keychain_command(ref, self._security_bin, runner=self._runner),
                 capture_output=True, text=True, timeout=15,
             )
         except (OSError, subprocess.SubprocessError):
@@ -567,6 +569,7 @@ class ClaudeAdapter(Adapter):
                 f"claude: could not read the keychain item {ref}",
                 code=5,
                 fix=f"agent-secret get {ref}",
+                reason="claude-keychain-read",
             ) from None
         if getattr(done, "returncode", 1) != 0:
             raise AdapterError(
@@ -576,12 +579,14 @@ class ClaudeAdapter(Adapter):
                     "claude setup-token while signed into the lane account, then store "
                     f"it as the keychain item {ref}"
                 ),
+                reason="claude-keychain-missing",
             )
         payload = (done.stdout or "").strip()
         if not payload:
             raise AdapterError(
                 f"claude: the keychain item {ref} is empty", code=5,
                 fix=f"re-enrol the lane: claude setup-token, then store it as {ref}",
+                reason="claude-keychain-empty",
             )
         # v1 stores Claude Code's own OAuth blob under one item name and a bare
         # setup-token under the per-lane `claude-quota-<email>` item. Accept both.
@@ -601,10 +606,10 @@ class ClaudeAdapter(Adapter):
         from ..credentials import keychain_command
         try:
             done = self._runner(
-                keychain_command(ref, self._security_bin),
+                keychain_command(ref, self._security_bin, runner=self._runner),
                 capture_output=True, text=True, timeout=15,
             )
-        except (OSError, subprocess.SubprocessError):
+        except (AdapterError, OSError, subprocess.SubprocessError):
             return None
         if getattr(done, "returncode", 1) != 0:
             return None
@@ -635,6 +640,7 @@ class ClaudeAdapter(Adapter):
             f"claude: unknown credential kind {credential.kind!r}",
             code=7,
             fix="a Claude lane is either kind 'keychain-token' or kind 'home'",
+            reason="claude-credential-kind",
         )
 
     # --- identity (C-1.4, C-10.6) --------------------------------------------
@@ -863,6 +869,7 @@ class ClaudeAdapter(Adapter):
             raise AdapterError(
                 f"claude: credential is for provider {credential.provider!r}", code=2,
                 fix="enrol a Claude credential with the Claude adapter",
+                reason="claude-credential-provider",
             )
         env_add = self.credential_env(credential)
         rc, stdout, stderr = self._run_turn(env_add, ENROLL_MODEL)
@@ -878,6 +885,7 @@ class ClaudeAdapter(Adapter):
                     "claude setup-token while signed into the lane account, then store it "
                     f"as the keychain item {credential.ref}"
                 ),
+                reason="claude-authenticate",
             )
         if ORG_BLOCK_RE.search(corpus):
             raise AdapterError(
@@ -885,7 +893,7 @@ class ClaudeAdapter(Adapter):
                 "for this account",
                 code=5,
                 fix="ask the account's admin to enable Claude Code access",
-            )
+             reason="claude-org-disabled")
 
         home = env_add.get("CLAUDE_CONFIG_DIR")
         account = self.account_from_reference(credential)
@@ -896,6 +904,7 @@ class ClaudeAdapter(Adapter):
                 f"into {observed}",
                 code=7,
                 fix="rebind the lane to the account its credential really holds (C-1.3)",
+                reason="claude-account-mismatch",
             )
         account = account or observed
         if not account:
@@ -906,6 +915,7 @@ class ClaudeAdapter(Adapter):
                     "name the keychain item claude-quota-<email>, or point the lane at a "
                     "home whose .claude.json carries oauthAccount.emailAddress"
                 ),
+                reason="claude-account-missing",
             )
 
         plan = (
@@ -926,7 +936,7 @@ class ClaudeAdapter(Adapter):
                     "retry enrolment; if it persists, the credential is not a Claude "
                     "Code OAuth token and cannot be bound to an account (C-10.6)"
                 ),
-            )
+             reason="claude-profile-account")
         if profile.ok:
             # C-1.4: the account key is the identity, and the email is a label.
             identity, label = profile.identity, profile.email
@@ -1264,6 +1274,7 @@ class ClaudeAdapter(Adapter):
             raise AdapterError(
                 f"the job's MCP config cannot give the servers it names ({', '.join(names)}): {exc}",
                 code=7, fix="submit the job again with --mcp naming servers its workdir offers",
+                reason="claude-mcp-config",
             ) from None
         path = Path(attempt_dir) / ATTEMPT_MCP_CONFIG
         _atomic_write_text(path, json.dumps({"mcpServers": {name: servers[name] for name in names}},
@@ -1287,7 +1298,9 @@ class ClaudeAdapter(Adapter):
         config = (credential_env or {}).get("CLAUDE_CONFIG_DIR") or os.environ.get(
             "CLAUDE_CONFIG_DIR"
         )
-        base = Path(config).expanduser() if config else Path.home() / ".claude"
+        from ..home_paths import home_path
+        base = Path(config).expanduser() if config else Path(home_path(
+            "CLAUDE_CONFIG_DIR", lambda: Path.home() / ".claude", expand_override=True))
         return base / "projects"
 
     def _write_prompt_sent(self, attempt_dir: Path, prompt_path: Path) -> Path:
@@ -1407,7 +1420,7 @@ class ClaudeAdapter(Adapter):
         argv += ["--output-format", "stream-json", "--verbose"]
         if job.isolated_review:
             raise AdapterError("isolated review cannot resume a contextual Claude session",
-                               fix="submit a fresh isolated review job")
+                               fix="submit a fresh isolated review job", reason="isolation-resume-claude")
         argv += list(self.permission_args(
             sandbox, mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir)))
         from .isolation import claude_env_remove
@@ -1439,23 +1452,16 @@ class ClaudeAdapter(Adapter):
     def raw_stream_text(self, attempt_dir: Path, launch: Launch | None = None) -> str:
         """The attempt's stream.
 
-        `--output-format stream-json` puts the stream on stdout, so `stream.jsonl` and
-        `stdout` are the same bytes; whichever the daemon actually produced is read,
-        the dedicated stream file first.
+        `--output-format stream-json` puts the stream on stdout. The first existing
+        frozen entry is authoritative, including an empty or non-regular one;
+        only absent frozen entries permit legacy stdout fallback (C-4.3).
         """
         attempt_dir = Path(attempt_dir)
-        candidates: list[Path] = []
-        if launch is not None and launch.raw_stream_path:
-            candidates.append(Path(launch.raw_stream_path))
-        candidates.append(attempt_dir / "stream.jsonl")
-        if launch is not None and launch.stdout_path:
-            candidates.append(Path(launch.stdout_path))
-        candidates.append(attempt_dir / "stdout")
-        for path in candidates:
-            text = self.read_text(path)
-            if text.strip():
-                return text
-        return ""
+        try:
+            with open_stream(stream_path(attempt_dir, launch)) as handle:
+                return handle.read(4_000_000).decode("utf-8", "replace")
+        except (FileNotFoundError, NotRegularFile):
+            return ""
 
     def stream_summary(self, attempt_dir: Path, launch: Launch | None = None) -> StreamSummary:
         """Parse the complete attempt, including a terminal result beyond 4 MB.
@@ -1464,20 +1470,11 @@ class ClaudeAdapter(Adapter):
         stream reader. Never use it to decide whether a long attempt succeeded.
         """
         attempt_dir = Path(attempt_dir)
-        candidates = [Path(launch.raw_stream_path)] if launch and launch.raw_stream_path else []
-        candidates.append(attempt_dir / "stream.jsonl")
-        if launch and launch.stdout_path:
-            candidates.append(Path(launch.stdout_path))
-        candidates.append(attempt_dir / "stdout")
-        for path in dict.fromkeys(candidates):
-            try:
-                with open_regular(path, "r", encoding="utf-8", errors="replace") as handle:
-                    summary = parse_lines(handle)
-            except (FileNotFoundError, NotRegularFile):
-                continue
-            if summary.lines_total:
-                return summary
-        return parse_stream("")
+        try:
+            with open_stream(stream_path(attempt_dir, launch), "r", encoding="utf-8", errors="replace") as handle:
+                return parse_lines(handle)
+        except (FileNotFoundError, NotRegularFile):
+            return parse_stream("")
 
     def stderr_text(self, attempt_dir: Path, launch: Launch | None = None) -> str:
         attempt_dir = Path(attempt_dir)
@@ -1490,8 +1487,9 @@ class ClaudeAdapter(Adapter):
     # --- classification (C-9.2 to C-9.5, C-9.8) ------------------------------
 
     def classify(self, attempt_dir: Path, launch: Launch, exit_info: ExitInfo) -> Outcome:
-        """Authentication, then admission, then quota — with the host CLI's version
-        gate ahead of all three (C-9.2).
+        """CLI/provider evidence only (C-9.2). On a failed run: the host CLI's
+        version gate, authentication, admission, then quota. Verified success
+        supersedes text failures; structured admission rejection still wins.
 
         The raw rc and signal ride along with every class (C-9.2), and the readings the
         `rate_limit_event` yielded are attached whatever the class: a limited lane's
@@ -1529,8 +1527,14 @@ class ClaudeAdapter(Adapter):
         transcript = self._find_transcript(notes, session_id)
         served_model = _single_served_model(summary)
 
-        corpus = "\n".join([stderr, *summary.texts()])
-        scrubbed = _scrub_non_limit(corpus)
+        # Every text signature and reset clock is provider/CLI evidence. Reports
+        # routinely quote these signatures; model prose cannot classify a lane.
+        cli_corpus = "\n".join([stderr, *summary.cli_texts()])
+        scrubbed = _scrub_non_limit(cli_corpus)
+        non_error_result = (exit_info.rc == 0 and summary.result is not None
+                            and not summary.result.is_error)
+        text = self._final_text(summary, transcript, notes, session_id)
+        successful = non_error_result and bool(text.strip())
 
         evidence: dict[str, Any] = {
             "rc": exit_info.rc,
@@ -1582,19 +1586,18 @@ class ClaudeAdapter(Adapter):
 
         # 0. The host CLI, not the lane. Cooling a healthy lane for this would be a
         #    lie about capacity, and rotating lanes cannot help (C-9.2 keeps the rc).
-        match = CLI_TOO_OLD_RE.search(corpus)
+        match = None if successful else CLI_TOO_OLD_RE.search(cli_corpus)
         if match:
             return finish(
                 OutcomeClass.CLI_TOO_OLD,
-                f"cli-too-old: {_first_line_containing(corpus, match)}",
+                f"cli-too-old: {_first_line_containing(cli_corpus, match)}",
                 answered={"cli": "version gate in the provider's own output"},
             )
 
         # 1. Authentication (C-9.3), from what the CLI and the provider wrote only
         #    (`cli_texts`): a model quoting these phrases is not the lane refusing,
         #    and an `auth-dead` job moves on to the next lane, disabling this one (C-4.5).
-        cli_corpus = "\n".join([stderr, *summary.cli_texts()])
-        match = ORG_BLOCK_RE.search(cli_corpus)
+        match = None if successful else ORG_BLOCK_RE.search(cli_corpus)
         if match:
             return finish(
                 OutcomeClass.AUTH_DEAD,
@@ -1604,20 +1607,19 @@ class ClaudeAdapter(Adapter):
         auth_kind = next(
             (kind for kind in summary.error_kinds if kind in AUTH_ERROR_KINDS), None
         )
-        if auth_kind is not None:
+        if auth_kind is not None and not successful:
             return finish(
                 OutcomeClass.AUTH_DEAD,
                 f"auth-dead: the provider reported error {auth_kind}",
                 answered={"auth": f"provider error kind {auth_kind}"},
             )
-        auth_signature = AUTH_SIGNATURE_RE.search(corpus)
+        auth_signature = None if successful else AUTH_SIGNATURE_RE.search(cli_corpus)
         auth_false_positive: str | None = None
         if auth_signature is not None:
-            cli_signature = AUTH_SIGNATURE_RE.search(cli_corpus)
-            if not summary.has_init and cli_signature is not None:
+            if not summary.has_init:
                 return finish(
                     OutcomeClass.AUTH_DEAD,
-                    f"auth-dead: {_first_line_containing(cli_corpus, cli_signature)}",
+                    f"auth-dead: {_first_line_containing(cli_corpus, auth_signature)}",
                     answered={"auth": "no system/init and a credential failure signature"},
                 )
             # C-9.3: the credential authenticated. Something else answered 401.
@@ -1653,9 +1655,10 @@ class ClaudeAdapter(Adapter):
                 },
             )
 
-        # 3. Quota in words. The event may have been emitted before the refusal, or
-        #    never: the text is then the only clock we have.
-        match = CREDITS_RE.search(scrubbed)
+        # 3. Quota in the CLI/provider's words only, including their reset clock.
+        # A successful result supersedes text errors; C-9.8's structured rejection
+        # above is the sole limit verdict that can override that success.
+        match = None if successful else CREDITS_RE.search(scrubbed)
         if match:
             line = _first_line_containing(scrubbed, match)
             until, clock_source = _closure_clock(
@@ -1679,7 +1682,7 @@ class ClaudeAdapter(Adapter):
                     "quota": "model-scoped credit exhaustion in the provider's text",
                 },
             )
-        match = LIMIT_RE.search(scrubbed)
+        match = None if successful else LIMIT_RE.search(scrubbed)
         if match:
             line = _first_line_containing(scrubbed, match)
             until, clock_source = _closure_clock(_clock_from_text(scrubbed, now), now)
@@ -1709,29 +1712,25 @@ class ClaudeAdapter(Adapter):
                 answered={"content": "stop_reason=refusal"},
             )
 
-        # 5. Success, and the one shape that looks like success and is not (C-12.6).
-        text = self._final_text(summary, transcript, notes, session_id)
-        if exit_info.rc == 0 and summary.result is not None and not summary.result.is_error:
-            if text.strip():
-                sensed = (
-                    ", ".join(sorted(info.windows)) if info and info.windows else "none"
-                )
+        # 5. Success requires a deliverable (C-12.6). Its presence matters for
+        # acceptance; its wording never supplies a provider failure signature.
+        if non_error_result:
+            if not text.strip():
                 return finish(
-                    OutcomeClass.OK,
-                    f"ok: {len(text.encode('utf-8'))} bytes delivered; "
-                    f"rate_limit_event windows: {sensed}",
-                    answered={
-                        "auth": "system/init",
-                        "admission": (
-                            f"rate_limit_event.status={info.status}" if info else
-                            "no rate_limit_event"
-                        ),
-                    },
+                    OutcomeClass.UNKNOWN,
+                    "unknown: empty deliverable with rc 0",
+                    answered={"deliverable": "empty with rc 0 (C-12.6)"},
                 )
+            sensed = ", ".join(sorted(info.windows)) if info and info.windows else "none"
             return finish(
-                OutcomeClass.UNKNOWN,
-                "unknown: empty deliverable with rc 0",
-                answered={"deliverable": "empty with rc 0 (C-12.6)"},
+                OutcomeClass.OK,
+                f"ok: {len(text.encode('utf-8'))} bytes delivered; "
+                f"rate_limit_event windows: {sensed}",
+                answered={
+                    "auth": "system/init",
+                    "admission": (f"rate_limit_event.status={info.status}" if info else
+                                  "no rate_limit_event"),
+                },
             )
 
         # 6. Retryable (C-9.5). Never writes a closure.
@@ -1745,7 +1744,7 @@ class ClaudeAdapter(Adapter):
                 f"present — the credential authenticated (C-9.3)",
                 answered={"auth": "system/init present; the 401 was not the lane's"},
             )
-        match = TRANSIENT_RE.search(corpus)
+        match = TRANSIENT_RE.search(cli_corpus)
         if transient_kind is not None or match is not None:
             # Name both the provider's own error kind and the text it came with: one
             # says what class of failure it was, the other says what actually happened.
@@ -1753,7 +1752,7 @@ class ClaudeAdapter(Adapter):
             if transient_kind is not None:
                 parts.append(f"provider error kind {transient_kind}")
             if match is not None:
-                parts.append(_first_line_containing(corpus, match))
+                parts.append(_first_line_containing(cli_corpus, match))
             reason = "; ".join(parts)
             return finish(
                 OutcomeClass.TRANSIENT, f"transient: {reason}",

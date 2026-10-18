@@ -1,0 +1,682 @@
+"""C-4.5, C-9.5, C-11.2, D-CAP1: a model-capacity refusal steers the job's next attempt.
+
+2026-10-13: `20261013-024327-pr198-review-r6`, a `hard` review, ran 26 and then 11 minutes on
+gpt-6.1-sol on codex-1, each attempt ended by Codex's "Selected model is at capacity. Please try
+a different model.", the second asked 60 s after the first on the same lane and model (C-4.5's
+transient retry); its third fell to Opus on claude-10, which was five-hour limited.
+`20261013-015056-pr181-fix8` was refused three times, the third on codex-2: capacity is the
+model's, not the lane's.
+
+Now such an attempt (`transient`, `model_capacity` in its classification) of a job with no model
+or lane pin that is no turn, resume or revive records a `capacity_steer` (the model, until
+`MODEL_CAPACITY_STEER_S` after it finished), sets no same-lane retry, and leaves the job due on
+the next pass; until then admission excludes that model from the job's chain. No
+closure, no lane disabled or excluded, no other job touched. A job pinned to the model keeps the
+same-lane retry after 60 s. These drive the daemon's own finalization and admission in-process,
+with the real Codex classifier reading the incident's stream (`tests/fixtures/codex/model-at-capacity-sol`).
+"""
+
+from __future__ import annotations
+
+from contextlib import contextmanager
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
+import json
+import tempfile
+from pathlib import Path
+
+import pytest
+from hypothesis import given, settings, strategies as st
+
+from subfleet import daemon as daemon_module
+from subfleet.adapters.codex import CodexAdapter
+from subfleet.adapters.registry import register
+from subfleet.contracts import (MODEL_CAPACITY_STEER_S, TRANSIENT_RETRY_DELAY_S, ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner,
+                                Outcome, OutcomeClass, Reading, ReadingLabel)
+from subfleet.daemon import after, utcnow
+from subfleet.daemon import Daemon
+from tests.fake.test_state_contract import receipt_fixture, state_daemon  # noqa: F401 (a fixture)
+from tests.fake_adapter import FakeAdapter
+
+FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "codex" / "model-at-capacity-sol"
+ASTRA, OPUS = "gpt-6-astra", "claude-opus-5-5"
+
+
+class Refused(FakeAdapter):
+    """The real Codex classifier over the attempt's own stream: the incident's, replayed."""
+
+    def classify(self, attempt_dir, launch, exit_info):
+        return CodexAdapter().classify(attempt_dir, launch, exit_info)
+
+
+class Disconnected(FakeAdapter):
+    def classify(self, attempt_dir, launch, exit_info):
+        return Outcome(OutcomeClass.TRANSIENT, "Temporary Codex transport or capacity failure",
+                       evidence={"rc": exit_info.rc, "model_answered": True,
+                                 "admission": "stream disconnected before completion"})
+
+
+@pytest.fixture
+def fleet(state_daemon, monkeypatch):
+    """codex-1 and codex-2, claude-1 and claude-2, each measured (so a `hard` job needs no probe,
+    C-11.4), under the live policy's chains' shape: a `hard` review prefers the Codex model,
+    then Opus (live: `["sol61", "opus"]`), and a `hard` build has the Codex model alone."""
+    daemon, harness = state_daemon
+    monkeypatch.setattr(daemon_module.capacity, "read_desktop_account", lambda: None)
+    register("claude", FakeAdapter)
+    daemon.policy["chains"]["review"] = ["haiku", "sonnet", ["astra", "opus"], ["astra", "opus"]]
+    first = daemon.store.get_lane("codex-1")
+    home = str(harness.root / "home-codex-2")
+    daemon.store.put_lane(replace(first, lane_id="codex-2", account_key="codex:codex-2",
+                                  credential=Credential("codex", home, "home"), home=home))
+    for identity in ("claude-1", "claude-2"):
+        daemon.store.put_lane(Lane(identity, "claude", f"claude:{identity}@example.com",
+                                   Credential("claude", f"/fake/{identity}", "home"), f"/fake/{identity}",
+                                   LaneOwner.V2, False))
+    for identity in ("codex-1", "codex-2", "claude-1", "claude-2"):
+        daemon.store.add_reading(Reading(identity, "account", "seven_day", .1, after(86400),
+                                         ReadingLabel.PROVIDER, "fixture", utcnow()))
+    yield daemon, harness
+    register("claude", FakeAdapter)
+
+
+def submit(daemon, harness, **changes) -> str:
+    args = {"pinned_model": None, "task": "review", "tier": "hard", **changes}
+    return daemon.dispatch("submit", harness.submit_args(**args))["job_id"]
+
+
+def admit(daemon, job_id) -> dict | None:
+    """One admission pass; the job's newest attempt if the pass reserved one (no launch)."""
+    before = len(daemon.store.list_attempts(job_id))
+    daemon._admit()
+    rows = daemon.store.list_attempts(job_id)
+    for row in rows:
+        daemon._pending_launches.discard(row["attempt_id"])
+    return rows[-1] if len(rows) > before else None
+
+
+def finish(daemon, attempt, adapter, *, rc=1, stdout=None, stderr=b""):
+    """The attempt's provider exited with this output; finalize it under `adapter`'s verdict."""
+    provider = daemon.store.get_lane(attempt["lane_id"]).provider
+    register(provider, adapter)
+    adir = daemon.root / "jobs" / attempt["job_id"] / f"a{attempt['seq']}"
+    adir.mkdir(mode=0o700, exist_ok=True)
+    daemon._pending_launches.discard(attempt["attempt_id"])
+    receipt = receipt_fixture(daemon, attempt, adir, rc=rc, stdout=stdout if stdout is not None else b"fixture result\n")
+    if stdout is not None:
+        # Explicit Codex output is this attempt's frozen stream; a generic fake
+        # success keeps receipt_fixture's turn.completed proof instead.
+        (adir / "stream.jsonl").write_bytes(stdout)
+    (adir / "stderr").write_bytes(stderr)
+    try:
+        daemon._finalize(receipt)
+    finally:
+        register(provider, FakeAdapter)
+    return daemon.store.get_attempt(attempt["attempt_id"])
+
+
+def refuse(daemon, attempt):
+    """The incident's attempt: the real stream and stderr of pr198-review-r6/a1."""
+    return finish(daemon, attempt, Refused, stdout=(FIXTURE / "stdout").read_bytes(),
+                  stderr=(FIXTURE / "stderr").read_bytes())
+
+
+def evidence(row) -> dict:
+    return json.loads(row["evidence_json"])
+
+
+def seconds(later: str, earlier: str) -> float:
+    parse = lambda value: datetime.fromisoformat(value.replace("Z", "+00:00"))   # noqa: E731
+    return (parse(later) - parse(earlier)).total_seconds()
+
+
+def test_c9_5_a_refused_hard_review_moves_to_its_chains_next_model_on_the_next_pass(fleet):
+    """D-CAP1: a1 refused on the Codex model; a2 is Opus at the next pass, not the same pair 60 s on."""
+    daemon, harness = fleet
+    job_id = submit(daemon, harness)
+    first = admit(daemon, job_id)
+    assert (first["model_requested"], first["lane_id"][:5]) == (ASTRA, "codex")
+    row = refuse(daemon, first)
+    assert (row["state"], row["outcome_class"]) == ("failed", "transient")
+    recorded = evidence(row)
+    assert recorded["classification"]["model_capacity"] is True
+    steer = recorded["capacity_steer"]
+    assert steer["model_id"] == ASTRA
+    assert seconds(steer["until"], row["finished_at"]) == MODEL_CAPACITY_STEER_S == 900
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["wait_reason"], job["rc"]) == ("waiting", "capacity", None)
+    assert seconds(job["next_check_at"], row["finished_at"]) < TRANSIENT_RETRY_DELAY_S      # due now
+    # The steer is the job's: no closure, no lane disabled, nothing excluded.
+    assert daemon.store.query("SELECT * FROM closures") == []
+    assert all(lane.enabled for lane in daemon.store.list_lanes())
+    assert daemon._retry_pin(job)[1:] == ((), None)
+    second = admit(daemon, job_id)
+    assert second is not None, daemon.dispatch("why", {"job_id": job_id})["text"]
+    assert (second["model_requested"], second["lane_id"][:6]) == (OPUS, "claude")
+    decision = json.loads(daemon.store.list_decisions(job_id)[-1]["decision_json"])
+    assert decision["chain"] == ["opus"]
+    assert f"astra: at capacity for this job until {steer['until']}, skipped by capacity steer (C-9.5)" in decision["reason"]
+    text = daemon.dispatch("why", {"job_id": job_id})["text"]
+    assert "at capacity for this job" in text
+    finish(daemon, second, FakeAdapter, rc=0)
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["rc"], job["accepted_attempt_id"]) == ("succeeded", 0, second["attempt_id"])
+
+
+@pytest.mark.parametrize("restart", [False, True], ids=["replay", "restart"])
+@pytest.mark.parametrize("older", [False, True], ids=["this-daemon", "older-daemon"])
+@pytest.mark.parametrize("complete", [False, True])
+@pytest.mark.parametrize("rc", [0, 1])
+def test_c4_3_capacity_mark_and_steer_survive_replay(fleet, monkeypatch, restart, older, complete, rc):
+    """A terminal capacity refusal remains marked with either replay rule and completion state."""
+    daemon, harness = fleet
+    (harness.root / "policy.json").write_text(json.dumps(daemon.policy))
+    job_id = submit(daemon, harness)
+    first = admit(daemon, job_id)
+    adir = daemon.root / "jobs" / job_id / "a1"
+    stdout = (FIXTURE / "stdout").read_bytes()
+    if complete:
+        stdout += b'{"type":"turn.completed"}\n'
+    salvage = daemon._salvage
+
+    def crash(*args):
+        raise RuntimeError("interrupted before acceptance")
+
+    monkeypatch.setattr(daemon, "_salvage", crash)
+    with pytest.raises(RuntimeError, match="interrupted before acceptance"):
+        finish(daemon, first, Refused, rc=rc, stdout=stdout)
+    frozen_path = adir / "finalization.json"
+    frozen = json.loads(frozen_path.read_text())
+    assert frozen["rule"] == daemon_module.FINALIZATION_RULE
+    assert frozen["outcome"]["cls"] == "transient"
+    assert frozen["outcome"]["evidence"]["model_capacity"] is True
+    if older:
+        del frozen["rule"]
+        frozen_path.write_text(json.dumps(frozen))
+    frozen_bytes = frozen_path.read_bytes()
+    monkeypatch.setattr(daemon, "_salvage", salvage)
+    monkeypatch.setattr(Refused, "classify", lambda *args: pytest.fail("cached classification repeated"))
+    register("codex", Refused)
+    # Later live stdout cannot replace this attempt's frozen refusal.
+    (adir / "stdout").write_text('{"type":"turn.completed"}\n')
+    successor = None
+    try:
+        if restart:
+            daemon.close()
+            successor = daemon = Daemon(harness.root)
+            monkeypatch.setattr(daemon, "_launch", lambda *args: pytest.fail("recovery must not launch"))
+            daemon._process_attempt(first["attempt_id"])
+        else:
+            daemon._finalize(daemon.store.get_attempt(first["attempt_id"]))
+        row = daemon.store.get_attempt(first["attempt_id"])
+        recorded = evidence(row)
+        assert row["outcome_class"] == "transient"
+        assert recorded["classification"]["model_capacity"] is True
+        assert recorded["classification"]["turn_completed"] is complete
+        assert recorded["classification"]["turn_failed"] is True
+        assert seconds(recorded["capacity_steer"]["until"], row["finished_at"]) == MODEL_CAPACITY_STEER_S
+        assert frozen_path.read_bytes() == frozen_bytes
+        assert (adir / "stream.jsonl").read_bytes() == stdout
+        assert daemon.store.get_job(job_id)["accepted_attempt_id"] is None
+        assert daemon.store.list_closures() == []
+        assert daemon._retry_pin(daemon.store.get_job(job_id))[2] is None
+        second = admit(daemon, job_id)
+        assert second is not None and second["model_requested"] == OPUS
+    finally:
+        register("codex", FakeAdapter)
+        if successor is not None:
+            successor.close()
+
+
+def test_c9_5_with_no_lane_for_the_next_model_the_job_waits_until_the_steer_ends(fleet, monkeypatch):
+    """The reviewer's [astra, opus] case never reuses Astra while the steer is live."""
+    daemon, harness = fleet
+    job_id = submit(daemon, harness)
+    row = refuse(daemon, admit(daemon, job_id))
+    steer = evidence(row)["capacity_steer"]
+    for identity in ("claude-1", "claude-2"):
+        daemon.store.update_lane(identity, enabled=0)
+    assert admit(daemon, job_id) is None
+    waiting = daemon.store.get_job(job_id)
+    assert (waiting["state"], waiting["wait_reason"]) == ("waiting", "capacity")
+    why = daemon.dispatch("why", {"job_id": job_id})["text"]
+    assert "capacity steer" in why and "astra" in why and steer["until"] in why
+    end = datetime.fromisoformat(steer["until"].replace("Z", "+00:00"))
+    with monkeypatch.context() as clocks:
+        class Clock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return end.astimezone(tz) if tz else end.replace(tzinfo=None)
+        clocks.setattr(daemon_module, "datetime", Clock)
+        # Keep Astra admissible after advancing fifteen minutes: the fixture's
+        # original provider reading is now stale and would require a new probe.
+        daemon.store.add_reading(Reading("codex-1", "account", "seven_day", .1, after(86400),
+                                         ReadingLabel.PROVIDER, "fixture", utcnow()))
+        second = admit(daemon, job_id)
+    assert second is not None, daemon.dispatch("why", {"job_id": job_id})["text"]
+    assert second["model_requested"] == ASTRA
+    assert len(daemon.store.list_attempts(job_id)) == 2
+
+
+def test_c9_5_after_the_steer_ends_the_model_is_chosen_again(fleet):
+    """C-9.5: the steer is bounded. Once `capacity_steer.until` has passed (here: the refusal's
+    clocks moved 16 minutes back, as the store reads 16 minutes on), the job walks its chain in
+    the policy's order and the Codex model takes it again."""
+    daemon, harness = fleet
+    job_id = submit(daemon, harness)
+    row = refuse(daemon, admit(daemon, job_id))
+    recorded = evidence(row)
+    back = lambda value: (datetime.fromisoformat(value.replace("Z", "+00:00"))                # noqa: E731
+                          - timedelta(minutes=16)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    recorded["capacity_steer"]["until"] = back(recorded["capacity_steer"]["until"])
+    daemon.store.update_attempt(row["attempt_id"], evidence_json=json.dumps(recorded),
+                                finished_at=back(row["finished_at"]))
+    assert daemon._capacity_steer(daemon.store.get_job(job_id), daemon.store.list_attempts(job_id)) == {}
+    second = admit(daemon, job_id)
+    assert second is not None and second["model_requested"] == ASTRA
+    decision = json.loads(daemon.store.list_decisions(job_id)[-1]["decision_json"])
+    assert decision["chain"][0] == "astra" and "at capacity for this job" not in decision["reason"]
+
+
+def test_c9_5_a_job_pinned_to_the_model_keeps_the_same_lane_retry_after_60_s(fleet):
+    """C-4.5, C-9.5: `-m` is the operator's choice: the refusal is the old transient, the job
+    waits 60 s and then runs once more on the same lane and model."""
+    daemon, harness = fleet
+    job_id = submit(daemon, harness, pinned_model="astra", task=None, tier=None)
+    first = admit(daemon, job_id)
+    row = refuse(daemon, first)
+    recorded = evidence(row)
+    assert recorded["classification"]["model_capacity"] is True        # the fact is recorded
+    assert "capacity_steer" not in recorded                            # and steers nothing
+    job = daemon.store.get_job(job_id)
+    assert seconds(job["next_check_at"], row["finished_at"]) >= TRANSIENT_RETRY_DELAY_S - 1
+    _, exclusions, pin = daemon._retry_pin(job)
+    assert (pin["pinned_lane"], pin["pinned_model"]) == (first["lane_id"], ASTRA)
+    assert admit(daemon, job_id) is None                               # not before its 60 s
+    daemon.store.update_job(job_id, next_check_at=utcnow())
+    second = admit(daemon, job_id)
+    assert (second["lane_id"], second["model_requested"]) == (first["lane_id"], ASTRA)
+
+
+def test_c9_5_a_lane_pinned_job_keeps_the_same_lane_retry(fleet):
+    daemon, harness = fleet
+    job_id = submit(daemon, harness, pinned_lane="codex-2")
+    first = admit(daemon, job_id)
+    assert first["lane_id"] == "codex-2"
+    assert "capacity_steer" not in evidence(refuse(daemon, first))
+    _, _, pin = daemon._retry_pin(daemon.store.get_job(job_id))
+    assert (pin["pinned_lane"], pin["pinned_model"]) == ("codex-2", ASTRA)
+
+
+def test_c9_5_an_ordinary_transient_keeps_the_same_lane_retry_after_60_s(fleet):
+    """C-9.5 unchanged: a stream disconnect is not the model's refusal."""
+    daemon, harness = fleet
+    job_id = submit(daemon, harness)
+    first = admit(daemon, job_id)
+    row = finish(daemon, first, Disconnected)
+    assert "capacity_steer" not in evidence(row) and "model_capacity" not in evidence(row)["classification"]
+    job = daemon.store.get_job(job_id)
+    assert seconds(job["next_check_at"], row["finished_at"]) >= TRANSIENT_RETRY_DELAY_S - 1
+    _, _, pin = daemon._retry_pin(job)
+    assert (pin["pinned_lane"], pin["pinned_model"]) == (first["lane_id"], ASTRA)
+
+
+def test_c9_5_the_steer_is_the_jobs_and_another_job_still_gets_the_model(fleet):
+    """D-CAP1: capacity is intermittent (of the 390 gpt-6.1-sol attempts started within 15 minutes
+    of a refusal from 2026-10-01 to 2026-10-13, 350 were not refused), so one job's refusal moves
+    only that job."""
+    daemon, harness = fleet
+    job_id = submit(daemon, harness)
+    refuse(daemon, admit(daemon, job_id))
+    other = submit(daemon, harness)
+    assert admit(daemon, other)["model_requested"] == ASTRA
+
+
+def test_c9_5_a_build_with_one_model_in_its_chain_waits(fleet):
+    daemon, harness = fleet
+    job_id = submit(daemon, harness, task="build")
+    row = refuse(daemon, admit(daemon, job_id))
+    assert evidence(row)["capacity_steer"]["model_id"] == ASTRA
+    assert admit(daemon, job_id) is None
+    assert daemon.store.get_job(job_id)["wait_reason"] == "capacity"
+    assert len(daemon.store.list_attempts(job_id)) == 1
+
+
+def test_c4_5_a_refused_job_still_ends_after_max_attempts(fleet):
+    """C-4.5: a refusal is never success and counts toward `max_attempts`: three refusals end it."""
+    daemon, harness = fleet
+    for identity in ("claude-1", "claude-2"):
+        daemon.store.update_lane(identity, enabled=0)
+    job_id = submit(daemon, harness, pinned_model="astra", task=None, tier=None)
+    for _ in range(3):
+        daemon.store.update_job(job_id, next_check_at=utcnow())
+        refuse(daemon, admit(daemon, job_id))
+    job = daemon.store.get_job(job_id)
+    assert (job["state"], job["accepted_attempt_id"]) == ("failed", None)
+    assert [row["outcome_class"] for row in daemon.store.list_attempts(job_id)] == ["transient"] * 3
+
+
+@pytest.mark.parametrize("changes,steerable", [
+    ({}, True), ({"kind": "handoff"}, True), ({"kind": "gate-review"}, True),
+    ({"pinned_model": "astra"}, False), ({"pinned_lane": "codex-1"}, False),
+    ({"kind": "turn"}, False), ({"kind": "resume"}, False), ({"kind": "revive"}, False),
+])
+def test_c9_5_capacity_steer_reads_only_its_own_attempts_and_applies_to_unpinned_kinds(fleet, changes, steerable):
+    """`Daemon._capacity_steer`: the steers the job's own transient attempts recorded whose end is
+    still ahead, for a job a steer applies to (`scheduler.capacity_steerable`), and nothing else."""
+    daemon, _ = fleet
+    live, ended = after(600), after(-600)
+    rows = [{"outcome_class": "transient", "evidence_json": json.dumps({"capacity_steer": {"model_id": ASTRA, "until": live}})},
+            {"outcome_class": "transient", "evidence_json": json.dumps({"capacity_steer": {"model_id": OPUS, "until": ended}})},
+            {"outcome_class": "limited", "evidence_json": json.dumps({"capacity_steer": {"model_id": "gpt-5.6-terra", "until": live}})},
+            {"outcome_class": "transient", "evidence_json": "{"},
+            {"outcome_class": "transient", "evidence_json": None}]
+    job = {"kind": "dispatch", "pinned_model": None, "pinned_lane": None, **changes}
+    assert daemon._capacity_steer(job, rows) == ({ASTRA: live} if steerable else {})
+
+
+@pytest.mark.parametrize("task", ["review", "build"])
+def test_r3_steered_waiter_does_not_hold_back_later_jobs_for_the_refused_model(fleet, monkeypatch, task):
+    daemon, harness = fleet
+    daemon.policy["caps"]["max_active_attempts"] = 2
+    older = submit(daemon, harness, task=task)
+    refused = refuse(daemon, admit(daemon, older))
+    for identity in ("claude-1", "claude-2"):
+        daemon.store.update_lane(identity, enabled=0)
+    assert admit(daemon, older) is None
+    decisions = len(daemon.store.list_decisions(older))
+    for _ in range(3):
+        daemon.store.update_job(older, next_check_at=utcnow())
+        assert admit(daemon, older) is None
+    assert len(daemon.store.list_decisions(older)) == decisions  # C-6.10
+    newer = submit(daemon, harness, task=task)
+    second = admit(daemon, newer)
+    assert second is not None, daemon._holds
+    assert second["model_requested"] == ASTRA
+    assert len(daemon.store.list_attempts(older)) == 1
+    # C-6.9 keeps the last slot for the waiter, which resumes first at expiry.
+    third = submit(daemon, harness, task=task)
+    assert admit(daemon, third) is None
+    end = datetime.fromisoformat(evidence(refused)["capacity_steer"]["until"].replace("Z", "+00:00"))
+    with monkeypatch.context() as clocks:
+        class Clock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return end.astimezone(tz) if tz else end.replace(tzinfo=None)
+        clocks.setattr(daemon_module, "datetime", Clock)
+        for identity in ("codex-1", "codex-2"):
+            daemon.store.add_reading(Reading(identity, "account", "seven_day", .1, after(86400),
+                                             ReadingLabel.PROVIDER, "fixture", utcnow()))
+        resumed = admit(daemon, older)
+    assert resumed is not None and resumed["model_requested"] == ASTRA
+    assert len(daemon.store.list_attempts(third)) == 0
+
+
+@settings(max_examples=40, derandomize=True, database=None, deadline=None)
+@given(queue=st.lists(st.tuples(st.sampled_from(("review", "build")), st.booleans()),
+                     min_size=1, max_size=5),
+       target=st.sampled_from((("astra", ASTRA, "codex"), ("opus", OPUS, "claude"))),
+       pinned=st.booleans())
+def test_r3_hold_back_excludes_models_steered_away_from_any_older_job(queue, target, pinned):
+    """Every example owns its store. The oracle is the generated job's live steer."""
+    with tempfile.TemporaryDirectory() as directory, pytest.MonkeyPatch.context() as patch:
+        with contextmanager(state_daemon.__wrapped__)(Path(directory), patch) as state:
+            with contextmanager(fleet.__wrapped__)(state, patch) as (daemon, harness):
+                daemon.policy["caps"]["max_active_attempts"] = len(queue) + 2
+                daemon.policy["caps"]["max_in_flight_per_lane"] = len(queue) + 2
+                short, model_id, provider = target
+                for lane in daemon.store.list_lanes():
+                    if lane.provider != provider:
+                        daemon.store.update_lane(lane.lane_id, enabled=0)
+                steered = set()
+                for index, (task, steer) in enumerate(queue):
+                    job = submit(daemon, harness, task=task)
+                    daemon.store.update_job(job, created_at=after(index - 100))
+                    if steer:
+                        steered.add(job)
+                patch.setattr(daemon, "_capacity_steer", lambda job, previous:
+                              {model_id: after(600)} if job["job_id"] in steered else {})
+                later = submit(daemon, harness, pinned_model=short if pinned else None,
+                               task=None if pinned else "review")
+                placed = admit(daemon, later)
+                hold = daemon._holds.get(later, {})
+                if hold.get("reason") == "behind-older-job":
+                    assert hold["behind"] not in steered
+                assert placed is not None, daemon._holds
+                assert placed["model_requested"] == model_id
+
+
+@pytest.mark.parametrize("pinned", [False, True])
+def test_r3_a_steered_waiter_keeps_fifo_for_its_remaining_model(fleet, pinned):
+    """Trying Astra may pass the waiter; selecting its remaining Opus may not."""
+    daemon, harness = fleet
+    daemon.policy["caps"]["max_active_attempts"] = 2
+    older = submit(daemon, harness, exclusions=["claude-2"])
+    refuse(daemon, admit(daemon, older))
+    daemon.store.update_lane("claude-1", enabled=0)
+    assert admit(daemon, older) is None
+    # Keep a future admissible Astra lane for the older job. Disabling both
+    # would make it for_good under C-11.8, which correctly holds nobody back.
+    for identity in ("codex-1", "codex-2"):
+        daemon.store.add_closure(Closure(identity, ASTRA, after(600), ClosureReason.PROVIDER_LIMIT,
+                                         ClockSource.REPORTED, "temporary test closure"))
+    later = submit(daemon, harness, pinned_model="opus" if pinned else None,
+                   task=None if pinned else "review")
+    assert admit(daemon, later) is None
+    assert daemon._holds[later]["reason"] == "behind-older-job"
+    assert daemon._holds[later]["behind"] == older
+
+
+@pytest.mark.parametrize("pinned", [False, True], ids=["review", "opus-pin"])
+@pytest.mark.parametrize("route_moves", [False, True], ids=["due-look", "route-moved"])
+def test_r5_due_steered_waiter_keeps_fifo_for_its_remaining_model(fleet, monkeypatch, pinned, route_moves):
+    """Review r4c: a due look must judge standing refusals across the whole chain.
+
+    Pass 2 backs off one second; pass 3 is exactly due, with Astra temporarily
+    closed and only the older job's Opus lanes standing-refused. Exhausting the
+    reservation retries must preserve the same FIFO place as a settled look.
+    """
+    from subfleet import actions, capacity, ids, policy, scheduler, store, timers
+
+    # The fleet fixture stamps its readings on the real clock before this test freezes
+    # time. A fixed 2026-10-16T12:00Z passed before that moment and failed after it, so
+    # the frozen clock starts on a whole second, a minute ahead of the real one.
+    instant = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(minutes=1)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return instant.astimezone(tz) if tz else instant.replace(tzinfo=None)
+
+    for module in (daemon_module, scheduler, capacity, store, timers, policy, actions, ids):
+        monkeypatch.setattr(module, "datetime", Clock)
+    daemon, harness = fleet
+    daemon.policy["caps"]["max_active_attempts"] = 2
+    for lane in daemon.store.list_lanes():
+        daemon.store.add_reading(Reading(lane.lane_id, "account", "seven_day", .1, after(86400),
+                                         ReadingLabel.PROVIDER, "fixture", utcnow()))
+    older = submit(daemon, harness, exclusions=["claude-2"])
+    refuse(daemon, admit(daemon, older))                         # pass 1
+    daemon.store.update_lane("claude-1", enabled=0)
+    assert admit(daemon, older) is None                        # pass 2
+    assert daemon.store.get_job(older)["next_check_at"] == after(1)
+    for identity in ("codex-1", "codex-2"):
+        daemon.store.add_closure(Closure(identity, ASTRA, after(600), ClosureReason.PROVIDER_LIMIT,
+                                         ClockSource.REPORTED, "temporary test closure"))
+    later = submit(daemon, harness, pinned_model="opus" if pinned else None,
+                   task=None if pinned else "review")
+    instant += timedelta(seconds=1)
+    assert daemon.store.get_job(older)["next_check_at"] == utcnow()
+    assert daemon._capacity_steer(daemon.store.get_job(older), daemon.store.list_attempts(older))
+
+    stands, checks = daemon._route_stands, []
+
+    def check(basis, decision):
+        if basis["job"]["job_id"] == older:
+            checks.append(decision)
+            if route_moves:
+                return "moved", 0, None
+        return stands(basis, decision)
+
+    monkeypatch.setattr(daemon, "_route_stands", check)
+    placed = admit(daemon, later)                              # pass 3
+    assert len(checks) == (daemon_module.ROUTE_TRIES if route_moves else 1)
+    assert all(decision.chain == ("opus",) for decision in checks)
+    if route_moves:
+        assert daemon._holds[older]["reason"] == "route-moved"
+    assert placed is None, daemon._holds
+    assert "for_good" not in daemon._holds[older]
+    assert daemon._holds[later]["reason"] == "behind-older-job"
+    assert daemon._holds[later]["behind"] == older
+
+
+@pytest.fixture
+def r6_clock(fleet, monkeypatch):
+    """Fresh fixture readings precede a whole second just ahead of real time."""
+    from subfleet import actions, capacity, ids, policy, scheduler, store, timers
+
+    instant = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(minutes=1)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return instant.astimezone(tz) if tz else instant.replace(tzinfo=None)
+
+    for module in (daemon_module, scheduler, capacity, store, timers, policy, actions, ids):
+        monkeypatch.setattr(module, "datetime", Clock)
+    daemon, _ = fleet
+    for lane in daemon.store.list_lanes():
+        daemon.store.add_reading(Reading(lane.lane_id, "account", "seven_day", .1, after(86400),
+                                         ReadingLabel.PROVIDER, "fixture", utcnow()))
+
+    def advance(seconds):
+        nonlocal instant
+        instant += timedelta(seconds=seconds)
+
+    return advance
+
+
+@pytest.mark.parametrize("cap", [1, 2], ids=["one-slot", "two-slots"])
+@pytest.mark.parametrize("route_moves", [False, True], ids=["due-look", "route-moved"])
+@pytest.mark.parametrize("due", [False, True], ids=["not-due", "due"])
+def test_r6_an_empty_steered_chain_keeps_no_slot_when_all_its_lanes_are_disabled(
+        fleet, r6_clock, monkeypatch, cap, route_moves, due):
+    """C-6.9/C-11.8: even an empty due decision must release its kept slot."""
+    daemon, harness = fleet
+    daemon.policy["caps"]["max_active_attempts"] = cap
+    older = submit(daemon, harness, task="build")
+    refuse(daemon, admit(daemon, older))
+    assert admit(daemon, older) is None
+    assert daemon.store.get_job(older)["next_check_at"] == after(1)
+    for identity in ("codex-1", "codex-2"):
+        daemon.store.update_lane(identity, enabled=0)
+    later = [submit(daemon, harness, pinned_model="opus", task=None) for _ in range(cap)]
+    if due:
+        r6_clock(1)
+    assert (daemon.store.get_job(older)["next_check_at"] == utcnow()) is due
+    assert daemon._capacity_steer(daemon.store.get_job(older), daemon.store.list_attempts(older))
+    stands, checks = daemon._route_stands, []
+
+    def check(basis, decision):
+        if basis["job"]["job_id"] == older:
+            checks.append(decision)
+            if route_moves:
+                return "moved", 0, None
+        return stands(basis, decision)
+
+    monkeypatch.setattr(daemon, "_route_stands", check)
+    daemon._admit()
+    assert len(checks) == ((daemon_module.ROUTE_TRIES if route_moves else 1) if due else 0)
+    assert all(not decision.evaluations and not decision.chain for decision in checks)
+    assert len(daemon.store.list_attempts(older)) == 1
+    assert all(len(daemon.store.list_attempts(job)) == 1 for job in later), daemon._holds
+    assert all(daemon.store.list_attempts(job)[0]["model_requested"] == OPUS for job in later)
+    if not (due and route_moves):
+        assert daemon._holds[older]["for_good"] == ["disabled"]
+
+
+@pytest.mark.parametrize("route_moves", [False, True], ids=["due-look", "route-moved"])
+def test_r6_an_empty_steered_chain_keeps_fifo_until_a_temporary_closure_ends(
+        fleet, r6_clock, monkeypatch, route_moves):
+    """A short closure is capacity: retain the last slot and admit on reopening."""
+    daemon, harness = fleet
+    daemon.policy["caps"]["max_active_attempts"] = 1
+    older = submit(daemon, harness, task="build")
+    row = refuse(daemon, admit(daemon, older))
+    assert admit(daemon, older) is None
+    for identity in ("codex-1", "codex-2"):
+        daemon.store.add_closure(Closure(identity, ASTRA, evidence(row)["capacity_steer"]["until"],
+                                         ClosureReason.PROVIDER_LIMIT,
+                                         ClockSource.REPORTED, "temporary test closure"))
+    later = submit(daemon, harness, pinned_model="opus", task=None)
+    r6_clock(1)
+    stands, checks = daemon._route_stands, []
+
+    def check(basis, decision):
+        if basis["job"]["job_id"] == older:
+            checks.append(decision)
+            if route_moves:
+                return "moved", 0, None
+        return stands(basis, decision)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(daemon, "_route_stands", check)
+        assert admit(daemon, later) is None, daemon._holds
+    assert len(checks) == (daemon_module.ROUTE_TRIES if route_moves else 1)
+    assert all(not decision.evaluations for decision in checks)
+    assert "for_good" not in daemon._holds[older]
+    assert daemon._holds[later]["reason"] == "slot-kept"
+    assert daemon._holds[later]["kept_for"] == older
+    r6_clock(seconds(evidence(row)["capacity_steer"]["until"], utcnow()))
+    # Both the temporary closures and the steer have ended; refresh the sensor.
+    daemon.store.add_reading(Reading("codex-1", "account", "seven_day", .1, after(86400),
+                                     ReadingLabel.PROVIDER, "fixture", utcnow()))
+    resumed = admit(daemon, older)
+    assert resumed is not None and resumed["model_requested"] == ASTRA
+    assert not daemon.store.list_attempts(later)
+
+
+@pytest.mark.parametrize("route_moves", [False, True], ids=["due-look", "route-moved"])
+def test_r6_rotation_refusals_never_release_the_waiters_fifo_slot(
+        fleet, r6_clock, monkeypatch, route_moves):
+    """C-11.8/#153 P3-B: exclusions introduced by probe rotation are temporary."""
+    from subfleet import scheduler
+
+    daemon, harness = fleet
+    daemon.policy["caps"]["max_active_attempts"] = 1
+    older = submit(daemon, harness)
+    later = submit(daemon, harness, pinned_model="opus", task=None)
+    prepare, stands, checks = daemon._prepare_route, daemon._route_stands, []
+
+    def rotated(job, decision_job, exclusions):
+        result = prepare(job, decision_job, exclusions)
+        if job["job_id"] == older:
+            # Model the reservation losing every lane except those omitted by
+            # probe rotation; keep its basis for the normal reservation checks.
+            rotation = tuple(lane.lane_id for lane in daemon.store.list_lanes())
+            basis = {}
+            decision = daemon._route(decision_job, extra_exclusions=(*exclusions, *rotation), basis=basis)
+            basis["rotation"] = rotation
+            daemon._early_routes[job["job_id"]] = (decision, basis)
+        return result
+
+    def check(basis, decision):
+        if basis["job"]["job_id"] == older:
+            checks.append(decision)
+            if route_moves:
+                return "moved", 0, None
+        return stands(basis, decision)
+
+    monkeypatch.setattr(daemon, "_prepare_route", rotated)
+    monkeypatch.setattr(daemon, "_route_stands", check)
+    # Reach the standing-refusal guard: the earlier rotation-specific wait is
+    # independently covered by probe-turn tests. Neither guard may infer a
+    # permanent refusal from this partial decision.
+    monkeypatch.setattr(scheduler, "left_out_only", lambda *args: False)
+    assert admit(daemon, later) is None, daemon._holds
+    assert len(checks) == (daemon_module.ROUTE_TRIES if route_moves else 1)
+    assert all(scheduler.refused_for_good(daemon.policy, decision, daemon.store.get_job(older)) == ["excluded"]
+               for decision in checks)
+    assert "for_good" not in daemon._holds[older]
+    assert daemon._holds[later]["reason"] == "behind-older-job"
+    assert daemon._holds[later]["behind"] == older

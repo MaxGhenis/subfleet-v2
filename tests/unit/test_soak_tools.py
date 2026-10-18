@@ -513,7 +513,9 @@ def test_canary_runbook_requires_verified_ownership(tmp_path, failure):
     lanes = [{"lane_id": "codex-3", "owner": "v1" if failure == "wrong_owner" else "v2", "home": str(lane_home)}]
     v2.write_text("#!/bin/sh\ncat <<'JSON'\n" + json.dumps(lanes) + "\nJSON\n")
     v2.chmod(0o755)
+    # D-ST1: preserve the recorder before the runbook's synthetic tool directory.
+    recorder = Path(os.environ["SUBFLEET_PYTEST_SESSION"]) / "keychain-bin"
     result = subprocess.run(["sh", str(script), "verify"], capture_output=True, text=True,
                             env={**os.environ, "HOME": str(home), "SUBFLEET_HOME": str(state),
-                                 "LANE": "codex-3", "PATH": f"{repository / 'bin'}:/usr/bin:/bin"})
+                                 "LANE": "codex-3", "PATH": f"{recorder}:{repository / 'bin'}:/usr/bin:/bin"})
     assert (result.returncode == 0) is (failure is None), result.stdout + result.stderr

@@ -41,6 +41,14 @@ REPO = Path(__file__).resolve().parents[2]
 SLACK_S = 5.0
 ALARM_MARGIN_S = 3.0
 
+
+@pytest.fixture(autouse=True)
+def fixture_process_identity(monkeypatch):
+    """In-process close wiring owns its identities; child watchdogs stay real."""
+    monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "stop-watchdog-fixture-boot")
+    monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "stop-watchdog-fixture-start")
+
+
 CHILD = r'''
 import json, os, re, resource, signal, sys, threading, time
 from pathlib import Path
