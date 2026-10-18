@@ -131,11 +131,11 @@ def mask_approval(request: Any) -> tuple[Any, list[dict]]:
     Each masked span is reported so the app can show it and offer a reveal.
     """
     import hashlib
-    from ..sessions.handoff import _BEARER_RE, _JWT_RE, _PEM_RE, _PREFIXED_TOKEN_RE, _URL_PASSWORD_RE, _linear_sub
+    from ..sessions.handoff import _BEARER_RE, _JWT_RUN_RE, _PEM_RE, _PREFIXED_TOKEN_RE, _URL_PASSWORD_RE, _linear_sub
     spans: list[dict] = []
 
     def mask_text(text: str, path: str) -> str:
-        for rule, pattern in (("pem", _PEM_RE), ("jwt", _JWT_RE), ("token", _PREFIXED_TOKEN_RE),
+        for rule, pattern in (("pem", _PEM_RE), ("jwt", _JWT_RUN_RE), ("token", _PREFIXED_TOKEN_RE),
                               ("bearer", _BEARER_RE), ("url-password", _URL_PASSWORD_RE)):
             def repl(match):
                 value = match.group(0) if rule != "url-password" else match.group(2)

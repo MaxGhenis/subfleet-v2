@@ -39,6 +39,7 @@ Ported from v1 `subfleet/handoff.py`; the regexes and the section order are its.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -77,10 +78,21 @@ _PEM_RE = re.compile(
 )
 _PEM_START_RE = re.compile(r"-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY(?: BLOCK)?-----")
 _PEM_END_RE = re.compile(r"-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY(?: BLOCK)?-----")
-_JWT_RE = re.compile(
-    r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\."
-    r"[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?![A-Za-z0-9_-])"
+# A run of dot-separated base64url segments, each perhaps padded (RFC 4648 §5 pads;
+# JOSE leaves it off, RFC 7515 §2, but a reader that pads again, as
+# `adapters.codex._claims` does, accepts it either way), from one no token
+# character precedes. It is where a JWT is looked for, never a rule by itself:
+# `_linear_sub` keeps only the JWTs in it (`_jwt_start`), so `os.path.join` stays.
+# Each segment ends at a character outside its alphabet and padding at one outside
+# it and `=`, so a run is matched once, in time linear in its length.
+_JWT_RUN_RE = re.compile(
+    r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]+(?:==?(?![A-Za-z0-9_=-]))?"
+    r"(?:\.[A-Za-z0-9_-]*(?:==?(?![A-Za-z0-9_=-]))?)+"
 )
+#: A span `_jwt_start` found, matched again for a `re.Match` the rules can expand.
+_JWT_SPAN_RE = re.compile(r"[A-Za-z0-9_.=-]+")
+#: `{"alg":0}`, the shortest JSON object with an `alg` member, is 12 characters encoded.
+_JOSE_HEADER_MIN_CHARS = 12
 _PREFIXED_TOKEN_RE = re.compile(
     r"(?<![A-Za-z0-9_-])(?:"
     r"sk-(?:proj-|ant-|live-|test-)?[A-Za-z0-9_-]{16,}|"
@@ -249,10 +261,19 @@ def _linear_sub(pattern: re.Pattern, replacement, text: str) -> str:
     Once an end delimiter exists, the original anchored match scans its block
     once; without an end, no later opener can match either.
     """
-    if pattern not in (_PEM_RE, _SYSTEM_REMINDER_RE, _URL_PASSWORD_RE):
+    if pattern not in (_PEM_RE, _SYSTEM_REMINDER_RE, _URL_PASSWORD_RE, _JWT_RUN_RE):
         return pattern.sub(replacement, text)
 
     def matches():
+        if pattern is _JWT_RUN_RE:
+            for run in pattern.finditer(text):
+                offset = _jwt_start(run.group())
+                if offset is not None:
+                    # A trailing dot (an unsecured JWT's empty signature, or the
+                    # end of a sentence) holds nothing and is kept.
+                    end = run.start() + len(run.group().rstrip("."))
+                    yield _JWT_SPAN_RE.fullmatch(text, run.start() + offset, end)
+            return
         if pattern is _URL_PASSWORD_RE:
             for token in _URL_SCHEME_RE.finditer(text):
                 start = _URL_START_RE.search(text, token.start(), token.end())
@@ -283,6 +304,40 @@ def _linear_sub(pattern: re.Pattern, replacement, text: str) -> str:
         cursor = match.end()
     parts.append(text[cursor:])
     return "".join(parts)
+
+
+def _jwt_start(run: str) -> int | None:
+    """Where the first JWT in a run of dot-separated base64url segments starts, or
+    None. A JWT is a JOSE header and the two or more segments after it (a JWS has
+    three in all, a JWE five, RFC 7516 §9), and runs to the run's end. A header is
+    a segment that decodes to a JSON object with an `alg` member, which every JWS
+    and JWE header has (RFC 7515 §4.1.1), however its JSON is spaced or ordered;
+    or, as before, one that starts `eyJ` (`{"`) and is followed by two segments of
+    at least 8 characters. Each segment is decoded once, so the work is linear."""
+    segments = run.split(".")
+    offset = 0
+    for index in range(len(segments) - 2):
+        segment = segments[index]
+        if _jose_header(segment, segments[index + 1], segments[index + 2]):
+            return offset
+        offset += len(segment) + 1
+    return None
+
+
+def _jose_header(segment: str, payload: str, signature: str) -> bool:
+    body = segment.rstrip("=")
+    if (body.startswith("eyJ") and len(body) >= 11
+            and len(payload.rstrip("=")) >= 8 and len(signature.rstrip("=")) >= 8):
+        return True
+    if len(body) < _JOSE_HEADER_MIN_CHARS:
+        return False
+    try:
+        # Bytes, as JWT readers pass them (`adapters.codex._claims`): `json`
+        # detects a UTF-8 BOM, UTF-16 and UTF-32 as they do.
+        header = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+    except (ValueError, RecursionError):
+        return False
+    return isinstance(header, dict) and "alg" in header
 
 
 def _quoted_ends(text: str, *, multiline: bool = False) -> dict[int, int]:
@@ -646,7 +701,7 @@ def _scrub(text: str, strip_reminders: bool, *, multiline: bool = False) -> tupl
         # okPASSWORD='…'`), as the whole-text pass above does.
         text = _scrub_named_values(text, tally, quoted=True)
     text = _apply_rules(text, (
-        (_JWT_RE, REDACTED),
+        (_JWT_RUN_RE, REDACTED),
         (_PREFIXED_TOKEN_RE, REDACTED),
         (_BEARER_RE, "Bearer " + REDACTED),
         (_LONG_BASE64_RE, "[BASE64 OMITTED]"),
