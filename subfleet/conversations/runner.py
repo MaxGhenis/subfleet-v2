@@ -1150,7 +1150,9 @@ class TurnRunner:
                     or bool(getattr(self.driver, "terminal_after_end", False)),
                     "steers": {**recorded.get("steers", {}), **self.steer_facts()},
                     "not_run": recorded.get("not_run") or getattr(self.driver, "not_run", None),
-                    "limit_seen": bool(recorded.get("limit_seen")) or bool(getattr(self.driver, "limit_seen", False))}
+                    "limit_seen": bool(recorded.get("limit_seen")) or bool(getattr(self.driver, "limit_seen", False)),
+                    "limit_since_success": bool(recorded.get("limit_since_success"))
+                    or bool(getattr(self.driver, "limit_since_success", False))}
             from ..guardian import atomic_publish
             with self.store.writing():
                 atomic_publish(self.adir / "turn.json", (json.dumps(data, sort_keys=True) + "\n").encode())
@@ -1168,7 +1170,8 @@ class TurnRunner:
                 # after the driver ended the turn itself (a model mismatch's interrupt), and
                 # whether any turn of the session met a limit (the account's, for classify).
                 "not_run": outcome.not_run or getattr(self.driver, "not_run", None),
-                "limit_seen": bool(getattr(self.driver, "limit_seen", False))}
+                "limit_seen": bool(getattr(self.driver, "limit_seen", False)),
+                "limit_since_success": bool(getattr(self.driver, "limit_since_success", False))}
         from ..guardian import atomic_publish
         with self.store.writing():          # never after its service closed (C-25.3)
             atomic_publish(self.adir / "turn.json", (json.dumps(data, sort_keys=True) + "\n").encode())

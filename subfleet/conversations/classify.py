@@ -96,7 +96,17 @@ class TurnAdapter:
         if not turn:
             return outcome(OutcomeClass.UNKNOWN, "turn ended with no recorded outcome")
         if state == "complete":
-            return outcome(OutcomeClass.OK, "turn complete" + ("; stop requested too late" if turn.get("stop_too_late") else ""))
+            closure = None
+            if turn.get("limit_since_success"):
+                # C-26.5: the message completed, but a later turn of the session met the
+                # account's refusal (a notification turn after its held result), and no
+                # success has shown the account serving since: the lane closes, the
+                # message stays complete.
+                # (Only the Claude driver records it.)
+                closure = base_closure if base_cls == OutcomeClass.LIMITED and base_closure else _guessed(
+                    lane_id, "account", "limit reported after the turn completed")
+            return outcome(OutcomeClass.OK, "turn complete" + ("; stop requested too late" if turn.get("stop_too_late")
+                                                               else ""), closure)
         # A limit any turn of the session met (`limit_seen`, C-26.5) is the account's
         # refusal, so it closes the lane, though only the message's own turn's makes
         # the message `limited` (settlement continues only that one, C-26.7).

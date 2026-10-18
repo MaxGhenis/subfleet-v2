@@ -867,13 +867,123 @@ def test_c26_5_the_runner_keeps_the_host_s_words_when_another_turn_writes_after_
                                                   "content": [{"type": "text", "text": "Fixed the parser."}]}}]
         for offset, line_ in enumerate(rows):
             runner._apply(runner.driver.feed(json.dumps(line_), offset))
-        runner._apply(runner.driver.steer(STEER_MID, "and the second point"))
+        # The steer as the driver tracks one it wrote (its handover is the runner's own,
+        # tested in test_turn_runner): the host's result is then held for it.
+        runner.driver.steer(STEER_MID, "and the second point")
         runner.driver.steer_written(STEER_MID)
-        for offset, line_ in enumerate([
-                our_result(names=(mid,), num_turns=2, words="Fixed the parser."),
-                text("msg_n", "The background build finished."), notification_result(),
-                lifecycle("refused", STEER_MID)], 20):
+        adir = harness.root / "jobs" / "job-x" / "a1"
+        held = runner.driver.feed(our_result(names=(mid,), num_turns=2, words="Fixed the parser."), 20)
+        runner._apply(held)
+        assert held.outcome is None and runner.driver._last_result is not None
+        for offset, line_ in enumerate([text("msg_n", "The background build finished."), LIMIT,
+                                        notification_result(), lifecycle("refused", STEER_MID)], 21):
             runner._apply(runner.driver.feed(line_, offset))
         assert runner.driver.outcome.state == "complete" and runner.final_text == "Fixed the parser."
+        # The limit came after the message's last success: turn.json says so, for classify (C-26.7).
+        recorded = json.loads((adir / "turn.json").read_text())
+        assert (recorded["limited"], recorded["limit_seen"], recorded["limit_since_success"]) == (False, True, True)
     finally:
         harness.close()
+
+
+# --- round 4 (review of 38290df2) ----------------------------------------------------------------
+
+
+def test_c26_5_after_an_echo_alone_another_turn_s_words_and_limit_stay_its_own():
+    """C-26.5 (review of 38290df2, finding 1): an echo with no `started` leaves whose the
+    next result is open (it can be a notification turn's), so what is written or met
+    meanwhile is the turn under way's: the notification turn's result drops it, and the
+    message's own turn then ends on its own facts."""
+    turn, _ = run([INIT_OK, ECHO, text("msg_n", "The background build finished."), LIMIT, notification_result(),
+                   lifecycle("started"), our_result(ok=False)])
+    outcome = turn.outcome
+    assert (outcome.state, outcome.reason, outcome.limited, outcome.answered) == (
+        "failed", "error_during_execution", False, False)
+    assert turn.limit_seen
+
+
+def test_c26_5_after_an_echo_alone_the_turn_s_own_words_count_at_its_result_or_its_end():
+    """C-26.5: with only an echo, the message's own words are committed by its result, or,
+    acknowledged and one turn at a time, by stdout's end."""
+    turn, _ = run([INIT_OK, ECHO, text("msg_1", "Fixed."), our_result(named=False)])
+    assert turn.outcome.state == "complete" and turn.outcome.answered
+    turn, _ = run([INIT_OK, ECHO, text("msg_1", "Fixed.")])
+    assert turn.eof(999).outcome.answered
+
+
+def test_c26_5_the_runner_drops_another_turn_s_words_after_an_echo_alone(tmp_path):
+    """C-26.5 (review of 38290df2, finding 1): the deliverable is never what a notification
+    turn wrote after the message's echo; the message's own words are, once claimed."""
+    from tests.frontend.daemon_harness import ServiceHarness, claude_init
+    harness = ServiceHarness(tmp_path / "state")
+    try:
+        cid = harness.create()["conversation_id"]
+        mid = harness.submit(cid, "fix the parser")["message_id"]
+        runner, _ = live_runner(harness, cid, mid)
+        echo = {"type": "user", "uuid": mid, "isReplay": True, "message": {"role": "user", "content": "fix"}}
+        rows = [json.dumps(claude_init()), json.dumps(echo), text("msg_n", "The background build finished."),
+                notification_result(), lifecycle("started", mid), our_result(ok=False, names=(mid,))]
+        for offset, line_ in enumerate(rows):
+            runner._apply(runner.driver.feed(line_, offset))
+        assert runner.driver.outcome.state == "failed" and runner.final_text is None
+    finally:
+        harness.close()
+
+
+def test_c24_7_a_cancel_turn_s_stop_is_recorded_before_its_answer_is_handed_on(tmp_path, monkeypatch):
+    """C-24.7 (review of 38290df2, finding 2): settlement takes the per-message stop lock
+    and rereads the stop. The person's stop commits with the approval's answer, under that
+    lock, before the runner gets the answer, so no settlement can read the cancellation's
+    effects without the stop; a crash leaves both or neither."""
+    from tests.frontend.daemon_harness import STEER_CAPS, ServiceHarness, claude_init
+    harness = ServiceHarness(tmp_path / "state")
+    try:
+        cid = harness.create()["conversation_id"]
+        mid = harness.submit(cid, "fix the parser")["message_id"]
+        runner, _ = live_runner(harness, cid, mid)
+        ask = {"type": "control_request", "request_id": "r1", "request": {
+            "subtype": "can_use_tool", "tool_name": "Bash", "input": {"command": "ls"}, "tool_use_id": "tu1"}}
+        for offset, row_ in enumerate((claude_init(), STEER_CAPS, ask)):
+            runner._apply(runner.driver.feed(json.dumps(row_), offset))
+        seen = []
+        real = runner.respond
+        monkeypatch.setattr(runner, "respond", lambda *a, **k: (seen.append(
+            (harness.store.message(mid)["stop_requested_at"], harness.service._stop_lock(mid).locked())), real(*a, **k)))
+        [approval] = harness.store.approvals(message_id=mid)
+        harness.call("approval.respond", approval_id=approval["approval_id"], decision="cancel-turn",
+                     nonce=approval["nonce"], request_sha256=approval["request_sha256"])
+        [(stop, held)] = seen
+        assert stop and held                     # recorded first, and the stop lock still held
+        # An answer that cannot commit records no stop either.
+        assert not harness.store.answer_approval(approval["approval_id"], {"decision": "cancel-turn"}, stop=True)
+    finally:
+        harness.close()
+
+
+def test_c26_7_a_refusal_after_the_held_success_closes_the_lane_and_one_before_it_does_not(tmp_path):
+    """C-26.5, C-26.7 (review of 38290df2, finding 3): the message completed; a notification
+    turn after its held result met the account's refusal, and no success shows the account
+    serving since, so the lane closes and the message stays complete. A refusal before the
+    message's own success closes nothing: the account served it after."""
+    turn = held_for_a_steer(subtype="success", is_error=False)
+    turn.feed(LIMIT, 60)
+    turn.feed(notification_result(ok=False, subtype="success", words="You've hit your session limit"), 61)
+    turn.feed(lifecycle("refused", STEER_MID), 62)
+    assert (turn.outcome.state, turn.outcome.limited, turn.limit_since_success) == ("complete", False, True)
+    before, _ = run([INIT_OK, lifecycle("queued"), LIMIT, notification_result(ok=False, subtype="success"),
+                     lifecycle("started"), ECHO, our_result()])
+    assert (before.outcome.state, before.limit_seen, before.limit_since_success) == ("complete", True, False)
+    from types import SimpleNamespace
+    from subfleet.contracts import ExitInfo, Launch, OutcomeClass
+    from subfleet.conversations.classify import TurnAdapter
+    inner = SimpleNamespace(classify=lambda *_: SimpleNamespace(readings=(), closure=None, cls=OutcomeClass.UNKNOWN,
+                                                                 transcript_path=None, detail=""))
+    launch = Launch(argv=("claude",), env_add={}, env_remove=(), cwd=str(tmp_path), stdin_path=None,
+                    stdout_path=str(tmp_path / "stdout"), stderr_path=str(tmp_path / "stderr"), raw_stream_path=None,
+                    native_session_id=SID, lane_id="claude-1", notes={"lane_id": "claude-1"})
+    for since, closes in ((True, True), (False, False)):
+        (tmp_path / "turn.json").write_text(json.dumps({"state": "complete", "limited": False, "limit_seen": True,
+                                                        "limit_since_success": since, "accepted": True}))
+        outcome = TurnAdapter("claude", inner=inner).classify(tmp_path, launch, ExitInfo(
+            rc=0, signal=None, wall_s=1.0, child_pid=None))
+        assert outcome.cls == OutcomeClass.OK and (outcome.closure is not None) == closes

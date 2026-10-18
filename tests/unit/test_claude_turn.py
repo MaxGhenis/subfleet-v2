@@ -280,7 +280,8 @@ def test_one_m_context_values_attest_against_their_resolved_model():
     assistant frames: neither is a mismatch; `<synthetic>` is never one."""
     turn = ClaudeTurn(spec(model_id="opus[1m]"), read_bytes=lambda p: b"")
     started(turn)
-    turn.feed(line(type="user", uuid=MID, message={}), 0)     # acknowledged: the limit below is its own (C-26.5)
+    # Started (2.1.284 writes `started` before the echo): the limit below is surely its own (C-26.5).
+    turn.feed(line(type="command_lifecycle", command_uuid=MID, state="started"), 0)
     assert turn.feed(line(type="system", subtype="init", model="claude-opus-5-5[1m]"), 1).outcome is None
     assert turn.feed(line(type="assistant", message={"id": "m", "model": "claude-opus-5-5", "content": []}), 2).outcome is None
     synthetic = {"type": "assistant", "is_api_error_message": True, "error": "rate_limit", "message": {

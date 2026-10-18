@@ -1438,7 +1438,7 @@ class ConversationStore:
                 params.append(value)
         return [_decode_approval(r) for r in self.query(sql + " ORDER BY created_at", tuple(params))]
 
-    def answer_approval(self, approval_id: str, decision: dict) -> bool:
+    def answer_approval(self, approval_id: str, decision: dict, *, stop: bool = False) -> bool:
         """A person's answer (C-27.1). The row, its `approval.resolved` event, a
         change-feed row and, once nothing of the message is pending, its move back to
         running commit together (C-27.3): a client that reads any of them finds the
@@ -1446,7 +1446,10 @@ class ConversationStore:
         by, and the card reads answered even when the provider ends before the runner
         hands the answer over (a replay applies EOF before its queued answers). The
         event carries the key the driver's own event for the answer gets in the
-        runner's batch (`respond`: source `cmd:approval:<id>`), so the log keeps one."""
+        runner's batch (`respond`: source `cmd:approval:<id>`), so the log keeps one.
+        `stop`: the answer is the person's stop of the turn (`cancel-turn`, C-24.7), so
+        the message's `stop_requested_at` commits with it: a crash leaves both or
+        neither, and settlement never reads the answer without the stop."""
         with self.transaction() as tx:
             cur = tx.execute("UPDATE approvals SET state='answered', decision_json=?, answered_at=? "
                              "WHERE approval_id=? AND state='pending'",
@@ -1455,6 +1458,9 @@ class ConversationStore:
                 row = tx.execute("SELECT conversation_id, message_id, attempt_id, provider_request_id FROM approvals "
                                  "WHERE approval_id=?", (approval_id,)).fetchone()
                 rid = row["provider_request_id"]
+                if stop:
+                    tx.execute("UPDATE messages SET stop_requested_at=COALESCE(stop_requested_at, ?), updated_at=? "
+                               "WHERE message_id=?", (utcnow(), utcnow(), row["message_id"]))
                 self._resolved_event(tx, row, f"cmd:approval:{rid}", decision.get("decision"))
                 pending = tx.execute("SELECT COUNT(*) FROM approvals WHERE message_id=? AND state='pending'",
                                      (row["message_id"],)).fetchone()[0]

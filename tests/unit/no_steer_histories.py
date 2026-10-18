@@ -307,13 +307,14 @@ class SteersNotEmpty(AssertionError):
 def _no_steers(value: dict, where: str) -> dict:
     """`value` without the fields added to every turn since the recording, each left
     empty by these histories (the pre-steer code has none): steer's `steers`, and
-    C-26.5's `not_run` and `limit_seen` (no history here meets a limit or a queue that
+    C-26.5's `not_run`, `limit_seen` and `limit_since_success` (no history here meets a limit or a queue that
     will not run its message). Anything in them fails the recording."""
     steers = value.pop("steers", None)
     if steers:
         raise SteersNotEmpty(f"{where}: steers {steers!r} for a turn with no steer")
     not_run, limit_seen = value.pop("not_run", None), value.pop("limit_seen", False)
-    if not_run is not None or limit_seen:
+    limit_since = value.pop("limit_since_success", False)
+    if not_run is not None or limit_seen or limit_since:
         raise SteersNotEmpty(f"{where}: not_run {not_run!r}, limit_seen {limit_seen!r} where none was met")
     return value
 

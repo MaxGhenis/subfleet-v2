@@ -1584,21 +1584,26 @@ class ConversationService:
             raise ConversationError("turn-ended", "the turn that asked has ended")
         record = {"decision": decision, "message": args.get("message"), "answers": args.get("answers"),
                   "by": {"pid": verdict.pid, "as": verdict.reason}, "at": utcnow()}
-        if not self.store.answer_approval(approval["approval_id"], record):
-            raise ConversationError("not-pending", "the approval was answered or withdrawn meanwhile")
-        runner.respond(approval["provider_request_id"], decision, args.get("message"), args.get("answers"))
-        if decision == "cancel-turn":
-            # C-24.7, C-26.5: cancelling the turn is the person's stop of it, recorded as
-            # `turn.interrupt` records one: settlement reads it as theirs (it never sets
-            # `unfinished-turn`), and the stop escalates on the policy clocks if the
-            # provider stays silent. The answer goes first; the driver's own interrupt
-            # (taking a waiting message out of the queue) rides with it.
-            mid = approval["message_id"]
-            with self._stop_lock(mid):
-                with self._handover(mid):
-                    runner.end_title("stopped")
-                    self.store.update_message(mid, stop_requested_at=utcnow())
-                runner.interrupt("stopped")
+        if decision != "cancel-turn":
+            if not self.store.answer_approval(approval["approval_id"], record):
+                raise ConversationError("not-pending", "the approval was answered or withdrawn meanwhile")
+            runner.respond(approval["provider_request_id"], decision, args.get("message"), args.get("answers"))
+            return {"approval": self._approval_view(self.store.approval(approval["approval_id"]))}
+        # C-24.7, C-26.5: cancelling the turn is the person's stop of it, recorded as
+        # `turn.interrupt` records one, under the same per-message stop and handover
+        # locks, and committed with the answer: settlement (which takes the stop lock)
+        # never reads the answer without the stop, so it reads the stop as theirs and
+        # never sets `unfinished-turn`; a crash leaves both or neither, and a restart
+        # replays the recorded stop as the turn's own (C-26.6). The answer is queued
+        # first, then the stop's escalation, should the provider stay silent.
+        mid = approval["message_id"]
+        with self._stop_lock(mid):
+            with self._handover(mid):
+                if not self.store.answer_approval(approval["approval_id"], record, stop=True):
+                    raise ConversationError("not-pending", "the approval was answered or withdrawn meanwhile")
+                runner.end_title("stopped")
+            runner.respond(approval["provider_request_id"], decision, args.get("message"), args.get("answers"))
+            runner.interrupt("stopped")
         return {"approval": self._approval_view(self.store.approval(approval["approval_id"]))}
 
     # --- ops: changes (C-26.14, design D-25) ------------------------------------

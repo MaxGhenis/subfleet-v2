@@ -194,6 +194,7 @@ class ClaudeTurn(SteerTracking):
         self.answered = False
         self.limited = False                              # this message's own turn met a limit
         self.limit_seen = False                           # any turn of the session did (C-26.5)
+        self.limit_since_success = False                  # one did after the message's last success
         self._turn_limit = False                          # the turn under way did (reset at another turn's result)
         self._turn_output = False                         # the turn under way wrote something (likewise)
         self.not_run: str | None = None                   # the provider said the message will not run (C-26.5)
@@ -429,6 +430,11 @@ class ClaudeTurn(SteerTracking):
         if self._last_result is not None and not self._steer_turn_running():
             return step.extend(self._finish_result())
         reason = "stopped" if self.interrupt_requested else "ended-without-result"
+        if self.accepted and self._turn_output:
+            # Acknowledged, one turn at a time: what the turn under way wrote before
+            # stdout ended was the message's (an echo with no `started` leaves it so).
+            self.answered = True
+            self.claimed_results += 1
         # Any limit the session met: with no result, the account's refusal is the
         # best evidence of why (C-26.7 records the closure at finalization).
         self.outcome = Outcome(INTERRUPTED if self.interrupt_requested else FAILED, reason,
@@ -856,6 +862,8 @@ class ClaudeTurn(SteerTracking):
         if whose == "ours":
             self.answered = self.answered or self._turn_output
             self.claimed_results += 1
+            if row.get("is_error") is False and row.get("subtype") == "success":
+                self.limit_since_success = False        # the account served the message again
         self._last_whose = whose
         if whose == "session":
             # The session failed: nothing it waits for is coming, steers included.
@@ -1009,12 +1017,14 @@ class ClaudeTurn(SteerTracking):
 
     @property
     def claims_output(self) -> bool:
-        """Whether what the model writes now is the message's (C-26.5): once it is
-        acknowledged and until its result, or while one of its steers runs as its own
-        turn. Otherwise it is the turn under way's (before acknowledgement, or after the
-        host's result is held for steers, when the session may run a notification
-        turn), which its result then shows to be another turn's or the message's."""
-        return self.accepted and (self._last_result is None or bool(self._steer_turns))
+        """Whether what the model writes now is surely the message's (C-26.5): exactly
+        when `_whose` would take the next result as its turn's whatever it says, that is
+        once `command_lifecycle started` came and until its first result, or while one
+        of its steers runs as its own turn. Otherwise (before acknowledgement, after an
+        echo with no `started`, or once the host's result is held for steers, when the
+        session may run a notification turn) it is the turn under way's, which its
+        result then shows to be another turn's or the message's."""
+        return self.accepted and ((self.started and self._last_result is None) or bool(self._steer_turns))
 
     def _output(self) -> None:
         """The model wrote something: the message's answer, or the turn under way's."""
@@ -1026,7 +1036,7 @@ class ClaudeTurn(SteerTracking):
         way's, which a result then shows to be another turn's (C-26.5) or the
         message's (one that names it with no acknowledgement before). Any limit
         classifies a failure of the session itself."""
-        self.limit_seen = self._turn_limit = True
+        self.limit_seen = self._turn_limit = self.limit_since_success = True
         if self.claims_output:
             self.limited = True
 
