@@ -49,11 +49,11 @@ ALLOWED_NAMES = OBSERVED_NAMES | LOCALE_NAMES | NETWORK_NAMES | CONFIG_NAMES
 # D-ST1 (C-20.6): a test session's markers and isolated store paths, as
 # tests/conftest.py and the e2e harness set them: a flag, the session directory,
 # its sentinel's identity, or a path beneath the session's own base. None holds
-# a credential. Each is selected only while the parent is itself in a live
-# session (home_paths.under_pytest), so every child a test launches keeps
-# refusing the person's stores and expires with that session. Outside a session
-# none is selected: production keeps exactly the lists above, and
-# CLAUDE_CONFIG_DIR stays a lane's own addition (C-12.4).
+# a credential. Each is selected only while the parent carries the session
+# marker and that session lives (home_paths.under_pytest), so every child a
+# test launches keeps refusing the person's stores and expires with that
+# session. Outside one none is selected: production keeps exactly the lists
+# above, and CLAUDE_CONFIG_DIR stays a lane's own addition (C-12.4).
 TEST_SESSION_NAMES = frozenset({PYTEST_MARKER, PYTEST_SESSION, PYTEST_SESSION_ID,
                                 *SAFE_HOME_PATHS}) - ALLOWED_NAMES
 # The names home_paths.under_pytest reads to decide whether an environment is
@@ -151,14 +151,33 @@ def lane_reference(lane) -> tuple[str | None, str] | None:
     return (lane_id, ref) if kind == "env" and valid_name(ref) else None
 
 
+def _present(parent: Mapping[str, str], names: Iterable[str]) -> dict[str, str]:
+    """Each named value the parent still holds when it is read.
+
+    `os.environ` copies its keys to iterate, so a name another thread pops
+    between that copy and the read raises `KeyError`; it is skipped as absent
+    (review r4, P3-2). Only the names given are read.
+    """
+    values = {}
+    for name in names:
+        try:
+            values[name] = parent[name]
+        except KeyError:
+            continue
+    return values
+
+
 def _selected(parent: Mapping[str, str]):
     """The parent names the default selection admits, a live session's included.
 
     Whether the parent is in a live session is decided from the probe's own
     names alone, so no other parent value is read before its name is accepted.
+    Session names need the session marker itself (review r4, P3-4): a bare
+    `PYTEST_CURRENT_TEST` selects none, though `under_pytest` still counts it
+    as a test process for its other callers, where that refuses more.
     """
-    probe = {name: parent[name] for name in parent if name in SESSION_PROBE_NAMES}
-    session = under_pytest(probe)
+    probe = _present(parent, (name for name in parent if name in SESSION_PROBE_NAMES))
+    session = PYTEST_MARKER in probe and under_pytest(probe)
     return lambda name: allowed_name(name) or (session and session_name(name))
 
 
@@ -196,8 +215,8 @@ def build_environment(additions: Mapping[str, str] | None = None,
     withheld = frozenset(withheld)
     parent = os.environ if environ is None else environ
     selected = _selected(parent)
-    result = {name: parent[name] for name in parent
-              if (selected(name) or name in passed) and name not in withheld}
+    result = _present(parent, (name for name in parent
+                               if (selected(name) or name in passed) and name not in withheld))
     result.update(additions or {})
     for name in removals:
         result.pop(name, None)

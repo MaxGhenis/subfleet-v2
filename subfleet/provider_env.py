@@ -10,7 +10,7 @@ import threading
 from typing import Any
 
 from .policy import codex_ca_bundle
-from .launch_env import build_environment
+from .launch_env import _present, build_environment
 from .sessions.transcripts import read_regular
 
 CA_SOURCES = ("SSL_CERT_FILE", "SSL_CERT_DIR")
@@ -59,7 +59,8 @@ class ProviderEnvironment:
         self._warning_lock = threading.Lock()
 
     def withheld(self) -> frozenset[str]:
-        """Every lane's credential reference, never selected from a parent."""
+        """The names `references` returns, never selected from a parent: in the
+        daemon, `credentials.withheld_references` of the stored lanes."""
         return frozenset(self.references())
 
     def additions(self, provider: str, env_add: Mapping[str, str] | None = None, *,
@@ -67,8 +68,10 @@ class ProviderEnvironment:
         """Build Launch.env_add without mutating the daemon's environment."""
         environ = os.environ if environ is None else environ
         withheld = self.withheld()
-        result = {name: environ[name] for name in self.pass_names
-                  if name in environ and name not in withheld}
+        # A withheld name is rejected before its membership test, which on a
+        # Mapping reads the value (review r4, P3-3); one popped since reads as absent.
+        result = _present(environ, (name for name in self.pass_names
+                                    if name not in withheld and name in environ))
         result.update(env_add or {})
         if provider != "codex":
             return result
@@ -76,7 +79,7 @@ class ProviderEnvironment:
         # Reconstructed launches use today's operator environment and policy.
         for key in CA_SOURCES:
             result.pop(key, None)
-        operator = {key: environ[key] for key in CA_SOURCES if key in environ}
+        operator = _present(environ, CA_SOURCES)
         if operator:
             result.update(operator)
             return result

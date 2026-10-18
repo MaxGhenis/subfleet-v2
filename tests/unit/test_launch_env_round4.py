@@ -148,6 +148,9 @@ def test_bounded_property_a_session_changes_only_session_names(names, state, pas
     Invariants: selection is a subset of the parent with its values; without a
     live session it is release #222's selection; with one it adds precisely the
     session names present; explicit names pass in both; reports and selection agree.
+    Round 5 (review r4, P3-4): only the marker's own session selects them, so a
+    bare `PYTEST_CURRENT_TEST` (the `none` state with that name drawn), which
+    `under_pytest` still calls live for its other callers, selects none.
     """
     parent = {name: f"dummy-{index}" for index, name in enumerate(sorted(names))}
     for name in MARKERS:
@@ -162,6 +165,7 @@ def test_bounded_property_a_session_changes_only_session_names(names, state, pas
         parent[PYTEST_SESSION_ID] = "0:0:" + "0" * 64
     live = home_paths.under_pytest(parent)
     assert live == (state in ("bare", "live") or (state == "none" and "PYTEST_CURRENT_TEST" in parent))
+    live = PYTEST_MARKER in parent and live
     child = build_environment(environ=parent, pass_names=passed)
     assert all(parent[name] == value for name, value in child.items())
     production = {name for name in parent if launch_env.allowed_name(name) or name in passed}
