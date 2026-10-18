@@ -39,7 +39,7 @@ def iso(value):
 
 class Timers:
     def __init__(self, store, root, policy, *, turn=None, adapter_factory=get_adapter,
-                 deliver=None, now=None, cards_sensor=None, demand=None):
+                 deliver=None, now=None, cards_sensor=None, demand=None, releasable=None):
         from .actions import ResetCredits, inhibit_path
         from .alerts import Alerts
         self.store, self.root, self.policy = store, Path(root), policy
@@ -55,6 +55,9 @@ class Timers:
         # C-18.1: a probe holder's newest record (the daemon's), for the state
         # status.json shows beside a lane that probe holds; None reads none.
         self.probe_record = None
+        # C-5.7a: whether a turn's holder may give its lease back, asked of the
+        # durable probe record (the daemon's); None leaves it to the turn's flag.
+        self.releasable = releasable
         self.now = now or (lambda: datetime.now(timezone.utc))
         self.cancel = threading.Event()
         self._lock = threading.RLock()
@@ -567,17 +570,29 @@ class Timers:
         state. Whether the lane is read at all is asked before its occupancy.
         """
         holder = 'probe:timer:' + str(uuid4())
-        with self.store.transaction('timer.reserved', lane_id=lane.lane_id):
-            if self._never_read(lane.lane_id):
-                return None
-            if (self.store.one("SELECT 1 FROM attempts WHERE lane_id=? AND state IN ('reserved','starting','running','finalizing')", (lane.lane_id,))
-                    or self.store.one('SELECT 1 FROM leases WHERE lease_key LIKE ?', (f'lane:{lane.lane_id}:%',))):
-                return BUSY
-            self.store.acquire_lease(f'lane:{lane.lane_id}:slot:0', holder)
-            self.store.add_event('timer.reservation', lane_id=lane.lane_id,
-                                 data={'holder': holder, 'purpose': purpose})
+        # C-5.7a: the holder is the turn's before its lease exists, as it stays
+        # the turn's until its lease is released or kept (`_release`). A pass of
+        # `_recover_probes` that finds the lease therefore finds the holder
+        # owned, or its turn over: it never acts on a probe a turn is still on.
+        # A claim that takes no lease (never read, or busy) lets it go.
         with self._lock:
             self.active_holders.add(holder)
+        claimed = False
+        try:
+            with self.store.transaction('timer.reserved', lane_id=lane.lane_id):
+                if self._never_read(lane.lane_id):
+                    return None
+                if (self.store.one("SELECT 1 FROM attempts WHERE lane_id=? AND state IN ('reserved','starting','running','finalizing')", (lane.lane_id,))
+                        or self.store.one('SELECT 1 FROM leases WHERE lease_key LIKE ?', (f'lane:{lane.lane_id}:%',))):
+                    return BUSY
+                self.store.acquire_lease(f'lane:{lane.lane_id}:slot:0', holder)
+                self.store.add_event('timer.reservation', lane_id=lane.lane_id,
+                                     data={'holder': holder, 'purpose': purpose})
+            claimed = True
+        finally:
+            if not claimed:
+                with self._lock:
+                    self.active_holders.discard(holder)
         return holder
 
     def _reserve(self, lane, purpose):
@@ -586,10 +601,21 @@ class Timers:
         return None if claim is BUSY else claim
 
     def _release(self, holder, *, quarantined=False):
-        if not quarantined:
-            self.store.release_leases(holder)
-        with self._lock:
-            self.active_holders.discard(holder)
+        """Give a turn's lease back, unless its probe is left to contain, then let the holder go.
+
+        C-5.7a: the durable record decides as well as the turn's flag. A turn
+        that raised after its probe was quarantined returns no outcome to set
+        the flag from, and a quarantined probe's lease is released only by a
+        verified-empty census or an operator's recorded override. The lease goes
+        before the holder leaves `active_holders`, so `_recover_probes` never
+        looks at a holder whose lease is about to be released.
+        """
+        try:
+            if not quarantined and (self.releasable is None or self.releasable(holder)):
+                self.store.release_leases(holder)
+        finally:
+            with self._lock:
+                self.active_holders.discard(holder)
 
     def _turn(self, lane, purpose, holder, timeout):
         if not self.turn:
