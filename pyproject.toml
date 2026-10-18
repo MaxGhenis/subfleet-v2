@@ -35,6 +35,8 @@ include = ["/subfleet", "/README.md", "/pyproject.toml", "/uv.lock"]
 [dependency-groups]
 dev = [
     "hypothesis>=6.100",
+    # The contract layout's render check (tests/unit/test_contract_layout.py, C-20.7).
+    "markdown-it-py>=3.0",
     "pytest>=8",
     # CI's per-test bound (.github/workflows/tests.yml); off unless --timeout is given.
     "pytest-timeout>=2.3",

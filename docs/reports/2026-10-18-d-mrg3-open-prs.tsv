@@ -1,0 +1,49 @@
+pr	head	merge bases	baseline conflicts	git conflicts	tool conflicts	--words conflicts	entries added	entries edited	entries removed	unrecognised	other conflicting files
+229	e6f695f69e6a8953b96346c5ae238a76d62ad00b	1	0	2	0	0	1	0	0	0	
+226	7916d50d201ff360f1957bb532b52a697041af09	1	1	2	0	0	2	0	0	0	
+223	6b9f054b60d890e9ceb5b1f5313c2bbda314ff86	1	2	5	1	0	2	0	0	0	subfleet/daemon.py tests/fake/test_admission_stateful.py
+222	b27681e16e40c7e04204cbcf9348a5d897d6b282	1	1	5	0	0	3	0	0	0	
+221	d03832397e7ac576cb7e763a97e370ed05849999	1	2	5	0	0	3	0	0	0	subfleet/scheduler.py
+219	c7e74a8f6b283edd97586306de30e55e8517cd1d	1	1	3	0	0	3	0	0	0	
+217	f92a5cd919e6332047d486813a41383191343dea	1	2	2	0	0	2	0	0	0	
+216	9e09d47e7ea97b586f7c0a52b847d522a555bec8	1	2	3	1	0	1	0	0	0	
+214	e89ea12194d28a7dd2c58211bf0b8e6eb32224ef	1	1	2	0	0	1	0	0	0	subfleet/conversations/diff.py subfleet/conversations/service.py tests/unit/test_conversation_service.py
+213	f7438472529571b9b511cf914fd91f3a302cc97b	1	0	0	0	0	0	0	0	0	
+212	780d83806e5f9bcd7c461ada6a482fbbfe253e13	1	1	5	0	0	5	0	0	0	
+211	879132df11c8d06e1beac2d864f8b1d753d0ea6f	1	0	1	0	0	0	0	0	0	
+206	7f846abb2fcb5de67241be3164336b5cce42e6b5	1	0	1	0	0	0	0	0	0	subfleet/daemon.py
+204	9c6b234bef822d523162591bceca60f98778a8b0	1	2	2	0	0	1	0	0	0	
+202	cce6a02641c6448483bc9008ec33be98ab6b3c06	1	2	2	0	0	1	0	0	0	subfleet/daemon.py tests/fake/test_admission_properties.py tests/fake/test_admission_stateful.py
+200	8935fe18519ab9745acdafb379ef64ac10fa6f61	1	4	5	1	0	1	0	0	0	subfleet/daemon.py
+193	e18f1bb2eef51ff834480d5d599bb958fd98d507	1	1	1	1	1	0	0	0	0	docs/invariants.md
+182	77c1fa782d0eb0ada8119b0b5085022cb3d4cfd1	1	7	7	3	1	1	0	0	0	subfleet/daemon.py subfleet/protocol.py subfleet/timers.py tests/bin/codex
+177	3f0fd027964b4986f9dd47b7f86024b19c8fc670	1	1	2	1	0	1	0	0	0	subfleet/procs.py tests/unit/test_conversation_peers_attachments.py
+176	179051c572d28511f152b0c5043b62c43297f6d0	1	1	2	0	0	1	0	0	0	
+174	93fddf794c9eee158016017eb2ff1f475b8d5cb8	1	3	5	1	1	2	0	0	0	subfleet/adapters/codex.py subfleet/conversations/service.py
+173	a51e4c2535dc5824308f35289481ae0bd2d7bcb9	1	0	2	0	0	4	0	0	0	
+172	e63a86532b8129fc808a60750cfdfbcf0165a062	1	0	2	0	0	3	0	0	0	
+171	b06c89f2b6c6ab6e282dc377cca271dcc4a4e7fe	1	0	4	0	0	1	0	0	0	
+170	4745eec0a10a6be9f00fad22ccb15f161b65e5c4	1	0	2	0	0	2	0	0	0	
+169	425638dfe7d54696c2c2de2e0e9920939f41eaa2	1	2	2	1	1	2	0	0	0	docs/invariants.md
+168	9e0c68ae35479523b152d63eb45a5e280638396a	1	2	2	1	1	1	0	0	0	docs/invariants.md
+167	8deeb7a4b3345ec550c46f621e3d5650f85eccaa	1	0	2	0	0	1	0	0	0	
+163	f0705c77e0433268a4dfb51157a119a3f84b8d14	1	1	2	0	0	1	0	0	0	
+159	8458fa60a030e2ef5eafe61ec6d44b4de6f60374	1	3	5	2	1	1	0	0	0	subfleet/adapters/claude.py subfleet/daemon.py
+131	3aab953115c8ac184235ccbd1d4702906fa9524a	1	2	3	4	4	10	0	0	0	subfleet/daemon.py subfleet/procs.py tests/fake/test_census_recycled_pid_daemon.py
+119	2d4eda0185f82495edaf79052aa810f82a2794ec	1	6	7	5	2	1	0	0	0	subfleet/daemon.py tests/fake/run_daemon.py tests/fake_adapter.py tests/unit/test_offline.py
+114	b6ff2206555ab54757b5b3e64bb9c01c514cadee	1	2	3	0	0	1	0	0	0	subfleet/daemon.py subfleet/hooks.py subfleet/policy.py
+104	954da538a9ec91433abac0633a593147523d7a92	1	1	1	0	0	0	0	0	0	subfleet/adapters/claude.py
+94	9228207c1988a6ccb4f45f44e23e622922e8e24e	1	0	0	0	0	0	0	0	0	.github/workflows/tests.yml pyproject.toml tests/e2e/test_conversations.py uv.lock
+92	1dec41156d6099efbd77e1fb1d5cd57ae0c30494	1	7	6	10	5	1	0	0	0	subfleet/capacity.py subfleet/cli.py subfleet/contracts.py subfleet/daemon.py subfleet/default_policy.json subfleet/picker.py subfleet/policy.py subfleet/render.py subfleet/scheduler.py subfleet/timers.py tests/fake/test_tier_hold_by_demand.py tests/reference_scheduler.py tests/unit/test_policy.py tests/unit/test_timers_probe.py
+88	05cae6e2b8fcd624beaa1abd3f7cbf08985ef224	1	0	2	0	0	1	0	0	0	
+86	62103194a83650d3ac4ea532776f632e476390d5	1	2	2	0	0	1	0	0	0	
+84	2d0e166d46d78e1671e74696f8f308729a880511	1	2	2	3	2	1	0	0	0	subfleet/adapters/claude.py subfleet/adapters/claude_stream.py subfleet/adapters/codex.py
+82	7de7bad968f90225e9e23ba5af9684f1a95ff431	1	3	3	4	4	1	0	0	0	README.md subfleet/cli.py subfleet/daemon.py subfleet/ids.py subfleet/protocol.py subfleet/retention.py subfleet/salvage.py
+80	411f24501a79219f4d359f4803eab04bc05ddca6	1	0	4	0	0	2	0	0	0	
+79	c1574586de795acb3aa6c8e30ecbc95019f30d88	1	0	3	0	0	1	0	0	0	
+78	a293b4d46fcdc7497311afe8ef7ca919c9aadabc	1	3	3	4	1	1	0	0	0	subfleet/conversations/service.py subfleet/daemon.py subfleet/procs.py tests/bin/fakeprov tests/fake/run_daemon.py tests/fake/test_state_contract.py tests/fake/test_turn_trees.py tests/fake_adapter.py tests/unit/test_daemon_settle.py tests/unit/test_forget_paced.py tests/unit/test_inspection_pacing_properties.py
+74	22154d2f47cbc21ca1ca1d745486ab37f6a3f66d	1	0	3	0	0	1	0	0	0	
+71	a85d2ced8e79cac57e81a95fee8bcf041c049abd	1	0	0	0	0	0	0	0	0	
+66	4f1cdd49d5008aa6961c217ed1881580f19392d5	1	0	5	0	0	3	0	0	0	
+63	dd0f1602e1589c5b9780fc53fa9f7962c4f3d964	1	0	2	0	0	1	0	0	0	
+62	2228ba95f83bf2bc26fa1897f6b9673b36ca8c02	1	0	2	0	0	1	0	0	0	app/Sources/UIModel.swift tests/frontend/CoreProbeScenarios.swift

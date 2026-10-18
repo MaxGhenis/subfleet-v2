@@ -18,6 +18,7 @@ from subfleet import credentials
 from subfleet.contracts import Credential
 from tests import conftest, keychain_standin, live_store_trap
 from tests.keychain_standin import STANDIN_BLOB, StandIn
+from tools import contract_layout
 
 FAMILY = ("sh", "bash", "zsh", "dash", "env", "xargs", "nice", "nohup", "taskpolicy")
 
@@ -182,7 +183,8 @@ def test_trap_stops_round8_access_before_underlying_api(tmp_path, monkeypatch, o
 def test_acceptance_contract_names_d_st1_boundary_and_trap_exclusions():
     """D-ST1's acceptance text must own the harness threat model."""
     contract = (Path(__file__).parents[2] / "docs/acceptance-contract.md").read_text()
-    clause = next((line for line in contract.splitlines() if line.startswith("- **C-20.6**")), "")
+    # C-20.7: the contract is one sentence per line, so read the whole clause.
+    clause = contract_layout.clauses(contract).get("C-20.6", "")
     for phrase in ("D-ST1", "production code", "fixtures", "subprocess", "os", "file APIs",
                    "absolute path", "shell", "DirEntry.stat", "sqlite3", "isolated HOME"):
         assert phrase in clause, phrase

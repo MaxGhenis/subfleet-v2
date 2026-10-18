@@ -8,6 +8,7 @@ v1 records remain available without delegating commands to the old installation.
 
 - Plan of record: `docs/plan.md` (plan B revision 4 as amended by the grafts from plan A and the round-2 reviews).
 - Binding contract for implementation: `docs/acceptance-contract.md`. Every module is built against it; every acceptance test names the clause it proves.
+- Changing a clause: edit the contract one sentence per line (`python3 tools/contract_layout.py --write`) and add one file of your own to `docs/contract-history/`, never a line in the contract's changes section (C-20.7; `docs/contract-history/README.md`).
 - Inputs: `docs/plan-a.md`, `docs/plan-b-rev4.md`, `docs/comparison.md`, `docs/reports/`.
 
 Native exact-revision agreement gates: [usage and integration notes](docs/gates.md).

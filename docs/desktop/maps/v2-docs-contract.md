@@ -20,7 +20,7 @@ Base: worktree `/Users/maxghenis/subfleet-v2-lanes/desktop-workspace`, branch `f
 
 **Change rules**
 - Line 3: "A clause changes only by editing this file in the same commit as the code and tests that depend on it. Where this file and `plan.md` disagree, this file wins."
-- Line 7, `## Changes in version 2`, works as a running changelog. Each bullet names clause ids, a date and time, and the incident or report. Examples: the C-11.7a bullet dated 2026-09-20 and the C-6.12/C-11.2 bullet dated 2026-09-22 (line 20).
+- The running changelog that was `## Changes in version 2` (later 3) near the top is now `docs/contract-history/`, one file per entry (C-20.7, 2026-10-14); the contract's section only points there. Each entry names clause ids, a date, and the incident or report; a pull request adds its own file and never a line in the contract. The 157 entries the section listed are `docs/contract-history/version-3/`, in order, among them the C-11.7a entry dated 2026-09-20 (`126.md`) and the C-6.12/C-11.2 entry dated 2026-09-22 (`130.md`).
 - The header line was not updated as clauses were added. It still says "Version 2, 2026-09-05" and "binds milestones 1 to 3 of `plan.md`" (line 3), even though later clauses bind milestones 4 to 8.
 - Section 23 allows clauses to land before their code: "A clause here binds like any other; the milestone names when it is first tested" (line 220).
 - C-6.5 (line 84): "This list is the index of refusals: a new refusal is added here, not in a clause of its own."
