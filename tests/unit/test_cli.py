@@ -683,7 +683,7 @@ def test_a_lock_whose_holder_is_dead_is_no_daemon(daemon, root, capsys, workdir,
     """C-5.8 the CLI treats a lock with a dead recorded identity as no daemon."""
     from subfleet import client as client_module
     monkeypatch.setattr(client_module, "boot_id", lambda: "1")
-    monkeypatch.setattr(client_module, "proc_start", lambda pid: "")
+    monkeypatch.setattr(client_module, "proc_status", lambda pid: ("", ""))
     daemon({"submit": submit_ok, "wait": lambda request: terminal("succeeded", rc=0)})                 # a socket that would answer
     (root / "daemon.lock").write_text(json.dumps(
         {"pid": 999999, "boot_id": "1", "proc_start": "Mon Jan  1 00:00:00 2001",
@@ -837,8 +837,8 @@ def test_the_identity_check_runs_once_per_client(root, monkeypatch):
     from subfleet import client as client_module
     (root / "daemon.lock").write_text(json.dumps({"pid": os.getpid()}))
     calls: list[int] = []
-    monkeypatch.setattr(client_module, "identity_report",
-                        lambda *a, **k: calls.append(1) or (None, "stubbed"))
+    monkeypatch.setattr(client_module, "proc_status",
+                        lambda *a, **k: calls.append(1) or (None, None))
     probe = client_module.Client(root)
     for _ in range(4):
         probe.check_available()
@@ -1524,7 +1524,7 @@ def test_an_identity_mismatch_names_the_rendering_trap(root, capsys, workdir, mo
     message has to let a reader tell those apart.
     """
     from subfleet import client as client_module
-    monkeypatch.setattr(client_module, "proc_start", lambda pid: "Sun Oct 11 00:00:00 2026")
+    monkeypatch.setattr(client_module, "proc_status", lambda pid: ("S", "Sun Oct 11 00:00:00 2026"))
     (root / "daemon.lock").write_text(json.dumps(
         {"pid": os.getpid(), "proc_start": "Sat Jan  1 00:00:00 2000"}))
     assert run_cli(["run", "-m", "opus", "-C", str(workdir), "hi"]) == 69

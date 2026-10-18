@@ -49,6 +49,8 @@ from .client import (
     SOCKET_NAME,
     Client,
     DaemonError,
+    DaemonStopped,
+    is_stopped,
     DaemonUnavailable,
     REFUSED_UNVERIFIED_MAX_S,
     busy_pause,
@@ -86,6 +88,7 @@ SANDBOX_CHOICES = tuple(item.value for item in Sandbox)
 LANE_ACTIONS = ("list", "probe", "enroll", "hold", "release", "transfer")
 
 AF_UNIX_PATH_MAX = 103          # sun_path is 104 bytes including the NUL
+DAEMON_STATUS_PING_TIMEOUT_S = 5.0
 WAIT_BACKOFF_MAX_S = 5.0        # cap on the pause after an immediate long poll
 PLIST_LABEL = "com.subfleet.daemon"
 PLIST_PATH = "~/Library/LaunchAgents/com.subfleet.daemon.plist"
@@ -213,6 +216,8 @@ def cmd_suggest(args: argparse.Namespace) -> int:
                         RESTART_DAEMON)
         return fail(error_code(exc), scrub_error(exc), error_fix(exc))
     except DaemonUnavailable as exc:
+        if isinstance(exc, DaemonStopped):
+            return _daemon_down(exc)
         return fail(Exit.DAEMON_UNAVAILABLE, "the daemon is unavailable", RESTART_DAEMON)
     except ProtocolError as exc:
         return fail(error_code(exc), scrub_error(exc), error_fix(exc))
@@ -568,8 +573,37 @@ def _note_schema(store: Offline) -> None:
              f"missing from what is shown")
 
 
-def _daemon_down(exc: Exception) -> int:
-    return fail(Exit.DAEMON_UNAVAILABLE, str(exc), getattr(exc, "fix", START_DAEMON))
+def _daemon_down(exc: Exception, because: Exception | None = None) -> int:
+    """Exit 69, with the fix of whatever actually made the daemon unavailable.
+
+    `because` is the daemon-side exception when `exc` is the offline reader's:
+    "no daemon and no store" is still fixed at the daemon, and for a stopped
+    one that is not `subfleet daemon start` (C-5.13).
+    """
+    fix = because.fix if isinstance(because, DaemonStopped) else None
+    return fail(Exit.DAEMON_UNAVAILABLE, str(exc),
+                fix or getattr(exc, "fix", START_DAEMON))
+
+
+def _protocol_failure(exc: ProtocolError) -> int:
+    """A malformed or unanswered response, with whatever fix it carries.
+
+    `ProtocolError` has always had a `fix` slot; a daemon that holds the lock
+    and answers nothing is the case that needed it (C-5.13).
+    """
+    return fail(exc.code, str(exc), getattr(exc, "fix", None))
+
+
+def _note_offline_reason(exc: Exception) -> None:
+    """Say why the offline read is happening when the daemon is there (C-5.13).
+
+    An absent daemon is what offline mode is for and needs no prose; a daemon
+    that holds the lock and is stopped is a condition the caller has to clear,
+    so the diagnosis and its fix ride along with the offline banner.
+    """
+    if isinstance(exc, DaemonStopped):
+        note(f"{PROG}: {exc}")
+        note(f"  fix: {exc.fix}")
 
 
 def _daemon_error(exc: DaemonError) -> int:
@@ -607,17 +641,18 @@ def cmd_status(args: argparse.Namespace) -> int:
             data["running"] = client.call(
                 "list", _asdict(protocol.ListArgs(running=True, last=50))
             ).get("jobs", [])
-    except DaemonUnavailable:
+    except DaemonUnavailable as down:
+        _note_offline_reason(down)
         store = _offline(args)
         try:
             data = store.status()
         except OfflineUnavailable as exc:
-            return _daemon_down(exc)
+            return _daemon_down(exc, down)
         _note_schema(store)
     except DaemonError as exc:
         return _daemon_error(exc)
     except ProtocolError as exc:
-        return fail(exc.code, str(exc))
+        return _protocol_failure(exc)
     if args.json:
         emit(data)
         return int(Exit.OK)
@@ -640,7 +675,7 @@ def cmd_pick(args: argparse.Namespace) -> int:
     except DaemonError as exc:
         return _daemon_error(exc)
     except ProtocolError as exc:
-        return fail(exc.code, str(exc))
+        return _protocol_failure(exc)
     if args.json:
         emit({**data, "ranked": data["ranked"] if args.all else data["ranked"][:1]})
     elif data.get("best"):
@@ -972,7 +1007,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     except DaemonError as exc:
         return _daemon_error(exc)
     except ProtocolError as exc:
-        return fail(exc.code, str(exc))
+        return _protocol_failure(exc)
 
     if submit.dry_run:
         decision = result.get("decision", result)
@@ -1487,7 +1522,7 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
     except DaemonError as exc:
         return _daemon_error(exc)
     except ProtocolError as exc:
-        return fail(exc.code, str(exc))
+        return _protocol_failure(exc)
 
     worst = int(Exit.OK)
     as_json = quiet or bool(getattr(args, "json", False))
@@ -1631,7 +1666,8 @@ def cmd_runs(args: argparse.Namespace) -> int:
         if wanted:
             # A daemon older than the filter lists every job (C-16.2, C-16.3).
             rows = [row for row in rows if row.get("request_id") == wanted]
-    except DaemonUnavailable:
+    except DaemonUnavailable as down:
+        _note_offline_reason(down)
         offline = True
         store = _offline(args)
         try:
@@ -1640,12 +1676,12 @@ def cmd_runs(args: argparse.Namespace) -> int:
                                    kind=kind, include_turns=include_turns,
                                    request_id=getattr(args, "request_id", None))
         except OfflineUnavailable as exc:
-            return _daemon_down(exc)
+            return _daemon_down(exc, down)
         _note_schema(store)
     except DaemonError as exc:
         return _daemon_error(exc)
     except ProtocolError as exc:
-        return fail(exc.code, str(exc))
+        return _protocol_failure(exc)
     kept = [row for row in rows if _listed(row, kind=kind, include_turns=include_turns)]
     if len(kept) < len(rows) and not honoured and args.last:
         # The daemon applied --last before the turn rows were dropped here.
@@ -1811,19 +1847,20 @@ def cmd_runs_show(args: argparse.Namespace) -> int:
         client = _client(args)
         job = client.call("show", _asdict(protocol.ShowArgs(job_id=args.id)))
         _ack_notices(client, job)
-    except DaemonUnavailable:
+    except DaemonUnavailable as down:
+        _note_offline_reason(down)
         store = _offline(args)
         try:
             job = store.show_job(args.id)
         except OfflineUnavailable as exc:
-            return _daemon_down(exc)
+            return _daemon_down(exc, down)
         except LookupError as exc:
             return fail(Exit.INVALID_INPUT, f"runs show: {exc}")
         _note_schema(store)
     except DaemonError as exc:
         return _daemon_error(exc)
     except ProtocolError as exc:
-        return fail(exc.code, str(exc))
+        return _protocol_failure(exc)
     if not job:
         return fail(Exit.INVALID_INPUT, f"runs show: no job {args.id!r}")
     if args.json:
@@ -1886,10 +1923,12 @@ def cmd_runs_reap(args: argparse.Namespace) -> int:
     """
     checker, source = _same_process()
     daemon_up = True
+    down: Exception | None = None
     try:
         _client(args).call("daemon.status", {})
-    except (DaemonUnavailable, ProtocolError):
-        daemon_up = False
+    except (DaemonUnavailable, ProtocolError) as exc:
+        daemon_up, down = False, exc
+        _note_offline_reason(exc)
     except DaemonError:
         pass                              # it answered, so it is there
     try:
@@ -1900,7 +1939,7 @@ def cmd_runs_reap(args: argparse.Namespace) -> int:
             return fail(Exit.OPERATIONAL,
                         f"runs reap: the daemon is running but its store is not "
                         f"readable from here: {exc}")
-        return _daemon_down(exc)
+        return _daemon_down(exc, down)
     orphans: list[dict[str, Any]] = []
     for row in rows:
         pid = row.get("guardian_pid")
@@ -1925,6 +1964,7 @@ def cmd_runs_reap(args: argparse.Namespace) -> int:
     if orphans:
         note(f"  the daemon owns finalization: "
              + ("it reconciles these on its next pass" if daemon_up
+                else f"continue it: {down.fix}" if isinstance(down, DaemonStopped)
                 else f"start it with `{START_DAEMON}`"))
     return int(Exit.OK)
 
@@ -2003,7 +2043,7 @@ def cmd_kill(args: argparse.Namespace) -> int:
                      f"and no answer says whether it was ({'; then '.join(exc.reasons)})")
                 note(f"  {PROG} runs show {shlex.quote(job_id)} shows cancel_requested_at; running "
                      f"{PROG} kill {shlex.quote(job_id)} again is safe (C-7.1)")
-        except DaemonUnavailable as exc:
+        except DaemonUnavailable as down:
             if args.confirm_dead or args.force_release:
                 # Both resolutions release leases and record an event, and only
                 # the daemon writes rows (C-3.4, C-5.7).
@@ -2011,12 +2051,13 @@ def cmd_kill(args: argparse.Namespace) -> int:
                     Exit.DAEMON_UNAVAILABLE,
                     f"kill: --{'confirm-dead' if args.confirm_dead else 'force-release'}"
                     f" releases leases and records an event, which only the daemon"
-                    f" does ({exc})", START_DAEMON))
+                    f" does ({down})", getattr(down, "fix", START_DAEMON)))
                 continue
+            _note_offline_reason(down)
             try:
                 result = _offline(args).kill(job_id)
             except OfflineUnavailable as exc:
-                worst = max(worst, _daemon_down(exc))
+                worst = max(worst, _daemon_down(exc, down))
                 continue
             except SchemaTooNew as exc:
                 worst = max(worst, fail(exc.code, f"kill: {exc}", exc.fix))
@@ -2034,7 +2075,7 @@ def cmd_kill(args: argparse.Namespace) -> int:
         except DaemonError as exc:
             worst = max(worst, _daemon_error(exc))
         except ProtocolError as exc:
-            worst = max(worst, fail(exc.code, str(exc)))
+            worst = max(worst, _protocol_failure(exc))
     if args.wait and killed:
         return max(worst, wait_jobs(args, killed, timeout=args.timeout))
     return worst
@@ -2077,7 +2118,7 @@ def cmd_resume(args: argparse.Namespace) -> int:
     except DaemonError as exc:
         return _daemon_error(exc)
     except ProtocolError as exc:
-        return fail(exc.code, str(exc))
+        return _protocol_failure(exc)
     if not source:
         return fail(Exit.INVALID_INPUT, f"resume: no job {args.id!r}")
     # The socket's show response separates the job row from its attempts.
@@ -2132,7 +2173,7 @@ def cmd_resume(args: argparse.Namespace) -> int:
     except DaemonError as exc:
         return _daemon_error(exc)
     except ProtocolError as exc:
-        return fail(exc.code, str(exc))
+        return _protocol_failure(exc)
     job_id = result.get("job_id") or ""
     if not job_id:
         return fail(Exit.OPERATIONAL, "resume: the daemon returned no job id")
@@ -2224,7 +2265,7 @@ def cmd_lanes(args: argparse.Namespace) -> int:
     except DaemonError as exc:
         return _daemon_error(exc)
     except ProtocolError as exc:
-        return fail(exc.code, str(exc))
+        return _protocol_failure(exc)
     if action == "transfer" and not isinstance(result.get("transfer"), dict):
         # C-16.2 ignores unknown request fields, so a daemon older than this verb
         # answers the `lanes` op with the roster and no transfer at all. Printing
@@ -2279,7 +2320,7 @@ def cmd_why(args: argparse.Namespace) -> int:
     except DaemonError as exc:
         return _daemon_error(exc)
     except ProtocolError as exc:
-        return fail(exc.code, str(exc))
+        return _protocol_failure(exc)
     if args.json:
         emit(result)
         return int(Exit.OK)
@@ -2330,7 +2371,7 @@ def cmd_ping(args: argparse.Namespace) -> int:
     except DaemonError as exc:
         return _daemon_error(exc)
     except ProtocolError as exc:
-        return fail(exc.code, str(exc))
+        return _protocol_failure(exc)
     if args.json:
         emit(result)
         return int(Exit.OK)
@@ -2391,15 +2432,16 @@ def cmd_notices(args: argparse.Namespace) -> int:
     except DaemonUnavailable as exc:
         if action:
             return _daemon_down(exc)
+        _note_offline_reason(exc)
         try:
             rows = _offline(args).notices(listing.session_id, resolved=listing.resolved)
         except OfflineUnavailable as missing:
-            return _daemon_down(missing)
+            return _daemon_down(missing, exc)
         note(f"{PROG} notices: offline — read from the store")
     except DaemonError as exc:
         return _daemon_error(exc)
     except ProtocolError as exc:
-        return fail(exc.code, str(exc))
+        return _protocol_failure(exc)
     if not action:
         if args.json:
             emit({"notices": rows})
@@ -2433,7 +2475,7 @@ def cmd_notices(args: argparse.Namespace) -> int:
     except DaemonError as exc:
         return _daemon_error(exc)
     except ProtocolError as exc:
-        return fail(exc.code, str(exc))
+        return _protocol_failure(exc)
     if args.json:
         emit(result)
         return int(Exit.OK)
@@ -2514,6 +2556,9 @@ def _daemon_alive(client: Client) -> bool:
 def cmd_daemon_start(args: argparse.Namespace) -> int:
     root = _root(args)
     client = Client(root)
+    stopped = client.stopped_holder()
+    if stopped is not None:
+        return _daemon_down(stopped)
     if _daemon_alive(client):
         info = client.lock_info() or {}
         note(f"{PROG} daemon: already running"
@@ -2709,11 +2754,14 @@ def cmd_daemon_status(args: argparse.Namespace) -> int:
     root = _root(args)
     client = Client(root)
     info = client.lock_info()
-    alive = client.lock_holder_alive()
+    pid, alive, _reason, state = client.holder_report()
+    stopped = DaemonStopped(pid, state, client.socket_path) if alive and is_stopped(state) else None
     started = time.monotonic()
     reachable, busy, detail, budget = False, False, "", None
     try:
-        budget = client.call("daemon.status", {}, timeout=5.0).get("descriptors")
+        if stopped is not None:
+            raise stopped
+        budget = client.call("daemon.status", {}, timeout=DAEMON_STATUS_PING_TIMEOUT_S).get("descriptors")
         reachable = True
     except DaemonError as exc:
         # It answered, so it is running: busy at its connection cap (C-16.7), or
@@ -2724,7 +2772,10 @@ def cmd_daemon_status(args: argparse.Namespace) -> int:
     elapsed_ms = (time.monotonic() - started) * 1000
     payload = {"state_root": str(root), "socket": str(client.socket_path),
                "socket_present": client.socket_path.exists(), "lock": info,
-               "lock_holder_alive": alive, "ping": reachable, "busy": busy,
+               "lock_holder_alive": alive, "holder_state": state,
+               "holder_stopped": stopped is not None,
+               "diagnosis": str(stopped) if stopped is not None else None,
+               "ping": reachable, "busy": busy,
                "ping_ms": round(elapsed_ms, 1), "detail": detail or None,
                "descriptors": budget}
     if args.json:
@@ -2737,7 +2788,7 @@ def cmd_daemon_status(args: argparse.Namespace) -> int:
         out(f"lock        absent ({client.lock_path})")
     else:
         out(f"lock        {json.dumps(info, sort_keys=True)}")
-        out(f"holder      {'alive' if alive else ('dead' if alive is False else 'unverifiable')}")
+        out(f"holder      {'stopped' if stopped is not None else 'alive' if alive else ('dead' if alive is False else 'unverifiable')}")
     answer = ("busy" if busy else "refused") if detail and reachable else "ok" if reachable else "unreachable"
     out(f"ping        {answer} ({elapsed_ms:.1f} ms)")
     if isinstance(budget, dict):
@@ -2750,6 +2801,8 @@ def cmd_daemon_status(args: argparse.Namespace) -> int:
             f"{budget.get('live_turns', 0)} turns running")
     if detail:
         note(f"  {detail}")
+    if stopped is not None:
+        note(f"  fix: {stopped.fix}")
     return int(Exit.OK) if reachable else int(Exit.DAEMON_UNAVAILABLE)
 
 
