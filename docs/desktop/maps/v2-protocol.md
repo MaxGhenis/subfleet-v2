@@ -139,8 +139,15 @@ There is none. No op lists ops or features, and `PROTOCOL_VERSION` is a single i
 
 ## 7. Where conversation verbs and a cursor-based events op would fit
 
+Current implementation: `subfleet/protocol.py`'s `CONVERSATION_OPS` and
+[design §5](../design.md#5-wire-protocol-additions) define the shipped operations; the map
+below records the earlier integration plan. `conversation.status` is the
+read-only focused refresh, advertised as `conversation.status.v1`: it returns
+`{conversation, message_ids}` in sequence order without reading transcripts or
+message bodies. The client hydrates receipts separately with `message.status`.
+
 **Code locations:**
-- **Protocol:** add ops to `OPS` (`protocol.py:18-23`), for example `capabilities`, `conversation.list/open/create`, `message.submit/status`, `approval.list/respond`, `turn.cancel`, and `events`. Give each a **new** args dataclass. `NoticeMarkArgs` is the precedent: new fields on shipped ops change their wire shape, and old daemons silently ignore them (`protocol.py:183-196`).
+- **Protocol:** add ops to `OPS` (`protocol.py:18-23`), for example `capabilities`, `conversation.list/status/open/create`, `message.submit/status`, `approval.list/respond`, `turn.cancel`, and `events`. Give each a **new** args dataclass. `NoticeMarkArgs` is the precedent: new fields on shipped ops change their wire shape, and old daemons silently ignore them (`protocol.py:183-196`).
 - **Dispatch:** add one branch in `Daemon.dispatch` that lazily delegates to a new module, following the `operations` and `gate` pattern (`daemon.py:1360-1365`). This keeps `daemon.py` (3494 lines) from absorbing the service.
 - **Pools:** change the routing at `daemon.py:3406`.
   - `events` long-poll goes to `waiters` or a dedicated pool.
