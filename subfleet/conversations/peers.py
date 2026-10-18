@@ -41,7 +41,8 @@ person-only request, is what closes this remaining case.
 The chain is read with `ps`, which a loaded machine can slow. Each `ps` gets
 `PS_TIMEOUT_S` and one more try when it does not answer, cannot start, or
 answers nothing, and no `ps` starts after `CHAIN_BUDGET_S` or runs past it (only
-the time the system takes to launch one can add to that). A read that fails,
+the time the system takes to launch one, or to reap one stopped at the deadline,
+can add to that). A read that fails,
 or a walk that does not reach launchd (a parent missing from the table, a loop,
 more than 64 processes), leaves the chain unreadable: an ancestor that was not
 read is never taken to be free of the markers. A caller whose image is not the
@@ -72,7 +73,8 @@ PS_TIMEOUT_S = 5.0
 #: No `ps` of a chain read starts after this or runs past it, however long the
 #: chain: well inside the 15 s the app waits for a person-only op's answer
 #: (`DaemonOperation.timeout`), so the app hears the cause instead of timing
-#: out. Only the system's time to launch a `ps` can add to it.
+#: out. Only the system's time to launch a `ps`, or to reap one stopped at the
+#: deadline, can add to it.
 CHAIN_BUDGET_S = 10.0
 #: A chain longer than this is not followed to its end, so it is unreadable.
 MAX_CHAIN = 64
@@ -151,7 +153,8 @@ def _seconds(value: float) -> str:
 class PsReader:
     """`ps` for one chain read: each call is tried at most twice, no try starts
     after one deadline, `budget_s` from when the reader is made, and none is
-    allowed to run past it (`subprocess.run`'s timeout counts from the launch)."""
+    allowed to run past it (`subprocess.run`'s timeout counts from the launch,
+    and a `ps` stopped at it is reaped before the try ends)."""
 
     def __init__(self, budget_s: float | None = None, *, run: Callable = subprocess.run,
                  clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep):

@@ -541,7 +541,7 @@ def test_a_suggestion_op_keeps_the_retry_when_the_chain_cannot_be_read(svc, monk
     assert response["error"] == {
         "code": 1,
         "message": "person-check-failed: starting or dismissing a suggestion is a person's decision, and the "
-                   "caller's process chain could not be read in time",
+                   "caller's process chain could not be read",
         "fix": "nothing was done; try again"}
 
 
@@ -561,3 +561,22 @@ def test_a_settings_change_that_widens_and_allows_main_is_checked_once(svc, monk
     assert len(calls) == 1
     view = svc.store.conversation(cid)
     assert view["settings"]["permission"] == "ask" and not view["allow_main"]       # nothing was done
+
+
+def test_a_settings_change_the_app_makes_that_widens_and_allows_main_reads_the_chain_once(svc, monkeypatch):
+    """C-25.6: with a check that passes, the same request still reads the chain
+    once (a second check would read it again), and makes both changes."""
+    from subfleet.conversations import service as service_module
+    reads: list = []
+
+    def counted(peer, **kwargs):
+        reads.append(kwargs)
+        return peers.judge(peer, chain=lambda pid: [Proc(10, 1, "??", APP), Proc(1, 0, "??", "/sbin/launchd")],
+                           executable=image(APP), **kwargs)
+    monkeypatch.setattr(service_module, "judge", counted)
+    cid = conversation(svc)
+    widened = {**SETTINGS, "permission": "bypass"}
+    view = svc.handle("conversation.settings", {"conversation_id": cid, "settings": widened, "confirm_widen": True,
+                                                "allow_main": True}, token(10))["conversation"]
+    assert len(reads) == 1
+    assert view["settings"]["permission"] == "bypass" and view["allow_main"]
