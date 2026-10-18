@@ -1074,14 +1074,17 @@ omissions in the contract list and design table.
 Python 3.14.7 (free-threaded): the requested initial frontend hold completed
 with **15 passed, 1 skipped in 353.34 s**. The live-daemon test skips because
 macOS boot identity is unavailable in this sandbox; its codec failure is
-covered independently by the exhaustive codec check. Queue and daemon groups,
-then remaining frontend coverage, are pending the shared lock.
+covered independently by the exhaustive codec check. `test_core_queue_tray.py` then passed all 50 cases. Its hold was interrupted
+after 1,177.27 s to stay below 20 minutes; pytest was confirmed active, not
+governor-stopped. The notice and queue engine files had not run and resume
+in their own hold. Daemon and remaining frontend coverage are pending.
 
 | File | Passed | Failed | Errors | Skipped |
 | --- | ---: | ---: | ---: | ---: |
 | `tests/frontend/test_core_live.py` | 0 | 0 | 0 | 1 |
 | `tests/frontend/test_core_protocol.py` | 10 | 0 | 0 | 0 |
 | `tests/frontend/test_visual_progress.py` | 5 | 0 | 0 | 0 |
+| `tests/frontend/test_core_queue_tray.py` | 50 | 0 | 0 | 0 |
 
 Final per-file outcomes, unrun coverage and commits will be recorded before
 delivery. Every pytest invocation uses its
