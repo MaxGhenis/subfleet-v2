@@ -96,7 +96,8 @@ def send(sock, op, **args):
     # A connection over the cap may be answered and closed before the request is
     # sent (C-16.7); the answer is still there to read, whichever errno the send met.
     try:
-        sock.sendall((json.dumps({"v": 1, "id": op, "op": op, "args": args}) + "\n").encode())
+        # The op names the request; C-25.7's correlation token has no `.` (`daemon.status`).
+        sock.sendall((json.dumps({"v": 1, "id": op.replace(".", "-"), "op": op, "args": args}) + "\n").encode())
     except OSError as exc:
         if exc.errno not in SEND_MET_CLOSE_ERRNOS:
             raise
@@ -415,11 +416,11 @@ def test_c16_7_shutdown_leaves_no_client_connection_open(serve, monkeypatch):
     wedged = threading.Event()
     real = service._connection
 
-    def connection(conn):
+    def connection(conn, peer):
         if len(service._readers) > 5:           # the last five readers never return
             wedged.wait(10)
             return
-        real(conn)
+        real(conn, peer)
     service._connection = connection
     held = [connect(service) for _ in range(10)]
     until(lambda: counts(service)["connections"] == 10)

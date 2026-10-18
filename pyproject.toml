@@ -36,9 +36,14 @@ include = ["/subfleet", "/README.md", "/pyproject.toml", "/uv.lock"]
 dev = [
     "hypothesis>=6.100",
     "pytest>=8",
+    # CI's per-test bound (.github/workflows/tests.yml); off unless --timeout is given.
+    "pytest-timeout>=2.3",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-markers = ["real_lsof: runs the real process listing retention uses (slow under load)"]
+markers = [
+    "real_lsof: runs the real process listing retention uses (slow under load)",
+    "documented_limitation: asserts a known limitation that a follow-up must deliberately change",
+]

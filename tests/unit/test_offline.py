@@ -62,16 +62,20 @@ def build_store(root: Path, *, pgid=SAME_AS_GUARDIAN,
     stderr.write_text("a warning\n")
     for job_id, state, rc, session in ((JOB, "running", None, "sess-1"),
                                        (DONE, "succeeded", 0, "sess-2")):
+        # A succeeded job names its accepted attempt, as the daemon's and the
+        # importer's acceptance always record it (C-4.3).
         conn.execute(
             "INSERT INTO jobs (job_id, request_id, payload_digest, kind, state, task,"
             " tier, workdir, prompt_path, out_path, sandbox, caller_session, name,"
-            " max_attempts, max_wall_s, created_at, started_at, finished_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " max_attempts, max_wall_s, created_at, started_at, finished_at,"
+            " accepted_attempt_id)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (job_id, f"rq-{job_id}", "sha", "dispatch", state, "build", "standard",
              "/Users/x/repo", str(root / "prompt.md"),
              str(deliverable) if rc == 0 else None, "read-only", session, "demo",
              3, 21600, NOW, NOW,
-             "2026-09-05T12:05:00Z" if rc == 0 else None))
+             "2026-09-05T12:05:00Z" if rc == 0 else None,
+             f"{job_id}/a1" if rc == 0 else None))
         conn.execute(
             "INSERT INTO attempts (attempt_id, job_id, seq, lane_id, model_requested,"
             " model_served, attestation, state, guardian_pid, child_pid, pgid, boot_id,"
@@ -111,6 +115,21 @@ def build_store(root: Path, *, pgid=SAME_AS_GUARDIAN,
 def store(root):
     build_store(root)
     return root
+
+
+@pytest.fixture
+def gone_guardian(store, monkeypatch):
+    """Declare the fixture pid absent even when the host cannot inspect processes."""
+    def absent(pid):
+        assert pid == 999999
+        return ""                      # client.proc_start's confirmed-absence result
+
+    def must_not_signal(*args):
+        pytest.fail("an absent guardian must never be signalled")
+
+    monkeypatch.setattr("subfleet.client.proc_start", absent)
+    monkeypatch.setattr(os, "killpg", must_not_signal)
+    return store
 
 
 # --- reads (C-17.5, C-3.4) ----------------------------------------------------
@@ -209,7 +228,7 @@ def test_offline_kill_refuses_when_identity_cannot_be_verified(root, capsys):
     assert "cannot verify" in captured.err and "C-5.3" in captured.err
 
 
-def test_offline_kill_reports_a_gone_guardian_without_signalling(store, capsys):
+def test_offline_kill_reports_a_gone_guardian_without_signalling(gone_guardian, capsys):
     """C-5.3, C-5.4 a recorded pid that is provably gone is never signalled."""
     assert cli.main(["kill", JOB]) == 0
     captured = capsys.readouterr()
@@ -243,7 +262,7 @@ def test_offline_kill_signals_a_verified_process_group(root, capsys, monkeypatch
     assert "until a daemon reconciles it" in captured.err
 
 
-def test_offline_kill_json_emits_one_object(store, capsys):
+def test_offline_kill_json_emits_one_object(gone_guardian, capsys):
     """C-17.4 `--json` emits JSON only, offline as well."""
     assert cli.main(["kill", JOB, "--json"]) == 0
     payload = json.loads(capsys.readouterr().out.strip())
@@ -464,12 +483,19 @@ def test_offline_kill_will_not_signal_an_attempt_that_already_exited(store, caps
 
 
 def test_a_deliverable_on_disk_is_found_without_its_artifact_row(store, capsys):
-    """C-17.5 a daemon that died before recording the artifact still leaves the file."""
+    """C-17.5 a daemon that died before recording the artifact still leaves the file,
+    and offline metadata names it. C-12.6, C-9.2: finalization writes it before the
+    acceptance that records it, so it is unaccepted evidence (a cut-off turn's
+    interim text, 2026-10-12), never printed as the job's result."""
     directory = store / "jobs" / JOB / "a1"
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "deliverable.md").write_text("# written, never recorded\n")
-    assert cli.main(["runs", "show", JOB, "--out"]) == 0
-    assert capsys.readouterr().out == "# written, never recorded\n"
+    assert cli.main(["runs", "show", JOB, "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["deliverable_path"] == str(directory / "deliverable.md")
+    assert cli.main(["runs", "show", JOB, "--out"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "no deliverable recorded" in captured.err
 
 
 def test_a_corrupt_receipt_is_ignored_not_fatal(store, capsys):

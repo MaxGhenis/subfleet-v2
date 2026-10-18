@@ -41,6 +41,13 @@ from test_daemon_connections import connect, counts, reply, send, serve, until  
 from test_wait_hub import add_job, daemon  # noqa: F401 - daemon: a fixture
 
 
+@pytest.fixture(autouse=True)
+def fixture_process_identity(monkeypatch):
+    """Descriptor and signal seams need stable identities, not host inspection."""
+    monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "descriptor-fixture-boot")
+    monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "descriptor-fixture-start")
+
+
 @pytest.fixture
 def isolated_dumps():
     """C-3.6 state a test leaves behind stays with it: a daemon whose lock could not

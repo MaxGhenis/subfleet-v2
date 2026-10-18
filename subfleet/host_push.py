@@ -10,6 +10,7 @@ link, and Git only ever reads the daemon's own copy of it.
 from __future__ import annotations
 
 import configparser
+import ctypes
 import errno
 import fnmatch
 import os
@@ -26,9 +27,10 @@ import unicodedata
 from contextlib import contextmanager
 from urllib.parse import urlsplit
 
-from . import folders, retention_fs as rfs
+from . import folders, refusals, retention_fs as rfs
 from .adapters.base import AdapterError
-from .policy import push_settings
+from .home_paths import home_path, under_pytest
+from .policy import DISK_DEFAULTS, push_settings
 
 TIMEOUT_S = 60
 #: Review P3-4: one deadline for every Git call that reads a job's bundle,
@@ -55,8 +57,17 @@ DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 FILE_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 #: Review r2 P3: the most of each checkout metadata file submit reads.
 POINTER_CAP = 64 * 1024           # a gitfile, `commondir`, `HEAD`, a loose ref
-CONFIG_CAP = 4 * 1024 * 1024      # `config`, `config.worktree`
+#: Round-4 P3-3: a local survey of 790 configs found a 3,118-byte p95 and a
+#: 143,067-byte maximum. 256 KiB covers every surveyed repo, with headroom,
+#: while bounding configparser's many-section cost to 1/16 of the old cap.
+CONFIG_CAP = 256 * 1024          # `config`, `config.worktree`
 PACKED_REFS_CAP = 64 * 1024 * 1024
+#: Object intake gets two fifths of C-6.17's default 1.5 GB placement reserve:
+#: budget another two fifths for a similarly-sized Git clone object store,
+#: leaving nominal checkout headroom. Git's generated store can differ in
+#: size. This caps source-object intake, including APFS snapshots;
+#: changing disk policy does not remove this intake limit.
+OBJECT_COPY_CAP = int(DISK_DEFAULTS["placement_reserve_gb"] * 1_000_000_000 * 2 / 5)
 #: Review P2-2: names Git or a clone could read as something other than a branch.
 RESERVED_PREFIXES = ("refs/", "heads/", "remotes/")
 SAFE_CONFIG = ("-c", "core.hooksPath=" + os.devnull, "-c", "core.fsmonitor=false", "-c", "gc.auto=0",
@@ -66,7 +77,10 @@ SAFE_CONFIG = ("-c", "core.hooksPath=" + os.devnull, "-c", "core.fsmonitor=false
 
 
 class PushError(ValueError):
-    pass
+    def __init__(self, message: str, *, kind: str | None = None, errno_name: str | None = None):
+        super().__init__(message)
+        self.kind = kind
+        self.errno_name = errno_name
 
 
 class Deadline:
@@ -166,12 +180,15 @@ def _read_metadata(path: Path, cap: int, *, optional: bool = False) -> str | Non
     except (FileNotFoundError, NotADirectoryError):
         if optional:
             return None
-        raise PushError(f"checkout metadata {str(path)!r} is missing") from None
+        raise PushError(f"checkout metadata {str(path)!r} is missing", kind="metadata-missing") from None
     except OSError as exc:
         why = {errno.ELOOP: "is a symlink", errno.EFBIG: f"is larger than {cap} bytes",
                errno.EINVAL: "is not a regular file"}.get(
             exc.errno, f"cannot be read ({errno.errorcode.get(exc.errno, exc.errno)})")
-        raise PushError(f"checkout metadata {str(path)!r} {why}") from None
+        kind = {errno.ELOOP: "metadata-symlink", errno.EFBIG: "metadata-large",
+                errno.EINVAL: "metadata-special"}.get(exc.errno, "metadata-unreadable")
+        raise PushError(f"checkout metadata {str(path)!r} {why}", kind=kind,
+                        errno_name=errno.errorcode.get(exc.errno)) from None
     return data.decode("utf-8")
 
 
@@ -189,7 +206,7 @@ def _resolve(path: Path) -> Path:
     try:
         return path.resolve()
     except RuntimeError:
-        raise PushError(f"checkout metadata {str(path)!r} is a symlink loop") from None
+        raise PushError(f"checkout metadata {str(path)!r} is a symlink loop", kind="metadata-symlink") from None
 
 
 def _git_directories(workdir: Path) -> tuple[Path, Path, Path]:
@@ -202,15 +219,16 @@ def _git_directories(workdir: Path) -> tuple[Path, Path, Path]:
             continue
         break
     else:
-        raise PushError("push requires a committed Git checkout with an origin")
+        raise PushError("push requires a committed Git checkout with an origin", kind="checkout-missing")
     gitdir = top / ".git"
     if stat.S_ISREG(info.st_mode):
         text = _read_metadata(gitdir, POINTER_CAP).strip()
         if not text.startswith("gitdir: "):
-            raise PushError("invalid checkout gitdir")
+            raise PushError("invalid checkout gitdir", kind="gitdir-invalid")
         gitdir = _resolve(top / text[8:])
     elif not stat.S_ISDIR(info.st_mode):
-        raise PushError(f"{str(gitdir)!r} must be a directory or a gitdir file, not a symlink or special file")
+        raise PushError(f"{str(gitdir)!r} must be a directory or a gitdir file, not a symlink or special file",
+                        kind="gitdir-invalid")
     common = gitdir
     pointer = _read_metadata(gitdir / "commondir", POINTER_CAP, optional=True)
     if pointer is not None:
@@ -218,19 +236,42 @@ def _git_directories(workdir: Path) -> tuple[Path, Path, Path]:
     return top, gitdir, common
 
 
-def checkout_metadata(workdir: Path) -> tuple[str, str, str | None, Path]:
+class _MetadataLook:
+    """One checkout look: resolve directories once and parse each config once.
+
+    Submit and workspace validation need both origin/HEAD and object-store
+    checks. Sharing this snapshot keeps a large config from being parsed by
+    both checks, and keeps one look's origin and clone flags consistent. No
+    cache survives the look: the next admission or launch reads fresh files.
+    """
+
+    def __init__(self, workdir: Path):
+        self.top, self.gitdir, self.common = _git_directories(workdir)
+        self._configs: tuple[configparser.RawConfigParser, ...] | None = None
+
+    @property
+    def configs(self) -> tuple[configparser.RawConfigParser, ...]:
+        if self._configs is None:
+            configs = [_config(_read_metadata(self.common / "config", CONFIG_CAP))]
+            if _git_true(configs[0].get("extensions", "worktreeconfig", fallback="false")):
+                text = _read_metadata(self.gitdir / "config.worktree", CONFIG_CAP, optional=True)
+                if text is not None:
+                    configs.append(_config(text))
+            self._configs = tuple(configs)
+        return self._configs
+
+
+def checkout_metadata(workdir: Path, *, _look: _MetadataLook | None = None) -> tuple[str, str, str | None, Path]:
     """Host snapshot at submit, supporting linked worktrees and packed refs."""
-    top, gitdir, common = _git_directories(workdir)
-    config = _config(_read_metadata(common / "config", CONFIG_CAP))
-    remote = config.get('remote "origin"', "url", fallback=None)
-    if (config.get("extensions", "worktreeconfig", fallback="false") or "true").lower() == "true":
-        text = _read_metadata(gitdir / "config.worktree", CONFIG_CAP, optional=True)
-        if text is not None:
-            remote = _config(text).get('remote "origin"', "url", fallback=remote)
+    look = _look or _MetadataLook(workdir)
+    top, gitdir, common = look.top, look.gitdir, look.common
+    remote = None
+    for config in look.configs:
+        remote = config.get('remote "origin"', "url", fallback=remote)
     if remote and remote.startswith('"') and remote.endswith('"'):
         remote = remote[1:-1]
     if not remote:
-        raise PushError("push requires a checkout with an origin URL in its local config")
+        raise PushError("push requires a checkout with an origin URL in its local config", kind="origin-missing")
 
     def read_ref(value: str) -> str:
         for _ in range(8):
@@ -252,7 +293,7 @@ def checkout_metadata(workdir: Path) -> tuple[str, str, str | None, Path]:
                     if line.endswith(" " + ref) and SHA.fullmatch(line.split(" ", 1)[0]):
                         return line.split(" ", 1)[0]
             break
-        raise PushError("push requires a checkout HEAD naming a committed baseline")
+        raise PushError("push requires a checkout HEAD naming a committed baseline", kind="baseline-missing")
 
     head = _read_metadata(gitdir / "HEAD", POINTER_CAP).strip()
     branch = head.removeprefix("ref: refs/heads/") if head.startswith("ref: refs/heads/") else None
@@ -272,7 +313,7 @@ def _git_true(value: str | None) -> bool:
         return False
 
 
-def check_object_store(workdir: Path, *, in_place: bool) -> None:
+def check_object_store(workdir: Path, *, in_place: bool, _look: _MetadataLook | None = None) -> None:
     """Fix round 3: a checkout whose own objects cannot make a full history.
 
     Read as data, as `checkout_metadata` reads: `shallow` with lstat, the
@@ -285,7 +326,8 @@ def check_object_store(workdir: Path, *, in_place: bool) -> None:
     own objects, as data. In place, the job's own Git builds the bundle and
     reads those objects itself, so only a shallow checkout is refused there.
     """
-    _, gitdir, common = _git_directories(workdir)
+    look = _look or _MetadataLook(workdir)
+    common = look.common
     shallow = common / "shallow"
     try:
         info = os.lstat(shallow)
@@ -293,7 +335,7 @@ def check_object_store(workdir: Path, *, in_place: bool) -> None:
         info = None
     if info is not None and (not stat.S_ISREG(info.st_mode) or info.st_size):
         raise PushError("push requires a full clone: the checkout is shallow; "
-                        "run git fetch --unshallow there, or push it yourself")
+                        "run git fetch --unshallow there, or push it yourself", kind="shallow")
     if in_place:
         return
     alternates = _read_metadata(common / "objects/info/alternates", POINTER_CAP, optional=True)
@@ -301,12 +343,8 @@ def check_object_store(workdir: Path, *, in_place: bool) -> None:
                                       for line in alternates.splitlines()):
         raise PushError("push requires a checkout that holds its own objects: this one borrows them "
                         "through objects/info/alternates (git clone --shared or --reference); "
-                        "run git repack -a -d and remove that file, or pass --in-place")
-    configs = [_config(_read_metadata(common / "config", CONFIG_CAP))]
-    if _git_true(configs[0].get("extensions", "worktreeconfig", fallback="false")):
-        text = _read_metadata(gitdir / "config.worktree", CONFIG_CAP, optional=True)
-        if text is not None:
-            configs.append(_config(text))
+                        "run git repack -a -d and remove that file, or pass --in-place", kind="alternates")
+    configs = look.configs
     # Section names compare in any case, as Git reads them; keys are lowercased.
     promisor = any(
         (section.lower() == "extensions" and config.has_option(section, "partialclone"))
@@ -315,13 +353,17 @@ def check_object_store(workdir: Path, *, in_place: bool) -> None:
         for config in configs for section in config.sections())
     if promisor:
         raise PushError("push requires a full clone: this one is a partial clone whose missing objects "
-                        "its promisor remote supplies; clone it without --filter, or pass --in-place")
+                        "its promisor remote supplies; clone it without --filter, or pass --in-place", kind="partial")
 
 
 def _environment() -> dict[str, str]:
     # Only the host process's identity/credential locations survive. No lane
     # launch environment, GIT_* overrides, askpass, proxy, or Python variables.
     env = {key: os.environ[key] for key in ("PATH", "HOME", "XDG_CONFIG_HOME", "SSH_AUTH_SOCK") if key in os.environ}
+    if under_pytest():
+        home, xdg = _credential_paths()
+        env.update(HOME=str(home), XDG_CONFIG_HOME=str(xdg))
+        env.pop("SSH_AUTH_SOCK", None)
     env.update(LC_ALL="C", GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
                GIT_TERMINAL_PROMPT="0", GIT_NO_REPLACE_OBJECTS="1")
     return env
@@ -332,13 +374,33 @@ def validate_write_location(workdir: Path) -> None:
     Fix round 3: it raises only AdapterError, whatever the checkout holds, so
     no workspace stops the admission pass at its job."""
     try:
-        _, _, current, _ = checkout_metadata(workdir)
+        look = _MetadataLook(workdir)
+        _, _, current, _ = checkout_metadata(workdir, _look=look)
         if current in {"main", "master"}:
-            raise PushError("writable in-place jobs require a feature branch")
-        check_object_store(workdir, in_place=True)
+            raise PushError("writable in-place jobs require a feature branch", kind="protected-branch")
+        check_object_store(workdir, in_place=True, _look=look)
     except Exception as exc:  # noqa: BLE001 - every refusal is this job's, never the pass's
         raise AdapterError(f"workspace refused: {_reason(exc)}", code=7,
-                           fix="choose a committed feature branch in a full clone") from exc
+                           fix="choose a committed feature branch in a full clone", reason="push-location",
+                           details=_refusal_details(exc)) from exc
+
+
+def _refusal_details(exc: BaseException) -> dict:
+    """Select checked context from the check's kind, never its exception text."""
+    kind = exc.kind if isinstance(exc, PushError) else None
+    if isinstance(exc, UnicodeDecodeError):
+        kind = "config-utf8"
+    elif isinstance(exc, configparser.MissingSectionHeaderError):
+        kind = "config-header"
+    elif isinstance(exc, configparser.Error):
+        kind = "config-invalid"
+    if type(kind) is not str or kind not in refusals.CHECKOUT_REFUSALS:
+        return {}
+    message, fix = refusals.CHECKOUT_REFUSALS[kind]
+    details = {"checkout_problem": message, "checkout_fix": fix}
+    if isinstance(exc, PushError) and refusals.checked("errno_name", exc.errno_name):
+        details["errno_name"] = exc.errno_name
+    return details
 
 
 def _reason(exc: BaseException) -> str:
@@ -468,10 +530,19 @@ class _Blobs:
             self.size = None
 
 
+def _credential_paths() -> tuple[Path, Path]:
+    """Separate test credential locations from removable HOME/XDG patches."""
+    home = Path(home_path("SUBFLEET_HOST_HOME", lambda: os.environ.get("HOME", "/nonexistent"),
+                          test_only=True))
+    xdg = Path(home_path("SUBFLEET_HOST_CONFIG",
+                         lambda: os.environ.get("XDG_CONFIG_HOME", str(home / ".config")),
+                         test_only=True))
+    return home, xdg
+
+
 def host_credentials(repo: Path) -> tuple[str, ...]:
     """Read direct host credential settings only, ignoring global includes."""
-    home = Path(os.environ.get("HOME", "/nonexistent"))
-    xdg = Path(os.environ.get("XDG_CONFIG_HOME", str(home / ".config")))
+    home, xdg = _credential_paths()
     settings = []
     for path in (xdg / "git/config", home / ".gitconfig"):
         if not path.is_file():
@@ -483,6 +554,25 @@ def host_credentials(repo: Path) -> tuple[str, ...]:
             if sep and name.startswith("credential.") and name.rsplit(".", 1)[-1] in {"helper", "usehttppath"}:
                 settings.extend(("-c", name + "=" + value.decode("utf-8", "strict")))
     return tuple(settings)
+
+
+def clear_quarantine(root: Path) -> None:
+    """Discard interrupted intakes while the new daemon exclusively owns its lock.
+
+    Run only at daemon startup, before any intake or workspace preparation can
+    start. A link is unlinked rather than followed; rmtree likewise leaves the
+    targets of links inside the daemon-owned tree untouched. A deletion failure
+    prevents startup, so abandoned data cannot quietly persist across retries.
+    """
+    parent = root / "push-quarantine"
+    try:
+        entry = parent.lstat()
+    except FileNotFoundError:
+        return
+    if stat.S_ISDIR(entry.st_mode):
+        shutil.rmtree(parent)
+    else:
+        parent.unlink()
 
 
 @contextmanager
@@ -517,8 +607,9 @@ def validate_submit(workdir: Path, branch: str, policy: dict, root: Path, *, in_
         if not settings["enabled"]:
             raise PushError("host push is disabled by policy push.enabled")
         check_branch(branch, settings)
-        remote, head, current, top = checkout_metadata(workdir)
-        check_object_store(workdir, in_place=in_place)
+        look = _MetadataLook(workdir)
+        remote, head, current, top = checkout_metadata(workdir, _look=look)
+        check_object_store(workdir, in_place=in_place, _look=look)
         check_policy(branch, remote, policy)
         with quarantine(root, head) as (repo, credentials):
             default, refs = remote_refs(repo, remote, credentials)
@@ -529,7 +620,8 @@ def validate_submit(workdir: Path, branch: str, policy: dict, root: Path, *, in_
         return remote, head, default, current, top
     except (ValueError, OSError, configparser.Error) as exc:
         raise AdapterError(f"host push refused: {exc}", code=7,
-                           fix="omit --push-branch, or choose an unprotected branch in an allowed origin after the hub enables push policy") from exc
+                           fix="omit --push-branch, or choose an unprotected branch in an allowed origin after the hub enables push policy",
+                           reason="push-refused") from exc
 
 
 def _open_directory(root: Path) -> int:
@@ -791,7 +883,7 @@ def prepare_workspace(root: Path, source: Path, base: str, destination: Path) ->
     `git worktree add` in the caller's repo would execute its config/hooks.
     A standalone checkout also keeps its later config edits away from the host.
 
-    Fix round 3: admission calls this for one job of a pass, so it raises only
+    Fix rounds 3–4: the push thread builds this before admission, raising only
     AdapterError (the checkout or Git refused: the job fails, exit 7, with a
     notice) or OSError (the host's own trouble, Git that could not start
     included: C-6.8's workspace wait). Anything else had stopped the detached
@@ -814,15 +906,76 @@ def prepare_workspace(root: Path, source: Path, base: str, destination: Path) ->
 def _workspace_refused(exc: BaseException) -> AdapterError:
     return AdapterError(f"host push workspace refused: {_reason(exc)}", code=7,
                         fix="resubmit from a full clone whose origin and HEAD still name the commit "
-                            "to start from, or omit --push-branch")
+                            "to start from, or omit --push-branch", reason="push-checkout",
+                        details=_refusal_details(exc))
+
+
+def _clone_object(source_fd: int, target: Path) -> bool:
+    """Clone the held source inode on APFS; unsupported volumes use a copy.
+
+    A hardlink would let a source writer edit the host's validated objects.
+    `fclonefileat` instead gives an independent copy-on-write snapshot, without
+    reopening any job-controlled pathname. retention_fs owns the native API.
+    """
+    native = rfs._fclonefileat
+    if native is None:
+        return False
+    target_fd = os.open(target.parent, DIRECTORY_FLAGS)
+    try:
+        if native(source_fd, target_fd, os.fsencode(target.name), rfs.CLONE_NOFOLLOW) == 0:
+            return True
+        code = ctypes.get_errno()
+        if code in {errno.ENOTSUP, errno.EOPNOTSUPP, errno.EXDEV, errno.ENOSYS, errno.EINVAL}:
+            return False
+        raise OSError(code, os.strerror(code), str(target))
+    finally:
+        os.close(target_fd)
+
+
+def _copy_object(source_fd: int, target: Path, remaining: int) -> int:
+    """Copy one regular, non-sparse object without ever writing past budget.
+
+    Stat the held inode before reading it, bound every fallback read to that
+    size, and reject a changed source. A source growing after the first stat
+    therefore cannot turn a small object into an unbounded byte copy.
+    """
+    before = os.fstat(source_fd)
+    if not stat.S_ISREG(before.st_mode):
+        raise PushError("baseline object is not a regular file", kind="object-special")
+    if before.st_blocks * 512 < before.st_size:
+        raise PushError("baseline object is sparse", kind="sparse")
+    if before.st_size > remaining:
+        raise PushError(f"baseline object copy exceeds {OBJECT_COPY_CAP} bytes", kind="object-budget")
+    if _clone_object(source_fd, target):
+        copied = target.stat().st_size
+        if copied > remaining:
+            # A source can grow during the atomic clone. It allocated no data
+            # blocks, and the oversized snapshot never survives this refusal.
+            target.unlink()
+            raise PushError(f"baseline object copy exceeds {OBJECT_COPY_CAP} bytes", kind="object-budget")
+    else:
+        copied = 0
+        with target.open("xb") as output:
+            while copied < before.st_size:
+                chunk = os.pread(source_fd, min(1 << 16, before.st_size - copied), copied)
+                if not chunk:
+                    break
+                output.write(chunk)
+                copied += len(chunk)
+    if (copied != before.st_size
+            or not rfs.same_content_signature(before, os.fstat(source_fd))):
+        raise PushError("baseline object changed while copying", kind="object-changed")
+    return copied
 
 
 def _prepare_workspace(root: Path, source: Path, base: str, destination: Path) -> None:
-    checkout_metadata(source)
-    check_object_store(source, in_place=False)
-    _, _, gitdir = _git_directories(source)
+    look = _MetadataLook(source)
+    checkout_metadata(source, _look=look)
+    check_object_store(source, in_place=False, _look=look)
+    gitdir = look.common
     with quarantine(root, base) as (repo, _):
         objects = gitdir / "objects"
+        copied_bytes = 0
         for folder in objects.iterdir():
             if folder.is_symlink() or not folder.is_dir():
                 continue
@@ -834,12 +987,11 @@ def _prepare_workspace(root: Path, source: Path, base: str, destination: Path) -
                     continue
                 target = repo / "objects" / folder.name / item.name
                 target.parent.mkdir(exist_ok=True)
-                fd = os.open(item, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-                with os.fdopen(fd, "rb") as data:
-                    if not stat.S_ISREG(os.fstat(data.fileno()).st_mode):
-                        raise PushError("baseline object is not a regular file")
-                    with target.open("xb") as output:
-                        shutil.copyfileobj(data, output)
+                fd = os.open(item, FILE_FLAGS)
+                try:
+                    copied_bytes += _copy_object(fd, target, OBJECT_COPY_CAP - copied_bytes)
+                finally:
+                    os.close(fd)
         git(repo, "cat-file", "-e", base + "^{commit}")
         git(repo, "fsck", "--strict", "--no-reflogs", base)
         git(repo, "update-ref", "refs/heads/work", base)
