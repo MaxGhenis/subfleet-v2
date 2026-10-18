@@ -23,6 +23,7 @@ import errno
 import fcntl
 import functools
 import json
+import math
 import os
 import re
 import signal
@@ -35,9 +36,10 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from ..sessions import transcripts
+from ..home_paths import codex_app_home as default_codex_app_home
 from ..state_files import open_state
 from .redact import scrub
-from .store import canonical_native
+from .store import PROVIDERS, canonical_native
 
 WALL_S = 20.0
 #: A run's exit status when it stopped publishing because its owner is gone (`Owner`):
@@ -71,8 +73,11 @@ def map_permission(mode: str | None) -> str:
 
 #: The shape of a Claude record in `catalog-cache.json`; a cached record of another
 #: version is read again. 2: the record carries `workspace` (`_workspace`), which
-#: discovery and opening share (review of 3c1a34e, finding 7).
-CLAUDE_RECORD_VERSION = 2
+#: discovery and opening share (review of 3c1a34e, finding 7). 3: `headless` is
+#: read from the writer's `entrypoint` (C-23.31, 2026-10-03); a cached record of
+#: an unchanged transcript kept the prompt rule's verdict, which hid desktop
+#: sessions one or two messages started.
+CLAUDE_RECORD_VERSION = 3
 
 
 def _claude_record(path: Path, opener=transcripts.open_regular) -> dict:
@@ -170,6 +175,7 @@ def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None,
         cache = {}
     started, complete, fresh = clock(), True, {}
     items: list[dict] = []
+    native_records: dict[str, dict] = {}
     # The run is its own process, capped at `wall_s` and stopped by its service after
     # 60 s (C-30.1), so it opens sessions plainly: a FIFO among them holds this run,
     # never the daemon. Readers in the daemon default to `transcripts.open_regular`.
@@ -205,6 +211,9 @@ def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None,
             complete = False
             continue
         sid = path.stem
+        if record and str(path) in fresh:
+            native_records[f"claude:{canonical_native(sid)}"] = {"path": str(path), "mtime": fresh[str(path)]["mtime"],
+                                                                "size": fresh[str(path)]["size"]}
         if record.get("headless") or sid in known_attempts or not record:
             continue
         cwd = record.get("workspace") or ""
@@ -215,9 +224,10 @@ def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None,
                       "mtime": fresh[str(path)]["mtime"], "continuable": blocker is None,
                       "continue_blocker": blocker, "archived": False})
     # Codex
-    names = _codex_names(codex_app_home or Path.home() / ".codex", opener=open)
+    app_home = codex_app_home or default_codex_app_home()
+    names = _codex_names(app_home, opener=open)
     homes = [(Path(row["home"]), row["lane_id"]) for row in lanes if row.get("provider") == "codex" and row.get("home")]
-    homes.append((codex_app_home or Path.home() / ".codex", None))
+    homes.append((app_home, None))
     for home, lane_id in homes:
         for sub, archived in (("sessions", False), ("archived_sessions", True)):
             base = home / sub
@@ -228,6 +238,9 @@ def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None,
                 if record is None:
                     complete = False
                     continue
+                if record.get("id") and str(path) in fresh:
+                    native_records[f"codex:{record['id']}"] = {"path": str(path), "mtime": fresh[str(path)]["mtime"],
+                                                             "size": fresh[str(path)]["size"]}
                 if not record or record.get("excluded") or not record.get("id") or record["id"] in known_attempts:
                     continue
                 items.append({"provider": "codex", "native_session_id": record["id"], "path": str(path),
@@ -244,7 +257,8 @@ def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None,
     items.sort(key=lambda i: i["mtime"], reverse=True)
     # Every live session, listed or not: a conversation born in Subfleet and
     # resumed in a terminal is no catalog item but is still held (C-26.3).
-    catalog = {"generated_at": _utc(), "complete": complete, "items": items, "live_claude": sorted(live)}
+    catalog = {"generated_at": _utc(), "complete": complete, "items": items, "live_claude": sorted(live),
+               "native_records": native_records}
     for path, value in ((root / "catalog.json", catalog), (cache_path, fresh if complete else {**cache, **fresh})):
         if may_write is not None and not may_write():
             break
@@ -472,6 +486,17 @@ def _load(path: Path) -> tuple[dict, str]:
     return catalog, state
 
 
+def transcript_record(root: Path, provider: str, session_id: str | None) -> dict | None:
+    """The catalog's exact path; no native-store discovery in the daemon."""
+    catalog, _ = _load(Path(root) / "catalog.json")
+    record = catalog.get("native_records", {}).get(f"{provider}:{canonical_native(session_id)}")
+    if record:
+        return record
+    # Catalogs from older daemons still resolve imported sessions.
+    return next((i for i in catalog.get("items", []) if i.get("provider") == provider
+                 and canonical_native(i.get("native_session_id")) == canonical_native(session_id)), None)
+
+
 def read_catalog(root: Path, *, query: str | None = None, exclude: set | None = None, limit: int = 200,
                  before: str | None = None, include_archived: bool = False, stale_after_s: float | None = None,
                  now: datetime | None = None) -> dict:
@@ -529,6 +554,30 @@ def read_catalog(root: Path, *, query: str | None = None, exclude: set | None = 
             "live_elsewhere": live}
 
 
+def activity_times(root: Path) -> dict[tuple[str, str], float]:
+    """Every bound session's latest indexed transcript mtime (C-30.1, D-23).
+
+    Read the cached catalog without pagination or freshness filtering: an old
+    transcript mtime remains evidence of activity, even when process liveness
+    has expired. Never stat a transcript or walk the provider's projects here.
+    """
+    catalog, _ = _load(Path(root) / "catalog.json")
+    times = {}
+    latest = min(time.time(), 253402300799)
+    items = catalog.get("items")
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict) or item.get("provider") not in PROVIDERS:
+            continue
+        native, mtime = item.get("native_session_id"), item.get("mtime")
+        if not isinstance(native, str) or not native or not isinstance(mtime, (int, float)) or isinstance(mtime, bool):
+            continue
+        if not 0 <= mtime <= latest or not math.isfinite(mtime):
+            continue
+        key = (item["provider"], canonical_native(native))
+        times[key] = max(times.get(key, 0), mtime)
+    return times
+
+
 def refresh_running(root: Path) -> bool | None:
     """Whether a catalog run holds the lock now; None when the lock cannot be read.
     A non-blocking probe: it never waits for a run. It takes the lock shared, so
@@ -578,14 +627,14 @@ def native_session(provider: str, session_id: str, *, home: str | None, root: Pa
             return None
         return claude_session(path)
     homes =[(Path(r["home"]), r["lane_id"]) for r in lanes if r.get("provider") == "codex" and r.get("home")]
-    for base, lane_id in homes + [(Path(home) if home else Path.home() / ".codex", None)]:
+    for base, lane_id in homes + [(Path(home) if home else default_codex_app_home(), None)]:
         matches = list((base / "sessions").rglob(f"rollout-*{session_id}.jsonl")) if (base / "sessions").is_dir() else []
         if len(matches) != 1:
             continue
         record = _codex_record(matches[0])
         if lane_id is None:
             return {"continuable": False, "continue_blocker": "codex-app thread: continue by handoff"}
-        return {"cwd": record.get("cwd"), "title": _codex_names(Path.home() / ".codex", only=session_id).get(session_id)
+        return {"cwd": record.get("cwd"), "title": _codex_names(default_codex_app_home(), only=session_id).get(session_id)
                 or record.get("first_prompt"), "model_value": record.get("model") or "",
                 "permission": "read-only", "continuable": True, "lane_id": lane_id}
     return None

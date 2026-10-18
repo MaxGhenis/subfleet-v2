@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import uuid
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from hypothesis import assume, given, settings, strategies as st
 
 from subfleet.adapters import codex as codex_module
 from subfleet.adapters.base import AdapterError
@@ -22,8 +24,9 @@ from subfleet.contracts import (
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "codex"
 REQUIRED_CASES = (
     "success", "limit-with-clock", "limit-no-clock", "credits-rejection",
-    "auth-401", "refresh-token-revoked", "cli-too-old", "content-filter",
-    "stream-disconnect", "model-at-capacity", "spawn-fail", "model-scoped-limit",
+    "auth-401", "refresh-token-revoked", "cli-too-old", "content-filter", "content-cyber-flag",
+    "stream-disconnect", "model-at-capacity", "model-at-capacity-sol", "spawn-fail", "model-scoped-limit",
+    "cut-off-item-completed", "cut-off-item-started", "cut-off-error",
 )
 NOW = datetime(2026, 9, 5, 12, 0, tzinfo=UTC)
 THREAD = "01991c18-2680-7000-8000-000000000001"
@@ -85,6 +88,8 @@ def test_classifies_fixture_corpus(case):
     rc = int((directory / "rc").read_text())
     outcome = CodexAdapter(now=lambda: NOW).classify(directory, launch, _exit(rc))
     assert outcome.cls.value == expected["class"]
+    # C-9.5, D-CAP1: only the provider refusing the model for capacity is marked so.
+    assert outcome.evidence.get("model_capacity", False) is expected.get("model_capacity", False)
     assert outcome.native_session_id == expected["native_session_id"]
     assert (outcome.closure is not None) == expected["closure"]
     assert outcome.evidence["rc"] == rc
@@ -295,6 +300,8 @@ def test_transient_failures_do_not_close_lane(tmp_path, message):
 @pytest.mark.parametrize("message", [
     "content filter blocked this request", "trusted access is required",
     "I can't help with that request", "I can’t assist with that request",
+    "This content was flagged for possible cybersecurity risk. If this seems wrong, try rephrasing your request.",
+    "apply for Daybreak access via https://platform.openai.com/settings/organization/status-and-access",
 ])
 def test_content_filter_variants_are_not_transient(tmp_path, message):
     """C-9.2 C-4.5 v1 content-filter refusals are classified for reconciliation, not retry."""
@@ -302,6 +309,272 @@ def test_content_filter_variants_are_not_transient(tmp_path, message):
     outcome = CodexAdapter().classify(tmp_path, launch, _exit())
     assert outcome.cls == OutcomeClass.CONTENT_FILTER
     assert outcome.closure is None
+
+
+CYBER_FLAGS = (
+    "This content was flagged for possible cybersecurity risk.",
+    "If you're doing authorized security work, apply for Daybreak access before retrying.",
+    "This request was flagged for possible cyber risk",
+)
+SURROUNDING = st.text(alphabet=st.characters(categories=("Ll", "Lu", "Nd", "Zs", "Po")), max_size=60)
+CASES = st.sampled_from((str, str.lower, str.upper))
+
+
+@pytest.mark.parametrize("line", [
+    "Error loading config /Users/someone/daybreak access/config.toml: permission denied",
+    "warning: cache entry flagged for possible disk risk; rebuilding",
+    "note: request flagged for possible latency risk, retrying transport",
+])
+def test_cli_diagnostics_naming_those_words_are_not_refusals(tmp_path, line):
+    """C-9.2: the new refusal phrases need their refusal context; a diagnostic that only shares
+    words with them is not a content-filter refusal (review of #160, P2)."""
+    outcome = CodexAdapter().classify(tmp_path, _events(tmp_path, stderr=line + "\n"), _exit())
+    assert outcome.cls != OutcomeClass.CONTENT_FILTER
+
+
+def test_a_content_filter_refusal_asks_for_a_reworded_prompt(tmp_path):
+    """C-4.5 invariant 39: the outcome detail, which the caller's notice carries, says to reword."""
+    launch = _events(tmp_path, {"type": "turn.failed", "error": {"message": CYBER_FLAGS[0]}})
+    outcome = CodexAdapter().classify(tmp_path, launch, _exit())
+    assert outcome.cls == OutcomeClass.CONTENT_FILTER
+    assert "reword" in outcome.detail and "not retried" in outcome.detail
+
+
+@settings(deadline=None)  # each example writes and reads files; the deadline measured load, not the property
+@given(flag=st.sampled_from(CYBER_FLAGS), case=CASES, before=SURROUNDING, after=SURROUNDING,
+       as_event=st.booleans())
+def test_cyber_flag_anywhere_in_a_failed_turn_is_content_filter(flag, case, before, after, as_event):
+    """C-9.2 C-4.5 invariant: the provider's cyber flag, in any case and any surrounding text, in a
+    turn.failed or on stderr, is `content-filter` with no closure. Authentication and an old CLI
+    still come first (C-9.2 precedence), so messages matching those are set aside."""
+    message = before + case(flag) + after
+    failed = {"type": "turn.failed", "error": {"message": message}}
+    # The classifier reads a failure event as its JSON text and stderr line by line; set aside
+    # exactly what it would read as authentication or an old CLI, which C-9.2 ranks first.
+    signal = json.dumps(failed, ensure_ascii=False) if as_event else message
+    assume(not codex_module.AUTH_RE.search(signal) and not codex_module.OLD_CLI_RE.search(signal))
+    with tempfile.TemporaryDirectory() as directory:
+        attempt = Path(directory)
+        if as_event:
+            launch = _events(attempt, {"type": "thread.started", "thread_id": THREAD}, failed)
+        else:
+            launch = _events(attempt, stderr=message + "\n")
+        outcome = CodexAdapter().classify(attempt, launch, _exit(1))
+    assert outcome.cls == OutcomeClass.CONTENT_FILTER
+    assert outcome.closure is None
+
+
+@settings(deadline=None)
+@given(flag=st.sampled_from(CYBER_FLAGS), case=CASES, before=SURROUNDING, after=SURROUNDING)
+def test_cyber_flag_in_a_completed_answer_is_not_a_refusal(flag, case, before, after):
+    """C-9.2 C-12.6 invariant: the model quoting the flag in its own answer on a completed turn
+    is a successful deliverable, never a refusal."""
+    text = "Report: " + before + case(flag) + after
+    with tempfile.TemporaryDirectory() as directory:
+        attempt = Path(directory)
+        launch = _events(attempt, {"type": "thread.started", "thread_id": THREAD},
+                         {"type": "item.completed", "item": {"type": "agent_message", "text": text}},
+                         {"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 15}})
+        outcome = CodexAdapter().classify(attempt, launch, _exit(0))
+    assert outcome.cls == OutcomeClass.OK
+
+
+# --- the provider refusing the model for capacity (C-9.5, D-CAP1) ------------------------------
+#: Codex's wording on gpt-6.1-sol, 84 attempts from 2026-10-01 to 2026-10-13, each as an `error`
+#: event and then the `turn.failed` that ended the turn (tests/fixtures/codex/model-at-capacity-sol).
+CAPACITY = "Selected model is at capacity. Please try a different model."
+RECONNECT_503 = ("Reconnecting... 2/5 (unexpected status 503 Service Unavailable: An error occurred while "
+                 "processing your request. You can retry your request, or contact us through our help center "
+                 "at help.openai.com if the error persists.)")
+
+
+@pytest.mark.parametrize("where", ["turn.failed", "error", "stderr", "incident"])
+@pytest.mark.parametrize("rc", [0, 1])
+def test_c9_5_a_model_at_capacity_refusal_is_transient_and_marked(tmp_path, where, rc):
+    """C-9.5, D-CAP1: the refusal, from a `turn.failed`, an `error` event or stderr, or in the
+    incident's order (a recovered 503 reconnect, then the refusal), is `transient` with no closure
+    and records `model_capacity`; the refusal, not the earlier reconnect, answers admission."""
+    failed = {"type": "turn.failed", "error": {"message": CAPACITY}}
+    error = {"type": "error", "message": CAPACITY}
+    events = {"turn.failed": (failed,), "error": (error,), "stderr": (),
+              "incident": ({"type": "error", "message": RECONNECT_503}, error, failed)}[where]
+    launch = _events(tmp_path, {"type": "thread.started", "thread_id": THREAD}, {"type": "turn.started"},
+                     {"type": "item.completed", "item": {"type": "agent_message", "text": "Working on it."}},
+                     *events, stderr="Reading prompt from stdin...\n" + (f"ERROR: {CAPACITY}\n" if where == "stderr" else ""))
+    outcome = CodexAdapter(now=lambda: NOW).classify(tmp_path, launch, _exit(rc))
+    assert outcome.cls == OutcomeClass.TRANSIENT
+    assert outcome.closure is None
+    assert outcome.evidence["model_capacity"] is True
+    assert outcome.evidence["model_answered"] is True
+    assert outcome.native_session_id == THREAD
+    admission = outcome.evidence["admission"]
+    assert CAPACITY in (admission if isinstance(admission, str) else json.dumps(admission))
+    assert "capacity" in outcome.detail and "different model" in outcome.detail
+
+
+@pytest.mark.parametrize("complete", [False, True])
+@pytest.mark.parametrize("rc", [0, 1])
+def test_c9_2_terminal_capacity_refusal_wins_over_completion(tmp_path, complete, rc):
+    """C-9.2, C-9.5: completion cannot undo the capacity turn.failed."""
+    launch = _events(tmp_path,
+                     {"type": "item.completed", "item": {"type": "agent_message", "text": "Interim output."}},
+                     *([{"type": "turn.completed"}] if complete else []),
+                     {"type": "turn.failed", "error": {"message": CAPACITY}})
+    (tmp_path / "last.md").write_text("Leftover output.")
+    outcome = CodexAdapter().classify(tmp_path, launch, _exit(rc))
+    assert outcome.cls == OutcomeClass.TRANSIENT
+    assert outcome.closure is None
+    assert outcome.evidence["model_capacity"] is True
+    assert outcome.evidence["turn_completed"] is complete
+    assert outcome.evidence["last_event_type"] == "turn.failed"
+
+
+def test_c9_5_the_incident_attempt_replays_to_a_marked_capacity_refusal():
+    """D-CAP1: 20261013-024327-pr198-review-r6/a1 recorded its recovered 503 reconnect as admission
+    evidence; replayed, the attempt is the capacity refusal that ended it."""
+    directory = FIXTURES / "model-at-capacity-sol"
+    launch = replace(_launch(directory), raw_stream_path=str(directory / "stdout"))
+    outcome = CodexAdapter(now=lambda: NOW).classify(directory, launch, _exit(1))
+    assert (outcome.cls, outcome.closure, outcome.evidence["model_capacity"]) == (OutcomeClass.TRANSIENT, None, True)
+    assert outcome.evidence["admission"] == {"type": "error", "message": CAPACITY}
+
+
+@pytest.mark.parametrize("message", [
+    RECONNECT_503, "Server returned HTTP 503 Service Unavailable", "HTTP 500 Internal Server Error",
+    "stream disconnected before completion: websocket closed by server",
+    "Reconnecting... 3/5 (workspace routing discovery timed out)",
+    "Our servers are at capacity right now; retry shortly", "capacity exceeded on the upstream gateway",
+    "DNS resolution failed for chatgpt.com", "unexpected status 401 Unauthorized from responses endpoint",
+])
+@pytest.mark.parametrize("as_event", [True, False])
+def test_c9_5_other_transient_failures_stay_unmarked(tmp_path, message, as_event):
+    """C-9.5: every other transient text, a server's capacity included, stays `transient` with no
+    closure and no `model_capacity`: only the model's own refusal steers a job (D-CAP1)."""
+    launch = (_events(tmp_path, {"type": "error", "message": message}, {"type": "turn.failed", "error": {"message": message}})
+              if as_event else _events(tmp_path, stderr=message + "\n"))
+    outcome = CodexAdapter().classify(tmp_path, launch, _exit(1))
+    assert outcome.cls == OutcomeClass.TRANSIENT
+    assert outcome.closure is None
+    assert "model_capacity" not in outcome.evidence
+
+
+@pytest.mark.parametrize("line", [
+    # A reconnect Codex printed during the incident's turns; as a last word it reads `unknown`.
+    "Reconnecting... 1/5 (We’re currently experiencing high demand, which may cause temporary errors.)",
+    # Codex's tool router echoing a file of the job's own (seen on stderr, 2026-10-12).
+    "ERROR codex_core::tools::router: error=apply_patch verification failed: Failed to find expected "
+    "lines in scripts/joint-capacity-use.ts",
+    "capacity planning: the model reads at 40% of capacity",
+])
+def test_c9_5_text_that_is_not_the_models_refusal_never_marks_it(tmp_path, line):
+    """C-9.5: whatever class these get, none is the model refusing the job for capacity."""
+    outcome = CodexAdapter().classify(tmp_path, _events(tmp_path, stderr=line + "\n"), _exit(1))
+    assert "model_capacity" not in outcome.evidence
+    assert outcome.closure is None
+
+
+@pytest.mark.parametrize("payload", [CAPACITY, "ERROR: " + CAPACITY])
+@pytest.mark.parametrize("multiline", [False, True])
+def test_c9_5_quoted_tool_stderr_never_marks_capacity(tmp_path, payload, multiline):
+    prefix = "ERROR codex_core::tools::router: error=apply_patch verification failed: Failed to find expected lines:"
+    stderr = prefix + ("\n" if multiline else " ") + payload + "\n"
+    launch = _events(tmp_path, {"type": "turn.failed", "error": {"message": "stream disconnected before completion"}},
+                     stderr=stderr)
+    outcome = CodexAdapter().classify(tmp_path, launch, _exit(1))
+    assert outcome.cls == OutcomeClass.TRANSIENT
+    assert "model_capacity" not in outcome.evidence
+
+
+@pytest.mark.parametrize("where", ["error", "turn.failed"])
+@pytest.mark.parametrize("payload", ["metadata", "tool_output"])
+def test_c9_5_failure_event_payload_outside_its_message_never_marks_capacity(tmp_path, where, payload):
+    event = {"type": where, payload: CAPACITY}
+    if where == "error":
+        event["message"] = "stream disconnected before completion"
+    else:
+        event["error"] = {"message": "stream disconnected before completion"}
+    outcome = CodexAdapter().classify(tmp_path, _events(tmp_path, event), _exit(1))
+    assert outcome.cls == OutcomeClass.TRANSIENT
+    assert "model_capacity" not in outcome.evidence
+
+
+@pytest.mark.parametrize("stderr", ["", "ERROR: " + CAPACITY])
+def test_c9_5_capacity_in_tool_output_never_marks_capacity(tmp_path, stderr):
+    launch = _events(tmp_path,
+                     {"type": "item.completed", "item": {"type": "command_execution", "aggregated_output": CAPACITY}},
+                     {"type": "turn.failed", "error": {"message": "stream disconnected before completion"}},
+                     stderr="" if not stderr else "ERROR codex_core::tools::router: tool failed\n" + stderr)
+    outcome = CodexAdapter().classify(tmp_path, launch, _exit(1))
+    assert outcome.cls == OutcomeClass.TRANSIENT
+    assert "model_capacity" not in outcome.evidence
+
+
+@pytest.mark.parametrize("message,expected", [
+    ("You've hit your usage limit.", OutcomeClass.LIMITED),
+    ("Incorrect API key provided: sk-proj-****", OutcomeClass.AUTH_DEAD),
+    ("This content was flagged for possible cybersecurity risk.", OutcomeClass.CONTENT_FILTER),
+])
+def test_c9_2_a_capacity_refusal_beside_a_stronger_verdict_keeps_that_verdict(tmp_path, message, expected):
+    """C-9.2 precedence: authentication, content and quota still answer first; the capacity
+    refusal beside them marks nothing."""
+    launch = _events(tmp_path, {"type": "error", "message": CAPACITY}, {"type": "turn.failed", "error": {"message": message}})
+    outcome = CodexAdapter(now=lambda: NOW).classify(tmp_path, launch, _exit(1))
+    assert outcome.cls == expected
+    assert "model_capacity" not in outcome.evidence
+
+
+@pytest.mark.parametrize("as_event", [True, False])
+def test_c9_2_a_recovered_capacity_error_before_a_completed_answer_is_success(tmp_path, as_event):
+    """C-9.2: a capacity error Codex recovered from, before a completed turn and a deliverable, is `ok`."""
+    launch = _events(tmp_path, *([{"type": "error", "message": CAPACITY}] if as_event else []),
+                     {"type": "item.completed", "item": {"type": "agent_message", "text": "Done after retrying."}},
+                     {"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 15}},
+                     stderr="" if as_event else CAPACITY)
+    outcome = CodexAdapter().classify(tmp_path, launch, _exit(0))
+    assert outcome.cls == OutcomeClass.OK
+    assert "model_capacity" not in outcome.evidence
+
+
+CAPACITY_SPELLINGS = (CAPACITY, "The model is at capacity. Please try again later.", "model at capacity",
+                      "Selected model is currently at capacity", "error code: model_at_capacity")
+
+
+@settings(max_examples=40, derandomize=True, database=None, deadline=None)
+@given(refusal=st.sampled_from(CAPACITY_SPELLINGS), case=CASES, after=SURROUNDING,
+       where=st.sampled_from(("turn.failed", "error", "stderr")))
+def test_c9_5_the_refusal_anywhere_the_cli_reports_it_is_marked(refusal, case, after, where):
+    """The message starts with the provider's refusal; following details may vary."""
+    message = case(refusal) + " " + after
+    event = ({"type": where, "message": message} if where == "error"
+             else {"type": "turn.failed", "error": {"message": message}})
+    assume(not any(regex.search(message) for regex in (codex_module.AUTH_RE, codex_module.OLD_CLI_RE,
+                                                       codex_module.CONTENT_RE, codex_module.LIMIT_RE)))
+    with tempfile.TemporaryDirectory() as directory:
+        attempt = Path(directory)
+        launch = (_events(attempt, stderr="ERROR: " + message + "\n") if where == "stderr"
+                  else _events(attempt, {"type": "thread.started", "thread_id": THREAD}, event))
+        outcome = CodexAdapter(now=lambda: NOW).classify(attempt, launch, _exit(1))
+    assert outcome.cls == OutcomeClass.TRANSIENT
+    assert outcome.closure is None
+    assert outcome.evidence["model_capacity"] is True
+
+
+@settings(deadline=None)
+@given(refusal=st.sampled_from(CAPACITY_SPELLINGS), case=CASES, before=SURROUNDING, after=SURROUNDING,
+       rc=st.sampled_from((0, 1)))
+def test_c9_2_the_models_own_words_never_mark_capacity(refusal, case, before, after, rc):
+    """C-9.2 invariant: the model quoting the refusal in its own messages marks nothing, whether the
+    turn completed (`ok`) or a stream disconnect ended it (`transient`, unmarked)."""
+    text = " ".join(("Report:", before, case(refusal), after))
+    ending =({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 15}} if rc == 0 else
+              {"type": "turn.failed", "error": {"message": "stream disconnected before completion"}})
+    with tempfile.TemporaryDirectory() as directory:
+        attempt = Path(directory)
+        launch = _events(attempt, {"type": "thread.started", "thread_id": THREAD},
+                         {"type": "item.completed", "item": {"type": "agent_message", "text": text}}, ending)
+        outcome = CodexAdapter().classify(attempt, launch, _exit(rc))
+    assert outcome.cls == (OutcomeClass.OK if rc == 0 else OutcomeClass.TRANSIENT)
+    assert "model_capacity" not in outcome.evidence
 
 
 def test_model_scoped_limit_keeps_reported_reset(tmp_path):
@@ -367,14 +640,19 @@ def test_terminal_failure_wins_over_zero_rc_and_leftover_deliverable(tmp_path, m
     assert outcome.evidence["rc"] == 0
 
 
-@pytest.mark.parametrize("stream", ["", "not json\n", '{"type":"turn.completed"}\n'])
-def test_zero_rc_without_deliverable_is_unknown(tmp_path, stream):
-    """C-12.6 An empty or damaged successful stream cannot manufacture a deliverable."""
+@pytest.mark.parametrize("stream,expected", [
+    ("", OutcomeClass.TRANSIENT), ("not json\n", OutcomeClass.TRANSIENT),
+    ('{"type":"turn.completed"}\n', OutcomeClass.UNKNOWN),
+])
+def test_zero_rc_without_deliverable(tmp_path, stream, expected):
+    """C-9.2 C-12.6 An unfinished turn retries; a completed empty turn stays unknown,
+    and a completion frame cannot manufacture a deliverable."""
     launch = _launch(tmp_path)
     Path(launch.raw_stream_path).write_text(stream)
     (tmp_path / "last.md").write_bytes(b"")
     outcome = CodexAdapter().classify(tmp_path, launch, _exit(0))
-    assert outcome.cls == OutcomeClass.UNKNOWN
+    assert outcome.cls == expected
+    assert CodexAdapter().deliverable(tmp_path, launch, outcome) is None
     assert outcome.evidence["rc"] == 0
 
 
@@ -650,3 +928,74 @@ def test_resume_attestation_uses_only_current_receipt_interval(tmp_path, served,
     result = CodexAdapter().attest(tmp_path, launch, Outcome(OutcomeClass.OK, "done", native_session_id=THREAD), MODEL)
     assert result.status == expected
     assert result.served_model == served
+
+
+@pytest.mark.parametrize("where", ["error", "turn.failed"])
+@pytest.mark.parametrize("prefix", [
+    "Tool execution failed with exit code 1. Captured stderr:\n",
+    "Captured tool output:\nERROR: ",
+])
+def test_r3_capacity_quoted_inside_failure_messages_is_not_a_refusal(tmp_path, where, prefix):
+    message = prefix + CAPACITY
+    event = ({"type": where, "message": message} if where == "error"
+             else {"type": where, "error": {"message": message}})
+    outcome = CodexAdapter().classify(tmp_path, _events(tmp_path, event), _exit(1))
+    assert outcome.cls == OutcomeClass.TRANSIENT
+    assert "model_capacity" not in outcome.evidence
+
+
+def test_r3_independent_provider_record_after_tool_diagnostic_marks_capacity(tmp_path):
+    stderr = ("ERROR codex_core::tools::router: tool failed\nERROR: " + CAPACITY + "\n"
+              "2026-10-14T00:00:00.000000Z INFO codex_core::stream: reconnecting\n"
+              "ERROR: " + CAPACITY + "\n")
+    outcome = CodexAdapter().classify(tmp_path, _events(tmp_path, stderr=stderr), _exit(1))
+    assert outcome.cls == OutcomeClass.TRANSIENT
+    assert outcome.evidence["model_capacity"] is True
+    assert outcome.evidence["admission"] == "ERROR: " + CAPACITY
+
+
+@pytest.mark.parametrize("message,marked", [
+    (CAPACITY, True), ("ERROR: " + CAPACITY, True), ("error code: model_at_capacity", True),
+    ("Tool execution failed. Captured stderr:\n" + CAPACITY, False),
+    ("Provider reported: " + CAPACITY, False), ('"' + CAPACITY + '"', False),
+    ("The model was currently at capacity. Retry later.", True),
+])
+@pytest.mark.parametrize("where", ["error", "turn.failed", "stderr"])
+def test_r3_capacity_message_boundary(tmp_path, message, marked, where):
+    event = ({"type": where, "message": message} if where == "error"
+             else {"type": where, "error": {"message": message}})
+    launch = (_events(tmp_path, stderr=message if message.startswith("ERROR:") else "ERROR: " + message) if where == "stderr"
+              else _events(tmp_path, event))
+    outcome = CodexAdapter().classify(tmp_path, launch, _exit(1))
+    assert outcome.evidence.get("model_capacity", False) is marked
+
+
+@settings(max_examples=60, derandomize=True, database=None, deadline=None)
+@given(records=st.lists(st.sampled_from(("event-refusal", "stderr-refusal", "stream-refusal",
+                                        "tool-diagnostic", "quoted-event", "provider-info")),
+                       min_size=1, max_size=12), payload=st.sampled_from(CAPACITY_SPELLINGS), case=CASES)
+def test_r3_capacity_classification_matches_independent_provider_records(records, payload, case):
+    """Record chunks include their quoted continuation; every new log record is independent."""
+    refusal = case(payload)
+    events, stderr = [], []
+    for record in records:
+        if record == "event-refusal":
+            events.append({"type": "error", "message": refusal})
+        elif record == "quoted-event":
+            events.append({"type": "turn.failed", "error": {
+                "message": "Tool execution failed with exit code 1. Captured stderr:\n" + refusal}})
+        elif record == "tool-diagnostic":
+            stderr.append("2026-10-14T00:00:00Z ERROR codex_core::tools::router: tool failed\n"
+                          + refusal + "\nERROR: " + refusal)
+        elif record == "provider-info":
+            stderr.append("2026-10-14T00:00:01Z INFO codex_core::stream: reconnecting")
+        elif record == "stream-refusal":
+            stderr.append("2026-10-14T00:00:02Z ERROR codex_core::stream: " + refusal)
+        else:
+            stderr.append("2026-10-14T00:00:03Z INFO codex_core::stream: failed\nERROR: " + refusal)
+    with tempfile.TemporaryDirectory() as directory:
+        attempt = Path(directory)
+        outcome = CodexAdapter().classify(attempt, _events(attempt, *events, stderr="\n".join(stderr)), _exit(1))
+    expected = any(record in ("event-refusal", "stderr-refusal", "stream-refusal") for record in records)
+    assert outcome.evidence.get("model_capacity", False) is expected
+    assert outcome.closure is None

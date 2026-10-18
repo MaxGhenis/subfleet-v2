@@ -38,9 +38,9 @@ For the last two the delivery is reconciled from evidence (D-14):
    a person's `message.resolve` (C-24.6).
 
 A Claude turn that ends without a terminal event after delivery blocks its
-conversation `unfinished-turn` (C-24.8): the next `--resume` could continue
-it. A message with unknown delivery also blocks (as `delivery-unknown`), so a
-written message frame always holds the conversation (review IR-5).
+conversation `unfinished-turn` (C-24.8), unless the person asked to stop it:
+their stop settles the turn and lets queued messages run next. Unknown delivery
+still blocks (as `delivery-unknown`), including after a person's stop.
 """
 
 from __future__ import annotations
@@ -154,6 +154,12 @@ def settle(turn: dict, *, provider: str, turn_seq: int, gather: Callable[[], Evi
     if delivery == UNKNOWN:
         detail = f"{reason or 'ended'}: frame {evidence.frame}, native record {evidence.native}"
         return result(DELIVERY_UNKNOWN, detail, "delivery-unknown")
+
+    if person_stopped:
+        # C-24.7: the person's recorded stop ends this work. Whether delivery was
+        # proved or ruled out, it neither retries nor holds up queued messages.
+        # Unknown delivery above still needs the person's explicit resolution.
+        return result(INTERRUPTED, "stopped")
 
     if ended_by == "driver":
         if delivery == NOT_DELIVERED:

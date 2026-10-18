@@ -8,6 +8,8 @@ import time
 import pytest
 
 from subfleet import retention
+from subfleet import retention_archive as rarch
+from subfleet import retention_fs as rfs
 from subfleet.contracts import Credential, Lane, LaneOwner
 from subfleet.store import Store
 
@@ -53,35 +55,31 @@ def test_hourly_retention_pins_required_evidence(retained, pin):
     assert directory.exists()
 
 
-def test_failed_removal_retains_row_and_remaining_bytes_for_next_pass(retained, monkeypatch):
-    """C-8.4, C-3.3: partial deletion retains retry state and counts unreclaimed bytes outside tx."""
+def test_an_entry_deletion_cannot_remove_is_set_aside_not_left_half_deleted(retained, monkeypatch):
+    """C-8.4, C-3.3 (d635): the rows go only after the archive is verified; an
+    entry verified deletion cannot unlink is moved to the job's conflicts folder,
+    so no half-deleted tree is left behind, and its bytes are in the archive."""
     store, root = retained
     directory = job(store, root, "old", size=20)
     (directory / "stderr").write_bytes(b"y" * 30)
-    original = retention.shutil.rmtree
+    original = rfs.os.unlink
 
-    def partial_remove(path):
+    def refuse_stderr(name, *args, **kwargs):
         assert not store.connection.in_transaction
-        (Path(path) / "stdout").unlink()
-        raise PermissionError("cannot remove remaining output")
+        if str(name) == "stderr":
+            raise PermissionError(1, "cannot remove remaining output")
+        return original(name, *args, **kwargs)
 
-    monkeypatch.setattr(retention.shutil, "rmtree", partial_remove)
+    monkeypatch.setattr(rfs.os, "unlink", refuse_stderr)
     first = retention.maintenance(store, root, max_jobs=0, max_bytes=0)
-    assert first["pruned"] == []
-    assert first["protected"] == ["old"]
-    assert first["bytes_before"] == 50
-    assert first["bytes_after"] == 30
-    assert first["jobs_after"] == 1
-    assert first["errors"][0]["job_id"] == "old"
-    assert store.get_job("old") is not None
-    assert any(event["kind"] == "retention.remove_error" for event in store.list_events("old"))
-
-    monkeypatch.setattr(retention.shutil, "rmtree", original)
-    second = retention.maintenance(store, root, max_jobs=0, max_bytes=0)
-    assert second["bytes_before"] == 30
-    assert second["bytes_after"] == 0
-    assert second["pruned"] == ["old"]
+    assert first["pruned"] == ["old"]
+    assert first["bytes_before"] == 50 and first["bytes_after"] == 0
     assert store.get_job("old") is None
+    assert not (root / "retention" / "old").exists()
+    assert (root / "retention-conflicts" / "old" / "job" / "stderr").read_bytes() == b"y" * 30
+    kinds = [event["kind"] for event in store.list_events("old")]
+    assert "retention.pruned" in kinds and "retention.conflict" in kinds
+    assert rarch.check_archive(root, "old")["ok"]
 
 
 def test_directory_symlink_counts_link_without_external_contents(retained):
@@ -165,30 +163,172 @@ def test_retention_byte_scan_observes_cancellation(retained, monkeypatch):
     assert directory.exists()
 
 
-def test_cancel_after_filesystem_stage_preserves_rows_and_is_retryable(retained, monkeypatch):
-    """C-16.4, C-8.4: cancellation after a removal stage prevents further DB writes and later-job deletion."""
+def test_cancel_mid_archive_keeps_rows_and_the_next_pass_finishes(retained, monkeypatch):
+    """C-16.4, C-8.4: cancellation while a job is being archived leaves its rows
+    and its journal; nothing is deleted, and the next pass finishes the work."""
     store, root = retained
-    first = job(store, root, "a")
-    later = job(store, root, "b")
+    job(store, root, "a")
+    job(store, root, "b")
     cancel = threading.Event()
-    changes_at_cancel = []
-    original = retention.shutil.rmtree
+    original = rfs.clone_or_copy
 
-    def remove_then_cancel(path):
-        original(path)
-        changes_at_cancel.append(store.connection.total_changes)
+    def clone_then_cancel(*args, **kwargs):
+        method = original(*args, **kwargs)
         cancel.set()
+        return method
 
-    monkeypatch.setattr(retention.shutil, "rmtree", remove_then_cancel)
-    result = retention.maintenance(store, root, max_jobs=0, cancel=cancel)
-    assert result["interrupted"] == "cancelled"
-    assert result["pruned"] == []
-    assert result["protected"] == ["a", "b"]
-    assert not first.exists()
-    assert later.exists()
-    assert store.get_job("a") is not None
-    assert store.connection.total_changes == changes_at_cancel[0]
-    monkeypatch.setattr(retention.shutil, "rmtree", original)
+    monkeypatch.setattr(rfs, "clone_or_copy", clone_then_cancel)
+    first = retention.maintenance(store, root, max_jobs=0, cancel=cancel)
+    assert first["interrupted"] == "cancelled"
+    assert first["pruned"] == []
+    assert store.get_job("a") is not None and store.get_job("b") is not None
+    monkeypatch.setattr(rfs, "clone_or_copy", original)
     resumed = retention.maintenance(store, root, max_jobs=0)
-    assert resumed["pruned"] == ["a", "b"]
+    assert sorted(resumed["pruned"]) == ["a", "b"]
     assert resumed["bytes_after"] == 0
+    assert not (root / "jobs" / "a").exists() and not (root / "retention" / "a").exists()
+
+
+def test_a_deadline_after_the_first_prune_reports_that_prune(retained, monkeypatch):
+    """C-8.4 (review of 19ecb52f): the daemon tells a pass that pruned from one that did
+    not by `pruned`, which a deadline between batches must still carry.
+    A started batch finishes committing; the next job has not started yet."""
+    from contextlib import contextmanager
+    store, root = retained
+    job(store, root, "a")
+    later = job(store, root, "b")
+    expired, real_transaction, real_time = threading.Event(), store.transaction, retention.time
+
+    class Clock:
+        def monotonic(self):
+            return real_time.monotonic() + (10 ** 6 if expired.is_set() else 0)
+
+        def __getattr__(self, name):
+            return getattr(real_time, name)
+
+    @contextmanager
+    def transaction(kind="state.changed", **options):
+        with real_transaction(kind, **options) as conn:
+            yield conn
+        if kind == "retention.pruned":
+            expired.set()
+    monkeypatch.setattr(store, "transaction", transaction)
+    monkeypatch.setattr(retention, "time", Clock())
+    result = retention.maintenance(store, root, max_jobs=0, deadline=real_time.monotonic() + 600, batch=1)
+    assert result["interrupted"] == "deadline"
+    assert result["pruned"] == ["a"]
+    assert result["progressed"] is True
+    assert store.get_job("a") is None and store.get_job("b") is not None and later.exists()
+
+
+def test_an_interrupted_sizing_pass_retains_advancement_and_resumes_at_the_next_job(retained, monkeypatch):
+    store, root = retained
+    for name in ('a', 'b', 'c'):
+        job(store, root, name)
+    state = retention.RetentionState()
+    now, measured = [1000.0], []
+    original = retention._size
+    def size(path, **kwargs):
+        measured.append(path.name)
+        found = original(path, **kwargs)
+        now[0] += 2
+        return found
+    monkeypatch.setattr(retention, '_size', size)
+    first = retention.maintenance(store, root, state=state, clock=lambda: now[0], deadline=1001,
+                                  max_jobs=3, max_bytes=15)
+    assert first['interrupted'] == 'deadline' and first['progressed'] is True
+    assert first['pruned'] == [] and measured == ['a'] and set(state.sizes) == {'a'}
+    second = retention.maintenance(store, root, state=state, clock=lambda: now[0], deadline=1100,
+                                   max_jobs=3, max_bytes=15)
+    assert measured == ['a', 'b']
+    assert second['pruned'] and second['progressed'] is True
+
+
+def test_a_cancelled_size_attempt_without_a_saved_size_is_not_advancement(retained, monkeypatch):
+    store, root = retained
+    job(store, root, 'a')
+    state = retention.RetentionState()
+    def cancel_size(*args, **kwargs):
+        raise retention._Interrupted('cancelled')
+    monkeypatch.setattr(retention, '_size', cancel_size)
+    result = retention.maintenance(store, root, state=state)
+    assert result['interrupted'] == 'cancelled' and result['progressed'] is False
+    assert not state.sizes
+
+
+@pytest.mark.parametrize('lease_kind', ['retire', 'worktree'])
+def test_a_journal_less_leftover_lease_takes_priority_over_older_jobs(retained, lease_kind):
+    store, root = retained
+    for index, name in enumerate(('a', 'b', 'leftover')):
+        job(store, root, name)
+        with store.transaction('fixture.age') as conn:
+            conn.execute('UPDATE jobs SET created_at=? WHERE job_id=?', (f'2026-01-0{index+1}T00:00:00Z', name))
+    # The old driver removed one file before it died. Archive the remaining bytes.
+    (root / 'jobs' / 'leftover' / 'stdout').unlink()
+    (root / 'jobs' / 'leftover' / 'stderr').write_bytes(b'remaining')
+    key = 'retire:leftover' if lease_kind == 'retire' else f'worktree:{root / "worktrees" / "leftover"}'
+    store.acquire_lease(key, 'retention:leftover')
+    result = retention.maintenance(store, root, max_jobs=0, batch=1)
+    assert result['pruned'] == ['leftover']
+    assert store.get_job('a') and store.get_job('b')
+    assert rarch.check_archive(root, 'leftover')['ok']
+
+
+def test_orphan_priority_survives_an_interrupted_pass(retained, monkeypatch):
+    store, root = retained
+    job(store, root, 'a')
+    job(store, root, 'z')
+    store.acquire_lease('retire:z', 'retention:z')
+    state, cancel = retention.RetentionState(), threading.Event()
+    original = retention._Pass._reasons
+    def reasons(run, *args, **kwargs):
+        cancel.set()
+        return original(run, *args, **kwargs)
+    with monkeypatch.context() as patch:
+        patch.setattr(retention._Pass, '_reasons', reasons)
+        result = retention.maintenance(store, root, state=state, max_jobs=0, cancel=cancel)
+    assert result['interrupted'] == 'cancelled' and 'z' in state.leftovers
+    result = retention.maintenance(store, root, state=state, max_jobs=0, batch=1)
+    assert result['pruned'] == ['z']
+
+
+def test_partial_verified_deletion_advances_until_only_a_blocked_remnant_is_left(retained, monkeypatch):
+    """A committed journal can delete new files on a retry without pruning rows
+    again. That is progress; an unchanged blocked remnant waits the hour."""
+    store, root = retained
+    job(store, root, 'a')
+    for name in ('b', 'c'):
+        (root / 'jobs/a' / name).write_bytes(name.encode())
+    blocked = {'stdout', 'b', 'c'}
+    original = rfs.Reclaim._one
+    publish, published = rarch.Retirement.publish, []
+    def publish_after_failure(retirement):
+        if not published:
+            published.append('failed')
+            raise OSError('fixture interrupts publication after the commit')
+        return publish(retirement)
+    def one(reclaim, fd, rel, name):
+        if name not in blocked:
+            original(reclaim, fd, rel, name)
+    def no_conflicts(*args, **kwargs):
+        raise PermissionError('fixture blocks setting aside the remnant')
+    monkeypatch.setattr(rfs.Reclaim, '_one', one)
+    monkeypatch.setattr(rfs.Reclaim, '_conflict_dir', no_conflicts)
+    monkeypatch.setattr(rarch.Retirement, 'publish', publish_after_failure)
+    first = retention.maintenance(store, root, max_jobs=0)
+    assert first['pruned'] == ['a'] and first['more'] is True
+    assert first['in_flight'] == ['a']
+    second = retention.maintenance(store, root, max_jobs=0)
+    assert second['pruned'] == [] and second['progressed'] is True and second['more'] is True
+    assert rarch.check_archive(root, 'a')['ok']
+    blocked.difference_update({'stdout', 'b'})
+    third = retention.maintenance(store, root, max_jobs=0)
+    assert third['pruned'] == [] and third['progressed'] is True and third['more'] is True
+    assert not (root / 'retention/a/job/stdout').exists()
+    assert not (root / 'retention/a/job/b').exists()
+    fourth = retention.maintenance(store, root, max_jobs=0)
+    assert fourth['pruned'] == [] and fourth['progressed'] is False and fourth['more'] is True
+    blocked.clear()
+    fifth = retention.maintenance(store, root, max_jobs=0)
+    assert fifth['reclaimed'] == ['a'] and fifth['more'] is False
+    assert rarch.check_archive(root, 'a')['ok']

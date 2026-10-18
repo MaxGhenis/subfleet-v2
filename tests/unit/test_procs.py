@@ -14,9 +14,16 @@ import pytest
 import os
 
 from subfleet import client, procs
+from tests.fake_kernel import FakeKernel, from_ps_rows
 
 
 def census(monkeypatch, *, groups="", parents="", markers="", fail=None, session=None):
+    # D-CEN1: the marker source reads each process's raw argument buffer in this
+    # process; `markers` keeps its `ps -axEww` rows, now as those buffers, and
+    # failing "pid=,command=" fails that source's listing.
+    monkeypatch.setattr(procs, "kernel", FakeKernel(from_ps_rows(markers),
+                                                    fail={"pids"} if fail == "pid=,command=" else ()))
+
     def read(argv, *, empty_ok=False):
         if fail is not None and any(os.path.basename(str(a)) == fail for a in argv):
             raise procs.InspectionError("unavailable")
@@ -243,7 +250,7 @@ def test_liveness_has_three_answers_and_unknown_never_means_dead(monkeypatch):
     assert procs.liveness(42, "100", "Fri Sep  4 09:00:00 2026") == "dead"
     assert procs.liveness(42, "99", "Sat Sep  5 10:00:00 2026") == "unknown"
     assert procs.liveness(0, "100", "Sat Sep  5 10:00:00 2026") == "dead"
-    assert procs.liveness(42, None, None) == "dead"
+    assert procs.liveness(42, None, None) == "unknown"
     census(monkeypatch, fail="ps")
     assert procs.liveness(42, "100", "Sat Sep  5 10:00:00 2026") == "unknown"
     assert procs.same_process(42, "100", "Sat Sep  5 10:00:00 2026") is False
@@ -254,8 +261,9 @@ BOOT_A = "11111111-1111-4111-8111-111111111111"
 BOOT_B = "22222222-2222-4222-8222-222222222222"
 
 
-def test_c5_12_a_census_is_two_ps_reads_however_many_processes_it_finds(monkeypatch):
-    """C-5.5, C-5.12 identities come from the snapshot's `lstart`, not from a `ps` per pid."""
+def test_c5_12_a_census_is_one_ps_read_however_many_processes_it_finds(monkeypatch):
+    """C-5.5, C-5.12 identities come from the snapshot's `lstart`, not from a `ps` per pid; since D-CEN1 the
+    marker source is read in this process (one pid listing, then each pid), so it starts no `ps` either."""
     reads = []
     rows = "".join(f"{pid} 42 42 S    {START}    \n" for pid in range(43, 63))
     census(monkeypatch, parents=f"42 1 42 Ss   {START}    \n" + rows)
@@ -265,10 +273,12 @@ def test_c5_12_a_census_is_two_ps_reads_however_many_processes_it_finds(monkeypa
         reads.append(list(argv))
         return inner(argv, **kwargs)
     monkeypatch.setattr(procs, "_read", counting)
-    result = procs.containment(42, 42, None, "job/a1")
+    result = procs.containment(42, 42, None, "job/a1", recorded_identities={
+        42: procs.ProcessIdentity(42, "100", START)})
     assert result.group_pids == set(range(42, 63)) and not result.unverifiable
     assert result.identities[50] == procs.ProcessIdentity(50, "100", START)
-    assert [os.path.basename(argv[0]) for argv in reads if os.path.basename(argv[0]) == "ps"] == ["ps", "ps"]
+    assert [os.path.basename(argv[0]) for argv in reads if os.path.basename(argv[0]) == "ps"] == ["ps"]
+    assert procs.kernel.calls.count(("pids",)) == 1
 
 
 def test_c5_12_a_pid_the_snapshot_cannot_describe_is_asked_about_singly(monkeypatch):
@@ -306,7 +316,8 @@ def test_c5_12_a_census_that_finds_nothing_needs_no_boot_identity(monkeypatch):
     result = procs.containment(42, 42, None, "job/a1")
     assert result.unverifiable and result.live_pids == {42, 43}
     assert sorted(result.errors) == ["identity inspection unavailable for pid 42",
-                                     "identity inspection unavailable for pid 43"]
+                                     "identity inspection unavailable for pid 43",
+                                     "recorded identity unavailable for pid 42"]
 
 
 def test_c5_12_a_table_reads_the_boot_identity_once_and_only_when_it_needs_it(monkeypatch):
@@ -562,6 +573,8 @@ def test_c5_5_a_marker_gone_by_its_identity_read_needs_no_boot_identity(monkeypa
 
     Final review of PR #37, 2026-09-26: reading the boot identity before checking the pid is live survived every
     test (mutant M22)."""
+    monkeypatch.setattr(procs, "kernel", FakeKernel(from_ps_rows("77 provider SUBFLEET_ATTEMPT=job/a1\n")))
+    states = iter(["S", ""])
     def read(argv, *, empty_ok=False):
         if os.path.basename(argv[0]) == "sysctl":
             raise procs.InspectionError("unavailable")
@@ -570,13 +583,14 @@ def test_c5_5_a_marker_gone_by_its_identity_read_needs_no_boot_identity(monkeypa
         if "pid=,command=" in argv:
             return "77 provider SUBFLEET_ATTEMPT=job/a1\n"
         if "stat=" in argv:
-            return "S"                                          # alive when the marker scan looked
+            return next(states)  # alive during marker scan, absent at identity capture
         if "lstart=" in argv:
-            return ""                                           # gone by the identity read
+            return ""
         raise AssertionError(argv)
     monkeypatch.setattr(procs, "_read", read)
     result = procs.containment(42, 42, None, "job/a1")
     assert result.verified_empty and result.errors == (), result
+    assert ("arguments", 77) in procs.kernel.calls and next(states, None) is None   # found, then gone
 
 
 def test_c5_5_the_whole_process_table_has_one_reader():

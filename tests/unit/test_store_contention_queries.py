@@ -18,7 +18,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from subfleet import capacity
+from subfleet import capacity, procs
 from subfleet.actions import ResetCredits
 from subfleet.contracts import Credential, Lane, LaneOwner
 from subfleet.daemon import Daemon
@@ -28,6 +28,13 @@ from subfleet.store import Store, _json
 
 SEEDS = range(40)
 BASE = datetime(2026, 9, 25, 12, 0, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture(autouse=True)
+def fixture_process_identity(monkeypatch):
+    """SQL differential tests own their daemon identities, independent of the host."""
+    monkeypatch.setattr(procs, "boot_id", lambda: "store-query-fixture-boot")
+    monkeypatch.setattr(procs, "proc_start", lambda pid: "store-query-fixture-start")
 
 
 @pytest.fixture

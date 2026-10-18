@@ -316,3 +316,25 @@ def test_c12_resume_and_revive_share_native_session_lease(state_daemon, monkeypa
     assert daemon.store.get_job(jobs[0])["state"] == "running"
     assert daemon.store.get_job(jobs[1])["state"] == "waiting"
     assert daemon.store.list_attempts(jobs[1]) == []
+
+
+def test_d635_resume_fence_is_released_with_the_job_insert(state_daemon):
+    """d635 (review of a9a6cbf4): the resume's `retire:` fence on its source is
+    released in the transaction that inserts the resume's job, so the source is
+    then pinned only as a parent (C-8.4), not by a fence left behind."""
+    daemon, harness = state_daemon
+    source_id, _ = finished_source(daemon, harness)
+    resumed_id = daemon.submit(protocol.SubmitArgs(**harness.submit_args(kind="resume",
+        parent_job_id=source_id)))["job_id"]
+    assert daemon.store.get_job(resumed_id)["parent_job_id"] == source_id
+    assert not daemon.store.query("SELECT * FROM leases WHERE lease_key LIKE 'retire:%'")
+
+
+def test_d635_resume_is_refused_while_retention_retires_the_source(state_daemon):
+    """Astra design finding 9: a resume never reads a source retention is moving."""
+    daemon, harness = state_daemon
+    source_id, _ = finished_source(daemon, harness)
+    assert daemon.store.acquire_lease(f"retire:{source_id}", f"retention:{source_id}")
+    with pytest.raises(AdapterError, match="being archived by retention"):
+        daemon.submit(protocol.SubmitArgs(**harness.submit_args(kind="resume", parent_job_id=source_id)))
+    assert not daemon.store.query("SELECT * FROM jobs WHERE parent_job_id=?", (source_id,))

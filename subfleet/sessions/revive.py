@@ -149,11 +149,9 @@ def session_store_dir() -> Path:
     `SUBFLEET_SESSION_STORE` is v1's own override and the tests' seam; nothing
     here writes to it.
     """
-    override = os.environ.get("SUBFLEET_SESSION_STORE")
-    if override:
-        return Path(override).expanduser()
-    return (Path.home() / "Library" / "Application Support" / "Claude"
-            / "claude-code-sessions")
+    from ..home_paths import home_path
+    return Path(home_path("SUBFLEET_SESSION_STORE", lambda: Path.home() / "Library"
+                          / "Application Support" / "Claude" / "claude-code-sessions", expand_override=True))
 
 
 def store_metadata(session_id: str) -> dict[str, Any]:

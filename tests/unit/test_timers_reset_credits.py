@@ -1,4 +1,8 @@
-"""Offline action-state and gift-policy checks (C-19, C-23.7, C-23.13, C-23.16–18)."""
+"""Offline action-state and gift-policy checks (C-19, C-23.7, C-23.13, C-23.16–18).
+
+Automatic redemption needs a waiting job (C-23.16 (a)); `wants` supplies one, as
+`Daemon._reset_demand` would, and stores the job the action is spent for.
+"""
 from __future__ import annotations
 
 import json
@@ -6,9 +10,11 @@ import threading
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 
+from subfleet import actions as actions_module
 from subfleet.actions import Actions, ResetCredits, fleet_credits_remaining
 from subfleet.adapters.codex import (
     CodexAdapter, RESET_CREDIT_URLS, WHAM_RESET_CREDITS_CONSUME_URL, WHAM_RESET_CREDITS_URL,
@@ -55,8 +61,8 @@ def snapshot(store, **overrides):
 
 
 class HTTP:
-    def __init__(self, *, store=None, response=None, credits=None):
-        self.store, self.calls = store, []
+    def __init__(self, *, store=None, response=None, credits=None, status=200):
+        self.store, self.calls, self.status = store, [], status
         self.response = {"code": "reset", "windows_reset": 2} if response is None else response
         self.credits = [GIFT] if credits is None else credits
 
@@ -79,11 +85,34 @@ class HTTP:
             assert events.index("action.pending") < events.index("action.executing")
         if isinstance(self.response, Exception):
             raise self.response
-        return 200, json.dumps(self.response).encode()
+        return self.status, json.dumps(self.response).encode()
 
 
 def component(store, opener, **policy):
-    return ResetCredits(store, {"reset_credits": policy}, lambda lane: CodexAdapter(opener=opener, now=lambda: NOW))
+    """Automatic redemption switched on, as an operator would; C-23.16 (f) ships it off."""
+    return ResetCredits(store, {"reset_credits": {"enabled": True, **policy}},
+                        lambda lane: CodexAdapter(opener=opener, now=lambda: NOW))
+
+
+def wants(store, *lanes, job="job-1"):
+    """C-23.16 (a): one job, held on a capacity look, whose route is limited on `lanes`.
+
+    With no lanes named, every Codex lane in the store is limited to it.
+    """
+    if store.get_job(job) is None:
+        store.add_job(job_id=job, request_id=job, payload_digest="digest", kind="dispatch",
+                      workdir="/work", prompt_path="/prompt", sandbox="read-only", tier="hard",
+                      pinned_model="astra", state="waiting", wait_reason="capacity",
+                      next_check_at="2026-09-05T12:00:30Z", created_at=STAMP)
+    limited = list(lanes) or [row["lane_id"] for row in store.lane_rows() if row["provider"] == "codex"]
+    return [{"job_id": job, "tier": "hard", "verdict": "codex-demand",
+             "limited_lanes": limited, "capacity_lanes": []}]
+
+
+def limit_again(store, lane_id, days=6):
+    """A lane reset earlier and now limited again (an attempt came back `limited`)."""
+    store.put_closure(Closure(lane_id, "account", (NOW + timedelta(days=days)).isoformat().replace("+00:00", "Z"),
+                              ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, None))
 
 
 def test_pending_precedes_call_and_confirmed_reopens_without_inventing_windows(store, tmp_path):
@@ -94,11 +123,13 @@ def test_pending_precedes_call_and_confirmed_reopens_without_inventing_windows(s
     before = store.list_readings()
     http = HTTP(store=store)
     resets = component(store, http)
-    result = resets.evaluate(snapshot(store), now=NOW)
+    result = resets.evaluate(snapshot(store), now=NOW, demand=wants(store))
     assert result["status"] == "confirmed"
     assert result["fleet_credits_remaining"] == 1
     assert not store.list_closures(active_at=STAMP)
     assert store.list_readings() == before
+    request = json.loads(store.get_action(result["action_id"])["request_json"])
+    assert request["trigger_reason"] == "waiting-demand" and request["job_id"] == "job-1"
     override = resets.confirmed_override(target.lane_id, now=NOW)
     assert override["weekly_reset_at"] == "2026-09-12T12:00:00Z"
     assert override["clock_source"] == "guessed"
@@ -113,7 +144,7 @@ def test_confirmed_action_and_closure_release_commit_atomically(store, tmp_path,
         raise OSError("injected publication failure")
     monkeypatch.setattr(resets, "_release", fail_release)
     with pytest.raises(OSError):
-        resets.evaluate(snapshot(store), now=NOW)
+        resets.evaluate(snapshot(store), now=NOW, demand=wants(store))
     action = store.query("SELECT * FROM actions")[0]
     assert action["state"] == "executing" and action["result_json"] is None
     assert store.list_closures(active_at=STAMP)
@@ -124,11 +155,36 @@ def test_confirmed_action_and_closure_release_commit_atomically(store, tmp_path,
 @pytest.mark.parametrize("response", [{"code": "reset", "windows_reset": 0}, {"code": "success", "windows_reset": 2},
                                      {"code": "reset", "windows_reset": True}, {"code": "reset", "windows_reset": "2"}])
 def test_only_exact_provider_success_confirms(store, tmp_path, response):
-    """C-23.16: only reset with a positive integer windows_reset confirms consumption."""
+    """C-23.16: only reset with a positive integer windows_reset confirms consumption. Any other
+    2xx is `unknown`, not `failed` (C-23.16 (d)): the credit may be spent, so nothing more is
+    until a usage read settles it."""
     lane(store, tmp_path)
-    result = component(store, HTTP(response=response)).evaluate(snapshot(store), now=NOW)
-    assert result["status"] == "failed"
+    http = HTTP(response=response, credits=[GIFT, {**GIFT, "id": "gift-2"}])
+    resets = component(store, http)
+    result = resets.evaluate(snapshot(store), now=NOW, demand=wants(store))
+    assert result["status"] == "unknown"
     assert store.list_closures(active_at=STAMP)
+    assert resets.confirmed_override("codex-1", now=NOW) is None
+    later = resets.evaluate(snapshot(store), now=NOW + timedelta(minutes=1), demand=wants(store))
+    assert later["status"] == "unsettled-action"
+    assert sum(request.get_method() == "POST" for request, _ in http.calls) == 1
+
+
+@pytest.mark.parametrize("status,body,outcome", [
+    (409, {"error": {"code": "already_redeemed"}}, "refused"),
+    (429, {"error": {"code": "rate_limited"}}, "refused")])
+def test_a_refused_consume_is_failed_and_holds_nothing_back(store, tmp_path, status, body, outcome):
+    """C-23.16 (d): an explicit refusal proves nothing was spent, so the action is
+    `failed`, starts no interval and blocks nothing."""
+    lane(store, tmp_path)
+    http = HTTP(response=body, status=status, credits=[GIFT, {**GIFT, "id": "gift-2"}])
+    resets = component(store, http)
+    result = resets.evaluate(snapshot(store), now=NOW, demand=wants(store))
+    assert result["status"] == "failed"
+    assert json.loads(store.get_action(result["action_id"])["result_json"])["status"] == outcome
+    again = resets.evaluate(snapshot(store), now=NOW + timedelta(minutes=1), demand=wants(store))
+    assert again["status"] == "failed"
+    assert json.loads(store.get_action(again["action_id"])["request_json"])["credit_id"] == "gift-2"
 
 
 def test_timeout_is_unknown_until_usage_read_without_overwriting_result(store, tmp_path):
@@ -137,11 +193,11 @@ def test_timeout_is_unknown_until_usage_read_without_overwriting_result(store, t
     http = HTTP(response=TimeoutError())
     resets = component(store, http, min_interval_min=0)
     view = snapshot(store)
-    result = resets.evaluate(view, now=NOW)
+    result = resets.evaluate(view, now=NOW, demand=wants(store))
     original = store.get_action(result["action_id"])
     assert result["status"] == "unknown"
     assert result["error_type"] == "TimeoutError"
-    assert resets.evaluate(view, now=NOW + timedelta(hours=1))["status"] == "unsettled-action"
+    assert resets.evaluate(view, now=NOW + timedelta(hours=1), demand=wants(store))["status"] == "unsettled-action"
     assert resets.settle_by_usage(target.lane_id, {"status": "limited", "limit_reached": True}, now=NOW) is None
     settled = resets.settle_by_usage(target.lane_id, {"status": "ok", "limit_reached": False,
                                     "checked_at": "2026-09-05T12:05:00Z"}, now=NOW + timedelta(minutes=5))
@@ -150,46 +206,71 @@ def test_timeout_is_unknown_until_usage_read_without_overwriting_result(store, t
     assert store.get_action(result["action_id"]) == original
     assert not store.list_closures(active_at=STAMP)
     assert resets.settle_by_usage(target.lane_id, {"status": "ok", "limit_reached": False}, now=NOW) is None
-    assert resets.evaluate(view, now=NOW + timedelta(hours=1))["status"] == "no-concrete-credit"
+    # C-23.16 (d): the lane the unknown consume very likely reset now reads open.
+    assert resets.evaluate(snapshot(store), now=NOW + timedelta(hours=1), demand=wants(store))["status"] == "reset-lane-open"
+    limit_again(store, target.lane_id)
+    later = snapshot(store, **{target.lane_id: {"probe": {"status": "limited", "limit_reached": True,
+                                                        "checked_at": "2026-09-05T13:00:00Z"}}})
+    assert resets.evaluate(later, now=NOW + timedelta(hours=1), demand=wants(store))["status"] == "no-concrete-credit"
     assert sum(request.get_method() == "POST" for request, _ in http.calls) == 1
 
 
-def test_deadline_fences_late_success_and_returns_promptly(store, tmp_path):
-    """C-16.4 C-23.13: late HTTP success cannot overwrite the bounded worker's unknown result."""
+@pytest.mark.parametrize("listing_s", [0, .2], ids=["prompt", "a-loaded-runner"])
+def test_deadline_fences_late_success_and_returns_promptly(store, tmp_path, monkeypatch, listing_s):
+    """C-16.4 C-23.13: late HTTP success cannot overwrite the bounded worker's unknown result, and the
+    worker returns at its deadline, while the redemption is still in flight, not when it answers.
+
+    The deadline is on a held clock that passes it only once the POST is in flight. On the wall
+    clock, a runner slow enough to spend the whole 0.1 s before the POST (the first review of #133
+    saw it at load 54 to 68) never made the call this test is about. `a-loaded-runner` is that
+    runner: its credit listing takes twice the deadline."""
     lane(store, tmp_path)
-    entered, release = threading.Event(), threading.Event()
+    clock = [0.]
+    monkeypatch.setattr(actions_module, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    deadline = clock[0] + .1
+    entered, release, answered = threading.Event(), threading.Event(), threading.Event()
     http = HTTP()
     def opener(request, timeout):
-        if request.get_method() == "POST":
-            entered.set()
-            release.wait(2)
+        if request.get_method() != "POST":
+            time.sleep(listing_s)
+            return http(request, timeout)
+        entered.set()
+        clock[0] = deadline                         # the provider is still answering at the deadline
+        release.wait(30)
+        answered.set()
         return http(request, timeout)
     resets = component(store, opener)
-    started = time.monotonic()
-    result = resets.evaluate(snapshot(store), now=NOW, deadline=started + .1)
-    assert time.monotonic() - started < .5
-    assert entered.is_set() and result["status"] == "unknown"
+    before = set(threading.enumerate())
+    result = resets.evaluate(snapshot(store), now=NOW, deadline=deadline, demand=wants(store))
+    assert entered.is_set() and not answered.is_set()      # returned at its deadline, the POST in flight
+    assert result["status"] == "unknown"
     release.set()
-    assert store.get_action(result["action_id"])["state"] == "unknown"
+    for worker in set(threading.enumerate()) - before:
+        worker.join(30)                                      # the late success has come back, and changed nothing
+    assert answered.is_set() and store.get_action(result["action_id"])["state"] == "unknown"
 
 
 def test_one_credit_per_evaluation_and_minimum_interval_including_imported_actions(store, tmp_path):
     """C-18.1 C-23.16: one credit per cycle and imported redemption history obey the interval."""
-    lane(store, tmp_path, 1)
+    first = lane(store, tmp_path, 1, days=5)
     lane(store, tmp_path, 2)
     http = HTTP()
     resets = component(store, http)
     view = snapshot(store)
-    assert resets.evaluate(view, now=NOW)["status"] == "confirmed"
+    result = resets.evaluate(view, now=NOW, demand=wants(store))
+    assert result["status"] == "confirmed" and result["lane_id"] == first.lane_id
     assert len(store.query("SELECT * FROM actions")) == 1
     assert sum(request.get_method() == "POST" for request, _ in http.calls) == 1
-    assert resets.evaluate(view, now=NOW + timedelta(minutes=29))["status"] == "interval-blocked"
+    # The reset lane is used up again, so only the interval stands in the way.
+    limit_again(store, first.lane_id)
+    view = snapshot(store)
+    assert resets.evaluate(view, now=NOW + timedelta(minutes=29), demand=wants(store))["status"] == "interval-blocked"
     for row in view["lanes"]:
         row["probe"]["checked_at"] = "2026-09-05T12:30:00Z"
-    assert resets.evaluate(view, now=NOW + timedelta(minutes=30))["status"] == "confirmed"
+    assert resets.evaluate(view, now=NOW + timedelta(minutes=30), demand=wants(store))["status"] == "confirmed"
     store.add_action(action_id="imported", kind="reset-credit", op_key="imported-account:gift-old", subject="old-home",
                      state="confirmed", created_at="2026-09-05T13:00:00Z", updated_at="2026-09-05T13:00:00Z")
-    assert resets.evaluate(view, now=NOW + timedelta(minutes=61))["status"] == "interval-blocked"
+    assert resets.evaluate(view, now=NOW + timedelta(minutes=61), demand=wants(store))["status"] == "interval-blocked"
 
 
 def test_order_furthest_reset_then_fewest_inflight_then_lane_number(store, tmp_path):
@@ -197,7 +278,7 @@ def test_order_furthest_reset_then_fewest_inflight_then_lane_number(store, tmp_p
     for number, days in [(1, 2), (2, 4), (3, 4), (10, 4)]:
         lane(store, tmp_path, number, days=days)
     view = snapshot(store, **{"codex-2": {"in_flight": 2}})
-    result = component(store, HTTP()).evaluate(view, now=NOW)
+    result = component(store, HTTP()).evaluate(view, now=NOW, demand=wants(store))
     assert result["lane_id"] == "codex-3"
 
 
@@ -205,7 +286,8 @@ def test_shadowed_lane_waits_for_all_concrete_unshadowed_gifts(store, tmp_path):
     """C-23.46: a shadowed distant reset loses to a nearer unshadowed concrete gift."""
     lane(store, tmp_path, 1, days=6)
     lane(store, tmp_path, 2, days=2)
-    result = component(store, HTTP()).evaluate(snapshot(store, **{"codex-1": {"app_shadowed": True}}), now=NOW)
+    result = component(store, HTTP()).evaluate(snapshot(store, **{"codex-1": {"app_shadowed": True}}), now=NOW,
+                                               demand=wants(store))
     assert result["lane_id"] == "codex-2"
 
 
@@ -218,7 +300,8 @@ def test_shadowed_lane_can_redeem_when_unshadowed_has_no_concrete_gift(store, tm
         if account == "2":
             return 200, b'{"credits":[]}'
         return HTTP()(request, timeout)
-    result = component(store, opener).evaluate(snapshot(store, **{"codex-1": {"app_shadowed": True}}), now=NOW)
+    result = component(store, opener).evaluate(snapshot(store, **{"codex-1": {"app_shadowed": True}}), now=NOW,
+                                               demand=wants(store))
     assert result["lane_id"] == "codex-1"
 
 
@@ -227,7 +310,8 @@ def test_shadowed_lane_waits_for_gift_on_an_unlimited_unshadowed_lane(store, tmp
     lane(store, tmp_path, 1, days=6)
     lane(store, tmp_path, 2, utilization=.99)
     http = HTTP()
-    result = component(store, http).evaluate(snapshot(store, **{"codex-1": {"app_shadowed": True}}), now=NOW)
+    result = component(store, http).evaluate(snapshot(store, **{"codex-1": {"app_shadowed": True}}), now=NOW,
+                                             demand=wants(store))
     assert result["status"] == "shadow-excluded"
     assert not store.query("SELECT * FROM actions")
     assert all(request.get_method() == "GET" for request, _ in http.calls)
@@ -239,45 +323,52 @@ def test_gifted_only_allowlist_and_concrete_entitlement_gate(store, tmp_path, in
     """C-23.7 C-23.16: purchase, used, wrong-type and missing-id credits never reach POST."""
     target = lane(store, tmp_path)
     http = HTTP(credits=[invalid])
-    assert component(store, http).evaluate(snapshot(store), now=NOW)["status"] == "no-concrete-credit"
+    assert component(store, http).evaluate(snapshot(store), now=NOW, demand=wants(store))["status"] == "no-concrete-credit"
     assert all(request.get_method() == "GET" for request, _ in http.calls)
     assert RESET_CREDIT_URLS == {WHAM_RESET_CREDITS_URL, WHAM_RESET_CREDITS_CONSUME_URL}
     with pytest.raises(ValueError):
         CodexAdapter(opener=http).consume_reset_credit(target, invalid, str(uuid.uuid4()))
 
 
-def test_limit_reached_and_fleet_trigger_are_both_required(store, tmp_path):
-    """C-23.16 C-18.1: neither entitlement possession nor a local closure alone admits redemption."""
+def test_limit_reached_and_waiting_demand_are_both_required(store, tmp_path):
+    """C-23.16 (a), (b): neither a limited lane with a gift nor a waiting job alone admits redemption."""
     lane(store, tmp_path, 1)
     lane(store, tmp_path, 2, utilization=.2)
     http = HTTP()
     resets = component(store, http)
-    assert resets.evaluate(snapshot(store), now=NOW)["status"] == "not-triggered"
+    assert resets.evaluate(snapshot(store), now=NOW)["status"] == "no-demand"
+    assert resets.evaluate(snapshot(store), now=NOW, demand=[])["status"] == "no-demand"
+    busy = [{**wants(store, "codex-1")[0], "verdict": "lane-has-capacity", "capacity_lanes": ["codex-2"]}]
+    result = resets.evaluate(snapshot(store), now=NOW, demand=busy)
+    assert result["status"] == "no-demand" and result["waiting"][0]["capacity_lanes"] == ["codex-2"]
     view = snapshot(store)
     for row in view["lanes"]:
         row.update(dispatchable=False, probe={"status": "ok", "limit_reached": False})
-    assert resets.evaluate(view, now=NOW)["status"] == "no-concrete-credit"
-    assert not http.calls
+    assert resets.evaluate(view, now=NOW, demand=wants(store))["status"] == "no-eligible-lane"
+    assert not http.calls and not store.query("SELECT * FROM actions")
 
 
-def test_headroom_is_summed_across_dispatchable_lanes(store, tmp_path):
-    """C-18.1: policy sums weekly headroom across dispatchable lanes before spending a gift."""
+def test_no_supply_side_trigger_spends_a_credit(store, tmp_path):
+    """C-23.16 (a): the fleet's summed headroom, however low, is never a reason to spend."""
     lane(store, tmp_path, 1)
     lane(store, tmp_path, 2, utilization=.92)
     lane(store, tmp_path, 3, utilization=.92)
     http = HTTP()
     view = snapshot(store)
-    assert component(store, http).evaluate(view, now=NOW)["status"] == "not-triggered"
-    assert component(store, http, headroom_floor_pct=17).evaluate(view, now=NOW)["status"] == "confirmed"
+    for row in view["lanes"]:
+        row["dispatchable"] = False
+    assert component(store, http).evaluate(view, now=NOW)["status"] == "no-demand"
+    assert component(store, http, headroom_floor_pct=100).evaluate(view, now=NOW, demand=[])["status"] == "no-demand"
+    assert not http.calls
 
 
 def test_op_key_is_unique_across_components_and_attempted_credits_never_retry(store, tmp_path):
     """C-19.1 C-23.13: account-plus-credit uniqueness survives evaluator recreation and failed calls."""
     target = lane(store, tmp_path)
-    http = HTTP(response={"code": "already_consumed", "windows_reset": 0})
+    http = HTTP(response={"error": {"code": "already_consumed"}}, status=409)
     view = snapshot(store)
-    assert component(store, http).evaluate(view, now=NOW)["status"] == "failed"
-    assert component(store, http).evaluate(view, now=NOW)["status"] == "no-concrete-credit"
+    assert component(store, http).evaluate(view, now=NOW, demand=wants(store))["status"] == "failed"
+    assert component(store, http).evaluate(view, now=NOW, demand=wants(store))["status"] == "no-concrete-credit"
     row = store.query("SELECT * FROM actions")[0]
     assert row["op_key"] == target.account_key + ":" + GIFT["id"]
     assert sum(request.get_method() == "POST" for request, _ in http.calls) == 1
@@ -295,7 +386,7 @@ def test_imported_credit_keys_never_retry_after_eight_days(store, tmp_path, pref
     http = HTTP()
     resets = component(store, http)
     assert resets.confirmed_override(target.lane_id, now=NOW) is None
-    assert resets.evaluate(snapshot(store), now=NOW)["status"] == "no-concrete-credit"
+    assert resets.evaluate(snapshot(store), now=NOW, demand=wants(store))["status"] == "no-concrete-credit"
     assert [request.get_method() for request, _ in http.calls] == ["GET"]
     assert store.query("SELECT * FROM actions") == [before]
 
@@ -316,9 +407,10 @@ def test_credit_claim_rechecks_legacy_import_added_after_listing(store, tmp_path
         with transaction(kind, **kwargs) as conn:
             yield conn
 
+    demand = wants(store)
     monkeypatch.setattr(store, "transaction", import_before_claim)
     http = HTTP()
-    assert component(store, http).evaluate(snapshot(store), now=NOW)["status"] == "already-attempted"
+    assert component(store, http).evaluate(snapshot(store), now=NOW, demand=demand)["status"] == "already-attempted"
     assert [request.get_method() for request, _ in http.calls] == ["GET"]
     assert len(store.query("SELECT * FROM actions")) == 1
 
@@ -354,7 +446,7 @@ def test_disabled_unreadable_lane_keeps_fleet_total_null_after_a_confirmed_spend
     other = lane(store, tmp_path, 2)
     store.update_lane(other.lane_id, enabled=False)
     view = snapshot(store, **{"codex-2": {"probe": {"status": "auth-dead"}}})
-    result = component(store, HTTP()).evaluate(view, now=NOW)
+    result = component(store, HTTP()).evaluate(view, now=NOW, demand=wants(store, "codex-1"))
     assert result["status"] == "confirmed"
     assert result["fleet_credits_remaining"] is None
 
@@ -363,7 +455,7 @@ def test_confirmed_override_ends_after_provider_propagation(store, tmp_path):
     """C-23.17 C-9.6: actual usage settles the temporary authority without synthetic window data."""
     target = lane(store, tmp_path)
     resets = component(store, HTTP())
-    resets.evaluate(snapshot(store), now=NOW)
+    resets.evaluate(snapshot(store), now=NOW, demand=wants(store))
     assert resets.confirmed_override(target.lane_id, now=NOW)
     resets.settle_by_usage(target.lane_id, {"status": "ok", "limit_reached": False,
                           "checked_at": "2026-09-05T12:05:00Z"}, now=NOW + timedelta(minutes=5))
@@ -376,8 +468,14 @@ def test_lagging_usage_cannot_spend_another_gift_on_a_confirmed_open_lane(store,
     http = HTTP(credits=[GIFT, dict(GIFT, id="gift-2")])
     resets = component(store, http)
     view = snapshot(store)
-    assert resets.evaluate(view, now=NOW)["status"] == "confirmed"
-    assert resets.evaluate(view, now=NOW + timedelta(minutes=31))["status"] == "no-concrete-credit"
+    assert resets.evaluate(view, now=NOW, demand=wants(store))["status"] == "confirmed"
+    # C-23.16 (d): the lane just reset has capacity however long its usage lags.
+    assert resets.evaluate(snapshot(store), now=NOW + timedelta(minutes=31),
+                           demand=wants(store))["status"] == "reset-lane-open"
+    # Even once limited again, its confirmed override keeps it out of reach of a second gift.
+    limit_again(store, "codex-1")
+    assert resets.evaluate(snapshot(store), now=NOW + timedelta(minutes=31),
+                           demand=wants(store))["status"] == "no-eligible-lane"
     assert sum(request.get_method() == "POST" for request, _ in http.calls) == 1
 
 
@@ -418,7 +516,7 @@ def test_stale_future_or_wrong_account_usage_cannot_admit_a_reset(store, tmp_pat
     http = HTTP()
     view = snapshot(store)
     view["lanes"][0]["probe"].update(metadata)
-    assert component(store, http).evaluate(view, now=NOW)["status"] == "no-concrete-credit"
+    assert component(store, http).evaluate(view, now=NOW, demand=wants(store))["status"] == "no-eligible-lane"
     assert not http.calls
 
 
@@ -432,7 +530,7 @@ def test_unknown_reconciliation_requires_current_same_account_usage(store, tmp_p
     """C-19.1 C-23.13 C-1.4: completion timestamps and wrong-account reads cannot settle unknown actions."""
     target = lane(store, tmp_path)
     resets = component(store, HTTP(response=TimeoutError()))
-    result = resets.evaluate(snapshot(store), now=NOW)
+    result = resets.evaluate(snapshot(store), now=NOW, demand=wants(store))
     assert result["status"] == "unknown"
     probe = {"status": "ok", "limit_reached": False, **metadata}
     assert resets.settle_by_usage(target.lane_id, probe, now=NOW) is None
@@ -445,7 +543,8 @@ def test_cancelled_evaluation_makes_no_request(store, tmp_path):
     lane(store, tmp_path)
     cancel, http = threading.Event(), HTTP()
     cancel.set()
-    assert component(store, http).evaluate(snapshot(store), now=NOW, cancel=cancel)["status"] == "cancelled"
+    assert component(store, http).evaluate(snapshot(store), now=NOW, cancel=cancel,
+                                           demand=wants(store))["status"] == "cancelled"
     assert not http.calls and not store.query("SELECT * FROM actions")
 
 
@@ -474,11 +573,11 @@ def test_a_stuck_list_cannot_accumulate_one_http_worker_per_cycle(store, tmp_pat
         return 200, b'{"credits":[]}'
     resets = component(store, opener)
     try:
-        view = snapshot(store)
-        resets.evaluate(view, now=NOW, deadline=time.monotonic() + .05)
+        view, demand = snapshot(store), wants(store)
+        resets.evaluate(view, now=NOW, deadline=time.monotonic() + .05, demand=demand)
         assert entered.is_set()
-        resets.evaluate(view, now=NOW, deadline=time.monotonic() + .05)
-        resets.evaluate(view, now=NOW, deadline=time.monotonic() + .05)
+        resets.evaluate(view, now=NOW, deadline=time.monotonic() + .05, demand=demand)
+        resets.evaluate(view, now=NOW, deadline=time.monotonic() + .05, demand=demand)
         assert len(calls) == 1
     finally:
         release.set()

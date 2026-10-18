@@ -56,6 +56,28 @@ remove inherited `CODEX_API_KEY` and `OPENAI_API_KEY`, matching daemon launches.
 `SUBFLEET_NO_AUTOPICK` requires an explicit home. Raw `exec resume` and `exec fork` also require their
 original `CODEX_HOME`; managed continuations use `subfleet resume JOB_ID`.
 
+Claude and Codex spend weekly capacity by earliest binding reset within the
+existing desktop, turn affinity, load band, Claude stranded and measured keys.
+The binding weekly window is the applicable account or model window with least
+headroom; its reset travels with it. Missing resets follow known ones, and a
+window that has reset since observation makes ranking unmeasured until reread.
+Both providers can report a five-hour window. These `policy.json` preferences
+do not exclude lanes or queue work:
+
+| Admission key | Default | Preference |
+| --- | ---: | --- |
+| `weekly_reserve` | `0.02` | Prefer lanes with at least 2% weekly headroom. |
+| `five_hour_reserve` | `0.10` | Then prefer lanes with at least 10% five-hour headroom. |
+| `lane_spread` | `2` | Rank by `in_flight // 2` before usage; `null` removes bands. |
+
+The two reserves are finite fractions in [0, 1]. After them, rank by earliest
+weekly reset, greater weekly headroom, fewer in-flight attempts, then lane id.
+`pick --all` and `why` show reserve class, weekly reset/headroom, five-hour
+headroom and reading age; JSON includes scoped model details. Probe cycles read
+idle and busy lanes through no-turn sensors; busy reads hold no slot lease.
+The [replay and validation report](docs/reports/2026-10-03-rank-earliest-reset.md)
+explains the defaults and the simulation's limits.
+
 The native macOS menu bar app reads the daemon's `status.json` from
 `$SUBFLEET_HOME` (default `~/.subfleet`). Build it with the macOS Swift developer
 tools; this creates a local bundle and never installs or launches it:
@@ -118,6 +140,23 @@ bin/sf2 wait JOB_ID
 bin/sf2 runs show JOB_ID --out
 bin/sf2 resume JOB_ID 'Continue with these additional instructions.'
 ```
+
+Writable detached Claude jobs start with no MCP servers. Opt one job into the
+servers it needs by repeating `--mcp NAME`:
+
+```sh
+bin/sf2 run -m opus -s workspace-write -C /path/to/work -p prompt.md --mcp GitNexus --mcp docs --json
+bin/sf2 runs show JOB_ID --json
+```
+
+The daemon resolves the named servers from Claude Code's configuration for the
+submitted workdir, refuses unknown names, and keeps exactly those entries with
+the job. Retries and resumes keep the same set even if the original settings
+change. `runs show` displays the opt-in. Batch manifests use `mcp = ["GitNexus",
+"docs"]`. A job that names servers must use Claude and `workspace-write`;
+read-only jobs and isolated reviews retain their empty MCP configuration.
+Subfleet.app conversation turns keep their existing behavior. See the
+[MCP configuration sources and launch audit](docs/reference/claude-mcp.md).
 
 Resume binds to the source attempt's provider session, lane, model, and workspace.
 It refuses unavailable native sessions and active or quarantined source jobs.

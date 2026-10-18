@@ -6,19 +6,45 @@ import hashlib
 import json
 import math
 import sys
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from .contracts import (
-    DEFAULT_CAPS, HEADROOM_FLOOR, PROVIDERS, READING_TTL_S, RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, SCRUB_MAX_CHARS,
+    CLAUDE_CARDS_DEFAULTS, DEFAULT_CAPS, HEADROOM_FLOOR, PROVIDERS, READING_TTL_S, RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, SCRUB_MAX_CHARS,
     TURN_RETENTION_KEEP_DAYS, TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
+    RETENTION_REMOTE_LESS_HISTORY_BYTES,
     Closure, Decision, Exit, Lane, Reading,
 )
 
 DEFAULT_POLICY_PATH = Path(__file__).with_name("default_policy.json")
+CODEX_CA_BUNDLE = "/etc/ssl/cert.pem"
+
+
+def codex_ca_bundle(policy: Mapping[str, Any]) -> str | None:
+    """C-10.8: an omitted setting uses the system PEM bundle; null opts out."""
+    return policy.get("providers", {}).get("codex", {}).get("ca_bundle", CODEX_CA_BUNDLE)
+
+# C-8.5: host credential use is opt-in both in policy and on each job.
+PUSH_DEFAULTS = {"enabled": False, "allowed_remotes": [], "protected": [],
+                 "max_bundle_mb": 256, "max_commits": 100}
+
+
+def push_settings(policy: Mapping[str, Any]) -> dict[str, Any]:
+    return {**PUSH_DEFAULTS, **policy.get("push", {})}
+
+
+def flatten_chain(chain: Sequence[str | list[str]], tier_index: int = 0) -> list[str]:
+    """C-11.2: candidates from this tier upward, in first-preference order.
+
+    Slice tiers before flattening: a model repeated below the job's tier must
+    not suppress its occurrence in an eligible tier. Each model is tried once.
+    """
+    return list(dict.fromkeys(name for entry in chain[tier_index:]
+                             for name in (entry if isinstance(entry, list) else [entry])))
+
 
 #: Short names retired from dispatch, whatever a policy file still lists (C-17.2).
 #: Every surface that takes a model name from a person (`run -m`, `why -m`,
@@ -96,13 +122,14 @@ SESSION_DEFAULTS: dict[str, Any] = {
 #: relay, then closing stdin, then C-5.6 containment, each that many seconds
 #: after the stop was requested. `after_result_s` is how long a process may outlive its terminal
 #: event before the same escalation stops it (D-15: the 120 s background ceiling
-#: every Claude turn launches with, plus 15 s). `approval_wait_s` is D-7's bound
-#: on an unanswered approval. The two turn caps (C-26.9) are `null` by default,
-#: meaning no cap: a person's turn waits only for a lane that can take it, never
-#: for a count Subfleet imposes (Max, 2026-09-27, after a turn waited 12 minutes
+#: every Claude turn launches with, plus 15 s). `approval_wait_s` is D-7's optional
+#: bound on an unanswered tool approval; null means no limit. The two turn caps
+#: (C-26.9) are `null` by default, meaning no cap: a person's turn waits only for
+#: a lane that can take it, never for a count Subfleet imposes (Max, 2026-09-27,
+#: after a turn waited 12 minutes
 #: behind two other conversations' turns while one turn per lane was the rule).
 CONVERSATION_DEFAULTS: dict[str, float | None] = {
-    "approval_wait_s": 3600,         # C-26.9: an unanswered approval stops its turn
+    "approval_wait_s": None,         # C-26.9: no approval timeout unless policy sets one
     "catalog_interval_s": 60,        # C-30.1, design D-23: a catalog run this often; 0: on request only
     "compact_after_s": 300,          # C-25.4: a settled turn keeps its deltas this long
     "compact_per_tick": 20,          # C-25.4: attempts compacted per conversation tick
@@ -158,6 +185,24 @@ def cap(caps: Mapping[str, Any] | None, key: str) -> int | None:
     return None if value is None else int(value)
 
 
+def provider_cap(policy: Mapping[str, Any], provider: str) -> int | None:
+    """C-6.4: optional count shared by detached attempts and turns; absent is off.
+
+    Do not inject this default into loaded policies: C-11.1 preserves their
+    bytes and hashes, and existing policies need no new section.
+    """
+    return (policy.get("providers") or {}).get(provider, {}).get("max_active_attempts")
+
+
+def provider_caps_on(policy: Mapping[str, Any]) -> bool:
+    """C-6.4a: whether any provider names a `max_active_attempts` cap.
+
+    Not whether the policy has a `providers` section: every loaded policy has
+    one, because C-10.8's `providers.codex.ca_bundle` is filled in at load.
+    """
+    return any(provider_cap(policy, provider) is not None for provider in (policy.get("providers") or {}))
+
+
 def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
     """C-6.4: how many detached attempts one lane may hold, or None for no cap.
 
@@ -173,26 +218,97 @@ def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
     return min(limits) if limits else None
 
 
-#: `admission.*` (C-6.9, C-6.13, C-10.3, C-11.3): how admission orders and places
+#: `admission.*` (C-6.9, C-6.13, C-6.17, C-6.18, C-10.3, C-11.3): how admission orders and places
 #: work once no count caps it (2026-09-27).
 #: `lane_spread` is the width of a load band: candidates are ranked by
 #: `in_flight // lane_spread` first, so lanes fill evenly in steps of that many
 #: attempts instead of one lane taking every job; null ranks by C-11.3 alone.
+#: `weekly_reserve` and `five_hour_reserve` are fractions remaining below which
+#: a candidate sorts later, never admission floors or reasons to wait.
 #: `desktop_recent_s` is how recently a Claude Code session on the desktop login
 #: must have been active for that login to count as in use (C-10.3).
+#: `priority_callers` names Claude Code caller session ids whose detached work,
+#: including descendants, goes first in FIFO order (C-6.16); null is no override.
 #: `machine_guard` holds detached jobs of a class at the door while the machine is
-#: saturated (C-6.13). It never holds a conversation turn, and it is off (null) by
-#: default: Max, 2026-09-28, "remove *all* caps" and "nothing should be queued".
+#: saturated (C-6.13). It never holds `attended` turns or `priority` jobs,
+#: and it is off (null) by default: Max, 2026-09-28, "remove *all* caps" and
+#: "nothing should be queued".
 #: `MACHINE_GUARD_PROPOSAL` is the setting proposed for when he turns it on.
+#: `pin_grace_s` is how long a queued job pinned to a lane that can never admit
+#: it waits for that to change before it fails with rc 3 (C-11.8); null never
+#: fails it, and the notice still goes. `pin_hold_far_s` is how far out a
+#: closure must end to count as a hold rather than a wait (C-11.8): seven days
+#: is the longest usage window Subfleet reads (`seven_day`).
+#: `prove_idle_s` is how long a lane may go without showing a model's answer
+#: before it is proven again by one detached attempt, its pilot, while every
+#: other detached attempt waits for that answer (C-6.14); null never holds a
+#: lane. Fifteen probe intervals: a lane in use proves itself with every
+#: attempt it starts and never waits, and a lane idle that long costs one
+#: serialized start, where an unproven lane took 37 jobs in 40 s on
+#: 2026-09-30 and failed every one. `prove_wait_s` is how long a pilot that has
+#: not answered keeps its lane to itself; after it the lane takes one more
+#: attempt, the next pilot (C-6.14); null waits for the pilot however long. Five
+#: minutes: the incident's refusals took 78 to 181 s to arrive under its load.
 MACHINE_GUARD_PROPOSAL: dict[str, dict[str, Any]] = {
     "background": {"load_per_cpu": 6.0, "memory_pressure": "warn"},
     "session": {"load_per_cpu": 10.0, "memory_pressure": "critical"},
 }
+#: C-6.17: disk admission is opt-in. GB is decimal (1e9 bytes). A detached
+#: placement needs room for its reserve above the floor; a low refusal latches
+#: until effective free reaches floor + margin. Budgets expire at attempt end
+#: or TTL. An omitted path measures the state root's volume.
+DISK_DEFAULTS: dict[str, Any] = {
+    "enabled": False,
+    "floor_gb": 40,
+    "resume_margin_gb": 5,
+    "placement_reserve_gb": 1.5,
+    "reserve_ttl_s": 600,
+    "path": None,
+    "lower_path": None,
+    "raise_path": None,
+    "min_floor_gb": 20,
+    "max_lower_h": 16,
+}
+#: C-6.18: count committed detached starts in a sliding window, including
+#: retries and priority placements. The hub opts in through its live policy.
+#: The loader requires `per_minute * window_s` to be a multiple of 60, so each
+#: window allows a whole number of starts.
+RAMP_DEFAULTS: dict[str, Any] = {
+    "enabled": False,
+    "per_minute": 12,
+    "window_s": 60,
+}
 ADMISSION_DEFAULTS: dict[str, Any] = {
     "lane_spread": 2,
+    "weekly_reserve": 0.02,
+    "five_hour_reserve": 0.10,
     "desktop_recent_s": 1800,
     "machine_guard": None,
+    "disk": DISK_DEFAULTS,
+    "ramp": RAMP_DEFAULTS,
+    "priority_callers": None,
+    "pin_grace_s": 1800,
+    "pin_hold_far_s": 7 * 86400,
+    "prove_idle_s": 900,
+    "prove_wait_s": 300,
 }
+
+
+#: C-6.17: bounds on disk sizes in policy, so whole-byte arithmetic stays exact.
+DISK_MAX_GB = 1_000_000          # a petabyte
+DISK_MIN_RESERVE_GB = 0.001      # a megabyte
+
+
+def disk_settings(policy: Mapping[str, Any]) -> dict[str, Any]:
+    """C-6.17: omitted disk settings leave admission off, including raw policies."""
+    return {**DISK_DEFAULTS, **((policy.get("admission") or {}).get("disk") or {})}
+
+
+def ramp_settings(policy: Mapping[str, Any]) -> dict[str, Any]:
+    """C-6.18: omitted ramp settings leave admission off, including raw policies."""
+    return {**RAMP_DEFAULTS, **((policy.get("admission") or {}).get("ramp") or {})}
+
+
 #: C-6.13: the job classes a machine guard may hold, and the memory pressure
 #: levels it may name, as `kern.memorystatus_vm_pressure_level` reports them.
 GUARDED_CLASSES = ("session", "background")
@@ -201,7 +317,8 @@ MEMORY_PRESSURE_LEVELS = {"normal": 1, "warn": 2, "critical": 4}
 
 def admission_settings(policy: Mapping[str, Any]) -> dict[str, Any]:
     """The policy's `admission` section with its defaults, as the loader leaves it."""
-    return {**ADMISSION_DEFAULTS, **(policy.get("admission") or {})}
+    return {**ADMISSION_DEFAULTS, **(policy.get("admission") or {}),
+            "disk": disk_settings(policy), "ramp": ramp_settings(policy)}
 
 
 #: `retention.*` (C-8.4, C-26.12): detached jobs and conversation turn jobs are
@@ -213,6 +330,7 @@ RETENTION_DEFAULTS: dict[str, float] = {
     "turn_jobs": TURN_RETENTION_MAX_JOBS,
     "turn_bytes": TURN_RETENTION_MAX_BYTES,
     "turn_keep_days": TURN_RETENTION_KEEP_DAYS,
+    "remote_less_history_bytes": RETENTION_REMOTE_LESS_HISTORY_BYTES,
 }
 
 
@@ -304,9 +422,17 @@ def load_policy(path: str | Path) -> dict[str, Any]:
             fail(key, "task name must be nonempty")
         if not isinstance(chain, list) or len(chain) != len(tiers):
             fail(key, "must be a list with one short model name per tier")
-        for index, model in enumerate(chain):
-            if not _name(model) or model not in models:
-                fail(f"{key}[{index}]", f"unknown model {model!r}; expected a models key")
+        for index, entry in enumerate(chain):
+            entry_key = f"{key}[{index}]"
+            if isinstance(entry, list) and not entry:
+                fail(entry_key, f"unknown model {entry!r}; expected a models key")
+            names = entry if isinstance(entry, list) else [entry]
+            for offset, model in enumerate(names):
+                model_key = f"{entry_key}[{offset}]" if isinstance(entry, list) else entry_key
+                if not _name(model) or model not in models:
+                    fail(model_key, f"unknown model {model!r}; expected a models key")
+                if model in names[:offset]:
+                    fail(model_key, f"duplicate model {model!r}")
     if value["fallback"] != "upward-only":
         fail("fallback", 'must be "upward-only"')
     if value["desktop_login"] != "never":
@@ -347,6 +473,19 @@ def load_policy(path: str | Path) -> dict[str, Any]:
                  else "must be a positive integer")
     value["caps"] = caps
 
+    providers = value.get("providers", {})
+    if not isinstance(providers, dict):
+        fail("providers", "must be an object")
+    for provider, settings in providers.items():
+        key = f"providers.{provider}"
+        if provider not in PROVIDERS:
+            fail(key, f"must be one of {', '.join(PROVIDERS)}")
+        if not isinstance(settings, dict):
+            fail(key, "must be an object")
+        item = settings.get("max_active_attempts")
+        if item is not None and (type(item) is not int or item < 1):
+            fail(f"{key}.max_active_attempts", "must be a positive integer, or null for no cap")
+
     # `admission` (C-6.9, C-6.13, C-10.3, C-11.3): the load band, the desktop
     # login's recency window, and the machine guard.
     admission = value.get("admission", {})
@@ -356,13 +495,79 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         if key not in ADMISSION_DEFAULTS:
             fail(f"admission.{key}", f"is not an admission setting ({', '.join(sorted(ADMISSION_DEFAULTS))})")
     settings = {**ADMISSION_DEFAULTS, **admission}
+    disk = settings["disk"]
+    if not isinstance(disk, dict):
+        fail("admission.disk", "must be an object")
+    for key in disk:
+        if key not in DISK_DEFAULTS:
+            fail(f"admission.disk.{key}", "is not a disk admission setting")
+    disk = {**DISK_DEFAULTS, **disk}
+    if not isinstance(disk["enabled"], bool):
+        fail("admission.disk.enabled", "must be a boolean")
+    for key in ("floor_gb", "resume_margin_gb", "placement_reserve_gb", "reserve_ttl_s",
+                "min_floor_gb", "max_lower_h"):
+        item = disk[key]
+        positive = key in ("placement_reserve_gb", "reserve_ttl_s", "max_lower_h")
+        # Check integer sizes before isfinite's implicit float conversion,
+        # which can overflow even though Python integers are finite.
+        if isinstance(item, int) and key.endswith("_gb") and item > DISK_MAX_GB:
+            fail(f"admission.disk.{key}", f"must be at most {DISK_MAX_GB:g} GB")
+        if (not isinstance(item, (int, float)) or isinstance(item, bool)
+                or item < 0 or (positive and item == 0) or not math.isfinite(item)):
+            fail(f"admission.disk.{key}", "must be a " + ("positive" if positive else "nonnegative")
+                 + " finite number")
+        # Sizes are compared in whole bytes (C-6.17): a reserve under a megabyte
+        # rounds to almost nothing and disables pacing, and a size past a petabyte
+        # overflows nothing useful (review of #161, P3s).
+        if key.endswith("_gb") and item > DISK_MAX_GB:
+            fail(f"admission.disk.{key}", f"must be at most {DISK_MAX_GB:g} GB")
+        if key == "placement_reserve_gb" and item < DISK_MIN_RESERVE_GB:
+            fail(f"admission.disk.{key}", f"must be at least {DISK_MIN_RESERVE_GB:g} GB (1 MB), or pacing is off in effect")
+    if disk["path"] is not None and not _name(disk["path"]):
+        fail("admission.disk.path", "must be a nonempty path string, or null for the state root's volume")
+    for key in ("lower_path", "raise_path"):
+        if disk[key] is not None and (not _name(disk[key]) or not Path(disk[key]).is_absolute()):
+            fail(f"admission.disk.{key}", "must be a nonempty absolute path string, or null")
+    settings["disk"] = disk
+    ramp = settings["ramp"]
+    if not isinstance(ramp, dict):
+        fail("admission.ramp", "must be an object")
+    for key in ramp:
+        if key not in RAMP_DEFAULTS:
+            fail(f"admission.ramp.{key}", "is not a placement ramp setting")
+    ramp = {**RAMP_DEFAULTS, **ramp}
+    if not isinstance(ramp["enabled"], bool):
+        fail("admission.ramp.enabled", "must be a boolean")
+    for key in ("per_minute", "window_s"):
+        item = ramp[key]
+        # Positive Python integers are finite, including values too large for
+        # isfinite's implicit float conversion; floats and booleans are refused.
+        if not isinstance(item, int) or isinstance(item, bool) or item < 1:
+            fail(f"admission.ramp.{key}", "must be a positive finite integer")
+    if ramp["per_minute"] * ramp["window_s"] % 60:
+        # A placement commits while starts < per_minute * window_s / 60, so a
+        # fractional allowance admits its ceiling: 1 per minute over a 1-second
+        # window would place a job every second, 60 a minute. Refused whether
+        # or not the ramp is enabled, so enabling it later cannot do that.
+        fail("admission.ramp.window_s",
+             f"per_minute * window_s must be a multiple of 60, so that each window allows a whole "
+             f"number of starts (per_minute {ramp['per_minute']}, window_s {ramp['window_s']})")
+    settings["ramp"] = ramp
     spread = settings["lane_spread"]
     if spread is not None and (not isinstance(spread, int) or isinstance(spread, bool) or spread < 1):
         fail("admission.lane_spread", "must be a positive whole number of attempts, or null for no bands")
+    for key in ("weekly_reserve", "five_hour_reserve"):
+        if not _fraction(settings[key]):
+            fail(f"admission.{key}", "must be a finite fraction between 0 and 1")
     recent = settings["desktop_recent_s"]
     if not isinstance(recent, (int, float)) or isinstance(recent, bool) or not math.isfinite(recent) or recent < 0:
         fail("admission.desktop_recent_s", "must be a nonnegative finite number of seconds")
     guard = settings["machine_guard"]
+    callers = settings["priority_callers"]
+    if callers is not None:
+        if not isinstance(callers, list) or any(not isinstance(item, str) or not item.strip() for item in callers):
+            fail("admission.priority_callers", "must be a list of nonempty caller session ids, or null")
+        settings["priority_callers"] = [item.strip().lower() for item in callers]
     if guard is not None:
         if not isinstance(guard, dict):
             fail("admission.machine_guard", "must be an object of per-class thresholds, or null")
@@ -370,7 +575,7 @@ def load_policy(path: str | Path) -> dict[str, Any]:
             where = f"admission.machine_guard.{klass}"
             if klass not in GUARDED_CLASSES:
                 fail(where, f"is not a class the guard may hold ({', '.join(GUARDED_CLASSES)}); "
-                            "a conversation turn is never held")
+                            "attended turns and priority jobs are never held")
             if limits is None:
                 continue
             if not isinstance(limits, dict) or not limits:
@@ -385,6 +590,24 @@ def load_policy(path: str | Path) -> dict[str, Any]:
                         fail(f"{where}.memory_pressure", "must be \"warn\" or \"critical\"")
                 else:
                     fail(f"{where}.{key}", "is not a guard threshold (load_per_cpu, memory_pressure)")
+    grace = settings["pin_grace_s"]
+    if grace is not None and (not isinstance(grace, (int, float)) or isinstance(grace, bool)
+                              or not math.isfinite(grace) or grace < 0):
+        fail("admission.pin_grace_s", "must be a nonnegative finite number of seconds, or null never to fail "
+                                      "a job whose pinned lane can never admit it (C-11.8)")
+    far = settings["pin_hold_far_s"]
+    if not isinstance(far, (int, float)) or isinstance(far, bool) or not math.isfinite(far) or far <= 0:
+        fail("admission.pin_hold_far_s", "must be a positive finite number of seconds")
+    prove = settings["prove_idle_s"]
+    if prove is not None and (not isinstance(prove, (int, float)) or isinstance(prove, bool)
+                              or not math.isfinite(prove) or prove <= 0):
+        fail("admission.prove_idle_s", "must be a positive finite number of seconds, or null never to hold "
+                                       "a lane for its pilot (C-6.14)")
+    wait = settings["prove_wait_s"]
+    if wait is not None and (not isinstance(wait, (int, float)) or isinstance(wait, bool)
+                             or not math.isfinite(wait) or wait <= 0):
+        fail("admission.prove_wait_s", "must be a positive finite number of seconds, or null to wait for a "
+                                       "pilot's answer however long (C-6.14)")
     value["admission"] = settings
 
     floor = value.get("headroom_floor", HEADROOM_FLOOR)
@@ -394,12 +617,14 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     reset = value["reset_credits"]
     if not isinstance(reset, dict):
         fail("reset_credits", "must be an object")
-    for key in ("enabled", "headroom_floor_pct", "min_interval_min"):
+    for key in ("enabled", "min_interval_min"):
         if key not in reset:
             fail(f"reset_credits.{key}", "required key is missing")
     if not isinstance(reset["enabled"], bool):
         fail("reset_credits.enabled", "must be a boolean")
-    if not _fraction(reset["headroom_floor_pct"], 100):
+    # C-23.16: no fleet headroom sum triggers a spend any more. A policy written
+    # before that still names the floor; it is checked and otherwise ignored.
+    if "headroom_floor_pct" in reset and not _fraction(reset["headroom_floor_pct"], 100):
         fail("reset_credits.headroom_floor_pct", "must be a finite percentage between 0 and 100")
     interval = reset["min_interval_min"]
     if (not isinstance(interval, (int, float)) or isinstance(interval, bool)
@@ -421,6 +646,24 @@ def load_policy(path: str | Path) -> dict[str, Any]:
                   or not math.isfinite(item) or item <= 0):
                 fail(f"{section}.{key}", "must be a positive finite number")
         value[section] = settings
+
+    # C-9.10: on as shipped; a policy without the section reads with the defaults.
+    supplied = value.get("claude_cards", {})
+    if not isinstance(supplied, dict):
+        fail("claude_cards", "must be an object")
+    cards = {**CLAUDE_CARDS_DEFAULTS, **supplied}
+    for key in ("enabled", "heal"):
+        if not isinstance(cards[key], bool):
+            fail(f"claude_cards.{key}", "must be a boolean")
+    for key, least in (("interval_min", 30), ("heal_interval_min", 20), ("warn_days", 0)):
+        item = cards[key]
+        if (not isinstance(item, (int, float)) or isinstance(item, bool)
+                or not math.isfinite(item) or item <= 0 or item < least):
+            fail(f"claude_cards.{key}", f"must be a positive finite number, at least {least}" if least
+                 else "must be a positive finite number")
+    if not isinstance(cards["logins_dir"], str) or not cards["logins_dir"].strip():
+        fail("claude_cards.logins_dir", "must be a nonempty path, absolute or relative to the state root")
+    value["claude_cards"] = cards
 
     # `sessions` is validated on its own because zero is meaningful in it: every
     # cap, window and interval there switches OFF at zero — a mirror interval of
@@ -462,6 +705,20 @@ def load_policy(path: str | Path) -> dict[str, Any]:
              f"scrubbed whole, so they may total at most {HANDOFF_BRIEF_MAX_CHARS:,}")
     value["sessions"]["handoff_caps"] = caps
 
+    # C-10.8: validate the setting's shape here, availability at launch. An
+    # unavailable bundle must leave native trust usable, rather than refuse work.
+    providers = value.get("providers", {})
+    if not isinstance(providers, dict):
+        fail("providers", "must be an object")
+    codex = providers.get("codex", {})
+    if not isinstance(codex, dict):
+        fail("providers.codex", "must be an object")
+    bundle = codex.get("ca_bundle", CODEX_CA_BUNDLE)
+    if bundle is not None and (not isinstance(bundle, str) or not bundle.strip()
+                               or "\0" in bundle or not Path(bundle).is_absolute()):
+        fail("providers.codex.ca_bundle", "must be an absolute PEM bundle path or null")
+    value["providers"] = {**providers, "codex": {**codex, "ca_bundle": bundle}}
+
     # `network` (d260): whether a writable Codex job's shell reaches the network.
     network = value.get("network", {})
     if not isinstance(network, dict):
@@ -475,7 +732,8 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     # `conversations` and `retention`: whole counts where the value counts
     # things, and zero only where it means "at once", "never on a timer" or "keep
     # nothing extra" (C-25.4's compaction delay, C-30.1's catalog timer, C-26.12's
-    # days kept after a turn ends). A turn cap may also be null: no cap (C-26.9).
+    # days kept after a turn ends). Turn caps and the approval wait may also be
+    # null: no cap or timeout (C-26.9).
     # C-26.8: `conversations.default_effort` names an effort, or null, per provider.
     default_effort = (value.get("conversations") or {}).get("default_effort") if isinstance(
         value.get("conversations"), dict) else None
@@ -490,14 +748,15 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     for section, defaults, may_be_zero, whole in (
             ("conversations", CONVERSATION_DEFAULTS, {"compact_after_s", "catalog_interval_s"},
              {"compact_per_tick", *TURN_CAPS}),
-            ("retention", RETENTION_DEFAULTS, {"turn_keep_days"}, {"jobs", "bytes", "turn_jobs", "turn_bytes"})):
+            ("retention", RETENTION_DEFAULTS, {"turn_keep_days", "remote_less_history_bytes"},
+             {"jobs", "bytes", "turn_jobs", "turn_bytes", "remote_less_history_bytes"})):
         supplied = value.get(section, {})
         if not isinstance(supplied, dict):
             fail(section, "must be an object")
         settings = {**defaults, **supplied}
         for key in defaults:
             item = settings[key]
-            if item is None and section == "conversations" and key in TURN_CAPS:
+            if item is None and section == "conversations" and key in TURN_CAPS | {"approval_wait_s"}:
                 continue
             if (not isinstance(item, (int, float)) or isinstance(item, bool) or not math.isfinite(item)
                     or item < 0 or (item == 0 and key not in may_be_zero)):
@@ -514,6 +773,21 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         fail("conversations.stop_close_after_s",
              "the stop escalation must keep its order: "
              "stop_sigint_after_s < stop_close_after_s < stop_contain_after_s")
+
+    supplied = value.get("push", {})
+    if not isinstance(supplied, dict):
+        fail("push", "must be an object")
+    settings = push_settings(value)
+    if not isinstance(settings["enabled"], bool):
+        fail("push.enabled", "must be a boolean")
+    for key in ("allowed_remotes", "protected"):
+        if not isinstance(settings[key], list) or not all(_name(item) for item in settings[key]):
+            fail(f"push.{key}", "must be a list of nonempty patterns")
+    for key in ("max_bundle_mb", "max_commits"):
+        item = settings[key]
+        if not isinstance(item, int) or isinstance(item, bool) or item <= 0:
+            fail(f"push.{key}", "must be a positive whole number")
+    value["push"] = settings
 
     # Metadata is replaced even when a caller serializes a previously loaded map.
     value["_policy_hash"] = hashlib.sha256(raw).hexdigest()

@@ -387,6 +387,17 @@ def test_c6_3_the_chosen_lane_whose_reading_ages_out_is_judged_again(policy):
     assert judged_again(policy, store, store, seconds=5) == (None, 1)
 
 
+def test_c11_3_a_stale_window_renewing_does_not_invalidate_fresh_ranking(policy):
+    """A stopped primary window outside the TTL cannot change fresh weekly ranking."""
+    primary = {**reading("codex-1", .9, 4, observed=NOW - timedelta(seconds=130), resets_in=3),
+               "window": "five_hour"}
+    store = fleet(readings=[reading("codex-1", .2, 1, resets_in=600), reading("codex-2", .5, 2),
+                            reading("codex-3", .6, 3), primary])
+    assert stands(policy, store, store, seconds=0) == (None, "codex-1")
+    assert stands(policy, store, store, seconds=5) == (None, "codex-1")
+    assert judged_again(policy, store, store, seconds=5) == (None, 0)
+
+
 def test_c6_3_a_closure_that_ends_on_a_lane_it_looks_at_opens_that_lane(policy):
     """codex-1 was closed at the early evaluation; its closure ends before the
     reservation. Judged again at the check's clock, it is open and ranks first."""
@@ -414,13 +425,13 @@ def test_c6_3_an_override_that_ends_is_judged_on_its_lane_alone(policy):
 
 def test_c6_3_a_reading_past_its_reset_is_labelled_as_an_evaluation_now_labels_it(policy):
     """Review of d04b8b3 (P3): a `provider` reading already past its reset measures
-    nothing and gives no horizon. 119 s old at the early evaluation, it is past the
+    nothing, but its renewal uncertainty now gives a TTL horizon. 119 s old at the early evaluation, it is past the
     120 s TTL at the reservation, where an evaluation now labels it `stale-provider`;
     the check kept `provider`. It now gives every reading as a view built at its clock
     does (label and age), and `check` asserts the whole decision equal."""
     store = fleet(lanes=[dict(LANES[0])],
                   readings=[reading("codex-1", .2, 1, observed=NOW - timedelta(seconds=119), resets_in=-1)])
-    assert capacity.lane_horizons(view_of(store, NOW), reading_ttl_s=120) == {}
+    assert capacity.lane_horizons(view_of(store, NOW), reading_ttl_s=120) == {"codex-1": NOW.replace(microsecond=0) + timedelta(seconds=1)}
     result = check(policy, store, JOB, store, 2)
     verdict, _, standing, full = result
     assert verdict is None and standing.chosen_lane == "codex-1"

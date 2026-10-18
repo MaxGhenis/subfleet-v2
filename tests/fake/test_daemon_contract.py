@@ -308,6 +308,18 @@ def test_c16_1_malformed_line_keeps_connection_handler_alive(daemon):
         assert response["ok"] is True and response["id"] == "after-error"
 
 
+def test_content_filter_refusal_is_never_retried(daemon):
+    """C-4.5, C-9.2, invariant 39: a content-filter refusal ends the job on its first attempt, with
+    attempts to spare, and opens no closure; rewording the prompt is the caller's fix, not a retry."""
+    daemon.start()
+    job_id = daemon.submit("rc3-content-filter", max_attempts=3)
+    finished = daemon.finished(job_id)
+    assert finished["state"] == "failed" and finished["rc"] == 3
+    attempts = daemon.attempts(job_id)
+    assert [(row["seq"], row["outcome_class"]) for row in attempts] == [(1, "content-filter")]
+    assert not daemon.rows("SELECT * FROM closures")
+
+
 @pytest.mark.parametrize("scenario,rc", [("ok", 0), ("rc1-crash-after-output", 1),
                                         ("rc4-limit-with-clock", 4), ("spawn-fail", 127)])
 def test_c5_2_provider_receipts_preserve_raw_return_codes(daemon, scenario, rc):

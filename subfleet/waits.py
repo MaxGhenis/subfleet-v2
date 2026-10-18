@@ -166,6 +166,13 @@ class WaitHub:
             thread.join(timeout=2)
 
     @property
+    def running(self) -> bool:
+        """Whether the hub's thread runs now; while it does not, a waiter reads for
+        itself every `recheck_s` (C-15.5)."""
+        with self._lock:
+            return self._thread is not None and self._thread.is_alive()
+
+    @property
     def watched(self) -> int:
         with self._lock:
             return len(self._waiters)

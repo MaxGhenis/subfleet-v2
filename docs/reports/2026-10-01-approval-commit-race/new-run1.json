@@ -1,0 +1,250 @@
+{
+ "tree": "/Users/maxghenis/.subfleet/worktrees/20261001-075555-core-live-flake",
+ "rounds": 40,
+ "event_seen": 40,
+ "listed_at_once": 40,
+ "approval_needed_at_once": 40,
+ "missed": [],
+ "results": [
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:approval]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  },
+  {
+   "kind": "[fake:question]",
+   "event": true,
+   "listed": true,
+   "state": "approval-needed"
+  }
+ ]
+}

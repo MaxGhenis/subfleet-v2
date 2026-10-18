@@ -16,9 +16,8 @@ pytestmark = needs_swift
 
 
 @pytest.fixture(scope="module")
-def views(tmp_path_factory) -> dict:
-    probe = compile_probe(tmp_path_factory.mktemp("subfleet-conversation-view") / "probe",
-                          ROOT / "tests/frontend/ConversationViewProbe.swift", "SUBFLEET_VIEW_TEST")
+def views(conversation_view_probe) -> dict:
+    probe = conversation_view_probe
     result = subprocess.run([str(probe)], capture_output=True, text=True, timeout=60, check=True)
     return json.loads(result.stdout)
 
@@ -53,3 +52,21 @@ def test_c27_5_the_sidebar_hand_badge_is_a_button_that_shows_the_cards(views):
     assert rows[2]["clicks"] == ["badge"]
     assert rows[2]["width"] > rows[0]["width"]
     assert rows[2]["spoken"] == "2 approvals waiting"
+
+
+@pytest.mark.parametrize("reason,actions", [
+    ("unfinished-turn", ["continue", "leave"]),
+    ("delivery-unknown", ["delivered", "not-delivered"]),
+])
+def test_cutover_the_real_blocker_banner_buttons_and_sidebar_mark(views, reason, actions):
+    """The opened banner's real buttons dispatch both choices; each row is marked."""
+    blocker = next(row for row in views["blockers"] if row["reason"] == reason)
+    assert blocker["clicks"] == actions
+    assert blocker["needs_you"] == "Needs you" and blocker["marked_width"] > blocker["plain_width"]
+    assert views["visible_windows"] == 0
+
+
+def test_cutover_the_background_task_view_is_a_compact_system_notice(views):
+    assert views["task_notice"]["detail"] == "Completed · Exit code 0"
+    assert views["task_notice"]["buttons"] == 0
+    assert 0 < views["task_notice"]["height"] < 80
