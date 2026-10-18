@@ -6,7 +6,7 @@ Language: Python 3.12 or newer, standard library only. Packaging with `uv`. No b
 
 ## Changes in version 3
 
-- C-4.3, C-8.2, C-9.2 (2026-10-16, PR #212 fix round 4): capture-failure verdicts are durable across replay and restart. A valid recorded copy and its verdict are reused without another capture; missing, replaced, changed or newly writable recorded evidence becomes a sticky capture failure, never a fresh read of the live candidate. Conversation turns are exempt from stream capture: their driver's `turn.json` outcome decides settlement. Rejected copies are removed before retry or capture failure. A legacy receipt that replaced its copy cannot lend that copy to an unbound cached verdict.
+- C-4.3, C-8.2, C-26.8 (2026-10-16, PR #212 fix round 4): capture-failure verdicts are durable across replay and restart. A valid recorded copy and its verdict are reused without another capture; missing, replaced, changed or newly writable recorded evidence becomes a sticky capture failure, never a fresh read of the live candidate. Conversation turns are exempt from stream capture: their driver's `turn.json` outcome decides settlement. Rejected copies are removed before retry or capture failure. A legacy receipt that replaced its copy cannot lend that copy to an unbound cached verdict. Only this PR's unmerged rounds wrote the `reset_finalization` marker.
 
 - C-4.3, C-8.2 (2026-10-15, PR #212 fix round 3): failed capture settles in the same pass as `transient` for Codex or `unknown` for other provider attempts, with best-effort diagnostics. Finalized readers use the recorded `raw-stream` artifact; capture need not create `stream.jsonl`.
 
