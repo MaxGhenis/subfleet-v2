@@ -28,7 +28,7 @@ Invariants, for every input:
   after it was asked for (a row the feed named it in; its turn's state, reason
   or stop changing through its events or a receipt). Such an answer never
   changes where a turn the timeline already has stands, and the id is asked
-  for again.
+  for again, unless the answer is `unknown`, which drops it (C-29.9).
 - Convergence: once the feed is read to its end and the fetches are drained,
   every message a row named while its conversation had a timeline shows the
   daemon's state, sequence, origin and text. Two kinds are left out: this
@@ -779,6 +779,26 @@ def test_c29_9_events_while_the_fetch_is_out_keep_the_newer_state(core_probe, ha
     assert again["taken"] == [mid]
     assert turns(settled, cid)[mid]["state"] == "running" and queues(settled["fetches"])["wanted"] == []
     assert turns(rows, cid)[mid]["state"] == "running"
+
+
+def test_c29_9_an_unknown_answer_drops_the_id_even_when_a_row_named_it_meanwhile(core_probe, harness):
+    """C-29.9: an answer that the daemon has no such message drops the id, with
+    no retry, even when a row named it while it was asked for; a later row
+    naming it asks again. (The daemon answers `unknown` only for an id it holds
+    no message by, so this answer is injected.)"""
+    cid = harness.create()["conversation_id"]
+    mid = harness.submit(cid, "hello")["message_id"]
+    rows = harness.call("conversation.watch", after=0)
+    named = [r for r in rows["changes"] if r["message_id"] == mid]
+    again = {**named[0], "seq": rows["next"] + 1, "state": "waiting", "state_reason": "capacity"}
+    later = {**named[0], "seq": rows["next"] + 2, "state": "running"}
+    snapshots = fold(core_probe, [{"focus": cid}, {"watch": page(named)}, {"take": LIMIT}, {"watch": page([again])},
+                                  {"answer": [{"message_id": mid, "state": "unknown"}]}, {"watch": page([later])}])
+    during, dropped, renamed = snapshots[3], snapshots[4], snapshots[5]
+    assert queues(during["fetches"]) == {"wanted": [], "asked": [mid], "stale": [mid]}
+    assert queues(dropped["fetches"]) == {"wanted": [], "asked": [], "stale": []}
+    assert mid not in turns(dropped, cid)
+    assert queues(renamed["fetches"])["wanted"] == [mid]
 
 
 def test_c29_9_a_failed_batch_waits_again_ahead_of_the_rest(core_probe, harness):

@@ -456,7 +456,8 @@ struct MessageFetches: Equatable {
     /// The batch asked for and not yet answered.
     private(set) var asked: [String] = []
     /// Of `asked`, those the feed named again since: the answer may be older
-    /// than that row, so each is asked for again once it comes.
+    /// than that row, so each is asked for again once it comes (unless it says
+    /// the daemon has no such message).
     private(set) var stale: Set<String> = []
     /// Each asked id's `TurnTimeline.standingChanges` when it was asked for (0
     /// for no turn, as a new turn starts): a turn that has moved since has news
@@ -796,7 +797,9 @@ struct ConversationStoreState: Equatable {
     /// asked for: a row the feed named it in, or its turn's state, reason or
     /// stop changing (its events, a receipt, the person's Stop). Such a message
     /// is asked for again, and on a turn the timeline has the answer sets only
-    /// what the message is, never where it stands.
+    /// what the message is, never where it stands. An answer that the daemon has
+    /// no such message (`unknown`) drops the id, moved or not, until a row names
+    /// it again.
     mutating func apply(fetched receipts: [Receipt], asked batch: [String]) {
         let standingWhenAsked = messageFetches.standingWhenAsked
         let renamed = messageFetches.answered(batch)

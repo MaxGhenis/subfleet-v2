@@ -95,8 +95,9 @@ func runWatchFetch(_ data: Data) throws -> [String: Any] {
 /// focused conversation up), `status` (`ids`: `ConversationEngine.status`),
 /// `send` (`text`: the composer's send and a pump).
 func runAppSession(socket: String, journal: String) throws -> Any {
+    // The app's own timeouts (DaemonClient's 15 s base): a 200-id `message.status`
+    // on a loaded test host can take more than a few seconds.
     let client = DaemonClient(transport: try probeTransport(socket))
-    client.baseTimeout = 5
     let callsLock = NSLock()
     var calls: [[String: Any]] = []
     client.onExchange = { op, request, _ in

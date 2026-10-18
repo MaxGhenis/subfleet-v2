@@ -1120,9 +1120,10 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   naming it, or its turn's state, reason or stop changing through its events
   or a receipt: `TurnTimeline.standingChanges`) is fetched again, and the
   answer, which may be older than that change, then sets only what the
-  message is on a turn the timeline has, not its state.
-  `ConversationStoreState.apply(watch:)` records the ids (`MessageFetches`);
-  `UIModel.fetchNamedMessages` asks for them.
+  message is on a turn the timeline has, not its state. An answer that the
+  daemon has no such message (`unknown`) drops the id with no retry until a
+  row names it again. `ConversationStoreState.apply(watch:)` records the ids
+  (`MessageFetches`); `UIModel.fetchNamedMessages` asks for them.
 - A listed session that cannot continue here (a Codex-app thread) opens as a
   page saying why, instead of a failed `conversation.open`.
 - ⌘K, and File > Search…, open a quick-switch palette over the window
