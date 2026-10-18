@@ -418,12 +418,18 @@ def test_capture_failure_is_sticky_after_io_recovers(
 
 
 @pytest.mark.parametrize("restart", (False, True), ids=("replay", "restart"))
+@pytest.mark.parametrize("name,failure", (
+    ("codex", "copy-eio"), ("codex", "copy-emfile"),
+    ("codex", "stdout-permission"), ("codex", "stderr-permission"),
+    ("codex", "last-permission"), ("claude", "copy-eio"),
+))
 def test_valid_verdict_survives_a_later_freeze_failure_and_last_md(
-        state_daemon, monkeypatch, restart):
-    """C-8.2: a second pass cannot erase a valid capture and extract late last.md."""
+        state_daemon, monkeypatch, restart, name, failure):
+    """C-4.3/C-9.2: an interrupted real restore cannot replace a valid verdict."""
+    from subfleet.frozen_stream import _restored_copy, read_freeze_receipt
     daemon, harness = state_daemon
     out = harness.root / "out.md"
-    job_id, attempt, adir, adapter, launch, finalizing = stage_provider(daemon, harness, "codex", out)
+    job_id, attempt, adir, adapter, launch, finalizing = stage_provider(daemon, harness, name, out)
     monkeypatch.setattr(module, "get_adapter", lambda _: adapter)
     salvage = daemon._salvage
     def interrupt(*args):
@@ -433,14 +439,36 @@ def test_valid_verdict_survives_a_later_freeze_failure_and_last_md(
         daemon._finalize(finalizing)
     saved = (adir / "finalization.json").read_bytes()
     captured = (adir / "deliverable.md").read_bytes()
-    freeze_calls = []
-    with pytest.MonkeyPatch.context() as patch:
-        def unreadable(*args):
-            freeze_calls.append(True)
-            raise OSError(errno.EIO, "second-pass capture failed")
-        patch.setattr(daemon, "_freeze_stream", unreadable)
-        with pytest.raises(RuntimeError, match="interrupted salvage"):
-            daemon._finalize(finalizing)
+    frozen = adir / json.loads(saved)["stream"]
+    opened = []
+    denied = None
+    try:
+        with pytest.MonkeyPatch.context() as patch:
+            if failure.startswith("copy-"):
+                original_open = os.open
+                error = errno.EIO if failure == "copy-eio" else errno.EMFILE
+                def unreadable(path, *args, **kwargs):
+                    if os.fspath(path) == str(frozen) and not opened:
+                        opened.append(path)
+                        raise OSError(error, "recorded copy cannot be checked")
+                    return original_open(path, *args, **kwargs)
+                patch.setattr(os, "open", unreadable)
+            else:
+                role = failure.removesuffix("-permission")
+                denied = adir / ("last.md" if role == "last" else role)
+                if role == "last":
+                    denied.write_bytes(b"Late last.md before restore.")
+                denied.chmod(0)  # Exercise _writable_aliases through the kernel.
+                error = errno.EACCES
+            with pytest.raises(OSError) as caught:
+                daemon._finalize(finalizing)
+            assert caught.value.errno == error
+    finally:
+        if denied is not None:
+            denied.chmod(0o600)
+    assert (adir / "finalization.json").read_bytes() == saved
+    assert _restored_copy(adir, read_freeze_receipt(adir), launch) == frozen
+    assert len(opened) == int(failure.startswith("copy-"))
     (adir / "last.md").write_bytes(b"Written after the attempt exited.")
     monkeypatch.setattr(daemon, "_salvage", salvage)
     active = replay(daemon, harness, attempt, finalizing, restart, monkeypatch)
@@ -450,10 +478,65 @@ def test_valid_verdict_survives_a_later_freeze_failure_and_last_md(
         assert (adir / "deliverable.md").read_bytes() == captured == b"Finished."
         assert out.read_bytes() == captured
         assert (adir / "finalization.json").read_bytes() == saved
-        assert freeze_calls == []
     finally:
         if restart:
             active.close()
+
+
+@pytest.mark.parametrize("failure", ("copy-eio", "copy-emfile", "stderr-permission"))
+def test_uncheckable_recorded_copy_retries_then_records_sticky_failure(
+        state_daemon, monkeypatch, failure):
+    """C-4.3: a persistently uncheckable copy releases its lane after three tries."""
+    from subfleet.frozen_stream import _restored_copy, read_freeze_receipt
+    daemon, harness = state_daemon
+    out = harness.root / "out.md"
+    out.write_bytes(b"previous export\n")
+    job_id, attempt, adir, adapter, launch, finalizing = stage_provider(daemon, harness, "codex", out)
+    monkeypatch.setattr(module, "get_adapter", lambda _: adapter)
+    salvage = daemon._salvage
+    def interrupt(*args):
+        raise RuntimeError("interrupted salvage")
+    monkeypatch.setattr(daemon, "_salvage", interrupt)
+    with pytest.raises(RuntimeError, match="interrupted salvage"):
+        daemon._finalize(finalizing)
+    monkeypatch.setattr(daemon, "_salvage", salvage)
+    saved = (adir / "finalization.json").read_bytes()
+    frozen = adir / json.loads(saved)["stream"]
+    original_open = os.open
+    stderr = adir / "stderr"
+    try:
+        with pytest.MonkeyPatch.context() as patch:
+            if failure.startswith("copy-"):
+                error = errno.EIO if failure == "copy-eio" else errno.EMFILE
+                def unreadable(path, *args, **kwargs):
+                    if os.fspath(path) == str(frozen):
+                        raise OSError(error, "recorded copy cannot be checked")
+                    return original_open(path, *args, **kwargs)
+                patch.setattr(os, "open", unreadable)
+            else:
+                stderr.chmod(0)
+                error = errno.EACCES
+            for _ in range(2):
+                with pytest.raises(OSError) as caught:
+                    daemon._finalize(finalizing)
+                assert caught.value.errno == error
+                assert (adir / "finalization.json").read_bytes() == saved
+                assert daemon.store.get_job(job_id)["accepted_attempt_id"] is None
+            daemon._finalize(finalizing)
+    finally:
+        stderr.chmod(0o600)
+    failed = (adir / "finalization.json").read_bytes()
+    result = json.loads(failed)
+    assert result["stream_capture"]["status"] == "unreadable"
+    assert result["stream_capture"]["reason"] == "copy cannot be checked"
+    assert daemon.store.get_attempt(attempt["attempt_id"])["outcome_class"] == "transient"
+    assert daemon.store.get_job(job_id)["state"] == "failed"
+    assert _restored_copy(adir, read_freeze_receipt(adir), launch) == frozen
+    daemon._process_attempt(attempt["attempt_id"])
+    assert (adir / "finalization.json").read_bytes() == failed
+    assert not [r for r in daemon.store.list_artifacts(attempt["attempt_id"])
+                if r["role"] in ("raw-stream", "deliverable", "export")]
+    assert out.read_bytes() == b"previous export\n"
 
 
 @pytest.mark.parametrize("restart", (False, True), ids=("replay", "restart"))

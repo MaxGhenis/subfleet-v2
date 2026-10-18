@@ -535,3 +535,39 @@ def test_rejected_copies_are_removed_before_retry_or_failure(tmp_path, monkeypat
     assert error.value.errno == (errno.EIO if boundary == "validation-error" else errno.ESTALE)
     assert len(copied) == (1 if boundary == "validation-error" else 3)
     assert not list(tmp_path.glob("stream.frozen-*.jsonl"))
+
+
+@pytest.mark.parametrize("crash", ("before-receipt", "mid-copy"))
+def test_fresh_capture_removes_copies_stranded_by_a_crash(tmp_path, monkeypatch, crash):
+    """C-4.3: remove unreferenced full and partial copies before copying again."""
+    from subfleet import frozen_stream as module
+    from subfleet.guardian import atomic_copy
+    _, launch = provider(tmp_path, "codex")
+    source = tmp_path / "stream.jsonl"
+    payload = encode([MESSAGE, COMPLETED])
+    source.write_bytes(payload)
+    orphans = []
+    for token in ("a" * 32, "b" * 32):
+        name = f"stream.frozen-{token}.jsonl"
+        orphan = tmp_path / (name if crash == "before-receipt" else f".{name}-partial")
+        if crash == "before-receipt":
+            with source.open("rb") as stream:
+                atomic_copy(orphan, stream)
+        else:
+            orphan.write_bytes(payload[:len(payload) // 2])
+        orphans.append(orphan)
+    unrelated = tmp_path / ".stream.freeze.json-partial"
+    unrelated.write_bytes(b"unrelated temporary file")
+    assert not (tmp_path / "stream.freeze.json").exists()
+    copies = []
+    def copy(path, stream):
+        assert all(not orphan.exists() for orphan in orphans)
+        copies.append(path)
+        return atomic_copy(path, stream)
+    monkeypatch.setattr(module, "atomic_copy", copy)
+    frozen = freeze(tmp_path, launch)
+    assert copies == [Path(frozen.raw_stream_path)]
+    assert copies[0].read_bytes() == payload
+    assert list(tmp_path.glob("stream.frozen-*.jsonl")) == copies
+    assert not list(tmp_path.glob(".stream.frozen-*"))
+    assert unrelated.read_bytes() == b"unrelated temporary file"
