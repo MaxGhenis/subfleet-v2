@@ -382,6 +382,19 @@ def test_wall_family_preserves_exited_provider(wall, monkeypatch, state):
     assert service.store.get_job(child)['state'] == 'succeeded'
     assert out.read_bytes() == b'fixture result\n'
     assert cancel_events(service, child) == []
+    # The pending parent's wall request must not stop a live sibling.
+    service._process_attempt(sibling['attempt_id'])
+    assert stopped == [parent_aid]
+    assert service.store.get_job(live)['cancel_requested_at'] is None
+    # Complete the stubbed parent's kill and exercise real final settlement.
+    parent_attempt = service.store.get_attempt(parent_aid)
+    parent_dir = service.root / 'jobs' / parent / f"a{parent_attempt['seq']}"
+    receipt_fixture(service, parent_attempt, parent_dir, rc=-15, stdout=b'')
+    killed_receipt = json.loads((parent_dir / 'exit.json').read_text())
+    killed_receipt.update(signal=15, killed_by='max_wall_s')
+    (parent_dir / 'exit.json').write_text(json.dumps(killed_receipt))
+    service._process_attempt(parent_aid)
+    assert service.store.get_job(parent)['state'] == 'cancelled'
     service._process_attempt(sibling['attempt_id'])
     assert stopped == [parent_aid, sibling['attempt_id']]
     assert cancel_events(service, live)[0]['parent_job_id'] == parent

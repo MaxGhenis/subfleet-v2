@@ -292,6 +292,7 @@ def test_c9_2_c15_1_an_attempt_the_daemon_signalled_is_never_ok(state_daemon, mo
         dashes(job_id, "cancelled", 130),
         f"attempt a1: unknown, rc=0: {detail}; unattested",
         f"output kept, not accepted: {adir / 'deliverable.md'}; -o {out} was not written",
+        *(["cancel requested by max_wall_s"] if stopped_by == "max_wall_s" else []),
     ]
 
 

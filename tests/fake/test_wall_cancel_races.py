@@ -46,9 +46,9 @@ def wall_request(service, aid, jid):
     assert service._enforce_wall(service.store.get_attempt(aid), service.store.get_job(jid))
 
 
-def children(service, harness, clock, parent):
-    running = service.dispatch("submit", harness.submit_args(parent_job_id=parent, caller_session="caller"))["job_id"]
-    queued = service.dispatch("submit", harness.submit_args(parent_job_id=parent, caller_session="caller"))["job_id"]
+def children(service, harness, clock, parent, caller_session="caller"):
+    running = service.dispatch("submit", harness.submit_args(parent_job_id=parent, caller_session=caller_session))["job_id"]
+    queued = service.dispatch("submit", harness.submit_args(parent_job_id=parent, caller_session=caller_session))["job_id"]
     aid = running + "/a1"
     service.store.add_attempt(attempt_id=aid, job_id=running, seq=1, lane_id="codex-1",
                               model_requested="astra", state="running", started_at=clock.t.isoformat(),
@@ -145,9 +145,10 @@ def test_alive_at_signal_cannot_claim_ok_even_with_completion(clocked, monkeypat
         "cancelled", "interrupted", "unknown", "max_wall_s")
 
 
-def test_final_wall_cascade_keeps_wall_and_parent_attribution(clocked, monkeypatch):
+@pytest.mark.parametrize("caller_session", ["caller", None])
+def test_final_wall_cascade_keeps_wall_and_parent_attribution(clocked, monkeypatch, caller_session):
     service, harness, clock, jid, aid, adir = setup_running(clocked, monkeypatch)
-    live, queued, child_aid = children(service, harness, clock, jid)
+    live, queued, child_aid = children(service, harness, clock, jid, caller_session)
     wall_request(service, aid, jid)
     service._kill_attempt(service.store.get_attempt(aid))
     service._process_attempt(aid)
@@ -159,7 +160,7 @@ def test_final_wall_cascade_keeps_wall_and_parent_attribution(clocked, monkeypat
     assert child["killed_by"] == "max_wall_s"
     assert jid in child["outcome_detail"]
     assert "max_wall_s" in child["outcome_detail"]
-    assert any(jid in n["text"] and "max_wall_s" in n["text"] for n in service.store.list_notices("caller")
+    assert any(jid in n["text"] and "max_wall_s" in n["text"] for n in service.store.list_notices(caller_session)
                if n["job_id"] == live)
 
 
@@ -253,3 +254,59 @@ def test_wall_interleaving_property(clocked, monkeypatch, exit_stage, client_sta
         # Release rows so later generated examples cannot be admitted instead.
         for child in (live, queued):
             service.store.update_job(child, state="cancelled", rc=130)
+
+
+@pytest.mark.parametrize("precision,offset_ms,natural", [
+    ("milliseconds", -2000, True), ("milliseconds", -1, True),
+    ("milliseconds", 0, False), ("milliseconds", 2000, False),
+    ("seconds", -2000, True), ("seconds", -1, False), ("seconds", 0, False),
+])
+def test_receipt_ordering_survives_restart_and_legacy_precision(clocked, monkeypatch, precision, offset_ms, natural):
+    service, _, clock, jid, aid, adir = setup_running(clocked, monkeypatch)
+    wall_request(service, aid, jid)
+    # Model recovery from durable signal evidence, with no in-memory signal clock.
+    with service.store.transaction("attempt.kill_started", job_id=jid, attempt_id=aid,
+                                   data={"signal_at": clock.t.isoformat(timespec="milliseconds"), "signal_sent": True}) as tx:
+        tx.execute("UPDATE attempts SET killed_by='max_wall_s' WHERE attempt_id=?", (aid,))
+    publish(adir, (clock.t + timedelta(milliseconds=offset_ms)).isoformat(timespec=precision))
+    service._process_attempt(aid)
+    service._process_attempt(aid)
+    attempt = service.store.get_attempt(aid)
+    assert service.store.get_job(jid)["state"] == ("succeeded" if natural else "cancelled")
+    assert attempt["outcome_class"] == ("ok" if natural else "unknown")
+    assert attempt["killed_by"] == (None if natural else "max_wall_s")
+
+
+def test_unrecorded_signal_order_is_conservative_on_recovery(clocked, monkeypatch):
+    service, _, clock, jid, aid, adir = setup_running(clocked, monkeypatch)
+    wall_request(service, aid, jid)
+    with service.store.transaction("attempt.kill_started", job_id=jid, attempt_id=aid) as tx:
+        tx.execute("UPDATE attempts SET killed_by='max_wall_s' WHERE attempt_id=?", (aid,))
+    publish(adir, (clock.t - timedelta(seconds=2)).isoformat())
+    service._process_attempt(aid)
+    service._process_attempt(aid)
+    assert service.store.get_job(jid)["state"] == "cancelled"
+    assert service.store.get_attempt(aid)["outcome_class"] == "unknown"
+
+
+def test_deferred_wall_cascade_rolls_back_and_replays_with_parent(clocked, monkeypatch):
+    service, harness, clock, jid, aid, adir = setup_running(clocked, monkeypatch)
+    live, queued, _ = children(service, harness, clock, jid)
+    wall_request(service, aid, jid)
+    service._kill_attempt(service.store.get_attempt(aid))
+    notice = service._notice
+    def fail_parent_notice(tx, job, summary, **kwargs):
+        if job["job_id"] == jid:
+            raise RuntimeError("stop before terminal commit")
+        return notice(tx, job, summary, **kwargs)
+    monkeypatch.setattr(service, "_notice", fail_parent_notice)
+    with pytest.raises(RuntimeError, match="stop before terminal commit"):
+        service._process_attempt(aid)
+    assert service.store.get_attempt(aid)["state"] == "finalizing"
+    assert service.store.get_job(jid)["state"] == "running"
+    assert all(service.store.get_job(child)["cancel_requested_at"] is None for child in (live, queued))
+    monkeypatch.setattr(service, "_notice", notice)
+    service._process_attempt(aid)
+    assert service.store.get_job(jid)["state"] == "cancelled"
+    assert service.store.get_job(queued)["state"] == "cancelled"
+    assert service.store.get_job(live)["cancel_requested_at"]
