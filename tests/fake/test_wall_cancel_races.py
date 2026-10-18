@@ -329,3 +329,20 @@ def test_client_precedence_does_not_let_a_late_turn_completion_claim_ok(clocked,
     assert service.store.get_job(jid)["state"] == "cancelled"
     assert service._cancel_info(jid)["session_id"] == "operator-session"
     assert service.store.get_attempt(aid)["outcome_class"] == "unknown"
+
+
+def test_receipt_winning_pending_wall_reconciles_a_legacy_cached_verdict(clocked, monkeypatch):
+    service, _, clock, jid, aid, adir = setup_running(clocked, monkeypatch)
+    wall_request(service, aid, jid)
+    publish(adir, clock.t.isoformat())
+    cached = {"outcome": {"cls": "auth-dead", "detail": "cached text failure"},
+              "attestation": {"status": "unattested", "served_model": None, "evidence": "old fixture"}}
+    (adir / "finalization.json").write_text(json.dumps(cached))
+    # A normal receipt pass can skip the kill protocol entirely after a wall
+    # request; reconciliation must see the same facts as without that request.
+    service._process_attempt(aid)
+    service._process_attempt(aid)
+    job, attempt = service.store.get_job(jid), service.store.get_attempt(aid)
+    assert (job["state"], job["accepted_attempt_id"]) == ("succeeded", aid)
+    assert job["cancel_requested_at"] is None and attempt["killed_by"] is None
+    assert json.loads(attempt["evidence_json"])["provider_verdict"]["class"] == "auth-dead"
