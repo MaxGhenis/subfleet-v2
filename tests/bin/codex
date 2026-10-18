@@ -114,7 +114,11 @@ def main() -> int:
         sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
         from tests.fake.interactive_codex import main as app_server
         return app_server(sys.argv[1:])
-    scenario = os.environ.get("SUBFLEET_FAKE_SCENARIO", "success")
+    # SUBFLEET_FAKE_CODEX_SCENARIO, when set, is this fake's alone: a daemon whose Claude
+    # lanes replay one fixture while its Codex lanes replay another (C-9.5's steer to the
+    # chain's next model, tests/e2e/test_capacity_steer_e2e.py).
+    scenario = (os.environ.get("SUBFLEET_FAKE_CODEX_SCENARIO")
+                or os.environ.get("SUBFLEET_FAKE_SCENARIO", "success"))
     if os.environ.get("SUBFLEET_PROBE"):
         # C-11.4: a probe is a tiny read-only turn; the fake answers it at once
         # whatever scenario the surrounding test configured for real work.

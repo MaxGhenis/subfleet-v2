@@ -73,6 +73,16 @@ jobs:
         env:
           SUBFLEET_LIVE: "0"
           PYTEST_ADDOPTS: "--timeout=1200 --durations=30"
+      - name: Seeded admission state machines (review r4c, PR 207)
+        # Keep the default CI search above, and cover more refusal outcomes once
+        # per interpreter. The seed retains ci's 40 examples and 30 steps.
+        if: startsWith(matrix.shard, '1/')
+        run: uv run --no-sync pytest -q -p no:cacheprovider tests/fake/test_admission_stateful.py --hypothesis-seed=314159
+        env:
+          SUBFLEET_LIVE: "0"
+          HYPOTHESIS_PROFILE: ci
+          HYPOTHESIS_STORAGE_DIRECTORY: ${{ runner.temp }}/hypothesis-seed-314159
+          PYTEST_ADDOPTS: "--timeout=900 --durations=10"
       # Every phase's node ID, outcome and duration: what the retry read, and what
       # tools/ci_shard_durations.py rebuilds .github/test-shards.json from.
       - name: Upload pytest outcomes

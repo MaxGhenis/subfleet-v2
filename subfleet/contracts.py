@@ -263,6 +263,12 @@ PIN_NOTICE_AFTER_S = 60
 READING_TTL_S = 120
 GUESSED_CLOSURE_S = 3600
 TRANSIENT_RETRY_DELAY_S = 60
+#: C-9.5, D-CAP1: how long after a provider refused a job's model for capacity that job's route
+#: excludes the model while the steer is live. A guess, as no provider reports a clock: of the
+#: gpt-6.1-sol attempts of 2026-10-01 to 2026-10-13 started within 5 minutes of the fleet's last
+#: refusal, 11.5% were refused too, 8.8% at 5 to 15 minutes, 5.7% at 15 to 30 and 3 to 4% for
+#: the rest of an episode, against 0.2% four hours on (docs/reports/2026-10-13-model-capacity-steer.md).
+MODEL_CAPACITY_STEER_S = 900
 START_GRACE_S = 10
 TERM_GRACE_S = 15
 # C-5.6, C-5.9: how long a census may keep finding pids the kernel is still
