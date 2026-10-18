@@ -405,12 +405,15 @@ def cli_start(root, monkeypatch):
         def poll(self):
             return None
 
-    monkeypatch.setattr(cli, "_daemon_alive", lambda client: next(alive, True))
-    monkeypatch.setattr(cli.Client, "lock_info", lambda self: None)
-    monkeypatch.setattr(cli.subprocess, "Popen", lambda argv, **kwargs: seen.append(kwargs["env"]) or Child())
     err = io.StringIO()
-    with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
-        code = cli.cmd_daemon_start(SimpleNamespace(state_root=str(root)))
+    # `cli.subprocess` is the process's own `subprocess`: the stand-in is undone
+    # before any daemon of the test runs Git or a guardian.
+    with monkeypatch.context() as patch:
+        patch.setattr(cli, "_daemon_alive", lambda client: next(alive, True))
+        patch.setattr(cli.Client, "lock_info", lambda self: None)
+        patch.setattr(cli.subprocess, "Popen", lambda argv, **kwargs: seen.append(kwargs["env"]) or Child())
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            code = cli.cmd_daemon_start(SimpleNamespace(state_root=str(root)))
     return code, err.getvalue(), seen
 
 
@@ -471,11 +474,12 @@ def test_review_r4_a_refused_first_start_stores_nothing(tmp_path, monkeypatch, r
     assert "Traceback" not in err and "dummy-nine" not in err
     assert stored(root) == {}, "the check runs before lanes.json is seeded"
     assert cli._root(SimpleNamespace()).resolve() == root.resolve(), "daemon start would leave the test's root"
-    monkeypatch.setattr(cli, "_daemon_alive", lambda *args: False)
-    monkeypatch.setattr(cli.subprocess, "Popen", lambda *args, **kwargs: pytest.fail("a refused roster spawned"))
     err = io.StringIO()
-    with contextlib.redirect_stderr(err):
-        assert cli.cmd_daemon_start(SimpleNamespace(state_root=str(root))) == 2
+    with monkeypatch.context() as patch:
+        patch.setattr(cli, "_daemon_alive", lambda *args: False)
+        patch.setattr(cli.subprocess, "Popen", lambda *args, **kwargs: pytest.fail("a refused roster spawned"))
+        with contextlib.redirect_stderr(err):
+            assert cli.cmd_daemon_start(SimpleNamespace(state_root=str(root))) == 2
     assert all(text in err.getvalue() for text in ("claude-9", reference, "lanes.json"))
     assert stored(root) == {}
 
