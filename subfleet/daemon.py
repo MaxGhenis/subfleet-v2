@@ -4046,7 +4046,7 @@ class Daemon:
                         earlier = self._earlier_attempt(inner, row)
                         summary = "cancelled while waiting to retry" + earlier if earlier else "cancelled before launch"
                         self._notice(inner, row, summary + ("\n" + requester if requester else ""))
-                    elif requester:
+                    elif requester and row["caller_session"]:
                         inner.execute("INSERT INTO service_notices(session_id,text,state,created_at) "
                                       "VALUES(?,?,'pending',?)", (row["caller_session"], f"{row['job_id']}: {requester}", now))
         if changed:
@@ -8771,8 +8771,9 @@ class Daemon:
             cancel = bool(job["cancel_requested_at"])
             ok = not lost and rc == 0 and outcome.cls == OutcomeClass.OK
             if job["kind"] == "turn":
-                # C-24.4: the provider's success decides a turn, whatever the exit
-                # status or a stop that came too late (review F4).
+                # C-24.4: provider completion decides a turn's class independently
+                # of rc. An acknowledged client cancel still decides its job's
+                # terminal state; a final wall stop also keeps the cancel veto.
                 ok = not lost and outcome.cls == OutcomeClass.OK
                 cancel = cancel and (not ok or actual.get("killed_by") == "max_wall_s" or request.get("by") == "client")
             previous_transient = self._earlier_transients(tx, job["job_id"], a)
