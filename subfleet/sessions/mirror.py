@@ -115,6 +115,7 @@ the running app will not list until it reloads, which is the load gap above.
 
 from __future__ import annotations
 
+import copy
 import errno
 import fcntl
 import glob as globbing
@@ -322,6 +323,17 @@ def _permanent(exc: OSError) -> bool:
     return exc.errno in NO_ONES_SIDEBAR or isinstance(exc, transcripts.NotRegularFile)
 
 
+class _Seen:
+    """The sidecar as a process last read or wrote it (`Mirror._writable`).
+
+    A plain object, so a dry run's `_borrow` shares it rather than copying:
+    a dry run neither reads the sidecar to write nor writes it."""
+
+    def __init__(self) -> None:
+        self.signature: tuple[int, ...] | None = None
+        self.value: dict[str, Any] = {}
+
+
 @dataclass
 class _Payload:
     value: dict[str, Any]
@@ -426,7 +438,9 @@ def _load(path: Path, *, strict: bool = False) -> dict[str, Any]:
     try:
         with transcripts.open_regular(path, "r", encoding="utf-8") as stream:
             value = json.loads(stream.read())
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
+        # RecursionError: a document nested too deep to parse is no JSON
+        # object either, and had made every pass and `doctor` raise.
         if strict:
             raise
         return {}
@@ -783,6 +797,12 @@ UNFINISHED = "unfinished"
 #: `not_ok_passes` is a hand edit, and one past 4,300 digits could not even be
 #: written back (review of #172).
 RUN_LIMIT = 10 ** 9
+#: How long the writers leave a sidecar that cannot be read for a cause that
+#: may pass, when they do not know what it holds. Past this they write over
+#: it, as before the read rule (`Mirror._writable`): a cause that does not
+#: pass (a bad block) costs at most the run, never the heartbeat (second
+#: review of #172).
+UNREADABLE_KEEP_S = 300.0
 
 
 def _in_flight(record: dict[str, Any]) -> bool:
@@ -795,14 +815,20 @@ def _carried(data: dict[str, Any]) -> tuple[dict[str, Any] | None, int, str | No
 
     No pass and a run of none from a sidecar without them, or with values
     that are not theirs: one an earlier mirror wrote, or one edited by hand.
-    A count is a whole number from 0 to `RUN_LIMIT`, and a start one `_instant`
-    reads.
+    A count is a whole number from 0 to `RUN_LIMIT`, and a run that is one
+    has a start that `_instant` reads.
     """
     last, count, since = data.get("last_end"), data.get("not_ok_passes"), data.get("not_ok_since")
     if (not isinstance(last, dict) or isinstance(count, bool) or not isinstance(count, int)
-            or not 0 <= count <= RUN_LIMIT):
+            or not 0 <= count <= RUN_LIMIT
+            or count and not (isinstance(since, str) and _instant(since))):
         return None, 0, None
-    return last, count, since if count and isinstance(since, str) and _instant(since) else None
+    return last, count, since if count else None
+
+
+def _more(count: int) -> int:
+    """One pass longer, and never past `RUN_LIMIT`, which `_carried` would reject."""
+    return min(count + 1, RUN_LIMIT)
 
 
 def _over(data: dict[str, Any]) -> tuple[dict[str, Any] | None, int, str | None]:
@@ -830,7 +856,7 @@ def _over(data: dict[str, Any]) -> tuple[dict[str, Any] | None, int, str | None]
     end = {key: record.get(key) for key in END_FIELDS}
     start = record.get("started_at") if isinstance(record.get("started_at"), str) else None
     if _in_flight(record):
-        return {**end, "state": UNFINISHED}, count + 1, since or start
+        return {**end, "state": UNFINISHED}, _more(count), since or start
     if record.get("state") not in ("error", "cancelled"):
         return end, 0, None
     if last != end or not count:
@@ -1010,6 +1036,13 @@ class Mirror:
         #: that pass records it. Never kept: a process that wrote a report it
         #: took earlier could put it over a later one of another process's.
         self._splits: dict[str, Any] | None = None
+        #: The sidecar as this process last read or wrote it, and its
+        #: `os.lstat` signature then (`_writable`); shared with the embedded
+        #: hot worker, the one other writer while the lock is held.
+        self._sidecar_seen = _Seen()
+        #: When the writers' reads of the sidecar began to fail for a cause
+        #: that may pass, if they have failed since the last that worked.
+        self._unreadable_since: float | None = None
         #: The full pass that last recorded, and what `_over` read when it
         #: first did: the passes that were over before it (`_record`).
         self._began: tuple[Pass, tuple[dict[str, Any] | None, int, str | None]] | None = None
@@ -1162,6 +1195,7 @@ class Mirror:
         worker._stems = dict(self._stems)
         worker._flag_retry = set(self._flag_retry)
         worker._activity_tries = self._activity_tries      # shared, as the journal is
+        worker._sidecar_seen = self._sidecar_seen
         worker._hot_recorded = self._hot_recorded
         worker._desktop = self._desktop
         worker.journal = self.journal
@@ -1215,25 +1249,58 @@ class Mirror:
         replace the run of failed passes, `last_ok_at` and the other pass's
         record with nothing. Review of #172: two failed passes, then an
         EMFILE when the third read the sidecar at its start, read as a run
-        of one. An absent sidecar, one that holds no JSON object and one
-        that no one can read (`_permanent`: no regular file, permission
-        denied) have nothing to keep, and writing over them heals them, as
-        before. One that cannot be read for a cause that may pass (a full
-        descriptor table, an I/O error) is left as it is: a start or
-        progress record is not written (None), and the pass's next record
-        reads again; an end raises the OSError, which the pass handles as
-        it does a failed write of its end.
+        of one. So, by what the read met:
+
+        * Nothing to keep, and the record is written over it, as before: no
+          sidecar; no JSON object (or one nested too deep to parse); one no
+          one can read (`_permanent`, or anything `os.lstat` says is not a
+          regular file: a socket's open fails with EOPNOTSUPP on macOS).
+        * A cause that may pass (a full descriptor table, an I/O error):
+          the file is what this process last read or wrote while its
+          `os.lstat` signature is unchanged since, because only the lock's
+          holder and its embedded hot worker write it. That copy is used.
+        * Otherwise what it holds is not known, and it is left as it is: a
+          start or progress record is not written (None), and the pass's
+          next record reads again; an end raises the OSError, which the pass
+          handles as it does a failed write of its end. Once reads have
+          failed so for `UNREADABLE_KEEP_S`, it is written over, as before.
         """
+        path = self.sidecar_path
         try:
-            return _load(self.sidecar_path, strict=True)
-        except (FileNotFoundError, ValueError):
-            return {}
+            value = _load(path, strict=True)
+        except (FileNotFoundError, ValueError, RecursionError):
+            value = {}
         except OSError as exc:
-            if _permanent(exc):
+            try:
+                info = os.lstat(path)
+            except FileNotFoundError:
+                return {}
+            except OSError:
+                info = None
+            if _permanent(exc) or info is not None and not stat.S_ISREG(info.st_mode):
+                return {}
+            seen = self._sidecar_seen
+            if info is not None and seen.signature == _stat_signature(info):
+                return copy.deepcopy(seen.value)
+            instant = time.monotonic()
+            if self._unreadable_since is None:
+                self._unreadable_since = instant
+            if instant - self._unreadable_since >= UNREADABLE_KEEP_S:
                 return {}
             if current.state == "running":
                 return None
             raise
+        self._unreadable_since = None
+        self._saw(value)
+        return value
+
+    def _saw(self, value: dict[str, Any]) -> None:
+        """What the sidecar holds now: read, or just written by this process."""
+        try:
+            signature = _stat_signature(os.lstat(self.sidecar_path))
+        except OSError:
+            signature = None
+        self._sidecar_seen.signature, self._sidecar_seen.value = signature, copy.deepcopy(value)
 
     def _record(self, current: Pass, *, last_ok: str | None = None,
                 load_gap: dict[str, Any] | None = None) -> None:
@@ -1269,7 +1336,7 @@ class Mirror:
         if current.state != "running":
             failed = current.state != "ok"
             last = {key: getattr(current, key) for key in END_FIELDS}
-            count, since = (count + 1, since or current.started_at) if failed else (0, None)
+            count, since = (_more(count), since or current.started_at) if failed else (0, None)
         value = {key: previous[key] for key in ("hot", "load_gap", "splits") if key in previous}
         value.update({
             "pass": current.to_dict(),
@@ -1288,6 +1355,7 @@ class Mirror:
             # the last one written, whatever any clock says.
             value["splits"], self._splits = self._splits, None
         _write_json(self.sidecar_path, value)
+        self._saw(value)
 
     def _record_hot(self, current: Pass, load_gap: dict[str, Any] | None) -> None:
         """The hot pass's own block; never the heartbeat C-23.28 judges by."""
@@ -1311,6 +1379,7 @@ class Mirror:
         if load_gap is not None:
             value["load_gap"] = load_gap
         _write_json(self.sidecar_path, value)
+        self._saw(value)
         self._hot_recorded = (instant, seen)
 
     # --- the store -----------------------------------------------------------

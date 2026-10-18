@@ -113,32 +113,48 @@ before or after.
   change has no three, so its record is the whole run that is known: a failed
   one is a run of one. Values that are not the three's are treated the same
   way: a count that is no whole number from 0 to `RUN_LIMIT` (a billion), a
-  start that is no time, and a `last_end` that is not the `pass` record field
-  for field, as every end the mirror writes leaves it. A count 4,300 digits
-  long had made the next end raise when it wrote the count back (review of
-  this change).
+  run whose start is no time, and a `last_end` that is not the `pass` record
+  field for field, as every end the mirror writes leaves it. A count 4,300
+  digits long had made the next end raise when it wrote the count back
+  (first review of this change). A run stops growing at `RUN_LIMIT`.
 - Every record, the full pass's and the hot pass's, is written whole over the
   sidecar the writer read (`_writable`). The writers had read it as the
   readers do, taking any failed read for an empty sidecar, so a record
   written after one replaced the run, `last_ok_at` and the other pass's
-  record with nothing. The independent review showed it with a real EMFILE:
-  two failed passes, then a third whose read at its start failed, recorded a
-  run of one. (The hot record's erasure is older than this change.) Now an
-  absent sidecar, one that holds no JSON object and one that no one can read
-  (no regular file, permission denied: `_permanent`) have nothing to keep and
-  are written over, as before; one that cannot be read for a cause that may
-  pass (a full descriptor table, an I/O error) is left as it is. A start or progress record is then not written, and the pass's next
-  record reads again; an end raises the OSError, which the pass handles as it
-  does a failed write of its end (#170): it ends `error` over the sidecar it
-  reads next, or, if no read works, leaves its start for the next pass to
-  count as unfinished.
+  record with nothing. The first independent review showed it with a real
+  EMFILE: two failed passes, then a third whose read at its start failed,
+  recorded a run of one. (The hot record's erasure is older than this
+  change.) Now, by what the read meets:
+  - Nothing to keep, written over as before: no sidecar; no JSON object, or
+    one nested too deep for `json.loads` (whose RecursionError had made every
+    pass and `doctor` raise, older than this change); one no one can read
+    (`_permanent`: permission denied and the like, or anything `os.lstat`
+    says is not a regular file; opening a socket fails with EOPNOTSUPP on
+    macOS before the regular-file check, second review).
+  - A cause that may pass (a full descriptor table, an I/O error), on a file
+    whose `os.lstat` signature is the one this process last read or wrote:
+    only the lock's holder and its embedded hot worker write the sidecar, and
+    the two share this copy, so it is what the file holds, and the record is
+    written over it. So one failed read of an end records the pass as it
+    ended; it had made an `ok` pass `error` (second review).
+  - A cause that may pass, on a file this process does not know (another
+    process wrote it since, or `os.lstat` fails too): it is left as it is. A
+    start or progress record is not written, and the pass's next record
+    reads again; an end raises the OSError, which the pass handles as it
+    does a failed write of its end (#170): it ends `error` over the sidecar
+    it reads next, or, if no read works, the sidecar keeps what it held, the
+    pass's start if that was written. Once the writers' reads have failed so
+    for `UNREADABLE_KEEP_S` (five minutes), they write over it, as before the
+    read rule: a cause that does not pass (a bad block) costs the run, never
+    the heartbeat (second review: a lasting EIO had stopped all recording).
 - Health (`_full_health`) reads the three: while a pass is in flight, as its
   start found them; once the record is over, as `_over` holds them to it. It
   names them in its detail and returns them, with `last_ok_at`, in its reply.
 
-A hot pass's record, a dry run and a pass that never took the lock are
-unchanged, and change none of the three. `doctor` and `sessions mirror
---status` are unchanged; they print the detail health gives them.
+A hot pass's record follows the same read rule and is otherwise unchanged. A
+hot pass, a dry run and a pass that never took the lock change none of the
+three. `doctor` and `sessions mirror --status` are unchanged; they print the
+detail health gives them.
 
 ## What each reader says now
 
@@ -219,15 +235,19 @@ For the three the full pass's record keeps:
 8. **Any value.** No value in the three, from an older mirror or a hand edit,
    makes a reading or a pass raise, and a pass over such a value writes a sane
    run.
-9. **Never over a sidecar it could not read.** No record, full or hot, is
-   written over a sidecar that exists and could not be read, so a failed read
-   loses nothing: a pass that could not read at its start still counts the
-   passes before it, and one whose every read failed leaves the sidecar as it
-   was.
+9. **Never over a sidecar it does not know.** No record, full or hot, is
+   written over a sidecar that exists, could not be read for a cause that may
+   pass, and is not what this process last read or wrote, until such reads
+   have failed for `UNREADABLE_KEEP_S`; then, and for a sidecar no one can
+   read, it is written over, as before. So a failed read that passes loses
+   nothing: a pass that could not read at its start still counts the passes
+   before it, an end records the pass as it ended when the file is known,
+   and a pass whose every read failed on a file it does not know leaves the
+   sidecar as it was.
 
 ## Verification
 
-`tests/unit/test_sessions_mirror_failure_carried.py`, 28 tests.
+`tests/unit/test_sessions_mirror_failure_carried.py`, 45 tests.
 
 - Example tests: the pass after a failed one, by RuntimeError and by OSError,
   read by `Mirror.health()`, `--status`, `--status --json` and `doctor`'s row
@@ -236,27 +256,38 @@ For the three the full pass's record keeps:
   a pass whose process died, alone and after two failures, and one whose end
   could not be written, counted as unfinished by the next (1); an end written
   twice, two passes in one second, and a start that was written and then
-  raised (3); hot passes, dry runs and passes without the lock (4); a sidecar
-  written before the change (5); five hand edits of the three (8); a read of
-  the sidecar that fails at a pass's start, at its end, at every read of its
-  end, and in a hot pass, a FIFO where the sidecar belongs, and a sidecar whose
-  read is denied (9); the hang limit itself; passes started by
-  `Timers.tick` on the 60 s interval, read every 5 s, where every reading
-  after the first failure names one (6, 7).
+  raised (3); hot passes, dry runs and passes without the lock, and a full
+  pass's end keeping the hot record (4); a sidecar written before the change
+  (5); six hand edits of the three and a run at `RUN_LIMIT` (8); for the read
+  rule (9): a read that fails at a start, by EMFILE and by EIO, on a file
+  this process knows and on one another process wrote; an end whose read
+  fails, recorded as it ended; an end whose read fails, or every read, on a
+  file it does not know; a hot pass whose read fails, known and not; a
+  progress record that keeps `last_ok_at`, the hot record and the split
+  report; a hot record that failed its read not counted as recorded; a copy
+  this process keeps not used after another process's pass; the embedded hot
+  worker keeping the shared copy current; a FIFO, a socket, a denied read
+  and a document nested too deep where the sidecar belongs; a read that
+  never works, by EIO and by EMFILE, which neither this process nor a new
+  one lets stop recording for longer than `UNREADABLE_KEEP_S`; the hang
+  limit itself; passes started by `Timers.tick` on the 60 s interval, read
+  every 5 s, where every reading after the first failure names one (6, 7).
 - `test_the_run_is_carried_across_every_sequence_of_passes` (Hypothesis,
-  120 cases): up to seven steps, each a full, hot or dry pass or one without
-  the lock, ending `ok`, by OSError, by RuntimeError, by the daemon's stop, by
-  KeyboardInterrupt, by its process dying at a checkpoint, with an end the
-  sidecar could not take, or with one or two of the writers' reads of the
-  sidecar failing (any of the first twelve; a full pass makes 9 to 11, its
-  end the last), with a flag-only hot pass serviced at every checkpoint or
-  none. A reading is taken at any checkpoint of the pass, after 0 s, 5 s,
-  40 s or 31.7 min of it (past the hang limit), and at 0, 30 or 700 s after
-  it. A model of the run is checked after every pass and at every reading in
-  flight (1, 2, 4, 5, 7, 9), and the differential at every reading (6). One
-  run met a failed read in 42% of cases that ended `ok` and 31% that ended
-  `error`, readings in flight after one failure and after several, after an
-  unfinished pass, and before a pass could record its start.
+  120 cases): up to seven steps, each a full, hot or dry pass, one without
+  the lock, or another process's write of the sidecar (same contents, new
+  inode); passes end `ok`, by OSError, by RuntimeError, by the daemon's stop,
+  by KeyboardInterrupt, by their process dying at a checkpoint, with an end
+  the sidecar could not take, or with one or two of the writers' reads of
+  the sidecar failing (any of the first twelve, the first two drawn more
+  often; a full pass makes 9 to 11, its end the last), with a flag-only hot
+  pass serviced at every checkpoint or none. A reading is taken at any
+  checkpoint of the pass, after 0 s, 5 s, 40 s or 31.7 min of it (past the
+  hang limit), and at 0, 30 or 700 s after it. A model of the run is checked
+  after every pass and at every reading in flight (1, 2, 4, 5, 7, 9), and the
+  differential at every reading (6). One run met a failed read on a file
+  this process knew in 27% of cases and on one it did not know in 5%. (A
+  label in the first round of this report counted a failed read where none
+  had failed; its 42% and 31% were wrong, second review.)
 - `test_no_value_in_the_three_changes_a_status_or_raises` (Hypothesis, 400
   cases, and seven fixed examples that random draws reach only now and then:
   a count that is a boolean, below zero or not whole, a run beside a record
@@ -266,17 +297,17 @@ For the three the full pass's record keeps:
   25 cases): a real pass over a hand-edited three (8).
 - Mutants, each one change to this change, run against the test file. At the
   first commit (52f1ecc24) 25 of 26 were caught: C21 (a count that is a
-  boolean is taken for a number) survived; the reviewer's rerun caught C21
-  and missed C22 (a negative count). Both had been caught only by a random
-  draw, as had C09, C11 and C26, so each now has a fixed case. Eight more
-  cover the review's fixes (the read rule, the bound, the field-for-field
-  check, a FIFO where the sidecar belongs, a sidecar whose read is denied).
-  Over 34 in one run on the fixed tree, 33 were caught; C31 (a sidecar that
-  is no regular file taken for an unreadable one) survived, so it now has a
-  test, and a rerun caught it; C35 came with its test. The reviewer's three (a snapshot taken after the first
-  write, a pass known by its start, the hang limit's boundary) are now tests.
-  The script and its results are with the review's evidence, outside the
-  repository.
+  boolean is taken for a number) survived; the first review's rerun caught
+  C21 and missed C22 (a negative count). Both had been caught only by a
+  random draw, as had C09, C11 and C26, so each now has a fixed case. After
+  the first review: 35, each caught (C31 got its test after one run missed
+  it). After the second review's findings: MUTANTR3 Each review's own mutants
+  are tests now: the first's R01–R03 (a snapshot taken after the first write,
+  a pass known by its start, the hang limit's boundary) and the second's
+  R02, R03, R04, R06 and R07 (hot sampling moved before the read, a run with
+  no start, a run past the limit, an end that drops the hot record, a
+  progress record over an empty sidecar). The script and its results are
+  with the review's evidence, outside the repository.
 
 The pass-failure tests and the mirror's other health tests pass unchanged.
 
@@ -288,8 +319,14 @@ The pass-failure tests and the mirror's other health tests pass unchanged.
 - **A pass whose process died still reads `running`** until thirty minutes
   after its start or until the next pass starts, as before. The next pass
   names it.
-- **A pass that could read the sidecar at none of its records leaves none**,
-  and is not counted: the sidecar is as the pass before it left it.
+- **A pass that could read the sidecar at none of its records, on a file it
+  does not know, leaves none**, and is not counted: the sidecar is as the
+  pass before it left it.
+- **A cause that does not pass costs the run.** After `UNREADABLE_KEEP_S` of
+  failed reads on a file the process does not know, the record is written
+  over it, and the run starts again from that pass.
+- **A sidecar with a field nested too deep to parse** is written over, and
+  readers see none until then (older than this change; fixed in passing).
 - **The timer's event still holds the type only.**
 
 ## Not established
