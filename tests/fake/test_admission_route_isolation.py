@@ -855,12 +855,12 @@ def test_c6_12_an_authorization_the_probe_check_rejects_is_refused_and_the_pass_
     later = submit(service, harness, pinned_model="astra")
     real, calls = scheduler.probe_required, []
 
-    def probe_required(decision, job):
+    def probe_required(decision, job, policy=None):
         if job["job_id"] == broken:
             calls.append(job["job_id"])
             if len(calls) == call:
                 raise scheduler.RouteError("unmeasured_reserve_reason: fixture")
-        return real(decision, job)
+        return real(decision, job, policy)
     monkeypatch.setattr(daemon_module.scheduler, "probe_required", probe_required)
     service._admit()
     assert admitted(service, later)

@@ -342,11 +342,11 @@ class AdmissionMachine(RuleBasedStateMachine):
                 raise ROUTE_FAULTS[fault]()
             return real_evaluate(policy, view, job)
 
-        def probe_required(decision, job):
+        def probe_required(decision, job, policy=None):
             fault = self.faults.get(("probe_required", dict(job).get("job_id")))
             if fault:
                 raise ROUTE_FAULTS[fault]()
-            return real_probe_required(decision, job)
+            return real_probe_required(decision, job, policy)
 
         self.patch.setattr(scheduler, "evaluate", evaluate)
         self.patch.setattr(scheduler, "probe_required", probe_required)

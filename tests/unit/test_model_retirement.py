@@ -195,8 +195,21 @@ def test_an_authorized_probe_pinned_to_a_retired_model_runs_on_its_successor(pin
     decision = evaluate(SHIPPED, build_view(lanes, [], [], (), (), now=NOW), job)
     capsys.readouterr()
     assert decision.chain == ("opus",) and decision.chosen_model == "opus"
-    assert probe_required(decision, job) is True          # the promised same-model probe, on Opus
+    assert probe_required(decision, job, SHIPPED) is True     # the promised same-model probe, on Opus
     # The authorization still binds the lane: a decision for another lane is refused.
     moved = dataclasses.replace(decision, chosen_lane="claude-2")
     with pytest.raises(RouteError, match="authorized lane and model"):
-        probe_required(moved, job)
+        probe_required(moved, job, SHIPPED)
+    # And the model: a decision on a model the pin does not resolve to is refused, even
+    # one whose own chain is that single model (review round 2 of PR #66, finding 3).
+    other = dataclasses.replace(decision, chain=("sonnet",), chosen_model="sonnet",
+                                evaluations=tuple({**row, "model": "sonnet", "model_id": "claude-sonnet-5"}
+                                                  for row in decision.evaluations))
+    with pytest.raises(RouteError, match="authorized lane and model"):
+        probe_required(other, job, SHIPPED)
+    # Without the running policy nothing resolves the pin: only its own spelling passes.
+    if pin != "opus":
+        with pytest.raises(RouteError, match="authorized lane and model"):
+            probe_required(decision, job)
+    else:
+        assert probe_required(decision, job) is True

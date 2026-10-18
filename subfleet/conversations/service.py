@@ -3182,12 +3182,20 @@ class ConversationService:
     def _successor_settings(self, provider: str, settings: dict) -> tuple[dict, str]:
         """A message's settings as its turn runs them, and the policy model admission
         routes (D-19). A model the running policy retires (C-11.1) runs its successor,
-        spelled as `models.list` offers it; anything else is returned unchanged."""
+        spelled as `models.list` offers it; anything else is returned unchanged.
+
+        A value picked with the 1M context (`claude-fable-5-1[1m]`) keeps it: the
+        successor's `[1m]` value when its catalog lists one, else its first value
+        (`_on_catalog` lists the value without the 1M context first). Moving a long
+        session onto the smaller window is never chosen when the larger one is offered."""
         short = policy_model(self.daemon.policy, provider, settings["model"])
         entry = self.daemon.policy["models"][short]
         if _base_model(settings["model"]) in (short, entry["id"]):
             return settings, short
-        return {**settings, "model": _catalog_values(self._catalog_cache(), entry)[0]}, short
+        values = _catalog_values(self._catalog_cache(), entry)
+        if settings["model"].endswith("[1m]"):
+            values = [value for value in values if value.endswith("[1m]")] or values
+        return {**settings, "model": values[0]}, short
 
     def _runnable_turn(self, turn: dict, model_id: str | None) -> dict:
         """A Claude turn manifest as it launches on `model_id`, the model admission

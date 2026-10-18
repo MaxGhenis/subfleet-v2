@@ -206,4 +206,5 @@ def test_models_publish_provider_defaults_without_changing_routing(svc):
     assert out["default_models"]["codex"] in {row["id"] for row in out["models"] if row["provider"] == "codex"}
     claude = svc.handle("models.list", {"provider": "claude"}, None)
     assert claude["default_models"] == {"claude": "claude-opus-5-5"}
-    assert {row["id"] for row in claude["models"]} == {"claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"}
+    # The shipped policy retired Fable (2026-09-27): `models.list` offers what it routes.
+    assert {row["id"] for row in claude["models"]} == {"claude-opus-5-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"}

@@ -62,8 +62,7 @@ def launched_model(daemon, monkeypatch, resumed_id):
     return calls, failures
 
 
-@pytest.mark.parametrize("retired_under", ["retired", "absent"])
-def test_a_fable_session_resumes_on_opus_once_the_policy_retires_fable(state_daemon, monkeypatch, retired_under):
+def test_a_fable_session_resumes_on_opus_once_the_policy_retires_fable(state_daemon, monkeypatch):
     daemon, harness = state_daemon
     claude_lane(daemon)
     source_id, attempt = fable_source(daemon, harness)
@@ -104,3 +103,18 @@ def test_a_resume_still_refuses_a_model_its_source_does_not_resolve_to(state_dae
     calls, failures = launched_model(daemon, monkeypatch, resumed_id)
     assert calls == []
     assert any("does not match this attempt" in why for why in failures)
+
+
+def test_a_resume_is_refused_at_submit_when_the_policy_neither_lists_nor_retires_its_model(state_daemon):
+    """A policy that drops Fable without retiring its ids knows no model to resume on:
+    the resume is refused at submit, naming the model, and nothing is queued (review
+    round 2 of PR #66, finding 4: the case the unused `absent` parameter meant)."""
+    daemon, harness = state_daemon
+    claude_lane(daemon)
+    source_id, _ = fable_source(daemon, harness)
+    del daemon.policy["models"]["fable"]
+    daemon.policy["retired"] = {"sol": "astra"}
+    before = len(daemon.store.query("SELECT job_id FROM jobs"))
+    with pytest.raises(protocol.ProtocolError, match="unknown model 'claude-fable-5-1'"):
+        daemon.submit(protocol.SubmitArgs(**harness.submit_args(kind="resume", parent_job_id=source_id)))
+    assert len(daemon.store.query("SELECT job_id FROM jobs")) == before

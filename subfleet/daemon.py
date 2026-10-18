@@ -1969,7 +1969,7 @@ class Daemon:
         `auth-dead` is the lane's (it disables the lane, C-23.44) and its answer proves
         the lane. Then a second `auth-dead` on a proven lane points at the job."""
         try:
-            if scheduler.probe_required(decision, job):
+            if scheduler.probe_required(decision, job, self.policy):
                 return True
         except ROUTE_ERRORS as exc:
             raise Unroutable(exc) from exc

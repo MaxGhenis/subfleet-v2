@@ -56,9 +56,12 @@ def flatten_chain(chain: Sequence[str | list[str]], tier_index: int = 0) -> list
 #: than fable").
 RETIRED_MODELS: dict[str, str] = {"sol": "astra", "fable": "opus"}
 
-#: Exact ids of those models, for the one surface that takes free text (`pick
-#: --model`); every other flag takes short names only. The shipped policy's
-#: `retired` map is exactly RETIRED_MODELS plus these (a tested invariant).
+#: Fable's exact ids. `cli._retire_model` remaps them with RETIRED_MODELS for every
+#: CLI model flag; only `pick --model` takes free text, the others' `choices=` keep
+#: ids out. (`sessions revive`/`continue --model` are free text too, and resolve
+#: ids through `revive.live_model`.) Sol's `gpt-5.6-sol` is not here: the shipped
+#: `retired` map has no alias for it, so an imported Sol run keeps its own id. The
+#: shipped `retired` map is exactly RETIRED_MODELS plus these (a tested invariant).
 RETIRED_MODEL_IDS: dict[str, str] = {"claude-fable-5": "opus", "claude-fable-5-1": "opus"}
 
 

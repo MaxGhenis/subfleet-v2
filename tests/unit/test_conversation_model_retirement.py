@@ -280,3 +280,32 @@ def test_a_turn_adopted_after_a_restart_runs_on_opus_under_a_retiring_policy(svc
     attempt = {"attempt_id": f"{job['job_id']}/a1", "job_id": job["job_id"], "seq": 1, "lane_id": "claude-1"}
     assert svc._adopt(attempt) is True
     assert [(spec.model_id, spec.model_ref) for spec in specs] == [("opus", "claude-opus-5-5")]
+
+
+@pytest.mark.parametrize("stored, expected", [
+    ("claude-fable-5-1[1m]", "opus[1m]"),          # picked with the 1M context: keeps it
+    ("claude-fable-5-1", "opus"),                  # picked without: the model as named
+    ("fable", "opus"),
+])
+def test_a_retired_1m_conversation_keeps_the_1m_context_on_its_successor(svc, tmp_path, stored, expected):  # noqa: F811
+    """Review round 2 of PR #66 (finding 1): `_on_catalog` lists the value without
+    the 1M context first, so a Fable `[1m]` conversation was moved onto Opus's
+    smaller window when the catalog offers both. Submit and launch agree."""
+    svc.daemon.policy = {**svc.daemon.policy, **json.loads(json.dumps(RETIRING))}
+    catalog(svc, {"claude-opus-5-5": ["opus", "opus[1m]"]})
+    turns = turns_of(svc)
+    cid = conversation(svc, settings={**SETTINGS, "model": stored})
+    send(svc, cid, stored)
+    svc._dispatch()
+    assert [t["settings"]["model"] for t in turns] == [expected]
+    job, _ = persisted_turn(svc, stored)
+    assert launched_model(svc, job, "claude-opus-5-5", tmp_path) == expected
+
+
+def test_a_retired_1m_conversation_takes_the_first_value_when_no_1m_value_is_listed(svc):  # noqa: F811
+    """Without a `[1m]` value for the successor there is nothing to keep; the turn
+    runs the successor as `models.list` offers it."""
+    svc.daemon.policy = {**svc.daemon.policy, **json.loads(json.dumps(RETIRING))}
+    catalog(svc, {"claude-opus-5-5": ["opus"]})
+    _, turn = persisted_turn(svc, "claude-fable-5-1[1m]")
+    assert svc._runnable_turn(turn, "claude-opus-5-5")["settings"]["model"] == "opus"
