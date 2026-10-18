@@ -1321,7 +1321,7 @@ each wait took between 30 and 70 minutes.
   three holds. No `tests/fake/test_daemon_restart*.py` exists. Process
   inspection was allowed, and the e2e file ran all 7 cases with none
   skipped.
-- **2,264 distinct tests passed** at the final code, counting each file once
+- **2,178 distinct tests passed** at the final code, counting each file once
   at its last run: 1,108 from hold 1, less the fake daemon file's 45 and the
   mutation file's 41, plus 351 and 805, with nothing failing.
 - **No other import breaks.** A static pass found no code or test that
