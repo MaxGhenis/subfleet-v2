@@ -197,12 +197,24 @@ def _mixed(text):
     return any(ch.isupper() for ch in text) and any(ch.islower() for ch in text) and any(ch.isdigit() for ch in text)
 
 
+def mixed_run(min_size, max_size):
+    """Token characters holding an upper-case letter, a lower-case letter and a digit,
+    built so: a filter rejected so many draws that Hypothesis's health check failed
+    under load (review of #171, round 2)."""
+    return st.builds(lambda head, rest, order: "".join(sorted(head + rest, key=lambda _: next(order))),
+                     st.tuples(st.sampled_from("ABCDEFGHIJKLMNOPQRSTUVWXYZ"), st.sampled_from("abcdefghijklmnopqrstuvwxyz"),
+                               st.sampled_from("0123456789")).map("".join),
+                     st.text(B64URL, min_size=min_size - 3, max_size=max_size - 3),
+                     st.randoms(use_true_random=False).map(lambda rng: iter(lambda: rng.random(), None)))
+
+
 TOKEN = st.one_of(
-    st.text(B64URL, min_size=20, max_size=90).filter(_mixed),
+    mixed_run(20, 90),
     st.text("0123456789abcdef", min_size=32, max_size=64),
-    st.tuples(*[st.text(B64URL, min_size=10, max_size=40).filter(_mixed)] * 3).map(".".join))
+    st.tuples(*[mixed_run(10, 40)] * 3).map(".".join))
 
 
+@settings(deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(token=TOKEN, before=st.sampled_from(["", "x ", "token: ", "auth ", "'", "(", "/v1/keys/", "=", "\n"]),
        after=st.sampled_from(["", " y", "'", ")", ".", ",", "\n"]))
 def test_no_token_shaped_value_survives_the_message(token, before, after):
@@ -324,7 +336,8 @@ def test_the_records_file_is_written_only_when_a_record_changes(monkeypatch):
         for _ in range(3):
             run(timer, "mirror_hot", from_instant)
             clock.advance(2)
-        assert len(writes) == 4 and load_records(root)["mirror_hot"]["runs"] == 3
+        entry = load_records(root)["mirror_hot"]
+        assert len(writes) == 4 and entry["failure"]["runs"] == 3 and entry["rev"] == 3
 
 
 # --- how many events --------------------------------------------------------------
@@ -502,6 +515,209 @@ def test_a_record_with_a_bad_time_never_crashes_a_reader(monkeypatch, stamp):
         assert doctor.check_timers(root)["status"] in (doctor.PASS, doctor.WARN)
         Offline(root).status()
         Timers(store, root, POLICY).stop()
+
+
+# --- round 2 of the review of #171 -----------------------------------------------------------
+
+def test_a_message_that_is_not_utf8_reaches_every_reader(monkeypatch):
+    """C-18.5, review round 2 (P1): a lone surrogate (retention decodes git paths with
+    `surrogateescape`) made every write for the timer raise, blocked its events for
+    good, and broke `daemon.status`, offline `status` and the whole `doctor` table."""
+    with rig() as (timer, store, clock, root):
+        for _ in range(3):
+            run(timer, "retention", OSError("cannot remove /jobs/b\udcffad/x"))
+            clock.advance(3600)
+        failure = timer.status()["retention"]["failure"]
+        assert failure["runs"] == 3 and "\\udcff" in failure["message"]
+        json.dumps(timer.status(), ensure_ascii=False).encode("utf-8")      # a reply can be sent
+        told = events(store, "timer.error", "retention")             # 1, 2, and 3 an hour on: none blocked
+        assert [event["failed_runs"] for event in told] == [1, 2, 3]
+        monkeypatch.setenv("SUBFLEET_HOME", str(root))
+        monkeypatch.setattr(doctor, "_run", lambda argv, timeout=20.0, **kwargs: (0, "stub"))
+        monkeypatch.setattr(doctor, "_run_full", lambda argv, timeout=20.0, **kwargs: (0, "stub"))
+        rows = {item["check"]: item for item in doctor.checks(root)}
+        assert rows["daemon timers"]["status"] == doctor.FAIL
+        assert "  retention  failing since" in status_text(Offline(root).status())
+
+
+def test_an_event_the_store_can_never_take_holds_back_no_later_one(monkeypatch):
+    """C-18.5, review round 2 (P1): an event that cannot be encoded is dropped, not
+    retried ahead of every later one; one the store refuses (OSError) waits."""
+    with rig() as (timer, store, clock, _):
+        real = store.add_event
+        refusals = {"left": 1}
+
+        def refusing(kind, **fields):
+            if kind == "timer.error" and refusals["left"]:
+                refusals["left"] -= 1
+                raise UnicodeEncodeError("utf-8", "x", 0, 1, "surrogates not allowed")
+            return real(kind, **fields)
+        monkeypatch.setattr(store, "add_event", refusing)
+        run(timer, "mirror", KeyError("first"))       # its event can never be written: dropped
+        clock.advance(60)
+        run(timer, "mirror", KeyError("second"))      # written: the first this process wrote
+        assert [event["failed_runs"] for event in events(store, "timer.error", "mirror")] == [2]
+        assert not timer._unsent["mirror"]
+
+
+def _failing_publish(monkeypatch, error=OSError(28, "No space left on device")):
+    from subfleet import guardian
+    def publish(path, data):
+        raise error
+    monkeypatch.setattr(guardian, "atomic_publish", publish)
+
+
+def test_a_failed_records_file_write_is_shown_and_the_events_win(monkeypatch):
+    """C-18.5, review round 2 (P2): `timers.json` won over the store even when its
+    writes failed, silently. Now the newer revision wins, the failure is in
+    `daemon.status` (`timers_file`), `status` and `doctor`, and a restart keeps the
+    record from the events."""
+    with tempfile.TemporaryDirectory(prefix="sf-timer-") as root:
+        with rig(root) as (timer, store, clock, _):
+            run(timer, "keepalive", None)              # the file is written once
+            _failing_publish(monkeypatch)
+            for _ in range(3):
+                clock.advance(60)
+                run(timer, "keepalive", from_instant)
+            file_status = timer.records_status()
+            assert file_status["tries"] == 3 and file_status["error_type"] == "OSError"
+            assert "No space left on device" in file_status["message"]
+            text = status_text({"timers": timer.status(), "timers_file": file_status})
+            assert "  timers.json not written since" in text and "3 tries" in text
+            item = doctor.check_timers(root)
+            assert item["status"] == doctor.FAIL and "keepalive failing since" in item["detail"]
+            assert "timers.json is behind the store's events for keepalive" in item["detail"]
+            at = clock()
+        monkeypatch.undo()
+        with rig(root, Clock(at, 5000.0)) as (timer, _, _, _):
+            assert timer.status()["keepalive"]["failure"]["runs"] == 3      # from the events
+
+
+def test_a_records_file_that_cannot_be_written_never_keeps_a_recovered_timer_failing(monkeypatch):
+    """C-18.5, review round 2 (P2): with the state directory read-only, doctor kept
+    reporting FAIL for a timer that had recovered."""
+    with rig() as (timer, _, clock, root):
+        _failing_publish(monkeypatch, PermissionError(13, "Permission denied"))
+        run(timer, "mirror", from_instant)
+        clock.advance(60)
+        run(timer, "mirror", None)
+        item = doctor.check_timers(root)
+        assert item["status"] == doctor.WARN and "mirror ran clean at" in item["detail"]
+
+
+def test_the_file_is_written_before_the_events(monkeypatch):
+    """C-18.5, review round 2 (P2): a daemon killed between a run's events and its
+    file write came back with the older record. The file now goes first; killed
+    between them, the file is the newer and wins."""
+    with tempfile.TemporaryDirectory(prefix="sf-timer-") as root:
+        with rig(root) as (timer, store, clock, _):
+            run(timer, "keepalive", from_instant)
+            clock.advance(60)
+
+            def killed(kind, **fields):
+                raise SystemExit("killed after the file write")
+            monkeypatch.setattr(store, "add_event", killed)
+            with pytest.raises(SystemExit):
+                run(timer, "keepalive", None)
+            at = clock()
+        monkeypatch.undo()
+        with rig(root, Clock(at, 5000.0)) as (timer, _, _, _):
+            assert timer.status()["keepalive"]["failure"]["recovered_at"] == iso(START + timedelta(seconds=60))
+        assert doctor.check_timers(Path(root))["status"] == doctor.WARN
+
+
+def test_doctor_reads_a_hot_timer_from_one_revision():
+    """C-18.5, review round 2 (P3): offline doctor said `mirror_hot` ran clean and,
+    from its lagging event, that its last run reported an error."""
+    with rig() as (timer, _, clock, root):
+        run(timer, "mirror_hot", from_instant)
+        clock.advance(2)
+        run(timer, "mirror_hot", None)
+        detail = doctor.check_timers(root)["detail"]
+        assert "mirror_hot ran clean at" in detail and "reported" not in detail
+
+
+def test_doctor_live_shows_a_records_file_behind(daemon, root):
+    """C-18.5: `doctor --live` reads `timers_file` from `daemon.status`."""
+    clean = {"probe": {"last_run": iso(START), "next_due": None, "last_error_type": None, "failure": None}}
+    file_status = {"since": iso(START), "last_at": iso(START), "tries": 2, "error_type": "OSError", "message": "full"}
+    daemon({"daemon.status": lambda request: {"timers": clean, "timers_file": file_status}})
+    item = doctor.check_timers_live(root)
+    assert item["status"] == doctor.WARN and "timers.json not written since" in item["detail"]
+
+
+def test_a_hot_timer_paces_its_changes_by_the_monotonic_clock():
+    """C-18.5, review round 2 (P3): a mutant pacing `mirror_hot`'s change writes by the
+    wall clock survived; with the wall clock swinging an hour each pass, it wrote a
+    `timer.run` on every change."""
+    with rig() as (timer, store, clock, _):
+        for index in range(60):
+            clock.set_wall(START + timedelta(hours=index % 2))
+            clock.mono += 1                            # 2 s a pass by the monotonic clock
+            run(timer, "mirror_hot", from_instant if index % 2 else None)
+        told = len(events(store, "timer.error", "mirror_hot"))
+        assert len(events(store, "timer.run", "mirror_hot")) <= told + 120 // FAILURE_CHANGE_S + 1
+
+
+def test_stop_writes_what_a_refused_write_left(monkeypatch):
+    """C-18.5, review round 2 (P3): a mutant without `stop()`'s last send survived."""
+    with rig() as (timer, store, clock, _):
+        real = store.add_event
+        refuse = {"on": True}
+
+        def refusing(kind, **fields):
+            if refuse["on"] and kind == "timer.error":
+                raise OSError("disk full")
+            return real(kind, **fields)
+        monkeypatch.setattr(store, "add_event", refusing)
+        with pytest.raises(OSError):
+            run(timer, "keepalive", from_instant)
+        refuse["on"] = False
+        timer.stop()
+        assert [event["failed_runs"] for event in events(store, "timer.error", "keepalive")] == [1]
+
+
+def test_one_timers_events_are_written_by_one_thread_at_a_time(monkeypatch):
+    """C-18.5, review round 2 (P3): `stop()` racing a late mark could write one event twice."""
+    import threading
+    with rig() as (timer, store, clock, _):
+        real = store.add_event
+        entered, release = threading.Event(), threading.Event()
+        refuse = {"on": True}
+
+        def slow(kind, **fields):
+            if kind == "timer.error" and refuse["on"]:
+                raise OSError("disk full")
+            if kind == "timer.error" and not entered.is_set():
+                entered.set()
+                release.wait(5)
+            return real(kind, **fields)
+        monkeypatch.setattr(store, "add_event", slow)
+        with pytest.raises(OSError):
+            run(timer, "retention", from_instant)
+        refuse["on"] = False
+        first = threading.Thread(target=timer._send_errors, args=("retention",))
+        first.start()
+        assert entered.wait(5)
+        second = threading.Thread(target=timer._send_errors, args=("retention",))
+        second.start()
+        release.set()
+        first.join(5), second.join(5)
+        assert len(events(store, "timer.error", "retention")) == 1
+
+
+def test_a_companions_own_error_ends_the_cycle_when_its_record_cannot_be_written(monkeypatch):
+    """C-18.5, review round 2 (P3): when the store refused the companion's record,
+    probe's record showed the store's OSError, not the companion's error."""
+    with rig() as (timer, store, _, _):
+        real = store.add_event
+        monkeypatch.setattr(timer, "evaluate_resets", lambda *args, **kwargs: timers_module.instant("not a date"))
+        monkeypatch.setattr(store, "add_event", lambda kind, **fields: (
+            (_ for _ in ()).throw(OSError("disk full")) if kind == "timer.error" else real(kind, **fields)))
+        with pytest.raises(OSError):
+            timer._run("probe")
+        assert timer.status()["probe"]["failure"]["error_type"] == "ValueError"
+        assert timer.status()["reset_credits"]["failure"]["error_type"] == "ValueError"
 
 
 # --- the readers ------------------------------------------------------------------

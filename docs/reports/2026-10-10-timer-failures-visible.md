@@ -101,6 +101,28 @@ The mutation check now has 15 mutants. The original seven, the wedge, the replac
 
 A 300-example run also found that the reference model revived a record when the wall clock was set back inside its day after a clean run had already ended it. The code was right: an ended record stays ended. The model now says so.
 
+## Review of #171, round 2 (2026-10-18)
+
+Round 2 was served by Opus 5.5 because the Codex lanes were closed. Its findings are in `~/reviews/subfleet-v2-timer-failure-visible/review-171-r2.out.md`. It marked all nine round-1 findings resolved and accepted the reasoning on the non-hot `timer.run` cadence. It found:
+
+| finding | fix |
+|---|---|
+| P1: a lone surrogate in a message (retention decodes git paths with `surrogateescape`) could be neither stored nor sent. Every write for the timer raised, its queued event blocked the rest for good, and `daemon.status`, offline `status` and the whole `doctor` table broke. | The type, message, place and trace are made valid UTF-8 (`\uXXXX` escapes). A `timer.error` the store can never take is dropped; one it refuses with `OSError` or `sqlite3.Error` waits. |
+| P2: `timers.json` always won though it was written after the events, and its failed writes were silent. A kill between them reverted a record, and a full or read-only state root misled `doctor`. | Each record has a revision, carried in the file and in every `timer.run`. The newer revision wins at start and in every reader. The file is written before the run's events. A failed write is kept and shown: `daemon.status` `timers_file`, a `status` line, `doctor --live`, and offline `doctor` and `status` when an event is newer than the file. |
+| P3: offline `doctor` said `mirror_hot` ran clean and also that its last run reported an error | The newer revision supplies the whole status, `last_error_type` included. |
+| P3: the mutants for change pacing on the wall clock and for no last send at `stop()` survived | New tests kill both. |
+| P3: the token property was flaky under load (a Hypothesis health check) | Tokens are built to hold all three character classes, not filtered; 10 runs in a row pass. |
+| P3: when the store refused a companion's record, probe's record showed the store's error | The companion's mark is guarded, and its own error ends the cycle. |
+| P3: `stop()` racing a late mark could write an event twice | One timer's events are written by one thread at a time. |
+| P3: C-18.5 overstated when held events are written | Now: after the run's records file and before its own `timer.run`. |
+
+Left as follow-ups:
+
+- Redaction does not cover base64 with `/` or `+`, single-case tokens, or URL-encoded ones; C-18.5 states the rules exactly.
+- The demand-stage events of `reset_credits`.
+
+The mutation check now has 24 mutants, and the test file catches each.
+
 ## Tests
 
 `tests/unit/test_timers_failure.py` holds example tests for each reader and each review finding, and four Hypothesis properties:
@@ -110,4 +132,4 @@ A 300-example run also found that the reference model revived a record when the 
 - The `timer.error` count per record stays within the bound, and the first failure and every monotonic hour of a continuing failure are written. `mirror_hot` writes at most one `timer.run` per error event, plus one a minute and one per restart.
 - No token-shaped value survives into a failure message, and no malformed record can reach a reader.
 
-Fifteen deliberate mutants of `timers.py` were each caught (see the review section above).
+Twenty-four deliberate mutants of `timers.py` were each caught (see the review sections above).

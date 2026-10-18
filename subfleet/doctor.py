@@ -634,24 +634,30 @@ def check_sidebar_load(root: Path) -> dict[str, Any]:
     return row(check, PASS, gap["detail"], "`subfleet sessions mirror --status`")
 
 
-def _timers_row(check: str, timers: Any, source: str) -> dict[str, Any]:
+def _timers_row(check: str, timers: Any, source: str, file_status: Any = None) -> dict[str, Any]:
     """C-18.5: one row for every daemon timer, judged from its failure records.
 
     `fail` while an exception ended any timer's last run; `warn` for one that
-    has run clean since (the record is kept a day) and for a last run that
-    reported an error type without raising; `unknown` when no timer has
-    recorded a run.
+    has run clean since (the record is kept a day), for a last run that
+    reported an error type without raising, and for a `timers.json` the daemon
+    could not write; `unknown` when no timer has recorded a run.
     """
     from . import render
     notes = render.timer_notes(timers)
+    note = render.timers_file_note(timers, file_status)
+    behind = (f"; {note}: the state root must stay writable with free space "
+              f"(`ls -ld` and `df -h` on it)" if note else "")
     if not timers:
-        return row(check, UNKNOWN, f"no timer has recorded a run ({source})",
+        return row(check, UNKNOWN if not note else WARN, f"no timer has recorded a run ({source}){behind}",
                    "`subfleet daemon start`: the first probe cycle records itself within a minute")
     if not notes:
+        if note:
+            return row(check, WARN, f"{len(timers)} timers; no run of theirs failed{behind} ({source})",
+                       "free space or permissions in the state root; the next run writes the file again")
         return row(check, PASS, f"{len(timers)} timers; no run of theirs was ended by an exception "
                                 f"in the last day, and none reported an error ({source})",
                    "nothing to do while this passes")
-    detail = "; ".join(f"{name} {text}" for _, name, text in notes) + f" ({source})"
+    detail = "; ".join(f"{name} {text}" for _, name, text in notes) + behind + f" ({source})"
     records = "`subfleet status --json` has each record under `timers`"
     if any(state == "failing" for state, _, _ in notes):
         return row(check, FAIL, detail,
@@ -704,7 +710,7 @@ def check_timers_live(root: Path) -> dict[str, Any]:
         return row(check, UNKNOWN, "the daemon keeps no failure records (it predates C-18.5)",
                    "restart it on this release when no jobs are running (`subfleet runs --running`)")
     return _timers_row(check, {name: item for name, item in timers.items() if item.get("last_run")},
-                       "as the daemon holds them")
+                       "as the daemon holds them", status.get("timers_file"))
 
 
 # --- the table ----------------------------------------------------------------

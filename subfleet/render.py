@@ -322,6 +322,24 @@ def timer_notes(timers: Any) -> list[tuple[str, str, str]]:
                           f"its last run, at {status.get('last_run')}, reported {status['last_error_type']}"))
     return sorted(notes, key=lambda note: (TIMER_STATES.index(note[0]), note[1]))
 
+
+def timers_file_note(timers: Any, file_status: Any = None) -> str | None:
+    """C-18.5: why `timers.json` is behind, or None. From the daemon, `file_status`
+    (`daemon.status`'s `timers_file`); without one, the timers whose newest event
+    is newer than the file (`timers.recorded` marks them `file_behind`)."""
+    if isinstance(file_status, Mapping) and file_status:
+        what = str(file_status.get("error_type"))
+        if file_status.get("message"):
+            what += f": {file_status['message']}"
+        return (f"timers.json not written since {file_status.get('since')} "
+                f"({file_status.get('tries')} tries, the latest at {file_status.get('last_at')}): {what}")
+    behind = sorted(str(name) for name, item in (timers.items() if isinstance(timers, Mapping) else ())
+                    if isinstance(item, Mapping) and item.get("file_behind"))
+    if behind:
+        return (f"timers.json is behind the store's events for {', '.join(behind)}: "
+                f"a write of it failed; those timers are read from the events")
+    return None
+
 #: C-11.8: each standing refusal of a pinned lane, in words (`scheduler.STANDING_REFUSALS`).
 _PIN_REFUSALS = {
     "unknown": "no lane named {lane} is enrolled",
