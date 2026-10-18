@@ -140,6 +140,31 @@ if kind == "nested-signals":
         return real_later(*args, **kwargs)
 
     faulthandler.dump_traceback_later = later
+if kind == "invalid-frame":
+    # Force the C fallback to provide no usable worker frames, as 3.14 can.
+    # Its real exit timer still runs, but its output goes to /dev/null.
+    import faulthandler
+    real_later = faulthandler.dump_traceback_later
+    null_fd = os.open(os.devnull, os.O_WRONLY)
+
+    def invalid_later(*args, **kwargs):
+        os.write(kwargs["file"], b"Timeout (injected C dump)!\n  <invalid frame>\n")
+        kwargs["file"] = null_fd
+        return real_later(*args, **kwargs)
+
+    faulthandler.dump_traceback_later = invalid_later
+if kind == "slow-arm":
+    # The old kernel timer started before C watchdog creation. A start delayed
+    # beyond the dump margin made the kernel kill an otherwise working dump.
+    import faulthandler
+    from subfleet.contracts import STOP_DUMP_MARGIN_S
+    real_later = faulthandler.dump_traceback_later
+
+    def slow_later(*args, **kwargs):
+        time.sleep(STOP_DUMP_MARGIN_S + 0.25)
+        return real_later(*args, **kwargs)
+
+    faulthandler.dump_traceback_later = slow_later
 if kind == "hog-during-write":
     # The stopping line's write gives up the GIL and a C loop takes it for
     # good: only a timer started before the write can still fire.
@@ -239,7 +264,7 @@ held = threading.Lock()
 if kind in ("lock", "descriptors", "set-only", "arm-fails", "rearm", "nested-signals",
             "nested-signals-arm-fails", "arm-fails-no-thread", "overlap-cancel-fails",
             "overlap-rearm", "blocked-dump", "nested-before-kernel", "kernel-arm-fails",
-            "rearm-arm-fails"):
+            "rearm-arm-fails", "invalid-frame", "slow-arm"):
     held.acquire()                     # and never released
     worker = threading.Thread(target=stuck_behind_lock, args=(held,), name="subfleet-api_11")
 elif kind in ("gil", "hog-during-write", "arm-fails-gil"):
@@ -554,3 +579,14 @@ def test_c5_8a_the_grace_outlasts_probe_containment_and_the_backstops_outlast_th
     assert cli.DAEMON_STOP_WAIT_S == STOP_GRACE_S + STOP_BACKSTOP_S
     default = inspect.signature(daemon_module.Daemon).parameters["stop_grace_s"].default
     assert default == STOP_GRACE_S
+
+
+@pytest.mark.parametrize("kind", ["invalid-frame", "slow-arm"])
+def test_c5_8a_python_snapshot_names_the_held_frame_before_the_backstop(tmp_path, kind):
+    """A missing C frame or slow watchdog creation cannot lose a parked worker."""
+    rc, _lines, elapsed, text = run_child(tmp_path, kind, grace=1.0)
+    assert rc == 1, (rc, text)
+    assert 1.0 <= elapsed < 1.0 + ALARM_MARGIN_S, (elapsed, text)
+    snapshot = text[text.index("Python thread stacks"):]
+    assert "[subfleet-api_11]" in snapshot
+    assert " in stuck_behind_lock\n" in snapshot
