@@ -87,8 +87,11 @@ def report(root: Path, date: str, canary_like: str, since: str | None = None) ->
                and not json.loads(e["data_json"]).get("last_error_type") for e in timer_runs):
         incomplete.append("no successful scheduled probe cycle recorded for this day")
     # C-18.5: a timer failing on every run writes a bounded number of these, each
-    # with its record; one written before C-18.5 is one failed run with its type.
-    failures: dict[tuple, dict] = {}
+    # carrying its record, whose counts run from the record's first failed run;
+    # one without a record (written before C-18.5, or a stage of a run such as
+    # reset_credits' demand read) stands for one failure.
+    records: dict[tuple, dict] = {}
+    others: dict[tuple, dict] = {}
     for event in rows(db, "SELECT ts, data_json FROM events WHERE kind='timer.error' AND ts>=? AND ts<? AND ts>=? "
                           "AND data_json<>'{}' ORDER BY event_id", (start, end, since)):
         try:
@@ -97,12 +100,18 @@ def report(root: Path, date: str, canary_like: str, since: str | None = None) ->
             continue
         if not isinstance(data, dict) or not data.get("timer"):
             continue
-        item = failures.setdefault((str(data["timer"]), str(data.get("error_type")), data.get("raised_at") or "place not recorded"),
-                                   {"events": 0, "runs": 0, "first": data.get("first_at") or event["ts"]})
-        item["events"] += 1
-        runs = data.get("failed_runs")
-        item["runs"] = max(item["runs"], runs if isinstance(runs, int) else item["events"])
-        item["last"] = data.get("last_at") or event["ts"]
+        timer, kind = str(data["timer"]), f"{data.get('error_type')} at `{data.get('raised_at') or 'place not recorded'}`"
+        if data.get("first_at") and isinstance(data.get("failed_runs"), int):
+            item = records.setdefault((timer, str(data["first_at"])), {"events": 0, "kinds": [], "counts": []})
+            item["events"] += 1
+            item["counts"].append((data["failed_runs"], data.get("last_at") or event["ts"]))
+            if kind not in item["kinds"]:
+                item["kinds"].append(kind)
+        else:
+            label = f"{data['stage']} stage: {kind}" if data.get("stage") else kind
+            item = others.setdefault((timer, label), {"events": 0, "first": event["ts"]})
+            item["events"] += 1
+            item["last"] = event["ts"]
     ownership = rows(db, "SELECT lane_id, identity_status FROM lanes WHERE owner='v2' AND identity_status='mismatch'")
     canary = rows(db, "SELECT state, count(*) n FROM jobs WHERE job_id LIKE ? GROUP BY state ORDER BY state", (canary_like,))
     canary_total = sum(c["n"] for c in canary)
@@ -127,10 +136,16 @@ def report(root: Path, date: str, canary_like: str, since: str | None = None) ->
     out += ["", "## Duplicate acceptances (must be empty)", ""] + ([f"- `{d['job_id']}`: {d['n']} succeeded attempts" for d in dup] or ["- none"])
     out += ["", "## Actions unknown or stuck over an hour (must be empty)", ""]
     out += [f"- `{a['action_id']}` {a['kind']} {a['subject']} {a['state']} since {a['updated_at']}" for a in unknown_actions + stuck_actions] or ["- none"]
-    out += ["", "## Timer runs ended by an exception today", ""]
-    out += [f"- `{timer}` {kind} at `{place}`: {item['runs']} failed runs from {item['first']} to {item['last']} "
-            f"({item['events']} `timer.error` events; the message is in the store)"
-            for (timer, kind, place), item in sorted(failures.items())] or ["- none"]
+    out += ["", "## Timer failures today", ""]
+    for (timer, first_at), item in sorted(records.items()):
+        (low, low_at), (high, high_at) = item["counts"][0], item["counts"][-1]
+        out.append(f"- `{timer}`, failing from {first_at}: its count of failed runs since then stood at {low} "
+                   f"at {low_at} and {high} at {high_at} ({item['events']} `timer.error` events today; "
+                   f"kinds: {'; '.join(item['kinds'])})")
+    for (timer, label), item in sorted(others.items()):
+        out.append(f"- `{timer}` {label}: {item['events']} events, each one failure, {item['first']} to {item['last']}")
+    out += [] if records or others else ["- none"]
+    out += ["", "Messages stay in the store's `timer.error` events.", ""] if records or others else []
     out += ["", "## Events today", "", "| kind | count |", "|---|---|"] + [f"| {e['kind']} | {e['n']} |" for e in events]
     out += ["", f"Timer and lane events today: {sum(e['n'] for e in timer_kinds)} across {len(timer_kinds)} kinds." , ""]
     out += ["## Canary jobs", "", f"{canary_total} jobs matching `{canary_like}`." ] + [f"- {c['state']}: {c['n']}" for c in canary]

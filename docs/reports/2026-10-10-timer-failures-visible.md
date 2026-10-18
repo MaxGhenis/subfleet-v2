@@ -50,7 +50,7 @@ Read only, on 2026-10-10, counts by timer and type:
 
 ## What changed
 
-Each timer keeps one failure record (C-18.5): `first_at`, `since`, `last_at`, `runs` (failed runs in a row), `failed_runs`, `error_type`, `message` (scrubbed with the handoff list, then cut to one line of 240 characters), `raised_at` (innermost frame under the package) and `recovered_at`. `daemon.status`, `status --json`, every `timer.run` event and the daemon's start-up replay carry it. `subfleet status` prints a `timers:` block after the alerts. `doctor` has a `daemon timers` row read from the store, and `--live` adds the daemon's own.
+Each timer keeps one failure record (C-18.5), exactly, in `timers.json`: `first_at`, `since`, `last_at`, `runs` (failed runs in a row), `failed_runs`, `error_type`, `message` (scrubbed with the handoff list, then cut to one line of 240 characters), `raised_at` (innermost frame under the package) and `recovered_at`. `timers.json` is rewritten whenever a record changes and read back at start. `daemon.status`, `status --json` and every `timer.run` event carry the record. The message is scrubbed again for token shapes the handoff list misses (see the review section). `subfleet status` prints a `timers:` block after the alerts. `doctor` has a `daemon timers` row read from the store and `timers.json`, and `--live` adds the daemon's own.
 
 ### How long a failure stays visible
 
@@ -71,7 +71,7 @@ A failed run writes a `timer.error` event only when:
 - `failed_runs` reaches a power of two;
 - an hour has passed since the record's last event.
 
-A record of n failed runs over D hours therefore writes at most 8 + ⌊log₂ n⌋ + 1 + ⌊D⌋ events per daemon process. A 2 s hot pass that fails all day writes 37 events, where it wrote 43,200 before. The first failed run is always written, every failed run is within an hour of an event, and each event carries the record, so the count in it is the count so far. `mirror_hot` writes a `timer.run` with each of those events. It writes a change between failing and not on its first run at least a minute after the last change it wrote.
+Hours are counted on the daemon's monotonic clock, so setting the wall clock back adds no event. A record of n failed runs over D such hours therefore writes at most 8 + ⌊log₂ n⌋ + 1 + ⌊D⌋ events per daemon process. A 2 s hot pass that fails all day writes 37 events, where it wrote 43,200 before. An event the store refuses is held, the first never replaced, and written by the timer's next run. Every failed run is within an hour of an event, and each event carries the record, so the count in it is the count so far. `mirror_hot` writes a `timer.run` with each of those events. It writes a change between failing and not on its first run at least a minute after the last change it wrote.
 
 ### What `tools/soak_report.py` reads
 
@@ -81,12 +81,33 @@ Its `timer.run` check is unchanged: a probe `timer.run` with no `last_error_type
 
 `retention` runs on the daemon's worker, not `Timers._run`, so its exception reached `mark` only as a type name. It now passes the exception. The one `TimeoutError` a pass raises after progress, only to stay due, is now `RetentionCatchUp`. It is still reported as `TimeoutError` and opens no record.
 
+## Review of #171, round 1 (2026-10-18)
+
+The GPT-6.1 Sol review (`~/reviews/subfleet-v2-timer-failure-visible/review-171-r1.OUTPUT.md`) asked for changes:
+
+| finding | fix |
+|---|---|
+| P1: a JWT whose header does not encode to `eyJ` passed the handoff scrub, so the message carried it to every reader | `redact_opaque` replaces three dot-separated base64url segments that hold a digit, any 20 or more token characters with an upper-case letter, a lower-case letter and a digit, and 32 or more hex digits. A run never starts at a `/`, so paths, job ids and module names survive. A Hypothesis property tries token shapes in many surroundings. |
+| P2: `mirror_hot`'s bounded events lost its exact record over a restart, in both directions | `timers.json` in the state root holds every record exactly. It is written whole and renamed into place only when a record changes, and the daemon, `doctor` and offline `status` read it. Example tests replay the reviewer's three sequences, and the sequence property now restarts both timers. |
+| P2: `reset_credits` and `alerts` failing inside a probe cycle marked only `probe` | Each marks its own record with the exception, then the cycle ends as before. |
+| P2: a failing non-hot timer still writes a `timer.run` per run | Kept by design. A clean non-hot timer writes the same `timer.run` per run, and the probe check in `soak_report.py` and the start-up replay rely on that cadence. Before this change a failing timer wrote two events per run; now the failure adds only the bounded `timer.error` events. C-18.5 now says this explicitly instead of implying a bound on all events. |
+| P2: a `timer.error` the store refused was replaced by the next; a refused snapshot left `doctor` blind | A refused event is held, the first never replaced, and written by the timer's next run of either kind. `doctor` reads `timers.json`, which does not depend on the store's write. |
+| P2: a wall clock set back an hour each run wrote an event every run | Pacing reads `time.monotonic()`. The reviewer's 101-run sequence now writes 7 events. |
+| P2: a record without a time zone crashed `status` and `doctor` | `failure_record` refuses one, and `failure_shown` cannot raise. A parametrized test persists such records in both places. |
+| P2: the wedge test passed with the fix removed | The test claims the timer as `tick` does, refuses each of the two writes in turn, and checks that the next tick starts it. That mutant is now caught. |
+| P3: the soak report credited a whole record's count to one kind | The section lists each record's count where the day's first and last events saw it, with its kinds, and never a count per kind. |
+
+The mutation check now has 15 mutants. The original seven, the wedge, the replaced first event, wall-clock pacing, an unwritten records file, an unmarked companion, accepting naive times, no redaction and a restart that ignores the records file are each caught by the test file.
+
+A 300-example run also found that the reference model revived a record when the wall clock was set back inside its day after a clean run had already ended it. The code was right: an ended record stays ended. The model now says so.
+
 ## Tests
 
-`tests/unit/test_timers_failure.py` holds example tests for each reader, and three Hypothesis properties:
+`tests/unit/test_timers_failure.py` holds example tests for each reader and each review finding, and four Hypothesis properties:
 
-- Over random sequences of clean and raising runs, with gaps from a second to over a day and daemon restarts, the record equals an independent reference model after every run.
-- Over the same sequences, the `timer.error` count per record stays within the bound, and the first failure and every hour of a continuing failure are written.
-- For `keepalive`, the store's record equals the daemon's after every run. For `mirror_hot`, the two disagree only within a minute of the last change written.
+- Over random sequences of clean and raising runs, the record equals an independent reference model after every run. The sequences have gaps from a second to over a day, wall clocks set back, and daemon restarts of both `keepalive` and `mirror_hot`.
+- Over the same sequences, what `doctor` reads (the store and `timers.json`) equals the daemon's record after every run.
+- The `timer.error` count per record stays within the bound, and the first failure and every monotonic hour of a continuing failure are written. `mirror_hot` writes at most one `timer.run` per error event, plus one a minute and one per restart.
+- No token-shaped value survives into a failure message, and no malformed record can reach a reader.
 
-Seven deliberate mutants of `timers.py` were each caught, including no hourly event, every failed run written, and a streak not reset by a clean run.
+Fifteen deliberate mutants of `timers.py` were each caught (see the review section above).

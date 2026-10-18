@@ -361,7 +361,8 @@ class Offline:
             # C-18.5: each timer's last run and failure record, as the daemon
             # last wrote them (no timer runs without the daemon).
             from . import timers as timers_module       # deferred: it loads the adapters
-            timers = (timers_module.recorded(conn.execute(timers_module.RECORDED_QUERY), at)
+            timers = (timers_module.recorded(conn.execute(timers_module.RECORDED_QUERY), at,
+                                             records=timers_module.load_records(self.root))
                       if "events" in tables else {})
         for lane in lanes:
             lane["in_flight"] = in_flight.get(lane.get("lane_id"), 0)

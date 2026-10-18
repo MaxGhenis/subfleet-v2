@@ -671,20 +671,22 @@ def check_timers(root: Path) -> dict[str, Any]:
     Until 2026-10-10 a timer that raised kept its exception's type for one
     interval in `daemon.status` and in events no command read, so any timer
     could fail on every run while `doctor` and `status` said nothing. Read here
-    from the store's own record of each timer's last run: files only (C-17.5),
-    so it also answers for a daemon that is down. `mirror_hot` records a change
-    between failing and not within a minute, and its count of runs when the
-    store is told of them; `--live` adds the running daemon's own count.
+    from files only (C-17.5), so it also answers for a daemon that is down: each
+    timer's last run from the store's `timer.run` events, and its failure record
+    from `timers.json`, which the daemon rewrites whenever a record changes (the
+    events a hot timer writes are bounded and lag). `--live` adds the running
+    daemon's own view.
     """
     from . import timers as timers_module
     check = "daemon timers"
     try:
         with Offline(root).reading() as conn:
-            timers = timers_module.recorded(conn.execute(timers_module.RECORDED_QUERY))
+            timers = timers_module.recorded(conn.execute(timers_module.RECORDED_QUERY),
+                                            records=timers_module.load_records(root))
     except (OfflineUnavailable, SchemaTooNew, OSError, sqlite3.Error) as exc:
         return row(check, UNKNOWN, f"no readable store: {exc}",
                    "`subfleet daemon start` once, so a store exists, then run doctor again")
-    return _timers_row(check, timers, "as the store last recorded them")
+    return _timers_row(check, timers, "as the daemon last recorded them")
 
 
 def check_timers_live(root: Path) -> dict[str, Any]:

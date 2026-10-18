@@ -4,7 +4,8 @@ Until 2026-10-10 `Timers._run` kept only the exception's type, in `last_error_ty
 (replaced by the next run) and in a `timer.error` event per failed run that no command
 read; `status` and `doctor` said nothing, and `mirror_hot` could write two events every
 2 s for as long as it failed. Every test runs on a store under a temporary directory;
-none reads or writes `~/.subfleet`.
+none reads or writes `~/.subfleet`. The daemon's monotonic clock, which paces events,
+follows each test's clock (`Clock.mono`).
 """
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ import math
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
@@ -25,9 +27,11 @@ from subfleet import timers as timers_module
 from subfleet.offline import Offline
 from subfleet.store import Store
 from subfleet.timers import (FAILURE_CHANGE_S, FAILURE_HEARTBEAT_S, FAILURE_KINDS_MAX, FAILURE_MESSAGE_CHARS,
-                             FAILURE_VISIBLE_S, RECORDED_QUERY, Timers, iso, recorded)
+                             FAILURE_VISIBLE_S, RECORDED_QUERY, RECORDS_FILE, Timers, iso, load_records, recorded)
 
-START = datetime(2026, 10, 10, 12, 0, 0, tzinfo=timezone.utc)
+#: Today at 12:00 UTC: readers judge the one-day window against the real clock, so a
+#: fixed date would age out of it.
+START = datetime.now(timezone.utc).replace(hour=12, minute=0, second=0, microsecond=0)
 POLICY = json.loads(Path("subfleet/default_policy.json").read_text())
 #: MOCK credential-shaped text, built here so no literal key sits in the file.
 MOCK_KEY = "api_" + "key=" + "Mock1234Value5678Abcd"
@@ -37,23 +41,36 @@ FAULTS = [type(f"Fault{index}", (Exception,), {}) for index in range(FAILURE_KIN
 
 
 class Clock:
-    def __init__(self):
-        self.at = START
+    """The wall clock (`now`) and the monotonic clock (`mono`). `advance` moves both;
+    `set_wall` moves only the wall clock, as a clock correction does, and the
+    monotonic clock a second on."""
+
+    def __init__(self, at=START, mono=1000.0):
+        self.at, self.mono = at, mono
 
     def __call__(self):
         return self.at
 
+    def monotonic(self):
+        return self.mono
+
     def advance(self, seconds):
         self.at += timedelta(seconds=seconds)
+        self.mono += seconds
+
+    def set_wall(self, at):
+        self.at, self.mono = at, self.mono + 1
 
 
 @contextlib.contextmanager
-def rig(root=None):
-    """A `Timers` over a store under a temporary directory, on a clock the test moves."""
+def rig(root=None, clock=None):
+    """A `Timers` over a store under a temporary directory, on a clock the test moves.
+    Given `root`, it is a restart of the daemon whose state is there."""
     with contextlib.ExitStack() as stack:
         root = Path(root or stack.enter_context(tempfile.TemporaryDirectory(prefix="sf-timer-")))
+        clock = clock or Clock()
+        stack.enter_context(mock.patch.object(timers_module.time, "monotonic", clock.monotonic))
         store = stack.enter_context(Store(root / "state.sqlite3"))
-        clock = Clock()
         timer = Timers(store, root, POLICY, now=clock)
         stack.callback(timer.stop)
         yield timer, store, clock, root
@@ -87,8 +104,22 @@ def events(store, kind, name):
     return found
 
 
-def stored(store):
-    return recorded(store.query(RECORDED_QUERY))
+def stored(store, root=None, now=None):
+    """What `doctor` reads: the store's events, and with `root` the exact records."""
+    return recorded(store.query(RECORDED_QUERY), now, records=load_records(root) if root else None)
+
+
+def scheduled(timer, name, outcome):
+    """`run`, after claiming the timer as `tick` does."""
+    with timer._lock:
+        timer._running.add(name)
+    run(timer, name, outcome)
+
+
+#: A JWT whose header, `{ "alg":"RS256","typ":"JWT"}`, does not encode to `eyJ`, which the
+#: handoff list (C-23.14) keys on. MOCK: its payload and signature are made up.
+MOCK_JWT = ("eyAiYWxnIjoiUlMyNTYiLCJ0eXAiOiJKV1QifQ" + "." + "eyJzdWIiOiJNT0NLLTEyMzQ1Njc4OTAifQ"
+            + "." + "MoCkSiGnAtUrE0123456789abcdefGHIJ")
 
 
 # --- what is kept -------------------------------------------------------------
@@ -134,6 +165,51 @@ def test_a_message_is_scrubbed_then_bounded_to_one_line():
         everything = json.dumps(store.query("SELECT data_json FROM events")) + json.dumps(timer.status())
         assert MOCK_VALUE not in everything
         assert MOCK_VALUE not in json.dumps(doctor.check_timers(root))
+
+
+def test_a_token_the_handoff_list_misses_never_reaches_a_reader(monkeypatch):
+    """C-18.5, review of #171 (P1): a JWT whose header is not `eyJ` passed the handoff
+    scrub, and the message carried it to status, events, `timers.json` and doctor."""
+    with rig() as (timer, store, _, root):
+        run(timer, "keepalive", RuntimeError("provider rejected " + MOCK_JWT))
+        assert timer.status()["keepalive"]["failure"]["message"] == "provider rejected [REDACTED]"
+        monkeypatch.setenv("SUBFLEET_HOME", str(root))
+        seen = (json.dumps(store.query("SELECT data_json FROM events")) + json.dumps(timer.status())
+                + (root / RECORDS_FILE).read_text() + json.dumps(doctor.check_timers(root))
+                + json.dumps(Offline(root).status()["timers"]) + status_text({"timers": timer.status()}))
+        for part in MOCK_JWT.split("."):
+            assert part not in seen
+
+
+def test_redaction_keeps_what_a_defect_is_found_by():
+    """C-18.5: paths, job ids, module names and plain words stay; tokens and hashes go."""
+    text = ("open /Users/someone/subfleet-v2-wt/timers/x.json for 20261010-173947-review-171-r1 in "
+            "subfleet.sessions.handoff: sha 9749b6ff4f20c4f6002f1a977f88cbbaa708eeae, key Ab12Cd34Ef56Gh78Ij90")
+    assert timers_module.redact_opaque(text) == (
+        "open /Users/someone/subfleet-v2-wt/timers/x.json for 20261010-173947-review-171-r1 in "
+        "subfleet.sessions.handoff: sha [REDACTED], key [REDACTED]")
+
+
+B64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
+
+def _mixed(text):
+    return any(ch.isupper() for ch in text) and any(ch.islower() for ch in text) and any(ch.isdigit() for ch in text)
+
+
+TOKEN = st.one_of(
+    st.text(B64URL, min_size=20, max_size=90).filter(_mixed),
+    st.text("0123456789abcdef", min_size=32, max_size=64),
+    st.tuples(*[st.text(B64URL, min_size=10, max_size=40).filter(_mixed)] * 3).map(".".join))
+
+
+@given(token=TOKEN, before=st.sampled_from(["", "x ", "token: ", "auth ", "'", "(", "/v1/keys/", "=", "\n"]),
+       after=st.sampled_from(["", " y", "'", ")", ".", ",", "\n"]))
+def test_no_token_shaped_value_survives_the_message(token, before, after):
+    """C-18.5: whatever surrounds it, no token-shaped run of the message is published."""
+    message = timers_module.failure_message(RuntimeError(f"failed {before}{token}{after} here"))
+    for part in token.split("."):
+        assert part not in (message or "")
 
 
 def test_a_message_too_long_to_scrub_is_left_out():
@@ -202,6 +278,55 @@ def test_a_restart_carries_the_record_on():
             assert events(store, "timer.error", "keepalive")[-1]["failed_runs"] == 4
 
 
+@pytest.mark.parametrize("script,expected", [
+    # review of #171 (P2): three failed passes, a restart, a fourth.
+    (["fail", "fail", "fail", "restart", "fail"], {"runs": 4, "failed_runs": 4, "since": 0}),
+    # a failed pass, a clean one, a restart, a failed one: a new streak.
+    (["fail", "clean", "restart", "fail"], {"runs": 1, "failed_runs": 2, "since": 6}),
+    # a failed pass, a clean one, a restart: still cleared, not failing again.
+    (["fail", "clean", "restart", "clean"], {"runs": 1, "failed_runs": 1, "recovered_at": 2}),
+])
+def test_a_hot_timer_restarts_from_its_exact_record(script, expected):
+    """C-18.5: `mirror_hot`'s events are bounded and lag, so a restart reads its record
+    from `timers.json`, which is rewritten whenever a record changes."""
+    with tempfile.TemporaryDirectory(prefix="sf-timer-") as root:
+        stack = contextlib.ExitStack()
+        timer, _, clock, _ = stack.enter_context(rig(root))
+        try:
+            for step in script:
+                if step == "restart":
+                    stack.close()
+                    stack = contextlib.ExitStack()
+                    timer, _, clock, _ = stack.enter_context(rig(root, Clock(clock.at, clock.mono)))
+                    clock.advance(2)                  # the reviewer's timeline: a restart takes 2 s
+                    continue
+                run(timer, "mirror_hot", from_instant if step == "fail" else None)
+                clock.advance(2)
+            failure = timer.status()["mirror_hot"]["failure"]
+            for key, value in expected.items():
+                assert failure[key] == (iso(START + timedelta(seconds=value)) if key in ("since", "recovered_at")
+                                        else value), (key, failure)
+        finally:
+            stack.close()
+
+
+def test_the_records_file_is_written_only_when_a_record_changes(monkeypatch):
+    """C-18.5: clean runs of a clear timer rewrite nothing; each failed run does."""
+    from subfleet import guardian
+    writes = []
+    real = guardian.atomic_publish
+    monkeypatch.setattr(guardian, "atomic_publish", lambda path, data: (writes.append(path), real(path, data)))
+    with rig() as (timer, _, clock, root):
+        for _ in range(50):
+            run(timer, "mirror_hot", None)
+            clock.advance(2)
+        assert len(writes) == 1                       # the first: this process had written none
+        for _ in range(3):
+            run(timer, "mirror_hot", from_instant)
+            clock.advance(2)
+        assert len(writes) == 4 and load_records(root)["mirror_hot"]["runs"] == 3
+
+
 # --- how many events --------------------------------------------------------------
 
 @pytest.mark.parametrize("name,interval", [("mirror_hot", 2), ("mirror", 60), ("keepalive", 18300)])
@@ -242,39 +367,141 @@ def test_a_new_kind_is_told_until_the_cap():
 
 def test_a_hot_timer_records_a_change_within_a_minute():
     """C-18.5: `mirror_hot` records its clean passes only when they change something, so
-    a change between failing and not is written at most once a minute."""
-    with rig() as (timer, store, clock, _):
+    a change between failing and not is written to the store at most once a minute."""
+    with rig() as (timer, store, clock, root):
         run(timer, "mirror_hot", from_instant)
-        assert stored(store)["mirror_hot"]["failure"]["recovered_at"] is None
+        assert stored(store, now=clock())["mirror_hot"]["failure"]["recovered_at"] is None
         for _ in range(29):                      # 2 s to 58 s: clean, not yet written
             clock.advance(2)
             run(timer, "mirror_hot", None)
-            assert stored(store)["mirror_hot"]["failure"]["recovered_at"] is None
+            assert stored(store, now=clock())["mirror_hot"]["failure"]["recovered_at"] is None
         clock.advance(2)                         # 60 s: written
         run(timer, "mirror_hot", None)
-        assert stored(store)["mirror_hot"]["failure"]["recovered_at"] == iso(START + timedelta(seconds=2))
+        assert stored(store, now=clock())["mirror_hot"]["failure"]["recovered_at"] == iso(START + timedelta(seconds=2))
         assert len(events(store, "timer.run", "mirror_hot")) == 2
+        # What doctor reads is exact from the first clean pass: the records file.
+        assert stored(store, root, clock())["mirror_hot"]["failure"]["recovered_at"] == iso(START + timedelta(seconds=2))
 
 
-def test_a_record_write_that_raises_never_leaves_the_timer_running(monkeypatch):
-    """C-18.5: before, a `timer.error` write that raised skipped the rest of `_run`, and
-    the timer stayed "already running" until a restart. The failed run that follows
-    writes what was not written."""
+@pytest.mark.parametrize("refused", ["timer.error", "timer.run"])
+def test_a_record_write_that_raises_never_leaves_the_timer_running(monkeypatch, refused):
+    """C-18.5: before, a `timer.error` write that raised skipped the rest of `_run`,
+    and the timer stayed "already running" until a restart: no tick started it."""
     with rig() as (timer, store, clock, _):
         real = store.add_event
 
-        def broken(kind, **fields):
-            raise OSError("disk full")
-        monkeypatch.setattr(store, "add_event", broken)
+        def refusing(kind, **fields):
+            if kind == refused:
+                raise OSError("disk full")
+            return real(kind, **fields)
+        monkeypatch.setattr(store, "add_event", refusing)
         with pytest.raises(OSError):
-            run(timer, "keepalive", from_instant)
+            scheduled(timer, "keepalive", from_instant)
         assert "keepalive" not in timer._running
-        monkeypatch.setattr(store, "add_event", real)
-        clock.advance(60)
-        run(timer, "keepalive", from_instant)
-        told = events(store, "timer.error", "keepalive")
-        assert [event["failed_runs"] for event in told] == [2]
-        assert timer.status()["keepalive"]["failure"]["first_at"] == iso(START)
+        timer.start()
+        timer._due["keepalive"] = 0
+        submitted = []
+        monkeypatch.setattr(timer._cycles, "submit", lambda fn, *args: submitted.append(args))
+        timer.tick()
+        assert submitted == [("keepalive",)]           # a tick starts it again
+
+
+def test_a_refused_first_event_is_written_by_a_later_run(monkeypatch):
+    """C-18.5, review of #171 (P2): the first failure's event, refused by the store,
+    stays to be written, with the latest after it; it is not replaced by the next."""
+    with rig() as (timer, store, clock, _):
+        real = store.add_event
+        refuse = {"on": True}
+
+        def refusing(kind, **fields):
+            if refuse["on"] and kind == "timer.error":
+                raise OSError("disk full")
+            return real(kind, **fields)
+        monkeypatch.setattr(store, "add_event", refusing)
+        with pytest.raises(OSError):
+            run(timer, "mirror_hot", ValueError("first failure"))
+        clock.advance(2)
+        with pytest.raises(OSError):
+            run(timer, "mirror_hot", KeyError("second failure"))
+        clock.advance(2)
+        with pytest.raises(OSError):
+            run(timer, "mirror_hot", KeyError("third failure"))
+        refuse["on"] = False
+        clock.advance(2)
+        run(timer, "mirror_hot", None)                 # a clean run writes what was left
+        told = events(store, "timer.error", "mirror_hot")
+        assert [(event["error_type"], event["failed_runs"], event["message"]) for event in told] == [
+            ("ValueError", 1, "first failure"), ("KeyError", 3, "'third failure'")]
+
+
+def test_a_refused_snapshot_leaves_doctor_exact(monkeypatch):
+    """C-18.5, review of #171 (P2): a `timer.run` the store refused left doctor with
+    nothing for a hot timer's recovery; `timers.json` holds it."""
+    with rig() as (timer, store, clock, root):
+        real = store.add_event
+        refuse = {"on": True}
+        monkeypatch.setattr(store, "add_event", lambda kind, **fields: (
+            (_ for _ in ()).throw(OSError("disk full")) if refuse["on"] and kind == "timer.run"
+            else real(kind, **fields)))
+        with pytest.raises(OSError):
+            run(timer, "mirror_hot", from_instant)
+        refuse["on"] = False
+        for _ in range(35):
+            clock.advance(2)
+            run(timer, "mirror_hot", None)
+        item = doctor.check_timers(root)
+        assert item["status"] == doctor.WARN and f"mirror_hot ran clean at {iso(START + timedelta(seconds=2))}" in item["detail"]
+
+
+def test_a_clock_set_back_adds_no_event():
+    """C-18.5, review of #171 (P2): the hourly event is paced by the monotonic clock.
+    Before, a wall clock swinging an hour each run wrote an event on each of 101 runs."""
+    with rig() as (timer, store, clock, _):
+        for index in range(101):
+            clock.set_wall(START + timedelta(hours=index % 2))
+            run(timer, "mirror_hot", from_instant)
+        told = events(store, "timer.error", "mirror_hot")
+        assert len(told) <= FAILURE_KINDS_MAX + int(math.log2(101)) + 1
+        assert [event["failed_runs"] for event in told] == [1, 2, 4, 8, 16, 32, 64]
+
+
+@pytest.mark.parametrize("companion", ["reset_credits", "alerts"])
+def test_a_companion_that_raises_inside_the_probe_cycle_has_its_own_record(monkeypatch, companion):
+    """C-18.5, review of #171 (P2): `reset_credits` and `alerts` run inside the probe
+    cycle; when one raised, only probe's record said so."""
+    with rig() as (timer, _, clock, root):
+        def broken(*args, **kwargs):
+            timers_module.instant("not a date")
+        if companion == "reset_credits":
+            monkeypatch.setattr(timer, "evaluate_resets", broken)
+        else:
+            monkeypatch.setattr(timer.alerts, "evaluate", broken)
+        for _ in range(2):
+            timer._run("probe")
+            clock.advance(60)
+        records = timer.status()
+        assert records[companion]["failure"]["runs"] == 2
+        assert records[companion]["failure"]["raised_at"].endswith(" in instant")
+        assert records["probe"]["failure"]["runs"] == 2       # the cycle ended with it, as before
+        assert f"{companion} failing since" in doctor.check_timers(root)["detail"]
+
+
+@pytest.mark.parametrize("stamp", ["2026-10-10T12:01:00", "2026-10-10 12:01", "10/10/2026", "2026-10-10T12:01:00+01:00"])
+def test_a_record_with_a_bad_time_never_crashes_a_reader(monkeypatch, stamp):
+    """C-18.5, review of #171 (P2): a record whose `recovered_at` has no time zone was
+    accepted, and `Offline.status` and `doctor` raised TypeError on it."""
+    record = {"first_at": iso(START), "since": iso(START), "last_at": iso(START), "runs": 1, "failed_runs": 1,
+              "error_type": "OSError", "message": "m", "raised_at": "timers.py:1 in x", "recovered_at": stamp}
+    aware = stamp.endswith("+01:00")
+    assert (timers_module.failure_record(record) is not None) == aware
+    with rig() as (timer, store, _, root):
+        store.add_event("timer.run", data={"timer": "mirror", "last_run": iso(START), "next_due": None,
+                                           "last_error_type": None, "failure": record})
+        (root / RECORDS_FILE).write_text(json.dumps({"version": 1, "timers": {"mirror_hot": {"failure": record}}}))
+        monkeypatch.setenv("SUBFLEET_HOME", str(root))
+        assert doctor.check_timers(root)["status"] in (doctor.PASS, doctor.WARN)
+        Offline(root).status()
+        Timers(store, root, POLICY).stop()
 
 
 # --- the readers ------------------------------------------------------------------
@@ -295,11 +522,11 @@ def test_status_prints_failing_cleared_and_reported_timers():
         timer.mark("probe", error="URLError")
         lines = status_text({"timers": timer.status()}).splitlines()
     assert lines[0] == "timers: 1 failing, 1 failed in the last day, 1 reported an error"
-    assert lines[1].startswith("  mirror_hot  failing since 2026-10-10T12:00:00Z: 2 runs in a row, the latest at "
-                               "2026-10-10T12:00:02Z: ValueError: Invalid isoformat string: 'not a date' (timers.py:")
-    assert lines[2].startswith("  mirror      ran clean at 2026-10-10T12:01:02Z after a failed run at "
-                               "2026-10-10T12:00:02Z: KeyError: 'sessionId' (timers.py:")
-    assert lines[3] == "  probe       its last run, at 2026-10-10T12:01:02Z, reported URLError"
+    assert lines[1].startswith(f"  mirror_hot  failing since {iso(START)}: 2 runs in a row, the latest at "
+                               f"{iso(START + timedelta(seconds=2))}: ValueError: Invalid isoformat string: 'not a date' (timers.py:")
+    assert lines[2].startswith(f"  mirror      ran clean at {iso(START + timedelta(seconds=62))} after a failed run at "
+                               f"{iso(START + timedelta(seconds=2))}: KeyError: 'sessionId' (timers.py:")
+    assert lines[3] == f"  probe       its last run, at {iso(START + timedelta(seconds=62))}, reported URLError"
 
 
 def test_status_says_nothing_of_timers_that_run_clean_and_reads_an_older_daemon():
@@ -322,7 +549,7 @@ def test_offline_status_reads_the_record_from_the_store(monkeypatch):
             if as_json:
                 assert json.loads(out.getvalue())["timers"]["keepalive"]["failure"]["runs"] == 1
             else:
-                assert "keepalive  failed at 2026-10-10T12:00:00Z, its last run: ValueError" in out.getvalue()
+                assert f"keepalive  failed at {iso(START)}, its last run: ValueError" in out.getvalue()
 
 
 def test_doctor_fails_while_a_timer_fails_and_warns_for_a_day_after():
@@ -335,7 +562,7 @@ def test_doctor_fails_while_a_timer_fails_and_warns_for_a_day_after():
         run(timer, "mirror", from_instant)
         item = doctor.check_timers(root)
         assert item["status"] == doctor.FAIL and doctor.exit_code([item]) == 1
-        assert item["detail"].startswith("mirror failed at 2026-10-10T12:00:00Z, its last run: ValueError")
+        assert item["detail"].startswith(f"mirror failed at {iso(START)}, its last run: ValueError")
         assert "timer.error" in item["fix"]
         clock.advance(60)
         run(timer, "mirror", None)
@@ -356,8 +583,8 @@ def test_doctor_reads_the_store_when_no_store_exists(tmp_path):
 
 def test_doctor_has_the_row_offline_and_live(daemon, root, monkeypatch):
     """C-18.5: `daemon timers` is in the offline table; `--live` adds the daemon's own."""
-    monkeypatch.setattr(doctor, "_run", lambda argv, timeout=20.0: (0, "stub"))
-    monkeypatch.setattr(doctor, "_run_full", lambda argv, timeout=20.0: (0, "stub"))
+    monkeypatch.setattr(doctor, "_run", lambda argv, timeout=20.0, **kwargs: (0, "stub"))
+    monkeypatch.setattr(doctor, "_run_full", lambda argv, timeout=20.0, **kwargs: (0, "stub"))
     failing = {"mirror_hot": {"last_run": iso(START), "next_due": None, "last_error_type": "ValueError",
                               "failure": {"first_at": iso(START), "since": iso(START), "last_at": iso(START),
                                           "runs": 3, "failed_runs": 3, "error_type": "ValueError",
@@ -385,36 +612,52 @@ def test_render_notes_are_ordered_by_urgency():
 
 # --- properties over sequences of runs ----------------------------------------------
 
-#: A step: the run's outcome (None: clean; i: raises FAULTS[i]), the seconds before
-#: the next run, how many times it repeats, and (for `keepalive`) whether the daemon
-#: restarts after it.
+#: A step: the run's outcome (None: clean; i: raises FAULTS[i]); the seconds to the
+#: next run (below zero: the wall clock is set back that far while the monotonic
+#: clock moves a second); how many times it repeats; and whether the daemon restarts
+#: after it.
 STEP = st.tuples(st.one_of(st.none(), st.integers(0, len(FAULTS) - 1)),
-                 st.one_of(st.integers(1, 120), st.integers(3000, 4000), st.integers(80000, 100000)),
+                 st.one_of(st.integers(1, 120), st.integers(3000, 4000), st.integers(80000, 100000),
+                           st.integers(-7200, -1)),
                  st.integers(1, 40), st.booleans())
 
 
 def expected_record(history, now):
-    """The failure record C-18.5 defines, from the whole history of `(time, fault)` runs,
-    written apart from `timers.advance`. None when there is none to show at `now`."""
-    failed = [index for index, (_, fault) in enumerate(history) if fault is not None]
+    """The failure record C-18.5 defines, from the whole history of `(time, fault, ...)`
+    runs, written apart from `timers.advance`. None when there is none to show at `now`.
+
+    A record ends at the first run, of either kind, that comes a day or more after its
+    first clean run (by that run's own time, whatever the wall clock did since): a
+    failure after that starts a new record, and setting the clock back revives none.
+    """
+    failed = [index for index, (_, fault, *_) in enumerate(history) if fault is not None]
     if not failed:
         return None
+
+    def first_clean_after(index, upto):
+        return next((k for k in range(index + 1, upto) if history[k][1] is None), None)
+
+    def ended(recovered, upto):
+        return any((history[k][0] - history[recovered][0]).total_seconds() >= FAILURE_VISIBLE_S
+                   for k in range(recovered + 1, upto + 1))
+
     start = failed[0]
     for previous, index in zip(failed, failed[1:]):
-        clean = [at for at, fault in history[previous + 1:index] if fault is None]
-        if clean and (history[index][0] - clean[0]).total_seconds() >= FAILURE_VISIBLE_S:
+        recovered = first_clean_after(previous, index)
+        if recovered is not None and ended(recovered, index):
             start = index                         # the old record was gone: a new one
     last = failed[-1]
-    after = [at for at, fault in history[last + 1:] if fault is None]
-    if after and (now - after[0]).total_seconds() >= FAILURE_VISIBLE_S:
+    recovered = first_clean_after(last, len(history))
+    if recovered is not None and (ended(recovered, len(history) - 1)
+                                  or (now - history[recovered][0]).total_seconds() >= FAILURE_VISIBLE_S):
         return None
     streak = last
-    while streak > 0 and history[streak - 1][1] is not None:
+    while streak > start and history[streak - 1][1] is not None:
         streak -= 1
-    streak = max(streak, start)
     return {"first_at": iso(history[start][0]), "since": iso(history[streak][0]), "last_at": iso(history[last][0]),
             "runs": last - streak + 1, "failed_runs": sum(1 for index in failed if index >= start),
-            "error_type": FAULTS[history[last][1]].__name__, "recovered_at": iso(after[0]) if after else None}
+            "error_type": FAULTS[history[last][1]].__name__,
+            "recovered_at": iso(history[recovered][0]) if recovered is not None else None}
 
 
 def failing(record):
@@ -432,20 +675,23 @@ def assert_matches(record, model):
 @settings(max_examples=40, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(name=st.sampled_from(["keepalive", "mirror_hot"]), steps=st.lists(STEP, min_size=1, max_size=25))
 def test_the_record_and_its_events_over_any_sequence_of_runs(name, steps):
-    """C-18.5 invariants, for every sequence of clean and raising runs:
+    """C-18.5 invariants, for every sequence of clean and raising runs, with the wall
+    clock set back at times and the daemon restarted:
 
     1. the record equals the reference model after every run: `runs` is the number of
        failed runs since the last clean run, `failed_runs` those since `first_at`;
-    2. `timer.error` events per record are at most FAILURE_KINDS_MAX x (1 + restarts)
-       + floor(log2 failed_runs) + 1 + floor(hours from first to last failed run) + restarts;
-    3. the first failed run of every record is told, with its type;
-    4. no failed run is more than FAILURE_HEARTBEAT_S after the record's last event;
-    5. `keepalive`: the store's record equals the daemon's after every run, restarts
-       included; `mirror_hot`: it disagrees on failing or not only within
-       FAILURE_CHANGE_S of the last change it wrote, and its `timer.run` events are at
-       most its `timer.error` events plus one a minute.
+    2. what `doctor` reads (the store and `timers.json`) equals the daemon's record
+       after every run, restarts included;
+    3. `timer.error` events per record are at most (FAILURE_KINDS_MAX + 1) x (1 +
+       restarts) + floor(log2 failed_runs) + floor(monotonic hours from its first to
+       its last failed run);
+    4. the first failed run of every record is told, with its type;
+    5. every failed run is less than FAILURE_HEARTBEAT_S of monotonic time after one
+       of its record's events;
+    6. `mirror_hot` writes at most one `timer.run` per `timer.error`, plus one a
+       monotonic minute and one per restart.
     """
-    history, restarts_at = [], []
+    history, restarts = [], []
     with tempfile.TemporaryDirectory(prefix="sf-timer-") as root:
         stack = contextlib.ExitStack()
         timer, store, clock, _ = stack.enter_context(rig(root))
@@ -453,61 +699,47 @@ def test_the_record_and_its_events_over_any_sequence_of_runs(name, steps):
             for fault, gap, repeat, restart in steps:
                 for _ in range(repeat):
                     run(timer, name, None if fault is None else FAULTS[fault]("x"))
-                    history.append((clock(), fault))
-                    now = clock()
-                    model = expected_record(history, now)
+                    history.append((clock(), fault, clock.mono))
                     record = timer.status()[name]["failure"]
-                    assert_matches(record, model)
-                    durable = stored(store)[name]["failure"] if name in stored(store) else None
-                    if name == "keepalive":
-                        assert durable == record
-                    elif failing(durable) != failing(record):
-                        changes = change_writes(store, name)
-                        assert changes and (now - changes[-1]).total_seconds() < FAILURE_CHANGE_S
-                    clock.advance(gap)
-                if restart and name == "keepalive":
+                    assert_matches(record, expected_record(history, clock()))
+                    read = stored(store, root, clock())
+                    assert (read[name]["failure"] if name in read else None) == record
+                    if gap < 0:
+                        clock.set_wall(clock() + timedelta(seconds=gap))
+                    else:
+                        clock.advance(gap)
+                if restart:
                     stack.close()
                     stack = contextlib.ExitStack()
-                    timer, store, clock2, _ = stack.enter_context(rig(root))
-                    clock2.at, clock = clock(), clock2
-                    restarts_at.append(clock())
-            check_events(store, name, history, restarts_at)
+                    timer, store, clock, _ = stack.enter_context(rig(root, Clock(clock.at, clock.mono)))
+                    restarts.append(clock.mono)
+            check_events(store, name, history, restarts)
         finally:
             stack.close()
 
 
-def change_writes(store, name):
-    """When `name`'s `timer.run` events changed between failing and not."""
-    times, before = [], False
-    for data in events(store, "timer.run", name):
-        now = failing(timers_module.failure_record(data.get("failure")))
-        if now != before:
-            times.append(timers_module.instant(data["last_run"]))
-        before = now
-    return times
-
-
-def check_events(store, name, history, restarts_at):
+def check_events(store, name, history, restarts):
     told = events(store, "timer.error", name)
     records = {}
-    for at, fault in history:
+    for index, (at, fault, mono) in enumerate(history):
         if fault is not None:
-            model = expected_record(history[:history.index((at, fault)) + 1], at)
-            records.setdefault(model["first_at"], []).append((at, fault))
+            first_at = expected_record(history[:index + 1], at)["first_at"]
+            records.setdefault(first_at, []).append((fault, mono))
     assert set(records) == {event["first_at"] for event in told}
     for first_at, runs in records.items():
         mine = [event for event in told if event["first_at"] == first_at]
-        restarts = sum(1 for at in restarts_at if runs[0][0] < at <= runs[-1][0])
-        hours = (runs[-1][0] - runs[0][0]).total_seconds() // FAILURE_HEARTBEAT_S
-        bound = FAILURE_KINDS_MAX * (1 + restarts) + int(math.log2(len(runs))) + 1 + hours + restarts
+        span = [mono for mono in restarts if runs[0][1] < mono <= runs[-1][1]]
+        hours = (runs[-1][1] - runs[0][1]) // FAILURE_HEARTBEAT_S
+        bound = (FAILURE_KINDS_MAX + 1) * (1 + len(span)) + int(math.log2(len(runs))) + hours
         assert len(mine) <= bound, (len(mine), bound, len(runs))
-        assert mine[0]["failed_runs"] == 1 and mine[0]["error_type"] == FAULTS[runs[0][1]].__name__
-        times = [timers_module.instant(event["last_at"]) for event in mine]
-        for at, _ in runs:
-            assert any(timedelta(0) <= at - told_at < timedelta(seconds=FAILURE_HEARTBEAT_S) for told_at in times)
+        assert mine[0]["failed_runs"] == 1 and mine[0]["error_type"] == FAULTS[runs[0][0]].__name__
+        # An event's `failed_runs` names the failed run of its record that wrote it.
+        written = [runs[event["failed_runs"] - 1][1] for event in mine]
+        for _, mono in runs:
+            assert any(0 <= mono - at < FAILURE_HEARTBEAT_S for at in written)
     if name == "mirror_hot":
-        span = (history[-1][0] - history[0][0]).total_seconds()
-        assert len(events(store, "timer.run", name)) <= len(told) + span // FAILURE_CHANGE_S + 1
+        span = history[-1][2] - history[0][2]
+        assert len(events(store, "timer.run", name)) <= len(told) + span // FAILURE_CHANGE_S + 1 + len(restarts)
 
 
 @settings(max_examples=200, deadline=None)

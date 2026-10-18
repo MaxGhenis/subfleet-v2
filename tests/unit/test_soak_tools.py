@@ -323,31 +323,39 @@ def test_soak_empty_or_unstarted_evidence_is_not_clean(tmp_path, missing):
     assert not clean and "STOP" in text
 
 
-def test_soak_lists_the_days_timer_failures_by_timer_type_and_place(tmp_path):
+def test_soak_lists_the_days_timer_failures_by_record(tmp_path):
     """C-18.5: a timer failing on every run writes a bounded number of `timer.error`
-    events, each carrying its record; the report counts its failed runs from them, and
-    one written before C-18.5 (no record) as one failed run. It names no message: that
-    stays in the store. The verdict is unchanged."""
+    events, each carrying its record; the report shows each record's count where the
+    day's events saw it, never attributing a count to a kind (review of #171, P3).
+    An event with no record (before C-18.5, or a stage such as reset_credits' demand
+    read) is one failure. No message is shown; the verdict is unchanged."""
     store = seed(tmp_path)
-    for at, runs in (("2026-09-06T03:00:00Z", 1), ("2026-09-06T03:00:02Z", 2), ("2026-09-06T03:02:06Z", 64)):
-        store.conn.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)", (at, "timer.error", json.dumps({
-            "timer": "mirror_hot", "first_at": "2026-09-06T03:00:00Z", "since": "2026-09-06T03:00:00Z",
-            "last_at": at, "runs": runs, "failed_runs": runs, "error_type": "OSError",
-            "message": "MOCKMESSAGE", "raised_at": "sessions/mirror.py:1535 in _spread",
-            "trace": ["timers.py:400 in _run"]})))
-    for at in ("2026-09-06T04:00:00Z", "2026-09-06T05:00:00Z"):
-        store.conn.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
-                           (at, "timer.error", '{"timer":"mirror","error_type":"OSError"}'))
+
+    def error(at, data):
+        store.conn.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)", (at, "timer.error", json.dumps(data)))
         store.conn.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)", (at, "timer.error", "{}"))
-    store.conn.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
-                       ("2026-09-07T01:00:00Z", "timer.error", '{"timer":"probe","error_type":"OperationalError"}'))
+
+    record = {"timer": "mirror_hot", "first_at": "2026-09-05T23:00:00Z", "since": "2026-09-05T23:00:00Z",
+              "message": "MOCKMESSAGE", "trace": ["timers.py:400 in _run"]}
+    error("2026-09-05T23:00:00Z", {**record, "last_at": "2026-09-05T23:00:00Z", "failed_runs": 1, "runs": 1,
+                                   "error_type": "OSError", "raised_at": "sessions/mirror.py:1535 in _spread"})
+    error("2026-09-06T03:00:00Z", {**record, "last_at": "2026-09-06T03:00:00Z", "failed_runs": 64, "runs": 64,
+                                   "error_type": "OSError", "raised_at": "sessions/mirror.py:1535 in _spread"})
+    error("2026-09-06T03:00:02Z", {**record, "last_at": "2026-09-06T03:00:02Z", "failed_runs": 65, "runs": 65,
+                                   "error_type": "ValueError", "raised_at": "sessions/mirror.py:900 in _flags"})
+    for at in ("2026-09-06T04:00:00Z", "2026-09-06T05:00:00Z"):
+        error(at, {"timer": "mirror", "error_type": "OSError"})
+    error("2026-09-06T06:00:00Z", {"timer": "reset_credits", "stage": "demand", "error_type": "TypeError"})
+    error("2026-09-07T01:00:00Z", {"timer": "probe", "error_type": "OperationalError"})
     store.conn.commit()
     text, clean = soak_report.report(tmp_path, "2026-09-06", "%-canary-%", SINCE)
-    section = text.split("## Timer runs ended by an exception today")[1].split("##")[0]
-    assert ("- `mirror_hot` OSError at `sessions/mirror.py:1535 in _spread`: 64 failed runs from "
-            "2026-09-06T03:00:00Z to 2026-09-06T03:02:06Z (3 `timer.error` events") in section
-    assert ("- `mirror` OSError at `place not recorded`: 2 failed runs from 2026-09-06T04:00:00Z to "
-            "2026-09-06T05:00:00Z (2 `timer.error` events") in section
+    section = text.split("## Timer failures today")[1].split("##")[0]
+    assert ("- `mirror_hot`, failing from 2026-09-05T23:00:00Z: its count of failed runs since then stood at 64 "
+            "at 2026-09-06T03:00:00Z and 65 at 2026-09-06T03:00:02Z (2 `timer.error` events today; kinds: OSError "
+            "at `sessions/mirror.py:1535 in _spread`; ValueError at `sessions/mirror.py:900 in _flags`)") in section
+    assert ("- `mirror` OSError at `place not recorded`: 2 events, each one failure, "
+            "2026-09-06T04:00:00Z to 2026-09-06T05:00:00Z") in section
+    assert "- `reset_credits` demand stage: TypeError at `place not recorded`: 1 events" in section
     assert "`probe`" not in section and "MOCKMESSAGE" not in text
     assert clean
 
