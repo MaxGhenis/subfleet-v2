@@ -698,9 +698,15 @@ def _apply_deprecations(args: argparse.Namespace) -> None:
 
 
 def _retire_model(args: argparse.Namespace, verb: str, flag: str = "-m", attr: str = "m") -> None:
-    """C-17.2: a retired pin is accepted, noted on stderr, and replaced by its successor."""
+    """C-17.2: a retired pin is accepted, noted on stderr, and replaced by its successor.
+
+    A value with the 1M-context suffix (`claude-fable-5-1[1m]`, the value a catalog
+    lists for Fable) keeps it: the base is remapped and `[1m]` put back (`opus[1m]`),
+    as a retired conversation keeps its 1M context (C-26.8)."""
     value = getattr(args, attr, None)
-    replacement = policy.retired_successor(value)
+    base, suffix = (value[:-4], "[1m]") if isinstance(value, str) and value.endswith("[1m]") else (value, "")
+    successor = policy.retired_successor(base)
+    replacement = successor + suffix if successor is not None else None
     if replacement is not None:
         note(f"{PROG} {verb}: {flag} {value} is retired; using {replacement}")
         setattr(args, attr, replacement)

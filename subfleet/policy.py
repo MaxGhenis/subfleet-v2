@@ -47,10 +47,11 @@ def flatten_chain(chain: Sequence[str | list[str]], tier_index: int = 0) -> list
 
 
 #: Short names retired from dispatch, whatever a policy file still lists (C-17.2).
-#: Every surface that takes a model name from a person (`run -m`, `why -m`,
-#: `sessions handoff --to`, `sessions revive --model`, `gate --peer`) remaps these
-#: with a stderr note, so an older `policy.json` that still carries one cannot be
-#: asked to dispatch it. The shipped policy's `retired` map says the same for pins
+#: Every flag that takes a model to dispatch from a person (`run -m` and `-t`, batch
+#: manifests, `why -m`, `pick --model`, `suggest --model`, `sessions handoff --to`,
+#: `sessions revive --model`, `gate --peer`) remaps these with a stderr note, so an
+#: older `policy.json` that still carries one cannot be asked to dispatch it.
+#: (`gate --main-model` only names the main's family and dispatches nothing.) The shipped policy's `retired` map says the same for pins
 #: that arrive by other routes (queued jobs, retries, revives of a recorded model).
 #: Sol went on 2026-09-04; Fable on 2026-09-27 (Max: "opus 5.5 is strictly better
 #: than fable").

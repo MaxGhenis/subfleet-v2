@@ -122,7 +122,11 @@ def test_c17_1_suggest_is_a_permanent_verb():
 
 
 @pytest.mark.parametrize("retired, successor", [("fable", "opus"), ("claude-fable-5", "opus"),
-                                                ("claude-fable-5-1", "opus"), ("sol", "astra")])
+                                                ("claude-fable-5-1", "opus"), ("sol", "astra"),
+                                                # The 1M context is kept (review round 4 of PR #66):
+                                                # `claude-fable-5-1[1m]` is the value models.list offers.
+                                                ("claude-fable-5-1[1m]", "opus[1m]"), ("fable[1m]", "opus[1m]"),
+                                                ("claude-fable-5[1m]", "opus[1m]")])
 def test_c17_2_a_retired_suggest_model_sends_its_successor(call, tmp_path, capsys, retired, successor):
     """C-17.2: `suggest --model` is a model flag; a retired name or Fable id is remapped with
     a stderr note before the daemon sees it (review round 3 of PR #66, finding 2)."""
