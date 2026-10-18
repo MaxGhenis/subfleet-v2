@@ -552,12 +552,12 @@ def issued_instant(issued_at: str) -> datetime:
     it is not `YYYY-MM-DDTHH:MM:SS[.ffffff][Z|±HH:MM]` or cannot be read."""
     if not ISSUED_AT.fullmatch(str(issued_at)):
         raise protocol.ProtocolError(f"issued_at {issued_at!r} is not an instant of the form "
-                                     f"YYYY-MM-DDTHH:MM:SS[.ffffff][Z|+HH:MM]", Exit.INVALID_INPUT)
+                                     f"YYYY-MM-DDTHH:MM:SS[.ffffff][Z|+HH:MM]", Exit.INVALID_INPUT, reason="issued-at")
     try:
         instant = datetime.fromisoformat(str(issued_at).replace("Z", "+00:00"))
     except ValueError:
         raise protocol.ProtocolError(f"issued_at {issued_at!r} is not an ISO 8601 instant",
-                                     Exit.INVALID_INPUT) from None
+                                     Exit.INVALID_INPUT, reason="issued-at") from None
     return instant if instant.tzinfo else instant.replace(tzinfo=timezone.utc)
 
 
@@ -1494,13 +1494,17 @@ class Daemon:
     def _job(self, job_id: str) -> dict:
         row = self.store.get_job(job_id)
         if row is None:
-            # An id holding a credential is not named, even to daemon.log
-            # (`refusals.log_detail`), whose scrubber reads it whole only (review r6,
-            # P2). `holds_credential` reads from each hyphen, so the length is bounded.
-            named = isinstance(job_id, str) and len(job_id) <= 200 and not ids.holds_credential(job_id)
-            raise protocol.ProtocolError(f"unknown job {job_id}" if named else "unknown job", reason="unknown-job",
-                                         details={"job_id": job_id})
+            raise self._unknown_job(job_id)
         return row
+
+    @staticmethod
+    def _unknown_job(job_id: Any) -> protocol.ProtocolError:
+        # An id holding a credential is not named, even to daemon.log
+        # (`refusals.log_detail`), whose scrubber reads it whole only (review r6,
+        # P2). `holds_credential` reads from each hyphen, so the length is bounded.
+        named = isinstance(job_id, str) and len(job_id) <= 200 and not ids.holds_credential(job_id)
+        return protocol.ProtocolError(f"unknown job {job_id}" if named else "unknown job", reason="unknown-job",
+                                      details={"job_id": job_id})
 
     def _spec(self, job: dict, **overrides: Any) -> JobSpec:
         names = {f.name for f in dataclasses.fields(JobSpec)}
@@ -4093,7 +4097,7 @@ class Daemon:
         job = self.store.get_job(args.job_id)
         quarantined = [row for row in self._probe_rows(args.job_id) if row["state"] == "quarantined"]
         if job is None and not quarantined:
-            raise protocol.ProtocolError(f"unknown job {args.job_id}")
+            raise self._unknown_job(args.job_id)
         probes = [row for row in quarantined if probe_covered(row, args.issued_at)]
         newer = [row for row in quarantined if row not in probes]
         quarantine = job and self.store.one(
@@ -5191,7 +5195,7 @@ class Daemon:
         target = (a.lane_id or "").strip()
         if not target:
             raise protocol.ProtocolError("lanes release-probe: name a lane or a probe holder",
-                                         Exit.INVALID_INPUT, "subfleet status")
+                                         Exit.INVALID_INPUT, "subfleet status", reason="release-probe-target")
         if a.issued_at:
             issued_instant(a.issued_at)
         by_holder = target.startswith("probe:")
@@ -5201,14 +5205,16 @@ class Daemon:
                 record = self._probe_record(holder)
                 if record is None:
                     raise protocol.ProtocolError(f"lanes release-probe: no probe {holder!r} was ever recorded",
-                                                 Exit.INVALID_INPUT, "subfleet status")
+                                                 Exit.INVALID_INPUT, "subfleet status",
+                                                 reason="release-probe-unrecorded")
                 # Released already (a repeated request, C-16.3, finds it so).
                 return {"release_probe": {"holder": holder, "lane_id": record.get("lane_id"),
                                           "state": record.get("state"), "status": "no probe"}}
         else:
             if not self.store.get_lane(target):
                 raise protocol.ProtocolError(f"lanes release-probe: unknown lane {target!r}",
-                                             Exit.INVALID_INPUT, "subfleet lanes list")
+                                             Exit.INVALID_INPUT, "subfleet lanes list", reason="unknown-lane",
+                                             details={"action": "release-probe", "lane_id": target})
             lane_id, prefix = target, f"lane:{target}:"
             lease = self.store.one("SELECT holder FROM leases WHERE substr(lease_key,1,?)=? AND holder LIKE 'probe:%' "
                                    "ORDER BY lease_key LIMIT 1", (len(prefix), prefix))

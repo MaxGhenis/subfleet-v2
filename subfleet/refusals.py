@@ -277,6 +277,10 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     "release-limits-none": ("lanes release --limits: no open provider-limit or credits closures", None),
     "release-limits-reported": ("lanes release --limits: reported clock; provider clocks cannot be released by hand",
                                 None),
+    # Quarantined probes: the operator's override (C-5.7a).
+    "release-probe-target": ("lanes release-probe: name a lane or a probe holder", "subfleet status"),
+    "release-probe-unrecorded": ("lanes release-probe: no probe by that holder was ever recorded", "subfleet status"),
+    "issued-at": ("issued_at is not an instant of the form YYYY-MM-DDTHH:MM:SS[.ffffff][Z|+HH:MM]", None),
     "transfer-lane": ("lanes transfer: name a lane", None),
     "transfer-owner": ("lanes transfer: --to must be v1 or v2", None),
     "transfer-blocked": ("lanes transfer: the lane cannot move yet; the dry run's blocker says why",
@@ -400,7 +404,8 @@ def _choices() -> dict[str, tuple[str, ...]]:
     from .adapters.isolation import CODEX_LAYERS, MANAGED_ENV
     return {
         # `lanes` actions, then `sessions` actions: the daemon names them, never the caller.
-        "action": ("hold", "release", "release --limits", "transfer", "retire", "unretire", "revived", "nudged"),
+        "action": ("hold", "release", "release --limits", "release-probe", "transfer", "retire", "unretire",
+                   "revived", "nudged"),
         "repository": ("this repository has no commit yet", "this directory is not a git repository"),
         "variable": MANAGED_ENV,
         "layer": CODEX_LAYERS,

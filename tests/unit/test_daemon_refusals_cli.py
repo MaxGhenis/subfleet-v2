@@ -83,3 +83,55 @@ def test_cli_hold_leaves_out_a_lane_that_is_not_a_lane_id(served, monkeypatch, w
     err = capsys.readouterr().err
     assert "lanes hold: unknown lane" in err and "fix: subfleet lanes list" in err
     assert "SECRET7" not in err and "request was refused" not in err
+
+
+# --- the operator's override of a quarantined probe (C-5.7a) ----------------------
+
+@pytest.mark.parametrize("command, message, fix", [
+    (["kill", "20260925-000000-none", "--confirm-dead"], "unknown job 20260925-000000-none", None),
+    (["kill", "20260925-000000-none", "--force-release"], "unknown job 20260925-000000-none", None),
+    (["lanes", "release-probe", "codex-99"], "lanes release-probe: unknown lane codex-99", "subfleet lanes list"),
+    (["lanes", "release-probe", "nonsense"], "lanes release-probe: unknown lane", "subfleet lanes list"),
+    (["lanes", "release-probe", "probe:timer:never"],
+     "lanes release-probe: no probe by that holder was ever recorded", "subfleet status"),
+])
+def test_cli_probe_override_refusals_say_what_they_refuse(served, monkeypatch, workdir, capsys, command, message, fix):
+    """C-25.7 on release/217: a handler refusal reads its reason's template. The
+    override's refusals had none, so each read `operation: request was refused`
+    and lost its fix (review of the merge of release/217, finding 1)."""
+    prepare(served, monkeypatch, workdir)
+    assert cli.main(command) == 2
+    err = capsys.readouterr().err
+    assert message in err and "request was refused" not in err
+    assert (f"fix: {fix}" in err) if fix else ("fix:" not in err)
+
+
+@pytest.mark.parametrize("op, args, message, fix", [
+    ("lanes", {"action": "release-probe", "lane_id": "  "},
+     "lanes release-probe: name a lane or a probe holder", "subfleet status"),
+    ("lanes", {"action": "release-probe", "lane_id": "codex-99", "issued_at": "2026-09-29T12:00:00+00:00:01"},
+     "issued_at is not an instant of the form YYYY-MM-DDTHH:MM:SS[.ffffff][Z|+HH:MM]", None),
+    ("kill", {"job_id": "20260925-000000-none", "confirm_dead": True, "issued_at": "2026-02-30T00:00:00Z"},
+     "issued_at is not an instant of the form YYYY-MM-DDTHH:MM:SS[.ffffff][Z|+HH:MM]", None),
+])
+def test_probe_override_refusals_no_cli_sends_read_their_templates(served, op, args, message, fix):
+    """The refusals the CLI never provokes (it names a target and stamps `issued_at`
+    itself) still read their templates on the wire, as exit 2."""
+    from tests.fake.test_request_routing import request
+    _, path = served
+    reply, _ = request(path, op, **args)
+    assert (reply["ok"], reply["error"]["code"]) == (False, 2)
+    assert (reply["error"]["message"], reply["error"]["fix"]) == (message, fix)
+
+
+def test_a_resolution_naming_a_credential_job_id_leaves_it_out(served, monkeypatch, workdir, capsys):
+    """`kill --confirm-dead` looks the job up as `kill` does (`Daemon._unknown_job`):
+    an id holding a credential is left out of the reply and of daemon.log, whose
+    scrubber reads it whole only (review r6, P2)."""
+    daemon, _ = prepare(served, monkeypatch, workdir)
+    token = "sk-" + "a" * 20
+    assert cli.main(["kill", "20261013-000000-" + token, "--confirm-dead"]) == 2
+    err = capsys.readouterr().err
+    assert "unknown job" in err and token not in err
+    daemon._log_handler.flush()
+    assert token not in (daemon.root / "daemon.log").read_text()
