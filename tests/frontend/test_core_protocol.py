@@ -101,6 +101,9 @@ def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path,
     # optional Conversation field in the Swift model.
     harness.store.set_legacy_hold(cid, "legacy-owner")
     status = harness.call("conversation.status", conversation_id=cid)
+    # Reach the shared Conversation decoder through an already registered op,
+    # so a missing status codec cannot conceal a lost conversation field.
+    assert_lossless(core_probe, tmp_path, "conversation.open", harness.call("conversation.open", conversation_id=cid))
     harness.store.set_legacy_hold(cid, None)
     approval = harness.call("approval.list", conversation_id=cid)["approvals"][0]
     # A catalog with one native session, as catalog.build writes it.
