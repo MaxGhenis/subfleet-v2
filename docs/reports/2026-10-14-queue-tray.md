@@ -695,12 +695,7 @@ Generated 2026-10-16T07:26:07.750073+00:00. These per-file results supersede ear
 | `tests/frontend/test_core_outbox.py` | 13 | 0 | 0 | 0 | continuation |
 | `tests/frontend/test_core_protocol.py` | 9 | 0 | 0 | 0 | continuation |
 | `tests/frontend/test_core_question_card.py` | 10 | 0 | 0 | 0 | continuation |
-| `tests/frontend/test_core_queue_engine.py` | 75 | 0 | 0 | 0 |
-| `tests/unit/test_conversation_service.py` | 98 | 0 | 0 | 0 |
-| `tests/unit/test_protocol_registry.py` | 4 | 0 | 0 | 0 |
-| `tests/unit/test_protocol_secrecy.py` | 325 | 0 | 0 | 0 |
-| `tests/unit/test_descriptors.py` | 15 | 1 | 0 | 0 |
-| `tests/fake/test_state_contract.py` | 37 | 0 | 0 | 0 | retained prior pass; withdrawal branches unchanged |
+| `tests/frontend/test_core_queue_engine.py` | 75 | 0 | 0 | 0 | retained prior pass; withdrawal branches unchanged |
 | `tests/frontend/test_core_queue_tray.py` | 45 | 0 | 0 | 0 | continuation |
 | `tests/frontend/test_core_search.py` | 20 | 0 | 0 | 0 | continuation |
 | `tests/frontend/test_core_steer.py` | 43 | 0 | 0 | 0 | continuation |
@@ -947,20 +942,8 @@ Targeted mutation checks: **4/4 passed**, review-final (each pass proves its nam
 | `tests/frontend/test_core_outbox.py` | 13 | 0 | 0 | 0 | required |
 | `tests/frontend/test_core_protocol.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
 | `tests/frontend/test_core_question_card.py` | 0 | 0 | 0 | 0 | unrun in fix-4 |
-| `tests/frontend/test_core_queue_engine.py` | 75 | 0 | 0 | 0 |
-| `tests/unit/test_conversation_service.py` | 98 | 0 | 0 | 0 |
-| `tests/unit/test_protocol_registry.py` | 4 | 0 | 0 | 0 |
-| `tests/unit/test_protocol_secrecy.py` | 325 | 0 | 0 | 0 |
-| `tests/unit/test_descriptors.py` | 15 | 1 | 0 | 0 |
-| `tests/fake/test_state_contract.py` | 37 | 0 | 0 | 0 | required |
-| `tests/frontend/test_core_queue_tray.py` | 50 | 0 | 0 | 0 |
-| `tests/frontend/test_queue_tray_notice.py` | 2 | 0 | 0 | 0 |
-| `tests/frontend/test_core_queue_engine.py` | 75 | 0 | 0 | 0 |
-| `tests/unit/test_conversation_service.py` | 98 | 0 | 0 | 0 |
-| `tests/unit/test_protocol_registry.py` | 4 | 0 | 0 | 0 |
-| `tests/unit/test_protocol_secrecy.py` | 325 | 0 | 0 | 0 |
-| `tests/unit/test_descriptors.py` | 15 | 1 | 0 | 0 |
-| `tests/fake/test_state_contract.py` | 37 | 0 | 0 | 0 | required |
+| `tests/frontend/test_core_queue_engine.py` | 75 | 0 | 0 | 0 | required |
+| `tests/frontend/test_core_queue_tray.py` | 50 | 0 | 0 | 0 | required |
 | `tests/frontend/test_core_search.py` | 20 | 0 | 0 | 0 | required |
 | `tests/frontend/test_core_steer.py` | 43 | 0 | 0 | 0 | required |
 | `tests/frontend/test_core_steer_properties.py` | 2 | 0 | 0 | 0 | required |
