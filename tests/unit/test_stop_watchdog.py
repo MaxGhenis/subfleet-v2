@@ -586,7 +586,7 @@ def test_c5_8a_python_snapshot_names_the_held_frame_before_the_backstop(tmp_path
     """A missing C frame or slow watchdog creation cannot lose a parked worker."""
     rc, _lines, elapsed, text = run_child(tmp_path, kind, grace=1.0)
     assert rc == 1, (rc, text)
-    assert 1.0 <= elapsed < 1.0 + ALARM_MARGIN_S, (elapsed, text)
+    assert 1.0 <= elapsed <= 1.0 + SLACK_S, (elapsed, text)
     snapshot = text[text.index("Python thread stacks"):]
     assert "[subfleet-api_11]" in snapshot
     assert " in stuck_behind_lock\n" in snapshot
