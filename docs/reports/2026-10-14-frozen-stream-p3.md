@@ -543,3 +543,133 @@ test and documentation files were staged; every commit has the requested
 co-author trailer. No logs, JSON evidence or bundles were staged. No push.
 
 DONE
+
+
+## Round 5: review r4, base `780d83806e5f`
+
+Review: `~/reviews/subfleet-2110/frozen-stream-p3/review-r4.md`, read in full.
+The local `release/217` was `b053e3de8f2e`, already an ancestor of the assigned
+head (`git rev-list HEAD..release/217 --count` returned zero). No merge or
+conflict resolution was needed. Work stayed in the assigned checkout, with no
+network Git remotes, pushes, sub-agents or production state/process changes.
+
+Regressions were committed first in `c19be2e5a`. With production unchanged at
+`780d83806e5f`, all **17 selected cases failed** in 150.60 pytest seconds:
+the review's six Codex replay/restart cases, Claude one-EIO on replay and
+restart, four additional stdout/last.md permission cases, three bounded-retry
+cases and both crash leftovers. Copy-open faults patch `os.open`, so the real
+`restore_stream` and `_restored_copy` run; permission cases use real mode-000
+files with no capture stub. Full crash copies are made with real `atomic_copy`;
+partial files match its temporary naming scheme. Both must be gone before the
+next copy starts. The documentary changelog correction has no runtime test.
+
+Finding dispositions and commits:
+
+- **P3-1**, `47a6b3431`: `InvalidFrozenStream` identifies proven invalidity
+  (a failed copy validation or a receipt naming a different file). Errors that
+  interrupt checking a saved verdict preserve its bytes and raise for existing
+  worker backoff. After `STREAM_CHECK_TRIES` (three) interrupted checks in one
+  daemon run, settlement records the sticky `copy cannot be checked` case.
+  A completed check clears the count; restart starts at zero, as with salvage.
+  Initial capture failures still settle immediately. C-4.3 and C-9.2 state the
+  distinction and bounded retry. Later last.md cannot replace captured text.
+- **P3-2**, `a7ab7f23e`: before fresh capture without a receipt, unlink every
+  `stream.frozen-*.jsonl` and `.stream.frozen-*` temporary in the attempt folder.
+  Recorded copies remain subject to the existing validation rules. C-4.3 names
+  crash cleanup, and regressions cover both full and partial leftovers.
+- **P3-3**, `3e78e0083`: the round-4 changelog lists the clauses actually changed
+  there: C-4.3, C-8.2 and C-26.8. It explicitly says only this PR's unmerged
+  rounds ever wrote `reset_finalization`. Round 5 changes C-4.3 and C-9.2.
+- `6c326cd8f` aligns two hand-built daemon fixtures with the new retry state.
+  `48730a461` updates eight cached-copy cases to expect the new proven-invalidity
+  diagnostic type, `InvalidFrozenStream`, instead of generic `OSError`. The
+  initial settlement hold had 240 passes and these eight assertion failures
+  (230.94 pytest seconds); those failures needed only diagnostic assertion updates.
+
+- `ff767571d` adds eight later controls: four legacy-receipt interrupted checks
+  and four legacy-verdict first-capture failures. A source audit found the
+  retry guard must distinguish an existing copy from a legacy verdict alone.
+  These cases were added after the 17-case base run and were not rerun against
+  base. `ca634faab` restricts retries to named copies or existing legacy
+  receipts. After proven receipt absence, an error in the first capture is
+  recorded immediately, even with a cached legacy verdict and deliverable.
+
+Final validation, functional head `ca634faab`: **1,134 passed, 10 skipped,
+zero final failures**, across all 21 requested files. All 17 original fix cases
+and the eight later legacy cases passed. The file table uses each file's latest
+full run: the final hold repeated all 115 fake-stream cases after the guard
+refinement alongside the five requested retention/state/module-name files.
+The earlier 107 fake-stream passes are not counted twice.
+
+| File under `tests/` | Passed | Skipped |
+| --- | ---: | ---: |
+| `unit/test_frozen_provider_streams.py` | 203 | 0 |
+| `fake/test_frozen_stream_nonregular.py` | 115 | 0 |
+| `unit/test_daemon_settle.py` | 61 | 0 |
+| `unit/test_settle_properties.py` | 129 | 0 |
+| `unit/test_inspection_pacing_properties.py` | 1 | 0 |
+| `fake/test_finalization_replay.py` | 10 | 0 |
+| `fake/test_salvage_finalization.py` | 47 | 0 |
+| `fake/test_turn_trees.py` | 18 | 0 |
+| `unit/test_turn_runner.py` | 76 | 0 |
+| `unit/test_turn_replay.py` | 33 | 0 |
+| `unit/test_claude_turn.py` | 61 | 0 |
+| `unit/test_codex_turn.py` | 58 | 0 |
+| `unit/test_codex_turn_completed.py` | 41 | 0 |
+| `fake/test_codex_turn_completed_fake.py` | 105 | 0 |
+| `e2e/test_codex_turn_completed_e2e.py` | 0 | 3 |
+| `e2e/test_milestone2_claude.py` | 0 | 7 |
+| `unit/test_retention_archive.py` | 109 | 0 |
+| `unit/test_timers_retention.py` | 20 | 0 |
+| `unit/test_prune_217.py` | 9 | 0 |
+| `fake/test_state_contract.py` | 37 | 0 |
+| `unit/test_test_module_names.py` | 1 | 0 |
+
+All ten skips are the two e2e files above: C-5.3 requires permitted macOS
+boot/process inspection, and boot identity is unavailable in this sandbox.
+Those cases did not execute; no e2e pass is claimed. The sole warning is the
+existing Codex `zip` parametrization deprecation.
+
+| Hold | Result | Pytest seconds |
+| --- | --- | ---: |
+| Selected regressions against unchanged base production | 17 expected failures, 293 deselected | 150.60 |
+| Initial settlement check | 240 passed, 8 old diagnostic assertions failed | 230.94 |
+| Final stream pair | 310 passed | 235.81 |
+| Final settlement/pacing/replay/salvage | 248 passed | 143.48 |
+| Final turn/tree/runner/provider coverage | 246 passed | 752.61 |
+| Final completion and Claude milestone | 146 passed, 10 skipped | 254.18 |
+| Final retention/state/module names plus affected fake-stream file | 291 passed | 522.81 |
+
+Every pytest process ran in the foreground, single worker, under its own shared
+`lockf -k` hold, with `SUBFLEET_RETENTION_DORMANT` unset, the cache provider
+disabled, bounded `HYPOTHESIS_PROFILE=ci`, and separate disposable TMPDIR and
+Hypothesis storage. No lock timeout or detached runner was used. Lock/runner
+waits were honoured without relaunching. Every pytest duration was below
+20 minutes; the last requested hold was launched at 19:48 UTC, before the
+4 h 30 m cutoff, and all runners exited before that cutoff.
+
+Runtime: CPython 3.14.7, regular GIL build, with `PYTHON_GIL=1`. Dependencies
+were installed by `uv run` in this checkout. The default cache is outside the
+writable roots, so each run used `UV_CACHE_DIR=$TMPDIR/uv-cache`. No test was
+skipped for cache access.
+
+Unrun: the ten skipped e2e cases, Python 3.12, the broader full/process/frontend/
+live suites, and CI. The eight later legacy cases were not separately executed
+against base; only the original 17-case base failure run is claimed.
+
+Cleanup removed every task TMPDIR using Python `shutil.rmtree`; the final
+scratch folder needed owner directory permissions restored before removal.
+Temporary dependencies and project bytecode were removed. No `.hypothesis`
+folder, task runner or task-held lock remains. The original tracked
+`.coverage` file is preserved. `git diff --check` passes.
+
+Shared Git metadata is outside the writable roots. All step commits use
+`.git-local/repository.git` on `fix/frozen-stream-p3`, borrowing base objects
+read-only; the original `.git` pointer and detached HEAD are preserved.
+The ignored delivery bundle `docs/reports/2026-10-14-frozen-stream-p3.bundle`
+contains the local branch, with prerequisite `780d83806e5f`, and is verified
+after the report commit. Only named source, test and documentation files were
+staged; every commit has the requested co-author trailer. No logs, JSON
+evidence or bundles were staged. No push.
+
+DONE
