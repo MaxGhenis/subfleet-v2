@@ -641,29 +641,30 @@ def test_c27_5_a_local_message_not_yet_received_waits_with_the_queue(core_probe)
 def test_c27_5_real_driver_two_requests_in_one_turn(request, core_probe, tmp_path):
     """Two requests the real Claude driver records (a sub-agent's and the main
     agent's) are both behind the strip's Review, oldest first."""
-    with state_root(request, "sf-reach-") as root, closing(ServiceHarness(root)) as harness:
-        cid = harness.create()["conversation_id"]
-        mid = harness.submit(cid, "clean up")["message_id"]
-        later = harness.submit(cid, "then this", after=mid)["message_id"]
-        turn = harness.attempt(cid, mid)
-        turn.feed(claude_init(), replay(mid))
-        claude_approval(turn, mid, "perm-sub", tool_input={"command": "rm -f mocktest/*"})
-        claude_approval(turn, mid, "perm-main", tool_input={"command": "git status"})
-        opened = harness.call("conversation.open", conversation_id=cid)
-        events = page(harness, cid)
-        result = run_probe(core_probe, "fold", write_json(tmp_path / "fold.json", {"conversation_id": cid, "steps": [
-            {"receipts": opened["messages"]}, {"approvals": opened["pending_approvals"]}, {"page": events},
-            {"page": page(harness, cid, after=events["next"])},
-        ]}))
-    assert result["turns"][mid]["state"] == "approval-needed"
-    assert result["turns"][later]["state"] == "queued"
-    cards = {item["id"]: item["card"] for item in items_of(result, mid, "approval")}
-    assert [cards[row]["request_id"] for row in result["pending_items"]] == ["perm-sub", "perm-main"]
-    assert all(cards[row]["approval_id"] for row in result["pending_items"])
-    assert result["review_label"] == "Review (2)" and result["pinned_turn"] == mid
-    assert result["display_order"] == [mid, later]
-    # Scrolled to once the log has been read, not when `conversation.open` listed it.
-    assert result["scrolls"] == [None, None, None, result["pending_items"][0]]
+    with state_root(request, "sf-reach-") as root:
+        with closing(ServiceHarness(root)) as harness:
+            cid = harness.create()["conversation_id"]
+            mid = harness.submit(cid, "clean up")["message_id"]
+            later = harness.submit(cid, "then this", after=mid)["message_id"]
+            turn = harness.attempt(cid, mid)
+            turn.feed(claude_init(), replay(mid))
+            claude_approval(turn, mid, "perm-sub", tool_input={"command": "rm -f mocktest/*"})
+            claude_approval(turn, mid, "perm-main", tool_input={"command": "git status"})
+            opened = harness.call("conversation.open", conversation_id=cid)
+            events = page(harness, cid)
+            result = run_probe(core_probe, "fold", write_json(tmp_path / "fold.json", {"conversation_id": cid, "steps": [
+                {"receipts": opened["messages"]}, {"approvals": opened["pending_approvals"]}, {"page": events},
+                {"page": page(harness, cid, after=events["next"])},
+            ]}))
+        assert result["turns"][mid]["state"] == "approval-needed"
+        assert result["turns"][later]["state"] == "queued"
+        cards = {item["id"]: item["card"] for item in items_of(result, mid, "approval")}
+        assert [cards[row]["request_id"] for row in result["pending_items"]] == ["perm-sub", "perm-main"]
+        assert all(cards[row]["approval_id"] for row in result["pending_items"])
+        assert result["review_label"] == "Review (2)" and result["pinned_turn"] == mid
+        assert result["display_order"] == [mid, later]
+        # Scrolled to once the log has been read, not when `conversation.open` listed it.
+        assert result["scrolls"] == [None, None, None, result["pending_items"][0]]
 
 
 # MARK: - Properties over generated timelines
