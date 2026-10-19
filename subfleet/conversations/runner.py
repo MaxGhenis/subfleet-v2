@@ -526,7 +526,9 @@ class TurnRunner:
             if self.log and not isinstance(exc, (OSError, ValueError, ConversationError)):
                 self.log.warning("steer %s on %s failed: %s", message_id, self.attempt_id,
                                  refusals.scrubbed_words(exc))
-            self._miss_steer(message_id, f"input-unavailable: {str(exc) or type(exc).__name__}")
+            # The reason is the message's `state_reason`, its `steer.missed` events and
+            # the receipt clients read: the class and errno only, never its words (C-25.7).
+            self._miss_steer(message_id, f"input-unavailable: {refusals.fixed_error(exc)}")
             return
         self._apply(step)
 

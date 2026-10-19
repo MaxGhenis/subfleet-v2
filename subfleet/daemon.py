@@ -4533,7 +4533,8 @@ class Daemon:
             try:
                 count = self._push_workspace_store_failures.get(job_id, 0)
                 tail = f" after {count} completion write failures" if count else ""
-                self._fail_queued(job, f"workspace completion could not be recorded{tail}: {type(exc).__name__}: {exc}",
+                # A job's notice and failure name sqlite's error by its class (C-25.7).
+                self._fail_queued(job, f"workspace completion could not be recorded{tail}: {refusals.fixed_error(exc)}",
                                   kind="job.workspace_failed")
             except sqlite3.Error:
                 return None

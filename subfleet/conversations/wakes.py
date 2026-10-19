@@ -26,6 +26,9 @@ MIN_TIMER_S = 300
 MAX_TARGETS = 16
 EVALUATION_INTERVAL_S = 1.0
 PR = re.compile(r"([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)#([1-9][0-9]*)\Z")
+#: The refusals whose words a `wake-refused` event shows a client (C-25.7): this
+#: module raises each with a literal message, never one built from a value.
+TIMELINE_REFUSALS = ("bad-wake", "wake-id-conflict")
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS wake_requests (
  conversation_id TEXT NOT NULL, request_id TEXT NOT NULL, kind TEXT NOT NULL,
@@ -267,7 +270,8 @@ class WakeEngine:
             owned = parent and parent["name"] == f"turn-{cid}"
             if not job or not (owned or (conversation["native_session_id"] and job["caller_session"] and
                     canonical_native(job["caller_session"]) == canonical_native(conversation["native_session_id"]))):
-                raise ConversationError("bad-wake", f"run {job_id} is not this conversation's")
+                # The agent wrote the id: a refusal its timeline shows names none (C-25.7).
+                raise ConversationError("bad-wake", "a run it names is not this conversation's")
         with self.store.transaction() as tx:
             existing = {r["kind"]: json.loads(r["payload_json"]) for r in tx.execute(
                 "SELECT kind,payload_json FROM wake_requests WHERE conversation_id=? AND request_id=?", (cid, request_id))}
@@ -373,9 +377,12 @@ class WakeEngine:
             except (ConversationError, ValueError) as exc:
                 self.service.log.warning("wake request in final text of %s refused: %s", mid, refusals.scrubbed_words(exc))
                 if message:
+                    # A client shows the detail: our fixed words, or the class (C-25.7).
+                    said = (str(exc) if isinstance(exc, ConversationError) and exc.reason in TIMELINE_REFUSALS
+                            else refusals.fixed_error(exc))
                     self.store.append_events(conversation_id=cid, message_id=mid, attempt_id=f"wake:{mid}",
                         events=[("command", f"wake-refused:{request_id}", 0, "status",
-                                 {"phase": "wake-refused", "detail": f"Wake request refused: {exc}"})],
+                                 {"phase": "wake-refused", "detail": f"Wake request refused: {said}"})],
                         stdout_offset=0, stdin_seq=0)
         # Stable request ids make replay safe if only some lines committed, or a
         # crash happened after registration but before this acknowledgement.
