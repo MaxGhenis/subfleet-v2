@@ -4793,13 +4793,19 @@ class Daemon:
             validate_writable_workdir(workdir, timeout_s=cap)
         if job["sandbox"] == "workspace-write" and not job["in_place"] and not job.get("worktree"):
             workdir = str(self.root / "worktrees" / job["job_id"])
+            jobdir = self.root / "jobs" / job["job_id"]
+            copy = (jobdir / uncommitted.DIRECTORY).is_dir()
             if Path(workdir).exists() and (not (Path(workdir) / ".git").is_file()
-                                           or git_head(workdir, timeout_s=cap) is None):
+                                           or git_head(workdir, timeout_s=cap) is None
+                                           or (copy and not uncommitted.applied(jobdir, workdir))):
                 # A `worktree add` killed at its cap can leave a directory that is
                 # not a worktree. `.git` is checked first because git run in a
                 # bare directory answers for whatever repository encloses it.
-                # Nothing has run here (the job has no attempt), so it is rebuilt
-                # rather than handed to a provider.
+                # A daemon stopped between the cut and the end of the copy leaves
+                # a worktree without the caller's changes, which would be
+                # reviewed as complete (#221 review r2, P3-1): its copy has no
+                # marker. Nothing has run here (the job has no attempt), so it is
+                # rebuilt rather than handed to a provider.
                 self._discard_worktree(job["workdir"], workdir, cap)
             if not Path(workdir).exists():
                 try:
@@ -4830,9 +4836,9 @@ class Daemon:
                                            "daemon.log has its output", transient=True)
                     raise AdapterError("could not allocate the worktree; daemon.log has git's output",
                                        fix="check repository and state-root permissions", reason="workspace-prepare")
-                jobdir = self.root / "jobs" / job["job_id"]
-                if (jobdir / uncommitted.DIRECTORY).is_dir():
-                    # D-SH1 round 6: the copy submit kept, checked then to apply to this HEAD.
+                if copy:
+                    # D-SH1 round 6: the copy submit kept, checked then to apply to this HEAD;
+                    # marked applied once it is all in (round 7).
                     try:
                         uncommitted.apply(jobdir, workdir, timeout_s=cap)
                     except (uncommitted.CopyRefused, OSError) as exc:

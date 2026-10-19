@@ -908,7 +908,7 @@ A single-dash cluster containing `f`, `F` or `X` is refused, except exactly `-XG
   - either bound exceeded;
   - a patch that does not apply;
   - a changed submodule;
-  - an untracked path that is neither a regular file nor a symlink, such as an untracked nested repository.
+  - an untracked nested repository. Git lists only files, symlinks and nested repositories as untracked (never a FIFO or a socket, which are simply not copied), so a nested repository is the only untracked path that reaches this fallback (corrected in round 7, #221 review r2 P3-2).
 - **Edge cases:**
   - A file that vanishes between plan and copy fails the submit (`uncommitted-copy`), and the caller retries.
   - A kept copy that does not apply at the cut fails that launch (`uncommitted-apply`).

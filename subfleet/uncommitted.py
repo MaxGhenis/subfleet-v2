@@ -11,10 +11,12 @@ files are copied in. Ignored files are never copied.
 
 A plan that is too large (more than `MAX_FILES` paths, or more than
 `MAX_BYTES` of patch and file bytes together), whose patch does not apply to
-`<head>`, that changes a submodule, or that names an untracked path that is
-neither a regular file nor a symbolic link (an untracked nested repository,
-say) is refused, and the review falls back to read-only in place, where it
-sees the caller's checkout as it is. That decision is made at submit, before
+`<head>`, that changes a submodule, or that names an untracked nested
+repository is refused, and the review falls back to read-only in place, where
+it sees the caller's checkout as it is. `git ls-files --others` lists only
+files, symbolic links and nested repositories (never a FIFO or a socket, which
+are simply not copied), so a nested repository is the only untracked path that
+reaches the not-a-file fallback (#221 review r2, P3-2). That decision is made at submit, before
 the job exists, so no sandbox is ever lowered after submit (d261).
 """
 from __future__ import annotations
@@ -36,6 +38,10 @@ MAX_BYTES = 16 * 1024 * 1024
 DIRECTORY = "uncommitted"
 PATCH = "changes.patch"
 FILES = "untracked"
+#: Written in the copy once it is applied, naming the worktree it was applied
+#: to (#221 review r2, P3-1). A worktree whose marker is missing was cut by a
+#: daemon that stopped before the copy was in, and is cut again.
+APPLIED = "applied"
 #: `git diff` options that make the patch the same whatever the caller's config says.
 DIFF_OPTIONS = ("diff", "--binary", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames",
                 "--no-relative", "--src-prefix=a/", "--dst-prefix=b/", "--ignore-submodules=none")
@@ -116,6 +122,7 @@ def plan(top: str | Path, head: str, *, scratch_root: str | Path, timeout_s: flo
         except OSError as exc:
             raise CopyRefused(f"untracked {name} cannot be read: {exc.strerror}") from None
         if not (stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode)):
+            # Git lists only files, symlinks and nested repositories: this is a nested repository.
             raise CopyRefused(f"untracked {name} is not a regular file or symbolic link")
         total += info.st_size
         if total > max_bytes:
@@ -173,9 +180,20 @@ def keep(found: Plan, job_dir: str | Path) -> dict:
     return {**found.record(), "bytes": total}
 
 
+def applied(job_dir: str | Path, worktree: str | Path) -> bool:
+    """Whether the kept copy was applied, in full, to `worktree`."""
+    try:
+        return (Path(job_dir) / DIRECTORY / APPLIED).read_text() == str(worktree)
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
 def apply(job_dir: str | Path, worktree: str | Path, *, timeout_s: float | None = None) -> None:
-    """Apply a kept copy to a freshly cut worktree. Raises `CopyRefused` or `SalvageError`."""
+    """Apply a kept copy to a freshly cut worktree, then mark it applied
+    (`applied`). Raises `CopyRefused` or `SalvageError`."""
     source = Path(job_dir) / DIRECTORY
+    marker = source / APPLIED
+    marker.unlink(missing_ok=True)          # a marker from an earlier cut says nothing of this one
     patch = (source / PATCH).read_bytes()
     if patch and _git_bytes(worktree, *APPLY_OPTIONS, "-", stdin=patch, timeout_s=timeout_s) is None:
         raise CopyRefused("the kept changes did not apply to the new worktree")
@@ -192,6 +210,10 @@ def apply(job_dir: str | Path, worktree: str | Path, *, timeout_s: float | None 
             os.symlink(os.readlink(path), destination)
         else:
             shutil.copy2(path, destination, follow_symlinks=False)
+    pending = source / (APPLIED + ".tmp")
+    pending.write_text(str(worktree))
+    os.replace(pending, marker)
 
 
-__all__ = ["CopyRefused", "MAX_BYTES", "MAX_FILES", "Plan", "SalvageError", "apply", "keep", "plan"]
+__all__ = ["APPLIED", "CopyRefused", "MAX_BYTES", "MAX_FILES", "Plan", "SalvageError", "apply", "applied", "keep",
+           "plan"]

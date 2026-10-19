@@ -221,6 +221,49 @@ def test_policy_review_worktree_sees_the_callers_uncommitted_and_untracked_files
     assert lines[-2:] == [words, 'publish: denied']
 
 
+def test_a_worktree_cut_without_its_copy_is_cut_again(shell_state):
+    """#221 review r2, P3-1: the copy was applied only when `worktrees/<id>` did
+    not exist yet. The review cut the worktree with `git worktree add --detach`,
+    as a daemon stopped between the cut and the end of `uncommitted.apply`
+    leaves it, then ran `_admit()`, and got `baseline` and no new_module.py
+    while the record said 2 files were included. Now the copy's marker is
+    missing, so the worktree is cut again and the copy applied."""
+    from subfleet import uncommitted
+    from tests.fake.test_workspace_contract import git
+    service, harness = shell_state
+    repo, status = dirty_checkout(service, harness)
+    job = policy_review(service, harness)
+    worktree = service.root / 'worktrees' / job
+    git(repo, 'worktree', 'add', '--detach', str(worktree), service.store.get_job(job)['workdir_head'])
+    assert (worktree / 'tracked.txt').read_text() == 'baseline\n'
+    assert not uncommitted.applied(service.root / 'jobs' / job, worktree)
+    service._admit()
+    assert Path(service.store.get_job(job)['worktree']) == worktree
+    assert (worktree / 'tracked.txt').read_text() == 'edited by the caller\n'
+    assert (worktree / 'new_module.py').read_text() == 'VALUE = 1\n'
+    assert uncommitted.applied(service.root / 'jobs' / job, worktree)
+    assert git(repo, 'status', '--porcelain') == status
+    assert service.dispatch('show', {'job_id': job})['uncommitted']['files'] == 2
+
+
+def test_a_marked_worktree_is_reused_and_an_earlier_cuts_marker_is_not_trusted(shell_state, tmp_path):
+    """The marker names the worktree it was applied to, and `apply` clears it
+    first, so a marker left by an earlier cut never vouches for a new one."""
+    from subfleet import uncommitted
+    service, harness = shell_state
+    dirty_checkout(service, harness)
+    job = policy_review(service, harness)
+    jobdir = service.root / 'jobs' / job
+    (jobdir / uncommitted.DIRECTORY / uncommitted.APPLIED).write_text(str(tmp_path / 'elsewhere'))
+    assert not uncommitted.applied(jobdir, service.root / 'worktrees' / job)
+    service._admit()
+    worktree = Path(service.store.get_job(job)['worktree'])
+    assert uncommitted.applied(jobdir, worktree)
+    with pytest.raises(uncommitted.CopyRefused):
+        uncommitted.apply(jobdir, worktree)              # its files are there already
+    assert not uncommitted.applied(jobdir, worktree)    # cleared before the attempt, never left standing
+
+
 @pytest.mark.parametrize('cause', ['too-many-bytes', 'too-many-files', 'nested-repository'])
 def test_policy_review_falls_back_to_read_only_in_place_when_the_copy_fails(shell_state, monkeypatch, cause):
     from subfleet import uncommitted
@@ -329,3 +372,4 @@ def test_offline_json_matches_the_daemon_for_launch_flags(shell_state, model, sa
     for key in ('publish_denied', 'has_shell'):
         if key in offline_job and key in daemon_job:
             assert json.dumps(offline_job[key]) == json.dumps(daemon_job[key]), key
+
