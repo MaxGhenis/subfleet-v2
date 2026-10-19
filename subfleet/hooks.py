@@ -610,13 +610,19 @@ def post_tool_use(payload: dict[str, Any], root: Path, *,
 #: when it does not — and then it is the difference between one call a second
 #: and a hook spinning on the socket for its whole 600 s budget.
 _RETRY_FLOOR_S = 0.25
+#: Leave two seconds for notice.pending and notice.mark, or half the budget
+#: remaining after candidates when it is shorter. Pending gets at most half
+#: the delivery time left, so it cannot consume mark's allocation.
+_NOTICE_RESERVE_S = 2.0
 
 
 def _wait_and_deliver(client: Client, session: str, job_id: str, deadline: float,
                       *, stderr: Any, now, sleep) -> int:
+    reserve = min(_NOTICE_RESERVE_S, max(0.0, deadline - now()) / 2)
+    poll_deadline = deadline - reserve
     busy = 0
     while True:
-        remaining = deadline - now()
+        remaining = poll_deadline - now()
         if remaining <= 0:
             return int(Exit.OK)                         # silent timeout
         poll = min(remaining, float(WAIT_POLL_MAX_S))
@@ -630,33 +636,31 @@ def _wait_and_deliver(client: Client, session: str, job_id: str, deadline: float
             # after a busy answer is that busy daemon's full backlog, not an
             # absent daemon (review r2, P1).
             # An unverifiable lock counts as busy here: the hook's own deadline bounds it.
-            if not ((busy and refused_while_busy(client, exc, deadline_at=deadline) is not False)
+            if not ((busy and refused_while_busy(client, exc, deadline_at=poll_deadline) is not False)
                     if isinstance(exc, DaemonUnavailable) else exc.busy):
                 return int(Exit.OK)
             busy += 1
-            sleep(min(busy_pause(busy), max(0.0, deadline - now())))
+            sleep(min(busy_pause(busy), max(0.0, poll_deadline - now())))
             continue
         except (ProtocolError, OSError):
             return int(Exit.OK)
         busy = 0
+        if not result.get("timeout"):
+            jobs = result.get("jobs")
+            rows = ([row for row in jobs if isinstance(row, dict)] if isinstance(jobs, list)
+                    else [row for row in jobs.values() if isinstance(row, dict)]
+                    if isinstance(jobs, dict) else [])
+            job = next((row for row in rows if row.get("job_id") == job_id),
+                       rows[0] if rows else None)
+            if job is not None and job.get("state") in TERMINAL_STATES:
+                return _deliver(client, session, job, stderr=stderr, deadline=deadline, now=now)
         # A `wait` that returns early — a shorter server-side cap, a job the
         # daemon no longer has — must not turn this loop into a busy wait on
         # the socket. C-15.4 makes the deadline a server-side maximum, not a
         # promise about how long the call takes.
         idle = poll - (now() - started)
         if idle > 0:
-            sleep(min(max(idle, _RETRY_FLOOR_S), max(0.0, deadline - now())))
-        if result.get("timeout"):
-            continue
-        jobs = result.get("jobs")
-        rows = ([row for row in jobs if isinstance(row, dict)] if isinstance(jobs, list)
-                else [row for row in jobs.values() if isinstance(row, dict)]
-                if isinstance(jobs, dict) else [])
-        job = next((row for row in rows if row.get("job_id") == job_id),
-                   rows[0] if rows else None)
-        if job is None or job.get("state") not in TERMINAL_STATES:
-            continue                        # not a finish; the pause above ran
-        return _deliver(client, session, job, stderr=stderr, deadline=deadline, now=now)
+            sleep(min(max(idle, _RETRY_FLOOR_S), max(0.0, poll_deadline - now())))
 
 
 def _deliver(client: Client, session: str, job: dict[str, Any], *, stderr: Any,
@@ -666,7 +670,7 @@ def _deliver(client: Client, session: str, job: dict[str, Any], *, stderr: Any,
     try:
         rows = [row for row in _pending(
             client, session, timeout=min(getattr(client, "timeout", DEFAULT_TIMEOUT_S),
-                                         max(0.0, deadline - now())))
+                                         max(0.0, deadline - now()) / 2))
                 if row.get("job_id") == job_id]
     except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
         rows = []
