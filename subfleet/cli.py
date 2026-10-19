@@ -1750,6 +1750,9 @@ def _format_job(job: dict[str, Any]) -> str:
         value = job.get(key)
         if value not in (None, ""):
             lines.append(f"{label:<8} {value}")
+    copy = render.uncommitted_text(job.get("uncommitted") or (job.get("job") or {}).get("uncommitted"))
+    if copy:
+        lines.append(f"{'worktree':<8} {copy}")
     attempts = rows_of(job.get("attempts"))
     if attempts:
         lines.append("attempts")

@@ -149,3 +149,136 @@ def test_legacy_review_host_publish_is_denied_before_intake(state_daemon, task, 
     service, harness = state_daemon
     with pytest.raises(PushError, match='publish: denied'):
         service._publish_bundle({'task': task, 'kind': kind})
+
+
+# #221 review r1b, P2 (D-SH1 round 6): a policy review in its own worktree used to
+# review HEAD, not what its caller had in front of them. The review's probe: in a
+# committed repository, edit tracked.txt and add an untracked new_module.py.
+def dirty_checkout(service, harness):
+    from tests.fake.test_workspace_contract import git
+    repo = repository(service, harness)
+    (repo / 'tracked.txt').write_text('edited by the caller\n')
+    (repo / 'new_module.py').write_text('VALUE = 1\n')
+    (repo / '.git' / 'info' / 'exclude').write_text('ignored.log\n')
+    (repo / 'ignored.log').write_text('never copied\n')
+    status = git(repo, 'status', '--porcelain')
+    return repo, status
+
+
+def policy_review(service, harness, **changes):
+    service.policy['permissions']['review'] = 'worktree-write'
+    service.policy.pop('requires', None)
+    return service.dispatch('submit', harness.submit_args(task='review', tier='hard', pinned_model='sol61',
+                                                          sandbox=protocol.POLICY_SANDBOX, **changes))['job_id']
+
+
+def finished_notice(service, job):
+    attempt, = service.store.list_attempts(job)
+    adir = service.root / 'jobs' / job / 'a1'
+    adir.mkdir(exist_ok=True)
+    service._finalize(receipt_fixture(service, attempt, adir))
+    notice, = [n for n in service.store.list_notices() if n['job_id'] == job]
+    return notice['text'].splitlines()
+
+
+def test_policy_review_worktree_sees_the_callers_uncommitted_and_untracked_files(shell_state):
+    from tests.fake.test_workspace_contract import git
+    service, harness = shell_state
+    repo, status = dirty_checkout(service, harness)
+    job = policy_review(service, harness)
+    assert service.store.get_job(job)['sandbox'] == 'workspace-write'
+    service._admit()
+    worktree = Path(service.store.get_job(job)['worktree'])
+    assert worktree != repo and worktree.parent == service.root / 'worktrees'
+    assert (worktree / 'tracked.txt').read_text() == 'edited by the caller\n'
+    assert (worktree / 'new_module.py').read_text() == 'VALUE = 1\n'
+    assert not (worktree / 'ignored.log').exists()
+    # The caller's checkout is untouched, index included.
+    assert git(repo, 'status', '--porcelain') == status
+    record = {'files': 2, 'tracked': 1, 'untracked': 1}
+    shown = service.dispatch('show', {'job_id': job})
+    assert {key: shown['uncommitted'][key] for key in record} == record
+    from subfleet.offline import Offline
+    assert Offline(service.root).show_job(job)['uncommitted'] == shown['uncommitted']
+    words = "the worktree included the caller's uncommitted changes as of submit: 2 files (1 tracked, 1 untracked)"
+    assert words in cli._format_job(shown)
+    prepared = (service.root / 'jobs' / job / 'prompt.prepared.md').read_text()
+    assert "plus the caller's uncommitted changes and untracked files as of submit (2 files)" in prepared
+    assert 'none of the caller\'s uncommitted' not in prepared
+    lines = finished_notice(service, job)
+    assert lines[-2] == words and lines[-1].startswith('ran workspace-write on ')
+
+
+@pytest.mark.parametrize('cause', ['too-many-bytes', 'too-many-files', 'nested-repository'])
+def test_policy_review_falls_back_to_read_only_in_place_when_the_copy_fails(shell_state, monkeypatch, cause):
+    from subfleet import uncommitted
+    from tests.fake.test_workspace_contract import git
+    service, harness = shell_state
+    repo, _status = dirty_checkout(service, harness)
+    if cause == 'too-many-bytes':
+        monkeypatch.setattr(uncommitted, 'MAX_BYTES', 8)
+        reason = 'more than 8 bytes'
+    elif cause == 'too-many-files':
+        monkeypatch.setattr(uncommitted, 'MAX_FILES', 1)
+        reason = '2 files, more than 1'
+    else:
+        (repo / 'vendor').mkdir()
+        git(repo / 'vendor', 'init')        # an untracked nested repository
+        reason = 'untracked vendor/ is not a regular file or symbolic link'
+    job = policy_review(service, harness)
+    row = service.store.get_job(job)
+    assert row['sandbox'] == 'read-only' and not row['in_place']
+    service._admit()
+    row = service.store.get_job(job)
+    assert row['worktree'] is None and service._launch_dir(row, 'codex') == str(repo)
+    attempt, = service.store.list_attempts(job)
+    assert attempt['capability'] == 'commands'
+    shown = service.dispatch('show', {'job_id': job})
+    assert shown['uncommitted'] == {'fallback': reason}
+    words = ("ran read-only in the caller's checkout: its uncommitted changes could not be copied "
+             f"into a worktree ({reason})")
+    assert words in cli._format_job(shown)
+    assert words in finished_notice(service, job)
+
+
+def test_explicit_workspace_write_review_keeps_todays_worktree(shell_state):
+    service, harness = shell_state
+    dirty_checkout(service, harness)
+    service.policy.pop('requires', None)
+    job = service.dispatch('submit', harness.submit_args(task='review', tier='hard', pinned_model='sol61',
+                                                         sandbox='workspace-write'))['job_id']
+    service._admit()
+    worktree = Path(service.store.get_job(job)['worktree'])
+    assert (worktree / 'tracked.txt').read_text() == 'baseline\n'
+    assert not (worktree / 'new_module.py').exists()
+    assert service.dispatch('show', {'job_id': job})['uncommitted'] is None
+    assert not (service.root / 'jobs' / job / 'uncommitted').exists()
+
+
+def test_clean_checkout_policy_review_copies_nothing(shell_state):
+    service, harness = shell_state
+    repository(service, harness)
+    job = policy_review(service, harness)
+    service._admit()
+    assert service.store.get_job(job)['worktree']
+    assert service.dispatch('show', {'job_id': job})['uncommitted'] is None
+    prepared = (service.root / 'jobs' / job / 'prompt.prepared.md').read_text()
+    assert "none of the caller's uncommitted, untracked or ignored files" in prepared
+
+
+# P3-8: a writable review was told "Commit each coherent step ... Leave a concise
+# report of changes and tests", the build preamble, which also implied that
+# pushing to a non-main branch was allowed.
+def test_writable_review_gets_a_review_preamble_and_a_build_keeps_its_own(shell_state):
+    from subfleet.daemon import REVIEW_PREAMBLE, WRITE_PREAMBLE
+    service, harness = shell_state
+    repository(service, harness)
+    review_job = policy_review(service, harness)
+    build_job = service.dispatch('submit', harness.submit_args(task='build', pinned_model='sol61',
+                                                               sandbox='workspace-write',
+                                                               caller_session=None))['job_id']
+    review_prompt = (service.root / 'jobs' / review_job / 'prompt.prepared.md').read_text()
+    build_prompt = (service.root / 'jobs' / build_job / 'prompt.prepared.md').read_text()
+    assert review_prompt.startswith(REVIEW_PREAMBLE) and 'Commit each coherent step' not in review_prompt
+    assert 'may run tests and write scratch files' in review_prompt and 'Do not commit, push or publish' in review_prompt
+    assert build_prompt.startswith(WRITE_PREAMBLE)

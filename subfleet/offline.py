@@ -268,6 +268,12 @@ class Offline:
                 key=lambda item: item.get("attempt_id") != accepted)
             job["notices"] = [dict(item) for item in conn.execute(
                 "SELECT * FROM notices WHERE job_id = ? ORDER BY notice_id", (job_id,))]
+            submitted = conn.execute("SELECT data_json FROM events WHERE job_id=? AND +kind='job.submitted' "
+                                     "ORDER BY event_id LIMIT 1", (job_id,)).fetchone()
+            try:
+                job["uncommitted"] = json.loads(submitted["data_json"] or "{}").get("uncommitted") if submitted else None
+            except (json.JSONDecodeError, TypeError, AttributeError):
+                job["uncommitted"] = None
             job["pushes"] = ([dict(item) for item in conn.execute(
                 "SELECT * FROM job_pushes WHERE job_id=?", (job_id,))]
                 if conn.execute("SELECT 1 FROM sqlite_master WHERE name='job_pushes'").fetchone() else [])

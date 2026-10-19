@@ -77,6 +77,7 @@ from .sessions import registry
 from .sessions.registry import CONVERSATION_FIX
 from .sessions.transcripts import NotRegularFile, open_regular, read_regular
 from .store import Store, _pin_notice_key, notice_fingerprint, notice_rows, pin_notice_jobs, shell_flags
+from . import uncommitted
 
 
 def spawn_guardian(command: list[str], *, disclaim: bool, **options):
@@ -431,6 +432,16 @@ WRITE_PREAMBLE = (
     "Commit each coherent step on the assigned branch; never rewrite history "
     "or push to main or master. Leave a concise report of changes and tests.\n\n"
 )
+#: A writable review's preamble (#221 review r1b, P3-8): it may run tests and
+#: write scratch in its own worktree, and never commits or publishes; its
+#: verdict is its deliverable (C-12.4).
+REVIEW_PREAMBLE = (
+    "<!-- subfleet:review -->\n"
+    "This is a review. You may run tests and write scratch files in your own workspace "
+    "(below); nothing you write there is part of your answer. Do not commit, push or "
+    "publish anything, on GitHub or elsewhere: pushes and GitHub writes are refused in this "
+    "job. Your verdict, with the evidence for it, is your deliverable.\n\n"
+)
 #: What a writable job that is not in place is told about where it works
 #: (C-6.6, C-13.1). Without it a brief's absolute paths lead a writer back into
 #: the caller's checkout, which the job must never touch (review of d261).
@@ -442,6 +453,16 @@ WORKSPACE_NOTE = (
     "use the same relative path in your workspace, and never write under {top}.{place} When the "
     "job ends, Subfleet keeps what you changed here as a git ref under refs/subfleet-salvage/ in "
     "that repository.\n\n"
+)
+#: D-SH1 round 6: a policy review's worktree with the caller's uncommitted copy (`uncommitted`).
+WORKSPACE_NOTE_UNCOMMITTED = (
+    "Your workspace is {worktree}: a detached checkout of {top} at commit {head}, made "
+    "for this job, plus the caller's uncommitted changes and untracked files as of submit "
+    "({files} files), copied in; it holds none of the caller's ignored files (dependencies "
+    "such as .venv or node_modules may need installing). The checkout at {top} is the "
+    "caller's: where the task names a path in it, use the same relative path in your "
+    "workspace, and never write under {top}.{place} When the job ends, Subfleet keeps what "
+    "you changed here as a git ref under refs/subfleet-salvage/ in that repository.\n\n"
 )
 #: The caller ran the job from a directory below the repository's top (review B-4).
 WORKSPACE_PLACE = (" The caller ran this job from {top}/{prefix}: a path the task gives relative to "
@@ -2268,6 +2289,21 @@ class Daemon:
                                                "to run it here without writing", reason="policy-workdir",
                                            details={"repository": where, "task": args.task})
                     raise AdapterError("writable jobs require a committed git repository", fix="initialize a feature branch and commit a baseline, or pass -s read-only", reason="writable-repository")
+                copy_plan = copy_fallback = None
+                if (from_policy and sandbox == Sandbox.WORKSPACE_WRITE and not args.in_place and turn is None
+                        and head is not None and args.push_branch is None
+                        and self._policy_entry(args) == "worktree-write"):
+                    # D-SH1 round 6 (#221 review r1b, P2): a review in its own worktree
+                    # sees what its caller sees, or reads the checkout in place. Decided
+                    # here, before the job exists, so no sandbox is lowered after submit.
+                    cap = self.policy["caps"]["workspace_git_timeout_s"]
+                    try:
+                        copy_plan = uncommitted.plan(git_toplevel(str(workdir), timeout_s=cap) or str(workdir),
+                                                     head, scratch_root=self.root / "tmp", timeout_s=cap)
+                    except uncommitted.CopyRefused as exc:
+                        copy_fallback = str(exc)
+                        args = dataclasses.replace(args, sandbox=Sandbox.READ_ONLY.value)
+                        sandbox = Sandbox.READ_ONLY
                 # C-6.5: an in-place job's hold is its checkout, not the directory
                 # named by -C, so `/repo` and `/repo/sub` are one place to write. It is
                 # spelled one way (`folders.canonical`, as a conversation's workspace
@@ -2460,6 +2496,18 @@ class Daemon:
             if turn is not None:
                 manifest["turn"] = turn
             note = b""
+            copied = None
+            if copy_plan is not None:
+                try:
+                    copied = uncommitted.keep(copy_plan, jobdir)
+                except uncommitted.CopyRefused as exc:
+                    shutil.rmtree(jobdir, ignore_errors=True)
+                    raise AdapterError(f"the caller's uncommitted files changed while they were copied: {exc}",
+                                       code=int(Exit.OPERATIONAL), fix="submit again",
+                                       reason="uncommitted-copy") from None
+                manifest["uncommitted"] = copied
+            elif copy_fallback is not None:
+                manifest["uncommitted"] = {"fallback": copy_fallback}
             if resume_workspace:
                 # Review B-2: a resume starts where its source started (`_launch_dir`).
                 manifest["workspace"] = resume_workspace
@@ -2492,7 +2540,10 @@ class Daemon:
                         # Review B-4: the worktree will not hold it; start at the top.
                         prefix = "."
                 manifest["workspace"] = {"worktree": str(worktree), "prefix": prefix}
-                note = WORKSPACE_NOTE.format(worktree=worktree, top=top, head=head[:12], place=place).encode()
+                note = (WORKSPACE_NOTE_UNCOMMITTED.format(worktree=worktree, top=top, head=head[:12], place=place,
+                                                          files=copied["files"])
+                        if copied else WORKSPACE_NOTE.format(worktree=worktree, top=top, head=head[:12],
+                                                             place=place)).encode()
                 if args.push_branch is not None:
                     note = note.replace(b"Subfleet keeps what you changed here as a git ref under refs/subfleet-salvage/ in that repository.",
                                         b"Subfleet accepts committed work only through your push bundle.")
@@ -2517,8 +2568,9 @@ class Daemon:
                 # Review B-3: `--no-preamble` drops the template, never the note on
                 # where the job may write.
                 prepared_path = jobdir / "prompt.prepared.md"
+                template = REVIEW_PREAMBLE if args.task == "review" or args.kind == "gate-review" else WRITE_PREAMBLE
                 self._publish("prompt-prepared", prepared_path,
-                              (WRITE_PREAMBLE.encode() if preamble else b"") + note + prompt)
+                              (template.encode() if preamble else b"") + note + prompt)
                 manifest["prepared_prompt_path"] = str(prepared_path)
             self._publish("manifest", jobdir / "manifest.json", json_bytes(manifest))
             authorization = ({"unmeasured_reserve_authorization": {
@@ -2532,7 +2584,8 @@ class Daemon:
                          **({"folder": folder} if folder else {}),
                          **({"unspelled": True} if unspelled else {}),
                          **({"batch": batch} if batch else {}),
-                         **({"mcp": mcp_found["sources"]} if mcp_servers else {})}
+                         **({"mcp": mcp_found["sources"]} if mcp_servers else {}),
+                         **({"uncommitted": manifest["uncommitted"]} if "uncommitted" in manifest else {})}
             with self.store.transaction("job.submitted", job_id=job_id, data=submitted or None) as tx:
                 # Recheck the parent in the same transaction as insertion so a
                 # concurrent parent cancellation cannot leave an uncancelled child.
@@ -2580,6 +2633,11 @@ class Daemon:
         if not lane:
             raise ValueError(f"unknown lane {args.pinned_lane}")
         return lane
+
+    def _policy_entry(self, args: protocol.SubmitArgs) -> str | None:
+        """C-11.1: the `permissions` entry a submit that named no sandbox reads."""
+        permissions = self.policy.get("permissions") or {}
+        return permissions.get(args.task or "") or permissions.get("*")
 
     def _policy_sandbox(self, args: protocol.SubmitArgs) -> str:
         """d261, C-11.1: the sandbox a submit that named none gets. The policy's
@@ -3305,7 +3363,9 @@ class Daemon:
             # C-12.9: the row names the job's MCP servers; where each came from is in its manifest.
             mcp = ((self._read_json(self.root / "jobs" / a.job_id / "manifest.json") or {}).get("mcp")
                    if job.get("mcp_servers") not in (None, "[]") else None)
-            return {"job": job, "batch": self._submitted(a.job_id).get("batch"), "mcp": mcp,
+            submitted = self._submitted(a.job_id)
+            return {"job": job, "batch": submitted.get("batch"), "mcp": mcp,
+                    "uncommitted": submitted.get("uncommitted"),
                     "workspace": ({"at": workspace["ts"], "event": workspace["kind"],
                                    **json.loads(workspace["data_json"])} if workspace else None),
                     "attempts": [shell_flags(row) for row in self.store.query(
@@ -3963,7 +4023,10 @@ class Daemon:
             return
         latest = tx.execute("SELECT * FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1",
                             (row["job_id"],)).fetchone()
-        notice_job = {**dict(row), "attempt": dict(latest) if latest else None}
+        submitted = tx.execute("SELECT data_json FROM events WHERE job_id=? AND +kind='job.submitted' "
+                               "ORDER BY event_id LIMIT 1", (row["job_id"],)).fetchone()
+        notice_job = {**dict(row), "attempt": dict(latest) if latest else None,
+                      "uncommitted": json.loads(submitted[0] or "{}").get("uncommitted") if submitted else None}
         text = render.notice_text(notice_job, self.root, summary + self._moved_on(tx, row["job_id"]))
         tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) VALUES(?,?,?,'pending',?)",
                    (row["job_id"], row["caller_session"], text, utcnow()))
@@ -4757,6 +4820,19 @@ class Daemon:
                                            "daemon.log has its output", transient=True)
                     raise AdapterError("could not allocate the worktree; daemon.log has git's output",
                                        fix="check repository and state-root permissions", reason="workspace-prepare")
+                jobdir = self.root / "jobs" / job["job_id"]
+                if (jobdir / uncommitted.DIRECTORY).is_dir():
+                    # D-SH1 round 6: the copy submit kept, checked then to apply to this HEAD.
+                    try:
+                        uncommitted.apply(jobdir, workdir, timeout_s=cap)
+                    except (uncommitted.CopyRefused, OSError) as exc:
+                        self._discard_worktree(job["workdir"], workdir, cap)
+                        raise AdapterError(f"the caller's uncommitted changes could not be copied into the worktree: {exc}",
+                                           fix="submit again, or pass -s read-only to review the checkout in place",
+                                           reason="uncommitted-apply") from None
+                    except SalvageError:
+                        self._discard_worktree(job["workdir"], workdir, cap)
+                        raise
             os.chmod(workdir, 0o700)
         head = git_head(workdir, timeout_s=cap)
         baseline = None

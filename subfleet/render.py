@@ -150,12 +150,28 @@ def notice_header(job: Mapping[str, Any], state_root: str | Path, *,
             f"deliverable={deliverable}; out={out}")
 
 
+def uncommitted_text(record: Mapping[str, Any] | None) -> str:
+    """D-SH1 round 6: what a policy review's worktree holds of its caller's
+    uncommitted work, or why it read the checkout in place instead."""
+    if not isinstance(record, Mapping) or not record:
+        return ""
+    if record.get("fallback"):
+        return ("ran read-only in the caller's checkout: its uncommitted changes could not be "
+                f"copied into a worktree ({record['fallback']})")
+    return (f"the worktree included the caller's uncommitted changes as of submit: {record.get('files')} files "
+            f"({record.get('tracked')} tracked, {record.get('untracked')} untracked)")
+
+
 def notice_text(job: Mapping[str, Any], state_root: str | Path, summary: str, *,
                 require_file: bool = False) -> str:
-    """C-15.1: preserve every existing line; launch evidence is the final line."""
+    """C-15.1: preserve every existing line; launch evidence is the final line.
+
+    A policy review's workspace line (`uncommitted_text`) comes just before it.
+    """
     text = notice_header(job, state_root, require_file=require_file) + "\n" + summary
+    workspace = uncommitted_text(job.get("uncommitted"))
     capability = attempt_shell_text(job)
-    return text + (f"\n{capability}" if capability else "")
+    return text + (f"\n{workspace}" if workspace else "") + (f"\n{capability}" if capability else "")
 
 
 def append_notice_detail(text: str, detail: str) -> str:
