@@ -170,9 +170,15 @@ def test_p3_2_env_split_string_env_would_rewrite_is_refused(split):
     refused(["/usr/bin/env", "-S", split], env={**os.environ, "SYS": "/usr/bin"})
 
 
-def test_p3_2_env_alternate_path_and_child_path_are_both_judged():
+# A shell child is also judged as a nested wrapper (round 10); sw_vers searches
+# nothing, so only the outer wrapper's own rule refuses it.
+PROGRAMS = [["/bin/sh", "-c", "sw_vers"], ["sw_vers"]]
+
+
+@pytest.mark.parametrize("program", PROGRAMS, ids=" ".join)
+def test_p3_2_env_alternate_path_and_child_path_are_both_judged(program):
     """-P finds the utility; the child still searches the PATH env passes on."""
-    refused(["/usr/bin/env", "-P", recorder() + ":/bin", "/bin/sh", "-c", "sw_vers"], env={"PATH": SYSTEM})
+    refused(["/usr/bin/env", "-P", recorder() + ":/bin", *program], env={"PATH": SYSTEM})
 
 
 def test_p3_2_env_chdir_is_the_base_of_relative_entries():
@@ -226,12 +232,13 @@ def test_p3_4_named_wrappers_with_system_path_are_refused(name, tmp_path):
     refused(argv, env={"PATH": SYSTEM})
 
 
+@pytest.mark.parametrize("program", PROGRAMS, ids=" ".join)
 @pytest.mark.parametrize("options", [["-c"], ["-d", "PATH"], ["-e", "PATH=/usr/bin"],
                                      ["-e", "PATH=" + "{recorder}", "-c"]])
-def test_p3_4_arch_environment_options_are_judged(options):
+def test_p3_4_arch_environment_options_are_judged(options, program):
     """arch -c, -d and -e change the environment its program runs with."""
     argv = ["/usr/bin/arch", "-arm64", *(option.format(recorder=recorder()) for option in options),
-            "/bin/sh", "-c", "sw_vers"]
+            *program]
     refused(argv)
 
 

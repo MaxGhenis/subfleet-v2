@@ -54,7 +54,7 @@ MUTANTS = {
         [["PATH=/usr/bin\vsw_vers"], ["PATH=/usr/bin\fsw_vers"]]),
     "altpath-only": (
         "[altpath, child]", "[altpath]",
-        "test_p3_2_env_alternate_path_and_child_path_are_both_judged", [[]]),
+        "test_p3_2_env_alternate_path_and_child_path_are_both_judged", [[["sw_vers"]]]),
     "chdir-ignored": (
         "base = start if chdir is None else os.path.join(start, chdir)", "base = start",
         "test_p3_2_env_chdir_is_the_base_of_relative_entries", [[]]),
@@ -65,8 +65,9 @@ MUTANTS = {
         '"dash", "ksh", "csh"', '"dash", "csh"',
         "test_p3_4_named_wrappers_with_system_path_are_refused", [["ksh", SCRATCH]]),
     "arch-child-path": (
-        "return [path, _arch(argv, path)], None", "return [path], None",
-        "test_p3_4_arch_environment_options_are_judged", [[["-c"]], [["-d", "PATH"]], [["-e", "PATH=/usr/bin"]]]),
+        "return [path, _arch(argv, path)[0]], None", "return [path], None",
+        "test_p3_4_arch_environment_options_are_judged",
+        [[["-c"], ["sw_vers"]], [["-d", "PATH"], ["sw_vers"]], [["-e", "PATH=/usr/bin"], ["sw_vers"]]]),
 }
 
 PROBE = '''

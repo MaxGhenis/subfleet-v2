@@ -134,7 +134,21 @@ def _launch_targets(event: str, details: tuple, *, _find_program=_find_program,
 _DELEGATING_PROGRAMS = frozenset({
     "sh", "bash", "zsh", "dash", "ksh", "csh", "tcsh",
     "env", "xargs", "nice", "nohup", "taskpolicy", "time", "script", "caffeinate", "lockf", "arch",
+    "stdbuf",
 })
+# What a listed wrapper other than a shell, env or arch runs: the first operand
+# after its options, read with the getopt string its macOS binary holds, and
+# after `files` operands (script's and lockf's file). It passes on the
+# environment it was given.
+_WRAPPER_OPTIONS = {
+    "xargs": ("0E:I:J:L:n:oP:pR:S:s:rtx", 0), "nice": ("n:", 0), "nohup": ("", 0),
+    "taskpolicy": ("xXbBd:g:c:t:l:p:asS:m:j:P:", 0), "time": ("ahlo:p", 0),
+    "script": ("adeFkpqrT:t:", 1), "caffeinate": ("mdhisut:w:", 0), "lockf": ("knst:w", 1),
+    "stdbuf": ("e:i:o:", 0),
+}
+# A listed wrapper whose command is another is judged again, as the first runs
+# it. A chain of more listed wrappers than this is refused rather than followed.
+_WRAPPER_DEPTH = 8
 _SYSTEM_BINARY_DIRECTORIES = (
     "/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/local/bin", "/usr/gnu/bin",
 )
@@ -161,14 +175,16 @@ def _env_split(string: str) -> list[str]:
     return list(lexer)
 
 
-def _env_child(argv: list[str], path: str | None, *, _split=_env_split):
-    """What env does before it runs its utility: (child PATH, -P path, -C directory).
+def _env_child(argv: list[str], path: str | None, *, variable: str = "PATH", _split=_env_split):
+    """What env does before it runs its utility: (the child's `variable`, -P path,
+    -C directory, the utility's argv).
 
     Options are walked as env's getopt walks them: grouped or not, a value
     attached or in the next argument, and -S's words in place of the string.
-    NAME=value assignments follow, until the utility, whose arguments are
-    opaque. None is an absent PATH. An option env does not have, or a missing
-    value, raises: env would not run, and the check refuses rather than guess.
+    NAME=value assignments follow, until the utility, whose own arguments env
+    passes on. None is an absent variable. An option env does not have, or a
+    missing value, raises: env would not run, and the check refuses rather
+    than guess.
     """
     args, altpath, chdir = list(argv[1:]), None, None
     while args and args[0].startswith("-"):
@@ -186,7 +202,7 @@ def _env_child(argv: list[str], path: str | None, *, _split=_env_split):
             value = group[index + 1:] or (args.pop(0) if args else None)
             if value is None:
                 raise ValueError(f"env -{flag} needs a value")
-            if flag == "u" and value == "PATH":
+            if flag == "u" and value == variable:
                 path = None
             elif flag == "P":
                 altpath = value
@@ -195,17 +211,16 @@ def _env_child(argv: list[str], path: str | None, *, _split=_env_split):
             elif flag == "S":
                 args[:0] = _split(value)
             break
-    for arg in args:
-        if "=" not in arg:
-            break
-        name, _, value = arg.partition("=")
-        if name == "PATH":
+    while args and "=" in args[0]:
+        name, _, value = args.pop(0).partition("=")
+        if name == variable:
             path = value
-    return path, altpath, chdir
+    return path, altpath, chdir, args
 
 
-def _arch_child(argv: list[str], path: str | None) -> str | None:
-    """The PATH arch gives its program: -c clears, -d unsets and -e sets, in order.
+def _arch_child(argv: list[str], path: str | None, *, variable: str = "PATH"):
+    """What arch gives its program: (its `variable`, the program's argv). -c
+    clears, -d unsets and -e sets, in order.
 
     arch reads every other "-name" before the program as an architecture.
     """
@@ -218,13 +233,13 @@ def _arch_child(argv: list[str], path: str | None) -> str | None:
             if not args:
                 raise ValueError(f"arch {arg} needs a value")
             value = args.pop(0)
-            if arg == "-d" and value == "PATH":
+            if arg == "-d" and value == variable:
                 path = None
-            elif arg == "-e" and value.partition("=")[0] == "PATH":
+            elif arg == "-e" and value.partition("=")[0] == variable:
                 if "=" not in value:
                     raise ValueError("arch -e needs NAME=value")
                 path = value.partition("=")[2]
-    return path
+    return path, args
 
 
 def _delegated_searches(name: str, argv: list[str], path: str | None, *,
@@ -237,22 +252,75 @@ def _delegated_searches(name: str, argv: list[str], path: str | None, *,
     and its program the one arch's options leave.
     """
     if name == "env":
-        child, altpath, chdir = _env(argv, path)
+        child, altpath, chdir, _command = _env(argv, path)
         return ([child] if altpath is None else [altpath, child]), chdir
     if name == "arch":
-        return [path, _arch(argv, path)], None
+        return [path, _arch(argv, path)[0]], None
     return [path], None
 
 
-def _launch_paths(env) -> list[str | None]:
-    """Each PATH the child receives, or None when it has none.
+def _getopt_operands(argv: list[str], options: str) -> list[str]:
+    """argv's operands, as BSD getopt leaves them for the option string `options`.
 
-    Popen and os.posix_spawn encode every key, so a text and a bytes PATH key
-    both reach the child, which reads one of its own choosing: judge each.
+    Options end at the first operand, a lone "-" or "--". An option the
+    program does not have, or a missing value, raises: the program would not
+    run, and the check refuses rather than guess at its command.
+    """
+    args = list(argv[1:])
+    while args and args[0].startswith("-") and args[0] != "-":
+        arg = args.pop(0)
+        if arg == "--":
+            break
+        for end, flag in enumerate(arg[1:], 2):
+            if flag == ":" or flag not in options:
+                raise ValueError(f"no option -{flag}")
+            if options[options.index(flag) + 1:][:1] == ":":
+                if end == len(arg):  # The value is the next argument.
+                    if not args:
+                        raise ValueError(f"-{flag} needs a value")
+                    args.pop(0)
+                break
+    return args
+
+
+def _wrapper_command(name: str, argv: list[str], path: str | None, shell: str | None, *,
+                     _env=_env_child, _arch=_arch_child, _options=_WRAPPER_OPTIONS,
+                     _operands=_getopt_operands):
+    """What a listed wrapper runs: (its command's argv, the PATH and SHELL it gets).
+
+    An empty argv is a wrapper given no command, or a shell, whose operands are
+    a script or a command string. nice reads an obsolete `-<number>` as
+    `-n <number>`. script given no command runs `$SHELL -i`, by path and not
+    through PATH, or `/bin/sh -i` when SHELL is unset.
+    """
+    if name == "env":
+        child, _altpath, _chdir, command = _env(argv, path)
+        return command, child, _env(argv, shell, variable="SHELL")[0]
+    if name == "arch":
+        child, command = _arch(argv, path)
+        return command, child, _arch(argv, shell, variable="SHELL")[0]
+    if name not in _options:
+        return [], path, shell
+    options, files = _options[name]
+    args = list(argv)
+    if name == "nice" and len(args) > 1 and args[1] != "--" and args[1][:1] == "-" \
+            and args[1][1:2] in tuple("-0123456789"):
+        args[1] = "-n" + args[1][1:]
+    command = _operands(args, options)[files:]
+    if name == "script" and not command and shell != "":
+        command = [os.path.join(".", "/bin/sh" if shell is None else shell), "-i"]
+    return command, path, shell
+
+
+def _launch_paths(env, name: bytes = b"PATH") -> list[str | None]:
+    """Each value of `name` the child receives, or None when it has none.
+
+    Popen and os.posix_spawn encode every key, so a text and a bytes key of one
+    name both reach the child, which reads one of its own choosing: judge each.
     """
     if env is None:
-        return [os.environ.get("PATH")]
-    found = [os.fsdecode(value) for key, value in env.items() if os.fsencode(key) == b"PATH"]
+        return [os.environ.get(os.fsdecode(name))]
+    found = [os.fsdecode(value) for key, value in env.items() if os.fsencode(key) == name]
     return found or [None]
 
 
@@ -291,11 +359,13 @@ def _searches_system_first(search: str | None, base: str, system, safe, *,
     return False
 
 
-def _unsafe_delegation(event: str, details: tuple, recorders, *,
+def _unsafe_delegation(event: str, details: tuple, recorders, *, native=None,
                        system_dirs=_SYSTEM_BINARY_DIRECTORIES, _fold_name=_fold_name,
                        _family=_DELEGATING_PROGRAMS, _paths=_launch_paths,
                        _searches=_delegated_searches, _first=_searches_system_first,
-                       _spelling=_directory_spelling) -> bool:
+                       _spelling=_directory_spelling, _command=_wrapper_command,
+                       _matches=_is_keychain_binary, _reader=_native_keychain_binary,
+                       _depth=_WRAPPER_DEPTH) -> bool:
     if event == "os.system":
         name, argv, env, cwd = "sh", (), None, None
     else:
@@ -311,14 +381,31 @@ def _unsafe_delegation(event: str, details: tuple, recorders, *,
         # Only wrappers need recorder identities. Direct Git/Python launches must
         # not reopen every previous nested session's sentinel.
         safe = {_spelling(directory) for directory in (recorders() if callable(recorders) else recorders)}
+        reader = _reader() if native is None else native
         argv = [os.fsdecode(arg) for arg in argv]
-        start = os.fsdecode(cwd) if cwd is not None else ""
-        for path in _paths(env):
+
+        def reaches(name, argv, path, shell, start, depth):
+            # A search the wrapper makes meets a system directory first, its
+            # command is the reader by path, or its command is a listed wrapper
+            # that does, run with the PATH, SHELL and directory this one leaves.
+            if depth > _depth:
+                raise ValueError("listed wrappers nested too deep to judge")
             searches, chdir = _searches(name, argv, path)
             base = start if chdir is None else os.path.join(start, chdir)
             if any(_first(search, base, system, safe) for search in searches):
                 return True
-        return False
+            command, path, shell = _command(name, argv, path, shell)
+            if not command:
+                return False
+            word = command[0]
+            if os.path.dirname(word) and _matches(os.path.join(base, word), reader):
+                return True
+            inner = _fold_name(os.path.basename(word))
+            return inner in _family and reaches(inner, command, path, shell, base, depth + 1)
+
+        start = os.fsdecode(cwd) if cwd is not None else ""
+        return any(reaches(name, argv, path, shell, start, 1)
+                   for path in _paths(env) for shell in _paths(env, b"SHELL"))
     except Exception:
         # A wrapper launch whose check cannot finish is refused (C-20.6).
         return True
@@ -347,7 +434,7 @@ def _exec_guard(pins: list[tuple[str, str]], *, system_dirs=_SYSTEM_BINARY_DIREC
             def recorders():
                 return _recorders + tuple(os.path.join(base, "keychain-bin")
                                            for base, token in list(pins) if _alive(base, token))
-            refused = (_unsafe(event, details, recorders, system_dirs=_system)
+            refused = (_unsafe(event, details, recorders, system_dirs=_system, native=_native)
                        or any(target == "security" or _matches(target, _native)
                               for target in _targets(event, details) if target is not None))
         except Exception:
@@ -371,19 +458,26 @@ def install_keychain_exec_guard() -> bool:
     PATH.
 
     It also refuses a launch of sh, bash, zsh, dash, ksh, csh, tcsh, env, xargs,
-    nice, nohup, taskpolicy, time, script, caffeinate, lockf or arch whose child
-    can search a system binary directory before a live session recorder. It
-    judges every PATH key the child receives (an absent PATH is the wrapper's
-    default), env's options as env's getopt reads them, with -P's path, the
-    child's PATH and -C's directory, and arch's -c, -d and -e. It compares
-    spellings without probing a directory: leading slashes collapsed, dot
-    segments resolved, case and Unicode folded. A `~` entry, an env -S string
-    using `$`, `\\` or `#`, and any other launch whose check cannot finish are
-    refused. Outside C-20.6 (D-ST1): other PATH-searching programs,
-    such as find -exec and interpreters; a wrapper run under another name; path
-    aliases, such as a symlink to /usr/bin; PATH changes made inside the shell,
-    by a shell string or a login shell's profile; and deliberate absolute reader
-    paths inside shell strings. Production readers use argv.
+    nice, nohup, taskpolicy, time, script, caffeinate, lockf, arch or stdbuf
+    whose child can search a system binary directory before a live session
+    recorder. It judges every PATH key the child receives (an absent PATH is the
+    wrapper's default), env's options as env's getopt reads them, with -P's
+    path, the child's PATH and -C's directory, and arch's -c, -d and -e. It
+    compares spellings without probing a directory: leading slashes collapsed,
+    dot segments resolved, case and Unicode folded. A listed wrapper other than
+    a shell is also judged by the command it runs, the first operand after its
+    options as its getopt reads them (after script's and lockf's file; script
+    given none runs `$SHELL -i`). That command, given by path, is refused if it
+    is the reader or a registered stand-in; a command that is itself a listed
+    wrapper is judged again with the PATH, SHELL and directory the outer one
+    leaves, up to 8 listed wrappers deep. A `~` entry, an env -S string using
+    `$`, `\\` or `#`, a deeper chain, an option a wrapper does not have, and any
+    other launch whose check cannot finish are refused. Outside C-20.6 (D-ST1):
+    other PATH-searching programs, such as find -exec and interpreters; the
+    arguments xargs reads from its input; a wrapper run under another name;
+    path aliases, such as a symlink to /usr/bin; PATH changes made inside the
+    shell, by a shell string or a login shell's profile; and deliberate absolute
+    reader paths inside shell strings. Production readers use argv.
 
     No runner identity can tell a stub from a wrapper around the real
     `subprocess.run`, so this judges the file each launch would start: through
