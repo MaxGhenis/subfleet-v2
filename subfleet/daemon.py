@@ -3315,7 +3315,7 @@ class Daemon:
         if lane.provider != "codex" or binary is None:
             return None
         try:
-            from .guard.preflight import PROBE, TIMEOUT, preflight
+            from .guard.preflight import PROBE, PUBLISH, TIMEOUT, preflight
         except ImportError:
             raise AdapterError("Codex guard preflight is not installed", code=7,
                                fix="install the Codex adapter and reviewed guard files", reason="guard-missing") from None
@@ -3332,7 +3332,9 @@ class Daemon:
             # A timeout or an unusable probe is not a mismatch: its template says so (C-14.2).
             raise AdapterError(result.message, code=7, fix=result.fix or "rerun subfleet doctor",
                                reason=("guard-preflight-timeout" if result.kind == TIMEOUT else
-                                       "guard-preflight-probe" if result.kind == PROBE else "guard-preflight"),
+                                       "guard-preflight-probe" if result.kind == PROBE else
+                                       # C-14.2: the guard verified; only a review's publish hook did not.
+                                       "guard-preflight-publish" if result.kind == PUBLISH else "guard-preflight"),
                                details={"guard_kind": result.kind})
         return result if full else result.override
 

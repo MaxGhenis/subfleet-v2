@@ -84,6 +84,11 @@ _CACHE_CONFIG_FIX = (f"Set {CACHE_ENV} to an absolute path or to a relative path
 _PROBE_FIX = ("Read stderr_tail and exit_status in the attempt's guard-preflight.json (or run "
               "`subfleet doctor --live`) for the app-server's own error; trust remains unverified.")
 _ENVIRONMENT_FIX = "Put back the missing directory or binary named in the message, then rerun subfleet doctor."
+#: C-14.2 (D-SH1 round 8): the guard verified, so neither its TRUST pins nor
+#: `subfleet doctor`, which never runs the preflight with the publish hook, repair this.
+_PUBLISH_FIX = ("Read the hooks/list answer in the attempt's guard-preflight.json: it must list "
+                "<state root>/publish-guard/review-publish-hook once, enabled and trusted. subfleet doctor does "
+                "not check this hook. Until it verifies, run the review on a Claude model (for example -m opus).")
 
 # Refusal kinds (PreflightResult.kind): what the verdict rests on.
 VERIFIED = "verified"        # hooks/list answered and matched
@@ -94,6 +99,7 @@ VERSION = "version"          # installed Codex differs from the pinned version
 CONFIG = "config"            # the preflight itself was misconfigured (deadline)
 ENVIRONMENT = "environment"  # jq, the binary, the home, the workdir or the scratch root is missing
 PROBE = "probe"              # app-server died, could not be started, or answered unusably
+PUBLISH = "publish"          # the guard verified; hooks/list did not trust a review's publish hook
 
 
 @dataclass(frozen=True)
@@ -717,8 +723,8 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
             if (len(published) != 1 or published[0].get("enabled") is not True
                     or published[0].get("trustStatus") != "trusted"
                     or published[0].get("currentHash") != publish_trust_hash(publish_command)):
-                raise _Refusal(TRUST, "Codex hooks/list did not list the review publish hook "
-                                      "exactly once, enabled and trusted with its hash")
+                raise _Refusal(PUBLISH, "Codex hooks/list did not list the review publish hook "
+                                        "exactly once, enabled and trusted with its hash", _PUBLISH_FIX)
         if data[0].get("errors"):
             raise _Refusal(TRUST, "Codex hooks/list reported errors")
         warnings = tuple(str(warning) for warning in data[0].get("warnings", []))

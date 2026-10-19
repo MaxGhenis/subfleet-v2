@@ -73,6 +73,8 @@ def test_a_publish_hook_codex_does_not_trust_refuses_the_review_with_its_own_adv
     message, fix = refusals.render("guard-preflight-publish")
     assert message in refused.stderr and fix in refused.stderr, refused
     assert "rerun subfleet doctor" not in refused.stderr and "writable job" not in refused.stderr
-    assert not (e2e.root / "codex-env.json").exists()
+    # No attempt ran Codex; a C-11.4 probe of the lane may have, before admission.
+    report = e2e.root / "codex-env.json"
+    assert not report.exists() or json.loads(report.read_text())["env"]["SUBFLEET_ATTEMPT"].startswith("probe:")
     for attempt in e2e.rows("SELECT * FROM attempts"):
         assert attempt["guardian_pid"] is None

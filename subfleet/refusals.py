@@ -211,6 +211,14 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
                               "Read stderr_tail and exit_status in the attempt's guard-preflight.json (or run "
                               "`subfleet doctor --live`) for the app-server's own error; trust remains "
                               "unverified."),
+    # C-14.2 (D-SH1 round 8): any review on Codex, read-only included; the fix is
+    # `guard.preflight._PUBLISH_FIX`, word for word.
+    "guard-preflight-publish": ("Codex guard preflight refused the review: the never-rules guard verified, but "
+                                "Codex did not trust the review's publish hook",
+                                "Read the hooks/list answer in the attempt's guard-preflight.json: it must list "
+                                "<state root>/publish-guard/review-publish-hook once, enabled and trusted. subfleet "
+                                "doctor does not check this hook. Until it verifies, run the review on a Claude "
+                                "model (for example -m opus)."),
     "codex-guard-required": ("Writable Codex jobs require the never-rules guard",
                              "Run the guard trust preflight and supply its hooks override."),
     "codex-publish-hook-required": ("Writable Codex reviews require the review publish hook",
