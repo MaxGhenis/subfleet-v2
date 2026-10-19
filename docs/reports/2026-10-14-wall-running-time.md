@@ -1264,5 +1264,109 @@ companion property permutes group, interrupt, SIGINT, late SIGINT and close
 with millisecond/legacy-second receipts, checking that supersession holds
 exactly when the exit strictly precedes the earliest delivery.
 
-Validation is in progress. Final per-file results, mutation evidence,
-process-inspection restrictions and cleanup are recorded below on completion.
+The focused final delivery run passed **14 tests** (13 delivery regressions
+and the extended wall interleaving property). The adoption/wiring hold passed
+**3 tests**. The connection-delay test-first hold failed **1 test** with a
+clock two seconds too early before its fix. The initial full unit hold had
+**189 passed, 1 failed** because the newly added replay fixture omitted the
+required `requester` argument; that setup was corrected and both adoption
+cases passed. The first settlement hold had **273 passed, 6 failed,
+6 skipped**: the legacy-hold suite's separate dictionary-backed fake daemon
+lacked the new audit callback. Its recording stub now implements the delivery
+boundary, and its held/adopted turn test also asserts that close/interrupt
+acknowledgements were audited. Real-store fixtures continue to exercise the
+production SQL recorder. These exploratory holds are excluded from the final
+totals.
+
+Mutation: removing `attempt.stop_delivery` from `_receipt_precedes_signal`'s
+SQL kind filter made
+`tests/fake/test_wall_stop_deliveries.py::test_relay_sigint_must_not_be_superseded_as_no_signal`
+fail (**1 failed**), with the original `succeeded`/`ok` outcome after real
+relay SIGINT. The mutation ran alone under its own foreground lock hold;
+its `finally` restored the exact daemon bytes, verified by SHA-256 and a clean
+source diff. No mutation remains.
+
+**Final complete-file runs: 845 passed, 10 skipped, and 5 expected historical
+failures across 25 files. No unexpected final failures.** All 55 current r4
+probes passed, including `test_r4_relay_sigint_must_not_be_superseded_as_no_signal`.
+The unchanged r3 file retained its one historical rc-0 timestamp-tie failure;
+the unchanged original #207 file retained its four due routing-call expectation
+failures. Neither historical expectation was altered. The tracked #207 suite's
+no-slot, younger-job model, and `for_good: ["disabled"]` checks remain unchanged
+and pass. Reviewer files were copied into scratch and verified byte for byte
+against the supplied originals, then run in a separate pytest process from
+`tests/`, loading test isolation only once.
+
+| File | Passed | Skipped | Expected failures |
+| --- | ---: | ---: | ---: |
+| `test_review_r223_207_original.py` | 4 | 0 | 4 |
+| `test_review_r223_r3_probes.py` | 8 | 0 | 1 |
+| `test_review_r223_r4_probes.py` | 55 | 0 | 0 |
+| `tests/fake/test_admission_stateful.py` | 12 | 0 | 0 |
+| `tests/fake/test_capacity_steer_daemon.py` | 72 | 0 | 0 |
+| `tests/fake/test_finalization_replay.py` | 10 | 0 | 0 |
+| `tests/fake/test_notice_header.py` | 23 | 0 | 0 |
+| `tests/fake/test_review_r223_wall_probes.py` | 23 | 0 | 0 |
+| `tests/fake/test_salvage_finalization.py` | 47 | 0 | 0 |
+| `tests/fake/test_state_contract.py` | 37 | 0 | 0 |
+| `tests/fake/test_wall_cancel_races.py` | 30 | 0 | 0 |
+| `tests/fake/test_wall_inspection_order.py` | 18 | 0 | 0 |
+| `tests/fake/test_wall_running_time.py` | 35 | 0 | 0 |
+| `tests/fake/test_wall_stop_deliveries.py` | 13 | 0 | 0 |
+| `tests/process/test_guardian_process.py` | 0 | 4 | 0 |
+| `tests/unit/test_capacity_steer_mutations.py` | 10 | 0 | 0 |
+| `tests/unit/test_capacity_steer_route.py` | 22 | 0 | 0 |
+| `tests/unit/test_conversation_service.py` | 100 | 0 | 0 |
+| `tests/unit/test_daemon_settle.py` | 43 | 0 | 0 |
+| `tests/unit/test_guardian.py` | 13 | 0 | 0 |
+| `tests/unit/test_legacy_hold.py` | 50 | 6 | 0 |
+| `tests/unit/test_relay.py` | 14 | 0 | 0 |
+| `tests/unit/test_settle_properties.py` | 129 | 0 | 0 |
+| `tests/unit/test_test_module_names.py` | 1 | 0 | 0 |
+| `tests/unit/test_turn_runner.py` | 76 | 0 | 0 |
+
+Every requested group ran in its own foreground `lockf -k` hold of
+`/private/tmp/claude-501/subfleet-suites.lock`; no lock timeout, xdist,
+concurrent pytest process, detached runner or load-wait under the lock was
+used. Each hold finished below twenty minutes; the longest final pytest was
+94.75 seconds. Lock waits counted against the job wall. Every hold began
+before the 08:37:31 UTC no-new-holds cutoff on 2026-10-19 (4 h 30 m after this
+job's 00:07:31 EDT worktree stamp). All requested runs completed by
+04:47:51 UTC. `SUBFLEET_RETENTION_DORMANT` and `PYTHONPATH` were unset.
+`HYPOTHESIS_PROFILE=ci`; the ordering properties use explicit bounded settings
+(60 examples), never deep. Python was 3.14.7 free-threaded.
+
+The six native legacy-hold cases and four native guardian-process cases were
+selected but skipped before their bodies. The sandbox denies the C-5.3
+`ps`/`sysctl` inspection needed to establish macOS boot/process identity.
+No ownership bypass was used; their native behavior is unverified. The
+existing relay glob has only `tests/unit/test_relay.py`, which was run in full.
+Full repository CI, other Python builds and real-provider execution were not run.
+
+### Cleanup and local delivery
+
+All task pytest, runner and lockf commands exited. Each hold's TMPDIR,
+Hypothesis storage and test homes were removed. The task scratch root,
+reviewer copies, JUnit evidence, fallback uv cache, installed `.venv`, and
+Python/pytest caches were removed with Python `shutil.rmtree`; no
+`.hypothesis` folder remains. The original `.git` pointer is byte-identical
+to the pointer saved before setup. Only workspace-local `.git-local` metadata
+and its small delivery bundle remain as ignored delivery artifacts.
+
+The local delivery is `.git-local/round8.bundle`, advertising
+`refs/heads/fix/wall-counts-running-time-217`, with prerequisites `1909a53c1`
+and `d72597b5c`. The final report commit is the bundle's advertised tip.
+The bundle and advertised head were verified locally. The shared release
+tracking ref was checked again after validation and remains `d72597b5c`;
+no network remote was contacted. No logs, JSON evidence or bundles were staged.
+No shared Git index or caller checkout was written, no history was rewritten,
+and nothing was pushed.
+
+| Commit | Step |
+| --- | --- |
+| `4f49eb594` | Merge release #230, retaining both contract change logs and all clauses |
+| `746a6edb1` | Add the four required failing regressions and delivery ordering cases |
+| `ff0b1cb64` | Audit relay stops, extend mixed ordering/adoption coverage, clarify C-7.3/C-9.2 |
+| `df55aefaa` | Add the failing slow-connection receipt-wins regression |
+| `6b7da7f88` | Timestamp transmission after connection setup, before the socket write |
+| `c3754eba0` | Record the audit boundary in dictionary-backed legacy-hold fixtures |
