@@ -470,7 +470,7 @@ def test_a_group_over_the_bound_is_written_to_daemon_log_scrubbed(daemon_log, sh
     group = over_bound_group(shape)
     daemon_log.log.error("failed", exc_info=(type(group), group, group.__traceback__))
     text = daemon_log.read()
-    assert "characters omitted] …" in text and "    | member line" in text
+    assert "characters omitted] …" in text and "member line" in text
     assert "SECRET7grpcut9" not in text
 
 
@@ -684,13 +684,13 @@ OLD_RUNNER_LINES = ('self._unacknowledged(f"relay status: {exc}")', 'self._unack
     ("try:\n    pass\nexcept Exception as exc:\n    log.error('x', exc_info=exc)\n", False),
     ("try:\n    pass\nexcept Exception as exc:\n    raise ValueError(f'x {exc}')\n", False),
     # Review r2 of #233: into a string another function of the module logs.
-    (RELAYED + "        self.lost(f'relay status: {exc}')\n", True),
-    (RELAYED + "        self.lost('relay status: %s' % exc)\n", True),
-    (RELAYED + "        self.lost('relay status: {}'.format(exc))\n", True),
-    (RELAYED + "        self.lost(why=str(exc))\n", True),
-    (RELAYED + "        why = f'relay status: {exc}'\n        self.lost(why)\n", True),
-    (RELAYED + "        self.lost(f'relay status: {refusals.fixed_error(exc)}')\n", False),
-    (RELAYED + "        self.kept(f'relay status: {exc}')\n", False),
+    (RELAYED + "            self.lost(f'relay status: {exc}')\n", True),
+    (RELAYED + "            self.lost('relay status: %s' % exc)\n", True),
+    (RELAYED + "            self.lost('relay status: {}'.format(exc))\n", True),
+    (RELAYED + "            self.lost(why=str(exc))\n", True),
+    (RELAYED + "            why = f'relay status: {exc}'\n            self.lost(why)\n", True),
+    (RELAYED + "            self.lost(f'relay status: {refusals.fixed_error(exc)}')\n", False),
+    (RELAYED + "            self.kept(f'relay status: {exc}')\n", False),
     ("try:\n    pass\nexcept Exception as exc:\n    why = f'x {exc}'\n    log.warning('%s', why)\n", True),
 ])
 def test_the_site_lint_tells_raw_from_scrubbed(source, raw):

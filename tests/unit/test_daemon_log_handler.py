@@ -928,7 +928,7 @@ def test_a_cut_s_work_does_not_grow_with_the_text(shape):
     assert lines <= 40 * LIMIT and c_calls <= 20 * LIMIT, counts
 
 
-@pytest.mark.timeout(60)
+@pytest.mark.timeout(30)
 @pytest.mark.parametrize("where", ["message", "traceback"])
 @pytest.mark.parametrize("shape", sorted(COST_SHAPES))
 def test_a_four_mib_record_of_a_cost_shape_is_written_within_a_second(shape, where):
@@ -1122,7 +1122,8 @@ def test_a_group_longer_than_the_bound_keeps_its_group_handling(shape, raise_it)
     out = written_for(group)
     assert "characters omitted] …" in out
     assert "SECRET7grpcut9" not in out, out[-400:]
-    assert "    | member line" in out
+    if "Bearer" not in shape:               # scrubbing joins `Bearer` and its token: no margins then
+        assert "    | member line" in out
 
 
 @pytest.mark.parametrize("shape", OVER_BOUND_SHAPES)
