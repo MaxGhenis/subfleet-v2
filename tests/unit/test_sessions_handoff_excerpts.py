@@ -399,16 +399,19 @@ def test_wrapper_flag_runs_are_matched_in_linear_time(run):
     16 KiB on 7da13417, about two minutes for 256 KiB, while the scrubber's bound
     let such an input through."""
     measured = _probe(f"run = {run!r}\n" + '''
-import json, time
-samples = {}
-for size in (16384, 65536):
+import json
+from tests.cpu_scaling import best_cpu_samples
+
+def make_call(size):
     text = run * (size // len(run))
-    start = time.thread_time()
-    assert not sensitive_tool_call("Bash", {"command": text})
-    samples[size] = time.thread_time() - start
-print(json.dumps(samples))
+    def call():
+        assert not sensitive_tool_call("Bash", {"command": text})
+    return call
+
+print(json.dumps(best_cpu_samples(make_call, (65536, 262144))))
 ''')
-    assert measured["65536"] < max(measured["16384"], 0.001) * 8, measured
+    assert measured["ratio"] < 8, measured
+    # Retain the original absolute CPU bound at its original input size.
     assert measured["65536"] < 0.5, measured
 
 
