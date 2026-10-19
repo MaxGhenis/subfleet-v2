@@ -9,7 +9,7 @@ from subfleet.adapters.base import AdapterError
 from subfleet.contracts import Sandbox
 from subfleet.daemon import after, utcnow
 from tests.fake.test_review_needs_shell import shell_state, review  # noqa: F401
-from tests.fake.test_state_contract import receipt_fixture, state_daemon  # noqa: F401
+from tests.fake.test_state_contract import launched, receipt_fixture, state_daemon  # noqa: F401
 from tests.fake.test_workspace_contract import repository
 
 
@@ -25,6 +25,8 @@ def test_policy_review_own_worktree_can_run_pytest(shell_state, model, tmp_path,
     assert service.store.get_job(job)['sandbox'] == 'workspace-write'
     assert service.store.get_job(job)['needs_shell'] is False
     service._admit()
+    attempt, = service.store.list_attempts(job)
+    launched(service, attempt)
     attempt, = service.store.list_attempts(job)
     assert attempt['capability'] == 'writable'
     worktree = Path(service.store.get_job(job)['worktree'])
@@ -61,6 +63,8 @@ def test_read_only_policy_reviews_carry_capability_without_editing_output(shell_
         sandbox=protocol.POLICY_SANDBOX, out_path=str(output), **changes))['job_id']
     assert service.store.get_job(job)['sandbox'] == 'read-only'
     service._admit()
+    attempt, = service.store.list_attempts(job)
+    launched(service, attempt)
     attempt, = service.store.list_attempts(job)
     assert attempt['capability'] == capability
     adir = service.root / 'jobs' / job / 'a1'
@@ -118,10 +122,15 @@ def test_status_counts_distinct_restricted_runs_last_24h(shell_state):
         service.dispatch('submit', harness.submit_args(task='review', tier='hard', pinned_model=model))
     service._admit()
     jobs = service.store.list_jobs()
+    from subfleet.offline import Offline
+    # P3-2: reserved attempts have not launched, so they claim no capability and count for nothing.
+    assert service.dispatch('daemon.status', {})['restricted_runs_24h'] == []
+    assert Offline(service.root).status()['restricted_runs_24h'] == []
+    for job in jobs:
+        launched(service, service.store.list_attempts(job['job_id'])[0])
     first = service.store.list_attempts(jobs[0]['job_id'])[0]
     service.store.add_attempt(attempt_id=jobs[0]['job_id'] + '/a2', job_id=jobs[0]['job_id'], seq=2,
         lane_id=first['lane_id'], model_requested=first['model_requested'], capability='commands')
-    from subfleet.offline import Offline
     assert set(Offline(service.root).status()['restricted_runs_24h']) == {j['job_id'] for j in jobs}
     view = service.dispatch('daemon.status', {})
     assert set(view['restricted_runs_24h']) == {j['job_id'] for j in jobs}
@@ -231,6 +240,8 @@ def test_policy_review_falls_back_to_read_only_in_place_when_the_copy_fails(shel
     service._admit()
     row = service.store.get_job(job)
     assert row['worktree'] is None and service._launch_dir(row, 'codex') == str(repo)
+    attempt, = service.store.list_attempts(job)
+    launched(service, attempt)
     attempt, = service.store.list_attempts(job)
     assert attempt['capability'] == 'commands'
     shown = service.dispatch('show', {'job_id': job})

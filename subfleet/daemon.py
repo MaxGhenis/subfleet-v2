@@ -3270,6 +3270,16 @@ class Daemon:
                                details={"guard_kind": result.kind})
         return result if full else result.override
 
+    def _record_launch(self, attempt_id: str, provider: str, sandbox: Any, publish_denied: bool) -> None:
+        """C-12.4: what this attempt's launch got, written once the launch is built.
+
+        Never at reservation: an attempt that ends before launching (refused,
+        cancelled, `reserved-no-launch`) records no capability, so its notice
+        claims nothing ran and the 24-hour status line does not count it.
+        """
+        self.store.update_attempt(attempt_id, capability=launch_capability(provider, sandbox).value,
+                                  publish_denied=publish_denied)
+
     def _guard_recorder(self, lane: Lane, workdir: str, attempt_dir: Path) -> Callable:
         """Keep a preflight verdict's diagnostics beside the attempt (C-14.2).
 
@@ -6798,11 +6808,12 @@ class Daemon:
                             reserved_at = utcnow()
                         if job["kind"] != "turn" and self._disk.settings["enabled"]:
                             evidence["disk_reservation"] = self._disk.evidence()
-                        tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,capability,publish_denied,state,baseline_tree,evidence_json,reserved_at) VALUES(?,?,?,?,?,?,?,'reserved',?,?,?)",
+                        # C-12.4: capability and publish denial are the launch's, recorded
+                        # when it is built (`_record_launch`); a reservation that never
+                        # launches claims neither (#221 review r1b, P3-2).
+                        tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,baseline_tree,evidence_json,reserved_at) VALUES(?,?,?,?,?,'reserved',?,?,?)",
                                    (aid, job["job_id"], seq, lane_id, self.policy["models"][decision.chosen_model]["id"],
-                                    launch_capability(self.policy["models"][decision.chosen_model]["provider"], job["sandbox"]).value,
-                                    job["task"] == "review" or job["kind"] == "gate-review", baseline,
-                                    json.dumps(evidence), reserved_at))
+                                    baseline, json.dumps(evidence), reserved_at))
                         if pinned:
                             self.store.add_artifact(aid, **pinned)      # C-13.1: kept, as a salvage ref is
                         tx.execute("INSERT INTO decisions(job_id,attempt_id,evaluated_at,policy_hash,decision_json) VALUES(?,?,?,?,?)",
@@ -7564,9 +7575,7 @@ class Daemon:
             return
         from .review_publish import protect_launch
         launch = protect_launch(spec, launch, adir)
-        self.store.update_attempt(a["attempt_id"],
-                                  capability=launch_capability(lane.provider, spec.sandbox).value,
-                                  publish_denied=bool(launch.notes.get("publish_denied")))
+        self._record_launch(a["attempt_id"], lane.provider, spec.sandbox, bool(launch.notes.get("publish_denied")))
         self._launches[a["attempt_id"]] = launch
         safe_launch = dataclasses.asdict(launch)
         safe_launch.pop("env_add")

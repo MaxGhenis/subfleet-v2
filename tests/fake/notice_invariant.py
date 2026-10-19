@@ -59,8 +59,15 @@ def notice_mismatches(rows: Callable[..., list[dict[str, Any]]]) -> list[str]:
     return problems
 
 
+#: C-12.4 launch evidence: a capability sentence, or `publish: denied` alone.
+EVIDENCE = re.compile(r"ran (read-only|workspace-write) on .+|publish: denied")
+
+
 def notice_without_capability(text: str) -> str:
-    """Keep the legacy lines for body assertions, checking evidence is last."""
-    body, separator, capability = text.rpartition("\n")
-    assert separator and re.fullmatch(r"ran (read-only|workspace-write) on .+", capability), text
-    return body
+    """Keep the legacy lines for body assertions, checking that launch evidence,
+    when there is any, is the last line. An attempt that never launched has none
+    (#221 review r1b, P3-2)."""
+    lines = text.split("\n")
+    evidence = [index for index, line in enumerate(lines) if EVIDENCE.fullmatch(line)]
+    assert evidence in ([], [len(lines) - 1]), text
+    return "\n".join(lines[:-1]) if evidence else text

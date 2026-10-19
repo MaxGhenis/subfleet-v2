@@ -261,6 +261,20 @@ def reserve(daemon, harness, **submit_overrides):
     return job_id, attempt, adir
 
 
+def launched(daemon, attempt):
+    """Record the launch evidence `_launch` writes for an attempt that ran (C-12.4).
+
+    An exited provider was launched; a fixture that skips the launch records
+    what that launch would have got, from the attempt's lane and its job."""
+    current = daemon.store.get_attempt(attempt["attempt_id"])
+    if current.get("capability") is not None:
+        return
+    job = daemon.store.get_job(current["job_id"])
+    lane = daemon.store.get_lane(current["lane_id"])
+    daemon._record_launch(current["attempt_id"], lane.provider, job["sandbox"],
+                          job.get("task") == "review" or job["kind"] == "gate-review")
+
+
 def receipt_fixture(daemon, attempt, adir, *, rc=0, stdout=b"fixture result\n"):
     """Make already-exited-provider evidence without starting a process."""
     (adir / "stdout").write_bytes(stdout)
@@ -273,6 +287,7 @@ def receipt_fixture(daemon, attempt, adir, *, rc=0, stdout=b"fixture result\n"):
     receipt = {"rc": rc, "signal": None, "wall_s": .1, "child_pid": None,
                "finished_at": daemon_module.utcnow()}
     (adir / "exit.json").write_text(json.dumps(receipt))
+    launched(daemon, attempt)
     daemon._begin_finalizing(attempt, receipt)
     return daemon.store.get_attempt(attempt["attempt_id"])
 

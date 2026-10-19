@@ -10,7 +10,7 @@ from subfleet import cli, protocol, scheduler
 from subfleet.adapters.base import AdapterError
 from subfleet.contracts import Credential, Lane, LaneOwner, Reading, ReadingLabel
 from subfleet.daemon import after, utcnow
-from tests.fake.test_state_contract import receipt_fixture, state_daemon  # noqa: F401
+from tests.fake.test_state_contract import launched, receipt_fixture, state_daemon  # noqa: F401
 from tests.fake.test_workspace_contract import repository
 
 
@@ -55,6 +55,9 @@ def test_hard_review_waits_for_codex_then_runs_with_shell(shell_state):
         tx.execute('DELETE FROM leases WHERE holder=?', (attempt['attempt_id'],))
     service._admit()
     placed, = service.store.list_attempts(job)
+    assert placed['capability'] is None                 # P3-2: recorded at launch, not reservation
+    launched(service, placed)
+    placed, = service.store.list_attempts(job)
     assert (placed['lane_id'], placed['model_requested'], placed['capability']) == ('codex-1', 'gpt-6.1-sol', 'commands')
 
 
@@ -73,7 +76,9 @@ def test_opus_attempt_and_final_notice_line_report_shell(shell_state, sandbox, o
     job = review(service, harness, **changes)
     service._admit()
     attempt, = service.store.list_attempts(job)
-    assert attempt['lane_id'] == 'claude-10'
+    assert attempt['lane_id'] == 'claude-10' and attempt['capability'] is None
+    launched(service, attempt)
+    attempt, = service.store.list_attempts(job)
     assert attempt['capability'] == ('writable' if expected else 'none')
     adir = service.root / 'jobs' / job / 'a1'
     adir.mkdir()
@@ -249,5 +254,7 @@ def test_resume_keeps_explicit_shell_opt_out(shell_state):
     resumed = service.dispatch('submit', harness.submit_args(kind='resume', parent_job_id=source))['job_id']
     assert service.store.get_job(resumed)['needs_shell'] is False
     service._admit()
+    continued, = service.store.list_attempts(resumed)
+    launched(service, continued)
     continued, = service.store.list_attempts(resumed)
     assert continued['lane_id'] == 'claude-10' and continued['capability'] == 'none'

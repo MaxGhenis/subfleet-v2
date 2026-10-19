@@ -25,7 +25,7 @@ from subfleet import daemon as daemon_module
 from subfleet import hooks, render
 from subfleet.procs import Containment
 from tests.fake.notice_invariant import notice_mismatches
-from tests.fake.test_state_contract import receipt_fixture, reserve, state_daemon  # noqa: F401
+from tests.fake.test_state_contract import launched, receipt_fixture, reserve, state_daemon  # noqa: F401
 
 #: What Codex left in `last.md` when the daemon stopped it on 2026-09-24.
 INTERIM = b"I am checking the newer validation code before finalizing the review.\n"
@@ -102,6 +102,7 @@ def test_c15_1_a_lost_attempt_is_announced_lost_with_the_jobs_rc(state_daemon, m
     monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: daemon_module.procs.ProcessTable({}))
     monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
     job_id, attempt, _ = reserve(daemon, harness, max_attempts=1)
+    launched(daemon, attempt)                       # a running attempt's launch was built
     daemon.store.update_attempt(attempt["attempt_id"], state="running", guardian_pid=42001,
                                 pgid=42001, boot_id="unit-test-boot", proc_start="unit-test-start")
     daemon._process_attempt(attempt["attempt_id"])
@@ -170,7 +171,9 @@ def test_c15_1_c4_2_an_attempt_that_never_launched(state_daemon, cancel):
         daemon.store.update_job(job_id, cancel_requested_at=daemon_module.utcnow())
     daemon._process_attempt(attempt["attempt_id"])
     state, rc = ("cancelled", 130) if cancel else ("failed", 1)
-    assert notice_lines(daemon, job_id) == [dashes(job_id, state, rc), "reserved-no-launch", COMMANDS]
+    # #221 review r1b P3-2: it never launched, so it claims no capability.
+    assert notice_lines(daemon, job_id) == [dashes(job_id, state, rc), "reserved-no-launch"]
+    assert daemon.store.get_attempt(attempt["attempt_id"])["capability"] is None
 
 
 @pytest.mark.parametrize("cancel", [False, True])
@@ -182,6 +185,7 @@ def test_c15_1_c5_7_a_quarantined_attempt_names_the_jobs_state_not_the_attempts_
     job_id, attempt, _ = reserve(daemon, harness)
     if cancel:
         daemon.store.update_job(job_id, cancel_requested_at=daemon_module.utcnow())
+    launched(daemon, attempt)                       # a starting attempt's launch was built
     daemon.store.update_attempt(attempt["attempt_id"], state="starting", guardian_pid=42001)
     daemon._starting_deadlines[attempt["attempt_id"]] = 0
     # A cancelled attempt is killed first, and an uninspectable group ends that
@@ -250,6 +254,7 @@ def _codex_exits_zero_on_sigterm(monkeypatch, adir: Path) -> list[int]:
 
 
 def _running(daemon, attempt) -> None:
+    launched(daemon, attempt)
     daemon.store.update_attempt(attempt["attempt_id"], state="running", guardian_pid=42001,
                                 pgid=42001, child_pid=42002, boot_id="unit-test-boot",
                                 proc_start="unit-test-start", started_at=daemon_module.utcnow())
