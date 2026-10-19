@@ -92,7 +92,6 @@ _PREFIXED_TOKEN_RE = re.compile(
     r"npm_[A-Za-z0-9]{16,}|hf_[A-Za-z0-9]{16,}"
     r")(?![A-Za-z0-9_-])"
 )
-_BEARER_RE = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]{8,}=*")
 _DATA_URI_RE = re.compile(
     r"(?i)data:[a-z0-9.+/-]+(?:;[a-z0-9=.+/-]+)*;base64,[A-Za-z0-9+/=\s]{32,}"
 )
@@ -126,6 +125,18 @@ _ASSIGN_SEPARATOR_RE = re.compile(r"(?:\\*[\"'])?\s*[:=]\s*")
 # A value that opens with a quote, escaped or not, is the quoted rule's.
 _PLAIN_VALUE_RE = re.compile(r"(?!\\*[\"'])[^\s,;\"']+")
 _FLAG_VALUE_RE = re.compile(r"[ \t]+(?P<value>[^\s-][^\s]*)")
+# A `Bearer` token, unless the token would begin with a credential key a named-value
+# rule reads: taken, the key leaves its value to no rule (`token_type: Bearer\n
+# access_token: …`, `scheme=bearer oauth.client_secret=…`, `Bearer --api-key …`,
+# C-23.14). The lookahead refuses token characters up to a sensitive ending followed
+# by an assignment's separator (`_ASSIGN_SEPARATOR_RE`), or up to a flag (`--` and
+# `_SENSITIVE_KEY`, as `_SENSITIVE_FLAG_RE` reads one) followed by its value
+# (`_FLAG_VALUE_RE`). After any token characters, `_SENSITIVE_WORD` already covers
+# the compound keys (`db_password`), as `_SENSITIVE_SUFFIX_RE` does for the
+# assignment rules; `_SENSITIVE_KEY` there would nest its repetition in the lazy one.
+_BEARER_RE = re.compile(
+    r"(?i)\bBearer\s+(?![A-Za-z0-9._~+/-]*?(?:" + _SENSITIVE_WORD + _ASSIGN_SEPARATOR_RE.pattern
+    + r"|--" + _SENSITIVE_KEY + r"[ \t]+[^\s-]))[A-Za-z0-9._~+/-]{8,}=*")
 _QUOTE_EVENT_RE = re.compile(r"\\[^\n]|[\"'\r\n]")
 #: A run of backslashes, a quote or a line break: each run is one match.
 _ESCAPE_EVENT_RE = re.compile(r"\\+|[\"'\r\n]")
@@ -516,6 +527,11 @@ def _neutral_break(text: str, visible: int, after: int) -> bool:
       (`"password"`, and escaped as `\\'password\\'` or `\\"password\\"`), to
       a `:` or `=` after the break;
     - `Bearer`, to a token character after the break.
+    `_BEARER_RE`'s lookahead, which refuses a token that begins with a key, and the
+    header rule's choice to leave the key that ends its line (`_key_past_line`) read
+    past a break only between a key or its closing quote and its `:` or `=`, or
+    between those and the value, which the first two refuse; a refused `Bearer`
+    still refuses the break after it, which is only more cautious.
     A quote or separator after anything else, a key followed by anything else,
     and a word ending the text are ordinary. No rule's replacement puts a `:`,
     `=` or token character where the first visible character after a break was
@@ -599,8 +615,8 @@ class _Tally:
         self.total = 0
 
     def __call__(self, matched: str, out: str, *, header: bool = False) -> str:
-        if out == matched:
-            return out
+        if out.rstrip() == matched.rstrip():
+            return out          # nothing replaced: a header leaving its key trims only its line's end
         # Count a credential matched by an earlier rule only once.
         earlier = any(mark in matched for mark in _PLACEHOLDERS)
         if header:
@@ -619,6 +635,57 @@ def _apply_rules(text: str, rules, tally: _Tally) -> str:
 
         text = _linear_sub(pattern, replace, text)
     return text
+
+
+def _header_value(match: re.Match) -> str:
+    """The header rule's replacement: the rest of the header's line, redacted. A
+    credential key that ends the line, with its value past the line (`Authorization:
+    client_secret=` and the secret on the next line), is left to the named-value
+    rules with what follows it (C-23.14): taken, it would leave its value to no rule.
+    What precedes the key is redacted as before; a header holding only the key is
+    left whole, and those rules read it (the header's own name is a key too). The
+    line's trailing whitespace goes either way, as the redaction always took it, and
+    a space parts the redaction from a key that adjoined what it hid (`x.token=`), so
+    the header's own value ends there and a scrubbed line scrubs to itself."""
+    text, start, end = match.string, match.end(1), match.end()
+    key = _key_past_line(text, start, end)
+    if key is None:
+        return match.group(1) + REDACTED
+    before, last = _last_visible(text, key) + 1, _last_visible(text, end) + 1
+    if before <= start:
+        return text[match.start():last]
+    return match.group(1) + REDACTED + (text[before:last] if before < key else " " + text[key:last])
+
+
+def _key_past_line(text: str, start: int, end: int) -> int | None:
+    """Where the credential key ending `text[start:end]`, a line's rest, begins (its
+    opening quote and the backslashes escaping that included) when its separator
+    (`_ASSIGN_SEPARATOR_RE`) reaches past `end` to a value; None otherwise. Only the
+    line's last identifier can: between it and `end` the separator allows nothing
+    but a quote, whitespace and `:` or `=`."""
+    at = _last_visible(text, end)
+    if at >= start and text[at] in ":=":
+        at = _last_visible(text, at)
+    if at >= start and text[at] in "\"'":
+        at -= 1
+        while at >= start and text[at] == "\\":
+            at -= 1
+    if at < start or not _identifier_char(text[at]):
+        return None
+    key_end = at + 1
+    while at > start and _identifier_char(text[at - 1]):
+        at -= 1
+    if not _SENSITIVE_SUFFIX_RE.search(text[max(at, key_end - 17):key_end]):
+        return None
+    separator = _ASSIGN_SEPARATOR_RE.match(text, key_end)
+    if separator is None or separator.end() <= end or not (
+            _PLAIN_VALUE_RE.match(text, separator.end()) or _VALUE_QUOTE_RE.match(text, separator.end())):
+        return None
+    if at > start and text[at - 1] in "\"'":
+        at -= 1
+        while at > start and text[at - 1] == "\\":
+            at -= 1
+    return at
 
 
 def _resolve_blocks(text: str, strip_reminders: bool, tally: _Tally) -> str:
@@ -651,7 +718,7 @@ def _scrub(text: str, strip_reminders: bool, *, multiline: bool = False) -> tupl
         (_PREFIXED_TOKEN_RE, REDACTED),
         (_BEARER_RE, "Bearer " + REDACTED),
         (_LONG_BASE64_RE, "[BASE64 OMITTED]"),
-        (_HEADER_RE, lambda match: match.group(1) + REDACTED),
+        (_HEADER_RE, _header_value),
         (_URL_PASSWORD_RE, lambda match: match.group(1) + REDACTED + match.group(3)),
     ), tally)
     text = _scrub_named_values(text, tally, quoted=True, multiline=multiline)
