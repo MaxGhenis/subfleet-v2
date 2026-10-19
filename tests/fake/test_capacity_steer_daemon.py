@@ -612,6 +612,47 @@ def test_r6_an_empty_steered_chain_keeps_no_slot_when_all_its_lanes_are_disabled
     assert json.loads(events[0]["data_json"])["since"] == since
 
 
+@pytest.mark.parametrize("cap", [1, 2], ids=["one-slot", "two-slots"])
+@pytest.mark.parametrize("route_moves", [False, True], ids=["due-look", "route-moved"])
+@pytest.mark.parametrize("due", [False, True], ids=["not-due", "due"])
+def test_r7_an_empty_steered_chain_keeps_no_slot_during_a_far_operator_hold(
+        fleet, r6_clock, monkeypatch, cap, route_moves, due):
+    """C-11.8: a far operator hold releases FIFO without starting retry grace.
+
+    Unlike disabled lanes, these still reach #207's empty-decision checks.
+    """
+    daemon, harness = fleet
+    daemon.policy["caps"]["max_active_attempts"] = cap
+    older = submit(daemon, harness, task="build")
+    refuse(daemon, admit(daemon, older))
+    assert admit(daemon, older) is None
+    for identity in ("codex-1", "codex-2"):
+        daemon.store.add_closure(Closure(identity, "account", after(90 * 86400),
+                                         ClosureReason.OPERATOR_HOLD, ClockSource.REPORTED, "fixture"))
+    later = [submit(daemon, harness, pinned_model="opus", task=None) for _ in range(cap)]
+    if due:
+        r6_clock(1)
+    stands, checks = daemon._route_stands, []
+
+    def check(basis, decision):
+        if basis["job"]["job_id"] == older:
+            checks.append(decision)
+            if route_moves:
+                return "moved", 0, None
+        return stands(basis, decision)
+
+    monkeypatch.setattr(daemon, "_route_stands", check)
+    daemon._admit()
+    assert len(checks) == ((daemon_module.ROUTE_TRIES if route_moves else 1) if due else 0)
+    assert all(not decision.evaluations and not decision.chain for decision in checks)
+    assert len(daemon.store.list_attempts(older)) == 1
+    assert all(len(daemon.store.list_attempts(job)) == 1 for job in later), daemon._holds
+    assert all(daemon.store.list_attempts(job)[0]["model_requested"] == OPUS for job in later)
+    assert not daemon._pin_episodes.get(older, {}).get("open")
+    if not (due and route_moves):
+        assert all(reason.startswith("closed:account:") for reason in daemon._holds[older]["for_good"])
+
+
 @pytest.mark.parametrize("reason", [ClosureReason.OPERATOR_HOLD, ClosureReason.PROVIDER_LIMIT])
 def test_r7_a_steered_original_candidate_with_a_reset_prevents_permanent_retry_grace(
         fleet, r6_clock, reason):
