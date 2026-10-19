@@ -836,13 +836,14 @@ def head_shape(size: int, quote: str = '"') -> str:
     return "".join("k=" + "\\" * n + quote + "\n" for n in range(1, 123)) + "plain words only\n" * (size // 17)
 
 
-def tail_shape(size: int) -> str:
+def tail_shape(size: int, kinds: int = 120) -> str:
     """Review r2's tail input: plain words, a value opened (`k='`) just before the tail,
-    escaped quotes that open nothing filling the tail, and the closing quote at the end.
-    `setdefault`'s default ran `_event_before` again at every line start."""
+    escaped quotes of `kinds` kinds that open nothing filling the tail, and the closing
+    quote at the end. `setdefault`'s default ran `_event_before` again at every line
+    start; with eight kinds, under the cap, every line start is still refused."""
     lines, length, n = [], 0, 0
     while length < LIMIT // 2 + 256:
-        n = n % 120 + 1
+        n = n % kinds + 1
         lines.append("x" + "\\" * n + '"\n')
         length += len(lines[-1])
     return "plain words only\n" * (size // 17) + "k='\n" + "".join(lines) + "'\n"
@@ -855,6 +856,7 @@ COST_SHAPES = {
     "head": head_shape,
     "head-single-quotes": lambda size: head_shape(size, "'"),
     "tail": tail_shape,
+    "tail-eight-kinds": lambda size: tail_shape(size, KINDS_MAX),
     "quote-dense": lambda size: "'\"\n" * (size // 3),
     "json-dense": lambda size: 'k=\\"v\\", "t": \\\\\\"w\\\\\\"\n' * (size // 23),
     "blank-lines-after-a-key": lambda size: "token\n" + "\n" * size + ":\nSECRET7blank9\n",
