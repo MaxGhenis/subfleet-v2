@@ -1236,7 +1236,7 @@ The new tests, run against the `f62fdec4a` source: 151 failed, 118 passed. The r
 
 ### Tests
 
-**Setup:** Python 3.14.7 free-threaded from the worktree's `.venv`, `PYTHONPATH` unset, one pytest process per hold of the shared suite lock (no xdist), `--timeout=300`, Hypothesis bounded (the new properties are derandomized with 400 examples each; no `deep` profile). The longest hold, including its wait for the lock, took 16 min (hold 4).
+**Setup:** Python 3.14.7 free-threaded from the worktree's `.venv`, `PYTHONPATH` unset, one pytest process per hold of the shared suite lock (no xdist), `--timeout=300`, Hypothesis bounded (the new properties are derandomized with 400 examples each; no `deep` profile). The longest hold, including its wait for the lock, took about 17 min (the ninth `tests/unit` chunk below).
 
 **The six briefed holds, at `11514aa70`:** 2,096 passed, none failed or skipped.
 
@@ -1272,6 +1272,13 @@ The new tests, run against the `f62fdec4a` source: 151 failed, 118 passed. The r
 
 **An extra hold** over the other callers of the launch path and the users of the uncommitted copy: 331 passed (`test_daemon_launch` 9, `test_workspace_contract` 8, `test_workspace_transient` 24, `test_main_refusal_write_dir` 5, `test_prompt_seam` 8, `test_detached_cwd_pins` 18, `test_launch_gates_above_stdio` 9, `test_salvage_finalization` 47, `test_record_secrecy` 44, `test_mcp_job_contract` 12, `test_retention_regenerable` 26, `test_host_push_quarantine_restart` 8, `test_salvage_unindexable` 86, `test_store_readers` 27).
 
+**A second extra hold** over the isolation, gate, resume and compat tests, since isolated Codex reviews also get the new `-c` pins: 2,033 passed (`tests/process/test_codex_isolation.py` 38, `test_gate_admission` 24, `test_gate_end_to_end` 11, `test_resume_contract` 23, `test_compat` 1,615, `test_protocol_secrecy` 322).
+
+**The wider sweep, at `917e178c1`,** with `HYPOTHESIS_PROFILE=ci` as CI runs it:
+- **all 106 `tests/fake` files**, in 8 chunks: 1,849 passed and 2 xfailed, none failed (by chunk: 359 and 1 xfailed, 331 and 1 xfailed, 218, 207, 268, 255, 90, 121). Round 6's one failure there, `test_admission_stateful.py` under its random `dev` profile, did not recur under `ci`;
+- **the other 286 `tests/unit` files** (all 312 with the holds above), in 12 chunks: 8,896 passed and 1 skipped (`test_host_push_build.py`'s explicit local benchmark), none failed (by chunk: 624, 766, 649, 877, 467 and the skip, 1,184, 706, 598, 379, 955, 1,120, 571);
+- **the other 6 `tests/process` files:** 33 passed and 1 environment-conditional skip.
+
 **Other runs:** the new tests at the `f62fdec4a` source (151 failed, 118 passed); the four mutation holds (370 run, 29 failed; 235, 13; 34, 1; 34, 4); and three development holds of the rule tests (127 failed and 92 passed at base; 349 passed and 5 failed, a test that never created its directory; 424 passed and 1 failed, the transport assertion fixed in `ea2624f9c`).
 
 **Outside pytest:**
@@ -1282,7 +1289,7 @@ The new tests, run against the `f62fdec4a` source: 151 failed, 118 passed. The r
 - the self-test's cost, timed directly.
 
 **Not run:**
-- `tests/e2e`, `tests/frontend`, `tests/live`, the full suite, and the rest of `tests/unit`, `tests/fake` and `tests/process`;
+- `tests/e2e`, `tests/frontend` and `tests/live`, and the suite as one process (every `tests/unit`, `tests/fake` and `tests/process` file ran, in holds);
 - a real provider turn: a Claude lane loading `--settings` under `--setting-sources user`, or a Codex turn firing the publish hook;
 - `gh` against any real host; the real `gh auth token`;
 - the lane configs and the live PR body, which are off limits or need the network.
