@@ -209,9 +209,20 @@ def test_faulthandler_writes_frames_only(daemon_log):
     assert "in test_faulthandler_writes_frames_only" in text
     assert secret not in text and "RuntimeError" not in text and "raise RuntimeError" not in text
     assert held
-    if sys.version_info >= (3, 14):          # and each thread's name (review r1 of #233, P3)
+    if sys.version_info >= (3, 14):
+        # And, for all threads (as `daemon stacks` dumps them), each thread's name
+        # (review r1 of #233, P3): fixed or ids only, below.
         import threading
-        assert f"[{threading.current_thread().name}]" in text
+        release = threading.Event()
+        named = threading.Thread(target=release.wait, name="subfleet-probe", daemon=True)
+        named.start()
+        try:
+            stream.flush()
+            faulthandler.dump_traceback(file=stream, all_threads=True)
+        finally:
+            release.set()
+            named.join(30)
+        assert "[subfleet-probe] (most recent call first)" in daemon_log.read()
 
 
 #: A name a thread is given: fixed words (a pool's prefix too, to which the pool adds
@@ -220,7 +231,8 @@ FIXED_THREAD_NAME = re.compile(r"[a-z][a-z0-9-]*\Z")
 #: The one computed name: a turn runner's, its attempt's id (C-1.2).
 COMPUTED_THREAD_NAMES = {"f'turn:{self.attempt_id}'"}
 #: That id: the job of a turn is named `turn-<conversation id>` (C-26.12), so ids only.
-TURN_THREAD_NAME = re.compile(r"turn:\d{8}-\d{6}-turn-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}(?:-\d+)?/a\d+\Z")
+#: (`ids.job_id` cuts the slug at 40 characters, so a uuid's last ones may go.)
+TURN_THREAD_NAME = re.compile(r"turn:\d{8}-\d{6}-turn-[0-9a-f-]+/a\d+\Z")
 
 
 def test_every_daemon_thread_s_name_is_fixed_or_ids_only():
