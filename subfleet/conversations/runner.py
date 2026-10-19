@@ -668,7 +668,7 @@ class TurnRunner:
         try:
             status = self.relay.status()
         except RelayError as exc:
-            self._unacknowledged(f"relay status: {exc}")
+            self._unacknowledged(f"relay status: {refusals.fixed_error(exc)}")
             return False                    # asked again later; nothing is sent meanwhile
         self.resends = 0
         unwritten = self._load_log()
@@ -801,7 +801,7 @@ class TurnRunner:
                 self.handover_tried = True    # the relay may have logged it: `_handover_verdict` asks
             if frame.tag.startswith("steer:"):
                 self._steer_tried.add(frame.tag.removeprefix("steer:"))
-            self._unacknowledged(f"frame {frame.tag}: {exc}")
+            self._unacknowledged(f"frame {frame.tag}: {refusals.fixed_error(exc)}")
             return False
         self.resends = 0
         if ack.ok:

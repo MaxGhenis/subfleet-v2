@@ -8994,7 +8994,8 @@ class Daemon:
                         # main (#55). A pool shut down by a stopping daemon refuses
                         # the same way, and is not counted.
                         if not self.stopping.is_set():
-                            self._count_connection("unscheduled", f"{req.op} ({exc})")
+                            # Logged: the exception's words scrubbed, as C-25.7 asks of each site.
+                            self._count_connection("unscheduled", f"{req.op} ({refusals.scrubbed_words(exc)})")
                         continue
                     if future is None:
                         note_reply()
