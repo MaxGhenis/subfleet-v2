@@ -2,12 +2,27 @@
 
 from __future__ import annotations
 
+import errno
 import json
+import logging
 import os
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import types
+from pathlib import Path
+from unittest import mock
 
+import hypothesis
+import hypothesis.strategies as st
 import pytest
 
-from subfleet.relay import LOG_INLINE_MAX, RelayServer, line_sha256, read_log, socket_path
+from subfleet import relay as relay_module
+from subfleet.relay import LOG_INLINE_MAX, REPLY_TIMEOUT_S, RelayServer, line_sha256, read_log, socket_path
 
 
 @pytest.fixture
@@ -299,3 +314,204 @@ def test_stop_covers_a_connection_accepted_before_it_was_published(server, monke
         peer.close()
         relay._thread.join(5)
         conn.close()
+
+
+# #230 review r1: a frame far over any pipe buffer (64 KiB by default; at most
+# 1 MiB on Linux), so its write waits for a reader once the buffer is full.
+LINE_2MIB = "x" * (2 << 20)
+
+
+def _relay_on_a_socket(log_path: Path, *, exited_child: bool = False):
+    """A real relay as the guardian runs it (`guardian.run_guardian`): bound on a
+    socket, serving the write end of a stdin pipe. The read end is returned, held
+    by the test. With `exited_child`, a child was first started on that pipe as its
+    stdin and has exited, and the relay serves with it as its child."""
+    short = Path(tempfile.mkdtemp(prefix="sfrb-", dir="/tmp"))        # AF_UNIX paths stay short
+    read_end, write_end = os.pipe()
+    child = None
+    if exited_child:
+        child = subprocess.Popen([sys.executable, "-c", ""], stdin=read_end)
+        assert child.wait(30) == 0
+    relay = RelayServer(short / "r.sock", log_path)
+    relay.bind()
+    relay.serve(write_end, child=child)
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    client.settimeout(10)
+    client.connect(str(relay.path))
+    return relay, client, types.SimpleNamespace(fd=read_end), short
+
+
+def _release(relay, client, held, short) -> None:
+    if held.fd is not None:
+        os.close(held.fd)                    # what ended a held write at d72597b5c (EPIPE)
+        held.fd = None
+    relay.stop()                             # idempotent: closes what a failed test left open
+    client.close()
+    shutil.rmtree(short, ignore_errors=True)
+
+
+@pytest.fixture
+def exited_child(tmp_path):
+    """#230 review r1's input: the relay feeds the stdin pipe of a child that has
+    exited, while the pipe's read end stays open and unread (the test holds it, as
+    a background process the provider started and that inherited stdin would)."""
+    made = _relay_on_a_socket(tmp_path / "stdin.jsonl", exited_child=True)
+    try:
+        yield made[:3]
+    finally:
+        _release(*made)
+
+
+def _send_and_wait_for_intent(relay, client, line: str) -> None:
+    """Send frame 1 and return once the relay has logged its intent: it is then
+    inside the exchange, writing to the pipe."""
+    client.sendall((json.dumps(F(1, line=line, tag="user-message")) + "\n").encode())
+    until = time.monotonic() + 10
+    while not read_log(relay.log_path):
+        assert time.monotonic() < until, "the relay did not take the frame"
+        time.sleep(0.01)
+
+
+def _stop_within(relay, held, bound: float) -> bool:
+    """Run `stop` and give it `bound` seconds. One still blocked then is released
+    by closing the held read end (EPIPE), so a failing run ends instead of hanging."""
+    returned = threading.Event()
+    stopper = threading.Thread(target=lambda: (relay.stop(), returned.set()), daemon=True)
+    stopper.start()
+    if returned.wait(bound):
+        return True
+    os.close(held.fd)
+    held.fd = None
+    stopper.join(10)
+    return False
+
+
+def _read_to_eof(fd: int) -> bytes:
+    """What is left in the pipe, which must be closed at its write end by now."""
+    os.set_blocking(fd, False)
+    data = bytearray()
+    while True:
+        try:
+            chunk = os.read(fd, 1 << 16)
+        except BlockingIOError:
+            raise AssertionError("the relay left the pipe's write end open") from None
+        if not chunk:
+            return bytes(data)
+        data.extend(chunk)
+
+
+def test_stop_cuts_an_exchange_a_retained_stdin_reader_holds(exited_child, caplog):
+    """C-26.4 (#230 review r1): a 2 MiB frame waits in the stdin pipe of a child that
+    has exited, whose read end is held by a process that never reads it. `stop` gives
+    the exchange its bound (`REPLY_TIMEOUT_S`, the reply's own) and then cuts it: it
+    returns within that bound plus 1 s, logs one fixed line, leaves no relay thread
+    and no socket file, and closes the pipe. The frame is logged `failed` (ECANCELED),
+    the reader got only part of it, and the client reads end of stream, never an
+    acknowledgement. At d72597b5c, `stop` waited until the reader closed the pipe."""
+    relay, client, held = exited_child
+    caplog.set_level(logging.WARNING, logger="subfleet.relay")
+    _send_and_wait_for_intent(relay, client, LINE_2MIB)
+    assert _stop_within(relay, held, REPLY_TIMEOUT_S + 1), "a retained stdin reader held stop past its bound"
+    assert not relay._thread.is_alive(), "the relay thread outlived stop"
+    assert not relay.path.exists(), "stop left the socket file"
+    cut = [record for record in caplog.records if record.name == "subfleet.relay"]
+    assert [(record.levelno, record.getMessage()) for record in cut] == [(logging.WARNING, relay_module.CUT_LOG_LINE)]
+    assert not cut[0].args                                       # fixed text: nothing of the frame
+    assert [(r["seq"], r["status"], r.get("errno")) for r in read_log(relay.log_path)] == [
+        (1, "failed", errno.ECANCELED)]
+    assert client.recv(1 << 16) == b"", "a cut exchange was acknowledged"
+    received = _read_to_eof(held.fd)
+    whole = (LINE_2MIB + "\n").encode()
+    assert 0 < len(received) < len(whole) and whole.startswith(received)
+
+
+def test_stop_still_answers_an_exchange_that_finishes_inside_its_bound(exited_child, caplog):
+    """C-26.4 (kept from #230): the same 2 MiB frame, but the holder of the read end
+    drains the pipe as `stop` begins. The exchange finishes inside the bound, so the
+    line is written whole and its acknowledgement is sent before `stop` returns, and
+    nothing is cut or logged. This passes at d72597b5c too; it pins the behaviour the
+    bound keeps, and a cut that does not wait out the bound fails it."""
+    relay, client, held = exited_child
+    caplog.set_level(logging.WARNING, logger="subfleet.relay")
+    whole = (LINE_2MIB + "\n").encode()
+    _send_and_wait_for_intent(relay, client, LINE_2MIB)
+    go, drained = threading.Event(), bytearray()
+
+    def drain():
+        go.wait(10)
+        while len(drained) < len(whole):
+            chunk = os.read(held.fd, 1 << 16)
+            if not chunk:
+                return
+            drained.extend(chunk)
+
+    reader = threading.Thread(target=drain, daemon=True)
+    reader.start()
+    go.set()
+    assert _stop_within(relay, held, REPLY_TIMEOUT_S + 1), "stop did not return within its bound"
+    reader.join(10)
+    client.setblocking(False)
+    try:
+        raw = client.recv(1 << 16)
+    except BlockingIOError:
+        raw = b""
+    assert raw.endswith(b"\n"), "the acknowledgement was not sent before stop returned"
+    assert json.loads(raw) == {"seq": 1, "ok": True}
+    assert bytes(drained) == whole
+    assert [(r["seq"], r["status"]) for r in read_log(relay.log_path)] == [(1, "written")]
+    assert not [record for record in caplog.records if record.name == "subfleet.relay"]
+    assert not relay._thread.is_alive() and not relay.path.exists()
+
+
+@hypothesis.settings(max_examples=12, deadline=None, derandomize=True, database=None)
+@hypothesis.example(size=2 << 20, drain=0)                      # #230 review r1: cut
+@hypothesis.example(size=10, drain=0)                           # fits the pipe: written
+@hypothesis.given(size=st.integers(0, 3 << 19), drain=st.integers(0, 3 << 19))
+def test_an_acknowledged_frame_is_one_the_reader_can_read_whole(size, drain):
+    """C-26.4, for every frame size and every amount the holder of the read end
+    drains before it stops reading: `stop` returns within its bound plus 1 s and
+    leaves no thread, socket file or open write end; the frame is logged `written`
+    exactly when the reader can read the whole line, and otherwise `failed`
+    (ECANCELED) with the reader holding a strict prefix; an `ok` acknowledgement is
+    only ever sent for a `written` frame. The bound is shortened to keep examples
+    quick; it is the same code path."""
+    line = "y" * size
+    whole = (line + "\n").encode()
+    with tempfile.TemporaryDirectory(prefix="sfrp-") as scratch, \
+            mock.patch.object(relay_module, "REPLY_TIMEOUT_S", 0.25):
+        made = _relay_on_a_socket(Path(scratch) / "stdin.jsonl")
+        relay, client, held, _ = made
+        try:
+            got = bytearray()
+
+            def reader():
+                while len(got) < drain:
+                    chunk = os.read(held.fd, min(1 << 16, drain - len(got)))
+                    if not chunk:
+                        return
+                    got.extend(chunk)
+
+            draining = threading.Thread(target=reader, daemon=True)
+            draining.start()
+            _send_and_wait_for_intent(relay, client, line)
+            assert _stop_within(relay, held, relay_module.REPLY_TIMEOUT_S + 1), "stop past its bound"
+            draining.join(10)
+            assert not draining.is_alive(), "the reader never reached end of file"
+            got.extend(_read_to_eof(held.fd))
+            assert not relay._thread.is_alive() and not relay.path.exists()
+            records = read_log(relay.log_path)
+            assert len(records) == 1 and records[0]["status"] in ("written", "failed")
+            if records[0]["status"] == "written":
+                assert bytes(got) == whole
+            else:
+                assert records[0]["errno"] == errno.ECANCELED
+                assert len(got) < len(whole) and whole.startswith(bytes(got))
+            client.setblocking(False)
+            try:
+                raw = client.recv(1 << 16)
+            except (BlockingIOError, ConnectionResetError):
+                raw = b""
+            if raw:
+                assert json.loads(raw) == {"seq": 1, "ok": True} and records[0]["status"] == "written"
+        finally:
+            _release(*made)

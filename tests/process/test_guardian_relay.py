@@ -140,3 +140,80 @@ def test_the_relay_advertises_its_cap_and_answers_status(guardian):
     assert receipt["rc"] == 0
     assert [(r["seq"], r["tag"]) for r in read_log(attempt / "stdin.jsonl")] == [(1, "init"), (2, "close")]
     process.wait(5)
+
+
+# The provider starts a background process that inherits its stdin and never
+# reads it, then exits once the test says so (its first argument names a file).
+PARK = ("import os, subprocess, sys, time\n"
+        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'])\n"
+        "while not os.path.exists(sys.argv[1]):\n"
+        "    time.sleep(0.01)\n")
+
+
+def test_a_retained_stdin_reader_cannot_hold_the_exit_receipt(tmp_path):
+    """C-26.4, C-5.1 (#230 review r1): a 2 MiB frame waits in the provider's stdin
+    when the provider exits, while a background process it started holds stdin open
+    and never reads. The relay cuts that exchange after its bound, so the guardian
+    publishes `exit.json` with the provider's own exit status. The frame is logged
+    `failed` (ECANCELED) and the daemon side reads end of stream, never an
+    acknowledgement. At d72597b5c the receipt waited for the background process."""
+    import errno
+    import signal
+    import threading
+
+    from subfleet.relay import RelayError
+
+    if sys.platform != "darwin":
+        pytest.skip("C-26.4 process test targets the deployment OS")
+    try:
+        if procs.identity(os.getpid()) is None:
+            pytest.skip("C-26.4 process identity unavailable")
+    except procs.InspectionError:
+        pytest.skip("C-26.4 host sandbox denies ps/sysctl")
+    lock = tmp_path / "daemon.lock"
+    write_lock(lock, os.getpid())
+    attempt, go = tmp_path / "a1", tmp_path / "go"
+    sock = Path("/private/tmp") / f"sfr-{os.getpid()}-{time.monotonic_ns() % 10**6}" / "x.sock"
+    argv = [sys.executable, "-m", "subfleet.guardian", "--attempt-dir", str(attempt), "--cwd", str(tmp_path),
+            "--stdout-path", str(attempt / "stdout"), "--stderr-path", str(attempt / "stderr"),
+            "--control-socket", str(sock), "--relay-peer-lock", str(lock),
+            "--", sys.executable, "-c", PARK, str(go)]
+    env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[2]),
+           "SUBFLEET_ATTEMPT": "relay/a1", "SUBFLEET_JOB": "relay"}
+    process = subprocess.Popen(argv, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    answers: list = []
+    try:
+        wait_for(lambda: (attempt / "start.json").exists())
+
+        def send():
+            try:
+                answers.append(RelayClient(sock, timeout_s=30).send(1, "write", line="x" * (2 << 20),
+                                                                     tag="user-message"))
+            except RelayError as exc:
+                answers.append(exc)
+
+        sender = threading.Thread(target=send, daemon=True)
+        sender.start()
+        wait_for(lambda: read_log(attempt / "stdin.jsonl"), timeout=10)
+        go.touch()                                                   # the provider exits now
+        receipt = json.loads(wait_for(lambda: (attempt / "exit.json").exists()
+                                      and (attempt / "exit.json").read_text(), timeout=10))
+        assert receipt["rc"] == 0
+        assert [(r["seq"], r["status"], r.get("errno")) for r in read_log(attempt / "stdin.jsonl")] == [
+            (1, "failed", errno.ECANCELED)]
+        sender.join(10)
+        assert len(answers) == 1 and isinstance(answers[0], RelayError), answers
+        process.wait(10)
+        assert not sock.exists()
+    finally:
+        # The guardian leads its own group; the background process is in it.
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+        process.wait(10)
+        for path in (sock, sock.parent):
+            try:
+                path.unlink() if path == sock else path.rmdir()
+            except (FileNotFoundError, OSError):
+                pass
