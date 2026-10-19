@@ -788,7 +788,7 @@ def test_slow_boot_lookup_keeps_bucket_refill(root, monkeypatch, holder_clock):
         assert probe.call('ping')['pong']
     assert starts == pytest.approx([1.6] * 5)
     assert probe.call('ping')['pong']
-    assert starts[-1] == pytest.approx(3.6)  # refill wait to 2, then another boot read
+    assert starts[-1] == pytest.approx(4.2)  # a token at 2.6, then another boot read
     assert starts[1] - starts[0] >= client_module.HOLDER_PROBE_INTERVAL_S
 
 
@@ -929,6 +929,13 @@ def test_wait_refused_connect_probe_slot_respects_deadline(root, monkeypatch, ho
     from types import SimpleNamespace
     starts = paced_observations(root, monkeypatch, holder_clock)
     wire = PacedWire(holder_clock)
+    probe = Client(root)
+    # Leave one token for preflight, so the refused-connect diagnosis must
+    # wait for a refill. The wait's original .6-second deadline still wins.
+    for _ in range(3):
+        probe.holder_report()
+    starts.clear()
+    monkeypatch.setattr(cli, '_client', lambda args: probe)
 
     def refuse(path):
         raise ConnectionRefusedError('controlled refusal')
@@ -942,6 +949,6 @@ def test_wait_refused_connect_probe_slot_respects_deadline(root, monkeypatch, ho
     monkeypatch.setattr(cli, 'time', SimpleNamespace(
         monotonic=lambda: holder_clock.now, sleep=client_module._sleep))
     assert cli.main(['wait', 'job-1', '--timeout', '0.6']) == int(Exit.WAIT_TIMEOUT)
-    assert holder_clock.now <= .6
-    assert starts == [0.0, 0.0] and wire.sent == []
-    assert 'cannot be reached' in capsys.readouterr().err
+    assert holder_clock.now == pytest.approx(.6)
+    assert starts == [0.0] and wire.sent == []
+    assert 'timeout' in capsys.readouterr().err
