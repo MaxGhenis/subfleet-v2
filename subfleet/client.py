@@ -76,7 +76,7 @@ SEND_MET_CLOSE_ERRNOS = frozenset({errno.EPIPE, errno.ESHUTDOWN, errno.ECONNRESE
 START_DAEMON_FIX = "subfleet daemon start"
 #: C-16.7: the first pause before a busy answer's request is sent again.
 BUSY_PAUSE_S = .05
-#: C-5.13: one client's process observations begin at least this far apart,
+#: C-5.13: one client waits this long after each completed identity probe,
 #: including failed observations and post-send diagnostics. Sends wait for a
 #: fresh observation rather than using a cached running verdict in this gap.
 HOLDER_PROBE_INTERVAL_S = 1.0
@@ -172,7 +172,8 @@ class DaemonError(Exception):
 REFUSED_UNVERIFIED_MAX_S = 60.0
 
 
-def refused_while_busy(client: Any, exc: BaseException) -> bool | None:
+def refused_while_busy(client: Any, exc: BaseException, *,
+                       deadline_at: float | None = None) -> bool | None:
     """C-16.7: whether a `DaemonUnavailable` that followed a busy answer is that busy
     daemon's full listen backlog. True: a refused connect (ECONNREFUSED) while
     `daemon.lock` names a living daemon, so busy. None: refused, but the lock
@@ -190,7 +191,7 @@ def refused_while_busy(client: Any, exc: BaseException) -> bool | None:
     if alive is None:
         return None
     try:
-        verdict = alive()
+        verdict = alive() if deadline_at is None else alive(deadline_at=deadline_at)
     except Exception:                                   # noqa: BLE001 - unverifiable is not dead
         return None
     return None if verdict is None else bool(verdict)
@@ -200,6 +201,14 @@ def busy_pause(streak: int) -> float:
     """C-16.7: the wait after the `streak`th busy answer in a row: 50 ms doubling
     to 1 s, less up to half at random so refused clients do not return together."""
     return min(1.0, BUSY_PAUSE_S * 2 ** min(streak - 1, 10)) * (1 - random.random() / 2)
+
+
+class RequestTimeout(ProtocolError):
+    """The request budget ended before sending; no outcome needs settling."""
+
+    def __init__(self):
+        super().__init__("request deadline elapsed before sending to the daemon",
+                         Exit.OPERATIONAL)
 
 
 class ResponseLost(ProtocolError):
@@ -464,7 +473,7 @@ def _read_line(conn: socket.socket, deadline_at: float) -> bytes:
     chunks: list[bytes] = []
     size = 0
     while True:
-        remaining = deadline_at - time.monotonic()
+        remaining = deadline_at - _clock()
         if remaining <= 0:
             raise TimeoutError("no complete response line before the deadline")
         conn.settimeout(remaining)
@@ -499,7 +508,7 @@ class Client:
         # per process, and a hook, run on every Bash call of every session, says
         # nothing whichever way the daemon is down; a refused connect says it.
         self._verify_lock = verify_lock
-        self._holder_probe_started: float | None = None
+        self._holder_probe_ended: float | None = None
 
     # --- paths ---------------------------------------------------------------
 
@@ -529,18 +538,29 @@ class Client:
             return None
         return data if isinstance(data, dict) else None
 
-    def holder_report(self) -> tuple[int | None, bool | None, str, str | None]:
+    def holder_report(self, *, deadline_at: float | None = None
+                      ) -> tuple[int | None, bool | None, str, str | None]:
         """The recorded holder's pid, liveness, reason, and `ps` state (C-5.8).
 
         One `ps` per call, the same one the identity check makes, so the
         stopped-holder question of C-5.13 is answered at no extra cost. A reused
         client waits for its next probe slot, including after a failed read;
-        it never sends on the strength of a cached running observation.
+        it never sends on the strength of a cached running observation. Slot
+        waits consume the request's budget. An already available diagnostic
+        may finish after that budget, costing at most one identity observation.
         """
-        if self._holder_probe_started is not None:
-            due = self._holder_probe_started + HOLDER_PROBE_INTERVAL_S
+        if self._holder_probe_ended is not None:
+            due = self._holder_probe_ended + HOLDER_PROBE_INTERVAL_S
+            waited = due > _clock()
             while (remaining := due - _clock()) > 0:
+                if deadline_at is not None:
+                    left = deadline_at - _clock()
+                    if left <= 0:
+                        raise RequestTimeout()
+                    remaining = min(remaining, left)
                 _sleep(remaining)
+            if waited and deadline_at is not None and _clock() >= deadline_at:
+                raise RequestTimeout()
         info = self.lock_info()
         if info is None:
             return None, None, f"there is no {self.lock_path}", None
@@ -549,28 +569,34 @@ class Client:
             pid = int(pid)
         except (TypeError, ValueError):
             return None, None, f"{self.lock_path} records no usable pid", None
-        self._holder_probe_started = _clock()
-        alive, reason, state = identity_status(pid, info.get("boot_id"),
-                                               info.get("proc_start"))
+        try:
+            alive, reason, state = identity_status(pid, info.get("boot_id"),
+                                                    info.get("proc_start"))
+        finally:
+            # Completion is after both boot lookup and ps, including failures.
+            # The next ps starts after this stamp plus the full interval, so a
+            # slow boot lookup can never collapse the gap between ps starts.
+            self._holder_probe_ended = _clock()
         return pid, alive, reason, state
 
-    def lock_report(self) -> tuple[bool | None, str]:
+    def lock_report(self, *, deadline_at: float | None = None) -> tuple[bool | None, str]:
         """Liveness of the recorded lock holder, with the reason (C-5.8)."""
-        return self.holder_report()[1:3]
+        return self.holder_report(deadline_at=deadline_at)[1:3]
 
-    def lock_holder_alive(self) -> bool | None:
+    def lock_holder_alive(self, *, deadline_at: float | None = None) -> bool | None:
         """Tri-state liveness of the recorded lock holder (C-5.8)."""
-        return self.holder_report()[1]
+        return self.holder_report(deadline_at=deadline_at)[1]
 
-    def stopped_holder(self) -> DaemonStopped | None:
+    def stopped_holder(self, *, deadline_at: float | None = None) -> DaemonStopped | None:
         """`DaemonStopped` when the verified lock holder is stopped (C-5.13).
 
         Only a holder whose identity checks out is diagnosed: a state read for
         a pid that is not provably the recorded daemon says nothing about it.
         """
-        return self.silence_report()[0]
+        return self.silence_report(deadline_at=deadline_at)[0]
 
-    def silence_report(self) -> tuple[DaemonStopped | None, int | None]:
+    def silence_report(self, *, deadline_at: float | None = None
+                       ) -> tuple[DaemonStopped | None, int | None]:
         """Why a daemon that did not answer did not, from one `ps` (C-5.13).
 
         `DaemonStopped` for a verified holder that is stopped; otherwise the pid
@@ -580,12 +606,17 @@ class Client:
         C-5.8 is then held by a process that exists; without one the ordinary
         `subfleet daemon start` is the fix after all.
         """
-        pid, alive, _reason, state = self.holder_report()
+        try:
+            pid, alive, _reason, state = self.holder_report(deadline_at=deadline_at)
+        except RequestTimeout:
+            # A diagnostic never waits past the request for a probe slot. A
+            # slot already available may cost one final bounded observation.
+            return None, None
         if alive and is_stopped(state):
             return DaemonStopped(pid, state, self.socket_path), pid
         return None, pid if alive else None
 
-    def unreachable(self, why: str) -> DaemonUnavailable:
+    def unreachable(self, why: str, *, deadline_at: float | None = None) -> DaemonUnavailable:
         """The exception for a socket that could not be reached (C-5.13).
 
         A refused connect is not only "nobody is listening". A stopped daemon
@@ -597,7 +628,7 @@ class Client:
         what a failed connect means, and `subfleet daemon start` is the answer
         only when there is no verified holder to fail the flock against.
         """
-        stopped, holder = self.silence_report()
+        stopped, holder = self.silence_report(deadline_at=deadline_at)
         if stopped is not None:
             return stopped
         if holder is None:
@@ -606,7 +637,8 @@ class Client:
             f"pid {holder} holds {self.lock_path} but {self.socket_path} cannot "
             f"be reached: {why}", silent_daemon_fix(holder))
 
-    def silent(self, why: str, *, op: str = "", request_id: str = "") -> ResponseLost:
+    def silent(self, why: str, *, op: str = "", request_id: str = "",
+               deadline_at: float | None = None) -> ResponseLost:
         """The exception for a request that was sent and not answered (C-5.13, C-16.3).
 
         It is `ResponseLost` whatever the holder is doing, because the request
@@ -619,7 +651,7 @@ class Client:
         next call (the re-send of C-16.3 included) is refused as `DaemonStopped`
         before anything more is written into the paused buffer.
         """
-        stopped, holder = self.silence_report()
+        stopped, holder = self.silence_report(deadline_at=deadline_at)
         if stopped is not None:
             self._verify_lock = True
             return ResponseLost(f"{why}: {stopped}", op=op, request_id=request_id,
@@ -627,7 +659,7 @@ class Client:
         return ResponseLost(why, op=op, request_id=request_id,
                             fix=silent_daemon_fix(holder) if holder else START_DAEMON_FIX)
 
-    def check_available(self) -> None:
+    def check_available(self, *, deadline_at: float | None = None) -> None:
         """Raise `DaemonUnavailable` when the lock says the daemon cannot answer.
 
         Every send gets one fresh state/identity observation, at most one `ps`.
@@ -639,7 +671,7 @@ class Client:
         """
         if not self._verify_lock:
             return
-        pid, alive, reason, state = self.holder_report()
+        pid, alive, reason, state = self.holder_report(deadline_at=deadline_at)
         if alive is False:
             raise DaemonUnavailable(f"{self.lock_path} is stale: {reason}")
         if alive and is_stopped(state):
@@ -678,12 +710,15 @@ class Client:
                 # pause: a slow machine can overrun the sleep or the last try.
                 raise busy
             try:
-                return self._call_once(op, args, request_id=request_id,
-                                       timeout=deadline - elapsed if busy else deadline,
-                                       stated=deadline)
+                result = self._call_once(op, args, request_id=request_id,
+                                         timeout=deadline - elapsed, stated=deadline)
+                if _clock() > started + deadline:
+                    raise ResponseLost(f"no response from the daemon within {deadline:g}s",
+                                       op=op, request_id=request_id)
+                return result
             except DaemonUnavailable as exc:
                 # An unverifiable lock counts as busy here: the half-deadline bounds it.
-                if busy is None or refused_while_busy(self, exc) is False:
+                if busy is None or refused_while_busy(self, exc, deadline_at=started + deadline) is False:
                     raise
                 raise busy from None
             except DaemonError as exc:
@@ -700,6 +735,9 @@ class Client:
                    request_id: str, timeout: float, stated: float) -> dict[str, Any]:
         """One connection and one request; `timeout` bounds it, `stated` is the
         caller's deadline, which a lost answer's message names."""
+        deadline_at = _clock() + timeout
+        if _clock() >= deadline_at:
+            raise RequestTimeout()
         wire_id = request_id
         if op == "submit" and request_id:
             ids.request_id(request_id)
@@ -709,16 +747,22 @@ class Client:
                 # C-6.2 keys can contain punctuation or Unicode; the reflected
                 # protocol id has its own alphabet and never changes that key.
                 wire_id = str(uuid.uuid4())
-        self.check_available()
-        deadline = timeout
+        self.check_available(deadline_at=deadline_at)
+        remaining = deadline_at - _clock()
+        if remaining <= 0:
+            raise RequestTimeout()
         request = Request(op=op, args=args or {}, id=wire_id)
         conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        conn.settimeout(deadline)
+        conn.settimeout(remaining)
         try:
             try:
                 conn.connect(str(self.socket_path))
             except OSError as exc:
-                raise self.unreachable(str(exc)) from exc
+                raise self.unreachable(str(exc), deadline_at=deadline_at) from exc
+            remaining = deadline_at - _clock()
+            if remaining <= 0:
+                raise RequestTimeout()
+            conn.settimeout(remaining)
             # From here on the daemon may have the request (C-16.3).
             try:
                 try:
@@ -730,10 +774,10 @@ class Client:
                     # the kernel gave it; anything else is a lost answer.
                     if exc.errno not in SEND_MET_CLOSE_ERRNOS:
                         raise
-                line = _read_line(conn, time.monotonic() + deadline)
+                line = _read_line(conn, deadline_at)
             except TimeoutError as exc:
                 raise self.silent(f"no response from the daemon within {stated:g}s",
-                                  op=op, request_id=request_id) from exc
+                                  op=op, request_id=request_id, deadline_at=deadline_at) from exc
             except ProtocolError as exc:          # a line past MAX_RESPONSE_BYTES
                 raise ResponseLost(str(exc), op=op, request_id=request_id) from exc
             except OSError as exc:
@@ -741,6 +785,9 @@ class Client:
                                    op=op, request_id=request_id) from exc
         finally:
             conn.close()
+        if _clock() > deadline_at:
+            raise ResponseLost(f"no response from the daemon within {stated:g}s",
+                               op=op, request_id=request_id)
         if not line.strip():
             raise ResponseLost("the daemon closed the connection without a response",
                                op=op, request_id=request_id)
@@ -822,7 +869,7 @@ class Client:
                     else requery_timeout)
         try:
             result = self.call(op, args, request_id=request_id, timeout=deadline)
-        except ResponseLost as exc:
+        except (ResponseLost, RequestTimeout) as exc:
             raise OutcomeUnknown(op, request_id, (str(first), str(exc))) from exc
         except DaemonUnavailable as exc:
             if op != "submit":

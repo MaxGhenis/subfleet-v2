@@ -576,6 +576,8 @@ def check_descriptors_live(root: Path) -> dict[str, Any]:
     check = "daemon descriptors"
     try:
         status = Client(root, timeout=5).call("daemon.status")
+    except DaemonStopped as exc:
+        return row(check, FAIL, str(exc), _quoted(exc))
     except DaemonUnavailable as exc:
         return row(check, FAIL, str(exc), "`subfleet daemon start`")
     except (DaemonError, ProtocolError, OSError) as exc:

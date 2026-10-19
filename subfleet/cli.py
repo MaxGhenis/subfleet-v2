@@ -1477,7 +1477,8 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
                 # connect refused after a busy answer is the same busy daemon
                 # behind a full listen backlog, never an absent one (review r2, P1).
                 if isinstance(exc, DaemonUnavailable):
-                    verdict = None if busy is None else refused_while_busy(client, exc)
+                    verdict = None if busy is None else refused_while_busy(
+                        client, exc, deadline_at=None if timeout is None else started + timeout)
                     if busy is None or verdict is False:
                         raise
                     if verdict is None and timeout is None:
@@ -1503,6 +1504,9 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
                     pause = min(pause, left)
                 time.sleep(pause)
                 continue
+            if timeout is not None and time.monotonic() - started > timeout:
+                timed_out = True
+                break
             busy, busy_streak, unverified_since = None, 0, None
             jobs = {job_id: job for job_id, job in _jobs_from_wait(result).items()
                     if adopting or job_id in requested}
@@ -1527,7 +1531,7 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
                 # five times a second; back off instead (C-15.4, C-16.4).
                 pause = min(WAIT_BACKOFF_MAX_S, 0.2 * (2 ** min(idle_polls, 5)))
                 if remaining is not None:
-                    pause = min(pause, max(0.0, remaining))
+                    pause = min(pause, max(0.0, timeout - (time.monotonic() - started)))
                 time.sleep(pause)
     except DaemonUnavailable as exc:
         return _daemon_down(exc)
@@ -2629,9 +2633,11 @@ def _log_tail(path: Path, lines: int = 20) -> str:
     return "\n".join(f"  | {line}" for line in tail) or f"(empty {path})"
 
 
-def _daemon_alive(client: Client) -> bool:
+def _daemon_alive(client: Client, *, timeout: float = 3.0) -> bool:
     try:
-        client.call("daemon.status", {}, timeout=3.0)
+        client.call("daemon.status", {}, timeout=timeout)
+    except DaemonStopped:
+        raise
     except (DaemonUnavailable, ProtocolError):
         return False
     except DaemonError:
@@ -2673,7 +2679,7 @@ def cmd_daemon_start(args: argparse.Namespace) -> int:
     log.close()
     deadline = time.monotonic() + 10.0
     while time.monotonic() < deadline:
-        if _daemon_alive(Client(root)):
+        if _daemon_alive(Client(root), timeout=min(3.0, max(0.0, deadline - time.monotonic()))):
             info = Client(root).lock_info() or {}
             out(str(info.get("pid") or child.pid))
             note(f"{PROG} daemon: started (pid {info.get('pid') or child.pid}), "
@@ -2840,19 +2846,24 @@ def cmd_daemon_status(args: argparse.Namespace) -> int:
     root = _root(args)
     client = Client(root)
     info = client.lock_info()
-    pid, alive, _reason, state = client.holder_report()
-    stopped = DaemonStopped(pid, state, client.socket_path) if alive and is_stopped(state) else None
     started = time.monotonic()
+    deadline_at = started + DAEMON_STATUS_PING_TIMEOUT_S
+    pid, alive, _reason, state = client.holder_report(deadline_at=deadline_at)
+    stopped = DaemonStopped(pid, state, client.socket_path) if alive and is_stopped(state) else None
     reachable, busy, detail, budget = False, False, "", None
     try:
         if stopped is not None:
             raise stopped
-        budget = client.call("daemon.status", {}, timeout=DAEMON_STATUS_PING_TIMEOUT_S).get("descriptors")
+        budget = client.call("daemon.status", {}, timeout=max(0.0, deadline_at - time.monotonic())).get("descriptors")
         reachable = True
     except DaemonError as exc:
         # It answered, so it is running: busy at its connection cap (C-16.7), or
         # refusing this op; not unreachable (review of the descriptor hotfix, F9).
         reachable, busy, detail = True, exc.busy, str(exc) + (f" ({exc.fix})" if exc.fix else "")
+    except DaemonStopped as exc:
+        stopped = exc
+        pid, alive, state = exc.pid, True, exc.state
+        detail = str(exc)
     except (DaemonUnavailable, ProtocolError) as exc:
         detail = str(exc)
     elapsed_ms = (time.monotonic() - started) * 1000
@@ -2861,6 +2872,7 @@ def cmd_daemon_status(args: argparse.Namespace) -> int:
                "lock_holder_alive": alive, "holder_state": state,
                "holder_stopped": stopped is not None,
                "diagnosis": str(stopped) if stopped is not None else None,
+               "fix": stopped.fix if stopped is not None else None,
                "ping": reachable, "busy": busy,
                "ping_ms": round(elapsed_ms, 1), "detail": detail or None,
                "descriptors": budget}
@@ -3024,7 +3036,7 @@ def cmd_daemon_install(args: argparse.Namespace) -> int:
         return int(Exit.OK)
     deadline = time.monotonic() + 10.0
     while time.monotonic() < deadline:
-        if _daemon_alive(Client(root)):
+        if _daemon_alive(Client(root), timeout=min(3.0, max(0.0, deadline - time.monotonic()))):
             note(f"  socket {root / SOCKET_NAME} is up")
             return int(Exit.OK)
         time.sleep(0.05)
@@ -3035,11 +3047,14 @@ def cmd_daemon_install(args: argparse.Namespace) -> int:
 
 
 def cmd_daemon(args: argparse.Namespace) -> int:
-    return {
-        "start": cmd_daemon_start, "stop": cmd_daemon_stop,
-        "status": cmd_daemon_status, "logs": cmd_daemon_logs,
-        "stacks": cmd_daemon_stacks, "install": cmd_daemon_install,
-    }[args.daemon_command or "status"](args)
+    try:
+        return {
+            "start": cmd_daemon_start, "stop": cmd_daemon_stop,
+            "status": cmd_daemon_status, "logs": cmd_daemon_logs,
+            "stacks": cmd_daemon_stacks, "install": cmd_daemon_install,
+        }[args.daemon_command or "status"](args)
+    except DaemonStopped as exc:
+        return _daemon_down(exc)
 
 
 # --- hook (C-15.2) ------------------------------------------------------------

@@ -619,14 +619,14 @@ def _wait_and_deliver(client: Client, session: str, job_id: str, deadline: float
         started = now()
         try:
             result = client.call("wait", {"job_ids": [job_id], "deadline_s": poll},
-                                 timeout=poll + 10, retry_busy=False)
+                                 timeout=min(poll + 10, remaining), retry_busy=False)
         except (DaemonError, DaemonUnavailable) as exc:
             # C-16.7: busy is an empty poll; ask again within the budget, and the
             # next poll has its whole deadline (as #55 on main). A connect refused
             # after a busy answer is that busy daemon's full backlog, not an
             # absent daemon (review r2, P1).
             # An unverifiable lock counts as busy here: the hook's own deadline bounds it.
-            if not ((busy and refused_while_busy(client, exc) is not False)
+            if not ((busy and refused_while_busy(client, exc, deadline_at=deadline) is not False)
                     if isinstance(exc, DaemonUnavailable) else exc.busy):
                 return int(Exit.OK)
             busy += 1
