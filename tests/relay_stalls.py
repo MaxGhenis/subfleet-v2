@@ -6,13 +6,15 @@ chosen until the test releases it. A call is chosen by what it touches, so
 nothing else waits:
 - a journal record: a regular file, matched by the record's `kind` and `seq`;
 - the stdin pipe: a FIFO;
+- the guardian's standard error: descriptor 2, whatever it is (#236 review r2);
 - the socket file, for `unlink`.
 
 `StallingServer` stands in for the relay's listening socket: its `close` is held
 (`server-close`), or the `close` of each connection it accepts (`conn-close`).
 
 A `Gate` holds threads of this process; a `FileGate` holds a guardian in a
-child process, through files the test creates.
+child process, through files the test creates. `refusing_start` makes stop's
+cleanup thread fail to start, as CPython's start does when no thread can be had.
 """
 
 from __future__ import annotations
@@ -26,8 +28,8 @@ from pathlib import Path
 
 # Where a call can be held. `pipe-write`, `journal-write` and `journal-fsync` are
 # in the relay thread's exchange; `conn-close` ends that thread's connection;
-# `server-close` and `unlink` are stop's own cleanup.
-OS_POINTS = ("pipe-write", "journal-write", "journal-fsync", "unlink")
+# `server-close`, `stderr-write` (the cut line) and `unlink` are stop's own cleanup.
+OS_POINTS = ("pipe-write", "journal-write", "journal-fsync", "stderr-write", "unlink")
 SOCKET_POINTS = ("server-close", "conn-close")
 POINTS = OS_POINTS + SOCKET_POINTS
 
@@ -94,6 +96,10 @@ class StallingOs:
         return kind in ("written", "failed") if self.record == "outcome" else kind == self.record
 
     def write(self, fd: int, data) -> int:
+        if fd == 2:
+            if self.point == "stderr-write":
+                self.gate.hold()
+            return os.write(fd, data)
         mode = os.fstat(fd).st_mode
         if stat.S_ISREG(mode):
             record = _record(data)
@@ -160,3 +166,20 @@ class StallingServer:
         if self._point == "server-close":
             self._gate.hold()
         self._server.close()
+
+
+# The name `RelayServer.stop` gives its cleanup thread.
+CLEANUP_THREAD = "subfleet-relay-stop"
+
+
+def refusing_start(start):
+    """`threading.Thread.start`, except that stop's cleanup thread fails to start
+    with the error CPython's start raises when no thread can be had (#236 review
+    r2); every other thread starts."""
+
+    def start_unless_cleanup(thread) -> None:
+        if thread.name == CLEANUP_THREAD:
+            raise RuntimeError("can't start new thread")
+        start(thread)
+
+    return start_unless_cleanup

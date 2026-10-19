@@ -24,7 +24,7 @@ import pytest
 
 from subfleet import relay as relay_module
 from subfleet.relay import LOG_INLINE_MAX, REPLY_TIMEOUT_S, RelayServer, frame_sha256, line_sha256, read_log, socket_path
-from tests.relay_stalls import OS_POINTS, POINTS, SOCKET_POINTS, Gate, StallingOs, StallingServer
+from tests.relay_stalls import OS_POINTS, POINTS, SOCKET_POINTS, Gate, StallingOs, StallingServer, refusing_start
 
 
 @pytest.fixture
@@ -580,6 +580,46 @@ def test_a_stalled_failure_record_cannot_hold_stop(exited_child, caplog, monkeyp
         (1, "failed", errno.ECANCELED)]
     assert [record.getMessage() for record in caplog.records if record.name == "subfleet.relay"] == [
         relay_module.CUT_LOG_LINE]
+
+
+def test_stop_keeps_its_bound_when_its_cleanup_thread_cannot_start(exited_child, capfd, monkeypatch):
+    """C-26.4 (#236 review r2, P2): the reviewer's input. A 2 MiB frame waits in the
+    stdin pipe of a child that has exited, whose read end is held and never read; stop's
+    cleanup thread cannot start (CPython's `RuntimeError: can't start new thread`), and
+    the socket file's unlink would stall. `stop` still returns within its whole bound:
+    it runs only the cleanup steps that cannot wait, and never reaches the unlink. The
+    listening socket is closed (a connect is refused), and so is the pipe, which no
+    write held once the cut write gave up (the reader holds a strict prefix, then end of
+    file). The socket file is left, for the daemon's finalization, and no cut line is
+    written; the frame is logged `failed` (ECANCELED) and the client reads end of
+    stream. At ce226d226 `stop` ran the whole cleanup inline and waited in the unlink
+    (4.35 s in the review, the unlink held until 4.2 s)."""
+    relay, client, held = exited_child
+    gate = Gate()
+    monkeypatch.setattr(relay_module, "os", StallingOs(gate, point="unlink"))
+    monkeypatch.setattr(threading.Thread, "start", refusing_start(threading.Thread.start))
+    whole = (LINE_2MIB + "\n").encode()
+    try:
+        _send_and_wait_for_intent(relay, client, LINE_2MIB)
+        assert _stop_within(relay, held, _stop_bound() + STOP_MARGIN_S, gate=gate), \
+            "with no cleanup thread, stop ran past its bound"
+        assert not gate.reached.is_set(), "with no cleanup thread, stop reached the unlink"
+        assert relay._cleanup_thread is None
+        probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            with pytest.raises(ConnectionRefusedError):
+                probe.connect(str(relay.path))
+        finally:
+            probe.close()
+        received = _read_to_eof(held.fd)
+        assert 0 < len(received) < len(whole) and whole.startswith(received)
+        assert client.recv(1 << 16) == b"", "a cut exchange was acknowledged"
+        assert [(r["seq"], r["status"], r.get("errno")) for r in read_log(relay.log_path)] == [
+            (1, "failed", errno.ECANCELED)]
+        assert relay.path.is_socket(), "the unlink, which can wait on the disk, ran inline"
+        assert capfd.readouterr().err == "", "the cut line, whose write can wait on stderr, ran inline"
+    finally:
+        gate.release()
 
 
 def _inside_the_exchange(relay, gate) -> None:
