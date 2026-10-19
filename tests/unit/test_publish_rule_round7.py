@@ -34,10 +34,10 @@ WRITE = 'gh pr comment 7 --body published'
 # Every spelling review r2 saw reach gh past round 6's rule, as it ran them.
 # `reach` names the shells where this host's harness reaches the recorder once
 # the hooks are skipped (which reproduces the finding): every shell, a subset
-# (the snapshot's PATH has no uv; zsh reads `- gh` as a precommand only after
-# the snapshot's options), or None where the runner can't run here (`watch`
-# needs a terminal, GNU parallel isn't installed): those are judged by the rule
-# and the hooks only, as the review did.
+# (as measured here: uv reached gh only under `zsh -lc`, and `- gh` only in the
+# snapshot shape, as review r2 saw), or None where the runner can't run here
+# (`watch` needs a terminal, GNU parallel isn't installed): those are judged by
+# the rule and the hooks only, as the review did.
 ALL = ('zsh -c', 'zsh -lc', 'claude snapshot')
 SPELLINGS = [
     ('function runner', f'r() {{ "$@"; }}; r {WRITE}', ALL),

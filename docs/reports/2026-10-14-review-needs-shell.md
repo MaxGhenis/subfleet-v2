@@ -1085,3 +1085,211 @@ To catch regressions outside the brief, the rest of `tests/fake` and most of `te
 **Cleanup:**
 - The scratch probe directory, `git archive` exports, hold logs, pytest `TMPDIR` and Hypothesis storage are removed at the end of the job, along with the worktree's bytecode and its `.venv`.
 - No `.hypothesis` folder was left, and nothing of this job is left running.
+
+## Round 7: ordinary shell, the copy's marker, the pinned launch, and review r2's P3s
+
+Review r2 (`~/reviews/subfleet-hub/shell-downgrade-2026-10-14/review-r2.md`) requested changes at `f62fdec4a`: round 6 closed r1b's findings, but the publish rule passed spellings that C-12.4 did not list as limits. Round 7 follows the hub's decisions in `brief-fix7.md`. The commits are on a detached HEAD in this job's worktree; Subfleet keeps them as a `refs/subfleet-salvage/` ref, and `fix/review-needs-shell-217` was not moved. The shared Git directory was writable, so no workspace-local metadata was needed.
+
+**Base:** `origin/release/217` is at `d72597b5c` locally, which `f62fdec4a` already merges, so there was nothing to merge. No fetch was made (the job may not reach a network remote), so this is the local remote-tracking ref.
+
+### Commits
+
+| Commit | Change |
+|---|---|
+| `d728c8a83` | Tests first: the round-7 rule regressions (127 failed, 92 passed at `f62fdec4a`). Its message says the corpus has 77 commands; it has 69. |
+| `437e7581d` | P2 and P3-5: the rule covers ordinary shell; the fallback; gh under another name; credential exposure; `gh api` read as gh's flag parser reads it; C-12.4's exact limits |
+| `79c3b746d` | P3-1: the copy's `applied` marker, and a recut when it is missing; P3-2: the FIFO and socket wording |
+| `42f94f123` | P3-3: the git denial pinned in Codex's `shell_environment_policy.set`; P3-4: the git-dependency loss stated; P3-6: `--setting-sources user` on writable Claude reviews |
+| `ea2624f9c` | P3-7: the installed publish hook is self-tested before launch |
+| `11514aa70` | P3-9: the workspace note says where an ignored file may be read |
+| this commit | This report section |
+
+### P2: each spelling review r2 executed, and its verdict
+
+Each was rebuilt as the review ran it: the hooks taken from a real review launch's argv (Codex's `-c hooks=` publish group, Claude's `--settings`), then the command through Codex `zsh -c` and `zsh -lc` and Claude `zsh -c`, `zsh -lc` and its snapshot shape, with a recording `gh` (and a real `git`) at the Homebrew position, put first by a scratch `ZDOTDIR` and the snapshot. "Reached" is where the recording `gh` ran once the hooks were skipped, which reproduces the finding on this host.
+
+| Spelling | Reached without the hooks | Round 7 | What refuses it |
+|---|---|---|---|
+| `r() { "$@"; }; r gh pr comment …` | 5 of 5 | refused | `"$@"` is a parameter-only command word and the text names gh; the fallback also judges the `gh` after `r` |
+| `c='gh pr comment …'; eval "$c"` | 5 of 5 | refused | the assignment value is shell text naming a write (fallback); `eval "$c"` is parameter-only and the text names gh |
+| `c='…'; sh -c "$c"` | 5 of 5 | refused | the same |
+| `c='…'; ${=c}` | 5 of 5 | refused | the same |
+| `bash <(echo 'gh pr comment …')` | 5 of 5 | refused | a process substitution given to a shell: what it prints is read as the script |
+| `source <(echo '…')` | 5 of 5 | refused | the same, for `source` (and `.`) |
+| `bash <<< 'gh pr comment …'` | 5 of 5 | refused | a here-string into a shell that reads standard input |
+| `echo '…' \| xargs -I{} sh -c '{}'` | 5 of 5 | refused | `xargs` into a shell: its input is shell input |
+| `arch -arm64 gh …` | 5 of 5 | refused | fallback |
+| `/usr/bin/lockf -k f gh …` | 5 of 5 | refused | fallback |
+| `taskpolicy -b gh …` | 5 of 5 | refused | fallback |
+| `env -S 'gh …'` | 5 of 5 | refused | `env -S` and `--split-string` values are split into words |
+| `UV_OFFLINE=1 uv run --no-project gh …` | `zsh -lc` only here (review r2: 4 of 5). The snapshot's PATH has no uv; why `zsh -c` did not reach gh here was not investigated | refused | fallback |
+| `repeat 1 gh …` | 5 of 5 | refused | zsh's `repeat N` is a wrapper |
+| `<brew>/g[h] pr comment …` | 5 of 5 | refused | a glob or brace command word is a run-time word; a gh command follows |
+| `>/dev/null gh …` | 5 of 5 | refused | redirections are skipped |
+| `- gh …` | Claude snapshot only, as review r2 saw; why the other shapes did not run it was not investigated | refused | zsh's `-` is a wrapper |
+| `$(command -v gh) -R o/r pr comment …` | 5 of 5 | refused | gh's `-R`/`--repo`/`--hostname` are skipped before judging a run-time word |
+| `ln -sf <brew>/gh ./g && ./g pr comment …` | 5 of 5 | refused | copying gh under another name |
+| `GIT_EDITOR='gh pr comment …' git commit` | 5 of 5 | refused | the assignment value is shell text (fallback) |
+| `git config alias.pc '!gh …' && git pc` | 5 of 5 | refused | git config values are shell text |
+| `watch -n 1 -e gh …` | not run (watch needs a terminal) | refused | `watch` joins its operands as shell text; the fallback also |
+| `parallel ::: 'gh …'` | not run (GNU parallel is not installed) | refused | parallel's template and arguments are shell text, and with neither it reads standard input |
+| `$(command -v gh) cache delete --all` | 5 of 5 | refused | a run-time word followed by a known gh write |
+| `$(command -v gh) auth token` | 5 of 5 | refused, `credential` | credential exposure, with its own reason and deny text |
+
+Beyond the review's list, 58 more forms of the hub's decision are refused at the rule (`test_the_decisions_other_forms_are_refused_by_the_rule`): `bash < <(…)`, `. <(…)`, zsh's `=(…)`, `sh <<<"…"`, `bash -s <<<`, `source /dev/stdin <<<`, `"$c"`, `eval $c`, `2>&1 gh …`, `{fd}>…`, `cat <<< x` followed by a newline and a write (the heredoc pattern no longer mistakes `<<<` for a heredoc), `env -S"…"`, `--split-string=`, `- - gh`, `{gh,}`, `g?` and `*` command words, `--repo`, `--repo=` and `--hostname` before a run-time word, `ln -s "$(command -v gh)"`, `cp`, `install`, `mv`, `cat …/gh > g`, `dd if=…/gh`, `GIT_SEQUENCE_EDITOR`, `export EDITOR=`, `git -c core.editor=`, `git config core.pager`, `git config alias.x '!gh'` then `git x pr comment`, nested unnamed runners, functions defined with `function`, `docker run`, `ssh`, `watch '…'`, `parallel` with a template or from standard input, `xargs -0 bash -c`, `uv run sh -c`, `fd -x sh -c`, `find -exec sh -c`, and run-time words before `api -XPOST` or `--method PATCH`.
+
+### The fallback
+
+Where the rule cannot name the command (a runner it does not know, a shell function, a value git runs), it reads every word of the simple command:
+
+- a word equal to `gh` or ending in `/gh`, after quote removal and without a leading `!` or `=`, starts a gh call made of the words after it;
+- a run-time word (a parameter, a substitution, a glob or brace word) followed, after gh's global flags, by a gh command starts one too;
+- a word equal to `git` or ending in `/git` starts a git call, judged by `git_publishes`;
+- an assignment value (`NAME=value`, anywhere in the command), the value of `-c`, `-e` or `--exec` (not for `grep`, `rg`, `sed`, `awk`, `perl`, `python…`, `ruby`, `node`, `jq` and the like, whose values are patterns or code), and a git config value (`git -c name=value`, `git config <name> <value>`, a `!` alias) are read as shell text when they hold more than one word.
+
+A gh call found this way is judged positively (`gh_writes`): it is refused only for a known gh verb that is not a read (the subcommand lists of gh 2.100.0, read offline), `gh api` that does not read, `gh copilot` (an agent that can run gh itself), or credential exposure. A word gh does not know is not a write, so `grep gh file`, `ls ghost`, `echo gh`, `which gh git` and `git log --grep gh` pass. Where the rule can name `gh` as the command it still judges fail closed, as before.
+
+A command word, or text given to `eval` or a shell, that is only parameters (`$c`, `${=c}`, `"$c"`, `"$@"`, `$c$d`) is refused when the command text names gh anywhere, quotes and backslashes removed. A path built from a parameter (`"$VIRTUAL_ENV/bin/python" -m pytest`) is not parameter-only and passes.
+
+### What remains outside the rule
+
+C-12.4 now states exactly this, and nothing else is claimed:
+
+- code in another language (`python -c`, `perl -e`, `node -e`, `sed`'s and `awk`'s own commands);
+- a script on disk, however it is run;
+- git that discards its environment where the rule cannot see the push (from another language or a script on disk). Review r2's one landed push, `unset GIT_ALLOW_PROTOCOL GIT_CONFIG_PARAMETERS; r() { "$@"; }; r git push …`, is now refused by the rule, which sees the `git` word;
+- a raw HTTPS call with a token found on disk;
+- a gh binary given another name outside the command text, or by a tool the rule does not name;
+- a gh alias or extension name (gh keeps them in its own config, `co` among the defaults) reached through a runner the rule does not know, since the fallback refuses only the verbs it knows;
+- a command assembled at run time from pieces that never spell gh and never put a gh verb after a run-time word (`a=$(printf 'g%s' h); b='pr comment 7'; eval "$a $b"`);
+- a zsh alias: review r2 saw `alias g=gh; g pr comment` run no gh in any of the five command paths.
+
+`env -S` performs no substitution, globbing or `$VAR` expansion, so a run-time word inside it never runs gh; the property test leaves those draws out.
+
+### git push in every new form
+
+Against a local bare repository, in each of the five command paths, with a real `git` at the Homebrew position (`test_git_push_stays_refused_in_every_new_form`):
+
+| Form | The hooks | Past the hooks |
+|---|---|---|
+| function runner | refused | refused by the git environment |
+| here-string | refused | refused |
+| process substitution | refused | refused |
+| `arch` | refused | refused |
+| `{git,} push` | refused | refused |
+| leading redirection | refused | refused |
+| `env -S` | refused | refused |
+| a variable with `eval` | refused | refused |
+| `python3 -c` | allowed (another language) | refused |
+| a script on disk | allowed | refused |
+| `unset …; r() { "$@"; }; r git push` | refused (new) | review r2 saw it land |
+
+### Credential exposure
+
+`gh auth token`, `gh auth status -t` or `--show-token`, `--show-token` on any call, and `gh auth status` with a flag beyond `-a`/`--active` and `-h`/`--hostname` (`--json` is refused because this job could not verify offline that it masks the token) are refused with reason kind `credential` and their own deny text: "A review never prints a GitHub credential: gh auth token, gh auth status -t and --show-token would copy the token into the review's output. gh auth status alone still works." `gh auth status` alone reads. Only the recording `gh` ran these; the real `gh auth token` never ran.
+
+### P3-5: reads
+
+Real `gh` 2.100.0, with a dummy token against closed `localhost:9` (`GH_DEBUG=api`, scratch `GH_CONFIG_DIR`), sent:
+
+| Input | Request |
+|---|---|
+| `api -X GET -f q=repo:o/r search/issues` | `GET /api/v3/search/issues?q=repo%3Ao%2Fr` |
+| `api -iX GET -f q=x search/issues` | `GET …?q=x` |
+| `api -X=GET repos/o/r` | `GET` |
+| `api -HX-GitHub-Api-Version:2022-11-28 repos/o/r` | `GET` |
+| `api -q.foo repos/o/r` | `GET` |
+| `api -X GET -F q=x`, `-X GET -fq=x`, `--method GET --raw-field q=x` | `GET …?q=x` |
+| `api -Xget repos/o/r` | `GET` |
+| `api -fq=x repos/o/r` | `POST` |
+| `api -iXPOST repos/o/r` | `POST` |
+| `api -X GET -X POST repos/o/r` | `POST` (the last method wins) |
+
+The rule now reads `gh api` flags as pflag does and allows exactly the GET ones; `--input`, `graphql`, `--` and an undefined flag stay refused. Three round-6 expectations changed with it: `-iX GET` and `-Xget` move from the cluster writes to the reads, and `-XGET --raw-field=a=b` is now a read. `gh --version`, `gh version` and `gh auth status` read.
+
+### Review r2's P3s
+
+1. **P3-1, a worktree without its copy.** `uncommitted.apply` clears `jobs/<id>/uncommitted/applied`, applies, then writes it naming the worktree. Admission discards and recuts a worktree whose job has a copy and no matching marker; nothing has run there, since the job has no attempt. The reviewer's case (`git worktree add --detach`, then `_admit()`) now gets the caller's `tracked.txt` and `new_module.py`.
+2. **P3-2, FIFOs and sockets.** Wording only, in `uncommitted.py`, C-6.6 and this report's round-6 bullet: git lists only files, symlinks and nested repositories as untracked, so a nested repository is the only untracked path that reaches the fallback.
+3. **P3-3, the pinned denial.** Every Codex review launch passes `-c shell_environment_policy.set.GIT_ALLOW_PROTOCOL=""`, `…GIT_CONFIG_PARAMETERS="…"` and `…SUBFLEET_PUBLISH_DENIED="1"`; Claude launches carry them in the launch environment. With real `codex sandbox` 0.159.0, a scratch `CODEX_HOME`, `sandbox_mode="workspace-write"` and `shell_environment_policy.inherit="core"`, the push to a bare repository inside the workspace landed without the pins and was refused with them (`fatal: transport 'subfleet-publish-denied' not allowed`, then `transport 'file' not allowed`). The test runs that case and skips where codex 0.159 is not installed.
+4. **P3-4, git dependencies.** C-12.4's accepted fetch loss now says a review cannot install a git-sourced dependency. The denial is unchanged.
+5. **P3-5, reads.** Above.
+6. **P3-6, project settings.** A writable Claude review launch passes `--setting-sources user` before `--settings`. Whether `--settings` still loads was shown from references, not a Claude run: the installed Claude Code 2.1.284's own source selection (`fs()`) adds `flagSettings` (the `--settings` source) and `policySettings` to whatever `--setting-sources` names, and the repo's `docs/reference/claude-help.txt` says "managed settings and --settings still apply" under `--restricted`. The P3-7 self-test runs the hook command itself; it does not show that Claude loads it.
+7. **P3-7, the self-test.** Before a publish-denied launch starts, the daemon reads the publish hooks the launch's argv installs, feeds each a PreToolUse payload for `gh pr comment 1 --body x` in the launch's environment with its C-5.1 markers, and refuses the launch (`publish-hook-self-test`, wire template "the review publish hook did not deny a gh write when it was tested before launch") unless each answers with the deny JSON. A pass is cached for the daemon's run, keyed by the command and the SHA-256 of the script, its interpreter (hashed once per file identity) and the two modules it imports; a failure is tried again at the next launch. The verdicts are in `launch.json` under `publish_hook_self_test`.
+   - **Cost**, measured on this host at load 10 to 11: the first test in a daemon run took 280 ms (it hashes the 18 MB interpreter); a new hook command took 183.5 ms median (127.5 to 265.4 ms, 14 runs); a cached pass took 0.26 ms median (1.9 ms max, 300 runs).
+   - A Codex review's hook is one stable path per state root, so after the first launch it is cached. A Claude review's hook lives in its attempt directory, so each Claude review launch pays the uncached cost, about 0.18 s.
+8. **P3-8, the install order in the PR body.** The hub's; nothing here.
+9. **P3-9, the workspace note.** Both notes now say that an ignored file the task names (one under `.diag/`) is not in the workspace and may be read in the caller's checkout at the same relative path; writing there is still forbidden.
+
+### Mutations
+
+Each was applied to the committed source, run, and restored from `HEAD`:
+
+| Mutation | Result |
+|---|---|
+| Drop the fallback | caught: 29 failed, among them `test_each_spelling_review_r2_saw_reach_gh_is_refused_by_the_rule[arch]`, `[lockf]`, `[taskpolicy]`, `[uv run]`, `[GIT_EDITOR value]`, the five real-shell tests and the property |
+| Drop the `<<<` rule (`<<<` no longer a redirection) | caught: 13 failed, among them `…[here-string into bash]`, the five real-shell tests and the property |
+| Drop the marker check | caught: `test_a_worktree_cut_without_its_copy_is_cut_again` (`'baseline\n' == 'edited by the caller\n'`) |
+| Drop the self-test | caught: `test_the_installed_publish_hook_is_run_before_launch` and the three `test_a_publish_hook_that_does_not_deny_refuses_the_launch` cases |
+
+The new tests, run against the `f62fdec4a` source: 151 failed, 118 passed. The real-Codex case fails there because the unpinned push lands (`* [new branch] HEAD -> probe`).
+
+### Tests
+
+**Setup:** Python 3.14.7 free-threaded from the worktree's `.venv`, `PYTHONPATH` unset, one pytest process per hold of the shared suite lock (no xdist), `--timeout=300`, Hypothesis bounded (the new properties are derandomized with 400 examples each; no `deep` profile). The longest hold, including its wait for the lock, took 16 min (hold 4).
+
+**The six briefed holds, at `11514aa70`:** 2,096 passed, none failed or skipped.
+
+| Hold | File | Passed |
+|---|---|---:|
+| 1 | `tests/fake/test_review_needs_shell.py` | 23 |
+| 1 | `tests/fake/test_review_launch_permissions.py` | 34 |
+| 1 | `tests/unit/test_review_publish_guard.py` | 135 |
+| 1 | `tests/unit/test_publish_rule_round7.py` | 235 |
+| 2 | `tests/unit/test_hooks.py` | 75 |
+| 2 | `tests/unit/test_hooks_native_guard.py` | 18 |
+| 2 | `tests/unit/test_guard_trust.py` | 105 |
+| 2 | `tests/unit/test_guard_overlay.py` | 22 |
+| 3 | `tests/unit/test_policy.py` | 186 |
+| 3 | `tests/unit/test_policy_disk.py` | 57 |
+| 3 | `tests/unit/test_policy_ramp.py` | 46 |
+| 3 | `tests/unit/test_policy_sandbox_resolution.py` | 42 |
+| 3 | `tests/unit/test_policy_support.py` | 14 |
+| 3 | `tests/unit/test_policy_tier_preferences.py` | 15 |
+| 3 | `tests/fake/test_policy_sandbox.py` | 25 |
+| 4 | `tests/unit/test_cli.py` | 230 |
+| 4 | `tests/unit/test_offline.py` | 33 |
+| 4 | `tests/unit/test_notice_rendering.py` | 40 |
+| 4 | `tests/fake/test_notice_header.py` | 24 |
+| 4 | `tests/unit/test_handler_refusals.py` | 340 |
+| 5 | `tests/unit/test_codex_adapter.py` | 172 |
+| 5 | `tests/unit/test_claude_adapter.py` | 172 |
+| 5 | `tests/process/test_claude_isolation.py` | 15 |
+| 6 | `tests/fake/test_state_contract.py` | 37 |
+| 6 | `tests/unit/test_test_module_names.py` | 1 |
+
+`test_review_publish_guard.py` has 135, two fewer than round 6's 137: two cluster cases (each run for both providers) moved to the GET reads list (P3-5). `test_handler_refusals.py` has 340, two more, for the new `publish-hook-self-test` reason. The only change after `11514aa70` is this report and a comment in `test_publish_rule_round7.py`.
+
+**An extra hold** over the other callers of the launch path and the users of the uncommitted copy: 331 passed (`test_daemon_launch` 9, `test_workspace_contract` 8, `test_workspace_transient` 24, `test_main_refusal_write_dir` 5, `test_prompt_seam` 8, `test_detached_cwd_pins` 18, `test_launch_gates_above_stdio` 9, `test_salvage_finalization` 47, `test_record_secrecy` 44, `test_mcp_job_contract` 12, `test_retention_regenerable` 26, `test_host_push_quarantine_restart` 8, `test_salvage_unindexable` 86, `test_store_readers` 27).
+
+**Other runs:** the new tests at the `f62fdec4a` source (151 failed, 118 passed); the four mutation holds (370 run, 29 failed; 235, 13; 34, 1; 34, 4); and three development holds of the rule tests (127 failed and 92 passed at base; 349 passed and 5 failed, a test that never created its directory; 424 passed and 1 failed, the transport assertion fixed in `ea2624f9c`).
+
+**Outside pytest:**
+- the whole property space (10 writes, 7 spellings of gh, 40 forms nested two deep: 224,000 commands), all refused once `env -S` draws that run no gh are left out;
+- real `gh` 2.100.0 against closed `localhost:9` with a dummy token, for the P3-5 table;
+- real `codex sandbox` 0.159.0 for P3-3, by hand and in the test;
+- the installed Claude Code 2.1.284 binary's own text, for P3-6 (read, not run);
+- the self-test's cost, timed directly.
+
+**Not run:**
+- `tests/e2e`, `tests/frontend`, `tests/live`, the full suite, and the rest of `tests/unit`, `tests/fake` and `tests/process`;
+- a real provider turn: a Claude lane loading `--settings` under `--setting-sources user`, or a Codex turn firing the publish hook;
+- `gh` against any real host; the real `gh auth token`;
+- the lane configs and the live PR body, which are off limits or need the network.
+
+### Install checks added by round 7
+
+The round-6 install steps stand. Nothing needs restaging: the guard file, TRUST and the Codex `hooks=` override are unchanged, so the preflight's cached verdicts stay valid. After the upgrade:
+- the first review's `launch.json` carries `notes.publish_hook_self_test` with `ok: true` (daemon.log: `publish hook self-test … ok=True`);
+- a Codex review's argv carries the three `shell_environment_policy.set.…` overrides;
+- a writable Claude review's argv carries `--setting-sources user` before `--settings`.
