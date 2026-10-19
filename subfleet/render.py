@@ -11,6 +11,7 @@ from typing import Any
 
 from .capacity import ACTIVE_ATTEMPT_STATES, build_view
 from .contracts import READING_TTL_S, attempt_dir
+from .launch_env import refused_reference
 from .quota_projection import instant, weekly_projections
 
 
@@ -225,6 +226,9 @@ def status(view: Mapping[str, Any]) -> str:
             ("disabled", not lane.get("enabled", True)),
             ("identity-mismatch", lane.get("identity_status") == "mismatch"),
             ("identity-unverified", lane.get("identity_status") == "unverified"),
+            # D-ENV1: held, its variable every launch inherits (the variable is a name).
+            (f"credential-refused={lane.get('credential_ref')}",
+             lane.get("credential_kind") == "env" and refused_reference(lane.get("credential_ref"))),
         ) if enabled]
         if lane.get("probe_state"):
             flags.append(f"probe={_label(lane['probe_state'])}")
@@ -357,6 +361,9 @@ _PIN_REFUSALS = {
     "owner-v1": "{lane} is owned by Subfleet v1",
     "disabled": "{lane} is disabled",
     "identity-mismatch": "{lane}'s credential proved to hold another account (C-10.6)",
+    "credential-refused": "{lane} names {credential_ref}, a variable every launch inherits, so it holds no "
+                          "credential of its own (D-ENV1); point it at a daemon variable off the launch "
+                          "allowlist in lanes.json, same lane id, provider and account, and restart the daemon",
     "credential-latched": "{lane}'s last probe found its credential {probe_status}, which only a new login "
                           "or a re-enrolment ends",
     "credential-latched:expired-token": "{lane}'s token expired and the one heal the timers allow a Codex "
@@ -390,7 +397,8 @@ def pin_refusals(stuck: Mapping[str, Any]) -> str:
         else:
             status = stuck.get("probe_status") or "unusable"
             text = _PIN_REFUSALS.get(f"{reason}:{status}") or _PIN_REFUSALS.get(reason, reason)
-            parts.append(text.format(lane=lane, probe_status=status))
+            parts.append(text.format(lane=lane, probe_status=status,
+                                     credential_ref=stuck.get("credential_ref") or "its credential variable"))
     return "; ".join(parts) or "it refuses the job"
 
 

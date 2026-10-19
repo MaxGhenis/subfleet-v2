@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .launch_env import ROSTER, refused_reference, valid_name
 from .contracts import (
     CLAUDE_CARDS_DEFAULTS, DEFAULT_CAPS, HEADROOM_FLOOR, PROVIDERS, READING_TTL_S, RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, SCRUB_MAX_CHARS,
     TURN_RETENTION_KEEP_DAYS, TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
@@ -359,6 +360,56 @@ def _fraction(value: Any, maximum: float = 1) -> bool:
             and math.isfinite(value) and 0 <= value <= maximum)
 
 
+#: D-ENV1: how a lane whose variable every launch inherits is put right.
+LANE_REFERENCE_FIX = ("store the lane's OAuth token under a daemon variable off the launch allowlist, point "
+                      "the lane at it in lanes.json (same lane id, provider and account) and restart the daemon")
+
+
+def held_lane_message(lane_id: Any, name: str) -> str:
+    """D-ENV1 (review r4, P2-1): why a stored lane is held, and the fix. Names only."""
+    return (f"lane {lane_id} in the store names {name}, a variable every launch inherits, so it cannot hold "
+            f"one lane's credential; the lane is held and nothing launches on it; fix: {LANE_REFERENCE_FIX}")
+
+
+def check_lane_credentials(policy: Mapping[str, Any], path: str | Path,
+                           lanes: Iterable[tuple[Any, str, str]]) -> list[tuple[Any, str]]:
+    """D-ENV1: refuse a policy or lanes.json row the lanes make invalid, and say
+    which stored lanes are held. `daemon start` and daemon startup both call it,
+    before lanes.json is seeded, with `credentials.startup_lanes`: each env-kind
+    lane's (id, variable, source), the source `lanes.json` or `the store`.
+
+    `env.pass` is for noncredential names. An env-kind lane's credential variable
+    is the daemon's alone and reaches only its own lane, resolved into its
+    credential, so a policy naming one is refused, naming the entry, the
+    variable and each lane. A variable some launch inherits without policy (the
+    default allowlist, a harness hook or a test session's name) would reach every
+    helper, so it is no lane's credential: a lanes.json row naming one is refused
+    before anything is stored. A stored lane naming one is returned as (id,
+    variable) and held, never fatal (review r4, P2-1): the store has no other
+    way out without a running daemon.
+    """
+    lanes = list(lanes)
+    credentials: dict[str, list[str]] = {}
+    for lane_id, name, source in lanes:
+        if not refused_reference(name):
+            credentials.setdefault(name, []).append(f"{lane_id} ({source})")
+    for index, name in enumerate((policy.get("env") or {}).get("pass", ())):
+        if name in credentials:
+            owners = list(dict.fromkeys(credentials[name]))
+            raise PolicyError(path, f"env.pass[{index}]",
+                              f"{name} is the credential variable of lane{'s' * (len(owners) > 1)} "
+                              f"{', '.join(owners)}, which reaches only its own lane; remove it (the daemon "
+                              "holds each lane's credential without it)")
+    refused = [(lane_id, name) for lane_id, name, source in lanes
+               if source == ROSTER and refused_reference(name)]
+    if refused:
+        raise PolicyError(Path(path).parent / ROSTER, "credential_ref", "; ".join(
+            f"lane {lane_id} names {name}, a variable every launch inherits, which cannot hold one lane's credential"
+            for lane_id, name in dict.fromkeys(refused)) + f"; {LANE_REFERENCE_FIX}")
+    return list(dict.fromkeys((lane_id, name) for lane_id, name, source in lanes
+                              if source != ROSTER and refused_reference(name)))
+
+
 def load_policy(path: str | Path) -> dict[str, Any]:
     """C-11.1: validate routing data and retain the hash of the bytes evaluated.
 
@@ -383,6 +434,18 @@ def load_policy(path: str | Path) -> dict[str, Any]:
     for key in required:
         if key not in value:
             fail(key, "required key is missing")
+
+    if "env" in value:
+        environment = value["env"]
+        if not isinstance(environment, dict):
+            fail("env", "must be an object")
+        if "pass" in environment:
+            names = environment["pass"]
+            if not isinstance(names, list):
+                fail("env.pass", "must be a list of exact variable names")
+            for index, name in enumerate(names):
+                if not valid_name(name):
+                    fail(f"env.pass[{index}]", "must be an exact ASCII variable name; no globs")
 
     tiers = value["tiers"]
     if not isinstance(tiers, list) or not tiers:

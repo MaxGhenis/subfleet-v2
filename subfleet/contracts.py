@@ -25,7 +25,7 @@ HEADLESS_MARKER = "<!-- subfleet:headless -->"  # C-6.7
 #: salvage wrote its ref there and reported success (adversarial review of the
 #: round-3 branch). Salvage's git drops them (`salvage._git_env`, which keeps a
 #: temporary index a caller names), and so does the daemon's environment
-#: (`cli.STRIPPED_ENV`).
+#: (`launch_env.ALLOWED_NAMES`).
 GIT_LOCATION_ENV = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
                     "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE", "GIT_QUARANTINE_PATH")
 #: C-13.1: how git reads every pathspec when the environment says so. Salvage
@@ -432,8 +432,10 @@ class JobSpec:
 @dataclass(frozen=True)
 class Launch:  # C-12.2
     argv: tuple[str, ...]
-    env_add: dict[str, str]         # merged over a sanitised environment; may hold the credential
-    env_remove: tuple[str, ...]     # keys stripped before spawn (API keys)
+    env_add: dict[str, str]         # explicit additions over an allowlisted parent; may hold the credential
+    env_remove: tuple[str, ...]     # mandatory exclusions, applied last: they win over the parent,
+                                    # policy names and env_add alike (round 1's memory isolation;
+                                    # test_mandatory_removal_also_beats_selected_additions)
     cwd: str
     stdin_path: str | None          # prompt file fed on stdin, or None
     stdout_path: str

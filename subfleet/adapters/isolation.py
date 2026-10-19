@@ -11,6 +11,7 @@ import time
 
 from .base import AdapterError
 from ..contracts import Sandbox
+from ..launch_env import build_environment
 
 MANAGED_ENV = ("CLAUDE_CODE_MANAGED_SETTINGS_PATH", "CLAUDE_CODE_REMOTE_SETTINGS_PATH",
                "CLAUDE_CODE_MOCK_REMOTE_SETTINGS")
@@ -54,12 +55,12 @@ def _flags():
     return [arg for config in CODEX_CONFIG for arg in ("-c", config)]
 
 
-def inspect_codex(codex_bin, *, home, workdir, env, timeout_s=20):
+def inspect_codex(codex_bin, *, home, workdir, env, timeout_s=20, pass_names=()):
     """Read metadata only: no thread, turn, MCP server or provider request starts."""
     from ..guard.preflight import _stop_probe
 
-    clean_env = {key: value for key, value in env.items()
-                 if key not in ("CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")}
+    clean_env = build_environment(removals=("CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"),
+                                  environ=env, pass_names=pass_names)
     clean_env["CODEX_HOME"] = str(Path(home).expanduser().resolve(strict=True))
     messages = [
         {"id": 1, "method": "initialize", "params": {
@@ -146,10 +147,11 @@ def validate_codex_metadata(requirements, configuration, servers):
     return configs
 
 
-def codex_args(codex_bin, *, home, workdir, env, inspector=None):
+def codex_args(codex_bin, *, home, workdir, env, inspector=None, pass_names=()):
     """C-23.2, C-23.4: inspect this attempt's lane and disable every named server."""
     try:
-        metadata = (inspector or inspect_codex)(codex_bin, home=home, workdir=workdir, env=env)
+        metadata = (inspector(codex_bin, home=home, workdir=workdir, env=env) if inspector else
+                    inspect_codex(codex_bin, home=home, workdir=workdir, env=env, pass_names=pass_names))
         configs = validate_codex_metadata(*metadata)
     except AdapterError:
         raise

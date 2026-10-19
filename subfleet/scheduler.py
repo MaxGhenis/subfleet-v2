@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .capacity import credential_gone, desktop_excluded, fresh_provider, identity_blocked, pilot_block
+from .launch_env import refused_reference
 from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, DEFAULT_CAPS,
                         HEADROOM_FLOOR, Decision, Exit, launch_has_shell)
 from .policy import (MEMORY_PRESSURE_LEVELS, PolicyError, admission_settings, cap, flatten_chain, lane_slot_cap,
@@ -905,6 +906,11 @@ def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
         # C-10.6: the profile endpoint said this credential holds another
         # account. Its usage is not this lane's, so neither is its capacity.
         reasons.append("identity-mismatch")
+    if lane.get("credential_kind") == "env" and refused_reference(lane.get("credential_ref")):
+        # D-ENV1 (review r4, P2-1): a stored lane whose variable every launch
+        # inherits holds no credential of its own, so it is held until lanes.json
+        # names another (resolution refuses it too, `credential-env-inherited`).
+        reasons.append("credential-refused")
     reasons.extend(f"closed:{row['scope']}:{row['until_at']}" for row in closures
                    if row["scope"] in ("account", model["id"]) and _future_closure(row, now))
     lane_measured = any(fresh_provider(row, now=now, reading_ttl_s=caps["reading_ttl_s"]) for row in readings)
@@ -952,7 +958,8 @@ def judge_lane(setup: Mapping[str, Any], short: str, lane: Mapping[str, Any],
 #: itself, so it is not standing. A slot, a reading, the floor and the reserve
 #: are capacity, which comes back by itself. A closure is a hold only when it ends
 #: more than `admission.pin_hold_far_s` out; before that it is a wait.
-STANDING_REFUSALS = ("excluded", "desktop", "config-dir", "owner-v1", "disabled", "identity-mismatch")
+STANDING_REFUSALS = ("excluded", "desktop", "config-dir", "owner-v1", "disabled", "identity-mismatch",
+                     "credential-refused")
 
 #: C-6.12: what evaluating a route may raise; the job's, never the caller's.
 _ROUTE_RAISES = (ValueError, KeyError, TypeError, AttributeError, IndexError)
@@ -1010,7 +1017,8 @@ def pin_unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: An
     held = [{"scope": row["scope"], "until_at": row["until_at"], "reason": row.get("reason")}
             for row in closures if f"closed:{row['scope']}:{row['until_at']}" in found]
     return {"lane_id": lane["lane_id"], "reasons": found, "closures": held,
-            **({"probe_status": lane.get("probe_status")} if "credential-latched" in found else {})}
+            **({"probe_status": lane.get("probe_status")} if "credential-latched" in found else {}),
+            **({"credential_ref": lane.get("credential_ref")} if "credential-refused" in found else {})}
 
 
 def unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any,
