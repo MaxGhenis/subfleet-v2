@@ -2525,11 +2525,16 @@ def daemon_env(root: Path, *, notes: list[str] | None = None) -> dict[str, str]:
 
 
 def _log_tail(path: Path, lines: int = 20) -> str:
+    """daemon.log's last `lines` lines, for a person's terminal (C-25.7): the file's
+    text scrubbed as the daemon's handler scrubs a record (`daemon_log.scrubbed`,
+    cut to its bound first), whoever wrote it, then its last lines, each behind a
+    margin added after the scrub."""
+    from . import daemon_log
     try:
         text = path.read_text(errors="replace")
     except OSError:
         return f"(no {path})"
-    tail = text.splitlines()[-lines:]
+    tail = daemon_log.scrubbed(text).splitlines()[-lines:]
     return "\n".join(f"  | {line}" for line in tail) or f"(empty {path})"
 
 
@@ -2557,12 +2562,15 @@ def cmd_daemon_start(args: argparse.Namespace) -> int:
     except OSError as exc:
         return fail(Exit.OPERATIONAL, f"daemon start: cannot create {root}: {exc}")
     held: list[str] = []
+    # C-25.7: a refusal names the policy's or the roster's own text, so it is
+    # printed as the daemon's handler would write it, scrubbed.
+    from . import daemon_log
     try:
         env = daemon_env(root, notes=held)
     except PolicyError as exc:
-        return fail(Exit.INVALID_INPUT, str(exc))
+        return fail(Exit.INVALID_INPUT, daemon_log.scrubbed(str(exc)))
     for text in held:
-        note(f"{PROG} daemon start: {text}")
+        note(daemon_log.scrubbed(f"{PROG} daemon start: {text}"))
     argv = _daemond_argv(root)
     log_path = root / LOG_NAME
     try:
