@@ -679,3 +679,180 @@ All runs used a fresh `.venv` (`uv sync --locked --group dev`, Python 3.14.7 wit
 - `6d56b55f2` style: handoff imports bisect with its other modules
 
 Nothing is pushed.
+
+## Round 4: the merge with release/217 (#222)
+
+The hub merged release/217 (`f99da54b0`, with #222's launch-environment allowlist, D-ENV1) into round 3's head as `6cbaea975`, and its host run there had two failures. This round starts from `6cbaea975`. **Base.** This job has no network. The last fetched `origin/release/217` is still `f99da54b0`, which `6cbaea975` holds, so there was nothing to merge.
+
+### 1. What the merge did, as executed
+
+The two tests trigger with a policy whose admission key is `token=SECRET7policy9`. At `6cbaea975`, with this round's tests (the base runs below):
+
+- **`daemon start` refuses before it spawns.** #222 added a pre-launch check (`cmd_daemon_start` → `daemon_env` → `load_policy`, C-11.1 "by `daemon start` before it spawns"). It raised `PolicyError`, and `fail(Exit.INVALID_INPUT, str(exc))` printed `subfleet: /tmp/sf-…/policy.json: admission.token=SECRET7policy9: is not an admission setting (desktop_recent_s, …)` to the CLI's stderr and returned 2. The daemon never ran and daemon.log was never created. So the line the hub saw came from **the pre-launch check, not the log tail**. That is why `cli.main(["daemon", "start"])` returned 2, not 69.
+- **The daemon's own refusal.** `dbfd33c64` made `daemon.main` catch the same `PolicyError` and `print(f"subfleet daemon: {exc}", file=sys.stderr)`. Under launchd that stderr is daemon.log, and a bare `print` bypasses the process hooks. So `subfleetd` exited 2, not 1, and daemon.log held `subfleet daemon: /private/tmp/sf-…/policy.json: admission.token=SECRET7policy9: is not an admission setting (…)`. The same happens under `daemon start` when policy.json changes after the CLI's check and before the daemon reads it (the regression below).
+- **The held lock's line before it.** `print(str(exc), file=sys.stderr)` for `DaemonUnavailable` was the same kind of write. Its words are fixed today ("another daemon holds daemon.lock"), and round 3's C-25.7 listed it among daemon.log's other writers.
+
+### 2. The daemon's own writes go through the handler's formatter
+
+- **`daemon_log.write_scrubbed(text, level)`** writes a line to the process's stderr, as it is at the call, through `_StderrHandler`, exactly as the handler writes a record of it:
+  - cut to `RECORD_SCRUB_MAX`, then the line form or the block form;
+  - a fixed `[scrub failed]` line when the scrubber raises, and a fixed line when the write fails;
+  - it never raises.
+- **`daemon_log.scrubbed(text)`** returns that text, for the CLI.
+- **The process hooks** share `_report` with `write_scrubbed`. Their behaviour is unchanged.
+
+**Sites fixed:**
+
+- `daemon.main`'s refused policy or roster (exit 2) now writes `subfleet daemon: <root>/policy.json: admission.token=[REDACTED] is not an admission setting (…)` to daemon.log, with no traceback (C-11.1).
+- `daemon.main`'s held lock (69).
+- `policy.resolve_model`'s retired-alias note, which predates #222. The daemon writes it on a submit (`daemon.py`, `resolve_model(self.policy, model)`), on an admission pass (`scheduler.prepare`) and in `picker`. Both names in it are the policy's own text.
+
+**The colon.** The brief's example keeps a colon after `[REDACTED]`, but the scrubber reads a colon right after a value as part of the value (`SECRET7policy9:`), so the line reads `admission.token=[REDACTED] is not an admission setting (…)`. I left the scrubber alone, because a value may hold a colon. C-25.7 says so.
+
+**The stream lint** (`test_daemon_log_sites.py`, `stream_sites`). In every module of `subfleet/` except the front ends, the lint fails on:
+
+- any `print`;
+- any `write` or `writelines` on `sys.stdout`, `sys.stderr`, `sys.__stdout__`, `sys.__stderr__`, or a bare `stdout` or `stderr`;
+- any of `traceback`'s printers.
+
+It fails these whatever they write. It also fails a write past the handler, `os.write` included, that passes a caught exception raw, directly or through a parameter of the module's own functions (round 3's `logged_parameters`, now taking a sink). `os.write` with fixed words or class names stays allowed, because C-5.8a's stop path writes daemon.log's own descriptor that way.
+
+- **Exempt** (`TERMINAL_MODULES`): `cli.py`, `compat.py`, `hooks.py`, `importer.py`, `prune_decisions.py`, `gate/cli.py` and `sessions/cli.py`, plus `daemon_log.py`, the writer itself. `test_the_terminal_modules_are_front_ends_a_daemon_does_not_load` checks three things: each exempt module writes its streams, so none is exempt for nothing; a fresh `import subfleet.daemon` loads none of them; and a module named but absent fails.
+- **At `6cbaea975`** the whole-tree lint fails with exactly five findings: `daemon.py:9768` and `:9773`, each as a `print` past daemon_log and as `passes exc raw`, and `policy.py:850`'s `print`.
+- **`test_the_stream_lint_fails_dbfd33c64_s_line`** puts `main`'s two old lines back into today's daemon.py. The lint then fails it at exactly those two lines, four findings in all, and passes the file as it is.
+
+**The child lint** (`inherited_streams`). Every `subprocess` start in a daemon module sets both stdout and stderr, or captures them, and never to `None` or a `sys` stream. A start that passes on its function's `**options` is read at each call of that function (`spawn_guardian`, whose one call sets both to `DEVNULL`). Removing them there fails the lint. All 32 starts pass today. The guardian's `posix_spawn` (`procs.spawn_disclaimed`) opens /dev/null on fds 0, 1 and 2, which I read in the code.
+
+### 3. What `daemon start` prints is scrubbed the same way
+
+- **The pre-launch refusal** prints `subfleet: <root>/policy.json: admission.token=[REDACTED] is not an admission setting (…)`, still exit 2 and still before any spawn. Each held-lane note goes through `daemon_log.scrubbed` too.
+- **The tail.** `_log_tail`, which `daemon start` and `daemon install` print when the socket does not appear, scrubs daemon.log's whole text as one record before it takes the last 20 lines. "Whole" means cut to the record bound first, at `handoff.cut_whole`'s safe breaks, so a 4 MiB file costs what one record does. It adds each line's `  | ` margin after the scrub, so the scrub never reads the margin as an exception group's.
+  - **Whoever wrote the file:** a daemon before D-LOG1, or a value on the line after its key, is hidden in the tail.
+  - **Folding:** where folding lets the scrubber find more (a credential flag with its value on the next line), the tail is the one folded line, as the handler writes such a block.
+- **C-25.7** now says `daemon start`'s output is in scope, although it is a person's terminal, because it is the daemon's text. **C-11.1** says the daemon's startup refusal is written as the handler writes a record, with no traceback, and that `daemon start` prints its own the same way. The change log records both.
+- **Not changed:** `daemon logs` still prints daemon.log as it is. It is the file's viewer, and `--follow` streams one line at a time, where a value on the line after its key cannot be told from a word. It is listed under "Outside this change", below.
+
+### 4. The retargeted tests
+
+- **The refusal path:**
+  - `test_under_daemon_start_a_refused_policy_is_exit_2_and_scrubbed_before_any_spawn`: exit 2, one scrubbed line, no spawn, no daemon.log.
+  - `test_under_daemon_start_the_daemon_s_own_refusal_reaches_daemon_log_scrubbed`: `cli.daemon_env` is wrapped to write the refused policy after the real check returns, so the real `subfleetd` reads it. The CLI returns 69, its note says `exited 2`, and daemon.log and the CLI's tail both hold the scrubbed line, with no traceback.
+  - `test_under_launchd_a_refused_policy_is_exit_2_and_reaches_daemon_log_scrubbed`: the plist's program, folder, environment and output paths. It exits 2, daemon.log holds the scrubbed line, and so does `_log_tail`, as `daemon install` would print it.
+  - `test_daemon_main_writes_a_refused_start_as_the_handler_writes_a_record[lock, policy]`: in-process, the exact line `scrubbed` returns.
+- **Uncaught exceptions under both real launches.** `daemon start` and the plist run `<interpreter> -E -P subfleetd`, which reads no `PYTHONPATH`, so round 3's sitecustomize trigger cannot reach them. A venv's own `sitecustomize.py` would not do either: Homebrew's Python has one in its standard library, which comes first on `sys.path`, as I found when a probe of it did not run.
+  - **The trigger** (`_failing_interpreter`): a venv of the test's base interpreter whose `.pth` files run under `-E -P` too. `00-this-checkout.pth` calls `site.addsitedir` on the test venv's site-packages, which is this checkout's editable `subfleet`. `zz-failing-startup.pth` imports `FAILING_STARTUP`, the old `SITECUSTOMIZE`, which in a `subfleetd` process only replaces `descriptors.raise_open_file_limit` with a function that fails four ways: in a thread, in a finalizer, as a warning, and in the main thread. `sys.executable` is patched to the venv's Python, so `_daemond_argv` and `_plist` start it as they would start any interpreter.
+  - **The two tests** keep their names. `daemon start` returns 69 with `exited 1`, launchd's run exits 1, and daemon.log holds all four failures scrubbed. The CLI's tail holds none of their secrets. Round 3's direct-exec test keeps its `PYTHONPATH` sitecustomize.
+
+### 5. The sweep of #222's code
+
+I read #222's diff (`3b833a456..6cbaea975`, `subfleet/`) for any daemon-side write of exception or config text that skips the handler:
+
+| Site | Where it goes | Verdict |
+|---|---|---|
+| `daemon.main`'s `PolicyError` print (`dbfd33c64`) | stderr, daemon.log | **fixed**: `write_scrubbed` |
+| `cli.cmd_daemon_start`'s refusal and held-lane notes (`daemon_env`) | the CLI's stderr | **fixed**: `daemon_log.scrubbed` |
+| `Daemon._open_lanes`'s `held_lane_message`, `_seed_lanes`'s repair line | `self.log`, the handler | scrubbed there; names only |
+| `policy.check_lane_credentials`'s refusals | `PolicyError`: the two sites above | names only. The scrubber leaves the shapes #222's tests use unchanged (`E2E_LANE_NINE_TOKEN`, `HOME`, `SUBFLEET_FAKE_LANE_NINE`, `credential_ref:`, `env.pass[1]:`, checked by hand), and their 49 + 39 cases pass |
+| `provider_env`'s CA-bundle warning | `self.log`, the handler | already `refusals.scrubbed_words(exc)` |
+| `credentials.resolve_credential`'s refusals | `AdapterError`, a handler refusal | fixed words and reasons; its template on the wire, its detail through `refusals.detail_line` |
+| `launch_env` | `ValueError("environment pass-through requires exact variable names")`, `environment_report` | fixed words; names only |
+| `guard.preflight`'s `_Refusal(CONFIG, str(exc))` | its verdict | runs only when no `env` is passed (`doctor`); every daemon call passes one (`daemon.py` `_guard_override` at its three calls) |
+| `guardian.py`'s new `Popen` calls | the guardian's own files | the guardian's stdio is /dev/null |
+| every `subprocess` start in a daemon module (32) | the child's streams | all set; held by the child lint |
+
+The one site found outside #222 is `policy.py:850`, the retired-alias note above.
+
+### 6. What the whole suites found
+
+- **`tests/unit/test_host_push_store_interleavings.py`, four cases.** These have failed on this branch since round 2. `98f2ef0c1` (#233 review r1) made `job.workspace_failed`'s notice name the class (`refusals.fixed_error`), as C-25.7 requires, and updated `test_host_push_storage_retry_budget.py`. These two tests still looked for sqlite's message (`str(error) in notices`). They now check `workspace completion could not be recorded: <class>`, with the message absent: `d44dc5600`, tests only. Neither the merge nor this round caused them. Round 3 did not run the whole suite.
+- **`tests/fake/test_admission_stateful.py::TestAdmissionPassProviderCaps`, one case.** This is a random finding. Without `CI` set, the file uses its random `dev` profile, and seed `3032905352982056795255603331366813964` fails C-4.1's P2 non-interference check: `… is held behind 20260924-120000-haiku, whose own hold {'reason': 'no-slot', 'for_good': ['disabled'], …} holds back nobody`, shrunk. It fails the same way on a `git archive` of `6cbaea975`, and under `CI=1`, CI's derandomized profile, the file passes (11 of 11). So it is admission's, it predates this round, and CI's examples do not reach it. It is listed under "Outside this change" below.
+
+### Invariants, round 4
+
+Each holds for every input and is executed by the tests named.
+
+13. **A daemon module writes its stdout and stderr only through `daemon_log`.** No `print`, standard-stream `write` or traceback printer outside the front ends, and no exception's words to `os.write`. Tests: `test_no_daemon_module_writes_its_standard_streams_past_daemon_log`, `test_the_stream_lint_fails_dbfd33c64_s_line`, 16 lint cases.
+14. **`scrubbed` is the handler's line.** For any text, `daemon_log.scrubbed(text) + "\n"` is what the daemon's handler writes for a record of it. This is a differential test, Hypothesis, any text up to 300 characters, one line or several. Test: `test_scrubbed_is_the_handler_s_line_for_a_record_of_any_text`.
+15. **No credential shape survives `scrubbed`.** This is round 2's assignment strategy. Test: `test_scrubbed_keeps_no_secret_of_any_credential_shape`.
+16. **`write_scrubbed` never raises.** It writes to stderr as it is at the call, and writes a fixed line when the scrubber or the stream fails. Tests: the three `test_write_scrubbed_*` cases.
+17. **No child a daemon module starts inherits the daemon's stdout or stderr.** Tests: `test_no_child_a_daemon_module_starts_writes_to_daemon_log`, 9 lint cases.
+
+### Tests per file, round 4
+
+New or changed:
+
+- **`tests/unit/test_daemon_log_sites.py`, 82 cases** (round 3: 42):
+  - the three refusal-path tests and `daemon.main`'s two refusals;
+  - the two retargeted uncaught-exception tests;
+  - the tail through `daemon start`, two shapes, and `_log_tail` itself, four cases;
+  - the stream lint: the tree, the front ends, 16 cases, and `dbfd33c64`'s line;
+  - the child lint: the tree and 9 cases.
+
+  The two old policy-trigger tests are replaced by the retargeted ones under the same names.
+- **`tests/unit/test_daemon_log_handler.py`, 125 cases** (round 3: 120): the `scrubbed` differential and secrecy properties, and `write_scrubbed`'s stream, marker and failed-write cases.
+- **`tests/unit/test_host_push_store_interleavings.py`, 26 cases:** two tests changed, four cases.
+
+### Runs, round 4
+
+All runs used a fresh `.venv` (`uv sync --locked --group dev`, Python 3.14.7 with the GIL), each pytest in its own hold of the shared lock, in the foreground, as the venv's `python -m pytest`, with no xdist (it is not in the lock file) and `PYTHONPATH` unset. **Base runs:** the four changed source files checked out at `6cbaea975` in the worktree, with this round's tests, then restored.
+
+| Hold | What | Result |
+|---|---|---|
+| base 1 | the 48 new cases, at `8269e0142`'s tests | 19 failed, 29 passed: the uncaught-exception tests, the lint cases, the front-end check. The child lint read the preflight's and the guardian's own `stderr` files as the daemon's; that was fixed in `780ffe1ba` |
+| head 1 | the same 48, at `780ffe1ba`'s tests with the fix in the worktree, committed unchanged as `6db97a441` and `71e09e6c8` | 48 passed |
+| 1 | brief group 1: `test_daemon_log_handler` 125, `test_daemon_log_sites` 82, `test_daemon_log_scrubbing` 86, `test_round10_refusal_context` 59, `test_handler_refusals` 317 | 669 passed, 28 s |
+| 2 | brief group 2: `test_cli` 222, `test_daemon_accept` 5, `test_launch_env_allowlist` 27, `_helpers` 20, `_mutations` 41, `_policy` 26, `_round2` 67, `_round3` 67, `_round4` 40, `_round5` 39 | 554 passed, 40 s |
+| 3 | brief group 3: `test_conversation_service` 98, `test_turn_runner` 82, `test_conversation_wakes` 28 | 208 passed, 60 s |
+| 4 | brief group 4, and three more: `tests/fake/test_state_contract` 37, `test_test_module_names` 1, `test_invariants_index` 25 and `test_desktop_ledger` 4 (the contract changed), `tests/fake/test_launch_env_daemon` 49 (#222's in-process `daemon.main` refusals) | 116 passed, 5 s |
+| suite | every file of `tests/unit` and `tests/fake`, six holds of at most 17.5 minutes (§ below) | `tests/unit`: 319 files, 12,943 cases: 12,942 passed, 1 skipped (`test_host_push_build`). `tests/fake`: 106 files, 1,848 cases: 1,845 passed, 2 xfailed (`test_admission_properties`, `test_canonical_identity_fix3`), 1 failed (`test_admission_stateful`, §6) |
+| seed | the stateful seed at head and at base, without shrinking | both failed, the same check |
+| CI profile | `tests/fake/test_admission_stateful.py` under `CI=1` | 11 passed, 28 s |
+| base 2 | the new cases and `test_host_push_store_interleavings`, at `d44dc5600`'s tests | 18 failed (13 sites, 5 handler), 56 passed (30 sites, all 26 host-push) |
+| base 3, 4 | the refusal and tail cases, after `1a298b0e1` and `5f6e42a60` put each secret check first | 11 failed, then 3, each on the secret: the CLI's `admission.token=SECRET7policy9`, and daemon.log's `subfleet daemon: /private/tmp/sf-…/policy.json: admission.token=SECRET7policy9: …` under `daemon start` and launchd |
+| m1, m2 | the mutations below | each failed as listed |
+| 3.12 | brief group 1 and `test_host_push_store_interleavings` on Python 3.12.14, a scratch venv made offline from uv's cache | 695 passed, 35 s |
+| final | `test_daemon_log_sites` at `5f6e42a60` | 82 passed |
+
+**Code at the runs.** `subfleet/` has been the same since `71e09e6c8`. Holds 1 to 4 and the first three suite holds ran at `a82bbcfd6`. The last three suite holds ran at `d44dc5600`, and they re-ran `test_host_push_store_interleavings.py` whole (26 passed). After that, only the order of asserts in `test_daemon_log_sites.py` changed, and the file passed again at `5f6e42a60`.
+
+**The suite holds.** Each hold ran pytest in-process over the files not yet complete (`hold.py`, in scratch, removed), with JUnit XML. A file counts as complete only when all its collected cases are in the XML; a file a hold cut short ran again whole in the next.
+
+- **Collection:** 14,791 cases in 425 files, no errors.
+- **Hold 3 ran past its alarm.** A test took over `ITIMER_REAL`, as the stop watchdog's tests do. I sent SIGINT to my own pytest at 17 min 32 s, under the 20-minute cap. Later holds stop on a watchdog thread that sends SIGINT to the main thread (`signal.pthread_kill`) instead. The Bash tool moved that hold's call to the background at its 600 s limit; I waited on it in the foreground and started nothing else.
+- **Hold 5's pytest raised at session end.** Its stop landed in a fixture's teardown. Its JUnit XML was whole (2,585 cases, none failed), and the hold was settled from it.
+- **One deviation from one pytest per hold.** The three seed replays (21 s in all) ran one after another inside a single hold.
+- **Hypothesis profile.** Hypothesis used each file's own settings. `test_admission_stateful.py` therefore ran its random `dev` profile, since `CI` was not set; CI runs its derandomized `ci` profile, also run above.
+
+### Mutations, round 4
+
+The base runs are the main control: every regression above fails on `6cbaea975`'s source. Two more:
+
+- **m1:** `daemon_log.scrubbed` returns `refusals.scrubbed_line(text)`, the line form, for every text. 8 failed: the differential, the marker case, the four `_log_tail` cases, and the two `daemon start` process tests, whose tails fold.
+- **m2:** `write_scrubbed` writes to `sys.__stderr__` instead of the stream at the call. 10 failed: two handler cases, `daemon.main`'s two, and six of #222's own `tests/fake/test_launch_env_daemon.py` refusal cases.
+
+### Not run, round 4
+
+- `tests/e2e`, `tests/frontend` and `tests/process`;
+- the whole suites on Python 3.12: only brief group 1 and the host-push file ran there;
+- a real `launchctl`: the launchd tests run the plist's program as launchd would;
+- CI, since this job has no network.
+
+### Outside this change
+
+- **`daemon logs`** prints daemon.log as it is (§3). Scrubbing a viewer that follows one line at a time is a design question of its own.
+- **The stateful admission finding** (§6, seed `3032905352982056795255603331366813964`) is C-4.1's. It reproduces on `6cbaea975`.
+
+### Commits, round 4
+
+- `0893e8404` test: #233 round 4: the merge's policy refusal, daemon start's output and writes past the handler
+- `8269e0142` test: read daemon_log.scrubbed at call time, so the file collects on a tree without it
+- `780ffe1ba` test: a module's own stdout or stderr file is no inherited stream; main's refusal test fails on the leak first
+- `6db97a441` fix: the daemon's own writes to stderr go through the handler's formatter
+- `71e09e6c8` fix: daemon start prints a refusal and its tail of daemon.log scrubbed
+- `a82bbcfd6` docs: C-25.7 and C-11.1 state the daemon's own writes and daemon start's output scrubbed (#233 round 4)
+- `d44dc5600` test: a push workspace's store-failure notice names sqlite's class, never its words
+- `1a298b0e1` test: each refusal and tail case checks the secret first, so on a tree without the fix it fails on the leak
+- `5f6e42a60` test: the refusal check names the line that holds the secret before it looks for the scrubbed words
+- this report's round 4
+
+The commits are on this worktree's detached HEAD: the caller's checkout holds `fix/daemon-log-scrub-217`, so Subfleet keeps them under `refs/subfleet-salvage/`. Nothing is pushed.
