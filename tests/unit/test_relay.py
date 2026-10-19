@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import errno
 import json
 import logging
@@ -22,7 +23,8 @@ import hypothesis.strategies as st
 import pytest
 
 from subfleet import relay as relay_module
-from subfleet.relay import LOG_INLINE_MAX, REPLY_TIMEOUT_S, RelayServer, line_sha256, read_log, socket_path
+from subfleet.relay import LOG_INLINE_MAX, REPLY_TIMEOUT_S, RelayServer, frame_sha256, line_sha256, read_log, socket_path
+from tests.relay_stalls import OS_POINTS, POINTS, SOCKET_POINTS, Gate, StallingOs, StallingServer
 
 
 @pytest.fixture
@@ -321,11 +323,12 @@ def test_stop_covers_a_connection_accepted_before_it_was_published(server, monke
 LINE_2MIB = "x" * (2 << 20)
 
 
-def _relay_on_a_socket(log_path: Path, *, exited_child: bool = False):
+def _relay_on_a_socket(log_path: Path, *, exited_child: bool = False, wrap_server=None):
     """A real relay as the guardian runs it (`guardian.run_guardian`): bound on a
     socket, serving the write end of a stdin pipe. The read end is returned, held
     by the test. With `exited_child`, a child was first started on that pipe as its
-    stdin and has exited, and the relay serves with it as its child."""
+    stdin and has exited, and the relay serves with it as its child. `wrap_server`
+    replaces the listening socket before the relay serves (a `StallingServer`)."""
     short = Path(tempfile.mkdtemp(prefix="sfrb-", dir="/tmp"))        # AF_UNIX paths stay short
     read_end, write_end = os.pipe()
     child = None
@@ -334,6 +337,8 @@ def _relay_on_a_socket(log_path: Path, *, exited_child: bool = False):
         assert child.wait(30) == 0
     relay = RelayServer(short / "r.sock", log_path)
     relay.bind()
+    if wrap_server is not None:
+        relay._server = wrap_server(relay._server)
     relay.serve(write_end, child=child)
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     client.settimeout(10)
@@ -372,14 +377,17 @@ def _send_and_wait_for_intent(relay, client, line: str) -> None:
         time.sleep(0.01)
 
 
-def _stop_within(relay, held, bound: float) -> bool:
-    """Run `stop` and give it `bound` seconds. One still blocked then is released
-    by closing the held read end (EPIPE), so a failing run ends instead of hanging."""
+def _stop_within(relay, held, bound: float, gate=None) -> bool:
+    """Run `stop` and give it `bound` seconds. One still blocked then is released,
+    `gate` first and then by closing the held read end (EPIPE), so a failing run
+    ends instead of hanging."""
     returned = threading.Event()
     stopper = threading.Thread(target=lambda: (relay.stop(), returned.set()), daemon=True)
     stopper.start()
     if returned.wait(bound):
         return True
+    if gate is not None:
+        gate.release()
     os.close(held.fd)
     held.fd = None
     stopper.join(10)
@@ -516,3 +524,286 @@ def test_an_acknowledged_frame_is_one_the_reader_can_read_whole(size, drain):
                 assert json.loads(raw) == {"seq": 1, "ok": True} and records[0]["status"] == "written"
         finally:
             _release(*made)
+
+
+# #236 review r1: what `stop` waits for after the cut is bounded too. C-26.4's whole
+# bound sums the exchange's, the relay thread join's and the cleanup's;
+# STOP_MARGIN_S covers the thread start and the calls between those waits.
+STOP_MARGIN_S = 0.5
+
+
+def _stop_bound() -> float:
+    return relay_module.REPLY_TIMEOUT_S + relay_module.JOIN_TIMEOUT_S + relay_module.CLEANUP_TIMEOUT_S
+
+
+def _settle(relay) -> None:
+    """Once every gate is released: the relay thread and stop's cleanup end."""
+    for thread in (relay._thread, getattr(relay, "_cleanup_thread", None)):
+        if thread is not None:
+            thread.join(10)
+            assert not thread.is_alive(), f"{thread.name} did not end once released"
+
+
+@pytest.mark.parametrize("point", ["journal-fsync", "journal-write"])
+def test_a_stalled_failure_record_cannot_hold_stop(exited_child, caplog, monkeypatch, point):
+    """C-26.4 (#236 review r1): the reviewer's input. A 2 MiB frame waits in the stdin
+    pipe of a child that has exited, whose read end is held and never read; `stop` cuts
+    the exchange, and the fsync (or the write) of the frame's `failed` record stalls.
+    `stop` still returns within its whole bound (`REPLY_TIMEOUT_S` + `JOIN_TIMEOUT_S` +
+    `CLEANUP_TIMEOUT_S`) while that call is held, having closed the pipe (the reader
+    holds a strict prefix, then end of file) and unlinked the socket; the client reads
+    end of stream. Released, the record lands as before (`failed`, ECANCELED) and the
+    cut is logged once. At 9ec7c87fb `stop` waited in `_close_pipe` for the lock that
+    `apply` held through the record (2.59 s in the review; here until released)."""
+    relay, client, held = exited_child
+    caplog.set_level(logging.WARNING, logger="subfleet.relay")
+    gate = Gate()
+    monkeypatch.setattr(relay_module, "os", StallingOs(gate, point=point, record="failed"))
+    whole = (LINE_2MIB + "\n").encode()
+    try:
+        _send_and_wait_for_intent(relay, client, LINE_2MIB)
+        assert _stop_within(relay, held, _stop_bound() + STOP_MARGIN_S, gate=gate), \
+            f"a stalled {point} of the failure record held stop past its bound"
+        assert gate.reached.is_set() and not gate.released.is_set(), "stop returned only once the record was released"
+        assert not relay.path.exists(), "stop left the socket file"
+        assert client.recv(1 << 16) == b"", "a cut exchange was acknowledged"
+        received = _read_to_eof(held.fd)
+        assert 0 < len(received) < len(whole) and whole.startswith(received)
+        # A held fsync leaves the record visible but not yet durable; a held write, unwritten.
+        assert [(r["seq"], r["status"]) for r in read_log(relay.log_path)] == [
+            (1, "failed" if point == "journal-fsync" else "pending")]
+    finally:
+        gate.release()
+    _settle(relay)
+    assert [(r["seq"], r["status"], r.get("errno")) for r in read_log(relay.log_path)] == [
+        (1, "failed", errno.ECANCELED)]
+    assert [record.getMessage() for record in caplog.records if record.name == "subfleet.relay"] == [
+        relay_module.CUT_LOG_LINE]
+
+
+def _inside_the_exchange(relay, gate) -> None:
+    """Return once the relay has taken frame 1: its intent is logged, or a call of
+    the exchange is held at `gate` (an intent whose write is held is not logged)."""
+    until = time.monotonic() + 10
+    while not gate.reached.is_set() and not read_log(relay.log_path):
+        assert time.monotonic() < until, "the relay did not take the frame"
+        time.sleep(0.005)
+
+
+@hypothesis.settings(max_examples=16, deadline=None, derandomize=True, database=None)
+@hypothesis.example(point="journal-fsync", record="failed", size=2 << 20, drain=0, release=None)  # #236 review r1
+@hypothesis.example(point="journal-write", record="failed", size=2 << 20, drain=0, release=None)
+@hypothesis.example(point="journal-write", record="intent", size=10, drain=11, release=None)
+@hypothesis.example(point="journal-fsync", record="outcome", size=10, drain=11, release=None)
+@hypothesis.example(point="pipe-write", record="outcome", size=2 << 20, drain=0, release=None)
+@hypothesis.example(point="conn-close", record="outcome", size=2 << 20, drain=0, release=None)
+@hypothesis.example(point="server-close", record="outcome", size=10, drain=11, release=None)
+@hypothesis.example(point="unlink", record="outcome", size=2 << 20, drain=0, release=None)
+@hypothesis.given(point=st.sampled_from(("none",) + POINTS), record=st.sampled_from(("intent", "outcome", "failed")),
+                  size=st.integers(0, 3 << 19), drain=st.integers(0, 3 << 19),
+                  release=st.none() | st.floats(0, 1))
+def test_stop_returns_within_its_bound_whatever_stalls(point, record, size, drain, release):
+    """C-26.4 (#236 review r1), for every stall point (a stdin pipe write; the write or
+    fsync of a journal record, the frame's intent or its outcome; the close of the
+    connection or of the listening socket; the socket file's unlink), frame size,
+    amount the holder of the read end drains, and moment the stall ends (a fraction of
+    the bound, or only once `stop` has returned): `stop` returns within its whole
+    bound. Unless the held call is a pipe write or comes before the pipe's close in
+    the cleanup (the listening socket's close), the pipe is closed when it returns.
+    Once released nothing is left: no relay or cleanup thread, socket file or open
+    write end. The frame is `written` exactly when the reader got the whole line, else
+    `failed` (ECANCELED) with the reader holding a strict prefix, and only a `written`
+    frame is acknowledged. The bounds are shortened to keep examples quick; it is the
+    same code path."""
+    line = "y" * size
+    whole = (line + "\n").encode()
+    gate = Gate()
+    wrap = (lambda server: StallingServer(server, gate, point=point)) if point in SOCKET_POINTS else None
+    stalls = (mock.patch.object(relay_module, "os", StallingOs(gate, point=point, record=record))
+              if point in OS_POINTS else contextlib.nullcontext())
+    with tempfile.TemporaryDirectory(prefix="sfrs-") as scratch, \
+            mock.patch.object(relay_module, "REPLY_TIMEOUT_S", 0.25), \
+            mock.patch.object(relay_module, "JOIN_TIMEOUT_S", 0.5), \
+            mock.patch.object(relay_module, "CLEANUP_TIMEOUT_S", 0.5):
+        made = _relay_on_a_socket(Path(scratch) / "stdin.jsonl", wrap_server=wrap)
+        relay, client, held, _ = made
+        timer = None
+        try:
+            with stalls:
+                got = bytearray()
+
+                def reader():
+                    while len(got) < drain:
+                        chunk = os.read(held.fd, min(1 << 16, drain - len(got)))
+                        if not chunk:
+                            return
+                        got.extend(chunk)
+
+                draining = threading.Thread(target=reader, daemon=True)
+                draining.start()
+                client.sendall((json.dumps(F(1, line=line, tag="user-message")) + "\n").encode())
+                _inside_the_exchange(relay, gate)
+                if release is not None:
+                    timer = threading.Timer(release * _stop_bound(), gate.release)
+                    timer.start()
+                assert _stop_within(relay, held, _stop_bound() + STOP_MARGIN_S, gate=gate), \
+                    f"stop past its bound with {point} ({record}) held"
+                hypothesis.event(f"{point} {'held' if gate.reached.is_set() else 'not reached'}")
+                if point not in ("pipe-write", "server-close"):
+                    draining.join(10)
+                    assert not draining.is_alive(), "stop returned with the pipe's write end open"
+                    got.extend(_read_to_eof(held.fd))
+                gate.release()
+                _settle(relay)
+            assert not relay.path.exists(), "the socket file was left"
+            draining.join(10)
+            assert not draining.is_alive(), "the reader never reached end of file"
+            got.extend(_read_to_eof(held.fd))
+            records = read_log(relay.log_path)
+            assert len(records) == 1 and records[0]["status"] in ("written", "failed")
+            hypothesis.event(records[0]["status"])
+            if records[0]["status"] == "written":
+                assert bytes(got) == whole
+            else:
+                assert records[0]["errno"] == errno.ECANCELED
+                assert len(got) < len(whole) and whole.startswith(bytes(got))
+            client.setblocking(False)
+            try:
+                raw = client.recv(1 << 16)
+            except (BlockingIOError, ConnectionResetError):
+                raw = b""
+            if raw:
+                assert json.loads(raw) == {"seq": 1, "ok": True} and records[0]["status"] == "written"
+        finally:
+            gate.release()
+            if timer is not None:
+                timer.cancel()
+            _release(*made)
+
+
+def test_status_waits_for_the_frame_whose_outcome_is_being_logged(server, monkeypatch):
+    """C-26.4, IR-27 (#236 review r1): `status` is answered only after a frame being
+    applied is logged, so the log a runner reads after its handshake is final. With
+    the journal under a lock of its own, `status` takes that lock: a frame whose
+    `written` record is still being fsynced holds the answer until the record is
+    durable. Kept behaviour (it passes at 9ec7c87fb); `status` under the pipe lock
+    alone fails it."""
+    relay, read_end = server
+    gate = Gate()
+    monkeypatch.setattr(relay_module, "os", StallingOs(gate, point="journal-fsync", record="written"))
+    applied: list = []
+    answers: list = []
+    applier = threading.Thread(target=lambda: applied.append(relay.apply(F(1, line="one", tag="init"))), daemon=True)
+    asker = threading.Thread(target=lambda: answers.append(relay.apply({"op": "status"})), daemon=True)
+    try:
+        applier.start()
+        assert gate.reached.wait(5), "the frame never reached its outcome's fsync"
+        asker.start()
+        asker.join(0.3)
+        assert asker.is_alive() and not answers, "status answered before the frame's outcome was durable"
+    finally:
+        gate.release()
+    asker.join(5)
+    applier.join(5)
+    assert applied == [{"seq": 1, "ok": True}]
+    assert answers[0]["status"]["applied"] == 1
+    assert [(r["seq"], r["status"]) for r in read_log(relay.log_path)] == [(1, "written")]
+    assert _drain(read_end) == b"one\n"
+
+
+FRAME_OPS = st.lists(st.one_of(st.tuples(st.just("write"), st.integers(0, LOG_INLINE_MAX + 4096)),
+                               st.tuples(st.sampled_from(["close", "signal", "dup", "gap"]))),
+                     min_size=1, max_size=6)
+
+
+@hypothesis.settings(max_examples=25, deadline=None, derandomize=True, database=None)
+@hypothesis.example(ops=[("write", 10), ("write", 10)], stop_seq=2, record="intent")      # between intent and write
+@hypothesis.example(ops=[("write", 10), ("write", 10)], stop_seq=1, record="outcome")     # between write and outcome
+@hypothesis.example(ops=[("close",), ("signal",)], stop_seq=1, record="intent")
+@hypothesis.given(ops=FRAME_OPS, stop_seq=st.none() | st.integers(1, 6), record=st.sampled_from(("intent", "outcome")))
+def test_the_journal_keeps_its_order_whatever_stop_does(ops, stop_seq, record):
+    """C-26.4, C-26.6 (#236 review r1): every reader of `stdin.jsonl` (a relay
+    resuming from it, the runner's handshake and replay through `read_log`,
+    reconciliation's `frame_status`) reads it as each frame's intent, then that frame's
+    outcome, frame by frame. With the journal under its own lock and the pipe under
+    another, `stop` can close the pipe while a frame's intent or outcome is being
+    fsynced: between the intent and the pipe write, or between the write and the
+    outcome. For any frames and that interleaving: every line is a record in that
+    order, none left pending, all accounted for as `frame_status` counts them; a new
+    relay resumes at the same count; the pipe holds exactly the written frames'
+    lines, in order; and only a written frame is acknowledged."""
+    with tempfile.TemporaryDirectory(prefix="sfro-") as scratch:
+        log = Path(scratch) / "stdin.jsonl"
+        relay = RelayServer(Path(scratch) / "r.sock", log)
+        read_end, write_end = os.pipe()
+        os.set_blocking(write_end, False)               # as `serve` leaves it
+        relay._pipe = write_end
+        received = bytearray()
+
+        def drain():
+            while chunk := os.read(read_end, 1 << 16):
+                received.extend(chunk)
+
+        drainer = threading.Thread(target=drain, daemon=True)
+        drainer.start()
+        gate = Gate()
+        frames: dict[int, dict] = {}
+        answers: list[tuple[dict, dict]] = []
+
+        def run():
+            for op in ops:
+                seq = relay.last_applied + 1
+                if op[0] == "write":
+                    frame = F(seq, line="w" * op[1], tag=f"t{seq}")
+                elif op[0] == "close":
+                    frame = F(seq, "close", tag="close")
+                elif op[0] == "signal":
+                    frame = {"seq": seq, "op": "signal", "sig": "INT", "tag": "interrupt",
+                             "sha256": frame_sha256("signal", sig="INT")}
+                elif op[0] == "dup":
+                    frame = frames.get(seq - 1)
+                    if frame is None:
+                        continue
+                else:
+                    frame = F(seq + 1, line="gap")
+                answer = relay.apply(frame)
+                if relay.last_applied >= frame["seq"]:           # logged: its intent is in the journal
+                    frames.setdefault(frame["seq"], frame)
+                answers.append((frame, answer))
+
+        try:
+            # Without `stop_seq` nothing is held (no frame has number -1) and stop races the frames.
+            with mock.patch.object(relay_module, "os", StallingOs(gate, point="journal-fsync", record=record,
+                                                                  seq=stop_seq if stop_seq is not None else -1)):
+                applier = threading.Thread(target=run, daemon=True)
+                applier.start()
+                if stop_seq is not None:
+                    until = time.monotonic() + 10
+                    while not gate.reached.is_set() and applier.is_alive():
+                        assert time.monotonic() < until, "the applier neither finished nor reached the stall"
+                        time.sleep(0.005)
+                relay.stop()                    # no exchange or relay thread here: its cleanup closes the pipe
+                gate.release()
+                applier.join(10)
+                assert not applier.is_alive()
+                cleanup = getattr(relay, "_cleanup_thread", None)
+                if cleanup is not None:
+                    cleanup.join(10)
+            drainer.join(10)
+            assert not drainer.is_alive(), "the pipe's write end was left open"
+        finally:
+            gate.release()
+            os.close(read_end)
+            relay._close_pipe()
+        lines = [json.loads(raw) for raw in log.read_bytes().splitlines()] if log.exists() else []
+        assert [(r["kind"] == "intent", r["seq"]) for r in lines] == [
+            (i % 2 == 0, i // 2 + 1) for i in range(len(lines))]
+        records = read_log(log)
+        assert 2 * len(records) == len(lines) and all(r["status"] in ("written", "failed") for r in records)
+        assert RelayServer(Path(scratch) / "r.sock", log).last_applied == len(records)
+        written = [r["seq"] for r in records if r["op"] == "write" and r["status"] == "written"]
+        assert bytes(received) == b"".join((frames[seq]["line"] + "\n").encode() for seq in written)
+        for frame, answer in answers:
+            if answer.get("ok") and frame["op"] == "write":
+                assert records[frame["seq"] - 1]["status"] == "written"
+        hypothesis.event("stalled" if gate.reached.is_set() else "unstalled")

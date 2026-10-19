@@ -150,19 +150,9 @@ PARK = ("import os, subprocess, sys, time\n"
         "    time.sleep(0.01)\n")
 
 
-def test_a_retained_stdin_reader_cannot_hold_the_exit_receipt(tmp_path):
-    """C-26.4, C-5.1 (#230 review r1): a 2 MiB frame waits in the provider's stdin
-    when the provider exits, while a background process it started holds stdin open
-    and never reads. The relay cuts that exchange after its bound, so the guardian
-    publishes `exit.json` with the provider's own exit status. The frame is logged
-    `failed` (ECANCELED) and the daemon side reads end of stream, never an
-    acknowledgement. At d72597b5c the receipt waited for the background process."""
-    import errno
-    import signal
-    import threading
-
-    from subfleet.relay import RelayError
-
+def _parked_guardian(tmp_path, launcher: list[str]):
+    """A real guardian, started by `launcher` (the argv that runs its `main`), whose
+    provider runs PARK: it exits once the test creates the returned `go`."""
     if sys.platform != "darwin":
         pytest.skip("C-26.4 process test targets the deployment OS")
     try:
@@ -174,26 +164,65 @@ def test_a_retained_stdin_reader_cannot_hold_the_exit_receipt(tmp_path):
     write_lock(lock, os.getpid())
     attempt, go = tmp_path / "a1", tmp_path / "go"
     sock = Path("/private/tmp") / f"sfr-{os.getpid()}-{time.monotonic_ns() % 10**6}" / "x.sock"
-    argv = [sys.executable, "-m", "subfleet.guardian", "--attempt-dir", str(attempt), "--cwd", str(tmp_path),
+    argv = [*launcher, "--attempt-dir", str(attempt), "--cwd", str(tmp_path),
             "--stdout-path", str(attempt / "stdout"), "--stderr-path", str(attempt / "stderr"),
             "--control-socket", str(sock), "--relay-peer-lock", str(lock),
             "--", sys.executable, "-c", PARK, str(go)]
     env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[2]),
            "SUBFLEET_ATTEMPT": "relay/a1", "SUBFLEET_JOB": "relay"}
     process = subprocess.Popen(argv, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return attempt, sock, go, process
+
+
+def _send_2mib(sock, answers: list):
+    """Send a 2 MiB frame on a thread; its acknowledgement or RelayError lands in `answers`."""
+    import threading
+
+    from subfleet.relay import RelayError
+
+    def send():
+        try:
+            answers.append(RelayClient(sock, timeout_s=30).send(1, "write", line="x" * (2 << 20), tag="user-message"))
+        except RelayError as exc:
+            answers.append(exc)
+
+    sender = threading.Thread(target=send, daemon=True)
+    sender.start()
+    return sender
+
+
+def _end_parked_guardian(sock, process) -> None:
+    import signal
+
+    # The guardian leads its own group; the background process is in it.
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+    process.wait(10)
+    for path in (sock, sock.parent):
+        try:
+            path.unlink() if path == sock else path.rmdir()
+        except (FileNotFoundError, OSError):
+            pass
+
+
+def test_a_retained_stdin_reader_cannot_hold_the_exit_receipt(tmp_path):
+    """C-26.4, C-5.1 (#230 review r1): a 2 MiB frame waits in the provider's stdin
+    when the provider exits, while a background process it started holds stdin open
+    and never reads. The relay cuts that exchange after its bound, so the guardian
+    publishes `exit.json` with the provider's own exit status. The frame is logged
+    `failed` (ECANCELED) and the daemon side reads end of stream, never an
+    acknowledgement. At d72597b5c the receipt waited for the background process."""
+    import errno
+
+    from subfleet.relay import RelayError
+
+    attempt, sock, go, process = _parked_guardian(tmp_path, [sys.executable, "-m", "subfleet.guardian"])
     answers: list = []
     try:
         wait_for(lambda: (attempt / "start.json").exists())
-
-        def send():
-            try:
-                answers.append(RelayClient(sock, timeout_s=30).send(1, "write", line="x" * (2 << 20),
-                                                                     tag="user-message"))
-            except RelayError as exc:
-                answers.append(exc)
-
-        sender = threading.Thread(target=send, daemon=True)
-        sender.start()
+        sender = _send_2mib(sock, answers)
         wait_for(lambda: read_log(attempt / "stdin.jsonl"), timeout=10)
         go.touch()                                                   # the provider exits now
         receipt = json.loads(wait_for(lambda: (attempt / "exit.json").exists()
@@ -206,14 +235,54 @@ def test_a_retained_stdin_reader_cannot_hold_the_exit_receipt(tmp_path):
         process.wait(10)
         assert not sock.exists()
     finally:
-        # The guardian leads its own group; the background process is in it.
+        _end_parked_guardian(sock, process)
+
+
+# The guardian's `main`, with the fsync of a `failed` journal record held until the
+# test creates `release` (argv 2); the guardian creates `reached` (argv 1) once held.
+STALLED_FSYNC_GUARDIAN = (
+    "import sys\n"
+    "from subfleet import relay\n"
+    "from tests.relay_stalls import FileGate, StallingOs\n"
+    "relay.os = StallingOs(FileGate(sys.argv[1], sys.argv[2]), point='journal-fsync', record='failed')\n"
+    "from subfleet.guardian import main\n"
+    "raise SystemExit(main(sys.argv[3:]))\n")
+
+
+def test_a_stalled_journal_fsync_cannot_hold_the_exit_receipt(tmp_path):
+    """C-26.4, C-5.1 (#236 review r1): the reviewer's input through a real guardian. A
+    2 MiB frame waits in the provider's stdin when the provider exits, a background
+    process it started holds stdin open and never reads, and the fsync of the cut
+    frame's `failed` record stalls (a patched `os.fsync` in the guardian holds it until
+    the test releases it). The guardian publishes `exit.json`, with the provider's own
+    exit status, while that fsync is still held: `stop` waits for it only within its
+    bound. The record is in the journal (not yet durable), the daemon side reads end of
+    stream, and the socket is gone. At 9ec7c87fb the receipt waited for the fsync."""
+    import errno
+
+    from subfleet.relay import RelayError
+
+    reached, release = tmp_path / "fsync-held", tmp_path / "fsync-release"
+    launcher = [sys.executable, "-c", STALLED_FSYNC_GUARDIAN, str(reached), str(release)]
+    attempt, sock, go, process = _parked_guardian(tmp_path, launcher)
+    answers: list = []
+    try:
+        wait_for(lambda: (attempt / "start.json").exists(), timeout=10)
+        sender = _send_2mib(sock, answers)
+        wait_for(lambda: read_log(attempt / "stdin.jsonl"), timeout=10)
+        go.touch()                                                   # the provider exits now
         try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
-        process.wait(10)
-        for path in (sock, sock.parent):
-            try:
-                path.unlink() if path == sock else path.rmdir()
-            except (FileNotFoundError, OSError):
-                pass
+            receipt = json.loads(wait_for(lambda: (attempt / "exit.json").exists()
+                                          and (attempt / "exit.json").read_text(), timeout=10))
+        except AssertionError:
+            raise AssertionError("no exit.json while the journal fsync was held") from None
+        assert reached.exists() and not release.exists(), "exit.json came only once the fsync was released"
+        assert receipt["rc"] == 0
+        assert [(r["seq"], r["status"], r.get("errno")) for r in read_log(attempt / "stdin.jsonl")] == [
+            (1, "failed", errno.ECANCELED)]
+        sender.join(10)
+        assert len(answers) == 1 and isinstance(answers[0], RelayError), answers
+        assert not sock.exists()
+    finally:
+        release.touch()
+        _end_parked_guardian(sock, process)
