@@ -789,7 +789,7 @@ def test_slow_boot_lookup_keeps_bucket_refill(root, monkeypatch, holder_clock):
     assert starts == pytest.approx([1.6] * 5)
     assert probe.call('ping')['pong']
     assert starts[-1] == pytest.approx(4.2)  # a token at 2.6, then another boot read
-    assert starts[1] - starts[0] >= client_module.HOLDER_PROBE_INTERVAL_S
+    assert holder_clock.sleeps == pytest.approx([1.0])
 
 
 def test_call_rejects_response_observed_after_deadline(root, monkeypatch, holder_clock):
@@ -935,7 +935,7 @@ def test_wait_refused_connect_probe_slot_respects_deadline(root, monkeypatch, ho
     for _ in range(3):
         probe.holder_report()
     starts.clear()
-    monkeypatch.setattr(cli, '_client', lambda args: probe)
+    monkeypatch.setattr(cli, '_client', lambda args, **kwargs: probe)
 
     def refuse(path):
         raise ConnectionRefusedError('controlled refusal')
