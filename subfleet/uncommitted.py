@@ -28,6 +28,7 @@ import shutil
 import stat
 import tempfile
 
+from .launch_env import build_environment
 from .salvage import SalvageError, _git_bytes
 
 #: The bound on what is copied: changed tracked paths plus untracked files...
@@ -138,10 +139,11 @@ def plan(top: str | Path, head: str, *, scratch_root: str | Path, timeout_s: flo
 
 def _check_applies(top: Path, head: str, patch: bytes, scratch_root: Path, timeout_s: float | None) -> None:
     """The patch applies to `head`'s tree, checked in a scratch index the
-    caller's own index never sees."""
+    caller's own index never sees. Git gets C-12.3's selected names and that
+    index only, as salvage's own scratch indexes do (D-ENV1)."""
     scratch_root.mkdir(parents=True, exist_ok=True, mode=0o700)
     with tempfile.TemporaryDirectory(prefix="subfleet-uncommitted-", dir=scratch_root) as scratch:
-        env = {**os.environ, "GIT_INDEX_FILE": str(Path(scratch) / "index")}
+        env = build_environment({"GIT_INDEX_FILE": str(Path(scratch) / "index")})
         _git(top, "read-tree", head, env=env, timeout_s=timeout_s)
         if _git_bytes(top, *APPLY_OPTIONS, "--cached", "--check", "-", env=env, stdin=patch,
                       timeout_s=timeout_s) is None:
