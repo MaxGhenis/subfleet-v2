@@ -9635,41 +9635,61 @@ def enrollment_runner(original: Callable[..., Any], turn: Callable[..., Any]) ->
     return runner
 
 
+def _dump_stop_stacks(fd: int, grace_s: float) -> None:
+    """Managed frame references avoid the C watchdog's racy raw frame walk.
+
+    No source lines or locals are read. Build the bounded snapshot before any
+    write releases the GIL, and use the descriptor reserved at startup. JSON
+    is already loaded: a diagnostic codec lookup could need a new descriptor.
+    A GIL hog, allocation failure or blocked write is still covered by the
+    independent C watchdog and kernel alarm.
+    """
+    frames = sys._current_frames()
+    names = {thread.ident: thread.name[:100] for thread in threading.enumerate()}
+    lines = [f"Timeout ({grace_s:g} s): Python thread stacks (most recent call first):\n"]
+    for ident, frame in itertools.islice(frames.items(), 100):
+        lines.append(f"Thread 0x{ident:x} [{names.get(ident, 'unknown')}]\n")
+        for _ in range(100):
+            code = frame.f_code
+            filename = json.dumps(code.co_filename[:500], ensure_ascii=True)
+            name = json.dumps(code.co_name[:500], ensure_ascii=True)[1:-1]
+            lines.append(f"  File {filename}, line {frame.f_lineno} in {name}\n")
+            frame = frame.f_back
+            if frame is None:
+                break
+        else:
+            lines.append("  ...\n")
+        lines.append("\n")
+    data = memoryview("".join(lines).encode("utf-8", "backslashreplace"))
+    while data:
+        data = data[os.write(fd, data):]
+
+
 def watch_stop(stopping: threading.Event, grace_s: float, log_path: Path) -> Callable[[], bool]:
-    """C-5.8a: prepare the daemon's process-local shutdown bound at startup.
+    """C-5.8a: prepare three ordered stop paths, all local to this process.
 
-    `close()` keeps `daemon.lock` until its pools drain. If a worker cannot
-    return, ending the process releases the flock without allowing two store
-    writers. No guardian is signalled; interval timers are not inherited by
-    forked children, so a guardian launched after arming is unaffected too.
+    The preexisting Python watcher snapshots managed thread frames at the
+    monotonic drain deadline, then exits 1. The C watchdog, which needs no GIL,
+    dumps and exits halfway through the existing three-second dump margin. The
+    kernel SIGALRM is installed first for the end of that margin. Neither the
+    grace nor either external backstop is extended. A slow snapshot is cut by
+    the C fallback; a blocked C dump is cut by the kernel alarm.
 
-    Call this on the main thread, before installing the stop handlers. It
-    reserves SIGALRM with its default (terminate) action and opens the log
-    descriptor before a stop can exhaust descriptors. The returned `arm`
-    installs ITIMER_REAL for grace plus STOP_DUMP_MARGIN_S, then asks
-    faulthandler to dump at the grace and exit 1. The kernel backstop needs
-    neither the GIL nor a thread, and survives a failed or cancelled dump
-    timer. A working dump normally wins; a slow or blocked dump may be cut
-    short by SIGALRM. Faulthandler includes at most 100 threads, newest first, without
-    lock-ownership metadata. Even the stopping line can block or be absent.
-
-    The one-time claim never waits. An interrupted arming call retains the
-    claim, and a nested signal handler returns without entering Event.set
-    until that call finishes. No overlapping invocation replaces either
-    timer. A watcher also arms when something else sets `stopping`; the bound
-    itself does not depend on that event or watcher making progress.
-
-    `close()`, the end of serving, and handled SIGTERM/SIGINT call `arm` before
-    setting `stopping`. A Python signal handler cannot begin while another
-    thread keeps the GIL indefinitely. Only stops initiated by launchd or
-    `subfleet daemon stop` have those callers' external SIGKILL backstops;
-    direct signals do not. Clean process exit discards both timers.
+    The one-time claim never waits. A handler interrupting its owner returns
+    without setting stopping; later calls cannot replace any deadline. The log
+    descriptor and Python watcher exist before a stop can exhaust resources.
+    close() keeps daemon.lock until pools drain or the process exits; no guardian
+    is signalled, and interval timers are not inherited by forked children.
+    A raw SIGTERM cannot run its Python handler through a permanent GIL hog;
+    launchd and daemon stop retain their own external SIGKILL backstops.
     """
     signal.signal(signal.SIGALRM, signal.SIG_DFL)
     signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGALRM})
     fd = os.open(log_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_CLOEXEC, 0o600)
     claimed = threading.Lock()
     complete = False
+    armed = threading.Event()
+    deadline = 0.0
 
     def say(text: str) -> None:
         with contextlib.suppress(OSError):
@@ -9684,22 +9704,26 @@ def watch_stop(stopping: threading.Event, grace_s: float, log_path: Path) -> Cal
         the claim or starts a Python thread. Kernel timer failure exits
         immediately rather than leave a claimed but unbounded stop.
         """
-        nonlocal complete
+        nonlocal complete, deadline
         if not claimed.acquire(blocking=False):
             return complete
+        deadline = time.monotonic() + grace_s
         try:
             signal.setitimer(signal.ITIMER_REAL, grace_s + STOP_DUMP_MARGIN_S)
         except Exception:  # noqa: BLE001 - cannot continue without a process bound
             os._exit(1)
+        armed.set()
         try:
-            # Both timers precede the log write, which gives up the GIL.
+            # The margin is divided equally: Python gets its first half, C its
+            # second. Anchor to the drain deadline, not watchdog setup time.
             try:
-                faulthandler.dump_traceback_later(grace_s, exit=True, file=fd)
-                then = "the stacks of its threads follow and it exits 1"
+                remaining = max(0.001, deadline + STOP_DUMP_MARGIN_S / 2 - time.monotonic())
+                faulthandler.dump_traceback_later(remaining, exit=True, file=fd)
             except Exception as exc:  # noqa: BLE001 - e.g. no thread for the watchdog
-                then = (f"SIGALRM ends it in {grace_s + STOP_DUMP_MARGIN_S:g} s "
-                        f"without a stack dump (faulthandler: {type(exc).__name__})")
-            say(f"stopping: if this process is still running in {grace_s:g} s, {then}")
+                say(f"C stack fallback unavailable (faulthandler: {type(exc).__name__}); "
+                    f"SIGALRM deadline is {grace_s + STOP_DUMP_MARGIN_S:g} s after arming")
+            say(f"stopping: if this process is still running in {grace_s:g} s, "
+                "the stacks of its threads follow and it exits 1")
         finally:
             complete = True
         return True
@@ -9707,6 +9731,13 @@ def watch_stop(stopping: threading.Event, grace_s: float, log_path: Path) -> Cal
     def watch() -> None:
         stopping.wait()
         arm()
+        armed.wait()
+        time.sleep(max(0.0, deadline - time.monotonic()))
+        try:
+            _dump_stop_stacks(fd, grace_s)
+        except Exception:  # noqa: BLE001 - leave the C and kernel fallbacks armed
+            return
+        os._exit(1)
 
     threading.Thread(target=watch, name="subfleet-stop-watch", daemon=True).start()
     return arm
