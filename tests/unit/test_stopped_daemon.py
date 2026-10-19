@@ -863,3 +863,26 @@ def test_hook_wait_forwards_remaining_deadline(holder_clock):
     assert hooks._wait_and_deliver(SimpleNamespace(call=call), 'session', 'job-1', .6,
                                    stderr=io.StringIO(), now=lambda: holder_clock.now,
                                    sleep=client_module._sleep) == int(Exit.OK)
+
+
+def test_wait_refused_connect_probe_slot_respects_deadline(root, monkeypatch, holder_clock, capsys):
+    """C-15.4 a refusal's diagnostic slot also ends wait at its deadline, exit 124."""
+    from types import SimpleNamespace
+    starts = paced_observations(root, monkeypatch, holder_clock)
+    wire = PacedWire(holder_clock)
+
+    def refuse(path):
+        raise ConnectionRefusedError('controlled refusal')
+
+    def refused_socket(*args):
+        conn = wire.socket(*args)
+        conn.connect = refuse
+        return conn
+
+    monkeypatch.setattr(client_module.socket, 'socket', refused_socket)
+    monkeypatch.setattr(cli, 'time', SimpleNamespace(
+        monotonic=lambda: holder_clock.now, sleep=client_module._sleep))
+    assert cli.main(['wait', 'job-1', '--timeout', '0.6']) == int(Exit.WAIT_TIMEOUT)
+    assert holder_clock.now == pytest.approx(.6)
+    assert starts == [0.0] and wire.sent == []
+    assert 'timeout' in capsys.readouterr().err
