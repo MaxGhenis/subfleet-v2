@@ -304,6 +304,10 @@ ORDINARY = [
 @pytest.mark.parametrize("index", range(len(ORDINARY)), ids=lambda index: " ".join(ORDINARY[index]))
 def test_p3_wrappers_running_ordinary_commands_stay_approved(index, tmp_path):
     argv = [part.format(scratch=tmp_path, recorder=recorder()) for part in ORDINARY[index]]
+    # These cases run the wrapper. macOS 26 ships /usr/bin/stdbuf; CI's macOS 15 runners have
+    # none, and without it there is nothing to run.
+    if os.sep not in argv[0] and shutil.which(argv[0]) is None:
+        pytest.skip(f"{argv[0]} is not installed on this host")
     approved(argv, env={**os.environ, "SHELL": "/bin/sh"})
 
 
