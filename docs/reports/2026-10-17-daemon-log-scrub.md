@@ -644,6 +644,8 @@ All runs used a fresh `.venv` (`uv sync --locked --group dev`, Python 3.14.7 wit
 | 5 | brief group 5, and two more: `tests/fake/test_state_contract` 37, `test_test_module_names` 1, `test_invariants_index` 25 (the contract changed), `test_descriptor_review_fixes` 56 (`_count_connection`'s site) | 119 passed, 25 s |
 | fuzz | the generator, `SUBFLEET_CUT_FUZZ=16000` | 4 passed, 39 s |
 | m1 to m5 | the mutations above | each failed as listed |
+| 3.12 | brief group 1 on Python 3.12.14, a scratch venv made offline from uv's cache | 622 passed, 38 s |
+| collect | the whole suite, `--collect-only` | 15,170 collected in 484 files, no errors |
 
 **Code after the runs.** Hold 1 ran at `ff91e8ece`, the last code commit. Holds 2 to 5 ran at `e5d59955d`; only tests changed after it, and only in `test_daemon_log_handler.py`. Two earlier group-1 holds failed:
 
@@ -654,7 +656,7 @@ All runs used a fresh `.venv` (`uv sync --locked --group dev`, Python 3.14.7 wit
 
 - the full suite;
 - `tests/e2e`, `tests/frontend` and `tests/process`;
-- Python 3.12;
+- Python 3.12 beyond brief group 1;
 - a real `launchctl`;
 - CI, since this job has no network.
 
