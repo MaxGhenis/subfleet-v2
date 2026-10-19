@@ -554,7 +554,8 @@ def test_a_stalled_failure_record_cannot_hold_stop(exited_child, caplog, monkeyp
     holds a strict prefix, then end of file) and unlinked the socket; the client reads
     end of stream. Released, the record lands as before (`failed`, ECANCELED) and the
     cut is logged once. At 9ec7c87fb `stop` waited in `_close_pipe` for the lock that
-    `apply` held through the record (2.59 s in the review; here until released)."""
+    `apply` held through the record (still blocked at 2.59 s in the review; here, until
+    released)."""
     relay, client, held = exited_child
     caplog.set_level(logging.WARNING, logger="subfleet.relay")
     gate = Gate()

@@ -263,12 +263,12 @@ class RelayServer:
 
         What follows is bounded too (#236 review r1): the relay thread gets
         JOIN_TIMEOUT_S to end, and the cleanup (`_clean_up`) CLEANUP_TIMEOUT_S on a
-        thread of its own, since a socket close, a log write and an unlink can wait
-        on I/O and the pipe's close waits for a write under way. So stop returns
-        within REPLY_TIMEOUT_S + JOIN_TIMEOUT_S + CLEANUP_TIMEOUT_S whatever the
-        child, a stdin reader or the journal's disk does. A cleanup still running
-        then finishes on its own; the descriptors it has not closed by the time
-        the guardian exits, the exit closes.
+        thread of its own, because the pipe's close waits for a write under way
+        and the unlink and the cut's log line can wait on the disk and on stderr.
+        So stop returns within REPLY_TIMEOUT_S + JOIN_TIMEOUT_S + CLEANUP_TIMEOUT_S
+        whatever the child, a stdin reader or the journal's disk does. A cleanup
+        still running then finishes on its own; what it has not closed when the
+        guardian exits, the exit closes.
         """
         self._stop.set()
         conn = self._conn
@@ -302,8 +302,9 @@ class RelayServer:
         up and is logged `failed` (ECANCELED), which releases the pipe lock that
         `_close_pipe` takes; the connection is shut down both ways, so a reply or
         a read under way ends and the client reads end of stream, no answer.
-        Neither shutdown waits on the peer or a buffer; the line saying so is
-        logged by the cleanup, where its write is bounded."""
+        A shutdown does not wait for a send or receive blocked on the connection
+        (measured, #236 review r1); the cut's log line is the cleanup's, where its
+        write is bounded."""
         conn = self._conn
         if conn is not None:
             # Each half on its own: once `stop` has shut the read half, macOS
