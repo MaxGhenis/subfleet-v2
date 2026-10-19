@@ -247,6 +247,12 @@ _ERROR_PREFIXES = frozenset(("cannot read the brief: ", "cannot resolve the work
                              "invalid arguments: "))
 PROTECTED_FOLDERS = frozenset((".claude", ".codex", ".subfleet", "state root", "lane home"))
 WORKSPACE_REFUSALS = {
+    ("bad-workspace", "secret-shaped"): (
+        "the folder's path cannot be used because it looks like it holds a secret",
+        "choose another folder or use a new scratch folder"),
+    ("protected-workspace", "unreadable-spelling"): (
+        "the folder cannot be checked because a protected path's spelling cannot be read",
+        "make every directory above it searchable, or choose Ask or read-only"),
     ("bad-workspace", "gone"): ("the suggestion's folder is gone", "dismiss it or restore its folder"),
     ("not-a-repository", "no-longer-repository"): (
         "the suggestion's folder is no longer a git checkout, and it was to start in a worktree of its own",

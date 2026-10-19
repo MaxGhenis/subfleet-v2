@@ -38,7 +38,9 @@ pending, none placed for 4863 s; 14 lanes open`).
 
 Bounded by default: a plain `pytest` run is 40 examples of at most 30 steps
 (`ci`, derandomized, when `CI` is set; `dev`, random, otherwise), and writes no
-example database. `HYPOTHESIS_PROFILE=deep` is the opt-in long search, 300
+example database. An explicit `--hypothesis-seed` overrides the machines'
+derandomization while preserving the selected profile's bounds.
+`HYPOTHESIS_PROFILE=deep` is the opt-in long search, 300
 examples of at most 60 steps (about one 20-minute hold of the host's shared test
 lock); `HYPOTHESIS_MAX_EXAMPLES` resizes it. A failure prints the steps that
 reproduce it, and a blob for `@reproduce_failure`.
@@ -71,7 +73,7 @@ from subfleet import store as store_module
 from subfleet import timers as timers_module
 from subfleet.adapters import registry
 from subfleet.adapters.base import AdapterError
-from subfleet.contracts import (ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner,
+from subfleet.contracts import (MODEL_CAPACITY_STEER_S, ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner,
                                 Outcome, OutcomeClass, Reading, ReadingLabel, attempt_dir)
 from subfleet.daemon import Daemon
 from subfleet.policy import PolicyError, resolve_model
@@ -606,7 +608,7 @@ class AdmissionMachine(RuleBasedStateMachine):
             self.admission_pass()
 
     @precondition(lambda self: self.service is not None and bool(self.live()))
-    @rule(attempt=st.integers(0, 7), outcome=st.sampled_from(("ok", "transient", "limited")),
+    @rule(attempt=st.integers(0, 7), outcome=st.sampled_from(("ok", "transient", "limited", "model-capacity")),
           scope=st.sampled_from(("account", "model")), tick=st.booleans())
     def attempt_ends(self, attempt, outcome, scope, tick):
         """A live attempt ends and is finalized as the daemon finalizes one (C-4.3, C-4.5)."""
@@ -621,12 +623,26 @@ class AdmissionMachine(RuleBasedStateMachine):
             closure = Closure(attempt["lane_id"], "account" if scope == "account" else attempt["model_requested"],
                               self.clock.iso(3600), ClosureReason.PROVIDER_LIMIT, ClockSource.REPORTED, "fixture")
         self.next_outcome = Outcome({"ok": OutcomeClass.OK, "transient": OutcomeClass.TRANSIENT,
-                                     "limited": OutcomeClass.LIMITED}[outcome], f"fixture {outcome}", closure=closure)
+                                     "limited": OutcomeClass.LIMITED, "model-capacity": OutcomeClass.TRANSIENT}[outcome],
+                                    f"fixture {outcome}", closure=closure,
+                                    evidence={"model_capacity": True} if outcome == "model-capacity" else {})
         adir = attempt_dir(self.service.root, attempt["job_id"], attempt["seq"])
         adir.mkdir(mode=0o700, parents=True, exist_ok=True)
         for name, contents in (("stdout", b"fixture result\n"), ("stderr", b""), ("lane.log", b"")):
             (adir / name).write_bytes(contents)
-        receipt = {"rc": {"ok": 0, "transient": 1, "limited": 4}[outcome], "signal": None, "wall_s": .1,
+        # C-9.2: finalization independently verifies a detached Codex success
+        # against its frozen stream, exit receipt and nonblank deliverable.
+        # Claude's corresponding terminal event is `result`. Failed attempts
+        # carry no success proof, even though their partial output is nonblank.
+        stream = ""
+        if outcome == "ok":
+            provider = self.store.get_lane(attempt["lane_id"]).provider
+            terminal = ({"type": "turn.completed"} if provider == "codex" else
+                        {"type": "result", "subtype": "success", "is_error": False,
+                         "result": "fixture result"})
+            stream = json.dumps(terminal) + "\n"
+        (adir / "stream.jsonl").write_text(stream)
+        receipt = {"rc": {"ok": 0, "transient": 1, "limited": 4, "model-capacity": 1}[outcome], "signal": None, "wall_s": .1,
                    "child_pid": None, "finished_at": self.clock.iso()}
         (adir / "exit.json").write_text(json.dumps(receipt))
         self.service._pending_launches.discard(attempt["attempt_id"])
@@ -774,10 +790,22 @@ class AdmissionMachine(RuleBasedStateMachine):
 
     def demands(self, job, roster) -> list[tuple]:
         """What a job could be waiting for: its own demand, or the one retry pinned to its last pair (C-4.5)."""
-        own = (walked_models(self.policy, job), pinned_lanes(roster, self.policy, job))
+        models = walked_models(self.policy, job)
         attempts = self.store.list_attempts(job["job_id"])
+        # Contract oracle: only this unpinned job's live, recorded transient steers
+        # remove model demand; do not use the scheduler's demand implementation.
+        if models is not None and not job["pinned_model"] and not job["pinned_lane"] and job["kind"] not in (
+                "turn", "resume", "revive"):
+            refused = set()
+            for attempt in attempts:
+                steer = json.loads(attempt["evidence_json"] or "{}").get("capacity_steer")
+                if attempt["outcome_class"] == "transient" and steer and parse(steer["until"]) > self.clock.instant:
+                    refused.add(steer["model_id"])
+            models = frozenset(model for model in models if self.policy["models"][model]["id"] not in refused)
+        own = (models, pinned_lanes(roster, self.policy, job))
         last = attempts[-1] if attempts else None
-        if last and last["outcome_class"] == "transient" and sum(
+        last_steered = bool(last and json.loads(last["evidence_json"] or "{}").get("capacity_steer"))
+        if last and not last_steered and last["outcome_class"] == "transient" and sum(
                 1 for row in attempts if row["outcome_class"] == "transient" and row["lane_id"] == last["lane_id"]) == 1:
             try:
                 pair = (frozenset({resolve_model(self.policy, last["model_requested"], note=False)}),
@@ -839,8 +867,17 @@ class AdmissionMachine(RuleBasedStateMachine):
             waiting = [older for older in older_jobs if holds_back(older)]
             keepers = waiting + [older for older in older_jobs if holds.get(older, {}).get("reason") == "lease-held"]
             for older in waiting:
+                wanted = demand[job_id]
+                original = walked_models(self.policy, after[older])
+                remaining = demand[older][0][0]
+                skipped = original - remaining if original is not None and remaining is not None else frozenset()
+                if skipped and any(mine[0] is not None and skipped & mine[0] for mine in wanted):
+                    # C-6.9: a job trying a model steered away from the waiter
+                    # competes on the model actually selected for its attempt.
+                    selected = resolve_model(self.policy, row["model_requested"], note=False)
+                    wanted = [(frozenset({selected}), mine[1]) for mine in wanted]
                 assert not all(self.holds_back(theirs, mine, provider, roster)
-                               for mine in demand[job_id] for theirs in demand[older]), (
+                               for mine in wanted for theirs in demand[older]), (
                     f"P2, C-6.9: {job_id} was placed on {row['lane_id']} past {older}, an older job of its tier "
                     f"that competes with it and could not be placed ({holds[older]}); before the pass {older} was "
                     f"{ {key: before[older][key] for key in ('state', 'wait_reason', 'next_check_at')} } "
@@ -1077,6 +1114,8 @@ class AdmissionMachine(RuleBasedStateMachine):
         """P3 (C-6.9, C-11.8): with capacity fair and every attempt ending as soon as it starts, each job
         some lane would take is placed within a few passes. A job no lane can admit (a pin that names
         no lane, exclusions that cover every lane) holds nobody back and keeps no slot."""
+        # Fair progress is tested after the bounded steer has ended (C-9.5).
+        self.clock.advance(MODEL_CAPACITY_STEER_S)
         for _ in range(len(self.pending(self.jobs())) + 4):
             for attempt in self.live():
                 self.finish(attempt, "ok")
@@ -1153,5 +1192,67 @@ def test_a_permanently_excluded_retry_does_not_hold_a_younger_provider_peer(_):
             machine.admission_pass()
         assert machine.service._holds[older]["reason"] == "lanes-unadmittable"
         assert [attempt["job_id"] for attempt in machine.live()] == [younger]
+    finally:
+        machine.teardown()
+
+
+@pytest.fixture(autouse=True)
+def explicit_stateful_seed(request, monkeypatch):
+    """Hypothesis checks derandomization before its CLI seed for stateful tests."""
+    if (request.cls in (TestAdmissionPass, TestAdmissionPassProviderCaps)
+            and request.config.getoption("--hypothesis-seed") is not None):
+        monkeypatch.setattr(request.cls, "settings", settings(PROFILE, derandomize=False))
+
+
+@settings(PROFILE, max_examples=1)
+@given(_context=st.none())
+def test_r4_three_standard_reviews_drain_after_probe_os_error(_context):
+    """Review r3b: simulated successes must free the only slot for all three reviews."""
+    machine = AdmissionMachine()
+    try:
+        review = {"tier": "standard", "model": None, "task": "review", "pin": None,
+                  "legacy": False, "authorize": False, "exclusions": "[]"}
+        machine.fleet(cap=1, per_lane=None, reserve=False, claude=[], codex_email=None,
+                      second_codex=True, capacity=[], queue=[dict(review) for _ in range(3)],
+                      probe="os-error", prove=None)
+        machine.fair_capacity_drains_the_queue()
+        assert len(machine.jobs()) == 3
+        assert {job["state"] for job in machine.jobs().values()} == {"succeeded"}
+        assert len(machine.store.list_attempts()) == 3
+        assert machine.passes <= 7
+    finally:
+        machine.teardown()
+
+
+@pytest.mark.parametrize("provider,model", [("codex", "astra"), ("claude", "sonnet")])
+@pytest.mark.parametrize("outcome,expected", [("ok", "ok"), ("transient", "transient"),
+                                              ("limited", "limited"), ("model-capacity", "transient")])
+@settings(PROFILE, max_examples=1)
+@given(_context=st.none())
+def test_r4_simulated_finish_preserves_provider_outcome(provider, model, outcome, expected, _context):
+    """C-9.2: completion proof admits successes without turning failures into successes."""
+    machine = AdmissionMachine()
+    try:
+        job = {"tier": "standard", "model": model, "task": None, "pin": None,
+               "legacy": False, "authorize": False, "exclusions": "[]"}
+        machine.fleet(cap=1, per_lane=None, reserve=False,
+                      claude=[None] if provider == "claude" else [], codex_email=None,
+                      second_codex=False, capacity=[], queue=[job], probe="ok", prove=None)
+        machine.admission_pass()
+        attempt, = machine.live()
+        assert machine.store.get_lane(attempt["lane_id"]).provider == provider
+        machine.finish(attempt, outcome)
+        finished = machine.store.get_attempt(attempt["attempt_id"])
+        assert finished["outcome_class"] == expected
+        assert finished["state"] == ("succeeded" if outcome == "ok" else "failed")
+        evidence = json.loads(finished["evidence_json"])
+        if provider == "codex":
+            assert evidence["classification"]["turn_completed"] is (outcome == "ok")
+        if outcome == "ok":
+            assert machine.store.get_job(attempt["job_id"])["state"] == "succeeded"
+            adir = attempt_dir(machine.root, attempt["job_id"], attempt["seq"])
+            assert (adir / "deliverable.md").read_bytes().strip()
+            terminal = json.loads((adir / "stream.jsonl").read_text())
+            assert terminal["type"] == ("turn.completed" if provider == "codex" else "result")
     finally:
         machine.teardown()

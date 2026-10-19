@@ -26,6 +26,7 @@ quotations were not treated as observed provider failures.
 | `content-cyber-flag` | Real output from `20261009-092734-pr158-review-sol` (gpt-6.1-sol, 2026-10-09): the provider flagged the turn for cybersecurity risk after an opening agent message and some tool calls. Tool transcript removed. |
 | `stream-disconnect` | Synthetic interrupted provider stream. |
 | `model-at-capacity` | Synthetic temporary model-capacity rejection. |
+| `model-at-capacity-sol` | Real output from `20261013-024327-pr198-review-r6` a1 (gpt-6.1-sol, codex-1, 2026-10-13): a recovered `Reconnecting... 2/5` 503, then "Selected model is at capacity. Please try a different model." as an `error` event and the `turn.failed` that ended the turn after 26 minutes (D-CAP1). Tool transcript and later agent messages removed. |
 | `spawn-fail` | Synthetic rc 127 spawn failure. |
 | `cut-off-item-completed` | Synthetic D-SHUT1 host-reboot shape: rc 0, interim completed agent item, no `turn.completed` or `last.md`. |
 | `cut-off-item-started` | Synthetic D-SHUT1 cut-off shape: rc 0, interim started agent item, no `turn.completed` or `last.md`. |
