@@ -61,7 +61,7 @@ def claude_launch(turn: dict[str, Any], *, attempt_id: str, attempt_dir: Path, l
     env_remove: tuple[str, ...] = ENV_REMOVE
     if spec.permission == "read-only":
         from ..adapters.isolation import claude_env_remove
-        env_remove = (*ENV_REMOVE, *claude_env_remove({**os.environ, **credential_env}))
+        env_remove = (*ENV_REMOVE, *claude_env_remove(os.environ.keys() | credential_env.keys()))
     transcript = adapter.expected_transcript_path(spec.cwd, session_id, credential_env)
     notes = adapter._launch_notes(lane=lane, attempt_id=attempt_id, model_id=model_id, session_id=session_id,
                                   workdir=spec.cwd, transcript=transcript,

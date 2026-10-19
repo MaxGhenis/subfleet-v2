@@ -60,7 +60,7 @@ def test_operator_ca_sources_pass_through_without_validation(operator, configure
     monkeypatch.setattr(provider_env, "read_regular", forbidden)
     env = {"OTHER": "kept", **operator}
     result = ProviderEnvironment(selected(configured)).build("codex", environ=env)
-    assert result == env
+    assert result == operator
     assert env == {"OTHER": "kept", **operator}
 
 
@@ -227,7 +227,9 @@ def test_property_ca_selection_never_overrides_or_adds_a_second_source(bundle, t
     result = ProviderEnvironment(selected(configured)).build("codex", environ=environ)
     operator = ca_values(environ)
     assert ca_values(result) == operator if operator else len(ca_values(result)) <= 1
-    assert all(result[key] == value for key, value in environ.items())
+    from subfleet.launch_env import ALLOWED_NAMES
+    assert all(result[key] == value for key, value in environ.items() if key in ALLOWED_NAMES)
+    assert set(result) <= ALLOWED_NAMES
     assert environ == before
     if not operator:
         assert ca_values(result) == ({"SSL_CERT_FILE": bundle} if configured == bundle else {})
