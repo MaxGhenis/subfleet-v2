@@ -590,6 +590,210 @@ def _tail_cut(text: str) -> int:
     return len(text)
 
 
+#: A data URI's prefix, as `_DATA_URI_RE` reads it; its body is the run of
+#: `_DATA_BODY_RE` after it, line breaks included.
+_DATA_URI_PREFIX_RE = re.compile(r"(?i)data:[a-z0-9.+/-]+(?:;[a-z0-9=.+/-]+)*;base64,")
+_DATA_BODY_RE = re.compile(r"[A-Za-z0-9+/=\s]+")
+#: A quote and the run of backslashes right before it. `_quoted_ends` pairs a quote
+#: after an even run (none included) with the next such quote of its kind;
+#: `_escaped_quote_ends`, one after a run of one or more with the next after a run
+#: of the same length.
+_QUOTE_RUN_RE = re.compile(r"(\\*)([\"'])")
+#: A text whose first word is a header's name, as `_HEADER_RE` reads one.
+_LEADING_HEADER_RE = re.compile(r"(?i)\s*(?:authorization|cookie|set-cookie)\s*:")
+
+
+def cut_whole(text: str, limit: int) -> str:
+    """`text` cut to whole lines from its head and its tail, each at most `limit // 2`
+    characters, joined by a line saying how many characters were left out, for a
+    caller that scrubs the result whole (`scrub_secrets(..., whole=True)`) and
+    bounds that work (C-25.7: the daemon's handler, a record at a time).
+
+    No cut falls inside a match the whole-text scrub of `text` could make, so the
+    cut text, scrubbed, shows nothing of its head or tail that `text` scrubbed
+    hides. A cut is at a line break:
+    - that `_neutral_break` allows, as `scrub_bounded`'s are: no key, `Bearer`
+      or separator before it whose match continues after it;
+    - outside any quoted value, which a whole-text scrub masks across lines to
+      the next quote of its kind (`_quoted_ends` and `_escaped_quote_ends` with
+      `multiline`). Read loosely: a quote after a `:` or `=` may open one;
+    - outside any private key, which the head never starts and the tail never
+      ends, and outside any data URI's body;
+    - and a text holding a reminder tag is not cut at all: stripping a reminder
+      joins what was on either side of it, which can make a quote open a value.
+      Nor is one that opens with a header when the head would keep none of it:
+      folded to one line, as the line form folds it, all of it is the header's.
+    `scrub_bounded` needs only the first: it resolves the blocks over the whole
+    text first and scrubs its excerpts within lines, where no quoted value
+    crosses a line break.
+
+    The work is linear in what is kept, plus a few searches in C of the rest. A
+    head or tail with no such break in reach keeps nothing: one long line keeps
+    only the line saying so."""
+    if len(text) <= limit:
+        return text
+    head, tail = 0, len(text)
+    if not (_REMINDER_START_RE.search(text) or _REMINDER_END_RE.search(text)):
+        head = _whole_head_cut(text, limit // 2)
+        tail = max(head, _whole_tail_cut(text, len(text) - limit // 2))
+    if _LEADING_HEADER_RE.match(text) and not text[:head].strip():
+        # Folded to one line, a text that opens with a header is all that header's
+        # value (`_HEADER_RE`): a tail without the header before it keeps nothing.
+        head, tail = 0, len(text)
+    return f"{text[:head]}… [{tail - head:,} characters omitted] …\n{text[tail:]}"
+
+
+def _newlines(text: str, start: int, end: int):
+    """The positions of the line breaks in [start, end)."""
+    at = text.find("\n", max(0, start), end)
+    while at >= 0:
+        yield at
+        at = text.find("\n", at + 1, end)
+
+
+def _quote_events(text: str, start: int, end: int):
+    """Each quote in [start, end) (`start` a line start, so each run is whole):
+    `(position, kinds, opens)`. `kinds` are the kinds it pairs as, `("plain",
+    quote)` and `("escaped", run, quote)`; `opens` is the kind it may open a value
+    of, when a `:` or `=` precedes it (a key is not read: any may be one)."""
+    for match in _QUOTE_RUN_RE.finditer(text, start, end):
+        run, quote = len(match.group(1)), match.group(2)
+        kinds = ((("plain", quote),) if run % 2 == 0 else ()) + ((("escaped", run, quote),) if run else ())
+        before = _last_visible(text, match.start())
+        opens = (("plain", quote) if run == 0 else ("escaped", run, quote)) \
+            if before >= 0 and text[before] in ":=" else None
+        yield match.start(2), kinds, opens
+
+
+def _event_from(text: str, kind: tuple, start: int) -> bool:
+    """Whether a quote of `kind` lies at or after the line start `start`."""
+    run = r"(?:\\\\)*" if kind[0] == "plain" else r"(?:\\){%d}" % kind[1]
+    return re.compile(r"(?<!\\)" + run + re.escape(kind[-1])).search(text, start) is not None
+
+
+#: How far back `_event_before` looks before it calls what precedes unknown.
+_LOOK_BACK = 64
+
+
+def _event_before(text: str, kind: tuple, end: int) -> bool | None:
+    """Whether the last quote of `kind` before `end` may open a value of it: None
+    when it is too far back to tell (`_LOOK_BACK` quotes of its character, or a
+    run of backslashes as long), False when there is none."""
+    at = end
+    for _ in range(_LOOK_BACK):
+        at = text.rfind(kind[-1], 0, at)
+        if at < 0:
+            return False
+        run = 0
+        while run <= _LOOK_BACK and at - run > 0 and text[at - run - 1] == "\\":
+            run += 1
+        if run > _LOOK_BACK:
+            return None
+        if (run % 2 == 0) if kind[0] == "plain" else (run == kind[1]):
+            before = _last_visible(text, at - run)
+            return before >= 0 and text[before] in ":=" and (kind[0] == "escaped" or run == 0)
+    return None
+
+
+def _whole_head_cut(text: str, end: int) -> int:
+    """The end of the head: the last line start within `end` no whole-text match
+    crosses (0 if none)."""
+    starts = [0, *(at + 1 for at in _newlines(text, 0, end))]
+    last = starts[-1]
+    key = _PEM_START_RE.search(text, 0, last)
+    if key is not None:                     # a private key starts in reach: the head ends before it
+        starts = [at for at in starts if at <= text.rfind("\n", 0, key.start()) + 1]
+    bodies = []
+    for prefix in _DATA_URI_PREFIX_RE.finditer(text, 0, last):
+        body = _DATA_BODY_RE.match(text, prefix.end())
+        bodies.append((prefix.start(), body.end() if body else prefix.end()))
+    # Which kinds of quote are open at each line start: the last quote of the kind
+    # before it may open a value, which an event of the kind after it would close.
+    events = list(_quote_events(text, 0, last))
+    final = {}
+    for position, kinds, _ in events:
+        for kind in kinds:
+            final[kind] = position
+    beyond: dict[tuple, bool] = {}
+    open_at, opened, index = {}, {}, 0
+    for at in starts:
+        while index < len(events) and events[index][0] < at:
+            position, kinds, opens = events[index]
+            for kind in kinds:
+                opened[kind] = opens == kind
+            index += 1
+        open_at[at] = [kind for kind, opens in opened.items() if opens]
+    for at in reversed(starts):
+        if at == 0:
+            return 0
+        if not _neutral_break(text, _last_visible(text, at), _WHITESPACE_RUN_RE.match(text, at).end()):
+            continue
+        if any(begin < at < finish for begin, finish in bodies):
+            continue
+        closed = True
+        for kind in open_at[at]:
+            if final[kind] >= at:
+                closed = False
+            else:
+                if kind not in beyond:
+                    beyond[kind] = _event_from(text, kind, last)
+                closed = closed and not beyond[kind]
+        if closed:
+            return at
+    return 0
+
+
+#: A run that ends a data URI's body, then the body's run to the end of the text.
+_BODY_START_RE = re.compile(r"[^A-Za-z0-9+/=\s][A-Za-z0-9+/=\s]*\Z")
+
+
+def _whole_tail_cut(text: str, start: int) -> int:
+    """The start of the tail: the first line start at or after `start` no
+    whole-text match crosses (the end of the text if none)."""
+    starts = [at + 1 for at in _newlines(text, start - 1, len(text))]
+    if not starts:
+        return len(text)
+    first = starts[0]
+    ends = [match.end() for match in _PEM_END_RE.finditer(text, first)]
+    if ends:                                # a private key ends in reach: the tail starts after it
+        stop = text.find("\n", ends[-1])
+        starts = [at for at in starts if 0 <= stop < at]
+    # A data URI's body: the run after its prefix. The run at `first` began before
+    # it; where, is looked for up to `EXCERPT_CHARS` back, past which it counts as one.
+    bodies = []
+    for run in _DATA_BODY_RE.finditer(text, first):
+        begin = run.start()
+        if begin == first:
+            edge = _BODY_START_RE.search(text, max(0, first - EXCERPT_CHARS), first)
+            begin = edge.start() + 1 if edge else (0 if first <= EXCERPT_CHARS else -1)
+        if begin < 0 or text[max(0, begin - 8):begin].lower() == ";base64,":
+            bodies.append((run.start(), run.end()))
+    # A quoted value may run into the tail across a line start when a quote of a
+    # kind follows it and the last before it may open a value of that kind.
+    events = list(_quote_events(text, first, len(text)))
+    final = {}
+    for position, kinds, _ in events:
+        for kind in kinds:
+            final[kind] = position
+    opened: dict[tuple, bool | None] = {}
+    index = 0
+    for at in starts:
+        while index < len(events) and events[index][0] < at:
+            position, kinds, opens = events[index]
+            for kind in kinds:
+                opened[kind] = opens == kind
+            index += 1
+        if not _neutral_break(text, _last_visible(text, at), _WHITESPACE_RUN_RE.match(text, at).end()):
+            continue
+        if any(begin <= at < finish for begin, finish in bodies):
+            continue
+        if any(position >= at and opened.setdefault(kind, _event_before(text, kind, first)) is not False
+               for kind, position in final.items()):
+            continue
+        return at
+    return len(text)
+
+
 class _Tally:
     """The values the rules replace: one credential two rules match counts once,
     and a header that held several values (`Cookie: a=...; b=...`) counts each."""

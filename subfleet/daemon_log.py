@@ -44,10 +44,14 @@ import warnings
 from typing import Any, Callable
 
 from . import refusals
-from .sessions.handoff import REDACTED, scrub_secrets
+from .sessions.handoff import REDACTED, cut_whole, scrub_secrets
 
 #: What a record that cannot be scrubbed is written as (C-25.7).
 SCRUB_FAILED = "[scrub failed]"
+#: The most of one record's text (its line, traceback and stack together) the
+#: handler scrubs (C-25.7): about 25 ms on its worst measured shape, under the
+#: handler's lock. Longer text is cut first (`handoff.cut_whole`).
+RECORD_SCRUB_MAX = 16_384
 #: What logging's report of a record it could not write becomes.
 WRITE_FAILED = "[log write failed]"
 
@@ -130,6 +134,17 @@ def failed_line(record: Any, error: BaseException | None = None, marker: str = S
         return marker
 
 
+def _within(parts: list[str], total: int) -> list[str]:
+    """`parts` cut to `total` characters together before they are scrubbed: each
+    to its share, a part shorter than an even share leaving the rest to the others
+    (`handoff.cut_whole`, which keeps whole lines of its head and tail)."""
+    shares, left = [0] * len(parts), total
+    for count, index in enumerate(sorted(range(len(parts)), key=lambda at: len(parts[at]))):
+        shares[index] = min(len(parts[index]), left // (len(parts) - count))
+        left -= shares[index]
+    return [cut_whole(part, share) for part, share in zip(parts, shares)]
+
+
 class ScrubbingFormatter(logging.Formatter):
     """Every record scrubbed whole: its line, its traceback and its stack (see the
     module docstring). The record the caller logged is left as it was."""
@@ -152,9 +167,9 @@ class ScrubbingFormatter(logging.Formatter):
         view.message = view.getMessage()
         if self.usesTime():
             view.asctime = self.formatTime(view, self.datefmt)
-        line = self.formatMessage(view)
+        line, *blocks = _within([self.formatMessage(view), *self._blocks(record)], RECORD_SCRUB_MAX)
         text = scrubbed_block(line) if len(line.splitlines()) > 1 else refusals.scrubbed_line(line)
-        for block in self._blocks(record):
+        for block in blocks:
             text += "\n" + scrubbed_block(block)
         return text
 
