@@ -765,3 +765,16 @@ def test_a_record_is_scrubbed_before_the_handler_s_lock_is_taken(monkeypatch):
         log.close()
     assert free == [True]
     assert log.text() == "several lines\ntoken=[REDACTED]\n"
+
+
+@pytest.mark.parametrize("before", [1_000, 40_000, FOUR_MIB])
+def test_a_long_run_of_plain_words_still_keeps_its_tail(before):
+    """Letters, digits, spaces and line breaks are all a data URI's body characters,
+    so the run of them that reaches the tail's first line is a body only if
+    `;base64,` opens it; the cut finds where it began, however far back."""
+    from subfleet.sessions import handoff
+    words = "plain words only\n" * (before // 17)
+    cut = handoff.cut_whole("token=SECRET7first9\n" + words + "the last line\n", 400)
+    assert cut.endswith("plain words only\nthe last line\n"), cut[-200:]
+    body = "data:image/png;base64,\n" + words + "the last line\n"
+    assert handoff.cut_whole(body, 400).endswith("characters omitted] …\n")
