@@ -177,6 +177,23 @@ def test_a_pin_left_as_it_is_leaves_no_secret(daemon_log, monkeypatch, tmp_path)
     assert "SECRET7pin9" not in text
 
 
+CARELESS = "password=SECRET7careless9"
+
+
+def test_a_secret_a_careless_site_logs_raw_is_scrubbed_by_the_daemons_handler(daemon_log):
+    """The handler a real Daemon makes is the layer under every site: a secret a
+    site passes raw, on its line or in its traceback, is scrubbed there."""
+    try:
+        raise RuntimeError(CARELESS)
+    except RuntimeError as exc:
+        daemon_log.log.warning("a site said: %s", exc)          # the site lint flags this in subfleet/
+        daemon_log.log.exception("and its traceback")
+    text = daemon_log.read()
+    assert "a site said: password=[REDACTED]\n" in text
+    assert "and its traceback\nTraceback (most recent call last):\n" in text
+    assert "RuntimeError: password=[REDACTED]" in text and "SECRET7careless9" not in text
+
+
 def test_faulthandler_writes_frames_only(daemon_log):
     """Kept as it is (C-3.6): faulthandler writes each frame's file, line and
     function, never the exception being handled, a local or a source line."""
