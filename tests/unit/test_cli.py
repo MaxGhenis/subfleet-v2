@@ -833,7 +833,7 @@ def test_json_wait_output_stays_prose_free_on_a_provider_rc(daemon, capsys, work
 
 
 def test_the_identity_check_is_fresh_and_paced_per_call(root, monkeypatch, poll_clock):
-    """C-5.13 even unverifiable observations are fresh and at least 1 s apart."""
+    """C-5.13 unverifiable observations also spend the four-token bucket."""
     from subfleet import client as client_module
     (root / "daemon.lock").write_text(json.dumps({"pid": os.getpid()}))
     calls: list[float] = []
@@ -842,7 +842,9 @@ def test_the_identity_check_is_fresh_and_paced_per_call(root, monkeypatch, poll_
     probe = client_module.Client(root)
     for _ in range(4):
         probe.check_available()
-    assert calls == [0.0, 1.0, 2.0, 3.0]
+    assert calls == [0.0] * 4 and poll_clock.sleeps == []
+    probe.check_available()
+    assert calls == [0.0] * 4 + [1.0]
     assert poll_clock.sleeps == [1.0, 1.0, 1.0]
 
 
