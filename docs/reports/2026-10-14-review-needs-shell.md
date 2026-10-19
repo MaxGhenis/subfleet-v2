@@ -1102,7 +1102,8 @@ Review r2 (`~/reviews/subfleet-hub/shell-downgrade-2026-10-14/review-r2.md`) req
 | `42f94f123` | P3-3: the git denial pinned in Codex's `shell_environment_policy.set`; P3-4: the git-dependency loss stated; P3-6: `--setting-sources user` on writable Claude reviews |
 | `ea2624f9c` | P3-7: the installed publish hook is self-tested before launch |
 | `11514aa70` | P3-9: the workspace note says where an ignored file may be read |
-| this commit | This report section |
+| `917e178c1`, `df8563dff` | This report section, and the wider sweep |
+| `60d12dc6e` | The self-test refusal's fix points at daemon.log: `subfleet doctor` does not inspect the publish hook |
 
 ### P2: each spelling review r2 executed, and its verdict
 
