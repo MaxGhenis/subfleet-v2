@@ -305,6 +305,32 @@ def test_d_kill2_a_setsid_lockf_that_outlives_its_cancelled_attempt_is_counted(t
         attempt.close()
 
 
+def test_d_kill2_a_lockf_left_before_any_census_is_found_by_responsibility_alone(tmp_path, held_lock):
+    """D-CEN1's source is the only one for a lockf whose provider was gone before the
+    attempt's first census, as when the provider ends by itself and C-5.9's census
+    follows, or the kill protocol's SIGTERM lands first: no marker, no group, ppid 1,
+    no earlier record. It names the rooted guardian, which stays while it does; that
+    census records it, and after the guardian's SIGKILL the record keeps it counted."""
+    rooted_only()
+    attempt = FakeAttempt(tmp_path, held_lock, rooted=True)
+    lockf = attempt.lockf.pid
+    try:
+        assert attempt.signal(signal.SIGTERM)
+        attempt.provider_gone()
+        first = attempt.census()
+        assert lockf in first.responsible_pids, first.to_dict()
+        assert lockf not in first.marker_pids | first.group_pids | first.descendant_pids
+        assert first.shapes[lockf]["ppid"] == 1
+        assert attempt.signal(signal.SIGKILL)
+        attempt.guardian_gone()
+        last = attempt.census()
+        assert lockf in last.descendant_pids and not last.verified_empty, last.to_dict()
+        stop_identity(attempt.lockf)
+        emptied(attempt.census)
+    finally:
+        attempt.close()
+
+
 def test_d_kill2_the_installed_census_was_verified_empty_while_lockf_waited(tmp_path, held_lock):
     """D-KILL2 as it happened, on an attempt without a root as the installed daemon starts
     them. The installed census counts lockf while its parent, the provider, lives (the
