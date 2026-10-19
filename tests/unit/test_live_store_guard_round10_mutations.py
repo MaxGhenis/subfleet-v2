@@ -63,6 +63,9 @@ MUTANTS = {
         'if flag == ":" or flag not in options:\n                break',
         "test_p3_a_wrapper_option_its_getopt_rejects_is_refused",
         [[["/usr/bin/nice", "-x", "/usr/bin/true"]], [["/usr/bin/nohup", "-n", "1", "/usr/bin/true"]]]),
+    "inactive-checks": (
+        CREDENTIALS, "if event not in _events or not _active(pins):", "if event not in _events:",
+        "test_p2_an_inactive_guard_judges_nothing", [[]]),
     "net-unconditional-search": (
         NET, "    if not os.path.dirname(name):\n        # A launch searches PATH only for a bare name",
         "    if True:\n        # A launch searches PATH only for a bare name",

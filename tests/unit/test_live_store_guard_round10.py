@@ -172,6 +172,16 @@ def test_p2_safety_net_refuses_a_check_that_cannot_finish():
         assert found is not None and "check cannot finish" in found, (env, found)
 
 
+def test_p2_an_inactive_guard_judges_nothing():
+    """With no live session the guard returns before any check. At 7916d50d2 it
+    computed targets first, and a path-object PATH raised AttributeError out of
+    an inactive guard."""
+    guard = credentials._exec_guard([])
+    for env in ({"PATH": Path("/usr/bin")}, both_keys("text-first", SYSTEM), {"PATH": 7}):
+        for argv in ([READER, *QUERY], ["sf-r10-reader"], ["/usr/bin/nice", "env", "-i", "sw_vers"]):
+            assert guard("subprocess.Popen", (argv[0], argv, None, env), _active=lambda pins: False) is None
+
+
 # P3: a listed wrapper is judged by the command it runs.
 
 # The review's nested inputs, each run with the session PATH (recorder first).

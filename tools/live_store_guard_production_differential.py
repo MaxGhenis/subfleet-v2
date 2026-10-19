@@ -144,6 +144,20 @@ EVENTS = [
     ("subprocess.Popen", ("/usr/bin/arch", ["/usr/bin/arch", "-c", "sw_vers"], None, None)),
     ("os.posix_spawn", ("security", ["security"], {"PATH": os.environ["PATH"]})),
     ("os.system", ("sw_vers",)),
+    # Round 10 (#226 review r1): both PATH keys on a path, a bare name whose
+    # search cannot finish, nested wrappers, a wrapper's command and script's shell.
+    ("subprocess.Popen", ("/usr/bin/security", ["/usr/bin/security", "x"], None,
+                          {"PATH": "/usr/bin", b"PATH": b"/usr/bin"})),
+    ("subprocess.Popen", ("reader", ["reader"], None, {"PATH": "x", b"PATH": b"x"})),
+    ("subprocess.Popen", ("/usr/bin/nice", ["/usr/bin/nice", "env", "-i", "sw_vers"], None, None)),
+    ("subprocess.Popen", ("/usr/sbin/taskpolicy", ["/usr/sbin/taskpolicy", "-c", "utility", "/usr/bin/security",
+                                                   "x"], None, None)),
+    ("subprocess.Popen", ("/usr/sbin/taskpolicy", ["/usr/sbin/taskpolicy", "-c", "utility", "env", "-i",
+                                                   "sw_vers"], None, None)),
+    ("subprocess.Popen", ("/usr/bin/stdbuf", ["/usr/bin/stdbuf", "-o0", "sw_vers"], None, SYSTEM)),
+    ("subprocess.Popen", ("/usr/bin/script", ["/usr/bin/script", "-q", "/dev/null"], None,
+                          {"SHELL": "/usr/bin/security"})),
+    ("subprocess.Popen", ("/usr/bin/nice", ["/usr/bin/nice", "-x", "true"], None, None)),
 ]
 for pins in ([], [(str(scratch / "no-session"), "no-token")]):
     guard = credentials._exec_guard(pins)
@@ -161,6 +175,12 @@ LAUNCHES = [
     (["/usr/bin/caffeinate", "/bin/sh", "-c", "command -v sw_vers"], SYSTEM),
     (["/usr/bin/arch", "-arm64", "-e", "PATH=/usr/bin", "/bin/sh", "-c", "command -v sw_vers"], None),
     (["/bin/sh", "-c", "true"], None),
+    (["/usr/bin/true"], {"PATH": os.environ["PATH"], b"PATH": os.environ["PATH"].encode()}),
+    (["/usr/bin/nice", "env", "-i", "/bin/sh", "-c", "command -v sw_vers"], None),
+    (["/usr/sbin/taskpolicy", "-c", "utility", "/bin/sh", "-c", "command -v sw_vers"], SYSTEM),
+    (["/usr/sbin/taskpolicy", "-c", "utility", "env", "PATH=/usr/bin", "/bin/sh", "-c", "command -v sw_vers"],
+     None),
+    (["/usr/bin/stdbuf", "-o0", "/bin/sh", "-c", "command -v sw_vers"], SYSTEM),
 ]
 for argv, env in LAUNCHES:
     def launch():
