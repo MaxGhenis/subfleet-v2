@@ -43,10 +43,23 @@ from .lockwatch import WatchedLock, thread_name
 SHELL_REQUIREMENT_MIGRATION = 8
 LAUNCH_CAPABILITY_MIGRATION = 9
 SCHEMA_VERSION = LAUNCH_CAPABILITY_MIGRATION
+#: C-12.4: jobs whose attempts in the last 24 h had no shell or no writes. A
+#: range on `reserved_at`, which `attempts_reserved` indexes, in the stored
+#: spelling (`restricted_window`): `julianday(reserved_at)` could use no index and
+#: scanned every attempt (#221 review r1b, P3-9).
 RESTRICTED_RUNS_SQL = (
-    "SELECT DISTINCT job_id FROM attempts WHERE capability IN ('none','commands') "
-    "AND julianday(reserved_at) BETWEEN julianday(?) - 1 AND julianday(?) ORDER BY job_id"
+    "SELECT DISTINCT job_id FROM attempts WHERE reserved_at >= ? AND reserved_at <= ? "
+    "AND capability IN ('none','commands') ORDER BY job_id"
 )
+
+
+def restricted_window(now: datetime | str) -> tuple[str, str]:
+    """`RESTRICTED_RUNS_SQL`'s bounds: 24 h back from `now`, spelled as the daemon
+    stores `reserved_at` (`2026-10-18T21:00:00Z`)."""
+    at = (datetime.fromisoformat(now.replace("Z", "+00:00")) if isinstance(now, str) else now)
+    at = at.astimezone(timezone.utc)
+    spell = lambda moment: moment.isoformat(timespec="seconds").replace("+00:00", "Z")  # noqa: E731
+    return spell(at - timedelta(days=1)), spell(at)
 #: C-9.6: closure reasons that each keep a row of their own (`Store.put_closure`).
 HOLD_REASONS = ("operator-hold", "auth-dead")
 Row = dict[str, Any]

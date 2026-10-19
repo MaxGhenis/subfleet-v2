@@ -3517,9 +3517,9 @@ class Daemon:
         if op == "daemon.status":
             view = self._capacity_view(self._desktop_identity())
             view["disk"] = self._disk_status()
-            from .store import RESTRICTED_RUNS_SQL
-            at = utcnow()
-            view["restricted_runs_24h"] = [row["job_id"] for row in self.store.query(RESTRICTED_RUNS_SQL, (at, at))]
+            from .store import RESTRICTED_RUNS_SQL, restricted_window
+            view["restricted_runs_24h"] = [row["job_id"] for row in self.store.query(
+                RESTRICTED_RUNS_SQL, restricted_window(utcnow()))]
             if ramp_settings(self.policy)["enabled"] and self._ramp.snapshot["enabled"]:
                 view["ramp"] = self._ramp.status(utcnow())
             return {**view, "status": render.status(view), "pid": os.getpid(), "version": __version__, "state_root": str(self.root),
