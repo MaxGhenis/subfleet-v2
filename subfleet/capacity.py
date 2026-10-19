@@ -194,8 +194,8 @@ def last_desktop_identity(events: Iterable[Any]) -> dict[str, Any] | None:
     """The newest recorded desktop identity, or nothing (C-10.3).
 
     Rows are scanned newest first for one that actually carries an identity:
-    every store mutation also writes an audit event of the same kind (C-3.2),
-    and that companion row has no payload of its own.
+    a store written before `Store.transaction` stopped auditing event inserts
+    (C-3.2) holds an empty row of the same kind after each recorded identity.
     """
     rows = sorted((_row(item) for item in events),
                   key=lambda row: row.get("event_id") or 0, reverse=True)

@@ -173,10 +173,12 @@ REVIVE_EVENT = "session.revived"
 RETIRE_EVENT = "session.retired"
 UNRETIRE_EVENT = "session.unretired"
 
-#: `store.transaction` writes its own audit event under the kind it is given,
-#: and `_session_events` reads the NEWEST row of each kind. Naming the audit
-#: event after the record would therefore shadow the record with a summary that
-#: carries no dedupe key — so the two are deliberately different kinds.
+#: `store.transaction` writes its own audit event under the kind it is given
+#: whenever it changed anything besides inserting events rows, and
+#: `_session_events` reads the NEWEST row of each kind. A transaction that only
+#: inserts its record writes no audit (C-3.2); one that also changes a row
+#: would, and naming that audit after the record would shadow the record with a
+#: summary that carries no dedupe key — so the two are deliberately different kinds.
 def audit_kind(event: str) -> str:
     return event.rsplit(".", 1)[0] + ".recorded"
 
