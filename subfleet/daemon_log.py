@@ -12,10 +12,12 @@ The daemon's handler (`ScrubbingStreamHandler`) formats every record through
 
 Before either, a record's text (its line, traceback and stack together) is cut
 to `RECORD_SCRUB_MAX` characters, keeping whole lines of each part's head and
-tail with a marker, at line breaks no match of the whole-text scrub crosses
-(`handoff.cut_whole`). So one record is scrubbed in tens of milliseconds,
-however long it is; and it is formatted before the handler's lock is taken, so
-only its write holds the lock.
+tail with a marker, at line breaks no match of the whole-text scrub crosses,
+folded or not (`handoff.cut_whole`, whose work does not grow with the text). So
+one record is scrubbed in tens of milliseconds, however long it is; and it is
+formatted before the handler's lock is taken, so only its write holds the lock.
+A one-line message whose cut keeps only the marker is written as the marker
+with the record's level and logger, never its words.
 
 The two forms agree. Folded, a block is exactly the line form's text before
 its cut: `scrubbed_block` writes the folded, rescrubbed text in place of the
@@ -24,6 +26,9 @@ whitespace is in the block exactly when it is in the uncut line, and the cut
 only drops text. Python writes a margin before each line of an exception
 group's members; a group's block keeps only what both it and the same text
 without the margins show, so it may hide more than the line form, never less.
+Whether a part is a group's is read before it is cut, which may keep none of
+its separators; a text with a line that starts with a group's margin is read
+as one too.
 
 A record that cannot be scrubbed (the scrubber raised, or the record's own
 message cannot be rendered) is written as one fixed `[scrub failed]` line that
