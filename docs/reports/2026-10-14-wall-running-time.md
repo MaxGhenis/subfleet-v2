@@ -1474,4 +1474,110 @@ provider interrupts and existing stop-frame regressions. Both providers settle
 post-wall approval cancellation as `cancelled`, rc 130. Pre-transmission exit
 proof still settles `succeeded`; non-stopping approvals create no stop intent;
 both allow and cancel preserve SIGINT, close and containment escalation.
-The complete requested file groups and tag-audit mutation follow below.
+The separate mutation hold reverted `_transmit` to the original tag/op audit.
+`tests/fake/test_wall_stop_deliveries.py::test_approval_cancel_turn_after_wall_keeps_wall_cancel[codex]`
+failed (**1 failed**) because the approval created no durable intent before I/O.
+The foreground mutation runner restored the exact source bytes in `finally`,
+verified by SHA-256 and a clean runner diff. No mutation remains. The test-first,
+focused and mutation holds are excluded from the final complete-file totals.
+
+Per-file exploratory evidence (excluded from final totals):
+
+| Hold | File | Passed | Failed | Deselected in hold |
+| --- | --- | ---: | ---: | ---: |
+| tests-first | `tests/fake/test_wall_stop_deliveries.py` | 0 | 12 | 13 |
+| guards-first | `tests/unit/test_turn_runner.py` | 0 | 1 | 195 total |
+| guards-first | `tests/unit/test_claude_turn.py` | 0 | 8 | included above |
+| guards-first | `tests/unit/test_codex_turn.py` | 0 | 9 | included above |
+| focused | `tests/fake/test_wall_cancel_races.py` | 1 | 0 | 216 total |
+| focused | `tests/fake/test_wall_stop_deliveries.py` | 15 | 0 | included above |
+| focused | `tests/unit/test_turn_runner.py` | 8 | 0 | included above |
+| focused | `tests/unit/test_claude_turn.py` | 12 | 0 | included above |
+| focused | `tests/unit/test_codex_turn.py` | 16 | 0 | included above |
+| mutation | `tests/fake/test_wall_stop_deliveries.py` | 0 | 1 intended | 0 |
+
+The complete requested file groups are recorded below.
+
+**Final complete-file runs: 970 passed, 6 skipped, and 5 expected historical
+failures across 24 files. No unexpected failures.** All 24 r5 probes pass,
+including both approval-cancel providers; all 55 r4 probes and all 40 dispatch
+comparisons pass. The unchanged r3 probe keeps its one historical rc-0 timestamp
+tie failure; the unchanged original #207 file keeps its four due routing-call
+failures (durable refusal grace preempts the old routing expectation). Neither
+historical expectation was changed. Existing wall-property and legacy-hold audit
+assertions remain intact; provider assertions were strengthened with flag checks.
+
+| File | Passed | Skipped | Expected historical failures |
+| --- | ---: | ---: | ---: |
+| `test_review_r223_207_original.py` | 4 | 0 | 4 |
+| `test_review_r223_r3_probes.py` | 8 | 0 | 1 |
+| `test_review_r223_r4_probes.py` | 55 | 0 | 0 |
+| `test_review_r223_r5_dispatch_comparison.py` | 40 | 0 | 0 |
+| `test_review_r223_r5_probes.py` | 24 | 0 | 0 |
+| `tests/fake/test_finalization_replay.py` | 10 | 0 | 0 |
+| `tests/fake/test_notice_header.py` | 23 | 0 | 0 |
+| `tests/fake/test_review_r223_wall_probes.py` | 23 | 0 | 0 |
+| `tests/fake/test_salvage_finalization.py` | 47 | 0 | 0 |
+| `tests/fake/test_state_contract.py` | 37 | 0 | 0 |
+| `tests/fake/test_wall_cancel_races.py` | 30 | 0 | 0 |
+| `tests/fake/test_wall_inspection_order.py` | 18 | 0 | 0 |
+| `tests/fake/test_wall_running_time.py` | 35 | 0 | 0 |
+| `tests/fake/test_wall_stop_deliveries.py` | 25 | 0 | 0 |
+| `tests/unit/test_claude_turn.py` | 69 | 0 | 0 |
+| `tests/unit/test_codex_turn.py` | 67 | 0 | 0 |
+| `tests/unit/test_codex_turn_completed.py` | 41 | 0 | 0 |
+| `tests/unit/test_conversation_service.py` | 100 | 0 | 0 |
+| `tests/unit/test_daemon_settle.py` | 43 | 0 | 0 |
+| `tests/unit/test_legacy_hold.py` | 50 | 6 | 0 |
+| `tests/unit/test_relay.py` | 14 | 0 | 0 |
+| `tests/unit/test_settle_properties.py` | 129 | 0 | 0 |
+| `tests/unit/test_test_module_names.py` | 1 | 0 | 0 |
+| `tests/unit/test_turn_runner.py` | 77 | 0 | 0 |
+
+Each requested group ran in one separate foreground `lockf -k` hold of
+`/private/tmp/claude-501/subfleet-suites.lock`, with exactly one pytest process
+at a time, no lock timeout and no xdist workers. No detached process, relaunch
+of a paused test or load wait under the lock was used. Final pytest durations
+were wall 78.39 s, turn/unit 73.08 s, settlement 39.73 s, contract 39.75 s and
+reviewer 28.65 s. Every hold was under twenty minutes, including the observed
+lock wait; the longest exploratory hold plus wait was 162.01 s. All test holds
+finished by 05:37:29 UTC on 2026-10-19, before the 09:49:16 UTC no-new-holds
+cutoff (4 h 30 m after this workspace's 01:19:16 EDT stamp).
+
+`SUBFLEET_RETENTION_DORMANT` and `PYTHONPATH` were unset. Hypothesis used the
+bounded settings and `HYPOTHESIS_PROFILE=ci`, never deep; its storage lived in
+each hold's TMPDIR. The sandbox denied the default uv cache, so uv's cache and
+the installed test environment lived in scratch. Python was 3.14.7. The unit
+hold reported one existing `PytestRemovedIn10Warning` for the `zip` parameter
+iterator in `test_codex_turn_completed.py`; it was not changed.
+
+All requested files were selected and ran. Six native legacy-hold tests skipped
+before their bodies because the sandbox denies the C-5.3 macOS boot/process
+identity inspection (`sysctl`/`ps`). Their native behavior remains unverified.
+Full repository CI, other Python builds and real-provider execution were not run.
+Reviewer Python sources were copied byte for byte into scratch and ran in their
+own pytest process, separate from `tests/`, so test isolation loaded once.
+
+### Cleanup and local delivery
+
+All task pytest, runner and lockf commands exited. Each hold's temporary homes,
+TMPDIR and Hypothesis storage were removed. The task scratch, reviewer copies,
+JUnit evidence, fallback uv cache and installed environment were removed with
+Python `shutil.rmtree`; no `.hypothesis` directory remains. The workspace's
+original `.git` pointer is byte-identical to its saved starting bytes. The shared
+Git index and caller checkout were never written. Local release refs were
+rechecked after validation and remain `release/217=b053e3de8` and
+`origin/release/217=d72597b5c`; no network remote was contacted.
+
+Only the ignored workspace-local `.git-local` commit metadata and delivery
+bundle remain. `.git-local/round9.bundle` advertises
+`refs/heads/fix/wall-counts-running-time-217`, with prerequisite `fe8bda1ff`;
+its advertised tip is the final report commit. Bundle integrity and the
+advertised head were verified locally. No logs, JSON evidence or bundles were
+staged. No history was rewritten and nothing was pushed.
+
+| Commit | Coherent step |
+| --- | --- |
+| `c8eb1cd58` | Test-first approval regressions, decision guards and expanded delivery property |
+| `d5aea7ac9` | Explicit stop flag at all 29 sites, flag-based audit, contract amendment and frame sweep |
+| final report commit (bundle tip) | Complete per-file results, mutation proof and cleanup/local delivery status |
