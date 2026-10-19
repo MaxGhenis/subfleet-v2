@@ -44,7 +44,7 @@ import warnings
 from typing import Any, Callable
 
 from . import refusals
-from .sessions.handoff import scrub_secrets
+from .sessions.handoff import REDACTED, scrub_secrets
 
 #: What a record that cannot be scrubbed is written as (C-25.7).
 SCRUB_FAILED = "[scrub failed]"
@@ -59,15 +59,61 @@ def _named(value: Any) -> str:
     return value if type(value) is str and _NAME.match(value) else "?"
 
 
+#: The line Python's traceback module writes before each member of an exception
+#: group (`+-+---------------- 1 ----------------`, `  +---…---- 2 ----…`).
+_GROUP_SEPARATOR = re.compile(r"(?m)^ *(?:\+-)?\+-{16} (?:\d+|\.\.\.) -{16}$")
+#: The margin it writes before each line of a group and of its members: two spaces
+#: a level, then `|` (or `+`, a group's first line) and a space
+#: (`traceback._ExceptionPrintContext.emit`).
+_GROUP_MARGIN = re.compile(r"(?:  )+[|+](?: |$)")
+#: A whitespace-free run, as a value is.
+_RUN = re.compile(r"\S+")
+
+
 def scrubbed_block(text: str) -> str:
     """`text` for daemon.log in the block form: its lines kept, scrubbed whole
     (C-23.14). When folding it to one line would let the scrubber find more, the
     folded, rescrubbed text is written instead, so that folded, the block is
-    always the line form's text before the cut."""
+    always the line form's text before the cut. An exception group's traceback
+    hides at least what its members' plain tracebacks hide (`_group_block`)."""
+    block = _plain_block(text)
+    return _group_block(text, block) if _GROUP_SEPARATOR.search(text) else block
+
+
+def _plain_block(text: str) -> str:
     clean, _ = scrub_secrets(text, strip_reminders=True, whole=True)
     folded = " ".join(clean.split())
     again, _ = scrub_secrets(folded, strip_reminders=True, whole=True)
     return clean.rstrip("\r\n") if again == folded else again
+
+
+def _group_block(text: str, block: str) -> str:
+    """An exception group's traceback, `block` being its block form as written.
+
+    Python writes a margin (`    | `) before each line of a group's members. A value
+    on the line after its key (`token:\n<value>`) then has the margin where the value
+    was, and the scrubber takes the `|` for the value (review r1 of #233, P3). So the
+    text is scrubbed again with the margins taken off, as the plain traceback reads,
+    and the two are kept line by line where each hides: a run of the margin-free
+    line is written only if the same line of `block` holds it too, else
+    `[REDACTED]`, and the line keeps its margin. Where scrubbing joined lines (a
+    multi-line value, `Bearer` and its token), the lines no longer pair up and the
+    margin-free text is written whole, without margins, by the same rule. Either
+    way nothing is written that `block` hides, so the block never shows what the
+    line form hides, nor what the plain traceback hides."""
+    lines = text.rstrip("\r\n").split("\n")
+    margins = [match.group() if (match := _GROUP_MARGIN.match(line)) else "" for line in lines]
+    bare = _plain_block("\n".join(line[len(margin):] for line, margin in zip(lines, margins))).split("\n")
+    kept = block.split("\n")
+    if len(bare) == len(kept) == len(lines):
+        return "\n".join(margin + _only(line, set(_RUN.findall(within)))
+                         for margin, line, within in zip(margins, bare, kept))
+    return _only("\n".join(bare), set(_RUN.findall(block)))
+
+
+def _only(text: str, shown: set[str]) -> str:
+    """`text` with each whitespace-free run not in `shown` replaced by `[REDACTED]`."""
+    return _RUN.sub(lambda run: run.group() if run.group() in shown else REDACTED, text)
 
 
 def failed_line(record: Any, error: BaseException | None = None, marker: str = SCRUB_FAILED) -> str:
