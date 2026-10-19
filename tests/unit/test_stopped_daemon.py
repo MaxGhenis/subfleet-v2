@@ -833,3 +833,31 @@ def test_start_preserves_later_stopped_observation(root, monkeypatch, holder_clo
     monkeypatch.setattr(cli, '_daemond_argv', lambda root: pytest.fail('attempted a second launch'))
     assert cli.main(['daemon', 'start']) == int(Exit.DAEMON_UNAVAILABLE)
     assert 'fix: kill -CONT 12345' in capsys.readouterr().err
+
+
+def test_settlement_probe_wait_keeps_unknown_outcome(root, monkeypatch, holder_clock):
+    """C-16.3 an expired re-send slot cannot erase the first sent outcome."""
+    paced_observations(root, monkeypatch, holder_clock)
+    wire = PacedWire(holder_clock, completion=10)
+    monkeypatch.setattr(client_module.socket, 'socket', wire.socket)
+    with pytest.raises(OutcomeUnknown) as caught:
+        Client(root, timeout=.1).call_settled('submit', request_id='paced-submit',
+                                            requery_timeout=.2)
+    assert holder_clock.now == pytest.approx(.3)
+    assert wire.sent == [(0.0, 'submit')]
+    assert 'before sending' in str(caught.value)
+
+
+def test_hook_wait_forwards_remaining_deadline(holder_clock):
+    """C-15.2 a hook's final poll gives preflight only its remaining budget."""
+    import io
+    from types import SimpleNamespace
+    from subfleet import hooks
+
+    def call(op, args, **kwargs):
+        assert kwargs['timeout'] <= .6 - holder_clock.now
+        raise client_module.ProtocolError('controlled timeout', Exit.OPERATIONAL)
+
+    assert hooks._wait_and_deliver(SimpleNamespace(call=call), 'session', 'job-1', .6,
+                                   stderr=io.StringIO(), now=lambda: holder_clock.now,
+                                   sleep=client_module._sleep) == int(Exit.OK)
