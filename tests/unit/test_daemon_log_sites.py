@@ -415,8 +415,8 @@ def test_daemon_main_writes_a_refused_start_as_the_handler_writes_a_record(tmp_p
     err = io.StringIO()
     with contextlib.redirect_stderr(err):
         assert daemon_module.main(["--state-root", str(tmp_path)]) == code
-    assert err.getvalue() == daemon_module.daemon_log.scrubbed(words.format(error)) + "\n"
     assert secret not in err.getvalue() and "token=[REDACTED]" in err.getvalue()
+    assert err.getvalue() == daemon_module.daemon_log.scrubbed(words.format(error)) + "\n"
 
 
 def _as_launchd_runs_it(root: Path) -> subprocess.CompletedProcess:
@@ -1015,8 +1015,9 @@ def test_the_stream_lint_fails_dbfd33c64_s_line():
 #: The calls that start a child process.
 STARTS = frozenset({"subprocess.run", "subprocess.Popen", "subprocess.call", "subprocess.check_call",
                     "subprocess.check_output"})
-#: What leaves a child's stream the daemon's own.
-INHERITED = frozenset({"None", *STREAMS})
+#: What leaves a child's stream the daemon's own. (A bare `stdout` or `stderr` passed
+#: to a start is a module's own file: the guardian's, the preflight's.)
+INHERITED = frozenset({"None", "sys.stdout", "sys.stderr", "sys.__stdout__", "sys.__stderr__"})
 
 
 def _streams_set(call: ast.Call) -> bool:
