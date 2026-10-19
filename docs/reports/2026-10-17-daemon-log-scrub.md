@@ -64,7 +64,7 @@ It returns `restore()`, which puts back each hook only if it is still ours.
 
 **Restore on close.** `Daemon.close()` does restore process state: it hands SIGUSR1 back, because `Daemon.__init__` took it. The hooks are different. `main` installs them, not `Daemon`, so an in-process `Daemon` (the tests, an embedder) installs none and `close()` has nothing to put back. `main` keeps them for the life of the process, because an exception that ends `main` and an unraisable exception during interpreter shutdown are both written after `main` returns. Restoring them at the end of `main` would reopen exactly that window. Hooks installed before `main` parses its arguments would stay in a test process that calls `main([])` in-process (`test_live_store_guard`). They would replace pytest's thread and unraisable collectors for the rest of the session, so the hooks go in after the arguments.
 
-**faulthandler stays.** CPython's documentation says that faulthandler shows "only the filename, the function name and the line number … (no source code)". `Python/traceback.c`'s `dump_frame` writes `  File "<co_filename>", line <n> in <co_name>` for each frame and nothing else. I read both on 2026-10-18; this sandbox has no local CPython docs or source, so I fetched docs.python.org and the 3.14 branch's `Python/traceback.c` on GitHub. `test_faulthandler_writes_frames_only` runs `faulthandler.dump_traceback` into a real daemon's log while an exception carrying a secret is being handled and a local holds it. The log shows the frame and no secret, no exception class and no source line.
+**faulthandler stays.** CPython's documentation says that faulthandler shows "only the filename, the function name and the line number … (no source code)". `Python/traceback.c`'s `dump_frame` writes `  File "<co_filename>", line <n> in <co_name>` for each frame and nothing else. I read both on 2026-10-18; this sandbox has no local CPython docs or source, so I fetched docs.python.org and the 3.14 branch's `Python/traceback.c` on GitHub. `test_faulthandler_writes_frames_only` runs `faulthandler.dump_traceback` into a real daemon's log while an exception carrying a secret is being handled and a local holds it. The log shows the frame and no secret, no exception class and no source line. **Corrected in round 2:** on Python 3.14 an all-threads dump (`daemon stacks`, SIGUSR1) also writes each thread's name (`Thread 0x… [name]`), for a thread Python started; review r1 of #233 found it. Every daemon thread's name is fixed words or ids (round 2, §5).
 
 ### 3. The call sites
 
@@ -201,8 +201,8 @@ These ran at `efecc03da`: the tests commit, with `subfleet/` exactly as `3fbc4b7
 
 - **The `Bearer` and header rule order** (#225 review r2's follow-up, P2). `token_type: Bearer\naccess_token: SECRET7…` and `Cookie: x_auth-token :\n SECRET7…` still leak, in the line form and the block form alike. The forms agree, but the scrubber misses the value. The property's filler text cannot spell a header, so that known class doesn't decide it.
 - **Over-masking in tracebacks.** In the block form a traceback is scrubbed whole, so a source line that opens a quoted credential value (`raise E("password='" + …`) is masked up to the matching quote, lines between included (C-23.14's whole-text rule). Some of the traceback can be lost, but never a value. The tests keep secret shapes out of `raise` lines for this reason.
-- **Cost.** Each record is now scrubbed twice in the line form, under the handler's lock. In one probe, 1,000 short lines took about 355 ms, so about 0.36 ms a line. Scrubbing is linear in the text, and a record's text is not bounded before it is scrubbed, as `refusals.scrubbed_line` already did for refusal details. Review r2 of #225 measured about 1.7 s for its worst shape at 1.3 million characters in daemon.log mode, so a record of several megabytes would hold the handler's lock for seconds.
-- **A record channel noticed, not changed.** I read this but did not execute it. `runner.py`'s steer failure puts `str(exc)` into `_miss_steer`'s reason, which becomes the message's `state_reason` (`steer-missed: input-unavailable: …`) and a `steer.missed` event. C-25.7 limits `state_reason` to classes, errnos and our words. Whether `store.set_state` scrubs that reason is unverified.
+- **Cost** (bounded in round 2, §4). Each record is now scrubbed twice in the line form, under the handler's lock. In one probe, 1,000 short lines took about 355 ms, so about 0.36 ms a line. Scrubbing is linear in the text, and a record's text is not bounded before it is scrubbed, as `refusals.scrubbed_line` already did for refusal details. Review r2 of #225 measured about 1.7 s for its worst shape at 1.3 million characters in daemon.log mode, so a record of several megabytes would hold the handler's lock for seconds.
+- **A record channel noticed, not changed** (fixed in round 2, §1). I read this but did not execute it. `runner.py`'s steer failure puts `str(exc)` into `_miss_steer`'s reason, which becomes the message's `state_reason` (`steer-missed: input-unavailable: …`) and a `steer.missed` event. C-25.7 limits `state_reason` to classes, errnos and our words. Whether `store.set_state` scrubs that reason is unverified.
 - **Writers before the hooks.** argparse's errors, and `home_path`'s when `--state-root` is absent, are written before `main` installs the hooks. `daemon start` and the plist always pass a fixed `--state-root`.
 
 ## Commits
@@ -215,3 +215,193 @@ These ran at `efecc03da`: the tests commit, with `subfleet/` exactly as `3fbc4b7
 - `727b516f0` docs: C-25.7 says every daemon.log line is scrubbed at the handler and names the hooks
 - `4a5486138` fix: folders imports refusals at the top; the lazy import's reason was wrong
 - this report
+
+## Round 2: review r1 of #233
+
+Review r1 approved #233 with one P2 and four P3s. This round fixes all five and what the P2's sweep found. Base: this job has no network, so nothing was fetched; the last fetched `origin/release/217` is `3fbc4b7c5`, which the branch already holds, so there was nothing to merge.
+
+### 1. A steer's reason (P2) and the sweep
+
+`TurnRunner._steer` sent a steer whose input or driver failed back to the queue as `input-unavailable: <the exception's words>`. Those words went, unscrubbed and unbounded, to the message's `state_reason`, its `changes` row, the driver's and the runner's `steer.missed` events, the turn's steer facts and the receipt `_receipt` gives clients. The reason is now `input-unavailable: ` and `refusals.fixed_error(exc)`: the class and, for an OS error, its errno and `os.strerror` text. The daemon.log line keeps `scrubbed_words`, as before.
+
+`test_a_failed_steer_s_reason_names_its_class_and_errno_never_its_words` runs the reviewer's input (`RuntimeError("driver said: token=SECRET7steer9 " + "x"*3000)`), an `OSError` naming a secret-shaped path and a `ValueError`, for Claude and Codex. It checks every one of those records and that none of the store's rows holds the secret or the `x` run. All six cases failed at base.
+
+**The sweep.** An AST sweep of `subfleet/` for a caught exception rendered (an f-string, `str`, `repr`, `%`, `.format`, `.args`, `.strerror`) outside a log call or a scrubber finds 260 sites. Most are the CLI's own output to its caller or an exception raised with a template. I read each one in `conversations/` and `daemon.py` whose text lands in a stored or client-visible field.
+
+Fixed, each with a regression that failed at base:
+
+- **`wakes.from_final`'s `wake-refused` event** (its `detail`, which the app's timeline shows) said `Wake request refused: {exc}`, including `run <what the agent wrote> is not this conversation's`. It now shows the wake module's own words only for a `bad-wake` or `wake-id-conflict` refusal (`TIMELINE_REFUSALS`), and the class otherwise. A lint test checks that every such refusal in `wakes.py` is raised with a literal message; the run refusal no longer names the id. Tests: `test_a_refused_wake_request_s_timeline_detail_holds_our_words_only` (4 cases; the 2 with caller or exception words failed at base) and `test_every_wake_refusal_the_timeline_may_show_is_fixed_words`.
+- **`Daemon._finish_push_workspace`'s `job.workspace_failed` notice** held sqlite's words (`{type(exc).__name__}: {exc}`). It names the class, as a job's records must. Test: `test_a_completion_write_failure_s_notice_names_its_class_only`.
+
+Read, not changed:
+
+- `runner.py`'s two `_unacknowledged(f"…: {exc}")` calls reach only daemon.log, through `_relay_lost`'s warning, which the handler scrubs. The stop reason is the fixed `relay-failed`.
+- `store.py`'s title error is logged at debug level only.
+- `service.py`'s `turn.diff` answers `_unavailable(exc.reason, str(exc))`. A `diff.Unavailable` message is our words with a tree id.
+- `legacy.py`'s import item `detail=str(exc)` holds `insert_legacy_history`'s refusals: our words and a state name.
+- `daemon.py`'s route refusal (`job.route_refused`, C-6.12) names the job's own pin. `procs.InspectionError`'s words are ours, as the site's comment says. A host push error is `PushError`'s fixed words with the branch the store holds.
+- A Codex steer the provider refused keeps the provider's error message, scrubbed and cut to 300 characters by `redact.bounded_text`. That is provider text, not exception text.
+- An adapter's attestation evidence (`classify.codex_attest`, `ClaudeAdapter._assistant_rows`) holds an OS error's text with the transcript's path, in the attempt's `finalization.json`. It is not a `state_reason`, an event or a job's detail. It is a candidate for the same treatment; I left it, since it is outside this sweep's fields.
+
+### 2. The hooks in a test process (P3)
+
+An autouse fixture in `tests/conftest.py`, `process_hooks_restored`, saves `sys.excepthook`, `threading.excepthook`, `sys.unraisablehook`, `warnings.showwarning` and `logging.lastResort` before every test and puts them back after it. So `test_daemon_accept` and `test_stop_watchdog`, which run `main` in-process, no longer leave the daemon's hooks in place of pytest's collectors, and neither will a future test.
+
+`test_a_test_that_runs_main_leaves_pytest_its_own_hooks` runs the reviewer's sequence in its own pytest, with the suite's conftest as a plugin (`-p tests.conftest`) and both warnings made errors: a control thread failure, `install_process_hooks()`, a thread failure and a failing finalizer. It reads the JUnit report. At head, all three failures are reported. At base, only the control was.
+
+### 3. Exception groups (P3)
+
+Python writes a margin (`    | `) before each line of a group's members. When a value is on the line after its key, the scrubber takes the `|` for the value. `scrubbed_block` now detects a group's traceback by its member separator (`+---------------- 1 ----------------`). It scrubs the text a second time with the margins taken off, as the plain traceback reads, and keeps, line by line, only the runs both readings show. A margin-free line's run is written only if the same line of the margined block holds it, else `[REDACTED]`, and the line keeps its margin. When scrubbing joined lines (a value spanning lines, `Bearer` and its token), the readings no longer pair line by line. Then the margin-free text is written whole, without margins, by the same rule.
+
+A fuzz of 4,500 groups found something the review's framing missed. With several members, a group's traceback is one text, scrubbed whole, so a quote in one member can close a value another member opened, as in any chained traceback. The group can then show a secret that one member's plain traceback hides, but the same text without margins shows it too. That is the whole-text scrubber's behaviour, not the margin's. So the regressions are:
+
+- `test_an_exception_group_hides_what_its_member_alone_hides`: the reviewer's four shapes, one or two deep, raised or only constructed. All 16 cases failed at base.
+- `test_a_one_member_group_never_shows_a_secret_its_member_alone_hides`: a property, with the four shapes and the credential shapes. It failed at base.
+- `test_a_group_s_margins_never_cost_a_secret`: a property over several members. The block never shows a secret that the margin-free text hides, or one its line form hides. It failed at base.
+- `test_a_group_s_block_never_shows_a_value_its_line_form_hides`: arbitrary member texts. It passes at base too, since that is the forms' invariant.
+
+### 4. The size bound (P3)
+
+**The bound.** `daemon_log.RECORD_SCRUB_MAX` is 16,384 characters: a record's line, traceback and stack together, each cut to its share before anything is scrubbed. A part shorter than an even share leaves the rest to the others. 16,384 keeps a lock watch's report whole (two stacks of 40 and 12 frames, about 8,000 characters).
+
+**The cut** is `handoff.cut_whole(text, limit)`, beside `scrub_bounded`. It keeps whole lines of the head and the tail, each at most `limit // 2`, joined by `… [N characters omitted] …`. A cut is at a line break that `scrub_bounded`'s `_neutral_break` allows. That rule alone is not enough here, for two reasons:
+
+- `scrub_bounded` resolves the multi-line blocks (reminders, private keys, data URIs) over the whole text first, then scrubs its excerpts within lines. The daemon's forms scrub whole, and a whole-text scrub masks a quoted value across lines, to the next quote of its kind.
+- Resolving reminders first would change the rule order: whole-text mode masks quoted values before it strips reminders, and a reminder can hold the closing quote.
+
+So a cut is also:
+
+- **Outside any quoted value.** For each pairing kind (`_quoted_ends`' quote after an even backslash run, and `_escaped_quote_ends`' quote after a run of a given length), the last quote before the cut must not open a value when a quote of that kind follows it. Read loosely, any quote after `:` or `=` may open one. In the tail, what precedes the window is read back at most 64 quotes, else it is unknown, and unknown means no cut.
+- **Outside private keys.** The head never starts one and the tail never ends one.
+- **Outside a data URI's body.** In the head, a body is the run after a `data:…;base64,` prefix. In the tail, the first run usually began before the window: it is a body only when the last `;base64,` before it is followed by body characters alone. My first version counted such a run as a body whenever it reached back past 2 KiB, and since letters, digits, spaces and line breaks are all body characters, a text of plain words then kept no tail. A probe of the rules found that, and `test_a_long_run_of_plain_words_still_keeps_its_tail` covers it.
+
+Two more cases keep only the marker:
+
+- **A text holding a reminder tag** is not cut, since stripping one joins its two sides.
+- **A text that opens with a header**, when the head would keep none of it, is not cut either. Folded, as the line form folds it, the whole text is that header's value. The fuzz found this case: 3 counterexamples in 16,000 texts before the rule.
+
+A part with no such break in reach, such as one long line, keeps only the marker.
+
+**The lock.** With the scrub bounded, Python's own `formatException` still ran under the handler's lock. For 4 MiB of three-character lines that took about 130 ms. The reviewer also recommended scrubbing outside the lock. `ScrubbingStreamHandler.handle` now filters and formats a record (Python's formatting and the scrub) first, then takes the lock only to write it. One behaviour change: two threads' records are written in the order their formatting ends, each whole. daemon.log lines carry no timestamps.
+
+**Measured** on Python 3.14.7 at load 16 to 25, at head, median (and maximum) of 5 to 7 runs:
+
+| Record | At base (review r1) | At head |
+|---|---|---|
+| 4 MiB of frame lines, message, through the handler | 4.4 to 6.0 s | 22 ms (30) |
+| 4 MiB of frame lines, message, traceback and stack, through the handler | — | 45 ms (55) |
+| 7 MiB of dense credential lines, three parts, through the handler (the worst shape) | — | 57 ms (64) |
+| Three 4 MiB parts, the formatter alone, on four shapes (three runs) | — | 25 to 37 ms (54) |
+| 4 MiB of `'"` lines, three parts, through the handler | — | 108 ms (127), mostly Python's `formatException` of 1.4 million lines, in the record's own thread; the lock is held only to write |
+| A short line logged behind a 4 MiB record | 4.55 to 5.08 s | 0.1 ms (0.2) |
+
+`cut_whole` itself takes 1.8 ms for a 4 MiB part of frame or credential lines, 17.7 ms for 4 MiB of `'"` lines. So the scrub of the worst shapes measured stays under 60 ms, and nothing a record does holds the lock but its write. (Review r1 measured 1 MiB at 1,075 to 1,509 ms.)
+
+**Regressions:**
+
+- `test_a_four_mib_record_is_written_bounded_and_scrubbed_within_the_time_bound`: message, traceback, or both. The secrets at both ends and in the middle are scrubbed, the marker is written, the scrubber never sees more than the bound, and the best of three runs is under 100 ms.
+- `test_a_short_line_waits_for_a_four_mib_record_no_longer_than_the_bound`.
+- `test_a_four_mib_line_with_nowhere_safe_to_cut_keeps_only_its_marker`.
+- `test_a_record_s_cut_never_shows_a_secret_its_whole_text_hides`: a differential property with 200 examples over lines that span a cut, in both forms, with the length bound.
+- `test_a_cut_never_falls_inside_a_match_that_spans_lines`: a quoted value, an escaped one, a private key and a data URI, each at the head and at the tail.
+- `test_a_record_over_the_bound_holding_a_reminder_keeps_only_its_marker`.
+- `test_a_record_is_scrubbed_before_the_handler_s_lock_is_taken`.
+- `test_a_long_run_of_plain_words_still_keeps_its_tail` (1,000, 40,000 and 4 MiB of words).
+
+All of these failed at base. The short line waited 4.55 to 5.08 s there, and the lock case found the lock held.
+
+**Each rule is needed.** Outside pytest, I switched off one rule of `cut_whole` at a time and ran the same differential fuzz, 7,500 texts per mutant:
+
+| Rule switched off | Counterexamples |
+|---|---|
+| Quoted values | 165 |
+| Data URI bodies | 99 |
+| Reminder tags | 74 |
+| Leading header | 8 |
+| Private keys | 0 in the fuzz, whose key blocks are short. Without the rule, `test_a_cut_never_falls_inside_a_match_that_spans_lines`' private-key case writes `SECRET7pem9`. |
+
+With every rule on, the final code gave none in 16,000 fuzzed texts, and the versions of this round's code since the header rule gave none in 92,000.
+
+### 5. faulthandler's thread names (P3)
+
+C-25.7's sentence, `daemon_log.py`'s docstring and §2 above now say that on Python 3.14 an all-threads dump also names each thread Python started. `test_faulthandler_writes_frames_only` now also dumps all threads with a named one waiting, and finds `[subfleet-probe]` on 3.14.
+
+`test_every_daemon_thread_s_name_is_fixed_or_ids_only` is an AST lint. Every `Thread`, `Timer` and `ThreadPoolExecutor` in `subfleet/` is named by a literal of `[a-z][a-z0-9-]*`, by Python's default, or by the turn runner's `turn:{self.attempt_id}`, and no thread is renamed later. The lint also checks that a turn's attempt id is `<stamp>-turn-<hex and dashes>/a<n>`, since `ids.job_id` cuts the slug at 40 characters, and that the service names a turn's job `turn-<conversation id>`.
+
+Both tests pass at base. Nothing leaked; they guard the corrected statement. Two errors in my first version of them were found by running them at base and corrected in `cd97034ad`: 3.14 names threads only in an all-threads dump, and the uuid can be cut.
+
+### Invariants, round 2
+
+Each holds for every input and is executed by the tests named above.
+
+6. **A steer's reason is fixed.** For any exception, the reason is exactly `input-unavailable: ` and `refusals.fixed_error(exc)`, in every record a client reads.
+7. **The cut hides what the whole text hides.** For any text and limit, the secrets either form shows of `cut_whole(text, limit)` are a subset of those it shows of `text`. The cut text is at most `limit` characters plus its marker line; a text holding a reminder tag is the marker line alone.
+8. **A group's margins cost nothing.** A group's block shows no value that the same text without margins hides, nor one its line form hides. A one-member group hides whatever its member alone hides.
+9. **The lock covers only the write.** No scrub, and no formatting, runs while the handler's lock is held.
+
+Invariant 3 is restated accordingly. For a text without a group's margins, `fold(scrubbed_block(t)) == fold(refusals.scrubbed_line(t, ∞))`, as before. A group's block may hide more, never less.
+
+### Tests run, round 2
+
+All runs used a fresh `.venv` (`uv sync --locked --group dev`, Python 3.14.7 with the GIL), plus a scratch Python 3.12.14 venv for the 3.12 rows. Each pytest ran in its own hold of the shared lock, in the foreground, under a 1,140 s in-process alarm, with no xdist. I ran the venv's `python -m pytest`, the same environment `uv run` uses, so that a hold could not end waiting on uv's cache lock. Hypothesis ran derandomized and bounded, with no database; no `.hypothesis` folder was left.
+
+**At base.** These used a `git archive` of `a7aff971e`'s `subfleet/` with this round's tests:
+
+| Hold | What | Result |
+|---|---|---|
+| base 1 | the 16 new cases at `e26a7f807` | 45 failed, 3 passed. The passes were the forms' line-form invariant and the two wake inputs whose words were already fixed. |
+| base 2 | the rewritten group properties, the thread-name lint, faulthandler | 2 failed (both group properties), 3 passed (the invariant, and the two guards that pass at base by design) |
+| base 3 | the lock case | failed: the lock was held |
+
+**At head:**
+
+| Hold | Files | Result |
+|---|---|---|
+| 1 (brief group 1) | `test_daemon_log_handler` 59, `test_daemon_log_sites` 25, `test_daemon_log_scrubbing` 86, `test_round10_refusal_context` 59, `test_handler_refusals` 315 | 544 passed, 20 s |
+| 2 (brief group 2) | `test_conversation_service` 98, `test_turn_runner` 82, `test_conversation_wakes` 26, the six `test_suggestions*.py` 89 | 295 passed, 61 s |
+| 3 (brief group 3, and the sweep's files) | `test_daemon_accept` 5, `test_stop_watchdog` 26, `test_daemon_verbs` 20, `test_host_push_storage_retry_budget` 61, `test_host_push_store_completion_pr183` 2, `test_review_pr127_requests` 17, `test_review_pr127_pr_wakes` 7, `test_review_r6_probes` 30, `test_continuation_r2` 11 | 179 passed, 98 s |
+| 4 (brief group 4, and the contract's index) | `tests/fake/test_state_contract` 37, `test_test_module_names` 1, `test_invariants_index` 25 | 63 passed, 3 s |
+| 3.12 | Python 3.12.14: group 1, `test_turn_runner`, `test_conversation_wakes`, `test_host_push_storage_retry_budget` | 713 passed |
+| collect | the whole suite, `--collect-only` | 15,086 collected, no errors |
+| 5 (final code: all four groups and hold 3's extras, merged) | as holds 1 to 4 and 3; `test_daemon_log_handler` 60 | 1,082 passed, 203 s |
+| 6 | `test_suggest_cli` 7, `test_suggest_hint` 10, `test_suggestion_error_boundaries` 22, `test_suggestion_properties` 1, `test_suggestion_secret_properties` 7, `test_suggestion_structural_errors` 40, `test_protocol_secrecy` 322, `tests/fake/test_record_secrecy` 44, `test_codex_ca_bundle` 46, `tests/fake/test_codex_ca_bundle_fake` 6, `test_descriptor_review_fixes` 56, `test_daemon_init_release` 2, `tests/fake/test_daemon_stacks` 6, `test_lockwatch` 20, `test_live_store_guard` 324, `test_daemon_connections` 30 | 943 passed, 245 s |
+| 7 | the fake-daemon files that read daemon.log (round 1's hold 5: 14 files, 309 cases), `test_folders` 23, `test_filesystem_identity_agreement` 40 | 369 passed, 1 failed: see below |
+| 8 | `tests/fake/test_gate_end_to_end` alone | 11 passed, 3 s |
+| 3.12 | Python 3.12.14 at final code: group 1, `test_turn_runner`, `test_conversation_wakes`, `test_host_push_storage_retry_budget`, `test_daemon_accept`, `test_stop_watchdog` | 745 passed |
+| 9 (after the plain-words fix) | group 1 (`test_daemon_log_handler` 63), `test_protocol_secrecy` 322, `tests/fake/test_record_secrecy` 44, `test_daemon_verbs` 20 | 934 passed, 36 s |
+| 3.12 | Python 3.12.14, group 1 after the plain-words fix | 548 passed |
+
+**Hold 7's failure.** `test_plan_peer_process_finalizes_through_real_daemon` timed out in the harness's 5 s wait for a daemon to answer, at load about 15. The daemon had started and written its first two lines through the new handler. Alone, in hold 8, the file passed 11 of 11 in 3 s. I read it as the load-sensitive harness wait, not this change.
+
+**Holds 1 to 4** ran before `24a2ea2e1` (the cut's two cheaper scans), `b55ab8295` (formatting before the lock) and `6c2a67d96` (plain words). Hold 5, the 3.12 run at final code and hold 9 ran after them; hold 9 and the last 3.12 row after the plain-words fix.
+
+**Not run:**
+
+- the full suite (it collects 15,086 tests with no errors);
+- `tests/e2e`, `tests/frontend` and `tests/process`;
+- Python 3.12 beyond the files named above;
+- a real `launchctl`.
+
+I didn't query CI, since this job has no network.
+
+### Commits, round 2
+
+- `e26a7f807` test: review r1 of #233: a steer's reason, a group's margin, a record's size, the hooks, thread names
+- `98f2ef0c1` fix: a steer's reason, a wake refusal's detail and a job's notice name our words or the class
+- `b832faeb2` test: each test ends with the process hooks it started with
+- `20e6963b0` fix: an exception group's traceback hides what its members' plain tracebacks hide
+- `cd97034ad` test: faulthandler names a thread in an all-threads dump; a turn's job id may cut its uuid
+- `03679e1e9` test: a group's property is per member alone, and its margins never cost a secret
+- `870a78527` fix: the handler scrubs at most 16,384 characters of a record, cut where no match crosses
+- `31d654541` docs: daemon_log says a record is cut first, a group's block may hide more, and faulthandler names threads
+- `827df1c51` docs: C-25.7 states the record bound, the group block, the steer reason and faulthandler's thread names
+- `24a2ea2e1` perf: cut_whole scans for reminder tags once and looks 2 KiB back for a data URI body
+- `784be6d22` test: a record is scrubbed before the handler's lock is taken
+- `b55ab8295` fix: the handler formats a record before it takes its lock; only the write holds it
+- `e2b80d3e3` docs: C-25.7 says a record is formatted before the handler's lock, which only the write holds
+- `89f692ad7` docs: the bound's measured cost is a median under 40 ms and at most 54 ms
+- `330ee77b0` test: a long run of plain words before the tail still leaves a tail
+- `6c2a67d96` fix: cut_whole reads a long run of plain words before the tail as a data URI body only after `;base64,`
+- this report's round 2
+
+Nothing is pushed.
