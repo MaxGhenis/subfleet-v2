@@ -651,3 +651,174 @@ def test_ps_state_classification_is_exact(letter, flags, rc, shape):
         alive, _, reported = client_module.identity_status(12345, None, START)
         expected_alive = letter != "Z" if valid else False if gone else None
         assert alive is expected_alive and reported == expected_state
+
+
+# Round 3: deadlines cover pacing, and pacing covers the actual ps invocations.
+class PacedWire:
+    """A deterministic socket: one poll per send, bounded by settimeout."""
+
+    def __init__(self, clock, *, completion=0.0, polling=False, late_reply=False):
+        self.clock, self.completion = clock, completion
+        self.polling, self.late_reply = polling, late_reply
+        self.sent = []
+
+    def socket(self, *args):
+        wire = self
+
+        class Connection:
+            def settimeout(self, seconds):
+                self.timeout = seconds
+
+            def connect(self, path):
+                pass
+
+            def sendall(self, data):
+                from subfleet import protocol
+                self.request = protocol.decode_request(data)
+                wire.sent.append((wire.clock.now, self.request.op))
+
+            def recv(self, size):
+                from subfleet import protocol
+                if not wire.polling and wire.completion > wire.clock.now:
+                    delay = wire.completion - wire.clock.now
+                    if delay > self.timeout and not wire.late_reply:
+                        wire.clock.now += self.timeout
+                        raise TimeoutError('controlled response deadline')
+                    wire.clock.now += delay
+                done = wire.clock.now >= wire.completion
+                result = ({'jobs': [{'job_id': 'job-1', 'state': 'succeeded' if done else 'running'}]}
+                          if wire.polling else {'pong': True})
+                return protocol.encode(protocol.ok(self.request.id, result))
+
+            def close(self):
+                pass
+
+        return Connection()
+
+
+def paced_observations(root, monkeypatch, clock, *, boots=(0.0,), probes=(0.0,)):
+    """Boot reads precede ps; record ps starts independently of holder_report."""
+    (root / 'daemon.lock').write_text(json.dumps(
+        {'pid': 12345, 'boot_id': 'boot', 'proc_start': START}))
+    starts = []
+    observations = [0]
+
+    def boot():
+        clock.now += boots[observations[0] % len(boots)]
+        return 'boot'
+
+    def observe(*args, **kwargs):
+        index = observations[0]
+        starts.append(clock.now)
+        clock.now += probes[index % len(probes)]
+        observations[0] += 1
+        return 0, 'S ' + START
+
+    monkeypatch.setattr(client_module, 'boot_id', boot)
+    monkeypatch.setattr(client_module, '_run', observe)
+    return starts
+
+
+def test_wait_probe_slot_respects_deadline(root, monkeypatch, holder_clock, capsys):
+    """C-15.4 completion at .75 cannot satisfy wait's .6-second deadline."""
+    from types import SimpleNamespace
+    starts = paced_observations(root, monkeypatch, holder_clock)
+    wire = PacedWire(holder_clock, completion=.75, polling=True)
+    monkeypatch.setattr(client_module.socket, 'socket', wire.socket)
+    monkeypatch.setattr(cli, 'time', SimpleNamespace(
+        monotonic=lambda: holder_clock.now, sleep=client_module._sleep))
+    assert cli.main(['wait', 'job-1', '--timeout', '0.6']) == int(Exit.WAIT_TIMEOUT)
+    assert holder_clock.now == pytest.approx(.6)
+    assert starts == [0.0] and wire.sent == [(0.0, 'wait')]
+    assert 'SUCCEEDED' not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize('as_json', [False, True])
+def test_status_uses_later_stopped_observation(root, monkeypatch, holder_clock, capsys, as_json):
+    """C-5.13 S then T+ must render exactly the same diagnosis as initial T+."""
+    (root / 'daemon.lock').write_text(json.dumps({'pid': 12345, 'proc_start': START}))
+    states = iter(['S', 'T+'])
+    monkeypatch.setattr(client_module, '_run', lambda *a, **k: (0, next(states) + ' ' + START))
+    args = ['daemon', 'status'] + (['--json'] if as_json else [])
+    assert cli.main(args) == int(Exit.DAEMON_UNAVAILABLE)
+    captured = capsys.readouterr()
+    if as_json:
+        payload = json.loads(captured.out)
+        assert payload['lock_holder_alive'] is True
+        assert payload['holder_state'] == 'T+' and payload['holder_stopped'] is True
+        assert 'is stopped' in payload['diagnosis']
+        assert payload['fix'] == 'kill -CONT 12345'
+        assert payload['ping'] is False
+    else:
+        assert 'holder      stopped' in captured.out
+        assert 'is stopped' in captured.err and 'fix: kill -CONT 12345' in captured.err
+
+
+def test_doctor_live_uses_later_stopped_observation(root, monkeypatch, holder_clock):
+    """C-5.13 doctor's offline row may pass, but its later live row must fail."""
+    (root / 'daemon.lock').write_text(json.dumps({'pid': 12345, 'proc_start': START}))
+    states = iter(['S', 'T+'])
+    monkeypatch.setattr(client_module, '_run', lambda *a, **k: (0, next(states) + ' ' + START))
+    assert doctor.check_daemon_lock(root)['status'] == doctor.PASS
+    item = doctor.check_live(root)
+    assert item['status'] == doctor.FAIL
+    assert 'T+' in item['detail'] and 'is stopped' in item['detail']
+    assert item['fix'] == '`kill -CONT 12345`'
+
+
+def test_slow_boot_lookup_cannot_collapse_ps_spacing(root, monkeypatch, holder_clock):
+    """C-5.13 a 1.6-second boot read cannot make two ps calls start together."""
+    starts = paced_observations(root, monkeypatch, holder_clock, boots=(1.6, 0.0))
+    wire = PacedWire(holder_clock)
+    monkeypatch.setattr(client_module.socket, 'socket', wire.socket)
+    probe = Client(root)
+    assert probe.call('ping')['pong']
+    assert probe.call('ping')['pong']
+    assert starts[1] - starts[0] >= client_module.HOLDER_PROBE_INTERVAL_S
+
+
+def test_call_rejects_response_observed_after_deadline(root, monkeypatch, holder_clock):
+    """C-5.13 an overdue socket observation cannot turn a timeout into success."""
+    paced_observations(root, monkeypatch, holder_clock)
+    wire = PacedWire(holder_clock, completion=.75, late_reply=True)
+    monkeypatch.setattr(client_module.socket, 'socket', wire.socket)
+    with pytest.raises(ResponseLost):
+        Client(root).call('ping', timeout=.6)
+
+
+@settings(settings.get_profile('ci'))
+@given(deadlines=st.lists(st.integers(1, 7000), min_size=4, max_size=4),
+       boots=st.lists(st.integers(0, 1600), min_size=4, max_size=4),
+       probes=st.lists(st.integers(0, 3400), min_size=4, max_size=4),
+       completions=st.lists(st.integers(0, 10000), min_size=4, max_size=4))
+@example(deadlines=[600, 600, 600, 600], boots=[0]*4, probes=[0]*4, completions=[0]*4)
+@example(deadlines=[7000]*4, boots=[1600, 0, 0, 0], probes=[0]*4, completions=[0]*4)
+@example(deadlines=[600]*4, boots=[0]*4, probes=[750]*4, completions=[750]*4)
+def test_probe_pacing_deadline_property(deadlines, boots, probes, completions):
+    """C-5.13 deadlines, slow observations and completion times compose safely."""
+    import tempfile
+    from types import SimpleNamespace
+    with tempfile.TemporaryDirectory(prefix='sf-pacing-', dir='/tmp') as directory, pytest.MonkeyPatch.context() as patch:
+        clock = SimpleNamespace(now=0.0)
+        patch.setattr(client_module, '_clock', lambda: clock.now)
+        patch.setattr(client_module, '_sleep', lambda seconds: setattr(clock, 'now', clock.now + seconds))
+        starts = paced_observations(Path(directory), patch, clock,
+                                    boots=tuple(v / 1000 for v in boots),
+                                    probes=tuple(v / 1000 for v in probes))
+        wire = PacedWire(clock)
+        patch.setattr(client_module.socket, 'socket', wire.socket)
+        probe = Client(directory)
+        for duration, completion in zip(deadlines, completions):
+            began = clock.now
+            deadline = began + duration / 1000
+            wire.completion = began + completion / 1000
+            try:
+                result = probe.call('ping', timeout=duration / 1000)
+            except (DaemonUnavailable, client_module.ProtocolError):
+                pass
+            else:
+                assert result['pong']
+                assert wire.completion <= deadline and clock.now <= deadline
+            assert clock.now <= deadline + 5.0 + 1e-9
+        assert all(b - a >= client_module.HOLDER_PROBE_INTERVAL_S - 1e-9
+                   for a, b in zip(starts, starts[1:]))
