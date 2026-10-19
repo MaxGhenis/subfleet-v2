@@ -5939,7 +5939,15 @@ class Daemon:
             turn = (scheduler.probe_turn(probe_line, probing["lane"], probing["model"])
                     if probing and probing.get("behind") else None)
             turn_came = bool(probing and probing.get("behind") and turn is None)
-            hurried = bool(freed and known and known["expedite"]) or turn_came
+            # C-6.9, C-6.10: a cached FIFO hold is valid only while its named
+            # predecessor still waits for capacity in this pass. A job that
+            # started (or ended, became unadmittable, or now waits for a lease)
+            # holds nobody back. Recheck now; the current caps still apply.
+            predecessor = (known["hold"].get("behind")
+                           if known and known["hold"].get("reason") == "behind-older-job" else None)
+            unblocked = predecessor is not None and not any(
+                waiter[0] == predecessor and not waiter[3] for waiter in older_waiters(tier))
+            hurried = bool(freed and known and known["expedite"]) or turn_came or unblocked
             if job["next_check_at"] and job["next_check_at"] > utcnow() and not hurried:
                 # C-11.8: a job every lane refuses now for a reason no wait ends waits
                 # for nothing another job could take, however its clock was set (a
