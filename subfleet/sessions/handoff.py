@@ -39,6 +39,7 @@ Ported from v1 `subfleet/handoff.py`; the regexes and the section order are its.
 
 from __future__ import annotations
 
+import bisect
 import json
 import os
 import re
@@ -888,7 +889,6 @@ def _event_before(text: str, kind: tuple, end: int) -> bool | None:
 
 def _within_spans(starts: list[int], spans) -> set[int]:
     """The starts that fall strictly inside any of `spans` (`(begin, finish)`)."""
-    import bisect
     inside = set()
     for begin, finish in spans:
         inside.update(starts[bisect.bisect_right(starts, begin):bisect.bisect_left(starts, finish)])
