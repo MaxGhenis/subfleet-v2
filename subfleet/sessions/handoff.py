@@ -745,9 +745,9 @@ def _whole_head_cut(text: str, end: int) -> int:
     return 0
 
 
-#: A character no data URI's body holds, then such a body's run to the end of the text.
-_BODY_START_RE = re.compile(r"[^A-Za-z0-9+/=\s][A-Za-z0-9+/=\s]*\Z")
-_BODY_LOOK_BACK = 2048
+#: A character no data URI's body holds, and the end of a data URI's prefix.
+_NOT_BODY_RE = re.compile(r"[^A-Za-z0-9+/=\s]")
+_BASE64_MARK_RE = re.compile(r"(?i);base64,")
 
 
 def _whole_tail_cut(text: str, start: int) -> int:
@@ -762,14 +762,18 @@ def _whole_tail_cut(text: str, start: int) -> int:
         stop = text.find("\n", ends[-1])
         starts = [at for at in starts if 0 <= stop < at]
     # A data URI's body: the run after its prefix. The run at `first` began before
-    # it; where, is looked for up to `_BODY_LOOK_BACK` back, past which it counts as one.
+    # it: it is a body when the last `;base64,` before `first` is followed by body
+    # characters only, up to `first`.
     bodies = []
     for run in _DATA_BODY_RE.finditer(text, first):
-        begin = run.start()
-        if begin == first:
-            edge = _BODY_START_RE.search(text, max(0, first - _BODY_LOOK_BACK), first)
-            begin = edge.start() + 1 if edge else (0 if first <= _BODY_LOOK_BACK else -1)
-        if begin < 0 or text[max(0, begin - 8):begin].lower() == ";base64,":
+        if run.start() == first:
+            mark = None
+            for mark in _BASE64_MARK_RE.finditer(text, 0, first):
+                pass
+            body = mark is not None and _NOT_BODY_RE.search(text, mark.end(), first) is None
+        else:
+            body = text[max(0, run.start() - 8):run.start()].lower() == ";base64,"
+        if body:
             bodies.append((run.start(), run.end()))
     # A quoted value may run into the tail across a line start when a quote of a
     # kind follows it and the last before it may open a value of that kind.
