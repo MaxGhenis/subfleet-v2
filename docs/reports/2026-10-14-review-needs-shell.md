@@ -1048,3 +1048,40 @@ Each mutation was applied under its own lock hold, then the files were restored 
 > - **Install order:** upgrade the daemon first, because release/217's `load_policy` rejects `worktree-write`. Then tell Fleet ops, set `permissions.review = "worktree-write"` in the live policy, and restart. No TRUST change. Verification steps are in `docs/reports/2026-10-14-review-needs-shell.md`, round 6.
 >
 > 🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+### Wider sweep after the briefed holds
+
+To catch regressions outside the brief, the rest of `tests/fake` and most of `tests/unit` ran at `2070ddecb`, one hold per chunk, before the 4 h 30 m cutoff.
+
+**`tests/fake`: all 106 files ran.**
+- **Earlier holds:** 13 files, in the briefed holds and x1 and x2.
+- **The other 93, in chunks:**
+  - 1,567 passed, 2 xfailed, 1 failed (below);
+  - by chunk: fake-0 379 plus 1 xfailed, fake-15 329 plus 1 xfailed, fake-30 167, fake-40 149, fake-50 208, fake-60 110, fake-70 97, fake-80 128.
+
+**`tests/unit`: 237 of 311 files ran.**
+- **Earlier holds:** 37 files.
+- **In chunks, 200 more:** 7,423 passed and 1 skipped (`test_host_push_build.py:289`, an explicit local-repo benchmark). By chunk: unit-0 1,193; unit-40 2,620; unit-80 935; unit-120 1,862; unit-160 813.
+- **The longest hold** was unit-160 at 18 min 20 s.
+
+**The one failure: `tests/fake/test_admission_stateful.py::TestAdmissionPassProviderCaps`, in fake-0. It predates this PR.**
+- **Profile:** that run used the file's `dev` profile (random seeds, 40 examples, 30 steps). The file picks `ci` only when `HYPOTHESIS_PROFILE` or `CI` is set; CI sets `HYPOTHESIS_PROFILE: ci`, and these holds did not set it.
+  - Under `ci` (derandomized, as CI runs it), the file passes 11 of 11 at `2070ddecb`.
+  - With CI's `--hypothesis-seed=314159`, it also passes 11 of 11.
+  - Only this file and the two `test_census_responsibility_*` files choose a profile from the environment, and none of them is in the briefed holds.
+- **The minimal example:**
+  - one Codex lane, `providers.codex.max_active_attempts = 1`, and two reviews;
+  - the first review's attempt ends `transient`, then the fleet is quiet for 2 minutes;
+  - the next pass reserves the first review's retry (`a2`), and the second review's hold still names the first as `behind-older-job`;
+  - the oracle then reports "held behind …, which is no longer pending".
+- **Release/217 shows the same:** replayed step for step on release/217 itself (`3fbc4b7c5`, before any #221 change), it gives the same assertion with the same holds. So the defect is release/217's FIFO hold reason (C-6.9, C-6.4a). It looks like a hold that is not revisited when the job it names is placed later in the same pass, but I did not read the pass to confirm that.
+- **Which trees failed:** random runs failed at the round-6 trees (`52efb5327`, `2070ddecb`) and passed at older ones (`72aca94a5`, `be23a51dc`, and `52efb5327` with the old reservation INSERT). On a random-seed profile, that is not evidence that round 6 caused it.
+- **Follow-up for the hub:** an admission fix on release/217. It is not part of #221.
+
+**Unrun:**
+- 74 `tests/unit` files, ran out of time before the cutoff: `test_review_r3_measure.py` through `test_weekly_rank_vs_base.py` alphabetically (the `review_r3`, `route_check`, `salvage*`, `scheduler_*` splits, `sessions_*`, `settle`, `soak`, `status_json`, `steer`, `stop_*`, `store_*` others, `suggest*`, `tick`, `timers_*`, `title`, `turn_*`, `ultracode`, `unadmittable_pin`, `wait_hub`, `wake_cli` and `weekly_rank` files);
+- `tests/e2e`, `tests/frontend`, and `tests/process` apart from `test_claude_isolation.py`.
+
+**Cleanup:**
+- The scratch probe directory, `git archive` exports, hold logs, pytest `TMPDIR` and Hypothesis storage are removed at the end of the job, along with the worktree's bytecode and its `.venv`.
+- No `.hypothesis` folder was left, and nothing of this job is left running.
