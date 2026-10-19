@@ -3301,7 +3301,8 @@ class Daemon:
             if not verdict.ok:
                 return launch, AdapterError(
                     "the review publish hook did not deny a gh write when it was tested before launch",
-                    code=7, fix="check the hook's interpreter and package path with subfleet doctor, then submit again",
+                    code=7, fix=("check that the hook's interpreter and the subfleet package it imports are in "
+                                 "place (daemon.log names the failure), then submit again"),
                     reason="publish-hook-self-test")
         return dataclasses.replace(launch, notes={**launch.notes, "publish_hook_self_test": verdicts}), None
 

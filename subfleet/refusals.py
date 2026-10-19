@@ -217,7 +217,8 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
                                     "Run the guard trust preflight with the publish hook and supply its hooks override."),
     # C-12.4, #221 review r2 P3-7: the installed hook is run once before launch.
     "publish-hook-self-test": ("the review publish hook did not deny a gh write when it was tested before launch",
-                               "check the hook's interpreter and package path with subfleet doctor, then submit again"),
+                               "check that the hook's interpreter and the subfleet package it imports are in place "
+                               "(daemon.log names the failure), then submit again"),
     "codex-home-mismatch": ("Codex credential home does not match the lane",
                             "Resolve CODEX_HOME from this lane's original home."),
     "codex-thread-id": ("Codex resume requires a thread id", "Use the original attempt's native_session_id and lane."),
