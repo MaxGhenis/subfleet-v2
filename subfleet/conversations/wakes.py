@@ -260,7 +260,9 @@ class WakeEngine:
 
     def register(self, cid: str, request_id: str, spec: dict, *, event_since: float | None = None) -> dict:
         conversation = self.store.conversation(cid)
-        for job_id in spec.get("runs", {}).get("targets", []):
+        targets = spec.get("runs", {}).get("targets", [])
+        count = len(targets)
+        for position, job_id in enumerate(targets, 1):
             if self.store.one("SELECT 1 FROM wake_requests WHERE conversation_id=? AND request_id=? AND kind='runs'",
                               (cid, request_id)):
                 break  # a completed request remains retryable after job retention
@@ -270,8 +272,9 @@ class WakeEngine:
             owned = parent and parent["name"] == f"turn-{cid}"
             if not job or not (owned or (conversation["native_session_id"] and job["caller_session"] and
                     canonical_native(job["caller_session"]) == canonical_native(conversation["native_session_id"]))):
-                # The agent wrote the id: a refusal its timeline shows names none (C-25.7).
-                raise ConversationError("bad-wake", "a run it names is not this conversation's")
+                # The agent wrote the id: a refusal its timeline shows names none, only
+                # the target's position among at most 16 (C-25.7).
+                raise ConversationError("bad-wake", f"run target {position} of {count} is not this conversation's")
         with self.store.transaction() as tx:
             existing = {r["kind"]: json.loads(r["payload_json"]) for r in tx.execute(
                 "SELECT kind,payload_json FROM wake_requests WHERE conversation_id=? AND request_id=?", (cid, request_id))}
