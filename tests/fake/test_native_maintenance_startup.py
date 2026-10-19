@@ -9,6 +9,12 @@ from tests.fake.test_state_contract import state_daemon
 from tests.fake.test_admission_visibility import Inline
 
 
+@pytest.fixture(autouse=True)
+def active_retention(monkeypatch):
+    """Exercise maintenance rather than the launching operator's dormant mode."""
+    monkeypatch.delenv(daemon_module.RETENTION_DORMANT_ENV, raising=False)
+
+
 @pytest.mark.parametrize('argv', [['watch'], ['keepalive'], ['reset', 'codex', '--policy']])
 @pytest.mark.parametrize('as_json', [False, True])
 def test_maintenance_before_recovery_is_rejected_without_queueing(state_daemon, monkeypatch, capsys, argv, as_json):

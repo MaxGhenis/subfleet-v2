@@ -2,20 +2,91 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 import os
 import subprocess
 import sys
 import unicodedata
 from pathlib import Path
+from typing import Any
 
+from .launch_env import (
+    ROSTER, STORE, build_environment, harness_name, inherited_name, lane_reference, refused_reference,
+)
 from .adapters.base import AdapterError
-from .contracts import Credential
+from .contracts import Credential, Lane
 from .home_paths import (
     PYTEST_MARKER, PYTEST_SESSION, PYTEST_SESSION_ID, home_path, session_alive, under_pytest,
 )
 
 
+def env_references(lanes: Iterable[Lane | Mapping[str, Any]]) -> frozenset[str]:
+    """D-ENV1: the daemon variables env-kind lanes name as their credential, from
+    lanes or roster rows.
+
+    The daemon alone holds them. Each lane receives only its own, resolved into
+    its credential; every launch withholds all of them by name. A refused
+    variable (`launch_env.refused_reference`) is no lane's credential: its lane
+    is held instead, and the daemon is not handed it by name.
+    """
+    variables = (found[1] for found in map(lane_reference, lanes) if found)
+    return frozenset(ref for ref in variables if not refused_reference(ref))
+
+
+def withheld_references(lanes: Iterable[Lane | Mapping[str, Any]]) -> frozenset[str]:
+    """D-ENV1: the variables every launch withholds by name for the lanes.
+
+    Each lane's credential variable, and a held lane's harness hook: production
+    never reads one, so withholding it costs nothing and keeps whatever was put
+    there from every other lane. A held lane's listed or session name is not
+    withheld: every launch needs HOME or PATH, and a test's child its session.
+    """
+    variables = [found[1] for found in map(lane_reference, lanes) if found]
+    return frozenset(ref for ref in variables if not refused_reference(ref) or harness_name(ref))
+
+
+def reference_repair(stored: Lane | Mapping[str, Any], row: Mapping[str, Any]) -> str | None:
+    """Review r4, P2-1: the variable a lanes.json row gives a stored lane, or None.
+
+    Only a stored env-kind lane whose variable is refused takes one, and only
+    from a row for the same lane id, provider and account whose own env-kind
+    variable is not refused. Such a lane never held a credential this release
+    could resolve, so this binds it for the first time: nothing else changes
+    (C-1.3).
+    """
+    found, offered = lane_reference(stored), lane_reference(row)
+    if not found or not offered or found[0] != offered[0] or not refused_reference(found[1]):
+        return None
+    provider = stored.get("provider") if isinstance(stored, Mapping) else stored.provider
+    account = stored.get("account_key") if isinstance(stored, Mapping) else stored.account_key
+    if (row.get("provider"), row.get("account_key")) != (provider, account) or refused_reference(offered[1]):
+        return None
+    return offered[1]
+
+
+def startup_lanes(roster: Iterable[Mapping[str, Any]],
+                  stored: Iterable[Lane | Mapping[str, Any]]) -> list[tuple[Any, str, str]]:
+    """D-ENV1: each env-kind lane's (lane id, variable, source) as startup will
+    hold them: every lanes.json row, then each stored lane a row does not repair."""
+    roster = [row for row in roster if isinstance(row, Mapping)]
+    lanes = [(*found, ROSTER) for found in map(lane_reference, roster) if found]
+    for lane in stored:
+        found = lane_reference(lane)
+        if found and not any(reference_repair(lane, row) for row in roster):
+            lanes.append((*found, STORE))
+    return lanes
+
+
 _NATIVE_RUNNER = subprocess.run
+
+
+def native_runner(runner) -> bool:
+    """D-ENV1: whether a reader starts its command itself, with no runner supplied
+    or with `subprocess.run` passed as one. Only then is it handed the allowlisted
+    environment; any other runner (D-ST1's stand-ins) builds its own."""
+    return runner is None or runner is _NATIVE_RUNNER
+
+
 # macOS's login-keychain reader. Under pytest no process may start it, whichever
 # runner, wrapper or spelling reaches it.
 KEYCHAIN_BINARY = "/usr/bin/security"
@@ -544,6 +615,11 @@ def resolve_credential(credential: Credential, *, runner=None) -> dict[str, str]
         key = "CODEX_HOME" if credential.provider == "codex" else "CLAUDE_CONFIG_DIR"
         return {key: str(Path(credential.ref).expanduser().resolve())}
     if credential.kind == "env" and credential.provider == "claude":
+        if inherited_name(credential.ref):
+            # D-ENV1: every launch inherits an allowlisted name, so it cannot be one lane's.
+            raise AdapterError("lane environment credential names a variable every launch inherits", code=7,
+                               fix=f"store the lane OAuth token under a daemon variable other than {credential.ref}",
+                               reason="credential-env-inherited")
         token = os.environ.get(credential.ref)
         if not token or not token.strip():
             raise AdapterError("could not resolve lane environment credential", code=7,
@@ -554,8 +630,11 @@ def resolve_credential(credential: Credential, *, runner=None) -> dict[str, str]
         raise AdapterError("unsupported credential kind for provider", code=7, reason="credential-kind")
     execute = runner or subprocess.run
     try:
+        # D-ENV1: the native reader gets the allowlisted environment; a supplied
+        # runner (D-ST1's stand-ins under pytest) builds its own.
         result = execute(keychain_command(credential.ref, runner=execute),
-                         capture_output=True, text=True, timeout=10, check=False)
+                         capture_output=True, text=True, timeout=10, check=False,
+                         **({"env": build_environment()} if native_runner(runner) else {}))
     except (OSError, subprocess.SubprocessError):
         raise AdapterError("could not resolve lane keychain credential", code=7,
                            fix="unlock the configured credential store and verify the lane reference with agent-secret",

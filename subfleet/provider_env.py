@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 import logging
 import os
 import ssl
@@ -10,6 +10,7 @@ import threading
 from typing import Any
 
 from .policy import codex_ca_bundle
+from .launch_env import _present, build_environment
 from .sessions.transcripts import read_regular
 
 CA_SOURCES = ("SSL_CERT_FILE", "SSL_CERT_DIR")
@@ -42,25 +43,43 @@ class ProviderEnvironment:
     A shared instance logs an unusable path once, including concurrent launches.
     Presence, even an empty value, is an operator choice. If the operator set
     both variables, both are preserved; Subfleet only ever adds one itself.
+
+    D-ENV1: `references` returns the daemon variables env-kind lanes name, read
+    at each launch. None is inherited or passed by name: a lane's own value
+    arrives only as its resolved credential, in that lane's additions.
     """
 
-    def __init__(self, policy: Mapping[str, Any], *, log: logging.Logger | None = None):
+    def __init__(self, policy: Mapping[str, Any], *, log: logging.Logger | None = None,
+                 references: Callable[[], Iterable[str]] | None = None):
         self.policy = policy
+        self.pass_names = tuple(policy.get("env", {}).get("pass", ()))
+        self.references = references if references is not None else (lambda: ())
         self.log = log if log is not None else logging.getLogger(__name__)
         self._warned: set[str] = set()
         self._warning_lock = threading.Lock()
 
+    def withheld(self) -> frozenset[str]:
+        """The names `references` returns, never selected from a parent: in the
+        daemon, `credentials.withheld_references` of the stored lanes."""
+        return frozenset(self.references())
+
     def additions(self, provider: str, env_add: Mapping[str, str] | None = None, *,
                   environ: Mapping[str, str] | None = None) -> dict[str, str]:
         """Build Launch.env_add without mutating the daemon's environment."""
-        result = dict(env_add or {})
+        environ = os.environ if environ is None else environ
+        withheld = self.withheld()
+        # A withheld name is rejected before its membership test, which on a
+        # Mapping reads the value (review r4, P3-3); one popped since reads as absent.
+        result = _present(environ, (name for name in self.pass_names
+                                    if name not in withheld and name in environ))
+        result.update(env_add or {})
         if provider != "codex":
             return result
         environ = os.environ if environ is None else environ
         # Reconstructed launches use today's operator environment and policy.
         for key in CA_SOURCES:
             result.pop(key, None)
-        operator = {key: environ[key] for key in CA_SOURCES if key in environ}
+        operator = _present(environ, CA_SOURCES)
         if operator:
             result.update(operator)
             return result
@@ -95,17 +114,16 @@ class ProviderEnvironment:
         return self.assemble(self.additions(provider, env_add, environ=environ),
                              env_remove, environ=environ)
 
-    @staticmethod
-    def assemble(env_add: Mapping[str, str] | None = None,
+    def assemble(self, env_add: Mapping[str, str] | None = None,
                  env_remove: Iterable[str] = (), *,
                  environ: Mapping[str, str] | None = None) -> dict[str, str]:
-        """Merge already-selected additions without selecting or validating again.
+        """Select parent names and merge already-selected credential/CA additions.
 
         A launch selects with ``additions`` once, then uses that result for
         adapter inspection, preflight and its guardian. Recovery selects anew.
+        Ambient name selection is repeated at every process boundary, and
+        withholds every lane's credential reference each time.
         """
         environ = os.environ if environ is None else environ
-        result = {**environ, **(env_add or {})}
-        for key in env_remove:
-            result.pop(key, None)
-        return result
+        return build_environment(env_add, env_remove, pass_names=self.pass_names, environ=environ,
+                                 withheld=self.withheld())
