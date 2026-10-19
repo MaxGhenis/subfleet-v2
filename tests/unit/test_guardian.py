@@ -31,7 +31,8 @@ def test_guardian_receipts_stdout_stdin_environment(tmp_path, monkeypatch, guard
     command = [sys.executable, "-c", "import os,sys; assert os.getenv('SUBFLEET_TEST_TOKEN'); "
                "print(sys.stdin.read()); print('diagnostic',file=sys.stderr); raise SystemExit(4)"]
     assert guardian.run_guardian(command, attempt_dir=tmp_path, cwd=str(tmp_path),
-        stdin_path=str(prompt), stdout_path=str(tmp_path / "stdout"), stderr_path=str(tmp_path / "stderr")) == 4
+        stdin_path=str(prompt), stdout_path=str(tmp_path / "stdout"), stderr_path=str(tmp_path / "stderr"),
+        env_pass=("SUBFLEET_TEST_TOKEN",)) == 4
     assert (tmp_path / "stdout").read_bytes() == b"hello provider\n"
     assert (tmp_path / "stderr").read_bytes() == b"diagnostic\n"
     start = json.loads((tmp_path / "start.json").read_bytes())

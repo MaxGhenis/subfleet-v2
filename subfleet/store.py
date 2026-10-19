@@ -716,6 +716,27 @@ class Store:
                 raise ValueError("a mismatched lane is released only by re-enrolment")
         self._update("lanes", "lane_id", lane_id, {**values, "updated_at": utc_now()})
 
+    def repair_lane_reference(self, lane_id: str, old: str, new: str) -> int:
+        """D-ENV1 (review r4, P2-1): point a held env-kind lane at the variable lanes.json names.
+
+        The one change to a binding outside re-enrolment (C-1.3). The stored
+        variable is one every launch inherits, so the lane never held a
+        credential this release could resolve; its id, provider and account stay
+        and its credential epoch moves on. The caller (`credentials.reference_repair`)
+        decides that it may; this changes the row only while it still names `old`.
+        Returns the new epoch, or 0 when nothing changed.
+        """
+        with self.transaction("lane.reference_repaired", lane_id=lane_id) as conn:
+            row = self.one("SELECT credential_epoch FROM lanes WHERE lane_id=? AND credential_kind='env' "
+                           "AND credential_ref=?", (lane_id, old))
+            if row is None:
+                return 0
+            epoch = int(row["credential_epoch"]) + 1
+            self.add_event("lane.reference_repaired", lane_id=lane_id, data={"from": old, "to": new, "epoch": epoch})
+            conn.execute("UPDATE lanes SET credential_ref=?, credential_epoch=?, updated_at=? WHERE lane_id=? "
+                         "AND credential_kind='env' AND credential_ref=?", (new, epoch, utc_now(), lane_id, old))
+        return epoch
+
     def get_lane(self, lane_id: str) -> Lane | None:
         row = self.one("SELECT * FROM lanes WHERE lane_id=?", (lane_id,))
         return self.lane_from_row(row) if row else None
