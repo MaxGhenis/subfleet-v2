@@ -845,7 +845,7 @@ def test_the_identity_check_is_fresh_and_paced_per_call(root, monkeypatch, poll_
     assert calls == [0.0] * 4 and poll_clock.sleeps == []
     probe.check_available()
     assert calls == [0.0] * 4 + [1.0]
-    assert poll_clock.sleeps == [1.0, 1.0, 1.0]
+    assert poll_clock.sleeps == [1.0]
 
 
 def test_boot_id_is_read_once(monkeypatch):
