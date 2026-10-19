@@ -14,7 +14,7 @@ from hypothesis import HealthCheck, Phase, given, settings, strategies as st
 from subfleet import daemon as dm
 from subfleet.conversations.runner import Clocks, TurnRunner
 from subfleet.conversations.turn import Frame, TurnSpec
-from subfleet.relay import Ack, RelayError, RelayServer, frame_sha256
+from subfleet.relay import Ack, RelayClient, RelayError, RelayServer, frame_sha256
 from tests.fake.test_review_r223_wall_probes import clocked  # noqa: F401
 from tests.fake.test_state_contract import reserve, state_daemon  # noqa: F401
 from tests.fake.test_wall_cancel_races import setup_running, publish
@@ -60,8 +60,8 @@ def stopped_turn(clocked, monkeypatch):
         os.close(reader)
 
 
-def finish(service, clock, jid, aid, adir):
-    publish(adir, clock.t.isoformat())
+def finish(service, clock, jid, aid, adir, *, exited=None):
+    publish(adir, (exited or clock.t).isoformat())
     (adir / "turn.json").write_text(json.dumps({"state": "complete", "final_text": "verified turn result",
                                               "accepted": True, "answered": True}))
     service._process_attempt(aid)
@@ -120,9 +120,30 @@ def test_exit_before_first_delivery_keeps_receipt_wins(stopped_turn):
     transmit(runner, Frame("signal:int", "signal", "INT"))
     [event] = stop_events(service, aid)
     assert event["signal_sent"] is True and event["signal_at"]
-    clock.t = exited  # Publish the already exited provider's delayed receipt.
-    job, attempt = finish(service, clock, jid, aid, adir)
+    job, attempt = finish(service, clock, jid, aid, adir, exited=exited)
     assert (job["state"], job["rc"], attempt["outcome_class"], attempt["killed_by"]) == ("succeeded", 0, "ok", None)
+
+
+def test_exit_during_relay_connection_before_transmission_keeps_receipt_wins(stopped_turn, monkeypatch):
+    """Like kill-protocol identity reads, connecting precedes the delivery clock."""
+    service, clock, jid, aid, adir, runner, server, _, delivered, _ = stopped_turn
+    exited = clock.t + timedelta(seconds=1)
+    reply = []
+    def sendall(payload):
+        answer = server.apply(json.loads(payload))
+        reply.append((json.dumps(answer) + "\n").encode())
+    def connect():
+        clock.t += timedelta(seconds=2)
+        runner.relay._sock = SimpleNamespace(sendall=sendall, close=lambda: None)
+        runner.relay._reader = SimpleNamespace(readline=lambda cap: reply.pop(), close=lambda: None)
+    monkeypatch.setattr(runner.relay, "_connect", connect)
+    monkeypatch.setattr(runner.relay, "send", RelayClient.send.__get__(runner.relay))
+    transmit(runner, Frame("signal:int", "signal", "INT"))
+    assert delivered == [(signal.SIGINT, clock.t)]
+    [event] = stop_events(service, aid)
+    assert event["signal_at"] == clock.t.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    job, attempt = finish(service, clock, jid, aid, adir, exited=exited)
+    assert (job["state"], attempt["outcome_class"], attempt["killed_by"]) == ("succeeded", "ok", None)
 
 
 def test_restart_after_intent_before_first_transmission_is_conservative(stopped_turn, monkeypatch):
