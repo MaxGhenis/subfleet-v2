@@ -13,8 +13,9 @@ The daemon's handler (`ScrubbingStreamHandler`) formats every record through
 Before either, a record's text (its line, traceback and stack together) is cut
 to `RECORD_SCRUB_MAX` characters, keeping whole lines of each part's head and
 tail with a marker, at line breaks no match of the whole-text scrub crosses
-(`handoff.cut_whole`). So one record holds the handler's lock for tens of
-milliseconds, however long it is.
+(`handoff.cut_whole`). So one record is scrubbed in tens of milliseconds,
+however long it is; and it is formatted before the handler's lock is taken, so
+only its write holds the lock.
 
 The two forms agree. Folded, a block is exactly the line form's text before
 its cut: `scrubbed_block` writes the folded, rescrubbed text in place of the
@@ -59,8 +60,8 @@ from .sessions.handoff import REDACTED, cut_whole, scrub_secrets
 #: What a record that cannot be scrubbed is written as (C-25.7).
 SCRUB_FAILED = "[scrub failed]"
 #: The most of one record's text (its line, traceback and stack together) the
-#: handler scrubs (C-25.7): about 25 ms on its worst measured shape, under the
-#: handler's lock. Longer text is cut first (`handoff.cut_whole`).
+#: handler scrubs (C-25.7): under 40 ms on the worst shapes measured, three
+#: 4 MiB parts. Longer text is cut first (`handoff.cut_whole`).
 RECORD_SCRUB_MAX = 16_384
 #: What logging's report of a record it could not write becomes.
 WRITE_FAILED = "[log write failed]"
@@ -200,6 +201,32 @@ class ScrubbingStreamHandler(logging.StreamHandler):
     def __init__(self, stream=None):
         super().__init__(stream)
         self.setFormatter(ScrubbingFormatter())
+
+    def handle(self, record: logging.LogRecord):
+        """`logging.Handler.handle`, but the record is formatted, so scrubbed, before
+        the handler's lock is taken: only its write holds the lock, and a line never
+        waits for another thread's record to be formatted (review r1 of #233)."""
+        passed = self.filter(record)
+        if isinstance(passed, logging.LogRecord):
+            record = passed
+        if passed:
+            text = self.format(record)          # `ScrubbingFormatter.format` never raises
+            with self.lock:
+                self._write(record, text)
+        return passed
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self._write(record, self.format(record))
+
+    def _write(self, record: logging.LogRecord, text: str) -> None:
+        """`logging.StreamHandler.emit`'s write, of text already formatted."""
+        try:
+            self.stream.write(text + self.terminator)
+            self.flush()
+        except RecursionError:                  # as logging's own: issue 36272
+            raise
+        except Exception:                       # noqa: BLE001 - reported by `handleError`, a fixed line
+            self.handleError(record)
 
     def handleError(self, record: logging.LogRecord) -> None:
         """logging's own report prints the record's raw message and arguments to
