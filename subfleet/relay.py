@@ -50,7 +50,6 @@ from __future__ import annotations
 import errno
 import hashlib
 import json
-import logging
 import os
 import select
 import socket
@@ -76,7 +75,20 @@ WRITE_POLL_S = 0.05                 # a stdin write waiting for room looks this 
 # Fixed text: nothing of the frame, its tag or its client (#230 review r1).
 CUT_LOG_LINE = "relay stop: an exchange still running at its bound was cut; its connection was shut down"
 
-_log = logging.getLogger(__name__)
+
+def _stderr_line(text: str) -> None:
+    """Write one line to descriptor 2 with raw writes, never through `logging` or
+    `sys.stderr` (#236 review r2). A write held there (a pipe nobody reads) then
+    holds no lock that interpreter shutdown takes: `logging.shutdown`, run at exit,
+    takes every handler's lock, and the exit's flush of the standard streams takes
+    their buffers' locks, so either would hold the guardian's exit for as long as
+    the write. Best effort: an error drops the line."""
+    data = memoryview((text + "\n").encode())
+    try:
+        while data:
+            data = data[os.write(2, data):]
+    except OSError:
+        pass
 
 
 def advertisement() -> dict:
@@ -264,7 +276,7 @@ class RelayServer:
         What follows is bounded too (#236 review r1): the relay thread gets
         JOIN_TIMEOUT_S to end, and the cleanup (`_clean_up`) CLEANUP_TIMEOUT_S on a
         thread of its own, because the pipe's close waits for a write under way
-        and the unlink and the cut's log line can wait on the disk and on stderr.
+        and the unlink and the cut's line can wait on the disk and on stderr.
         So stop returns within REPLY_TIMEOUT_S + JOIN_TIMEOUT_S + CLEANUP_TIMEOUT_S
         whatever the child, a stdin reader or the journal's disk does. A cleanup
         still running then finishes on its own; what it has not closed when the
@@ -305,8 +317,8 @@ class RelayServer:
         `_close_pipe` takes; the connection is shut down both ways, so a reply or
         a read under way ends and the client reads end of stream, no answer.
         A shutdown does not wait for a send or receive blocked on the connection
-        (measured, #236 review r1); the cut's log line is the cleanup's, where its
-        write is bounded."""
+        (measured, #236 review r1); the cut's line is the cleanup's, where stop's
+        wait for its write is bounded."""
         conn = self._conn
         if conn is not None:
             # Each half on its own: once `stop` has shut the read half, macOS
@@ -322,9 +334,11 @@ class RelayServer:
         """Stop's last steps, on the thread `stop` waits for within its bound:
         close the listening socket, close the pipe (waiting for the pipe lock, so
         a write the bound could not wait for lets go first, and the descriptor
-        closes as soon as it does), log a cut, unlink the socket file. Each step
-        is taken whether or not the one before failed; the one that touches the
-        disk is last."""
+        closes as soon as it does), write a cut's line to stderr, unlink the
+        socket file. Each step is taken whether or not the one before failed; the
+        one that touches the disk is last. This thread takes no lock but the pipe
+        lock, which nothing at interpreter shutdown takes, so a step still held
+        when the guardian exits cannot hold the exit (#236 review r2)."""
         if self._server is not None:
             try:
                 self._server.close()
@@ -332,7 +346,7 @@ class RelayServer:
                 pass
         self._close_pipe()
         if self._cut.is_set():
-            _log.warning(CUT_LOG_LINE)
+            _stderr_line(CUT_LOG_LINE)
         try:
             os.unlink(self.path)
         except OSError:
