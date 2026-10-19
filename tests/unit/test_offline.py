@@ -122,12 +122,12 @@ def gone_guardian(store, monkeypatch):
     """Declare the fixture pid absent even when the host cannot inspect processes."""
     def absent(pid):
         assert pid == 999999
-        return ""                      # client.proc_start's confirmed-absence result
+        return "", ""                  # client.proc_status's confirmed-absence result
 
     def must_not_signal(*args):
         pytest.fail("an absent guardian must never be signalled")
 
-    monkeypatch.setattr("subfleet.client.proc_start", absent)
+    monkeypatch.setattr("subfleet.client.proc_status", absent)
     monkeypatch.setattr(os, "killpg", must_not_signal)
     return store
 

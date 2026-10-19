@@ -1954,6 +1954,7 @@ def test_ping_continuous_input_has_a_total_deadline(daemon, monkeypatch):
     reader, writer = socket.socketpair()
     done = threading.Event()
     writer.settimeout(0.1)
+    writer.sendall(b"x")  # Keep the first byte independent of producer scheduling.
 
     def produce():
         try:
