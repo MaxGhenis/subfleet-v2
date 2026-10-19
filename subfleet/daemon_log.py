@@ -10,11 +10,19 @@ The daemon's handler (`ScrubbingStreamHandler`) formats every record through
   traceback and its stack in the block form (`scrubbed_block`): still several
   lines, scrubbed whole (`scrub_secrets(..., whole=True)`).
 
+Before either, a record's text (its line, traceback and stack together) is cut
+to `RECORD_SCRUB_MAX` characters, keeping whole lines of each part's head and
+tail with a marker, at line breaks no match of the whole-text scrub crosses
+(`handoff.cut_whole`). So one record holds the handler's lock for tens of
+milliseconds, however long it is.
+
 The two forms agree. Folded, a block is exactly the line form's text before
 its cut: `scrubbed_block` writes the folded, rescrubbed text in place of the
 block whenever folding would let the scrubber find more. So a value holding no
 whitespace is in the block exactly when it is in the uncut line, and the cut
-only drops text.
+only drops text. Python writes a margin before each line of an exception
+group's members; a group's block keeps only what both it and the same text
+without the margins show, so it may hide more than the line form, never less.
 
 A record that cannot be scrubbed (the scrubber raised, or the record's own
 message cannot be rendered) is written as one fixed `[scrub failed]` line that
@@ -31,7 +39,9 @@ formatter: an uncaught exception (`sys.excepthook`), a thread's
 warning (`warnings.showwarning`), and a record no handler took
 (`logging.lastResort`). faulthandler stays as it is. It writes each frame's
 file, line number and function name only, never an exception's message, a
-local or a source line (CPython's `Python/traceback.c`, `dump_frame`).
+local or a source line (CPython's `Python/traceback.c`, `dump_frame`); on
+Python 3.14, an all-threads dump (`daemon stacks`) also names each thread
+Python started, and every daemon thread's name is fixed words or ids.
 """
 from __future__ import annotations
 
