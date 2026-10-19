@@ -33,6 +33,7 @@ sends `turn/completed` only for a turn that used no tool: after a command ran
 or was declined, `idle` is the last word.
 
 Environment: `SUBFLEET_FAKE_TURN_LOG` appends argv and every stdin line.
+`SUBFLEET_FAKE_PUBLISH_UNTRUSTED=1` lists every hook after the guard untrusted.
 `SUBFLEET_FAKE_THREAD_ACTIVE=1` answers `thread/resume` with an active thread.
 """
 
@@ -156,8 +157,11 @@ class Server:
         self.send({"id": rid, "result": {"data": [{
             "cwd": params["cwds"][0], "errors": [], "hooks": [{
                 "key": key, "enabled": state["enabled"],
-                "trustStatus": "trusted", "currentHash": state["trusted_hash"],
-            } for key, state in self.hook_states],
+                # SUBFLEET_FAKE_PUBLISH_UNTRUSTED=1: every group after the guard is
+                # listed untrusted, as Codex lists a hook whose hash it does not trust.
+                "trustStatus": "untrusted" if index and os.environ.get("SUBFLEET_FAKE_PUBLISH_UNTRUSTED") == "1"
+                else "trusted", "currentHash": state["trusted_hash"],
+            } for index, (key, state) in enumerate(self.hook_states)],
         }]}})
 
     def on_model_list(self, rid, params):

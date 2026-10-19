@@ -1058,12 +1058,15 @@ def test_preflight_verifies_the_publish_hook_beside_the_guard(fake_codex, tmp_pa
 @pytest.mark.parametrize("mode", ["publish-missing", "publish-untrusted", "publish-disabled",
                                   "publish-hash-mismatch", "publish-duplicate"])
 def test_preflight_refuses_a_publish_hook_codex_does_not_trust(fake_codex, tmp_path, monkeypatch, mode):
-    """C-12.3: a publish hook Codex would skip fails the launch closed, never runs it without the rule."""
+    """C-12.3: a publish hook Codex would skip fails the launch closed, never runs it without the rule.
+    C-14.2 (D-SH1 round 8): the guard verified, so the verdict is `publish`, with its own fix, which
+    names neither the TRUST pins nor `subfleet doctor` as the repair (doctor never checks this hook)."""
     fake, _ = fake_codex
     monkeypatch.setenv("GUARD_TEST_MODE", mode)
     result = guard.preflight(fake, workdir=tmp_path, publish_command=PUBLISH)
-    assert not result.ok and result.kind == guard.TRUST and result.override is None
+    assert not result.ok and result.kind == guard.PUBLISH and result.override is None
     assert "review publish hook" in result.message
+    assert result.fix == guard._PUBLISH_FIX and "rerun subfleet doctor" not in result.fix
     # The guard alone still verifies in the same mode: only the publish entry is wrong.
     assert guard.preflight(fake, workdir=tmp_path).ok
 

@@ -19,6 +19,7 @@ import tomllib
 
 import pytest
 
+from subfleet import refusals
 from subfleet.guard.preflight import HOOK_KEY, PUBLISH_HOOK_KEY, PUBLISH_HOOK_STATUS
 from subfleet.review_publish import pinned_environment
 
@@ -58,3 +59,20 @@ def test_a_policy_review_runs_writable_with_its_publish_layers(e2e, model, scena
         settings = report["argv"].index("--settings")
         assert report["argv"][settings - 2:settings] == ["--setting-sources", "user"]
     assert Path(report["cwd"]).resolve() == Path(job["worktree"]).resolve()
+
+
+@pytest.mark.parametrize("sandbox", [(), ("-s", "read-only")], ids=["policy", "read-only"])
+def test_a_publish_hook_codex_does_not_trust_refuses_the_review_with_its_own_advice(e2e, sandbox):
+    """C-14.2 (D-SH1 round 8): the guard verified and only the publish group did not, in
+    either sandbox, so the refusal names the review's hook and how to see why; it neither
+    calls the job writable nor sends the operator to doctor, which never checks this hook."""
+    e2e.start(env={"SUBFLEET_FAKE_PUBLISH_UNTRUSTED": "1"})
+    refused = e2e.cli(*e2e.run_args("astra", "--task", "review", "--tier", "standard", *sandbox, "--wait"),
+                      timeout=120)
+    assert refused.rc == 7, refused
+    message, fix = refusals.render("guard-preflight-publish")
+    assert message in refused.stderr and fix in refused.stderr, refused
+    assert "rerun subfleet doctor" not in refused.stderr and "writable job" not in refused.stderr
+    assert not (e2e.root / "codex-env.json").exists()
+    for attempt in e2e.rows("SELECT * FROM attempts"):
+        assert attempt["guardian_pid"] is None
