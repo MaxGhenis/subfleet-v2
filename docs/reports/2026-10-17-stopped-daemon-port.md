@@ -365,3 +365,245 @@ removed after verification. Local commit metadata is retained. All foreground
 runners/lock holders exited, and fixture-owned children were reaped. No live
 daemon, live store, unrelated process, network remote or global cache was
 changed, signalled or cleaned.
+
+## Round 4: one observation budget, hook delivery, and burst pacing
+
+### Scope and release state
+
+Started from `3672bb537103899293d3118acd900e144fc61b4e` in the assigned
+worktree, with no existing changes. The available `origin/release/217` ref
+still names `d72597b5c9e2840c4405038a67366484352dbf5a`, already an ancestor of
+this head. The local `release/217` branch names the older ancestor
+`b053e3de8f2e1aa92dee9a9dc8de24097e37b03f`; no release merge or conflict
+resolution was necessary. No remote was contacted. The acceptance contract's
+other clauses and historical change-log entries are preserved.
+
+The full `review-r3.md` was unavailable in the checkout and at the named caller
+repository's root; its path was requested. This round addresses every finding
+and reproduction supplied in the brief. No sub-agents were used.
+
+Shared Git metadata is outside the writable sandbox. Commits are on the
+workspace-local `fix/stopped-daemon-217` branch in `.git-local`, whose object
+alternate reads the existing repository. Inspect with `git --git-dir=.git-local
+log`; the original shared checkout metadata stays detached at `3672bb537`.
+Every step uses the requested co-author trailer. Nothing was pushed.
+
+### Cause and budget design
+
+Each subprocess previously received five seconds independently. Consequently,
+a 1.6 s boot lookup plus a 5 s process read returned at 6.6 s during a .6 s
+call, or 7.2 s when diagnosis began after its socket timeout. A separate boot
+allowance made that behavior consistent with the old wording, but violated the
+reviewer's deadline-plus-one-budget requirement.
+
+`holder_report` now establishes one absolute observation deadline at
+`min(observation_start + 5, call_deadline + 5)`. A context-local deadline reaches
+`_run` without changing the existing identity-reader APIs. Every UUID, legacy
+fallback or legacy-comparison boot subprocess and the one `ps` receives only
+the observation time remaining; exhausted reads start no subprocess and remain
+unverifiable. The context resets in `finally`, including on inspection failures.
+Preflight and failed-connect/post-send diagnosis share the original call's
+absolute `call_deadline + 5` ceiling. Thus a diagnostic cannot restart a new
+allowance after earlier work has consumed that ceiling. Bucket waits stop at
+the original call deadline. Transport and late-success rejection remain in the
+same call budget. C-5.13 removes its separate boot-read allowance and records
+this design; subprocess cleanup, parsing and OS scheduling are still outside
+the controlled subprocess-time model.
+
+The expanded deterministic clock model honors actual `subprocess.run(timeout)`
+semantics. The bounded property generates boot and ps costs **independently
+from 0 to 10 s each**, deadlines from .001 to 7 s, completion times from 0 to
+20 s, and verifying/non-verifying clients, across four consecutive calls.
+Explicit examples include the reviewer's 1.6 + 5 s observation and both stages
+at 10 s. It asserts every call ends by deadline + 5 s and every success was
+observed by the original deadline. Both preflight and post-send regression
+cases failed at the original production head (6.6 and 7.2 s). Their fixed
+observations finish at 5.0 and 5.6 s respectively. Another case exercises both
+preflight and post-send diagnosis within one call.
+
+### Bucket and refusal before send
+
+Completion-based spacing charged about a second between every pair of calls,
+even for short commands. A capacity-four token bucket replaces it. The code
+represents tokens with a virtual next-token time: a probe may start when
+`next_token - 3 * interval` is due, then advances that time by one interval
+from the later of its current value and now. This is equivalent to four stored
+tokens with one token refilled per second; idle time caps at four tokens, and
+inspection time also contributes elapsed refill time. Failed observations and
+failure diagnostics use the same bucket. Every verifying send still receives
+a fresh state/identity read; no running verdict is cached. C-15.6's explicit
+hook opt-out remains.
+
+Four immediate sends sleep zero seconds; the fifth waits for a token. A long
+loop has rate at most one observation per second after its burst. The new
+bounded property checks **every sub-window** of generated send sequences,
+including repeated zero gaps and long idle refills: observations never exceed
+`4 + elapsed / HOLDER_PROBE_INTERVAL_S`. This rule counts whole observation
+starts, replacing round 3's spacing between actual ps starts; a slow boot read
+may finish just before the next observation's ps within the allowed burst.
+The slow-boot regression now also checks refill saturation rather than imposing
+the superseded pairwise spacing. A saturated refused-connect diagnostic still
+ends `wait --timeout .6` at .6 with exit 124, and the running-to-stopped status,
+doctor, start, re-send and no-connect regressions remain covered.
+
+### Hook delivery reserve
+
+The hook previously slept out an early poll's unused time before looking at its
+result. On its last poll that discarded an available terminal notice: lookup
+had zero time and only a job-summary fallback was printed, without a mark.
+It now examines terminal results first and delivers immediately. After reading
+candidates, it reserves **the smaller of 2 seconds and half the remaining
+budget** for delivery. Poll budgets, busy pauses and idle backoff all stop at
+`deadline - reserve`. Notice lookup gets at most half the remaining delivery
+time, preserving time for `notice.mark`; neither starts a fresh hook deadline.
+For the reviewer's timeout of 6 s, the existing 5 s harness margin leaves about
+1 s of work time: about .5 s is reserved for the two notice calls, with at
+least half that delivery time retained for the mark when lookup starts.
+C-15.2 and its change-log entry record the behavior.
+
+The real `python -m subfleet hook PostToolUse` regression sets
+`SUBFLEET_HOOK_TIMEOUT_S=6`, uses controlled candidate/terminal/notice replies,
+and asserts the notice text and offered mark. It failed on the original head
+with `no notice row for this job`. Controlled-clock tests also cover an
+immediate terminal result, one returned exactly at the poll deadline, and an
+empty poll whose idle sleep must preserve the reserve.
+
+### Latency measurements
+
+Foreground timing runs started and stopped real `Daemon` instances on private
+scratch roots, with real socket routing, worker pools and replies. The control
+loop was held idle, and dispatch replies were controlled: the sessions command
+used one interrupted scratch transcript and a controlled session listing;
+`runs` read capabilities then list; status read lock and daemon.status; watch
+sent two immediate empty polls; wait received one empty then one terminal poll.
+Sessions sent state, nudged, then ping. Each sample used a fresh Python process through `compat.dispatch`, the actual
+`subfleet` command entry point (a fresh client process for the watch pair),
+reusing its client for the whole command. Medians below are seven samples per command, including process
+startup. Release source came from local `git archive d72597b5c subfleet`; head
+used this worktree. All measured head pacing sleeps were exactly **0 s**.
+
+| Command | Head (s) | Release d72597b5c (s) | Delta (ms) | ps attempts head / release | Attempt cost head / release (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| sessions continue (3 calls) | 0.168 | 0.156 | 12.0 | 3 / 1 | 6.0 / 2.0 |
+| runs (2 calls) | 0.151 | 0.152 | -1.0 | 2 / 1 | 4.9 / 2.6 |
+| daemon status | 0.152 | 0.165 | -13.0 | 2 / 2 | 4.1 / 3.6 |
+| conversation.watch (2 calls) | 0.083 | 0.089 | -5.8 | 2 / 1 | 4.4 / 2.0 |
+| wait (2 polls) | 0.697 | 0.653 | 43.5 | 2 / 1 | 5.3 / 2.7 |
+
+Every command is within 100 ms of release even before allowing for additional
+process observations. Remaining differences include process startup, additional
+fresh reads and host scheduling; no one-shot command paid a bucket interval.
+These runs do **not** establish native process-inspection latency: this sandbox
+denies execution of `/bin/ps`. The harness attempted and charged each actual
+probe, then supplied the controlled running identity of its own scratch
+daemon. A separate own-pid ps attempt returned `PermissionError` (errno 1) in
+9.8 ms; it is not a successful native probe measurement. A successful native ps
+comparison and the optional libproc feasibility study remain unrun. Every
+scratch daemon was stopped and joined in `finally`, including during harness
+setup corrections, and every scratch root was removed.
+
+### Verification
+
+Nine selected tests failed against the original production head in the
+regressions-first hold (2.56 s pytest; 111.93 s including the lock wait): both
+budget regressions, the expanded deadline property, both burst/failure-state
+variants, the short hook command, both terminal-poll variants and idle reserve.
+The first full runs found old spacing expectations and two fixture mistakes;
+those expectations now exercise the new burst and exhausted-bucket behavior.
+No production invariant was weakened to accommodate a test.
+
+Final requested groups: **818 passed, 6 skipped**, no outstanding failures.
+
+| File | Passed | Skipped |
+| --- | ---: | ---: |
+| `tests/unit/test_stopped_daemon.py` | 69 | 0 |
+| `tests/unit/test_client_availability.py` | 22 | 0 |
+| `tests/unit/test_boot_identity.py` | 10 | 0 |
+| `tests/unit/test_cli.py` | 244 | 0 |
+| `tests/unit/test_doctor.py` | 44 | 0 |
+| `tests/unit/test_sessions_cli.py` | 142 | 0 |
+| `tests/unit/test_suggest_cli.py` | 7 | 0 |
+| `tests/unit/test_offline.py` | 33 | 0 |
+| `tests/unit/test_daemon_refusals_cli.py` | 8 | 0 |
+| `tests/unit/test_daemon_verbs.py` | 15 | 5 |
+| `tests/unit/test_hooks.py` | 72 | 1 |
+| `tests/unit/test_outcome_unknown.py` | 58 | 0 |
+| `tests/unit/test_descriptor_review_fixes.py` | 56 | 0 |
+| `tests/fake/test_state_contract.py` | 37 | 0 |
+| `tests/unit/test_test_module_names.py` | 1 | 0 |
+
+| Final hold | Passed / skipped | Pytest seconds | Seconds including lock wait |
+| --- | ---: | ---: | ---: |
+| Stopped / availability / boot | 101 / 0 | 10.52 | 11.30 |
+| CLI / doctor / sessions / suggest | 437 / 0 | 40.30 | 641.54 |
+| Offline / refusals / daemon verbs / hooks / outcome / descriptors | 242 / 6 | 49.41 | 89.36 |
+| State contract / module names | 38 / 0 | 3.43 | 16.57 |
+
+Each pytest process ran serially in its own foreground `lockf -k` hold of
+`/private/tmp/claude-501/subfleet-suites.lock`, without a lock timeout, cache
+provider or xdist workers. The per-test watchdog was 90 s; no hold approached
+20 minutes (the longest test runtime was under 50 s). All properties used
+bounded settings; the three stopped-daemon properties each use 40 deterministic
+generated examples with no database, and explicit regression examples. No deep
+profile was run. Lock waits were allowed to finish; no pytest was relaunched
+while a prior one remained running.
+
+All three requested mutations were caught by their named tests, with one
+expected failure in each separate hold:
+
+| Mutation | Named failing test | Pytest seconds |
+| --- | --- | ---: |
+| Separate five-second per-stage budgets | `test_ping_observation_shares_boot_and_ps_budget[preflight]` (6.6 > 5.6 s) | 0.78 |
+| Bucket capacity one | `test_reused_client_probes_are_paced[0-S Sun Sep 20 23:26:42 2026]` (three sleeps before fourth send) | 0.78 |
+| Backoff before terminal check | `test_terminal_poll_keeps_delivery_reserve[immediate]` (slept .5 s on a terminal result) | 0.73 |
+
+Each mutation restored the production file in `finally`, removing its generated
+bytecode to prevent reuse of a mutated module. Git verified that both production
+files match their committed bytes after all three restorations.
+After restoration, the same three named tests passed in 0.83 s in one further
+foreground shared-lock hold (1127.11 s including its acquisition wait).
+These are repeat checks of cases counted above.
+Syntax parsing of both production modules and all three changed test modules,
+and `git diff --check`, pass.
+
+**Skipped/unrun:** five native daemon start/stop tests require macOS boot and
+process identity that the sandbox cannot read. The existing marked-hook command
+integration case skips its native ps inspection after its output and mark
+assertions pass. Actual stopped-child tests still stop, observe, continue, kill
+and reap only their own children, using the existing waitpid seam when native
+ps is denied. The complete review file, successful native process-inspection
+timings, optional libproc study, and broader provider/native-process/whole-repo
+suites were not run. Every requested test file was run. `CONFIG_NAMES` is absent
+in both this worktree and the available `origin/release/217` source; #222's
+conditional allowlist amendment and launch-environment/credential hold were
+therefore not applicable, and no configuration allowlist was changed.
+
+### Step commits and cleanup
+
+- `08df39419`: regressions and properties first, before production changes.
+- `49f24cf6d`: one whole-observation budget, shared call ceiling, four-token
+  bucket, and C-5.13 amendment/change-log entry.
+- `0500b095d`: terminal-first hook delivery, notice reserve, and C-15.2
+  amendment/change-log entry.
+- `0a5909572`, `e878c4653`: exhausted-bucket fixtures, slow-boot refill
+  expectations and the CLI client seam.
+- `ad0425d56`, `556dea2ad`: update the existing CLI freshness assertion and its
+  sleep expectation to the four-token policy.
+- The final documentation commit records this round; its hash is in the handoff.
+
+All are workspace-local commits on the assigned branch, with the requested
+co-author trailer. Source changes, tests and Markdown were staged by named path
+only; no logs, JSON evidence, bundles or dependency directories were staged.
+
+The tests used a workspace virtualenv with system pytest 8.4.2 and read-only
+cached Hypothesis, with `PYTHONPATH` and `SUBFLEET_RETENTION_DORMANT` removed.
+Because the default uv cache is outside writable roots, every hold used its
+own temporary `UV_CACHE_DIR` and Hypothesis storage, with `UV_NO_SYNC=1` and
+`UV_OFFLINE=1`. Every own scratch root and cache was removed with
+`shutil.rmtree` in `finally`; no global cache was cleaned. The task virtualenv,
+bytecode, helpers, XML/JSON timing evidence and any workspace Hypothesis output
+were removed after verification. Workspace-local Git metadata is retained.
+All foreground runners and owned lock holders exited. Scratch daemon threads
+were stopped and joined, and fixture-owned child processes reaped. No live
+daemon/store, unrelated process, network remote or global cache was changed,
+signalled or cleaned.
