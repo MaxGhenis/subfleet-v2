@@ -370,7 +370,7 @@ def test_receipt_caught_before_signal_records_that_no_signal_was_sent(clocked, m
 
 
 @pytest.mark.parametrize("rc", [-11, -15])
-@pytest.mark.parametrize("stage", ["before-kill", "last-read"])
+@pytest.mark.parametrize("stage", ["before-kill", "last-read", "after-signal"])
 def test_provider_own_signal_before_wall_signal_keeps_its_failure(clocked, monkeypatch, rc, stage):
     service, _, clock, jid, aid, adir = setup_running(clocked, monkeypatch)
     wall_request(service, aid, jid)
@@ -382,7 +382,7 @@ def test_provider_own_signal_before_wall_signal_keeps_its_failure(clocked, monke
         clock.t += timedelta(milliseconds=2)
     if stage == "before-kill":
         provider_exit()
-    else:
+    elif stage == "last-read":
         read = service._read_json
         reads = 0
         def last_read(path):
@@ -394,9 +394,17 @@ def test_provider_own_signal_before_wall_signal_keeps_its_failure(clocked, monke
                     provider_exit()
             return answer
         monkeypatch.setattr(service, "_read_json", last_read)
+    else:
+        def signal(*args, **kwargs):
+            clock.t += timedelta(seconds=2)
+            provider_exit()
+            return True
+        monkeypatch.setattr(procs, "signal_group", signal)
     service._kill_attempt(service.store.get_attempt(aid))
     service._process_attempt(aid)
     job, attempt = service.store.get_job(jid), service.store.get_attempt(aid)
-    assert (job["state"], job["rc"]) == ("failed", rc)
+    natural = stage != "after-signal"
+    assert (job["state"], job["rc"]) == (("failed", rc) if natural else ("cancelled", 130))
     assert attempt["outcome_class"] == "unknown"
-    assert job["cancel_requested_at"] is None and attempt["killed_by"] is None
+    assert (job["cancel_requested_at"] is None) == natural
+    assert attempt["killed_by"] == (None if natural else "max_wall_s")
