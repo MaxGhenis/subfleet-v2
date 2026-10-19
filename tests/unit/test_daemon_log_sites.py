@@ -348,8 +348,9 @@ DAEMON_REFUSAL = re.compile(r"^subfleet daemon: \S+/policy\.json: admission\.tok
 
 def _assert_the_refusal_scrubbed(text: str, secret: str) -> None:
     """The refusal's words, its key's value scrubbed, and no traceback."""
+    assert secret not in text, [line for line in text.splitlines() if secret in line]
     assert "policy.json: admission.token=[REDACTED] is not an admission setting (" in text, text
-    assert secret not in text and "Traceback" not in text and "PolicyError" not in text
+    assert "Traceback" not in text and "PolicyError" not in text
 
 
 def test_under_daemon_start_a_refused_policy_is_exit_2_and_scrubbed_before_any_spawn(root, monkeypatch, capsys):
