@@ -44,7 +44,7 @@ from subfleet.conversations.runner import TurnRunner
 from subfleet.conversations.store import ConversationStore
 from subfleet.conversations.turn import TurnSpec
 from subfleet.daemon import Daemon
-from subfleet.daemon_log import RECORD_SCRUB_MAX, scrubbed
+from subfleet.daemon_log import RECORD_SCRUB_MAX
 from subfleet.procs import Containment
 from tests.fake.conftest import Harness
 from tests.fake_adapter import FakeAdapter
@@ -415,7 +415,7 @@ def test_daemon_main_writes_a_refused_start_as_the_handler_writes_a_record(tmp_p
     err = io.StringIO()
     with contextlib.redirect_stderr(err):
         assert daemon_module.main(["--state-root", str(tmp_path)]) == code
-    assert err.getvalue() == scrubbed(words.format(error)) + "\n"
+    assert err.getvalue() == daemon_module.daemon_log.scrubbed(words.format(error)) + "\n"
     assert secret not in err.getvalue() and "token=[REDACTED]" in err.getvalue()
 
 
