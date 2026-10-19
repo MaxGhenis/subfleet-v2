@@ -108,6 +108,10 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
                             "worktree (without --in-place)"),
     "workspace-prepare": ("could not allocate the worktree; daemon.log has git's output",
                           "check repository and state-root permissions"),
+    # D-SH1 round 6 (C-6.6): a policy review's copy of its caller's uncommitted work.
+    "uncommitted-copy": ("the caller's uncommitted files changed while they were copied", "submit again"),
+    "uncommitted-apply": ("the caller's uncommitted changes could not be copied into the worktree",
+                          "submit again, or pass -s read-only to review the checkout in place"),
     # One session's writers (C-6.4, C-6.5, C-23.54).
     "revive-writer": ("session has a live writable job ({job_id}) and a revive is a second instance of it",
                       "wait for {job_id}, or kill it before reviving or dispatching"),
@@ -209,6 +213,8 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
                               "unverified."),
     "codex-guard-required": ("Writable Codex jobs require the never-rules guard",
                              "Run the guard trust preflight and supply its hooks override."),
+    "codex-publish-hook-required": ("Writable Codex reviews require the review publish hook",
+                                    "Run the guard trust preflight with the publish hook and supply its hooks override."),
     "codex-home-mismatch": ("Codex credential home does not match the lane",
                             "Resolve CODEX_HOME from this lane's original home."),
     "codex-thread-id": ("Codex resume requires a thread id", "Use the original attempt's native_session_id and lane."),
