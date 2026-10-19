@@ -812,3 +812,239 @@ Commits before this final report commit (all carry the requested coauthor traile
 Cleanup verified: task scratch, uv cache and Hypothesis storage were removed. The first pass left a deliberately read-only test-fixture directory; its owner write permission was restored inside task scratch before the final removal. No workspace `.hypothesis` remains. All owned pytest and queued test runners exited; the final queued invocation never started pytest. Nothing was pushed. Commits remain in workspace-local `.git-local` metadata because the shared Git index is read-only.
 
 The final comparison with the base removed one extra blank line at the end of the new policy-resolution test file. Its code is unchanged; no additional pytest invocation was started after the cutoff. The complete diff passes the whitespace check.
+
+
+## Round 6: the publish boundary in real shells, the caller's uncommitted work, and review r1b's P3s
+
+Review r1b (`~/reviews/subfleet-hub/shell-downgrade-2026-10-14/review-r1b.md`) requested changes at `d03832397`. Round 6 follows the hub's decisions in `brief-fix6.md`. Commits are on a detached HEAD in this job's worktree (the shared Git directory was writable this round, so no `.git-local` was needed). Nothing was pushed.
+
+### Base merge
+
+`origin/release/217` at `3fbc4b7c5` (#207, #225, #227) is merged in `72aca94a5`. Two files conflicted:
+
+- `docs/acceptance-contract.md`: the version 3 change log keeps both sides' entries. C-11.1 keeps this branch's `worktree-write` text, since release did not change it. C-11.2 keeps this branch's shell-requirement text and gains release's capacity-steer sentence (C-9.5) after "walks that list in order".
+- `subfleet/scheduler.py` `demand_models`: the shell filter runs first, then release's live capacity-steer filter, so a job's demand drops both shell-less launches and steered models. `evaluate` had merged cleanly with both filters.
+
+### Commits
+
+| Commit | Change |
+|---|---|
+| `72aca94a5` | merge release/217 |
+| `84e2d049c` | P2 gh flag clusters; P3-7 review reads; rule moved to `subfleet/publish_rule.py` |
+| `799c9f08f` | P1 PreToolUse publish rule in both providers |
+| `5e88e2bc4` | P3-1 `GIT_CONFIG_PARAMETERS` |
+| `be23a51dc` | P2 the caller's uncommitted work in a policy review's worktree; P3-8 review preamble |
+| `52efb5327` | P3-2 capability recorded at launch |
+| `4a1802a7e` | P3-3 no capability line for writable attempts; P3-4 offline JSON |
+| `f3172a62e` | P3-5 all 192 sandbox resolutions |
+| `a52140437` | P3-9 indexed 24-hour query |
+| `8fd1338f8` | P3-6 real process identity in importer and doctor tests |
+| `f352eb0c1` | wire templates for the three new refusal reasons (C-25.7) |
+
+### P1: a layer that doesn't depend on PATH order
+
+Mechanism (a), a job-scoped command rule in each provider's own pre-execution hook, is feasible for both providers, so fallback (b) (a job `ZDOTDIR`) was not built. The rule is `subfleet/publish_rule.py`, standard library only. It judges the command text before any shell starts:
+
+- **What it refuses:** every `gh` call that is not a known read; `gh api` with a non-GET method, fields, `--input`, `graphql` or `--`; and `git push` (`push`, `send-pack`, `http-push`, or a `-c` alias for one) as a second layer behind git's environment.
+- **What it looks through:** wrappers (`env`, `command`, `exec`, `xargs`, `sudo`, `timeout`, `nice`, `time`, `nohup`), `sh|bash|zsh -c`, `eval`, command and process substitution (quoted or not, and in unquoted heredocs), `find -exec`, shell input given by a pipe or heredoc, and command words that only expand at run time (`$g pr comment 7`).
+- **Fail closed:** text it cannot tokenize is refused when it names gh or git push.
+- **What it cannot see:** gh run from another language (`python -c`, a script on disk), and raw HTTPS with a token found on disk. C-12.4 says so.
+
+**Claude.**
+- **How the rule reaches the launch:** a writable review launch passes `--settings` with a PreToolUse hook that has no matcher, so it sees every tool call with a `command`. The hook runs `<attempt dir>/publish-bin/review-publish-hook`, a script that embeds the interpreter (`-I`) and the package path.
+- **A second path:** `subfleet hook PreToolUse` applies the same rule wherever the launch marker `SUBFLEET_PUBLISH_DENIED=1` is set. A hook runs in the provider's environment, which the job cannot change.
+- **Read-only launches:** a read-only Claude launch has no Bash tool, and its `--safe-mode` turns hooks off, so it gets no hook.
+- **Evidence:**
+  - Conversations already pass `--settings <json>` to the installed Claude in production (`subfleet/conversations/claude_turn.py:151`).
+  - `docs/reference/claude-hooks.md` records that hook entries merge across settings levels, and gives the deny JSON this hook prints.
+  - This session itself runs with permissions bypassed. Its never-rules PreToolUse hook denied two of my Bash commands (each contained a `git stash` string), and neither ran. So a PreToolUse deny holds under bypass on this host's Claude.
+- **Not executed:** a real Claude lane launch firing the `--settings` hook, since a model call needs the network.
+
+**Codex.**
+- **How the rule reaches the launch:** a review's `-c hooks=` override gains a second PreToolUse group beside the never-rules guard: matcher `Bash`, status `review publish guard`. It runs `<state root>/publish-guard/review-publish-hook`, a stable path so the trust hash and the cached preflight verdict survive from launch to launch. The group has its own trusted state, taken with the guard's identity hash.
+- **Verification:** the guard preflight runs hooks/list with that override. It requires the publish hook exactly once, enabled, trusted, with that hash, and gives a `trust` refusal otherwise. The Codex adapter also refuses a writable review whose override lacks the hook (`codex-publish-hook-required`).
+- **Evidence:**
+  - Real Codex 0.159.0 `app-server` hooks/list, run with a scratch `CODEX_HOME` and network denied by a `sandbox-exec` profile, listed the second group at key `/<session-flags>/config.toml:pre_tool_use:1:0`. It was enabled and trusted, with `currentHash` equal to our identity hash (`sha256:bf3a2b57…`; pinned in `test_publish_hook_identity_hash_matches_codex_0159_hooks_list`).
+  - The 2026-09-24 live probe (`docs/desktop/reviews/2026-09-24-live-probes.md`) shows a trusted PreToolUse hook in this same override blocking `exec_command`.
+  - The deny output shape is the guard's own I/O contract.
+- **Not executed:** a real Codex model turn.
+- **Guard and TRUST unchanged:**
+  - The never-rules guard's bytes, its key and hash, and TRUST are unchanged.
+  - v1's plain override is byte-identical. I compared the old and new `override_string` for three paths, including quote and backslash spellings.
+  - So no TRUST pin moves, and nothing under `~/.subfleet` needs restaging.
+- **Which launches carry it:**
+  - Every non-isolated Codex review launch carries the publish hook, read-only included.
+  - Isolated reviews and gate rounds carry no hooks override at all, as before, and they are read-only.
+- **Network:**
+  - Subfleet gives a writable Codex launch network only through `sandbox_workspace_write.network_access=true` (d260; the adapter's comment records "Could not resolve host" without it, verified live 2026-09-25).
+  - Those launches turn unified exec off (C-23.6), so every shell command they run passes through the hooks.
+
+**Regressions.**
+- **What `test_gh_writes_are_refused_in_each_providers_real_shell` runs:**
+  - For Codex `zsh -c` and `zsh -lc`, and Claude `zsh -c`, `zsh -lc` and the snapshot shape (`source <snapshot> && eval <command>`), it takes the hooks out of the real launch argv and runs them with the provider's payload.
+  - When they allow, it runs the command through that shell.
+  - A recording `gh` sits at the Homebrew position, put first by a scratch `ZDOTDIR`'s `.zshenv` and `.zprofile` (after `/etc/zprofile`'s `path_helper`) and by the snapshot.
+- **What it checks:**
+  - All 10 writes are refused, including the review's `gh pr comment 7 --body published`, the `-iXPOST` and `-ifbody=` clusters, `zsh -lc '…'`, `$(…)` and `$g`.
+  - `gh pr view 7`, `gh pr checks 7`, `gh run view 1 --log-failed` and an API GET reach the recorder.
+  - The harness checks that each write, run past the hook, does reach the recorder. That reproduces the finding.
+- **`test_git_push_is_refused_by_the_hook_as_a_second_layer`** covers four push shapes on both providers.
+- **Failing at the base:** at `d03832397` sources, 13 of these 15 tests fail. The other 2 are non-review guards, which pass at the base too.
+
+### P2: gh flag clusters
+
+A single-dash cluster containing `f`, `F` or `X` is refused, except exactly `-XGET`, and `-X GET` as two words. `--method`, `--field`, `--raw-field` and `--input` are judged by name. The review's four executed inputs (`api -ifbody=published …`, `api -iXPOST …`, `api -iX POST …`, `api -iFbody=@file …`) and four more cluster shapes are regressions on both providers. 10 of the 16 cases (5 inputs on both providers) fail at `d03832397`; `-Xget`, `-HAccept:x -f` and `--method PATCH` were already refused there. GET clusters (`-XGET`, `-X GET`, `-i`, `--method=GET`, `--paginate -q`) still read.
+
+### P2: a review sees what its caller sees
+
+- **Which reviews:** a review whose sandbox comes from a `worktree-write` policy entry and resolves to workspace-write.
+- **At submit:** `subfleet/uncommitted.py` plans two things:
+  - the caller's uncommitted tracked changes, from `git diff --binary <head>` with options that ignore the caller's diff config;
+  - untracked, non-ignored files, from `git ls-files --others --exclude-standard`.
+- **Applicability check:** submit checks that the patch applies to `<head>`, in a scratch index under the state root (`<state root>/tmp`, C-2.1), and keeps the copy in `jobs/<id>/uncommitted/`.
+- **When the worktree is cut:** the patch is applied and the files copied in, before the attempt's baseline is taken, so salvage still holds only the job's own changes. Ignored files are never copied.
+- **The bound:** at most **1,000 paths** (changed tracked plus untracked) and **16 MiB** of patch and file bytes together.
+- **Fallback:** the review runs read-only in place, decided at submit before the job exists, so no sandbox is lowered later (d261). Causes:
+  - either bound exceeded;
+  - a patch that does not apply;
+  - a changed submodule;
+  - an untracked path that is neither a regular file nor a symlink, such as an untracked nested repository.
+- **Edge cases:**
+  - A file that vanishes between plan and copy fails the submit (`uncommitted-copy`), and the caller retries.
+  - A kept copy that does not apply at the cut fails that launch (`uncommitted-apply`).
+  - An explicit `-s workspace-write` job keeps today's rule.
+- **What the job is told:**
+  - The prompt note says the workspace holds commit `<head>` plus the caller's uncommitted changes and untracked files as of submit, and how many files.
+  - The finish notice adds, before the capability line, `the worktree included the caller's uncommitted changes as of submit: 2 files (1 tracked, 1 untracked)`, or after a fallback `ran read-only in the caller's checkout: its uncommitted changes could not be copied into a worktree (<reason>)`.
+  - `runs show` prints the same line, and its JSON carries `uncommitted`, from the daemon and offline alike.
+- **Regressions** (fake daemon, the review's probe of an edited `tracked.txt`, an untracked `new_module.py`, and an excluded `ignored.log`):
+  - the worktree has both and not the ignored file, and the caller's `git status` is unchanged;
+  - three fallback causes (bytes, files, nested repository) each run read-only in the caller's directory with `commands` capability;
+  - an explicit `-s workspace-write` job sees `baseline`;
+  - a clean checkout copies nothing.
+  - All 6 fail at the pre-fix sources.
+
+### Review r1b's P3s
+
+1. **`GIT_CONFIG_PARAMETERS`** carries the push URL rewrite, and no denial variable matches Codex's `*KEY*`, `*SECRET*` or `*TOKEN*` excludes. Real `codex sandbox` 0.159.0 with `ignore_default_excludes=false`: the old form failed `git log` with rc 128; the new form keeps `git log` working, and the push is refused (`transport 'subfleet-publish-denied' not allowed`). The regression strips the excluded names and runs absolute git. Both cases fail at the base.
+2. **Capability is recorded at launch** (`Daemon._record_launch`), never at reservation. The pinned notice (`test_notice_header.py`) is now `[header, "reserved-no-launch"]`, and the 24-hour line counts nothing until a launch is recorded. State-only fixtures that stand for a launched attempt record the launch as `_launch` does (`tests/fake` `launched()`). `notice_without_capability` strips launch evidence only when it is present, and still requires it to be last.
+3. **The capability line** appears only for `none` and `commands`. A writable review says `publish: denied` alone, and a build says nothing. C-12.4 and C-15.1 match. Three cases fail at the base.
+4. **Offline `show` and `list`** go through `store.shell_flags`. The none, commands and writable probe cases compare daemon and offline JSON. All 3 fail at the base (`1` against `true`).
+5. **All 192 sandbox combinations** are now enumerated with `itertools.product`. The mutant that ignores `in_place` fails at `('review', 'policy', True, True, False, False)`.
+6. **Real process identity.** The importer's `v1` fixture uses real identity (this process, and a reaped child) wherever `ps` and `sysctl` report it, and fakes it only where `process_inspection_available` would skip. The denied-kernel test forces the faked path. Doctor keeps its faked lock rows and gains one real case each.
+7. **gh reads:** `run view|list|watch` (including `--log-failed`), `issue view|list|status`, `pr list|status`, `repo view`, `release view|list`, `workflow view|list`, `label list` and `search`. Writes such as `run rerun`, `workflow run`, `issue close` and `auth token` stay refused.
+8. **A writable review gets a review preamble.** It may run tests and write scratch in its workspace, and must not commit, push or publish. A build keeps the write preamble.
+9. **The 24-hour query** is `reserved_at >= ? AND reserved_at <= ?`, with bounds in the stored spelling (`store.restricted_window`), and searches `attempts_reserved`. On 100,000 synthetic attempts over 90 days, with 20,000 jobs and 545 of them in the window, best of 20: **21.11 ms before** (`SCAN attempts`) and **1.84 ms after** (`SEARCH attempts USING INDEX attempts_reserved (reserved_at>? AND reserved_at<?)`). The test pins the plan and the window's edges.
+10. **Install order:** see the install steps below.
+11. **`GIT_ALLOW_PROTOCOL=""`** also disables `git fetch` for every review. It is kept, and C-12.4 states that D-SH1 round 6 accepts it knowingly: a review reads the checkout and history it was given.
+
+### Mutations
+
+Each mutation was applied under its own lock hold, then the files were restored byte for byte.
+
+| Mutation | Caught by |
+|---|---|
+| Drop the hook rule (`payload_refusal` returns None) | 17 failed: `test_gh_writes_are_refused_in_each_providers_real_shell` (5), `test_git_push_is_refused_by_the_hook_as_a_second_layer` (8), `test_pre_tool_use_denies_publishing_in_a_publish_denied_launch` (4) |
+| Accept clusters again (old prefix checks) | 15 failed: `test_gh_flag_clusters_that_real_gh_sends_as_writes_are_refused` (10), `test_gh_writes_are_refused_in_each_providers_real_shell` (5) |
+| Skip the uncommitted copy (`uncommitted.apply` returns) | 1 failed: `test_policy_review_worktree_sees_the_callers_uncommitted_and_untracked_files` |
+| Capability line back for writable jobs | 7 failed: `test_writable_attempts_carry_no_capability_sentence` (3), `test_push_result_precedes_the_final_capability_line` (2), `test_opus_attempt_and_final_notice_line_report_shell`, `test_policy_review_worktree_sees_the_callers_uncommitted_and_untracked_files` |
+| `resolve_sandbox` ignores `in_place` (P3-5) | `test_resolved_sandbox_table` |
+
+### Tests
+
+**Setup:** Python 3.14.7 (free-threaded) venv in the worktree, `PYTHONPATH` unset. Each run was one pytest process under its own hold of the shared lock, one worker (no xdist in this project), Hypothesis ci profile, scratch under `$(getconf DARWIN_USER_TEMP_DIR)sf-r221f6-s1/`. The briefed holds ran at `8fd1338f8` (hold 7 with the `f352eb0c1` refusal templates in place) and all passed with no skips. Per-file counts:
+
+| Hold | File | Passed |
+|---|---|---:|
+| 1 | `tests/fake/test_review_needs_shell.py` | 23 |
+| 1 | `tests/fake/test_review_launch_permissions.py` | 25 |
+| 1 | `tests/unit/test_review_publish_guard.py` | 137 |
+| 2 | `tests/unit/test_hooks.py` | 75 |
+| 2 | `tests/unit/test_hooks_native_guard.py` | 18 |
+| 2 | `tests/unit/test_guard_trust.py` | 105 |
+| 2 | `tests/unit/test_guard_overlay.py` | 22 |
+| 3 | `tests/unit/test_policy.py` | 186 |
+| 3 | `tests/unit/test_policy_disk.py` | 57 |
+| 3 | `tests/unit/test_policy_ramp.py` | 46 |
+| 3 | `tests/unit/test_policy_sandbox_resolution.py` | 42 |
+| 3 | `tests/unit/test_policy_support.py` | 14 |
+| 3 | `tests/unit/test_policy_tier_preferences.py` | 15 |
+| 3 | `tests/fake/test_policy_sandbox.py` | 25 |
+| 4 | `tests/unit/test_cli.py` | 230 |
+| 4 | `tests/unit/test_offline.py` | 33 |
+| 4 | `tests/unit/test_notice_rendering.py` | 40 |
+| 4 | `tests/fake/test_notice_header.py` | 24 |
+| 5 | `tests/unit/test_codex_adapter.py` | 172 |
+| 5 | `tests/unit/test_claude_adapter.py` | 172 |
+| 6 | `tests/unit/test_store_migration_2.py` | 21 |
+| 6 | `tests/unit/test_store_readers.py` | 27 |
+| 6 | `tests/unit/test_scheduler.py` | 97 |
+| 7 | `tests/unit/test_sessions_handoff.py` | 145 |
+| 7 | `tests/unit/test_policy_sandbox_resolution.py` | 42 |
+| 7 | `tests/unit/test_host_push.py` | 120 |
+| 7 | `tests/unit/test_handler_refusals.py` | 338 |
+| 7 | `tests/fake/test_salvage_finalization.py` | 47 |
+| 7 | `tests/unit/test_provider_active_cap.py` | 50 |
+| 8 | `tests/unit/test_importer.py` | 151 |
+| 8 | `tests/unit/test_doctor.py` | 47 |
+| 8 | `tests/process/test_claude_isolation.py` | 15 |
+| 9 | `tests/fake/test_state_contract.py` | 37 |
+| 9 | `tests/unit/test_test_module_names.py` | 1 |
+
+**Totals:** hold 1, 185; hold 2, 220; hold 3, 385; hold 4, 327; hold 5, 344; hold 6, 145; hold 7, 742; hold 8, 213; hold 9, 38. That is 2,599 passed, 0 failed, 0 skipped.
+
+**Hold 7's first run:** it found 1 failure, `test_handler_refusals`: the three new refusal reasons had no wire template. `f352eb0c1` adds them, and the rerun is the 742 above.
+
+**Extra holds** (files outside the brief that touch the changed code), all passed:
+
+- **x1, 244:** `tests/fake/test_daemon_launch.py`, `test_detached_cwd_pins.py`, `test_fake_provider.py`, `test_prompt_seam.py`, `test_workspace_transient.py`, `test_workspace_contract.py`; `tests/unit/test_daemon_integration.py`, `test_host_push_intake.py`, `test_outcome_unknown.py`, `test_prune_217.py`, `test_round10_refusal_context.py`.
+- **x2, 201:** `tests/fake/test_gate_end_to_end.py` and `tests/unit/test_gate_*.py`.
+
+**Outside pytest:**
+- `codex app-server` hooks/list and `codex sandbox` 0.159.0, with scratch homes;
+- real git 2.55 against local file:// remotes;
+- the query timing.
+
+**Not run:**
+- `tests/e2e` and the full suite (not in the brief);
+- real provider launches: a Claude lane firing the `--settings` hook, and a Codex model turn firing the publish hook (both need the network);
+- `gh` against any host.
+
+### Install steps (also in the PR body)
+
+1. **Upgrade the daemon before the live policy edit.** release/217's `load_policy` rejects `worktree-write`, so a daemon still on release/217 would refuse that policy. Install the release containing this PR through the normal backed-up installation, and restart the daemon.
+2. **No guard restaging.** `never-rules-hook.sh` and TRUST are unchanged; the publish hook is a separate group with its own trusted state. Verify:
+   - `cmp private/guard/never-rules-hook.sh "$HOME/.subfleet/guard/never-rules-hook.sh"`;
+   - `cmp private/guard/TRUST "$HOME/.subfleet/guard/TRUST"`;
+   - `subfleet doctor` passes its guard rows.
+3. **Tell Fleet ops, then edit the live policy:** `permissions.review = "worktree-write"`. Restart the daemon, which reads policy only at start.
+4. **First Codex review:**
+   - The daemon writes `<state root>/publish-guard/review-publish-hook` (mode 555, inside the state root).
+   - The lane's preflight runs hooks/list once for the extended override, and the verdict is cached as before.
+   - Check that `<state root>/jobs/<id>/a1/launch.json`'s `hooks=` argument names `pre_tool_use:1:0` and that hook path, and that `guard-preflight.json` says `verified` (or `cached`).
+   - A `trust` refusal there means this Codex build does not trust the second group. The launch then fails closed and never runs without the rule.
+5. **First writable Claude review:** check that `launch.json`'s argv has `--settings` naming `publish-bin/review-publish-hook`. `subfleet runs show <id>` then shows `publish: denied` under the attempt.
+6. **Merging #222 later:** the explicit launch additions are now `PATH`, `GIT_ALLOW_PROTOCOL`, `GIT_CONFIG_PARAMETERS` and `SUBFLEET_PUBLISH_DENIED` (`GIT_CONFIG_COUNT/KEY_n/VALUE_n` are gone). They still enter through `Launch.env_add`, so no ambient allowlist entry is needed.
+
+### PR body for round 6
+
+> **D-SH1 round 6.** Reviews in their own git worktree can run their tests, and every review is denied publishing in each provider's real shell. Fixes #221 review r1b.
+>
+> - **Publish boundary (P1).** zsh startup put Homebrew ahead of the PATH wrappers, so gh writes reached the real gh. A job-scoped PreToolUse command rule now refuses them before any shell starts:
+>   - Claude gets it through `--settings`, and `subfleet hook PreToolUse` applies it under the launch marker.
+>   - Codex gets it as a second trusted hook group beside the never-rules guard, which the guard preflight verifies with hooks/list.
+>   - The guard and TRUST are unchanged.
+>   - git push stays refused by the environment, and the rule adds a second layer.
+> - **gh (P2, P3-7).** Flag clusters with `f`, `F` or `X` are refused except `-XGET` and `-X GET`. Reads: pr view/diff/checks/list/status, issue view/list/status, run view/list/watch, api GETs and more.
+> - **The caller's work (P2).** A policy review's worktree gets the caller's uncommitted and untracked files as of submit (bound: 1,000 paths and 16 MiB). Otherwise the review runs read-only in place, and its notice says so.
+> - **Evidence (P3).**
+>   - Capability is recorded at launch.
+>   - A capability line appears only for `none` and `commands`; writable reviews say `publish: denied`.
+>   - Offline JSON matches the daemon's.
+>   - The 24-hour line is an indexed range (21.11 ms to 1.84 ms on 100,000 rows).
+>   - git config travels in `GIT_CONFIG_PARAMETERS`.
+>   - Writable reviews get a review preamble.
+> - **Accepted:** `GIT_ALLOW_PROTOCOL=""` also disables `git fetch` in every review (C-12.4).
+> - **Install order:** upgrade the daemon first, because release/217's `load_policy` rejects `worktree-write`. Then tell Fleet ops, set `permissions.review = "worktree-write"` in the live policy, and restart. No TRUST change. Verification steps are in `docs/reports/2026-10-14-review-needs-shell.md`, round 6.
+>
+> 🤖 Generated with [Claude Code](https://claude.com/claude-code)
