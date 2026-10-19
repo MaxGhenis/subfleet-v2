@@ -45,6 +45,8 @@ from pathlib import Path
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
+from ..launch_env import build_environment
+from ..provider_env import ProviderEnvironment
 from ..contracts import (
     GUESSED_CLOSURE_S, HEADLESS_MARKER, IDENTITY_EVIDENCE, READING_TTL_S, Attestation,
     AttestationResult, ClockSource, Closure, ClosureReason, Credential, ExitInfo,
@@ -379,14 +381,27 @@ def keychain_service_for_home(home: str | Path) -> str:
     return KEYCHAIN_HOME_PREFIX + digest
 
 
+def _launch_home(env: dict[str, str]) -> Path:
+    """The launch's HOME, spelled as release/217's `Path.home()` resolved it.
+
+    A launch inherits HOME by name, so it is the daemon's own value, and
+    `Path.home()` keeps its rules for an empty or unexpandable `~` HOME.
+    """
+    home = env.get("HOME")
+    return Path.home() if home is None or home == os.environ.get("HOME") else Path(home)
+
+
 def _keychain_blob(service: str, *, security_bin: str = "security", runner=None) -> str | None:
     """One targeted keychain read of a login blob; None when absent or unreadable.
     The value is returned to the caller and never logged (C-10.5)."""
-    from ..credentials import keychain_command
+    from ..credentials import keychain_command, native_runner
     execute = runner or subprocess.run
     try:
+        # D-ENV1: the native reader gets the allowlisted environment; a supplied
+        # runner (D-ST1's stand-ins under pytest) builds its own.
         done = execute(keychain_command(service, security_bin, runner=execute),
-                       capture_output=True, text=True, timeout=15)
+                       capture_output=True, text=True, timeout=15,
+                       **({"env": build_environment()} if native_runner(runner) else {}))
     except (AdapterError, OSError, subprocess.SubprocessError):
         return None
     if done.returncode != 0:
@@ -536,7 +551,11 @@ class ClaudeAdapter(Adapter):
         usage_opener: Callable[[urllib.request.Request, float], tuple[int, bytes]] | None = None,
     ) -> None:
         self.claude_bin = claude_bin
+        self.provider_environment = ProviderEnvironment({})
         self._runner = runner or subprocess.run
+        # D-ENV1: only the native runner is handed the allowlisted environment.
+        from ..credentials import native_runner
+        self._native_runner = native_runner(runner)
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._new_session_id = new_session_id or (lambda: str(uuid.uuid4()))
         self._projects_dir = Path(projects_dir) if projects_dir else None
@@ -562,7 +581,7 @@ class ClaudeAdapter(Adapter):
         try:
             done = self._runner(
                 keychain_command(ref, self._security_bin, runner=self._runner),
-                capture_output=True, text=True, timeout=15,
+                capture_output=True, text=True, timeout=15, **self._runner_environment(),
             )
         except (OSError, subprocess.SubprocessError):
             raise AdapterError(
@@ -607,7 +626,7 @@ class ClaudeAdapter(Adapter):
         try:
             done = self._runner(
                 keychain_command(ref, self._security_bin, runner=self._runner),
-                capture_output=True, text=True, timeout=15,
+                capture_output=True, text=True, timeout=15, **self._runner_environment(),
             )
         except (AdapterError, OSError, subprocess.SubprocessError):
             return None
@@ -838,8 +857,7 @@ class ClaudeAdapter(Adapter):
         own session transcript under its config directory, which is the provider's
         state and not ours to place.
         """
-        env = {k: v for k, v in os.environ.items() if k not in ENV_REMOVE}
-        env.update(env_add)
+        env = self.provider_environment.build("claude", env_add, ENV_REMOVE)
         with tempfile.TemporaryDirectory(prefix="subfleet-claude-probe-") as workdir:
             try:
                 done = self._runner(
@@ -1292,15 +1310,20 @@ class ClaudeAdapter(Adapter):
             / f"{session_id}.jsonl"
         )
 
+    def _runner_environment(self) -> dict[str, dict[str, str]]:
+        """The native runner's allowlisted environment, read afresh (D-ENV1); a
+        supplied runner builds its own."""
+        return {"env": build_environment()} if self._native_runner else {}
+
     def _config_projects_dir(self, credential_env: dict[str, str] | None = None) -> Path:
         if self._projects_dir is not None:
             return self._projects_dir
-        config = (credential_env or {}).get("CLAUDE_CONFIG_DIR") or os.environ.get(
-            "CLAUDE_CONFIG_DIR"
-        )
+        env = self.provider_environment.assemble(credential_env)
         from ..home_paths import home_path
-        base = Path(config).expanduser() if config else Path(home_path(
-            "CLAUDE_CONFIG_DIR", lambda: Path.home() / ".claude", expand_override=True))
+        # The launch's own CLAUDE_CONFIG_DIR, else its HOME's .claude (D-ENV1); under
+        # pytest a missing override refuses the person's store (D-ST1).
+        base = Path(home_path("CLAUDE_CONFIG_DIR", lambda: _launch_home(env) / ".claude",
+                              env=env, expand_override=True))
         return base / "projects"
 
     def _write_prompt_sent(self, attempt_dir: Path, prompt_path: Path) -> Path:
@@ -1371,12 +1394,12 @@ class ClaudeAdapter(Adapter):
             argv += ["--effort", effort]
         if job.isolated_review:
             from .isolation import validate_isolated_review
-            validate_isolated_review(sandbox, job.review_root, {**os.environ, **credential_env})
+            validate_isolated_review(sandbox, job.review_root, os.environ.keys() | credential_env.keys())
         argv += list(self.permission_args(sandbox, isolated=job.isolated_review,
                                          review_root=job.review_root,
                                          mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir)))
         from .isolation import claude_env_remove
-        env_remove = (*ENV_REMOVE, *claude_env_remove({**os.environ, **credential_env})) if sandbox == "read-only" else ENV_REMOVE
+        env_remove = (*ENV_REMOVE, *claude_env_remove(os.environ.keys() | credential_env.keys())) if sandbox == "read-only" else ENV_REMOVE
 
         stdin_path = self._write_prompt_sent(attempt_dir, Path(prompt_path))
         transcript = self.expected_transcript_path(job.workdir, session_id, credential_env)
@@ -1424,7 +1447,7 @@ class ClaudeAdapter(Adapter):
         argv += list(self.permission_args(
             sandbox, mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir)))
         from .isolation import claude_env_remove
-        env_remove = (*ENV_REMOVE, *claude_env_remove({**os.environ, **credential_env})) if sandbox == "read-only" else ENV_REMOVE
+        env_remove = (*ENV_REMOVE, *claude_env_remove(os.environ.keys() | credential_env.keys())) if sandbox == "read-only" else ENV_REMOVE
 
         stdin_path = self._write_prompt_sent(attempt_dir, Path(prompt_path))
         transcript = self.expected_transcript_path(
