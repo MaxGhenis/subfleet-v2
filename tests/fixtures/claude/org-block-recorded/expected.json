@@ -1,0 +1,32 @@
+{
+  "case": "org-block-recorded",
+  "now": "2026-09-05T11:30:00Z",
+  "rc": 1,
+  "synthetic": false,
+  "provenance": "Recorded: ~/.subfleet/jobs/20260930-114348-pr89-review/a1/stream.jsonl (lane claude-5, mghenis@gmail.com, Claude Code 2.1.284, rc 1, empty stderr), one of 37 attempts on that lane that day with the same detail. Every frame's decoded values are as recorded (key order and JSON spacing are not) except: the init frame's tools, agents, plugins and capabilities lists are emptied, its cwd is shortened, and the assistant frame's request_id is redacted. The prompt never appears in the stream.",
+  "requested_model": "claude-opus-5-5",
+  "session_id": "6b04683d-23dd-4b9e-9276-e78579780cea",
+  "class": "auth-dead",
+  "detail_contains": "Your organization has disabled Claude subscription access for Claude Code \u00b7 Use an Anthropic API key instead, or ask your admin to enable access",
+  "evidence": {
+    "auth": "subscription access refused (error-kind)",
+    "admission": "not reached",
+    "quota": "not reached"
+  },
+  "closure": null,
+  "readings": [],
+  "deliverable": "Your organization has disabled Claude subscription access for Claude Code \u00b7 Use an Anthropic API key instead, or ask your admin to enable access",
+  "attestation": {
+    "status": "unattested",
+    "served_model": null
+  },
+  "stream": {
+    "init": true,
+    "assistants": 1,
+    "assistant_models": [],
+    "rate_limit_events": 0,
+    "result_subtype": "success",
+    "truncated_tail": false,
+    "bad_lines": 0
+  }
+}
