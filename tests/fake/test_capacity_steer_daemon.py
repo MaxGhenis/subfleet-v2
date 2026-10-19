@@ -561,7 +561,11 @@ def r6_clock(fleet, monkeypatch):
 @pytest.mark.parametrize("due", [False, True], ids=["not-due", "due"])
 def test_r6_an_empty_steered_chain_keeps_no_slot_when_all_its_lanes_are_disabled(
         fleet, r6_clock, monkeypatch, cap, route_moves, due):
-    """C-6.9/C-11.8: even an empty due decision must release its kept slot."""
+    """C-6.9/C-11.8: whole-chain refusal releases every slot during durable grace.
+
+    Round 7 combines #207 with #223: the retry's permanent refusal is found
+    before routing, even when due or when a reservation check would move.
+    """
     daemon, harness = fleet
     daemon.policy["caps"]["max_active_attempts"] = cap
     older = submit(daemon, harness, task="build")
@@ -586,13 +590,90 @@ def test_r6_an_empty_steered_chain_keeps_no_slot_when_all_its_lanes_are_disabled
 
     monkeypatch.setattr(daemon, "_route_stands", check)
     daemon._admit()
-    assert len(checks) == ((daemon_module.ROUTE_TRIES if route_moves else 1) if due else 0)
-    assert all(not decision.evaluations and not decision.chain for decision in checks)
+    assert checks == []  # C-11.8's durable episode precedes reservation checks.
     assert len(daemon.store.list_attempts(older)) == 1
     assert all(len(daemon.store.list_attempts(job)) == 1 for job in later), daemon._holds
     assert all(daemon.store.list_attempts(job)[0]["model_requested"] == OPUS for job in later)
-    if not (due and route_moves):
-        assert daemon._holds[older]["for_good"] == ["disabled"]
+    hold = daemon._holds[older]
+    assert hold["for_good"] == hold["reasons"] == ["disabled"]
+    assert hold["reason"] == "lanes-unadmittable" and hold["all_lanes"] is True
+    assert daemon.store.get_job(older)["next_check_at"] == hold["fail_at"]
+    since, fail_at = hold["since"], hold["fail_at"]
+    r6_clock(daemon_module.PIN_NOTICE_AFTER_S)
+    daemon._admit()
+    assert len(daemon.store.query("SELECT 1 FROM events WHERE job_id=? AND kind='job.pin_noticed'", (older,))) == 1
+    daemon._pin_episodes = daemon._load_pin_episodes()
+    r6_clock(seconds(fail_at, utcnow()))  # The steer ends before the durable grace.
+    daemon._admit()
+    job = daemon.store.get_job(older)
+    assert (job["state"], job["rc"], job["cancel_requested_at"]) == ("failed", 3, None)
+    events = daemon.store.query("SELECT data_json FROM events WHERE job_id=? AND kind='job.pin_unadmittable'", (older,))
+    assert len(events) == 1
+    assert json.loads(events[0]["data_json"])["since"] == since
+
+
+@pytest.mark.parametrize("reason", [ClosureReason.OPERATOR_HOLD, ClosureReason.PROVIDER_LIMIT])
+def test_r7_a_steered_original_candidate_with_a_reset_prevents_permanent_retry_grace(
+        fleet, r6_clock, reason):
+    """A disabled remaining model cannot hide a temporarily closed steered model."""
+    daemon, harness = fleet
+    older = submit(daemon, harness)
+    refuse(daemon, admit(daemon, older))
+    for identity in ("claude-1", "claude-2"):
+        daemon.store.update_lane(identity, enabled=0)
+    for identity in ("codex-1", "codex-2"):
+        daemon.store.add_closure(Closure(identity, "account", after(90 * 86400), reason,
+                                         ClockSource.REPORTED, "fixture"))
+    for elapsed in (0, 1801):
+        r6_clock(elapsed)
+        daemon._admit()
+        job = daemon.store.get_job(older)
+        assert (job["state"], job["rc"]) == ("waiting", None)
+        assert not daemon._pin_episodes.get(older, {}).get("open")
+    assert daemon.store.query("SELECT 1 FROM events WHERE job_id=? AND kind='job.pin_unadmittable'", (older,)) == []
+
+
+@pytest.mark.parametrize("fraction", [0, 123000], ids=["seconds", "milliseconds"])
+@pytest.mark.parametrize("delay", [120, 901], ids=["live-steer", "expired-steer"])
+@pytest.mark.parametrize("replay", [False, True], ids=["finalize", "replay"])
+def test_r7_capacity_steer_keeps_exact_provider_exit_time_across_slow_finalization(
+        fleet, r6_clock, monkeypatch, fraction, delay, replay):
+    """C-9.5/C-4.6: salvage and replay never renew or shorten the 900 s steer."""
+    daemon, harness = fleet
+    job_id = submit(daemon, harness, task="build")
+    first = admit(daemon, job_id)
+    adir = daemon.root / "jobs" / job_id / "a1"
+    adir.mkdir(mode=0o700, exist_ok=True)
+    attempt = receipt_fixture(daemon, first, adir, rc=1, stdout=(FIXTURE / "stdout").read_bytes())
+    (adir / "stream.jsonl").write_bytes((FIXTURE / "stdout").read_bytes())
+    (adir / "stderr").write_bytes((FIXTURE / "stderr").read_bytes())
+    exited = datetime.fromisoformat(utcnow().replace("Z", "+00:00")).replace(microsecond=fraction).isoformat()
+    receipt = json.loads((adir / "exit.json").read_text())
+    (adir / "exit.json").write_text(json.dumps({**receipt, "finished_at": exited}))
+    salvage = daemon._salvage
+
+    def slow_salvage(*args, **kwargs):
+        r6_clock(delay)
+        if replay:
+            raise RuntimeError("replay after slow salvage")
+        return salvage(*args, **kwargs)
+
+    monkeypatch.setattr(daemon, "_salvage", slow_salvage)
+    register("codex", Refused)
+    try:
+        if replay:
+            with pytest.raises(RuntimeError, match="replay after slow salvage"):
+                daemon._finalize(attempt)
+            monkeypatch.setattr(daemon, "_salvage", salvage)
+            daemon._finalize(daemon.store.get_attempt(first["attempt_id"]))
+        else:
+            daemon._finalize(attempt)
+    finally:
+        register("codex", FakeAdapter)
+    row = daemon.store.get_attempt(first["attempt_id"])
+    assert row["finished_at"] == exited
+    assert seconds(evidence(row)["capacity_steer"]["until"], exited) == MODEL_CAPACITY_STEER_S
+    assert bool(daemon._capacity_steer(daemon.store.get_job(job_id), [row])) is (delay < MODEL_CAPACITY_STEER_S)
 
 
 @pytest.mark.parametrize("route_moves", [False, True], ids=["due-look", "route-moved"])
