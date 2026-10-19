@@ -83,6 +83,15 @@ jobs:
           HYPOTHESIS_PROFILE: ci
           HYPOTHESIS_STORAGE_DIRECTORY: ${{ runner.temp }}/hypothesis-seed-314159
           PYTEST_ADDOPTS: "--timeout=900 --durations=10"
+      - name: Additional provider-cap admission seed (D-ADM3)
+        # ci's 40 examples / 30 steps; measured 7.82 s including startup on the build host.
+        if: startsWith(matrix.shard, '1/')
+        run: uv run --no-sync pytest -q -p no:cacheprovider tests/fake/test_admission_stateful.py::TestAdmissionPassProviderCaps --hypothesis-seed=1
+        env:
+          SUBFLEET_LIVE: "0"
+          HYPOTHESIS_PROFILE: ci
+          HYPOTHESIS_STORAGE_DIRECTORY: ${{ runner.temp }}/hypothesis-adm3-seed-1
+          PYTEST_ADDOPTS: "--timeout=900 --durations=10"
       # Every phase's node ID, outcome and duration: what the retry read, and what
       # tools/ci_shard_durations.py rebuilds .github/test-shards.json from.
       - name: Upload pytest outcomes
