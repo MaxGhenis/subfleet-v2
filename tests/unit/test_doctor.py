@@ -15,6 +15,7 @@ import pytest
 
 from subfleet import cli, doctor
 from subfleet.contracts import Exit
+from tests.fake.conftest import process_inspection_available  # noqa: F401
 
 STATUSES = {doctor.PASS, doctor.FAIL, doctor.UNKNOWN, doctor.WARN}
 
@@ -598,3 +599,26 @@ def test_daemon_lock_row_is_unknown_when_process_inspection_is_unavailable(root,
     item = doctor.check_daemon_lock(root)
     assert item["status"] == doctor.UNKNOWN
     assert "could not report" in item["detail"]
+
+
+
+# #221 review r1b, P3-6: the two lock rows above fake process identity so they
+# run where inspection is denied. One real case each keeps `ps`/`sysctl` in CI.
+def test_daemon_lock_row_fails_on_a_dead_pid_by_real_identity(root, process_inspection_available):
+    import subprocess
+    from subfleet.client import boot_id
+    child = subprocess.Popen(["/usr/bin/true"])
+    child.wait()
+    (root / "daemon.sock").touch()
+    (root / "daemon.lock").write_text(json.dumps(
+        {"pid": child.pid, "boot_id": boot_id(), "proc_start": "Mon Jan  1 00:00:00 2001"}))
+    item = doctor.check_daemon_lock(root)
+    assert item["status"] == doctor.FAIL and "stale" in item["detail"]
+
+
+def test_daemon_lock_row_passes_against_a_live_daemon_by_real_identity(daemon, root, process_inspection_available):
+    from subfleet.client import boot_id, proc_start
+    daemon({"ping": lambda request: {"pong": True, "version": "test"}})
+    (root / "daemon.lock").write_text(json.dumps(
+        {"pid": os.getpid(), "boot_id": boot_id(), "proc_start": proc_start(os.getpid())}))
+    assert doctor.check_daemon_lock(root)["status"] == doctor.PASS

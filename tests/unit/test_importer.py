@@ -38,9 +38,29 @@ CODEX_TWO = "3163881b-4300-4ed1-a2ec-9c5360d10db8"
 APP_ACCOUNT = "390a6216-cdbe-478e-b9f1-42a9dc7f5dd7"
 SESSION = "29c03102-0afc-452f-a605-14a356d334bc"
 
-# Outside the host PID range; the fixture supplies their identities directly.
+# Outside the host PID range. Where the host lets `ps` and `sysctl` report
+# process identity, the `v1` fixture replaces both with real ones (this process,
+# and a child already reaped); only where it does not (`process_inspection_
+# available` would skip) does it supply their identities itself (#221 review
+# r1b, P3-6: CI ran no real identity here at all).
 DEAD_PID = 999_999_991
 LIVE_PID = 999_999_992
+
+
+def _inspection_works() -> bool:
+    from subfleet.procs import InspectionError, boot_id, proc_start
+    try:
+        boot_id()
+        return bool(proc_start(os.getpid()))
+    except InspectionError:
+        return False
+
+
+def _reaped_pid() -> int:
+    """A pid `ps` accepts and no process holds: a child that has already been reaped."""
+    child = subprocess.Popen(["/usr/bin/true"])
+    child.wait()
+    return child.pid
 
 
 def offset_now(delta_s: float = 0.0) -> str:
@@ -75,18 +95,29 @@ def run_meta(run_id: str, **overrides: object) -> dict:
 
 
 @pytest.fixture
-def v1(tmp_path: Path, monkeypatch) -> dict:
+def real_identity() -> bool:
+    """Whether `v1` judges its live and dead runs by real process identity."""
+    return _inspection_works()
+
+
+@pytest.fixture
+def v1(tmp_path: Path, monkeypatch, real_identity) -> dict:
     """A synthetic v1 state tree: roster, homes, runs, notices, outbox, files."""
-    real_identity = importer.procs.identity
+    module = sys.modules[__name__]
+    if real_identity:
+        monkeypatch.setattr(module, "DEAD_PID", _reaped_pid())
+        monkeypatch.setattr(module, "LIVE_PID", os.getpid())
+    else:
+        real_identity = importer.procs.identity
 
-    def fixture_identity(pid):
-        if pid == DEAD_PID:
-            return None
-        if pid == LIVE_PID:
-            return importer.procs.ProcessIdentity(pid, "fixture-boot", "fixture-start")
-        return real_identity(pid)
+        def fixture_identity(pid):
+            if pid == DEAD_PID:
+                return None
+            if pid == LIVE_PID:
+                return importer.procs.ProcessIdentity(pid, "fixture-boot", "fixture-start")
+            return real_identity(pid)
 
-    monkeypatch.setattr(importer.procs, "identity", fixture_identity)
+        monkeypatch.setattr(importer.procs, "identity", fixture_identity)
     home = tmp_path / "home"
     state = tmp_path / "v1-state"
     delegate = tmp_path / "delegate"
@@ -2584,6 +2615,7 @@ def test_an_unreadable_policy_is_left_alone(v1, monkeypatch, content):
     assert entry.imported == 0 and entry.reasons["policy-unreadable"] == 1
 
 
+@pytest.mark.parametrize("real_identity", [False])
 def test_fixture_run_states_do_not_need_host_process_inspection(v1, monkeypatch):
     """Synthetic live/dead records have fixed identities even in a denied kernel."""
     def unavailable(pid):
@@ -2604,3 +2636,11 @@ def test_uninspectable_unfinalized_run_stays_external(monkeypatch):
     monkeypatch.setattr(importer.procs, "identity", unavailable)
     assert importer._run_is_live({"pid": 999_999_997, "rc": None, "finished_at": None}) == (
         True, "pid-inspection-failed")
+
+
+
+def test_v1_fixture_uses_real_process_identity_where_the_host_allows_it(v1, process_inspection_available):
+    """P3-6: on a host that reports identity, the live and dead runs are judged by real `ps`."""
+    assert LIVE_PID == os.getpid() and DEAD_PID != 999_999_991
+    assert importer.procs.identity(LIVE_PID) is not None
+    assert importer.procs.identity(DEAD_PID) is None
