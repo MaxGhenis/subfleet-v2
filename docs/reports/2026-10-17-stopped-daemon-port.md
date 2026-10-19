@@ -182,3 +182,186 @@ Round-2 step commits on `fix/stopped-daemon-217`:
 - The final documentation commit records this section; its hash is in the handoff.
 
 The assigned branch is checked out in the caller's worktree and shared Git metadata is outside this workspace's writable roots. These commits are retained in workspace-local `.git-local`; inspect with `GIT_DIR=.git-local git log`. The normal shared checkout remains detached at `c658e8d01204`. All commits have the requested co-author trailer. Nothing was pushed.
+
+## Round 3: deadlines, later stopped observations, and ps spacing
+
+### Merge and review
+
+Started from `007dac49a211`; merged the available local `origin/release/217`
+(`d72597b5c`) first, in `f85dc67ef`, without contacting a network remote.
+The sole conflict was the acceptance-contract change log: kept both sides'
+entries. Every clause identifier from both parents remains (256 on this
+branch, 254 on release), including release's C-5.8a/C-26.4 and the port's
+C-5.13/C-17.8. Release's shutdown behavior remains intact.
+
+`review-r2.md` was absent from both the supplied workspace and the caller's
+named checkout. Its location was requested; the standalone file remains
+unread. Every finding supplied in the round-3 brief was addressed.
+
+Release has no `CONFIG_NAMES` definition (`rg -n CONFIG_NAMES subfleet/*.py`
+finds none), so #222 has not landed in this local release ref. No allowlist
+was changed. The hub must add `SUBFLEET_PING_STDIN_WAIT_S` when integrating #222.
+
+### Changes, deadline threading and costs
+
+- `Client.call(timeout=...)` shares its budget across fresh preflight,
+  probe-slot waits, connect, send, response reads, and busy/refused diagnosis.
+  Availability, holder-report and diagnostic helpers receive the deadline.
+  An expired pre-send budget is `RequestTimeout`; a sent reply observed after
+  the deadline is `ResponseLost`, never success.
+- `wait_jobs` threads remaining time through polls, refused-after-busy holder
+  checks and idle backoff, and rejects late results. This covers `wait`,
+  `kill --wait` and synchronous run waits. An error whose diagnostic slot
+  consumes the deadline also retains wait's normal exit 124.
+- RPC `conversation.watch` uses the same `Client.call` path; this checkout
+  has no separate native CLI watch polling loop. `call_settled`'s first call,
+  re-send and request-id lookups all use that path, retaining their separate
+  existing budgets (default 15 s, requery 60 s, lookup the client default).
+  A re-send expiring before its probe slot preserves `OutcomeUnknown` for
+  the first, already-sent request.
+- `daemon status` shares five seconds between its initial observation and
+  ping. Doctor's ping and descriptor RPCs use the same five-second call path.
+  Start/install readiness pings cap their three-second budget by the outer
+  ten-second loop's remaining time.
+- The hook's candidate list, wait, refused-after-busy check, notice lookup
+  and notice mark receive the remaining hook deadline. Auxiliary RPCs also
+  retain the configured client timeout cap. C-15.6's opt-out is preserved.
+- Pacing stamps **identity-observation completion**, in `finally`, after boot
+  lookup and ps, including failed inspection. The next observation cannot
+  begin until one full interval after that stamp; its ps cannot begin sooner,
+  so every pair of ps starts is at least `HOLDER_PROBE_INTERVAL_S` apart.
+  Cost: slow observations also pay a full one-second gap after completion.
+- Preflight still costs one ps (5 s per process-probe budget), plus existing
+  separately bounded boot reads and parsing. A ready failure diagnostic may
+  add one such observation. Its slot wait never extends the request deadline;
+  if the slot is too late, the original failure retains no fresh stopped
+  diagnosis. A long preflight cannot then send or report success. OS
+  scheduling is excluded from these budgets; no subprocess was added.
+- A later `DaemonStopped` replaces status's earlier liveness/state, stopped
+  flag, diagnosis, text holder line and repair. JSON includes `fix`; initial
+  and later stopped holders both exit 69. The sweep found doctor's offline
+  lock row makes no RPC and its live ping row already preserves later stops.
+  Fixed the descriptor row's lost repair and `_daemon_alive`'s swallowed stop
+  in start/install, preventing a second start after that observation.
+
+### Regression and property evidence
+
+Tests precede their corresponding production fixes in history. The first
+baseline hold, with round-2 production plus the release merge, produced
+**8 failed, 1 passed** in 1.61 s. Git confirms the four affected production
+modules match `007dac49a` exactly at that merge, so these regressions exercise
+the requested head:
+
+- `test_wait_probe_slot_respects_deadline`: completion at .75 s satisfied a
+  .6 s wait as success at controlled time 1.0 s.
+- `test_status_uses_later_stopped_observation[False/True]`: retained alive/S
+  after observing T+; omitted the stopped diagnosis/repair.
+- `test_slow_boot_lookup_cannot_collapse_ps_spacing`: both ps starts were 1.6 s.
+- `test_call_rejects_response_observed_after_deadline`: accepted a .75 s reply
+  for a .6 s request budget.
+- `test_probe_pacing_deadline_property`: all three explicit counterexamples
+  failed. Doctor's descriptor repair and start's later-stop regression failed
+  too; doctor's existing ping-row variant passed.
+
+The bounded property uses ci settings: 40 deterministic examples, no database,
+with four-call deadlines, boot/probe durations and completion times. Generated
+combined observations cost at most five seconds. It asserts return by deadline
+plus one observation budget, no success for a post-deadline completion or
+observation, and actual ps starts at least one interval apart. The prior
+state/parser property remains. Additional failing regressions covered hook
+auxiliary budgets (2 failures) and the refused-connect diagnostic timeout
+(exit 69 at .6 s); their final versions pass.
+
+Initial verification exposed five older diagnostic fixtures whose 0.2–1 s
+budgets could no longer include another probe slot. Their budgets now allow
+1.2–2 s while retaining diagnosis/repair/unknown-outcome and no-extra-send
+assertions. A hook notice fixture now leaves time after its controlled poll
+for notice lookup; no production timeout was loosened. The native hook ps
+prerequisite is explicit. Three early runner attempts ended before collection
+while correcting the pytest entry point/plugin selection.
+
+### Final verification
+
+**810 passed, 6 skipped**, counting distinct cases in the full files below.
+Required groups: **628 passed, 5 skipped**. Additional affected paths:
+**182 passed, 1 skipped**. No outstanding failures.
+
+| File | Passed | Skipped |
+| --- | ---: | ---: |
+| `tests/unit/test_stopped_daemon.py` | 65 | 0 |
+| `tests/unit/test_client_availability.py` | 22 | 0 |
+| `tests/unit/test_boot_identity.py` | 10 | 0 |
+| `tests/unit/test_cli.py` | 244 | 0 |
+| `tests/unit/test_doctor.py` | 44 | 0 |
+| `tests/unit/test_sessions_cli.py` | 142 | 0 |
+| `tests/unit/test_suggest_cli.py` | 7 | 0 |
+| `tests/unit/test_offline.py` | 33 | 0 |
+| `tests/unit/test_daemon_refusals_cli.py` | 8 | 0 |
+| `tests/unit/test_daemon_verbs.py` | 15 | 5 |
+| `tests/fake/test_state_contract.py` | 37 | 0 |
+| `tests/unit/test_test_module_names.py` | 1 | 0 |
+| `tests/unit/test_hooks.py` | 68 | 1 |
+| `tests/unit/test_outcome_unknown.py` | 58 | 0 |
+| `tests/unit/test_descriptor_review_fixes.py` | 56 | 0 |
+
+Final required holds: 97 passed in 26.15 s, 437 in 39.20 s, 56/5 skipped in
+8.39 s, and 38 in 4.15 s. With lock waits these took 224.25, 131.21, 24.53 and
+4.78 s. The additional 182/1 skipped hold took 48.15 s (73.11 s with its wait).
+Every pytest run used its own foreground `lockf -k` shared-lock hold, no xdist
+workers, no pytest cache, a 90 s per-test watchdog, and bounded Hypothesis.
+No hold approached 20 minutes; all pytest runtimes were under one minute.
+
+All three requested mutations were killed by their named tests, one expected
+failure per separate hold, then restored byte-for-byte in `finally`:
+
+| Mutation | Named failing test | Pytest seconds |
+| --- | --- | ---: |
+| Unbounded slot wait | `test_wait_probe_slot_respects_deadline` (time 1.0 instead of .6) | 0.96 |
+| Status retains first observation | `test_status_uses_later_stopped_observation[False]` (holder alive) | 0.65 |
+| Stamp before boot lookup | `test_slow_boot_lookup_cannot_collapse_ps_spacing` (both starts 1.6) | 0.44 |
+
+Git confirms production files match their committed contents after all three
+restorations. Syntax checks and `git diff --check` pass.
+
+**Skipped/unrun:** the same five native daemon cases listed in round 2 skip
+because macOS boot identity is unavailable. The additional hook integration
+case `test_the_hook_command_with_the_daemons_markers_spawns_nothing_and_surfaces_only_jobs`
+skips when native ps execution is denied, after its hook output/mark checks.
+Native ps integration remains unverified; stopped-child tests actually stop,
+continue and reap their own children using the existing waitpid seam where
+needed. Broader provider/native-process and whole-repository suites were not
+run. The conditional launch-environment/credential group was not applicable
+because no `CONFIG_NAMES` exists or was changed. No required file was omitted.
+
+### Step commits and cleanup
+
+All commits are on `fix/stopped-daemon-217` in workspace-local `.git-local`:
+
+- `f85dc67ef`: release merge and contract union.
+- `92c59084a`, `b53706078`, `cb74074d2`: deadline, later-observation, spacing,
+  settlement and hook-wait tests first.
+- `93bd93280`: deadline-aware preflight/transport/diagnosis, completion stamp,
+  status/doctor/start fixes, settlement outcome and contract.
+- `8aad7bb47`: paced diagnostic fixture budgets.
+- `2e0db9910`: hook auxiliary-budget regressions first.
+- `4f22f725c`: deadline-aware descriptor test stand-ins.
+- `174420108`: hook candidate/notice deadline forwarding.
+- `df83763a3`: hook notice fixture budget and native ps prerequisite.
+- `e79f7ae8a`: refused-connect diagnostic timeout regression first.
+- `c6dd5252b`: preserve wait exit 124 after diagnostic budget expiry.
+- The final documentation commit records this section; its hash is in the handoff.
+
+Shared Git metadata is outside writable roots; the shared checkout remains
+detached at `007dac49a211`. Inspect commits with `GIT_DIR=.git-local git log`.
+Every step includes the requested co-author trailer. Nothing was pushed.
+
+Dependencies used system pytest 8.4.2, pytest-timeout and read-only cached
+Hypothesis 6.131.0 through a workspace virtualenv. The default uv cache is
+outside writable roots; every hold used its own scratch uv cache with
+`UV_NO_SYNC=1`, `UV_OFFLINE=1`, and `PYTHONPATH`/`SUBFLEET_RETENTION_DORMANT`
+removed. Each scratch was removed with `shutil.rmtree` in `finally`. The task
+virtualenv, helpers, bytecode caches and any workspace Hypothesis output were
+removed after verification. Local commit metadata is retained. All foreground
+runners/lock holders exited, and fixture-owned children were reaped. No live
+daemon, live store, unrelated process, network remote or global cache was
+changed, signalled or cleaned.
