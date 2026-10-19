@@ -917,3 +917,47 @@ def test_timeout_is_explicit_and_overridable(monkeypatch):
     assert hooks.desired_groups("/x/sf hook")["PostToolUse"]["hooks"][0]["timeout"] == 45
     monkeypatch.setenv("SUBFLEET_HOOK_TIMEOUT_S", "junk")
     assert hooks.timeout_s() == 600
+
+
+def test_post_tool_candidate_call_uses_remaining_deadline(root):
+    """C-15.2 the initial list cannot spend more than the whole hook budget."""
+    from types import SimpleNamespace
+    from subfleet.protocol import ProtocolError
+
+    def call(op, args, **kwargs):
+        assert op == 'list' and kwargs['timeout'] <= .6
+        raise ProtocolError('controlled timeout', Exit.OPERATIONAL)
+
+    assert hooks.post_tool_use(payload('PostToolUse', tool_name='Bash'), root,
+                               client=SimpleNamespace(call=call, timeout=15),
+                               budget_s=.6, now=lambda: 0.0) == int(Exit.OK)
+
+
+def test_post_tool_notice_calls_keep_the_remaining_deadline(root):
+    """C-15.2 notice lookup and mark cannot restart a nearly spent hook budget."""
+    import io
+    from types import SimpleNamespace
+    clock, ops = [0.0], []
+
+    def sleep(seconds):
+        clock[0] += seconds
+
+    def call(op, args, **kwargs):
+        assert kwargs['timeout'] <= 65 - clock[0]
+        ops.append(op)
+        clock[0] += .1
+        if op == 'list':
+            return {'jobs': [{'job_id': JOB, 'state': 'running'}]}
+        if op == 'wait':
+            return {'jobs': [{'job_id': JOB, 'state': 'succeeded'}]}
+        if op == 'notice.pending':
+            return {'notices': [notice(1)]}
+        assert op == 'notice.mark'
+        return {}
+
+    assert hooks.post_tool_use(payload('PostToolUse', tool_name='Bash'), root,
+                               client=SimpleNamespace(call=call, root=root, timeout=15),
+                               budget_s=65, now=lambda: clock[0], sleep=sleep,
+                               stderr=io.StringIO()) == int(Exit.INVALID_INPUT)
+    assert ops == ['list', 'wait', 'notice.pending', 'notice.mark']
+    assert clock[0] <= 65
