@@ -39,6 +39,7 @@ import socket
 import subprocess
 import time
 import uuid
+from contextvars import ContextVar
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -76,10 +77,14 @@ SEND_MET_CLOSE_ERRNOS = frozenset({errno.EPIPE, errno.ESHUTDOWN, errno.ECONNRESE
 START_DAEMON_FIX = "subfleet daemon start"
 #: C-16.7: the first pause before a busy answer's request is sent again.
 BUSY_PAUSE_S = .05
-#: C-5.13: one client waits this long after each completed identity probe,
-#: including failed observations and post-send diagnostics. Sends wait for a
-#: fresh observation rather than using a cached running verdict in this gap.
+#: C-5.13: a token bucket allows four fresh observations immediately, then
+#: refills at one per interval, including failures and post-send diagnostics.
 HOLDER_PROBE_INTERVAL_S = 1.0
+HOLDER_PROBE_BURST = 4
+HOLDER_PROBE_BUDGET_S = 5.0
+#: Scope the entire observation, including UUID/legacy boot reads and ps, to
+#: one absolute deadline. Context-local so simultaneous clients cannot share it.
+_observation_deadline: ContextVar[float | None] = ContextVar('observation_deadline', default=None)
 #: The clock and sleep `Client.call`'s busy retries use; tests replace these.
 _clock = time.monotonic
 _sleep = time.sleep
@@ -254,11 +259,18 @@ PS_ENV = {"LC_ALL": "C", "LANG": "C", "TZ": "UTC",
 
 
 def _run(argv: list[str], timeout: float = 5.0) -> tuple[int, str]:
+    deadline = _observation_deadline.get()
+    if deadline is not None:
+        timeout = min(timeout, deadline - _clock())
+        if timeout <= 0:
+            return -1, ""             # exhausted observation is unverifiable
     try:
         done = subprocess.run(argv, capture_output=True, text=True,
                               timeout=timeout, env=PS_ENV)
     except (OSError, subprocess.SubprocessError):
         return -1, ""
+    if deadline is not None and _clock() > deadline:
+        return -1, ""                 # no late observation establishes identity
     return done.returncode, done.stdout
 
 
@@ -508,7 +520,9 @@ class Client:
         # per process, and a hook, run on every Bash call of every session, says
         # nothing whichever way the daemon is down; a refused connect says it.
         self._verify_lock = verify_lock
-        self._holder_probe_ended: float | None = None
+        # Virtual time for a full token bucket: at most BURST observations
+        # immediately, with one token refilled every INTERVAL seconds.
+        self._holder_probe_next = _clock()
 
     # --- paths ---------------------------------------------------------------
 
@@ -544,23 +558,13 @@ class Client:
 
         One `ps` per call, the same one the identity check makes, so the
         stopped-holder question of C-5.13 is answered at no extra cost. A reused
-        client waits for its next probe slot, including after a failed read;
+        client takes a token from its four-observation bucket, including for a failed read;
         it never sends on the strength of a cached running observation. Slot
         waits consume the request's budget. An already available diagnostic
-        may finish after that budget, costing at most one identity observation.
+        may finish after that budget. Every stage shares one five-second
+        observation deadline, also capped at the call deadline plus five
+        seconds. Preflight and silence diagnosis share that absolute ceiling.
         """
-        if self._holder_probe_ended is not None:
-            due = self._holder_probe_ended + HOLDER_PROBE_INTERVAL_S
-            waited = due > _clock()
-            while (remaining := due - _clock()) > 0:
-                if deadline_at is not None:
-                    left = deadline_at - _clock()
-                    if left <= 0:
-                        raise RequestTimeout()
-                    remaining = min(remaining, left)
-                _sleep(remaining)
-            if waited and deadline_at is not None and _clock() >= deadline_at:
-                raise RequestTimeout()
         info = self.lock_info()
         if info is None:
             return None, None, f"there is no {self.lock_path}", None
@@ -569,14 +573,27 @@ class Client:
             pid = int(pid)
         except (TypeError, ValueError):
             return None, None, f"{self.lock_path} records no usable pid", None
+        due = self._holder_probe_next - (HOLDER_PROBE_BURST - 1) * HOLDER_PROBE_INTERVAL_S
+        waited = due > _clock()
+        while (remaining := due - _clock()) > 0:
+            if deadline_at is not None:
+                left = deadline_at - _clock()
+                if left <= 0:
+                    raise RequestTimeout()
+                remaining = min(remaining, left)
+            _sleep(remaining)
+        if waited and deadline_at is not None and _clock() >= deadline_at:
+            raise RequestTimeout()
+        self._holder_probe_next = max(_clock(), self._holder_probe_next) + HOLDER_PROBE_INTERVAL_S
+        observation_end = _clock() + HOLDER_PROBE_BUDGET_S
+        if deadline_at is not None:
+            observation_end = min(observation_end, deadline_at + HOLDER_PROBE_BUDGET_S)
+        token = _observation_deadline.set(observation_end)
         try:
             alive, reason, state = identity_status(pid, info.get("boot_id"),
                                                     info.get("proc_start"))
         finally:
-            # Completion is after both boot lookup and ps, including failures.
-            # The next ps starts after this stamp plus the full interval, so a
-            # slow boot lookup can never collapse the gap between ps starts.
-            self._holder_probe_ended = _clock()
+            _observation_deadline.reset(token)
         return pid, alive, reason, state
 
     def lock_report(self, *, deadline_at: float | None = None) -> tuple[bool | None, str]:
@@ -663,7 +680,7 @@ class Client:
         """Raise `DaemonUnavailable` when the lock says the daemon cannot answer.
 
         Every send gets one fresh state/identity observation, at most one `ps`.
-        `holder_report` paces repeated observations at one-second intervals,
+        `holder_report` permits a burst of four, then one observation per second,
         so wait/watch/settlement loops cannot spin process probes. Waiting for
         that slot before sending also closes the cached-running race: a stopped
         holder accepts into its backlog without answering (C-5.13). Hooks can
