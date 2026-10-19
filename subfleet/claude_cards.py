@@ -75,6 +75,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .provider_env import ProviderEnvironment
 from .contracts import CLAUDE_CARDS_DEFAULTS
 
 #: The usage read Claude Code makes when it asks about reset cards.
@@ -560,7 +561,8 @@ def _kill_group(pid: int, sig: int = signal.SIGKILL) -> None:
 
 def heal_turn(home: Path, *, claude_bin: str = "claude", model: str, prompt: str,
               timeout: float = HEAL_TIMEOUT_S, cancel: threading.Event | None = None,
-              popen: Callable[..., Any] = subprocess.Popen) -> tuple[int, str, str]:
+              popen: Callable[..., Any] = subprocess.Popen,
+              environment: ProviderEnvironment | None = None) -> tuple[int, str, str]:
     """C-23.47: one minimal turn under a login's folder, so the CLI renews its own login.
 
     The CLI runs in a process group of its own, in a scratch directory, with no
@@ -576,7 +578,7 @@ def heal_turn(home: Path, *, claude_bin: str = "claude", model: str, prompt: str
     timeout, 127 a CLI that could not start, 130 a cancelled heal. Nothing here
     reads or writes the credential.
     """
-    env = {key: value for key, value in os.environ.items() if key not in HEAL_ENV_REMOVE}
+    env = (environment or ProviderEnvironment({})).build("claude", env_remove=HEAL_ENV_REMOVE)
     env["CLAUDE_CONFIG_DIR"] = str(home)
     argv = [claude_bin, "-p", prompt, "--model", model, "--max-turns", "1",
             "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
@@ -628,11 +630,12 @@ class ReadOnlyViolation(RuntimeError):
     """Raised before any request that is not a GET leaves this module."""
 
 
-def cli_version(claude_bin: str, runner: Callable[..., Any] = subprocess.run) -> str:
+def cli_version(claude_bin: str, runner: Callable[..., Any] = subprocess.run, *,
+                environment: ProviderEnvironment | None = None) -> str:
     """The installed Claude Code's version, for the User-Agent the server expects."""
     try:
         done = runner([claude_bin, "--version"], capture_output=True, text=True, timeout=15,
-                      stdin=subprocess.DEVNULL)
+                      stdin=subprocess.DEVNULL, env=(environment or ProviderEnvironment({})).build("claude"))
     except (OSError, subprocess.SubprocessError):
         return FALLBACK_CLI_VERSION
     match = _CLI_VERSION.search(getattr(done, "stdout", "") or "")

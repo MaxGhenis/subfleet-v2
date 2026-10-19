@@ -16,7 +16,22 @@ import pytest
 
 guard = importlib.import_module("subfleet.guard.preflight")
 
-from tests.fake.guard import install_guard
+from tests.fake.guard import install_guard as _install_guard
+from subfleet.launch_env import build_environment
+from subfleet.policy import DEFAULT_POLICY_PATH
+
+GUARD_TEST_NAMES = ("GUARD_TEST_REPORT", "GUARD_TEST_MODE", "GUARD_TEST_VERSION_MODE",
+                    "GUARD_TEST_VERSION", "GUARD_TEST_CA_VERSION_REPORT")
+
+
+def install_guard(root):
+    """The fake's controls are explicit policy inputs under D-ENV1."""
+    result = _install_guard(root)
+    path = Path(root) / "policy.json"
+    policy = json.loads(path.read_text() if path.exists() else DEFAULT_POLICY_PATH.read_text())
+    policy["env"] = {"pass": list(GUARD_TEST_NAMES)}
+    path.write_text(json.dumps(policy))
+    return result
 
 
 @pytest.fixture(autouse=True)
@@ -880,7 +895,8 @@ def test_answer_already_in_the_pipe_beats_an_expired_deadline(fake_codex, monkey
     ok, diagnostics = guard._hooks_list(
         str(fake), home=_scratch(fake), workdir=fake.parent,
         override=guard.override_string(guard.guard_paths()[0].resolve()),
-        env=dict(os.environ), timeout_s=5)
+        env=build_environment({name: os.environ[name] for name in GUARD_TEST_NAMES if name in os.environ}),
+        timeout_s=5, pass_names=GUARD_TEST_NAMES)
     assert ok.get("id") == 2 and not diagnostics["timed_out"]
 
 
@@ -948,6 +964,7 @@ def test_c14_2_preflight_version_and_app_server_use_lane_ca_environment(fake_cod
     bundle = tmp_path / 'ca.pem'
     bundle.write_bytes((Path(__file__).parents[1] / 'fixtures/codex-ca.pem').read_bytes())
     policy = {} if choice == 'default' else {'providers': {'codex': {'ca_bundle': None if choice == 'null' else str(bundle)}}}
+    policy['env'] = {'pass': list(GUARD_TEST_NAMES)}
     if choice.startswith('operator'):
         key = 'SSL_CERT_DIR' if choice == 'operator-dir' else 'SSL_CERT_FILE'
         monkeypatch.setenv(key, '' if choice == 'operator-empty' else str(tmp_path / 'operator-choice'))
@@ -958,7 +975,8 @@ def test_c14_2_preflight_version_and_app_server_use_lane_ca_environment(fake_cod
     lane = Lane('codex-1', 'codex', 'codex:test', Credential('codex', str(home), 'home'),
                 str(home), LaneOwner.V2, False)
     verdict = Daemon._guard_override(SimpleNamespace(codex_bin=str(fake)), lane, str(tmp_path),
-                                     state_root=Path(os.environ['SUBFLEET_HOME']), full=True, env=lane_env)
+                                     state_root=Path(os.environ['SUBFLEET_HOME']), full=True, env=lane_env,
+                                     env_pass=(*environment.pass_names, 'CODEX_HOME'))
     expected = {name: lane_env[name] for name in CA_SOURCES if name in lane_env}
     assert verdict.ok and not verdict.cached
     assert json.loads(report.read_text())['ca'] == expected
@@ -974,14 +992,15 @@ def test_c14_2_ca_selection_change_invalidates_cached_preflight(fake_codex, tmp_
     home.mkdir()
     bundle = tmp_path / 'ca.pem'
     bundle.write_bytes((Path(__file__).parents[1] / 'fixtures/codex-ca.pem').read_bytes())
-    environment = ProviderEnvironment({'providers': {'codex': {'ca_bundle': str(bundle)}}})
+    environment = ProviderEnvironment({'providers': {'codex': {'ca_bundle': str(bundle)}},
+                                       'env': {'pass': list(GUARD_TEST_NAMES)}})
     selected = environment.build('codex')
-    first = guard.preflight(fake, home=home, workdir=tmp_path, env=selected)
+    first = guard.preflight(fake, home=home, workdir=tmp_path, env=selected, env_pass=environment.pass_names)
     assert first.ok and not first.cached
-    assert guard.preflight(fake, home=home, workdir=tmp_path, env=selected).cached
+    assert guard.preflight(fake, home=home, workdir=tmp_path, env=selected, env_pass=environment.pass_names).cached
     changed = {key: value for key, value in selected.items() if key != 'SSL_CERT_FILE'}
     changed['SSL_CERT_DIR'] = str(tmp_path / 'operator-dir')
-    second = guard.preflight(fake, home=home, workdir=tmp_path, env=changed)
+    second = guard.preflight(fake, home=home, workdir=tmp_path, env=changed, env_pass=environment.pass_names)
     assert second.ok and not second.cached and second.cache_key != first.cache_key
 
 
@@ -997,6 +1016,7 @@ def test_c14_2_standalone_preflight_reads_state_root_ca_policy(fake_codex, tmp_p
     bundle.write_bytes((Path(__file__).parents[1] / 'fixtures/codex-ca.pem').read_bytes())
     policy = json.loads(DEFAULT_POLICY_PATH.read_text())
     policy['providers'] = {'codex': {'ca_bundle': str(bundle) if configured == 'custom' else None}}
+    policy['env'] = {'pass': list(GUARD_TEST_NAMES)}
     root = Path(os.environ['SUBFLEET_HOME'])
     (root / 'policy.json').write_text(json.dumps(policy))
     result = guard.preflight(fake, home=home, workdir=tmp_path, state_root=root)

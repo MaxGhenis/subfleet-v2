@@ -53,16 +53,18 @@ KEYCHAIN_READERS = {
 }
 
 
-def under_pytest() -> bool:
-    if PYTEST_MARKER in os.environ:
-        session = os.environ.get(PYTEST_SESSION)
+def under_pytest(environ: Mapping[str, str] | None = None) -> bool:
+    """Whether this process, or a child given `environ`, is in a test session."""
+    values = os.environ if environ is None else environ
+    if PYTEST_MARKER in values:
+        session = values.get(PYTEST_SESSION)
         # Bare markers remain useful for standalone test harnesses. Configured
         # sessions always supply a lifetime, including in captured child envs.
         # A copied PYTEST_CURRENT_TEST must not revive an expired session either.
         if session is None:
             return True
-        return session_alive(session, os.environ.get(PYTEST_SESSION_ID))
-    return "PYTEST_CURRENT_TEST" in os.environ
+        return session_alive(session, values.get(PYTEST_SESSION_ID))
+    return "PYTEST_CURRENT_TEST" in values
 
 
 def session_alive(session: str | os.PathLike, identity: str | None) -> bool:
