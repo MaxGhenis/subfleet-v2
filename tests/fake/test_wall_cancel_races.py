@@ -367,3 +367,36 @@ def test_receipt_caught_before_signal_records_that_no_signal_was_sent(clocked, m
     [event] = service.store.query("SELECT ts,data_json FROM events WHERE attempt_id=? AND kind='attempt.kill_started'", (aid,))
     assert json.loads(event["data_json"]) == {"signal_at": None, "signal_sent": False}
     assert "." in event["ts"]
+
+
+@pytest.mark.parametrize("rc", [-11, -15])
+@pytest.mark.parametrize("stage", ["before-kill", "last-read"])
+def test_provider_own_signal_before_wall_signal_keeps_its_failure(clocked, monkeypatch, rc, stage):
+    service, _, clock, jid, aid, adir = setup_running(clocked, monkeypatch)
+    wall_request(service, aid, jid)
+    def provider_exit():
+        publish(adir, clock.t.isoformat(), rc)
+        receipt = json.loads((adir / "exit.json").read_text())
+        receipt["signal"] = -rc  # The provider's own signal, before the daemon's.
+        (adir / "exit.json").write_text(json.dumps(receipt))
+        clock.t += timedelta(milliseconds=2)
+    if stage == "before-kill":
+        provider_exit()
+    else:
+        read = service._read_json
+        reads = 0
+        def last_read(path):
+            nonlocal reads
+            answer = read(path)
+            if path == adir / "exit.json":
+                reads += 1
+                if reads == 3:
+                    provider_exit()
+            return answer
+        monkeypatch.setattr(service, "_read_json", last_read)
+    service._kill_attempt(service.store.get_attempt(aid))
+    service._process_attempt(aid)
+    job, attempt = service.store.get_job(jid), service.store.get_attempt(aid)
+    assert (job["state"], job["rc"]) == ("failed", rc)
+    assert attempt["outcome_class"] == "unknown"
+    assert job["cancel_requested_at"] is None and attempt["killed_by"] is None
