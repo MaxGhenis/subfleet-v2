@@ -580,7 +580,7 @@ def test_cached_client_rechecks_before_wait(root, daemon, monkeypatch, holder_cl
 
 @pytest.mark.parametrize("rc,output", [(0, "S " + START), (2, "T+ " + START)])
 def test_reused_client_probes_are_paced(root, daemon, monkeypatch, holder_clock, rc, output):
-    """C-5.13 wait, watch and settlement never re-probe faster than one second."""
+    """C-5.13 four fresh probes are free to burst, then refill one per second."""
     (root / "daemon.lock").write_text(json.dumps({"pid": 12345, "proc_start": START}))
     probes = []
 
@@ -594,8 +594,11 @@ def test_reused_client_probes_are_paced(root, daemon, monkeypatch, holder_clock,
     for op in ("ping", "wait", "conversation.watch"):
         probe.call(op)
     probe.call_settled("kill")
-    assert server.ops() == ["ping", "wait", "conversation.watch", "kill"]
-    assert probes == [0.0, 1.0, 2.0, 3.0]
+    assert holder_clock.sleeps == []
+    probe.call('ping')
+    assert server.ops() == ["ping", "wait", "conversation.watch", "kill", "ping"]
+    assert probes == [0.0, 0.0, 0.0, 0.0, 1.0]
+    assert holder_clock.sleeps == [1.0]
 
 
 def test_stopped_detection_uses_one_probe_budget(root, monkeypatch, holder_clock):
@@ -699,25 +702,31 @@ class PacedWire:
 
 
 def paced_observations(root, monkeypatch, clock, *, boots=(0.0,), probes=(0.0,)):
-    """Boot reads precede ps; record ps starts independently of holder_report."""
+    """Model real subprocess deadlines, including stages longer than their budget."""
+    from types import SimpleNamespace
+    boot_uuid = '66355737-51db-46d4-8f31-c928bc955e16'
     (root / 'daemon.lock').write_text(json.dumps(
-        {'pid': 12345, 'boot_id': 'boot', 'proc_start': START}))
+        {'pid': 12345, 'boot_id': boot_uuid, 'proc_start': START}))
     starts = []
-    observations = [0]
+    observations = [-1]
 
-    def boot():
-        clock.now += boots[observations[0] % len(boots)]
-        return 'boot'
-
-    def observe(*args, **kwargs):
+    def run(argv, *, timeout, **kwargs):
+        if argv[0] == '/usr/sbin/sysctl':
+            observations[0] += 1
         index = observations[0]
-        starts.append(clock.now)
-        clock.now += probes[index % len(probes)]
-        observations[0] += 1
-        return 0, 'S ' + START
+        if argv[0] == '/bin/ps':
+            starts.append(clock.now)
+            cost, output = probes[index % len(probes)], 'S ' + START
+        else:
+            cost, output = boots[index % len(boots)], boot_uuid
+        clock.now += min(cost, timeout)
+        if cost > timeout:
+            raise subprocess.TimeoutExpired(argv, timeout)
+        return SimpleNamespace(returncode=0, stdout=output)
 
-    monkeypatch.setattr(client_module, 'boot_id', boot)
-    monkeypatch.setattr(client_module, '_run', observe)
+    # Exercise every boot read, including when an earlier observation succeeded.
+    monkeypatch.setattr(client_module, 'boot_id', client_module._read_boot_id)
+    monkeypatch.setattr(client_module.subprocess, 'run', run)
     return starts
 
 
@@ -731,7 +740,7 @@ def test_wait_probe_slot_respects_deadline(root, monkeypatch, holder_clock, caps
         monotonic=lambda: holder_clock.now, sleep=client_module._sleep))
     assert cli.main(['wait', 'job-1', '--timeout', '0.6']) == int(Exit.WAIT_TIMEOUT)
     assert holder_clock.now == pytest.approx(.6)
-    assert starts == [0.0] and wire.sent == [(0.0, 'wait')]
+    assert starts == [0.0, .4] and wire.sent == [(0.0, 'wait'), (.4, 'wait')]
     assert 'SUCCEEDED' not in capsys.readouterr().err
 
 
@@ -769,14 +778,17 @@ def test_doctor_live_uses_later_stopped_observation(root, monkeypatch, holder_cl
     assert item['fix'] == '`kill -CONT 12345`'
 
 
-def test_slow_boot_lookup_cannot_collapse_ps_spacing(root, monkeypatch, holder_clock):
-    """C-5.13 a 1.6-second boot read cannot make two ps calls start together."""
-    starts = paced_observations(root, monkeypatch, holder_clock, boots=(1.6, 0.0))
+def test_slow_boot_lookup_keeps_bucket_refill(root, monkeypatch, holder_clock):
+    """C-5.13 slow stages spend elapsed time; only a depleted bucket must wait."""
+    starts = paced_observations(root, monkeypatch, holder_clock, boots=(1.6, 0.0, 0.0, 0.0, 0.0))
     wire = PacedWire(holder_clock)
     monkeypatch.setattr(client_module.socket, 'socket', wire.socket)
     probe = Client(root)
+    for _ in range(5):
+        assert probe.call('ping')['pong']
+    assert starts == pytest.approx([1.6] * 5)
     assert probe.call('ping')['pong']
-    assert probe.call('ping')['pong']
+    assert starts[-1] == pytest.approx(3.6)  # refill wait to 2, then another boot read
     assert starts[1] - starts[0] >= client_module.HOLDER_PROBE_INTERVAL_S
 
 
@@ -791,13 +803,15 @@ def test_call_rejects_response_observed_after_deadline(root, monkeypatch, holder
 
 @settings(settings.get_profile('ci'))
 @given(deadlines=st.lists(st.integers(1, 7000), min_size=4, max_size=4),
-       boots=st.lists(st.integers(0, 1600), min_size=4, max_size=4),
-       probes=st.lists(st.integers(0, 3400), min_size=4, max_size=4),
-       completions=st.lists(st.integers(0, 10000), min_size=4, max_size=4))
-@example(deadlines=[600, 600, 600, 600], boots=[0]*4, probes=[0]*4, completions=[0]*4)
-@example(deadlines=[7000]*4, boots=[1600, 0, 0, 0], probes=[0]*4, completions=[0]*4)
-@example(deadlines=[600]*4, boots=[0]*4, probes=[750]*4, completions=[750]*4)
-def test_probe_pacing_deadline_property(deadlines, boots, probes, completions):
+       boots=st.lists(st.integers(0, 10000), min_size=4, max_size=4),
+       probes=st.lists(st.integers(0, 10000), min_size=4, max_size=4),
+       completions=st.lists(st.integers(0, 20000), min_size=4, max_size=4),
+       verify=st.booleans())
+@example(deadlines=[600]*4, boots=[1600]*4, probes=[5000]*4, completions=[10000]*4, verify=True)
+@example(deadlines=[600]*4, boots=[1600]*4, probes=[5000]*4, completions=[10000]*4, verify=False)
+@example(deadlines=[600]*4, boots=[10000]*4, probes=[10000]*4, completions=[0]*4, verify=True)
+@example(deadlines=[600]*4, boots=[10000]*4, probes=[10000]*4, completions=[10000]*4, verify=False)
+def test_probe_pacing_deadline_property(deadlines, boots, probes, completions, verify):
     """C-5.13 deadlines, slow observations and completion times compose safely."""
     import tempfile
     from types import SimpleNamespace
@@ -810,7 +824,7 @@ def test_probe_pacing_deadline_property(deadlines, boots, probes, completions):
                                     probes=tuple(v / 1000 for v in probes))
         wire = PacedWire(clock)
         patch.setattr(client_module.socket, 'socket', wire.socket)
-        probe = Client(directory)
+        probe = Client(directory, verify_lock=verify)
         for duration, completion in zip(deadlines, completions):
             began = clock.now
             deadline = began + duration / 1000
@@ -823,8 +837,53 @@ def test_probe_pacing_deadline_property(deadlines, boots, probes, completions):
                 assert result['pong']
                 assert wire.completion <= deadline and clock.now <= deadline
             assert clock.now <= deadline + 5.0 + 1e-9
-        assert all(b - a >= client_module.HOLDER_PROBE_INTERVAL_S - 1e-9
-                   for a, b in zip(starts, starts[1:]))
+
+
+@pytest.mark.parametrize('verify', [True, False], ids=['preflight', 'post-send'])
+def test_ping_observation_shares_boot_and_ps_budget(root, monkeypatch, holder_clock, verify):
+    """C-5.13 the reviewer's 1.6 s boot + 5 s ps ends within .6 + 5 seconds."""
+    paced_observations(root, monkeypatch, holder_clock, boots=(1.6,), probes=(5.0,))
+    wire = PacedWire(holder_clock, completion=20)
+    monkeypatch.setattr(client_module.socket, 'socket', wire.socket)
+    with pytest.raises(client_module.ProtocolError):
+        Client(root, verify_lock=verify).call('ping', timeout=.6)
+    assert holder_clock.now <= 5.6 + 1e-9
+    assert bool(wire.sent) is (not verify)
+
+
+def test_preflight_and_silence_diagnosis_share_call_ceiling(root, monkeypatch, holder_clock):
+    """C-5.13 a sent call gets no new allowance beyond its deadline plus 5 s."""
+    paced_observations(root, monkeypatch, holder_clock, boots=(.2, 1.6), probes=(.2, 5.0))
+    wire = PacedWire(holder_clock, completion=20)
+    monkeypatch.setattr(client_module.socket, 'socket', wire.socket)
+    with pytest.raises(ResponseLost):
+        Client(root).call('ping', timeout=.6)
+    assert holder_clock.now <= 5.6 + 1e-9
+    assert wire.sent == [(.4, 'ping')]
+
+
+@settings(settings.get_profile('ci'))
+@given(gaps=st.lists(st.integers(0, 6000), min_size=1, max_size=30))
+@example(gaps=[0] * 15)
+@example(gaps=[0, 0, 0, 0, 500, 500, 10000, 0, 0, 0, 0, 0])
+def test_probe_bucket_rate_property(gaps):
+    """C-5.13 every time window allows at most four plus its refill tokens."""
+    import tempfile
+    from types import SimpleNamespace
+    with tempfile.TemporaryDirectory(prefix='sf-bucket-', dir='/tmp') as directory, pytest.MonkeyPatch.context() as patch:
+        clock = SimpleNamespace(now=0.0)
+        patch.setattr(client_module, '_clock', lambda: clock.now)
+        patch.setattr(client_module, '_sleep', lambda seconds: setattr(clock, 'now', clock.now + seconds))
+        starts = paced_observations(Path(directory), patch, clock)
+        wire = PacedWire(clock)
+        patch.setattr(client_module.socket, 'socket', wire.socket)
+        probe = Client(directory)
+        for gap in gaps:
+            clock.now += gap / 1000
+            assert probe.call('ping')['pong']
+        for i, start in enumerate(starts):
+            for j in range(i, len(starts)):
+                assert j - i + 1 <= 4 + (starts[j] - start) / client_module.HOLDER_PROBE_INTERVAL_S + 1e-9
 
 
 def test_start_preserves_later_stopped_observation(root, monkeypatch, holder_clock, capsys):
@@ -846,8 +905,8 @@ def test_settlement_probe_wait_keeps_unknown_outcome(root, monkeypatch, holder_c
         Client(root, timeout=.1).call_settled('submit', request_id='paced-submit',
                                             requery_timeout=.2)
     assert holder_clock.now == pytest.approx(.3)
-    assert wire.sent == [(0.0, 'submit')]
-    assert 'before sending' in str(caught.value)
+    assert wire.sent == [(0.0, 'submit'), (.1, 'submit')]
+    assert 'no response' in str(caught.value)
 
 
 def test_hook_wait_forwards_remaining_deadline(holder_clock):
@@ -883,6 +942,6 @@ def test_wait_refused_connect_probe_slot_respects_deadline(root, monkeypatch, ho
     monkeypatch.setattr(cli, 'time', SimpleNamespace(
         monotonic=lambda: holder_clock.now, sleep=client_module._sleep))
     assert cli.main(['wait', 'job-1', '--timeout', '0.6']) == int(Exit.WAIT_TIMEOUT)
-    assert holder_clock.now == pytest.approx(.6)
-    assert starts == [0.0] and wire.sent == []
-    assert 'timeout' in capsys.readouterr().err
+    assert holder_clock.now <= .6
+    assert starts == [0.0, 0.0] and wire.sent == []
+    assert 'cannot be reached' in capsys.readouterr().err

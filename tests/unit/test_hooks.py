@@ -965,3 +965,72 @@ def test_post_tool_notice_calls_keep_the_remaining_deadline(root):
                                stderr=io.StringIO()) == int(Exit.INVALID_INPUT)
     assert ops == ['list', 'wait', 'notice.pending', 'notice.mark']
     assert clock[0] <= 65
+
+
+def test_post_tool_six_second_timeout_keeps_notice_and_mark(daemon, root):
+    """C-15.2 the reviewer's short command hook surfaces its available notice."""
+    marked = []
+    server = daemon({
+        'list': lambda request: {'jobs': [running_job()]},
+        'wait': lambda request: {'jobs': [finished_job()]},
+        'notice.pending': lambda request: {'notices': [notice(7, text='round four notice')]},
+        'notice.mark': lambda request: marked.append(request.args) or {},
+    })
+    env = {**os.environ, 'SUBFLEET_HOME': str(root), 'PYTHONPATH': str(REPO),
+           'SUBFLEET_HOOK_TIMEOUT_S': '6'}
+    result = _hook_process('PostToolUse', payload('PostToolUse', tool_name='Bash'), env)
+    assert result.returncode == 2, result.stderr
+    assert result.stderr.strip() == 'round four notice'
+    assert server.ops() == ['list', 'wait', 'notice.pending', 'notice.mark']
+    assert marked == [{'session_id': SESSION, 'notice_ids': [7],
+                       'state': 'offered', 'transport': 'hook:PostToolUse'}]
+
+
+@pytest.mark.parametrize('final_poll', [False, True], ids=['immediate', 'at-poll-deadline'])
+def test_terminal_poll_keeps_delivery_reserve(root, final_poll):
+    """C-15.2 terminal replies precede backoff; both notice calls retain time."""
+    from types import SimpleNamespace
+    clock, sleeps, ops = [0.0], [], []
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        clock[0] += seconds
+
+    def call(op, args, **kwargs):
+        ops.append(op)
+        if op == 'wait':
+            assert 0 < args['deadline_s'] <= .5
+            assert kwargs['timeout'] <= .5
+            if final_poll:
+                clock[0] += kwargs['timeout']
+            return {'jobs': [finished_job()]}
+        assert kwargs['timeout'] >= .2
+        clock[0] += .2
+        return {'notices': [notice(7)]} if op == 'notice.pending' else {}
+
+    stderr = io.StringIO()
+    code = hooks._wait_and_deliver(SimpleNamespace(call=call, root=root, timeout=15),
+                                  SESSION, JOB, 1.0, stderr=stderr,
+                                  now=lambda: clock[0], sleep=sleep)
+    assert code == 2 and stderr.getvalue().strip() == 'run finished'
+    assert ops == ['wait', 'notice.pending', 'notice.mark']
+    assert sleeps == [] and clock[0] <= 1.0
+
+
+def test_idle_hook_backoff_preserves_delivery_reserve(root):
+    """C-15.2 an empty early poll cannot sleep into the notice reserve."""
+    from types import SimpleNamespace
+    clock, sleeps = [0.0], []
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        clock[0] += seconds
+
+    def call(op, args, **kwargs):
+        assert op == 'wait' and kwargs['timeout'] <= .5
+        clock[0] += .1
+        return {'timeout': True}
+
+    assert hooks._wait_and_deliver(SimpleNamespace(call=call), SESSION, JOB, 1.0,
+                                   stderr=io.StringIO(), now=lambda: clock[0], sleep=sleep) == 0
+    assert clock[0] <= .5 and sum(sleeps) <= .4
