@@ -64,6 +64,7 @@ class FakeDaemon:
     _cancel_requester = staticmethod(Daemon._cancel_requester)
     _notice = Daemon._notice
     _earlier_attempt = Daemon._earlier_attempt
+    _start_stop_delivery = Daemon._start_stop_delivery
 
     def __init__(self, root: Path):
         self.root = root
@@ -1437,6 +1438,38 @@ def launched_turn(svc, tmp_path, stdout=(), *, n=0) -> str:
             "cwd": svc.test_workspace, "new_session_id": str(uuid.uuid4())}
     (job / "manifest.json").write_text(json.dumps({TURN_MANIFEST_KEY: turn}))
     return attempt_id
+
+
+@pytest.mark.parametrize("source", ["client", "replay"])
+def test_adoption_audits_stops_before_starting_the_runner(svc, tmp_path, monkeypatch, source):
+    """C-26.6 / C-9.2: client and replayed interrupts share the delivery audit,
+    which is installed before the runner can send anything."""
+    from subfleet.conversations.runner import TurnRunner
+    from subfleet.conversations.turn import Frame
+    from subfleet.relay import Ack
+
+    aid = launched_turn(svc, tmp_path)
+    monkeypatch.setattr(TurnRunner, "start", lambda runner: None)
+    svc._adopt_runners()
+    runner = svc.runners[aid]
+    if source == "client":
+        svc.op_turn_interrupt({"message_id": runner.message_id}, None)
+        assert runner.commands.get_nowait() == ("interrupt",)
+    else:
+        svc.store.request_stop(runner.message_id, stop_at="2026-10-19T00:00:00Z", requester=None)
+        runner.interrupt("stopped")             # the catch-up replay's command
+    frame = Frame("interrupt", "write", '{"type":"control_request"}')
+    runner.outbox.append(frame)
+    def send(seq, op, **kwargs):
+        event = svc.daemon.store.one("SELECT data_json FROM events WHERE attempt_id=? "
+                                    "AND kind='attempt.stop_delivery'", (aid,))
+        assert json.loads(event["data_json"])["signal_pending"] is True
+        return Ack(seq=seq, ok=True)
+    monkeypatch.setattr(runner.relay, "send", send)
+    assert runner._transmit(frame)
+    event = svc.daemon.store.one("SELECT data_json FROM events WHERE attempt_id=? "
+                                "AND kind='attempt.stop_delivery'", (aid,))
+    assert json.loads(event["data_json"])["signal_sent"] is True
 
 
 class Hold:

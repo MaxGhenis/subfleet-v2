@@ -1169,3 +1169,96 @@ advertised head were checked. The preceding steps are:
 | `693d8fcc8` | Specify the combined C-9.5 and C-11.8 rule |
 | `a7c3c34fc` | Restore `for_good`, retain fractional steer timing, and retarget mutation probes |
 | `e43202baf` | Record the interaction and reproduced failures |
+
+
+## Round 8 — every stop delivery participates in wall receipt ordering (2026-10-19)
+
+### Release integration and test-first evidence
+
+Merged the existing local `origin/release/217` ref at `d72597b5c`
+(including #230) before editing. No network remote was contacted. The only
+conflict was the version-3 change log in `docs/acceptance-contract.md`:
+kept both the wall-running-time entry and the incoming CI-flakes entry.
+All clauses from both sides remain. Merge commit: `4f49eb594`.
+
+The shared Git metadata rejected the merge's `ORIG_HEAD.lock` write with
+`Operation not permitted`. This round therefore commits on
+`fix/wall-counts-running-time-217` in workspace-local `.git-local`, borrowing
+read-only base objects. The original `.git` pointer and shared index remain
+unchanged. Every commit has the requested Claude Opus 5.5 trailer; only named
+files are staged. No history rewrite or push.
+
+The test-first commit `746a6edb1` adds real `RelayServer.apply` regressions
+with a synthetic child and a task-owned pipe, without process signals or
+runner threads. Initial merged-source run: **12 failed**. An independent
+hold temporarily restored every changed `subfleet/` source file to exact
+`1909a53c1` bytes, ran the four requested regressions, and restored the fixed
+bytes in `finally`: **4 failed, 8 deselected**. The relay SIGINT, provider
+interrupt only, and crash-before-transmission cases all wrongly succeeded.
+The pre-delivery receipt control fails at its missing delivery-audit assertion;
+its successful provider outcome remains the required behavior.
+
+### Delivery audit design
+
+`TurnRunner._transmit` commits a durable `attempt.stop_delivery` intent with
+`via=relay`, frame operation, tag and sequence before transmitting a provider
+interrupt (`tag=interrupt`), any `signal` frame, or `close`. The callback is
+installed by ordinary conversation adoption before the thread starts and is
+also installed by `ConversationService.stop` before queuing a wall stop.
+The sibling event avoids interfering with the kill protocol's selection of
+its latest `attempt.kill_started` event during concurrent runner activity.
+Both kinds are read by `_receipt_precedes_signal` under the same rules.
+
+After the intent commits, a millisecond clock is sampled immediately before
+calling the relay. A successful acknowledgement enriches that intent with
+`signal_sent=true` and `signal_at`. A crash before transmission, lost reply,
+uncertain/partial write or failed enrichment leaves a conservative pending
+intent. Local oversized-frame refusal, relay `no-child` for a signal and
+already-closed stdin for a close prove no delivery and record
+`signal_sent=false`. An earlier uncertain attempt is never overwritten by a
+retry. Missing clocks, exact ties and second-precision ties retain the same
+conservative rules as group signals.
+
+The wall request time is not used as delivery time: `_request_cancel`
+commits first, `ConversationService.stop` queues a command, and the runner
+transmits it later. An exit proven before the first delivery still supersedes
+the wall, even if the receipt becomes visible only after transmission.
+A restart after an intent commits but before the first transmission keeps
+cancellation, because no acknowledgement durably proves the intent harmless.
+The restart regression reconstructs an actual `Daemon`, discarding all
+runner memory.
+
+### Other relay paths checked
+
+- `turn.interrupt`: `_interrupt` persists the client stop and effective job
+  cancel before queuing the adopted runner's interrupt. Its provider write,
+  timed SIGINT, late SIGINT, close and any future signal tag use `_transmit`.
+- `message.cancel`: `_cancel` withdraws only a message/steer that has not
+  reached the provider, with no relay stop; otherwise it refuses `too-late`
+  and directs the caller to `turn.interrupt`. A withdrawn message that a
+  concurrent adoption observes ends before sending; its close is audited.
+- C-26.6 replay: adoption installs the same callback before `start`. A stop
+  queued after stdout catch-up and any re-sent interrupt use `_transmit`;
+  an already-written frame is skipped, retaining its original durable audit
+  rather than inventing a later delivery clock. Lost-ack intents survive.
+- Timer and error paths: normal and late SIGINT, stdin closes after results,
+  withdrawal/refusal, and later escalation frames all enter `_transmit` by
+  operation, regardless of their tag. C-5.6 containment retains the existing
+  group-signal audit. Provider interrupt is selected by the tag both pure
+  drivers emit (`ClaudeTurn` and `CodexTurn`).
+
+C-7.3 now states the implemented distinction precisely: client/operator
+cascades share the request transaction; a wall cascade shares the parent's
+interrupted settlement transaction and preserves known-exited descendants.
+C-9.2 and the version-3 change log document the expanded delivery audit.
+
+### Validation status
+
+The existing bounded wall interleaving property now mixes real relay frames
+(provider interrupt, signal or close) before kill-protocol group signals. A
+companion property permutes group, interrupt, SIGINT, late SIGINT and close
+with millisecond/legacy-second receipts, checking that supersession holds
+exactly when the exit strictly precedes the earliest delivery.
+
+Validation is in progress. Final per-file results, mutation evidence,
+process-inspection restrictions and cleanup are recorded below on completion.

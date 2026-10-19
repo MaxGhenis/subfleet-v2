@@ -168,8 +168,9 @@ def test_final_wall_cascade_keeps_wall_and_parent_attribution(clocked, monkeypat
           suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow])
 @given(exit_stage=st.sampled_from(["before-cap", "inspection", "pending", "last-read", "after-signal"]),
        client_stage=st.sampled_from([None, "before-cap", "pending", "after-signal"]), rc=st.sampled_from([0, 1]),
-       receipt_write=st.sampled_from(["immediate", "settle"]))
-def test_wall_interleaving_property(clocked, monkeypatch, exit_stage, client_stage, rc, receipt_write):
+       receipt_write=st.sampled_from(["immediate", "settle"]),
+       relay_stop=st.sampled_from([None, "interrupt", "signal", "close"]))
+def test_wall_interleaving_property(clocked, monkeypatch, exit_stage, client_stage, rc, receipt_write, relay_stop):
     with monkeypatch.context() as patch:
         service, harness, clock, jid, aid, adir = setup_running(clocked, patch)
         live, queued, _ = children(service, harness, clock, jid)
@@ -231,6 +232,31 @@ def test_wall_interleaving_property(clocked, monkeypatch, exit_stage, client_sta
         kill = service._kill_attempt
         def kill_attempt(a):
             nonlocal killing
+            if relay_stop is not None:
+                # D-13 can deliver a relay stop before C-5.6 sends its group
+                # signal. Use the real relay, with no child process or socket.
+                import os
+                from types import SimpleNamespace
+                from subfleet.conversations.turn import Frame
+                from subfleet.relay import RelayServer, frame_sha256
+                frame = (Frame("interrupt", "write", '{"method":"turn/interrupt"}') if relay_stop == "interrupt"
+                         else Frame("signal:int", "signal", "INT") if relay_stop == "signal"
+                         else Frame("close", "close"))
+                relay = RelayServer(adir / "property.sock", adir / "stdin.jsonl")
+                reader, relay._pipe = os.pipe()
+                relay._child = SimpleNamespace(poll=lambda: None, send_signal=lambda sig: None)
+                try:
+                    record = service._start_stop_delivery(a, frame, 1)
+                    signal_times.append(clock.t)
+                    line, sig = (frame.line, None) if frame.op == "write" else (None, frame.line)
+                    ack = relay.apply({"seq": 1, "op": frame.op, "tag": frame.tag, "line": line, "sig": sig,
+                                       "sha256": frame_sha256(frame.op, line, sig)})
+                    assert ack["ok"]
+                    record(True)
+                    clock.t += timedelta(milliseconds=2)
+                finally:
+                    relay._close_pipe()
+                    os.close(reader)
             killing = True
             return kill(a)
         patch.setattr(service, "_kill_attempt", kill_attempt)

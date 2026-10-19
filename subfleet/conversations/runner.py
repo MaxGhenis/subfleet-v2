@@ -106,7 +106,8 @@ class TurnRunner:
                  clocks: Clocks = Clocks(), clock: Callable[[], float] = time.monotonic,
                  log=None, on_catalog: Callable[[str, str | None, list], None] | None = None,
                  handover: threading.Lock | None = None, ended: bool = False,
-                 handover_for: Callable[[str], Any] | None = None):
+                 handover_for: Callable[[str], Any] | None = None,
+                 on_stop_delivery: Callable[[Frame, int], Callable[[bool], None]] | None = None):
         self.store = store
         # A replay of an attempt the job store has ended (`ConversationService._replay_unsettled`):
         # its provider is gone whether or not it left an exit receipt.
@@ -120,6 +121,7 @@ class TurnRunner:
         self.control_socket = control_socket
         self.on_outcome = on_outcome
         self.on_contain = on_contain
+        self.on_stop_delivery = on_stop_delivery
         self.on_catalog = on_catalog
         self.catalog_reported = False
         self.clocks = clocks
@@ -783,12 +785,20 @@ class TurnRunner:
 
     def _transmit(self, frame: Frame) -> bool:
         """Send the head frame and act on the answer; whether the outbox may go on."""
+        # C-9.2 / D-WALL1: queuing an interrupt is not delivery. Commit its
+        # intent immediately before I/O, for every stop source (including
+        # replay), signal tag and stdin close. A lost answer leaves it pending.
+        record_stop = (self.on_stop_delivery(frame, self.next_seq)
+                       if self.on_stop_delivery is not None
+                       and (frame.tag == "interrupt" or frame.op in ("signal", "close")) else None)
         try:
             if frame.op == "signal":
                 ack = self.relay.send(self.next_seq, "signal", tag=frame.tag, sig=frame.line)
             else:
                 ack = self.relay.send(self.next_seq, frame.op, line=frame.line, tag=frame.tag)
         except FrameTooLarge as exc:
+            if record_stop is not None:
+                record_stop(False)             # refused locally, never transmitted
             self._refuse_frame(frame, exc)
             return True
         except RelayError as exc:
@@ -798,6 +808,12 @@ class TurnRunner:
                 self._steer_tried.add(frame.tag.removeprefix("steer:"))
             self._unacknowledged(f"frame {frame.tag}: {exc}")
             return False
+        if record_stop is not None:
+            if ack.ok:
+                record_stop(True)
+            elif (ack.error == "closed" and frame.op == "close") or (ack.error == "no-child" and frame.op == "signal"):
+                record_stop(False)             # the relay proves nothing was delivered
+            # Other failures can follow a partial write: keep the intent pending.
         self.resends = 0
         if ack.ok:
             self.sent[frame.tag] = "written"

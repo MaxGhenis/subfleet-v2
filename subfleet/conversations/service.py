@@ -2904,7 +2904,8 @@ class ConversationService:
                             on_contain=self._on_contain, log=self.log,
                             clocks=Clocks.from_policy(self.daemon.policy),   # C-24.7, C-26.5, C-26.9
                             on_catalog=self._on_catalog, handover=self._handover(turn["message_id"]),
-                            ended=ended, handover_for=self._handover)
+                            ended=ended, handover_for=self._handover,
+                            on_stop_delivery=lambda frame, seq: self.daemon._start_stop_delivery(attempt, frame, seq))
         if legacy:
             # C-30.4, D-17: a pass run while the daemon was down found the
             # legacy cockpit may be using this session again. A turn that
@@ -3021,6 +3022,10 @@ class ConversationService:
         runner = self.runners.get(attempt["attempt_id"])
         if runner is None or runner.contained or runner.finished.is_set():
             return False
+        # Also bind an already registered runner before the wall queues its stop.
+        # Ordinary adoption installs this before the runner thread starts, so
+        # client stops and C-26.6 replay take exactly the same audited path.
+        runner.on_stop_delivery = lambda frame, seq: self.daemon._start_stop_delivery(attempt, frame, seq)
         if runner.stop_at is None:
             runner.interrupt(reason)
         return True

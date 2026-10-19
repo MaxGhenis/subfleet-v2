@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 if TYPE_CHECKING:
     from .conversations.peers import AuditToken
+    from .conversations.turn import Frame
 
 from . import __version__
 from . import capacity, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, ramp, render, route_check, scheduler
@@ -3935,8 +3936,34 @@ class Daemon:
                              "AND kind='job.wall_cancel_superseded'),0) ORDER BY event_id DESC LIMIT 1", (job_id, job_id))
         return cancel_info(row["ts"], row["data_json"]) if row else None
 
+    def _start_stop_delivery(self, a: dict, frame: Frame, seq: int) -> Callable[[bool], None]:
+        """Commit a relay stop's intent before transmission, then enrich its clock.
+
+        Separate from kill_started so a concurrent runner cannot take the kill
+        protocol's event id. Both kinds participate in the same ordering check.
+        A crash or uncertain acknowledgement leaves the intent conservative.
+        """
+        data = {"via": "relay", "op": frame.op, "tag": frame.tag, "seq": seq, "signal_pending": True}
+        with self.store.transaction("attempt.stop_delivery_recorded", job_id=a["job_id"],
+                                    attempt_id=a["attempt_id"]) as tx:
+            event_id = tx.execute("INSERT INTO events(ts,kind,job_id,attempt_id,data_json) VALUES (?,?,?,?,?)",
+                                  (utcnow_ms(), "attempt.stop_delivery", a["job_id"], a["attempt_id"],
+                                   json.dumps(data))).lastrowid
+        # Sample after the durable commit, immediately before relay.send. Never
+        # substitute the asynchronous wall request's earlier timestamp.
+        sent_at = utcnow_ms()
+
+        def record(sent: bool) -> None:
+            result = {**data, "signal_pending": False, "signal_sent": sent,
+                      "signal_at": sent_at if sent else None}
+            with self.store.transaction("attempt.stop_delivery_recorded", job_id=a["job_id"],
+                                        attempt_id=a["attempt_id"]) as tx:
+                tx.execute("UPDATE events SET ts=?,data_json=? WHERE event_id=?",
+                           (sent_at, json.dumps(result), event_id))
+        return record
+
     def _receipt_precedes_signal(self, a: dict, receipt: dict) -> bool:
-        """C-9.2: no signal, or a receipt proving exit strictly before every signal.
+        """C-9.2: exit strictly before every group signal and relay stop delivery.
 
         Historical kill intents without a signal clock cannot prove ordering.
         A second-precision receipt cannot resolve an exit in the signal's second.
@@ -3946,8 +3973,10 @@ class Daemon:
         if receipt.get("rc") is None or receipt.get("killed_by"):
             return False
         for event in self.store.query("SELECT event_id,data_json FROM events WHERE attempt_id=? "
-                                      "AND kind='attempt.kill_started'", (a["attempt_id"],)):
+                                      "AND kind IN ('attempt.kill_started','attempt.stop_delivery')", (a["attempt_id"],)):
             data = json.loads(event["data_json"])
+            if data.get("signal_pending") is True:
+                return False
             if data.get("signal_sent") is False:
                 continue
             try:
