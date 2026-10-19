@@ -64,17 +64,34 @@ from .turn import (
 
 
 def _suggestion_errors(handler):
-    """Keep direct suggestion refusals inside the public template vocabulary too."""
+    """Keep direct suggestion refusals inside the public template vocabulary too.
+    What the template leaves out, the refusing op's own words, goes to daemon.log
+    only, scrubbed (C-26.10, C-25.7)."""
+    op = handler.__name__.removeprefix("op_").replace("_", ".", 1)     # `op_suggestion_start`: suggestion.start
+
     @functools.wraps(handler)
     def checked(self, args, peer):
         try:
             return handler(self, args, peer)
         except ConversationError as exc:
+            if not _template_only(exc):
+                refusals.log_detail(self.log, op, exc)
             reason = suggestions.error_reason(exc) or "suggestion-failed"
             raise suggestions.SuggestionError(reason, suggestions.scrub_error(exc), code=suggestions.error_code(exc),
                                               fix=suggestions.error_fix(exc),
                                               details=suggestions.error_details(exc)) from None
     return checked
+
+
+def _template_only(exc: ConversationError) -> bool:
+    """Whether a suggestion refusal's words and repair are the template the wire shows,
+    so daemon.log would learn nothing from them."""
+    reason = suggestions.error_reason(exc)
+    try:
+        return (reason is not None and str(exc) == suggestions.error_message(reason, suggestions.error_details(exc))
+                and exc.fix in (None, suggestions.error_fix(exc)))
+    except Exception:                       # noqa: BLE001 - words that cannot be compared are logged
+        return False
 
 # `jobs.kind.v1`: `list` honours `kind` and `include_turns` and leaves turn jobs out by
 # default; `status.json` rows carry `kind` (C-18.2, C-26.12, C-29.6).
@@ -298,7 +315,7 @@ class ConversationService:
                                          suggestions.error_fix(exc))
             else:
                 response = protocol.refuse(req.id, exc)
-                refusals.log_detail(self.log, req.op, exc)
+            refusals.log_detail(self.log, req.op, exc)
         except (ValueError, TypeError, KeyError) as exc:
             message = (suggestions.scrub_error(exc, prefix="invalid arguments: ")
                        if req.op in suggestions.SUGGESTION_OPS else
