@@ -225,18 +225,20 @@ def running_at_preflight(probe, monkeypatch):
     monkeypatch.setattr(probe, "holder_report", first_report)
 
 
+# Failure-diagnosis cases budget more than one probe interval; the round-3
+# slot-expiry cases below separately require short budgets to end without a probe.
 def test_a_stop_during_the_call_is_named_and_its_outcome_stays_unknown(stopped_holder, root, monkeypatch):
     """C-5.13, C-16.3 a daemon stopped after the request was sent is named, not
     reported as silence, but the request is in its buffer, so the answer is lost
     rather than "not sent"; the next call asks the lock before it sends."""
-    probe = Client(root, timeout=0.2)
+    probe = Client(root, timeout=1.2)
     running_at_preflight(probe, monkeypatch)
     with backlog(root) as queued:
         with pytest.raises(ResponseLost) as caught:
             probe.call("daemon.status", {})
         assert not isinstance(caught.value, DaemonUnavailable), "the request was sent"
         assert caught.value.code == Exit.OPERATIONAL
-        assert "no response from the daemon within 0.2s" in str(caught.value)
+        assert "no response from the daemon within 1.2s" in str(caught.value)
         assert "is stopped" in str(caught.value) and str(stopped_holder.pid) in str(caught.value)
         assert caught.value.fix == f"kill -CONT {stopped_holder.pid}"
         with pytest.raises(client_module.DaemonStopped):
@@ -248,7 +250,7 @@ def test_a_submit_lost_to_a_stop_is_unknown_and_not_re_sent_into_the_buffer(stop
     """C-5.13, C-16.3 the re-send asks the lock first: the stopped holder refuses
     it before it is written, so the outcome is unknown at once, not after the
     re-send's own deadline."""
-    probe = Client(root, timeout=0.2)
+    probe = Client(root, timeout=1.2)
     running_at_preflight(probe, monkeypatch)
     lost: list[ResponseLost] = []
     with backlog(root) as queued:
@@ -265,7 +267,7 @@ def test_a_submit_lost_to_a_stop_is_unknown_and_not_re_sent_into_the_buffer(stop
 def test_a_kill_lost_to_a_stop_goes_to_offline_mode(stopped_holder, root, monkeypatch):
     """C-5.13, C-16.3, C-17.5 a daemon gone before the re-send sends a kill to
     offline mode, and a stopped one is gone in exactly that sense."""
-    probe = Client(root, timeout=0.2)
+    probe = Client(root, timeout=1.2)
     running_at_preflight(probe, monkeypatch)
     with backlog(root) as queued:
         with pytest.raises(client_module.DaemonStopped) as caught:
@@ -281,7 +283,7 @@ def test_a_connect_that_times_out_is_re_diagnosed_too(stopped_holder, root, monk
         raise TimeoutError("timed out")
 
     monkeypatch.setattr(socket.socket, "connect", timed_out)
-    probe = Client(root, timeout=0.2)
+    probe = Client(root, timeout=1.2)
     running_at_preflight(probe, monkeypatch)
     with pytest.raises(client_module.DaemonStopped) as caught:
         probe.call("daemon.status", {})
@@ -291,7 +293,7 @@ def test_a_connect_that_times_out_is_re_diagnosed_too(stopped_holder, root, monk
 def silent_call(root):
     with backlog(root):
         with pytest.raises(ResponseLost) as caught:
-            Client(root, timeout=0.2).call("daemon.status", {})
+            Client(root, timeout=1.2).call("daemon.status", {})
     return caught.value
 
 
@@ -299,7 +301,7 @@ def test_a_silent_daemon_that_is_not_stopped_keeps_its_exit_code(running_holder,
     """C-17.3, C-5.13 silence is still exit 1; with a verified running holder the fix is never a second daemon."""
     error = silent_call(root)
     assert error.code == Exit.OPERATIONAL
-    assert "no response from the daemon within 0.2s" in str(error)
+    assert "no response from the daemon within 1.2s" in str(error)
     assert "second daemon" in error.fix and str(running_holder.pid) in error.fix
 
 
@@ -314,12 +316,12 @@ def test_a_refused_connect_asks_the_holder_too(running_holder, root, monkeypatch
     """C-5.13 a full backlog refuses rather than queues, so a refused connect is not "nobody is there"."""
     (root / "daemon.sock").touch()                      # a path nothing listens on: connect is refused
     with pytest.raises(DaemonUnavailable) as caught:
-        Client(root, timeout=1).call("daemon.status", {})
+        Client(root, timeout=2).call("daemon.status", {})
     assert not isinstance(caught.value, client_module.DaemonStopped)
     assert str(running_holder.pid) in str(caught.value) and "second daemon" in caught.value.fix
     stop(running_holder)
     try:
-        probe = Client(root, timeout=1)
+        probe = Client(root, timeout=2)
         running_at_preflight(probe, monkeypatch)
         with pytest.raises(client_module.DaemonStopped):
             probe.call("daemon.status", {})
@@ -331,7 +333,7 @@ def test_a_refused_connect_with_no_holder_is_the_plain_absence(root):
     """C-5.13 with no lock at all, a refused connect is the ordinary "no daemon" and its fix is to start one."""
     (root / "daemon.sock").touch()
     with pytest.raises(DaemonUnavailable) as caught:
-        Client(root, timeout=1).call("daemon.status", {})
+        Client(root, timeout=2).call("daemon.status", {})
     assert "no daemon at" in str(caught.value) and caught.value.fix == "subfleet daemon start"
 
 
