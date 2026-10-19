@@ -89,7 +89,7 @@ def test_review_launch_real_git_push_local_file_is_denied(tmp_path, provider, sa
     subprocess.run([real_git, '-C', launch.cwd, 'config', 'remote.fixture.pushurl', remote], check=True)
     assert run([real_git, '-c', 'protocol.file.allow=always', 'push', 'fixture', 'HEAD:refs/heads/proof'], launch).returncode != 0
     # Removing environment/config markers still cannot enable the wrapped git.
-    assert run(['/usr/bin/env', '-u', 'GIT_ALLOW_PROTOCOL', '-u', 'GIT_CONFIG_COUNT',
+    assert run(['/usr/bin/env', '-u', 'GIT_ALLOW_PROTOCOL', '-u', 'GIT_CONFIG_PARAMETERS',
                 'git', '-c', 'protocol.file.allow=always', 'push', remote, 'HEAD'], launch).returncode != 0
     assert launch.notes['publish_denied'] is True
     assert run(['git', 'log', '-1', '--oneline'], launch).returncode == 0
@@ -382,3 +382,36 @@ def test_claude_publish_hook_rides_only_writable_review_launches(tmp_path, sandb
         [hook] = group['hooks']
         assert Path(hook['command']).name == 'review-publish-hook' and os.access(hook['command'], os.X_OK)
         assert launch.env_add['SUBFLEET_PUBLISH_DENIED'] == '1'
+
+
+# #221 review r1b, P3-1: Codex's `shell_environment_policy` documents default
+# excludes, `*KEY*`, `*SECRET*` and `*TOKEN*` (case-insensitive), applied when
+# `ignore_default_excludes=false`. With GIT_CONFIG_KEY_<n> stripped and
+# GIT_CONFIG_COUNT kept, every git command failed (`missing config key
+# GIT_CONFIG_KEY_0`, rc 128, `codex sandbox` 0.159). The wrapper re-added the
+# variables, which hid it; absolute git, as here, does not go through it.
+CODEX_DEFAULT_EXCLUDES = ('*KEY*', '*SECRET*', '*TOKEN*')
+
+
+def codex_excluded(env):
+    import fnmatch
+    return {name: value for name, value in env.items()
+            if not any(fnmatch.fnmatchcase(name.upper(), pattern) for pattern in CODEX_DEFAULT_EXCLUDES)}
+
+
+@pytest.mark.parametrize('provider', ['codex', 'claude'])
+def test_git_denial_survives_codex_default_environment_excludes(tmp_path, provider):
+    remote = local_remote(tmp_path)
+    launch = protected(tmp_path, provider)
+    env = codex_excluded({**os.environ, **launch.env_add})
+    git = shutil.which('git')
+    log = subprocess.run([git, 'log', '-1', '--oneline'], cwd=launch.cwd, env=env, capture_output=True, text=True)
+    assert log.returncode == 0, log.stderr
+    for shell_env in (env, {name: value for name, value in env.items() if name != 'GIT_ALLOW_PROTOCOL'}):
+        # Without the allowlist the push URL rewrite alone still refuses, even with file:// allowed.
+        push = subprocess.run([git, '-c', 'protocol.file.allow=always', 'push', remote, 'HEAD:refs/heads/proof'],
+                              cwd=launch.cwd, env=shell_env, capture_output=True, text=True)
+        assert push.returncode != 0
+    assert subprocess.run([git, 'ls-remote', remote], capture_output=True).stdout == b''
+    from subfleet.review_publish import GIT_DENIAL
+    assert set(GIT_DENIAL) <= set(codex_excluded(GIT_DENIAL)), 'no denial variable may match an exclude'

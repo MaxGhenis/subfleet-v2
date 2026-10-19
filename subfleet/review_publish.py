@@ -14,7 +14,8 @@ never-rules guard:
 2. **Git configuration in the environment.** `GIT_ALLOW_PROTOCOL=""` refuses
    every remote transport, push and fetch alike, whatever config or absolute
    binary is used, and survives shell startup. A push URL rewrite to a refused
-   transport backs it up.
+   transport backs it up. No name matches Codex's default `*KEY*`, `*SECRET*`
+   or `*TOKEN*` excludes, so a lane config that turns them on keeps both.
 3. **PATH wrappers** for `git` and `gh`, which hold when nothing reorders PATH.
 
 These are command-surface restrictions, not an OS boundary: code that
@@ -42,11 +43,11 @@ GIT_DENIAL = {
     # remotes with an explicit pushurl (which bypass pushInsteadOf). Local git
     # reads work; remote Git transports, including fetch, are unavailable.
     "GIT_ALLOW_PROTOCOL": "",
-    "GIT_CONFIG_COUNT": "2",
-    "GIT_CONFIG_KEY_0": "url.subfleet-publish-denied::.pushInsteadOf",
-    "GIT_CONFIG_VALUE_0": "",
-    "GIT_CONFIG_KEY_1": "protocol.subfleet-publish-denied.allow",
-    "GIT_CONFIG_VALUE_1": "never",
+    # `git -c`'s own form. GIT_CONFIG_COUNT/KEY_<n>/VALUE_<n> broke every git
+    # command once Codex's documented `*KEY*` exclude stripped the keys
+    # (`missing config key GIT_CONFIG_KEY_0`; #221 review r1b, P3-1).
+    "GIT_CONFIG_PARAMETERS": ("'url.subfleet-publish-denied::.pushInsteadOf'='' "
+                              "'protocol.subfleet-publish-denied.allow'='never'"),
 }
 #: The hook script's name, in a launch's `publish-bin` and in the state root's
 #: `publish-guard` directory (the stable path a Codex trust hash is taken of).
