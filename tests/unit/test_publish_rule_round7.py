@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import shutil
 import subprocess
@@ -440,7 +441,8 @@ def test_real_codex_sandbox_keeps_the_git_denial_under_inherit_core(tmp_path):
     subprocess.run([git, '-C', str(bare), 'update-ref', '-d', 'refs/heads/probe'], check=True)
     pinned = subprocess.run(base + [word for pin in pins for word in ('-c', pin)] + push, cwd=work, env=env,
                             capture_output=True, text=True, timeout=120)
-    assert "transport 'file' not allowed" in pinned.stderr, pinned.stderr[-2000:]
+    # Either layer of the denial: the push URL rewrite's transport, or the empty allowlist.
+    assert re.search(r"transport '(subfleet-publish-denied|file)' not allowed", pinned.stderr), pinned.stderr[-2000:]
     assert landed() == ''
 
 
@@ -457,3 +459,74 @@ def test_writable_claude_review_loads_only_user_settings_and_the_publish_hook(tm
         assert '--settings' not in other
         assert other[other.index('--setting-sources') + 1] == '' if name == 'ro' else '--setting-sources' not in other
 
+
+# P3-7: the launch self-test, on the hook `install_hook` writes and on broken ones.
+def self_test_env(tmp_path):
+    return {'PATH': os.environ['PATH'], 'HOME': str(tmp_path), 'SUBFLEET_PUBLISH_DENIED': '1'}
+
+
+def test_the_self_test_passes_the_installed_hook_and_caches_the_pass(tmp_path, monkeypatch):
+    import sys
+    from subfleet import review_publish
+    path = review_publish.install_hook(tmp_path / 'hook')
+    command = review_publish.hook_command(path)
+    package = Path(review_publish.__file__).resolve().parent
+    assert review_publish.hook_files(command) == [str(path), sys.executable, str(package / '__init__.py'),
+                                                  str(package / 'publish_rule.py')]
+    cache: dict = {}
+    first = review_publish.hook_self_test(command, self_test_env(tmp_path), cwd=str(tmp_path), cache=cache)
+    assert first.ok and not first.cached and first.elapsed_s > 0
+
+    def runs_nothing(*args, **kwargs):
+        raise AssertionError('a cached pass runs nothing')
+
+    monkeypatch.setattr(review_publish.subprocess, 'run', runs_nothing)
+    second = review_publish.hook_self_test(command, self_test_env(tmp_path), cwd=str(tmp_path), cache=cache)
+    assert second.ok and second.cached
+    monkeypatch.undo()
+    # The same command over changed bytes is a new key: it runs again, and fails.
+    path.chmod(0o755)
+    path.write_bytes(b'#!/bin/sh\ncat >/dev/null\nexit 0\n')
+    third = review_publish.hook_self_test(command, self_test_env(tmp_path), cwd=str(tmp_path), cache=cache)
+    assert not third.ok and not third.cached and third.detail == 'exit 0, no deny'
+
+
+@pytest.mark.parametrize('script,detail', [
+    (b'#!/bin/sh\ncat >/dev/null\nexit 0\n', 'exit 0, no deny'),
+    (b'#!/bin/sh\necho \'{"hookSpecificOutput": {"permissionDecision": "allow"}}\'\n', 'exit 0, no deny'),
+    (b'#!/bin/sh\necho not-json\n', 'exit 0, no deny'),
+    (b'#!/bin/sh\nexit 2\n', 'exit 2, failed'),
+    (b'#!/nonexistent/python3 -I\n', 'exit 126, failed'),
+], ids=['silent', 'allow', 'garbage', 'exit-2', 'missing-interpreter'])
+def test_the_self_test_refuses_a_hook_that_does_not_deny(tmp_path, script, detail):
+    from subfleet import review_publish
+    path = tmp_path / 'hook'
+    path.write_bytes(script)
+    path.chmod(0o755)
+    cache: dict = {}
+    verdict = review_publish.hook_self_test(review_publish.hook_command(path), self_test_env(tmp_path),
+                                            cwd=str(tmp_path), cache=cache)
+    assert not verdict.ok and verdict.detail.split(',')[1] == detail.split(',')[1] and cache == {}
+
+
+def test_the_self_test_refuses_a_hook_that_hangs(tmp_path):
+    from subfleet import review_publish
+    path = tmp_path / 'hook'
+    path.write_bytes(b'#!/bin/sh\nexec sleep 2\n')
+    path.chmod(0o755)
+    verdict = review_publish.hook_self_test(review_publish.hook_command(path), self_test_env(tmp_path),
+                                            cwd=str(tmp_path), timeout_s=0.5)
+    assert not verdict.ok and verdict.detail == 'TimeoutExpired'
+
+
+def test_installed_publish_hooks_reads_both_providers_launches(tmp_path):
+    from subfleet.review_publish import installed_publish_hooks
+    claude = protected(tmp_path, provider='claude')
+    [hook] = installed_publish_hooks(claude.argv)
+    assert hook.endswith('/publish-bin/review-publish-hook')
+    (tmp_path / 'codex').mkdir()
+    codex = protected(tmp_path / 'codex', provider='codex')
+    [hook] = installed_publish_hooks(codex.argv)          # the guard's own group is not the publish hook
+    assert hook.endswith('/publish-guard/review-publish-hook')
+    (tmp_path / 'build').mkdir()
+    assert installed_publish_hooks(protected(tmp_path / 'build', provider='claude', task='build').argv) == []

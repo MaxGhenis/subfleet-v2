@@ -25,12 +25,17 @@ found on disk is not stopped.
 """
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
+import hashlib
 import json
 import os
 from pathlib import Path
+import re
+import shlex
 import shutil
+import subprocess
 import sys
+import time
 
 from .contracts import JobSpec, Launch, Sandbox
 from .guardian import atomic_publish
@@ -55,6 +60,8 @@ HOOK_NAME = "review-publish-hook"
 HOOK_DIRECTORY = "publish-guard"
 #: Claude's hook budget; the rule itself takes milliseconds.
 CLAUDE_HOOK_TIMEOUT_S = 30
+#: What the launch self-test asks the installed hook to judge (#221 review r2, P3-7).
+SELF_TEST_COMMAND = "gh pr comment 1 --body x"
 
 
 def publishing_denied(job: JobSpec) -> bool:
@@ -188,4 +195,130 @@ def protect_launch(job: JobSpec, launch: Launch, attempt_dir: Path) -> Launch:
         env_add={**launch.env_add, **pinned_environment(),
                  'PATH': str(directory) + os.pathsep + path},
         notes={**launch.notes, 'publish_denied': True})
+
+
+def installed_publish_hooks(argv) -> list[str]:
+    """The publish-hook commands a launch's own argv installs: Claude's
+    `--settings` PreToolUse hooks, and the group of Codex's `-c hooks=`
+    override whose status is the publish guard's."""
+    from .guard.preflight import PUBLISH_HOOK_STATUS
+    import tomllib
+    argv = [str(arg) for arg in argv]
+    commands: list[str] = []
+    for index, arg in enumerate(argv):
+        groups = []
+        if arg == "--settings" and index + 1 < len(argv):
+            try:
+                groups = json.loads(argv[index + 1]).get("hooks", {}).get("PreToolUse", [])
+            except (ValueError, AttributeError):
+                continue
+            wanted = lambda hook: True                                   # noqa: E731
+        elif arg.startswith("hooks="):
+            try:
+                groups = tomllib.loads(arg)["hooks"].get("PreToolUse", [])
+            except (tomllib.TOMLDecodeError, KeyError, AttributeError):
+                continue
+            wanted = lambda hook: hook.get("statusMessage") == PUBLISH_HOOK_STATUS  # noqa: E731
+        for group in groups if isinstance(groups, list) else []:
+            for hook in (group.get("hooks") or []) if isinstance(group, dict) else []:
+                if isinstance(hook, dict) and hook.get("type") == "command" and isinstance(hook.get("command"), str) \
+                        and wanted(hook):
+                    commands.append(hook["command"])
+    return commands
+
+
+#: SHA-256 of a file, by its identity (real path, device, inode, size, mtime):
+#: an 18 MB interpreter is hashed once per daemon run, not once per launch.
+_DIGESTS: dict[tuple, str] = {}
+
+
+def _digest(path: str | Path) -> str:
+    info = os.stat(path)
+    key = (os.path.realpath(path), info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
+    found = _DIGESTS.get(key)
+    if found is None:
+        digest = hashlib.sha256()
+        with open(path, "rb") as stream:
+            for chunk in iter(lambda: stream.read(1 << 20), b""):
+                digest.update(chunk)
+        found = _DIGESTS[key] = digest.hexdigest()
+    return found
+
+
+def hook_files(command: str) -> list[str]:
+    """The files a hook command runs: the script it names, the interpreter on
+    its `#!` line, and the modules the package path it inserts supplies
+    (`subfleet/__init__.py` and `subfleet/publish_rule.py`, as `install_hook`
+    writes it)."""
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        return []
+    if not words:
+        return []
+    files = [words[0]]
+    try:
+        head = Path(words[0]).read_bytes()[:4096].decode("utf-8", "replace")
+    except OSError:
+        return files
+    if head.startswith("#!") and head[2:].split():
+        files.append(head[2:].split()[0])
+    package = re.search(r"sys\.path\.insert\(0, (['\"])(.*?)\1\)", head)
+    if package:
+        files += [str(Path(package[2]) / "subfleet" / "__init__.py"),
+                  str(Path(package[2]) / "subfleet" / "publish_rule.py")]
+    return files
+
+
+@dataclass(frozen=True)
+class SelfTest:
+    """A launch self-test's verdict: whether the hook denied, from the cache or not, and how long it took."""
+    ok: bool
+    cached: bool
+    elapsed_s: float
+    detail: str = ""
+
+
+def _denies(stdout: str) -> bool:
+    try:
+        answer = json.loads(stdout.strip() or "{}")
+    except ValueError:
+        return False
+    output = answer.get("hookSpecificOutput") if isinstance(answer, dict) else None
+    return isinstance(output, dict) and output.get("permissionDecision") == "deny"
+
+
+def hook_self_test(command: str, env: dict[str, str], *, cwd: str | None = None, cache: dict | None = None,
+                   timeout_s: float = CLAUDE_HOOK_TIMEOUT_S) -> SelfTest:
+    """Feed the hook command a launch will install a PreToolUse payload for
+    `gh pr comment 1 --body x`, in the launch's environment, and say whether it
+    answers with the deny JSON (#221 review r2, P3-7).
+
+    The repo's references say a hook that exits without JSON lets the call
+    through (`docs/reference/claude-hooks.md` section 3), and the guard
+    preflight trusts the command string without running it, so a hook that
+    cannot start (a moved interpreter, a package path that is gone) would
+    allow every command. A pass is cached in `cache` (one per daemon run),
+    keyed by the command and the SHA-256 of each file it runs (`hook_files`);
+    a failure is not cached, so the next launch tries again.
+    """
+    started = time.monotonic()
+    try:
+        key = (command, *(_digest(path) for path in hook_files(command)))
+    except OSError:
+        key = None
+    if cache is not None and key is not None and cache.get(key):
+        return SelfTest(True, True, round(time.monotonic() - started, 6))
+    payload = json.dumps({"session_id": "subfleet-publish-self-test", "hook_event_name": "PreToolUse",
+                          "tool_name": "Bash", "tool_input": {"command": SELF_TEST_COMMAND}, "cwd": cwd or "/"})
+    try:
+        result = subprocess.run(["/bin/sh", "-c", command], input=payload, env=env, cwd=cwd,
+                                capture_output=True, text=True, timeout=timeout_s)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return SelfTest(False, False, round(time.monotonic() - started, 6), type(exc).__name__)
+    ok = result.returncode == 0 and _denies(result.stdout)
+    if ok and cache is not None and key is not None:
+        cache[key] = True
+    return SelfTest(ok, False, round(time.monotonic() - started, 6),
+                    "" if ok else f"exit {result.returncode}, {'no deny' if result.returncode == 0 else 'failed'}")
 

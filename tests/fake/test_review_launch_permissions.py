@@ -1,5 +1,9 @@
 """D-SH1 round 2: reviews can test in their worktree, but cannot publish."""
+import dataclasses
+import json
 from pathlib import Path
+import subprocess
+from types import SimpleNamespace
 
 import pytest
 
@@ -10,6 +14,11 @@ from subfleet.daemon import after, utcnow
 from tests.fake.test_review_needs_shell import shell_state, review  # noqa: F401
 from tests.fake.test_state_contract import launched, receipt_fixture, state_daemon  # noqa: F401
 from tests.fake.test_workspace_contract import repository
+from tests.fake.test_daemon_launch import launch_state  # noqa: F401
+from tests.fake_adapter import FakeAdapter
+
+#: Captured before any fixture records Popen: the self-test's own process runs for real.
+REAL_POPEN = subprocess.Popen
 
 
 @pytest.mark.parametrize('model', ['sol61', 'opus'])
@@ -372,4 +381,96 @@ def test_offline_json_matches_the_daemon_for_launch_flags(shell_state, model, sa
     for key in ('publish_denied', 'has_shell'):
         if key in offline_job and key in daemon_job:
             assert json.dumps(offline_job[key]) == json.dumps(daemon_job[key]), key
+
+
+# #221 review r2, P3-7: nothing checked at launch that the installed hook
+# actually denies; a hook that exits without JSON lets every call through.
+class HookedFake(FakeAdapter):
+    """The fake provider, with a writable Claude review's `--settings` publish
+    hook in its argv; `script` replaces the hook's bytes when set."""
+    script: bytes | None = None
+
+    def build_launch(self, job, attempt_id, attempt_dir, lane, credential_env, *args, **kwargs):
+        from subfleet.review_publish import hook_command, install_hook
+        launch = super().build_launch(job, attempt_id, attempt_dir, lane, credential_env, *args, **kwargs)
+        path = install_hook(Path(attempt_dir) / 'publish-bin')
+        if self.script is not None:
+            path.chmod(0o755)
+            path.write_bytes(self.script)
+        settings = {"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "command": hook_command(path),
+                                                         "timeout": 30}]}]}}
+        return dataclasses.replace(launch, argv=(*launch.argv, "--setting-sources", "user",
+                                                 "--settings", json.dumps(settings)))
+
+
+@pytest.fixture
+def hooked_launch(launch_state, monkeypatch):  # noqa: F811
+    from subfleet import daemon as module
+    from subfleet.adapters.registry import register
+    daemon, harness, _calls = launch_state
+    register("codex", HookedFake)
+    guardians = []
+
+    def record(command, **kwargs):
+        if list(command[1:3]) == ["-m", "subfleet.guardian"]:
+            guardians.append(command)
+            return SimpleNamespace(pid=987654321, poll=lambda: None)
+        return REAL_POPEN(command, **kwargs)
+
+    monkeypatch.setattr(module.subprocess, "Popen", record)
+    try:
+        yield daemon, harness, guardians
+    finally:
+        register("codex", FakeAdapter)
+        HookedFake.script = None
+
+
+def reserve_review(daemon, harness):
+    job_id = daemon.dispatch("submit", harness.submit_args(task="review"))["job_id"]
+    daemon._admit()
+    return daemon.store.list_attempts(job_id)[0]
+
+
+def test_the_installed_publish_hook_is_run_before_launch(hooked_launch):
+    daemon, harness, guardians = hooked_launch
+    a = reserve_review(daemon, harness)
+    daemon._launch(a)
+    assert len(guardians) == 1, "the hook denied, so the guardian started"
+    record = json.loads((daemon.root / "jobs" / a["job_id"] / "a1" / "launch.json").read_text())
+    [verdict] = record["notes"]["publish_hook_self_test"]
+    assert verdict["ok"] is True and verdict["cached"] is False and verdict["elapsed_s"] > 0
+    log = (daemon.root / "daemon.log").read_text()
+    assert f"publish hook self-test attempt={a['attempt_id']} ok=True cached=False" in log
+
+
+@pytest.mark.parametrize("script", [b"#!/bin/sh\ncat >/dev/null\nexit 0\n", b"#!/bin/sh\nexit 2\n",
+                                    b"#!/nonexistent/python3 -I\n"], ids=["silent", "exit-2", "missing-interpreter"])
+def test_a_publish_hook_that_does_not_deny_refuses_the_launch(hooked_launch, script):
+    daemon, harness, guardians = hooked_launch
+    HookedFake.script = script
+    a = reserve_review(daemon, harness)
+    daemon._launch(a)
+    assert guardians == [], "a hook that would let gh writes through starts no provider"
+    adir = daemon.root / "jobs" / a["job_id"] / "a1"
+    receipt = json.loads((adir / "exit.json").read_text())
+    assert receipt["rc"] == 7
+    assert receipt["spawn_error"].startswith("the review publish hook did not deny a gh write")
+    assert not (adir / "launch.json").exists()
+    assert "ok=False" in (daemon.root / "daemon.log").read_text()
+
+
+def test_a_launch_that_installs_no_publish_hook_runs_no_self_test(hooked_launch, monkeypatch):
+    """A build, and every fake-adapter launch elsewhere, installs none: nothing extra runs."""
+    from subfleet import review_publish
+    daemon, harness, guardians = hooked_launch
+    from subfleet.adapters.registry import register
+    register("codex", FakeAdapter)
+
+    def never(*args, **kwargs):
+        raise AssertionError("no hook to test")
+
+    monkeypatch.setattr(review_publish, "hook_self_test", never)
+    a = reserve_review(daemon, harness)
+    daemon._launch(a)
+    assert len(guardians) == 1
 

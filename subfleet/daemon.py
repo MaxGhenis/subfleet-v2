@@ -703,6 +703,9 @@ class Daemon:
         self.stop_grace_s = stop_grace_s
         self.on_stop: Callable[[], bool | None] | None = None
         self.crash_hook, self.publish_hook = crash_hook, publish_hook
+        # C-12.4, #221 review r2 P3-7: publish-hook self-tests that denied, for
+        # this daemon run, keyed by hook command and the hashes of its files.
+        self._hook_self_tests: dict[tuple, bool] = {}
         # C-10.3: who asks the desktop app's own credential who it is. `None`
         # means the Claude adapter's keychain reader; a harness that must not
         # touch a real login passes its own, and one that returns nothing keeps
@@ -3269,6 +3272,33 @@ class Daemon:
                                        "guard-preflight-probe" if result.kind == PROBE else "guard-preflight"),
                                details={"guard_kind": result.kind})
         return result if full else result.override
+
+    def _publish_self_test(self, lane: Lane, launch: Launch, a: dict) -> tuple[Launch, AdapterError | None]:
+        """C-12.4, #221 review r2 P3-7: before a publish-denied launch starts,
+        each publish hook its argv installs is fed a PreToolUse payload for `gh
+        pr comment 1 --body x`, in the launch's environment with its C-5.1
+        markers; the launch is refused (`publish-hook-self-test`) unless every
+        one answers with the deny JSON. A pass is cached for this daemon run
+        (`review_publish.hook_self_test`); the verdict rides in launch.json."""
+        from .review_publish import hook_self_test, installed_publish_hooks
+        commands = installed_publish_hooks(launch.argv) if launch.notes.get("publish_denied") else []
+        if not commands:
+            return launch, None
+        env = self._launch_environment(lane, launch)
+        env.update(SUBFLEET_JOB=a["job_id"], SUBFLEET_ATTEMPT=a["attempt_id"], SUBFLEET_ROOT=str(self.root))
+        verdicts = []
+        for command in commands:
+            verdict = hook_self_test(command, env, cwd=launch.cwd, cache=self._hook_self_tests)
+            verdicts.append({"ok": verdict.ok, "cached": verdict.cached, "elapsed_s": verdict.elapsed_s})
+            self.log.info("publish hook self-test attempt=%s ok=%s cached=%s elapsed=%ss%s", a["attempt_id"],
+                          verdict.ok, verdict.cached, verdict.elapsed_s,
+                          f": {verdict.detail}" if verdict.detail else "")
+            if not verdict.ok:
+                return launch, AdapterError(
+                    "the review publish hook did not deny a gh write when it was tested before launch",
+                    code=7, fix="check the hook's interpreter and package path with subfleet doctor, then submit again",
+                    reason="publish-hook-self-test")
+        return dataclasses.replace(launch, notes={**launch.notes, "publish_hook_self_test": verdicts}), None
 
     def _record_launch(self, attempt_id: str, provider: str, sandbox: Any, publish_denied: bool) -> None:
         """C-12.4: what this attempt's launch got, written once the launch is built.
@@ -7581,6 +7611,10 @@ class Daemon:
             return
         from .review_publish import protect_launch
         launch = protect_launch(spec, launch, adir)
+        launch, refused = self._publish_self_test(lane, launch, a)
+        if refused is not None:
+            self._launch_failure(a, self._refused_job(a["job_id"], refused), rc=refused.code)
+            return
         self._record_launch(a["attempt_id"], lane.provider, spec.sandbox, bool(launch.notes.get("publish_denied")))
         self._launches[a["attempt_id"]] = launch
         safe_launch = dataclasses.asdict(launch)
