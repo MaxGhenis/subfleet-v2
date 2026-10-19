@@ -444,15 +444,18 @@ REVIEW_PREAMBLE = (
 )
 #: What a writable job that is not in place is told about where it works
 #: (C-6.6, C-13.1). Without it a brief's absolute paths lead a writer back into
-#: the caller's checkout, which the job must never touch (review of d261).
+#: the caller's checkout, which the job must never touch (review of d261). An
+#: ignored file a brief names is never in the worktree, so the note says where
+#: it may be read (#221 review r2, P3-9).
 WORKSPACE_NOTE = (
     "Your workspace is {worktree}: a detached checkout of {top} at commit {head}, made "
     "for this job. It holds only what is committed there, none of the caller's uncommitted, "
     "untracked or ignored files (dependencies such as .venv or node_modules may need "
     "installing). The checkout at {top} is the caller's: where the task names a path in it, "
-    "use the same relative path in your workspace, and never write under {top}.{place} When the "
-    "job ends, Subfleet keeps what you changed here as a git ref under refs/subfleet-salvage/ in "
-    "that repository.\n\n"
+    "use the same relative path in your workspace, and never write under {top}. An ignored file "
+    "the task names (one under .diag/, say) is not in your workspace: you may read it in the "
+    "caller's checkout at the same relative path.{place} When the job ends, Subfleet keeps what "
+    "you changed here as a git ref under refs/subfleet-salvage/ in that repository.\n\n"
 )
 #: D-SH1 round 6: a policy review's worktree with the caller's uncommitted copy (`uncommitted`).
 WORKSPACE_NOTE_UNCOMMITTED = (
@@ -461,8 +464,10 @@ WORKSPACE_NOTE_UNCOMMITTED = (
     "({files} files), copied in; it holds none of the caller's ignored files (dependencies "
     "such as .venv or node_modules may need installing). The checkout at {top} is the "
     "caller's: where the task names a path in it, use the same relative path in your "
-    "workspace, and never write under {top}.{place} When the job ends, Subfleet keeps what "
-    "you changed here as a git ref under refs/subfleet-salvage/ in that repository.\n\n"
+    "workspace, and never write under {top}. An ignored file the task names (one under .diag/, "
+    "say) is not in your workspace: you may read it in the caller's checkout at the same "
+    "relative path.{place} When the job ends, Subfleet keeps what you changed here as a git ref "
+    "under refs/subfleet-salvage/ in that repository.\n\n"
 )
 #: The caller ran the job from a directory below the repository's top (review B-4).
 WORKSPACE_PLACE = (" The caller ran this job from {top}/{prefix}: a path the task gives relative to "

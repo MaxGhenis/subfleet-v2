@@ -307,6 +307,22 @@ def test_policy_review_falls_back_to_read_only_in_place_when_the_copy_fails(shel
     assert words in finished_notice(service, job)
 
 
+@pytest.mark.parametrize('dirty', [True, False], ids=['with-copy', 'clean'])
+def test_the_workspace_note_says_where_an_ignored_file_may_be_read(shell_state, dirty):
+    """#221 review r2, P3-9: the note sent a review to the same relative path in
+    its worktree, where an ignored file the brief names (`.diag/...`) is not."""
+    service, harness = shell_state
+    if dirty:
+        dirty_checkout(service, harness)
+    else:
+        repository(service, harness)
+    job = policy_review(service, harness)
+    prepared = (service.root / 'jobs' / job / 'prompt.prepared.md').read_text()
+    top = str(harness.workdir.resolve()) if str(harness.workdir.resolve()) in prepared else str(harness.workdir)
+    assert (f"never write under {top}. An ignored file the task names (one under .diag/, say) is not in your "
+            "workspace: you may read it in the caller's checkout at the same relative path.") in prepared
+
+
 def test_explicit_workspace_write_review_keeps_todays_worktree(shell_state):
     service, harness = shell_state
     dirty_checkout(service, harness)
