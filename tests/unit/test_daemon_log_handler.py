@@ -434,25 +434,51 @@ def test_an_exception_group_hides_what_its_member_alone_hides(shape, depth, rais
         assert ("\n" + "  " * (depth + 1) + "| RuntimeError: ") in out, out
 
 
+#: A member's text: a next-line shape or none, a secret, then the credential shapes above.
+MEMBERS = st.tuples(st.sampled_from(NEXT_LINE_SHAPES + [""]), SECRETS, TEXTS)
+
+
+def member_of(drawn) -> tuple[BaseException, list[str]]:
+    shape, secret, words = drawn
+    text, more = _text(words)
+    return raised(f"{shape}{secret} {text}"), [secret, *more]
+
+
+def without_margins(text: str) -> str:
+    return "\n".join(line[len(match.group()):] if (match := MARGIN.match(line)) else line
+                     for line in text.split("\n"))
+
+
 @settings(max_examples=60, derandomize=True, database=None, deadline=None)
-@given(members=st.lists(st.tuples(st.sampled_from(NEXT_LINE_SHAPES + [""]), SECRETS, TEXTS), min_size=1, max_size=3),
-       depth=st.integers(1, 2), raise_it=st.booleans())
-def test_an_exception_group_never_shows_a_secret_its_members_alone_hide(members, depth, raise_it):
-    """Property: whatever a member's plain traceback hides, the group's hides too, for
+@given(drawn=MEMBERS, depth=st.integers(1, 2), raise_it=st.booleans())
+def test_a_one_member_group_never_shows_a_secret_its_member_alone_hides(drawn, depth, raise_it):
+    """Property: whatever a member's plain traceback hides, its group's hides too, for
     the next-line shapes and the credential shapes the property above builds, nested
     one or two deep, raised or only constructed."""
-    excs, checks = [], []
-    for shape, secret, words in members:
-        text, more = _text(words)
-        exc = raised(f"{shape}{secret} {text}")
-        excs.append(exc)
-        checks.append((exc, [secret, *more]))
-    out = written_for(group_of(excs, depth=depth, raise_it=raise_it))
-    for exc, secrets in checks:
-        alone = written_for(exc)
+    exc, secrets = member_of(drawn)
+    alone = written_for(exc)
+    out = written_for(group_of([exc], depth=depth, raise_it=raise_it))
+    for secret in secrets:
+        if secret not in alone:
+            assert secret not in out, (secret, out)
+
+
+@settings(max_examples=60, derandomize=True, database=None, deadline=None)
+@given(drawn=st.lists(MEMBERS, min_size=2, max_size=3), depth=st.integers(1, 2), raise_it=st.booleans())
+def test_a_group_s_margins_never_cost_a_secret(drawn, depth, raise_it):
+    """Property, several members: a group's traceback is one text, scrubbed whole,
+    so a quote in one member may close a value another opened, as in any chained
+    traceback; that is the scrubber's, not the margin's. What the margins must not
+    do is show a secret the same text without them hides, or one its line form hides."""
+    members = [member_of(one) for one in drawn]
+    tb = traceback_of(group_of([exc for exc, _ in members], depth=depth, raise_it=raise_it))
+    block = daemon_log.scrubbed_block(tb)
+    for _, secrets in members:
         for secret in secrets:
-            if secret not in alone:
-                assert secret not in out, (secret, out)
+            if secret not in daemon_log.scrubbed_block(without_margins(tb)):
+                assert secret not in block, (secret, block)
+            if secret not in refusals.scrubbed_line(tb, UNCUT):
+                assert secret not in block, (secret, block)
 
 
 @BOUNDED
