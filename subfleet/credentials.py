@@ -466,18 +466,19 @@ def install_keychain_exec_guard() -> bool:
     compares spellings without probing a directory: leading slashes collapsed,
     dot segments resolved, case and Unicode folded. A listed wrapper other than
     a shell is also judged by the command it runs, the first operand after its
-    options as its getopt reads them (after script's and lockf's file; script
-    given none runs `$SHELL -i`). That command, given by path, is refused if it
-    is the reader or a registered stand-in; a command that is itself a listed
-    wrapper is judged again with the PATH, SHELL and directory the outer one
-    leaves, up to 8 listed wrappers deep. A `~` entry, an env -S string using
-    `$`, `\\` or `#`, a deeper chain, an option a wrapper does not have, and any
-    other launch whose check cannot finish are refused. Outside C-20.6 (D-ST1):
-    other PATH-searching programs, such as find -exec and interpreters; the
-    arguments xargs reads from its input; a wrapper run under another name;
-    path aliases, such as a symlink to /usr/bin; PATH changes made inside the
-    shell, by a shell string or a login shell's profile; and deliberate absolute
-    reader paths inside shell strings. Production readers use argv.
+    options as the wrapper reads them (after env's assignments and after
+    script's and lockf's file; script given none runs `$SHELL -i`). That
+    command, given by path, is refused if it is the reader or a registered
+    stand-in; a command that is itself a listed wrapper is judged again with
+    the PATH, SHELL and directory the outer one leaves, up to 8 listed wrappers
+    deep. A `~` entry, an env -S string using `$`, `\\` or `#`, a deeper chain,
+    an option a wrapper does not have, and any other launch whose check cannot
+    finish are refused. Outside C-20.6 (D-ST1): other PATH-searching programs,
+    such as find -exec and interpreters; the arguments xargs reads from its
+    input; a wrapper run under another name; path aliases, such as a symlink to
+    /usr/bin or to the reader; PATH changes made inside the shell, by a shell
+    string or a login shell's profile; and deliberate absolute reader paths
+    inside shell strings. Production readers use argv.
 
     No runner identity can tell a stub from a wrapper around the real
     `subprocess.run`, so this judges the file each launch would start: through
