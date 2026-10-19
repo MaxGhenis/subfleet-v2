@@ -57,13 +57,15 @@ from .contracts import (
     ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
     Reading, ReadingLabel, Sandbox, attempt_dir,
 )
-from .credentials import resolve_credential
+from .credentials import env_references, reference_repair, resolve_credential, startup_lanes, withheld_references
 from .provider_env import ProviderEnvironment
+from .launch_env import environment_report, guardian_pass_args, helper_policy
 from .guardian import atomic_publish
 from .lockwatch import LockWatch
 from .waits import WaitHub
-from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as policy_cap, disk_settings, flatten_chain, load_policy,
-                     policy_hash, ramp_settings, resolve_model, turn_cap)
+from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as policy_cap, check_lane_credentials,
+                     disk_settings, flatten_chain, held_lane_message, load_policy, policy_hash, ramp_settings,
+                     resolve_model, turn_cap)
 from .retention import RetentionState, maintenance
 from .retention_git import discard_registration
 from .salvage import (
@@ -82,6 +84,14 @@ def spawn_guardian(command: list[str], *, disclaim: bool, **options):
         return procs.spawn_disclaimed(command, env=options["env"], cwd=options["cwd"],
                                      pass_fds=options["pass_fds"])
     return subprocess.Popen(command, **options)
+
+
+def _helper_environment(function):
+    @functools.wraps(function)
+    def scoped(self, *args, **kwargs):
+        with helper_policy(getattr(self, "policy", {})):
+            return function(self, *args, **kwargs)
+    return scoped
 
 #: "not asked yet", distinct from "asked, and there was no answer".
 _UNSET = object()
@@ -585,8 +595,8 @@ def _commit_holds_dir(top: str, commit: str, prefix: str, cap: float) -> bool | 
     """Whether `commit` holds the directory `prefix` (relative to `top`), so a
     worktree cut at it will: None when git cannot say. Under salvage's environment
     (`_git_env`): `--literal-pathspecs` with `GIT_GLOB_PATHSPECS` set is a fatal
-    error, and the daemon's own scrub (`cli.STRIPPED_ENV`) holds only when
-    `daemon start` started it (review of the P3-3 fix)."""
+    error. This helper selects its environment independently of how the daemon
+    started (C-12.3/4, D-ENV1)."""
     try:
         found = subprocess.run(["git", "--literal-pathspecs", "-C", top, "ls-tree", "-d", "-z", commit, "--", prefix],
                                capture_output=True, env=_git_env(None), timeout=cap)
@@ -799,7 +809,10 @@ class Daemon:
             atomic_publish(policy_path, Path(__file__).with_name("default_policy.json").read_bytes())
         self.policy = load_policy(policy_path)
         self.policy_digest = policy_hash(policy_path)
-        self._provider_environment = ProviderEnvironment(self.policy, log=self.log)
+        # D-ENV1: every launch withholds the lanes' credential references, read
+        # from the store at each launch; a lane gets only its own, resolved.
+        self._provider_environment = ProviderEnvironment(self.policy, log=self.log,
+                                                         references=self._withheld_references)
         # C-3.7: reads outside a transaction take a read connection, not the store lock.
         self.store = Store(self.root / "state.sqlite3", readers=READ_CONNECTIONS)
         self._disk = disk.DiskAdmission(self.root, recheck_latch=True)
@@ -820,7 +833,9 @@ class Daemon:
         # C-15.5: one reader answers every `wait`; its thread starts with the first.
         self.wait_hub = WaitHub(self.store, recheck_s=WAIT_RECHECK_S, on_error=lambda exc: self.log.warning(
             "wait hub: %s: %s (its waiters read for themselves)", type(exc).__name__, exc))
-        self._seed_lanes()
+        # D-ENV1: policy validation that needs the lanes, run before lanes.json
+        # is seeded (review r4, P2-1). `_released_on_failure` gives back the rest.
+        self._open_lanes(policy_path)
         # 13: retention's pass (d635) can hold one worker for minutes; the other
         # twelve are what attempts, admission and exports had before.
         self.workers = ThreadPoolExecutor(max_workers=13, thread_name_prefix="subfleet-io")
@@ -857,7 +872,7 @@ class Daemon:
         self._shut_down: set[socket.socket] = set()
         self._control_thread: threading.Thread | None = None
         from .timers import Timers
-        self.timers = Timers(self.store, self.root, self.policy, turn=self._timer_turn,
+        self.timers = Timers(self.store, self.root, self.policy, turn=self._timer_turn, adapter_factory=self._adapter,
                              deliver=self._timer_notice, demand=self._reset_demand)
         # C-23.16 (f): the policy is read once, here; say what it means for resets.
         resets = self.timers.actions.describe()
@@ -1112,7 +1127,7 @@ class Daemon:
                 raise
         try:
             try:
-                adapter = get_adapter(credential.provider)
+                adapter = self._adapter(credential.provider)
                 if enrollment_holder:
                     from .adapters.claude import ClaudeAdapter
                     if isinstance(adapter, ClaudeAdapter):
@@ -1191,12 +1206,13 @@ class Daemon:
                   'owned_identities': {}, 'deadline_at': after(timeout)}
         self._save_probe(record)
         package_root = str(Path(__file__).resolve().parent.parent)
-        env = {**env, 'SUBFLEET_ATTEMPT': holder, 'SUBFLEET_ROOT': str(self.root), 'SUBFLEET_PROBE': '1'}
-        env['PYTHONPATH'] = package_root + (os.pathsep + env['PYTHONPATH'] if env.get('PYTHONPATH') else '')
+        env = self._provider_environment.assemble(env)
+        env.update(SUBFLEET_ATTEMPT=holder, SUBFLEET_ROOT=str(self.root), SUBFLEET_PROBE='1')
+        provider_env_args = guardian_pass_args(env)
         read_fd, write_fd = procs.pipe_above_stdio()
         command = [sys.executable, '-m', 'subfleet.guardian', '--attempt-dir', str(directory),
                    '--cwd', cwd, '--stdout-path', str(stdout), '--stderr-path', str(stderr),
-                   '--launch-fd', str(read_fd), '--', *argv]
+                   '--launch-fd', str(read_fd), *provider_env_args, '--', *argv]
         child = None
         try:
             child, root = self._spawn_guardian(command, env, read_fd, package_root)
@@ -1294,15 +1310,40 @@ class Daemon:
                 "limits_reported": data["reported_closure_ids"],
                 "lanes": view["lanes"], "closures": view["closures"]}
 
-    def _seed_lanes(self) -> None:
+    def _roster(self) -> list:
+        """`lanes.json`, the seed roster: a list of lane rows, or `{"lanes": [...]}`."""
         path = self.root / "lanes.json"
         if not path.exists():
             atomic_publish(path, b"[]\n")
         roster = json.loads(path.read_bytes())
         if isinstance(roster, dict):
             roster = roster.get("lanes", [])
+        return roster
+
+    def _open_lanes(self, policy_path: Path) -> None:
+        """D-ENV1 (review r4, P2-1): check, then seed, then name each held lane.
+
+        The check (`check_lane_credentials`) runs on lanes.json's rows and the
+        stored lanes before anything is written, so a refused row is never
+        stored. A stored lane whose variable every launch inherits does not stop
+        the daemon: it is held (the scheduler's `credential-refused`, and the
+        resolve guard's `credential-env-inherited` behind it), and daemon.log
+        names it with the fix. Seeding repairs it from a fixed lanes.json row.
+        """
+        roster = self._roster()
+        held = check_lane_credentials(self.policy, policy_path, startup_lanes(roster, self.store.list_lanes()))
+        self._seed_lanes(roster)
+        for lane_id, name in held:
+            self.log.warning("%s", held_lane_message(lane_id, name))
+
+    def _seed_lanes(self, roster: list) -> None:
         for row in roster:
-            if self.store.get_lane(row["lane_id"]):
+            if (existing := self.store.get_lane(row["lane_id"])):
+                # A held lane takes the variable a fixed row names (C-1.3's one exception).
+                if (name := reference_repair(existing, row)):
+                    self.store.repair_lane_reference(existing.lane_id, existing.credential.ref, name)
+                    self.log.info("lane %s: credential variable %s from lanes.json replaces %s, which every "
+                                  "launch inherits", existing.lane_id, name, existing.credential.ref)
                 continue
             credential = row.get("credential") or {
                 "provider": row["provider"], "ref": row["credential_ref"],
@@ -1509,7 +1550,7 @@ class Daemon:
             if state is None:
                 lane = self.store.get_lane(a["lane_id"])
                 state = {"path": self._saved_launch(a).stdout_path, "offset": 0, "tail": b"", "skip": False,
-                         "next": 0.0, "adapter": get_adapter(lane.provider) if lane else None}
+                         "next": 0.0, "adapter": self._adapter(lane.provider) if lane else None}
                 self._answer_reads[aid] = state
             if state["adapter"] is None or now < state["next"]:
                 return
@@ -1821,7 +1862,7 @@ class Daemon:
             try:
                 probe = self.desktop_prober
                 if probe is None:
-                    probe = getattr(get_adapter("claude"), "probe_desktop_profile", None)
+                    probe = getattr(self._adapter("claude"), "probe_desktop_profile", None)
                 profile = probe() if probe is not None else None
             except (AdapterError, OSError, subprocess.SubprocessError) as exc:
                 self.log.debug("desktop profile unavailable: %s", type(exc).__name__)
@@ -3140,6 +3181,21 @@ class Daemon:
             if auth.get("OPENAI_API_KEY") or auth.get("auth_mode") in ("api_key", "apikey"):
                 raise AdapterError("API-key home refused", fix="log this lane into a subscription account", reason="api-key-home")
 
+    def _adapter(self, provider: str):
+        adapter = get_adapter(provider)
+        environment = getattr(self, "_provider_environment", None)
+        if environment is not None:
+            adapter.provider_environment = environment
+        return adapter
+
+    def _lane_credential_references(self) -> frozenset[str]:
+        """D-ENV1: the daemon variables env-kind lanes name; no launch inherits one."""
+        return env_references(self.store.list_lanes())
+
+    def _withheld_references(self) -> frozenset[str]:
+        """D-ENV1: the names every launch withholds for the lanes (`credentials.withheld_references`)."""
+        return withheld_references(self.store.list_lanes())
+
     def _credential_environment(self, lane: Lane) -> dict[str, str]:
         return self._provider_environment.additions(lane.provider, resolve_credential(lane.credential))
 
@@ -3151,7 +3207,7 @@ class Daemon:
     @staticmethod
     def _guard_override(adapter, lane: Lane, workdir: str, recorder: Callable | None = None,
                         state_root: Path | None = None, full: bool = False,
-                        env: dict[str, str] | None = None):
+                        env: dict[str, str] | None = None, env_pass=()):
         """C-14.2: run the Codex guard preflight for this launch.
 
         ``recorder`` (see ``_guard_recorder``) receives the verdict before it is
@@ -3172,6 +3228,7 @@ class Daemon:
         options = {"state_root": state_root} if state_root is not None else {}
         if env is not None:
             options["env"] = env
+            options["env_pass"] = tuple(env_pass)
         result = preflight(binary, home=lane.home or lane.credential.ref, workdir=workdir, **options)
         if recorder is not None:
             recorder(result)
@@ -3210,6 +3267,7 @@ class Daemon:
                                lane.lane_id, type(exc).__name__)
         return record
 
+    @_helper_environment
     def dispatch(self, op: str, args: dict, arrived: float | None = None, *,
                  client_gone: Callable[[], bool] | None = None) -> dict:
         """Answer one op (C-16.2). `arrived` is when its request was read off the
@@ -3425,6 +3483,8 @@ class Daemon:
                     "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"],
                     "admission": self._admission_status(view),
                     "priority_callers": self._priority_callers_status(),
+                    # C-17.8: names only; the lanes' own variables listed apart.
+                    "environment": environment_report(references=self._lane_credential_references()),
                     "descriptors": self._descriptor_status(),       # C-16.6, C-16.7
                     "read_pool": self.store.read_pool(),             # C-3.7
                     "wait_hub": self.wait_hub.status()}              # C-15.5
@@ -3934,6 +3994,11 @@ class Daemon:
         # at the job's end, however it ended, this notice says what happened instead.
         self._withdraw_pin_notice(tx, row["job_id"], why="ended")
 
+    @_helper_environment
+    def _run_worker(self, function: Callable, *args, **kwargs):
+        """Establish this daemon's helper policy on every pool invocation."""
+        return function(*args, **kwargs)
+
     def _schedule(self, key: str, fn: Callable, *args, paced: bool = False,
                   pool: ThreadPoolExecutor | None = None) -> None:
         """Run `fn` on the worker pool (or `pool`) unless `key` is already running.
@@ -3949,7 +4014,7 @@ class Daemon:
                 return
             self._busy.add(key)
         generation = self.store.generation
-        future = (pool or self.workers).submit(fn, *args)
+        future = (pool or self.workers).submit(self._run_worker, fn, *args)
         def done(f):
             try:
                 deferred = f.result() is DEFERRED
@@ -4077,6 +4142,7 @@ class Daemon:
             pass                            # unreadable is the pass's to report
         return True
 
+    @_helper_environment
     def _control(self) -> None:
         # Recovery uses the same idempotent workers as normal execution. A
         # reserved row absent from this process's launch set was never granted
@@ -4541,7 +4607,7 @@ class Daemon:
         self._push_workspace_store_failures.pop(job_id, None)
         self._push_workspace_store_first_failure.pop(job_id, None)
         if not ready:
-            self.pushes.submit(self._discard_cancelled_push_workspace, job_id)
+            self.pushes.submit(self._run_worker, self._discard_cancelled_push_workspace, job_id)
         return ready
 
     def _reap_push_workspaces(self, holds: dict[str, dict]) -> set[str]:
@@ -4562,7 +4628,7 @@ class Daemon:
                     self._push_workspace_store_failures.pop(job_id, None)
                     self._push_workspace_store_first_failure.pop(job_id, None)
                     continue  # The running worker still owns the build slot.
-                self.pushes.submit(self._discard_cancelled_push_workspace, job_id)
+                self.pushes.submit(self._run_worker, self._discard_cancelled_push_workspace, job_id)
                 self._push_unused_workspaces.discard(job_id)
                 self._push_workspaces.pop(job_id, None)
                 self._push_workspace_store_errors.pop(job_id, None)
@@ -4596,7 +4662,7 @@ class Daemon:
             if self.store.one("SELECT 1 FROM attempts WHERE job_id=? LIMIT 1", (job_id,)):
                 self._push_unused_workspaces.discard(job_id)
             elif not current or current["state"] in TERMINAL or current["cancel_requested_at"]:
-                self.pushes.submit(self._discard_cancelled_push_workspace, job_id)
+                self.pushes.submit(self._run_worker, self._discard_cancelled_push_workspace, job_id)
                 self._push_unused_workspaces.discard(job_id)
         return skipped
 
@@ -4646,7 +4712,7 @@ class Daemon:
             # use the same disk reading before any reservation exists.
             if not self._push_workspaces and not self._push_preparation_offered:
                 self._push_preparation_offered = True
-                self._push_workspaces[job_id] = self.pushes.submit(self._prepare_push_workspace, dict(job), destination)
+                self._push_workspaces[job_id] = self.pushes.submit(self._run_worker, self._prepare_push_workspace, dict(job), destination)
         if job["wait_reason"] != "workspace":
             try:
                 with self.store.transaction("job.workspace_preparing", job_id=job_id) as tx:
@@ -4950,7 +5016,7 @@ class Daemon:
         """
         record = self._probe_record(holder)
         directory = Path(record["directory"])
-        adapter = get_adapter(lane.provider)
+        adapter = self._adapter(lane.provider)
         self._validate_home(lane)
         credential_env = self._credential_environment(lane)
         prompt = directory / "prompt.md"
@@ -4962,21 +5028,21 @@ class Daemon:
                                       self._guard_override(adapter, lane, str(directory),
                                                            self._guard_recorder(lane, str(directory), directory),
                                                            self.root,
-                                                           env=self._provider_environment.assemble(credential_env)))
+                                                           env=self._provider_environment.assemble(credential_env), env_pass=credential_env))
         safe_launch = dataclasses.asdict(launch)
         safe_launch.pop("env_add")
         self._publish("probe-launch", directory / "launch.json", json_bytes(safe_launch))
         env = self._launch_environment(lane, launch)
         env.update(SUBFLEET_JOB=job["job_id"], SUBFLEET_ATTEMPT=holder, SUBFLEET_ROOT=str(self.root), SUBFLEET_PROBE="1")  # C-5.1, C-11.4
+        provider_env_args = guardian_pass_args(env)
         package_root = str(Path(__file__).resolve().parent.parent)
-        env["PYTHONPATH"] = package_root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
         read_fd, write_fd = procs.pipe_above_stdio()
         command = [sys.executable, "-m", "subfleet.guardian", "--attempt-dir", str(directory),
                    "--cwd", launch.cwd, "--stdout-path", launch.stdout_path,
                    "--stderr-path", launch.stderr_path, "--launch-fd", str(read_fd)]
         if launch.stdin_path:
             command += ["--stdin-path", launch.stdin_path]
-        command += ["--", *launch.argv]
+        command += [*provider_env_args, "--", *launch.argv]
         child = None
         try:
             child, root = self._spawn_guardian(command, env, read_fd, package_root)
@@ -5086,7 +5152,7 @@ class Daemon:
             if receipt and (value := self._read_json(Path(record["directory"]) / "launch.json")):
                 value.update(env_add=self._relaunch_env(record["lane_id"]),
                              argv=tuple(value["argv"]), env_remove=tuple(value["env_remove"]))
-                adapter = get_adapter(self.store.get_lane(record["lane_id"]).provider)
+                adapter = self._adapter(self.store.get_lane(record["lane_id"]).provider)
                 outcome = adapter.classify(Path(record["directory"]), Launch(**value), ExitInfo(**{
                     key: receipt.get(key) for key in ("rc", "signal", "wall_s", "child_pid", "spawn_error")}))
             self._finish_probe(record, outcome)
@@ -5606,7 +5672,7 @@ class Daemon:
                     self._push_workspace_store_errors.pop(job_id, None)
                     self._push_workspace_store_failures.pop(job_id, None)
                     self._push_workspace_store_first_failure.pop(job_id, None)
-                    self.pushes.submit(self._discard_cancelled_push_workspace, job_id)
+                    self.pushes.submit(self._run_worker, self._discard_cancelled_push_workspace, job_id)
         tables = (self._capacity_waits, self._route_deferrals, self._retry_verdicts, self._turn_check_errors,
                   self._pin_episodes, self._probe_misses)
         gone = {job_id for table in tables for job_id in table.copy() if job_id not in pending}
@@ -7356,7 +7422,7 @@ class Daemon:
         adir = attempt_dir(self.root, a["job_id"], a["seq"])
         adir.mkdir(mode=0o700, exist_ok=True)
         lane = self.store.get_lane(a["lane_id"])
-        adapter = get_adapter(lane.provider)
+        adapter = self._adapter(lane.provider)
         evidence = json.loads(a["evidence_json"] or "{}")
         if job["kind"] != "turn" and evidence.get("run_folder"):
             # Use the folder whose reader row was reserved, even if the caller
@@ -7391,14 +7457,14 @@ class Daemon:
             spec = self._spec(job, workdir=self._launch_dir(job, lane.provider), prompt_path=str(prompt_path))
             guard_override = None if spec.isolated_review or job["kind"] == "turn" else self._guard_override(
                 adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir), self.root,
-                env=self._provider_environment.assemble(credential_env))
+                env=self._provider_environment.assemble(credential_env), env_pass=credential_env)
             resume = None
             if turn_block is not None:
                 guard = None
                 if lane.provider == "codex":
                     guard = self._guard_override(adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir),
                                                  self.root, full=True,
-                                                 env=self._provider_environment.assemble(credential_env))
+                                                 env=self._provider_environment.assemble(credential_env), env_pass=credential_env)
                 launch = self.conversations.launch(job, a, lane, credential_env, adir, model["id"], guard)
             elif job["kind"] == "resume":
                 manifest = self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}
@@ -7455,10 +7521,10 @@ class Daemon:
         env = self._launch_environment(lane, launch)
         env.update(SUBFLEET_JOB=a["job_id"], SUBFLEET_ATTEMPT=a["attempt_id"], SUBFLEET_ROOT=str(self.root))  # C-5.1 markers
         env.update(self._push_environment(job))
-        # The package path is explicit: provider cwd is deliberately unrelated
-        # to the daemon's installation or test checkout.
+        # The guardian starts in package_root, so `-m` finds Subfleet without
+        # altering an explicitly authorized provider PYTHONPATH.
+        provider_env_args = guardian_pass_args(env)
         package_root = str(Path(__file__).resolve().parent.parent)
-        env["PYTHONPATH"] = package_root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
         read_fd, write_fd = procs.pipe_above_stdio()
         command = [sys.executable, "-m", "subfleet.guardian", "--attempt-dir", str(adir),
                    "--cwd", launch.cwd, "--stdout-path", launch.stdout_path,
@@ -7471,7 +7537,7 @@ class Daemon:
                         "--relay-peer-lock", str(self.root / "daemon.lock")]
         if self.guardian_start_delay_s:
             command += ["--start-delay-s", str(self.guardian_start_delay_s)]
-        command += ["--", *launch.argv]
+        command += [*provider_env_args, "--", *launch.argv]
         try:
             child, root = self._spawn_guardian(command, env, read_fd, package_root)
             self._children[a["attempt_id"]] = child
@@ -8375,7 +8441,7 @@ class Daemon:
             if data is not None:
                 self._publish("raw-stream", Path(launch.raw_stream_path), data)
         lane = self.store.get_lane(a["lane_id"])
-        adapter = self.conversations.adapter(lane.provider) if job["kind"] == "turn" else get_adapter(lane.provider)
+        adapter = self.conversations.adapter(lane.provider) if job["kind"] == "turn" else self._adapter(lane.provider)
         if job["kind"] == "turn":
             self.conversations.release_socket(a["attempt_id"])
         receipt = self._read_json(adir / "exit.json")
@@ -8945,7 +9011,7 @@ class Daemon:
             # Conversation ops run on the conversation pools: the long polls on
             # their own (C-25.4), the file work on its own (C-25.3).
             return self.conversations.pool_for(req.op).submit(
-                self.conversations.respond, conn, write_lock, req, peer)
+                self._run_worker, self.conversations.respond, conn, write_lock, req, peer)
         if req.op == "ping" and not protocol.ping_writes(req.args):
             # C-16.5, C-15.8: a liveness question is answered here, never queued:
             # it reads nothing, so a slow daemon still says at once that it is alive.
@@ -8956,7 +9022,7 @@ class Daemon:
         pool = (self.workers if req.op == "submit" or req.op.startswith("gate.") else
                 self.waiters if req.op == "wait" else
                 self.lookups if req.op in LOOKUP_OPS else self.requests)
-        return pool.submit(self._respond, conn, write_lock, req, arrived)
+        return pool.submit(self._run_worker, self._respond, conn, write_lock, req, arrived)
 
     def _connection(self, conn: socket.socket, peer: AuditToken | None) -> None:
         write_lock = threading.Lock()
@@ -9699,6 +9765,11 @@ def main(argv: list[str] | None = None) -> int:
     except DaemonUnavailable as exc:
         print(str(exc), file=sys.stderr)
         return 69
+    except PolicyError as exc:
+        # C-11.1: a refused policy or lane roster is exit 2 with its message in
+        # daemon.log, not a traceback.
+        print(f"subfleet daemon: {exc}", file=sys.stderr)
+        return int(Exit.INVALID_INPUT)
     log_open_file_limit(daemon.log, *limits)
     daemon.log.info("stack dumps: `kill -USR1 %d` (or `subfleet daemon stacks`) writes every "
                     "thread's Python stack to this log", os.getpid())
