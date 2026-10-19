@@ -9,6 +9,7 @@ uncut line form, so neither form shows a value the other hides. Every secret is 
 
 from __future__ import annotations
 
+import contextlib
 import gc
 import io
 import logging
@@ -281,6 +282,67 @@ def test_a_failed_write_reports_a_fixed_line_not_the_raw_arguments(capsys):
 def test_the_marker_names_only_checked_names():
     record = logging.makeLogRecord({"name": "token=SECRET7name9", "levelname": "password=SECRET7level9"})
     assert daemon_log.failed_line(record, ValueError("SECRET7")) == "[scrub failed] ? record from ? left out: ValueError"
+
+
+# --- what the daemon writes to stderr itself, and the CLI prints of it (#233 round 4) --
+
+
+@BOUNDED
+@given(text=st.text(max_size=300))
+def test_scrubbed_is_the_handler_s_line_for_a_record_of_any_text(text):
+    """Differential: `daemon_log.scrubbed`, which `write_scrubbed` writes and the CLI
+    prints of the daemon's words, is what the daemon's handler writes for a record
+    of the text, on one line or several."""
+    log = Written("subfleet.daemon.test-scrubbed")
+    try:
+        log.log.info("%s", text)
+        assert log.text() == daemon_log.scrubbed(text) + "\n"
+    finally:
+        log.close()
+
+
+@BOUNDED
+@given(message=TEXTS)
+def test_scrubbed_keeps_no_secret_of_any_credential_shape(message):
+    text, secrets = _text(message)
+    shown = daemon_log.scrubbed(text)
+    for secret in secrets:
+        assert secret not in shown, (secret, shown)
+
+
+#: #222's refusal as `daemon.main` writes it, its key's value a secret.
+REFUSAL = "subfleet daemon: /r/policy.json: admission.token=SECRET7direct9: is not an admission setting (disk, ramp)"
+
+
+def test_write_scrubbed_writes_the_handler_s_line_to_stderr_as_it_is_then(capsys):
+    daemon_log.write_scrubbed(REFUSAL)
+    assert capsys.readouterr().err == ("subfleet daemon: /r/policy.json: admission.token=[REDACTED] "
+                                       "is not an admission setting (disk, ramp)\n")
+    later = io.StringIO()
+    with contextlib.redirect_stderr(later):
+        daemon_log.write_scrubbed(REFUSAL)
+    assert later.getvalue() == daemon_log.scrubbed(REFUSAL) + "\n"
+    assert capsys.readouterr().err == ""
+
+
+def test_write_scrubbed_with_a_scrubber_that_raises_writes_the_fixed_marker(monkeypatch, capsys):
+    def broken(*args, **kwargs):
+        raise RecursionError("scrubber broke on password=SECRET7broke9")
+    monkeypatch.setattr(daemon_log.refusals, "scrubbed_line", broken)
+    monkeypatch.setattr(daemon_log, "scrub_secrets", broken)
+    daemon_log.write_scrubbed(REFUSAL)
+    assert capsys.readouterr().err == "[scrub failed] ERROR record from subfleet.daemon left out: RecursionError\n"
+    assert daemon_log.scrubbed(REFUSAL) == "[scrub failed] INFO record from subfleet.daemon left out: RecursionError"
+
+
+def test_write_scrubbed_never_raises_when_stderr_cannot_be_written(monkeypatch):
+    class Full(io.StringIO):
+        def write(self, text):
+            raise OSError(28, "No space left on device")
+    monkeypatch.setattr(sys, "stderr", Full())
+    daemon_log.write_scrubbed(REFUSAL)                  # nowhere left to say it, and no raise
+    monkeypatch.setattr(sys, "stderr", None)
+    daemon_log.write_scrubbed(REFUSAL)
 
 
 # --- the process hooks -----------------------------------------------------------

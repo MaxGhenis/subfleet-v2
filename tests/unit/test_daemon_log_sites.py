@@ -4,9 +4,11 @@ scrubbed.
 Each case runs a real path. A turn runner, the conversation service, its wake
 engine and the daemon log through the handler a real `Daemon` makes. A refused
 `suggestion.start` goes over the wire. Real daemon processes are started as
-`daemon start` and as the launchd plist starts them, and their uncaught
-exceptions reach daemon.log through stderr. A lint keeps each module's own call
-sites honest as well, so the rule does not rest on the handler alone.
+`daemon start` and as the launchd plist starts them, and their refusals and
+uncaught exceptions reach daemon.log through stderr, scrubbed; so does what
+`daemon start` prints of a refusal and of daemon.log. Lints keep each module's
+own sites honest as well (its log calls, its writes to stdout and stderr, and the
+children it starts), so the rule does not rest on the handler alone.
 
 Every secret is a `SECRET7…` dummy, kept out of every `raise` line a traceback
 shows, so no source line decides a case.
@@ -16,7 +18,9 @@ from __future__ import annotations
 
 import ast
 import concurrent.futures
+import contextlib
 import faulthandler
+import io
 import json
 import logging
 import os
@@ -24,7 +28,10 @@ import plistlib
 import re
 import subprocess
 import sys
+import sysconfig
+import time
 import uuid
+import venv
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -37,7 +44,7 @@ from subfleet.conversations.runner import TurnRunner
 from subfleet.conversations.store import ConversationStore
 from subfleet.conversations.turn import TurnSpec
 from subfleet.daemon import Daemon
-from subfleet.daemon_log import RECORD_SCRUB_MAX
+from subfleet.daemon_log import RECORD_SCRUB_MAX, scrubbed
 from subfleet.procs import Containment
 from tests.fake.conftest import Harness
 from tests.fake_adapter import FakeAdapter
@@ -325,7 +332,7 @@ def _subfleetd(monkeypatch) -> Path:
 
 def _policy_naming_a_secret(root: Path) -> str:
     """policy.json with an admission key the daemon refuses at start, naming it: a
-    `PolicyError` no code catches, so Python's own hook writes it to stderr."""
+    `PolicyError`, which C-11.1 makes exit 2 with its message (#222's `dbfd33c64`)."""
     secret = "SECRET7" + "policy9"
     policy = json.loads((REPO / "subfleet" / "default_policy.json").read_text())
     policy.setdefault("admission", {})["token=" + secret] = 1
@@ -333,37 +340,95 @@ def _policy_naming_a_secret(root: Path) -> str:
     return secret
 
 
-def _assert_uncaught_policy_error_scrubbed(text: str, secret: str) -> None:
-    assert "uncaught exception\nTraceback (most recent call last):\n" in text
-    assert "PolicyError: " in text and "admission.token=[REDACTED]" in text
-    assert secret not in text
+#: The refusal's line as the daemon writes it to daemon.log: its own words, its key's
+#: value scrubbed (the scrubber reads the colon after it as the value's).
+DAEMON_REFUSAL = re.compile(r"^subfleet daemon: \S+/policy\.json: admission\.token=\[REDACTED\] "
+                            r"is not an admission setting \(", re.M)
 
 
-def test_under_daemon_start_an_uncaught_exception_reaches_daemon_log_scrubbed(root, monkeypatch, capsys):
-    """`subfleet daemon start` points the daemon's stdout and stderr at daemon.log;
-    the daemon fails to start on its policy, and the traceback is scrubbed."""
-    _subfleetd(monkeypatch)
+def _assert_the_refusal_scrubbed(text: str, secret: str) -> None:
+    """The refusal's words, its key's value scrubbed, and no traceback."""
+    assert "policy.json: admission.token=[REDACTED] is not an admission setting (" in text, text
+    assert secret not in text and "Traceback" not in text and "PolicyError" not in text
+
+
+def test_under_daemon_start_a_refused_policy_is_exit_2_and_scrubbed_before_any_spawn(root, monkeypatch, capsys):
+    """`daemon start` checks the policy before it spawns (C-11.1): the refusal on the
+    CLI's stderr is scrubbed as daemon.log's handler scrubs it, and no daemon ran."""
     secret = _policy_naming_a_secret(root)
+    monkeypatch.setattr(cli.subprocess, "Popen", lambda *args, **kwargs: pytest.fail("a refused start spawned"))
+    assert cli.main(["daemon", "start"]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("subfleet: ") and err.count("\n") == 1
+    _assert_the_refusal_scrubbed(err, secret)
+    assert not (root / "daemon.log").exists()
+
+
+def test_under_daemon_start_the_daemon_s_own_refusal_reaches_daemon_log_scrubbed(root, monkeypatch, capsys):
+    """policy.json edited after `daemon start` checked it, before the daemon reads it:
+    the daemon's own refusal is exit 2 with its message in daemon.log (C-11.1),
+    scrubbed, and `daemon start` prints it in its tail of daemon.log, scrubbed."""
+    _subfleetd(monkeypatch)
+    checked, secrets = cli.daemon_env, []
+
+    def edited_after_the_check(path, **kwargs):
+        env = checked(path, **kwargs)
+        secrets.append(_policy_naming_a_secret(path))
+        return env
+    monkeypatch.setattr(cli, "daemon_env", edited_after_the_check)
     assert cli.main(["daemon", "start"]) == 69
-    _assert_uncaught_policy_error_scrubbed((root / "daemon.log").read_text(), secret)
-    assert secret not in capsys.readouterr().err           # the log tail `daemon start` prints
+    err = capsys.readouterr().err
+    text = (root / "daemon.log").read_text()
+    assert DAEMON_REFUSAL.search(text), text
+    _assert_the_refusal_scrubbed(text, secrets[0])
+    assert "exited 2" in err and "  | subfleet daemon: " in err
+    _assert_the_refusal_scrubbed(err, secrets[0])
 
 
-def test_under_launchd_an_uncaught_exception_reaches_daemon_log_scrubbed(root, monkeypatch):
-    """The plist's own program, folder, environment and output paths, as launchd runs them."""
+def test_under_launchd_a_refused_policy_is_exit_2_and_reaches_daemon_log_scrubbed(root, monkeypatch):
+    """The plist's own program, folder, environment and output paths, as launchd runs
+    them; and the tail `daemon install` prints when the socket does not appear."""
     _subfleetd(monkeypatch)
     secret = _policy_naming_a_secret(root)
+    done = _as_launchd_runs_it(root)
+    text = (root / "daemon.log").read_text()
+    assert done.returncode == 2, text
+    assert DAEMON_REFUSAL.search(text), text
+    _assert_the_refusal_scrubbed(text, secret)
+    _assert_the_refusal_scrubbed(cli._log_tail(root / "daemon.log"), secret)
+
+
+@pytest.mark.parametrize("refused", ["lock", "policy"])
+def test_daemon_main_writes_a_refused_start_as_the_handler_writes_a_record(tmp_path, monkeypatch, refused):
+    """`daemon.main`'s two refusals, a held lock (69) and a refused policy (2, C-11.1),
+    go to stderr, daemon.log, through the handler's formatter. At 6cbaea975 each was
+    a bare `print`, the policy's a refused key's value raw (#222's `dbfd33c64`)."""
+    secret = "SECRET7" + refused + "9"
+    error, code, words = {
+        "lock": (daemon_module.DaemonUnavailable(f"another daemon holds daemon.lock; it said token={secret}"),
+                 69, "{}"),
+        "policy": (daemon_module.PolicyError(tmp_path / "policy.json", f"admission.token={secret}",
+                                             "is not an admission setting"), 2, "subfleet daemon: {}")}[refused]
+    monkeypatch.setattr(daemon_module.daemon_log, "install_process_hooks", lambda: (lambda: None))
+    monkeypatch.setattr(daemon_module.descriptors, "raise_open_file_limit", lambda: (256, 256, 256))
+    monkeypatch.setattr(daemon_module, "Daemon", _raise(error))
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        assert daemon_module.main(["--state-root", str(tmp_path)]) == code
+    assert err.getvalue() == scrubbed(words.format(error)) + "\n"
+    assert secret not in err.getvalue() and "token=[REDACTED]" in err.getvalue()
+
+
+def _as_launchd_runs_it(root: Path) -> subprocess.CompletedProcess:
     plist = plistlib.loads(cli._plist(root))
     assert plist["StandardOutPath"] == plist["StandardErrorPath"] == str(root / "daemon.log")
     env = {"HOME": os.environ["HOME"], **plist["EnvironmentVariables"]}
     with open(plist["StandardOutPath"], "ab") as out, open(plist["StandardErrorPath"], "ab") as err:
-        done = subprocess.run(plist["ProgramArguments"], cwd=plist["WorkingDirectory"], env=env,
+        return subprocess.run(plist["ProgramArguments"], cwd=plist["WorkingDirectory"], env=env,
                               stdin=subprocess.DEVNULL, stdout=out, stderr=err, timeout=120)
-    assert done.returncode == 1
-    _assert_uncaught_policy_error_scrubbed((root / "daemon.log").read_text(), secret)
 
 
-SITECUSTOMIZE = '''\
+FAILING_STARTUP = '''\
 import sys
 from pathlib import Path
 
@@ -395,6 +460,17 @@ if Path(sys.argv[0]).name == "subfleetd":
     # The daemon's first step after its hooks: from here everything raises.
     descriptors.raise_open_file_limit = fail
 '''
+FAILURE_SECRETS = ("SECRET7thread9", "SECRET7unraisable9", "SECRET7warning9", "SECRET7mainthread9value")
+
+
+def _assert_the_failures_scrubbed(text: str) -> None:
+    for secret in FAILURE_SECRETS:
+        assert secret not in text, secret
+    assert "Exception in thread subfleet-io_0\nTraceback (most recent call last):\n" in text
+    assert "RuntimeError: worker said: client_secret: [REDACTED]" in text
+    assert "Exception ignored" in text and "ValueError: finalizer said: password=" in text
+    assert "UserWarning: policy said: api_key = [REDACTED]" in text
+    assert "uncaught exception\nTraceback (most recent call last):\n" in text and "RuntimeError: main said:" in text
 
 
 def test_a_daemon_process_writes_its_thread_unraisable_warning_and_main_failures_scrubbed(root, tmp_path, monkeypatch):
@@ -403,20 +479,116 @@ def test_a_daemon_process_writes_its_thread_unraisable_warning_and_main_failures
     executable = _subfleetd(monkeypatch)
     site = tmp_path / "site"
     site.mkdir()
-    (site / "sitecustomize.py").write_text(SITECUSTOMIZE)
+    (site / "sitecustomize.py").write_text(FAILING_STARTUP)
     env = {**os.environ, "PYTHONPATH": str(site), "SUBFLEET_HOME": str(root)}
     with open(root / "daemon.log", "ab") as log:
         done = subprocess.run([str(executable), "--state-root", str(root)], cwd=str(root), env=env,
                               stdin=subprocess.DEVNULL, stdout=log, stderr=log, timeout=120)
     text = (root / "daemon.log").read_text()
     assert done.returncode == 1, text
-    for secret in ("SECRET7thread9", "SECRET7unraisable9", "SECRET7warning9", "SECRET7mainthread9value"):
-        assert secret not in text, secret
-    assert "Exception in thread subfleet-io_0\nTraceback (most recent call last):\n" in text
-    assert "RuntimeError: worker said: client_secret: [REDACTED]" in text
-    assert "Exception ignored" in text and "ValueError: finalizer said: password=" in text
-    assert "UserWarning: policy said: api_key = [REDACTED]" in text
-    assert "uncaught exception\nTraceback (most recent call last):\n" in text and "RuntimeError: main said:" in text
+    _assert_the_failures_scrubbed(text)
+
+
+def _failing_interpreter(tmp_path: Path, monkeypatch) -> Path:
+    """This interpreter as `daemon start` and the plist run it (`-E -P`, which read no
+    PYTHONPATH), in a virtual environment whose .pth files, which `site` reads under
+    `-E -P` too, add this one's site-packages (this checkout's `subfleet`) and run
+    `FAILING_STARTUP` in a `subfleetd` process only. A venv's own sitecustomize would
+    not do: Homebrew's Python has one in its standard library, which comes first."""
+    home = tmp_path / "venv"
+    venv.EnvBuilder(symlinks=True, with_pip=False).create(home)
+    python = home / "bin" / "python"
+    site_packages = Path(subprocess.run(
+        [str(python), "-E", "-P", "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"],
+        capture_output=True, text=True, timeout=60, check=True).stdout.strip())
+    (site_packages / "00-this-checkout.pth").write_text(
+        f"import site; site.addsitedir({sysconfig.get_path('purelib')!r})\n")
+    (site_packages / "_failing_startup.py").write_text(FAILING_STARTUP)
+    (site_packages / "zz-failing-startup.pth").write_text("import _failing_startup\n")
+    monkeypatch.setattr(sys, "executable", str(python))
+    return python
+
+
+def test_under_daemon_start_an_uncaught_exception_reaches_daemon_log_scrubbed(root, tmp_path, monkeypatch, capsys):
+    """`subfleet daemon start` points the daemon's stdout and stderr at daemon.log; the
+    started daemon fails in its first step (in a thread, a finalizer, a warning and
+    its main thread), each scrubbed there, and the tail `daemon start` prints of it
+    holds none of them."""
+    executable = _subfleetd(monkeypatch)
+    python = _failing_interpreter(tmp_path, monkeypatch)
+    assert cli._daemond_argv(root)[:4] == [str(python), "-E", "-P", str(executable)]
+    assert cli.main(["daemon", "start"]) == 69
+    err = capsys.readouterr().err
+    _assert_the_failures_scrubbed((root / "daemon.log").read_text())
+    assert "exited 1" in err and "RuntimeError: main said:" in err
+    for secret in FAILURE_SECRETS:
+        assert secret not in err, secret
+
+
+def test_under_launchd_an_uncaught_exception_reaches_daemon_log_scrubbed(root, tmp_path, monkeypatch):
+    """The plist's own program, folder, environment and output paths, as launchd runs them."""
+    executable = _subfleetd(monkeypatch)
+    python = _failing_interpreter(tmp_path, monkeypatch)
+    assert plistlib.loads(cli._plist(root))["ProgramArguments"][:4] == [str(python), "-E", "-P", str(executable)]
+    done = _as_launchd_runs_it(root)
+    text = (root / "daemon.log").read_text()
+    assert done.returncode == 1, text
+    _assert_the_failures_scrubbed(text)
+
+
+# --- what `daemon start` prints of daemon.log (C-25.7) -----------------------------
+
+#: daemon.log as a writer that did not scrub left it (a daemon before D-LOG1): a value
+#: on its key's line, one on the line after its key, and a header.
+OLDER_LOG = ("2026-10-01 an older daemon said: password=SECRET7older9\n"
+             "2026-10-01 its next record: token:\nSECRET7nextline9 and more\n"
+             "Authorization: Bearer SECRET7header9value\n")
+#: And a credential flag with its value on the next line. Folded, as the block form
+#: reads a text, it is `--password SECRET…`, so the tail is written folded to one line.
+OLDER_FLAG = "deploy --password\nSECRET7flagline9 rest\n"
+OLDER_SECRETS = ("SECRET7older9", "SECRET7nextline9", "SECRET7header9value", "SECRET7flagline9")
+
+
+@pytest.mark.parametrize("older", [OLDER_LOG, OLDER_LOG + OLDER_FLAG], ids=["lines", "folded"])
+def test_daemon_start_prints_its_tail_of_daemon_log_scrubbed(root, monkeypatch, capsys, older):
+    """`daemon start` prints daemon.log's last lines when the daemon does not come up:
+    daemon.log's text on a person's terminal, scrubbed again as the handler scrubs a
+    record, whoever wrote it. At 6cbaea975 it printed the lines raw."""
+    (root / "daemon.log").write_text(older)
+
+    class Exited:
+        pid, returncode = 4242, 1
+
+        def poll(self):
+            return 1
+    monkeypatch.setattr(cli, "_daemon_alive", lambda *args: False)
+    monkeypatch.setattr(cli.subprocess, "Popen", lambda argv, **kwargs: Exited())
+    assert cli.main(["daemon", "start"]) == 69
+    err = capsys.readouterr().err
+    assert "exited 1" in err and "  | 2026-10-01 an older daemon said: password=[REDACTED]" in err
+    for secret in OLDER_SECRETS:
+        assert secret not in err, secret
+    assert (root / "daemon.log").read_text() == older          # the CLI only reads it
+
+
+@pytest.mark.parametrize("before", [2000, 4 * 1024 * 1024])
+@pytest.mark.parametrize("older,lines", [(OLDER_LOG, 6), (OLDER_LOG + OLDER_FLAG, 1)], ids=["lines", "folded"])
+def test_a_log_tail_is_its_file_scrubbed_whole_then_cut_to_its_lines(tmp_path, before, older, lines):
+    """`_log_tail` scrubs the file's text as one record (cut to `RECORD_SCRUB_MAX`
+    first, so a 4 MiB daemon.log costs what a record does), then keeps its last
+    lines, each behind the margin the CLI adds after the scrub."""
+    path = tmp_path / "daemon.log"
+    path.write_text("".join(f"{line:07d} plain words\n" for line in range(before // 20)) + older)
+    started = time.monotonic()
+    tail = cli._log_tail(path, lines=6)
+    assert time.monotonic() - started < 10
+    assert all(line.startswith("  | ") for line in tail.splitlines()) and len(tail.splitlines()) == lines
+    assert "2026-10-01 an older daemon said: password=[REDACTED]" in tail
+    for secret in OLDER_SECRETS:
+        assert secret not in tail, secret
+    assert cli._log_tail(tmp_path / "absent.log") == f"(no {tmp_path / 'absent.log'})"
+    (tmp_path / "empty.log").write_text("")
+    assert cli._log_tail(tmp_path / "empty.log") == f"(empty {tmp_path / 'empty.log'})"
 
 
 # --- the record's cut, through a real Daemon (review r2 of #233) -----------------------
@@ -582,10 +754,11 @@ def _aliases(scope, names) -> frozenset:
         names |= more
 
 
-def logged_parameters(functions) -> set[tuple[str, str]]:
-    """The `(function, parameter)` pairs of a module whose value reaches a log call:
-    passed to one raw, in a string built from it, or passed on to another such
-    parameter (`_unacknowledged(why)` → `_relay_lost(f"{why}; …")` → `log.warning(…, why)`)."""
+def logged_parameters(functions, sink=_is_log_call) -> set[tuple[str, str]]:
+    """The `(function, parameter)` pairs of a module whose value reaches a log call
+    (or another `sink`): passed to one raw, in a string built from it, or passed on to
+    another such parameter (`_unacknowledged(why)` → `_relay_lost(f"{why}; …")` →
+    `log.warning(…, why)`)."""
     logged: set[tuple[str, str]] = set()
     calls = {id(function): [node for node in ast.walk(function) if isinstance(node, ast.Call)]
              for defs in functions.values() for function in defs}
@@ -599,7 +772,7 @@ def logged_parameters(functions) -> set[tuple[str, str]]:
                         continue
                     names = _aliases(function, {parameter})
                     for call in calls[id(function)]:
-                        if ((_is_log_call(call) and any(_raw(arg, names) for arg in call.args))
+                        if ((sink(call) and any(_raw(arg, names) for arg in call.args))
                                 or any((callee, bound) in logged and _raw(arg, names)
                                        for callee, bound, arg in _bound(call, functions))):
                             more.add((name, parameter))
@@ -609,16 +782,16 @@ def logged_parameters(functions) -> set[tuple[str, str]]:
         logged |= more
 
 
-def raw_log_sites(source: str, path: str) -> list[str]:
-    """Every log call that passes a caught exception (an `except … as` name, or a
-    parameter named `exc` or typed as an exception) other than through a scrubber,
-    its class, or its errno or exit status; and every call that passes one so, in a
-    string built from it or not, to a parameter of the same module's function whose
-    value reaches a log call (`logged_parameters`; review r2 of #233). A local a
-    string built from one is assigned to carries it too."""
+def raw_log_sites(source: str, path: str, sink=_is_log_call, reached: str = "logged") -> list[str]:
+    """Every log call (or other `sink`) that passes a caught exception (an `except …
+    as` name, or a parameter named `exc` or typed as an exception) other than through
+    a scrubber, its class, or its errno or exit status; and every call that passes
+    one so, in a string built from it or not, to a parameter of the same module's
+    function whose value reaches a log call (`logged_parameters`; review r2 of #233).
+    A local a string built from one is assigned to carries it too."""
     tree = ast.parse(source)
     functions = _functions(tree)
-    logged = logged_parameters(functions)
+    logged = logged_parameters(functions, sink)
     found = []
 
     def visit(node, names):
@@ -629,10 +802,10 @@ def raw_log_sites(source: str, path: str) -> list[str]:
         if isinstance(node, ast.ExceptHandler) and node.name:
             names = _aliases(node, names | {node.name})
         if isinstance(node, ast.Call) and names:
-            if _is_log_call(node):
+            if sink(node):
                 found.extend(f"{path}:{node.lineno} passes {name} raw" for arg in node.args for name in _raw(arg, names))
             else:
-                found.extend(f"{path}:{node.lineno} passes {name} raw to {callee}({parameter}), which is logged"
+                found.extend(f"{path}:{node.lineno} passes {name} raw to {callee}({parameter}), which is {reached}"
                              for callee, parameter, arg in _bound(node, functions)
                              if (callee, parameter) in logged for name in _raw(arg, names))
         for child in ast.iter_child_nodes(node):
@@ -714,3 +887,198 @@ def test_the_site_lint_fails_runner_py_s_old_lines():
     assert sorted(raw_log_sites(old, "runner.py")) == sorted(
         f"runner.py:{number} passes exc raw to _unacknowledged(why), which is logged" for number in numbers)
     assert raw_log_sites(source, "runner.py") == []
+
+
+# --- writes past the handler (C-25.7, #233 round 4) ----------------------------------
+
+#: The process's standard streams as a module names them.
+STREAMS = frozenset({"sys.stdout", "sys.stderr", "sys.__stdout__", "sys.__stderr__", "stdout", "stderr"})
+#: traceback's printers, which write an exception's words to stderr.
+TRACEBACK_PRINTERS = frozenset({"traceback.print_exc", "traceback.print_exception", "traceback.print_last",
+                                "traceback.print_tb", "traceback.print_stack"})
+#: Front ends whose stdout and stderr are a person's terminal or a hook's caller, never
+#: daemon.log: the CLIs, the v1 shim and the hook entry point, each run in its own
+#: process. A daemon loads none of them at start, and each writes its streams.
+TERMINAL_MODULES = frozenset({"subfleet/cli.py", "subfleet/compat.py", "subfleet/hooks.py", "subfleet/importer.py",
+                              "subfleet/prune_decisions.py", "subfleet/gate/cli.py", "subfleet/sessions/cli.py"})
+#: The writer: what it writes to stderr itself is the formatter's output or fixed words.
+WRITER = "subfleet/daemon_log.py"
+
+
+def _is_stream_write(node: ast.Call) -> bool:
+    """A write to the process's stdout or stderr that no handler formats: `print`, a
+    standard stream's `write` or `writelines`, or one of traceback's printers."""
+    callee = ast.unparse(node.func)
+    if callee == "print" or callee in TRACEBACK_PRINTERS:
+        return True
+    return (isinstance(node.func, ast.Attribute) and node.func.attr in ("write", "writelines")
+            and ast.unparse(node.func.value) in STREAMS)
+
+
+def _is_raw_write(node: ast.Call) -> bool:
+    """A write past the handler: to a standard stream, or `os.write` to a descriptor
+    (C-5.8a's stop path writes daemon.log's own so, in fixed words and class names)."""
+    return _is_stream_write(node) or ast.unparse(node.func) == "os.write"
+
+
+def stream_sites(source: str, path: str) -> list[str]:
+    """Every write a module makes to its stdout or stderr past `daemon_log`, which are
+    daemon.log in a daemon, whatever it writes; and every write past the handler
+    (`os.write` too) that passes a caught exception raw, directly or through a
+    parameter of the module's own functions whose value reaches one."""
+    writes = [f"{path}:{node.lineno} writes {ast.unparse(node.func)}(…) past daemon_log"
+              for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Call) and _is_stream_write(node)]
+    return writes + raw_log_sites(source, path, _is_raw_write, "written")
+
+
+def _daemon_modules() -> list[Path]:
+    return [path for path in sorted((REPO / "subfleet").rglob("*.py"))
+            if str(path.relative_to(REPO)) not in TERMINAL_MODULES | {WRITER}]
+
+
+def test_no_daemon_module_writes_its_standard_streams_past_daemon_log():
+    """C-25.7: a daemon's stdout and stderr are daemon.log, so a daemon module writes
+    there only through `daemon_log` (its handler, its hooks, `write_scrubbed`). At
+    6cbaea975 this failed on daemon.py's two refusals in `main` and policy.py's
+    retired-alias note."""
+    found = [site for path in _daemon_modules()
+             for site in stream_sites(path.read_text(encoding="utf-8"), str(path.relative_to(REPO)))]
+    assert found == []
+
+
+def test_the_terminal_modules_are_front_ends_a_daemon_does_not_load():
+    """The exempt modules exist, each writes its streams (so none is exempt for
+    nothing), and a daemon process loads none of them when it starts."""
+    for module in sorted(TERMINAL_MODULES):
+        assert stream_sites((REPO / module).read_text(encoding="utf-8"), module), module
+    env = {name: value for name, value in os.environ.items() if name != "PYTHONPATH"}
+    loaded = set(subprocess.run([sys.executable, "-c", "import sys, subfleet.daemon; print('\\n'.join(sys.modules))"],
+                                cwd=str(REPO), env=env, capture_output=True, text=True, timeout=120,
+                                check=True).stdout.split())
+    assert "subfleet.daemon" in loaded
+    names = {module[:-len(".py")].replace("/", ".") for module in TERMINAL_MODULES}
+    assert loaded & names == set()
+
+
+@pytest.mark.parametrize("source,found", [
+    # A write and the exception it carries, each a finding.
+    ("try:\n    pass\nexcept Exception as exc:\n    print(f'subfleet daemon: {exc}', file=sys.stderr)\n", 2),
+    ("try:\n    pass\nexcept Exception as exc:\n    print(str(exc), file=sys.stderr)\n", 2),
+    ("try:\n    pass\nexcept Exception as exc:\n    sys.stderr.write(f'{exc}\\n')\n", 2),
+    ("try:\n    pass\nexcept Exception as exc:\n    sys.__stderr__.writelines([str(exc)])\n", 2),
+    ("try:\n    pass\nexcept Exception as error:\n    stdout.write(repr(error))\n", 2),
+    ("try:\n    pass\nexcept Exception as exc:\n    traceback.print_exception(exc)\n", 2),
+    ("try:\n    pass\nexcept Exception:\n    traceback.print_exc()\n", 1),
+    # Config text, or fixed words: still a write past the handler.
+    ("print(f'subfleet: retired model {name!r} resolves to {target!r}', file=sys.stderr)\n", 1),
+    ("sys.stderr.write('fixed words\\n')\n", 1),
+    # A descriptor's write is C-5.8a's; only an exception's words fail it.
+    ("try:\n    pass\nexcept Exception as exc:\n    os.write(2, f'{exc}'.encode())\n", 1),
+    ("try:\n    pass\nexcept Exception as exc:\n    os.write(fd, f'{type(exc).__name__}'.encode())\n", 0),
+    ("def say(text):\n    os.write(fd, f'{text}\\n'.encode())\n\ntry:\n    pass\nexcept Exception as exc:\n"
+     "    say(f'faulthandler: {exc}')\n", 1),
+    ("def say(text):\n    os.write(fd, f'{text}\\n'.encode())\n\ntry:\n    pass\nexcept Exception as exc:\n"
+     "    say(f'faulthandler: {type(exc).__name__}')\n", 0),
+    # Through daemon_log, a logger, or to a file of the module's own.
+    ("try:\n    pass\nexcept Exception as exc:\n    daemon_log.write_scrubbed(f'subfleet daemon: {exc}')\n", 0),
+    ("try:\n    pass\nexcept Exception as exc:\n    log.error('x %s', refusals.scrubbed_words(exc))\n", 0),
+    ("with open(path, 'w') as handle:\n    handle.write(text)\n", 0),
+])
+def test_the_stream_lint_tells_a_write_past_the_handler(source, found):
+    assert len(stream_sites(source, "x.py")) == found, stream_sites(source, "x.py")
+
+
+#: daemon.py's two lines at 6cbaea975: `main`'s refusals printed past the handler, the
+#: held lock's and #222's `dbfd33c64` policy refusal; and what replaced them.
+OLD_MAIN_LINES = ('print(str(exc), file=sys.stderr)', 'print(f"subfleet daemon: {exc}", file=sys.stderr)')
+NEW_MAIN_LINES = ('daemon_log.write_scrubbed(str(exc))', 'daemon_log.write_scrubbed(f"subfleet daemon: {exc}")')
+
+
+def test_the_stream_lint_fails_dbfd33c64_s_line():
+    """`dbfd33c64` (#222) caught a refused policy in `daemon.main` and printed it to
+    stderr, daemon.log, past the handler, so a refused key's value was written raw
+    (#233 round 4). daemon.py with its two old lines fails the lint at exactly those
+    lines, each as a write past the handler and as the exception it passes raw."""
+    source = (REPO / "subfleet" / "daemon.py").read_text(encoding="utf-8")
+    old = source
+    for new, line in zip(NEW_MAIN_LINES, OLD_MAIN_LINES):
+        assert old.count(new) == 1, new
+        old = old.replace(new, line)
+    numbers = [number for number, text in enumerate(old.splitlines(), 1) if any(line in text for line in OLD_MAIN_LINES)]
+    assert len(numbers) == 2
+    assert sorted(stream_sites(old, "daemon.py")) == sorted(
+        [f"daemon.py:{number} writes print(…) past daemon_log" for number in numbers]
+        + [f"daemon.py:{number} passes exc raw" for number in numbers])
+    assert stream_sites(source, "daemon.py") == []
+
+
+#: The calls that start a child process.
+STARTS = frozenset({"subprocess.run", "subprocess.Popen", "subprocess.call", "subprocess.check_call",
+                    "subprocess.check_output"})
+#: What leaves a child's stream the daemon's own.
+INHERITED = frozenset({"None", *STREAMS})
+
+
+def _streams_set(call: ast.Call) -> bool:
+    keywords = {keyword.arg: ast.unparse(keyword.value) for keyword in call.keywords if keyword.arg}
+    if keywords.get("capture_output") == "True":
+        return True
+    stdout = "stdout" in keywords or ast.unparse(call.func).endswith("check_output")
+    return (stdout and "stderr" in keywords
+            and not {keywords.get("stdout"), keywords.get("stderr")} & INHERITED)
+
+
+def inherited_streams(source: str, path: str) -> list[str]:
+    """Every child a module starts whose stdout or stderr would be the process's own
+    (daemon.log, in a daemon): neither redirected nor captured, or set to a standard
+    stream. A start that passes on its function's `**options` is read at each call of
+    that function in the module (`spawn_guardian`)."""
+    tree = ast.parse(source)
+    enclosing = {}
+    for function in (node for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))):
+        for node in ast.walk(function):
+            enclosing[id(node)] = function          # breadth first: the innermost function wins
+    found = []
+    for call in (node for node in ast.walk(tree) if isinstance(node, ast.Call) and ast.unparse(node.func) in STARTS):
+        function = enclosing.get(id(call))
+        passed = [keyword for keyword in call.keywords if keyword.arg is None]
+        if (passed and function is not None and function.args.kwarg
+                and ast.unparse(passed[0].value) == function.args.kwarg.arg):
+            callers = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                       and getattr(node.func, "attr", getattr(node.func, "id", None)) == function.name]
+            found.extend(f"{path}:{caller.lineno} starts a child of {function.name} on the daemon's streams"
+                         for caller in callers if not _streams_set(caller))
+        elif not _streams_set(call):
+            found.append(f"{path}:{call.lineno} starts a child on the daemon's streams")
+    return found
+
+
+def test_no_child_a_daemon_module_starts_writes_to_daemon_log():
+    """A child the daemon starts on its own streams would write daemon.log past the
+    handler (git's or a hook's words, a provider's): every start in a daemon module
+    sets both streams, and the guardian's start sets them at its one call."""
+    found = [site for path in _daemon_modules()
+             for site in inherited_streams(path.read_text(encoding="utf-8"), str(path.relative_to(REPO)))]
+    assert found == []
+    daemon = (REPO / "subfleet" / "daemon.py").read_text(encoding="utf-8")
+    streams = "stdout=subprocess.DEVNULL,\n                               stderr=subprocess.DEVNULL, close_fds=True)"
+    assert daemon.count(streams) == 1
+    assert [site for site in inherited_streams(daemon.replace(streams, "close_fds=True)"), "daemon.py")
+            if "a child of spawn_guardian" in site]
+
+
+@pytest.mark.parametrize("source,found", [
+    ("def f():\n    subprocess.run(['git', 'status'])\n", 1),
+    ("def f():\n    subprocess.run(['git', 'status'], stdout=subprocess.PIPE)\n", 1),
+    ("def f():\n    subprocess.run(['git'], stdout=subprocess.PIPE, stderr=sys.stderr)\n", 1),
+    ("def f():\n    subprocess.check_output(['git'])\n", 1),
+    ("def f():\n    subprocess.run(['git'], capture_output=True)\n", 0),
+    ("def f():\n    subprocess.check_output(['git'], stderr=subprocess.DEVNULL)\n", 0),
+    ("def f():\n    subprocess.Popen(['git'], stdout=log, stderr=subprocess.STDOUT)\n", 0),
+    ("def spawn(command, **options):\n    return subprocess.Popen(command, **options)\n\n"
+     "def g():\n    spawn(['x'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n", 0),
+    ("def spawn(command, **options):\n    return subprocess.Popen(command, **options)\n\n"
+     "def g():\n    spawn(['x'], stdout=subprocess.DEVNULL)\n", 1),
+])
+def test_the_child_stream_lint_tells_a_child_on_the_daemon_s_streams(source, found):
+    assert len(inherited_streams(source, "x.py")) == found, inherited_streams(source, "x.py")
