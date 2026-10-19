@@ -68,6 +68,9 @@ SOCKET_DIR_NAME = "run"
 RELAY_VERSION = 2                   # 2: `status` and the advertised frame cap (review IR-27)
 REPLY_TIMEOUT_S = 1.0               # a departed/nonreading client cannot hold child exit; also stop's
                                     # wait for an exchange already read (C-26.4, #230 review r1)
+JOIN_TIMEOUT_S = 1.0                # stop's wait for the relay thread once that exchange is done or cut
+CLEANUP_TIMEOUT_S = 1.0             # stop's wait for its cleanup; stop returns within the three summed
+                                    # (C-26.4, #236 review r1)
 REPLY_MAX = 1 << 16                 # an acknowledgement or status line
 WRITE_POLL_S = 0.05                 # a stdin write waiting for room looks this often for stop's cut
 # Fixed text: nothing of the frame, its tag or its client (#230 review r1).
@@ -188,12 +191,16 @@ class RelayServer:
                            for r in self._records)
         self._pipe: int | None = None
         self._child = None
-        self._lock = threading.Lock()
+        # Taken in this order. Stop's cleanup takes the pipe lock alone, never the
+        # journal's, so no record's write or fsync can hold it (#236 review r1).
         self._exchange_lock = threading.Lock()   # read through reply, including close
+        self._journal_lock = threading.Lock()    # a whole frame: its records in order, _records, _closed
+        self._pipe_lock = threading.Lock()       # the pipe's descriptor: a write or the close, never a record
         self._stop = threading.Event()
         self._cut = threading.Event()            # stop's bound passed: a stdin write gives up
         self._server: socket.socket | None = None
         self._thread: threading.Thread | None = None
+        self._cleanup_thread: threading.Thread | None = None
         self._conn: socket.socket | None = None
 
     @property
@@ -253,6 +260,15 @@ class RelayServer:
         cut (`_cut_exchange`) and stop goes on. A reader that holds the child's
         stdin open without reading (a process the child started, after the child
         exited) held that wait for as long as it lived (#230 review r1).
+
+        What follows is bounded too (#236 review r1): the relay thread gets
+        JOIN_TIMEOUT_S to end, and the cleanup (`_clean_up`) CLEANUP_TIMEOUT_S on a
+        thread of its own, since a socket close, a log write and an unlink can wait
+        on I/O and the pipe's close waits for a write under way. So stop returns
+        within REPLY_TIMEOUT_S + JOIN_TIMEOUT_S + CLEANUP_TIMEOUT_S whatever the
+        child, a stdin reader or the journal's disk does. A cleanup still running
+        then finishes on its own; the descriptors it has not closed by the time
+        the guardian exits, the exit closes.
         """
         self._stop.set()
         conn = self._conn
@@ -269,20 +285,25 @@ class RelayServer:
         else:
             self._cut_exchange()
         if self._thread is not None:
-            self._thread.join(timeout=1)
-        if self._server is not None:
-            self._server.close()
-        try:
-            os.unlink(self.path)
-        except FileNotFoundError:
-            pass
-        self._close_pipe()
+            self._thread.join(timeout=JOIN_TIMEOUT_S)
+        cleanup = self._cleanup_thread
+        if cleanup is None:                 # a second stop waits for the first one's cleanup
+            cleanup = threading.Thread(target=self._clean_up, name="subfleet-relay-stop", daemon=True)
+            try:
+                cleanup.start()
+            except RuntimeError:            # no thread to be had: clean up here, unbounded as before
+                self._clean_up()
+                return
+            self._cleanup_thread = cleanup
+        cleanup.join(timeout=CLEANUP_TIMEOUT_S)
 
     def _cut_exchange(self) -> None:
         """End the exchange `stop` waited for: a stdin write waiting for room gives
-        up and is logged `failed` (ECANCELED), which lets `apply` release the lock
+        up and is logged `failed` (ECANCELED), which releases the pipe lock that
         `_close_pipe` takes; the connection is shut down both ways, so a reply or
-        a read under way ends and the client reads end of stream, no answer."""
+        a read under way ends and the client reads end of stream, no answer.
+        Neither shutdown waits on the peer or a buffer; the line saying so is
+        logged by the cleanup, where its write is bounded."""
         conn = self._conn
         if conn is not None:
             # Each half on its own: once `stop` has shut the read half, macOS
@@ -293,10 +314,29 @@ class RelayServer:
                 except OSError:
                     pass
         self._cut.set()                     # after the shutdown, so the write's answer reaches no one
-        _log.warning(CUT_LOG_LINE)
+
+    def _clean_up(self) -> None:
+        """Stop's last steps, on the thread `stop` waits for within its bound:
+        close the listening socket, close the pipe (waiting for the pipe lock, so
+        a write the bound could not wait for lets go first, and the descriptor
+        closes as soon as it does), log a cut, unlink the socket file. Each step
+        is taken whether or not the one before failed; the one that touches the
+        disk is last."""
+        if self._server is not None:
+            try:
+                self._server.close()
+            except OSError:
+                pass
+        self._close_pipe()
+        if self._cut.is_set():
+            _log.warning(CUT_LOG_LINE)
+        try:
+            os.unlink(self.path)
+        except OSError:
+            pass
 
     def _close_pipe(self) -> None:
-        with self._lock:
+        with self._pipe_lock:
             if self._pipe is not None:
                 try:
                     os.close(self._pipe)
@@ -358,10 +398,10 @@ class RelayServer:
             conn.settimeout(previous_timeout)
 
     def status(self) -> dict:
-        """The relay's state (IR-27). Taken under the lock that `apply` holds for
-        a whole frame, so a frame being written when the request arrived has
-        finished and been logged before the answer is built."""
-        with self._lock:
+        """The relay's state (IR-27). Taken under the journal lock, which `apply`
+        holds for a whole frame, so a frame being written when the request arrived
+        has finished and been logged before the answer is built."""
+        with self._journal_lock:
             child = self._child
             return {"ok": True, "status": {
                 **advertisement(), "applied": len(self._records), "closed": self._closed,
@@ -382,7 +422,10 @@ class RelayServer:
             return {"seq": seq, "ok": False, "error": "newline-in-line"}
         if frame.get("sha256") != frame_sha256(op, line, frame.get("sig")):
             return {"seq": seq, "ok": False, "error": "bad-hash"}
-        with self._lock:
+        # The journal lock is held for the whole frame, so its records stay in
+        # order (an intent, then its outcome, frame by frame); the pipe lock only
+        # around the pipe itself, so no record's write or fsync holds it.
+        with self._journal_lock:
             if seq <= len(self._records):
                 logged = self._records[seq - 1]
                 if logged["sha256"] != frame["sha256"] or logged["op"] != op:
@@ -417,22 +460,19 @@ class RelayServer:
             record = {**intent, "status": "pending"}
             self._records.append(record)
             if op == "close":
-                try:
-                    os.close(self._pipe)
-                except OSError:
-                    pass
-                self._pipe = None
+                self._close_pipe()          # or stop's cleanup closed it first: stdin is closed either way
                 self._closed = True
                 self._append({"kind": "written", "seq": seq})
                 record["status"] = "written"
                 return {"seq": seq, "ok": True}
             data = (line + "\n").encode("utf-8")
             try:
-                self._write_line(data)
+                with self._pipe_lock:
+                    self._write_line(data)
             except OSError as exc:
                 # The provider may have read part of this frame. Nothing more is
                 # written; the turn's delivery is for reconciliation (C-24.6).
-                # ECANCELED: `stop` cut the write at its bound.
+                # ECANCELED: `stop` cut the write at its bound, or its cleanup closed the pipe first.
                 self._closed = True
                 record["status"] = "failed"
                 try:
@@ -445,14 +485,16 @@ class RelayServer:
             return {"seq": seq, "ok": True}
 
     def _write_line(self, data: bytes) -> None:
-        """Write all of `data` to the child's stdin. On the non-blocking pipe
-        `serve` sets, a full pipe waits for room here, looking every WRITE_POLL_S
-        for `stop`'s cut, which raises ECANCELED; a blocking pipe (the unit
+        """Write all of `data` to the child's stdin; the caller holds the pipe
+        lock. On the non-blocking pipe `serve` sets, a full pipe waits for room
+        here, looking every WRITE_POLL_S for `stop`'s cut, which raises
+        ECANCELED, as does a pipe stop's cleanup has already closed (it may close
+        it between the frame's intent and this write); a blocking pipe (the unit
         tests' `apply` without `serve`) just blocks in the write."""
         view = memoryview(data)
         poller = None
         while view:
-            if self._cut.is_set():
+            if self._cut.is_set() or self._pipe is None:
                 raise OSError(errno.ECANCELED, "relay stopped before the line was written")
             try:
                 view = view[os.write(self._pipe, view):]
