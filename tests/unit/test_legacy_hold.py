@@ -125,6 +125,7 @@ class FakeDaemon:
         self.policy = load_policy(DEFAULT_POLICY_PATH)
         self.submitted: list[str] = []
         self.cancels: list[tuple] = []
+        self.stop_deliveries: list[dict] = []
 
     def _notify(self):
         pass
@@ -132,6 +133,15 @@ class FakeDaemon:
     def _request_cancel(self, job_id, data, **options):
         self.cancels.append((job_id, data, options))
         return True
+
+    def _start_stop_delivery(self, attempt, frame, seq):
+        # This fixture's job store is a dictionary. Record the audit boundary;
+        # durable SQL and restart ordering use real stores in the wall tests.
+        delivery = {"attempt_id": attempt["attempt_id"], "tag": frame.tag, "seq": seq, "sent": None}
+        self.stop_deliveries.append(delivery)
+        def record(sent):
+            delivery["sent"] = sent
+        return runner_mod.StopDelivery(before_send=lambda: None, record=record)
 
     def submit(self, args, *, turn=None):
         job_id = f"job-{len(self.submitted) + 1}"
@@ -528,6 +538,7 @@ def test_an_adopted_turn_on_a_held_conversation_never_writes_its_message(world, 
         else:
             assert tags == ["close"] and runner.driver.outcome.reason == "stopped-before-send"   # stdin closed
             assert json.loads((adir / "turn.json").read_text())["stop_reason"] == "legacy-owner"
+        assert [(d["tag"], d["sent"]) for d in daemon.stop_deliveries] == [(tags[0], True)]
     finally:
         svc.close()
 
