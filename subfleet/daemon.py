@@ -3897,7 +3897,7 @@ class Daemon:
                              "AND kind='job.wall_cancel_superseded'),0) ORDER BY event_id DESC LIMIT 1", (job_id, job_id))
         return cancel_info(row["ts"], row["data_json"]) if row else None
 
-    def _receipt_precedes_signal(self, a: dict, receipt: dict, *, unsignalled_event_id: int | None = None) -> bool:
+    def _receipt_precedes_signal(self, a: dict, receipt: dict) -> bool:
         """C-9.2: no signal, or a receipt proving exit strictly before every signal.
 
         Historical kill intents without a signal clock cannot prove ordering.
@@ -3907,8 +3907,6 @@ class Daemon:
             return False
         for event in self.store.query("SELECT event_id,data_json FROM events WHERE attempt_id=? "
                                       "AND kind='attempt.kill_started'", (a["attempt_id"],)):
-            if event["event_id"] == unsignalled_event_id:
-                continue
             data = json.loads(event["data_json"])
             if data.get("signal_sent") is False:
                 continue
@@ -3924,7 +3922,7 @@ class Daemon:
                 return False
         return True
 
-    def _supersede_wall_cancel(self, a: dict, receipt: dict, *, unsignalled_event_id: int | None = None) -> None:
+    def _supersede_wall_cancel(self, a: dict, receipt: dict) -> None:
         """Supersede only an effective wall request for a proven pre-signal exit.
 
         The original request stays in the audit trail. A client that has since
@@ -3936,7 +3934,7 @@ class Daemon:
             request = self._cancel_info(a["job_id"])
             if actual["killed_by"] != "max_wall_s" or not request \
                     or request.get("by") != "daemon" or request.get("reason") != "max_wall_s" \
-                    or not self._receipt_precedes_signal(a, receipt, unsignalled_event_id=unsignalled_event_id):
+                    or not self._receipt_precedes_signal(a, receipt):
                 return
             tx.execute("UPDATE jobs SET cancel_requested_at=NULL WHERE job_id=?", (a["job_id"],))
             tx.execute("UPDATE attempts SET killed_by=NULL WHERE attempt_id=?", (a["attempt_id"],))
@@ -8182,12 +8180,20 @@ class Daemon:
             tx.execute("UPDATE attempts SET killed_by=COALESCE(killed_by,?),evidence_json=? WHERE attempt_id=?", (killed_by, json.dumps(evidence), a["attempt_id"]))
         kill_event = self.store.one("SELECT MAX(event_id) AS id FROM events WHERE attempt_id=? "
                                     "AND kind='attempt.kill_started'", (a["attempt_id"],))["id"]
+
+        def record_signal(signal_at: str | None):
+            with self.store.transaction("attempt.signal_recorded", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
+                tx.execute("UPDATE events SET ts=?,data_json=? WHERE event_id=?",
+                           (signal_at or utcnow_ms(), json.dumps({"signal_at": signal_at,
+                            "signal_sent": signal_at is not None}), kill_event))
+
         if a.get("killed_by") == "max_wall_s":
             # Identity reads and the database commit may have waited since the
             # first census. Check once more immediately before the first signal.
             receipt = self._read_json(adir / "exit.json")
             if receipt:
-                self._supersede_wall_cancel(a, receipt, unsignalled_event_id=kill_event)
+                record_signal(None)
+                self._supersede_wall_cancel(a, receipt)
                 self._begin_finalizing(a, receipt)
                 return
         signal_at = None
@@ -8205,10 +8211,7 @@ class Daemon:
                 signal_at = candidate
             # The durable intent precedes the syscall. A crash before this
             # enrichment leaves ordering unknown and can never manufacture ok.
-            with self.store.transaction("attempt.signal_recorded", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
-                tx.execute("UPDATE events SET ts=?,data_json=? WHERE event_id=?",
-                           (signal_at or utcnow_ms(), json.dumps({"signal_at": signal_at,
-                            "signal_sent": signal_at is not None}), kill_event))
+            record_signal(signal_at)
 
         if a.get("pgid"):
             send_signal(lambda stamp: procs.signal_group(a["pgid"], signal.SIGTERM, boot_id=a["boot_id"],
