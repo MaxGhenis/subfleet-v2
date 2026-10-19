@@ -1471,6 +1471,11 @@ def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
                     break
                 raise
             except (DaemonError, DaemonUnavailable) as exc:
+                # Failure diagnosis can consume the remaining probe-slot wait.
+                # The overall wait deadline still determines its timeout exit.
+                if timeout is not None and time.monotonic() - started >= timeout:
+                    timed_out = True
+                    break
                 # C-16.7: a daemon at its connection cap answers "try again
                 # shortly" before it reads the poll. The loop does, backing off,
                 # inside `--timeout` (review of the descriptor hotfix, F8). A
