@@ -379,10 +379,10 @@ def test_under_daemon_start_the_daemon_s_own_refusal_reaches_daemon_log_scrubbed
     assert cli.main(["daemon", "start"]) == 69
     err = capsys.readouterr().err
     text = (root / "daemon.log").read_text()
-    assert DAEMON_REFUSAL.search(text), text
     _assert_the_refusal_scrubbed(text, secrets[0])
-    assert "exited 2" in err and "  | subfleet daemon: " in err
+    assert DAEMON_REFUSAL.search(text), text
     _assert_the_refusal_scrubbed(err, secrets[0])
+    assert "exited 2" in err and "  | subfleet daemon: " in err
 
 
 def test_under_launchd_a_refused_policy_is_exit_2_and_reaches_daemon_log_scrubbed(root, monkeypatch):
@@ -393,8 +393,8 @@ def test_under_launchd_a_refused_policy_is_exit_2_and_reaches_daemon_log_scrubbe
     done = _as_launchd_runs_it(root)
     text = (root / "daemon.log").read_text()
     assert done.returncode == 2, text
-    assert DAEMON_REFUSAL.search(text), text
     _assert_the_refusal_scrubbed(text, secret)
+    assert DAEMON_REFUSAL.search(text), text
     _assert_the_refusal_scrubbed(cli._log_tail(root / "daemon.log"), secret)
 
 
@@ -565,9 +565,9 @@ def test_daemon_start_prints_its_tail_of_daemon_log_scrubbed(root, monkeypatch, 
     monkeypatch.setattr(cli.subprocess, "Popen", lambda argv, **kwargs: Exited())
     assert cli.main(["daemon", "start"]) == 69
     err = capsys.readouterr().err
-    assert "exited 1" in err and "  | 2026-10-01 an older daemon said: password=[REDACTED]" in err
     for secret in OLDER_SECRETS:
         assert secret not in err, secret
+    assert "exited 1" in err and "  | 2026-10-01 an older daemon said: password=[REDACTED]" in err
     assert (root / "daemon.log").read_text() == older          # the CLI only reads it
 
 
@@ -582,10 +582,10 @@ def test_a_log_tail_is_its_file_scrubbed_whole_then_cut_to_its_lines(tmp_path, b
     started = time.monotonic()
     tail = cli._log_tail(path, lines=6)
     assert time.monotonic() - started < 10
-    assert all(line.startswith("  | ") for line in tail.splitlines()) and len(tail.splitlines()) == lines
-    assert "2026-10-01 an older daemon said: password=[REDACTED]" in tail
     for secret in OLDER_SECRETS:
         assert secret not in tail, secret
+    assert all(line.startswith("  | ") for line in tail.splitlines()) and len(tail.splitlines()) == lines
+    assert "2026-10-01 an older daemon said: password=[REDACTED]" in tail
     assert cli._log_tail(tmp_path / "absent.log") == f"(no {tmp_path / 'absent.log'})"
     (tmp_path / "empty.log").write_text("")
     assert cli._log_tail(tmp_path / "empty.log") == f"(empty {tmp_path / 'empty.log'})"
