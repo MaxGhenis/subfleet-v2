@@ -217,9 +217,9 @@ def running_at_preflight(probe, monkeypatch):
     """Simulate a stop just after the first preflight's running observation."""
     report = probe.holder_report
 
-    def first_report():
+    def first_report(**kwargs):
         monkeypatch.setattr(probe, "holder_report", report)
-        pid, alive, reason, _ = report()
+        pid, alive, reason, _ = report(**kwargs)
         return pid, alive, reason, "S"
 
     monkeypatch.setattr(probe, "holder_report", first_report)
@@ -566,7 +566,7 @@ def test_cached_client_rechecks_before_wait(root, daemon, monkeypatch, holder_cl
     state = ["S"]
     monkeypatch.setattr(client_module, "_run", lambda *a, **k: (0, state[0] + " " + START))
     server = daemon({"ping": lambda request: {"pong": True}})
-    probe = Client(root, timeout=0.1)
+    probe = Client(root, timeout=2)
     assert probe.call("ping") == {"pong": True}
     server.close()
     state[0] = "T+"
@@ -754,13 +754,14 @@ def test_status_uses_later_stopped_observation(root, monkeypatch, holder_clock, 
         assert 'is stopped' in captured.err and 'fix: kill -CONT 12345' in captured.err
 
 
-def test_doctor_live_uses_later_stopped_observation(root, monkeypatch, holder_clock):
+@pytest.mark.parametrize('check', [doctor.check_live, doctor.check_descriptors_live])
+def test_doctor_live_uses_later_stopped_observation(root, monkeypatch, holder_clock, check):
     """C-5.13 doctor's offline row may pass, but its later live row must fail."""
     (root / 'daemon.lock').write_text(json.dumps({'pid': 12345, 'proc_start': START}))
     states = iter(['S', 'T+'])
     monkeypatch.setattr(client_module, '_run', lambda *a, **k: (0, next(states) + ' ' + START))
     assert doctor.check_daemon_lock(root)['status'] == doctor.PASS
-    item = doctor.check_live(root)
+    item = check(root)
     assert item['status'] == doctor.FAIL
     assert 'T+' in item['detail'] and 'is stopped' in item['detail']
     assert item['fix'] == '`kill -CONT 12345`'
@@ -822,3 +823,13 @@ def test_probe_pacing_deadline_property(deadlines, boots, probes, completions):
             assert clock.now <= deadline + 5.0 + 1e-9
         assert all(b - a >= client_module.HOLDER_PROBE_INTERVAL_S - 1e-9
                    for a, b in zip(starts, starts[1:]))
+
+
+def test_start_preserves_later_stopped_observation(root, monkeypatch, holder_clock, capsys):
+    """C-5.13 S then T+ refuses start before it launches another daemon."""
+    (root / 'daemon.lock').write_text(json.dumps({'pid': 12345, 'proc_start': START}))
+    states = iter(['S', 'T+'])
+    monkeypatch.setattr(client_module, '_run', lambda *a, **k: (0, next(states) + ' ' + START))
+    monkeypatch.setattr(cli, '_daemond_argv', lambda root: pytest.fail('attempted a second launch'))
+    assert cli.main(['daemon', 'start']) == int(Exit.DAEMON_UNAVAILABLE)
+    assert 'fix: kill -CONT 12345' in capsys.readouterr().err
