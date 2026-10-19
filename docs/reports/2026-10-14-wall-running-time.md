@@ -1379,9 +1379,10 @@ The r5 review found that both providers' `cancel-turn` approval replies set
 later could consequently settle as success. The round-8 assertions and separate
 kill bookkeeping remain required.
 
-The local `release/217` ref is `b053e3de8`, already an ancestor of the assigned
-`fe8bda1ff` head (and unchanged from `d72597b5c` by the abbreviated commit
-comparison in the brief). No new merge or conflict resolution is necessary;
+The local `release/217` branch is `b053e3de8`, an older ancestor of
+`d72597b5c`; the local `origin/release/217` tracking ref remains `d72597b5c`.
+Both are already ancestors of the assigned `fe8bda1ff` head. No new merge or
+conflict resolution is necessary;
 all existing contract clauses and both histories' change-log entries are kept.
 Commits use workspace-local `.git-local` metadata on
 `fix/wall-counts-running-time-217`, because the shared Git metadata is read-only.
@@ -1404,4 +1405,73 @@ flag against its actual `interrupt`, `cancel` or `abort` payload, including
 Codex legacy approvals and non-stopping MCP elicitation cancellation. An AST
 guard requires every production `Frame(...)` site to declare its capability.
 
-Implementation, frame sweep and final validation are recorded below when complete.
+The guard-only test-first hold also failed all **18 selected tests** (195
+other tests deselected), including the sweep's 29 initially unclassified sites.
+
+### Flag design and frame sweep
+
+`Frame.stops` is a keyword-only boolean. It defaults to true for old callers,
+so omission cannot silently remove an audit; every production builder explicitly
+sets true, false or a decision-dependent boolean. The AST guard rejects any
+unclassified production construction even with that conservative default.
+The runtime protocol guards reject wrongly classified cancel/abort replies.
+`TurnRunner._transmit` selects the existing durable `StopDelivery` callback
+solely by `frame.stops`, with no tag/op inference. The intent, post-connection
+clock, acknowledgements, uncertain-delivery handling and receipt ordering are
+shared with all other stops. `attempt.kill_started` remains separate.
+
+Approval cancellation keeps the driver's existing suppression of redundant
+interrupts. Draining the queued wall command still starts `stop_at` before it
+asks the driver to interrupt. The timer's SIGINT, close and containment remain
+active even when that driver call emits no frame. No escalation clock is reset.
+The non-stopping allow reply creates no intent; its queued explicit interrupt
+and the full escalation still run. Receipt proof strictly before the approval's
+actual transmission clock continues to win.
+
+The following table lists all 29 production `Frame(...)` construction sites.
+Provider protocol references are the repository's pinned
+`docs/desktop/maps/provider-protocols.md` (approval/interrupt schemas) and
+`docs/steer-provider-claims.md` (queued-message cancellation). “Conditional”
+rows list each possible result explicitly.
+
+| Construction | stops | Protocol reason |
+| --- | --- | --- |
+| `claude_turn.py:223` `start` — `init` | no | Initialize the provider protocol; starts no active turn stop. |
+| `claude_turn.py:236` `interrupt` — `interrupt` | yes | Interrupt the active turn. |
+| `claude_turn.py:264` `steer` — `steer:{message_id}` | no | Queue/steer user input for the active turn; no cancellation. |
+| `claude_turn.py:311` `_cancel_frame` — `cancel-steer:{mid}` | no | cancel_async_message drops one queued input; it does not interrupt the active turn. |
+| `claude_turn.py:338` `restore_answer` — `interrupt` | yes | Interrupt the active turn and sweep queued steers on replay. |
+| `claude_turn.py:368` `respond` — `approval:{request_id}` | yes: cancel-turn; no: all other decisions | Claude deny with interrupt:true aborts the active turn; allow/answer and deny without interrupt only answer the tool. |
+| `claude_turn.py:372` `respond` — `interrupt` | yes | Interrupt the active turn and any requested queued steers. |
+| `claude_turn.py:528` `_control_response` — `user-message` | no | Submit/start user input; no stop request. |
+| `claude_turn.py:534` `_control_response` — `SETTINGS_FRAME` | no | get_settings reads settings only. |
+| `claude_turn.py:593` `_control_request` — `refuse:{request_id}` | no | Control-response error refuses a request; no interrupt bit. |
+| `claude_turn.py:874` `_check_model` — `interrupt` | yes | Interrupt the active turn on model mismatch. |
+| `claude_turn.py:891` `_end` — `close` | yes | Close stdin (EOF can end the provider), including replay/refusal cleanup. |
+| `codex_turn.py:174` `start` — `init` | no | Initialize the provider protocol; starts no active turn stop. |
+| `codex_turn.py:201` `_send_interrupt` — `interrupt` | yes | Interrupt the active turn. |
+| `codex_turn.py:231` `_send_steers` — `steer:{mid}` | no | Queue/steer user input for the active turn; no cancellation. |
+| `codex_turn.py:270` `respond` — `approval:{request_id}` | yes: cancel-turn; no: all other decisions | Command/file cancel interrupts the turn; accept, acceptForSession, decline and permission-subset replies do not. |
+| `codex_turn.py:347` `_response` — `initialized` | no | Complete the initialization handshake. |
+| `codex_turn.py:348` `_response` — `hooks` | no | hooks/list reads hook configuration. |
+| `codex_turn.py:349` `_response` — `models` | no | model/list reads the model catalog. |
+| `codex_turn.py:409` `_maybe_thread` — `thread` | no | thread/resume or thread/start opens the thread before turn/start; no active-turn cancellation. |
+| `codex_turn.py:412` `_maybe_thread` — `thread` | no | thread/resume or thread/start opens the thread before turn/start; no active-turn cancellation. |
+| `codex_turn.py:457` `_thread` — `user-message` | no | Submit/start user input; no stop request. |
+| `codex_turn.py:715` `_server_request` — `refuse:{rid}` | yes: legacy abort; no: other refusals | Legacy applyPatchApproval/execCommandApproval reply abort ends the turn; MCP action:cancel only cancels elicitation, empty answers and RPC errors do not abort. |
+| `codex_turn.py:734` `_end` — `close` | yes | Close stdin (EOF can end the provider), including replay/refusal cleanup. |
+| `runner.py:320` `_run` — `close` | yes | Close stdin (EOF can end the provider), including replay/refusal cleanup. |
+| `runner.py:1043` `_refuse_frame` — `close` | yes | Close stdin (EOF can end the provider), including replay/refusal cleanup. |
+| `runner.py:1086` `_timers` — `signal:int` | yes | SIGINT ends/aborts provider work during escalation. |
+| `runner.py:1089` `_timers` — `close` | yes | Close stdin (EOF can end the provider), including replay/refusal cleanup. |
+| `runner.py:1096` `_timers` — `signal:int:late` | yes | SIGINT ends/aborts provider work after result. |
+
+### Validation status
+
+The focused post-fix hold passed **52 tests** (216 deselected), covering every
+new approval regression/guard, the bounded delivery-interleaving property,
+provider interrupts and existing stop-frame regressions. Both providers settle
+post-wall approval cancellation as `cancelled`, rc 130. Pre-transmission exit
+proof still settles `succeeded`; non-stopping approvals create no stop intent;
+both allow and cancel preserve SIGINT, close and containment escalation.
+The complete requested file groups and tag-audit mutation follow below.
