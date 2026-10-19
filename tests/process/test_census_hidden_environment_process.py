@@ -12,6 +12,13 @@ environment (observed 2026-10-18), so the markers it inherited show neither in
 fourth source, responsibility (D-CEN1), names it, and only while the root lives; the
 identity the census records then keeps it counted after the root's SIGKILL.
 
+GitHub's macos-15-arm64 runner (macOS 15.7.9) returns lockf's buffer with its
+environment (observed 2026-10-19), so there the incident cannot happen with lockf.
+Each test that needs lockf's markers hidden runs twice (`hiding`): on the host's
+kernel, skipped where it shows them, and through `tests/hidden_environment.py`, which
+cuts lockf's buffer after its argv for the census's reader and the installed census's
+`ps -E` read alike, on any macOS.
+
 Each test runs a real guardian (`python -m subfleet.guardian`) whose provider is a
 shell that starts the lockf, setsid'd, on a scratch lock the test holds (never the
 suite lock), with the markers a provider's command inherits. Termination is the kill
@@ -38,7 +45,9 @@ import pytest
 
 from subfleet import procs
 from subfleet.daemon import Daemon
+from subfleet.launch_env import guardian_pass_args
 from tests import reference_census_c697 as installed
+from tests.hidden_environment import HidingKernel, hiding_ps, shown_reason, shows_markers, without_environment
 from tests.unit.test_census_procargs import Store
 
 pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="C-5.5's census reads macOS process state")
@@ -115,6 +124,32 @@ def stop_identity(identity: procs.ProcessIdentity | None) -> None:
           f"pid {identity.pid} to leave after SIGKILL", timeout=10)
 
 
+class Hiding:
+    """How a test's lockf hides its markers: by the host's kernel (`kernel`), which skips
+    the test where the kernel shows them, or by the stand-in (`simulated`) for the
+    census's reader (`procs.kernel`) and the installed census's `ps -axEww` read, which
+    hides lockf's environment and nothing else on any macOS."""
+
+    def __init__(self, mode: str, monkeypatch):
+        self.mode, self.monkeypatch = mode, monkeypatch
+        self.kernel: HidingKernel | None = None
+
+    def apply(self, attempt: FakeAttempt) -> None:
+        lockf = attempt.lockf.pid
+        if self.mode == "kernel":
+            if shows_markers(lockf, attempt.attempt_id, str(attempt.state_root)):
+                pytest.skip(shown_reason())
+            return
+        self.kernel = HidingKernel(procs.kernel, lambda: {lockf})
+        self.monkeypatch.setattr(procs, "kernel", self.kernel)
+        self.monkeypatch.setattr(installed, "_read", hiding_ps(installed._read, lambda: {lockf}))
+
+
+@pytest.fixture(params=["kernel", "simulated"])
+def hiding(request, monkeypatch) -> Hiding:
+    return Hiding(request.param, monkeypatch)
+
+
 def marked(pid: int, attempt_id: str, root: str) -> bool | None:
     """Does `pid`'s raw argument buffer carry the marker? None when the kernel refused it."""
     found = procs.kernel.arguments(pid, ctypes.create_string_buffer(procs._ARGS_BUFFER))
@@ -124,9 +159,13 @@ def marked(pid: int, attempt_id: str, root: str) -> bool | None:
 class FakeAttempt:
     """A running attempt without a daemon: a real guardian, rooted as a self-responsible
     daemon starts it or unrooted as Popen starts it, the row `Daemon._contain` reads, and
-    the lockf (and optional marker-showing carrier) its provider left."""
+    the lockf (and optional marker-showing carrier) its provider left. The guardian passes
+    its provider the markers by name (`--env-pass`), as `Daemon._launch` does: it hands
+    a provider no other launch name (D-ENV1). With `hiding`, lockf's markers are hidden
+    by the host's kernel or the stand-in."""
 
-    def __init__(self, tmp_path: Path, lock: Path, *, rooted: bool, carrier: bool = False):
+    def __init__(self, tmp_path: Path, lock: Path, *, rooted: bool, carrier: bool = False,
+                 hiding: Hiding | None = None):
         self.state_root = tmp_path / "state"
         self.job_id = f"kill2-{uuid.uuid4().hex[:8]}"
         self.attempt_id = f"{self.job_id}/a1"
@@ -139,7 +178,7 @@ class FakeAttempt:
                "SUBFLEET_JOB": self.job_id, "SUBFLEET_ROOT": str(self.state_root)}
         argv = [sys.executable, "-m", "subfleet.guardian", "--attempt-dir", str(self.directory),
                 "--cwd", str(work), "--stdout-path", str(self.out / "stdout"),
-                "--stderr-path", str(self.out / "stderr"), "--",
+                "--stderr-path", str(self.out / "stderr"), *guardian_pass_args(env), "--",
                 "/bin/sh", "-c", PROVIDER, "provider", sys.executable, str(lock), str(self.out),
                 "1" if carrier else ""]
         self.lockf = self.carrier = self.start = None
@@ -164,6 +203,8 @@ class FakeAttempt:
                         "proc_start": self.start["proc_start"], "started_at": self.start["started_at"],
                         "evidence_json": json.dumps({"responsible_root": root} if root else {})}
             self.core = SimpleNamespace(root=self.state_root, store=Store(self.row), _read_json=self.read_json)
+            if hiding is not None:
+                hiding.apply(self)
         except BaseException:
             self.close()
             raise
@@ -213,13 +254,14 @@ def emptied(read) -> procs.Containment:
                  "a verified-empty census", timeout=10)
 
 
-def test_d_kill2_lockf_shows_no_environment_where_python_shows_its_markers(tmp_path, held_lock):
-    """The incident's premise, checked on this kernel so the regressions below are the
-    incident's: the lockf an attempt's provider leaves carries the attempt's markers
-    in its environment, but its argument buffer holds only its argv, so `ps -E` and the
-    raw read alike see none; a python process the same provider starts the same way
-    shows them in both."""
-    attempt = FakeAttempt(tmp_path, held_lock, rooted=False, carrier=True)
+def test_d_kill2_lockf_shows_no_environment_where_python_shows_its_markers(tmp_path, held_lock, hiding):
+    """The incident's premise, checked so the regressions below are the incident's: the
+    lockf an attempt's provider leaves carries the attempt's markers in its environment,
+    but its argument buffer holds only its argv, so `ps -E` and the raw read alike see
+    none; a python process the same provider starts the same way shows them in both.
+    `kernel` checks this kernel's own reads, and that the stand-in leaves its lockf
+    buffer as it is; `simulated` checks the stand-in's, on any macOS."""
+    attempt = FakeAttempt(tmp_path, held_lock, rooted=False, carrier=True, hiding=hiding)
     try:
         root = str(attempt.state_root)
         buffer = procs.kernel.arguments(attempt.lockf.pid, ctypes.create_string_buffer(procs._ARGS_BUFFER))
@@ -229,10 +271,16 @@ def test_d_kill2_lockf_shows_no_environment_where_python_shows_its_markers(tmp_p
         assert not [string for string in strings if string.startswith(b"SUBFLEET_")], \
             "lockf's buffer shows its environment: the marker source can see it on this macOS"
         assert marked(attempt.carrier.pid, attempt.attempt_id, root) is True
-        shown = subprocess.run(["/bin/ps", "-Eww", "-o", "pid=,command=", "-p",
-                                f"{attempt.lockf.pid},{attempt.carrier.pid}"],
-                               capture_output=True, env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"}).stdout
-        rows = {int(row.split(None, 1)[0]): row.split() for row in shown.decode(errors="replace").splitlines()}
+        if hiding.mode == "kernel":
+            assert without_environment(buffer) == buffer, "this kernel returns more than lockf's argv"
+            shown = subprocess.run(["/bin/ps", "-Eww", "-o", "pid=,command=", "-p",
+                                    f"{attempt.lockf.pid},{attempt.carrier.pid}"],
+                                   capture_output=True, env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"}).stdout
+            shown = shown.decode(errors="replace")
+        else:
+            assert hiding.kernel.hid == {attempt.lockf.pid}
+            shown = installed._read(["/bin/ps", "-axEww", "-o", "pid=,command="])
+        rows = {int(row.split(None, 1)[0]): row.split() for row in shown.splitlines() if row.strip()}
         marker = f"SUBFLEET_ATTEMPT={attempt.attempt_id}"
         assert marker not in rows[attempt.lockf.pid] and marker in rows[attempt.carrier.pid]
     finally:
@@ -258,7 +306,7 @@ def cancel(attempt: FakeAttempt) -> None:
         "environment, has no responsibility source, and keeps no walk member it saw"))),
 ])
 def test_d_kill2_a_setsid_lockf_that_outlives_its_cancelled_attempt_is_counted(tmp_path, held_lock, census,
-                                                                              rooted):
+                                                                              rooted, hiding):
     """D-KILL2, C-5.5: the regression. An attempt is cancelled with the kill protocol's
     signals while its provider's lockf waits for a lock in a session of its own, and
     every census termination takes counts the lockf until it is gone. The first,
@@ -269,7 +317,7 @@ def test_d_kill2_a_setsid_lockf_that_outlives_its_cancelled_attempt_is_counted(t
     installed census (strict xfail) loses it at SIGTERM."""
     if rooted:
         rooted_only()
-    attempt = FakeAttempt(tmp_path, held_lock, rooted=rooted)
+    attempt = FakeAttempt(tmp_path, held_lock, rooted=rooted, hiding=hiding)
     read = attempt.census if census == "branch" else attempt.installed_census
     lockf = attempt.lockf.pid
     try:
@@ -305,14 +353,14 @@ def test_d_kill2_a_setsid_lockf_that_outlives_its_cancelled_attempt_is_counted(t
         attempt.close()
 
 
-def test_d_kill2_a_lockf_left_before_any_census_is_found_by_responsibility_alone(tmp_path, held_lock):
+def test_d_kill2_a_lockf_left_before_any_census_is_found_by_responsibility_alone(tmp_path, held_lock, hiding):
     """D-CEN1's source is the only one for a lockf whose provider was gone before the
     attempt's first census, as when the provider ends by itself and C-5.9's census
     follows, or the kill protocol's SIGTERM lands first: no marker, no group, ppid 1,
     no earlier record. It names the rooted guardian, which stays while it does; that
     census records it, and after the guardian's SIGKILL the record keeps it counted."""
     rooted_only()
-    attempt = FakeAttempt(tmp_path, held_lock, rooted=True)
+    attempt = FakeAttempt(tmp_path, held_lock, rooted=True, hiding=hiding)
     lockf = attempt.lockf.pid
     try:
         assert attempt.signal(signal.SIGTERM)
@@ -331,14 +379,14 @@ def test_d_kill2_a_lockf_left_before_any_census_is_found_by_responsibility_alone
         attempt.close()
 
 
-def test_d_kill2_the_installed_census_was_verified_empty_while_lockf_waited(tmp_path, held_lock):
+def test_d_kill2_the_installed_census_was_verified_empty_while_lockf_waited(tmp_path, held_lock, hiding):
     """D-KILL2 as it happened, on an attempt without a root as the installed daemon starts
     them. The installed census counts lockf while its parent, the provider, lives (the
     walk), never by its hidden marker, and keeps no record of it; after SIGTERM it is
     verified empty while lockf still waits, the answer `kill --confirm-dead` released on.
     This branch's census of the same moment still counts it, from its first census's
     record."""
-    attempt = FakeAttempt(tmp_path, held_lock, rooted=False)
+    attempt = FakeAttempt(tmp_path, held_lock, rooted=False, hiding=hiding)
     lockf = attempt.lockf.pid
     try:
         seen = attempt.installed_census()
@@ -370,14 +418,14 @@ def test_d_kill2_an_unrooted_attempt_counts_a_setsid_marker_carrier_by_its_raw_b
 
 
 @pytest.mark.documented_limitation
-def test_d_kill2_a_hidden_lockf_no_census_saw_is_invisible_without_a_root(tmp_path, held_lock):
+def test_d_kill2_a_hidden_lockf_no_census_saw_is_invisible_without_a_root(tmp_path, held_lock, hiding):
     """C-5.5's limit: an attempt without a responsibility root (a daemon started under a
     terminal or an app, a macOS without the SPI, or an attempt launched before roots were
     recorded) has three sources. A hidden-environment lockf that left the walk before
     any census of the attempt counted it (here: no census until after SIGTERM) is seen
     by none of them, and the census is verified empty while it waits. A change that
     closes this must change this test."""
-    attempt = FakeAttempt(tmp_path, held_lock, rooted=False)
+    attempt = FakeAttempt(tmp_path, held_lock, rooted=False, hiding=hiding)
     try:
         cancel(attempt)
         assert emptied(attempt.census).verified_empty
@@ -386,14 +434,15 @@ def test_d_kill2_a_hidden_lockf_no_census_saw_is_invisible_without_a_root(tmp_pa
         attempt.close()
 
 
-def test_d_kill2_a_failed_responsibility_read_of_the_lockf_is_never_contained(tmp_path, held_lock, monkeypatch):
+def test_d_kill2_a_failed_responsibility_read_of_the_lockf_is_never_contained(tmp_path, held_lock, monkeypatch,
+                                                                             hiding):
     """C-5.5: an unverifiable census never counts as contained. The provider is gone before
     termination's first census, so only responsibility can name the lockf, and every
     responsibility read of it fails: no census counts or records it. After the
     guardian's SIGKILL nothing is counted at all, and the census is still not verified
     empty, so termination quarantines instead of releasing."""
     rooted_only()
-    attempt = FakeAttempt(tmp_path, held_lock, rooted=True)
+    attempt = FakeAttempt(tmp_path, held_lock, rooted=True, hiding=hiding)
     lockf = attempt.lockf.pid
     real = procs.kernel.responsible
 
