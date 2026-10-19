@@ -737,3 +737,31 @@ def test_a_test_that_runs_main_leaves_pytest_its_own_hooks(tmp_path):
                           "test_3_a_thread_fails_after_them", "test_4_a_finalizer_fails_after_them"}, done.stdout
     assert reported == {"test_1_control", "test_3_a_thread_fails_after_them",
                         "test_4_a_finalizer_fails_after_them"}, done.stdout
+
+
+def test_a_record_is_scrubbed_before_the_handler_s_lock_is_taken(monkeypatch):
+    """Review r1 of #233: scrubbing, and Python's own formatting of a long
+    traceback, ran under the handler's lock, so every other thread's line waited
+    for them. The handler formats a record first; only its write holds the lock."""
+    log = Written("subfleet.daemon.test-lock")
+    free = []
+    original = daemon_log.scrubbed_block
+
+    def spy(text):
+        def take():                             # another thread: free unless the record holds it
+            if log.handler.lock.acquire(timeout=5):
+                free.append(True)
+                log.handler.lock.release()
+            else:
+                free.append(False)
+        other = threading.Thread(target=take)
+        other.start()
+        other.join(30)
+        return original(text)
+    monkeypatch.setattr(daemon_log, "scrubbed_block", spy)
+    try:
+        log.log.warning("%s", "several lines\ntoken=SECRET7lock9")
+    finally:
+        log.close()
+    assert free == [True]
+    assert log.text() == "several lines\ntoken=[REDACTED]\n"
