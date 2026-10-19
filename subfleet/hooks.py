@@ -79,7 +79,8 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 from . import render
-from .client import Client, DaemonError, DaemonUnavailable, busy_pause, refused_while_busy, state_root
+from .client import (Client, DEFAULT_TIMEOUT_S, DaemonError, DaemonUnavailable,
+                     busy_pause, refused_while_busy, state_root)
 from .contracts import Exit, JobState, WAIT_POLL_MAX_S
 from .protocol import ProtocolError, service_notice_on_wire
 
@@ -377,19 +378,20 @@ def job_summary(job: dict[str, Any], root: Path) -> str:
 
 # --- talking to the daemon ----------------------------------------------------
 
-def _pending(client: Client, session: str) -> list[dict[str, Any]]:
-    result = client.call("notice.pending", {"session_id": session})
+def _pending(client: Client, session: str, *, timeout: float | None = None
+             ) -> list[dict[str, Any]]:
+    result = client.call("notice.pending", {"session_id": session}, timeout=timeout)
     rows = result.get("notices")
     return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
 
 
 def _mark(client: Client, session: str, notice_ids: Iterable[int], state: str,
-          transport: str | None = None) -> None:
+          transport: str | None = None, *, timeout: float | None = None) -> None:
     ids = [int(item) for item in notice_ids]
     if not ids:
         return
     client.call("notice.mark", {"session_id": session, "notice_ids": ids,
-                                "state": state, "transport": transport})
+                                "state": state, "transport": transport}, timeout=timeout)
 
 
 def _offline_pending(root: Path, session: str) -> list[dict[str, Any]]:
@@ -547,10 +549,10 @@ def wake_worker(session: str, payload: dict[str, Any], root: Path,
         return None
 
 
-def _candidates(client: Client, session: str, payload: dict[str, Any]
-                ) -> list[dict[str, Any]]:
+def _candidates(client: Client, session: str, payload: dict[str, Any], *,
+                timeout: float | None = None) -> list[dict[str, Any]]:
     """This session's unfinished jobs, narrowed by what the Bash call printed."""
-    result = client.call("list", {"mine": session, "running": True})
+    result = client.call("list", {"mine": session, "running": True}, timeout=timeout)
     rows = result.get("jobs")
     jobs = [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
     if not jobs or not ran_subfleet_run(tool_command(payload)):
@@ -585,7 +587,9 @@ def post_tool_use(payload: dict[str, Any], root: Path, *,
     deadline = now() + (timeout_s() - HOOK_MARGIN_S if budget_s is None else budget_s)
     try:
         client = Client(root, verify_lock=False) if client is None else client     # C-15.6
-        jobs = _candidates(client, session, payload)
+        jobs = _candidates(client, session, payload,
+                           timeout=min(getattr(client, "timeout", DEFAULT_TIMEOUT_S),
+                                       max(0.0, deadline - now())))
     except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
         return int(Exit.OK)
     for job in jobs:
@@ -652,14 +656,17 @@ def _wait_and_deliver(client: Client, session: str, job_id: str, deadline: float
                    rows[0] if rows else None)
         if job is None or job.get("state") not in TERMINAL_STATES:
             continue                        # not a finish; the pause above ran
-        return _deliver(client, session, job, stderr=stderr)
+        return _deliver(client, session, job, stderr=stderr, deadline=deadline, now=now)
 
 
-def _deliver(client: Client, session: str, job: dict[str, Any], *, stderr: Any) -> int:
+def _deliver(client: Client, session: str, job: dict[str, Any], *, stderr: Any,
+             deadline: float, now) -> int:
     """Show the notice to Claude: stderr plus exit 2 (`claude-hooks.md` §3)."""
     job_id = job.get("job_id")
     try:
-        rows = [row for row in _pending(client, session)
+        rows = [row for row in _pending(
+            client, session, timeout=min(getattr(client, "timeout", DEFAULT_TIMEOUT_S),
+                                         max(0.0, deadline - now())))
                 if row.get("job_id") == job_id]
     except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
         rows = []
@@ -673,7 +680,9 @@ def _deliver(client: Client, session: str, job: dict[str, Any], *, stderr: Any) 
         try:
             _mark(client, session, [row["notice_id"] for row in rows
                                     if row.get("notice_id") is not None],
-                  "offered", "hook:PostToolUse")
+                  "offered", "hook:PostToolUse",
+                  timeout=min(getattr(client, "timeout", DEFAULT_TIMEOUT_S),
+                              max(0.0, deadline - now())))
         except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
             pass
     return int(Exit.INVALID_INPUT)          # 2: the harness's "show this to Claude"
