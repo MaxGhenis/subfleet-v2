@@ -12,6 +12,7 @@ from __future__ import annotations
 import gc
 import io
 import logging
+import os
 import re
 import sys
 import threading
@@ -391,8 +392,9 @@ NEXT_LINE_SHAPES = ["token:\n", "token =\n  ", "Authorization: Bearer\n", "Cooki
 MARGIN = re.compile(r"(?:  )+[|+](?: |$)")
 
 
-def group_of(members: list[BaseException], *, depth: int = 1, raise_it: bool = True) -> BaseException:
-    group: BaseException = ExceptionGroup("several failed", members)
+def group_of(members: list[BaseException], *, depth: int = 1, raise_it: bool = True,
+             message: str = "several failed") -> BaseException:
+    group: BaseException = ExceptionGroup(message, members)
     for _ in range(depth - 1):
         group = ExceptionGroup("outer", [group, ValueError("other")])
     if not raise_it:
@@ -463,22 +465,51 @@ def test_a_one_member_group_never_shows_a_secret_its_member_alone_hides(drawn, d
             assert secret not in out, (secret, out)
 
 
+#: A group's own text over the bound (review r2 of #233, P3): its lines fill the kept head.
+GROUP_CONTEXT = "\n".join(["group context line"] * 1200)
+
+
+def distinct_member(drawn, index: int, pad: int = 0) -> tuple[BaseException, list[str]]:
+    """`member_of`, with every secret made distinct: `SECRET7<member><n>…`, a fixed-width
+    tag after `SECRET7`, so no secret is another's or a piece of one. `pad` lines of
+    the member's own words come first, so its separator falls out of a cut group."""
+    shape, secret, words = drawn
+    text, _ = _text(words)
+    count = iter(range(100))
+    body = SECRET_RUN.sub(lambda run: f"SECRET7{index}{next(count):02d}{run.group()[7:]}", f"{shape}{secret} {text}")
+    return raised("member line\n" * pad + body), SECRET_RUN.findall(body)
+
+
 @settings(max_examples=60, derandomize=True, database=None, deadline=None)
-@given(drawn=st.lists(MEMBERS, min_size=2, max_size=3), depth=st.integers(1, 2), raise_it=st.booleans())
-def test_a_group_s_margins_never_cost_a_secret(drawn, depth, raise_it):
-    """Property, several members: a group's traceback is one text, scrubbed whole,
-    so a quote in one member may close a value another opened, as in any chained
-    traceback; that is the scrubber's, not the margin's. What the margins must not
-    do is show a secret the same text without them hides, or one its line form hides."""
-    members = [member_of(one) for one in drawn]
-    tb = traceback_of(group_of([exc for exc, _ in members], depth=depth, raise_it=raise_it))
-    block = daemon_log.scrubbed_block(tb)
-    for _, secrets in members:
+@given(drawn=st.lists(MEMBERS, min_size=2, max_size=3), depth=st.integers(1, 2), raise_it=st.booleans(),
+       over=st.booleans())
+def test_a_several_member_group_never_shows_a_secret_its_member_alone_hides(drawn, depth, raise_it, over):
+    """Property, restored for several members (review r2 of #233): whatever a member's
+    plain traceback hides, its group's hides too. Round 2 had weakened it to the
+    margins alone; its only failures were duplicate secrets, which the suffix strategy
+    shrinks to, so another member showed that same string bare. With every secret
+    distinct, it holds. `over`: the group's own lines and its last member's are long
+    enough that the record is cut and its separators fall out of what is kept. The
+    margins still never cost a secret the margin-free text or the line form hides."""
+    members = [distinct_member(one, index, pad=1000 if over and index == len(drawn) - 1 else 0)
+               for index, one in enumerate(drawn)]
+    group = group_of([exc for exc, _ in members], depth=depth, raise_it=raise_it,
+                     message=GROUP_CONTEXT if over else "several failed")
+    out = written_for(group)
+    for exc, secrets in members:
+        alone = written_for(exc)
         for secret in secrets:
-            if secret not in daemon_log.scrubbed_block(without_margins(tb)):
-                assert secret not in block, (secret, block)
-            if secret not in refusals.scrubbed_line(tb, UNCUT):
-                assert secret not in block, (secret, block)
+            if secret not in alone:
+                assert secret not in out, (secret, out[-3000:])
+    if not over:
+        tb = traceback_of(group)
+        block = daemon_log.scrubbed_block(tb)
+        for _, secrets in members:
+            for secret in secrets:
+                if secret not in daemon_log.scrubbed_block(without_margins(tb)):
+                    assert secret not in block, (secret, block)
+                if secret not in refusals.scrubbed_line(tb, UNCUT):
+                    assert secret not in block, (secret, block)
 
 
 @BOUNDED
@@ -560,9 +591,12 @@ def test_a_four_mib_record_is_written_bounded_and_scrubbed_within_the_time_bound
 
 
 def test_a_four_mib_line_with_nowhere_safe_to_cut_keeps_only_its_marker(written):
-    """One line has no line break to cut at: the marker alone says what was left out."""
+    """One line has no line break to cut at: the marker says what was left out, and
+    names the record's level and logger, fixed metadata, never its words (review r2
+    of #233: the marker alone lost which logger had written it)."""
     written.log.warning("%s", "driver said: token=SECRET7oneline9 " + "x" * FOUR_MIB)
-    assert written.text() == f"… [{FOUR_MIB + 35:,} characters omitted] …\n"
+    assert written.text() == (f"… [{FOUR_MIB + 35:,} characters omitted] … "
+                              "(WARNING record from subfleet.daemon.test-handler)\n")
 
 
 def test_a_short_line_waits_for_a_four_mib_record_no_longer_than_the_bound(monkeypatch):
@@ -595,18 +629,26 @@ def test_a_short_line_waits_for_a_four_mib_record_no_longer_than_the_bound(monke
     assert min(waits) < TIME_BOUND_S, waits
 
 
-def lines_with(secret: str) -> st.SearchStrategy:
+def shapes_with(secret: str) -> list[str]:
     """One or more lines that each hold `secret` the scrubber takes whole: credential
     shapes on a line, a key whose value is on the next line, a quoted value or a
-    private key or a data URI spanning lines, a header and `Bearer` split, a reminder."""
-    return st.sampled_from([
+    private key or a data URI spanning lines, a header and `Bearer` split, a reminder;
+    and what only folding joins (review r2 of #233): a credential flag with its value
+    on the next line, and a private key whose first and last lines are split."""
+    return [
         f"token={secret}\n", f"token:\n{secret}\n", f"token =\n  {secret}\n",
         f"password='open\nmore {secret}\nclose'\n", f'\\"password\\": \\"a\n{secret}\n\\"\n',
         f"-----BEGIN PRIVATE KEY-----\nMIIabc\n{secret}\n-----END PRIVATE KEY-----\n",
         f"data:image/png;base64,QUJDREVGR0hJSktMTU5PUFFSU1RVVldY\n{secret}\nQUJD\n",
         f"Cookie\n:\t\"{secret}\"\n", f"Authorization: Bearer\n{secret}\n",
         f"<system-reminder>\n{secret}\n</system-reminder>\n", f"api_key = \"{secret}\"\n",
-    ])
+        f"deploy --password\n{secret} rest\n", f"run --db-token \r\n\n  {secret}\n",
+        f"-----BEGIN RSA\nPRIVATE KEY-----\nMIIabc\n{secret}\n-----END RSA\nPRIVATE KEY-----\n",
+    ]
+
+
+def lines_with(secret: str) -> st.SearchStrategy:
+    return st.sampled_from(shapes_with(secret))
 
 
 #: Lines with nothing to scrub, some with quotes and separators that a cut must read.
@@ -778,3 +820,391 @@ def test_a_long_run_of_plain_words_still_keeps_its_tail(before):
     assert cut.endswith("plain words only\nthe last line\n"), cut[-200:]
     body = "data:image/png;base64,\n" + words + "the last line\n"
     assert handoff.cut_whole(body, 400).endswith("characters omitted] …\n")
+
+
+# --- the cut's cost (review r2 of #233, P2) -----------------------------------------
+
+#: C-25.7: past this many distinct escaped quote kinds in its window, a side of a
+#: record's cut keeps only the marker.
+KINDS_MAX = 8
+LIMIT = daemon_log.RECORD_SCRUB_MAX
+
+
+def head_shape(size: int, quote: str = '"') -> str:
+    """Review r2's head input: 122 kinds of escaped quote, each after `=`, in the first
+    8 KiB, then plain words. Each kind open at a candidate cut cost a scan of the rest."""
+    return "".join("k=" + "\\" * n + quote + "\n" for n in range(1, 123)) + "plain words only\n" * (size // 17)
+
+
+def tail_shape(size: int) -> str:
+    """Review r2's tail input: plain words, a value opened (`k='`) just before the tail,
+    escaped quotes that open nothing filling the tail, and the closing quote at the end.
+    `setdefault`'s default ran `_event_before` again at every line start."""
+    lines, length, n = [], 0, 0
+    while length < LIMIT // 2 + 256:
+        n = n % 120 + 1
+        lines.append("x" + "\\" * n + '"\n')
+        length += len(lines[-1])
+    return "plain words only\n" * (size // 17) + "k='\n" + "".join(lines) + "'\n"
+
+
+#: The cost shapes: the reviewer's two, text dense with quotes, and long runs of
+#: whitespace, which a cut that read each line start's neighbours anew walked again
+#: and again (found in this round: blank lines after a key took minutes).
+COST_SHAPES = {
+    "head": head_shape,
+    "head-single-quotes": lambda size: head_shape(size, "'"),
+    "tail": tail_shape,
+    "quote-dense": lambda size: "'\"\n" * (size // 3),
+    "json-dense": lambda size: 'k=\\"v\\", "t": \\\\\\"w\\\\\\"\n' * (size // 23),
+    "blank-lines-after-a-key": lambda size: "token\n" + "\n" * size + ":\nSECRET7blank9\n",
+    "blank-lines-after-bearer": lambda size: "Authorization: Bearer\n" + " \t\n" * (size // 3) + "SECRET7bearerblank9\n",
+    "blank-lines-after-a-flag": lambda size: "deploy --password" + " \n" * (size // 2) + "SECRET7flagblank9 rest\n",
+}
+
+
+class Work:
+    """What one call does, counted, not timed: the lines of `handoff` it runs, the C
+    functions it calls (each scan of the text is one such call), and its event
+    computations (`_event_from`, `_event_before`). Past `budget` lines it stops the
+    call: at review r2's head, a cut of blank lines after a key ran for minutes."""
+
+    def __init__(self, budget: int = 3_000_000):
+        self.lines = self.c_calls = self.events = 0
+        self.budget = budget
+
+    def run(self, call):
+        from subfleet.sessions import handoff
+        source = handoff.__file__
+        computing = {handoff._event_from.__code__, handoff._event_before.__code__}
+
+        def local(frame, event, arg):
+            if event == "line":
+                self.lines += 1
+                if self.lines > self.budget:
+                    raise OverflowError(f"over {self.budget:,} lines")
+            return local
+
+        def trace(frame, event, arg):
+            if frame.f_code.co_filename != source:
+                return None
+            if event == "call" and frame.f_code in computing:
+                self.events += 1
+            return local
+
+        def profile(frame, event, arg):
+            if event == "c_call":
+                self.c_calls += 1
+
+        sys.setprofile(profile)
+        sys.settrace(trace)
+        try:
+            return call()
+        finally:
+            sys.settrace(None)
+            sys.setprofile(None)
+
+
+@pytest.mark.timeout(600)
+@pytest.mark.parametrize("shape", sorted(COST_SHAPES))
+def test_a_cut_s_work_does_not_grow_with_the_text(shape):
+    """Review r2 of #233, P2: one cut took 3.6 to 5.5 s at the head input and 4.5 to 4.8 s
+    at the tail input. Counted, not timed: the lines it runs, its C calls (every scan)
+    and its event computations are the same for 64 KiB and for 512 KiB of the shape;
+    the work is the windows' and a fixed number of scans, whatever the length. Each
+    side computes each quote kind's event at most once, of at most eight escaped kinds
+    and the two plain ones."""
+    from subfleet.sessions import handoff
+    counts = []
+    for size in (64 * 1024, 512 * 1024):
+        text = COST_SHAPES[shape](size)
+        work = Work()
+        cut = work.run(lambda: handoff.cut_whole(text, LIMIT))
+        counts.append((work.lines, work.c_calls, work.events))
+        assert "SECRET7" not in daemon_log.scrubbed_block(cut)
+    assert counts[0] == counts[1], counts
+    lines, c_calls, events = counts[0]
+    assert events <= 2 * (KINDS_MAX + 2), counts
+    assert lines <= 40 * LIMIT and c_calls <= 20 * LIMIT, counts
+
+
+@pytest.mark.timeout(60)
+@pytest.mark.parametrize("where", ["message", "traceback"])
+@pytest.mark.parametrize("shape", sorted(COST_SHAPES))
+def test_a_four_mib_record_of_a_cost_shape_is_written_within_a_second(shape, where):
+    """A generous guard on the clock, not a tight one (D-TM1): a 4 MiB record of each
+    cost shape, as a message or a traceback, is written in under a second, the better
+    of two runs. Review r2 measured 6.7 to 10.7 s for the head input."""
+    text = COST_SHAPES[shape](FOUR_MIB)
+    exc = raised(text) if where == "traceback" else None
+    outs = []
+
+    def write():
+        log = Written("subfleet.daemon.test-cost")
+        try:
+            log.log.error("%s", "failed" if exc else text, exc_info=(type(exc), exc, exc.__traceback__) if exc else None)
+            outs.append(log.text())
+        finally:
+            log.close()
+    elapsed = min(best_of_one(write) for _ in range(2))
+    assert "SECRET7" not in outs[-1]
+    assert elapsed < 1.0, elapsed
+
+
+def best_of_one(work) -> float:
+    started = time.perf_counter()
+    work()
+    return time.perf_counter() - started
+
+
+def test_a_side_with_more_than_eight_escaped_kinds_keeps_only_the_marker():
+    """C-25.7's cap: eight distinct escaped quote kinds in a side's window are read;
+    a ninth makes that side keep only the marker. Each kind open at a cut costs a look
+    beyond the window, so the cap is what bounds the cut's work."""
+    from subfleet.sessions import handoff
+    words = "plain words only\n" * 4000
+
+    def escaped(kinds: int) -> str:
+        return "".join("k=" + "\\" * n + '"\n' for n in range(1, kinds + 1))
+    for kinds, kept in ((KINDS_MAX, True), (KINDS_MAX + 1, False)):
+        head = handoff.cut_whole(escaped(kinds) + words, 400)
+        assert head.startswith("k=\\\"\n") is kept, head[:80]
+        tail = handoff.cut_whole(words + "x\n" * 40 + escaped(kinds).replace("k=", "x"), 400)
+        assert tail.endswith("…\n") is not kept, tail[-80:]
+
+
+# --- what folding joins (review r2 of #233, P3) -------------------------------------
+
+#: Review r2's daemon.log input: the tail's first line is the value of the flag that
+#: ends the line before it. Both forms fold the text and scrub it again, and folded,
+#: `--password\nSECRET` is `--password SECRET`, which the flags rule masks.
+FLAG_TEXT = "w\n" * 20000 + "deploy --password\n" + "SECRET7flag9 rest\n" + "w\n" * 4087
+
+
+def test_a_credential_flag_whose_value_starts_the_kept_tail_stays_hidden(written):
+    """It wrote `… [31,826 characters omitted] …\\nSECRET7flag9 rest`: the uncut text
+    hides the value in both forms, the cut one showed it."""
+    assert FLAG_TEXT.index("SECRET7flag9") == len(FLAG_TEXT) - LIMIT // 2   # the tail's first line
+    assert "SECRET7flag9" not in daemon_log.scrubbed_block(FLAG_TEXT)
+    written.log.error("%s", FLAG_TEXT)
+    assert "characters omitted] …" in written.text()
+    assert "SECRET7flag9" not in written.text(), written.text()[-300:]
+
+
+#: For each rule the scrubber applies (its names in `handoff`; `quoted`, `plain` and
+#: `flags` are `_scrub_named_values`' three passes): what it masks, split where a line
+#: break may fall. Folding puts a space there.
+RULE_EXAMPLES = {
+    "_SYSTEM_REMINDER_RE": ("note <system-reminder>", "SECRET7reminder9 </system-reminder>"),
+    "_PEM_RE": ("-----BEGIN RSA", "PRIVATE KEY-----\nMIIabcSECRET7pem9\n-----END RSA\nPRIVATE KEY-----"),
+    "_DATA_URI_RE": ("data:image/png;base64,QUJDREVG", "SECRET7data9QUJDREVGR0hJSktMTU5PUFFSU1RVVldY"),
+    "_JWT_RE": ("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0", ".SECRET7jwt9abcdefgh"),
+    "_PREFIXED_TOKEN_RE": ("key sk-proj-", "SECRET7prefixed9abcdefgh"),
+    "_BEARER_RE": ("Authorization: Bearer", "SECRET7bearer9abcdefgh"),
+    "_LONG_BASE64_RE": ("A" * 100, "SECRET7base9" + "A" * 100),
+    "_HEADER_RE": ("Cookie:", "SECRET7cookie9"),
+    "_URL_PASSWORD_RE": ("https://user:", "SECRET7url9@host"),
+    "quoted": ("password='open", "SECRET7quoted9'"),
+    "plain": ("token =", "SECRET7plain9"),
+    "flags": ("deploy --password", "SECRET7flag9 rest"),
+}
+#: Where only folding joins the two parts: the rest are joined across a line break by
+#: the rule itself (`\\s` in it), or not at all.
+FOLDING_RULES = {"_PEM_RE", "flags"}
+GAPS = ("\n", " \n", "\n\n  ", "\r\n", "\t\n ")
+FORMS = (daemon_log.scrubbed_block, lambda text: refusals.scrubbed_line(text, UNCUT))
+
+
+def _rule_names() -> set[str]:
+    from subfleet.sessions import handoff
+    rules = {pattern for pattern, _ in (*handoff._BLOCK_RULES, *handoff._TOKEN_RULES)} | {handoff._SYSTEM_REMINDER_RE}
+    return {name for name, value in vars(handoff).items()
+            if name.startswith("_") and isinstance(value, re.Pattern) and value in rules} | {"quoted", "plain", "flags"}
+
+
+def test_every_scrub_rule_has_an_example_and_only_the_folding_rules_fold():
+    """The refused breaks are derived from the rules: each rule has an example, and the
+    ones where only folding joins what a line break parts are exactly `FOLDING_RULES`,
+    each with its break rule (`handoff._folds_to_value`, the fold-tolerant private-key
+    lines). A new rule fails here until it has an example."""
+    from subfleet.sessions.handoff import scrub_secrets
+    assert set(RULE_EXAMPLES) == _rule_names()
+    folding = set()
+    for rule, (before, after) in RULE_EXAMPLES.items():
+        secret = SECRET_RUN.search(after).group()
+        text = "plain words\n" + before + "\n" + after + "\nmore words\n"
+        if secret in scrub_secrets(text, strip_reminders=True, whole=True)[0] and secret not in refusals.scrubbed_line(text, UNCUT):
+            folding.add(rule)
+    assert folding == FOLDING_RULES
+
+
+def _aligned(before: str, gap: str, piece: str, at: str, limit: int):
+    """Texts holding `piece` (`before`, `gap`, then the rest) whose cut falls inside
+    `gap`, at the head's end or the tail's start; or that open with it (`start`)."""
+    filler = "plain words only\n"
+    if at == "start":
+        yield piece + filler * 60
+        return
+    for pad in range(0, 160):
+        if at == "tail":
+            text, offset = filler * 60 + piece + "x\n" * pad, len(filler) * 60
+            starts = [i + 1 for i in range(len(text) - limit // 2 - 1, len(text)) if text[i] == "\n"]
+            cut = starts[0] if starts else None
+        else:
+            text, offset = "x\n" * pad + piece + filler * 60, 2 * pad
+            cut = text.rfind("\n", 0, limit // 2) + 1
+        if cut is not None and offset + len(before) < cut <= offset + len(before) + len(gap):
+            yield text
+
+
+@pytest.mark.parametrize("rule", sorted(RULE_EXAMPLES))
+def test_a_cut_never_parts_what_a_rule_or_folding_joins(rule):
+    """Differential, per rule: with the cut right at the break inside its example, at
+    the head's end, the tail's start or the text's start, after every kind of gap,
+    neither form of the cut text shows a secret the whole text's form hides."""
+    from subfleet.sessions import handoff
+    before, after = RULE_EXAMPLES[rule]
+    for gap in GAPS:
+        piece = before + gap + after + "\n"
+        for at in ("head", "tail", "start"):
+            texts = list(_aligned(before, gap, piece, at, 400))
+            assert texts, (rule, gap, at)
+            for text in texts:
+                cut = handoff.cut_whole(text, 400)
+                for form in FORMS:
+                    assert set(SECRET_RUN.findall(form(cut))) <= set(SECRET_RUN.findall(form(text))), (rule, gap, at, cut)
+
+
+def test_the_private_key_lines_a_cut_reads_are_those_folding_lets_the_scrubber_read():
+    """Differential: the cut's fold-tolerant private-key lines match a text exactly when
+    `_PEM_RE`'s own lines match it folded, for spaces, line breaks, tabs and CRLF."""
+    import itertools
+    from subfleet.sessions import handoff
+    labels = ["", "RSA", "ENCRYPTED", "EC", "OPENSSH", "PRIVATE", "A1", "rsa", "RSA-1"]
+    gaps = ["\n", " ", "\t", "\r\n", " \n ", "  ", ""]
+    for edge, exact, folded in (("BEGIN", handoff._PEM_START_RE, handoff._PEM_START_FOLDED_RE),
+                                ("END", handoff._PEM_END_RE, handoff._PEM_END_FOLDED_RE)):
+        for first, label, second, third, block in itertools.product(gaps, labels, gaps, gaps, ["", " BLOCK", "\nBLOCK"]):
+            line = f"-----{edge}{first}{label}{second if label else ''}PRIVATE{third}KEY{block}-----"
+            assert (folded.fullmatch(line) is not None) == (exact.fullmatch(fold(line)) is not None), line
+
+
+def test_the_whitespace_list_is_every_character_str_isspace_holds():
+    """`handoff._SPACES` is what `str.isspace`, `str.strip` and `\\s` take as whitespace,
+    which the cut's C scans and the rules must agree on."""
+    from subfleet.sessions import handoff
+    spaces = {chr(code) for code in range(sys.maxunicode + 1) if chr(code).isspace()}
+    assert set(handoff._SPACES) == spaces
+    assert all(re.fullmatch(r"\s", char) for char in spaces)
+    assert not re.search(r"\s", "".join(chr(code) for code in range(0x3001) if chr(code) not in spaces))
+
+
+# --- exception groups over the bound (review r2 of #233, P3) -----------------------------
+
+#: Review r2's shapes: a value on the line after its key, in the last member of a group
+#: whose own lines fill the kept head, so the cut keeps no separator.
+OVER_BOUND_SHAPES = ["token:\n", "token =\n  ", "Authorization: Bearer\n"]
+
+
+def over_bound_group(shape: str, *, raise_it: bool = True) -> BaseException:
+    member = raised("\n".join(["member line"] * 1000) + "\n" + shape + "SECRET7" + "grpcut9")
+    return group_of([member], raise_it=raise_it, message=GROUP_CONTEXT)
+
+
+@pytest.mark.parametrize("raise_it", [True, False], ids=["raised", "constructed"])
+@pytest.mark.parametrize("shape", OVER_BOUND_SHAPES)
+def test_a_group_longer_than_the_bound_keeps_its_group_handling(shape, raise_it):
+    """It wrote `    | token:\\n    [REDACTED] SECRET7grpcut9`: the separator search ran
+    on the cut text, which kept none. Whether a part is a group is decided on the uncut
+    part, and any line with a group's margin is read as one."""
+    group = over_bound_group(shape, raise_it=raise_it)
+    assert len(traceback_of(group)) > LIMIT
+    out = written_for(group)
+    assert "characters omitted] …" in out
+    assert "SECRET7grpcut9" not in out, out[-400:]
+    assert "    | member line" in out
+
+
+@pytest.mark.parametrize("shape", OVER_BOUND_SHAPES)
+def test_a_block_with_a_group_s_margins_is_read_as_a_group(shape):
+    """Any line with a group's margin is group text, separator or not."""
+    text = "    | member line\n" * 3 + "".join("    | " + line for line in (shape + "SECRET7margin9\n").splitlines(True))
+    assert "SECRET7margin9" not in daemon_log.scrubbed_block(text)
+    assert "SECRET7margin9" not in daemon_log.scrubbed_block(text, group=True)
+
+
+# --- the reviewer's generator, rebuilt (review r2 of #233) ---------------------------------
+
+#: The CI run's texts; the report's run sets `SUBFLEET_CUT_FUZZ=16000`.
+FUZZ_TEXTS = int(os.environ.get("SUBFLEET_CUT_FUZZ", "300"))
+FUZZ_FILLER = ["plain words only", "  File \"/x/a.py\", line 3, in f", "    raise RuntimeError(text)", "it's here",
+               '"', "'", "=", "x:", "", "a = 'one'", 'b: "two"', "w", "--verbose", "-p", "  + more", "data"]
+
+
+def fuzz_text(rng) -> tuple[str, int]:
+    """One text and a cut limit, as review r2's generator built them: the cut shapes
+    above (`lines_with`), credential flags with their values a line or more on, CRLF,
+    a leading header, JSON with escaped and double-escaped quotes, a group's margins
+    and separators, split private-key lines, all among plain lines."""
+    def secret() -> str:
+        return "SECRET7" + "".join(rng.choice("abcdefghij0123456789") for _ in range(10))
+
+    def piece() -> str:
+        value = secret()
+        flag = rng.choice(["--password", "--db-token", "x--api-key", "--client-secret", "--password-file", "-p"])
+        return rng.choice([
+            f"deploy {flag}{rng.choice(['', ' ', ' \t'])}\n{rng.choice(['', '  ', chr(10)])}{value} rest\n",
+            f'{{"password": "{value}", "note": "it\'s"}}\n',
+            f'{{\\"token\\": \\"{value}\\", \\"n\\": 1}}\n',
+            f'{{\\\\\\"api_key\\\\\\": \\\\\\"{value}\\\\\\"}}\n',
+            f"-----BEGIN RSA\nPRIVATE KEY-----\n{value}\n-----END RSA\nPRIVATE KEY-----\n",
+            rng.choice(shapes_with(value)),
+        ])
+    lines = []
+    for _ in range(rng.randint(1, 40)):
+        lines.append(piece() if rng.random() < 0.35 else rng.choice(FUZZ_FILLER) + "\n")
+    margin = rng.choice(["", "", "  | ", "    | "])
+    if margin:
+        separator = rng.choice(["  +---------------- 1 ----------------\n", "+-+---------------- 2 ----------------\n"])
+        lines = [separator] + ["".join(margin + line for line in chunk.splitlines(True)) for chunk in lines]
+    if rng.random() < 0.15:
+        lines.insert(0, rng.choice(["Authorization: Bearer abc\n", "Cookie: a=b\n", "Set-Cookie:\n"]))
+    text = "".join(lines)
+    if rng.random() < 0.3:
+        text = text.replace("\n", "\r\n")
+    return text, rng.randint(40, 400)
+
+
+def test_the_rebuilt_generator_finds_review_r2_s_leaks_shapes():
+    """The generator reaches the shapes review r2's found: a flag whose value is a line
+    on, and a group's margins."""
+    import random
+    texts = [fuzz_text(random.Random(seed))[0] for seed in range(400)]
+    assert any("--password\n" in text or "--password\r\n" in text for text in texts)
+    assert any("    | " in text and "+----------------" in text for text in texts)
+    assert any(text.startswith(("Authorization:", "Cookie:", "Set-Cookie:")) for text in texts)
+
+
+@pytest.mark.parametrize("seed", range(3))
+def test_the_rebuilt_generator_finds_no_leak(seed, monkeypatch):
+    """Differential over the generator's texts: what the handler writes of a record cut
+    at the text's limit, and either form of `cut_whole`'s text, shows no secret the
+    uncut record or text hides. The CI run is a bounded slice; the report's is 16,000."""
+    import random
+    from subfleet.sessions import handoff
+    rng = random.Random(1000 + seed)
+    for _ in range(max(1, FUZZ_TEXTS // 3)):
+        text, limit = fuzz_text(rng)
+        cut = handoff.cut_whole(text, limit)
+        for form in FORMS:
+            assert set(SECRET_RUN.findall(form(cut))) <= set(SECRET_RUN.findall(form(text))), (text, limit, cut)
+        written = {}
+        for bound in (limit, 10 ** 9):
+            monkeypatch.setattr(daemon_log, "RECORD_SCRUB_MAX", bound)
+            log = Written("subfleet.daemon.test-fuzz")
+            try:
+                log.log.error("%s", text)
+                written[bound] = log.text()
+            finally:
+                log.close()
+        assert set(SECRET_RUN.findall(written[limit])) <= set(SECRET_RUN.findall(written[10 ** 9])), (text, limit)

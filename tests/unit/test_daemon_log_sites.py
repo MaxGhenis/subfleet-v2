@@ -18,6 +18,7 @@ import ast
 import concurrent.futures
 import faulthandler
 import json
+import logging
 import os
 import plistlib
 import re
@@ -36,6 +37,7 @@ from subfleet.conversations.runner import TurnRunner
 from subfleet.conversations.store import ConversationStore
 from subfleet.conversations.turn import TurnSpec
 from subfleet.daemon import Daemon
+from subfleet.daemon_log import RECORD_SCRUB_MAX
 from subfleet.procs import Containment
 from tests.fake.conftest import Harness
 from tests.fake_adapter import FakeAdapter
@@ -417,12 +419,99 @@ def test_a_daemon_process_writes_its_thread_unraisable_warning_and_main_failures
     assert "uncaught exception\nTraceback (most recent call last):\n" in text and "RuntimeError: main said:" in text
 
 
+# --- the record's cut, through a real Daemon (review r2 of #233) -----------------------
+
+
+def _raised(text: str) -> BaseException:
+    try:
+        raise RuntimeError(text)
+    except RuntimeError as exc:
+        return exc
+
+
+def test_a_flag_whose_value_starts_the_kept_tail_stays_out_of_daemon_log(daemon_log):
+    """Review r2's input, read back from a real daemon.log: it wrote
+    `… [31,826 characters omitted] …\nSECRET7flag9 rest`. Folded, as both forms fold,
+    `--password\nSECRET` is `--password SECRET`; no cut falls between them now."""
+    from tests.unit.test_daemon_log_handler import FLAG_TEXT
+    daemon_log.log.error("%s", FLAG_TEXT)
+    text = daemon_log.read()
+    assert "characters omitted] …" in text
+    assert "SECRET7flag9" not in text
+
+
+def _flag_traceback_lined_up_with_the_cut() -> BaseException:
+    """An exception whose traceback, logged under the message `failed`, has its kept
+    tail start at the flag's value: the first line start in its tail window."""
+    share = RECORD_SCRUB_MAX - len("failed")             # `_within`: the message takes its length
+    for count in range(4000, 4200):
+        exc = _raised("w\n" * 20000 + "deploy --password\n" + "SECRET7flag9 rest\n" + "w\n" * count)
+        tb = logging.Formatter().formatException((type(exc), exc, exc.__traceback__))
+        at, window = tb.index("SECRET7flag9"), len(tb) - share // 2
+        if at >= window > tb.rindex("\n", 0, at - 1):
+            return exc
+    raise AssertionError("no traceback lines up with the cut")
+
+
+def test_a_flag_whose_value_starts_a_traceback_s_kept_tail_stays_out_of_daemon_log(daemon_log):
+    exc = _flag_traceback_lined_up_with_the_cut()
+    daemon_log.log.error("failed", exc_info=(type(exc), exc, exc.__traceback__))
+    text = daemon_log.read()
+    assert "failed\nTraceback (most recent call last):\n" in text and "characters omitted] …" in text
+    assert "SECRET7flag9" not in text
+
+
+@pytest.mark.parametrize("shape", ["token:\n", "token =\n  ", "Authorization: Bearer\n"])
+def test_a_group_over_the_bound_is_written_to_daemon_log_scrubbed(daemon_log, shape):
+    """Review r2's group: its own 1,200 lines fill the kept head and the kept tail starts
+    inside its last member, so the cut kept no separator. It wrote
+    `    | token:\n    [REDACTED] SECRET7grpcut9`."""
+    from tests.unit.test_daemon_log_handler import over_bound_group
+    group = over_bound_group(shape)
+    daemon_log.log.error("failed", exc_info=(type(group), group, group.__traceback__))
+    text = daemon_log.read()
+    assert "characters omitted] …" in text and "    | member line" in text
+    assert "SECRET7grpcut9" not in text
+
+
+#: A process that installs the daemon's hooks and raises review r2's group uncaught.
+#: The secret is built off the `raise` line, which the traceback shows.
+GROUP_CHILD = """\
+import sys
+
+from subfleet import daemon_log
+
+daemon_log.install_process_hooks()
+shape = {"key": "token:\\n", "spaced": "token =\\n  ", "bearer": "Authorization: Bearer\\n"}[sys.argv[1]]
+secret = "SECRET7" + "grpcut9"
+member = RuntimeError("\\n".join(["member line"] * 1000) + "\\n" + shape + secret)
+group = ExceptionGroup("\\n".join(["group context line"] * 1200), [member])
+raise group
+"""
+
+
+@pytest.mark.parametrize("shape", ["key", "spaced", "bearer"])
+def test_a_process_that_raises_a_group_over_the_bound_writes_it_scrubbed(tmp_path, shape):
+    """A real child, its stderr a daemon.log, raising the group uncaught through
+    `install_process_hooks`, as `daemon.main` installs them."""
+    script = tmp_path / "child.py"
+    script.write_text(GROUP_CHILD)
+    with open(tmp_path / "daemon.log", "ab") as log:
+        done = subprocess.run([sys.executable, str(script), shape], cwd=str(tmp_path), stdin=subprocess.DEVNULL,
+                              stdout=log, stderr=log, timeout=120)
+    text = (tmp_path / "daemon.log").read_text()
+    assert done.returncode == 1, text[-2000:]
+    assert "uncaught exception\n" in text and "ExceptionGroup" in text and "characters omitted] …" in text
+    assert "SECRET7grpcut9" not in text, text[-600:]
+
+
 # --- the call sites themselves ------------------------------------------------------
 
 LOG_METHODS = frozenset({"debug", "info", "warning", "error", "exception", "critical", "log"})
 #: What may carry a caught exception into a log call: the scrubbers, its class, its
 #: errno or exit status.
 SCRUBBERS = frozenset({"refusals.scrubbed_words", "refusals.scrubbed_line", "refusals.fixed_error",
+                       "refusals.detail_line", "detail_line",
                        "refusals.class_name", "refusals.errno_text", "scrubbed_words", "suggestions.scrub_error",
                        "suggestions.scrubbed_line", "type"})
 NUMBERS = frozenset({"errno", "returncode"})
@@ -455,22 +544,100 @@ def _raw(node, names) -> list[str]:
     return [name for child in ast.iter_child_nodes(node) for name in _raw(child, names)]
 
 
+def _functions(tree) -> dict[str, list]:
+    functions: dict[str, list] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            functions.setdefault(node.name, []).append(node)
+    return functions
+
+
+def _bound(call: ast.Call, functions) -> list[tuple[str, str, ast.AST]]:
+    """`(function, parameter, argument)` for each argument of `call` to a function of
+    the same module of its name (a method called on any receiver, its `self` skipped)."""
+    callee = call.func.attr if isinstance(call.func, ast.Attribute) else getattr(call.func, "id", None)
+    bound = []
+    for function in functions.get(callee, ()):
+        parameters = [arg.arg for arg in (*function.args.posonlyargs, *function.args.args)]
+        if isinstance(call.func, ast.Attribute) and parameters[:1] in (["self"], ["cls"]):
+            parameters = parameters[1:]
+        bound.extend((callee, parameter, arg) for parameter, arg in zip(parameters, call.args)
+                     if not isinstance(arg, ast.Starred))
+        bound.extend((callee, keyword.arg, keyword.value) for keyword in call.keywords if keyword.arg)
+    return bound
+
+
+def _aliases(scope, names) -> frozenset:
+    """`names`, and each local name of `scope` assigned a value that holds one raw (an
+    f-string, `%` or `.format` of it, or it): `why = f"…{exc}"` carries `exc`."""
+    names = set(names)
+    assigns = [node for node in ast.walk(scope) if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign))
+               and node.value is not None]
+    while True:
+        more = {target.id for node in assigns if _raw(node.value, names)
+                for target in (node.targets if isinstance(node, ast.Assign) else [node.target])
+                if isinstance(target, ast.Name)} - names
+        if not more:
+            return frozenset(names)
+        names |= more
+
+
+def logged_parameters(functions) -> set[tuple[str, str]]:
+    """The `(function, parameter)` pairs of a module whose value reaches a log call:
+    passed to one raw, in a string built from it, or passed on to another such
+    parameter (`_unacknowledged(why)` → `_relay_lost(f"{why}; …")` → `log.warning(…, why)`)."""
+    logged: set[tuple[str, str]] = set()
+    calls = {id(function): [node for node in ast.walk(function) if isinstance(node, ast.Call)]
+             for defs in functions.values() for function in defs}
+    while True:
+        more = set()
+        for name, defs in functions.items():
+            for function in defs:
+                arguments = function.args
+                for parameter in (arg.arg for arg in (*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs)):
+                    if parameter in ("self", "cls") or (name, parameter) in logged:
+                        continue
+                    names = _aliases(function, {parameter})
+                    for call in calls[id(function)]:
+                        if ((_is_log_call(call) and any(_raw(arg, names) for arg in call.args))
+                                or any((callee, bound) in logged and _raw(arg, names)
+                                       for callee, bound, arg in _bound(call, functions))):
+                            more.add((name, parameter))
+                            break
+        if not more:
+            return logged
+        logged |= more
+
+
 def raw_log_sites(source: str, path: str) -> list[str]:
     """Every log call that passes a caught exception (an `except … as` name, or a
     parameter named `exc` or typed as an exception) other than through a scrubber,
-    its class, or its errno or exit status."""
+    its class, or its errno or exit status; and every call that passes one so, in a
+    string built from it or not, to a parameter of the same module's function whose
+    value reaches a log call (`logged_parameters`; review r2 of #233). A local a
+    string built from one is assigned to carries it too."""
+    tree = ast.parse(source)
+    functions = _functions(tree)
+    logged = logged_parameters(functions)
     found = []
 
     def visit(node, names):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
             names = names | _exception_parameters(node)
+            if names:
+                names = _aliases(node, names)
         if isinstance(node, ast.ExceptHandler) and node.name:
-            names = names | {node.name}
-        if isinstance(node, ast.Call) and _is_log_call(node):
-            found.extend(f"{path}:{node.lineno} passes {name} raw" for arg in node.args for name in _raw(arg, names))
+            names = _aliases(node, names | {node.name})
+        if isinstance(node, ast.Call) and names:
+            if _is_log_call(node):
+                found.extend(f"{path}:{node.lineno} passes {name} raw" for arg in node.args for name in _raw(arg, names))
+            else:
+                found.extend(f"{path}:{node.lineno} passes {name} raw to {callee}({parameter}), which is logged"
+                             for callee, parameter, arg in _bound(node, functions)
+                             if (callee, parameter) in logged for name in _raw(arg, names))
         for child in ast.iter_child_nodes(node):
             visit(child, names)
-    visit(ast.parse(source), frozenset())
+    visit(tree, frozenset())
     return found
 
 
@@ -480,6 +647,28 @@ def test_no_daemon_module_logs_a_caught_exception_raw():
     found = [site for path in sorted((REPO / "subfleet").rglob("*.py"))
              for site in raw_log_sites(path.read_text(), str(path.relative_to(REPO)))]
     assert found == []
+
+
+#: A module whose `lost` logs its argument through `gone`, and whose `kept` never logs.
+RELAYED = """\
+class Runner:
+    def gone(self, why):
+        self.log.warning("relay failed: %s", why)
+
+    def lost(self, why):
+        self.gone(f"{why}; no answer")
+
+    def kept(self, why):
+        raise ValueError(why)
+
+    def step(self):
+        try:
+            pass
+        except Exception as exc:
+"""
+#: runner.py's two lines at 2b64f76a3: `{exc}` into `_unacknowledged`'s message,
+#: which `_relay_lost` logs (review r2 of #233).
+OLD_RUNNER_LINES = ('self._unacknowledged(f"relay status: {exc}")', 'self._unacknowledged(f"frame {frame.tag}: {exc}")')
 
 
 @pytest.mark.parametrize("source,raw", [
@@ -494,6 +683,34 @@ def test_no_daemon_module_logs_a_caught_exception_raw():
     ("try:\n    pass\nexcept OSError as exc:\n    log.error('x %s %s', errno.errorcode.get(exc.errno, exc.errno), type(exc).__name__)\n", False),
     ("try:\n    pass\nexcept Exception as exc:\n    log.error('x', exc_info=exc)\n", False),
     ("try:\n    pass\nexcept Exception as exc:\n    raise ValueError(f'x {exc}')\n", False),
+    # Review r2 of #233: into a string another function of the module logs.
+    (RELAYED + "        self.lost(f'relay status: {exc}')\n", True),
+    (RELAYED + "        self.lost('relay status: %s' % exc)\n", True),
+    (RELAYED + "        self.lost('relay status: {}'.format(exc))\n", True),
+    (RELAYED + "        self.lost(why=str(exc))\n", True),
+    (RELAYED + "        why = f'relay status: {exc}'\n        self.lost(why)\n", True),
+    (RELAYED + "        self.lost(f'relay status: {refusals.fixed_error(exc)}')\n", False),
+    (RELAYED + "        self.kept(f'relay status: {exc}')\n", False),
+    ("try:\n    pass\nexcept Exception as exc:\n    why = f'x {exc}'\n    log.warning('%s', why)\n", True),
 ])
 def test_the_site_lint_tells_raw_from_scrubbed(source, raw):
     assert bool(raw_log_sites(source, "x.py")) is raw
+
+
+
+
+def test_the_site_lint_fails_runner_py_s_old_lines():
+    """C-25.7: each daemon module logs a caught exception only through
+    `refusals.scrubbed_words`, its class or its errno. runner.py put `{exc}` into a
+    message `_unacknowledged` passes to `_relay_lost`, which logs it; the lint read
+    only log calls. It now follows a parameter to the log call it reaches: runner.py
+    as it was fails it, at exactly those two lines."""
+    source = (REPO / "subfleet" / "conversations" / "runner.py").read_text(encoding="utf-8")
+    old = source
+    for line in OLD_RUNNER_LINES:
+        old = old.replace(line.replace("{exc}", "{refusals.fixed_error(exc)}"), line)
+    numbers = [number for number, text in enumerate(old.splitlines(), 1) if any(line in text for line in OLD_RUNNER_LINES)]
+    assert len(numbers) == 2
+    assert sorted(raw_log_sites(old, "runner.py")) == sorted(
+        f"runner.py:{number} passes exc raw to _unacknowledged(why), which is logged" for number in numbers)
+    assert raw_log_sites(source, "runner.py") == []
