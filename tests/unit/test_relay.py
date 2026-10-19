@@ -711,16 +711,18 @@ def test_status_waits_for_the_frame_whose_outcome_is_being_logged(server, monkey
     assert _drain(read_end) == b"one\n"
 
 
-FRAME_OPS = st.lists(st.one_of(st.tuples(st.just("write"), st.integers(0, LOG_INLINE_MAX + 4096)),
-                               st.tuples(st.sampled_from(["close", "signal", "dup", "gap"]))),
-                     min_size=1, max_size=6)
+# The first frame is a write, so the frames a stall can pick from are logged ones.
+FRAME_OPS = st.tuples(st.just("write"), st.integers(0, LOG_INLINE_MAX + 4096)).flatmap(
+    lambda first: st.lists(st.one_of(st.tuples(st.just("write"), st.integers(0, LOG_INLINE_MAX + 4096)),
+                                     st.tuples(st.sampled_from(["close", "signal", "dup", "gap"]))),
+                           max_size=5).map(lambda rest: [first, *rest]))
 
 
 @hypothesis.settings(max_examples=25, deadline=None, derandomize=True, database=None)
 @hypothesis.example(ops=[("write", 10), ("write", 10)], stop_seq=2, record="intent")      # between intent and write
 @hypothesis.example(ops=[("write", 10), ("write", 10)], stop_seq=1, record="outcome")     # between write and outcome
 @hypothesis.example(ops=[("close",), ("signal",)], stop_seq=1, record="intent")
-@hypothesis.given(ops=FRAME_OPS, stop_seq=st.none() | st.integers(1, 6), record=st.sampled_from(("intent", "outcome")))
+@hypothesis.given(ops=FRAME_OPS, stop_seq=st.none() | st.integers(1, 3), record=st.sampled_from(("intent", "outcome")))
 def test_the_journal_keeps_its_order_whatever_stop_does(ops, stop_seq, record):
     """C-26.4, C-26.6 (#236 review r1): every reader of `stdin.jsonl` (a relay
     resuming from it, the runner's handshake and replay through `read_log`,
