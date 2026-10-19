@@ -1,0 +1,380 @@
+"""D-LOG1 (C-25.7): the daemon's handler scrubs every record it writes, and the
+process hooks send Python's own stderr output through the same formatter.
+
+The line form is C-25.5's (`refusals.scrubbed_line`); the block form keeps a
+traceback's lines (`daemon_log.scrubbed_block`). Folded, a block is exactly the
+uncut line form, so neither form shows a value the other hides. Every secret is a
+`SECRET7…` dummy.
+"""
+
+from __future__ import annotations
+
+import gc
+import io
+import logging
+import sys
+import threading
+import traceback
+import warnings
+
+from hypothesis import given, settings, strategies as st
+import pytest
+
+from subfleet import daemon_log, refusals
+from tests.unit.test_daemon_log_scrubbing import (
+    KEY_QUOTES, KEYS, SEPARATORS, SUFFIXES, VALUE_STYLES, _assignment,
+)
+
+#: The uncut line form: `refusals.scrubbed_line` with no bound in reach.
+UNCUT = 10 ** 9
+BOUNDED = settings(max_examples=40, derandomize=True, database=None, deadline=None)
+
+
+def fold(text: str) -> str:
+    return " ".join(text.split())
+
+
+class Written:
+    """A logger whose only handler is the daemon's, writing to memory."""
+
+    def __init__(self, name: str = "subfleet.daemon.test-handler"):
+        self.stream = io.StringIO()
+        self.handler = daemon_log.ScrubbingStreamHandler(self.stream)
+        self.log = logging.getLogger(name)
+        self._saved = (self.log.level, self.log.propagate)
+        self.log.addHandler(self.handler)
+        self.log.setLevel(logging.INFO)
+        self.log.propagate = False
+
+    def text(self) -> str:
+        return self.stream.getvalue()
+
+    def close(self) -> None:
+        self.log.removeHandler(self.handler)
+        self.log.setLevel(self._saved[0])
+        self.log.propagate = self._saved[1]
+
+
+@pytest.fixture
+def written():
+    log = Written()
+    try:
+        yield log
+    finally:
+        log.close()
+
+
+#: What the cases raise. Kept out of the `raise` lines, which a traceback shows: a
+#: source line that opens a quoted credential value is masked to its closing quote,
+#: lines between included (C-23.14's whole-text rule), and would decide a case.
+CAUSE = "cannot read token=SECRET7cause9"
+RUNNER = "app-server said: password='SECRET7runner9\n\""
+STACK_WORDS = "token=SECRET7msg9"
+LOCAL = "SECRET7local9"
+THREAD = "worker said: client_secret: SECRET7thread9"
+MAIN = "main said: Authorization: Bearer SECRET7mainthread9value"
+REPR = "<Leak password=SECRET7repr9>"
+FINALIZER = "finalizer said: password='SECRET7unraisable9'"
+WARNING = "policy said: api_key = SECRET7warning9"
+
+
+def raised(text: str) -> BaseException:
+    try:
+        raise RuntimeError(text)
+    except RuntimeError as exc:
+        return exc
+
+
+def traceback_of(exc: BaseException) -> str:
+    return logging.Formatter().formatException((type(exc), exc, exc.__traceback__))
+
+
+SECRETS = SUFFIXES.map(lambda suffix: "SECRET7" + suffix)
+#: One credential assignment and its secret, in the shapes the scrubbing tests build.
+ASSIGNMENTS = st.tuples(KEYS, st.sampled_from(sorted(KEY_QUOTES)), st.sampled_from(SEPARATORS),
+                        st.sampled_from(sorted(VALUE_STYLES)), SECRETS).map(
+    lambda drawn: (_assignment(*drawn), drawn[4]))
+#: Text between them. It cannot spell a header or `Bearer`: a header that takes the
+#: key after it is a known scrubber rule-order case, the same in every form (#225 r2).
+FILLER = st.text(alphabet="xyz0123456789 ,;()/.-_", max_size=30)
+#: Messages and exception texts of one to three assignments, on one line or several.
+TEXTS = st.lists(st.tuples(FILLER, st.sampled_from(["", " ", "\n", "\n  "]), ASSIGNMENTS), min_size=1, max_size=3)
+
+
+def _text(parts) -> tuple[str, list[str]]:
+    return ("".join(f"{filler}{gap}{assignment} " for filler, gap, (assignment, _) in parts),
+            [secret for _, _, (_, secret) in parts])
+
+
+# --- the formatter -------------------------------------------------------------
+
+
+@BOUNDED
+@given(message=st.text(max_size=300).filter(lambda text: len(text.splitlines()) <= 1))
+def test_a_one_line_record_is_exactly_its_line_form(message):
+    """Differential: what the handler writes for a one-line record is
+    `refusals.scrubbed_line` of its message, whatever the message."""
+    log = Written("subfleet.daemon.test-differential")
+    try:
+        log.log.warning("%s", message)
+        assert log.text() == refusals.scrubbed_line(message) + "\n"
+    finally:
+        log.close()
+
+
+@pytest.mark.parametrize("message", [
+    "config error: password='SECRET7oneline9' at line 4",
+    "x" * 2500 + " token=SECRET7long9",
+    "{\\'password\\': \\'SECRET7quotedkey9\\', 'note': \"it's\"}",
+])
+def test_one_line_examples_match_the_line_form(written, message):
+    written.log.info("%s", message)
+    assert written.text() == refusals.scrubbed_line(message) + "\n"
+    assert "SECRET7" not in written.text()
+
+
+@BOUNDED
+@given(message=TEXTS, words=TEXTS)
+def test_nothing_the_handler_writes_keeps_a_secret_and_each_form_is_exact(message, words):
+    """Property: for messages and exception texts built from credential shapes
+    (mixed-case and quoted keys, `=`, `: ` and ` = `), no secret survives, the
+    message is in its line or block form, the traceback in its block form, and
+    folded, each block is the uncut line form of what it scrubbed."""
+    text, secrets = _text(message)
+    exc_text, exc_secrets = _text(words)
+    exc = raised(exc_text)
+    log = Written("subfleet.daemon.test-property")
+    try:
+        log.log.error("%s", text, exc_info=(type(exc), exc, exc.__traceback__))
+        out = log.text()
+    finally:
+        log.close()
+    for secret in secrets + exc_secrets:
+        assert secret not in out, (secret, out)
+    tb = traceback_of(exc)
+    line = (daemon_log.scrubbed_block(text) if len(text.splitlines()) > 1 else refusals.scrubbed_line(text))
+    assert out == line + "\n" + daemon_log.scrubbed_block(tb) + "\n"
+    for source in (text, tb):
+        assert fold(daemon_log.scrubbed_block(source)) == fold(refusals.scrubbed_line(source, UNCUT))
+
+
+@BOUNDED
+@given(text=st.text(max_size=200))
+def test_a_block_folded_is_the_uncut_line_form_of_any_text(text):
+    """Why neither form keeps what the other hides: folded, the block form is the
+    uncut line form. A value with no whitespace in it is in one exactly when it is
+    in the other; the line form's cut only drops text."""
+    block = daemon_log.scrubbed_block(text)
+    assert fold(block) == fold(refusals.scrubbed_line(text, UNCUT))
+    assert refusals.scrubbed_line(text).removesuffix("…") in fold(refusals.scrubbed_line(text, UNCUT)) + " "
+
+
+@pytest.mark.parametrize("text", [
+    "\n  Cookie\n:\t\"SECRET7cookie9\"\n\ntail",
+    "\n\nAuthorization:\n'SECRET7auth9\n  tail",
+])
+def test_a_block_that_folding_scrubs_further_is_written_folded(text):
+    """Folded, these let the header rule take what follows; the block form writes
+    that folded text, so it never shows what the line form hides."""
+    block = daemon_log.scrubbed_block(text)
+    assert "SECRET7" not in block and "tail" not in block
+    assert block == refusals.scrubbed_line(text, UNCUT)
+
+
+def test_a_multi_line_message_keeps_its_lines(written):
+    """C-3.6: a lock watch's stacks stay readable; they are scrubbed whole."""
+    stack = "".join(traceback.format_stack(limit=5))
+    written.log.warning("%s", "store lock held 9.0 s. Holder's stack:\n" + stack + "token=SECRET7stack9\n")
+    out = written.text()
+    assert "SECRET7stack9" not in out
+    assert out.startswith("store lock held 9.0 s. Holder's stack:\n")
+    assert out.count("\n") >= stack.count("\n") + 1
+    assert out == daemon_log.scrubbed_block("store lock held 9.0 s. Holder's stack:\n" + stack
+                                            + "token=SECRET7stack9\n") + "\n"
+
+
+def test_a_traceback_stays_multi_line_and_loses_its_secret(written):
+    try:
+        try:
+            raise OSError(CAUSE)
+        except OSError as cause:
+            raise RuntimeError(RUNNER) from cause
+    except RuntimeError:
+        written.log.exception("turn runner %s failed", "job/a1")
+    out = written.text()
+    assert "SECRET7runner9" not in out and "SECRET7cause9" not in out
+    assert out.startswith("turn runner job/a1 failed\nTraceback (most recent call last):\n")
+    assert "The above exception was the direct cause" in out and "RuntimeError: app-server said:" in out
+
+
+def test_a_stack_is_scrubbed_whole(written):
+    def leaf(token):            # the frame shows the call's source line, never its locals
+        written.log.warning("where %s", STACK_WORDS, stack_info=True)
+    leaf(LOCAL)
+    out = written.text()
+    assert "SECRET7msg9" not in out and "SECRET7local9" not in out
+    assert "Stack (most recent call last):" in out and "in leaf" in out
+
+
+def test_an_exc_text_another_formatter_cached_is_not_used_raw(written):
+    """`exc_info` is formatted afresh; a cached `exc_text` alone is scrubbed too."""
+    exc = raised("password=SECRET7cached9")
+    record = written.log.makeRecord(written.log.name, logging.ERROR, __file__, 1, "failed", None,
+                                    (type(exc), exc, exc.__traceback__))
+    record.exc_text = "a cache: password=SECRET7cached9"
+    written.handler.handle(record)
+    bare = written.log.makeRecord(written.log.name, logging.ERROR, __file__, 1, "failed", None, None)
+    bare.exc_text = "Traceback:\nValueError: token=SECRET7text9"
+    written.handler.handle(bare)
+    out = written.text()
+    assert "SECRET7" not in out and "RuntimeError: password=[REDACTED]" in out
+    assert record.exc_text == "a cache: password=SECRET7cached9"        # the caller's record is as it was
+
+
+# --- a scrubber that fails -------------------------------------------------------
+
+
+def test_a_scrubber_that_raises_writes_the_fixed_marker(written, monkeypatch):
+    """Nothing raised in the scrubber reaches the caller, and the record is not
+    lost: its level, logger and exception class are written with the marker."""
+    def broken(*args, **kwargs):
+        raise RecursionError("scrubber broke on password=SECRET7broke9")
+    monkeypatch.setattr(daemon_log.refusals, "scrubbed_line", broken)
+    monkeypatch.setattr(daemon_log, "scrub_secrets", broken)
+    exc = raised("token=SECRET7carried9")
+    written.log.error("job %s failed: %s", "j1", "password=SECRET7message9",
+                      exc_info=(type(exc), exc, exc.__traceback__))
+    written.log.warning("plain %s", "api_key=SECRET7plain9")
+    assert written.text().splitlines() == [
+        "[scrub failed] ERROR record from subfleet.daemon.test-handler (RuntimeError) left out: RecursionError",
+        "[scrub failed] WARNING record from subfleet.daemon.test-handler left out: RecursionError",
+    ]
+
+
+def test_a_message_that_cannot_be_rendered_writes_the_marker_and_not_its_arguments(written, capsys):
+    """The handler itself, as the daemon's logger calls it (pytest's own capture
+    handler would raise on such a record before ours ran)."""
+    record = written.log.makeRecord(written.log.name, logging.INFO, __file__, 1, "%s %s",
+                                    ("token=SECRET7args9",), None)         # one argument short
+    written.handler.handle(record)
+    assert written.text() == "[scrub failed] INFO record from subfleet.daemon.test-handler left out: TypeError\n"
+    assert "SECRET7" not in capsys.readouterr().err
+
+
+def test_a_failed_write_reports_a_fixed_line_not_the_raw_arguments(capsys):
+    """logging's own report prints a record's message and arguments to stderr,
+    which is daemon.log; the daemon's handler writes a fixed line instead."""
+    class Full(io.StringIO):
+        def write(self, text):
+            raise OSError(28, "No space left on device")
+    handler = daemon_log.ScrubbingStreamHandler(Full())
+    record = logging.makeLogRecord({"name": "subfleet.daemon.full", "levelno": logging.WARNING,
+                                    "levelname": "WARNING", "msg": "said %s", "args": ("token=SECRET7full9",)})
+    handler.handle(record)
+    err = capsys.readouterr().err
+    assert err == "[log write failed] WARNING record from subfleet.daemon.full left out: OSError\n"
+
+
+def test_the_marker_names_only_checked_names():
+    record = logging.makeLogRecord({"name": "token=SECRET7name9", "levelname": "password=SECRET7level9"})
+    assert daemon_log.failed_line(record, ValueError("SECRET7")) == "[scrub failed] ? record from ? left out: ValueError"
+
+
+# --- the process hooks -----------------------------------------------------------
+
+
+@pytest.fixture
+def hooks(capsys):
+    """The process hooks installed, writing to stderr (pytest's capture), and put back after."""
+    before = (sys.excepthook, threading.excepthook, sys.unraisablehook, warnings.showwarning, logging.lastResort)
+    restore = daemon_log.install_process_hooks()
+    try:
+        yield lambda: capsys.readouterr().err
+    finally:
+        restore()
+        assert (sys.excepthook, threading.excepthook, sys.unraisablehook, warnings.showwarning,
+                logging.lastResort) == before
+
+
+def test_an_uncaught_exception_in_a_thread_is_written_scrubbed(hooks):
+    def work():
+        raise RuntimeError(THREAD)
+    thread = threading.Thread(target=work, name="subfleet-io_0")
+    thread.start()
+    thread.join()
+    out = hooks()
+    assert "SECRET7thread9" not in out
+    assert out.startswith("Exception in thread subfleet-io_0\nTraceback (most recent call last):\n")
+    assert "RuntimeError: worker said: client_secret: [REDACTED]" in out
+
+
+def test_a_thread_that_exits_is_not_reported(hooks):
+    thread = threading.Thread(target=sys.exit, args=(3,))
+    thread.start()
+    thread.join()
+    assert hooks() == ""
+
+
+def test_an_uncaught_exception_in_the_main_thread_is_written_scrubbed(hooks):
+    exc = raised(MAIN)
+    sys.excepthook(type(exc), exc, exc.__traceback__)
+    out = hooks()
+    assert "SECRET7mainthread9value" not in out
+    assert out.startswith("uncaught exception\nTraceback (most recent call last):\n") and "RuntimeError:" in out
+
+
+def test_an_unraisable_exception_is_written_scrubbed(hooks):
+    class Leak:
+        def __repr__(self):
+            return REPR
+
+        def __del__(self):
+            raise ValueError(FINALIZER)
+    Leak()
+    gc.collect()
+    out = hooks()
+    assert "SECRET7unraisable9" not in out and "SECRET7repr9" not in out
+    assert "Exception ignored" in out and "ValueError: finalizer said: password=" in out
+
+
+def test_a_warning_is_written_scrubbed(hooks):
+    with warnings.catch_warnings():
+        warnings.simplefilter("always")
+        warnings.warn(WARNING, UserWarning)
+    out = hooks()
+    assert "SECRET7warning9" not in out and "UserWarning: policy said: api_key = [REDACTED]" in out
+
+
+def test_a_record_no_handler_takes_is_written_scrubbed(hooks):
+    record = logging.makeLogRecord({"name": "subfleet.folders", "levelno": logging.WARNING, "levelname": "WARNING",
+                                    "msg": "resource identity unavailable for %s",
+                                    "args": ("/x/token=" + "SECRET7resort9",)})
+    logging.lastResort.handle(record)
+    out = hooks()
+    assert "SECRET7resort9" not in out and out.startswith("resource identity unavailable for /x/token=")
+
+
+def test_restoring_leaves_a_hook_someone_else_installed_since():
+    before = sys.excepthook
+
+    def theirs(*args):
+        return None
+    restore = daemon_log.install_process_hooks()
+    sys.excepthook = theirs
+    try:
+        restore()
+        assert sys.excepthook is theirs
+        assert threading.excepthook is not None and logging.lastResort is not None
+    finally:
+        sys.excepthook = before
+
+
+def test_the_daemon_writes_through_the_scrubbing_handler():
+    """`Daemon.__init__` makes this handler; main installs the hooks (both read
+    here from the source, as the real-daemon tests run them)."""
+    import inspect
+    from subfleet import daemon as daemon_module
+    init = inspect.getsource(daemon_module.Daemon.__init__)
+    assert "daemon_log.ScrubbingStreamHandler(os.fdopen(log_fd" in init
+    assert "logging.StreamHandler(" not in init
+    assert "daemon_log.install_process_hooks()" in inspect.getsource(daemon_module.main)
