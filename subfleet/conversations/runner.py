@@ -91,6 +91,14 @@ class Clocks:
                                     else float(section["approval_wait_s"])))
 
 
+@dataclass(frozen=True)
+class StopDelivery:
+    """A durable intent's pre-transmission clock and acknowledgement recorder."""
+
+    before_send: Callable[[], None]
+    record: Callable[[bool], None]
+
+
 def make_driver(spec: TurnSpec, read_bytes: Callable[[Image], bytes], *,
                 frame_recorded: Callable[[str], bool] = lambda tag: False,
                 image_path: Callable[[Image], str] = lambda image: image.path):
@@ -107,7 +115,7 @@ class TurnRunner:
                  log=None, on_catalog: Callable[[str, str | None, list], None] | None = None,
                  handover: threading.Lock | None = None, ended: bool = False,
                  handover_for: Callable[[str], Any] | None = None,
-                 on_stop_delivery: Callable[[Frame, int], Callable[[bool], None]] | None = None):
+                 on_stop_delivery: Callable[[Frame, int], StopDelivery] | None = None):
         self.store = store
         # A replay of an attempt the job store has ended (`ConversationService._replay_unsettled`):
         # its provider is gone whether or not it left an exit receipt.
@@ -788,17 +796,20 @@ class TurnRunner:
         # C-9.2 / D-WALL1: queuing an interrupt is not delivery. Commit its
         # intent immediately before I/O, for every stop source (including
         # replay), signal tag and stdin close. A lost answer leaves it pending.
-        record_stop = (self.on_stop_delivery(frame, self.next_seq)
-                       if self.on_stop_delivery is not None
-                       and (frame.tag == "interrupt" or frame.op in ("signal", "close")) else None)
+        audit = (self.on_stop_delivery(frame, self.next_seq)
+                 if self.on_stop_delivery is not None
+                 and (frame.tag == "interrupt" or frame.op in ("signal", "close")) else None)
+        if audit is not None:
+            previous_clock = getattr(self.relay, "before_send", None)
+            self.relay.before_send = audit.before_send
         try:
             if frame.op == "signal":
                 ack = self.relay.send(self.next_seq, "signal", tag=frame.tag, sig=frame.line)
             else:
                 ack = self.relay.send(self.next_seq, frame.op, line=frame.line, tag=frame.tag)
         except FrameTooLarge as exc:
-            if record_stop is not None:
-                record_stop(False)             # refused locally, never transmitted
+            if audit is not None:
+                audit.record(False)            # refused locally, never transmitted
             self._refuse_frame(frame, exc)
             return True
         except RelayError as exc:
@@ -808,11 +819,14 @@ class TurnRunner:
                 self._steer_tried.add(frame.tag.removeprefix("steer:"))
             self._unacknowledged(f"frame {frame.tag}: {exc}")
             return False
-        if record_stop is not None:
+        finally:
+            if audit is not None:
+                self.relay.before_send = previous_clock
+        if audit is not None:
             if ack.ok:
-                record_stop(True)
+                audit.record(True)
             elif (ack.error == "closed" and frame.op == "close") or (ack.error == "no-child" and frame.op == "signal"):
-                record_stop(False)             # the relay proves nothing was delivered
+                audit.record(False)            # the relay proves nothing was delivered
             # Other failures can follow a partial write: keep the intent pending.
         self.resends = 0
         if ack.ok:

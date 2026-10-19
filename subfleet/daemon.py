@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 if TYPE_CHECKING:
     from .conversations.peers import AuditToken
+    from .conversations.runner import StopDelivery
     from .conversations.turn import Frame
 
 from . import __version__
@@ -3936,22 +3937,29 @@ class Daemon:
                              "AND kind='job.wall_cancel_superseded'),0) ORDER BY event_id DESC LIMIT 1", (job_id, job_id))
         return cancel_info(row["ts"], row["data_json"]) if row else None
 
-    def _start_stop_delivery(self, a: dict, frame: Frame, seq: int) -> Callable[[bool], None]:
+    def _start_stop_delivery(self, a: dict, frame: Frame, seq: int) -> StopDelivery:
         """Commit a relay stop's intent before transmission, then enrich its clock.
 
         Separate from kill_started so a concurrent runner cannot take the kill
         protocol's event id. Both kinds participate in the same ordering check.
         A crash or uncertain acknowledgement leaves the intent conservative.
         """
+        from .conversations.runner import StopDelivery
+
         data = {"via": "relay", "op": frame.op, "tag": frame.tag, "seq": seq, "signal_pending": True}
         with self.store.transaction("attempt.stop_delivery_recorded", job_id=a["job_id"],
                                     attempt_id=a["attempt_id"]) as tx:
             event_id = tx.execute("INSERT INTO events(ts,kind,job_id,attempt_id,data_json) VALUES (?,?,?,?,?)",
                                   (utcnow_ms(), "attempt.stop_delivery", a["job_id"], a["attempt_id"],
                                    json.dumps(data))).lastrowid
-        # Sample after the durable commit, immediately before relay.send. Never
-        # substitute the asynchronous wall request's earlier timestamp.
+        # Fallback for direct test transports. Production refreshes this after
+        # connecting/encoding, immediately before the socket's sendall, just as
+        # group signals refresh after their identity reads.
         sent_at = utcnow_ms()
+
+        def before_send() -> None:
+            nonlocal sent_at
+            sent_at = utcnow_ms()
 
         def record(sent: bool) -> None:
             result = {**data, "signal_pending": False, "signal_sent": sent,
@@ -3960,7 +3968,7 @@ class Daemon:
                                         attempt_id=a["attempt_id"]) as tx:
                 tx.execute("UPDATE events SET ts=?,data_json=? WHERE event_id=?",
                            (sent_at, json.dumps(result), event_id))
-        return record
+        return StopDelivery(before_send=before_send, record=record)
 
     def _receipt_precedes_signal(self, a: dict, receipt: dict) -> bool:
         """C-9.2: exit strictly before every group signal and relay stop delivery.

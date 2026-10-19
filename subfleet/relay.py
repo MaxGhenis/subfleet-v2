@@ -56,6 +56,7 @@ import stat
 import threading
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from .state_files import open_state
 
@@ -450,6 +451,7 @@ class RelayClient:
         self.frame_max = FRAME_MAX       # replaced by the relay's own advertisement
         self._sock: socket.socket | None = None
         self._reader = None
+        self.before_send: Callable[[], None] | None = None
 
     def close(self) -> None:
         if self._sock is not None:
@@ -476,6 +478,8 @@ class RelayClient:
         try:
             self._connect()
             assert self._sock is not None and self._reader is not None
+            if self.before_send is not None:
+                self.before_send()             # after connection setup, before transmission
             self._sock.sendall(payload)
             raw = self._reader.readline(REPLY_MAX)
         except (OSError, RelayError) as exc:

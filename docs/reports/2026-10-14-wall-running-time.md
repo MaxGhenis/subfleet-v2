@@ -1210,7 +1210,11 @@ its latest `attempt.kill_started` event during concurrent runner activity.
 Both kinds are read by `_receipt_precedes_signal` under the same rules.
 
 After the intent commits, a millisecond clock is sampled immediately before
-calling the relay. A successful acknowledgement enriches that intent with
+the socket write, after connection setup and frame encoding. A fallback before
+the relay call keeps direct test transports observable; production refreshes
+it through `RelayClient.before_send`, which is scoped to that stop frame. A
+separate test-first regression fails when connection time is charged to the
+delivery clock and proves that an exit during connection setup still wins. A successful acknowledgement enriches that intent with
 `signal_sent=true` and `signal_at`. A crash before transmission, lost reply,
 uncertain/partial write or failed enrichment leaves a conservative pending
 intent. Local oversized-frame refusal, relay `no-child` for a signal and

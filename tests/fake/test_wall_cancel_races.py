@@ -246,13 +246,14 @@ def test_wall_interleaving_property(clocked, monkeypatch, exit_stage, client_sta
                 reader, relay._pipe = os.pipe()
                 relay._child = SimpleNamespace(poll=lambda: None, send_signal=lambda sig: None)
                 try:
-                    record = service._start_stop_delivery(a, frame, 1)
+                    audit = service._start_stop_delivery(a, frame, 1)
                     signal_times.append(clock.t)
+                    audit.before_send()
                     line, sig = (frame.line, None) if frame.op == "write" else (None, frame.line)
                     ack = relay.apply({"seq": 1, "op": frame.op, "tag": frame.tag, "line": line, "sig": sig,
                                        "sha256": frame_sha256(frame.op, line, sig)})
                     assert ack["ok"]
-                    record(True)
+                    audit.record(True)
                     clock.t += timedelta(milliseconds=2)
                 finally:
                     relay._close_pipe()
