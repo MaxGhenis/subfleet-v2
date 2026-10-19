@@ -255,6 +255,8 @@ Python writes a margin (`    | `) before each line of a group's members. When a 
 
 A fuzz of 4,500 groups found something the review's framing missed. With several members, a group's traceback is one text, scrubbed whole, so a quote in one member can close a value another member opened, as in any chained traceback. The group can then show a secret that one member's plain traceback hides, but the same text without margins shows it too. That is the whole-text scrubber's behaviour, not the margin's. So the regressions are:
 
+**Correction (round 3).** The paragraph above is wrong. Review r2 reran the original per-member property on 4,500 random groups: all 29 failures were duplicate secrets. The suffix strategy shrinks two members' secrets to the same string, so another member showed that exact string bare. With distinct secrets there were no failures in 22,000 groups, and no input shows a quote in one member closing a value another opened. Round 3 restores the per-member property for several members with distinct secrets (`test_a_several_member_group_never_shows_a_secret_its_member_alone_hides`, round 3 §5). The third bullet below is superseded.
+
 - `test_an_exception_group_hides_what_its_member_alone_hides`: the reviewer's four shapes, one or two deep, raised or only constructed. All 16 cases failed at base.
 - `test_a_one_member_group_never_shows_a_secret_its_member_alone_hides`: a property, with the four shapes and the credential shapes. It failed at base.
 - `test_a_group_s_margins_never_cost_a_secret`: a property over several members. The block never shows a secret that the margin-free text hides, or one its line form hides. It failed at base.
@@ -335,8 +337,8 @@ Both tests pass at base. Nothing leaked; they guard the corrected statement. Two
 Each holds for every input and is executed by the tests named above.
 
 6. **A steer's reason is fixed.** For any exception, the reason is exactly `input-unavailable: ` and `refusals.fixed_error(exc)`, in every record a client reads.
-7. **The cut hides what the whole text hides.** For any text and limit, the secrets either form shows of `cut_whole(text, limit)` are a subset of those it shows of `text`. The cut text is at most `limit` characters plus its marker line; a text holding a reminder tag is the marker line alone.
-8. **A group's margins cost nothing.** A group's block shows no value that the same text without margins hides, nor one its line form hides. A one-member group hides whatever its member alone hides.
+7. **The cut hides what the whole text hides** (restated in round 3). For any text and limit, the secrets the block form shows of `cut_whole(text, limit)` are a subset of those it shows of `text`, and for a text without a group's margins so are the line form's. That holds folded or not, and for a group's text also without its margins. The cut text is at most `limit` characters plus its marker line; a text holding a reminder tag is the marker line alone, and so is a side whose window holds more than eight escaped quote kinds. Round 2's statement broke on a credential flag whose value began the kept tail (review r2).
+8. **A group's margins cost nothing** (restated in round 3). A group's block shows no value that the same text without margins hides, nor one its line form hides. A member's secret that its plain traceback hides, its group's hides too: for one member, and for several members with distinct secrets. That holds when the record is cut, since whether a part is a group's is read before the cut. Round 2's statement broke on a group longer than the bound (review r2).
 9. **The lock covers only the write.** No scrub, and no formatting, runs while the handler's lock is held.
 
 Invariant 3 is restated accordingly. For a text without a group's margins, `fold(scrubbed_block(t)) == fold(refusals.scrubbed_line(t, ∞))`, as before. A group's block may hide more, never less.
@@ -403,5 +405,273 @@ I didn't query CI, since this job has no network.
 - `330ee77b0` test: a long run of plain words before the tail still leaves a tail
 - `6c2a67d96` fix: cut_whole reads a long run of plain words before the tail as a data URI body only after `;base64,`
 - this report's round 2
+
+Nothing is pushed.
+
+## Round 3: review r2 of #233
+
+Review r2 requested changes: one P2 and four P3s, plus two small costs of round 2's choices. This round fixes all of them, and two more things its own tests found.
+
+**Base.** This job has no network. The last fetched `origin/release/217` is still `d72597b5c`, which the branch has held since `2b64f76a3`, so there was nothing to merge. (The local `release/217` ref, `b053e3de8`, is older and behind it.)
+
+### 1. The cut's cost (P2)
+
+Review r2 measured 3.6 to 5.5 s for one `cut_whole` on its head input and 4.5 to 4.8 s on its tail input. The causes were the ones it named:
+
+- **Head.** `_whole_head_cut` ran `_event_from`, a regex scan of everything after the head, once for each escaped quote kind open at a candidate cut. The input had 122 such kinds.
+- **Tail.** `_whole_tail_cut`'s `opened.setdefault(kind, _event_before(...))` evaluated `_event_before` at every line start, because Python evaluates the default first.
+
+Writing the cost test found a third cause: **long runs of blank lines.** Each candidate line start read its neighbours anew. In the tail, `_last_visible` walked back over the whitespace in Python at every line start, and `_WHITESPACE_RUN_RE` scanned the run ahead of it. At base, a record of a key followed by blank lines did not finish within the test's budget of 3 million traced lines, and its 4 MiB form ran past a 30 s timeout. Blank lines after a credential flag also leaked at base, through the flag P3 below.
+
+**The design.**
+
+- **A real cache.** Each side computes each quote kind's event at most once. The head keeps `beyond[kind]`, whether a quote of the kind follows the window. The tail keeps `before[kind]`, whether the last quote of the kind before the window may open a value.
+- **The cap.** `handoff.CUT_KINDS_MAX` is 8. When a side's window holds quotes of more than eight distinct escaped kinds (a quote with the length of the run of backslashes before it), that side keeps only the marker. So a side computes at most ten events: eight escaped kinds and the two plain ones. C-25.7 states the cap.
+- **Bounded looks past a window.** `_event_from` and `_event_before` read at most `_LOOK` (64) quotes of the kind's character, using C `find`/`rfind` of the kind's needle (its quote, after a run at least its length). Past that, the answer is unknown, and no cut crosses what is unknown.
+- **Each line start's neighbours, once.** `_around` finds the last visible character before each line start and the first after it in one pass over the window's lines. Starts between the same two visible characters share one verdict (a cache keyed by the pair).
+- **C scans for whitespace.** `_last_visible` and the new `_run_end` strip in C in growing steps (64, 128, ... 8,192 characters), then scan the rest at most once: nine calls at most, whatever the run's length.
+- **The tail's first data-URI run.** That run began before the window. It is a body when the last `,` before the window ends a `;base64,` with only body characters after it: one `rfind`, then at most one more scan. Before, the cut looped in Python over every `;base64,` in the text.
+
+So the cut's work is linear in its two windows, plus a fixed number of C scans of the rest, plus at most 20 event computations, each at most 64 C scans.
+
+**Counted, not timed.** `test_a_cut_s_work_does_not_grow_with_the_text` traces one `cut_whole` call. It counts the lines of `handoff` run, the C functions `handoff` calls (every scan of the text is one) and the event computations, with the collector paused. Each count is the same for 64 KiB and for 512 KiB of each shape, and at most 20 event computations, 40 × 16,384 lines and 20 × 16,384 C calls.
+
+| Shape (4 MiB in the clock rows) | Lines, C calls, events at head (64 KiB = 512 KiB) | At base |
+|---|---|---|
+| review r2's head input | 11,371, 4,537, 0 (the head keeps only the marker) | 122 events |
+| the same with `'` | 11,371, 4,537, 0 | 122 events |
+| review r2's tail input (120 kinds) | 13,653, 6,322, 0 (the tail keeps only the marker) | over 3 million lines |
+| the same with eight kinds | 150,122, 33,963, 10 | 10,882 events |
+| `'"` lines (quote-dense) | 374,238, 150,217, 2 | passes: it was cheap at base too |
+| JSON with escaped and double-escaped quotes | 116,964, 50,551, 3 | passes: it was cheap at base too |
+| blank lines after a key | 401,402, 155,667, 0 | over 3 million lines |
+| blank lines after `Bearer` | 133,943, 51,955, 0 | over 3 million lines |
+| blank lines after a flag | 200,654, 77,821, 0 | leaks its value |
+
+The counts at head are from a direct run of the test's counter at the final code. Under pytest, a collection's callbacks had once added six C calls at the first size, which is why the counter pauses the collector and counts only the calls `handoff` makes.
+
+**Measured** on this host, Python 3.14.7 with the GIL, at load about 10, median (and maximum) of 7 runs for the cut and 5 for the handler, in ms:
+
+| Shape, 4 MiB | `cut_whole`, one part | Handler: message | Handler: traceback | Handler: message, traceback and a stack |
+|---|---|---|---|---|
+| review r2's head input | 13.7 (14.8) | 21.9 (25.7) | 39.8 (47.5) | 50.4 (61.7) |
+| the same with `'` | 10.5 (13.9) | 15.5 (23.8) | 27.6 (47.2) | 58.1 (66.6) |
+| review r2's tail input | 8.9 (13.9) | 19.1 (24.7) | 38.1 (49.3) | 57.3 (67.4) |
+| the same with eight kinds | 18.1 (19.5) | 24.0 (33.0) | 51.1 (58.2) | 60.1 (65.1) |
+| quote-dense | 20.3 (34.7) | 25.0 (30.4) | 111.4 (127.1) | 130.9 (139.4) |
+| JSON | 7.2 (12.1) | 27.5 (28.4) | 34.6 (50.8) | 44.3 (51.9) |
+| blank lines after a key | 20.5 (23.7) | 12.2 (20.7) | 206.5 (218.7) | 202.2 (211.3) |
+| blank lines after `Bearer` | 16.8 (22.0) | 14.5 (22.6) | 104.1 (118.7) | 125.8 (151.0) |
+| blank lines after a flag | 10.0 (10.9) | 10.5 (11.1) | 151.1 (162.7) | 172.7 (202.0) |
+
+- **The cut** of a 4 MiB part takes at most 35 ms on every shape, over two sessions; an earlier session measured 35.4 ms at most.
+- **Records:** a message is under 35 ms. A traceback of up to 250,000 lines is under 70 ms (median 28 to 51 ms), and so is a record with both.
+- **What goes over 100 ms:** the tracebacks of 1.4 to 4.2 million lines. Splitting them: Python's own `formatException` took 124 to 253 ms (median), before any cut. The cut and scrub took 21 to 39 ms (median), 62 ms at most.
+- **Outside the lock:** `formatException` runs in the record's own thread, as round 2 found, and the handler's lock covers only the write.
+- **At base:** review r2 measured 4.5 to 11 s for these inputs.
+
+**Regressions.**
+
+- `test_a_cut_s_work_does_not_grow_with_the_text`, for the nine shapes above.
+- `test_a_four_mib_record_of_a_cost_shape_is_written_within_a_second`, for each shape as a message and as a traceback, the better of two runs. This is a generous guard, not a tight one (D-TM1). At base, 12 of its 16 first cases failed. Six took 4.7 to 9.7 s, four passed the 30 s timeout, and two leaked. The eight-kind cases pass at base on the clock; the count catches them.
+- `test_a_side_with_more_than_eight_escaped_kinds_keeps_only_the_marker`: eight kinds are read, and a ninth keeps only the marker, on both sides.
+
+**What the first cost test missed.** At first, round 2's eager `setdefault` survived as a mutant. Under the cap, the reviewer's tail input keeps only the marker before any event is computed. The eight-kind form of that input refuses every line start under the cap. With it, the mutant fails at 10,882 events.
+
+### 2. What folding joins (P3)
+
+Both forms fold the text to one line and scrub it again. Folded, `--password\nSECRET` is `--password SECRET`, which the flags rule masks. `_neutral_break` only guards the shapes `scrub_bounded` needs, and `scrub_bounded` never folds.
+
+**The rule is derived from the flags rule itself.** `_folds_to_value` refuses a break when:
+
+- the identifier before it is a credential flag by the rule's own predicate (`_flag_start`, which `_scrub_named_values` now calls too); and
+- the rule's own value pattern (`_FLAG_VALUE_RE`) matches a space followed by the first visible character after the break.
+
+So a `-p`-style short flag is no break: the flags rule needs a `--` and does not mask its value, in either form. If the rule ever masks short flags, the break rule follows it.
+
+An identifier longer than 256 characters with no `--` in its last 256 reads as a flag when it ends in a sensitive word.
+
+**Which rules folding joins.** `test_every_scrub_rule_has_an_example_and_only_the_folding_rules_fold` gives every rule an example split where a line break may fall. That covers each pattern in `_BLOCK_RULES` and `_TOKEN_RULES` (now named, so the test reads them), reminders, and `_scrub_named_values`' three passes. For each example, the test checks whether only folding joins the two parts: the unfolded whole-text scrub shows the secret and the line form hides it. That holds for exactly two rules:
+
+- **The flags rule.**
+- **A private key whose first and last lines are split:** `-----BEGIN RSA\nPRIVATE KEY-----`. `_PEM_RE` has literal spaces. The cut now reads those lines fold-tolerantly (`_PEM_START_FOLDED_RE`, `_PEM_END_FOLDED_RE`). A differential test checks that they match a line exactly when `_PEM_RE`'s own lines match it folded, over 18,522 spellings.
+
+Every other rule's split is joined by the rule itself (`\s` in it) or not at all. A new rule fails the test until it has an example. `test_a_cut_never_parts_what_a_rule_or_folding_joins` then cuts each example inside its gap: five gaps, at the head's end, the tail's start and the text's start. In neither form does the cut show a secret the whole text hides. At base, it fails for the flags rule and the private key.
+
+**The rebuilt generator found a third join: a group's margins.** The block form also scrubs a group's text with its margins removed (round 2's `_group_block`). There, a split private key, an escaped JSON value or a key and its value join across a margin that the margined text shows. `_margins_blanked` makes the cut read each line-leading margin's `|` or `+` as a space, in place. The cut then crosses the margin-free reading only where that reading allows. A margin's `|` only stops a match that a space would let run, so the margined reading never hides what the blanked one shows. When a text holds no `  |` or `  +`, this costs two C scans. Of the generator's 16,000 texts, this alone accounts for 649 leaking ones (mutant 5 below).
+
+**Regressions.**
+
+- `test_a_credential_flag_whose_value_starts_the_kept_tail_stays_hidden` uses review r2's input, through the handler.
+- `test_a_flag_whose_value_starts_the_kept_tail_stays_out_of_daemon_log` and `test_a_flag_whose_value_starts_a_traceback_s_kept_tail_stays_out_of_daemon_log` run it through a real `Daemon`, read back from its daemon.log: once as a message, and once as a traceback lined up so its kept tail starts at the value. Both failed at base.
+- `lines_with` holds the flag shape, a CRLF variant and the split private key.
+
+### 3. Exception groups over the bound (P3)
+
+The separator search ran on the cut text. When a group's own lines filled the kept head and the kept tail started inside its last member, the cut kept no separator, and the margin was read as the value again.
+
+- **The handler now decides on each uncut part** (`_scrubbed`). Any part holding a separator's mark, `+` and sixteen `-`, is read as a group. That is one C scan of the part, and reading a text as a group only hides more.
+- **`scrubbed_block` also reads any text with a line that starts with a group's margin as a group.** Either rule alone covers review r2's three shapes; I checked each with the other switched off. Mutant 4 below removes both.
+
+Regressions, each failing at base:
+
+- `test_a_group_longer_than_the_bound_keeps_its_group_handling`: review r2's three shapes, raised or only constructed, through the handler.
+- `test_a_group_over_the_bound_is_written_to_daemon_log_scrubbed`: the same through a real `Daemon`.
+- `test_a_process_that_raises_a_group_over_the_bound_writes_it_scrubbed`: a real child, its stderr a daemon.log, raising the group uncaught through `install_process_hooks`. The secret is built off the `raise` line.
+- `test_a_block_with_a_group_s_margins_is_read_as_a_group`.
+
+When scrubbing joins `Bearer` and its token across two member lines, the group is written without margins, as round 2's `_group_block` does. The secret stays hidden.
+
+### 4. C-25.7 and the code (P3)
+
+- **The stale carve-out is gone.** "A workspace completion SQLite could not record, which keeps SQLite's message" no longer applies: since round 2 (`98f2ef0c1`) that notice names the class. The change log says so.
+- **The stop snapshot is listed.** C-25.7 now names C-5.8a's managed stop snapshot (`daemon._dump_stop_stacks`, a raw `os.write`) among daemon.log's other writers. It names every thread on every Python version and gives each frame's file, line and function, never a local, a source line or an exception's message. The thread-name lint covers the names.
+- **runner.py's two lines** (`_handshake`'s `relay status:` and `_transmit`'s `frame <tag>:`) now pass `refusals.fixed_error(exc)` into `_unacknowledged`'s message, which `_relay_lost` logs.
+- **The site lint follows a parameter to the log call it reaches.**
+  - `logged_parameters` finds, per module and to a fixpoint, each function parameter whose value reaches a log call: passed raw, in a string built from it, or passed on to another such parameter (`_unacknowledged(why)` → `_relay_lost(f"{why}; …")` → `log.warning(…, why)`).
+  - A call that passes a caught exception raw, in an f-string, `%`, `.format` or `str()` of it, to such a parameter fails the lint. So does a local such a string is assigned to.
+  - `test_the_site_lint_fails_runner_py_s_old_lines` restores the two old lines in runner.py's current source. The lint then fails it at exactly those two lines, and passes the current file.
+- **The extended lint found one more site.** The daemon's reader formatted a pool's thread-start `RuntimeError` into `_count_connection`'s detail, which it logs (`daemon.py`, the `unscheduled` count). That now uses `refusals.scrubbed_words`. It also read two scrubbed sites as raw: `refusals.detail_line` (which scrubs whole) and `isinstance(exc, …)`. Both now pass through.
+- **The lint's reach:** functions of the same module, matched by name. A message built in one module and logged in another is not followed.
+- **Rewritten:** the bound's sentence, the group sentence, and invariants 7 and 8 (round 2's "Invariants" above, restated in place).
+
+### 5. The several-member group property (P3)
+
+Round 2's §3 above now carries a correction. `test_a_several_member_group_never_shows_a_secret_its_member_alone_hides` replaces round 2's margins-only property. For groups of two or three members, one or two deep, raised or only constructed, every secret is made distinct with a fixed-width tag after `SECRET7`, so no secret is another's or a piece of one. Whatever a member's plain traceback hides, the group's hides too.
+
+- **`over` case:** the group's own 1,200 lines and its last member's 1,000 lines put the record over the bound, so its separators fall out of what is kept.
+- **Kept from round 2:** the margin-free and line-form checks, for groups under the bound.
+- **At base:** it fails, on the `over` cases. Under the bound it held at base, as review r2 found.
+
+### 6. Two costs of round 2
+
+- **Wake.** With up to 16 run targets, `subfleet wake` could not say which run was refused. The refusal now names the target by its position: `run target 3 of 16 is not this conversation's`. The words are numbers `register` computes, never the id. The structural test allows only `position` and `count` in a refusal's f-string, and checks that `register` binds them from `enumerate` and `len`.
+- **Marker line.** A one-line message whose cut keeps only the marker loses the logger's own words. The marker line now names the record's level and logger, fixed metadata, never its words: `… [4,194,339 characters omitted] … (WARNING record from subfleet.daemon.test-handler)`.
+
+### Invariants, round 3
+
+Invariants 7 and 8 are restated in place above. Each of these holds for every input and is executed by the tests named.
+
+10. **The cut's work does not grow with the text.** For any text and limit, the lines `cut_whole` runs, the C functions it calls and its event computations depend only on its two windows. There are at most `2 × (CUT_KINDS_MAX + 2)` = 20 event computations. Tests: `test_a_cut_s_work_does_not_grow_with_the_text`; the clock guard.
+11. **Folding parts nothing a cut keeps.** No cut falls where folding the text to one line joins what is before the break to what is after into a match. Every scrub rule has an example, and the folding ones are exactly the flags rule and the private-key lines. Tests: `test_every_scrub_rule_has_an_example_and_only_the_folding_rules_fold`, `test_a_cut_never_parts_what_a_rule_or_folding_joins`, the generator.
+12. **A logged exception's words are scrubbed at every site.** No daemon module passes a caught exception raw to a log call, or to a parameter of its own functions whose value reaches one. Tests: `test_no_daemon_module_logs_a_caught_exception_raw`, `test_the_site_lint_fails_runner_py_s_old_lines`.
+
+### The rebuilt generator
+
+`fuzz_text` builds texts of 1 to 40 lines from these shapes, among plain lines (`  + more` among them), with a limit of 40 to 400:
+
+- the cut shapes of `lines_with`;
+- credential flags (`--password`, `--db-token`, `x--api-key`, `--client-secret`, and `--password-file` and `-p`, which the rule does not mask), with their values a line or more on;
+- JSON with plain, escaped and double-escaped quotes;
+- split private keys;
+- a group's margins (`  | `, `    | `) behind a separator;
+- a leading `Authorization:`, `Cookie:` or `Set-Cookie:` header;
+- CRLF line ends.
+
+Each text is checked two ways:
+
+- **The cut text, in the daemon's forms.** It shows no secret the uncut text shows nowhere. The block form, and the line form for a text without margins (folded, the two agree only without margins, invariant 3).
+- **Through the handler.** A record cut at the text's limit shows no secret the same record uncut hides.
+
+`test_the_rebuilt_generator_finds_review_r2_s_leaks_shapes` checks that it reaches the flag, margin and header shapes.
+
+| Code | Texts | Cut | Leaking |
+|---|---|---|---|
+| base (`2b64f76a3`) | 16,000 | 13,091 | 1,269: 293 without group margins, 976 with |
+| this round without the flag break rule (mutant 3) | 16,000 | 13,091 | 416: 92 without margins, 324 with |
+| this round without the margin reading (mutant 5) | 16,000 | 13,091 | 649, all with margins |
+| final, through pytest under the lock (`SUBFLEET_CUT_FUZZ=16000`) | 16,000 | 13,091 | 0 |
+| final, a direct run on 16 other seeds | 16,000 | 12,995 | 0 |
+
+The CI run is a bounded slice of 300 texts over three seeds. Before the margin reading, those 300 found a leak at each of the three seeds.
+
+### Mutations
+
+Each was applied to a copy of the final code and run against the named tests, one hold each:
+
+| Mutation | Failed |
+|---|---|
+| 1. Round 2's eager `setdefault` in `_whole_tail_cut` | `test_a_cut_s_work_does_not_grow_with_the_text[tail-eight-kinds]`: 10,882 event computations. It survived until that shape was added (§1). |
+| 2. No kind cap (`_too_many_kinds` never true) | `test_a_cut_s_work_does_not_grow_with_the_text[head, head-single-quotes, tail]`: 122 events; `test_a_side_with_more_than_eight_escaped_kinds_keeps_only_the_marker` |
+| 3. No flag break rule (`_folds_to_value` false) | 8: the flag test through the handler, both through a real `Daemon`, `[flags]` of the per-rule test, the generator at all three seeds, and the count test's blank lines after a flag |
+| 4. Group detection after the cut (round 2's: the separator in the cut text only) | 16: every over-bound group case through the handler, a real `Daemon` and the child; the margin-line cases; the several-member property |
+| 5. Margins read as they are (`_margins_blanked` a no-op) | `test_the_rebuilt_generator_finds_no_leak`, all three seeds |
+
+### Tests per file, round 3
+
+New or changed:
+
+- **`tests/unit/test_daemon_log_handler.py`, 120 cases:**
+  - the cost count, nine shapes;
+  - the clock guard, 18 cases;
+  - the cap;
+  - the flag shape;
+  - the rule table;
+  - the per-rule cut, 12 rules;
+  - the private-key differential;
+  - the whitespace list;
+  - over-bound groups, 6 cases;
+  - margin lines, 3 cases;
+  - the generator, its coverage check and 3 seeds;
+  - the several-member property;
+  - the marker line, and `lines_with` with three more shapes;
+  - round 2's two spies, which now pass `group` on.
+- **`tests/unit/test_daemon_log_sites.py`, 42 cases:**
+  - the flag shape through a real `Daemon`, twice;
+  - the over-bound group, three shapes;
+  - the child process, three shapes;
+  - the lint's runner.py case;
+  - eight more lint snippets.
+- **`tests/unit/test_conversation_wakes.py`, 27 cases:** the run target's position, and the structural test.
+
+### Runs, round 3
+
+All runs used a fresh `.venv` (`uv sync --locked --group dev`, Python 3.14.7 with the GIL).
+
+- **One pytest per hold.** Each pytest ran alone in its own hold of the shared lock, in the foreground, as the venv's `python -m pytest` (the same environment as `uv run`), with no xdist. Hypothesis ran with each file's own bounded, derandomized settings and no database.
+- **Waiting fairly for the lock.** Another job held the lock in back-to-back holds, and polling for it with `lockf -t 0` kept losing it to that job's blocked `lockf`. So the later holds waited blocked in `flock(2)`, under an alarm, as `lockf` itself waits, then ran pytest as a child. They are holds of the same lock.
+- **At base.** These ran on a tree of `2b64f76a3`'s `subfleet/` with this round's tests.
+
+| Hold | What | Result |
+|---|---|---|
+| base 1 | the new non-cost cases | 42 failed, 26 passed. The 26: the ten rules' per-rule cases folding does not join, 12 lint snippets (round 2's 11 and one alias case; the lint is test code), three timeline inputs whose words were already fixed, and the generator's coverage check. Seven lint snippets failed on an indentation error of mine, fixed in `552c796cc`. |
+| base 2 | the cost count and the clock guard | 18 failed, 6 passed: the quote-dense and JSON shapes, cheap at base too |
+| base 3 | the eight-kind shape | the count failed at 10,882 events; its two clock cases passed |
+| 1 | brief group 1: `test_daemon_log_handler` 120, `test_daemon_log_sites` 42, `test_daemon_log_scrubbing` 86, `test_round10_refusal_context` 59, `test_handler_refusals` 315 | 622 passed, 30 s |
+| 2 | brief group 2: `test_conversation_service` 98, `test_turn_runner` 82, `test_conversation_wakes` 27, the six `test_suggestions*` 89 | 296 passed, 195 s |
+| 3 | brief group 3: `test_sessions_handoff` 117, `test_sessions_handoff_excerpts` 153 | 270 passed, 83 s |
+| 4 | brief group 4: `test_daemon_accept` 5, `test_stop_watchdog` 29, `test_daemon_verbs` 20 | 54 passed, 63 s |
+| 5 | brief group 5, and two more: `tests/fake/test_state_contract` 37, `test_test_module_names` 1, `test_invariants_index` 25 (the contract changed), `test_descriptor_review_fixes` 56 (`_count_connection`'s site) | 119 passed, 25 s |
+| fuzz | the generator, `SUBFLEET_CUT_FUZZ=16000` | 4 passed, 39 s |
+| m1 to m5 | the mutations above | each failed as listed |
+
+**Code after the runs.** Hold 1 ran at `ff91e8ece`, the last code commit. Holds 2 to 5 ran at `e5d59955d`; only tests changed after it, and only in `test_daemon_log_handler.py`. Two earlier group-1 holds failed:
+
+- **First (8 failed):** round 2's spies, the collector's six C calls, and the generator's margin leaks. These are fixed in `ad2bfdb46` and `1e7a985a3`.
+- **Second (1 failed):** the lint's `isinstance` case, fixed in `618161bb2`.
+
+**Not run:**
+
+- the full suite;
+- `tests/e2e`, `tests/frontend` and `tests/process`;
+- Python 3.12;
+- a real `launchctl`;
+- CI, since this job has no network.
+
+### Commits, round 3
+
+- `ff34adb7b` test: review r2 of #233: the cut's cost, a flag's value, a group over the bound, the lint, distinct group secrets
+- `da0db6db4` fix: a record's cut does bounded work and never parts what folding joins
+- `68b477930` fix: a record's part is read as an exception group before its cut; a marker-only line names its level and logger
+- `39c8e7551` fix: an exception formatted into a message another function logs uses fixed or scrubbed words
+- `4d2244353` fix: a refused run target is named by its position, never its id
+- `552c796cc` test: the lint cases' indentation, a joined group's margins, a 30 s guard timeout
+- `ad2bfdb46` test: spies take `group`; the work count pauses the collector and counts handoff's calls; group text's forms
+- `1e7a985a3` fix: the cut reads an exception group's margins as spaces
+- `618161bb2` test: the site lint reads `isinstance` of an exception as carrying no words
+- `e5d59955d` docs: C-25.7 states the round-3 cut, the group decision, the marker line, the stop snapshot and the wake position
+- `1eccdc799` test: a cost shape that keeps the tail loop refusing under the kind cap
+- `ff91e8ece` test: the generator's seeds split SUBFLEET_CUT_FUZZ exactly
+- this report's round 3
 
 Nothing is pushed.
