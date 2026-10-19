@@ -843,7 +843,7 @@ containing final-report commit is the bundle tip; the preceding steps are below.
 
 Assigned head: `6b9f054b60d8`. The local `release/217` ref,
 `b053e3de8f2e`, is already an ancestor of that head; no merge or conflict
-resolution was needed. No network remote was accessed. The saved regression
+resolution was needed. No Git remote was accessed. The saved regression
 commit `dcd76ed82` from `wip/pr223-fix6-a1` matched the brief and was retained
 by cherry-picking it as `0302816a8` into workspace-local Git metadata.
 Its last-receipt injection was refined to target the third read, since the
@@ -882,39 +882,25 @@ initial containment census itself reads the receipt.
   `cancel: null`, the provider outcome and any overrun evidence until a
   subsequent client request becomes effective.
 
-### Validation checkpoint (2026-10-19 00:31 UTC)
+### Final validation
 
-Latest completed full-file results: **921 passed,
-6 skipped across 24 files**. Counts do not
-sum repeated invocations. The final wall/inspection-load group passed **151**
-in 127.11 s; the admission/retry/salvage/replay and conversation-service group
-passed **166** in 329.72 s. The conversation/handoff group passed **253**, with
-six legacy process-inspection skips. Settlement/pacing and Codex completion
-coverage passed **323** before the final audit refinement; the subsequent
-settlement/pacing run passed **194**, with one timing failure in
-`test_wait_rechecks_on_its_own_clock_without_a_commit` (a 600 ms deadline
-allowed only one read). Its entire inspection-load file then passed **22**
-without a wait-hub code change in the final wall group.
+**1,063 passed, 10 skipped, zero final failures across 32 files.**
+Counts below use each file's final successful attempt, without adding repeats.
+All available requested files were selected. The six legacy-hold skips and four
+guardian-process skips did not execute their bodies: the sandbox cannot meet
+C-5.3's process-identity prerequisite. Native process ownership integration is
+therefore not claimed as verified. This is local Python 3.14.7 free-threaded
+validation; other Python versions and full repository CI were not run.
 
-The retained regressions first reproduced **12 failures** (**11** wall races,
-**1** guardian timestamp), alongside 12 existing guardian passes. Further
-regressions caught and closed: an absent caller session in an immediate wall
-notice, missing effective-requester bindings in conversation test fixtures,
-a late turn completion after client precedence, a legacy cached failure kept
-authoritative by a superseded wall, and an intent left pending despite a
-skipped signal. Four provider-own-signal failures before the daemon signal
-were also reproduced; the two post-signal controls already passed. The final
-wall group now passes all **30** race cases, including those six controls.
-
-Each pytest ran alone in a foreground `lockf -k` hold of
+Every pytest ran alone in a foreground `lockf -k` hold of
 `/private/tmp/claude-501/subfleet-suites.lock`, without a lock timeout or xdist.
-`SUBFLEET_RETENTION_DORMANT` is unset, and Hypothesis uses bounded ci settings
-and scratch storage; no deep profile is used. The property varies receipt
-publication separately from provider exit and checks client precedence,
-dependent survival after success, and the signal-before-exit veto. Scratch,
-JUnit counts and the fallback uv cache are removed with Python `shutil.rmtree`
-after each invocation. The longest completed pytest so far took 329.72 s,
-below twenty minutes; lock waits also count against the job's six-hour wall.
+All holds finished below twenty minutes; the longest pytest took **329.72 s**.
+Lock waits counted against this job's six-hour wall. All holds began before
+the 03:57:54 UTC no-new-holds cutoff on 2026-10-19, measured conservatively
+from the worktree's 23:27:54 UTC job stamp. `SUBFLEET_RETENTION_DORMANT` was
+unset. Hypothesis used bounded ci settings and scratch storage, never deep.
+The new property has 60 deterministic examples varying provider exit, receipt
+publication, inspection/cap handling, client requests and signalling.
 
 | File | Passed | Skipped |
 | --- | ---: | ---: |
@@ -928,46 +914,102 @@ below twenty minutes; lock waits also count against the job's six-hour wall.
 | `tests/unit/test_title_review_regressions.py` | 4 | 0 |
 | `tests/unit/test_review_r223_conv_probes.py` | 17 | 0 |
 | `tests/unit/test_legacy_hold.py` | 50 | 6 |
-| `tests/unit/test_conversation_handoff.py` | 48 | 0 |
 | `tests/unit/test_daemon_settle.py` | 43 | 0 |
 | `tests/unit/test_daemon_inspection_load.py` | 22 | 0 |
 | `tests/unit/test_inspection_pacing_properties.py` | 1 | 0 |
 | `tests/unit/test_settle_properties.py` | 129 | 0 |
-| `tests/fake/test_codex_turn_completed_fake.py` | 105 | 0 |
-| `tests/fake/test_turn_trees.py` | 12 | 0 |
-| `tests/unit/test_guardian.py` | 13 | 0 |
-| `tests/unit/test_procs.py` | 48 | 0 |
 | `tests/fake/test_admission_stateful.py` | 3 | 0 |
 | `tests/fake/test_retry_for_good_refusals.py` | 8 | 0 |
 | `tests/fake/test_salvage_finalization.py` | 47 | 0 |
 | `tests/fake/test_finalization_replay.py` | 10 | 0 |
+| `tests/unit/test_guardian.py` | 13 | 0 |
+| `tests/process/test_guardian_process.py` | 0 | 4 |
+| `tests/frontend/test_core_protocol.py` | 9 | 0 |
+| `tests/frontend/test_core_outbox.py` | 13 | 0 |
+| `tests/frontend/test_core_steer.py` | 43 | 0 |
+| `tests/fake/test_state_contract.py` | 37 | 0 |
+| `tests/unit/test_test_module_names.py` | 1 | 0 |
+| `tests/unit/test_procs.py` | 48 | 0 |
 | `tests/unit/test_conversation_service.py` | 98 | 0 |
+| `tests/unit/test_conversation_handoff.py` | 48 | 0 |
+| `tests/fake/test_turn_trees.py` | 12 | 0 |
+| `tests/fake/test_codex_turn_completed_fake.py` | 105 | 0 |
+| `tests/unit/test_census_survivors_review.py` | 14 | 0 |
+| `tests/unit/test_census_recycled_pid.py` | 25 | 0 |
 
-Still pending: the guardian/procs/census hold is queued/running, then the
-native frontend and state/module-name holds. Files:
+The retained regressions first reproduced **12 failures** (**11** wall races,
+**1** guardian timestamp), alongside 12 existing guardian passes. Subsequent
+regressions caught and closed an absent caller session in immediate notices,
+a late turn completion after client precedence, a stale cached failure kept
+authoritative by a superseded wall, and an intent left pending after a skipped
+signal. Provider-owned signals before the daemon signal reproduced four
+failures; both post-signal controls already passed. All **30** wall-race cases
+now pass, including those six signal-order controls, precision/recovery cases,
+and atomic cascade rollback/replay.
 
-- `tests/unit/test_guardian.py` (repeat)
-- `tests/process/test_guardian_process.py`
-- `tests/unit/test_procs.py` (repeat)
-- `tests/unit/test_census_survivors_review.py`
-- `tests/unit/test_census_recycled_pid.py`
-- `tests/frontend/test_core_protocol.py`
-- `tests/frontend/test_core_outbox.py`
-- `tests/frontend/test_core_steer.py`
-- `tests/fake/test_state_contract.py`
-- `tests/unit/test_test_module_names.py`
+Intermediate validation also caught conversation/census/state fixture seams
+that needed the effective-requester lookup or the signal-clock callback; their
+ownership and attribution assertions were preserved. One wait-hub timing
+assertion observed only one read during its 600 ms deadline. The entire
+inspection-load file then passed all **22** cases without changing wait-hub
+behavior. The final wall/inspection-load hold passed **151** tests; the
+admission/retry/salvage/replay and conversation-service hold passed **166**;
+the guardian/procs/census hold passed **100**, with four integration skips;
+and the native frontend passed **65**.
 
 The separately supplied `review-r3.md` and
-`review-r3-probes/test_review_r223_r3_probes.py` were absent from this checkout
-and the task scratch area. Their location was requested and has not been
-provided. The review text has not been read and its separate probe file is
-unrun. The tracked `test_wall_cancel_races.py` retains and extends the saved
-executed-input regressions specified by the brief.
+`review-r3-probes/test_review_r223_r3_probes.py` were absent from the checkout
+and task scratch area. Their location was requested and not provided. The
+review text has not been read and its separate probe file is **unrun**. The
+tracked `tests/fake/test_wall_cancel_races.py` retains and extends the saved
+executed-input regressions named in the brief. No other requested file remains
+unselected.
 
-### Commit storage
+### Cleanup and local delivery
+
+JUnit evidence, Hypothesis storage and the fallback uv cache were removed
+from each invocation's scratch with Python `shutil.rmtree`. The 57 short
+frontend harness roots created by this run were identified by the run's
+compiled-probe time, exclusive test hold, and its 4/12/41 fixture cases, then
+removed after the frontend exited. Other temporary roots were preserved.
+Task-created dependency, build and Python caches were removed. No
+`.hypothesis` directory or task-owned pytest, runner, guardian or lock holder remains.
+No logs, JSON evidence or bundles are staged.
 
 The sandbox rejected writes to the shared `ORIG_HEAD` and index. All new
-commits use `.git-local` on `fix/wall-counts-running-time-217`; the original
-`.git` pointer and shared index are preserved. Only named source, test and
-contract/report files are staged. Every commit carries the requested
-co-author trailer. Nothing has been pushed.
+commits use workspace-local `.git-local` on
+`fix/wall-counts-running-time-217`; the original `.git` pointer and shared
+index are preserved. Only named source, test, contract and report files were
+staged. Every commit carries
+`Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+No history was rewritten and nothing was pushed.
+
+Delivery is `.git-local/round6.bundle`, advertising
+`refs/heads/fix/wall-counts-running-time-217` with prerequisite
+`6b9f054b60d890e9ceb5b1f5313c2bbda314ff86`. Bundle verification and its advertised
+head were checked. The commit containing this final report is the bundle tip;
+the preceding round-6 steps are listed below.
+
+| Commit | Step |
+| --- | --- |
+| `0302816a8` | test: reproduce pending wall cancellation and signal-order races |
+| `80fbd7a4f` | test: pin client precedence and the signal timestamp boundary |
+| `e8c142ff5` | fix: preserve client kills and defer wall cascades until settlement |
+| `4a2a2e553` | fix: settle wall races using provider exit and signal timestamps |
+| `968c81f82` | test: vary receipt publication independently of provider exit |
+| `26aaea769` | docs: specify wall receipt precedence and deferred cancellation |
+| `2d650b6e6` | test: cover deferred settlement replay and conservative signal recovery |
+| `56cd03787` | fix: retain wall notices for dependents without a caller session |
+| `c5dcdaa6c` | test: keep late turn completion vetoed when a client replaces the wall |
+| `41f24466a` | fix: keep the signal veto when a client replaces a turn wall stop |
+| `3d2270c61` | test: bind effective requester lookup in conversation daemon fixtures |
+| `77f3cee60` | test: reconcile cached provider verdicts after a receipt wins the wall |
+| `00ae4b5fe` | test: adapt containment fakes to fresh requests and signal audit writes |
+| `739910c00` | fix: clear a superseded wall before reconciling cached provider verdicts |
+| `1dcefa247` | test: distinguish skipped wall signals from pending kill intents |
+| `57cca1315` | fix: record skipped wall signals explicitly in the kill audit |
+| `805d1f96c` | test: preserve a provider failure by its own pre-wall signal |
+| `33537bb1c` | test: retain wall attribution for provider signals after SIGTERM |
+| `6a576327d` | fix: preserve provider failures that precede the wall signal |
+| `9ba573c74` | docs: record passing round-six wall and recovery validation |
+| `648caef3f` | test: accept the signal clock callback in the owned-survivor fixture |
