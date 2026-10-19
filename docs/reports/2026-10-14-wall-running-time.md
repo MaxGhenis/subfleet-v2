@@ -864,9 +864,12 @@ initial containment census itself reads the receipt.
   ISO timestamp change; old receipts remain readable without a protocol bump.
   Signal callbacks capture the signal clock after identity reads and directly
   before the syscall. The durable `attempt.kill_started` intent is enriched
-  with the first delivered signal's millisecond `ts` and `signal_at`.
+  with the first delivered signal's millisecond `ts` and `signal_at`. A final
+  receipt read that avoids signalling records `signal_sent: false`,
+  `signal_at: null` and a millisecond `ts`.
 - A natural exit proven earlier than every delivered signal keeps its own
-  success or failure class. A post-signal completion remains
+  success or failure class, including a failure from the provider's own signal.
+  Supersession is applied before reconciling a legacy cached verdict. A post-signal completion remains
   `interrupted`/`unknown`, `killed_by=max_wall_s`, even with `turn.completed`.
   Equal milliseconds, second-precision ties, historical missing signal clocks
   and a crash before signal-clock persistence are conservative.
@@ -879,28 +882,87 @@ initial containment census itself reads the receipt.
   `cancel: null`, the provider outcome and any overrun evidence until a
   subsequent client request becomes effective.
 
-### Validation checkpoint
+### Validation checkpoint (2026-10-19 00:31 UTC)
 
-Before implementation, the retained regressions reproduced **12 failures**
-(**11** in `test_wall_cancel_races.py`, **1** in `test_guardian.py`), alongside
-12 existing guardian passes. After implementation, the focused group passed
-**72**: wall races **11**, guardian **13**, process helpers **48**. An
-intermediate run exposed the extra containment receipt read in the saved
-injection; targeting the actual final read corrected that probe.
+Latest completed full-file results: **921 passed,
+6 skipped across 24 files**. Counts do not
+sum repeated invocations. The final wall/inspection-load group passed **151**
+in 127.11 s; the admission/retry/salvage/replay and conversation-service group
+passed **166** in 329.72 s. The conversation/handoff group passed **253**, with
+six legacy process-inspection skips. Settlement/pacing and Codex completion
+coverage passed **323** before the final audit refinement; the subsequent
+settlement/pacing run passed **194**, with one timing failure in
+`test_wait_rechecks_on_its_own_clock_without_a_commit` (a 600 ms deadline
+allowed only one read). Its entire inspection-load file then passed **22**
+without a wait-hub code change in the final wall group.
 
-The full requested groups are being run in separate foreground holds of
-`lockf -k /private/tmp/claude-501/subfleet-suites.lock`, without a lock timeout
-or xdist. Hypothesis uses bounded ci settings and scratch storage. The
-interleaving property now varies receipt publication separately from provider
-exit and checks client precedence, dependent survival after success, and the
-signal-before-exit veto. Each scratch directory is removed with Python
-`shutil.rmtree`; the unwritable default uv cache is replaced inside scratch.
+The retained regressions first reproduced **12 failures** (**11** wall races,
+**1** guardian timestamp), alongside 12 existing guardian passes. Further
+regressions caught and closed: an absent caller session in an immediate wall
+notice, missing effective-requester bindings in conversation test fixtures,
+a late turn completion after client precedence, a legacy cached failure kept
+authoritative by a superseded wall, and an intent left pending despite a
+skipped signal. Four provider-own-signal failures before the daemon signal
+were also reproduced; the two post-signal controls already passed. The final
+wall group now passes all **30** race cases, including those six controls.
+
+Each pytest ran alone in a foreground `lockf -k` hold of
+`/private/tmp/claude-501/subfleet-suites.lock`, without a lock timeout or xdist.
+`SUBFLEET_RETENTION_DORMANT` is unset, and Hypothesis uses bounded ci settings
+and scratch storage; no deep profile is used. The property varies receipt
+publication separately from provider exit and checks client precedence,
+dependent survival after success, and the signal-before-exit veto. Scratch,
+JUnit counts and the fallback uv cache are removed with Python `shutil.rmtree`
+after each invocation. The longest completed pytest so far took 329.72 s,
+below twenty minutes; lock waits also count against the job's six-hour wall.
+
+| File | Passed | Skipped |
+| --- | ---: | ---: |
+| `tests/fake/test_wall_running_time.py` | 35 | 0 |
+| `tests/fake/test_wall_inspection_order.py` | 18 | 0 |
+| `tests/fake/test_review_r223_wall_probes.py` | 23 | 0 |
+| `tests/fake/test_notice_header.py` | 23 | 0 |
+| `tests/fake/test_wall_cancel_races.py` | 30 | 0 |
+| `tests/unit/test_conversation_steer_service.py` | 45 | 0 |
+| `tests/unit/test_conversation_titles.py` | 89 | 0 |
+| `tests/unit/test_title_review_regressions.py` | 4 | 0 |
+| `tests/unit/test_review_r223_conv_probes.py` | 17 | 0 |
+| `tests/unit/test_legacy_hold.py` | 50 | 6 |
+| `tests/unit/test_conversation_handoff.py` | 48 | 0 |
+| `tests/unit/test_daemon_settle.py` | 43 | 0 |
+| `tests/unit/test_daemon_inspection_load.py` | 22 | 0 |
+| `tests/unit/test_inspection_pacing_properties.py` | 1 | 0 |
+| `tests/unit/test_settle_properties.py` | 129 | 0 |
+| `tests/fake/test_codex_turn_completed_fake.py` | 105 | 0 |
+| `tests/fake/test_turn_trees.py` | 12 | 0 |
+| `tests/unit/test_guardian.py` | 13 | 0 |
+| `tests/unit/test_procs.py` | 48 | 0 |
+| `tests/fake/test_admission_stateful.py` | 3 | 0 |
+| `tests/fake/test_retry_for_good_refusals.py` | 8 | 0 |
+| `tests/fake/test_salvage_finalization.py` | 47 | 0 |
+| `tests/fake/test_finalization_replay.py` | 10 | 0 |
+| `tests/unit/test_conversation_service.py` | 98 | 0 |
+
+Still pending: the guardian/procs/census hold is queued/running, then the
+native frontend and state/module-name holds. Files:
+
+- `tests/unit/test_guardian.py` (repeat)
+- `tests/process/test_guardian_process.py`
+- `tests/unit/test_procs.py` (repeat)
+- `tests/unit/test_census_survivors_review.py`
+- `tests/unit/test_census_recycled_pid.py`
+- `tests/frontend/test_core_protocol.py`
+- `tests/frontend/test_core_outbox.py`
+- `tests/frontend/test_core_steer.py`
+- `tests/fake/test_state_contract.py`
+- `tests/unit/test_test_module_names.py`
 
 The separately supplied `review-r3.md` and
-`review-r3-probes/test_review_r223_r3_probes.py` were absent from this
-checkout and the task scratch area. Their location was requested; validation
-currently uses the detailed brief and the saved executed-input regressions.
-The separate r3 probe file has not been run.
+`review-r3-probes/test_review_r223_r3_probes.py` were absent from this checkout
+and the task scratch area. Their location was requested and has not been
+provided. The review text has not been read and its separate probe file is
+unrun. The tracked `test_wall_cancel_races.py` retains and extends the saved
+executed-input regressions specified by the brief.
 
 ### Commit storage
 
