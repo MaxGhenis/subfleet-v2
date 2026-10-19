@@ -355,3 +355,93 @@ def test_a_cleanup_thread_that_cannot_start_cannot_hold_the_exit_receipt(tmp_pat
     finally:
         release.touch()
         _end_parked_guardian(sock, process)
+
+
+# The guardian's linger (none here: the test's Popen did not make it its own
+# responsible process) and its interpreter's exit, with margin.
+EXIT_MARGIN_S = 5.0
+
+
+def _fill(fd: int) -> int:
+    """Fill the pipe whose write end is `fd` until a write of one byte would wait,
+    and leave it blocking. The flag is the open pipe's, shared with the guardian's
+    standard error, which writes nothing meanwhile."""
+    os.set_blocking(fd, False)
+    total = 0
+    try:
+        for chunk in (1 << 16, 4096, 512, 1):
+            while True:
+                try:
+                    total += os.write(fd, b"f" * chunk)
+                except BlockingIOError:
+                    break
+    finally:
+        os.set_blocking(fd, True)
+    return total
+
+
+def _read_all(fd: int, timeout: float = 10.0) -> bytes:
+    """Everything in the pipe up to end of file, which comes once every writer is gone."""
+    os.set_blocking(fd, False)
+    data, until = bytearray(), time.monotonic() + timeout
+    while time.monotonic() < until:
+        try:
+            chunk = os.read(fd, 1 << 16)
+        except BlockingIOError:
+            time.sleep(0.01)
+            continue
+        if not chunk:
+            return bytes(data)
+        data.extend(chunk)
+    raise AssertionError("the pipe had a writer left")
+
+
+def test_a_stalled_stderr_cannot_hold_the_guardians_exit(tmp_path):
+    """C-26.4, C-5.1 (#236 review r2, P3): a real, unpatched guardian whose standard
+    error is a pipe the test fills once the guardian has started and never reads, so
+    the cut line's write waits for good. A 2 MiB frame waits in the provider's stdin
+    when the provider exits 7, and a background process it started holds stdin open
+    and never reads. The guardian publishes `exit.json` with rc 7 and exits 7 within
+    its linger plus a margin, while that write is still held: nothing of the cut line
+    reached the pipe. The frame is logged `failed` (ECANCELED). At ce226d226 the line
+    went through `logging`; the guardian published rc 7 and stayed alive in
+    `logging.shutdown`, which waited for the handler lock the cleanup thread held."""
+    import errno
+
+    from subfleet.relay import RelayError
+
+    read_end, write_end = os.pipe()
+    try:
+        attempt, sock, go, process = _parked_guardian(tmp_path, [sys.executable, "-m", "subfleet.guardian"],
+                                                      rc=7, stderr=write_end)
+    except BaseException:
+        os.close(read_end)
+        os.close(write_end)
+        raise
+    answers: list = []
+    try:
+        wait_for(lambda: (attempt / "start.json").exists(), timeout=10)
+        filled = _fill(write_end)
+        os.close(write_end)
+        write_end = None
+        sender = _send_2mib(sock, answers)
+        wait_for(lambda: read_log(attempt / "stdin.jsonl"), timeout=10)
+        go.touch()                                                   # the provider exits now
+        receipt = json.loads(wait_for(lambda: (attempt / "exit.json").exists()
+                                      and (attempt / "exit.json").read_text(), timeout=10))
+        assert receipt["rc"] == 7
+        try:
+            process.wait(EXIT_MARGIN_S)
+        except subprocess.TimeoutExpired:
+            raise AssertionError("the guardian published rc 7 but did not exit while its stderr write was held") from None
+        assert process.returncode == 7
+        assert _read_all(read_end) == b"f" * filled, "the cut line's write was not held"
+        assert [(r["seq"], r["status"], r.get("errno")) for r in read_log(attempt / "stdin.jsonl")] == [
+            (1, "failed", errno.ECANCELED)]
+        sender.join(10)
+        assert len(answers) == 1 and isinstance(answers[0], RelayError), answers
+    finally:
+        if write_end is not None:
+            os.close(write_end)
+        os.close(read_end)
+        _end_parked_guardian(sock, process)

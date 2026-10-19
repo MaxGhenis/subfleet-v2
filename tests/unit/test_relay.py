@@ -408,23 +408,22 @@ def _read_to_eof(fd: int) -> bytes:
         data.extend(chunk)
 
 
-def test_stop_cuts_an_exchange_a_retained_stdin_reader_holds(exited_child, caplog):
+def test_stop_cuts_an_exchange_a_retained_stdin_reader_holds(exited_child, capfd):
     """C-26.4 (#230 review r1): a 2 MiB frame waits in the stdin pipe of a child that
     has exited, whose read end is held by a process that never reads it. `stop` gives
     the exchange its bound (`REPLY_TIMEOUT_S`, the reply's own) and then cuts it: it
-    returns within that bound plus 1 s, logs one fixed line, leaves no relay thread
-    and no socket file, and closes the pipe. The frame is logged `failed` (ECANCELED),
-    the reader got only part of it, and the client reads end of stream, never an
-    acknowledgement. At d72597b5c, `stop` waited until the reader closed the pipe."""
+    returns within that bound plus 1 s, writes one fixed line to descriptor 2 (#236
+    review r2: a raw write, not `logging`), leaves no relay thread and no socket file,
+    and closes the pipe. The frame is logged `failed` (ECANCELED), the reader got only
+    part of it, and the client reads end of stream, never an acknowledgement. At
+    d72597b5c, `stop` waited until the reader closed the pipe."""
     relay, client, held = exited_child
-    caplog.set_level(logging.WARNING, logger="subfleet.relay")
     _send_and_wait_for_intent(relay, client, LINE_2MIB)
     assert _stop_within(relay, held, REPLY_TIMEOUT_S + 1), "a retained stdin reader held stop past its bound"
     assert not relay._thread.is_alive(), "the relay thread outlived stop"
     assert not relay.path.exists(), "stop left the socket file"
-    cut = [record for record in caplog.records if record.name == "subfleet.relay"]
-    assert [(record.levelno, record.getMessage()) for record in cut] == [(logging.WARNING, relay_module.CUT_LOG_LINE)]
-    assert not cut[0].args                                       # fixed text: nothing of the frame
+    # Fixed text, once: nothing of the frame, its tag or its client.
+    assert capfd.readouterr().err == relay_module.CUT_LOG_LINE + "\n"
     assert [(r["seq"], r["status"], r.get("errno")) for r in read_log(relay.log_path)] == [
         (1, "failed", errno.ECANCELED)]
     assert client.recv(1 << 16) == b"", "a cut exchange was acknowledged"
@@ -433,14 +432,13 @@ def test_stop_cuts_an_exchange_a_retained_stdin_reader_holds(exited_child, caplo
     assert 0 < len(received) < len(whole) and whole.startswith(received)
 
 
-def test_stop_still_answers_an_exchange_that_finishes_inside_its_bound(exited_child, caplog):
+def test_stop_still_answers_an_exchange_that_finishes_inside_its_bound(exited_child, capfd):
     """C-26.4 (kept from #230): the same 2 MiB frame, but the holder of the read end
     drains the pipe as `stop` begins. The exchange finishes inside the bound, so the
     line is written whole and its acknowledgement is sent before `stop` returns, and
-    nothing is cut or logged. This passes at d72597b5c too; it pins the behaviour the
+    nothing is cut or reported. This passes at d72597b5c too; it pins the behaviour the
     bound keeps, and a cut that does not wait out the bound fails it."""
     relay, client, held = exited_child
-    caplog.set_level(logging.WARNING, logger="subfleet.relay")
     whole = (LINE_2MIB + "\n").encode()
     _send_and_wait_for_intent(relay, client, LINE_2MIB)
     go, drained = threading.Event(), bytearray()
@@ -467,7 +465,7 @@ def test_stop_still_answers_an_exchange_that_finishes_inside_its_bound(exited_ch
     assert json.loads(raw) == {"seq": 1, "ok": True}
     assert bytes(drained) == whole
     assert [(r["seq"], r["status"]) for r in read_log(relay.log_path)] == [(1, "written")]
-    assert not [record for record in caplog.records if record.name == "subfleet.relay"]
+    assert capfd.readouterr().err == "", "an exchange that finished inside the bound was reported cut"
     assert not relay._thread.is_alive() and not relay.path.exists()
 
 
@@ -545,7 +543,7 @@ def _settle(relay) -> None:
 
 
 @pytest.mark.parametrize("point", ["journal-fsync", "journal-write"])
-def test_a_stalled_failure_record_cannot_hold_stop(exited_child, caplog, monkeypatch, point):
+def test_a_stalled_failure_record_cannot_hold_stop(exited_child, capfd, monkeypatch, point):
     """C-26.4 (#236 review r1): the reviewer's input. A 2 MiB frame waits in the stdin
     pipe of a child that has exited, whose read end is held and never read; `stop` cuts
     the exchange, and the fsync (or the write) of the frame's `failed` record stalls.
@@ -553,11 +551,10 @@ def test_a_stalled_failure_record_cannot_hold_stop(exited_child, caplog, monkeyp
     `CLEANUP_TIMEOUT_S`) while that call is held, having closed the pipe (the reader
     holds a strict prefix, then end of file) and unlinked the socket; the client reads
     end of stream. Released, the record lands as before (`failed`, ECANCELED) and the
-    cut is logged once. At 9ec7c87fb `stop` waited in `_close_pipe` for the lock that
+    cut line is written once. At 9ec7c87fb `stop` waited in `_close_pipe` for the lock that
     `apply` held through the record (still blocked at 2.59 s in the review; here, until
     released)."""
     relay, client, held = exited_child
-    caplog.set_level(logging.WARNING, logger="subfleet.relay")
     gate = Gate()
     monkeypatch.setattr(relay_module, "os", StallingOs(gate, point=point, record="failed"))
     whole = (LINE_2MIB + "\n").encode()
@@ -578,8 +575,7 @@ def test_a_stalled_failure_record_cannot_hold_stop(exited_child, caplog, monkeyp
     _settle(relay)
     assert [(r["seq"], r["status"], r.get("errno")) for r in read_log(relay.log_path)] == [
         (1, "failed", errno.ECANCELED)]
-    assert [record.getMessage() for record in caplog.records if record.name == "subfleet.relay"] == [
-        relay_module.CUT_LOG_LINE]
+    assert capfd.readouterr().err == relay_module.CUT_LOG_LINE + "\n"
 
 
 def test_stop_keeps_its_bound_when_its_cleanup_thread_cannot_start(exited_child, capfd, monkeypatch):
@@ -622,6 +618,63 @@ def test_stop_keeps_its_bound_when_its_cleanup_thread_cannot_start(exited_child,
         gate.release()
 
 
+def _held_shutdown_locks() -> list[str]:
+    """The locks interpreter shutdown takes that another thread holds now: logging's
+    module lock and each live handler's (`logging.shutdown`, run at exit, takes the
+    handlers'), and the buffers of the standard streams (the exit's flush takes those)."""
+    held = []
+    handlers = [handler for handler in (ref() for ref in list(logging._handlerList)) if handler is not None]
+    locks = [("logging._lock", logging._lock)] + [(repr(h), h.lock) for h in handlers if h.lock is not None]
+    for name, lock in locks:
+        if lock.acquire(timeout=0.5):
+            lock.release()
+        else:
+            held.append(name)
+    for name in ("__stdout__", "__stderr__"):
+        stream = getattr(sys, name)
+        if stream is None:
+            continue
+        flushed = threading.Event()
+        threading.Thread(target=lambda stream=stream: (stream.flush(), flushed.set()), daemon=True).start()
+        if not flushed.wait(0.5):
+            held.append(f"sys.{name}")
+    return held
+
+
+def test_a_held_cut_line_holds_no_lock_the_guardians_exit_takes(exited_child, capfd, monkeypatch):
+    """C-26.4 (#236 review r2, P3): the cut line is a raw `os.write` of descriptor 2,
+    never `logging` or `sys.stderr`, so a write held there (the guardian's stderr a pipe
+    nobody reads) holds no lock that interpreter shutdown takes: `logging.shutdown`
+    takes every handler's lock, and the exit's flush of the standard streams their
+    buffers' locks. With that write held, `stop` returns within its whole bound, having
+    closed the pipe (the reader holds a strict prefix, then end of file); logging's
+    module lock, every handler's lock and the standard streams are free. Released, the
+    line lands once, exactly, the socket file is unlinked and the frame is `failed`
+    (ECANCELED). At ce226d226 the line went through `logging` (in the guardian, which
+    has no handler, `lastResort`, which writes `sys.stderr` under its lock), and the
+    reviewer's guardian stayed alive in `logging.shutdown` until the write let go."""
+    relay, client, held = exited_child
+    gate = Gate()
+    monkeypatch.setattr(relay_module, "os", StallingOs(gate, point="stderr-write"))
+    whole = (LINE_2MIB + "\n").encode()
+    try:
+        _send_and_wait_for_intent(relay, client, LINE_2MIB)
+        assert _stop_within(relay, held, _stop_bound() + STOP_MARGIN_S, gate=gate), \
+            "a held cut line held stop past its bound"
+        assert gate.reached.is_set(), "the cut line was not a raw write of descriptor 2"
+        assert _held_shutdown_locks() == [], "a held cut line holds a lock the guardian's exit takes"
+        received = _read_to_eof(held.fd)
+        assert 0 < len(received) < len(whole) and whole.startswith(received)
+        assert client.recv(1 << 16) == b"", "a cut exchange was acknowledged"
+    finally:
+        gate.release()
+    _settle(relay)
+    assert not relay.path.exists(), "stop left the socket file"
+    assert capfd.readouterr().err == relay_module.CUT_LOG_LINE + "\n"
+    assert [(r["seq"], r["status"], r.get("errno")) for r in read_log(relay.log_path)] == [
+        (1, "failed", errno.ECANCELED)]
+
+
 def _inside_the_exchange(relay, gate) -> None:
     """Return once the relay has taken frame 1: its intent is logged, or a call of
     the exchange is held at `gate` (an intent whose write is held is not logged)."""
@@ -640,13 +693,15 @@ def _inside_the_exchange(relay, gate) -> None:
 @hypothesis.example(point="conn-close", record="outcome", size=2 << 20, drain=0, release=None)
 @hypothesis.example(point="server-close", record="outcome", size=10, drain=11, release=None)
 @hypothesis.example(point="unlink", record="outcome", size=2 << 20, drain=0, release=None)
+@hypothesis.example(point="stderr-write", record="outcome", size=2 << 20, drain=0, release=None)  # #236 review r2
 @hypothesis.given(point=st.sampled_from(("none",) + POINTS), record=st.sampled_from(("intent", "outcome", "failed")),
                   size=st.integers(0, 3 << 19), drain=st.integers(0, 3 << 19),
                   release=st.none() | st.floats(0, 1))
 def test_stop_returns_within_its_bound_whatever_stalls(point, record, size, drain, release):
     """C-26.4 (#236 review r1), for every stall point (a stdin pipe write; the write or
     fsync of a journal record, the frame's intent or its outcome; the close of the
-    connection or of the listening socket; the socket file's unlink), frame size,
+    connection or of the listening socket; the cut line's write to stderr, #236 review
+    r2; the socket file's unlink), frame size,
     amount the holder of the read end drains, and moment the stall ends (a fraction of
     the bound, or only once `stop` has returned): `stop` returns within its whole
     bound. Unless the held call is a pipe write or comes before the pipe's close in
