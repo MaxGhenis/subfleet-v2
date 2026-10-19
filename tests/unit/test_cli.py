@@ -832,17 +832,18 @@ def test_json_wait_output_stays_prose_free_on_a_provider_rc(daemon, capsys, work
     assert "provider rc 42" in capsys.readouterr().err
 
 
-def test_the_identity_check_runs_once_per_client(root, monkeypatch):
-    """C-5.8 the lock identity check costs one ps per process, not one per call."""
+def test_the_identity_check_is_fresh_and_paced_per_call(root, monkeypatch, poll_clock):
+    """C-5.13 even unverifiable observations are fresh and at least 1 s apart."""
     from subfleet import client as client_module
     (root / "daemon.lock").write_text(json.dumps({"pid": os.getpid()}))
-    calls: list[int] = []
+    calls: list[float] = []
     monkeypatch.setattr(client_module, "proc_status",
-                        lambda *a, **k: calls.append(1) or (None, None))
+                        lambda *a, **k: calls.append(poll_clock.now) or (None, None))
     probe = client_module.Client(root)
     for _ in range(4):
         probe.check_available()
-    assert len(calls) == 1
+    assert calls == [0.0, 1.0, 2.0, 3.0]
+    assert poll_clock.sleeps == [1.0, 1.0, 1.0]
 
 
 def test_boot_id_is_read_once(monkeypatch):
