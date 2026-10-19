@@ -501,6 +501,7 @@ def test_an_acknowledged_frame_is_one_the_reader_can_read_whole(size, drain):
             assert not relay._thread.is_alive() and not relay.path.exists()
             records = read_log(relay.log_path)
             assert len(records) == 1 and records[0]["status"] in ("written", "failed")
+            hypothesis.event(records[0]["status"])
             if records[0]["status"] == "written":
                 assert bytes(got) == whole
             else:

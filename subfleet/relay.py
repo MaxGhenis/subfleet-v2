@@ -50,7 +50,9 @@ from __future__ import annotations
 import errno
 import hashlib
 import json
+import logging
 import os
+import select
 import socket
 import stat
 import threading
@@ -64,8 +66,14 @@ LOG_INLINE_MAX = 64 * 1024          # frames logged verbatim up to this size
 ACK_TIMEOUT_S = 60.0
 SOCKET_DIR_NAME = "run"
 RELAY_VERSION = 2                   # 2: `status` and the advertised frame cap (review IR-27)
-REPLY_TIMEOUT_S = 1.0               # a departed/nonreading client cannot hold child exit
+REPLY_TIMEOUT_S = 1.0               # a departed/nonreading client cannot hold child exit; also stop's
+                                    # wait for an exchange already read (C-26.4, #230 review r1)
 REPLY_MAX = 1 << 16                 # an acknowledgement or status line
+WRITE_POLL_S = 0.05                 # a stdin write waiting for room looks this often for stop's cut
+# Fixed text: nothing of the frame, its tag or its client (#230 review r1).
+CUT_LOG_LINE = "relay stop: an exchange still running at its bound was cut; its connection was shut down"
+
+_log = logging.getLogger(__name__)
 
 
 def advertisement() -> dict:
@@ -183,6 +191,7 @@ class RelayServer:
         self._lock = threading.Lock()
         self._exchange_lock = threading.Lock()   # read through reply, including close
         self._stop = threading.Event()
+        self._cut = threading.Event()            # stop's bound passed: a stdin write gives up
         self._server: socket.socket | None = None
         self._thread: threading.Thread | None = None
         self._conn: socket.socket | None = None
@@ -221,21 +230,29 @@ class RelayServer:
 
     def serve(self, pipe_fd: int, child=None) -> None:
         """Start relaying into `pipe_fd` (the child's stdin) on a daemon thread;
-        `child` is the guardian's own `Popen`, the only process `signal` reaches."""
+        `child` is the guardian's own `Popen`, the only process `signal` reaches.
+        The pipe's write end, the guardian's alone, becomes non-blocking, so a
+        write the child does not read waits where `stop` can cut it."""
         self._pipe = pipe_fd
         self._child = child
         if self._closed:
             self._close_pipe()
+        else:
+            os.set_blocking(pipe_fd, False)
         self._thread = threading.Thread(target=self._accept_loop, name="subfleet-relay", daemon=True)
         self._thread.start()
 
     def stop(self) -> None:
-        """Wake idle reads, then finish an exchange already read before returning.
+        """Wake idle reads, then finish an exchange already read, within a bound.
 
         Closing stdin can make the child exit before its acknowledgement is
         sent. Keep the write half alive for that reply. A connection published
-        after this wakeup sees _stop before starting its first read. Replies
-        have their own bound; an idle client never delays exit.
+        after this wakeup sees _stop before starting its first read. An idle
+        client never delays exit. An exchange already read has REPLY_TIMEOUT_S,
+        the bound its reply has on its own, to finish; one still going then is
+        cut (`_cut_exchange`) and stop goes on. A reader that holds the child's
+        stdin open without reading (a process the child started, after the child
+        exited) held that wait for as long as it lived (#230 review r1).
         """
         self._stop.set()
         conn = self._conn
@@ -245,9 +262,12 @@ class RelayServer:
             except OSError:
                 pass
         # The reader owns this across readline/apply/reply. SHUT_RD wakes an
-        # idle read; an exchange already read keeps its write half until done.
-        with self._exchange_lock:
-            pass
+        # idle read; an exchange already read keeps its write half until done
+        # or until the bound passes.
+        if self._exchange_lock.acquire(timeout=REPLY_TIMEOUT_S):
+            self._exchange_lock.release()
+        else:
+            self._cut_exchange()
         if self._thread is not None:
             self._thread.join(timeout=1)
         if self._server is not None:
@@ -257,6 +277,23 @@ class RelayServer:
         except FileNotFoundError:
             pass
         self._close_pipe()
+
+    def _cut_exchange(self) -> None:
+        """End the exchange `stop` waited for: a stdin write waiting for room gives
+        up and is logged `failed` (ECANCELED), which lets `apply` release the lock
+        `_close_pipe` takes; the connection is shut down both ways, so a reply or
+        a read under way ends and the client reads end of stream, no answer."""
+        conn = self._conn
+        if conn is not None:
+            # Each half on its own: once `stop` has shut the read half, macOS
+            # refuses SHUT_RDWR (ENOTCONN) and leaves the write half open.
+            for how in (socket.SHUT_RD, socket.SHUT_WR):
+                try:
+                    conn.shutdown(how)
+                except OSError:
+                    pass
+        self._cut.set()                     # after the shutdown, so the write's answer reaches no one
+        _log.warning(CUT_LOG_LINE)
 
     def _close_pipe(self) -> None:
         with self._lock:
@@ -391,13 +428,11 @@ class RelayServer:
                 return {"seq": seq, "ok": True}
             data = (line + "\n").encode("utf-8")
             try:
-                view = memoryview(data)
-                while view:
-                    written = os.write(self._pipe, view)
-                    view = view[written:]
+                self._write_line(data)
             except OSError as exc:
                 # The provider may have read part of this frame. Nothing more is
                 # written; the turn's delivery is for reconciliation (C-24.6).
+                # ECANCELED: `stop` cut the write at its bound.
                 self._closed = True
                 record["status"] = "failed"
                 try:
@@ -408,6 +443,24 @@ class RelayServer:
             self._append({"kind": "written", "seq": seq})
             record["status"] = "written"
             return {"seq": seq, "ok": True}
+
+    def _write_line(self, data: bytes) -> None:
+        """Write all of `data` to the child's stdin. On the non-blocking pipe
+        `serve` sets, a full pipe waits for room here, looking every WRITE_POLL_S
+        for `stop`'s cut, which raises ECANCELED; a blocking pipe (the unit
+        tests' `apply` without `serve`) just blocks in the write."""
+        view = memoryview(data)
+        poller = None
+        while view:
+            if self._cut.is_set():
+                raise OSError(errno.ECANCELED, "relay stopped before the line was written")
+            try:
+                view = view[os.write(self._pipe, view):]
+            except BlockingIOError:
+                if poller is None:
+                    poller = select.poll()
+                    poller.register(self._pipe, select.POLLOUT)
+                poller.poll(WRITE_POLL_S * 1000)
 
     def _append(self, record: dict) -> None:
         fd = os.open(self.log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
