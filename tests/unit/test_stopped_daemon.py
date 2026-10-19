@@ -75,7 +75,7 @@ def holder(root, monkeypatch):
             # Restricted runners cannot exec ps. Observe this child's real
             # stop with waitpid below, then supply that observation at the ps
             # boundary. No state of an unrelated process is ever inspected.
-            started = f"child-ready-{child.pid}"
+            started = "Sun Sep 20 23:26:42 2026"
             state = CHILD_STATES[child.pid] = ["S"]
             original = client_module._run
 
@@ -213,12 +213,24 @@ def backlog(root):
         listener.close()
 
 
-def test_a_stop_during_the_call_is_named_and_its_outcome_stays_unknown(stopped_holder, root):
+def running_at_preflight(probe, monkeypatch):
+    """Simulate a stop just after the first preflight's running observation."""
+    report = probe.holder_report
+
+    def first_report():
+        monkeypatch.setattr(probe, "holder_report", report)
+        pid, alive, reason, _ = report()
+        return pid, alive, reason, "S"
+
+    monkeypatch.setattr(probe, "holder_report", first_report)
+
+
+def test_a_stop_during_the_call_is_named_and_its_outcome_stays_unknown(stopped_holder, root, monkeypatch):
     """C-5.13, C-16.3 a daemon stopped after the request was sent is named, not
     reported as silence, but the request is in its buffer, so the answer is lost
     rather than "not sent"; the next call asks the lock before it sends."""
     probe = Client(root, timeout=0.2)
-    probe._checked = True                # the holder was running when it was checked
+    running_at_preflight(probe, monkeypatch)
     with backlog(root) as queued:
         with pytest.raises(ResponseLost) as caught:
             probe.call("daemon.status", {})
@@ -232,12 +244,12 @@ def test_a_stop_during_the_call_is_named_and_its_outcome_stays_unknown(stopped_h
         assert queued() == 1, "the second call wrote into the paused buffer"
 
 
-def test_a_submit_lost_to_a_stop_is_unknown_and_not_re_sent_into_the_buffer(stopped_holder, root):
+def test_a_submit_lost_to_a_stop_is_unknown_and_not_re_sent_into_the_buffer(stopped_holder, root, monkeypatch):
     """C-5.13, C-16.3 the re-send asks the lock first: the stopped holder refuses
     it before it is written, so the outcome is unknown at once, not after the
     re-send's own deadline."""
     probe = Client(root, timeout=0.2)
-    probe._checked = True
+    running_at_preflight(probe, monkeypatch)
     lost: list[ResponseLost] = []
     with backlog(root) as queued:
         with pytest.raises(OutcomeUnknown) as caught:
@@ -250,11 +262,11 @@ def test_a_submit_lost_to_a_stop_is_unknown_and_not_re_sent_into_the_buffer(stop
     assert all("is stopped" in reason for reason in caught.value.reasons)
 
 
-def test_a_kill_lost_to_a_stop_goes_to_offline_mode(stopped_holder, root):
+def test_a_kill_lost_to_a_stop_goes_to_offline_mode(stopped_holder, root, monkeypatch):
     """C-5.13, C-16.3, C-17.5 a daemon gone before the re-send sends a kill to
     offline mode, and a stopped one is gone in exactly that sense."""
     probe = Client(root, timeout=0.2)
-    probe._checked = True
+    running_at_preflight(probe, monkeypatch)
     with backlog(root) as queued:
         with pytest.raises(client_module.DaemonStopped) as caught:
             probe.call_settled("kill", {"job_id": "job-1"})
@@ -270,7 +282,7 @@ def test_a_connect_that_times_out_is_re_diagnosed_too(stopped_holder, root, monk
 
     monkeypatch.setattr(socket.socket, "connect", timed_out)
     probe = Client(root, timeout=0.2)
-    probe._checked = True                # the holder was running when it was checked
+    running_at_preflight(probe, monkeypatch)
     with pytest.raises(client_module.DaemonStopped) as caught:
         probe.call("daemon.status", {})
     assert str(stopped_holder.pid) in str(caught.value)
@@ -308,7 +320,7 @@ def test_a_refused_connect_asks_the_holder_too(running_holder, root, monkeypatch
     stop(running_holder)
     try:
         probe = Client(root, timeout=1)
-        probe._checked = True                           # it was running when it was checked
+        running_at_preflight(probe, monkeypatch)
         with pytest.raises(client_module.DaemonStopped):
             probe.call("daemon.status", {})
     finally:
@@ -499,12 +511,11 @@ def test_fake_stopped_holder_returns_69_before_timeout(root, monkeypatch, capsys
 
 
 def test_real_stopped_holder_returns_69_before_timeout(stopped_holder, root):
-    """C-5.13 real stopped flock holder plus listening backlog is unavailable."""
-    with backlog(root):
-        started = time.monotonic()
+    """C-5.13 refusal needs one process probe, without a socket timeout budget."""
+    with backlog(root) as queued:
         with pytest.raises(DaemonUnavailable) as caught:
             Client(root, timeout=2).call("daemon.status", {})
-        assert time.monotonic() - started < 1.5
+        assert queued() == 0
     assert caught.value.code == Exit.DAEMON_UNAVAILABLE
     assert "is stopped" in str(caught.value)
     assert caught.value.fix == f"kill -CONT {stopped_holder.pid}"
@@ -521,35 +532,122 @@ def test_fake_stopped_doctor_row_fails(root, monkeypatch):
 
 @pytest.mark.parametrize("method", ["call", "call_settled"])
 @pytest.mark.parametrize("op", ["daemon.status", "ping", "submit", "kill", "wait", "list"])
-def test_every_client_call_refuses_a_stopped_holder(root, monkeypatch, method, op):
+def test_every_client_call_refuses_a_stopped_holder(root, monkeypatch, holder_clock, method, op):
     """C-5.13 every client entry point refuses before connecting, repeatedly."""
     (root / "daemon.lock").write_text(json.dumps({"pid": 12345, "proc_start": START}))
     monkeypatch.setattr(client_module, "_run", lambda *a, **k: (0, "Ts+< " + START))
     probe = Client(root, timeout=30)
     with backlog(root) as queued:
         for _ in range(3):
-            started = time.monotonic()
             with pytest.raises(DaemonUnavailable) as caught:
                 getattr(probe, method)(op, {}, request_id="req-stopped")
-            assert time.monotonic() - started < 0.5
             assert "is stopped" in str(caught.value)
         assert queued() == 0
 
 
-from hypothesis import given, settings, strategies as st
+@pytest.fixture
+def holder_clock(monkeypatch):
+    """Advance only the client's probe/retry clock, leaving real socket I/O alone."""
+    from types import SimpleNamespace
+    clock = SimpleNamespace(now=0.0, sleeps=[])
+
+    def sleep(seconds):
+        clock.sleeps.append(seconds)
+        clock.now += seconds
+
+    monkeypatch.setattr(client_module, "_clock", lambda: clock.now)
+    monkeypatch.setattr(client_module, "_sleep", sleep)
+    return clock
+
+
+def test_cached_client_rechecks_before_wait(root, daemon, monkeypatch, holder_clock):
+    """C-5.13 a successful S ping cannot authorize a later send to a T+ holder."""
+    (root / "daemon.lock").write_text(json.dumps({"pid": 12345, "proc_start": START}))
+    state = ["S"]
+    monkeypatch.setattr(client_module, "_run", lambda *a, **k: (0, state[0] + " " + START))
+    server = daemon({"ping": lambda request: {"pong": True}})
+    probe = Client(root, timeout=0.1)
+    assert probe.call("ping") == {"pong": True}
+    server.close()
+    state[0] = "T+"
+    with backlog(root) as queued:
+        with pytest.raises(client_module.DaemonStopped):
+            probe.call("wait", {"job_ids": ["job-1"]})
+        assert queued() == 0, "the cached client sent to the stopped holder"
+
+
+@pytest.mark.parametrize("rc,output", [(0, "S " + START), (2, "T+ " + START)])
+def test_reused_client_probes_are_paced(root, daemon, monkeypatch, holder_clock, rc, output):
+    """C-5.13 wait, watch and settlement never re-probe faster than one second."""
+    (root / "daemon.lock").write_text(json.dumps({"pid": 12345, "proc_start": START}))
+    probes = []
+
+    def observe(*args, **kwargs):
+        probes.append(holder_clock.now)
+        return rc, output
+
+    monkeypatch.setattr(client_module, "_run", observe)
+    server = daemon({op: lambda request: {} for op in ("ping", "wait", "watch", "kill")})
+    probe = Client(root)
+    for op in ("ping", "wait", "watch"):
+        probe.call(op)
+    probe.call_settled("kill")
+    assert server.ops() == ["ping", "wait", "watch", "kill"]
+    assert probes == [0.0, 1.0, 2.0, 3.0]
+
+
+def test_stopped_detection_uses_one_probe_budget(root, monkeypatch, holder_clock):
+    """C-5.13 a slow probe sets the detection cost; there is no 1.5 s promise."""
+    (root / "daemon.lock").write_text(json.dumps({"pid": 12345, "proc_start": START}))
+    probes = []
+
+    def observe(*args, **kwargs):
+        probes.append(holder_clock.now)
+        holder_clock.now += 1.6
+        return 0, "T+ " + START
+
+    monkeypatch.setattr(client_module, "_run", observe)
+    with backlog(root) as queued:
+        with pytest.raises(client_module.DaemonStopped):
+            Client(root, timeout=0.1).call("wait")
+        assert queued() == 0
+    assert probes == [0.0] and holder_clock.now == 1.6
+
+
+from hypothesis import example, given, settings, strategies as st
 
 settings.register_profile("ci", max_examples=40, derandomize=True, database=None, deadline=None)
 
 
 @settings(settings.get_profile("ci"))
 @given(letter=st.sampled_from(["R", "S", "T", "Z", "U", "I"]),
-       flags=st.lists(st.sampled_from(["s", "+", "<"]), unique=True, max_size=3).map("".join))
-def test_ps_state_classification_is_exact(letter, flags):
-    """C-5.13 T plus flags is stopped; Z is gone; other states stay live."""
+       flags=st.lists(st.sampled_from(["s", "+", "<"]), unique=True, max_size=3).map("".join),
+       rc=st.sampled_from([-1, 0, 1, 2]),
+       shape=st.sampled_from(["row", "empty", "blank", "multi", "no-start", "bad-start", "bad-state", "extra"]))
+@example(letter="T", flags="+", rc=1, shape="row")
+@example(letter="T", flags="+", rc=2, shape="row")
+@example(letter="T", flags="+", rc=0, shape="multi")
+@example(letter="T", flags="+", rc=0, shape="row")
+@example(letter="Z", flags="s<", rc=0, shape="row")
+@example(letter="S", flags="+", rc=0, shape="row")
+@example(letter="R", flags="", rc=1, shape="empty")
+def test_ps_state_classification_is_exact(letter, flags, rc, shape):
+    """C-5.3, C-5.13 only successful, single, well-formed rows verify identity."""
     from unittest.mock import patch
     state = letter + flags
-    with patch.object(client_module, "_run", return_value=(0, state + " " + START)):
-        assert client_module.proc_start(12345) == ("" if letter == "Z" else START)
-        assert client_module.is_stopped(client_module.proc_status(12345)[0]) == (letter == "T")
+    row = state + " " + START
+    output = {"row": "  " + row + "\n", "empty": "", "blank": " \n\t",
+              "multi": row + "\n" + row, "no-start": state,
+              "bad-start": state + " not-a-start", "bad-state": "? " + START,
+              "extra": row + " extra"}[shape]
+    valid = rc == 0 and shape == "row"
+    gone = rc == 1 and shape in ("empty", "blank")
+    expected_state = state if valid else "" if gone else None
+    expected_start = START if valid else "" if gone else None
+    with patch.object(client_module, "_run", return_value=(rc, output)):
+        assert client_module.proc_status(12345) == (expected_state, expected_start)
+        assert client_module.proc_start(12345) == ("" if valid and letter == "Z" else expected_start)
+        assert client_module.is_stopped(expected_state) == (valid and letter == "T")
         alive, _, reported = client_module.identity_status(12345, None, START)
-        assert alive == (letter != "Z") and reported == state
+        expected_alive = letter != "Z" if valid else False if gone else None
+        assert alive is expected_alive and reported == expected_state

@@ -1935,6 +1935,18 @@ def test_ping_pipe_with_eof_and_memory_stream(daemon, monkeypatch):
     assert server.args("ping")["text"] == "memory message"
 
 
+def test_ping_closed_python_stdin_is_refused(monkeypatch, capsys):
+    """C-17.8 a closed stream's isatty failure is a readable exit-2 refusal."""
+    stream = io.StringIO("closed message")
+    stream.close()
+    monkeypatch.setattr(cli.sys, "stdin", stream)
+    monkeypatch.setattr(cli, "_client", lambda args: pytest.fail("unreadable stdin must not send"))
+    assert run_cli(["ping"]) == int(Exit.INVALID_INPUT)
+    error = capsys.readouterr().err
+    assert "ping: cannot read the message" in error
+    assert "stdin could not be read" in error and "closed" in error
+
+
 @pytest.mark.parametrize("value", ["inf", "-inf", "nan", "1e9", "-1", "soon"])
 def test_unusable_stdin_wait_falls_back_to_default(monkeypatch, value):
     """C-17.8 a malformed or unbounded wait never reaches select."""
