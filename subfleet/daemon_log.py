@@ -55,13 +55,13 @@ import warnings
 from typing import Any, Callable
 
 from . import refusals
-from .sessions.handoff import REDACTED, cut_whole, scrub_secrets
+from .sessions.handoff import REDACTED, cut_marker, cut_whole, scrub_secrets
 
 #: What a record that cannot be scrubbed is written as (C-25.7).
 SCRUB_FAILED = "[scrub failed]"
 #: The most of one record's text (its line, traceback and stack together) the
-#: handler scrubs (C-25.7): a median under 40 ms, at most 54 ms, on the worst
-#: shapes measured, three 4 MiB parts. Longer text is cut first (`handoff.cut_whole`).
+#: handler scrubs (C-25.7). Longer text is cut first (`handoff.cut_whole`), whose
+#: work is bounded whatever the text's length.
 RECORD_SCRUB_MAX = 16_384
 #: What logging's report of a record it could not write becomes.
 WRITE_FAILED = "[log write failed]"
@@ -77,22 +77,31 @@ def _named(value: Any) -> str:
 #: The line Python's traceback module writes before each member of an exception
 #: group (`+-+---------------- 1 ----------------`, `  +---…---- 2 ----…`).
 _GROUP_SEPARATOR = re.compile(r"(?m)^ *(?:\+-)?\+-{16} (?:\d+|\.\.\.) -{16}$")
+#: What every such separator holds, which one C scan finds in an uncut part.
+_GROUP_MARK = "+" + "-" * 16
 #: The margin it writes before each line of a group and of its members: two spaces
 #: a level, then `|` (or `+`, a group's first line) and a space
 #: (`traceback._ExceptionPrintContext.emit`).
 _GROUP_MARGIN = re.compile(r"(?:  )+[|+](?: |$)")
+#: A line that starts with that margin.
+_GROUP_MARGIN_LINE = re.compile(r"(?m)^(?:  )+[|+](?: |$)")
 #: A whitespace-free run, as a value is.
 _RUN = re.compile(r"\S+")
 
 
-def scrubbed_block(text: str) -> str:
+def scrubbed_block(text: str, *, group: bool = False) -> str:
     """`text` for daemon.log in the block form: its lines kept, scrubbed whole
     (C-23.14). When folding it to one line would let the scrubber find more, the
     folded, rescrubbed text is written instead, so that folded, the block is
     always the line form's text before the cut. An exception group's traceback
-    hides at least what its members' plain tracebacks hide (`_group_block`)."""
+    hides at least what its members' plain tracebacks hide (`_group_block`): a
+    text is read as one when `group` says so (the handler decides on the uncut
+    record, whose cut may keep no separator: review r2 of #233), when it holds a
+    group's separator, or when any of its lines starts with a group's margin."""
     block = _plain_block(text)
-    return _group_block(text, block) if _GROUP_SEPARATOR.search(text) else block
+    if group or _GROUP_SEPARATOR.search(text) or _GROUP_MARGIN_LINE.search(text):
+        return _group_block(text, block)
+    return block
 
 
 def _plain_block(text: str) -> str:
@@ -178,10 +187,24 @@ class ScrubbingFormatter(logging.Formatter):
         view.message = view.getMessage()
         if self.usesTime():
             view.asctime = self.formatTime(view, self.datefmt)
-        line, *blocks = _within([self.formatMessage(view), *self._blocks(record)], RECORD_SCRUB_MAX)
-        text = scrubbed_block(line) if len(line.splitlines()) > 1 else refusals.scrubbed_line(line)
-        for block in blocks:
-            text += "\n" + scrubbed_block(block)
+        parts = [self.formatMessage(view), *self._blocks(record)]
+        # Whether a part is an exception group's is read before the cut, which may keep
+        # none of its separators (review r2 of #233). Any part holding a separator's
+        # mark is read as one: one C scan, and reading a text as a group hides more,
+        # never less.
+        groups = [_GROUP_MARK in part for part in parts]
+        (line, *blocks), message = _within(parts, RECORD_SCRUB_MAX), parts[0]
+        if line != message and line == cut_marker(len(message)) + "\n":
+            # Nothing of the line is kept: the marker names the record's level and
+            # logger, fixed metadata, never its words.
+            text = refusals.scrubbed_line(f"{cut_marker(len(message))} ({_named(record.levelname)} record "
+                                          f"from {_named(record.name)})")
+        elif len(line.splitlines()) > 1:
+            text = scrubbed_block(line, group=groups[0])
+        else:
+            text = refusals.scrubbed_line(line)
+        for block, group in zip(blocks, groups[1:]):
+            text += "\n" + scrubbed_block(block, group=group)
         return text
 
     def _blocks(self, record: logging.LogRecord):
