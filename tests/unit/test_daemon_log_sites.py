@@ -508,12 +508,12 @@ def test_a_process_that_raises_a_group_over_the_bound_writes_it_scrubbed(tmp_pat
 # --- the call sites themselves ------------------------------------------------------
 
 LOG_METHODS = frozenset({"debug", "info", "warning", "error", "exception", "critical", "log"})
-#: What may carry a caught exception into a log call: the scrubbers, its class, its
-#: errno or exit status.
+#: What may carry a caught exception into a log call: the scrubbers (`detail_line`
+#: scrubs whole), its class, its errno or exit status, or a test of its class.
 SCRUBBERS = frozenset({"refusals.scrubbed_words", "refusals.scrubbed_line", "refusals.fixed_error",
                        "refusals.detail_line", "detail_line",
                        "refusals.class_name", "refusals.errno_text", "scrubbed_words", "suggestions.scrub_error",
-                       "suggestions.scrubbed_line", "type"})
+                       "suggestions.scrubbed_line", "type", "isinstance"})
 NUMBERS = frozenset({"errno", "returncode"})
 
 
