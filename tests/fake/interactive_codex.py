@@ -1,7 +1,10 @@
 """A fake `codex app-server` for the guard preflight and conversation turns (C-14.2, C-26, C-27 tests).
 
 `tests/bin/codex app-server …` hands over to `main` here. It answers the
-guard preflight's `hooks/list` exactly as the previous fixture did, and speaks
+guard preflight's `hooks/list` with every hook the `-c hooks=` override's
+`state` trusts, each enabled and trusted with its own hash: the never-rules
+guard, and on a review launch the publish hook beside it (C-12.3, C-14.2),
+as Codex 0.159.0 lists a second trusted group. It speaks
 enough of the stable 0.153.3 JSON-RPC surface for a turn: `initialize`,
 `model/list`, `thread/start`, `thread/resume`, `turn/start`,
 `turn/steer`, `turn/interrupt`, one command approval, and the notifications the Codex turn
@@ -67,7 +70,7 @@ class Server:
         self.argv = argv
         override = next(arg for arg in argv if arg.startswith("hooks="))
         hooks = tomllib.loads(override)["hooks"]
-        self.hook_key, self.hook_state = next(iter(hooks["state"].items()))
+        self.hook_states = list(hooks["state"].items())
         self.home = Path(os.environ.get("CODEX_HOME") or ".")
         self.inbox: "queue.Queue[dict | None]" = queue.Queue()
         self.interrupts: "queue.Queue[dict]" = queue.Queue()
@@ -152,9 +155,9 @@ class Server:
     def on_hooks_list(self, rid, params):
         self.send({"id": rid, "result": {"data": [{
             "cwd": params["cwds"][0], "errors": [], "hooks": [{
-                "key": self.hook_key, "enabled": self.hook_state["enabled"],
-                "trustStatus": "trusted", "currentHash": self.hook_state["trusted_hash"],
-            }],
+                "key": key, "enabled": state["enabled"],
+                "trustStatus": "trusted", "currentHash": state["trusted_hash"],
+            } for key, state in self.hook_states],
         }]}})
 
     def on_model_list(self, rid, params):
