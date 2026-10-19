@@ -3903,7 +3903,9 @@ class Daemon:
         Historical kill intents without a signal clock cannot prove ordering.
         A second-precision receipt cannot resolve an exit in the signal's second.
         """
-        if receipt.get("rc") is None or receipt.get("signal") or receipt.get("killed_by"):
+        # The receipt's signal may be the provider's own earlier failure.
+        # Daemon signal evidence decides ordering; synthetic kill receipts do not.
+        if receipt.get("rc") is None or receipt.get("killed_by"):
             return False
         for event in self.store.query("SELECT event_id,data_json FROM events WHERE attempt_id=? "
                                       "AND kind='attempt.kill_started'", (a["attempt_id"],)):
