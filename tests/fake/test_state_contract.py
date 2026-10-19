@@ -526,7 +526,7 @@ def test_c5_6_state_kill_escalation_signals_only_owned_survivors(state_daemon, m
     monkeypatch.setattr(daemon_module.procs, "signal_group",
                         lambda pgid, sig, **identity: signals.append(("group", pgid, sig)))
     monkeypatch.setattr(daemon_module.procs, "signal_process",
-                        lambda identity, sig: signals.append(("process", identity.pid, sig)))
+                        lambda identity, sig, **kwargs: signals.append(("process", identity.pid, sig)))
     daemon.term_grace_s = 0
     daemon.dispatch("kill", {"job_id": job_id})
     daemon._kill_attempt(attempt)
