@@ -60,8 +60,8 @@ from .sessions.handoff import REDACTED, cut_whole, scrub_secrets
 #: What a record that cannot be scrubbed is written as (C-25.7).
 SCRUB_FAILED = "[scrub failed]"
 #: The most of one record's text (its line, traceback and stack together) the
-#: handler scrubs (C-25.7): under 40 ms on the worst shapes measured, three
-#: 4 MiB parts. Longer text is cut first (`handoff.cut_whole`).
+#: handler scrubs (C-25.7): a median under 40 ms, at most 54 ms, on the worst
+#: shapes measured, three 4 MiB parts. Longer text is cut first (`handoff.cut_whole`).
 RECORD_SCRUB_MAX = 16_384
 #: What logging's report of a record it could not write becomes.
 WRITE_FAILED = "[log write failed]"
