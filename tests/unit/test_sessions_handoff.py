@@ -735,17 +735,20 @@ def _scrubber_probe(script: str) -> dict:
 def test_scrubber_work_scales_linearly_for_long_ordinary_identifiers(identifier):
     """C-23.14 / C-25.5: four times the input must not take quadratic CPU."""
     measured = _scrubber_probe(f"identifier = {identifier!r}\n" + '''
-import json, time
-samples = {}
-for size in (1024, 4096):
-    text = identifier * (size // 2)
-    start = time.thread_time()
-    for _ in range(8):
+import json
+from tests.cpu_scaling import best_cpu_samples
+
+def make_call(size):
+    text = identifier * (size // len(identifier))
+    def call():
         assert scrub_secrets(text) == (text, 0)
-    samples[size] = (time.thread_time() - start) / 8
-print(json.dumps(samples))
+    return call
+
+print(json.dumps(best_cpu_samples(make_call, (65536, 262144))))
 ''')
-    assert measured["4096"] < max(measured["1024"], 0.0001) * 8, measured
+    # Both sizes are inside MAX_SCRUB_CHARS: four times the text is really
+    # scrubbed. Equal CPU-sized batches and minima retain 4x versus 16x growth.
+    assert measured["ratio"] < 8, measured
 
 
 def test_scrubber_keeps_other_python_threads_responsive():
