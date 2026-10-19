@@ -782,8 +782,15 @@ def test_the_journal_keeps_its_order_whatever_stop_does(ops, stop_seq, record):
                     while not gate.reached.is_set() and applier.is_alive():
                         assert time.monotonic() < until, "the applier neither finished nor reached the stall"
                         time.sleep(0.005)
-                relay.stop()                    # no exchange or relay thread here: its cleanup closes the pipe
+                # No exchange or relay thread here: stop's cleanup closes the pipe. A stop
+                # still blocked at its bound is released, so a failing run ends.
+                stopped = threading.Event()
+                stopper = threading.Thread(target=lambda: (relay.stop(), stopped.set()), daemon=True)
+                stopper.start()
+                in_bound = stopped.wait(_stop_bound() + STOP_MARGIN_S)
                 gate.release()
+                stopper.join(10)
+                assert in_bound, "a held journal fsync held stop past its bound"
                 applier.join(10)
                 assert not applier.is_alive()
                 cleanup = getattr(relay, "_cleanup_thread", None)
