@@ -1370,3 +1370,38 @@ and nothing was pushed.
 | `df55aefaa` | Add the failing slow-connection receipt-wins regression |
 | `6b7da7f88` | Timestamp transmission after connection setup, before the socket write |
 | `c3754eba0` | Record the audit boundary in dictionary-backed legacy-hold fixtures |
+
+## Round 9 — explicit stop capability on every conversation frame
+
+The r5 review found that both providers' `cancel-turn` approval replies set
+`interrupt_requested`, suppressing the queued wall interrupt, but their
+`approval:<id>` tags bypassed the delivery audit. A completed turn two seconds
+later could consequently settle as success. The round-8 assertions and separate
+kill bookkeeping remain required.
+
+The local `release/217` ref is `b053e3de8`, already an ancestor of the assigned
+`fe8bda1ff` head (and unchanged from `d72597b5c` by the abbreviated commit
+comparison in the brief). No new merge or conflict resolution is necessary;
+all existing contract clauses and both histories' change-log entries are kept.
+Commits use workspace-local `.git-local` metadata on
+`fix/wall-counts-running-time-217`, because the shared Git metadata is read-only.
+The caller's checkout and the workspace's original `.git` pointer are untouched.
+
+### Test-first evidence
+
+The first foreground locked hold ran all 12 new approval delivery cases against
+the unchanged production head: **12 failed, 13 deselected**. The failures prove
+missing durable intents, missing classification, and missing approval delivery
+clocks. The provider wire formats are built by the real drivers. The cancel
+regressions settle in the publication-to-close window, so a subsequent stdin
+close cannot mask an unaudited approval. Separate cases cover escalation through
+SIGINT, close and containment after allow or cancel, exit during connection
+before cancel transmission, and lost acknowledgements before/after delivery.
+
+The existing bounded delivery-interleaving property now includes both providers'
+approval replies for every supported decision. Protocol guards check the reply's
+flag against its actual `interrupt`, `cancel` or `abort` payload, including
+Codex legacy approvals and non-stopping MCP elicitation cancellation. An AST
+guard requires every production `Frame(...)` site to declare its capability.
+
+Implementation, frame sweep and final validation are recorded below when complete.

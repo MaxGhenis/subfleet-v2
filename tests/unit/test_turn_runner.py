@@ -6,6 +6,7 @@ sent (the relay is never reached), so these check only what each step queues.
 
 from __future__ import annotations
 
+import ast
 import pytest
 
 from subfleet.conversations.runner import Clocks, TurnRunner
@@ -14,6 +15,18 @@ from subfleet.conversations.turn import TurnSpec
 
 MID = "7f1c9a0e-1111-4222-8333-444455556666"
 SID = "0b0e0f00-aaaa-4bbb-8ccc-dddddddddddd"
+
+
+def test_every_production_frame_explicitly_declares_stop_capability():
+    """C-9.2: every new construction must be classified during protocol review."""
+    directory = Path(__file__).resolve().parents[2] / "subfleet" / "conversations"
+    missing = []
+    for path in sorted(directory.glob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "Frame":
+                if not any(keyword.arg == "stops" for keyword in node.keywords):
+                    missing.append(f"{path.name}:{node.lineno}")
+    assert missing == [], f"Frame constructions without an explicit stops flag: {missing}"
 
 
 class Clock:

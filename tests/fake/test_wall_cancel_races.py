@@ -169,7 +169,9 @@ def test_final_wall_cascade_keeps_wall_and_parent_attribution(clocked, monkeypat
 @given(exit_stage=st.sampled_from(["before-cap", "inspection", "pending", "last-read", "after-signal"]),
        client_stage=st.sampled_from([None, "before-cap", "pending", "after-signal"]), rc=st.sampled_from([0, 1]),
        receipt_write=st.sampled_from(["immediate", "settle"]),
-       relay_stop=st.sampled_from([None, "interrupt", "signal", "close"]))
+       relay_stop=st.sampled_from([None, "interrupt", "signal", "close",
+                                  *(("claude", d) for d in ("allow", "answer", "deny", "cancel-turn")),
+                                  *(("codex", d) for d in ("allow", "allow-session", "allow-turn", "deny", "cancel-turn"))]))
 def test_wall_interleaving_property(clocked, monkeypatch, exit_stage, client_stage, rc, receipt_write, relay_stop):
     with monkeypatch.context() as patch:
         service, harness, clock, jid, aid, adir = setup_running(clocked, patch)
@@ -237,23 +239,32 @@ def test_wall_interleaving_property(clocked, monkeypatch, exit_stage, client_sta
                 # signal. Use the real relay, with no child process or socket.
                 import os
                 from types import SimpleNamespace
-                from subfleet.conversations.turn import Frame
+                from subfleet.conversations.turn import Frame, TurnSpec
                 from subfleet.relay import RelayServer, frame_sha256
-                frame = (Frame("interrupt", "write", '{"method":"turn/interrupt"}') if relay_stop == "interrupt"
-                         else Frame("signal:int", "signal", "INT") if relay_stop == "signal"
-                         else Frame("close", "close"))
+                from tests.fake.test_wall_stop_deliveries import approval_reply
+                if isinstance(relay_stop, tuple):
+                    provider, decision = relay_stop
+                    spec = TurnSpec(provider=provider, message_id="property", text="hi", model_id="gpt-6-astra",
+                                    permission="ask", native_session_id=None)
+                    frame = approval_reply(SimpleNamespace(spec=spec), provider, decision)
+                else:
+                    frame = (Frame("interrupt", "write", '{"method":"turn/interrupt"}', stops=True) if relay_stop == "interrupt"
+                             else Frame("signal:int", "signal", "INT", stops=True) if relay_stop == "signal"
+                             else Frame("close", "close", stops=True))
                 relay = RelayServer(adir / "property.sock", adir / "stdin.jsonl")
                 reader, relay._pipe = os.pipe()
                 relay._child = SimpleNamespace(poll=lambda: None, send_signal=lambda sig: None)
                 try:
-                    audit = service._start_stop_delivery(a, frame, 1)
-                    signal_times.append(clock.t)
-                    audit.before_send()
+                    audit = service._start_stop_delivery(a, frame, 1) if frame.stops else None
+                    if audit is not None:
+                        signal_times.append(clock.t)
+                        audit.before_send()
                     line, sig = (frame.line, None) if frame.op == "write" else (None, frame.line)
                     ack = relay.apply({"seq": 1, "op": frame.op, "tag": frame.tag, "line": line, "sig": sig,
                                        "sha256": frame_sha256(frame.op, line, sig)})
                     assert ack["ok"]
-                    audit.record(True)
+                    if audit is not None:
+                        audit.record(True)
                     clock.t += timedelta(milliseconds=2)
                 finally:
                     relay._close_pipe()

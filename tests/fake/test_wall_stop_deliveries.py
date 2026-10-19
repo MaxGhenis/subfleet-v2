@@ -3,6 +3,7 @@
 Real relay application, synthetic child, no process signals or runner threads.
 """
 from datetime import timedelta
+from dataclasses import replace
 import json
 import os
 import signal
@@ -12,6 +13,8 @@ import pytest
 from hypothesis import HealthCheck, Phase, given, settings, strategies as st
 
 from subfleet import daemon as dm
+from subfleet.conversations.claude_turn import ClaudeTurn
+from subfleet.conversations.codex_turn import CodexTurn
 from subfleet.conversations.runner import Clocks, TurnRunner
 from subfleet.conversations.turn import Frame, TurnSpec
 from subfleet.relay import Ack, RelayClient, RelayError, RelayServer, frame_sha256
@@ -82,6 +85,135 @@ def stop_events(service, aid):
 def transmit(runner, frame):
     runner.outbox.append(frame)
     assert runner._transmit(frame)
+
+
+def approval_reply(runner, provider, decision):
+    """Build the provider's actual reply, with an active turn and no queued steers."""
+    runner.spec = replace(runner.spec, provider=provider)
+    if provider == "claude":
+        runner.driver = ClaudeTurn(runner.spec, read_bytes=lambda image: b"")
+        runner.driver.phase = "sent"
+        runner.driver.pending["wall-approval"] = {"tool_name": "Bash", "tool_use_id": "tool-1"}
+        step = runner.driver.respond("wall-approval", decision, answers={"Branch?": "dev"})
+    else:
+        runner.driver = CodexTurn(runner.spec)
+        runner.driver.thread_id, runner.driver.turn_id, runner.driver.phase = "thread-1", "turn-1", "running"
+        method = "item/permissions/requestApproval" if decision == "allow-turn" else "item/commandExecution/requestApproval"
+        runner.driver.pending["wall-approval"] = (method, {"permissions": {"network": {"enabled": True}}})
+        step = runner.driver.respond("wall-approval", decision)
+    [frame] = step.frames
+    return frame
+
+
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_approval_cancel_turn_after_wall_keeps_wall_cancel(stopped_turn, monkeypatch, provider):
+    service, clock, jid, aid, adir, runner, _, reader, delivered, _ = stopped_turn
+    frame = approval_reply(runner, provider, "cancel-turn")
+    send = runner.relay.send
+    def inspected(*args, **kwargs):
+        [event] = stop_events(service, aid)
+        assert event["signal_pending"] is True and event["tag"] == frame.tag
+        return send(*args, **kwargs)
+    monkeypatch.setattr(runner.relay, "send", inspected)
+    transmit(runner, frame)
+    payload = json.loads(os.read(reader, 4096))
+    if provider == "claude":
+        assert payload["response"]["response"]["interrupt"] is True
+    else:
+        assert payload["result"]["decision"] == "cancel"
+    assert runner.driver.interrupt().frames == []
+    assert delivered == []
+    clock.t += timedelta(seconds=2)
+    completion = ({"type": "result", "subtype": "success", "is_error": False, "result": "verified turn result"}
+                  if provider == "claude" else
+                  {"method": "turn/completed", "params": {"threadId": "thread-1",
+                   "turn": {"id": "turn-1", "status": "completed"}}})
+    runner.driver.feed(json.dumps(completion), 100)
+    assert runner.driver.outcome.state == "complete"
+    # Settle in the real publication-to-close window, before another stop can mask this one.
+    runner.final_text = "verified turn result"
+    runner._write_outcome()
+    publish(adir, clock.t.isoformat())
+    service._process_attempt(aid)
+    service._process_attempt(aid)
+    assert_cancelled(service.store.get_job(jid), service.store.get_attempt(aid))
+
+
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+@pytest.mark.parametrize("decision", ["allow", "cancel-turn"])
+def test_approval_after_wall_preserves_escalation(stopped_turn, monkeypatch, provider, decision):
+    service, clock, _, aid, _, runner, _, reader, delivered, elapsed = stopped_turn
+    frame = approval_reply(runner, provider, decision)
+    assert frame.stops is (decision == "cancel-turn")
+    transmit(runner, frame)
+    os.read(reader, 4096)
+    assert len(stop_events(service, aid)) == (decision == "cancel-turn")
+    # Drain the queued wall interrupt: it is redundant only for cancel-turn.
+    runner._stop_on_catch_up = False
+    monkeypatch.setattr(runner, "_send_outbox", lambda: None)
+    runner._drain_commands()
+    assert runner.stop_at == elapsed[0]
+    if decision == "cancel-turn":
+        assert runner.outbox == []
+    else:
+        [interrupt] = runner.outbox
+        assert interrupt.stops is True
+        assert runner._transmit(interrupt)
+        os.read(reader, 4096)
+    contained = []
+    runner.on_contain = contained.append
+    for seconds in (runner.clocks.sigint_after_s, runner.clocks.close_after_s, runner.clocks.contain_after_s):
+        elapsed[0] = runner.stop_at + seconds + .1
+        clock.t += timedelta(seconds=seconds + .1)
+        runner._timers()
+        for queued in list(runner.outbox):
+            assert queued.stops is True
+            assert runner._transmit(queued)
+    assert [sig for sig, _ in delivered] == [signal.SIGINT]
+    assert [e["op"] for e in stop_events(service, aid)][-2:] == ["signal", "close"]
+    assert contained == [aid]
+
+
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_exit_before_approval_cancel_transmission_keeps_receipt_wins(stopped_turn, monkeypatch, provider):
+    service, clock, jid, aid, adir, runner, server, _, _, _ = stopped_turn
+    frame = approval_reply(runner, provider, "cancel-turn")
+    exited = clock.t + timedelta(seconds=1)
+    replies = []
+    def sendall(payload):
+        answer = server.apply(json.loads(payload))
+        replies.append((json.dumps(answer) + "\n").encode())
+    def connect():
+        clock.t += timedelta(seconds=2)
+        runner.relay._sock = SimpleNamespace(sendall=sendall, close=lambda: None)
+        runner.relay._reader = SimpleNamespace(readline=lambda cap: replies.pop(), close=lambda: None)
+    monkeypatch.setattr(runner.relay, "_connect", connect)
+    monkeypatch.setattr(runner.relay, "send", RelayClient.send.__get__(runner.relay))
+    transmit(runner, frame)
+    [event] = stop_events(service, aid)
+    assert event["signal_sent"] is True
+    assert event["signal_at"] == clock.t.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    job, attempt = finish(service, clock, jid, aid, adir, exited=exited)
+    assert (job["state"], job["rc"], attempt["outcome_class"], attempt["killed_by"]) == ("succeeded", 0, "ok", None)
+
+
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+@pytest.mark.parametrize("transmitted", [False, True])
+def test_approval_cancel_lost_ack_is_conservative(stopped_turn, monkeypatch, provider, transmitted):
+    service, clock, jid, aid, adir, runner, *_ = stopped_turn
+    frame = approval_reply(runner, provider, "cancel-turn")
+    send = runner.relay.send
+    def lost(*args, **kwargs):
+        if transmitted:
+            send(*args, **kwargs)
+        raise RelayError("approval reply lost")
+    monkeypatch.setattr(runner.relay, "send", lost)
+    runner.outbox.append(frame)
+    assert not runner._transmit(frame)
+    [event] = stop_events(service, aid)
+    assert event["signal_pending"] is True
+    clock.t += timedelta(seconds=2)
+    assert_cancelled(*finish(service, clock, jid, aid, adir))
 
 
 def test_relay_sigint_must_not_be_superseded_as_no_signal(stopped_turn):
