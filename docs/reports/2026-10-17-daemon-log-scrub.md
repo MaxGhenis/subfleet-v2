@@ -646,8 +646,9 @@ All runs used a fresh `.venv` (`uv sync --locked --group dev`, Python 3.14.7 wit
 | m1 to m5 | the mutations above | each failed as listed |
 | 3.12 | brief group 1 on Python 3.12.14, a scratch venv made offline from uv's cache | 622 passed, 38 s |
 | collect | the whole suite, `--collect-only` | 15,170 collected in 484 files, no errors |
+| final | brief groups 1 and 3 again, at `6d56b55f2`, after `import bisect` moved to the module's imports | 892 passed, 120 s |
 
-**Code after the runs.** Hold 1 ran at `ff91e8ece`, the last code commit. Holds 2 to 5 ran at `e5d59955d`; only tests changed after it, and only in `test_daemon_log_handler.py`. Two earlier group-1 holds failed:
+**Code after the runs.** Hold 1 ran at `ff91e8ece`. Holds 2 to 5 ran at `e5d59955d`; after it, only `test_daemon_log_handler.py` changed, and then `6d56b55f2` moved `import bisect` to the top of `handoff.py`, after which groups 1 and 3 passed again. Two earlier group-1 holds failed:
 
 - **First (8 failed):** round 2's spies, the collector's six C calls, and the generator's margin leaks. These are fixed in `ad2bfdb46` and `1e7a985a3`.
 - **Second (1 failed):** the lint's `isinstance` case, fixed in `618161bb2`.
@@ -674,6 +675,7 @@ All runs used a fresh `.venv` (`uv sync --locked --group dev`, Python 3.14.7 wit
 - `e5d59955d` docs: C-25.7 states the round-3 cut, the group decision, the marker line, the stop snapshot and the wake position
 - `1eccdc799` test: a cost shape that keeps the tail loop refusing under the kind cap
 - `ff91e8ece` test: the generator's seeds split SUBFLEET_CUT_FUZZ exactly
-- this report's round 3
+- `b103bf06f`, `b89c5b920` docs: this report's round 3
+- `6d56b55f2` style: handoff imports bisect with its other modules
 
 Nothing is pushed.
