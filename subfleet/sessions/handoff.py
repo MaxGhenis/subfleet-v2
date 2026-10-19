@@ -599,6 +599,8 @@ _DATA_BODY_RE = re.compile(r"[A-Za-z0-9+/=\s]+")
 #: `_escaped_quote_ends`, one after a run of one or more with the next after a run
 #: of the same length.
 _QUOTE_RUN_RE = re.compile(r"(\\*)([\"'])")
+#: Either reminder tag (`_REMINDER_START_RE`, `_REMINDER_END_RE`), in one scan.
+_REMINDER_TAG_RE = re.compile(r"</?system-reminder>", re.IGNORECASE)
 #: A text whose first word is a header's name, as `_HEADER_RE` reads one.
 _LEADING_HEADER_RE = re.compile(r"(?i)\s*(?:authorization|cookie|set-cookie)\s*:")
 
@@ -633,7 +635,7 @@ def cut_whole(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     head, tail = 0, len(text)
-    if not (_REMINDER_START_RE.search(text) or _REMINDER_END_RE.search(text)):
+    if not _REMINDER_TAG_RE.search(text):
         head = _whole_head_cut(text, limit // 2)
         tail = max(head, _whole_tail_cut(text, len(text) - limit // 2))
     if _LEADING_HEADER_RE.match(text) and not text[:head].strip():
@@ -743,8 +745,9 @@ def _whole_head_cut(text: str, end: int) -> int:
     return 0
 
 
-#: A run that ends a data URI's body, then the body's run to the end of the text.
+#: A character no data URI's body holds, then such a body's run to the end of the text.
 _BODY_START_RE = re.compile(r"[^A-Za-z0-9+/=\s][A-Za-z0-9+/=\s]*\Z")
+_BODY_LOOK_BACK = 2048
 
 
 def _whole_tail_cut(text: str, start: int) -> int:
@@ -759,13 +762,13 @@ def _whole_tail_cut(text: str, start: int) -> int:
         stop = text.find("\n", ends[-1])
         starts = [at for at in starts if 0 <= stop < at]
     # A data URI's body: the run after its prefix. The run at `first` began before
-    # it; where, is looked for up to `EXCERPT_CHARS` back, past which it counts as one.
+    # it; where, is looked for up to `_BODY_LOOK_BACK` back, past which it counts as one.
     bodies = []
     for run in _DATA_BODY_RE.finditer(text, first):
         begin = run.start()
         if begin == first:
-            edge = _BODY_START_RE.search(text, max(0, first - EXCERPT_CHARS), first)
-            begin = edge.start() + 1 if edge else (0 if first <= EXCERPT_CHARS else -1)
+            edge = _BODY_START_RE.search(text, max(0, first - _BODY_LOOK_BACK), first)
+            begin = edge.start() + 1 if edge else (0 if first <= _BODY_LOOK_BACK else -1)
         if begin < 0 or text[max(0, begin - 8):begin].lower() == ";base64,":
             bodies.append((run.start(), run.end()))
     # A quoted value may run into the tail across a line start when a quote of a
