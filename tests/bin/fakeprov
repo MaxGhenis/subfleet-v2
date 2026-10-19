@@ -78,11 +78,37 @@ time.sleep({ESCAPE_S})
 PERL_ESCAPER = ('$0 = "renamed-escaper"; my $marker = $ENV{SUBFLEET_FAKE_MARKER};'
                 'open(my $out, ">", "$marker.tmp") or die; print $out $$; close($out);'
                 f'rename("$marker.tmp", $marker) or die; sleep {ESCAPE_S};')
-ESCAPERS = {"retitled-node": "node", "retitled-nul": "nul", "perl-escape": "perl"}
+ESCAPERS = {"retitled-node": "node", "retitled-nul": "nul", "perl-escape": "perl",
+            "lockf-escape": "lockf"}
+#: D-KILL2 (incidents 2026-10-16 and 2026-10-18): a provider's command ran
+#: `/usr/bin/lockf -k <suite lock> ...` as the leader of a session of its own,
+#: and the lockf outlived the cancelled attempt waiting for its lock, ppid 1
+#: once the provider was gone. lockf is an Apple platform binary signed with
+#: the hardened runtime, and on macOS 26 the argument buffer of such a process
+#: holds its argv and no environment (observed 2026-10-18), so the markers it
+#: inherits show neither in `ps -E` nor in the raw buffer. This escaper is
+#: that lockf, markers inherited unchanged. Its lock is `<marker>.lock`, which
+#: the test holds (never the suite lock), and it waits at most LOCKF_WAIT_S.
+LOCKF_WAIT_S = 120
+
+
+def lockf_escaper() -> int:
+    """Publish this pid, then become lockf in place: the session leader that the
+    provider's Popen made, as the incident's lockf led its own session."""
+    marker = os.environ["SUBFLEET_FAKE_MARKER"]
+    with open(marker + ".tmp", "w") as stream:
+        stream.write(str(os.getpid()))
+    os.rename(marker + ".tmp", marker)
+    os.execv("/usr/bin/lockf", ["/usr/bin/lockf", "-k", "-t", str(LOCKF_WAIT_S), marker + ".lock",
+                                "/bin/sleep", str(ESCAPE_S)])
+    return 1
 
 
 def escaper(kind: str) -> int:
-    """The escaper's parent: started in a new session, it forks and exits."""
+    """The escaper's parent: started in a new session, it forks and exits.
+    `lockf` is the exception: it stays the session's leader (`lockf_escaper`)."""
+    if kind == "lockf":
+        return lockf_escaper()
     if os.fork():
         return 0
     if kind == "node":
