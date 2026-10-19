@@ -22,8 +22,9 @@ from .certificate import certificate, load_state, private_dir, write_bytes, writ
 from .errors import GateError
 from .revision import (assert_expected, assert_optional_expected, expected_revision,
                        fingerprint, plan, revision)
-from .round import prepare
-from .verdict import parse_verdict, validate_attestation
+from .round import REASK, prepare, prepare_reask
+from .verdict import (VerdictFormatError, clip, decode_output, parse_verdict,
+                      rejected_output_evidence, validate_attestation)
 
 _INIT_LOCK = threading.Lock()
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -176,10 +177,17 @@ class GateService:
             code = {"completed": 0, "changes_requested": 3, "blocked": 4,
                     "action_failed": 5, "action_queued": 5}.get(state["status"])
         last = (state.get("rounds") or [{}])[-1]
+        message = message or state.get("blocker") or last.get("error")
+        reask = last.get("format_reask")
+        if reask and last.get("status") == "reviewing":
+            message = message or f"re-asking the peer once for format: {reask['reason']}"
+        elif reask and "first output: " not in (message or ""):
+            message = (f"{message} (after the round's format re-ask; first output: {reask['reason']})"
+                       if message else f"verdict from the round's format re-ask; first output: {reask['reason']}")
         return {"gate_id": state["id"], "status": state["status"], "code": code,
                 "round": len(state.get("rounds", [])), "subject": state.get("subject"),
                 "action": state.get("action"), "job_id": last.get("peer_run_id"),
-                "message": message or state.get("blocker") or last.get("error")}
+                "message": message}
 
     def start(self, args):
         from .merge import capture_pr, verify_pr_workspace
@@ -277,15 +285,20 @@ class GateService:
 
     def _submit(self, state):
         record = state["rounds"][-1]
+        reask = record.get("format_reask")
         try:
             job = self.daemon.submit(SubmitArgs(**record["submit_args"]))
         except Exception as exc:
             # Durable prepared inputs allow safe inspection; no provider output counts.
-            record.update(status="blocked", error=f"peer submission failed: {exc}", finished_at=utc_now())
+            error = (f"peer format re-ask submission failed: {exc}; first output: {reask['reason']}"
+                     if reask else f"peer submission failed: {exc}")
+            record.update(status="blocked", error=error, finished_at=utc_now())
             state.update(status="blocked", blocker=record["error"])
             self._save(state, "round-submit-failed")
             return self._result(state)
         record["peer_run_id"] = job["job_id"]
+        if reask:
+            reask["peer_run_id"] = job["job_id"]
         self._save(state, "round-submitted")
         return self._result(state)
 
@@ -349,10 +362,72 @@ class GateService:
                 return self._result(state)
             return self._consume(state, job)
 
+    def _lane_can_run(self, job, attempt):
+        """C-4.5, C-6.12, C-11.2: could the first dispatch's lane and model take the re-ask?
+
+        The daemon's own test for a pinned retry: the pair must still route at all,
+        and the lane must take it now or be refusing it only for want of a slot. A
+        lane that is disabled, closed, the desktop login, or otherwise refusing
+        would hold a pinned re-ask waiting with no deadline.
+        """
+        if not self.daemon._retry_pair_routable(attempt):
+            return False
+        pin = {**job, "pinned_lane": attempt["lane_id"], "pinned_model": attempt["model_requested"]}
+        return self.daemon._retry_waits_on_a_slot(pin, (), self.daemon._desktop_identity())
+
+    def _plan_reask(self, record, job, attempt, artifact, body, failure):
+        """C-23.9: plan the round's one format-only re-ask, or raise the blocking error.
+
+        A format failure is re-asked once, on the lane and model of the dispatch it
+        came from, for the same captured revision. It is not re-asked when the
+        diagnosis of the rejected output refuses (nothing readable, a block it
+        cannot read, a revision-binding failure, a contradiction), or when that
+        lane can no longer run it; a second format failure blocks the round.
+        """
+        spent = record.get("format_reask")
+        if spent:
+            raise GateError(f"{failure} (the round's one format re-ask also failed; "
+                            f"first output: {spent['reason']})", 4)
+        reason = clip(str(failure), 1000)
+        text = body.decode("utf-8", errors="replace")
+        evidence = rejected_output_evidence(text, record["revision"])
+        if evidence["refusal"]:
+            raise GateError(f"{reason}; not re-asked: {evidence['refusal']}", 4)
+        if not self._lane_can_run(job, attempt):
+            raise GateError(f"{reason}; not re-asked: lane {attempt['lane_id']} can no longer run it", 4)
+        first = {"peer_run_id": record["peer_run_id"],
+                 "request_id": record["submit_args"]["request_id"],
+                 "peer_prompt": record["submit_args"]["prompt_path"],
+                 "peer_output": record["peer_output"],
+                 "lane_id": attempt["lane_id"], "model_requested": attempt["model_requested"],
+                 "peer_attestation": attempt.get("attestation"),
+                 "peer_model_served": attempt.get("model_served"),
+                 "deliverable_sha256": artifact["sha256"],
+                 "candidate_verdicts": evidence["verdicts"],
+                 "outcome_lock": evidence["outcome_lock"], "error": reason}
+        try:
+            dispatch = prepare_reask(record, lane_id=attempt["lane_id"], error=reason, previous=text)
+        except OSError as exc:
+            raise GateError(f"{reason}; the format re-ask could not be prepared: {exc}", 4) from exc
+        prompt = dispatch.pop("peer_prompt")
+        return {"reason": reason, "first_attempt": first, "requested_at": utc_now(),
+                "lane_id": attempt["lane_id"], "request_id": dispatch["submit_args"]["request_id"],
+                "peer_prompt": prompt, "peer_output": dispatch["peer_output"],
+                "peer_run_id": None, "dispatch": dispatch}
+
+    @staticmethod
+    def _reasked_outcome(record, verdict):
+        """C-23.9: a re-ask repairs format only; it cannot turn a rejected non-approval into approval."""
+        lock = ((record.get("format_reask") or {}).get("first_attempt") or {}).get("outcome_lock") or []
+        if verdict["verdict"] == "approve" and lock:
+            raise GateError(f"format re-ask returned approve, but the rejected first output "
+                            f"{'; '.join(lock)}; not a verdict", 4)
+        return verdict
+
     def _consume(self, state, job):
         record = state["rounds"][-1]
         expected = record["revision"]
-        error, verdict, retry = None, None, False
+        error, verdict, retry, reask = None, None, False, None
         attempt = None  # bound only once the peer job is accepted
         try:
             subject, _ = capture(state, runner=self.runner)
@@ -389,7 +464,8 @@ class GateService:
                 validate_attestation(attempt["attestation"], record["requested_model"],
                                      served_model=attempt["model_served"], downgrade=downgrade)
             except GateError:
-                retry = True
+                # C-23.43 re-runs a round's first dispatch; a failed re-ask blocks (C-23.9).
+                retry = not record.get("format_reask")
                 raise
             artifacts = self.store.list_artifacts(attempt["attempt_id"])
             artifact = next((r for r in artifacts if r["role"] == "deliverable"), None)
@@ -398,33 +474,51 @@ class GateService:
             body = Path(artifact["path"]).read_bytes()
             if hashlib.sha256(body).hexdigest() != artifact["sha256"]:
                 raise GateError("peer deliverable changed after acceptance", 4)
-            verdict = parse_verdict(body.decode(), expected)
-        except (GateError, OSError, UnicodeError) as exc:
+            try:
+                parsed = parse_verdict(decode_output(body), expected)
+            except VerdictFormatError as exc:
+                reask = self._plan_reask(record, job, attempt, artifact, body, exc)
+                raise
+            verdict = self._reasked_outcome(record, parsed)
+        except (GateError, OSError, UnicodeError, RecursionError) as exc:
             error = str(exc)
         holder = f"gate-round:{record['peer_run_id']}"
         with self.store.transaction("gate.round-consumed", job_id=record["peer_run_id"], data={"gate_id": state["id"]}) as tx:
             lease = self.store.one("SELECT holder FROM leases WHERE lease_key=?", (record["round_lease"],))
             if not lease or lease["holder"] != holder:
-                error, verdict, retry = "gate review lease is no longer held; abandoned output is not a verdict", None, False
+                error, verdict, retry, reask = "gate review lease is no longer held; abandoned output is not a verdict", None, False, None
                 self.store.add_event("gate.round-discarded", data={"gate_id": state["id"], "reason": error})
-            record.update(finished_at=utc_now(), peer_returncode=job.get("rc") if job else None,
-                          verdict=verdict, status="blocked" if error else verdict["verdict"], error=error,
-                          # C-23.43: the round record notes the attestation a verdict was
-                          # accepted under (an unattested Codex round is legitimate).
-                          peer_attestation=attempt.get("attestation") if attempt else None,
-                          peer_model_served=attempt.get("model_served") if attempt else None)
-            if error or (verdict and verdict["verdict"] == "blocked"):
-                state.update(status="blocked", blocker=error or verdict["summary"])
-            elif verdict["verdict"] == "approve":
-                state.update(status="agreed")
+            if reask:
+                # C-23.9/10: the round stays open for its one re-ask. This dispatch's
+                # hold on the round lease ends in the commit that records the re-ask,
+                # and the re-ask's job takes the same key at admission.
+                dispatch = reask.pop("dispatch")
+                record.update(format_reask=reask, peer_run_id=None, **dispatch)
+                self._journal(state, "round-format-reask")
             else:
-                state.update(status="changes_requested")
-            if state["status"] != "agreed" and len(state["rounds"]) >= state["max_rounds"]:
-                state.update(status="blocked", blocker=self._cap_message(state))
-                retry = False
-            self._journal(state, "round-finished")
+                record.update(finished_at=utc_now(), peer_returncode=job.get("rc") if job else None,
+                              verdict=verdict, status="blocked" if error else verdict["verdict"], error=error,
+                              # C-23.43: the round record notes the attestation a verdict was
+                              # accepted under (an unattested Codex round is legitimate).
+                              peer_attestation=attempt.get("attestation") if attempt else None,
+                              peer_model_served=attempt.get("model_served") if attempt else None)
+                if error or (verdict and verdict["verdict"] == "blocked"):
+                    state.update(status="blocked", blocker=error or verdict["summary"])
+                elif verdict["verdict"] == "approve":
+                    state.update(status="agreed")
+                else:
+                    state.update(status="changes_requested")
+                if state["status"] != "agreed" and len(state["rounds"]) >= state["max_rounds"]:
+                    state.update(status="blocked", blocker=self._cap_message(state))
+                    retry = False
+                self._journal(state, "round-finished")
             tx.execute("DELETE FROM leases WHERE lease_key=? AND holder=?", (record["round_lease"], holder))
         self._project(state)
+        if reask:
+            return self._submit(state)
+        if not record.get("format_reask"):
+            # A re-ask prompt planned before a crash, or before the lease proved lost, was never dispatched.
+            (Path(record["peer_output"]).parent / f"peer-prompt.{REASK}.md").unlink(missing_ok=True)
         if verdict:
             write_json(Path(record["peer_output"]).parent / "verdict.json", verdict)
         if retry:
