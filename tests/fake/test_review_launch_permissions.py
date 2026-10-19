@@ -2,7 +2,6 @@
 from pathlib import Path
 
 import pytest
-from hypothesis import given, settings, strategies as st
 
 from subfleet import cli, protocol
 from subfleet.adapters.base import AdapterError
@@ -96,23 +95,27 @@ def test_explicit_workspace_write_outside_git_still_refused(state_daemon):
     assert '-s read-only' in refused.value.fix
 
 
-@settings(max_examples=80, deadline=None, database=None)
-@given(task=st.sampled_from(['review', 'build', 'research', None]),
-       source=st.sampled_from(['policy', 'read-only', 'workspace-write']),
-       in_place=st.booleans(), git=st.booleans(), isolated=st.booleans(), gate=st.booleans())
-def test_resolved_sandbox_table(task, source, in_place, git, isolated, gate):
+def test_resolved_sandbox_table():
+    """Every one of the 192 combinations (#221 review r1b, P3-5): sampling 80 let a
+    `resolve_sandbox` that ignores `in_place` pass."""
+    import itertools
     from subfleet.policy import resolve_sandbox
     policy = {'permissions': {'review': 'worktree-write', 'build': 'workspace-write', '*': 'read-only'}}
-    if source != 'policy':
-        expected = source
-    elif isolated or gate:
-        expected = 'read-only'
-    elif task == 'review':
-        expected = 'workspace-write' if git and not in_place else 'read-only'
-    else:
-        expected = 'workspace-write' if task == 'build' else 'read-only'
-    assert resolve_sandbox(policy, source, task=task, in_place=in_place, git=git,
-                           isolated=isolated, gate=gate) == expected
+    combinations = list(itertools.product(['review', 'build', 'research', None],
+                                          ['policy', 'read-only', 'workspace-write'],
+                                          [False, True], [False, True], [False, True], [False, True]))
+    assert len(combinations) == 192
+    for task, source, in_place, git, isolated, gate in combinations:
+        if source != 'policy':
+            expected = source
+        elif isolated or gate:
+            expected = 'read-only'
+        elif task == 'review':
+            expected = 'workspace-write' if git and not in_place else 'read-only'
+        else:
+            expected = 'workspace-write' if task == 'build' else 'read-only'
+        assert resolve_sandbox(policy, source, task=task, in_place=in_place, git=git,
+                               isolated=isolated, gate=gate) == expected, (task, source, in_place, git, isolated, gate)
 
 
 def test_status_counts_distinct_restricted_runs_last_24h(shell_state):
