@@ -1013,3 +1013,75 @@ the preceding round-6 steps are listed below.
 | `6a576327d` | fix: preserve provider failures that precede the wall signal |
 | `9ba573c74` | docs: record passing round-six wall and recovery validation |
 | `648caef3f` | test: accept the signal clock callback in the owned-survivor fixture |
+
+## Fix round 7 (2026-10-18)
+
+Assigned head: `352f4c243dbb`. Its second parent is the locally available
+`origin/release/217`, `3fbc4b7c5615`; that release head has already been merged.
+The local `release/217` branch is older (`b053e3de8f2e`). No further merge was
+needed, and no network remote was accessed.
+
+### Interaction and combined rule
+
+`f91b3ee4f` checks an attempted, unpinned retry with
+`unadmittable(..., permanent_only=True)` before FIFO and route evaluation. It
+passes the original job plus retry exclusions, before `_route_job` attaches
+its live capacity steer. Thus it already judges the whole original chain,
+as #207 requires. Once every Codex lane is disabled, an Astra-only build
+correctly enters durable refusal grace even though its current routed chain
+is empty. The semantic merge lost the `for_good` diagnostic in that new
+`lanes-unadmittable` hold. It also retained #207 test expectations that a due
+job must reach reservation checks, which the durable grace deliberately
+preempts. The baseline reproduced eight failures: four missing `for_good`
+and four expecting reservation checks that never ran; the minimized provider
+peer regression and eight existing durable-grace cases passed.
+
+C-11.8's durable episode wins over reservation evaluation when all original
+candidates are permanently refused: it is checked every pass, retains the
+standing refusal in `for_good`, keeps no FIFO slot, notifies once and expires
+with rc 3 after its durable grace. A live steer changes only routing and
+current model demand, never the chain used to establish permanent refusal.
+An empty routed chain alone is temporary. Any original candidate with only
+an operator hold or known provider reset prevents permanent retry grace,
+even when steered away; a far timed hold may still release FIFO under the
+existing standing-refusal rule. Recovery ends an episode; the steer ending
+or a restart does not renew its grace. C-9.5 and C-11.8 now state the
+combined rule explicitly.
+
+The existing eight disabled-chain cases were deliberately updated, not
+weakened silently: they now require no reservation checks, `for_good`, a
+durable episode, one notice event, replayed episode state and rc-3 expiry
+without renewing the episode when the steer ends. They retain every younger
+job's slot and selected-model assertions. Eight added far-operator-hold cases
+retain #207's original due and route-moved empty-decision checks without
+triggering permanent grace. The two corresponding mutation selections are
+retargeted to those reachable cases. Two mixed-chain regressions check that
+a temporarily closed steered candidate prevents permanent grace despite
+disabled remaining candidates.
+
+### Finalization timing
+
+The merged finalizer already uses the provider receipt's `finished_at` for
+both the attempt row and the steer's origin, with the persisted observed
+provider end as fallback. Classification, salvage and replay do not renew
+that origin. However, `_later` truncated fractional seconds, shortening a
+900-second steer by the provider exit's fractional second. Eight new cases
+cross second/millisecond exits, 120/901-second salvage delays and normal/
+replayed finalization. They require exactly 900 seconds from the provider
+exit and immediate expiry after a delay beyond that end. `_later` retains
+fractional precision; second-precision timestamps retain their existing
+format.
+
+### Validation status
+
+The test-first run reproduced **12 failed, 6 passed**: all eight disabled-chain cases lacked the durable hold diagnostic, and all four millisecond-exit cases measured 899.877 seconds instead of 900. The four second-precision timing controls and two mixed-chain timed-candidate controls passed. Validation of the committed fix is in progress; final counts and sandbox skips follow below.
+
+### Local commits and delivery
+
+The shared Git index rejected a write with `Operation not permitted`. All
+round-7 commits therefore use workspace-local `.git-local` metadata on
+`fix/wall-counts-running-time-217`; the original `.git` pointer and shared
+index are preserved. Only named test, source, contract, mutation-tool and
+report files are staged. No logs, JSON evidence or bundles are staged.
+Every commit carries the required Claude Opus 5.5 coauthor trailer.
+No history is rewritten and nothing is pushed.
