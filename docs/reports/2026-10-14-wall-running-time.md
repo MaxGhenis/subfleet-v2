@@ -1072,9 +1072,78 @@ exit and immediate expiry after a delay beyond that end. `_later` retains
 fractional precision; second-precision timestamps retain their existing
 format.
 
-### Validation status
+### Final validation
 
-The test-first run reproduced **12 failed, 6 passed**: all eight disabled-chain cases lacked the durable hold diagnostic, and all four millisecond-exit cases measured 899.877 seconds instead of 900. The four second-precision timing controls and two mixed-chain timed-candidate controls passed. Validation of the committed fix is in progress; final counts and sandbox skips follow below.
+**796 passed, 8 skipped, zero final failures across 22 files.** Counts below
+use the final complete-file runs, excluding baseline failures, repeated
+regressions and the intentional mutation failures. The test-first run
+reproduced **12 failed, 6 passed**: eight missing durable hold diagnostics and
+four millisecond-exit cases measuring 899.877 seconds rather than 900. The
+four second-precision timing controls and two mixed-chain timed-candidate
+controls already passed.
+
+All six requested suite groups ran in separate foreground `lockf -k` holds
+of `/private/tmp/claude-501/subfleet-suites.lock`, with no lock timeout, no
+xdist and no concurrent pytest processes. Every hold completed below twenty
+minutes; the longest full pytest was **262.31 s** (admission). Lock waits
+counted against the job wall. All holds started before the 06:10:54 UTC
+no-new-holds cutoff on 2026-10-19, measured from the worktree's 01:40:54 UTC
+job stamp. `SUBFLEET_RETENTION_DORMANT` and `PYTHONPATH` were unset.
+Hypothesis used bounded ci settings, never deep. Python was 3.14.7
+free-threaded. Full repository CI and other Python versions were not run.
+
+The six legacy-hold process tests and both capacity-steer end-to-end tests
+were selected but skipped before their bodies: the sandbox cannot read
+macOS boot identity for the required C-5.3 sysctl/ps inspection. Their real
+process behavior is **unverified**; no process-inspection bypass was used.
+
+The requested `tests/fake/test_unadmittable_pin.py` does not exist. The hold
+included the existing `tests/fake/test_unadmittable_pin_admission.py` and
+`tests/unit/test_unadmittable_pin.py`, plus all eight
+`tests/fake/test_retry_for_good_refusals.py` durable-grace cases.
+
+| File | Passed | Skipped |
+| --- | ---: | ---: |
+| `tests/fake/test_capacity_steer_daemon.py` | 72 | 0 |
+| `tests/unit/test_capacity_steer_route.py` | 22 | 0 |
+| `tests/unit/test_capacity_steer_mutations.py` | 10 | 0 |
+| `tests/fake/test_admission_stateful.py` | 12 | 0 |
+| `tests/fake/test_admission_route_isolation.py` | 93 | 0 |
+| `tests/unit/test_scheduler.py` | 97 | 0 |
+| `tests/fake/test_unadmittable_pin_admission.py` | 24 | 0 |
+| `tests/unit/test_unadmittable_pin.py` | 12 | 0 |
+| `tests/fake/test_retry_for_good_refusals.py` | 8 | 0 |
+| `tests/fake/test_wall_running_time.py` | 35 | 0 |
+| `tests/fake/test_wall_cancel_races.py` | 30 | 0 |
+| `tests/fake/test_wall_inspection_order.py` | 18 | 0 |
+| `tests/fake/test_notice_header.py` | 23 | 0 |
+| `tests/fake/test_review_r223_wall_probes.py` | 23 | 0 |
+| `tests/fake/test_finalization_replay.py` | 10 | 0 |
+| `tests/fake/test_salvage_finalization.py` | 47 | 0 |
+| `tests/unit/test_daemon_settle.py` | 43 | 0 |
+| `tests/unit/test_settle_properties.py` | 129 | 0 |
+| `tests/unit/test_legacy_hold.py` | 50 | 6 |
+| `tests/e2e/test_capacity_steer_e2e.py` | 0 | 2 |
+| `tests/fake/test_state_contract.py` | 37 | 0 |
+| `tests/unit/test_test_module_names.py` | 1 | 0 |
+
+The two retargeted empty-decision mutations were also run, sequentially,
+each named regression under its own separate lock hold. Both were killed:
+omitting the due-look guard failed
+`test_r7_an_empty_steered_chain_keeps_no_slot_during_a_far_operator_hold[due-due-look-one-slot]`;
+omitting the route-moved guard failed its
+`[due-route-moved-one-slot]` case. The mutation tool restored the exact source
+bytes after each check. The full mutation matrix was not run.
+
+### Cleanup
+
+Each invocation's scratch, JUnit evidence, Hypothesis storage and fallback uv
+cache were removed with Python `shutil.rmtree`. The restricted sandbox cannot
+write the default uv cache, so cache storage stayed inside task scratch.
+Task-created dependency and Python caches were removed after validation.
+No `.hypothesis` directory, task-owned runner, pytest, guardian or lock holder
+remains. Only the small workspace-local Git metadata, delivery bundle and
+local validation summaries remain as ignored delivery artifacts.
 
 ### Local commits and delivery
 
@@ -1085,3 +1154,18 @@ index are preserved. Only named test, source, contract, mutation-tool and
 report files are staged. No logs, JSON evidence or bundles are staged.
 Every commit carries the required Claude Opus 5.5 coauthor trailer.
 No history is rewritten and nothing is pushed.
+
+
+The local delivery is `.git-local/round7.bundle`, advertising
+`refs/heads/fix/wall-counts-running-time-217`, with prerequisite
+`352f4c243dbba6b6fa82b349f987913e2594d308`. The bundle includes the commit
+containing this final report as its tip. Bundle verification and the
+advertised head were checked. The preceding steps are:
+
+| Commit | Step |
+| --- | --- |
+| `35f5e5624` | Reconcile the eight disabled-chain tests and add exact provider-exit timing regressions |
+| `b7997acb7` | Preserve empty-decision route coverage with far timed holds |
+| `693d8fcc8` | Specify the combined C-9.5 and C-11.8 rule |
+| `a7c3c34fc` | Restore `for_good`, retain fractional steer timing, and retarget mutation probes |
+| `e43202baf` | Record the interaction and reproduced failures |
