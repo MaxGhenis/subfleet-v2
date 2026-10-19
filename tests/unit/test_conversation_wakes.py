@@ -286,3 +286,38 @@ def test_moot_block_differential_against_dispatch_live_writer_check(svc, monkeyp
         assert json.loads(event[0]["data_json"])["reason"] == "continued-elsewhere"
     if delta > 0:
         holder.assert_called_with(c["native_session_id"])
+
+
+@pytest.mark.parametrize("line, said", [
+    ("WAKE-ME: runs=token=SECRET7wakerun9", "a run it names is not this conversation's"),
+    ("WAKE-ME: unknown=token=SECRET7wakefield9", "invalid WAKE-ME field"),
+    ("WAKE-ME: note='token=SECRET7wakequote9 runs=x", "ValueError"),
+    ("WAKE-ME: at=token=SECRET7wakeat9", "at needs an ISO timestamp with a timezone, at least 5 minutes away"),
+])
+def test_a_refused_wake_request_s_timeline_detail_holds_our_words_only(svc, line, said):
+    """C-25.7 (the sweep after review r1 of #233): the `wake-refused` event a client
+    shows named the exception's own words, `run <what the agent wrote> is not this
+    conversation's` among them. It holds the wake module's fixed words, or the
+    exception's class."""
+    cid = bound(svc)
+    mid = submit(svc, cid)
+    svc.wakes.from_final(cid, mid, line)
+    events = [json.loads(r["data_json"]) for r in svc.store.query(
+        "SELECT data_json FROM events WHERE message_id=?", (mid,))]
+    details = [e["detail"] for e in events if e.get("phase") == "wake-refused"]
+    assert details == [f"Wake request refused: {said}"]
+    assert "SECRET7" not in json.dumps(events)
+
+
+def test_every_wake_refusal_the_timeline_may_show_is_fixed_words():
+    """The rule's structure: each `bad-wake` or `wake-id-conflict` refusal the wake
+    module raises carries a literal message, never one built from a value."""
+    import ast
+    import inspect
+    found = 0
+    for node in ast.walk(ast.parse(inspect.getsource(wakes))):
+        if (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "ConversationError"
+                and isinstance(node.args[0], ast.Constant) and node.args[0].value in wakes.TIMELINE_REFUSALS):
+            found += 1
+            assert isinstance(node.args[1], ast.Constant), ast.unparse(node)
+    assert found >= 9

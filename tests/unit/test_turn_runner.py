@@ -1170,6 +1170,53 @@ def test_a_steer_whose_input_fails_goes_back_to_the_queue_and_the_host_runs_on(r
     assert "interrupt" in logged(adir)
 
 
+#: What a driver's failure said in review r1 of #233 (P2): a secret, then 3,000 more characters.
+STEER_WORDS = "driver said: token=SECRET7steer9 " + "x" * 3000
+
+
+@pytest.mark.parametrize("raised, named", [
+    (RuntimeError(STEER_WORDS), "RuntimeError"),
+    (FileNotFoundError(2, "No such file or directory", "/x/token=SECRET7steerpath9"),
+     "FileNotFoundError: [Errno 2] No such file or directory"),
+    (ValueError(STEER_WORDS), "ValueError"),
+])
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_a_failed_steer_s_reason_names_its_class_and_errno_never_its_words(relayed, tmp_path, provider,
+                                                                           raised, named):
+    """C-25.7 (review r1 of #233, P2): a steer whose driver raised went back to the queue
+    as `input-unavailable: <the exception's words>`, unscrubbed and unbounded (3,066
+    characters), in four records a client reads: the message's `state_reason`, its
+    `changes` row, the `steer.missed` events and the receipt (`_receipt`). It names the
+    exception's class and, for an OS error, its errno (`refusals.fixed_error`)."""
+    from types import SimpleNamespace
+    from subfleet.conversations.service import ConversationService
+    runner, _, _, adir = relayed(provider=provider, recorded=True)
+    ready_to_steer(runner, tmp_path)
+    mid = claim_steer(runner)
+
+    def defect(*args, **kwargs):
+        raise raised
+    runner.driver.steer = defect
+    runner.steer(mid)
+    runner._drain_commands()
+    runner._flush()
+    reason = f"input-unavailable: {named}"
+    row = runner.store.message(mid)
+    assert row["state"] == "queued" and row["state_reason"] == f"steer-missed: {reason}"
+    receipt = ConversationService._receipt(SimpleNamespace(store=runner.store), row)
+    assert receipt["state_reason"] == f"steer-missed: {reason}"
+    changes = [dict(r) for r in runner.store.query("SELECT * FROM changes WHERE message_id=?", (mid,))]
+    assert changes and changes[-1]["state_reason"] == f"steer-missed: {reason}"
+    events = [dict(r) for r in runner.store.query("SELECT * FROM events")]
+    missed = [json.loads(r["data_json"]) for r in events if r["kind"] == "steer.missed"]
+    assert missed and all(data == {"message_id": mid, "why": reason} for data in missed)
+    assert runner.steer_facts()[mid]["detail"] == reason
+    everything = json.dumps([[dict(r) for r in runner.store.query(f"SELECT * FROM {table}")]
+                             for table in ("messages", "changes", "events")] + [receipt, runner.steer_facts()],
+                            default=str)
+    assert "SECRET7" not in everything and "x" * 100 not in everything
+
+
 def provider_stdout(provider: str, cwd: str) -> list[str]:
     """What the provider printed up to a running, steerable turn."""
     if provider == "claude":

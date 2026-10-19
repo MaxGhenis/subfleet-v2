@@ -29,7 +29,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from subfleet import cli, folders, scheduler
+from subfleet import cli, folders, ids, scheduler
 from subfleet import daemon as daemon_module
 from subfleet.adapters.registry import register
 from subfleet.conversations.runner import TurnRunner
@@ -209,6 +209,52 @@ def test_faulthandler_writes_frames_only(daemon_log):
     assert "in test_faulthandler_writes_frames_only" in text
     assert secret not in text and "RuntimeError" not in text and "raise RuntimeError" not in text
     assert held
+    if sys.version_info >= (3, 14):          # and each thread's name (review r1 of #233, P3)
+        import threading
+        assert f"[{threading.current_thread().name}]" in text
+
+
+#: A name a thread is given: fixed words (a pool's prefix too, to which the pool adds
+#: `_<n>`). Without one, Python names it `Thread-<n> (<function>)`.
+FIXED_THREAD_NAME = re.compile(r"[a-z][a-z0-9-]*\Z")
+#: The one computed name: a turn runner's, its attempt's id (C-1.2).
+COMPUTED_THREAD_NAMES = {"f'turn:{self.attempt_id}'"}
+#: That id: the job of a turn is named `turn-<conversation id>` (C-26.12), so ids only.
+TURN_THREAD_NAME = re.compile(r"turn:\d{8}-\d{6}-turn-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}(?:-\d+)?/a\d+\Z")
+
+
+def test_every_daemon_thread_s_name_is_fixed_or_ids_only():
+    """Review r1 of #233, P3: on Python 3.14 faulthandler also writes each thread's
+    name (`Thread 0x… [name]`), which no scrubber reads. Every thread and pool
+    `subfleet/` starts is named by a literal, by Python's default, or by the turn
+    runner's `turn:<attempt id>`, whose job is named `turn-<conversation id>`; and
+    nothing renames a thread later. So a name never carries text."""
+    found = 0
+    for path in sorted((REPO / "subfleet").rglob("*.py")):
+        where = path.relative_to(REPO)
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Call):
+                callee = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
+                assert callee != "setName", f"{where}:{node.lineno}"
+                if callee not in ("Thread", "Timer", "ThreadPoolExecutor"):
+                    continue
+                found += 1
+                for keyword in node.keywords:
+                    if keyword.arg in ("name", "thread_name_prefix"):
+                        value = keyword.value
+                        if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                            assert FIXED_THREAD_NAME.match(value.value), f"{where}:{node.lineno}"
+                        else:
+                            assert ast.unparse(value) in COMPUTED_THREAD_NAMES, f"{where}:{node.lineno}"
+            elif isinstance(node, ast.Assign):
+                for target in node.targets:
+                    assert not (isinstance(target, ast.Attribute) and target.attr == "name"
+                                and isinstance(target.value, ast.Name) and "thread" in target.value.id.lower()), \
+                        f"{where}:{node.lineno}"
+    assert found >= 20
+    assert TURN_THREAD_NAME.match("turn:" + ids.attempt_id(ids.job_id(f"turn-{uuid.uuid4()}"), 2))
+    service = (REPO / "subfleet" / "conversations" / "service.py").read_text(encoding="utf-8")
+    assert "name=f\"turn-{conversation['conversation_id']}\"" in service
 
 
 # --- suggestion.start (C-26.10) ---------------------------------------------------

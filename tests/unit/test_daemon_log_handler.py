@@ -12,8 +12,10 @@ from __future__ import annotations
 import gc
 import io
 import logging
+import re
 import sys
 import threading
+import time
 import traceback
 import warnings
 
@@ -378,3 +380,334 @@ def test_the_daemon_writes_through_the_scrubbing_handler():
     assert "daemon_log.ScrubbingStreamHandler(os.fdopen(log_fd" in init
     assert "logging.StreamHandler(" not in init
     assert "daemon_log.install_process_hooks()" in inspect.getsource(daemon_module.main)
+
+
+# --- exception groups (review r1 of #233, P3) -------------------------------------
+
+#: Values on the line after their key. Inside an exception group Python writes a
+#: `    | ` margin before each line of a member, and the scrubber took the `|` as the value.
+NEXT_LINE_SHAPES = ["token:\n", "token =\n  ", "Authorization: Bearer\n", "Cookie: x_auth-token :\n "]
+#: What a group's own lines and its members' lines start with: two spaces a level, then `| ` (or `+ `).
+MARGIN = re.compile(r"(?:  )+[|+](?: |$)")
+
+
+def group_of(members: list[BaseException], *, depth: int = 1, raise_it: bool = True) -> BaseException:
+    group: BaseException = ExceptionGroup("several failed", members)
+    for _ in range(depth - 1):
+        group = ExceptionGroup("outer", [group, ValueError("other")])
+    if not raise_it:
+        return group
+    try:
+        raise group
+    except ExceptionGroup as caught:
+        return caught
+
+
+def written_for(exc: BaseException) -> str:
+    log = Written("subfleet.daemon.test-group")
+    try:
+        log.log.error("failed", exc_info=(type(exc), exc, exc.__traceback__))
+        return log.text()
+    finally:
+        log.close()
+
+
+def values(text: str) -> set[str]:
+    """The whitespace-free runs of `text` other than a group's margin."""
+    return set(text.split()) - {"|", "+"}
+
+
+@pytest.mark.parametrize("raise_it", [True, False], ids=["raised", "constructed"])
+@pytest.mark.parametrize("depth", [1, 2])
+@pytest.mark.parametrize("shape", NEXT_LINE_SHAPES)
+def test_an_exception_group_hides_what_its_member_alone_hides(shape, depth, raise_it):
+    """The reviewer's input: a member's value on the line after its key was written
+    raw inside a group (`    [REDACTED] SECRET7kv9`) though the same exception alone
+    was scrubbed. The group's lines keep their margins, unless scrubbing joined two
+    of them (`Bearer` and its token), when the group is written without them."""
+    member = raised(shape + "SECRET7kv9")
+    assert "SECRET7kv9" not in written_for(member)
+    out = written_for(group_of([member, ValueError("other")], depth=depth, raise_it=raise_it))
+    assert "SECRET7kv9" not in out, out
+    assert "ExceptionGroup: several failed (2 sub-exceptions)" in out
+    if "Bearer" not in shape:
+        assert ("\n" + "  " * (depth + 1) + "| RuntimeError: ") in out, out
+
+
+@settings(max_examples=60, derandomize=True, database=None, deadline=None)
+@given(members=st.lists(st.tuples(st.sampled_from(NEXT_LINE_SHAPES + [""]), SECRETS, TEXTS), min_size=1, max_size=3),
+       depth=st.integers(1, 2), raise_it=st.booleans())
+def test_an_exception_group_never_shows_a_secret_its_members_alone_hide(members, depth, raise_it):
+    """Property: whatever a member's plain traceback hides, the group's hides too, for
+    the next-line shapes and the credential shapes the property above builds, nested
+    one or two deep, raised or only constructed."""
+    excs, checks = [], []
+    for shape, secret, words in members:
+        text, more = _text(words)
+        exc = raised(f"{shape}{secret} {text}")
+        excs.append(exc)
+        checks.append((exc, [secret, *more]))
+    out = written_for(group_of(excs, depth=depth, raise_it=raise_it))
+    for exc, secrets in checks:
+        alone = written_for(exc)
+        for secret in secrets:
+            if secret not in alone:
+                assert secret not in out, (secret, out)
+
+
+@BOUNDED
+@given(words=st.lists(st.text(max_size=80), min_size=1, max_size=3), depth=st.integers(1, 2))
+def test_a_group_s_block_never_shows_a_value_its_line_form_hides(words, depth):
+    """The forms' invariant, for a group's traceback: folded, a block equals the uncut
+    line form for any text without a group's margins; a group's block may hide more,
+    never less."""
+    tb = traceback_of(group_of([raised(text) for text in words], depth=depth))
+    assert values(daemon_log.scrubbed_block(tb)) - {"[REDACTED]"} <= values(refusals.scrubbed_line(tb, UNCUT))
+
+
+# --- a bound on what one record scrubs (review r1 of #233, P3) ----------------------
+
+FOUR_MIB = 4 * 1024 * 1024
+#: The time one record may hold the handler's lock (C-25.7). The best of three runs is
+#: measured, so that one stall of a loaded host does not decide it.
+TIME_BOUND_S = 0.1
+FRAME = '  File "/x/subfleet/module.py", line 12, in work\n    do_the_work(item, attempt)\n'
+
+
+def four_mib(head="token=SECRET7head9\n", middle="password='SECRET7middle9'\n",
+             tail="api_key = SECRET7tail9\n") -> str:
+    """About 4 MiB of lines, with a secret at the start, in the middle and at the end."""
+    half = "".join([FRAME] * ((FOUR_MIB // 2) // len(FRAME)))
+    return head + half + middle + half + tail
+
+
+class Scrubbed:
+    """The longest text the scrubber is given while it is installed."""
+
+    def __init__(self, monkeypatch):
+        from subfleet.sessions import handoff
+        self.longest = 0
+        original = handoff._scrub
+
+        def spy(text, *args, **kwargs):
+            self.longest = max(self.longest, len(text))
+            return original(text, *args, **kwargs)
+        monkeypatch.setattr(handoff, "_scrub", spy)
+
+
+def best_of_three(work) -> float:
+    best = float("inf")
+    for _ in range(3):
+        started = time.perf_counter()
+        work()
+        best = min(best, time.perf_counter() - started)
+    return best
+
+
+@pytest.mark.parametrize("where", ["message", "traceback", "both"])
+def test_a_four_mib_record_is_written_bounded_and_scrubbed_within_the_time_bound(where, monkeypatch):
+    """1 MiB held the handler's lock for 1 to 1.5 s, 4 MiB for 4 to 6 s. A record's text
+    is cut to `RECORD_SCRUB_MAX` characters before it is scrubbed, keeping its head and
+    its tail at line breaks no match crosses, with a marker."""
+    text = four_mib()
+    exc = raised(text) if where != "message" else None
+    scrubbed = Scrubbed(monkeypatch)
+    outs = []
+
+    def write():
+        log = Written("subfleet.daemon.test-bound")
+        try:
+            message = text if where != "traceback" else "failed"
+            log.log.error("%s", message, exc_info=(type(exc), exc, exc.__traceback__) if exc else None)
+            outs.append(log.text())
+        finally:
+            log.close()
+    elapsed = best_of_three(write)
+    out = outs[-1]
+    assert "SECRET7" not in out
+    assert "characters omitted] …" in out
+    assert out.startswith("token=[REDACTED]\n" if where != "traceback" else "failed\nTraceback")
+    assert "api_key = [REDACTED]" in out
+    assert scrubbed.longest <= daemon_log.RECORD_SCRUB_MAX + 100
+    assert len(out) <= 2 * (daemon_log.RECORD_SCRUB_MAX + 100)
+    assert elapsed < TIME_BOUND_S, elapsed
+
+
+def test_a_four_mib_line_with_nowhere_safe_to_cut_keeps_only_its_marker(written):
+    """One line has no line break to cut at: the marker alone says what was left out."""
+    written.log.warning("%s", "driver said: token=SECRET7oneline9 " + "x" * FOUR_MIB)
+    assert written.text() == f"… [{FOUR_MIB + 35:,} characters omitted] …\n"
+
+
+def test_a_short_line_waits_for_a_four_mib_record_no_longer_than_the_bound(monkeypatch):
+    """A short line logged while another thread's 4 MiB record held the lock waited 1.2 s
+    behind 1 MiB; the bound on what one record scrubs bounds that wait too."""
+    log = Written("subfleet.daemon.test-wait")
+    inside = threading.Event()
+    original = daemon_log.scrubbed_block
+
+    def spy(text):
+        if len(text) > 1000:
+            inside.set()                    # the big record is being scrubbed: the lock is held
+        return original(text)
+    monkeypatch.setattr(daemon_log, "scrubbed_block", spy)
+    text = four_mib()
+    waits = []
+    try:
+        for _ in range(3):
+            inside.clear()
+            big = threading.Thread(target=log.log.warning, args=("%s", text))
+            big.start()
+            assert inside.wait(30)
+            started = time.perf_counter()
+            log.log.warning("short line")
+            waits.append(time.perf_counter() - started)
+            big.join(30)
+        assert "SECRET7" not in log.text()
+    finally:
+        log.close()
+    assert min(waits) < TIME_BOUND_S, waits
+
+
+def lines_with(secret: str) -> st.SearchStrategy:
+    """One or more lines that each hold `secret` the scrubber takes whole: credential
+    shapes on a line, a key whose value is on the next line, a quoted value or a
+    private key or a data URI spanning lines, a header and `Bearer` split, a reminder."""
+    return st.sampled_from([
+        f"token={secret}\n", f"token:\n{secret}\n", f"token =\n  {secret}\n",
+        f"password='open\nmore {secret}\nclose'\n", f'\\"password\\": \\"a\n{secret}\n\\"\n',
+        f"-----BEGIN PRIVATE KEY-----\nMIIabc\n{secret}\n-----END PRIVATE KEY-----\n",
+        f"data:image/png;base64,QUJDREVGR0hJSktMTU5PUFFSU1RVVldY\n{secret}\nQUJD\n",
+        f"Cookie\n:\t\"{secret}\"\n", f"Authorization: Bearer\n{secret}\n",
+        f"<system-reminder>\n{secret}\n</system-reminder>\n", f"api_key = \"{secret}\"\n",
+    ])
+
+
+#: Lines with nothing to scrub, some with quotes and separators that a cut must read.
+PLAIN_LINES = st.sampled_from([
+    "  File \"/x/a.py\", line 3, in f\n", "    raise RuntimeError(text)\n", "it's here\n", "\"\n", "'\n",
+    "=\n", "x:\n", "plain words only\n", "\n", "a = 'one'\n", "b: \"two\"\n",
+])
+RECORD_LINES = st.lists(st.one_of(PLAIN_LINES, SECRETS.flatmap(lines_with)), min_size=1, max_size=40)
+SECRET_RUN = re.compile(r"SECRET7[a-z0-9]*")
+
+
+@settings(max_examples=200, derandomize=True, database=None, deadline=None)
+@given(lines=RECORD_LINES, limit=st.integers(40, 400))
+def test_a_record_s_cut_never_shows_a_secret_its_whole_text_hides(lines, limit):
+    """Differential: in either form, the cut text shows no secret, nor a piece of one,
+    that the whole text's scrub hides. The cut keeps at most `limit` characters and the
+    marker, or only the marker when the text holds a reminder."""
+    from subfleet.sessions import handoff
+    text = "".join(lines)
+    cut = handoff.cut_whole(text, limit)
+    if len(text) <= limit:
+        assert cut == text
+    else:
+        assert "characters omitted] …" in cut
+        assert len(cut) <= limit + len(f"… [{len(text):,} characters omitted] …\n")
+    for form in (daemon_log.scrubbed_block, lambda t: refusals.scrubbed_line(t, UNCUT)):
+        assert set(SECRET_RUN.findall(form(cut))) <= set(SECRET_RUN.findall(form(text))), (text, cut)
+
+
+@pytest.mark.parametrize("spanning", [
+    "password='opened here\n{fill}SECRET7quoted9\n'\n",
+    "\\'password\\': \\'opened\n{fill}SECRET7escaped9\n\\'\n",
+    "-----BEGIN PRIVATE KEY-----\n{fill}SECRET7pem9\n-----END PRIVATE KEY-----\n",
+    "data:image/png;base64,QUJDREVGR0hJSktMTU5PUFFSU1RVVldY\n{fill}SECRET7data9\nQUJD\n",
+])
+@pytest.mark.parametrize("at", ["head", "tail"])
+def test_a_cut_never_falls_inside_a_match_that_spans_lines(spanning, at):
+    """What the whole-text scrub takes across lines (a quoted value, a private key, a
+    data URI) is never cut in two: scrub_bounded's neutral breaks are not enough there."""
+    from subfleet.sessions import handoff
+    fill = "QUJD\n" * 30
+    body = spanning.format(fill=fill)
+    filler = "plain words only\n" * 400
+    text = body + filler if at == "head" else filler + body
+    whole = daemon_log.scrubbed_block(text)
+    assert "SECRET7" not in whole
+    cut = handoff.cut_whole(text, 400)
+    assert "characters omitted] …" in cut
+    assert "SECRET7" not in daemon_log.scrubbed_block(cut)
+    assert "SECRET7" not in refusals.scrubbed_line(cut, UNCUT)
+
+
+def test_a_record_over_the_bound_holding_a_reminder_keeps_only_its_marker():
+    """Stripping a reminder can join what was on either side of it; a record over the
+    bound that holds one keeps only the marker."""
+    from subfleet.sessions import handoff
+    text = "plain\n" * 100 + "<system-reminder>\nSECRET7reminder9\n</system-reminder>\n" + "plain\n" * 100
+    assert handoff.cut_whole(text, 200) == f"… [{len(text):,} characters omitted] …\n"
+
+
+# --- the hooks in a test process (review r1 of #233, P3) --------------------------
+
+INNER_TESTS = '''
+import gc
+import threading
+
+from subfleet import daemon_log
+
+
+def leak_thread():
+    def work():
+        raise RuntimeError("a thread failed")
+    thread = threading.Thread(target=work, name="leak")
+    thread.start()
+    thread.join()
+
+
+def leak_unraisable():
+    class Finalized:
+        def __del__(self):
+            raise RuntimeError("a finalizer failed")
+    Finalized()
+    gc.collect()
+
+
+def test_1_control():
+    leak_thread()
+
+
+def test_2_installs_the_daemon_s_hooks():
+    daemon_log.install_process_hooks()          # as daemon.main does in-process
+
+
+def test_3_a_thread_fails_after_them():
+    leak_thread()
+
+
+def test_4_a_finalizer_fails_after_them():
+    leak_unraisable()
+'''
+
+
+def test_a_test_that_runs_main_leaves_pytest_its_own_hooks(tmp_path):
+    """`daemon.main` run in-process (`test_daemon_accept`, `test_stop_watchdog`)
+    installed the daemon's hooks for the rest of the session, so pytest stopped
+    reporting a thread's exception or an unraisable one. The suite's conftest puts
+    each test's hooks back: a failure after them is reported as before them. The
+    sequence runs in its own pytest, with the suite's conftest as a plugin and both
+    warnings made errors, and reads which tests failed."""
+    import subprocess
+    import xml.etree.ElementTree as ElementTree
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[2]
+    (tmp_path / "test_inner_hooks.py").write_text(INNER_TESTS)
+    (tmp_path / "none.ini").write_text("[pytest]\n")
+    report = tmp_path / "inner.xml"
+    done = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-p", "tests.conftest",
+         "-W", "error::pytest.PytestUnhandledThreadExceptionWarning",
+         "-W", "error::pytest.PytestUnraisableExceptionWarning",
+         "--rootdir", str(tmp_path), "-c", str(tmp_path / "none.ini"), f"--junitxml={report}",
+         str(tmp_path / "test_inner_hooks.py")],
+        cwd=root, capture_output=True, text=True, timeout=300)
+    cases = {case.get("name"): case for case in ElementTree.parse(report).getroot().iter("testcase")}
+    reported = {name for name, case in cases.items()
+                if case.find("failure") is not None or case.find("error") is not None}
+    assert set(cases) == {"test_1_control", "test_2_installs_the_daemon_s_hooks",
+                          "test_3_a_thread_fails_after_them", "test_4_a_finalizer_fails_after_them"}, done.stdout
+    assert reported == {"test_1_control", "test_3_a_thread_fails_after_them",
+                        "test_4_a_finalizer_fails_after_them"}, done.stdout
