@@ -9765,12 +9765,13 @@ def main(argv: list[str] | None = None) -> int:
     try:
         daemon = Daemon(args.state_root)
     except DaemonUnavailable as exc:
-        print(str(exc), file=sys.stderr)
+        daemon_log.write_scrubbed(str(exc))
         return 69
     except PolicyError as exc:
         # C-11.1: a refused policy or lane roster is exit 2 with its message in
-        # daemon.log, not a traceback.
-        print(f"subfleet daemon: {exc}", file=sys.stderr)
+        # daemon.log, not a traceback; scrubbed there as the handler scrubs a
+        # record (C-25.7), since a refused key is the policy's own text.
+        daemon_log.write_scrubbed(f"subfleet daemon: {exc}")
         return int(Exit.INVALID_INPUT)
     log_open_file_limit(daemon.log, *limits)
     daemon.log.info("stack dumps: `kill -USR1 %d` (or `subfleet daemon stacks`) writes every "

@@ -43,11 +43,15 @@ calls at start, sends what Python itself writes there through the same
 formatter: an uncaught exception (`sys.excepthook`), a thread's
 (`threading.excepthook`), one Python could not raise (`sys.unraisablehook`), a
 warning (`warnings.showwarning`), and a record no handler took
-(`logging.lastResort`). faulthandler stays as it is. It writes each frame's
-file, line number and function name only, never an exception's message, a
-local or a source line (CPython's `Python/traceback.c`, `dump_frame`); on
-Python 3.14, an all-threads dump (`daemon stacks`) also names each thread
-Python started, and every daemon thread's name is fixed words or ids.
+(`logging.lastResort`). What the daemon says there itself outside a logger (a
+start refused for its policy or a held lock, a retired alias's note) goes
+through it as well (`write_scrubbed`), and so does what the CLI prints of the
+same text (`scrubbed`: `daemon start`'s refusal and its tail of daemon.log).
+faulthandler stays as it is. It writes each frame's file, line number and
+function name only, never an exception's message, a local or a source line
+(CPython's `Python/traceback.c`, `dump_frame`); on Python 3.14, an all-threads
+dump (`daemon stacks`) also names each thread Python started, and every daemon
+thread's name is fixed words or ids.
 """
 from __future__ import annotations
 
@@ -280,6 +284,47 @@ class _StderrHandler(ScrubbingStreamHandler):
         return sys.stderr
 
 
+def _record(message: str, level: int, exc_info: tuple | None = None) -> logging.LogRecord:
+    return logging.makeLogRecord({"name": "subfleet.daemon", "levelno": level,
+                                  "levelname": logging.getLevelName(level), "msg": message, "args": None,
+                                  "exc_info": exc_info})
+
+
+def _report(handler: logging.Handler, level: int, words: Callable[[], str], exc_info: tuple | None,
+            left_out: str) -> None:
+    """A record of `words()` written by `handler`; never raises. What cannot be
+    rendered is not written, and a failure past the handler's own writes the
+    fixed `left_out` line."""
+    try:
+        try:
+            message = words()
+        except Exception:                   # noqa: BLE001 - what cannot be rendered is not written
+            message = "(its description cannot be rendered)"
+        handler.handle(_record(message, level, exc_info))
+    except Exception:                       # noqa: BLE001 - never raises into the caller
+        try:
+            sys.stderr.write(f"{SCRUB_FAILED} {left_out}\n")
+        except Exception:                   # noqa: BLE001
+            pass
+
+
+def scrubbed(text: str) -> str:
+    """`text` as the daemon's handler writes a record of it (C-25.7): cut to
+    `RECORD_SCRUB_MAX`, then one line in the line form, several in the block
+    form, or the fixed `[scrub failed]` line. For what the CLI prints of the
+    daemon's words (`daemon start`'s refusal, its tail of daemon.log)."""
+    return ScrubbingFormatter().format(_record(text, logging.INFO))
+
+
+def write_scrubbed(text: str, level: int = logging.ERROR) -> None:
+    """Write `text` to this process's stderr as the daemon's handler writes a
+    record of it (`scrubbed`; a failed write is a fixed line). For what the daemon
+    says on stderr, which is daemon.log under `daemon start` and launchd alike,
+    outside a logger: a start refused for its policy or a held lock, a retired
+    alias's note (C-25.7, C-11.1). Never raises."""
+    _report(_StderrHandler(), level, lambda: text, None, "a line is left out")
+
+
 def install_process_hooks() -> Callable[[], None]:
     """Send what Python writes to this process's stderr (daemon.log, under `daemon
     start` and launchd alike) through `ScrubbingFormatter`: an uncaught exception's
@@ -288,19 +333,7 @@ def install_process_hooks() -> Callable[[], None]:
     handler = _StderrHandler()
 
     def report(level: int, words: Callable[[], str], exc_info: tuple | None) -> None:
-        try:
-            try:
-                message = words()
-            except Exception:               # noqa: BLE001 - what cannot be rendered is not written
-                message = "(its description cannot be rendered)"
-            handler.handle(logging.makeLogRecord({
-                "name": "subfleet.daemon", "levelno": level, "levelname": logging.getLevelName(level),
-                "msg": message, "args": None, "exc_info": exc_info}))
-        except Exception:                   # noqa: BLE001 - a hook never raises
-            try:
-                sys.stderr.write(SCRUB_FAILED + " an uncaught exception is left out\n")
-            except Exception:               # noqa: BLE001
-                pass
+        _report(handler, level, words, exc_info, "an uncaught exception is left out")
 
     def excepthook(kind, value, tb) -> None:
         report(logging.ERROR, lambda: "uncaught exception", (kind, value, tb))
