@@ -217,3 +217,27 @@ def test_annotations_keep_the_recorded_capability_last(capability):
 def test_annotations_on_legacy_notices_append_without_moving_lines():
     assert render.append_notice_detail("old header\nold summary", "export failed") == (
         "old header\nold summary\nexport failed")
+
+
+
+# #221 review r1b, P3-3: design-r2 section 2 asks for a capability line only for
+# `none` and `commands`. Every writable attempt had one, builds included: a build
+# notice ended `ran workspace-write on codex-1 (sol61) with a shell (writable)`.
+@pytest.mark.parametrize("publish_denied,expected", [(True, "publish: denied"), (False, ""), (None, "")])
+def test_writable_attempts_carry_no_capability_sentence(publish_denied, expected):
+    job = row("succeeded", 0, sandbox="workspace-write", attempt={
+        "capability": "writable", "publish_denied": publish_denied,
+        "lane_id": "codex-1", "model_requested": "gpt-6.1-sol"})
+    assert render.attempt_shell_text(job) == expected
+    lines = render.notice_text(job, ROOT, "attempt a1: ok").splitlines()
+    assert lines[1:] == ["attempt a1: ok", *([expected] if expected else [])]
+    assert not any("with a shell" in line or line.startswith("ran ") for line in lines)
+
+
+@pytest.mark.parametrize("capability,words", [
+    ("none", "with no shell: it could not run any command"),
+    ("commands", ": commands ran, but nothing could be written, temp files included, so pytest could not run")])
+def test_restricted_attempts_keep_their_capability_sentence(capability, words):
+    job = row("succeeded", 0, sandbox="read-only", attempt={
+        "capability": capability, "publish_denied": None, "lane_id": "codex-1", "model_requested": "astra"})
+    assert render.attempt_shell_text(job) == "ran read-only on codex-1 (astra)" + (" " if capability == "none" else "") + words

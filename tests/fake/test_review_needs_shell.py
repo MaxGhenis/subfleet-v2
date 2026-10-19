@@ -86,14 +86,18 @@ def test_opus_attempt_and_final_notice_line_report_shell(shell_state, sandbox, o
     service._export(job)
     shown = service.dispatch('show', {'job_id': job})
     assert shown['attempts'][0]['capability'] == ('writable' if expected else 'none')
-    text = f"ran {sandbox} on claude-10 (opus) with {'a shell' if expected else 'no shell'}"
     notice, = [n for n in service.store.list_notices() if n['job_id'] == job]
     header, *_, capability = notice['text'].splitlines()
     assert header == (f"{job}: succeeded; rc=0; deliverable={adir / 'deliverable.md'}; "
                       f"out={harness.root / 'result.md'}")
-    suffix = ' (writable)' if expected else ': it could not run any command'
-    assert capability == text + suffix + '; publish: denied'
-    assert text in cli._wait_summary(shown)
+    if expected:
+        # P3-3: a writable review's evidence is the publish denial alone.
+        assert capability == 'publish: denied' and 'with a shell' not in notice['text']
+        assert cli._wait_summary(shown).endswith(' · publish: denied')
+    else:
+        text = f"ran {sandbox} on claude-10 (opus) with no shell: it could not run any command"
+        assert capability == text + '; publish: denied'
+        assert text in cli._wait_summary(shown)
     assert (harness.root / 'result.md').read_text() == 'fixture result\n'
     assert (adir / 'deliverable.md').read_text() == 'fixture result\n'
 

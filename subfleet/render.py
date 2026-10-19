@@ -81,14 +81,19 @@ def closure_text(value: Any) -> str:
 
 
 def attempt_shell_text(job: Mapping[str, Any]) -> str:
-    """C-12.4: capability of the recorded attempt, unknown for older records."""
+    """C-12.4: capability of the recorded attempt, unknown for older records.
+
+    A sentence only for `none` and `commands` (design-r2 section 2): a writable
+    review says `publish: denied` alone, and a writable job that may publish (a
+    build) says nothing (#221 review r1b, P3-3).
+    """
     if isinstance(job.get("job"), Mapping):
         job = {**job, **job["job"]}
     attempts = job.get("attempts") or ()
     attempt = job.get("attempt") or (attempts[-1] if attempts else job)
     capability = attempt.get("capability")
     denied = "; publish: denied" if attempt.get("publish_denied") else ""
-    if capability is None:
+    if capability is None or capability == "writable":
         return denied.removeprefix("; ")
     try:
         evidence = json.loads(attempt.get("evidence_json") or "{}")
@@ -100,10 +105,8 @@ def attempt_shell_text(job: Mapping[str, Any]) -> str:
     text = f"ran {sandbox} on {lane} ({model})"
     if capability == "none":
         text += " with no shell: it could not run any command"
-    elif capability == "commands":
-        text += ": commands ran, but nothing could be written, temp files included, so pytest could not run"
     else:
-        text += " with a shell (writable)"
+        text += ": commands ran, but nothing could be written, temp files included, so pytest could not run"
     return text + denied
 
 

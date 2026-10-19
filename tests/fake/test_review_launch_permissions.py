@@ -215,7 +215,7 @@ def test_policy_review_worktree_sees_the_callers_uncommitted_and_untracked_files
     assert "plus the caller's uncommitted changes and untracked files as of submit (2 files)" in prepared
     assert 'none of the caller\'s uncommitted' not in prepared
     lines = finished_notice(service, job)
-    assert lines[-2] == words and lines[-1].startswith('ran workspace-write on ')
+    assert lines[-2:] == [words, 'publish: denied']
 
 
 @pytest.mark.parametrize('cause', ['too-many-bytes', 'too-many-files', 'nested-repository'])
@@ -293,3 +293,36 @@ def test_writable_review_gets_a_review_preamble_and_a_build_keeps_its_own(shell_
     assert review_prompt.startswith(REVIEW_PREAMBLE) and 'Commit each coherent step' not in review_prompt
     assert 'may run tests and write scratch files' in review_prompt and 'Do not commit, push or publish' in review_prompt
     assert build_prompt.startswith(WRITE_PREAMBLE)
+
+
+
+# P3-4: for all three probe cases the daemon gave `"publish_denied": true` and
+# offline JSON gave `1`; offline `list` converted nothing at all.
+@pytest.mark.parametrize('model,sandbox,capability', [
+    ('opus', 'read-only', 'none'), ('sol61', 'read-only', 'commands'), ('sol61', 'workspace-write', 'writable')])
+def test_offline_json_matches_the_daemon_for_launch_flags(shell_state, model, sandbox, capability):
+    import json
+    from subfleet.offline import Offline
+    service, harness = shell_state
+    service.policy.pop('requires', None)
+    if sandbox == 'workspace-write':
+        repository(service, harness)
+    job = service.dispatch('submit', harness.submit_args(task='review', tier='hard', pinned_model=model,
+                                                         sandbox=sandbox))['job_id']
+    service._admit()
+    attempt, = service.store.list_attempts(job)
+    launched(service, attempt)
+    offline = Offline(service.root)
+    daemon_attempt = service.dispatch('show', {'job_id': job})['attempts'][0]
+    offline_attempt = offline.show_job(job)['attempts'][0]
+    assert daemon_attempt['capability'] == offline_attempt['capability'] == capability
+    for key in ('publish_denied', 'has_shell'):
+        assert json.dumps(offline_attempt[key]) == json.dumps(daemon_attempt[key]), key
+    assert daemon_attempt['publish_denied'] is True
+    daemon_job, = [row for row in service.dispatch('list', {})['jobs'] if row['job_id'] == job]
+    offline_job, = [row for row in offline.list_jobs() if row['job_id'] == job]
+    assert offline_job['needs_shell'] is daemon_job['needs_shell'] is False
+    assert offline.show_job(job)['needs_shell'] is False
+    for key in ('publish_denied', 'has_shell'):
+        if key in offline_job and key in daemon_job:
+            assert json.dumps(offline_job[key]) == json.dumps(daemon_job[key]), key

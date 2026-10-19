@@ -24,7 +24,7 @@ from .client import same_process
 from .contracts import READING_TTL_S, Exit, JobState
 from .quota_projection import weekly_projections
 from .store import SCHEMA_VERSION as KNOWN_SCHEMA_VERSION
-from .store import WEEKLY_HISTORY_SQL, notice_rows, weekly_history_params
+from .store import WEEKLY_HISTORY_SQL, notice_rows, shell_flags, weekly_history_params
 
 STORE_NAME = "state.sqlite3"
 RECEIPTS = ("start", "exit")            # C-5.2 receipts beside the store (C-17.5)
@@ -251,7 +251,7 @@ class Offline:
             if row is None:
                 raise LookupError(f"no job {job_id!r} in {self.store_path}")
             job = self._job_dict(row)
-            job["attempts"] = [dict(item) for item in conn.execute(
+            job["attempts"] = [shell_flags(item) for item in conn.execute(
                 "SELECT * FROM attempts WHERE job_id = ? ORDER BY seq", (job_id,))]
             ids = [attempt["attempt_id"] for attempt in job["attempts"]]
             job["artifacts"] = []
@@ -287,11 +287,7 @@ class Offline:
                 job["decision"] = json.loads(decisions["decision_json"])
             except (json.JSONDecodeError, TypeError):
                 job["decision"] = None
-        if "needs_shell" in job:
-            job["needs_shell"] = bool(job["needs_shell"])
         for attempt in job["attempts"]:
-            if attempt.get("has_shell") is not None:
-                attempt["has_shell"] = bool(attempt["has_shell"])
             attempt["receipts"] = self.receipts(job_id, attempt.get("seq"))
         if job.get("attempt_seq"):
             job["receipts"] = self.receipts(job_id, job["attempt_seq"])
@@ -312,7 +308,9 @@ class Offline:
 
     @staticmethod
     def _job_dict(row: sqlite3.Row) -> dict[str, Any]:
-        job = {key: row[key] for key in row.keys()}
+        # The daemon's boolean launch fields (C-12.4), for `show` and `list` alike
+        # (#221 review r1b, P3-4): offline JSON gave 1 where the daemon gave true.
+        job = shell_flags({key: row[key] for key in row.keys()})
         job["duration_s"] = _duration_s(job.get("started_at"), job.get("finished_at"))
         job["model"] = job.get("model_served") or job.get("model_requested")
         job["family"] = job.get("provider")

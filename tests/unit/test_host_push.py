@@ -247,8 +247,9 @@ def test_push_result_precedes_the_final_capability_line(worlds, bundle):
         notice, = world.core.store.list_notices()
         lines = notice["text"].splitlines()
         assert lines[1].startswith("attempt a1: ok")
-        assert lines[-2].startswith("pushed " if bundle else "push failed:")
-        assert lines[-1] == "ran workspace-write on test-lane (astra) with a shell (writable)"
+        # A writable build carries no capability line (P3-3): its push result is last.
+        assert lines[-1].startswith("pushed " if bundle else "push failed:")
+        assert not any(line.startswith("ran ") for line in lines)
 
 
 #: Review P2-2: every spelling of a protected name, compared casefolded and
