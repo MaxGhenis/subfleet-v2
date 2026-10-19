@@ -510,7 +510,7 @@ def test_fake_stopped_holder_returns_69_before_timeout(root, monkeypatch, capsys
     assert "is stopped" in error and "kill -CONT 12345" in error
 
 
-def test_real_stopped_holder_returns_69_before_timeout(stopped_holder, root):
+def test_real_stopped_holder_never_connects(stopped_holder, root):
     """C-5.13 refusal needs one process probe, without a socket timeout budget."""
     with backlog(root) as queued:
         with pytest.raises(DaemonUnavailable) as caught:
@@ -587,12 +587,12 @@ def test_reused_client_probes_are_paced(root, daemon, monkeypatch, holder_clock,
         return rc, output
 
     monkeypatch.setattr(client_module, "_run", observe)
-    server = daemon({op: lambda request: {} for op in ("ping", "wait", "watch", "kill")})
+    server = daemon({op: lambda request: {} for op in ("ping", "wait", "conversation.watch", "kill")})
     probe = Client(root)
-    for op in ("ping", "wait", "watch"):
+    for op in ("ping", "wait", "conversation.watch"):
         probe.call(op)
     probe.call_settled("kill")
-    assert server.ops() == ["ping", "wait", "watch", "kill"]
+    assert server.ops() == ["ping", "wait", "conversation.watch", "kill"]
     assert probes == [0.0, 1.0, 2.0, 3.0]
 
 

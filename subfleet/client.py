@@ -40,6 +40,7 @@ import subprocess
 import time
 import uuid
 from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
@@ -75,6 +76,10 @@ SEND_MET_CLOSE_ERRNOS = frozenset({errno.EPIPE, errno.ESHUTDOWN, errno.ECONNRESE
 START_DAEMON_FIX = "subfleet daemon start"
 #: C-16.7: the first pause before a busy answer's request is sent again.
 BUSY_PAUSE_S = .05
+#: C-5.13: one client's process observations begin at least this far apart,
+#: including failed observations and post-send diagnostics. Sends wait for a
+#: fresh observation rather than using a cached running verdict in this gap.
+HOLDER_PROBE_INTERVAL_S = 1.0
 #: The clock and sleep `Client.call`'s busy retries use; tests replace these.
 _clock = time.monotonic
 _sleep = time.sleep
@@ -284,14 +289,28 @@ def proc_status(pid: int) -> tuple[str | None, str | None]:
     (`S`, `T+`, `Z`, …) and the start time as `ps` rendered it under `PS_ENV`.
     """
     rc, out = _run(["/bin/ps", "-p", str(int(pid)), "-o", "state=,lstart="])
-    if rc < 0:
-        return None, None                # ps itself did not run: unverifiable
-    line = " ".join(out.split())
-    if not line:
+    if not out.strip():
         # rc 1 with no output is "no such process"; anything else is unverifiable.
         return ("", "") if rc == 1 else (None, None)
-    state, _, started = line.partition(" ")
-    return state, started
+    if rc != 0:
+        return None, None                # failed stdout establishes no identity
+    rows = out.strip().splitlines()
+    if len(rows) != 1:
+        return None, None
+    fields = rows[0].split()
+    if (len(fields) != 6 or not re.fullmatch(r"[DIRSTUWXZt][+<NELVWXslt]*", fields[0])
+            or fields[1] not in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+            or fields[2] not in (months := "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split())
+            or not re.fullmatch(r"\d{1,2}", fields[3])
+            or not re.fullmatch(r"\d{2}:\d{2}:\d{2}", fields[4])
+            or not re.fullmatch(r"\d{4}", fields[5])):
+        return None, None
+    try:
+        datetime(int(fields[5]), months.index(fields[2]) + 1, int(fields[3]),
+                 *(int(part) for part in fields[4].split(":")))
+    except ValueError:
+        return None, None
+    return fields[0], " ".join(fields[1:])
 
 
 def is_stopped(state: str | None) -> bool:
@@ -479,7 +498,8 @@ class Client:
         # C-15.6: a hook passes False. The lock check costs a `ps` and a `sysctl`
         # per process, and a hook, run on every Bash call of every session, says
         # nothing whichever way the daemon is down; a refused connect says it.
-        self._checked = not verify_lock
+        self._verify_lock = verify_lock
+        self._holder_probe_started: float | None = None
 
     # --- paths ---------------------------------------------------------------
 
@@ -513,8 +533,14 @@ class Client:
         """The recorded holder's pid, liveness, reason, and `ps` state (C-5.8).
 
         One `ps` per call, the same one the identity check makes, so the
-        stopped-holder question of C-5.13 is answered at no extra cost.
+        stopped-holder question of C-5.13 is answered at no extra cost. A reused
+        client waits for its next probe slot, including after a failed read;
+        it never sends on the strength of a cached running observation.
         """
+        if self._holder_probe_started is not None:
+            due = self._holder_probe_started + HOLDER_PROBE_INTERVAL_S
+            while (remaining := due - _clock()) > 0:
+                _sleep(remaining)
         info = self.lock_info()
         if info is None:
             return None, None, f"there is no {self.lock_path}", None
@@ -523,6 +549,7 @@ class Client:
             pid = int(pid)
         except (TypeError, ValueError):
             return None, None, f"{self.lock_path} records no usable pid", None
+        self._holder_probe_started = _clock()
         alive, reason, state = identity_status(pid, info.get("boot_id"),
                                                info.get("proc_start"))
         return pid, alive, reason, state
@@ -588,13 +615,13 @@ class Client:
         The holder is asked again rather than remembered from `check_available`,
         since it may have been stopped mid-call, and the answer decides what the
         message names and what the fix is. A stopped holder is named with its
-        own fix, and this client forgets its availability check, so its next
-        call (the re-send of C-16.3 included) is refused as `DaemonStopped`
+        own fix, and enables preflight even for a client that opted out, so its
+        next call (the re-send of C-16.3 included) is refused as `DaemonStopped`
         before anything more is written into the paused buffer.
         """
         stopped, holder = self.silence_report()
         if stopped is not None:
-            self._checked = False
+            self._verify_lock = True
             return ResponseLost(f"{why}: {stopped}", op=op, request_id=request_id,
                                 fix=stopped.fix)
         return ResponseLost(why, op=op, request_id=request_id,
@@ -603,21 +630,20 @@ class Client:
     def check_available(self) -> None:
         """Raise `DaemonUnavailable` when the lock says the daemon cannot answer.
 
-        Checked once per client: the check costs a `ps` and a `sysctl`, and a
-        daemon that dies mid-conversation shows up as a refused connection
-        anyway, which is the stronger signal. A stopped holder is caught here
-        rather than on the wire, because it accepts the connection into its
-        backlog and then answers nothing, so the whole timeout would be spent
-        learning what this `ps` already said (C-5.13).
+        Every send gets one fresh state/identity observation, at most one `ps`.
+        `holder_report` paces repeated observations at one-second intervals,
+        so wait/watch/settlement loops cannot spin process probes. Waiting for
+        that slot before sending also closes the cached-running race: a stopped
+        holder accepts into its backlog without answering (C-5.13). Hooks can
+        still explicitly opt out of preflight (C-15.6).
         """
-        if self._checked:
+        if not self._verify_lock:
             return
         pid, alive, reason, state = self.holder_report()
         if alive is False:
             raise DaemonUnavailable(f"{self.lock_path} is stale: {reason}")
         if alive and is_stopped(state):
             raise DaemonStopped(pid, state, self.socket_path)
-        self._checked = True
 
     # --- the wire ------------------------------------------------------------
 

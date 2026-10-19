@@ -2415,18 +2415,20 @@ def _stdin_bytes(stream: Any, wait_s: float) -> bytes | str:
     return b"".join(chunks)
 
 
-def _stdin_message(stream: Any = None, wait_s: float | None = None) -> tuple[str | None, str | None]:
+def _stdin_message(stream: Any = None, wait_s: float | None = None, *,
+                   health_check: bool = False) -> tuple[str | None, str | None]:
     """C-17.8: a finite stdin message, or the reason it could not be read.
 
     Empty EOF remains an empty message: release's ping uses it as a health
-    check. The caller decides whether an empty message is useful to its verb.
+    check. Ping also allows a missing stream or terminal as an empty health
+    check; the isatty observation still goes through the same error handling.
     """
     stream = sys.stdin if stream is None else stream
     if stream is None:
-        return None, "stdin is closed"
+        return ("", None) if health_check else (None, "stdin is closed")
     try:
         if stream.isatty():
-            return None, "stdin is a terminal"
+            return ("", None) if health_check else (None, "stdin is a terminal")
         data = _stdin_bytes(stream, _ping_stdin_wait_s() if wait_s is None else wait_s)
     except (AttributeError, OSError, ValueError, OverflowError) as exc:
         return None, f"stdin could not be read: {exc}"
@@ -2440,10 +2442,8 @@ def cmd_ping(args: argparse.Namespace) -> int:
     target = args.session or session_id()
     if args.text:
         text = " ".join(args.text)
-    elif sys.stdin is None or sys.stdin.isatty():
-        text = ""                                   # at a prompt: a liveness question, not a wait
     else:
-        text, reason = _stdin_message()
+        text, reason = _stdin_message(health_check=True)
         if text is None:
             return fail(Exit.INVALID_INPUT, f"ping: cannot read the message: {reason}",
                         "subfleet ping [--session ID] TEXT; subfleet daemon status checks daemon health")
