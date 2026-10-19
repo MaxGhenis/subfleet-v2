@@ -402,16 +402,19 @@ def test_launch_argv_equals_v1s_line_for_the_same_inputs(adapter, tmp_path, sand
 
 
 def without_publish_hook(argv, *, writable_review: bool) -> tuple:
-    """C-12.4, #221 r1b P1: a writable review launch adds one v2 pair, `--settings`
-    with the publish hook, right after its permission flags; nothing else does."""
+    """C-12.4: a writable review launch adds two v2 pairs right after its
+    permission flags, `--setting-sources user` (#221 r2 P3-6: the reviewed
+    tree's project settings never load) and `--settings` with the publish hook
+    (#221 r1b P1); nothing else does."""
     argv = tuple(argv)
     if not writable_review:
-        assert "--settings" not in argv
+        assert "--settings" not in argv and "user" not in argv
         return argv
     index = argv.index("--settings")
+    assert argv[index - 2:index] == ("--setting-sources", "user")
     hook = json.loads(argv[index + 1])["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
     assert hook.endswith("/publish-bin/review-publish-hook")
-    return argv[:index] + argv[index + 2:]
+    return argv[:index - 2] + argv[index + 2:]
 
 
 def test_isolated_read_only_matches_v1s_isolated_permission_args(adapter):

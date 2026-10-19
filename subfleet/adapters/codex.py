@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from ..contracts import launch_capability
-from ..review_publish import protect_launch, publishing_denied
+from ..review_publish import codex_environment_overrides, protect_launch, publishing_denied
 
 import base64
 import json
@@ -587,6 +587,10 @@ class CodexAdapter(Adapter):
             argv += ["-c", "features.unified_exec=false"]
         if guard_override and not job.isolated_review:
             argv += ["-c", guard_override if guard_override.startswith("hooks=") else f"hooks={guard_override}"]
+        if publishing_denied(job):
+            # C-12.4, #221 review r2 P3-3: the git denial and the marker, pinned in
+            # Codex's own shell environment so a lane's policy cannot drop them.
+            argv += codex_environment_overrides()
         argv += ["--output-last-message", str(attempt_dir / "last.md")]
         if session_id:
             argv += ["resume", session_id, "-"]

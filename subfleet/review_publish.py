@@ -61,6 +61,28 @@ def publishing_denied(job: JobSpec) -> bool:
     return job.task == "review" or job.kind == "gate-review"
 
 
+def pinned_environment() -> dict[str, str]:
+    """The variables every publish-denied launch sets: the git denial and the marker."""
+    return {**GIT_DENIAL, PUBLISH_MARKER: "1"}
+
+
+def codex_environment_overrides() -> list[str]:
+    """`-c shell_environment_policy.set.<name>=<value>` for each pinned variable (#221 review r2, P3-3).
+
+    Codex hands a command the environment its `shell_environment_policy`
+    builds, so a lane config with `inherit="core"` (or an exclude) dropped the
+    git denial, and real `codex sandbox` 0.159.0 then pushed to a local bare
+    repo. `set` is applied after inheritance and excludes, so these hold
+    whatever the lane's policy says. Each is a dotted key, which leaves any
+    other `set` entry the lane has in place.
+    """
+    overrides: list[str] = []
+    for name, value in pinned_environment().items():
+        text = value.replace("\\", "\\\\").replace('"', '\\"')
+        overrides += ["-c", f'shell_environment_policy.set.{name}="{text}"']
+    return overrides
+
+
 def wrapper_main(tool: str, target: str | None) -> None:
     args = sys.argv[1:]
     allowed = not git_publishes(args) if tool == 'git' else gh_read(args)
@@ -115,19 +137,36 @@ def publish_hook(state_root: Path) -> str:
 
 
 def claude_settings_args(job: JobSpec, sandbox: str, attempt_dir: Path) -> list[str]:
-    """`--settings` with the publish hook for a writable Claude review launch (C-12.4).
+    """`--setting-sources user` and `--settings` with the publish hook, for a
+    writable Claude review launch (C-12.4).
 
     A read-only Claude launch has no Bash tool and runs with `--safe-mode`,
     which turns hooks off, so it gets none. The entry has no matcher: every
     tool call whose input carries a `command` is judged.
+
+    `--setting-sources user` keeps the user's own settings (the never-rules
+    guard's hook) and drops the reviewed tree's `.claude/settings.json` and
+    `settings.local.json`, which could add hooks the rule never sees or set
+    `disableAllHooks` (#221 review r2, P3-6). The `--settings` hook still
+    loads: Claude Code 2.1.284 always adds `flagSettings` (the `--settings`
+    source) and `policySettings` to the enabled sources, whatever
+    `--setting-sources` names (its `fs()`; `docs/reference/claude-help.txt`'s
+    `--restricted` entry says the same: "managed settings and --settings still
+    apply"). The launch self-test (`hook_self_test`) runs the hook itself; that
+    Claude loads it is shown by those references, not by a Claude run.
     """
     if not publishing_denied(job) or sandbox != Sandbox.WORKSPACE_WRITE.value:
         return []
-    from .guard.preflight import _hook_command
-    command = _hook_command(install_hook(Path(attempt_dir) / 'publish-bin'))
+    command = hook_command(install_hook(Path(attempt_dir) / 'publish-bin'))
     settings = {"hooks": {"PreToolUse": [{"hooks": [
         {"type": "command", "command": command, "timeout": CLAUDE_HOOK_TIMEOUT_S}]}]}}
-    return ["--settings", json.dumps(settings, separators=(",", ":"))]
+    return ["--setting-sources", "user", "--settings", json.dumps(settings, separators=(",", ":"))]
+
+
+def hook_command(path: Path) -> str:
+    """The shell command that runs the hook at `path` (the guard's quoting)."""
+    from .guard.preflight import _hook_command
+    return _hook_command(path)
 
 
 def protect_launch(job: JobSpec, launch: Launch, attempt_dir: Path) -> Launch:
@@ -146,6 +185,7 @@ def protect_launch(job: JobSpec, launch: Launch, attempt_dir: Path) -> Launch:
         atomic_publish(directory / tool, script.encode())
         (directory / tool).chmod(0o555)
     return replace(launch,
-        env_add={**launch.env_add, **GIT_DENIAL, PUBLISH_MARKER: '1',
+        env_add={**launch.env_add, **pinned_environment(),
                  'PATH': str(directory) + os.pathsep + path},
         notes={**launch.notes, 'publish_denied': True})
+

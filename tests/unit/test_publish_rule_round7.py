@@ -372,3 +372,88 @@ def test_the_rule_never_raises_on_deep_nesting():
     assert command_refusal(f"r() {{ \"$@\"; }}; r {'x ' * 3000}") is None
 
 
+
+# P3-3: the git denial and the marker are pinned in every review launch:
+# Codex in `shell_environment_policy.set` (applied after the lane's inherit
+# and excludes), Claude in its launch environment.
+def codex_pins(argv):
+    import tomllib
+    argv = list(argv)
+    pins = [argv[at + 1] for at, arg in enumerate(argv[:-1])
+            if arg == '-c' and argv[at + 1].startswith('shell_environment_policy.set.')]
+    return pins, {pin.split('=', 1)[0].rsplit('.', 1)[1]: tomllib.loads('v=' + pin.split('=', 1)[1])['v']
+                  for pin in pins}
+
+
+@pytest.mark.parametrize('kind', ['dispatch', 'resume'])
+@pytest.mark.parametrize('sandbox', ['read-only', 'workspace-write'])
+def test_every_codex_review_launch_pins_the_git_denial_in_its_shell_environment(tmp_path, kind, sandbox):
+    from subfleet.review_publish import GIT_DENIAL
+    launch = protected(tmp_path, provider='codex', sandbox=sandbox, kind=kind)
+    _pins, values = codex_pins(launch.argv)
+    assert values == {**GIT_DENIAL, 'SUBFLEET_PUBLISH_DENIED': '1'}
+    assert {name: launch.env_add[name] for name in values} == values
+
+
+def test_claude_review_launches_and_builds_pin_as_before(tmp_path):
+    from subfleet.review_publish import GIT_DENIAL
+    claude = protected(tmp_path, provider='claude')
+    assert {name: claude.env_add[name] for name in (*GIT_DENIAL, 'SUBFLEET_PUBLISH_DENIED')} == {
+        **GIT_DENIAL, 'SUBFLEET_PUBLISH_DENIED': '1'}
+    (tmp_path / 'build').mkdir()
+    build = protected(tmp_path / 'build', provider='codex', task='build')
+    assert codex_pins(build.argv) == ([], {}) and 'GIT_ALLOW_PROTOCOL' not in build.env_add
+
+
+CODEX = shutil.which('codex')
+
+
+@pytest.mark.skipif(not CODEX, reason='the real Codex CLI is not installed here')
+def test_real_codex_sandbox_keeps_the_git_denial_under_inherit_core(tmp_path):
+    """Review r2's P3-3 case, with real `codex sandbox` 0.159.0 and a scratch
+    CODEX_HOME: under a lane's `shell_environment_policy.inherit="core"` the
+    three variables were absent and `git push` to a local bare repo landed.
+    With the launch's own `-c` pins the push is refused."""
+    version = subprocess.run([CODEX, '--version'], capture_output=True, text=True, timeout=60).stdout
+    if '0.159' not in version:
+        pytest.skip(f'this case was measured on codex-cli 0.159; installed: {version.strip()}')
+    launch = protected(tmp_path, provider='codex')
+    pins, _values = codex_pins(launch.argv)
+    git = shutil.which('git')
+    work = Path(launch.cwd)
+    subprocess.run([git, 'init', '-q', str(work)], check=True)
+    subprocess.run([git, '-C', str(work), '-c', 'user.name=Fixture', '-c', 'user.email=fake@example.org',
+                    'commit', '-q', '--allow-empty', '-m', 'baseline'], check=True)
+    bare = work / 'remote.git'
+    subprocess.run([git, 'init', '-q', '--bare', str(bare)], check=True)
+    (tmp_path / 'codex-home').mkdir()
+    env = {'PATH': os.environ['PATH'], 'HOME': str(tmp_path), 'CODEX_HOME': str(tmp_path / 'codex-home'),
+           **{name: value for name, value in launch.env_add.items() if name not in ('PATH', 'CODEX_HOME')}}
+    base = [CODEX, 'sandbox', '-c', 'sandbox_mode="workspace-write"', '-c', 'shell_environment_policy.inherit="core"']
+    push = ['--', '/bin/sh', '-c', f'{shlex.quote(git)} push {shlex.quote(str(bare))} HEAD:refs/heads/probe']
+
+    def landed():
+        return subprocess.run([git, 'ls-remote', str(bare)], capture_output=True, text=True).stdout
+
+    subprocess.run(base + push, cwd=work, env=env, capture_output=True, text=True, timeout=120)
+    assert 'refs/heads/probe' in landed(), 'the harness reproduces review r2: the policy dropped the denial'
+    subprocess.run([git, '-C', str(bare), 'update-ref', '-d', 'refs/heads/probe'], check=True)
+    pinned = subprocess.run(base + [word for pin in pins for word in ('-c', pin)] + push, cwd=work, env=env,
+                            capture_output=True, text=True, timeout=120)
+    assert "transport 'file' not allowed" in pinned.stderr, pinned.stderr[-2000:]
+    assert landed() == ''
+
+
+# P3-6: a writable Claude review loads only the user's settings and the hook.
+@pytest.mark.parametrize('kind', ['dispatch', 'resume'])
+def test_writable_claude_review_loads_only_user_settings_and_the_publish_hook(tmp_path, kind):
+    launch = protected(tmp_path, provider='claude', kind=kind)
+    argv = list(launch.argv)
+    at = argv.index('--settings')
+    assert argv[at - 2:at] == ['--setting-sources', 'user'] and argv.count('--setting-sources') == 1
+    for name, changes in (('ro', {'sandbox': 'read-only'}), ('build', {'task': 'build'})):
+        (tmp_path / name).mkdir()
+        other = list(protected(tmp_path / name, provider='claude', kind=kind, **changes).argv)
+        assert '--settings' not in other
+        assert other[other.index('--setting-sources') + 1] == '' if name == 'ro' else '--setting-sources' not in other
+
