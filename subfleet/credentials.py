@@ -113,7 +113,8 @@ def _launch_targets(event: str, details: tuple, *, _find_program=_find_program,
         return ["security"]
     if event == "subprocess.Popen":
         executable, _argv, cwd, env = details
-        return [_find_program(executable, os.get_exec_path(env), cwd)]
+        # Popen searches PATH only for a bare name: a path never reads env's PATH.
+        return [_find_program(executable, None if os.path.dirname(name) else os.get_exec_path(env), cwd)]
     if event == "os.posix_spawn":
         # One event serves both: posix_spawnp searches the caller's PATH, and
         # posix_spawn takes the path as given.
@@ -340,18 +341,21 @@ def _exec_guard(pins: list[tuple[str, str]], *, system_dirs=_SYSTEM_BINARY_DIREC
               _matches=_is_keychain_binary, _active=_guard_active, _native=native,
               _unsafe=_unsafe_delegation, _alive=session_alive,
               _system=system_dirs, _recorders=recorder_dirs):
-        if event not in _events:
+        if event not in _events or not _active(pins):
             return
         try:
             def recorders():
                 return _recorders + tuple(os.path.join(base, "keychain-bin")
                                            for base, token in list(pins) if _alive(base, token))
-            refused = _active(pins) and _unsafe(event, details, recorders, system_dirs=_system)
-            starts = [] if refused else [target for target in _targets(event, details) if target is not None]
-        except (OSError, TypeError, ValueError):
-            return  # Arguments the launch itself rejects before starting anything.
-        if (refused or any(target == "security" or _matches(target, _native)
-                           for target in starts)) and _active(pins):
+            refused = (_unsafe(event, details, recorders, system_dirs=_system)
+                       or any(target == "security" or _matches(target, _native)
+                              for target in _targets(event, details) if target is not None))
+        except Exception:
+            # A launch whose check cannot finish is refused (C-20.6). The launch
+            # may reject the same arguments, but a later audit hook can change
+            # them first, as it can change PATH.
+            refused = True
+        if refused:
             raise KeychainExecRefused(_REFUSAL, code=7, fix=_REFUSAL_FIX, reason="keychain-test-guard")
 
     return guard
@@ -362,8 +366,9 @@ def install_keychain_exec_guard() -> bool:
 
     Bare `security` names (NFD/casefold/NFD) are refused independently of PATH,
     including PATH changes by later audit hooks. Explicit paths retain
-    folded-path and identity checks. The test session puts a recording
-    `security` first on PATH.
+    folded-path and identity checks. A launch searches PATH only for a bare
+    name, as Popen does. The test session puts a recording `security` first on
+    PATH.
 
     It also refuses a launch of sh, bash, zsh, dash, ksh, csh, tcsh, env, xargs,
     nice, nohup, taskpolicy, time, script, caffeinate, lockf or arch whose child
@@ -373,8 +378,8 @@ def install_keychain_exec_guard() -> bool:
     child's PATH and -C's directory, and arch's -c, -d and -e. It compares
     spellings without probing a directory: leading slashes collapsed, dot
     segments resolved, case and Unicode folded. A `~` entry, an env -S string
-    using `$`, `\\` or `#`, and any other wrapper launch whose check cannot
-    finish are refused. Outside C-20.6 (D-ST1): other PATH-searching programs,
+    using `$`, `\\` or `#`, and any other launch whose check cannot finish are
+    refused. Outside C-20.6 (D-ST1): other PATH-searching programs,
     such as find -exec and interpreters; a wrapper run under another name; path
     aliases, such as a symlink to /usr/bin; PATH changes made inside the shell,
     by a shell string or a login shell's profile; and deliberate absolute reader
