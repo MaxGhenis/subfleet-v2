@@ -4,6 +4,9 @@
 `20261019-002120-relay-barrier-build`, for the branch `fix/relay-barrier-bound-217`.
 Not pushed; the hub opens the PR.
 
+Round 2, for #236's review r1 (P2: the cleanup after the cut was unbounded), is
+section 4.
+
 | Commit | What |
 |---|---|
 | `aab0dee5b` | test: a retained stdin reader cannot hold the relay's stop |
@@ -338,3 +341,378 @@ plugin that parametrizes every test ten times. All 60 passed, at load average 13
   which is `/dev/null` under the daemon. A durable home, such as a guardian log in the
   attempt directory or a field on `exit.json`, would need its own contract change. The
   `failed`/`ECANCELED` record already keeps the fact for a cut write.
+
+## 4. Round 2: the whole stop is bounded (#236 review r1, P2)
+
+2026-10-19, Subfleet job `20261019-014133-pr236-fix2`, on `fix/relay-barrier-bound-217` at
+`9ec7c87fb`. Not pushed. `release/217` had not moved: the shared repository's
+`origin/release/217` is still `d72597b5c` (the job fetches nothing), so there was no merge.
+
+| Commit | What |
+|---|---|
+| `9ff9535eb` | test: a stalled journal record cannot hold the relay's stop |
+| `5151cf5ec` | test: the journal-order property ends when stop overruns its bound |
+| `1acabee7f` | fix: the whole stop is bounded; journal records never hold the pipe lock (C-26.4 amended) |
+| `2faf4478f` | test: the journal-order property stalls more of its generated examples |
+| `e4a1a78d8` | docs: say what stop's cleanup waits on, as measured |
+| this commit | this section |
+
+### The cause, as executed
+
+The review's input: a 2 MiB frame, the child exited, a stdin reader kept and never read,
+and the fsync of the cut frame's `failed` record held. A probe (`probe_stop.py`, in the
+job's scratch, removed) ran it against the real `RelayServer`, with that fsync held by a
+patched `os` and released at 4 s:
+
+| Code | `stop` took | fsync still held when it returned |
+|---|---|---|
+| `9ec7c87fb`, 2 runs | 4.02 s, 4.15 s | no: it returned only once the fsync was released |
+| this branch, 5 runs | 2.15 to 2.29 s | yes, every run |
+
+At `9ec7c87fb`, `stop` cut the exchange at its bound and joined the thread for its 1 s.
+It then called `_close_pipe`, which takes `_lock` (`relay.py:299` at `9ec7c87fb`).
+`apply` held `_lock` from `relay.py:385` to its return. That included the `_append` of
+the failure record (439) and that record's `os.fsync` (469). The guardian publishes
+`exit.json` only after `stop` returns (`guardian.py:208-243`), so the receipt waited for
+the fsync too. The new process test fails there at `9ec7c87fb`: "no exit.json while the
+journal fsync was held".
+
+### The lock split (`subfleet/relay.py`)
+
+| Lock | Held by | For |
+|---|---|---|
+| `_exchange_lock` (unchanged) | the connection's reader | a read, its application and its reply |
+| `_journal_lock` (new, 197) | `apply`, from its duplicate and gap checks to its return (429); `status` (405) | every `stdin.jsonl` record, `_records`, `_closed` |
+| `_pipe_lock` (was `_lock`, 198) | `_write_line`, called under it (471); `_close_pipe` (340) | the pipe's descriptor: a write or the close |
+
+- **No record holds the pipe lock.** Every `_append` call is inside the journal lock and
+  outside the pipe lock. The pipe lock is taken only around the pipe write and inside
+  `_close_pipe`. The close frame now closes stdin through `_close_pipe` (464).
+- **The rename.** `_lock` became `_pipe_lock` because what it covers shrank. Two
+  turn-runner tests named it to stand in for "`apply` holds it for the whole frame".
+  They now hold `_journal_lock`, which is that lock now.
+- **Lock order:** exchange, then journal, then pipe. Stop's cleanup takes only the pipe
+  lock, and `status` takes only the journal lock. No path takes them the other way round.
+
+**Why no reader can see a record in a new order.**
+
+- **One writer.** `_append` is the only code that writes `stdin.jsonl`. `log_path` is
+  opened only there (509); the constructor only reads the file through `read_log` (189).
+- **Under one lock.** It is called at six sites, all in `apply` and all inside the
+  journal lock, which `apply` holds for the whole frame. No `_append` call moved and no
+  record's fields changed. So the records are still written one frame at a time: an
+  intent, then its outcome, before the next frame's intent.
+- **Durability is unchanged.** `_append` still opens with `O_APPEND`, writes one line,
+  fsyncs and closes, for every record.
+- **The new interleavings write no record.** The only new one is stop's cleanup closing
+  the pipe in the middle of a frame:
+  - Between a frame's intent and its pipe write: the write finds `_pipe` is `None`, raises
+    `ECANCELED` (498), and the frame is logged `failed`. That is the same record sequence
+    as a cut write.
+  - Between the pipe write and its outcome: the whole line is already in the pipe, and the
+    frame is logged `written`.
+  - For a close frame: if the cleanup closed stdin first, `_close_pipe` finds nothing to
+    close, and the frame is logged `written`. Stdin is closed either way.
+
+The readers, each through `read_log`, which accepts only intent(n), outcome(n), intent(n+1)
+and so on:
+
+- **A relay resuming an attempt's log:** `RelayServer.__init__`.
+- **The runner's handshake:** `_load_log` (`runner.py:644`), read after `status`. That
+  `status` still takes the lock `apply` holds for the frame, so "the log read afterwards
+  is final" (`_handshake`) still holds.
+- **The runner's steer check:** `steer_written` (`runner.py:265`).
+- **Reconciliation:** `frame_status` (`reconcile.py:243`). It also requires every line to
+  be accounted for: one per pending frame, two per finished one.
+- **Replay:** the service's replay (`service.py:2846`) goes through the runner's
+  `_load_log`.
+
+The sequence they read is the base's, so none can see a record in a new order.
+
+**What does change is timing, past the bound.** `exit.json` can now come before the cut
+frame's outcome is on disk:
+
+- **A held write:** the record is not there yet, and a reader finds the frame `pending`.
+- **A held fsync:** the record is there but not durable, and a reader finds it `failed`.
+
+Neither changes a verdict:
+
+- `decide` (`reconcile.py:119`) answers unknown for any frame state but `absent`, unless
+  the frame was acknowledged or a native record was found.
+- `_load_log` counts anything but `written` as not written.
+- A guardian killed mid-write already left `pending`.
+
+If the guardian exits with the record still held, the record ends as a guardian killed at
+that moment would leave it.
+
+### The whole bound, and the paths checked
+
+`stop` returns within `REPLY_TIMEOUT_S` + `JOIN_TIMEOUT_S` + `CLEANUP_TIMEOUT_S`: 1 + 1 + 1 =
+3 s. The steps, with what each can wait on:
+
+| Step | Thread | Can wait on | Bound |
+|---|---|---|---|
+| set the stop flag, shut the read half | `stop` | nothing found: a shutdown took 6 to 7 µs with a send or a receive blocked on the socket (probe below) | none needed |
+| the exchange barrier | `stop` | the exchange | `REPLY_TIMEOUT_S` (unchanged) |
+| the cut: shut each half, set the cut flag | `stop` | nothing found (as above) | none needed |
+| the relay thread join | `stop` | the relay thread: a record's write or fsync, a connection's close | `JOIN_TIMEOUT_S` (71), the 1 s that was a literal |
+| close the listening socket | cleanup | nothing found: 9 µs with a connection waiting in the backlog, 18 µs with another thread in `accept` | `CLEANUP_TIMEOUT_S` (72), for the four cleanup steps together |
+| close the pipe | cleanup | the pipe lock, held only by a pipe write; after a cut, a write lets go within `WRITE_POLL_S` | the same |
+| log the cut line (moved here from the cut) | cleanup | stderr: `/dev/null` under the daemon (`daemon.py:7711-7714`), otherwise whatever started the guardian | the same |
+| unlink the socket file | cleanup | the file system of the state root, which also holds the journal | the same |
+
+**Why a cleanup thread.** An unlink and a log write can't be given a timeout on the calling
+thread. One thread with one bounded wait covers all four steps.
+
+**The pipe lock.** The cleanup's wait for the pipe lock has no timeout, but `stop`'s wait
+for the cleanup does. If the lock can't be had in time, `stop` returns and leaves the
+descriptor open, as the hub decided. The cleanup then closes it as soon as the write lets
+go, or the guardian's exit closes it. The steps are ordered so that the one that touches
+the disk comes last, and a failure in one step does not skip the next.
+
+**The fallbacks.**
+
+- **No thread to be had:** if the cleanup thread can't start (`RuntimeError`), `stop`
+  cleans up inline, unbounded, as before.
+- **A second `stop`:** it waits, within the bound, for the first one's cleanup.
+- **Concurrent `stop` calls:** not supported. The guardian calls `stop` once.
+
+**A side effect.** At `9ec7c87fb`, an `OSError` from the listening socket's close, or from
+an unlink failing for a reason other than a missing file, came out of `stop`. In the
+guardian, `stop` runs inside `except OSError` (`guardian.py:196-223`). Such an error would
+have published `rc` 127 with a `spawn_error`, in place of the child's own status. The
+cleanup now absorbs it.
+
+**The probe** (`probe_sock.py`, in scratch, removed), on this host:
+
+- `shutdown(SHUT_RD)` took 6 µs and `SHUT_WR` 3 µs, with another thread blocked in
+  `sendall` into a full buffer; that sender then failed with EPIPE.
+- With a thread blocked in `recv`, they took 7 µs and 1 µs, and the receiver got end of
+  stream.
+- Closing a listening socket with a connection in its backlog took 9 µs, and the waiting
+  client read end of stream.
+- Closing a listening socket while another thread waited in `accept` took 18 µs. That
+  thread was not woken; it waited out its own timeout. The relay's accept loop looks at
+  the stop flag every 0.25 s and stops on the closed socket.
+
+**The guardian after `stop` (code read):**
+
+- `guardian.py:199` makes the pipe with `os.pipe()`, whose descriptors are not inherited.
+  The child gets only the read end (201), and the guardian then closes that (206).
+- The write end goes to `relay.serve` (208). The guardian's own code never uses it again.
+- `relay.stop()` runs in a `finally` (211). The exit receipt is published after it
+  (236-243), then `linger()` runs (245-246), and `main` returns, so the process exits.
+
+So once `stop` returns, only the relay's own threads can write to that descriptor:
+
+- **The relay thread:** `_write_line` looks at the cut flag before every `os.write`, so
+  at most one non-blocking write already past that look can land.
+- **No new frame:** none can begin. The stop flag is set, the connection is shut, and the
+  listening socket is closed.
+
+`linger` (D-CEN1) can keep a disclaimed guardian alive after `exit.json` for as long as
+its descendants live, and the retained reader can be one of them. That is why the cleanup
+closes the descriptor as soon as the pipe lock is free, rather than leaving it to the exit.
+
+### The contract
+
+C-26.4 now states:
+
+- the whole bound and its three parts;
+- the cleanup thread and its steps;
+- the journal lock, held for the whole frame and never under the pipe lock, and what that
+  keeps: record order, fsyncs, and `status` waiting for a frame;
+- that a write finding the pipe closed by the cleanup is logged `failed` with ECANCELED;
+- what a reader finds when `exit.json` comes before the cut frame's outcome is durable.
+
+The relay-thread join budget is no longer said to be `REPLY_TIMEOUT_S`; it is
+`JOIN_TIMEOUT_S`, with the same 1 s value. The change-log entry is under "Changes in
+version 3", above round 1's.
+
+### New tests
+
+- `tests/relay_stalls.py` (a helper, not a test module): the stall points.
+  - `StallingOs` stands in for the `os` that `subfleet.relay` calls. It holds a pipe write,
+    a journal record's write or fsync (chosen by the record's `kind` and `seq`), or the
+    unlink.
+  - `StallingServer` holds the listening socket's close, or each accepted connection's
+    close.
+  - `Gate` holds threads of the test's own process; `FileGate` holds a guardian in a child
+    process.
+- `tests/unit/test_relay.py`:
+  - `test_a_stalled_failure_record_cannot_hold_stop[journal-fsync]` and `[journal-write]`:
+    the review's input. While the record's fsync or write is held, `stop` returns within
+    3 s plus a 0.5 s margin. By then it has closed the pipe (the reader holds a strict
+    prefix, then end of file) and unlinked the socket, and the client reads end of stream.
+    The journal shows the frame `failed` (held fsync) or `pending` (held write). Once
+    released: `failed`, ECANCELED, and the cut is logged once. Both fail at `9ec7c87fb`:
+    "a stalled journal-fsync (journal-write) of the failure record held stop past its
+    bound".
+  - `test_stop_returns_within_its_bound_whatever_stalls`: the property. It ranges over:
+    - the stall point: none, a pipe write, a journal write, a journal fsync, the
+      connection's close, the listening socket's close, the unlink;
+    - the record held: the intent, the outcome, or a `failed` one;
+    - frame size, and how much the reader drains;
+    - when the stall ends: a fraction of the bound, or only after `stop` returns.
+
+    What it checks:
+    - `stop` returns within the bound;
+    - the pipe is closed when it returns, unless a pipe write or the listening socket's
+      close is held;
+    - once released, nothing is left behind;
+    - `written` holds exactly when the reader got the whole line, and otherwise the frame
+      is `failed` (ECANCELED) with a strict prefix read;
+    - only a `written` frame is acknowledged.
+
+    It has 8 explicit examples, one per stall point and two for the review's record, plus
+    16 derandomized generated ones. The bounds are patched to 0.25, 0.5 and 0.5 s. In the
+    generated examples every stall point was held at least once. Their frames ended
+    `written` 81% and `failed` 19% of the time. At `9ec7c87fb`, 7 of the 8 explicit
+    examples fail ("stop past its bound"). The one that passes holds the connection's
+    close, which the base's join already bounded.
+  - `test_status_waits_for_the_frame_whose_outcome_is_being_logged`: while a frame's
+    `written` record is being fsynced, `status` does not answer. When it does, it reports
+    the frame applied, and the log shows `written`. This pins kept behaviour, so it passes
+    at `9ec7c87fb`. The `status-under-pipe-lock` mutant fails it.
+  - `test_the_journal_keeps_its_order_whatever_stop_does`: the order property. It runs any
+    sequence of writes (some over the 64 KiB inline limit), closes, signals, resends and
+    gaps, with `stop` closing the pipe while a chosen frame's intent or outcome fsync is
+    held, or racing the frames. It checks:
+    - every line is a record, in the order intent(n), outcome(n);
+    - none is left pending, and every line is accounted for;
+    - a new relay resumes at the same count;
+    - the pipe holds exactly the written frames' lines, in order;
+    - only written frames are acknowledged.
+
+    It has 3 explicit examples (between intent and write, between write and outcome, a close
+    frame) and up to 25 generated ones. Hypothesis's statistics counted 30 generated runs, 7
+    of which stalled. It fails at `9ec7c87fb` on all
+    3 explicit examples ("a held journal fsync held stop past its bound").
+- `tests/process/test_guardian_relay.py`:
+  - `test_a_stalled_journal_fsync_cannot_hold_the_exit_receipt`: a real guardian whose
+    `subfleet.relay` has the `failed` record's fsync held (a `FileGate`). The provider
+    exits while a 2 MiB frame waits and a background process it started keeps stdin
+    unread. While the fsync is still held, the guardian publishes `exit.json` with `rc` 0.
+    The journal shows `failed`, ECANCELED, the client gets `RelayError`, and the socket is
+    gone. It fails at `9ec7c87fb`: "no exit.json while the journal fsync was held".
+  - The existing retained-reader test now shares its setup (`_parked_guardian`,
+    `_send_2mib`, `_end_parked_guardian`) with the new one. Its assertions are unchanged.
+- `tests/unit/test_turn_runner.py`: the two tests that stand in for a frame in flight now
+  hold `_journal_lock`.
+
+### Runs
+
+One pytest process per hold of the shared lock, in-process with a 1140 s alarm, no xdist.
+Unless marked otherwise, on GIL CPython 3.14.7 (`/opt/homebrew/bin/python3.14`;
+`sys._is_gil_enabled()` is True). `uv sync` first picked the free-threaded 3.14.7t, so the
+venv was rebuilt on the GIL build before any hold.
+
+- **The final code:** hold 1 ran at `e4a1a78d8`, the last commit that changes code or
+  tests.
+- **The other holds:** holds 2 to 5 ran at `1acabee7f`. Commits after it change only
+  docstrings, and `test_relay.py`'s generator and one docstring. Hold 1 covers
+  `test_relay.py`.
+
+| Hold | File | Passed | Failed | Skipped |
+|---|---|---:|---:|---:|
+| 1 | `tests/unit/test_relay.py` | 22 | 0 | 0 |
+| 1 | `tests/unit/test_turn_runner.py` | 76 | 0 | 0 |
+| 1 | `tests/unit/test_guardian.py` | 12 | 0 | 0 |
+| 1 | `tests/process/test_guardian_relay.py` | 6 | 0 | 0 |
+| 2 | `tests/unit/test_conversation_service.py` | 98 | 0 | 0 |
+| 2 | `tests/e2e/test_conversations.py` | 29 | 0 | 15 |
+| 3 | `tests/unit/test_cpu_scaling.py` | 2 | 0 | 0 |
+| 3 | `tests/unit/test_sessions_handoff.py` | 117 | 0 | 0 |
+| 3 | `tests/unit/test_sessions_handoff_excerpts.py` | 153 | 0 | 0 |
+| 4 | `tests/fake/test_state_contract.py` | 37 | 0 | 0 |
+| 4 | `tests/unit/test_test_module_names.py` | 1 | 0 | 0 |
+| 5 | `tests/unit/test_turn_replay.py` | 33 | 0 | 0 |
+| 5 | `tests/unit/test_title_review_regressions.py` | 4 | 0 | 0 |
+| 5 | `tests/unit/test_conversation_titles.py` | 89 | 0 | 0 |
+| 5 | `tests/unit/test_legacy_hold.py` | 56 | 0 | 0 |
+| 5 | `tests/unit/test_steer_invariants.py` | 248 | 0 | 0 |
+| 5 | `tests/fake/test_interactive_steer.py` | 13 | 0 | 0 |
+| 5 | `tests/unit/test_conversation_reconcile.py` | 36 | 0 | 0 |
+| 5 | `tests/unit/test_invariants_index.py` | 25 | 0 | 0 |
+| 5 | `tests/unit/test_desktop_ledger.py` | 4 | 0 | 0 |
+| 5 | `tests/unit/test_retention_turn_contract.py` | 2 | 0 | 0 |
+| 5 | `tests/unit/test_live_store_guard_round8.py` | 100 | 0 | 0 |
+| 3.12.14 | `tests/unit/test_relay.py` | 22 | 0 | 0 |
+| 3.12.14 | `tests/process/test_guardian_relay.py` | 6 | 0 | 0 |
+| 3.12.14 | `tests/unit/test_guardian.py` | 12 | 0 | 0 |
+| 3.12.14 | `tests/unit/test_turn_runner.py` | 76 | 0 | 0 |
+
+- **Holds 1 to 4** are the brief's.
+- **Hold 5** is extra:
+  - every other test file that builds a `RelayServer`;
+  - every test that reads `docs/acceptance-contract.md`.
+- **The 3.12.14 hold** ran at `1acabee7f`. A later 3.12.14 hold of the two properties at
+  `1acabee7f`, which recorded the Hypothesis events above, also passed.
+- **The whole suite was collected** in its own hold at `e4a1a78d8`: 15007 tests (round 1's
+  15001 plus the 6 new), no collection error.
+
+**At `9ec7c87fb`.** These ran at commit `9ff9535eb`'s tests on `9ec7c87fb`'s code, with
+`JOIN_TIMEOUT_S` and `CLEANUP_TIMEOUT_S` added as names only. Nothing in that code reads
+them; the new tests need the names to compute the bound. Two holds:
+
+1. **`test_relay.py` and the process file.** Failed: both stalled-record regressions and
+   the stall property (7 of 8 explicit examples). Passed: the status test and the 17
+   existing relay tests.
+   - The journal-order test hung there. Its `stop` ran on the test thread and waited for
+     the very fsync the test released after it.
+   - The hold's alarm ended that run at 1140 s, before the process file ran.
+   - `5151cf5ec` runs that `stop` on a thread with its bound, as the other stall tests do.
+2. **The order test, the status test and the process file**, at `5151cf5ec`'s tests.
+   Failed: the order test (3 of 3 explicit examples) and the new process test. Passed:
+   the status test and the 5 existing process tests.
+
+### Mutations
+
+Each mutant was built in a scratch copy of HEAD (`git archive`) and run in its own hold
+over `tests/unit/test_relay.py` and `tests/process/test_guardian_relay.py`. The worktree was
+never mutated, and the copies were removed.
+
+| Mutant | Change | Tests that failed (all others passed) |
+|---|---|---|
+| `fsync-under-pipe-lock` (the brief's) | `_append` takes `_pipe_lock` around its write and fsync | both stalled-record regressions ("stop left the socket file": the cleanup could not take the pipe lock, so the unlink after it never ran); the stall property, 4 explicit examples ("the relay left the pipe's write end open"); the process test (the socket file was left) |
+| `unbounded-cleanup-wait` | `cleanup.join()` without a timeout | the stall property, 3 explicit examples (`unlink` first: "stop past its bound") |
+| `cleanup-inline` | `stop` runs the cleanup on its own thread, as before | the stall property, 3 explicit examples, the same way |
+| `unbounded-join` | `self._thread.join()` without a timeout | both stalled-record regressions, the stall property (6 explicit examples) and the process test |
+| `status-under-pipe-lock` | `status` takes `_pipe_lock` | the status test ("status answered before the frame's outcome was durable") |
+| `no-closed-pipe-check` | `_write_line` no longer treats a closed pipe as cancelled | the order test, on the explicit example that closes the pipe between frame 2's intent and its write: the write raised `TypeError`, so frame 2 stayed `pending` (3 lines, 2 records) |
+
+### Repetition
+
+The 13 stop-related tests in `test_relay.py` and the process file ran ten times each in one
+hold, through a scratch plugin that parametrizes every test ten times. All 130 passed, at
+load average 10 to 16.
+
+| Test | Duration over 10 runs |
+|---|---|
+| a stalled failure record, `[journal-fsync]` and `[journal-write]` | 2.23 to 2.39 s (its bound: 3.5 s) |
+| the stall property | 17.29 to 18.50 s |
+| the order property | 0.30 to 0.43 s |
+| the status test | 0.37 to 0.45 s |
+| the stalled-fsync process test | 2.48 to 4.45 s (10 s wait for `exit.json`) |
+| round 1's cut test | 1.15 to 1.27 s |
+| round 1's retained-reader process test | 1.31 to 1.54 s |
+
+### Not run, and limits
+
+- **Linux was not run.** The process tests skip off macOS by design, and the shutdown and
+  close timings are this host's.
+- **No real disk stall.** The stalls are patched calls. A stalled disk would also stall
+  the guardian's own `exit.json`, whose `atomic_publish` fsyncs the file and its
+  directory (`guardian.py:80-99`). That is outside `stop` and outside this fix.
+- **15 skips** in `tests/e2e/test_conversations.py`, for the lane's attempt markers, as in
+  round 1. CI runs them.
+- **The whole suite** was collected, not run.
+- **Hypothesis was bounded:** derandomized, no database, no deep profile. No
+  `.hypothesis` folder was written.
+- **Concurrent `stop` calls** are not supported, as above.
+
+### Follow-ups for the hub
+
+- Round 1's follow-up stands: the cut line has no durable home in production.
+- A guardian on a stalled disk still waits in `exit.json`'s own fsync. Bounding that would
+  be a change to C-8.1's atomic publish, not to the relay.
