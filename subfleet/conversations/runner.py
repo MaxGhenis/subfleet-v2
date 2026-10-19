@@ -24,6 +24,7 @@ from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any, Callable
 
+from .. import refusals
 from ..policy import CONVERSATION_DEFAULTS
 from ..relay import FrameTooLarge, RelayClient, RelayError, read_log
 from ..state_files import open_state
@@ -391,7 +392,7 @@ class TurnRunner:
             # attempt live or replays it ended (`ConversationService._replay_unsettled`).
             self.log.info("turn runner %s stopped: its service closed", self.attempt_id)
         else:
-            self.log.error("turn runner %s failed: %s: %s", self.attempt_id, type(exc).__name__, exc)
+            self.log.error("turn runner %s failed: %s", self.attempt_id, refusals.scrubbed_words(exc))
 
     def _process_gone(self) -> bool:
         return self.ended or (self.adir / "exit.json").exists()
@@ -457,7 +458,8 @@ class TurnRunner:
                 step = self.driver.respond(request_id, decision, message)
         except ValueError as exc:
             if self.log:
-                self.log.warning("approval %s on %s refused by the driver: %s", request_id, self.attempt_id, exc)
+                self.log.warning("approval %s on %s refused by the driver: %s", request_id, self.attempt_id,
+                                 refusals.scrubbed_words(exc))
             return
         self._apply(step)
 
@@ -522,8 +524,8 @@ class TurnRunner:
             # It never takes its host's runner down: Stop, Esc and the queue behind
             # the host all go through this thread.
             if self.log and not isinstance(exc, (OSError, ValueError, ConversationError)):
-                self.log.warning("steer %s on %s failed: %s: %s", message_id, self.attempt_id,
-                                 type(exc).__name__, exc)
+                self.log.warning("steer %s on %s failed: %s", message_id, self.attempt_id,
+                                 refusals.scrubbed_words(exc))
             self._miss_steer(message_id, f"input-unavailable: {str(exc) or type(exc).__name__}")
             return
         self._apply(step)
@@ -637,7 +639,8 @@ class TurnRunner:
                 self.on_catalog(self.spec.provider, self.attempt.get("lane_id"), catalog)
             except Exception as exc:         # a catalog record never stops a turn
                 if self.log:
-                    self.log.warning("model catalog from %s not recorded: %s", self.attempt_id, exc)
+                    self.log.warning("model catalog from %s not recorded: %s", self.attempt_id,
+                                     refusals.scrubbed_words(exc))
         if send:
             self._send_outbox()
 
@@ -1002,7 +1005,7 @@ class TurnRunner:
         be sent in order either, so stdin is closed: the provider ends at EOF and
         the turn is reconciled from what the relay log shows (C-24.6)."""
         if self.log:
-            self.log.warning("turn %s frame %s not sent: %s", self.attempt_id, frame.tag, exc)
+            self.log.warning("turn %s frame %s not sent: %s", self.attempt_id, frame.tag, refusals.scrubbed_words(exc))
         if frame.tag.startswith("steer:"):
             self.outbox.pop(0)
             self._miss_steer(frame.tag.removeprefix("steer:"), "frame-too-large")

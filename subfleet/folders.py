@@ -86,7 +86,9 @@ def identity_fallback(path: str, error: OSError) -> str:
         first = path not in _identity_warned
         _identity_warned.add(path)
     if first:
-        logging.getLogger(__name__).warning("resource identity unavailable for %s: %s; using exact string", path, error)
+        from .refusals import scrubbed_words          # refusals imports what imports this module
+        logging.getLogger(__name__).warning("resource identity unavailable for %s: %s; using exact string", path,
+                                            scrubbed_words(error))
     return path
 
 

@@ -9,6 +9,7 @@ import ssl
 import threading
 from typing import Any
 
+from . import refusals
 from .policy import codex_ca_bundle
 from .sessions.transcripts import read_regular
 
@@ -82,7 +83,7 @@ class ProviderEnvironment:
                 if bundle not in self._warned:
                     self._warned.add(bundle)
                     self.log.warning("Codex CA bundle %s is unusable (%s); leaving SSL_CERT_FILE unset",
-                                     bundle, exc)
+                                     bundle, refusals.scrubbed_words(exc))
             return result
         result["SSL_CERT_FILE"] = bundle
         return result

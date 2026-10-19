@@ -15,6 +15,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 
+from .. import refusals
 from .store import ConversationError, canonical_native, utcnow
 from .turn import TERMINAL_STATES
 
@@ -231,7 +232,7 @@ class WakeEngine:
             try:
                 self._poll_future.result()
             except Exception as exc:
-                self.service.log.warning("PR wake worker failed: %s", exc)
+                self.service.log.warning("PR wake worker failed: %s", refusals.scrubbed_words(exc))
             self._poll_future = None
         if self._poll_future is None and self.now() >= self._next_poll:
             now = self.now()
@@ -370,7 +371,7 @@ class WakeEngine:
                     raise ConversationError("bad-wake", "at is already past at settlement")
                 self.register(cid, request_id, spec, event_since=validation_time)
             except (ConversationError, ValueError) as exc:
-                self.service.log.warning("wake request in final text of %s refused: %s", mid, exc)
+                self.service.log.warning("wake request in final text of %s refused: %s", mid, refusals.scrubbed_words(exc))
                 if message:
                     self.store.append_events(conversation_id=cid, message_id=mid, attempt_id=f"wake:{mid}",
                         events=[("command", f"wake-refused:{request_id}", 0, "status",
@@ -426,7 +427,7 @@ class WakeEngine:
         try:
             snapshots = query_prs(targets)
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
-            self.service.log.warning("batched PR wake poll failed: %s", exc)
+            self.service.log.warning("batched PR wake poll failed: %s", refusals.scrubbed_words(exc))
             return
         for r in requests:
             before = json.loads(r["observed_json"] or "{}")
@@ -468,7 +469,7 @@ class WakeEngine:
         try:
             self.service._replay_final_wakes()
         except Exception as exc:
-            self.service.log.warning("final wake replay deferred: %s: %s", type(exc).__name__, exc)
+            self.service.log.warning("final wake replay deferred: %s", refusals.scrubbed_words(exc))
         pending = self.store.query("SELECT * FROM wake_requests WHERE state='pending'") if scan_requests else []
         if poll:
             self._poll_prs(pending)

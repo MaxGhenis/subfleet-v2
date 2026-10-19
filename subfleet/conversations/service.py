@@ -1925,7 +1925,7 @@ class ConversationService:
         try:
             self._lift_fence(cid, fence)
         except Exception as exc:
-            self.log.error("lifting handoff fence %s of %s failed: %s: %s", fence, cid, type(exc).__name__, exc)
+            self.log.error("lifting handoff fence %s of %s failed: %s", fence, cid, refusals.scrubbed_words(exc))
 
     def _lift_stale_fence(self, conversation: dict) -> dict:
         """A fence nobody holds is one a failed or interrupted handoff left: lift
@@ -2247,7 +2247,7 @@ class ConversationService:
                     self._catalog_fence = pipe_above_stdio()
                 process = spawn_refresh(self.root, fence_fd=self._catalog_fence[0])
             except OSError as exc:
-                self.log.warning("catalog run not started: %s", exc)
+                self.log.warning("catalog run not started: %s", refusals.scrubbed_words(exc))
                 return {"requested": False, "running": bool(refresh_running(self.root))}
             if process is None:                 # another run holds the lock
                 return {"requested": False, "running": bool(refresh_running(self.root))}
@@ -2913,7 +2913,7 @@ class ConversationService:
         try:
             self._record_start(turn, dict(attempt))   # C-26.14: the turn's diff has a base
         except Exception as exc:                      # finalization records it again; a turn never waits on it
-            self.log.warning("turn %s start snapshot not recorded: %s: %s", aid, type(exc).__name__, exc)
+            self.log.warning("turn %s start snapshot not recorded: %s", aid, refusals.scrubbed_words(exc))
         return True
 
     def _writer_check(self, turn: dict, adir: Path) -> list[int]:

@@ -820,7 +820,7 @@ class Daemon:
         self._lane_answers, self._attempt_answers = self._load_answers()      # C-6.14
         # C-15.5: one reader answers every `wait`; its thread starts with the first.
         self.wait_hub = WaitHub(self.store, recheck_s=WAIT_RECHECK_S, on_error=lambda exc: self.log.warning(
-            "wait hub: %s: %s (its waiters read for themselves)", type(exc).__name__, exc))
+            "wait hub: %s (its waiters read for themselves)", refusals.scrubbed_words(exc)))
         self._seed_lanes()
         # 13: retention's pass (d635) can hold one worker for minutes; the other
         # twelve are what attempts, admission and exports had before.
@@ -2357,7 +2357,7 @@ class Daemon:
             except SalvageError as exc:
                 # C-6.8: nothing was submitted, so the caller retries; a timed-out
                 # `rev-parse` must not read as "not a repository" or "not on main".
-                self.log.warning("submit could not inspect %s: %s", args.workdir, exc)
+                self.log.warning("submit could not inspect %s: %s", args.workdir, refusals.scrubbed_words(exc))
                 raise AdapterError(f"could not inspect the workdir: {exc}", code=int(Exit.OPERATIONAL),
                                    fix="submit again; raise caps.workspace_git_timeout_s if this repository is slow", reason="inspect-workdir") from exc
             except (OSError, ValueError, TypeError, RuntimeError) as exc:
@@ -2455,7 +2455,7 @@ class Daemon:
                     # C-6.8: exit 1 with nothing stored, as the checks above; only
                     # the prompt has been written, under a job id nobody was given.
                     shutil.rmtree(jobdir, ignore_errors=True)
-                    self.log.warning("submit could not inspect %s: %s", args.workdir, exc)
+                    self.log.warning("submit could not inspect %s: %s", args.workdir, refusals.scrubbed_words(exc))
                     raise AdapterError(f"could not inspect the workdir: {exc}", code=int(Exit.OPERATIONAL),
                                        fix="submit again; raise caps.workspace_git_timeout_s if this repository is slow", reason="inspect-workdir") from exc
                 prefix = (None if args.push_branch is not None else _git_prefix(str(workdir), cap)) or os.path.relpath(os.path.realpath(workdir),
@@ -4271,7 +4271,7 @@ class Daemon:
             # Stay due. _schedule records the error and applies C-5.10.
             raise TimeoutError("retention deadline reached after progress")
         for error in (result.get("errors") or [])[:5]:
-            self.log.warning("retention: %s: %s", error.get("job_id"), str(error.get("error"))[:300])
+            self.log.warning("retention: %s: %s", error.get("job_id"), refusals.scrubbed_line(str(error.get("error")), 300))
         if result.get("more") and progressed:
             delay = RETENTION_CATCH_UP_S
             self.log.info("retention catch-up: retired %d jobs (freed %d bytes, %d on disk; moved %d bytes into the "
@@ -4359,7 +4359,7 @@ class Daemon:
             try:
                 lane = scheduler.resolve_lane(lanes, pin, scheduler.pin_provider(self.policy, job))
             except scheduler.RouteError as exc:
-                self.log.warning("job %s pin %r was left as it is: %s", job["job_id"], pin, exc)
+                self.log.warning("job %s pin %r was left as it is: %s", job["job_id"], pin, refusals.scrubbed_words(exc))
                 continue
             if lane is None:
                 self.log.warning("job %s pin %r was left as it is: it names no lane", job["job_id"], pin)
@@ -5350,7 +5350,7 @@ class Daemon:
                 self.conversations.note_holds(holds, placed=tally.get("placed_jobs", ()), seq=seq)
                 self._note_error = None
             except Exception as exc:                      # noqa: BLE001
-                error = f"{type(exc).__name__}: {exc}"[:300]
+                error = refusals.scrubbed_line(refusals.scrubbed_words(exc), 300)
                 if error != self._note_error:             # said once, not every tick
                     self.log.warning("admission: could not note why turns wait: %s", error)
                 self._note_error = error
@@ -7190,7 +7190,7 @@ class Daemon:
         if isinstance(cause, scheduler.RouteError) and not (
                 cause.policy_dependent and job.get("policy_hash") != self.policy_digest):
             self._route_deferrals.pop(job_id, None)
-            self.log.warning("job %s refused at admission: %s", job_id, cause)
+            self.log.warning("job %s refused at admission: %s", job_id, refusals.scrubbed_words(cause))
             self._fail_queued(job, f"refused at admission: {cause}", rc=int(Exit.INVALID_INPUT),
                               kind="job.route_refused", data=record)
             self._discard_fresh_worktree(job_id)
@@ -9285,7 +9285,7 @@ class Daemon:
                 # Registered over the default action, faulthandler would put that
                 # back at the last close or at exit (review of 78bfbf0, P2).
                 self.log.warning("could not set SIGUSR1 to be ignored beneath its handler (%s): "
-                                 "this daemon does not dump stacks on SIGUSR1", exc)
+                                 "this daemon does not dump stacks on SIGUSR1", refusals.scrubbed_words(exc))
                 return False
         # Joined, then settled: SIGUSR1 goes to this daemon's stream, replaced in
         # place while another daemon's lock says `stack_dumps`, never let go first
@@ -9324,7 +9324,7 @@ class Daemon:
                 if not isinstance(exc, OSError):
                     raise                                  # it stays; the interrupted close keeps the stream
                 self.log.warning("daemon.lock could not drop stack_dumps (%s): SIGUSR1 may still dump "
-                                 "into this log", exc)
+                                 "into this log", refusals.scrubbed_words(exc))
                 return                                     # it stays in `_ADVERTISED`, its stream kept
             self._leave_advertised(token)
             if not isinstance(exc, OSError):
