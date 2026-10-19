@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
 from . import __version__
 from . import capacity, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, ramp, render, route_check, scheduler
-from . import refusals, resource_leases
+from . import daemon_log, refusals, resource_leases
 from .actions import demand_verdict
 from .conversations.store import canonical_native, native_any_case
 from .conversations.peers import peer_token
@@ -773,7 +773,8 @@ class Daemon:
         for stale in list(self.log.handlers):
             self.log.removeHandler(stale)
         log_fd = os.open(self.root / "daemon.log", os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
-        self._log_handler = logging.StreamHandler(os.fdopen(log_fd, "a"))
+        # C-25.7: every line and traceback it writes is scrubbed here, whoever logged it.
+        self._log_handler = daemon_log.ScrubbingStreamHandler(os.fdopen(log_fd, "a"))
         self.log.addHandler(self._log_handler)
         self.log.setLevel(logging.INFO)
         # C-3.6: the identity is written only now that SIGUSR1 has its handler, and
@@ -9654,6 +9655,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.state_root is None:
         from .home_paths import home_path
         args.state_root = home_path("SUBFLEET_HOME", lambda: "~/.subfleet", accept_empty=True)
+    # C-25.7: this process's stdout and stderr are daemon.log, under `daemon start`
+    # and launchd alike. From here an uncaught exception, a thread's, an unraisable
+    # one, a warning and a record no handler takes are written there scrubbed. The
+    # hooks stay for the life of the process, so they hold after `main` returns or
+    # raises and through interpreter shutdown; nothing before them takes input but
+    # the arguments.
+    daemon_log.install_process_hooks()
     limits = descriptors.raise_open_file_limit()
     try:
         daemon = Daemon(args.state_root)
