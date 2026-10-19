@@ -21,7 +21,7 @@ import shlex
 import shutil
 import subprocess
 
-from hypothesis import given, settings, strategies as st
+from hypothesis import assume, given, settings, strategies as st
 import pytest
 
 from subfleet.publish_rule import command_refusal, denial, gh_read
@@ -301,6 +301,7 @@ GIT_PUSH_FORMS = [
 @pytest.mark.parametrize('provider,shell', PROVIDER_SHELLS, ids=lambda value: str(value))
 def test_git_push_stays_refused_in_every_new_form(tmp_path, provider, shell):
     remote = local_remote(tmp_path)
+    (tmp_path / 'world').mkdir()
     launch, env, _log, snapshot, world = round7_world(tmp_path / 'world', provider)
     world['remote'] = remote
     git = shutil.which('git')
@@ -344,8 +345,14 @@ def test_any_gh_write_through_a_covered_form_is_refused(write, outer, inner, wor
     rest = write[len('gh'):]
     spelled = word.format(w=write, rest=rest) if '{w}' not in word else write
     nested = inner.format(w=spelled)
-    for command in (outer.format(w=spelled), outer.format(w=nested) if "'" not in nested else nested):
-        assert command_refusal(command), command
+    # `env -S` splits its value into words and runs them: it expands no
+    # substitution, glob, `$VAR` or shell syntax, so a run-time word or a
+    # compound command inside it never runs gh. Those draws embed no write.
+    assume('env -S' not in inner + outer or spelled == write)
+    assert command_refusal(outer.format(w=spelled)), outer.format(w=spelled)
+    if "'" not in nested and ('env -S' not in outer or nested == write):
+        assert command_refusal(outer.format(w=nested)), outer.format(w=nested)
+    assert command_refusal(nested), nested
 
 
 @settings(max_examples=400, derandomize=True, database=None, deadline=None)
@@ -363,4 +370,5 @@ def test_the_rule_never_raises_on_deep_nesting():
     assert command_refusal("bash -c 'bash -c \"zsh -c \\\"" + WRITE + "\\\"\"'")
     assert command_refusal('$(' * 3000 + ')' * 3000) is None
     assert command_refusal(f"r() {{ \"$@\"; }}; r {'x ' * 3000}") is None
+
 

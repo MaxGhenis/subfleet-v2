@@ -105,7 +105,8 @@ def test_review_launch_real_git_push_local_file_is_denied(tmp_path, provider, sa
     (['api', 'repos/x/y', '-f', 'a=b'], False),
     (['api', 'repos/x/y', '-Fname=value'], False),
     (['api', 'repos/x/y', '--field=name=value'], False),
-    (['api', 'repos/x/y', '-XGET', '--raw-field=a=b'], False),
+    # #221 review r2 P3-5: with an explicit GET, real gh 2.100.0 sends the field in the query string.
+    (['api', 'repos/x/y', '-XGET', '--raw-field=a=b'], True),
     (['pr', 'view', '7'], True), (['pr', 'diff', '7'], True), (['pr', 'checks', '7'], True),
     (['api', 'repos/x/y'], True), (['api', '-X', 'GET', 'repos/x/y'], True),
     (['--repo', 'x/y', 'pr', 'comment', '7'], False),
@@ -158,8 +159,6 @@ CLUSTER_WRITES = [
     ['api', '-iXPOST', 'repos/o/r/issues/1/comments'],
     ['api', '-iX', 'POST', 'repos/o/r/pulls/1/merge'],
     ['api', '-iFbody=@file', 'repos/o/r/issues/1/comments'],
-    ['api', '-iX', 'GET', 'repos/o/r'],             # only -XGET and -X GET are exempt
-    ['api', '-Xget', 'repos/o/r'],
     ['api', '-HAccept:x', '-f', 'a=b', 'repos/o/r'],
     ['api', '--method', 'PATCH', 'repos/o/r'],
 ]
@@ -182,6 +181,8 @@ def test_gh_flag_clusters_that_real_gh_sends_as_writes_are_refused(tmp_path, mon
 @pytest.mark.parametrize('args', [
     ['api', '-XGET', 'repos/o/r'], ['api', '-X', 'GET', 'repos/o/r'], ['api', '-i', 'repos/o/r'],
     ['api', '--method=GET', '-H', 'Accept: x', 'repos/o/r'], ['api', '--paginate', '-q', '.[]', 'repos/o/r/pulls'],
+    # #221 review r2 P3-5: gh's flag parser reads these as GET (real gh 2.100.0 sent GET for each).
+    ['api', '-iX', 'GET', 'repos/o/r'], ['api', '-Xget', 'repos/o/r'],
 ])
 def test_gh_api_get_clusters_still_read(args):
     from subfleet.review_publish import gh_read
