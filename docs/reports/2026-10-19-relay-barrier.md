@@ -5,7 +5,8 @@
 Not pushed; the hub opens the PR.
 
 Round 2, for #236's review r1 (P2: the cleanup after the cut was unbounded), is
-section 4.
+section 4. Round 3, for review r2 (P2: no cleanup thread meant an unbounded cleanup;
+P3: a stalled log write held the guardian's exit), is section 5.
 
 | Commit | What |
 |---|---|
@@ -716,3 +717,342 @@ load average 10 to 16.
 - Round 1's follow-up stands: the cut line has no durable home in production.
 - A guardian on a stalled disk still waits in `exit.json`'s own fsync. Bounding that would
   be a change to C-8.1's atomic publish, not to the relay.
+
+## 5. Round 3: no cleanup path outlasts the bound or holds the exit (#236 review r2)
+
+2026-10-19, Subfleet job `20261019-040720-pr236-fix3`, on `fix/relay-barrier-bound-217` at
+`ce226d226`. Not pushed. `release/217` had not moved: the shared repository's
+`origin/release/217` is still `d72597b5c` (its last fetch, at 02:23), so there was no
+merge.
+
+| Commit | What |
+|---|---|
+| `169214984` | test: a cleanup thread that cannot start cannot hold the relay's stop |
+| `28a67527f` | test: a stalled stderr write cannot hold the guardian's exit |
+| `9ce6b787a` | fix: with no cleanup thread, stop runs only what cannot wait (C-26.4 amended) |
+| `e2f963569` | fix: the cut line is a raw write of descriptor 2, not `logging` (C-26.4 amended) |
+| this commit | this section |
+
+### P2: the fallback for a cleanup thread that cannot start
+
+**The cause, from the code at `ce226d226`.** When the cleanup thread's `start` raised
+`RuntimeError`, `stop` called `_clean_up` on its own thread and returned
+(`relay.py:292-296`). That ran all four steps there, unbounded: the listening socket's
+close, the pipe's close (waiting for the pipe lock), the cut line through `logging`, and
+the unlink. The review held the unlink until 4.2 s: `stop` took 4.35 s, and the guardian
+still withheld `exit.json` at 3.51 s.
+
+**The fix (`_clean_up_inline`, `relay.py:355`).** With no thread, `stop` runs only the
+steps measured not to wait, then returns within the same bound:
+
+- **The socket shutdowns** already ran before the cleanup: `stop`'s `SHUT_RD`, then the
+  cut's two shutdowns, at 1 to 7 µs each (round 2's probe).
+- **The listening socket's close:** 9 µs with a connection in its backlog, 18 µs with a
+  thread in `accept` (round 2's probe).
+- **The pipe's close, only if no write holds the pipe lock at that moment.**
+  `_close_pipe(wait=False)` tries the lock without blocking. This goes beyond the hub's
+  decision, which left the pipe close to the guardian's exit; see below.
+
+Everything else is left:
+
+- **The cut line** is not written. Its write can wait on stderr (P3), and the durable
+  trace of a cut write is its `stdin.jsonl` entry, `failed` with ECANCELED.
+- **The unlink** can wait on the disk. The socket file is left (see the check below).
+- **A pipe a write still holds** closes at the guardian's exit, as the hub decided.
+
+A later `stop` tries the thread again.
+
+**Where I went beyond the hub: the pipe's close.** The close itself does not wait; only
+the lock can, and it is held only by a pipe write. `probe_close.py` (scratch, removed)
+timed `os.close` on the write end, five runs each, with the descriptor non-blocking as
+`serve` leaves it:
+
+| Pipe | `os.close` |
+|---|---|
+| empty | median 0.5 µs, max 1.5 µs |
+| full, read end held in-process | median 0.6 µs, max 0.8 µs |
+| a reader process blocked in `read` | median 4.4 µs, max 6.2 µs |
+| full, read end held by a process that never reads | median 0.8 µs, max 1.1 µs |
+
+Why close it rather than leave it to the exit:
+
+- **Linger.** It keeps a disclaimed guardian alive after `exit.json` for as long as its
+  descendants live (D-CEN1). A retained reader blocked on stdin is such a descendant.
+- **The deadlock.** Left open, that reader never gets end of file, so the guardian waits
+  for it until the kill protocol. That is round 2's reason for closing the pipe as soon as
+  the lock is free.
+- **The reviewer's input.** There the cut write gives up within `WRITE_POLL_S`, and the
+  relay thread is joined before the fallback runs. So the lock is free and the pipe
+  closes; the unit regression asserts it.
+
+The change is one line, if the hub prefers the decision as written.
+
+**The check: a leftover socket file is harmless.** From the code:
+
+- **Nothing listens on it.** The fallback closes the listening socket, so a connect gets
+  `ECONNREFUSED`; both regressions assert that. After a normal stop, the path is gone and
+  a connect gets `ENOENT`.
+  - `RelayClient._connect` raises `RelayError("relay unavailable: …")` for either
+    (`relay.py:599-608`).
+  - So a runner treats a leftover file as it treats a missing one. `_handshake` and
+    `_transmit` call `_unacknowledged`, which retries at most `RESEND_MAX` (5) times, then
+    calls `_relay_lost` (`runner.py:654-800`).
+  - The runner also reads the guardian as gone from `exit.json` (`_process_gone`,
+    `runner.py:396`).
+- **A resume connects; it never binds.**
+  - A daemon that restarts adopts a live turn through `_adopt`, which reads
+    `start.json`'s `control_socket` and builds a `TurnRunner`, a client
+    (`service.py:2858-2884`).
+  - A replay of an ended attempt goes through the same `_adopt`, with `ended=True`.
+  - Either meets the refused connect above.
+- **The daemon's finalization removes it.** For a turn job, finalization calls
+  `release_socket` (`daemon.py:8372`). That unlinks the attempt's relay path if it is a
+  socket (`service.py:3196-3205`), as it already did for a guardian stopped by
+  containment, which never unlinks its own.
+- **A later relay at that path replaces it.** `RelayServer.bind` unlinks an existing
+  socket and binds anew; it refuses only a non-socket (`relay.py:231-238`). The path is
+  per attempt: `socket_path` digests the attempt id. A retry is a new attempt, so it gets
+  another path.
+- **Nothing else reads `run/`.** A search for the socket directory and `socket_path`
+  found only the relay, the daemon's launch command (`daemon.py:7462`) and
+  `release_socket`. The importer's `.sock` skip (`importer.py:2060`) covers v1 state, not
+  `run/`.
+
+### P3: the cut line held the guardian's exit
+
+**The cause.** The guardian configures no `logging` handler, so the cleanup thread's
+`_log.warning(CUT_LOG_LINE)` (`relay.py:333` at `ce226d226`) went to `logging.lastResort`,
+a `_StderrHandler`. From 3.14.7's `logging/__init__.py`, read this session:
+
+- **The handler lock.** `Handler.handle` holds the handler's lock across `emit` (lines
+  1026-1027), and `emit` writes `sys.stderr`.
+- **At exit.** `logging.shutdown` is registered with `atexit` (line 2266) and acquires
+  every handler's lock in turn (line 2244).
+
+So with the write held, the main thread published `exit.json`, then waited in
+`logging.shutdown` until the write let go. That the thread is a daemon makes no
+difference: the wait is on a lock, not a join.
+
+**The fix (`_stderr_line`, `relay.py:79`).** The cleanup writes the line with
+`os.write(2, …)`, looping on a short write and dropping an `OSError`. The relay no longer
+imports `logging`. The line's text is unchanged; under the daemon, stderr is `/dev/null`
+(C-5.1).
+
+**The probe** (`probe_shutdown.py`, scratch, removed). A child's descriptor 2 is a pipe
+filled until a one-byte write would wait. A daemon thread is held writing one line. The
+main thread then returns. On 3.14.7, and the same on 3.12.14:
+
+| The thread's write | The child |
+|---|---|
+| `os.write(2, …)` | exited 0 after 0.83 s (3.12: 0.78 s) |
+| `os.write(2, …)`, `faulthandler` enabled | exited 0 after 0.79 s (3.12: 0.78 s) |
+| `sys.stderr.write` | alive at 6 s; exited 0 once the pipe was read |
+| `logging` (`lastResort`) | alive at 6 s; exited 0 once read |
+| `logging`, `faulthandler` enabled | alive at 6 s; exited 0 once read |
+| `logging`, `logging.shutdown` unregistered from `atexit` | alive at 6 s; once read, rc −6: "Fatal Python error: _enter_buffered_busy: could not acquire lock for <_io.BufferedWriter name='<stderr>'> at interpreter shutdown, possibly due to daemon threads" |
+
+The last row shows a second lock. The exit's flush of the standard streams waits on
+`sys.stderr`'s buffer lock, which the `logging` write also held. That wait has no bound,
+and once the lock is let go the exit aborts.
+
+### The lock sweep: what the cleanup thread can hold at shutdown
+
+The cleanup thread runs `_clean_up` (`relay.py:333`): `self._server.close()`,
+`_close_pipe()`, `_stderr_line()` and `os.unlink()`.
+
+| Lock | Taken at shutdown by | Held by the cleanup at `ce226d226` | Held now |
+|---|---|---|---|
+| each `logging` handler's lock | `logging.shutdown`, at exit (line 2244) | yes: `lastResort`'s, across the stderr write | never: no `logging` call |
+| `logging._lock`, the module lock | not by `shutdown`; `isEnabledFor` takes it on a cache miss (line 1779) | only during that miss, before the write | never |
+| `sys.stderr`'s buffer lock | the exit's flush of the standard streams (probe, last row) | yes, across the write, through `lastResort` | never: `os.write` bypasses `sys.stderr` |
+| `sys.stdout`'s buffer lock | the same flush | never: nothing writes stdout | never |
+| `faulthandler` | the cleanup never calls it, and neither does the guardian or the relay (searched) | no | no |
+| the import lock | imports | no: the cleanup imports nothing | no |
+| `_pipe_lock` | nothing at shutdown: after `stop` the guardian publishes and lingers, and never touches the relay | while closing the pipe | while closing the pipe |
+| `_exchange_lock`, `_journal_lock` | nothing at shutdown | never: the cleanup doesn't take them | never |
+
+Two more facts the table rests on:
+
+- **`threading._shutdown`** waits only for non-daemon threads (3.14.7's `threading.py:1582-1583`,
+  read this session), and the cleanup thread is a daemon.
+- **A blocked raw write holds nothing the exit needs.** The probe shows a daemon thread
+  blocked in `os.write` doesn't stop the main thread's exit, with or without `faulthandler`
+  enabled. I did not read `faulthandler`'s C source. The claim rests on that probe and on
+  the cleanup never calling it.
+
+### The contract
+
+C-26.4 now states:
+
+- **The fallback:** if the cleanup thread can't start, shutdown runs only the steps
+  measured not to wait (the listening socket's close, and the pipe's close when no write
+  holds the pipe lock) and returns. It writes no cut line. A pipe that a write still holds
+  is closed by the guardian's exit.
+- **The leftover socket:** nothing listens on it, the daemon's finalization unlinks it,
+  and a later bind replaces it.
+- **The cut line:** it is written to standard error by a raw write of descriptor 2, not
+  through `logging` or `sys.stderr`, so a held write can't hold the guardian's exit. The
+  cleanup takes no lock but the pipe lock.
+- **The bound:** it now holds whatever the host's thread limit does too.
+
+Two change-log entries are at the top of "Changes in version 3", one per finding.
+
+### New and changed tests
+
+- `tests/relay_stalls.py` (helpers):
+  - `StallingOs` gains `stderr-write`, chosen by descriptor 2 whatever it is. Writes to
+    descriptor 2 are no longer matched as journal records or pipe writes.
+  - `refusing_start` wraps `threading.Thread.start` so that only the thread named
+    `subfleet-relay-stop` fails, with `RuntimeError("can't start new thread")`.
+- `tests/unit/test_relay.py`:
+  - `test_stop_keeps_its_bound_when_its_cleanup_thread_cannot_start` (P2). The setup is
+    the review's: a 2 MiB frame, the child exited, the read end held, the thread start
+    refused, the unlink held. Within the 3.5 s bound, `stop` returns without reaching the
+    unlink. A connect is refused, the pipe is closed (a strict prefix, then end of file)
+    and the socket file is left. No cut line is written, the journal shows `failed` with
+    ECANCELED, and the client reads end of stream. At `ce226d226`: "with no cleanup
+    thread, stop ran past its bound".
+  - `test_a_held_cut_line_holds_no_lock_the_guardians_exit_takes` (P3). With the cut
+    line's raw write held, `stop` keeps its bound and closes the pipe. No lock interpreter
+    shutdown takes is held: `logging._lock`, every live handler's lock, and the standard
+    streams' buffers (a flush of `sys.__stdout__` and `sys.__stderr__` finishes). Once
+    released, the line lands once, exactly, and the socket file is unlinked. At
+    `ce226d226`: "the cut line was not a raw write of descriptor 2".
+  - Round 1's cut test and round 2's stalled-record tests now read the line from
+    descriptor 2 (`capfd`), exactly once. The kept-behaviour test asserts descriptor 2
+    stays empty. The first three fail at `ce226d226`, where the line went through
+    `logging`; the kept-behaviour test passes there.
+  - The stall property gains an explicit `stderr-write` example (2 MiB, nothing drained),
+    and its generated examples draw the new point too.
+- `tests/process/test_guardian_relay.py`:
+  - `test_a_cleanup_thread_that_cannot_start_cannot_hold_the_exit_receipt` (P2). A real
+    guardian, launched by a `-c` script that refuses the cleanup thread's start and holds
+    the unlink at a `FileGate`. The provider exits 7. Within the 3 s bound plus 2 s of the
+    provider's exit, the guardian publishes `exit.json` with rc 7 and never reaches the
+    unlink. The journal shows `failed` with ECANCELED, the client gets `RelayError`, and
+    the socket file is left with nothing listening. At `ce226d226`: "no exit.json within
+    stop's bound when its cleanup thread could not start".
+  - `test_a_stalled_stderr_cannot_hold_the_guardians_exit` (P3). This is a real-process
+    test of a **real, unpatched** guardian; no probe stands in for it. Its stderr is a
+    pipe the test fills once `start.json` appears (until a one-byte write would wait) and
+    never reads, so the stall is the kernel's. It publishes rc 7 and exits 7 within 5 s,
+    with the write still held: the pipe holds only the test's fill. At `ce226d226`: "the
+    guardian published rc 7 but did not exit while its stderr write was held".
+  - `PARK` now exits with the status the test names. `_parked_guardian` takes `rc` and the
+    guardian's own `stderr`, and the existing tests keep their defaults.
+
+### Runs
+
+One pytest process per hold of the shared lock, each run in-process under a 1140 s alarm,
+with no xdist. Each used the worktree's `.venv/bin/python -m pytest`, not `uv run`: a
+note from earlier rounds records `uv run` failing on the uv cache lock after waiting out
+the suite lock. The interpreter was GIL CPython 3.14.7 (`sys._is_gil_enabled()` is True)
+unless marked otherwise, with `PYTHONPATH` unset. Holds 2 to 9 ran at `e2f963569`, the
+last commit that changes code or tests.
+
+**At `ce226d226`'s code (hold 1).** It ran on a `git archive` export of `28a67527f`: both
+test commits on the unfixed code. `PYTHONPATH` named the export, and its imports were
+checked to resolve there. Result: 7 failed, 25 passed.
+
+- **Failed:** the four regressions, with the messages above, and the three tests that now
+  read the cut line from descriptor 2.
+- **Passed:** the kept-behaviour test, the stall property (its new example included),
+  round 2's status and order tests, and the six existing process tests.
+
+**The fixed code:**
+
+| Hold | File | Passed | Failed | Skipped |
+|---|---|---:|---:|---:|
+| 2 | `tests/unit/test_relay.py` | 24 | 0 | 0 |
+| 2 | `tests/unit/test_turn_runner.py` | 76 | 0 | 0 |
+| 2 | `tests/unit/test_guardian.py` | 12 | 0 | 0 |
+| 2 | `tests/process/test_guardian_relay.py` | 8 | 0 | 0 |
+| 3 | `tests/unit/test_conversation_service.py` | 98 | 0 | 0 |
+| 3 | `tests/e2e/test_conversations.py` | 29 | 0 | 15 |
+| 4 | `tests/fake/test_state_contract.py` | 37 | 0 | 0 |
+| 4 | `tests/unit/test_test_module_names.py` | 1 | 0 | 0 |
+| 5 (3.12.14) | `tests/unit/test_relay.py` | 24 | 0 | 0 |
+| 5 (3.12.14) | `tests/unit/test_turn_runner.py` | 76 | 0 | 0 |
+| 5 (3.12.14) | `tests/unit/test_guardian.py` | 12 | 0 | 0 |
+| 5 (3.12.14) | `tests/process/test_guardian_relay.py` | 8 | 0 | 0 |
+| 7 | 14 more files (below) | 687 | 0 | 0 |
+
+- **Holds 2 to 4** are the brief's.
+- **The 15 e2e skips** are the lane's attempt markers: 10 person-only requests and 5 that
+  the markers refuse first. CI runs them.
+- **Hold 7** covers every other test file that builds a `RelayServer`, imports the relay,
+  or reads the contract:
+  - `tests/fake/test_interactive_steer.py` 13; `test_approval_resolution` 33;
+  - `test_conversation_fifo_reads` 26; `test_conversation_reconcile` 36;
+  - `test_conversation_state_reads` 18; `test_conversation_titles` 89;
+  - `test_desktop_ledger` 4; `test_invariants_index` 25; `test_legacy_hold` 56;
+  - `test_live_store_guard_round8` 100; `test_retention_turn_contract` 2;
+  - `test_steer_invariants` 248; `test_title_review_regressions` 4; `test_turn_replay` 33.
+  (The bare names are in `tests/unit/`.)
+- **Hold 8** reran the three Hypothesis properties with statistics:
+  - **The stall property:** its 16 generated examples drew `stderr-write` twice. Both
+    frames finished inside the bound, so neither reached it (no cut, no cut line). The
+    explicit example and the P3 unit regression hold it.
+  - **The other two:** the read-whole property was `written` 75% and `failed` 25%. The
+    order property stalled 23% of its examples.
+- **Hold 9:** the whole suite collected 15011 tests (round 2's 15007 plus these 4), with no
+  collection error.
+
+### Mutations
+
+Each mutant was built in a `git archive` copy of `e2f963569` in scratch and run in its own
+hold over `tests/unit/test_relay.py` and `tests/process/test_guardian_relay.py`. The
+worktree was never mutated, and the copies were removed.
+
+| Mutant | Change | Tests that failed (all others passed) |
+|---|---|---|
+| A: the inline fallback restored | `except RuntimeError:` runs `self._clean_up()` again | `test_stop_keeps_its_bound_when_its_cleanup_thread_cannot_start` ("with no cleanup thread, stop ran past its bound"); `test_a_cleanup_thread_that_cannot_start_cannot_hold_the_exit_receipt` ("no exit.json within stop's bound …") |
+| B: the cut line through `logging` again | `_stderr_line(CUT_LOG_LINE)` becomes `logging.getLogger(__name__).warning(CUT_LOG_LINE)` | `test_a_held_cut_line_holds_no_lock_the_guardians_exit_takes` ("the cut line was not a raw write of descriptor 2"); `test_a_stalled_stderr_cannot_hold_the_guardians_exit` ("… did not exit while its stderr write was held"); round 1's cut test and both stalled-record tests (descriptor 2 empty) |
+
+### Repetition
+
+Hold 6 ran the 10 timing-sensitive stop tests 10 times each, through a scratch plugin:
+the 4 regressions, the 3 changed cut-line tests, the kept-behaviour test and round 1 and
+2's process tests. All 100 passed, at load average about 8 to 10.
+
+| Test | Duration over 10 runs |
+|---|---|
+| no cleanup thread, unit | 1.14 to 1.29 s (bound 3.5 s) |
+| held cut line, unit | 2.29 to 2.52 s (`stop` within 3.5 s, then release and settle) |
+| no cleanup thread, process | 1.28 to 1.52 s for the whole test |
+| stalled stderr, process | 2.42 to 3.39 s for the whole test |
+| round 2's stalled record, `[journal-fsync]` and `[journal-write]` | 2.24 to 3.02 s |
+| round 1's cut test | 1.08 to 1.32 s |
+| the kept-behaviour test | 0.09 to 0.16 s |
+| round 2's stalled-fsync process test | 2.28 to 2.64 s |
+| round 1's retained-reader process test | 1.30 to 1.52 s |
+
+**A probe, before the tests.** `probe_fix.py` (scratch, removed) ran both of the review's
+inputs once against the fixed code, outside the lock:
+
+- **No cleanup thread**, the unlink held until 4.2 s: `stop` took 1.16 s, against the
+  review's 4.35 s. It closed the pipe and never reached the unlink.
+- **A real guardian with a full stderr pipe:** it published rc 7 at 2.24 s after the
+  provider's exit, and exited 7 at the same moment.
+
+### Not run, and limits
+
+- **Linux was not run.** The process tests skip off macOS by design, and the close and
+  shutdown timings are this host's.
+- **Real thread exhaustion was not induced.** The P2 tests make the cleanup thread's start
+  raise the `RuntimeError` CPython raises when a thread can't be had, and leave other
+  threads alone. They do not exhaust the host's threads.
+- **The P3 stall is real, but only one kind.** It is a full pipe on descriptor 2, the
+  kernel's own wait. Other stderr targets (a tty, a socket) were not tried.
+- **CI wasn't run, and the whole suite was only collected.**
+- **Hypothesis was bounded:** derandomized, no database, no deep profile. No
+  `.hypothesis` folder was left in the worktree.
+- **`faulthandler`'s C source was not read.** See the sweep.
+
+### Follow-ups for the hub
+
+- Round 1's follow-up stands: the cut line has no durable home in production. Under the
+  daemon, stderr is `/dev/null`, so P3 needs a guardian started some other way, with
+  stderr on a pipe nobody reads.
+- Round 2's stands too: a guardian on a stalled disk still waits in `exit.json`'s own
+  fsync.
