@@ -64,6 +64,7 @@ LOG_INLINE_MAX = 64 * 1024          # frames logged verbatim up to this size
 ACK_TIMEOUT_S = 60.0
 SOCKET_DIR_NAME = "run"
 RELAY_VERSION = 2                   # 2: `status` and the advertised frame cap (review IR-27)
+REPLY_TIMEOUT_S = 1.0               # a departed/nonreading client cannot hold child exit
 REPLY_MAX = 1 << 16                 # an acknowledgement or status line
 
 
@@ -180,6 +181,7 @@ class RelayServer:
         self._pipe: int | None = None
         self._child = None
         self._lock = threading.Lock()
+        self._exchange_lock = threading.Lock()   # read through reply, including close
         self._stop = threading.Event()
         self._server: socket.socket | None = None
         self._thread: threading.Thread | None = None
@@ -228,15 +230,24 @@ class RelayServer:
         self._thread.start()
 
     def stop(self) -> None:
-        """End relaying at once: the child has exited and its receipt must not wait
-        for an idle daemon connection."""
+        """Wake idle reads, then finish an exchange already read before returning.
+
+        Closing stdin can make the child exit before its acknowledgement is
+        sent. Keep the write half alive for that reply. A connection published
+        after this wakeup sees _stop before starting its first read. Replies
+        have their own bound; an idle client never delays exit.
+        """
         self._stop.set()
         conn = self._conn
         if conn is not None:
             try:
-                conn.shutdown(socket.SHUT_RDWR)
+                conn.shutdown(socket.SHUT_RD)
             except OSError:
                 pass
+        # The reader owns this across readline/apply/reply. SHUT_RD wakes an
+        # idle read; an exchange already read keeps its write half until done.
+        with self._exchange_lock:
+            pass
         if self._thread is not None:
             self._thread.join(timeout=1)
         if self._server is not None:
@@ -282,24 +293,32 @@ class RelayServer:
                     self._conn = None
 
     def _serve_connection(self, conn: socket.socket) -> None:
-        reader = conn.makefile("rb")
-        while not self._stop.is_set():
-            raw = reader.readline(FRAME_MAX + 1)
-            if not raw:
-                return
-            if not raw.endswith(b"\n") or len(raw) > FRAME_MAX:
-                self._reply(conn, {"ok": False, "error": "frame-too-large"})
-                return
-            try:
-                frame = json.loads(raw)
-            except ValueError:
-                self._reply(conn, {"ok": False, "error": "bad-json"})
-                continue
-            self._reply(conn, self.apply(frame))
+        with conn.makefile("rb") as reader:
+            while not self._stop.is_set():
+                with self._exchange_lock:
+                    if self._stop.is_set():
+                        return
+                    raw = reader.readline(FRAME_MAX + 1)
+                    if not raw:
+                        return
+                    if not raw.endswith(b"\n") or len(raw) > FRAME_MAX:
+                        self._reply(conn, {"ok": False, "error": "frame-too-large"})
+                        return
+                    try:
+                        frame = json.loads(raw)
+                    except ValueError:
+                        self._reply(conn, {"ok": False, "error": "bad-json"})
+                        continue
+                    self._reply(conn, self.apply(frame))
 
     @staticmethod
     def _reply(conn: socket.socket, body: dict) -> None:
-        conn.sendall((json.dumps(body, separators=(",", ":")) + "\n").encode())
+        previous_timeout = conn.gettimeout()
+        try:
+            conn.settimeout(REPLY_TIMEOUT_S)
+            conn.sendall((json.dumps(body, separators=(",", ":")) + "\n").encode())
+        finally:
+            conn.settimeout(previous_timeout)
 
     def status(self) -> dict:
         """The relay's state (IR-27). Taken under the lock that `apply` holds for
