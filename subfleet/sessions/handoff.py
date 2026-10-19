@@ -653,6 +653,11 @@ _LEADING_HEADER_RE = re.compile(r"(?i)\s*(?:authorization|cookie|set-cookie)\s*:
 #: `_PEM_START_RE` and `_PEM_END_RE` on folded text.
 _PEM_START_FOLDED_RE = re.compile(r"-----BEGIN(?:\s+[A-Z0-9]+)*\s+PRIVATE\s+KEY(?:\s+BLOCK)?-----")
 _PEM_END_FOLDED_RE = re.compile(r"-----END(?:\s+[A-Z0-9]+)*\s+PRIVATE\s+KEY(?:\s+BLOCK)?-----")
+#: The margin Python's traceback writes before each line of an exception group and
+#: its members (`daemon_log._GROUP_MARGIN`): two spaces a level, then `|` or `+`, then
+#: a space or the line's end. The daemon's block form also reads a group's text with
+#: the margins removed, so the cut reads each margin's `|` or `+` as a space.
+_MARGIN_MARK_RE = re.compile(r"(?m)^((?:  )+)[|+](?= |$)")
 #: C-25.7: the most distinct escaped quote kinds (a quote and the length of the run of
 #: backslashes before it) one side of `cut_whole` reads. A side whose window holds
 #: more keeps only the marker: each kind open at a candidate cut costs a look past
@@ -693,6 +698,8 @@ def cut_whole(text: str, limit: int) -> str:
     - outside any private key, which the head never starts and the tail never
       ends, its first and last lines read as folding lets `_PEM_RE` read them,
       and outside any data URI's body;
+    - with each exception group's margin read as spaces (`_margins_blanked`), as
+      the block form's margin-free reading of a group reads it;
     - and a text holding a reminder tag is not cut at all: stripping a reminder
       joins what was on either side of it, which can make a quote open a value.
       Nor is one that opens with a header when the head would keep none of it:
@@ -711,14 +718,26 @@ def cut_whole(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     head, tail = 0, len(text)
+    read = _margins_blanked(text)
     if not _REMINDER_TAG_RE.search(text):
-        head = _whole_head_cut(text, limit // 2)
-        tail = max(head, _whole_tail_cut(text, len(text) - limit // 2))
-    if _LEADING_HEADER_RE.match(text) and not text[:head].strip():
+        head = _whole_head_cut(read, limit // 2)
+        tail = max(head, _whole_tail_cut(read, len(text) - limit // 2))
+    if _LEADING_HEADER_RE.match(read) and not read[:head].strip():
         # Folded to one line, a text that opens with a header is all that header's
         # value (`_HEADER_RE`): a tail without the header before it keeps nothing.
         head, tail = 0, len(text)
     return f"{text[:head]}{cut_marker(tail - head)}\n{text[tail:]}"
+
+
+def _margins_blanked(text: str) -> str:
+    """`text` as the cut reads it: each exception group's margin read as spaces, in
+    place, so positions are kept. The margin-free reading the daemon's block form
+    also scrubs (`daemon_log._group_block`) then crosses a cut exactly where this
+    one does, and the margined reading never hides what this one shows: a margin's
+    `|` only stops a match a space would let run. Two C scans when there are none."""
+    if "  |" not in text and "  +" not in text:
+        return text
+    return _MARGIN_MARK_RE.sub(r"\1 ", text)
 
 
 def _newlines(text: str, start: int, end: int):
