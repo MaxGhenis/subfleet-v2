@@ -29,7 +29,7 @@ would be a lie about capacity.
 from __future__ import annotations
 
 from ..contracts import launch_capability
-from ..review_publish import protect_launch
+from ..review_publish import claude_settings_args, protect_launch
 
 import hashlib
 import json
@@ -1357,7 +1357,8 @@ class ClaudeAdapter(Adapter):
 
         `guard_override` is accepted and unused: a Claude launch relies on the global
         never-rules hook in `~/.claude/settings.json`, and `doctor` reports when that
-        hook is missing (C-14.3). There is no per-launch hook injection to make.
+        hook is missing (C-14.3). The one per-launch hook is a writable review's
+        publish rule, given with `--settings` (C-12.4, `claude_settings_args`).
         """
         attempt_dir = Path(attempt_dir)
         attempt_dir.mkdir(parents=True, exist_ok=True)
@@ -1379,6 +1380,7 @@ class ClaudeAdapter(Adapter):
         argv += list(self.permission_args(sandbox, isolated=job.isolated_review,
                                          review_root=job.review_root,
                                          mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir)))
+        argv += claude_settings_args(job, sandbox, attempt_dir)          # C-12.4: publish hook
         from .isolation import claude_env_remove
         env_remove = (*ENV_REMOVE, *claude_env_remove({**os.environ, **credential_env})) if sandbox == "read-only" else ENV_REMOVE
 
@@ -1427,6 +1429,7 @@ class ClaudeAdapter(Adapter):
                                fix="submit a fresh isolated review job", reason="isolation-resume-claude")
         argv += list(self.permission_args(
             sandbox, mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir)))
+        argv += claude_settings_args(job, sandbox, attempt_dir)          # C-12.4: publish hook
         from .isolation import claude_env_remove
         env_remove = (*ENV_REMOVE, *claude_env_remove({**os.environ, **credential_env})) if sandbox == "read-only" else ENV_REMOVE
 

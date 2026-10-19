@@ -3176,13 +3176,15 @@ class Daemon:
     @staticmethod
     def _guard_override(adapter, lane: Lane, workdir: str, recorder: Callable | None = None,
                         state_root: Path | None = None, full: bool = False,
-                        env: dict[str, str] | None = None):
+                        env: dict[str, str] | None = None, publish_command: str | None = None):
         """C-14.2: run the Codex guard preflight for this launch.
 
         ``recorder`` (see ``_guard_recorder``) receives the verdict before it is
         judged, so a refusal is diagnosable from the attempt directory alone.
         ``state_root`` places the scratch home and the verdict markers under the
         daemon's own root (C-2.1) rather than whatever ``$SUBFLEET_HOME`` says.
+        ``publish_command`` (a review launch, C-12.3) adds the publish hook to
+        the override; the preflight then verifies its trust as well.
         """
         # The Codex adapter lane exposes its binary as codex_bin. Registered
         # fake adapters launch their Python fixtures and do not expose it.
@@ -3197,6 +3199,8 @@ class Daemon:
         options = {"state_root": state_root} if state_root is not None else {}
         if env is not None:
             options["env"] = env
+        if publish_command is not None:
+            options["publish_command"] = publish_command
         result = preflight(binary, home=lane.home or lane.credential.ref, workdir=workdir, **options)
         if recorder is not None:
             recorder(result)
@@ -7416,9 +7420,13 @@ class Daemon:
             self._validate_home(lane)
             credential_env = self._credential_environment(lane)
             spec = self._spec(job, workdir=self._launch_dir(job, lane.provider), prompt_path=str(prompt_path))
+            from .review_publish import publish_hook, publishing_denied
             guard_override = None if spec.isolated_review or job["kind"] == "turn" else self._guard_override(
                 adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir), self.root,
-                env=self._provider_environment.assemble(credential_env))
+                env=self._provider_environment.assemble(credential_env),
+                # C-12.3: a review's Codex launch judges every command with the publish rule.
+                publish_command=(publish_hook(self.root) if publishing_denied(spec)
+                                 and lane.provider == "codex" else None))
             resume = None
             if turn_block is not None:
                 guard = None

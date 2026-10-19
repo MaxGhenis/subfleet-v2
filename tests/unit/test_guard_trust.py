@@ -106,6 +106,16 @@ for line in sys.stdin:
     hooks = [] if mode == "missing" else [entry]
     if mode == "duplicate":
         hooks.append(entry.copy())
+    # C-12.3: every further trusted state entry (a review's publish hook) is listed too.
+    for key, trusted in re.findall(r'"(/<session-flags>/config\.toml:pre_tool_use:\d+:\d+)"=\{trusted_hash="([^"]+)"',
+                                   sys.argv[-1])[1:]:
+        if mode == "publish-missing":
+            continue
+        hooks.append({"key": key, "enabled": mode != "publish-disabled",
+                      "trustStatus": "untrusted" if mode == "publish-untrusted" else "trusted",
+                      "currentHash": "sha256:" + "1" * 64 if mode == "publish-hash-mismatch" else trusted})
+        if mode == "publish-duplicate":
+            hooks.append(dict(hooks[-1]))
     data = [{"cwd": os.getcwd(), "hooks": hooks,
              "warnings": ["fixture warning"] if mode == "warning" else [],
              "errors": ["fixture error"] if mode == "error" else []}]
@@ -1002,3 +1012,48 @@ def test_c14_2_standalone_preflight_reads_state_root_ca_policy(fake_codex, tmp_p
     result = guard.preflight(fake, home=home, workdir=tmp_path, state_root=root)
     assert result.ok
     assert json.loads(report.read_text())['ca'] == ({'SSL_CERT_FILE': str(bundle)} if configured == 'custom' else {})
+
+
+PUBLISH = "/state/publish-guard/review-publish-hook"
+
+
+def test_preflight_verifies_the_publish_hook_beside_the_guard(fake_codex, tmp_path):
+    """C-12.3, C-14.2: a review's override adds the publish hook as a second
+    group with its own trusted state; the guard's group, key and hash are v1's."""
+    fake, report_path = fake_codex
+    result = guard.preflight(fake, workdir=tmp_path, publish_command=PUBLISH)
+    assert result.ok and result.kind == guard.VERIFIED, result.message
+    table = tomllib.loads(result.override)["hooks"]
+    assert [group["matcher"] for group in table["PreToolUse"]] == [guard.HOOK_MATCHER, guard.PUBLISH_HOOK_MATCHER]
+    assert table["PreToolUse"][1]["hooks"] == [{"type": "command", "command": PUBLISH, "timeout": guard.HOOK_TIMEOUT,
+                                                 "statusMessage": guard.PUBLISH_HOOK_STATUS}]
+    assert table["state"][guard.PUBLISH_HOOK_KEY] == {"trusted_hash": guard.publish_trust_hash(PUBLISH), "enabled": True}
+    plain = guard.override_string(guard.guard_paths()[0].resolve())
+    assert tomllib.loads(plain)["hooks"]["PreToolUse"] == table["PreToolUse"][:1]
+    assert json.loads(report_path.read_text())["argv"][-1] == result.override
+    # A launch without the publish hook keeps v1's string, which TRUST pins.
+    assert guard.preflight(fake, workdir=tmp_path).override == plain
+
+
+@pytest.mark.parametrize("mode", ["publish-missing", "publish-untrusted", "publish-disabled",
+                                  "publish-hash-mismatch", "publish-duplicate"])
+def test_preflight_refuses_a_publish_hook_codex_does_not_trust(fake_codex, tmp_path, monkeypatch, mode):
+    """C-12.3: a publish hook Codex would skip fails the launch closed, never runs it without the rule."""
+    fake, _ = fake_codex
+    monkeypatch.setenv("GUARD_TEST_MODE", mode)
+    result = guard.preflight(fake, workdir=tmp_path, publish_command=PUBLISH)
+    assert not result.ok and result.kind == guard.TRUST and result.override is None
+    assert "review publish hook" in result.message
+    # The guard alone still verifies in the same mode: only the publish entry is wrong.
+    assert guard.preflight(fake, workdir=tmp_path).ok
+
+
+def test_publish_hook_identity_hash_matches_codex_0159_hooks_list():
+    """Codex 0.159.0's own hooks/list answer for a second group (2026-10-18
+    probe, network denied, scratch CODEX_HOME): key `pre_tool_use:1:0`,
+    enabled, trusted, currentHash equal to this identity hash."""
+    command = ("/opt/homebrew/opt/python@3.14/bin/python3.14 -I -c 'import sys;sys.path.insert(0,sys.argv[1]);"
+               "from subfleet.publish_rule import hook_main;sys.exit(hook_main())' '/a b/pkg'")
+    assert guard.publish_trust_hash(command) == (
+        "sha256:bf3a2b579effbc3343fd547d5cfc1f7c1f74b82918023682edd09e18b8ef3ab7")
+    assert guard.PUBLISH_HOOK_KEY == "/<session-flags>/config.toml:pre_tool_use:1:0"

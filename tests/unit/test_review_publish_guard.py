@@ -1,9 +1,13 @@
 """Run real Git only against local file:// repositories; gh is always fake."""
 from dataclasses import replace
+import json
 import os
 from pathlib import Path
+import re
+import shlex
 import shutil
 import subprocess
+import tomllib
 
 import pytest
 from hypothesis import given, settings, strategies as st
@@ -27,11 +31,29 @@ def protected(tmp_path, provider='codex', sandbox='workspace-write', task='revie
         adapter = CodexAdapter(codex_bin='fake-provider')
         home = str(tmp_path / 'home')
         lane = replace(make_lane(), provider='codex', home=home, credential=Credential('codex', home, 'home'))
+    override = review_override(tmp_path, publish=task == 'review' or kind == 'gate-review')
     if kind == 'resume':
         return adapter.resume_launch(job, 'job/a1', tmp_path / 'attempt', lane, {},
-                                     'fixture-thread', prompt, 'hooks={}', model_id='fixture-model')
+                                     'fixture-thread', prompt, override, model_id='fixture-model')
     return adapter.build_launch(job, 'job/a1', tmp_path / 'attempt', lane, {},
-                                'fixture-model', None, prompt, 'hooks={}')
+                                'fixture-model', None, prompt, override)
+
+
+def review_override(tmp_path, publish=True):
+    """The `-c hooks=` override the daemon gives a review's Codex launch: the
+    guard (here an allow-all stand-in) and the publish hook, as the preflight
+    verifies them. Before #221 r1b's fix there was no publish hook to add."""
+    guard = tmp_path / 'guard.sh'
+    guard.write_text('#!/bin/sh\ncat >/dev/null\nexit 0\n')
+    guard.chmod(0o755)
+    try:
+        from subfleet.guard.preflight import override_string
+        from subfleet.review_publish import publish_hook
+        if not publish:
+            return override_string(guard)
+        return override_string(guard, publish_command=publish_hook(tmp_path / 'state'))
+    except (ImportError, TypeError):
+        return 'hooks={}'
 
 
 def run(args, launch):
@@ -196,3 +218,167 @@ def test_gh_review_reads_reach_gh(tmp_path, monkeypatch, args):
 def test_gh_other_verbs_stay_refused(args):
     from subfleet.review_publish import gh_read
     assert not gh_read(args)
+
+
+
+# #221 review r1b, P1: both providers run commands through zsh, and zsh startup
+# puts Homebrew (or path_helper's /usr/local/bin and /usr/bin) ahead of the
+# wrapper directory. The review put a recording gh at the Homebrew position via
+# a scratch ZDOTDIR and saw `gh pr comment 7 --body published` reach it in 4 of
+# 4 cases. These run each provider's real command path: the PreToolUse hooks
+# its launch carries, then (when they allow) the command through zsh as the
+# provider would run it.
+SHELLS = {
+    # Codex runs `zsh -lc` (seen in a rollout on this host); either provider may run `zsh -c`.
+    'zsh -c': lambda command, snapshot: ['/bin/zsh', '-c', command],
+    'zsh -lc': lambda command, snapshot: ['/bin/zsh', '-lc', command],
+    # Claude's Bash tool sources its shell snapshot, then evals the command.
+    'claude snapshot': lambda command, snapshot: [
+        '/bin/zsh', '-c', f'source {shlex.quote(str(snapshot))} && setopt NO_EXTENDED_GLOB 2>/dev/null || true '
+                          f'&& eval {shlex.quote(command)} < /dev/null'],
+}
+PROVIDER_SHELLS = [('codex', 'zsh -c'), ('codex', 'zsh -lc'),
+                   ('claude', 'zsh -c'), ('claude', 'zsh -lc'), ('claude', 'claude snapshot')]
+SHELL_WRITES = [
+    'gh pr comment 7 --body published',             # the review's executed input
+    'gh pr merge 7 --squash', 'gh pr review 7 --approve', 'gh issue comment 1 --body x',
+    'gh api -iXPOST repos/o/r/issues/1/comments', 'gh api -ifbody=published repos/o/r/issues/1/comments',
+    'cd . && gh pr comment 7 --body published', "zsh -lc 'gh pr comment 7 --body published'",
+    'echo "$(gh pr comment 7 --body published)"', 'g=gh; $g pr comment 7 --body published',
+]
+SHELL_READS = ['gh pr view 7', 'gh pr checks 7', 'gh run view 1 --log-failed', 'gh api repos/o/r/pulls/1']
+
+
+def provider_hooks(launch, provider):
+    """The PreToolUse commands the provider would run before a Bash command."""
+    argv = list(launch.argv)
+    commands = []
+    if provider == 'claude':
+        for index, arg in enumerate(argv[:-1]):
+            if arg == '--settings':
+                for group in json.loads(argv[index + 1]).get('hooks', {}).get('PreToolUse', []):
+                    if re.fullmatch(group.get('matcher') or '.*', 'Bash'):
+                        commands += [hook['command'] for hook in group['hooks']]
+        return commands
+    for arg in argv:
+        if arg.startswith('hooks='):
+            table = tomllib.loads(arg)['hooks']
+            state = table.get('state', {})
+            for group_index, group in enumerate(table.get('PreToolUse', [])):
+                for hook_index, hook in enumerate(group['hooks']):
+                    key = f'/<session-flags>/config.toml:pre_tool_use:{group_index}:{hook_index}'
+                    if re.fullmatch(group['matcher'], 'Bash') and state.get(key, {}).get('enabled'):
+                        commands.append(hook['command'])
+    return commands
+
+
+def hooks_deny(launch, provider, command, env):
+    payload = {'tool_name': 'Bash', 'tool_input': {'command': command}, 'cwd': launch.cwd}
+    if provider == 'claude':
+        payload.update(hook_event_name='PreToolUse', session_id='fixture-session')
+    for hook in provider_hooks(launch, provider):
+        result = subprocess.run(['/bin/sh', '-c', hook], input=json.dumps(payload), env=env,
+                                capture_output=True, text=True, timeout=30)
+        assert result.returncode == 0, result.stderr
+        if result.stdout.strip() and json.loads(result.stdout)['hookSpecificOutput']['permissionDecision'] == 'deny':
+            return True
+    return False
+
+
+def zsh_environment(tmp_path, launch):
+    """The launch environment with startup files that put Homebrew first."""
+    brew = tmp_path / 'homebrew' / 'bin'
+    brew.mkdir(parents=True)
+    log = tmp_path / 'recorded-gh.log'
+    (brew / 'gh').write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> {shlex.quote(str(log))}\n')
+    (brew / 'gh').chmod(0o755)
+    zdotdir = tmp_path / 'zdotdir'
+    zdotdir.mkdir()
+    prepend = f'export PATH={shlex.quote(str(brew))}:$PATH\n'
+    (zdotdir / '.zshenv').write_text(prepend)          # ~/.zshenv line 1
+    (zdotdir / '.zprofile').write_text(prepend)        # `brew shellenv`, after /etc/zprofile's path_helper
+    snapshot = tmp_path / 'snapshot-zsh.sh'
+    snapshot.write_text(f'export PATH={shlex.quote(str(brew))}:/usr/bin:/bin:/usr/sbin:/sbin\n')
+    home = tmp_path / 'home'
+    home.mkdir(exist_ok=True)
+    env = {name: value for name, value in {**os.environ, **launch.env_add}.items()
+           if not name.startswith(('GH_', 'GITHUB_')) and name != 'PYTHONPATH'}
+    env.update(ZDOTDIR=str(zdotdir), HOME=str(home), GH_CONFIG_DIR=str(tmp_path / 'gh-config'))
+    return env, log, snapshot
+
+
+def recorded(log):
+    return log.read_text().splitlines() if log.exists() else []
+
+
+@pytest.mark.parametrize('provider,shell', PROVIDER_SHELLS, ids=lambda value: str(value))
+def test_gh_writes_are_refused_in_each_providers_real_shell(tmp_path, provider, shell):
+    launch = protected(tmp_path, provider=provider)
+    env, log, snapshot = zsh_environment(tmp_path, launch)
+    for command in SHELL_WRITES:
+        denied = hooks_deny(launch, provider, command, env)
+        assert denied, (provider, shell, command)
+        # The harness reproduces the finding: past the hook, this shell's startup
+        # resolves gh to the Homebrew-position stand-in, not the PATH wrapper.
+        before = len(recorded(log))
+        subprocess.run(SHELLS[shell](command, snapshot), cwd=launch.cwd, env=env,
+                       capture_output=True, text=True, timeout=30)
+        assert len(recorded(log)) > before, (shell, command)
+    for command in SHELL_READS:
+        denied = hooks_deny(launch, provider, command, env)
+        assert not denied, command
+        before = len(recorded(log))
+        result = subprocess.run(SHELLS[shell](command, snapshot), cwd=launch.cwd, env=env,
+                                capture_output=True, text=True, timeout=30)
+        assert result.returncode == 0, result.stderr
+        assert recorded(log)[before:] == [command.removeprefix('gh ')], (shell, command)
+
+
+@pytest.mark.parametrize('provider', ['codex', 'claude'])
+@pytest.mark.parametrize('command', ['git push origin HEAD', 'git -C . push', 'env -u GIT_ALLOW_PROTOCOL git push',
+                                     'git -c alias.p=push p origin'])
+def test_git_push_is_refused_by_the_hook_as_a_second_layer(tmp_path, provider, command):
+    launch = protected(tmp_path, provider=provider)
+    env, _log, _snapshot = zsh_environment(tmp_path, launch)
+    denied = hooks_deny(launch, provider, command, env)
+    assert denied, (provider, command)
+
+
+@pytest.mark.parametrize('provider', ['codex', 'claude'])
+def test_non_review_launch_has_no_publish_hook(tmp_path, provider):
+    launch = protected(tmp_path, provider=provider, task='build')
+    env, _log, _snapshot = zsh_environment(tmp_path, launch)
+    denied = hooks_deny(launch, provider, 'gh pr comment 7 --body published', env)
+    assert not denied, provider
+
+
+def test_writable_codex_review_without_the_publish_hook_is_refused(tmp_path):
+    """Fail closed: a writable Codex review launch never starts without the hook rule."""
+    from subfleet.adapters.base import AdapterError
+    from subfleet.adapters.codex import CodexAdapter
+    work = tmp_path / 'work'
+    work.mkdir()
+    prompt = tmp_path / 'prompt'
+    prompt.write_text('review')
+    job = replace(make_job(str(work), str(prompt)), task='review', sandbox=Sandbox.WORKSPACE_WRITE)
+    home = str(tmp_path / 'home')
+    lane = replace(make_lane(), provider='codex', home=home, credential=Credential('codex', home, 'home'))
+    with pytest.raises(AdapterError) as refused:
+        CodexAdapter(codex_bin='fake-provider').build_launch(
+            job, 'job/a1', tmp_path / 'attempt', lane, {}, 'fixture-model', None, prompt,
+            review_override(tmp_path, publish=False))
+    assert refused.value.reason == 'codex-publish-hook-required'
+
+
+@pytest.mark.parametrize('sandbox,task,expected', [
+    ('workspace-write', 'review', True), ('read-only', 'review', False), ('workspace-write', 'build', False)])
+def test_claude_publish_hook_rides_only_writable_review_launches(tmp_path, sandbox, task, expected):
+    launch = protected(tmp_path, provider='claude', sandbox=sandbox, task=task)
+    assert ('--settings' in launch.argv) is expected
+    if expected:
+        settings = json.loads(launch.argv[launch.argv.index('--settings') + 1])
+        [group] = settings['hooks']['PreToolUse']
+        assert 'matcher' not in group          # every tool whose input carries a command
+        [hook] = group['hooks']
+        assert Path(hook['command']).name == 'review-publish-hook' and os.access(hook['command'], os.X_OK)
+        assert launch.env_add['SUBFLEET_PUBLISH_DENIED'] == '1'

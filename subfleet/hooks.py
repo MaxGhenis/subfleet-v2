@@ -742,7 +742,19 @@ def attached_runner(command: str) -> str | None:
     return None
 
 
-def pre_tool_use(payload: dict[str, Any], *, stdout=None) -> int:
+def pre_tool_use(payload: dict[str, Any], *, stdout=None, env: Any = None) -> int:
+    """Deny attached runner launches; in a review launch, deny publishing too.
+
+    The publish rule (C-12.4) applies only where the launch marker is set: the
+    hook runs with the provider's environment, which the job cannot change.
+    """
+    from .publish_rule import PUBLISH_MARKER, denial, payload_refusal
+    values = os.environ if env is None else env
+    if values.get(PUBLISH_MARKER) == '1':
+        refused = payload_refusal(payload)
+        if refused:
+            print(json.dumps(denial(refused)), file=stdout or sys.stdout)
+            return 0
     if payload.get('tool_name', 'Bash') != 'Bash':
         return 0
     offender = attached_runner(tool_command(payload))
