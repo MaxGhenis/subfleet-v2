@@ -268,7 +268,9 @@ class RelayServer:
         So stop returns within REPLY_TIMEOUT_S + JOIN_TIMEOUT_S + CLEANUP_TIMEOUT_S
         whatever the child, a stdin reader or the journal's disk does. A cleanup
         still running then finishes on its own; what it has not closed when the
-        guardian exits, the exit closes.
+        guardian exits, the exit closes. With no thread to be had for the cleanup,
+        stop runs only its steps that cannot wait (`_clean_up_inline`) and returns
+        within the same bound (#236 review r2).
         """
         self._stop.set()
         conn = self._conn
@@ -291,8 +293,8 @@ class RelayServer:
             cleanup = threading.Thread(target=self._clean_up, name="subfleet-relay-stop", daemon=True)
             try:
                 cleanup.start()
-            except RuntimeError:            # no thread to be had: clean up here, unbounded as before
-                self._clean_up()
+            except RuntimeError:            # no thread to be had: only what cannot wait, here
+                self._clean_up_inline()
                 return
             self._cleanup_thread = cleanup
         cleanup.join(timeout=CLEANUP_TIMEOUT_S)
@@ -336,14 +338,39 @@ class RelayServer:
         except OSError:
             pass
 
-    def _close_pipe(self) -> None:
-        with self._pipe_lock:
+    def _clean_up_inline(self) -> None:
+        """Stop's cleanup when its thread cannot start, on `stop`'s own thread, so
+        only the steps measured not to wait (#236 review r2): close the listening
+        socket (9 to 18 µs with a connection in its backlog or a thread in
+        `accept`), and close the pipe if no write holds the pipe lock now (under
+        7 µs with a reader blocked in `read` or a full pipe). The rest is left. A
+        pipe a write still holds closes at the guardian's exit. The cut line, whose
+        write can wait on stderr, is not written; a cut write's durable record is
+        its `failed` entry. The socket file, whose unlink can wait on the disk, is
+        left to the daemon's finalization of the attempt (`release_socket`), or to
+        the next `bind` at this path. Nothing listens on it, so a connect is refused,
+        as for a guardian gone. A later `stop` tries the thread again."""
+        if self._server is not None:
+            try:
+                self._server.close()
+            except OSError:
+                pass
+        self._close_pipe(wait=False)
+
+    def _close_pipe(self, *, wait: bool = True) -> None:
+        """Close the pipe's write end under the pipe lock; without `wait`, only if no
+        write holds that lock now."""
+        if not self._pipe_lock.acquire(blocking=wait):
+            return
+        try:
             if self._pipe is not None:
                 try:
                     os.close(self._pipe)
                 except OSError:
                     pass
                 self._pipe = None
+        finally:
+            self._pipe_lock.release()
 
     def _accept_loop(self) -> None:
         assert self._server is not None
