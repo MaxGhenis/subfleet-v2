@@ -1208,7 +1208,7 @@ def test_the_rebuilt_generator_finds_no_leak(seed, monkeypatch):
     import random
     from subfleet.sessions import handoff
     rng = random.Random(1000 + seed)
-    for _ in range(max(1, FUZZ_TEXTS // 3)):
+    for _ in range(FUZZ_TEXTS // 3 + (seed < FUZZ_TEXTS % 3)):
         text, limit = fuzz_text(rng)
         cut = handoff.cut_whole(text, limit)
         for form in forms_for(text):
