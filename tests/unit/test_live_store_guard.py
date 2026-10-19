@@ -449,6 +449,11 @@ def test_outside_pytest_matches_release_217(tmp_path, mode, home_name):
     """C-23.28: execute the original release functions and ours in a child.
 
     No pytest marker, no real HOME, no Git/history dependency at test time.
+    Every kind matches release except one intended D-ENV1 change (#222): the
+    Claude adapter's projects folder follows the launch's selected environment,
+    so the daemon's own CLAUDE_CONFIG_DIR no longer moves it. That kind is
+    expected to equal release's rule applied to the launch environment, and
+    to equal release exactly under explicit authority (env.pass or a home lane).
     """
     env = {name: value for name, value in os.environ.items()
            if name not in SAFE_HOME_PATHS and name not in ("PYTEST_CURRENT_TEST", PYTEST_MARKER)}
@@ -472,7 +477,6 @@ def test_outside_pytest_matches_release_217(tmp_path, mode, home_name):
     source = textwrap.dedent('''
         import ast, importlib, json, os
         from pathlib import Path
-        from types import SimpleNamespace
         from tests.fixtures.home_resolvers_release_217 import SOURCES
         from subfleet import home_paths
         assert "PYTEST_CURRENT_TEST" not in os.environ
@@ -482,18 +486,52 @@ def test_outside_pytest_matches_release_217(tmp_path, mode, home_name):
                 return ("value", call())
             except Exception as error:
                 return ("exception", type(error).__name__, str(error))
-        compared = {}
+        def under(environment, call):
+            """Release's rule as a child with `environment` would compute it."""
+            saved = dict(os.environ)
+            os.environ.clear()
+            os.environ.update(environment)
+            try:
+                return outcome(call)
+            finally:
+                os.environ.clear()
+                os.environ.update(saved)
+        from subfleet.provider_env import ProviderEnvironment
+        compared, adapter_kind = {}, {}
         for name, source in SOURCES.items():
             module = importlib.import_module(name)
             namespace = module.__dict__.copy()
             exec("from __future__ import annotations\\n" + source, namespace)
             function = ast.parse(source).body[0].name
-            args = (SimpleNamespace(_projects_dir=None),) if name.endswith("adapters.claude") else ()
-            before = outcome(lambda: namespace[function](*args))
-            current = (module.ClaudeAdapter._config_projects_dir if args else getattr(module, function))
-            after = outcome(lambda: current(*args))
-            assert after == before, (name, repr(before), repr(after))
+            if not name.endswith("adapters.claude"):
+                before = outcome(lambda: namespace[function]())
+                after = outcome(getattr(module, function))
+                assert after == before, (name, repr(before), repr(after))
+                compared[name] = str(after)
+                continue
+            release = namespace[function]
+            # D-ENV1: the default policy selects no daemon CLAUDE_CONFIG_DIR.
+            adapter = module.ClaudeAdapter()
+            assert isinstance(adapter.provider_environment, ProviderEnvironment)
+            before = outcome(lambda: release(adapter))
+            after = outcome(adapter._config_projects_dir)
+            selected = adapter.provider_environment.assemble()
+            assert "CLAUDE_CONFIG_DIR" not in selected
+            assert after == under(selected, lambda: release(adapter)), (repr(before), repr(after))
+            if not os.environ.get("CLAUDE_CONFIG_DIR"):
+                assert after == before, (repr(before), repr(after))
+            adapter_kind["default_differs"] = after != before
             compared[name] = str(after)
+            # Explicit authority restores release's answer exactly.
+            adapter.provider_environment = ProviderEnvironment({"env": {"pass": ["CLAUDE_CONFIG_DIR"]}})
+            passed = outcome(adapter._config_projects_dir)
+            assert passed == before, (repr(before), repr(passed))
+            lane = {"CLAUDE_CONFIG_DIR": "~/lane-home"}
+            for policy in ({}, {"env": {"pass": ["CLAUDE_CONFIG_DIR"]}}):
+                adapter.provider_environment = ProviderEnvironment(policy)
+                own = outcome(lambda: adapter._config_projects_dir(lane))
+                assert own == outcome(lambda: release(adapter, lane)), repr(own)
+            adapter_kind["observations"] = 4
         # Historically fixed homes must ignore the new test-only overrides in
         # production, even when the environment contains them.
         for current, original in [
@@ -517,12 +555,20 @@ def test_outside_pytest_matches_release_217(tmp_path, mode, home_name):
                 module = importlib.import_module(module_name)
                 return Path(home_paths.home_path(variable, lambda: getattr(module, constant), test_only=True))
             assert outcome(legacy_default) == outcome(lambda: Path(spelling).expanduser())
-        print(json.dumps(compared))
+        print(json.dumps({"compared": compared, "adapter": adapter_kind}))
     ''')
     result = subprocess.run([sys.executable, "-c", source], cwd=tmp_path, env=env,
                             text=True, capture_output=True, timeout=120)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert len(json.loads(result.stdout)) == 11
+    report = json.loads(result.stdout)
+    assert len(report["compared"]) == 11 and report["adapter"]["observations"] == 4
+    # D-ENV1 changes the answer only where the daemon set a CLAUDE_CONFIG_DIR;
+    # with a literal "~" HOME both may refuse alike, depending on Python's version.
+    changed = mode in ("absolute", "relative", "tilde")
+    if home_name.startswith("~") or mode == "literal-tilde-home":
+        assert changed or not report["adapter"]["default_differs"]
+    else:
+        assert report["adapter"]["default_differs"] == changed
 
 
 @pytest.mark.parametrize("marker", [PYTEST_MARKER, "PYTEST_CURRENT_TEST"])
