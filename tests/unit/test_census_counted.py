@@ -1,7 +1,7 @@
 """D-KILL2, C-5.5: every process a census counts is recorded and seeds the next census.
 
 A walk member is reparented to init when its parent dies, and a process whose argument
-buffer shows no environment (an Apple platform binary signed with the hardened runtime,
+buffer shows no environment (an Apple platform binary running with the hardened runtime,
 such as `/usr/bin/lockf`, on macOS 26) has no marker to be found by. The installed daemon
 (c69757256) recorded neither, so the lockf a cancelled attempt's provider had started in a
 session of its own (incidents 2026-10-16 and 2026-10-18) could be counted while its parent

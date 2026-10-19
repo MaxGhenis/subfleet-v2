@@ -5,8 +5,8 @@ Incidents 2026-10-16 (pr219-fix4, lockf 14354) and 2026-10-18 (pr223-fix6, lockf
 of a session of its own. The attempt was cancelled, lockf (ppid 1, its own group)
 outlived it waiting for the lock, and the census of the installed daemon (c69757256,
 copied in `tests/reference_census_c697.py`) never listed it, so the attempt was
-released while it waited. lockf is an Apple platform binary signed with the hardened
-runtime; on macOS 26 such a process's `KERN_PROCARGS2` buffer holds its argv and no
+released while it waited. lockf is an Apple platform binary that runs with the hardened
+runtime (its code-signing status, `csops`, says both); on macOS 26 such a process's `KERN_PROCARGS2` buffer holds its argv and no
 environment (observed 2026-10-18), so the markers it inherited show neither in
 `ps -E` nor in the raw buffer: no marker, no group, no parent link. Only C-5.5's
 fourth source, responsibility (D-CEN1), names it, and only while the root lives; the

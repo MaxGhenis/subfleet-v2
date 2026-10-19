@@ -7749,7 +7749,7 @@ class Daemon:
         # D-KILL2: a process counted by the group, the walk or its marker can leave
         # all three while it lives. A walk member is reparented to init when its
         # parent dies (the kill protocol's SIGTERM ends the provider), and an Apple
-        # platform binary signed with the hardened runtime (`/usr/bin/lockf`) shows
+        # platform binary running with the hardened runtime (`/usr/bin/lockf`) shows
         # no environment in its argument buffer on macOS 26, so it has no marker to
         # be found by. Each one a census counted is kept, and seeds the walk, the
         # same way and with the same lack of authority.

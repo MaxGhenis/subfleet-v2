@@ -83,7 +83,7 @@ ESCAPERS = {"retitled-node": "node", "retitled-nul": "nul", "perl-escape": "perl
 #: D-KILL2 (incidents 2026-10-16 and 2026-10-18): a provider's command ran
 #: `/usr/bin/lockf -k <suite lock> ...` as the leader of a session of its own,
 #: and the lockf outlived the cancelled attempt waiting for its lock, ppid 1
-#: once the provider was gone. lockf is an Apple platform binary signed with
+#: once the provider was gone. lockf is an Apple platform binary that runs with
 #: the hardened runtime, and on macOS 26 the argument buffer of such a process
 #: holds its argv and no environment (observed 2026-10-18), so the markers it
 #: inherits show neither in `ps -E` nor in the raw buffer. This escaper is
