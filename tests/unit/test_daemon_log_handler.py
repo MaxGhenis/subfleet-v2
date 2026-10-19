@@ -606,10 +606,10 @@ def test_a_short_line_waits_for_a_four_mib_record_no_longer_than_the_bound(monke
     inside = threading.Event()
     original = daemon_log.scrubbed_block
 
-    def spy(text):
+    def spy(text, **kwargs):
         if len(text) > 1000:
             inside.set()                    # the big record is being scrubbed: the lock is held
-        return original(text)
+        return original(text, **kwargs)
     monkeypatch.setattr(daemon_log, "scrubbed_block", spy)
     text = four_mib()
     waits = []
@@ -789,7 +789,7 @@ def test_a_record_is_scrubbed_before_the_handler_s_lock_is_taken(monkeypatch):
     free = []
     original = daemon_log.scrubbed_block
 
-    def spy(text):
+    def spy(text, **kwargs):
         def take():                             # another thread: free unless the record holds it
             if log.handler.lock.acquire(timeout=5):
                 free.append(True)
@@ -799,7 +799,7 @@ def test_a_record_is_scrubbed_before_the_handler_s_lock_is_taken(monkeypatch):
         other = threading.Thread(target=take)
         other.start()
         other.join(30)
-        return original(text)
+        return original(text, **kwargs)
     monkeypatch.setattr(daemon_log, "scrubbed_block", spy)
     try:
         log.log.warning("%s", "several lines\ntoken=SECRET7lock9")
@@ -865,7 +865,7 @@ COST_SHAPES = {
 
 class Work:
     """What one call does, counted, not timed: the lines of `handoff` it runs, the C
-    functions it calls (each scan of the text is one such call), and its event
+    functions they call (each scan of the text is one such call), and its event
     computations (`_event_from`, `_event_before`). Past `budget` lines it stops the
     call: at review r2's head, a cut of blank lines after a key ran for minutes."""
 
@@ -893,9 +893,11 @@ class Work:
             return local
 
         def profile(frame, event, arg):
-            if event == "c_call":
+            if event == "c_call" and frame.f_code.co_filename == source:
                 self.c_calls += 1
 
+        collecting = gc.isenabled()
+        gc.disable()                        # a collection's callbacks are not the cut's work
         sys.setprofile(profile)
         sys.settrace(trace)
         try:
@@ -903,6 +905,8 @@ class Work:
         finally:
             sys.settrace(None)
             sys.setprofile(None)
+            if collecting:
+                gc.enable()
 
 
 @pytest.mark.timeout(600)
@@ -1013,6 +1017,14 @@ RULE_EXAMPLES = {
 FOLDING_RULES = {"_PEM_RE", "flags"}
 GAPS = ("\n", " \n", "\n\n  ", "\r\n", "\t\n ")
 FORMS = (daemon_log.scrubbed_block, lambda text: refusals.scrubbed_line(text, UNCUT))
+MARGIN_LINE = re.compile(r"(?m)^(?:  )+[|+](?: |$)")
+
+
+def forms_for(text: str) -> tuple:
+    """The forms the daemon may write `text` in, cut or not: the block form; and for a
+    text without a group's margins the line form, which folded the block equals
+    (invariant 3). A group's block also reads it without margins, and may hide more."""
+    return FORMS if not MARGIN_LINE.search(text) else FORMS[:1]
 
 
 def _rule_names() -> set[str]:
@@ -1197,7 +1209,7 @@ def test_the_rebuilt_generator_finds_no_leak(seed, monkeypatch):
     for _ in range(max(1, FUZZ_TEXTS // 3)):
         text, limit = fuzz_text(rng)
         cut = handoff.cut_whole(text, limit)
-        for form in FORMS:
+        for form in forms_for(text):
             assert set(SECRET_RUN.findall(form(cut))) <= set(SECRET_RUN.findall(form(text))), (text, limit, cut)
         written = {}
         for bound in (limit, 10 ** 9):
