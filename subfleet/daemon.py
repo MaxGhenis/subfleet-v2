@@ -487,9 +487,8 @@ def after(seconds: float) -> str:
 
 
 def _later(stamp: str, seconds: float) -> str:
-    """`stamp` (as `utcnow` writes one) plus `seconds`, in the same form (C-11.8)."""
-    return (datetime.fromisoformat(stamp.replace("Z", "+00:00")) + timedelta(seconds=seconds)).isoformat(
-        timespec="seconds").replace("+00:00", "Z")
+    """`stamp` plus `seconds`, retaining fractional precision (C-11.8, C-9.5)."""
+    return (datetime.fromisoformat(stamp.replace("Z", "+00:00")) + timedelta(seconds=seconds)).isoformat().replace("+00:00", "Z")
 
 
 def _seconds_between(earlier: str, later: str) -> float:
@@ -7326,7 +7325,7 @@ class Daemon:
         holds[job_id] = {"reason": "lanes-unadmittable" if stuck.get("all_lanes") else "pin-unadmittable",
                          "lane_id": stuck["lane_id"], "reasons": stuck["reasons"],
                          "closures": stuck["closures"], "since": episode.get("since"), "fail_at": fail_at,
-                         **({"all_lanes": True} if stuck.get("all_lanes") else {}),
+                         **({"all_lanes": True, "for_good": stuck["reasons"]} if stuck.get("all_lanes") else {}),
                          **({"probe_status": stuck["probe_status"]} if stuck.get("probe_status") else {})}
 
     def _pin_notice(self, job: dict, stuck: dict, episode: dict, now: str) -> dict:
