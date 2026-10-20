@@ -38,7 +38,8 @@ CAPACITY, LIMITED, CLOSED, UNUSABLE = "capacity", "limited", "closed", "unusable
 #: clears, which beats a limit it does not, which beats no use at all.
 _RANK = {UNUSABLE: 0, CLOSED: 1, LIMITED: 2, CAPACITY: 3}
 #: Rejections no quota can change: the lane could not take the job anyway.
-UNUSABLE_REASONS = frozenset({"excluded", "desktop", "config-dir", "owner-v1", "disabled", "identity-mismatch"})
+UNUSABLE_REASONS = frozenset({"excluded", "desktop", "config-dir", "owner-v1", "disabled", "identity-mismatch",
+                              "credential-refused"})
 #: Closures a reset credit is for (C-23.17 releases them) and closures it is not.
 LIMIT_CLOSURES = frozenset({"provider-limit", "credits", "cooldown"})
 HOLD_CLOSURES = frozenset({"auth-dead", "operator-hold"})

@@ -17,6 +17,7 @@ from pathlib import Path
 from . import procs
 from .procs import boot_id, proc_start
 from .contracts import EXIT_SETTLE_S
+from .launch_env import build_environment, valid_name
 
 # C-5.1: agent work runs at the `utility` QoS whatever the daemon's own scheduling, so a
 # daemon at the default QoS (launchd `ProcessType` `Interactive`) never lifts it over the
@@ -171,7 +172,8 @@ def linger() -> None:
 def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
                  stdin_path: str | None, stdout_path: str, stderr_path: str,
                  start_delay_s: float = 0, launch_fd: int | None = None,
-                 control_socket: str | None = None, relay_peer_lock: str | None = None) -> int:
+                 control_socket: str | None = None, relay_peer_lock: str | None = None,
+                 env_pass: tuple[str, ...] = ()) -> int:
     """Run argv in a new session, writing start before spawn and exit after wait.
 
     With `control_socket`, the child's stdin is a pipe fed only through the relay
@@ -219,12 +221,13 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
     try:
         qos = provider_qos()
         command = provider_argv(argv, qos)
+        child_env = build_environment(removals=(LINGER_SETTLE_ENV,), pass_names=env_pass)
         try:
             with _output(Path(stdout_path)) as stdout, _output(Path(stderr_path)) as stderr:
                 if relay is not None:
                     read_end, write_end = os.pipe()
                     try:
-                        child = subprocess.Popen(command, cwd=cwd, stdin=read_end, stdout=stdout, stderr=stderr)
+                        child = subprocess.Popen(command, cwd=cwd, stdin=read_end, stdout=stdout, stderr=stderr, env=child_env)
                     except OSError:
                         os.close(write_end)
                         raise
@@ -241,7 +244,7 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
                         # credential lookup and worker queueing (C-23.19).
                         if os.environ.get("SUBFLEET_PROBE"):
                             _receipt(attempt_dir / "request.json", {"requested_at": _utc()})
-                        child = subprocess.Popen(command, cwd=cwd, stdin=stdin, stdout=stdout, stderr=stderr)
+                        child = subprocess.Popen(command, cwd=cwd, stdin=stdin, stdout=stdout, stderr=stderr, env=child_env)
                         rc = child.wait()
         except OSError as exc:
             rc = 127
@@ -283,8 +286,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--launch-fd", type=int, help=argparse.SUPPRESS)
     parser.add_argument("--control-socket")
     parser.add_argument("--relay-peer-lock", help="accept relay connections only from the daemon this lock names")
+    parser.add_argument("--env-pass", action="append", default=[], metavar="NAME",
+                        help="explicit launch-owned or policy-selected variable name")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
+    if any(not valid_name(name) for name in args.env_pass):
+        parser.error("--env-pass requires an exact variable name")
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     if not command:
         parser.error("a provider command is required after --")
@@ -292,7 +299,7 @@ def main(argv: list[str] | None = None) -> int:
                       stdin_path=args.stdin_path, stdout_path=args.stdout_path,
                       stderr_path=args.stderr_path, start_delay_s=args.start_delay_s,
                       launch_fd=args.launch_fd, control_socket=args.control_socket,
-                      relay_peer_lock=args.relay_peer_lock)
+                      relay_peer_lock=args.relay_peer_lock, env_pass=tuple(args.env_pass))
     if rc < 0:
         # Preserve subprocess's signal returncode as well as the raw receipt.
         if -rc not in {signal.SIGKILL, signal.SIGSTOP}:
