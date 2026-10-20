@@ -740,4 +740,42 @@ head; #222 changes the adapter factory after the check. Per file:
 `unit/test_frozen_provider_streams.py`: 14 failed;
 `fake/test_frozen_stream_nonregular.py`: 27 failed, 1 passed.
 
-Validation status: corrected frozen-stream files queued next.
+Production fix committed as `a8276f48d`. The first post-fix briefed hold passes:
+`unit/test_frozen_provider_streams.py`: **217 passed**;
+`fake/test_frozen_stream_nonregular.py`: **140 passed**;
+**357 passed** in 12.63 s.
+
+All five briefed holds pass: **1,215 passed, no failures or skips**, across
+21 files. Each ran one foreground pytest under its own exact `/usr/bin/lockf -k`
+shared-lock hold, with `env -u SUBFLEET_RETENTION_DORMANT -u PYTHONPATH`,
+`HYPOTHESIS_PROFILE=ci`, and disposable TMPDIR/Hypothesis storage/cache. The
+sandbox refuses writes to the default uv cache, so the required scratch-cache
+fallback is used. Pytest runtimes were 12.63, 26.09, 38.28, 10.36 and 11.98 s.
+Runtime: CPython 3.14.7 freethreaded with `PYTHON_GIL=1`. No deep profile or
+parallel workers are used.
+
+| Briefed file under `tests/` | Passed |
+| --- | ---: |
+| `unit/test_frozen_provider_streams.py` | 217 |
+| `fake/test_frozen_stream_nonregular.py` | 140 |
+| `unit/test_daemon_settle.py` | 61 |
+| `unit/test_settle_properties.py` | 129 |
+| `fake/test_finalization_replay.py` | 10 |
+| `fake/test_salvage_finalization.py` | 47 |
+| `fake/test_turn_trees.py` | 18 |
+| `unit/test_turn_runner.py` | 76 |
+| `unit/test_turn_replay.py` | 33 |
+| `unit/test_claude_turn.py` | 61 |
+| `unit/test_codex_turn.py` | 58 |
+| `unit/test_launch_env_allowlist.py` | 27 |
+| `unit/test_launch_env_helpers.py` | 20 |
+| `unit/test_launch_env_mutations.py` | 41 |
+| `unit/test_launch_env_policy.py` | 26 |
+| `unit/test_launch_env_round2.py` | 67 |
+| `unit/test_launch_env_round3.py` | 67 |
+| `unit/test_launch_env_round4.py` | 40 |
+| `unit/test_launch_env_round5.py` | 39 |
+| `fake/test_state_contract.py` | 37 |
+| `unit/test_test_module_names.py` | 1 |
+
+Validation status: exact-base probe, reset mutation and full unit/fake batches pending.
