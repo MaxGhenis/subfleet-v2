@@ -51,7 +51,8 @@ class Harness:
         }]))
         (root / "home").mkdir()
 
-    def start(self, *options: str, open_files: int | None = None, rooted: bool = False) -> Harness:
+    def start(self, *options: str, open_files: int | None = None, rooted: bool = False,
+              isolated_group: bool = False) -> Harness:
         """Start the fake daemon; `open_files` pins its soft and hard RLIMIT_NOFILE (C-16.6)."""
         log = (self.root / f"harness-{len(self.logs)}.log").open("wb")
         self.logs.append(log)
@@ -72,7 +73,8 @@ class Harness:
                 cwd=str(REPO), env=env)
         else:
             self.process = subprocess.Popen(command, cwd=REPO, env=env, stdin=subprocess.DEVNULL,
-                stdout=log, stderr=log, preexec_fn=limit if open_files is not None else None)
+                stdout=log, stderr=log, preexec_fn=limit if open_files is not None else None,
+                start_new_session=isolated_group)
 
         def ready():
             if self.process.poll() is not None:

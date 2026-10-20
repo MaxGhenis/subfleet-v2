@@ -329,6 +329,35 @@ def test_c5_12_the_receipt_is_read_every_tick_whatever_the_inspection_interval(d
     assert attempt(daemon)["state"] == "finalizing"
 
 
+def test_d_kill3_inspection_records_walk_members_without_signal_authority(daemon, monkeypatch):
+    """C-5.5, C-5.12: the shared table remembers escaped descendants before exit.
+
+    Zombies remain parent-link anchors; strangers, zombie members and missing
+    births are not recorded. A second sighting writes nothing and preserves
+    the earlier walk member even after it is reparented to init.
+    """
+    table = table_showing((4242, 1, 4242, "Ss"), (4243, 4242, 4242, "S"),
+                          (4400, 4243, 4400, "Z"), (4401, 4400, 4401, "S"),
+                          (4402, 4243, 4402, "S"), (4500, 1, 4500, "S"))
+    table.rows[4402] = (4243, 4402, "S", "")
+    daemon._process_table = shared(table)
+    daemon._contain = never_census
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: pytest.fail("reuse the shared table"))
+    daemon._process_attempt(ATTEMPT)
+    evidence = json.loads(attempt(daemon)["evidence_json"])
+    assert evidence["counted_identities"] == {
+        "4401": {"pid": 4401, "boot_id": "boot", "proc_start": STARTED}}
+    assert set(evidence["owned_identities"]) == {"4242", "4243"}
+    events = daemon.store.list_events(JOB)
+    assert [(e["kind"], json.loads(e["data_json"])["pids"]) for e in events
+            if e["kind"] == "attempt.counted_recorded"] == [("attempt.counted_recorded", [4401])]
+    table.rows[4401] = (1, 4401, "S", STARTED)
+    daemon._inspect_next.clear()
+    daemon._process_attempt(ATTEMPT)
+    assert json.loads(attempt(daemon)["evidence_json"]) == evidence
+    assert len(daemon.store.list_events(JOB)) == len(events)
+
+
 def test_c5_12_a_shared_table_never_pronounces_death(daemon, monkeypatch):
     """C-5.12, C-4.2 a guardian the table does not show is asked about afresh; alive there, it stays running."""
     with_launch(daemon, monkeypatch)
