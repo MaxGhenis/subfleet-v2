@@ -18,7 +18,6 @@ import sys
 
 import pytest
 
-from tests.live_store_trap import PERSONAL
 from tests.unit.test_live_store_guard_round7_mutations import REPO, shadow  # noqa: F401 (fixture)
 
 ST3 = "tests/unit/test_live_store_guard_st3.py"
@@ -51,8 +50,7 @@ MUTANTS = {
         [{"tmp_path": SCRATCH}]),
     "no-lexical-spelling": (
         HOMES, " or Path(os.path.abspath(home)) == personal", "",
-        "test_production_state_root_refuses_every_spelling_of_the_accounts_home",
-        [{"spelling": f"{PERSONAL}/.subfleet/.."}]),
+        "test_a_home_spelled_through_a_store_is_decided_without_a_stat", [{}]),
     "v1-default-unguarded": (
         COMPAT, "home_path(V1_BIN_ENV, lambda: V1_BIN_DEFAULT, env=env, test_only=True)", "V1_BIN_DEFAULT",
         "test_the_v1_install_default_is_refused", EMPTY),
@@ -79,10 +77,12 @@ for index, case in enumerate(cases):
     with pytest.MonkeyPatch.context() as patch:
         try:
             with st3.sealing(patch) as seal:
-                if "production_process" in inspect.signature(test).parameters:
+                params = inspect.signature(test).parameters
+                if "production_process" in params:
                     waive_process_rule(patch)
                     case = {**case, "production_process": None}
-                test(sealed=seal, monkeypatch=patch, **case)
+                test(**{key: value for key, value in {"sealed": seal, "monkeypatch": patch, **case}.items()
+                        if key in params})
         except BaseException as error:
             failed.append(f"{case!r}: {type(error).__name__}: {str(error)[:300]}")
 if failed:

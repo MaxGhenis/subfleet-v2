@@ -440,6 +440,37 @@ def test_a_home_spelled_through_a_link_past_a_missing_component_is_the_accounts(
     assert sealed.touched == []
 
 
+def test_a_home_spelled_through_a_store_is_decided_without_a_stat(monkeypatch):
+    """C-20.6 (D-ST3): `home/.subfleet/..` is the account's home by its spelling alone.
+
+    So no stat walks through the store to decide it. A stat or lstat that would
+    is refused and recorded; the recorders are undone before the assertions.
+    """
+    stores = [spelled for store in STORES for spelled in _spellings(str(PERSONAL / store))]
+    through = []
+
+    def walks_a_store(path):
+        walked = ""
+        for part in os.path.join(os.getcwd(), os.fsdecode(path)).split("/"):
+            if part:
+                walked = os.path.normpath(os.path.join(walked or "/", part))
+                if any(_within(prefix, stores) for prefix in _spellings(walked)):
+                    return True
+        return False
+
+    with monkeypatch.context() as patch:
+        for name in ("stat", "lstat"):
+            def recorded(path, *args, _real=getattr(os, name), **kwargs):
+                if not isinstance(path, int) and walks_a_store(path):
+                    through.append(os.fsdecode(path))
+                    raise PermissionError(f"st3: a stat through {os.fsdecode(path)}")
+                return _real(path, *args, **kwargs)
+            patch.setattr(os, name, recorded)
+        decided = [home_paths.is_account_home(Path(f"{PERSONAL}/{store}/..")) for store in STORES]
+    assert decided == [True] * len(STORES)
+    assert through == []
+
+
 @pytest.mark.parametrize("variable", ["SUBFLEET_HOME", "SUBFLEET_CLAUDE_DIR", "SUBFLEET_CODEX_APP_HOME"])
 @pytest.mark.parametrize("home", ["unset", "account"])
 def test_a_tilde_override_naming_the_accounts_home_is_refused(variable, home, sealed, monkeypatch):

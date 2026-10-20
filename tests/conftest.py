@@ -115,6 +115,13 @@ def production_process(monkeypatch):
     """D-ST3: this test means production behaviour (`waive_process_rule`)."""
     waive_process_rule(monkeypatch)
 
+
+def isolated_paths(*names):
+    """This test's own isolated store paths for `names`, to keep in an
+    os.environ a test replaces with a plain dict (D-ST3). Without them a pytest
+    process refuses the fallback; release resolved the person's store there."""
+    return {name: os.environ[name] for name in names}
+
 #: The instant every fixture-driven assertion is pinned to. Matches `NOW_ISO` in
 #: `tests/fixtures/claude/make_fixtures.py`; all experiment-0 reset epochs are later,
 #: so a "reported" clock is always in the future and a "guessed" one is unambiguous.
