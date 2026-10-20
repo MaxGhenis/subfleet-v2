@@ -124,10 +124,10 @@ def test_daemon_logs_follow_prints_new_lines_scrubbed(root, monkeypatch, capsys)
     out = capsys.readouterr().out
     assert "SECRET7" not in out, out
     lines = out.splitlines()
-    assert lines[:3] == ["admission: placed job 3 on lane codex-0", "admission: placed job 4 on lane codex-0",
-                         "its next record: token:"]
-    assert lines[3] == "[REDACTED] and more"
-    assert lines[4:7] == ["guardian argv: subfleet-guardian --auth-token", "[REDACTED] --lane codex-0", "plain line"]
+    # The file ends in a key whose value is not written yet: that line is held with it.
+    assert lines[:3] == admissions(3, 2)
+    assert lines[3:5] == ["its next record: token:", "[REDACTED] and more"]
+    assert lines[5:8] == ["guardian argv: subfleet-guardian --auth-token", "[REDACTED] --lane codex-0", "plain line"]
     assert "upstream said: password='[REDACTED]'" in lines
     assert lines[-1] == "Authorization: [REDACTED]"            # held at the end, written at ^C
 
@@ -141,10 +141,22 @@ def test_a_line_ending_in_a_flag_is_held_until_its_value_comes():
 
 
 def test_a_value_whose_key_was_already_written_is_hidden_beside_it():
-    """The key was written before following began (or past the hold's bound): the new
-    lines are scrubbed beside what was written before them."""
-    follower = daemon_log.LogFollower("a record: token:\n")
+    """A key written with held text past the hold's bound: the lines after it are
+    scrubbed beside what was written before them."""
+    follower = daemon_log.LogFollower("start\n")
+    held = "x='open\n" + "line\n" * (daemon_log.FOLLOW_HOLD_MAX // 5) + "a record: token:\n"
+    assert follower.feed(held)[-1] == "a record: token:"
     assert follower.feed("SECRET7context9 rest\n") == ["[REDACTED] rest"]
+
+
+def test_a_value_open_when_following_starts_is_held_with_its_lines():
+    """The file already ends inside a quoted value when following starts: its lines are
+    not printed until the value closes, and then hidden with it."""
+    before = "start\nupstream said: password='open\nmore SECRET7already9\n"
+    follower = daemon_log.LogFollower(before)
+    assert before[:follower.settled] == "start\n"
+    assert daemon_log.scrubbed_tail(before[:follower.settled], 20) == ["start"]
+    assert follower.feed("close'\nnext\n") == ["upstream said: password='[REDACTED]'", "next"]
 
 
 def test_what_is_held_is_written_when_following_stops():
@@ -214,8 +226,8 @@ def fed(text: str, rng: random.Random) -> list[str]:
     cuts = sorted(rng.sample(range(len(text) + 1), min(len(text) + 1, rng.randint(1, 12))))
     pieces = [text[a:b] for a, b in zip([0, *cuts], [*cuts, len(text)])]
     first = pieces.pop(0)
-    out = daemon_log.scrubbed_tail(first[:first.rfind("\n") + 1], 10_000)
     follower = daemon_log.LogFollower(first)
+    out = daemon_log.scrubbed_tail(first[:follower.settled], 10_000)
     for piece in pieces:
         out += follower.feed(piece)
     return out + follower.flush()

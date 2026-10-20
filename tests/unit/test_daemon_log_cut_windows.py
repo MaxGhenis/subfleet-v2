@@ -234,22 +234,12 @@ def test_at_16_mib_no_regex_reads_past_the_cut_s_windows(shape, monkeypatch):
 @pytest.mark.parametrize("where", ["message", "traceback"])
 @pytest.mark.parametrize("shape", sorted(REVIEW_R3_SHAPES))
 def test_a_four_mib_record_of_review_r3_s_shapes_is_written_within_a_second(shape, where):
-    """A generous guard on the clock, as the round-2 shapes' (D-TM1): the counting test
-    above carries the bound. Review r3 measured 351.6 ms for the margin-only lines."""
-    text = REVIEW_R3_SHAPES[shape](4 * MIB)
-    exc = handler_tests.raised(text) if where == "traceback" else None
-    outs = []
-
-    def write():
-        log = handler_tests.Written("subfleet.daemon.test-cost")
-        try:
-            log.log.error("%s", "failed" if exc else text, exc_info=(type(exc), exc, exc.__traceback__) if exc else None)
-            outs.append(log.text())
-        finally:
-            log.close()
-    elapsed = min(handler_tests.best_of_one(write) for _ in range(2))
-    assert "characters omitted] …" in outs[-1]
-    assert elapsed < 1.0, elapsed
+    """A generous guard on the clock, as the round-2 shapes' (D-TM1): under a second of
+    CPU beyond Python's own formatting; the counting test above carries the bound.
+    Review r3 measured 351.6 ms for the margin-only lines."""
+    out, beyond = handler_tests.handler_cpu_beyond_formatting(REVIEW_R3_SHAPES[shape](4 * MIB), where)
+    assert "characters omitted] …" in out
+    assert beyond < 1.0, beyond
 
 
 # --- the differential ------------------------------------------------------------------
