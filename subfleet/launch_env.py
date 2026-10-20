@@ -63,6 +63,14 @@ SESSION_PROBE_NAMES = frozenset({PYTEST_MARKER, PYTEST_SESSION, PYTEST_SESSION_I
 # Read only to say they are ignored: v1's state root and the retired API-lane
 # override. Never inherited, so doctor names them.
 RETIRED_NAMES = frozenset({"SUBFLEET_ALLOW_API_LANE", "SUBFLEET_STATE_DIR"})
+# Desktop and repository tools read these locally. They are classified for
+# discovery, but grant no provider/helper authority and are never ambient
+# configuration. Swift's SUBFLEET_* compilation defines are not environment names.
+LOCAL_TOOL_NAMES = frozenset({
+    "SUBFLEET_OPEN_CONVERSATION",      # desktop-only initial navigation
+    "SUBFLEET_SWIFT_NESTED_SANDBOX",  # local compiler invocation
+    "SUBFLEET_FIX4_MUTANTS",          # frontend mutation probe directory
+})
 # Test-only hooks for the fake providers and the e2e and live harnesses. No
 # production code reads a name under these (tests/unit/test_launch_env_round3.py).
 HARNESS_PREFIXES = ("SUBFLEET_FAKE_", "SUBFLEET_E2E_")
