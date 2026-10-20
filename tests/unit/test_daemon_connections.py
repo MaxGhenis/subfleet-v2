@@ -127,6 +127,14 @@ def test_c16_7_more_long_waits_than_the_old_reader_pool_still_leave_a_ping_answe
     """C-16.7 the incident: 40 clients in `wait` held all 32 readers and no ping was answered."""
     service = serve()
     assert service.max_connections >= 64            # this test process has a generous limit
+    real, in_wait, lock = service.dispatch, [], threading.Lock()
+
+    def dispatch(op, args, **kw):
+        if op == "wait":
+            with lock:
+                in_wait.append(args)
+        return real(op, args, **kw)
+    service.dispatch = dispatch
     holders = []
     for _ in range(40):
         sock = connect(service)
@@ -138,6 +146,9 @@ def test_c16_7_more_long_waits_than_the_old_reader_pool_still_leave_a_ping_answe
     until(lambda: counts(service)["connections"] >= 40, timeout=30)
     # Every held connection has a reader thread of its own (review of #43, F1).
     assert len(service._readers) == counts(service)["connections"] >= 40
+    # A connection counts before its reader has read its request: the ping must
+    # come only once all 40 waits are dispatched and holding, or it proves nothing.
+    until(lambda: len(in_wait) >= 40, timeout=30)
     started = time.monotonic()
     assert call(service, "ping")["result"]["pong"] is True
     assert time.monotonic() - started < 2
