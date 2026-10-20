@@ -24,7 +24,7 @@ from tests.fake.test_census_escapers_daemon import (
 pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="macOS process census")
 
 
-def interrupt_at_ten_seconds(provider_pid):
+def interrupt_at_ten_seconds(provider_pid, deliver=os.kill):
     """Use the real turn escalation, delivering its INT frame to our provider."""
     runner = SimpleNamespace(
         clock=lambda: 10, driver=SimpleNamespace(outcome=None), clocks=Clocks(),
@@ -35,7 +35,7 @@ def interrupt_at_ten_seconds(provider_pid):
     TurnRunner._timers(runner)
     assert runner.escalated == {"sigint"}
     assert [(frame.op, frame.line) for frame in runner.outbox] == [("signal", "INT")]
-    os.kill(provider_pid, signal.SIGINT)
+    deliver(provider_pid, signal.SIGINT)
 
 
 @pytest.mark.parametrize("ending", ["self-exit", "stopped-turn"])
