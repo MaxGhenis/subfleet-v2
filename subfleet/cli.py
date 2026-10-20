@@ -65,7 +65,7 @@ from .offline import (KNOWN_SCHEMA_VERSION, Offline, OfflineUnavailable,
 from .protocol import ProtocolError
 from .credentials import startup_lanes
 from .launch_env import build_environment, refused_reference
-from .policy import PolicyError, check_lane_credentials, held_lane_message, load_policy
+from .policy import PolicyError, check_lane_credentials, load_policy, startup_notes
 from .store import notice_fingerprint
 from .home_paths import home_path
 
@@ -2508,14 +2508,16 @@ def daemon_env(root: Path, *, notes: list[str] | None = None) -> dict[str, str]:
     """The started daemon's environment, after the checks daemon startup runs too.
 
     A refused policy or lanes.json row raises `PolicyError`. A stored lane the
-    check refuses is held, not fatal (review r4, P2-1): it is added to `notes`.
+    check refuses is held, not fatal (review r4, P2-1), and a refused row for a
+    lane already stored is ignored (review r5, P3-1): each such lane's one
+    warning is added to `notes`.
     """
     policy_path = root / "policy.json"
     policy = load_policy(policy_path) if policy_path.exists() else {}
     lanes = _startup_lanes(root)
-    held = check_lane_credentials(policy, policy_path, lanes)
+    found = check_lane_credentials(policy, policy_path, lanes)
     if notes is not None:
-        notes.extend(held_lane_message(lane_id, name) for lane_id, name in held)
+        notes.extend(startup_notes(found))
     # The daemon holds each env-kind lane credential so it can resolve it; every
     # launch withholds them, and each lane receives only its own (D-ENV1). A held
     # lane's variable is no credential, so it is not passed by name.

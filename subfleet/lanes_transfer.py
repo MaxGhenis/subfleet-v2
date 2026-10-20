@@ -66,6 +66,7 @@ from typing import Any
 
 from .contracts import Exit
 from .home_paths import home_path
+from .launch_env import refused_reference
 from .sessions.transcripts import NotRegularFile, read_regular
 from .store import Store, utc_now
 
@@ -87,6 +88,9 @@ V1_STATE_DIR = Path("~/chief-of-staff/state/subfleet").expanduser()
 #: home moves here on `--to v2` so v1's directory glob cannot find it anywhere.
 LANE_HOMES_DIR = "lanes"
 V2_LIVE_STATES = ("reserved", "starting", "running", "finalizing", "quarantined")
+#: D-ENV2: a held lane (C-10.5) is repaired before it moves.
+HELD_LANE_FIX = ("point the lane at a daemon variable no launch inherits in lanes.json (same lane id, "
+                 "provider and account), restart the daemon, then transfer it")
 
 
 class TransferError(Exception):
@@ -524,6 +528,14 @@ def plan_transfer(store: Store, state_root: Path, lane_id: str, to_owner: str, *
         raise TransferError(f"unknown lane {lane_id}", Exit.INVALID_INPUT,
                             "subfleet lanes list", reason="unknown-lane",
                             details={"action": "transfer", "lane_id": lane_id})
+    if row["credential_kind"] == "env" and refused_reference(row["credential_ref"]):
+        # D-ENV2 (review r5, P3-1): a held lane holds no credential either owner
+        # could use, and its row would put a refused variable into lanes.json
+        # (or, left out, lose the transfer from a rebuilt store). Repair it first.
+        raise TransferError(f"lanes transfer: lane {lane_id} is held (credential-refused="
+                            f"{row['credential_ref']}): it holds no credential to move",
+                            Exit.REFUSED, HELD_LANE_FIX, reason="transfer-held",
+                            details={"lane_id": lane_id, "lane_variable": row["credential_ref"]})
     roster_dir = (Path(roster_dir) if roster_dir else
                   Path(home_path("SUBFLEET_V1_ROSTER_DIR", lambda: V1_ROSTER_DIR, test_only=True)))
     from .home_paths import provider_home

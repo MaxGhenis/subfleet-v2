@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .launch_env import (
-    ROSTER, STORE, build_environment, harness_name, inherited_name, lane_reference, refused_reference,
+    IGNORED, ROSTER, STORE, build_environment, harness_name, lane_reference, refused_reference,
 )
 from .adapters.base import AdapterError
 from .contracts import Credential, Lane
@@ -67,9 +67,18 @@ def reference_repair(stored: Lane | Mapping[str, Any], row: Mapping[str, Any]) -
 def startup_lanes(roster: Iterable[Mapping[str, Any]],
                   stored: Iterable[Lane | Mapping[str, Any]]) -> list[tuple[Any, str, str]]:
     """D-ENV1: each env-kind lane's (lane id, variable, source) as startup will
-    hold them: every lanes.json row, then each stored lane a row does not repair."""
+    hold them: every lanes.json row, then each stored lane a row does not repair.
+
+    A row whose variable is refused, for a lane id the store already holds, is
+    `IGNORED` rather than `ROSTER` (review r5, P3-1): seeding never stores it,
+    so it cannot stop startup, and the stored lane's own rule decides, held or
+    repaired by a fixed row. Only a refused row for a new lane is refused.
+    """
     roster = [row for row in roster if isinstance(row, Mapping)]
-    lanes = [(*found, ROSTER) for found in map(lane_reference, roster) if found]
+    stored = list(stored)
+    known = {lane.get("lane_id") if isinstance(lane, Mapping) else lane.lane_id for lane in stored}
+    lanes = [(lane_id, name, IGNORED if lane_id in known and refused_reference(name) else ROSTER)
+             for lane_id, name in filter(None, map(lane_reference, roster))]
     for lane in stored:
         found = lane_reference(lane)
         if found and not any(reference_repair(lane, row) for row in roster):
@@ -615,8 +624,10 @@ def resolve_credential(credential: Credential, *, runner=None) -> dict[str, str]
         key = "CODEX_HOME" if credential.provider == "codex" else "CLAUDE_CONFIG_DIR"
         return {key: str(Path(credential.ref).expanduser().resolve())}
     if credential.kind == "env" and credential.provider == "claude":
-        if inherited_name(credential.ref):
-            # D-ENV1: every launch inherits an allowlisted name, so it cannot be one lane's.
+        if refused_reference(credential.ref):
+            # D-ENV1: some launch inherits it, or selection reads it to find a test
+            # session (review r5, P3-3), so it cannot be one lane's. Checked before
+            # its value is read.
             raise AdapterError("lane environment credential names a variable every launch inherits", code=7,
                                fix=f"store the lane OAuth token under a daemon variable other than {credential.ref}",
                                reason="credential-env-inherited")

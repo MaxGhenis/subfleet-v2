@@ -124,18 +124,30 @@ def inherited_name(name: str) -> bool:
     return allowed_name(name) or session_name(name)
 
 
-#: Where a lane the startup checks name came from (review r4, P2-1).
-ROSTER, STORE = "lanes.json", "the store"
+#: Where a lane the startup checks name came from (review r4, P2-1). A refused
+#: lanes.json row for a lane the store already holds is IGNORED (review r5, P3-1).
+ROSTER, STORE, IGNORED = "lanes.json", "the store", "lanes.json, ignored"
 
 
 def refused_reference(name: object) -> bool:
     """D-ENV1: an env-kind lane variable that can never hold that lane's credential.
 
     Some launch inherits it without policy (the allowlist, a harness hook or a
-    test session's name), so it would reach every helper. Such a lane is refused
-    in lanes.json and held in the store; it is no lane's credential reference.
+    test session's name), so it would reach every helper; or selection reads it
+    to find a test session (`SESSION_PROBE_NAMES`, review r5, P3-3), before any
+    name is withheld. Such a lane is refused in lanes.json and held in the
+    store; it is no lane's credential reference.
     """
-    return valid_name(name) and inherited_name(name)
+    return valid_name(name) and (inherited_name(name) or name in SESSION_PROBE_NAMES)
+
+
+def refused_phrase(name: str) -> str:
+    """Why `refused_reference(name)` holds, in words. A name, never a value."""
+    if allowed_name(name):
+        return "a variable every launch inherits"
+    if session_name(name):
+        return "a test session's variable, which every launch in that session inherits"
+    return "a variable launch selection reads to find a test session"
 
 
 def lane_reference(lane) -> tuple[str | None, str] | None:

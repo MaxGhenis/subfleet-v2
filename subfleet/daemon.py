@@ -64,7 +64,7 @@ from .guardian import atomic_publish
 from .lockwatch import LockWatch
 from .waits import WaitHub
 from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as policy_cap, check_lane_credentials,
-                     disk_settings, flatten_chain, held_lane_message, load_policy, policy_hash, ramp_settings,
+                     disk_settings, flatten_chain, load_policy, policy_hash, ramp_settings, startup_notes,
                      resolve_model, turn_cap)
 from .retention import RetentionState, maintenance
 from .retention_git import discard_registration
@@ -1329,12 +1329,15 @@ class Daemon:
         the daemon: it is held (the scheduler's `credential-refused`, and the
         resolve guard's `credential-env-inherited` behind it), and daemon.log
         names it with the fix. Seeding repairs it from a fixed lanes.json row.
+        A refused row for a lane already stored does not stop it either: seeding
+        never stores that row, so it is ignored, said in the lane's one warning
+        (review r5, P3-1).
         """
         roster = self._roster()
-        held = check_lane_credentials(self.policy, policy_path, startup_lanes(roster, self.store.list_lanes()))
+        found = check_lane_credentials(self.policy, policy_path, startup_lanes(roster, self.store.list_lanes()))
         self._seed_lanes(roster)
-        for lane_id, name in held:
-            self.log.warning("%s", held_lane_message(lane_id, name))
+        for text in startup_notes(found):
+            self.log.warning("%s", text)
 
     def _seed_lanes(self, roster: list) -> None:
         for row in roster:
