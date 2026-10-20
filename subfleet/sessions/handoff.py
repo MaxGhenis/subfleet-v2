@@ -748,13 +748,14 @@ def cut_whole(text: str, limit: int) -> str:
     Every regex runs within the two windows (`limit // 2` characters each, and the
     lines that hold their edges) or at a fixed position. Past the windows the cut
     reads only in C scans of `str` and `bytes`, each linear in what it reads: a
-    fixed number of them, plus at most one event computation for each quote kind a
-    side reads (`_event_from`, `_event_before`, each at most `_LOOK` C scans; two
-    plain kinds and at most `CUT_KINDS_MAX` escaped ones), plus, where a look past a
-    window meets a group's margins, one pass of C scans over each run of lines that
-    hold only whitespace and margins (`_Reading`). A side whose window holds more
-    escaped kinds, or with no such break in reach, keeps nothing: one long line
-    keeps only the line saying so."""
+    fixed number of scans of the text, among them, where a look past a window meets
+    a group's margins, a few scans of each run of lines that hold only whitespace and
+    margins, each run read once (`_Reading`); plus at most one needle look for each
+    quote kind open at a candidate cut (`_event_from`, `_event_before`; two plain
+    kinds and at most `CUT_KINDS_MAX` escaped ones a side, so at most 20), each at
+    most `_LOOK` finds of its quote, which together read the text at most once
+    (review r4 of #233). A side whose window holds more escaped kinds, or with no
+    such break in reach, keeps nothing: one long line keeps only the line saying so."""
     if len(text) <= limit:
         return text
     if _holds_reminder_tag(text):
@@ -1363,9 +1364,9 @@ def settled_end(text: str, start: int) -> int:
         spans.append((key.start(), len(text) + 1 if end is None else end.end()))
     # Only the last `-----BEGIN` can still start a first line: an earlier one has the last
     # one's `-` after it, which no word of a first line holds.
-    prefix = read.rfind("-----BEGIN")
-    if prefix >= 0 and _PEM_START_PREFIX_RE.fullmatch(read, prefix) is not None:
-        spans.append((prefix, len(text) + 1))
+    first_line = read.rfind("-----BEGIN")
+    if first_line >= 0 and _PEM_START_PREFIX_RE.fullmatch(read, first_line) is not None:
+        spans.append((first_line, len(text) + 1))
     for prefix in _DATA_URI_PREFIX_RE.finditer(read):
         body = _DATA_BODY_RE.match(read, prefix.end())
         finish = prefix.end() if body is None else body.end()

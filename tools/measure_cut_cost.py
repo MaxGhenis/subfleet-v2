@@ -61,16 +61,18 @@ def _review_r4_shapes() -> dict:
             "480 data URI prefixes": windows.REVIEW_R4_SHAPES["data-uri-prefixes"]}
 
 
+#: In the order they are measured: `--budget-s` leaves out the last first.
 SHAPES = {
     "plain": lambda size: "plain words only\n" * (size // 17),
     "margin-only lines `  |\\n`": lambda size: "  |\n" * (size // 4),
     "margin-only lines `  | \\n`": lambda size: "  | \n" * (size // 5),
     "margin-only lines, long and short": lambda size: ("  |" + " " * 70 + "\n  |\n") * (size // 79),
+    **_review_r4_shapes(),
     "member lines `  | member line\\n`": lambda size: "  | member line\n" * (size // 16),
     "leading spaces": lambda size: " " * size + "\nx\n",
     "run of `<`": lambda size: "<<<<<<<<<<<<<<<\n" * (size // 16),
-    **_review_r4_shapes(),
 }
+
 COST_SHAPES = ("head", "tail", "tail-eight-kinds", "quote-dense", "json-dense", "blank-lines-after-a-key",
                "blank-lines-after-bearer", "blank-lines-after-a-flag")
 
