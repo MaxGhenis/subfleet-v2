@@ -822,10 +822,80 @@ reproductions do not enter those totals. Shared-lock waiting time counts
 against the task's wall clock; the prescribed no-new-holds cutoff is
 11:22 UTC (four hours thirty minutes after the 06:52 UTC start).
 
-Status at 11:15 UTC: shard 4 and the briefed files are verified, but the
-whole-directory sweep is incomplete. One additional 63-file unit/fake hold
-is queued for the shared lock. The ledger below records completed validation
-only and names every file not yet run or not yet swept.
+### Final broader hold and outstanding scope
+
+The final 63-file hold was invoked at 10:46 UTC, acquired the lock at
+11:23:01 UTC after roughly 36 minutes waiting, and finished at 11:29 UTC:
+**1,659 passed, four failed, 26 skipped, one xfailed**, in **405.74 s**
+(6m45s). No further test invocation was started after the 11:22 UTC cutoff.
+All foreground runners have completed. The expected xfail is the existing
+P3-6 hung-filesystem bound case; the 26 skips require unavailable native
+boot/process inspection.
+
+The four failures are retained, not converted into skips or hidden by a
+fixture change:
+
+- `tests/unit/test_descriptors.py::test_c16_6_the_kernel_ceiling_is_read_on_macos`:
+  `kernel_open_files_ceiling()` returns `None`. Its unchanged implementation
+  directly executes `/usr/sbin/sysctl -n kern.maxfilesperproc`; unreadable
+  native inspection returns `None` by design.
+- `tests/unit/test_importer.py::test_states_map_from_rc`: the reaped fixture
+  pid remains `running` rather than `lost` when process inspection cannot
+  establish that it is gone.
+- `tests/unit/test_importer.py::test_the_daemon_never_adopts_an_external_run`:
+  that same unverifiable reaped pid stays in the external live-attempt list.
+- `tests/unit/test_importer.py::test_a_live_claude_process_outside_subfleet_keeps_history_out_and_fences_nothing[True]`:
+  `/bin/ps -Ewwp` cannot establish the scratch child's Subfleet marker, so the
+  unchanged catalog treats ownership as unknown and holds history back.
+
+Attribution to the sandbox is based on the observed unavailable native
+inspection, these failure values and source-path inspection. Importer's
+`_run_is_live` deliberately treats `procs.InspectionError` as live; catalog's
+`_subfleet_owned` deliberately treats an unsuccessful ps read as unowned.
+`subfleet/descriptors.py`, `importer.py`, `procs.py`,
+`conversations/catalog.py`, `conversations/legacy.py`, `sessions/registry.py`
+and both failing test files are byte-identical to `473fe2941`. These paths
+use their own native readers, not the changed client probe path. A release
+pytest comparison was not run after the cutoff, so this is an attribution
+from the evidence rather than a claimed passing release rerun. No production
+or test change was made for these four environment-dependent failures.
+
+The requested whole-directory sweep is **incomplete**: **122/327 unit files**
+and **37/106 fake files** were swept after briefed verification. Including
+all briefed holds, **137 unit files** ran (**5,709 passed, four failed,
+15 skipped**) and **40 fake files** ran (**685 passed, 27 skipped, one
+xfailed**). **256 files were never run** (190 unit, 66 fake); **274 files**
+still lack the requested full-sweep run, including some already verified in
+the briefed holds. Every filename and latest count is listed below. Python
+3.12 and the skipped native cases remain unverified.
+
+### Commits, recovery and cleanup
+
+Round-5 commits, in order:
+
+- `63cbb04c7`: merge release, retaining both contract additions and change logs.
+- `d62ed3b4e`: tests first, review regressions and deadline/identity caller fixtures.
+- `5e4ad9de0`: classify and forward the ping timeout; adapt launch stand-ins.
+- `1717ee7fc`: charge actual ps starts, preserve hook opt-outs, restore ping input/output and amend the contract.
+- `e9eb8f8bd`: retain verifying policy in scripted busy/refusal diagnosis tests.
+- `2805aa56c`: replace the flaky CLI wall threshold with no-send and controlled-clock assertions.
+- `709ac8972`: seven named failures kill all five review mutation types.
+- `c38a70f99`: complete shard-4 results and the initial broader-sweep ledger.
+- The final report commit records the final broader hold, four native failures and exact outstanding scope.
+
+All commits use the requested co-author trailer and workspace-local Git
+metadata on `fix/stopped-daemon-217`. The recovery artifact is
+`.git-local/round5.bundle`; its prerequisites are the existing
+`58eb80d79882` base and `473fe2941` release commits. The bundle and local Git
+metadata are retained inside the assigned workspace, outside tracked files.
+Nothing was pushed and no history was rewritten.
+
+All foreground test runners exited, and an `lsof` check found no open handles
+to any task test log before cleanup. The private scratch tree, uv cache,
+prepared 3.12 environment and workspace-created `.venv` have been removed
+with `shutil.rmtree`. No root `.hypothesis` directory remains. No task
+lockf holder is left running. The caller's checkout and shared index remain
+untouched.
 
 <!-- round5-validation-ledger -->
 
@@ -847,17 +917,19 @@ One foreground pytest process per shared-lock hold, no cache provider; bounded H
 | full-suite-shard4-1 | 959 | 0 | 23 | 309.85 |
 | full-suite-shard4-2 | 1217 | 0 | 3 | 743.29 |
 | full-suite-shard4-3 | 1589 | 0 | 7 | 712.89 |
+| full-suite-rest-1 | 1659 | 4 | 27 | 405.74 |
 
-Initial reproductions and review-mutant failures are intentional evidence, described above. Later fixture corrections and rechecks resolve the ordinary failures.
+Initial reproductions and review-mutant failures are intentional evidence, described above. Later fixture corrections and rechecks resolve the PR failures described above. The four native-environment failures from the final broader hold remain in the totals.
 
-| Directory | Files verified | Passed | Failed | Skipped | Never run | Full-sweep files |
+| Directory | Files run | Passed | Failed | Skipped / xfail | Never run | Full-sweep files |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| tests/unit | 97/327 | 4443 | 0 | 15 | 230 | 76/327 |
-| tests/fake | 23/106 | 439 | 0 | 6 | 83 | 20/106 |
+| tests/unit | 137/327 | 5709 | 4 | 15 | 190 | 122/327 |
+| tests/fake | 40/106 | 685 | 0 | 28 | 66 | 37/106 |
 
 Python 3.14 shard 4: 102/102 mapped files verified; 102/102 covered in the whole-file sweep.
 
 Files never run:
+
 - `tests/fake/test_admission_disk.py`
 - `tests/fake/test_admission_latency.py`
 - `tests/fake/test_admission_lease_waiters.py`
@@ -870,17 +942,14 @@ Files never run:
 - `tests/fake/test_admission_visibility.py`
 - `tests/fake/test_canonical_identity.py`
 - `tests/fake/test_canonical_identity_fix2.py`
-- `tests/fake/test_canonical_identity_fix3.py`
 - `tests/fake/test_canonical_identity_fix4.py`
 - `tests/fake/test_canonical_identity_fix5.py`
-- `tests/fake/test_capacity_steer_daemon.py`
 - `tests/fake/test_capacity_wait_backoff.py`
 - `tests/fake/test_census_escapers_daemon.py`
 - `tests/fake/test_census_recycled_pid_daemon.py`
 - `tests/fake/test_codex_ca_bundle_fake.py`
 - `tests/fake/test_codex_turn_completed_fake.py`
 - `tests/fake/test_crash_matrix.py`
-- `tests/fake/test_daemon_contract.py`
 - `tests/fake/test_daemon_descriptors.py`
 - `tests/fake/test_daemon_launch.py`
 - `tests/fake/test_daemon_stacks.py`
@@ -891,7 +960,6 @@ Files never run:
 - `tests/fake/test_frozen_stream_nonregular.py`
 - `tests/fake/test_identity_rollback.py`
 - `tests/fake/test_idle_cost.py`
-- `tests/fake/test_interactive_steer.py`
 - `tests/fake/test_lane_fault.py`
 - `tests/fake/test_lane_pilot.py`
 - `tests/fake/test_lanes_enroll.py`
@@ -899,23 +967,16 @@ Files never run:
 - `tests/fake/test_lanes_reenroll_keychain.py`
 - `tests/fake/test_launch_gates_above_stdio.py`
 - `tests/fake/test_lost_acknowledgement.py`
-- `tests/fake/test_main_refusal_write_dir.py`
-- `tests/fake/test_mcp_job_contract.py`
 - `tests/fake/test_native_maintenance_startup.py`
 - `tests/fake/test_notice_delivery.py`
 - `tests/fake/test_notice_header.py`
-- `tests/fake/test_policy_sandbox.py`
-- `tests/fake/test_probe_cancel.py`
 - `tests/fake/test_probe_recovery.py`
 - `tests/fake/test_prompt_seam.py`
 - `tests/fake/test_provider_active_cap_fake.py`
 - `tests/fake/test_provider_cap_review_evidence.py`
 - `tests/fake/test_record_secrecy.py`
-- `tests/fake/test_request_routing.py`
 - `tests/fake/test_reserve_authorization_validation.py`
-- `tests/fake/test_reset_credit_incident.py`
 - `tests/fake/test_resume_cli.py`
-- `tests/fake/test_resume_contract.py`
 - `tests/fake/test_retention_dormant.py`
 - `tests/fake/test_review_r185_adversarial.py`
 - `tests/fake/test_route_view.py`
@@ -923,17 +984,11 @@ Files never run:
 - `tests/fake/test_sessions_end_to_end.py`
 - `tests/fake/test_state_fixture_processes.py`
 - `tests/fake/test_status_payload.py`
-- `tests/fake/test_suggestions_fake.py`
-- `tests/fake/test_tier_hold_by_demand.py`
 - `tests/fake/test_timers_busy_admission.py`
 - `tests/fake/test_timers_end_to_end.py`
-- `tests/fake/test_turn_listing.py`
-- `tests/fake/test_turn_retention_cwd.py`
-- `tests/fake/test_turn_retention_cwd_properties.py`
 - `tests/fake/test_turn_retention_job_directory.py`
 - `tests/fake/test_turn_retention_job_properties.py`
 - `tests/fake/test_turn_retention_quarantine.py`
-- `tests/fake/test_turn_wait_reasons.py`
 - `tests/fake/test_unadmittable_pin_admission.py`
 - `tests/fake/test_unadmittable_pin_review.py`
 - `tests/fake/test_workspace_contract.py`
@@ -952,16 +1007,12 @@ Files never run:
 - `tests/unit/test_census_responsibility_identity.py`
 - `tests/unit/test_census_responsibility_races.py`
 - `tests/unit/test_census_survivors_review.py`
-- `tests/unit/test_ci_retry_known_flakes.py`
 - `tests/unit/test_ci_shard_plugin.py`
 - `tests/unit/test_claude_adapter.py`
-- `tests/unit/test_claude_attest.py`
 - `tests/unit/test_claude_cards_wiring.py`
 - `tests/unit/test_claude_conversation_mcp_scope.py`
 - `tests/unit/test_claude_identity.py`
-- `tests/unit/test_claude_large_stream.py`
 - `tests/unit/test_claude_mcp.py`
-- `tests/unit/test_claude_mcp_launch.py`
 - `tests/unit/test_claude_usage.py`
 - `tests/unit/test_claude_v1_parity.py`
 - `tests/unit/test_cli_batch.py`
@@ -970,8 +1021,6 @@ Files never run:
 - `tests/unit/test_codex_probe.py`
 - `tests/unit/test_codex_turn.py`
 - `tests/unit/test_compat.py`
-- `tests/unit/test_conversation_catalog.py`
-- `tests/unit/test_conversation_catalog_lifecycle.py`
 - `tests/unit/test_conversation_fifo_reads.py`
 - `tests/unit/test_conversation_handoff_briefs.py`
 - `tests/unit/test_conversation_handoff_dispatch_races.py`
@@ -979,25 +1028,21 @@ Files never run:
 - `tests/unit/test_conversation_peers_attachments.py`
 - `tests/unit/test_conversation_service.py`
 - `tests/unit/test_conversation_state_reads.py`
-- `tests/unit/test_conversation_status.py`
 - `tests/unit/test_conversation_store.py`
 - `tests/unit/test_conversation_stream_assertion.py`
 - `tests/unit/test_conversation_titles.py`
 - `tests/unit/test_conversation_wakes.py`
 - `tests/unit/test_daemon_fifo_reads.py`
 - `tests/unit/test_daemon_init_release.py`
-- `tests/unit/test_daemon_inspection_properties.py`
 - `tests/unit/test_daemon_integration.py`
 - `tests/unit/test_daemon_qos_tools.py`
 - `tests/unit/test_daemon_settle.py`
 - `tests/unit/test_decision_horizon.py`
-- `tests/unit/test_descriptors.py`
 - `tests/unit/test_descriptors_desktop.py`
 - `tests/unit/test_desktop_account_cache.py`
 - `tests/unit/test_desktop_ledger.py`
 - `tests/unit/test_disk_admission.py`
 - `tests/unit/test_disk_floor.py`
-- `tests/unit/test_doctor_ca_bundle.py`
 - `tests/unit/test_doctor_identity.py`
 - `tests/unit/test_enrollment_runner.py`
 - `tests/unit/test_fake_codex_http.py`
@@ -1013,10 +1058,8 @@ Files never run:
 - `tests/unit/test_guard_overlay.py`
 - `tests/unit/test_guard_trust.py`
 - `tests/unit/test_guardian.py`
-- `tests/unit/test_guardian_qos.py`
 - `tests/unit/test_handler_refusals.py`
 - `tests/unit/test_hidden_environment.py`
-- `tests/unit/test_hooks_native_guard.py`
 - `tests/unit/test_host_push_admission.py`
 - `tests/unit/test_host_push_build.py`
 - `tests/unit/test_host_push_build_budget.py`
@@ -1027,41 +1070,31 @@ Files never run:
 - `tests/unit/test_host_push_mutations.py`
 - `tests/unit/test_host_push_quarantine_restart.py`
 - `tests/unit/test_host_push_restart.py`
-- `tests/unit/test_host_push_retention.py`
 - `tests/unit/test_host_push_storage_recovery.py`
 - `tests/unit/test_host_push_storage_retry_budget.py`
 - `tests/unit/test_host_push_store_completion_pr183.py`
-- `tests/unit/test_host_push_store_interleavings.py`
 - `tests/unit/test_host_push_trees.py`
 - `tests/unit/test_host_push_validated_top.py`
-- `tests/unit/test_importer.py`
 - `tests/unit/test_inspection_pacing_properties.py`
-- `tests/unit/test_invariants_index.py`
 - `tests/unit/test_lane_answers.py`
 - `tests/unit/test_lease_waiter_selection.py`
 - `tests/unit/test_limit_from_model_text.py`
-- `tests/unit/test_live_store_guard_round10.py`
 - `tests/unit/test_live_store_guard_round3.py`
 - `tests/unit/test_live_store_guard_round4.py`
 - `tests/unit/test_live_store_guard_round5.py`
 - `tests/unit/test_live_store_guard_round6.py`
-- `tests/unit/test_live_store_guard_round7.py`
 - `tests/unit/test_live_store_guard_round7_mutations.py`
 - `tests/unit/test_live_store_guard_round8.py`
 - `tests/unit/test_live_store_guard_round8_mutations.py`
 - `tests/unit/test_live_store_guard_round9.py`
-- `tests/unit/test_live_store_guard_round9_mutations.py`
 - `tests/unit/test_live_store_guard_state_root.py`
 - `tests/unit/test_mcp_scheduler_contract.py`
 - `tests/unit/test_mirror_flags_model.py`
-- `tests/unit/test_mirror_flags_stateful.py`
 - `tests/unit/test_native_operations.py`
-- `tests/unit/test_notice_rendering.py`
 - `tests/unit/test_notify_push.py`
 - `tests/unit/test_operator_hold_closures.py`
 - `tests/unit/test_person_boundary.py`
 - `tests/unit/test_picker.py`
-- `tests/unit/test_placement_ramp.py`
 - `tests/unit/test_policy_disk.py`
 - `tests/unit/test_policy_ramp.py`
 - `tests/unit/test_policy_support.py`
@@ -1072,13 +1105,11 @@ Files never run:
 - `tests/unit/test_pr192_review_r2.py`
 - `tests/unit/test_procs.py`
 - `tests/unit/test_protocol_secrecy.py`
-- `tests/unit/test_provider_active_cap.py`
 - `tests/unit/test_prune_217.py`
 - `tests/unit/test_prune_decision_fingerprints.py`
 - `tests/unit/test_prune_restore.py`
 - `tests/unit/test_quota_projection.py`
 - `tests/unit/test_rank_review_report.py`
-- `tests/unit/test_rediscovery_git_trace.py`
 - `tests/unit/test_relay.py`
 - `tests/unit/test_render.py`
 - `tests/unit/test_render_quota_projection.py`
@@ -1088,7 +1119,6 @@ Files never run:
 - `tests/unit/test_reset_credit_review_r3.py`
 - `tests/unit/test_reset_credit_review_r3_mutants.py`
 - `tests/unit/test_retention_archive.py`
-- `tests/unit/test_retention_archive_properties.py`
 - `tests/unit/test_retention_case_alias.py`
 - `tests/unit/test_retention_nested_leases.py`
 - `tests/unit/test_retention_ordinary_trees.py`
@@ -1104,27 +1134,18 @@ Files never run:
 - `tests/unit/test_retention_worktrees.py`
 - `tests/unit/test_review130_pass.py`
 - `tests/unit/test_review_pr127_fixes.py`
-- `tests/unit/test_review_pr127_history.py`
-- `tests/unit/test_review_pr127_pr_wakes.py`
 - `tests/unit/test_review_pr127_report.py`
 - `tests/unit/test_review_pr127_service.py`
-- `tests/unit/test_review_r2_repro.py`
-- `tests/unit/test_review_r3_measure.py`
 - `tests/unit/test_review_r3_repro.py`
 - `tests/unit/test_review_r4_repro.py`
 - `tests/unit/test_review_r5_repro.py`
 - `tests/unit/test_review_r6_probes.py`
 - `tests/unit/test_review_r6_restart.py`
 - `tests/unit/test_round10_refusal_context.py`
-- `tests/unit/test_route_check.py`
 - `tests/unit/test_salvage.py`
 - `tests/unit/test_salvage_optional_transient.py`
 - `tests/unit/test_salvage_unindexable.py`
-- `tests/unit/test_scheduler.py`
 - `tests/unit/test_scheduler_priority_callers.py`
-- `tests/unit/test_scheduler_tier_preferences.py`
-- `tests/unit/test_scheduler_turns.py`
-- `tests/unit/test_scrub_key_order.py`
 - `tests/unit/test_sessions_handoff_excerpts.py`
 - `tests/unit/test_sessions_headless_properties.py`
 - `tests/unit/test_sessions_mirror.py`
@@ -1138,15 +1159,12 @@ Files never run:
 - `tests/unit/test_sessions_mirror_safety.py`
 - `tests/unit/test_sessions_mirror_write_churn.py`
 - `tests/unit/test_sessions_nudge.py`
-- `tests/unit/test_sessions_registry.py`
 - `tests/unit/test_sessions_revive_reads.py`
 - `tests/unit/test_sessions_transcripts.py`
 - `tests/unit/test_settle_properties.py`
 - `tests/unit/test_status_json.py`
-- `tests/unit/test_steer_invariants.py`
 - `tests/unit/test_stop_alarm.py`
 - `tests/unit/test_stop_watchdog.py`
-- `tests/unit/test_store_ids.py`
 - `tests/unit/test_store_migration_2.py`
 - `tests/unit/test_store_properties.py`
 - `tests/unit/test_store_readers.py`
@@ -1154,13 +1172,10 @@ Files never run:
 - `tests/unit/test_suggestion_error_boundaries.py`
 - `tests/unit/test_suggestions_r1b_adversarial.py`
 - `tests/unit/test_suggestions_r3_channels.py`
-- `tests/unit/test_suggestions_review_boundaries.py`
 - `tests/unit/test_suggestions_review_multiline.py`
 - `tests/unit/test_suggestions_review_response.py`
 - `tests/unit/test_tick_prefilter.py`
 - `tests/unit/test_timers_alerts.py`
-- `tests/unit/test_timers_daemon.py`
-- `tests/unit/test_timers_keepalive.py`
 - `tests/unit/test_timers_probe.py`
 - `tests/unit/test_timers_reset_credits.py`
 - `tests/unit/test_title_review_regressions.py`
@@ -1173,6 +1188,7 @@ Files never run:
 - `tests/unit/test_weekly_rank_vs_base.py`
 
 Full-sweep files still pending (some were already verified in the briefed holds):
+
 - `tests/fake/test_admission_disk.py`
 - `tests/fake/test_admission_latency.py`
 - `tests/fake/test_admission_lease_waiters.py`
@@ -1185,17 +1201,14 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 - `tests/fake/test_admission_visibility.py`
 - `tests/fake/test_canonical_identity.py`
 - `tests/fake/test_canonical_identity_fix2.py`
-- `tests/fake/test_canonical_identity_fix3.py`
 - `tests/fake/test_canonical_identity_fix4.py`
 - `tests/fake/test_canonical_identity_fix5.py`
-- `tests/fake/test_capacity_steer_daemon.py`
 - `tests/fake/test_capacity_wait_backoff.py`
 - `tests/fake/test_census_escapers_daemon.py`
 - `tests/fake/test_census_recycled_pid_daemon.py`
 - `tests/fake/test_codex_ca_bundle_fake.py`
 - `tests/fake/test_codex_turn_completed_fake.py`
 - `tests/fake/test_crash_matrix.py`
-- `tests/fake/test_daemon_contract.py`
 - `tests/fake/test_daemon_descriptors.py`
 - `tests/fake/test_daemon_launch.py`
 - `tests/fake/test_daemon_stacks.py`
@@ -1206,7 +1219,6 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 - `tests/fake/test_frozen_stream_nonregular.py`
 - `tests/fake/test_identity_rollback.py`
 - `tests/fake/test_idle_cost.py`
-- `tests/fake/test_interactive_steer.py`
 - `tests/fake/test_lane_fault.py`
 - `tests/fake/test_lane_pilot.py`
 - `tests/fake/test_lanes_enroll.py`
@@ -1216,23 +1228,16 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 - `tests/fake/test_launch_env_providers.py`
 - `tests/fake/test_launch_gates_above_stdio.py`
 - `tests/fake/test_lost_acknowledgement.py`
-- `tests/fake/test_main_refusal_write_dir.py`
-- `tests/fake/test_mcp_job_contract.py`
 - `tests/fake/test_native_maintenance_startup.py`
 - `tests/fake/test_notice_delivery.py`
 - `tests/fake/test_notice_header.py`
-- `tests/fake/test_policy_sandbox.py`
-- `tests/fake/test_probe_cancel.py`
 - `tests/fake/test_probe_recovery.py`
 - `tests/fake/test_prompt_seam.py`
 - `tests/fake/test_provider_active_cap_fake.py`
 - `tests/fake/test_provider_cap_review_evidence.py`
 - `tests/fake/test_record_secrecy.py`
-- `tests/fake/test_request_routing.py`
 - `tests/fake/test_reserve_authorization_validation.py`
-- `tests/fake/test_reset_credit_incident.py`
 - `tests/fake/test_resume_cli.py`
-- `tests/fake/test_resume_contract.py`
 - `tests/fake/test_retention_dormant.py`
 - `tests/fake/test_review_r185_adversarial.py`
 - `tests/fake/test_route_view.py`
@@ -1240,17 +1245,11 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 - `tests/fake/test_sessions_end_to_end.py`
 - `tests/fake/test_state_fixture_processes.py`
 - `tests/fake/test_status_payload.py`
-- `tests/fake/test_suggestions_fake.py`
-- `tests/fake/test_tier_hold_by_demand.py`
 - `tests/fake/test_timers_busy_admission.py`
 - `tests/fake/test_timers_end_to_end.py`
-- `tests/fake/test_turn_listing.py`
-- `tests/fake/test_turn_retention_cwd.py`
-- `tests/fake/test_turn_retention_cwd_properties.py`
 - `tests/fake/test_turn_retention_job_directory.py`
 - `tests/fake/test_turn_retention_job_properties.py`
 - `tests/fake/test_turn_retention_quarantine.py`
-- `tests/fake/test_turn_wait_reasons.py`
 - `tests/fake/test_unadmittable_pin_admission.py`
 - `tests/fake/test_unadmittable_pin_rereview.py`
 - `tests/fake/test_unadmittable_pin_review.py`
@@ -1271,28 +1270,21 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 - `tests/unit/test_census_responsibility_identity.py`
 - `tests/unit/test_census_responsibility_races.py`
 - `tests/unit/test_census_survivors_review.py`
-- `tests/unit/test_ci_retry_known_flakes.py`
 - `tests/unit/test_ci_shard_plugin.py`
 - `tests/unit/test_claude_adapter.py`
-- `tests/unit/test_claude_attest.py`
 - `tests/unit/test_claude_cards_wiring.py`
 - `tests/unit/test_claude_conversation_mcp_scope.py`
 - `tests/unit/test_claude_identity.py`
-- `tests/unit/test_claude_large_stream.py`
 - `tests/unit/test_claude_mcp.py`
-- `tests/unit/test_claude_mcp_launch.py`
 - `tests/unit/test_claude_usage.py`
 - `tests/unit/test_claude_v1_parity.py`
 - `tests/unit/test_cli.py`
 - `tests/unit/test_cli_batch.py`
-- `tests/unit/test_client_availability.py`
 - `tests/unit/test_codex_adapter.py`
 - `tests/unit/test_codex_ca_bundle_provider.py`
 - `tests/unit/test_codex_probe.py`
 - `tests/unit/test_codex_turn.py`
 - `tests/unit/test_compat.py`
-- `tests/unit/test_conversation_catalog.py`
-- `tests/unit/test_conversation_catalog_lifecycle.py`
 - `tests/unit/test_conversation_fifo_reads.py`
 - `tests/unit/test_conversation_handoff_briefs.py`
 - `tests/unit/test_conversation_handoff_dispatch_races.py`
@@ -1300,7 +1292,6 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 - `tests/unit/test_conversation_peers_attachments.py`
 - `tests/unit/test_conversation_service.py`
 - `tests/unit/test_conversation_state_reads.py`
-- `tests/unit/test_conversation_status.py`
 - `tests/unit/test_conversation_store.py`
 - `tests/unit/test_conversation_stream_assertion.py`
 - `tests/unit/test_conversation_titles.py`
@@ -1308,21 +1299,16 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 - `tests/unit/test_daemon_connections.py`
 - `tests/unit/test_daemon_fifo_reads.py`
 - `tests/unit/test_daemon_init_release.py`
-- `tests/unit/test_daemon_inspection_properties.py`
 - `tests/unit/test_daemon_integration.py`
 - `tests/unit/test_daemon_qos_tools.py`
 - `tests/unit/test_daemon_settle.py`
-- `tests/unit/test_daemon_verbs.py`
 - `tests/unit/test_decision_horizon.py`
-- `tests/unit/test_descriptor_review_fixes.py`
-- `tests/unit/test_descriptors.py`
 - `tests/unit/test_descriptors_desktop.py`
 - `tests/unit/test_desktop_account_cache.py`
 - `tests/unit/test_desktop_ledger.py`
 - `tests/unit/test_disk_admission.py`
 - `tests/unit/test_disk_floor.py`
 - `tests/unit/test_doctor.py`
-- `tests/unit/test_doctor_ca_bundle.py`
 - `tests/unit/test_doctor_identity.py`
 - `tests/unit/test_enrollment_runner.py`
 - `tests/unit/test_fake_codex_http.py`
@@ -1338,12 +1324,10 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 - `tests/unit/test_guard_overlay.py`
 - `tests/unit/test_guard_trust.py`
 - `tests/unit/test_guardian.py`
-- `tests/unit/test_guardian_qos.py`
 - `tests/unit/test_handler_refusals.py`
 - `tests/unit/test_hidden_environment.py`
 - `tests/unit/test_hook_cost.py`
 - `tests/unit/test_hooks.py`
-- `tests/unit/test_hooks_native_guard.py`
 - `tests/unit/test_host_push_admission.py`
 - `tests/unit/test_host_push_build.py`
 - `tests/unit/test_host_push_build_budget.py`
@@ -1354,19 +1338,14 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 - `tests/unit/test_host_push_mutations.py`
 - `tests/unit/test_host_push_quarantine_restart.py`
 - `tests/unit/test_host_push_restart.py`
-- `tests/unit/test_host_push_retention.py`
 - `tests/unit/test_host_push_storage_recovery.py`
 - `tests/unit/test_host_push_storage_retry_budget.py`
 - `tests/unit/test_host_push_store_completion_pr183.py`
-- `tests/unit/test_host_push_store_interleavings.py`
 - `tests/unit/test_host_push_trees.py`
 - `tests/unit/test_host_push_validated_top.py`
-- `tests/unit/test_importer.py`
 - `tests/unit/test_inspection_pacing_properties.py`
-- `tests/unit/test_invariants_index.py`
 - `tests/unit/test_lane_answers.py`
 - `tests/unit/test_launch_env_allowlist.py`
-- `tests/unit/test_launch_env_helpers.py`
 - `tests/unit/test_launch_env_mutations.py`
 - `tests/unit/test_launch_env_policy.py`
 - `tests/unit/test_launch_env_round2.py`
@@ -1374,30 +1353,23 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 - `tests/unit/test_launch_env_round4.py`
 - `tests/unit/test_lease_waiter_selection.py`
 - `tests/unit/test_limit_from_model_text.py`
-- `tests/unit/test_live_store_guard_round10.py`
 - `tests/unit/test_live_store_guard_round3.py`
 - `tests/unit/test_live_store_guard_round4.py`
 - `tests/unit/test_live_store_guard_round5.py`
 - `tests/unit/test_live_store_guard_round6.py`
-- `tests/unit/test_live_store_guard_round7.py`
 - `tests/unit/test_live_store_guard_round7_mutations.py`
 - `tests/unit/test_live_store_guard_round8.py`
 - `tests/unit/test_live_store_guard_round8_mutations.py`
 - `tests/unit/test_live_store_guard_round9.py`
-- `tests/unit/test_live_store_guard_round9_mutations.py`
 - `tests/unit/test_live_store_guard_state_root.py`
 - `tests/unit/test_mcp_scheduler_contract.py`
 - `tests/unit/test_mirror_flags_model.py`
-- `tests/unit/test_mirror_flags_stateful.py`
 - `tests/unit/test_native_operations.py`
-- `tests/unit/test_notice_rendering.py`
 - `tests/unit/test_notify_push.py`
-- `tests/unit/test_offline.py`
 - `tests/unit/test_operator_hold_closures.py`
 - `tests/unit/test_outcome_unknown.py`
 - `tests/unit/test_person_boundary.py`
 - `tests/unit/test_picker.py`
-- `tests/unit/test_placement_ramp.py`
 - `tests/unit/test_policy_disk.py`
 - `tests/unit/test_policy_ramp.py`
 - `tests/unit/test_policy_support.py`
@@ -1408,13 +1380,11 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 - `tests/unit/test_pr192_review_r2.py`
 - `tests/unit/test_procs.py`
 - `tests/unit/test_protocol_secrecy.py`
-- `tests/unit/test_provider_active_cap.py`
 - `tests/unit/test_prune_217.py`
 - `tests/unit/test_prune_decision_fingerprints.py`
 - `tests/unit/test_prune_restore.py`
 - `tests/unit/test_quota_projection.py`
 - `tests/unit/test_rank_review_report.py`
-- `tests/unit/test_rediscovery_git_trace.py`
 - `tests/unit/test_relay.py`
 - `tests/unit/test_render.py`
 - `tests/unit/test_render_quota_projection.py`
@@ -1424,7 +1394,6 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 - `tests/unit/test_reset_credit_review_r3.py`
 - `tests/unit/test_reset_credit_review_r3_mutants.py`
 - `tests/unit/test_retention_archive.py`
-- `tests/unit/test_retention_archive_properties.py`
 - `tests/unit/test_retention_case_alias.py`
 - `tests/unit/test_retention_nested_leases.py`
 - `tests/unit/test_retention_ordinary_trees.py`
@@ -1440,27 +1409,18 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 - `tests/unit/test_retention_worktrees.py`
 - `tests/unit/test_review130_pass.py`
 - `tests/unit/test_review_pr127_fixes.py`
-- `tests/unit/test_review_pr127_history.py`
-- `tests/unit/test_review_pr127_pr_wakes.py`
 - `tests/unit/test_review_pr127_report.py`
 - `tests/unit/test_review_pr127_service.py`
-- `tests/unit/test_review_r2_repro.py`
-- `tests/unit/test_review_r3_measure.py`
 - `tests/unit/test_review_r3_repro.py`
 - `tests/unit/test_review_r4_repro.py`
 - `tests/unit/test_review_r5_repro.py`
 - `tests/unit/test_review_r6_probes.py`
 - `tests/unit/test_review_r6_restart.py`
 - `tests/unit/test_round10_refusal_context.py`
-- `tests/unit/test_route_check.py`
 - `tests/unit/test_salvage.py`
 - `tests/unit/test_salvage_optional_transient.py`
 - `tests/unit/test_salvage_unindexable.py`
-- `tests/unit/test_scheduler.py`
 - `tests/unit/test_scheduler_priority_callers.py`
-- `tests/unit/test_scheduler_tier_preferences.py`
-- `tests/unit/test_scheduler_turns.py`
-- `tests/unit/test_scrub_key_order.py`
 - `tests/unit/test_sessions_cli.py`
 - `tests/unit/test_sessions_handoff_excerpts.py`
 - `tests/unit/test_sessions_headless_properties.py`
@@ -1475,16 +1435,13 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 - `tests/unit/test_sessions_mirror_safety.py`
 - `tests/unit/test_sessions_mirror_write_churn.py`
 - `tests/unit/test_sessions_nudge.py`
-- `tests/unit/test_sessions_registry.py`
 - `tests/unit/test_sessions_revive_reads.py`
 - `tests/unit/test_sessions_transcripts.py`
 - `tests/unit/test_settle_properties.py`
 - `tests/unit/test_status_json.py`
-- `tests/unit/test_steer_invariants.py`
 - `tests/unit/test_stop_alarm.py`
 - `tests/unit/test_stop_watchdog.py`
 - `tests/unit/test_stopped_daemon.py`
-- `tests/unit/test_store_ids.py`
 - `tests/unit/test_store_migration_2.py`
 - `tests/unit/test_store_properties.py`
 - `tests/unit/test_store_readers.py`
@@ -1492,14 +1449,10 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 - `tests/unit/test_suggestion_error_boundaries.py`
 - `tests/unit/test_suggestions_r1b_adversarial.py`
 - `tests/unit/test_suggestions_r3_channels.py`
-- `tests/unit/test_suggestions_review_boundaries.py`
 - `tests/unit/test_suggestions_review_multiline.py`
 - `tests/unit/test_suggestions_review_response.py`
-- `tests/unit/test_test_module_names.py`
 - `tests/unit/test_tick_prefilter.py`
 - `tests/unit/test_timers_alerts.py`
-- `tests/unit/test_timers_daemon.py`
-- `tests/unit/test_timers_keepalive.py`
 - `tests/unit/test_timers_probe.py`
 - `tests/unit/test_timers_reset_credits.py`
 - `tests/unit/test_title_review_regressions.py`
@@ -1533,17 +1486,17 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 | [test_census_responsibility_identity.py](../../tests/unit/test_census_responsibility_identity.py) | 0 | 0 | 0 | unrun |
 | [test_census_responsibility_races.py](../../tests/unit/test_census_responsibility_races.py) | 0 | 0 | 0 | unrun |
 | [test_census_survivors_review.py](../../tests/unit/test_census_survivors_review.py) | 0 | 0 | 0 | unrun |
-| [test_ci_retry_known_flakes.py](../../tests/unit/test_ci_retry_known_flakes.py) | 0 | 0 | 0 | unrun |
+| [test_ci_retry_known_flakes.py](../../tests/unit/test_ci_retry_known_flakes.py) | 72 | 0 | 0 | done |
 | [test_ci_shard_plugin.py](../../tests/unit/test_ci_shard_plugin.py) | 0 | 0 | 0 | unrun |
 | [test_claude_adapter.py](../../tests/unit/test_claude_adapter.py) | 0 | 0 | 0 | unrun |
-| [test_claude_attest.py](../../tests/unit/test_claude_attest.py) | 0 | 0 | 0 | unrun |
+| [test_claude_attest.py](../../tests/unit/test_claude_attest.py) | 19 | 0 | 0 | done |
 | [test_claude_cards.py](../../tests/unit/test_claude_cards.py) | 96 | 0 | 0 | done |
 | [test_claude_cards_wiring.py](../../tests/unit/test_claude_cards_wiring.py) | 0 | 0 | 0 | unrun |
 | [test_claude_conversation_mcp_scope.py](../../tests/unit/test_claude_conversation_mcp_scope.py) | 0 | 0 | 0 | unrun |
 | [test_claude_identity.py](../../tests/unit/test_claude_identity.py) | 0 | 0 | 0 | unrun |
-| [test_claude_large_stream.py](../../tests/unit/test_claude_large_stream.py) | 0 | 0 | 0 | unrun |
+| [test_claude_large_stream.py](../../tests/unit/test_claude_large_stream.py) | 30 | 0 | 0 | done |
 | [test_claude_mcp.py](../../tests/unit/test_claude_mcp.py) | 0 | 0 | 0 | unrun |
-| [test_claude_mcp_launch.py](../../tests/unit/test_claude_mcp_launch.py) | 0 | 0 | 0 | unrun |
+| [test_claude_mcp_launch.py](../../tests/unit/test_claude_mcp_launch.py) | 11 | 0 | 0 | done |
 | [test_claude_stream.py](../../tests/unit/test_claude_stream.py) | 60 | 0 | 0 | done |
 | [test_claude_synthetic_error.py](../../tests/unit/test_claude_synthetic_error.py) | 63 | 0 | 0 | done |
 | [test_claude_turn.py](../../tests/unit/test_claude_turn.py) | 61 | 0 | 0 | done |
@@ -1552,7 +1505,7 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 | [test_cli.py](../../tests/unit/test_cli.py) | 247 | 0 | 0 | pending |
 | [test_cli_batch.py](../../tests/unit/test_cli_batch.py) | 0 | 0 | 0 | unrun |
 | [test_cli_turns.py](../../tests/unit/test_cli_turns.py) | 23 | 0 | 0 | done |
-| [test_client_availability.py](../../tests/unit/test_client_availability.py) | 22 | 0 | 0 | pending |
+| [test_client_availability.py](../../tests/unit/test_client_availability.py) | 22 | 0 | 0 | done |
 | [test_codex_adapter.py](../../tests/unit/test_codex_adapter.py) | 0 | 0 | 0 | unrun |
 | [test_codex_ca_bundle.py](../../tests/unit/test_codex_ca_bundle.py) | 46 | 0 | 0 | done |
 | [test_codex_ca_bundle_provider.py](../../tests/unit/test_codex_ca_bundle_provider.py) | 0 | 0 | 0 | unrun |
@@ -1562,8 +1515,8 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 | [test_codex_turn_completed.py](../../tests/unit/test_codex_turn_completed.py) | 41 | 0 | 0 | done |
 | [test_compat.py](../../tests/unit/test_compat.py) | 0 | 0 | 0 | unrun |
 | [test_continuation_r2.py](../../tests/unit/test_continuation_r2.py) | 11 | 0 | 0 | done |
-| [test_conversation_catalog.py](../../tests/unit/test_conversation_catalog.py) | 0 | 0 | 0 | unrun |
-| [test_conversation_catalog_lifecycle.py](../../tests/unit/test_conversation_catalog_lifecycle.py) | 0 | 0 | 0 | unrun |
+| [test_conversation_catalog.py](../../tests/unit/test_conversation_catalog.py) | 15 | 0 | 0 | done |
+| [test_conversation_catalog_lifecycle.py](../../tests/unit/test_conversation_catalog_lifecycle.py) | 21 | 0 | 0 | done |
 | [test_conversation_connections.py](../../tests/unit/test_conversation_connections.py) | 9 | 0 | 0 | done |
 | [test_conversation_diff.py](../../tests/unit/test_conversation_diff.py) | 39 | 0 | 0 | done |
 | [test_conversation_fifo_reads.py](../../tests/unit/test_conversation_fifo_reads.py) | 0 | 0 | 0 | unrun |
@@ -1576,7 +1529,7 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 | [test_conversation_redact.py](../../tests/unit/test_conversation_redact.py) | 9 | 0 | 0 | done |
 | [test_conversation_service.py](../../tests/unit/test_conversation_service.py) | 0 | 0 | 0 | unrun |
 | [test_conversation_state_reads.py](../../tests/unit/test_conversation_state_reads.py) | 0 | 0 | 0 | unrun |
-| [test_conversation_status.py](../../tests/unit/test_conversation_status.py) | 0 | 0 | 0 | unrun |
+| [test_conversation_status.py](../../tests/unit/test_conversation_status.py) | 9 | 0 | 0 | done |
 | [test_conversation_steer_service.py](../../tests/unit/test_conversation_steer_service.py) | 45 | 0 | 0 | done |
 | [test_conversation_store.py](../../tests/unit/test_conversation_store.py) | 0 | 0 | 0 | unrun |
 | [test_conversation_stream_assertion.py](../../tests/unit/test_conversation_stream_assertion.py) | 0 | 0 | 0 | unrun |
@@ -1589,16 +1542,16 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 | [test_daemon_fifo_reads.py](../../tests/unit/test_daemon_fifo_reads.py) | 0 | 0 | 0 | unrun |
 | [test_daemon_init_release.py](../../tests/unit/test_daemon_init_release.py) | 0 | 0 | 0 | unrun |
 | [test_daemon_inspection_load.py](../../tests/unit/test_daemon_inspection_load.py) | 22 | 0 | 0 | done |
-| [test_daemon_inspection_properties.py](../../tests/unit/test_daemon_inspection_properties.py) | 0 | 0 | 0 | unrun |
+| [test_daemon_inspection_properties.py](../../tests/unit/test_daemon_inspection_properties.py) | 4 | 0 | 0 | done |
 | [test_daemon_integration.py](../../tests/unit/test_daemon_integration.py) | 0 | 0 | 0 | unrun |
 | [test_daemon_log_scrubbing.py](../../tests/unit/test_daemon_log_scrubbing.py) | 86 | 0 | 0 | done |
 | [test_daemon_qos_tools.py](../../tests/unit/test_daemon_qos_tools.py) | 0 | 0 | 0 | unrun |
 | [test_daemon_refusals_cli.py](../../tests/unit/test_daemon_refusals_cli.py) | 8 | 0 | 0 | done |
 | [test_daemon_settle.py](../../tests/unit/test_daemon_settle.py) | 0 | 0 | 0 | unrun |
-| [test_daemon_verbs.py](../../tests/unit/test_daemon_verbs.py) | 15 | 0 | 5 | pending |
+| [test_daemon_verbs.py](../../tests/unit/test_daemon_verbs.py) | 15 | 0 | 5 | done |
 | [test_decision_horizon.py](../../tests/unit/test_decision_horizon.py) | 0 | 0 | 0 | unrun |
-| [test_descriptor_review_fixes.py](../../tests/unit/test_descriptor_review_fixes.py) | 56 | 0 | 0 | pending |
-| [test_descriptors.py](../../tests/unit/test_descriptors.py) | 0 | 0 | 0 | unrun |
+| [test_descriptor_review_fixes.py](../../tests/unit/test_descriptor_review_fixes.py) | 56 | 0 | 0 | done |
+| [test_descriptors.py](../../tests/unit/test_descriptors.py) | 15 | 1 | 0 | done |
 | [test_descriptors_desktop.py](../../tests/unit/test_descriptors_desktop.py) | 0 | 0 | 0 | unrun |
 | [test_desktop_account_cache.py](../../tests/unit/test_desktop_account_cache.py) | 0 | 0 | 0 | unrun |
 | [test_desktop_in_use.py](../../tests/unit/test_desktop_in_use.py) | 13 | 0 | 0 | done |
@@ -1606,7 +1559,7 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 | [test_disk_admission.py](../../tests/unit/test_disk_admission.py) | 0 | 0 | 0 | unrun |
 | [test_disk_floor.py](../../tests/unit/test_disk_floor.py) | 0 | 0 | 0 | unrun |
 | [test_doctor.py](../../tests/unit/test_doctor.py) | 44 | 0 | 0 | pending |
-| [test_doctor_ca_bundle.py](../../tests/unit/test_doctor_ca_bundle.py) | 0 | 0 | 0 | unrun |
+| [test_doctor_ca_bundle.py](../../tests/unit/test_doctor_ca_bundle.py) | 16 | 0 | 0 | done |
 | [test_doctor_identity.py](../../tests/unit/test_doctor_identity.py) | 0 | 0 | 0 | unrun |
 | [test_empty_provider_results.py](../../tests/unit/test_empty_provider_results.py) | 334 | 0 | 0 | done |
 | [test_enrollment_runner.py](../../tests/unit/test_enrollment_runner.py) | 0 | 0 | 0 | unrun |
@@ -1625,13 +1578,13 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 | [test_guard_overlay.py](../../tests/unit/test_guard_overlay.py) | 0 | 0 | 0 | unrun |
 | [test_guard_trust.py](../../tests/unit/test_guard_trust.py) | 0 | 0 | 0 | unrun |
 | [test_guardian.py](../../tests/unit/test_guardian.py) | 0 | 0 | 0 | unrun |
-| [test_guardian_qos.py](../../tests/unit/test_guardian_qos.py) | 0 | 0 | 0 | unrun |
+| [test_guardian_qos.py](../../tests/unit/test_guardian_qos.py) | 14 | 0 | 0 | done |
 | [test_handler_refusals.py](../../tests/unit/test_handler_refusals.py) | 0 | 0 | 0 | unrun |
 | [test_held_waiter_holdback.py](../../tests/unit/test_held_waiter_holdback.py) | 6 | 0 | 0 | done |
 | [test_hidden_environment.py](../../tests/unit/test_hidden_environment.py) | 0 | 0 | 0 | unrun |
 | [test_hook_cost.py](../../tests/unit/test_hook_cost.py) | 4 | 0 | 0 | pending |
 | [test_hooks.py](../../tests/unit/test_hooks.py) | 72 | 0 | 1 | pending |
-| [test_hooks_native_guard.py](../../tests/unit/test_hooks_native_guard.py) | 0 | 0 | 0 | unrun |
+| [test_hooks_native_guard.py](../../tests/unit/test_hooks_native_guard.py) | 18 | 0 | 0 | done |
 | [test_host_push.py](../../tests/unit/test_host_push.py) | 118 | 0 | 0 | done |
 | [test_host_push_admission.py](../../tests/unit/test_host_push_admission.py) | 0 | 0 | 0 | unrun |
 | [test_host_push_build.py](../../tests/unit/test_host_push_build.py) | 0 | 0 | 0 | unrun |
@@ -1646,21 +1599,21 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 | [test_host_push_names.py](../../tests/unit/test_host_push_names.py) | 13 | 0 | 0 | done |
 | [test_host_push_quarantine_restart.py](../../tests/unit/test_host_push_quarantine_restart.py) | 0 | 0 | 0 | unrun |
 | [test_host_push_restart.py](../../tests/unit/test_host_push_restart.py) | 0 | 0 | 0 | unrun |
-| [test_host_push_retention.py](../../tests/unit/test_host_push_retention.py) | 0 | 0 | 0 | unrun |
+| [test_host_push_retention.py](../../tests/unit/test_host_push_retention.py) | 2 | 0 | 0 | done |
 | [test_host_push_storage_recovery.py](../../tests/unit/test_host_push_storage_recovery.py) | 0 | 0 | 0 | unrun |
 | [test_host_push_storage_retry_budget.py](../../tests/unit/test_host_push_storage_retry_budget.py) | 0 | 0 | 0 | unrun |
 | [test_host_push_store_completion_pr183.py](../../tests/unit/test_host_push_store_completion_pr183.py) | 0 | 0 | 0 | unrun |
-| [test_host_push_store_interleavings.py](../../tests/unit/test_host_push_store_interleavings.py) | 0 | 0 | 0 | unrun |
+| [test_host_push_store_interleavings.py](../../tests/unit/test_host_push_store_interleavings.py) | 26 | 0 | 0 | done |
 | [test_host_push_trees.py](../../tests/unit/test_host_push_trees.py) | 0 | 0 | 0 | unrun |
 | [test_host_push_validated_top.py](../../tests/unit/test_host_push_validated_top.py) | 0 | 0 | 0 | unrun |
-| [test_importer.py](../../tests/unit/test_importer.py) | 0 | 0 | 0 | unrun |
+| [test_importer.py](../../tests/unit/test_importer.py) | 145 | 3 | 0 | done |
 | [test_inspection_pacing_properties.py](../../tests/unit/test_inspection_pacing_properties.py) | 0 | 0 | 0 | unrun |
-| [test_invariants_index.py](../../tests/unit/test_invariants_index.py) | 0 | 0 | 0 | unrun |
+| [test_invariants_index.py](../../tests/unit/test_invariants_index.py) | 25 | 0 | 0 | done |
 | [test_keychain_exec_guard_properties.py](../../tests/unit/test_keychain_exec_guard_properties.py) | 3 | 0 | 0 | done |
 | [test_lane_answers.py](../../tests/unit/test_lane_answers.py) | 0 | 0 | 0 | unrun |
 | [test_lanes_transfer.py](../../tests/unit/test_lanes_transfer.py) | 79 | 0 | 0 | done |
 | [test_launch_env_allowlist.py](../../tests/unit/test_launch_env_allowlist.py) | 27 | 0 | 0 | pending |
-| [test_launch_env_helpers.py](../../tests/unit/test_launch_env_helpers.py) | 20 | 0 | 0 | pending |
+| [test_launch_env_helpers.py](../../tests/unit/test_launch_env_helpers.py) | 20 | 0 | 0 | done |
 | [test_launch_env_mutations.py](../../tests/unit/test_launch_env_mutations.py) | 41 | 0 | 0 | pending |
 | [test_launch_env_policy.py](../../tests/unit/test_launch_env_policy.py) | 26 | 0 | 0 | pending |
 | [test_launch_env_round2.py](../../tests/unit/test_launch_env_round2.py) | 67 | 0 | 0 | pending |
@@ -1671,36 +1624,36 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 | [test_legacy_hold.py](../../tests/unit/test_legacy_hold.py) | 50 | 0 | 6 | done |
 | [test_limit_from_model_text.py](../../tests/unit/test_limit_from_model_text.py) | 0 | 0 | 0 | unrun |
 | [test_live_store_guard.py](../../tests/unit/test_live_store_guard.py) | 324 | 0 | 0 | done |
-| [test_live_store_guard_round10.py](../../tests/unit/test_live_store_guard_round10.py) | 0 | 0 | 0 | unrun |
+| [test_live_store_guard_round10.py](../../tests/unit/test_live_store_guard_round10.py) | 60 | 0 | 0 | done |
 | [test_live_store_guard_round10_mutations.py](../../tests/unit/test_live_store_guard_round10_mutations.py) | 13 | 0 | 0 | done |
 | [test_live_store_guard_round3.py](../../tests/unit/test_live_store_guard_round3.py) | 0 | 0 | 0 | unrun |
 | [test_live_store_guard_round4.py](../../tests/unit/test_live_store_guard_round4.py) | 0 | 0 | 0 | unrun |
 | [test_live_store_guard_round5.py](../../tests/unit/test_live_store_guard_round5.py) | 0 | 0 | 0 | unrun |
 | [test_live_store_guard_round6.py](../../tests/unit/test_live_store_guard_round6.py) | 0 | 0 | 0 | unrun |
-| [test_live_store_guard_round7.py](../../tests/unit/test_live_store_guard_round7.py) | 0 | 0 | 0 | unrun |
+| [test_live_store_guard_round7.py](../../tests/unit/test_live_store_guard_round7.py) | 50 | 0 | 0 | done |
 | [test_live_store_guard_round7_mutations.py](../../tests/unit/test_live_store_guard_round7_mutations.py) | 0 | 0 | 0 | unrun |
 | [test_live_store_guard_round8.py](../../tests/unit/test_live_store_guard_round8.py) | 0 | 0 | 0 | unrun |
 | [test_live_store_guard_round8_mutations.py](../../tests/unit/test_live_store_guard_round8_mutations.py) | 0 | 0 | 0 | unrun |
 | [test_live_store_guard_round9.py](../../tests/unit/test_live_store_guard_round9.py) | 0 | 0 | 0 | unrun |
-| [test_live_store_guard_round9_mutations.py](../../tests/unit/test_live_store_guard_round9_mutations.py) | 0 | 0 | 0 | unrun |
+| [test_live_store_guard_round9_mutations.py](../../tests/unit/test_live_store_guard_round9_mutations.py) | 12 | 0 | 0 | done |
 | [test_live_store_guard_state_root.py](../../tests/unit/test_live_store_guard_state_root.py) | 0 | 0 | 0 | unrun |
 | [test_lockwatch.py](../../tests/unit/test_lockwatch.py) | 20 | 0 | 0 | done |
 | [test_mcp_cli_contract.py](../../tests/unit/test_mcp_cli_contract.py) | 6 | 0 | 0 | done |
 | [test_mcp_scheduler_contract.py](../../tests/unit/test_mcp_scheduler_contract.py) | 0 | 0 | 0 | unrun |
 | [test_mirror_flags_faults.py](../../tests/unit/test_mirror_flags_faults.py) | 29 | 0 | 0 | done |
 | [test_mirror_flags_model.py](../../tests/unit/test_mirror_flags_model.py) | 0 | 0 | 0 | unrun |
-| [test_mirror_flags_stateful.py](../../tests/unit/test_mirror_flags_stateful.py) | 0 | 0 | 0 | unrun |
+| [test_mirror_flags_stateful.py](../../tests/unit/test_mirror_flags_stateful.py) | 2 | 0 | 0 | done |
 | [test_native_operations.py](../../tests/unit/test_native_operations.py) | 0 | 0 | 0 | unrun |
-| [test_notice_rendering.py](../../tests/unit/test_notice_rendering.py) | 0 | 0 | 0 | unrun |
+| [test_notice_rendering.py](../../tests/unit/test_notice_rendering.py) | 21 | 0 | 0 | done |
 | [test_notify_push.py](../../tests/unit/test_notify_push.py) | 0 | 0 | 0 | unrun |
-| [test_offline.py](../../tests/unit/test_offline.py) | 33 | 0 | 0 | pending |
+| [test_offline.py](../../tests/unit/test_offline.py) | 33 | 0 | 0 | done |
 | [test_operator_hold_closures.py](../../tests/unit/test_operator_hold_closures.py) | 0 | 0 | 0 | unrun |
 | [test_operator_notices.py](../../tests/unit/test_operator_notices.py) | 79 | 0 | 0 | done |
 | [test_outcome_unknown.py](../../tests/unit/test_outcome_unknown.py) | 58 | 0 | 0 | pending |
 | [test_person_boundary.py](../../tests/unit/test_person_boundary.py) | 0 | 0 | 0 | unrun |
 | [test_person_boundary_identity.py](../../tests/unit/test_person_boundary_identity.py) | 25 | 0 | 0 | done |
 | [test_picker.py](../../tests/unit/test_picker.py) | 0 | 0 | 0 | unrun |
-| [test_placement_ramp.py](../../tests/unit/test_placement_ramp.py) | 0 | 0 | 0 | unrun |
+| [test_placement_ramp.py](../../tests/unit/test_placement_ramp.py) | 26 | 0 | 0 | done |
 | [test_policy.py](../../tests/unit/test_policy.py) | 178 | 0 | 0 | done |
 | [test_policy_disk.py](../../tests/unit/test_policy_disk.py) | 0 | 0 | 0 | unrun |
 | [test_policy_ramp.py](../../tests/unit/test_policy_ramp.py) | 0 | 0 | 0 | unrun |
@@ -1712,7 +1665,7 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 | [test_pr192_review_r2.py](../../tests/unit/test_pr192_review_r2.py) | 0 | 0 | 0 | unrun |
 | [test_procs.py](../../tests/unit/test_procs.py) | 0 | 0 | 0 | unrun |
 | [test_protocol_secrecy.py](../../tests/unit/test_protocol_secrecy.py) | 0 | 0 | 0 | unrun |
-| [test_provider_active_cap.py](../../tests/unit/test_provider_active_cap.py) | 0 | 0 | 0 | unrun |
+| [test_provider_active_cap.py](../../tests/unit/test_provider_active_cap.py) | 50 | 0 | 0 | done |
 | [test_prune_217.py](../../tests/unit/test_prune_217.py) | 0 | 0 | 0 | unrun |
 | [test_prune_decision_backup_verification.py](../../tests/unit/test_prune_decision_backup_verification.py) | 23 | 0 | 0 | done |
 | [test_prune_decision_fingerprints.py](../../tests/unit/test_prune_decision_fingerprints.py) | 0 | 0 | 0 | unrun |
@@ -1721,7 +1674,7 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 | [test_quota_projection.py](../../tests/unit/test_quota_projection.py) | 0 | 0 | 0 | unrun |
 | [test_rank_review_report.py](../../tests/unit/test_rank_review_report.py) | 0 | 0 | 0 | unrun |
 | [test_reap_liveness.py](../../tests/unit/test_reap_liveness.py) | 7 | 0 | 0 | done |
-| [test_rediscovery_git_trace.py](../../tests/unit/test_rediscovery_git_trace.py) | 0 | 0 | 0 | unrun |
+| [test_rediscovery_git_trace.py](../../tests/unit/test_rediscovery_git_trace.py) | 17 | 0 | 0 | done |
 | [test_relay.py](../../tests/unit/test_relay.py) | 0 | 0 | 0 | unrun |
 | [test_render.py](../../tests/unit/test_render.py) | 0 | 0 | 0 | unrun |
 | [test_render_quota_projection.py](../../tests/unit/test_render_quota_projection.py) | 0 | 0 | 0 | unrun |
@@ -1736,7 +1689,7 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 | [test_resource_identity.py](../../tests/unit/test_resource_identity.py) | 10 | 0 | 0 | done |
 | [test_retention_81_notes.py](../../tests/unit/test_retention_81_notes.py) | 38 | 0 | 0 | done |
 | [test_retention_archive.py](../../tests/unit/test_retention_archive.py) | 0 | 0 | 0 | unrun |
-| [test_retention_archive_properties.py](../../tests/unit/test_retention_archive_properties.py) | 0 | 0 | 0 | unrun |
+| [test_retention_archive_properties.py](../../tests/unit/test_retention_archive_properties.py) | 2 | 0 | 0 | done |
 | [test_retention_case_alias.py](../../tests/unit/test_retention_case_alias.py) | 0 | 0 | 0 | unrun |
 | [test_retention_nested_leases.py](../../tests/unit/test_retention_nested_leases.py) | 0 | 0 | 0 | unrun |
 | [test_retention_ordinary_trees.py](../../tests/unit/test_retention_ordinary_trees.py) | 0 | 0 | 0 | unrun |
@@ -1754,31 +1707,31 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 | [test_retention_worktrees.py](../../tests/unit/test_retention_worktrees.py) | 0 | 0 | 0 | unrun |
 | [test_review130_pass.py](../../tests/unit/test_review130_pass.py) | 0 | 0 | 0 | unrun |
 | [test_review_pr127_fixes.py](../../tests/unit/test_review_pr127_fixes.py) | 0 | 0 | 0 | unrun |
-| [test_review_pr127_history.py](../../tests/unit/test_review_pr127_history.py) | 0 | 0 | 0 | unrun |
-| [test_review_pr127_pr_wakes.py](../../tests/unit/test_review_pr127_pr_wakes.py) | 0 | 0 | 0 | unrun |
+| [test_review_pr127_history.py](../../tests/unit/test_review_pr127_history.py) | 6 | 0 | 0 | done |
+| [test_review_pr127_pr_wakes.py](../../tests/unit/test_review_pr127_pr_wakes.py) | 7 | 0 | 0 | done |
 | [test_review_pr127_report.py](../../tests/unit/test_review_pr127_report.py) | 0 | 0 | 0 | unrun |
 | [test_review_pr127_requests.py](../../tests/unit/test_review_pr127_requests.py) | 17 | 0 | 0 | done |
 | [test_review_pr127_service.py](../../tests/unit/test_review_pr127_service.py) | 0 | 0 | 0 | unrun |
-| [test_review_r2_repro.py](../../tests/unit/test_review_r2_repro.py) | 0 | 0 | 0 | unrun |
-| [test_review_r3_measure.py](../../tests/unit/test_review_r3_measure.py) | 0 | 0 | 0 | unrun |
+| [test_review_r2_repro.py](../../tests/unit/test_review_r2_repro.py) | 31 | 0 | 0 | done |
+| [test_review_r3_measure.py](../../tests/unit/test_review_r3_measure.py) | 6 | 0 | 0 | done |
 | [test_review_r3_repro.py](../../tests/unit/test_review_r3_repro.py) | 0 | 0 | 0 | unrun |
 | [test_review_r4_repro.py](../../tests/unit/test_review_r4_repro.py) | 0 | 0 | 0 | unrun |
 | [test_review_r5_repro.py](../../tests/unit/test_review_r5_repro.py) | 0 | 0 | 0 | unrun |
 | [test_review_r6_probes.py](../../tests/unit/test_review_r6_probes.py) | 0 | 0 | 0 | unrun |
 | [test_review_r6_restart.py](../../tests/unit/test_review_r6_restart.py) | 0 | 0 | 0 | unrun |
 | [test_round10_refusal_context.py](../../tests/unit/test_round10_refusal_context.py) | 0 | 0 | 0 | unrun |
-| [test_route_check.py](../../tests/unit/test_route_check.py) | 0 | 0 | 0 | unrun |
+| [test_route_check.py](../../tests/unit/test_route_check.py) | 24 | 0 | 0 | done |
 | [test_salvage.py](../../tests/unit/test_salvage.py) | 0 | 0 | 0 | unrun |
 | [test_salvage_optional_transient.py](../../tests/unit/test_salvage_optional_transient.py) | 0 | 0 | 0 | unrun |
 | [test_salvage_unindexable.py](../../tests/unit/test_salvage_unindexable.py) | 0 | 0 | 0 | unrun |
-| [test_scheduler.py](../../tests/unit/test_scheduler.py) | 0 | 0 | 0 | unrun |
+| [test_scheduler.py](../../tests/unit/test_scheduler.py) | 97 | 0 | 0 | done |
 | [test_scheduler_priority_callers.py](../../tests/unit/test_scheduler_priority_callers.py) | 0 | 0 | 0 | unrun |
 | [test_scheduler_split.py](../../tests/unit/test_scheduler_split.py) | 3 | 0 | 0 | done |
-| [test_scheduler_tier_preferences.py](../../tests/unit/test_scheduler_tier_preferences.py) | 0 | 0 | 0 | unrun |
-| [test_scheduler_turns.py](../../tests/unit/test_scheduler_turns.py) | 0 | 0 | 0 | unrun |
+| [test_scheduler_tier_preferences.py](../../tests/unit/test_scheduler_tier_preferences.py) | 9 | 0 | 0 | done |
+| [test_scheduler_turns.py](../../tests/unit/test_scheduler_turns.py) | 10 | 0 | 0 | done |
 | [test_scheduler_weekly.py](../../tests/unit/test_scheduler_weekly.py) | 33 | 0 | 0 | done |
 | [test_scoped_stream_capacity.py](../../tests/unit/test_scoped_stream_capacity.py) | 17 | 0 | 0 | done |
-| [test_scrub_key_order.py](../../tests/unit/test_scrub_key_order.py) | 0 | 0 | 0 | unrun |
+| [test_scrub_key_order.py](../../tests/unit/test_scrub_key_order.py) | 70 | 0 | 0 | done |
 | [test_sessions_cli.py](../../tests/unit/test_sessions_cli.py) | 142 | 0 | 0 | pending |
 | [test_sessions_handoff.py](../../tests/unit/test_sessions_handoff.py) | 117 | 0 | 0 | done |
 | [test_sessions_handoff_excerpts.py](../../tests/unit/test_sessions_handoff_excerpts.py) | 0 | 0 | 0 | unrun |
@@ -1794,19 +1747,19 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 | [test_sessions_mirror_safety.py](../../tests/unit/test_sessions_mirror_safety.py) | 0 | 0 | 0 | unrun |
 | [test_sessions_mirror_write_churn.py](../../tests/unit/test_sessions_mirror_write_churn.py) | 0 | 0 | 0 | unrun |
 | [test_sessions_nudge.py](../../tests/unit/test_sessions_nudge.py) | 0 | 0 | 0 | unrun |
-| [test_sessions_registry.py](../../tests/unit/test_sessions_registry.py) | 0 | 0 | 0 | unrun |
+| [test_sessions_registry.py](../../tests/unit/test_sessions_registry.py) | 24 | 0 | 0 | done |
 | [test_sessions_revive.py](../../tests/unit/test_sessions_revive.py) | 45 | 0 | 0 | done |
 | [test_sessions_revive_reads.py](../../tests/unit/test_sessions_revive_reads.py) | 0 | 0 | 0 | unrun |
 | [test_sessions_transcripts.py](../../tests/unit/test_sessions_transcripts.py) | 0 | 0 | 0 | unrun |
 | [test_settle_properties.py](../../tests/unit/test_settle_properties.py) | 0 | 0 | 0 | unrun |
 | [test_soak_tools.py](../../tests/unit/test_soak_tools.py) | 49 | 0 | 0 | done |
 | [test_status_json.py](../../tests/unit/test_status_json.py) | 0 | 0 | 0 | unrun |
-| [test_steer_invariants.py](../../tests/unit/test_steer_invariants.py) | 0 | 0 | 0 | unrun |
+| [test_steer_invariants.py](../../tests/unit/test_steer_invariants.py) | 248 | 0 | 0 | done |
 | [test_stop_alarm.py](../../tests/unit/test_stop_alarm.py) | 0 | 0 | 0 | unrun |
 | [test_stop_watchdog.py](../../tests/unit/test_stop_watchdog.py) | 0 | 0 | 0 | unrun |
 | [test_stopped_daemon.py](../../tests/unit/test_stopped_daemon.py) | 72 | 0 | 0 | pending |
 | [test_store_contention_queries.py](../../tests/unit/test_store_contention_queries.py) | 212 | 0 | 0 | done |
-| [test_store_ids.py](../../tests/unit/test_store_ids.py) | 0 | 0 | 0 | unrun |
+| [test_store_ids.py](../../tests/unit/test_store_ids.py) | 27 | 0 | 0 | done |
 | [test_store_migration_2.py](../../tests/unit/test_store_migration_2.py) | 0 | 0 | 0 | unrun |
 | [test_store_properties.py](../../tests/unit/test_store_properties.py) | 0 | 0 | 0 | unrun |
 | [test_store_readers.py](../../tests/unit/test_store_readers.py) | 0 | 0 | 0 | unrun |
@@ -1820,15 +1773,15 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 | [test_suggestions.py](../../tests/unit/test_suggestions.py) | 30 | 0 | 0 | done |
 | [test_suggestions_r1b_adversarial.py](../../tests/unit/test_suggestions_r1b_adversarial.py) | 0 | 0 | 0 | unrun |
 | [test_suggestions_r3_channels.py](../../tests/unit/test_suggestions_r3_channels.py) | 0 | 0 | 0 | unrun |
-| [test_suggestions_review_boundaries.py](../../tests/unit/test_suggestions_review_boundaries.py) | 0 | 0 | 0 | unrun |
+| [test_suggestions_review_boundaries.py](../../tests/unit/test_suggestions_review_boundaries.py) | 7 | 0 | 0 | done |
 | [test_suggestions_review_multiline.py](../../tests/unit/test_suggestions_review_multiline.py) | 0 | 0 | 0 | unrun |
 | [test_suggestions_review_response.py](../../tests/unit/test_suggestions_review_response.py) | 0 | 0 | 0 | unrun |
-| [test_test_module_names.py](../../tests/unit/test_test_module_names.py) | 1 | 0 | 0 | pending |
+| [test_test_module_names.py](../../tests/unit/test_test_module_names.py) | 1 | 0 | 0 | done |
 | [test_tick_prefilter.py](../../tests/unit/test_tick_prefilter.py) | 0 | 0 | 0 | unrun |
 | [test_timers_alerts.py](../../tests/unit/test_timers_alerts.py) | 0 | 0 | 0 | unrun |
 | [test_timers_busy_read.py](../../tests/unit/test_timers_busy_read.py) | 115 | 0 | 0 | done |
-| [test_timers_daemon.py](../../tests/unit/test_timers_daemon.py) | 0 | 0 | 0 | unrun |
-| [test_timers_keepalive.py](../../tests/unit/test_timers_keepalive.py) | 0 | 0 | 0 | unrun |
+| [test_timers_daemon.py](../../tests/unit/test_timers_daemon.py) | 4 | 0 | 0 | done |
+| [test_timers_keepalive.py](../../tests/unit/test_timers_keepalive.py) | 14 | 0 | 0 | done |
 | [test_timers_probe.py](../../tests/unit/test_timers_probe.py) | 0 | 0 | 0 | unrun |
 | [test_timers_reset_credits.py](../../tests/unit/test_timers_reset_credits.py) | 0 | 0 | 0 | unrun |
 | [test_timers_retention.py](../../tests/unit/test_timers_retention.py) | 20 | 0 | 0 | done |
@@ -1861,10 +1814,10 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 | [test_batch_label.py](../../tests/fake/test_batch_label.py) | 9 | 0 | 0 | done |
 | [test_canonical_identity.py](../../tests/fake/test_canonical_identity.py) | 0 | 0 | 0 | unrun |
 | [test_canonical_identity_fix2.py](../../tests/fake/test_canonical_identity_fix2.py) | 0 | 0 | 0 | unrun |
-| [test_canonical_identity_fix3.py](../../tests/fake/test_canonical_identity_fix3.py) | 0 | 0 | 0 | unrun |
+| [test_canonical_identity_fix3.py](../../tests/fake/test_canonical_identity_fix3.py) | 17 | 0 | 1 | done |
 | [test_canonical_identity_fix4.py](../../tests/fake/test_canonical_identity_fix4.py) | 0 | 0 | 0 | unrun |
 | [test_canonical_identity_fix5.py](../../tests/fake/test_canonical_identity_fix5.py) | 0 | 0 | 0 | unrun |
-| [test_capacity_steer_daemon.py](../../tests/fake/test_capacity_steer_daemon.py) | 0 | 0 | 0 | unrun |
+| [test_capacity_steer_daemon.py](../../tests/fake/test_capacity_steer_daemon.py) | 54 | 0 | 0 | done |
 | [test_capacity_wait_backoff.py](../../tests/fake/test_capacity_wait_backoff.py) | 0 | 0 | 0 | unrun |
 | [test_census_escapers_daemon.py](../../tests/fake/test_census_escapers_daemon.py) | 0 | 0 | 0 | unrun |
 | [test_census_recycled_pid_daemon.py](../../tests/fake/test_census_recycled_pid_daemon.py) | 0 | 0 | 0 | unrun |
@@ -1873,7 +1826,7 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 | [test_conversation_pools.py](../../tests/fake/test_conversation_pools.py) | 2 | 0 | 0 | done |
 | [test_conversation_wakes_fake.py](../../tests/fake/test_conversation_wakes_fake.py) | 4 | 0 | 0 | done |
 | [test_crash_matrix.py](../../tests/fake/test_crash_matrix.py) | 0 | 0 | 0 | unrun |
-| [test_daemon_contract.py](../../tests/fake/test_daemon_contract.py) | 0 | 0 | 0 | unrun |
+| [test_daemon_contract.py](../../tests/fake/test_daemon_contract.py) | 0 | 0 | 21 | done |
 | [test_daemon_descriptors.py](../../tests/fake/test_daemon_descriptors.py) | 0 | 0 | 0 | unrun |
 | [test_daemon_launch.py](../../tests/fake/test_daemon_launch.py) | 0 | 0 | 0 | unrun |
 | [test_daemon_stacks.py](../../tests/fake/test_daemon_stacks.py) | 0 | 0 | 0 | unrun |
@@ -1889,7 +1842,7 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 | [test_identity_rollback.py](../../tests/fake/test_identity_rollback.py) | 0 | 0 | 0 | unrun |
 | [test_idle_cost.py](../../tests/fake/test_idle_cost.py) | 0 | 0 | 0 | unrun |
 | [test_interactive_claude_titles.py](../../tests/fake/test_interactive_claude_titles.py) | 6 | 0 | 0 | done |
-| [test_interactive_steer.py](../../tests/fake/test_interactive_steer.py) | 0 | 0 | 0 | unrun |
+| [test_interactive_steer.py](../../tests/fake/test_interactive_steer.py) | 13 | 0 | 0 | done |
 | [test_lane_fault.py](../../tests/fake/test_lane_fault.py) | 0 | 0 | 0 | unrun |
 | [test_lane_pilot.py](../../tests/fake/test_lane_pilot.py) | 0 | 0 | 0 | unrun |
 | [test_lanes_enroll.py](../../tests/fake/test_lanes_enroll.py) | 0 | 0 | 0 | unrun |
@@ -1899,14 +1852,14 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 | [test_launch_env_providers.py](../../tests/fake/test_launch_env_providers.py) | 6 | 0 | 0 | pending |
 | [test_launch_gates_above_stdio.py](../../tests/fake/test_launch_gates_above_stdio.py) | 0 | 0 | 0 | unrun |
 | [test_lost_acknowledgement.py](../../tests/fake/test_lost_acknowledgement.py) | 0 | 0 | 0 | unrun |
-| [test_main_refusal_write_dir.py](../../tests/fake/test_main_refusal_write_dir.py) | 0 | 0 | 0 | unrun |
-| [test_mcp_job_contract.py](../../tests/fake/test_mcp_job_contract.py) | 0 | 0 | 0 | unrun |
+| [test_main_refusal_write_dir.py](../../tests/fake/test_main_refusal_write_dir.py) | 5 | 0 | 0 | done |
+| [test_mcp_job_contract.py](../../tests/fake/test_mcp_job_contract.py) | 12 | 0 | 0 | done |
 | [test_native_maintenance_startup.py](../../tests/fake/test_native_maintenance_startup.py) | 0 | 0 | 0 | unrun |
 | [test_notice_delivery.py](../../tests/fake/test_notice_delivery.py) | 0 | 0 | 0 | unrun |
 | [test_notice_header.py](../../tests/fake/test_notice_header.py) | 0 | 0 | 0 | unrun |
 | [test_picker_native.py](../../tests/fake/test_picker_native.py) | 3 | 0 | 0 | done |
-| [test_policy_sandbox.py](../../tests/fake/test_policy_sandbox.py) | 0 | 0 | 0 | unrun |
-| [test_probe_cancel.py](../../tests/fake/test_probe_cancel.py) | 0 | 0 | 0 | unrun |
+| [test_policy_sandbox.py](../../tests/fake/test_policy_sandbox.py) | 25 | 0 | 0 | done |
+| [test_probe_cancel.py](../../tests/fake/test_probe_cancel.py) | 24 | 0 | 0 | done |
 | [test_probe_recovery.py](../../tests/fake/test_probe_recovery.py) | 0 | 0 | 0 | unrun |
 | [test_probe_turn.py](../../tests/fake/test_probe_turn.py) | 43 | 0 | 0 | done |
 | [test_prompt_seam.py](../../tests/fake/test_prompt_seam.py) | 0 | 0 | 0 | unrun |
@@ -1914,12 +1867,12 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 | [test_provider_cap_review_evidence.py](../../tests/fake/test_provider_cap_review_evidence.py) | 0 | 0 | 0 | unrun |
 | [test_provider_qos.py](../../tests/fake/test_provider_qos.py) | 0 | 0 | 2 | done |
 | [test_record_secrecy.py](../../tests/fake/test_record_secrecy.py) | 0 | 0 | 0 | unrun |
-| [test_request_routing.py](../../tests/fake/test_request_routing.py) | 0 | 0 | 0 | unrun |
+| [test_request_routing.py](../../tests/fake/test_request_routing.py) | 3 | 0 | 0 | done |
 | [test_reserve_authorization.py](../../tests/fake/test_reserve_authorization.py) | 12 | 0 | 0 | done |
 | [test_reserve_authorization_validation.py](../../tests/fake/test_reserve_authorization_validation.py) | 0 | 0 | 0 | unrun |
-| [test_reset_credit_incident.py](../../tests/fake/test_reset_credit_incident.py) | 0 | 0 | 0 | unrun |
+| [test_reset_credit_incident.py](../../tests/fake/test_reset_credit_incident.py) | 19 | 0 | 0 | done |
 | [test_resume_cli.py](../../tests/fake/test_resume_cli.py) | 0 | 0 | 0 | unrun |
-| [test_resume_contract.py](../../tests/fake/test_resume_contract.py) | 0 | 0 | 0 | unrun |
+| [test_resume_contract.py](../../tests/fake/test_resume_contract.py) | 23 | 0 | 0 | done |
 | [test_retention_dormant.py](../../tests/fake/test_retention_dormant.py) | 0 | 0 | 0 | unrun |
 | [test_review130_ab.py](../../tests/fake/test_review130_ab.py) | 12 | 0 | 0 | done |
 | [test_review_r185_adversarial.py](../../tests/fake/test_review_r185_adversarial.py) | 0 | 0 | 0 | unrun |
@@ -1932,18 +1885,18 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 | [test_state_contract.py](../../tests/fake/test_state_contract.py) | 37 | 0 | 0 | done |
 | [test_state_fixture_processes.py](../../tests/fake/test_state_fixture_processes.py) | 0 | 0 | 0 | unrun |
 | [test_status_payload.py](../../tests/fake/test_status_payload.py) | 0 | 0 | 0 | unrun |
-| [test_suggestions_fake.py](../../tests/fake/test_suggestions_fake.py) | 0 | 0 | 0 | unrun |
-| [test_tier_hold_by_demand.py](../../tests/fake/test_tier_hold_by_demand.py) | 0 | 0 | 0 | unrun |
+| [test_suggestions_fake.py](../../tests/fake/test_suggestions_fake.py) | 1 | 0 | 0 | done |
+| [test_tier_hold_by_demand.py](../../tests/fake/test_tier_hold_by_demand.py) | 27 | 0 | 0 | done |
 | [test_timers_busy_admission.py](../../tests/fake/test_timers_busy_admission.py) | 0 | 0 | 0 | unrun |
 | [test_timers_end_to_end.py](../../tests/fake/test_timers_end_to_end.py) | 0 | 0 | 0 | unrun |
-| [test_turn_listing.py](../../tests/fake/test_turn_listing.py) | 0 | 0 | 0 | unrun |
-| [test_turn_retention_cwd.py](../../tests/fake/test_turn_retention_cwd.py) | 0 | 0 | 0 | unrun |
-| [test_turn_retention_cwd_properties.py](../../tests/fake/test_turn_retention_cwd_properties.py) | 0 | 0 | 0 | unrun |
+| [test_turn_listing.py](../../tests/fake/test_turn_listing.py) | 9 | 0 | 0 | done |
+| [test_turn_retention_cwd.py](../../tests/fake/test_turn_retention_cwd.py) | 6 | 0 | 0 | done |
+| [test_turn_retention_cwd_properties.py](../../tests/fake/test_turn_retention_cwd_properties.py) | 1 | 0 | 0 | done |
 | [test_turn_retention_job_directory.py](../../tests/fake/test_turn_retention_job_directory.py) | 0 | 0 | 0 | unrun |
 | [test_turn_retention_job_properties.py](../../tests/fake/test_turn_retention_job_properties.py) | 0 | 0 | 0 | unrun |
 | [test_turn_retention_quarantine.py](../../tests/fake/test_turn_retention_quarantine.py) | 0 | 0 | 0 | unrun |
 | [test_turn_trees.py](../../tests/fake/test_turn_trees.py) | 12 | 0 | 0 | done |
-| [test_turn_wait_reasons.py](../../tests/fake/test_turn_wait_reasons.py) | 0 | 0 | 0 | unrun |
+| [test_turn_wait_reasons.py](../../tests/fake/test_turn_wait_reasons.py) | 7 | 0 | 0 | done |
 | [test_unadmittable_pin_admission.py](../../tests/fake/test_unadmittable_pin_admission.py) | 0 | 0 | 0 | unrun |
 | [test_unadmittable_pin_rereview.py](../../tests/fake/test_unadmittable_pin_rereview.py) | 6 | 0 | 0 | pending |
 | [test_unadmittable_pin_review.py](../../tests/fake/test_unadmittable_pin_review.py) | 0 | 0 | 0 | unrun |
