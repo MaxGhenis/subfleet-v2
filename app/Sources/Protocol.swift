@@ -12,6 +12,7 @@ import Foundation
 let subfleetProtocolVersion = 1
 let subfleetConversationSchema = 1
 let requiredDaemonCapability = "conversations.v1"
+let conversationStatusCapability = "conversation.status.v1"
 
 // MARK: - Envelope
 
@@ -530,7 +531,7 @@ struct ConversationStatusResult: Codable, Equatable {
 
 struct ConversationOpenResult: Codable, Equatable {
     var conversation: Conversation
-    /// The latest 50 receipts, oldest first.
+    /// The wire supplies the latest 50 receipts, oldest first; the engine hydrates older identities before publishing an open.
     var messages: [Receipt]
     var events_cursor: Int
     var pending_approvals: [ApprovalView]

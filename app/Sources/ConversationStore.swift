@@ -925,7 +925,25 @@ final class ConversationEngine {
         self.sender = OutboxSender(outbox: outbox, client: client)
     }
 
-    func checkAvailability() -> DaemonAvailability { DaemonAvailability.check(client) }
+    // Availability is read on both the outbox and feed threads. Reconnect
+    // handshakes replace this cache; an older ready daemon does not need status.
+    private let capabilityLock = NSLock()
+    private var statusSupported: Bool?
+
+    func checkAvailability() -> DaemonAvailability {
+        let availability = DaemonAvailability.check(client)
+        capabilityLock.lock()
+        statusSupported = availability.capabilities.map { $0.has(conversationStatusCapability) }
+        capabilityLock.unlock()
+        return availability
+    }
+
+    private var supportsConversationStatus: Bool {
+        capabilityLock.lock()
+        let supported = statusSupported
+        capabilityLock.unlock()
+        return supported ?? (checkAvailability().capabilities?.has(conversationStatusCapability) == true)
+    }
 
     func list(query: String? = nil, provider: String? = nil, limit: Int = 200) throws -> ConversationListResult {
         let query = query?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -946,8 +964,17 @@ final class ConversationEngine {
         case .conversation(let id): args = .conversation(id)
         case .native(let native): args = .native(provider: native.provider, sessionID: native.session_id, home: native.home)
         }
-        let open = try client.call(Ops.conversationOpen, args)
+        var open = try client.call(Ops.conversationOpen, args)
         let cid = open.conversation.conversation_id
+        if supportsConversationStatus {
+            // The wire snapshot has only the latest 50 receipts. Hydrate older
+            // identities before the UI can publish an incomplete queue count,
+            // even when the launch watch baseline already consumed their changes.
+            let refresh = try refreshConversation(cid, knownMessageIDs: Set(open.messages.map(\.message_id)))
+            open.conversation = refresh.conversation
+            open.messages += refresh.receipts
+            open.messages.sort { ($0.seq ?? Int.max) < ($1.seq ?? Int.max) }
+        }
         if !outbox.pending(in: cid).contains(where: { $0.state == .sending }) {
             try outbox.knowChain(cid, lastPersonMessageID: Outbox.lastPersonMessage(in: open.messages))
         }
@@ -976,9 +1003,17 @@ final class ConversationEngine {
     }
 
     func refreshConversation(_ id: String, knownMessageIDs: Set<String> = [], changed: Set<String> = []) throws -> ConversationRefresh {
-        let result = try client.call(Ops.conversationStatus, ConversationStatusArgs(conversation_id: id))
-        let wanted = Set(result.message_ids).subtracting(knownMessageIDs).union(changed)
-        return ConversationRefresh(conversation: result.conversation, receipts: try receipts(for: wanted))
+        if supportsConversationStatus {
+            let result = try client.call(Ops.conversationStatus, ConversationStatusArgs(conversation_id: id))
+            let wanted = Set(result.message_ids).subtracting(knownMessageIDs).union(changed)
+            return ConversationRefresh(conversation: result.conversation, receipts: try receipts(for: wanted))
+        }
+        // Compatibility with conversations.v1 daemons predating the cheap read.
+        // This raw re-read does not touch the outbox from the feed thread.
+        let open = try client.call(Ops.conversationOpen, .conversation(id))
+        let outsideSnapshot = changed.subtracting(Set(open.messages.map(\.message_id)))
+        let hydrated = try receipts(for: outsideSnapshot)
+        return ConversationRefresh(conversation: open.conversation, receipts: open.messages + hydrated)
     }
 
     /// message.status takes at most 200 ids; large first catch-ups must hydrate
