@@ -47,7 +47,7 @@ def test_d_kill3_inspection_keeps_a_hidden_lockf_after_its_shell_provider_ends(d
     runner = None
     try:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        args = daemon.submit_args()
+        args = daemon.submit_args(max_attempts=1)
         Path(args["prompt_path"]).write_text(json.dumps({"scenario": "lockf-self-exit", "marker": str(marker)}))
         job = daemon.call("submit", **args)["job_id"]
         runner = escaper_identity(daemon, marker)
@@ -101,7 +101,7 @@ def test_d_kill3_a_hidden_runner_leaving_between_inspections_is_still_unseen(dae
     runner = None
     try:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        args = daemon.submit_args()
+        args = daemon.submit_args(max_attempts=1)
         Path(args["prompt_path"]).write_text(json.dumps({"scenario": "lockf-self-exit", "marker": str(marker)}))
         job = daemon.call("submit", **args)["job_id"]
         runner = escaper_identity(daemon, marker)
