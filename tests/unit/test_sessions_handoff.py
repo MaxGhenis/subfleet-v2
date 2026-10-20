@@ -3,6 +3,11 @@
 Every test names the clause it proves (C-20.5). `sessions_fixtures.FAKE_SECRET`
 is a token shaped like the ones the scrub list catches and is not, and has never
 been, a key; no test here reads a real credential from anywhere.
+
+`test_scrubber_work_scales_linearly_for_long_ordinary_identifiers` compares the
+scrubber's CPU on two input sizes (`tests.cpu_scaling`). It detects super-linear
+growth, a quadratic regression, and not a constant-factor slowdown, which no test
+here bounds (#230 review r1; `tests/unit/test_cpu_scaling.py` pins that scope).
 """
 
 from __future__ import annotations
@@ -17,6 +22,7 @@ import pytest
 from subfleet.contracts import Exit, Sandbox
 from subfleet.sessions import handoff
 from tests import sessions_fixtures as fx
+from tests.cpu_scaling import GROWTH_RATIO_MAX
 
 SESSION = "3f9c1a2e-7b40-4d51-9a8e-2c6f0b1d4e77"
 CODE = "def total(rows):\n    return sum(row.amount for row in rows)\n"
@@ -748,7 +754,7 @@ print(json.dumps(best_cpu_samples(make_call, (65536, 262144))))
 ''')
     # Both sizes are inside MAX_SCRUB_CHARS: four times the text is really
     # scrubbed. Equal CPU-sized batches and minima retain 4x versus 16x growth.
-    assert measured["ratio"] < 8, measured
+    assert measured["ratio"] < GROWTH_RATIO_MAX, measured
 
 
 def test_scrubber_keeps_other_python_threads_responsive():

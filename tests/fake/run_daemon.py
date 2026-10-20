@@ -54,6 +54,9 @@ def main() -> int:
     parser.add_argument("--gate-peer", action="store_true")
     parser.add_argument("--max-connections", type=int)
     parser.add_argument("--connection-idle-s", type=float)
+    parser.add_argument("--hide-environment-of", type=Path, action="append", default=[],
+                        help="a file a test's process writes its pid to; the census reads that "
+                             "pid's argument buffer without its environment (D-KILL2)")
     args = parser.parse_args()
     root = args.state_root
     if args.publication_audit:
@@ -79,6 +82,12 @@ def main() -> int:
     staged = root / "machine.json"
     subfleet.machine.read = lambda: (json.loads(staged.read_text()) if staged.exists() else
                                      {"load1": 0.5, "load5": 0.5, "cpus": 8, "memory_pressure": 1, "observed_at": 0.0})
+    if args.hide_environment_of:
+        # D-KILL2: the incident's hidden markers on any macOS. GitHub's macOS 15.7.9
+        # runner shows lockf's environment, which macOS 26.6.2 never returns.
+        from subfleet import procs
+        from tests.hidden_environment import HidingKernel, published
+        procs.kernel = HidingKernel(procs.kernel, published(args.hide_environment_of))
 
     def hook(boundary: str, job_id: str, attempt_id: str) -> None:
         if boundary not in {args.crash_at, args.hold_at}:
