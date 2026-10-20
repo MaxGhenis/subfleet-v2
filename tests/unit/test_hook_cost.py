@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from subfleet import client as client_module
 from subfleet import hooks
 from subfleet.client import Client, DaemonUnavailable
@@ -32,7 +34,6 @@ def test_a_client_that_does_not_verify_the_lock_asks_ps_nothing(tmp_path, monkey
         pass
     assert asked == []                              # refused connects cost no ps either
     loud = Client(root)
-    import pytest
     with pytest.raises(DaemonUnavailable, match="stale") as caught:
         loud.call("ping", timeout=.5)
     assert "path too long" not in str(caught.value)
@@ -61,3 +62,12 @@ def test_the_hooks_build_their_clients_without_the_lock_check(tmp_path, monkeypa
 def test_the_hook_reads_are_the_lookup_ops():
     assert {"list", "show", "notice.pending"} == LOOKUP_OPS
     assert "notice.mark" not in LOOKUP_OPS              # a write waits for the writer, not with the reads
+
+
+def test_opted_out_busy_refusal_asks_ps_nothing(tmp_path, monkeypatch):
+    """C-15.6 even a refused connect following busy preserves the inspection opt-out."""
+    quiet = Client(tmp_path, verify_lock=False)
+    monkeypatch.setattr(quiet, "lock_holder_alive", lambda **kwargs: pytest.fail("inspected a hook's lock"))
+    refused = DaemonUnavailable("refused")
+    refused.__cause__ = ConnectionRefusedError()
+    assert client_module.refused_while_busy(quiet, refused, deadline_at=1.0) is None

@@ -77,7 +77,7 @@ SEND_MET_CLOSE_ERRNOS = frozenset({errno.EPIPE, errno.ESHUTDOWN, errno.ECONNRESE
 START_DAEMON_FIX = "subfleet daemon start"
 #: C-16.7: the first pause before a busy answer's request is sent again.
 BUSY_PAUSE_S = .05
-#: C-5.13: a token bucket allows four fresh observations immediately, then
+#: C-5.13: a token bucket allows four ps starts immediately, then
 #: refills at one per interval, including failures and post-send diagnostics.
 HOLDER_PROBE_INTERVAL_S = 1.0
 HOLDER_PROBE_BURST = 4
@@ -192,6 +192,8 @@ def refused_while_busy(client: Any, exc: BaseException, *,
         return False
     if not isinstance(getattr(exc, "__cause__", None), ConnectionRefusedError):
         return False
+    if not getattr(client, "_verify_lock", True):
+        return None                         # C-15.6: a refused hook never inspects
     alive = getattr(client, "lock_holder_alive", None)
     if alive is None:
         return None
@@ -361,7 +363,8 @@ def _live_start(state: str | None, started: str | None) -> str | None:
 
 
 def identity_status(pid: int | None, recorded_boot: str | None,
-                    recorded_start: str | None) -> tuple[bool | None, str, str | None]:
+                    recorded_start: str | None, *,
+                    before_ps: Callable[[], bool] | None = None) -> tuple[bool | None, str, str | None]:
     """`identity_report`, and the raw `ps` state the verdict was read from.
 
     The state is None whenever no `ps` was run or it could not answer; it is
@@ -381,6 +384,8 @@ def identity_status(pid: int | None, recorded_boot: str | None,
         if boot_match is False:
             return False, (f"the machine booted at {current}, not at "
                            f"{recorded_boot} as recorded, so pid {pid} is gone"), None
+    if before_ps is not None and not before_ps():
+        return None, f"ps could not report on pid {pid}", None
     state, started = proc_status(int(pid))
     start = _live_start(state, started)
     if start is None:
@@ -520,7 +525,7 @@ class Client:
         # per process, and a hook, run on every Bash call of every session, says
         # nothing whichever way the daemon is down; a refused connect says it.
         self._verify_lock = verify_lock
-        # Virtual time for a full token bucket: at most BURST observations
+        # Virtual time for a full token bucket: at most BURST ps starts
         # immediately, with one token refilled every INTERVAL seconds.
         self._holder_probe_next = _clock()
 
@@ -552,13 +557,46 @@ class Client:
             return None
         return data if isinstance(data, dict) else None
 
+    def _wait_holder_probe_slot(self, *, deadline_at: float | None,
+                                observation_end: float | None = None) -> bool:
+        """Wait without spending a token; exhausted slots must not start boot reads."""
+        if observation_end is not None and _clock() >= observation_end:
+            return False
+        due = self._holder_probe_next - (HOLDER_PROBE_BURST - 1) * HOLDER_PROBE_INTERVAL_S
+        waited = due > _clock()
+        while (remaining := due - _clock()) > 0:
+            if deadline_at is not None:
+                left = deadline_at - _clock()
+                if left <= 0:
+                    raise RequestTimeout()
+                remaining = min(remaining, left)
+            if observation_end is not None:
+                left = observation_end - _clock()
+                if left <= 0:
+                    return False
+                remaining = min(remaining, left)
+            _sleep(remaining)
+        if waited and deadline_at is not None and _clock() >= deadline_at:
+            raise RequestTimeout()
+        if observation_end is not None and _clock() >= observation_end:
+            return False
+        return True
+
+    def _take_holder_probe_token(self, *, deadline_at: float | None) -> bool:
+        """Charge actual ps starts, so boot-read time cannot inflate their burst."""
+        if not self._wait_holder_probe_slot(deadline_at=deadline_at,
+                                           observation_end=_observation_deadline.get()):
+            return False
+        self._holder_probe_next = max(_clock(), self._holder_probe_next) + HOLDER_PROBE_INTERVAL_S
+        return True
+
     def holder_report(self, *, deadline_at: float | None = None
                       ) -> tuple[int | None, bool | None, str, str | None]:
         """The recorded holder's pid, liveness, reason, and `ps` state (C-5.8).
 
         One `ps` per call, the same one the identity check makes, so the
         stopped-holder question of C-5.13 is answered at no extra cost. A reused
-        client takes a token from its four-observation bucket, including for a failed read;
+        client takes a token immediately before ps, including for a failed read;
         it never sends on the strength of a cached running observation. Slot
         waits consume the request's budget. An already available diagnostic
         may finish after that budget. Every stage shares one five-second
@@ -573,25 +611,16 @@ class Client:
             pid = int(pid)
         except (TypeError, ValueError):
             return None, None, f"{self.lock_path} records no usable pid", None
-        due = self._holder_probe_next - (HOLDER_PROBE_BURST - 1) * HOLDER_PROBE_INTERVAL_S
-        waited = due > _clock()
-        while (remaining := due - _clock()) > 0:
-            if deadline_at is not None:
-                left = deadline_at - _clock()
-                if left <= 0:
-                    raise RequestTimeout()
-                remaining = min(remaining, left)
-            _sleep(remaining)
-        if waited and deadline_at is not None and _clock() >= deadline_at:
-            raise RequestTimeout()
-        self._holder_probe_next = max(_clock(), self._holder_probe_next) + HOLDER_PROBE_INTERVAL_S
+        self._wait_holder_probe_slot(deadline_at=deadline_at)
         observation_end = _clock() + HOLDER_PROBE_BUDGET_S
         if deadline_at is not None:
             observation_end = min(observation_end, deadline_at + HOLDER_PROBE_BUDGET_S)
         token = _observation_deadline.set(observation_end)
         try:
             alive, reason, state = identity_status(pid, info.get("boot_id"),
-                                                    info.get("proc_start"))
+                                                    info.get("proc_start"),
+                                                    before_ps=lambda: self._take_holder_probe_token(
+                                                        deadline_at=deadline_at))
         finally:
             _observation_deadline.reset(token)
         return pid, alive, reason, state
@@ -645,6 +674,8 @@ class Client:
         what a failed connect means, and `subfleet daemon start` is the answer
         only when there is no verified holder to fail the flock against.
         """
+        if not self._verify_lock:
+            return DaemonUnavailable(f"no daemon at {self.socket_path}: {why}")
         stopped, holder = self.silence_report(deadline_at=deadline_at)
         if stopped is not None:
             return stopped
@@ -680,7 +711,7 @@ class Client:
         """Raise `DaemonUnavailable` when the lock says the daemon cannot answer.
 
         Every send gets one fresh state/identity observation, at most one `ps`.
-        `holder_report` permits a burst of four, then one observation per second,
+        `holder_report` permits four ps starts, then one per second,
         so wait/watch/settlement loops cannot spin process probes. Waiting for
         that slot before sending also closes the cached-running race: a stopped
         holder accepts into its backlog without answering (C-5.13). Hooks can

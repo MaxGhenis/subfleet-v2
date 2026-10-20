@@ -2396,6 +2396,8 @@ def _stdin_bytes(stream: Any, wait_s: float) -> bytes | str:
     try:
         fd = stream.fileno()
     except (AttributeError, OSError, ValueError):
+        if isinstance(stream, io.TextIOWrapper) and isinstance(stream.buffer, io.BytesIO):
+            stream = stream.buffer
         if not isinstance(stream, (io.StringIO, io.BytesIO)):
             raise ValueError("stdin has no readable file descriptor") from None
         data = stream.read(STDIN_MAX_BYTES + 1)
@@ -2484,8 +2486,8 @@ def cmd_ping(args: argparse.Namespace) -> int:
     if result.get("delivered"):
         out(f"delivered to {recipient}")
         return int(Exit.OK)
-    notice = result.get("notice_id")
-    out(f"queued notice {notice} for {recipient}" if notice is not None else f"queued for {recipient}")
+    out(f"parked for {recipient}")
+    note(f"  {result.get('reason') or 'the session has no live inbox'}")
     return int(Exit.OK)
 
 

@@ -997,3 +997,15 @@ def test_late_ps_observation_cannot_verify_stopped_holder(root, monkeypatch, hol
     pid, alive, reason, state = Client(root).holder_report(deadline_at=.1)
     assert pid == 12345 and alive is None and state is None
     assert 'could not report' in reason
+
+
+def test_expired_probe_slot_starts_no_boot_read(root, monkeypatch, holder_clock):
+    """C-5.13 wait for an available slot before boot reads, but spend it only at ps."""
+    paced_observations(root, monkeypatch, holder_clock)
+    probe = Client(root)
+    for _ in range(4):
+        probe.holder_report()
+    monkeypatch.setattr(client_module, 'boot_id', lambda: pytest.fail('boot read before available slot'))
+    with pytest.raises(client_module.RequestTimeout, match='before sending'):
+        probe.call('ping', timeout=.2)
+    assert holder_clock.now == pytest.approx(.2)

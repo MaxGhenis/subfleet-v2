@@ -2035,12 +2035,26 @@ def test_select_failure_never_falls_back_to_an_unbounded_read(monkeypatch):
         os.close(write_fd)
 
 
-def test_ping_prints_the_notice_the_daemon_queued(daemon, capsys):
-    """C-17.8 render the notice id in the reply without inventing a delivery."""
+@pytest.mark.parametrize("data,expected", [(b"1234", "1234"), (b"\xff", "\ufffd"), (b"12345", None)])
+def test_ping_wrapped_memory_stdin_keeps_byte_bound(monkeypatch, data, expected):
+    """C-17.8 finite TextIOWrapper(BytesIO) input keeps the byte cap and replacement decoding."""
+    monkeypatch.setattr(cli, "STDIN_MAX_BYTES", 4)
+    with io.TextIOWrapper(io.BytesIO(data)) as stream:
+        text, reason = cli._stdin_message(stream)
+    assert text == expected
+    if expected is None:
+        assert reason and "exceeds 4" in reason
+    else:
+        assert reason is None
+
+
+def test_ping_prints_the_session_the_daemon_parked_for(daemon, capsys):
+    """C-15.8, C-17.8 preserve the parked reply and daemon-selected session."""
     daemon({"ping": lambda request: {"pong": True, "session_id": "sess-1", "notice_id": -7}})
     assert run_cli(["ping", "--session", "sess-1", "hi"]) == 0
     captured = capsys.readouterr()
-    assert captured.out.strip() == "queued notice -7 for sess-1" and captured.err == ""
+    assert captured.out.strip() == "parked for sess-1"
+    assert "the session has no live inbox" in captured.err
 
 
 def test_ping_still_renders_a_reported_delivery(daemon, capsys):

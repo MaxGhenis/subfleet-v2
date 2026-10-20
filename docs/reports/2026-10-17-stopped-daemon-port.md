@@ -425,24 +425,26 @@ preflight and post-send diagnosis within one call.
 
 Completion-based spacing charged about a second between every pair of calls,
 even for short commands. A capacity-four token bucket replaces it. The code
-represents tokens with a virtual next-token time: a probe may start when
+represents tokens with a virtual next-token time: ps may start when
 `next_token - 3 * interval` is due, then advances that time by one interval
 from the later of its current value and now. This is equivalent to four stored
 tokens with one token refilled per second; idle time caps at four tokens, and
-inspection time also contributes elapsed refill time. Failed observations and
+inspection time also contributes elapsed refill time. Round 5 moves consumption
+to immediately before ps, after boot reads. Failed observations and
 failure diagnostics use the same bucket. Every verifying send still receives
 a fresh state/identity read; no running verdict is cached. C-15.6's explicit
 hook opt-out remains.
 
 Four immediate sends sleep zero seconds; the fifth waits for a token. A long
-loop has rate at most one observation per second after its burst. The new
-bounded property checks **every sub-window** of generated send sequences,
-including repeated zero gaps and long idle refills: observations never exceed
-`4 + elapsed / HOLDER_PROBE_INTERVAL_S`. This rule counts whole observation
-starts, replacing round 3's spacing between actual ps starts; a slow boot read
-may finish just before the next observation's ps within the allowed burst.
-The slow-boot regression now also checks refill saturation rather than imposing
-the superseded pairwise spacing. A saturated refused-connect diagnostic still
+loop has rate at most one ps start per second after its burst. The bounded
+property checks **every sub-window** of generated send sequences, including
+repeated zero gaps, slow boot reads and long idle refills: actual ps starts
+never exceed `4 + elapsed / HOLDER_PROBE_INTERVAL_S`. **Round-5 correction to
+round 4's line 442:** counting whole observation starts allowed a 1.6 s boot
+read to refill an already-spent token before the first ps, followed by five ps
+starts at 1.6 s. Tokens are now spent after boot reads, immediately before ps.
+The explicit regression observes four starts at 1.6 s and the fifth at 2.6 s;
+the property varies boot costs independently of send gaps. A saturated refused-connect diagnostic still
 ends `wait --timeout .6` at .6 with exit 124, and the running-to-stopped status,
 doctor, start, re-send and no-connect regressions remain covered.
 
@@ -457,8 +459,11 @@ budget** for delivery. Poll budgets, busy pauses and idle backoff all stop at
 `deadline - reserve`. Notice lookup gets at most half the remaining delivery
 time, preserving time for `notice.mark`; neither starts a fresh hook deadline.
 For the reviewer's timeout of 6 s, the existing 5 s harness margin leaves about
-1 s of work time: about .5 s is reserved for the two notice calls, with at
-least half that delivery time retained for the mark when lookup starts.
+1 s of work time. If the poll uses its whole share, about .5 s remains for
+delivery and pending receives at most about .25 s. An immediate terminal reply
+leaves about 1 s for delivery and pending receives at most about .5 s. Mark
+gets the remaining time, about .25 s or .5 s respectively when lookup uses its
+full share.
 C-15.2 and its change-log entry record the behavior.
 
 The real `python -m subfleet hook PostToolUse` regression sets
@@ -657,3 +662,80 @@ The latter tests explicitly model the already-closed core's stopped-holder
 preflight and retain their fatal assertion on any daemon launch. These are
 fixture adaptations to C-5.13's intentional fresh preflight and deadline
 propagation; production checks are retained. The full rerun is pending below.
+
+### Review r4 P3s and client behavior
+
+1. Settlement: the regression spends two tokens before `Client(timeout=.1)`
+   calls `call_settled('kill', requery_timeout=.2)` on a silent socket. The
+   first send and its diagnosis exhaust the bucket. The resend's slot expires
+   at .3 s before sending, so the test requires `OutcomeUnknown`, the original
+   no-response reason, the "before sending" reason, and exactly one wire send.
+2. Shared ceiling: a real socket replies busy, then its listener closes while
+   its path remains. With `timeout=2`, two diagnoses each request a 1.6 s boot
+   read plus 5 s ps; all work ends at 7.0 s (within the review's 7.006 s bound).
+   Separate coverage rejects successful ps output observed after its absolute
+   observation deadline. The terminal-hook tests now spend the full lookup
+   allowance and assert that pending gets exactly half the delivery time,
+   including immediate and end-of-poll replies. These strengthen tests for
+   protections already implemented at the head.
+3. Burst: boot inspection used to spend a token before ps existed, and the
+   intervening boot read refilled it. `identity_status` now reserves through
+   the client's callback immediately before reading ps. Budget exhaustion
+   starts no ps, and waits retain the call and observation ceilings. Availability
+   is awaited before boot reads without consuming the token, then rechecked
+   and charged at ps; an expired slot starts no boot read either. The
+   bounded property varies boot costs and send gaps and checks every time
+   window of actual ps starts against 4 + elapsed/interval. C-5.13 and the
+   earlier report's incorrect line 442 now state this process-start bound.
+4. Hook wording: C-15.2 and this report distinguish pending's roughly .25 s
+   allowance after a full poll from .5 s after an immediate terminal reply
+   at `SUBFLEET_HOOK_TIMEOUT_S=6`; mark receives the time remaining.
+
+Fresh **identity and state**, rather than state alone, remain required before
+every verifying send: a reused pid's T state cannot establish that it is the
+recorded daemon. Connection fixtures now provide matching boot/start
+observations on both sides and remove obsolete `_checked` assignments.
+The hook-cost failure did **not** show a connect-before-preflight reorder:
+`check_available` still precedes socket creation. Its old `lock_report` mock
+was bypassed by C-5.13's combined `holder_report`. The revised test supplies
+a real stale record, spies on ps, and guarantees a too-long socket path,
+requiring the stale message first. It also exposed a real opt-out regression:
+failed connects called inspection even for `verify_lock=False`. They now
+retain the opt-out, including refused-after-busy checks; a sent unanswered
+request still gets C-5.13's diagnosis and can enable later preflight.
+
+### CI behavior and caller repairs
+
+- Pin-notice `_deliver`: the sole external direct caller now supplies its
+  absolute deadline and monotonic clock. A repository-wide `_deliver(` search
+  found no other missing caller; production already supplies both.
+- Daemon connections: all six obsolete `_checked` assignments were removed.
+  Their fixture now observes its fake boot/start consistently in the client
+  and daemon; every real preflight check remains. This is a test adaptation
+  to C-5.13's intentional fresh identity/state checks, not a production bypass.
+- Hook cost: replace a superseded private-method mock with actual stale-lock
+  input, verify the stale diagnostic precedes a guaranteed path-length error,
+  and preserve no ps on opted-out refused connects (including busy refusals).
+  Sent unanswered requests still retain their unknown-outcome diagnosis.
+- Operator notices: the Direct stand-ins accept `timeout`. Empty/blank input
+  failed because the finite stdin reader recognized StringIO and BytesIO but
+  refused TextIOWrapper(BytesIO), the release tests' finite stream. That
+  wrapper now reads its BytesIO buffer under the same byte cap and replacement
+  decoding. New small/oversized/malformed-byte cases check the cap and decoder.
+  Ping's unrequested queued-notice wording is restored to release's
+  `parked for <recipient>` and reason. The daemon still chooses the operator
+  inbox when no session is named, and empty/blank input still means liveness.
+  The PR-added queued-output test now asserts the required release behavior;
+  existing operator-notice behavior assertions are unchanged. C-17.8 and its
+  change log record this correction.
+
+The complete #222 rerun passed **384/384** (44.96 s of pytest time): unit
+allowlist 27, helpers 20, mutations 41, policy 26, round 2 67, round 3 69,
+round 4 40, round 5 39; fake daemon 49, fake providers 6.
+
+The required client hold passed 103 cases (stopped daemon 71, availability 22,
+boot identity 10). The required CLI hold passed 440 (CLI 247, doctor 44,
+sessions CLI 142, suggest CLI 7). A subsequent self-review split slot
+availability from token consumption: wait before boot reads, then recheck
+and charge at ps. A new expired-slot regression requires no boot read. The
+final client/CI hold and whole-directory runs below revalidate that addition.
