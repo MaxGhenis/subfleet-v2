@@ -1317,7 +1317,7 @@ Round 8 (`brief-fix8.md`) ran as two builds. The first, `20261019-081357-pr221-f
 | `d2dc1c734` | Tests first: an untrusted publish hook gets its own verdict, reason and advice |
 | `36a89279f` | Preflight kind `publish` with `_PUBLISH_FIX`, mapped to `guard-preflight-publish` with its own refusal template; C-14.2 amended |
 | `94e011600` | Merge `origin/release/217` at `473fe2941` (#235 D-ADM3, #236 relay stop bound, #234 D-KILL2, #226 D-ST1) |
-| this commit | This report section |
+| `27dcbe4d3`, then the commit after it | This report section, then the whole-suite sweep |
 
 ### The merges
 
@@ -1466,3 +1466,63 @@ None failed or skipped. Hold 6 ran inside the `tests/e2e` hold, to save a lock w
 The 16 skips are person-only requests and marker refusals, which can't come from inside a Subfleet job ("run this test outside Subfleet (CI runs it)"). `test_capacity_steer_e2e.py` passed on both Pythons; CI had failed it on both.
 
 **The demonstration hold** (3.12, the scratch late-blocker plugin): the C-16.7 stopping test failed 5 of 5, as described above. That is the expected result, not a regression.
+
+**The demonstration plugin**, kept here because its scratch file is removed at cleanup. Run with `-p` and the C-16.7 stopping test's node id:
+
+```python
+def pytest_collection_modifyitems(session, config, items):
+    from subfleet.daemon import Daemon
+    real = Daemon._start_request
+
+    def late(self, conn, write_lock, req, arrived, peer):
+        if req.op == "readings":
+            time.sleep(0.5)          # the blocker's reader, run late by the scheduler
+        return real(self, conn, write_lock, req, arrived, peer)
+
+    Daemon._start_request = late
+```
+
+### The whole-suite sweep (holds 8 to 11)
+
+Each hold ran this PR's changed test files first, then `tests/fake`, then `tests/unit`. The last hold took every file left and was stopped by its 1,140 s alarm. All four ran on 3.14 at `94e011600`.
+
+| Hold | Lock wait | Ran | Files | Passed | Failed |
+|---|---:|---:|---:|---:|---:|
+| 8 | 13 min | 18 min 44 s | 17 fake, 36 unit (every changed test file not already run) | 1,724 | 0 |
+| 9 | 23 min | 9 min 11 s | 29 fake | 631 (and 2 skipped) | 2 |
+| 10 | 33 min | 10 min 22 s | 57 fake (the 2 failures' files first), 3 unit | 832 | 0 |
+| 11 | 28 min | 19 min 10 s, stopped | 3 fake, 94 unit (the last cut part way) | 2,746 | 0 |
+
+**The two failures in hold 9 were timing, not this PR:**
+- `tests/fake/test_census_escapers_daemon.py::test_d_kill2_a_setsid_lockf_that_outlives_a_cancel_holds_the_attempt[rooted]`, at 09:42:34Z;
+- `tests/fake/test_codex_ca_bundle_fake.py::test_fake_codex_and_its_tool_inherit_ca_environment[default]`, at 09:43:33Z.
+
+Each test's kept state root (`/tmp/sf-failed/…`) shows the same thing:
+- The attempt was quarantined "start grace expired without a receipt" within a second of `attempt.starting`. The fake daemon's start grace is 0.65 s (`tests/fake/run_daemon.py`).
+- The guardian had not yet left its parent's process group (pgid 38842 in both) and was in state `U` (uninterruptible wait).
+- The CA test's fake provider still exited 0, with a `turn.completed` line, in 0.16 s. The job was already `lost`.
+
+The start-grace deadline is set after the guardian is spawned. This PR's launch additions (`protect_launch`, the publish-hook self-test, `_record_launch`) all run before the spawn, and the self-test runs only for publish-denied launches. Both attempts were `publish_denied=0` and not reviews. Neither test file changed in this PR.
+
+Hold 10 reran both whole files first: 9 of 9 and 6 of 6 passed. The two quarantines a minute apart, with guardians in `U`, look like a short host I/O stall.
+
+**Per directory, each file's last full run, at `94e011600`:**
+- **`tests/fake`:** all 108 files, 1,914 passed and 2 skipped, none failed. The skips are `test_admission_properties.py` and `test_canonical_identity_fix3.py`, one each.
+- **`tests/e2e`:** all 19 files, 97 passed and 16 skipped (hold 7).
+- **`tests/unit`:** 151 of 330 files, 5,729 passed, none failed or skipped.
+  - `test_retention_archive.py` was cut part way by hold 11's alarm, after 65 passed.
+  - 178 files are unrun.
+- **`tests/process`:** 1 of 9 files (`test_claude_isolation.py`, 15 passed). The other 8 are unrun: `test_census_hidden_environment_process`, `test_census_raw_markers_process`, `test_census_responsibility_process`, `test_codex_isolation`, `test_guardian_process`, `test_guardian_qos_process`, `test_guardian_relay`, `test_pipe_above_stdio`.
+
+**Why `tests/unit` is unfinished:** the four sweep holds waited 13 to 33 minutes each for the shared lock; at 10:20Z its holder was another session's whole-`tests/unit` run. At load 50 to 80, local runs took about three times CI's per-file seconds. The fourth hold got the lock at 11:03:50Z, eight minutes before this job's 4 h 30 m line (11:12Z), and no hold was started after it.
+
+**The 178 unrun `tests/unit` files**, plus the rest of `test_retention_archive.py`:
+`test_admission_uncapped`, `test_approval_resolution`, `test_capacity_steer_mutations`, `test_capacity_steer_route`, `test_census_counted`, `test_census_procargs`, `test_census_recycled_pid`, `test_census_responsibility_failures`, `test_census_responsibility_identity`, `test_census_responsibility_races`, `test_ci_retry_known_flakes`, `test_ci_shard_plugin`, `test_claude_cards`, `test_claude_identity`, `test_claude_large_stream`, `test_claude_mcp`, `test_claude_stream`, `test_claude_synthetic_error`, `test_codex_ca_bundle`, `test_codex_probe`, `test_codex_shim`, `test_codex_turn_completed`, `test_compat`, `test_continuation_r2`, `test_conversation_connections`, `test_conversation_diff`, `test_conversation_fifo_reads`, `test_conversation_handoff_briefs`, `test_conversation_history`, `test_conversation_reconcile`, `test_conversation_redact`, `test_conversation_state_reads`, `test_conversation_titles`, `test_conversation_waits`, `test_cpu_scaling`, `test_daemon_init_release`, `test_daemon_integration`, `test_daemon_log_scrubbing`, `test_daemon_refusals_cli`, `test_daemon_verbs`, `test_descriptor_review_fixes`, `test_descriptors_desktop`, `test_desktop_in_use`, `test_doctor_ca_bundle`, `test_doctor_identity`, `test_empty_provider_results`, `test_folders`, `test_forget_paced`, `test_frozen_provider_streams`, `test_gate_replay`, `test_gate_revision`, `test_gate_service`, `test_gate_verdict`, `test_guardian_qos`, `test_held_waiter_holdback`, `test_hidden_environment`, `test_host_push_admission`, `test_host_push_build`, `test_host_push_config_cost`, `test_host_push_copy`, `test_host_push_mutations`, `test_host_push_retention`, `test_host_push_storage_recovery`, `test_host_push_store_interleavings`, `test_host_push_trees`, `test_host_push_validated_top`, `test_invariants_index`, `test_keychain_exec_guard_properties`, `test_lane_answers`, `test_lease_waiter_selection`, `test_limit_from_model_text`, `test_live_store_guard`, `test_live_store_guard_round10`, `test_live_store_guard_round10_mutations`, `test_live_store_guard_round3`, `test_live_store_guard_round4`, `test_live_store_guard_round5`, `test_live_store_guard_round6`, `test_live_store_guard_round7`, `test_live_store_guard_round7_mutations`, `test_live_store_guard_round8`, `test_live_store_guard_round8_mutations`, `test_live_store_guard_round9`, `test_live_store_guard_round9_mutations`, `test_live_store_guard_state_root`, `test_lockwatch`, `test_native_operations`, `test_person_boundary`, `test_person_boundary_identity`, `test_placement_ramp`, `test_policy_disk`, `test_policy_tier_preferences`, `test_procs`, `test_protocol_secrecy`, `test_prune_decision_fingerprints`, `test_quota_projection`, `test_reap_liveness`, `test_rediscovery_git_trace`, `test_render`, `test_render_quota_projection`, `test_reset_credit_claim_timing`, `test_reset_credit_review_r1`, `test_reset_credit_review_r2`, `test_reset_credit_review_r3`, `test_reset_credit_review_r3_mutants`, `test_resource_identity`, `test_retention_archive_properties`, `test_retention_ordinary_trees`, `test_retention_qos`, `test_retention_regenerable_properties`, `test_retention_salvage_properties`, `test_retention_shared_folders`, `test_retention_worktrees`, `test_review_pr127_history`, `test_review_pr127_pr_wakes`, `test_review_pr127_requests`, `test_review_pr127_service`, `test_review_r3_measure`, `test_review_r3_repro`, `test_review_r4_repro`, `test_review_r5_repro`, `test_review_r6_probes`, `test_review_r6_restart`, `test_round10_refusal_context`, `test_route_check`, `test_salvage`, `test_salvage_optional_transient`, `test_salvage_unindexable`, `test_scheduler_priority_callers`, `test_scheduler_split`, `test_scheduler_tier_preferences`, `test_scheduler_turns`, `test_scheduler_weekly`, `test_scoped_stream_capacity`, `test_scrub_key_order`, `test_sessions_cli`, `test_sessions_handoff_excerpts`, `test_sessions_headless_properties`, `test_sessions_mirror`, `test_sessions_mirror_cache_coherence`, `test_sessions_mirror_fifo`, `test_sessions_mirror_hot_health`, `test_sessions_mirror_inventory`, `test_sessions_mirror_load_gap`, `test_sessions_mirror_safety`, `test_sessions_mirror_write_churn`, `test_sessions_nudge`, `test_sessions_registry`, `test_sessions_revive_reads`, `test_sessions_transcripts`, `test_settle_properties`, `test_steer_invariants`, `test_stop_alarm`, `test_stop_watchdog`, `test_store_contention_queries`, `test_store_properties`, `test_store_snapshot_plans`, `test_suggest_cli`, `test_suggest_hint`, `test_suggestion_error_boundaries`, `test_suggestion_properties`, `test_suggestion_secret_properties`, `test_suggestion_structural_errors`, `test_suggestions_r1b_adversarial`, `test_suggestions_r3_channels`, `test_suggestions_review_boundaries`, `test_suggestions_review_multiline`, `test_suggestions_review_response`, `test_timers_alerts`, `test_timers_daemon`, `test_title_review_regressions`, `test_turn_attachment_replay`, `test_turn_overlap`, `test_turn_runner`, `test_ultracode_effort`, `test_unadmittable_pin`, `test_wait_hub`, `test_wake_cli`
+
+**Not run:**
+- the files above, `tests/frontend` and `tests/live`;
+- the suite as one process, and `pytest --collect-only` over the whole tree (`test_test_module_names.py`, the duplicate-basename guard, passed);
+- a real provider turn;
+- the person-only e2e tests, which skip inside a Subfleet job; CI runs them.
+
+**Hold 11 also printed one warning**, at collection, from release's test code: `PytestRemovedIn10Warning` for a `zip` passed to `parametrize` in `tests/unit/test_codex_turn_completed.py`. It is not a failure, and that file is not this PR's.
