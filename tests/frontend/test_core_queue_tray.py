@@ -122,6 +122,25 @@ def queue_words(core_probe, **inputs) -> dict:
         return run_probe(core_probe, "queue-words", write_json(Path(scratch) / f"{uuid.uuid4().hex}.json", inputs))
 
 
+def test_c29_12_search_reveal_makes_the_sixth_held_tray_row_visible_without_a_task(core_probe):
+    """The real held layout's visibility depends on reveal state, without AppKit."""
+    snapshot = run_queue(core_probe, [{"held": True, "receipts": [
+        receipt(f"queued{index}", index + 1, "queued") for index in range(6)
+    ]}])["snapshots"][-1]
+    rows = snapshot["layout"]["tray"]
+    assert [row["id"] for row in rows] == [f"queued{index}" for index in range(6)]
+    cases = [{"count": len(rows), "rows": rows, "expanded": False, "conversation_id": CID,
+              "reveal": reveal} for reveal in (
+        {"conversation_id": CID, "item_id": "person:queued5"},
+        {"conversation_id": "another-conversation", "item_id": "person:queued5"},
+        {"conversation_id": CID, "item_id": "person:outside-the-tray"},
+        None,
+    )]
+    visible = queue_words(core_probe, visible=cases)["visible"]
+    assert visible == [[6, 0], [3, 3], [3, 3], [3, 3]], visible
+    assert "queued5" in [row["id"] for row in rows[:visible[0][0]]]
+
+
 def ts(seconds: float) -> str:
     return (T0 + timedelta(seconds=seconds)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 

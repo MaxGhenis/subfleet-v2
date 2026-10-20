@@ -91,3 +91,10 @@ def test_c29_12_search_expands_and_reveals_the_sixth_held_message(fix6_view):
     assert search["before"] == 3, search
     assert search["revealed_id"] == "queued5", search
     assert search["target_visible"], search
+
+
+def test_c29_12_withdraw_controls_are_found_by_row_identifier(fix6_view):
+    search = fix6_view["search"]
+    assert search["before_identifiers"] == 3, search
+    assert search["after_identifiers"] == 6, search
+    assert search["finder"] == "identifier", search

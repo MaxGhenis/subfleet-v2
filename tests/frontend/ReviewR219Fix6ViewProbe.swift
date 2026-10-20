@@ -126,18 +126,40 @@ func conversation(_ cid: String, held: Bool = false) -> Conversation {
         let rowX = descendants(host).compactMap { $0 as? NSButton }
             .filter { abs($0.frame.width - width) < 1 }
             .map { $0.convert($0.bounds, to: host).minX }.max()!
-        func withdraws() -> [NSButton] {
+        func identifiedWithdraws() -> [NSButton] {
             descendants(host).compactMap { $0 as? NSButton }.filter {
+                ($0.accessibilityIdentifier() ?? "").hasPrefix("queue-tray-withdraw-")
+            }
+        }
+        func withdraws() -> [NSButton] {
+            let identified = identifiedWithdraws()
+            if !identified.isEmpty { return identified }
+            return descendants(host).compactMap { $0 as? NSButton }.filter {
                 abs($0.frame.width - width) < 1 && abs($0.convert($0.bounds, to: host).minX - rowX) < 0.5
             }
         }
         let before = withdraws().count
+        let beforeIdentifiers = identifiedWithdraws().count
         let match = SearchIndex(model.state.searchCandidates()).search("needle")!.results.first!
         palette.activate(match)
         let target = palette.reveal?.itemID ?? ""
-        settle(host, seconds: 1.5)
+        let revealSet = palette.reveal != nil
+        let started = Date()
+        let deadlineSeconds = 10.0
+        let deadline = started.addingTimeInterval(deadlineSeconds)
+        while withdraws().count < 6 && Date() < deadline {
+            settle(host, seconds: 0.02)
+        }
         let buttons = withdraws()
-        let last = buttons.sorted {
+        let expandedAfter = Date().timeIntervalSince(started)
+        // Expansion and the target's scroll have distinct conditions.
+        func targetButton() -> NSButton? {
+            identifiedWithdraws().first { $0.accessibilityIdentifier() == "queue-tray-withdraw-queued5" }
+        }
+        while targetButton()?.visibleRect.isEmpty != false && Date() < deadline {
+            settle(host, seconds: 0.02)
+        }
+        let last = targetButton() ?? buttons.sorted {
             let a = $0.convert($0.bounds, to: host).minY, b = $1.convert($1.bounds, to: host).minY
             return host.isFlipped ? a < b : a > b
         }.last
@@ -150,6 +172,14 @@ func conversation(_ cid: String, held: Bool = false) -> Conversation {
         let search: [String: Any] = ["target": target, "before": before, "after": buttons.count,
                                     "revealed_id": client.cancelledID as Any? ?? NSNull(),
                                     "reference_width": width,
+                                    "reveal_set": revealSet,
+                                    "deadline_seconds": deadlineSeconds,
+                                    "elapsed_seconds": Date().timeIntervalSince(started),
+                                    "expanded_after_seconds": expandedAfter,
+                                    "model_tray_rows": model.state.layout(conversationID: "search")!.tray.count,
+                                    "before_identifiers": beforeIdentifiers,
+                                    "after_identifiers": identifiedWithdraws().count,
+                                    "finder": identifiedWithdraws().isEmpty ? "geometry-fallback" : "identifier",
                                     "buttons": descendants(host).compactMap { $0 as? NSButton }.map {
                                         ["title": $0.title, "width": $0.frame.width,
                                          "x": $0.convert($0.bounds, to: host).minX] as [String: Any]
