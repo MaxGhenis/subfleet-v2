@@ -828,6 +828,14 @@ power at about 15:25 UTC, returning rc 125 without a final answer. Its seven
 first-parent commits through `0c8be2de0522` are preserved. This continuation
 read the complete original brief, review r5, report, and step commits.
 
+Recovered first-parent steps are `e03f0cdc8` (release merge), `4694b44c8`
+(regressions), `a8276f48d` (production fixes and contract), `a52b4c455` (briefed
+results), `b3c1dcf99` (exact-base and reset mutation checks), `42b4a3325` (first
+unit batch), and `0c8be2de0` (second unit batch and native failures). Continuation
+steps before this final report are `0cec8cbed` (recovery audit), `807431455`
+(GIL stream checkpoint), `a316e88ad` (all core results), `1e0d7fa38` (bounded
+socket-timer wait and fake findings), and `3679c51d6` (unit/timer rerun checkpoint).
+
 The cached `origin/release/217` remains `473fe2941953`, already an ancestor of
 `0c8be2de0522` through `e03f0cdc8`; no new merge or conflict resolution is needed.
 An independent check confirms that the merge retains every clause ID and every
@@ -930,8 +938,7 @@ The fifth failure was `test_socket_timer_status`: the Unix API answered `ok`,
 but the asynchronous probe had not published `last_run` after the test's fixed
 250 ms sleep. The test now uses its existing five-second polling helper and
 still requires an `ok` API reply with a published probe result. It retries a
-connection refused during listener startup. The complete acceptance file is
-included in the next available unit hold. This changes a test wait, with no
+connection refused during listener startup. The complete acceptance file was rerun in `unit-1`: **6 passed, 1 skipped**, including a passing result for the modified socket-timer case. This changes a test wait, with no
 production behavior or additional contract amendment.
 
 **The fake hold exceeded the required 20-minute bound.** I should have split
@@ -947,6 +954,72 @@ Control status 82 stops the original large-unit plan after its first smaller
 batch so the following holds can use the revised manifest; XML retains the
 actual pytest outcomes, including failures.
 
+### Final cutoff status and exclusions
+
+All **six original brief items are implemented or deliberately unchanged as
+requested**, as audited above. No further stream production change was needed.
+The new socket-timer test wait is validated by its complete-file rerun.
+
+The last hold started at **20:03:59 UTC**. After it returned, the foreground
+runner reported `No more holds: cutoff reached.` No further hold was started
+after the job's **20:13 UTC** cutoff. The configured unchanged catalog-lifecycle
+rerun did not start; its original failure remains visible.
+
+The full sweep completed **137 / 325 unit files** and
+**106 / 106 fake files**. **188 unit files remain outside the full sweep**;
+**12** of those have fresh passing briefed-file results. Across all fresh
+runs, **149 / 325 unit files** and **106 / 106 fake files** have results,
+leaving **176 unit files with no new result**. Every file is named in the
+matrix below, with its scope and actual latest per-file counts. The separate
+core and sweep totals must not be added, because their file selections overlap.
+
+Across all fresh results, using each file's latest complete run, the counts are
+**8,796 passed, 11 failed, 0 errors,
+86 skipped and 2 xfailed**. All selected files returned complete
+results; no later hold was interrupted by the 18-minute test timer.
+
+Nine current failures concern unavailable host inspection: four daemon-stack
+cases explicitly fail on unavailable macOS boot identity; the QoS and hook
+checks cannot execute `/bin/ps`; two doctor checks return `unknown` because
+process identity is unavailable; the descriptor test cannot obtain a valid
+kernel ceiling. Their tests and relevant native-inspection modules match
+cached release `473fe2941`.
+
+Two other current failures remain unresolved and were not rerun:
+
+- `unit/test_conversation_catalog_lifecycle.py::test_a_run_whose_owner_closes_mid_run_writes_nothing`:
+  the fixture's FIFO-read handshake timed out before the owner-close publication
+  assertions. Its helper has a 30-second deadline; the case reported 549.94 s.
+  The test and catalog module match cached release. No cause beyond that
+  observed fixture timeout is claimed.
+- `unit/test_guard_trust.py::test_timeout_refusal_is_a_timeout_not_a_trust_mismatch`:
+  the expected timeout classification assertions passed, then reading the fake
+  child's `report.json` failed with FileNotFoundError after the 0.5-second
+  preflight budget. Its remaining diagnostic assertions did not execute. The
+  test and preflight implementation match cached release.
+
+The fake sweep's 77 skips consist of 75 real-daemon cases requiring permitted
+sysctl/ps inspection, one socket-queue case whose probe reports
+`kern.ipc.somaxconn` as zero, and one process-inspection prerequisite. Its two
+expected failures retain the documented C-6.10 wait-kind alternation and P3-6
+hung-mount identity observations. The unit sweep adds nine skips, named by
+file in the matrix. Skips and xfails are not counted as passing.
+
+Unrun outside this brief: Python 3.12, process/e2e/frontend/live suites and CI.
+No remote Git operation, push, sub-agent, real credential access or live-daemon
+operation was performed.
+
+### Delivery
+
+New commits use workspace-local `.git-local` metadata on
+`fix/frozen-stream-p3`, because the shared Git index is outside the writable
+sandbox. The original `.git` pointer and detached HEAD are preserved. Delivery
+is the external bundle
+`/private/tmp/subfleet-20261020-114311-pr212-fix6-cont.bundle`, with prerequisite
+`0c8be2de0522`. No bundle is written inside the worktree. Only the named timer
+test and report were staged; every new commit carries the required co-author
+trailer. Logs, JSON evidence and bundles were not staged.
+
 <!-- fix6-full-results -->
 ### Full-directory results from this continuation
 
@@ -959,15 +1032,16 @@ completed file run; the per-hold table retains earlier outcomes.
 
 | Directory | Files with results / total | Passed | Failed | Errors | Skipped | Xfailed |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `tests/unit` | 55 / 325 | 3606 | 1 | 0 | 0 | 0 |
+| `tests/unit` | 137 / 325 | 6341 | 7 | 0 | 9 | 0 |
 | `tests/fake` | 106 / 106 | 1889 | 4 | 0 | 77 | 2 |
 
 | Full hold | Files with results | Passed | Failed | Errors | Skipped | Xfailed | JUnit seconds |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | `fake-1` | 106 | 1888 | 5 | 0 | 77 | 2 | 1473.82 |
 | `unit-1` | 56 | 3612 | 1 | 0 | 1 | 0 | 675.49 |
+| `unit-2` | 82 | 2735 | 6 | 0 | 9 | 0 | 500.44 |
 
-**Unrun full-directory files: 270.**
+**Unrun full-directory files: 188.**
 Every file and its actual result or unrun status is listed below.
 
 Full-directory failures/errors, including earlier file attempts:
@@ -978,444 +1052,463 @@ Full-directory failures/errors, including earlier file attempts:
 - `fake-1: tests/fake/test_daemon_stacks.py::test_a_lock_that_changes_between_the_two_reads_is_not_signalled`
 - `fake-1: tests/fake/test_daemon_stacks.py::test_a_daemon_writes_the_flag_after_the_handler_and_drops_it_before`
 - `unit-1: tests/unit/test_conversation_catalog_lifecycle.py::test_a_run_whose_owner_closes_mid_run_writes_nothing`
+- `unit-2: tests/unit/test_daemon_qos_tools.py::test_thread_priorities_reads_every_thread_of_a_clamped_process`
+- `unit-2: tests/unit/test_doctor.py::test_daemon_lock_row_fails_on_a_lock_whose_process_is_gone`
+- `unit-2: tests/unit/test_doctor.py::test_daemon_lock_row_passes_against_a_live_daemon`
+- `unit-2: tests/unit/test_guard_trust.py::test_timeout_refusal_is_a_timeout_not_a_trust_mismatch`
+- `unit-2: tests/unit/test_hooks.py::test_the_hook_command_with_the_daemons_markers_spawns_nothing_and_surfaces_only_jobs`
+- `unit-2: tests/unit/test_descriptors.py::test_c16_6_the_kernel_ceiling_is_read_on_macos`
 
-<details><summary>Full-directory counts per file</summary>
+<details><summary>Latest fresh counts per file and sweep coverage</summary>
 
-| File under `tests/` | Passed | Failed | Errors | Skipped | Xfailed |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| `fake/test_admission_disk.py` | 27 | 0 | 0 | 0 | 0 |
-| `fake/test_admission_held_waiters.py` | 1 | 0 | 0 | 0 | 0 |
-| `fake/test_admission_latency.py` | 14 | 0 | 0 | 0 | 0 |
-| `fake/test_admission_lease_waiters.py` | 16 | 0 | 0 | 0 | 0 |
-| `fake/test_admission_liveness.py` | 32 | 0 | 0 | 0 | 0 |
-| `fake/test_admission_priority.py` | 32 | 0 | 0 | 0 | 0 |
-| `fake/test_admission_properties.py` | 27 | 0 | 0 | 0 | 1 |
-| `fake/test_admission_ramp.py` | 19 | 0 | 0 | 0 | 0 |
-| `fake/test_admission_ramp_retention.py` | 11 | 0 | 0 | 0 | 0 |
-| `fake/test_admission_route_isolation.py` | 93 | 0 | 0 | 0 | 0 |
-| `fake/test_admission_stateful.py` | 16 | 0 | 0 | 0 | 0 |
-| `fake/test_admission_visibility.py` | 43 | 0 | 0 | 0 | 0 |
-| `fake/test_batch_label.py` | 9 | 0 | 0 | 0 | 0 |
-| `fake/test_canonical_identity.py` | 24 | 0 | 0 | 0 | 0 |
-| `fake/test_canonical_identity_fix2.py` | 21 | 0 | 0 | 0 | 0 |
-| `fake/test_canonical_identity_fix3.py` | 17 | 0 | 0 | 0 | 1 |
-| `fake/test_canonical_identity_fix4.py` | 11 | 0 | 0 | 0 | 0 |
-| `fake/test_canonical_identity_fix5.py` | 14 | 0 | 0 | 0 | 0 |
-| `fake/test_capacity_steer_daemon.py` | 54 | 0 | 0 | 0 | 0 |
-| `fake/test_capacity_wait_backoff.py` | 30 | 0 | 0 | 0 | 0 |
-| `fake/test_census_escapers_daemon.py` | 0 | 0 | 0 | 9 | 0 |
-| `fake/test_census_recycled_pid_daemon.py` | 29 | 0 | 0 | 0 | 0 |
-| `fake/test_codex_ca_bundle_fake.py` | 0 | 0 | 0 | 6 | 0 |
-| `fake/test_codex_turn_completed_fake.py` | 109 | 0 | 0 | 0 | 0 |
-| `fake/test_conversation_pools.py` | 2 | 0 | 0 | 0 | 0 |
-| `fake/test_conversation_wakes_fake.py` | 4 | 0 | 0 | 0 | 0 |
-| `fake/test_crash_matrix.py` | 0 | 0 | 0 | 9 | 0 |
-| `fake/test_daemon_contract.py` | 0 | 0 | 0 | 21 | 0 |
-| `fake/test_daemon_descriptors.py` | 12 | 0 | 0 | 1 | 0 |
-| `fake/test_daemon_launch.py` | 9 | 0 | 0 | 0 | 0 |
-| `fake/test_daemon_stacks.py` | 1 | 4 | 0 | 1 | 0 |
-| `fake/test_descriptor_exhaustion.py` | 0 | 0 | 0 | 2 | 0 |
-| `fake/test_detached_cwd_pins.py` | 18 | 0 | 0 | 0 | 0 |
-| `fake/test_detached_retention_fence.py` | 89 | 0 | 0 | 0 | 0 |
-| `fake/test_enrollment_guardian.py` | 0 | 0 | 0 | 1 | 0 |
-| `fake/test_fake_provider.py` | 13 | 0 | 0 | 0 | 0 |
-| `fake/test_finalization_replay.py` | 10 | 0 | 0 | 0 | 0 |
-| `fake/test_folder_spelling.py` | 7 | 0 | 0 | 0 | 0 |
-| `fake/test_frozen_stream_nonregular.py` | 140 | 0 | 0 | 0 | 0 |
-| `fake/test_gate_end_to_end.py` | 10 | 0 | 0 | 1 | 0 |
-| `fake/test_identity_rollback.py` | 5 | 0 | 0 | 0 | 0 |
-| `fake/test_idle_cost.py` | 0 | 0 | 0 | 2 | 0 |
-| `fake/test_interactive_claude_titles.py` | 6 | 0 | 0 | 0 | 0 |
-| `fake/test_interactive_steer.py` | 13 | 0 | 0 | 0 | 0 |
-| `fake/test_lane_fault.py` | 20 | 0 | 0 | 0 | 0 |
-| `fake/test_lane_pilot.py` | 24 | 0 | 0 | 0 | 0 |
-| `fake/test_lanes_enroll.py` | 15 | 0 | 0 | 0 | 0 |
-| `fake/test_lanes_reenroll.py` | 19 | 0 | 0 | 0 | 0 |
-| `fake/test_lanes_reenroll_keychain.py` | 1 | 0 | 0 | 0 | 0 |
-| `fake/test_launch_env_daemon.py` | 49 | 0 | 0 | 0 | 0 |
-| `fake/test_launch_env_providers.py` | 6 | 0 | 0 | 0 | 0 |
-| `fake/test_launch_gates_above_stdio.py` | 0 | 0 | 0 | 9 | 0 |
-| `fake/test_lost_acknowledgement.py` | 0 | 0 | 0 | 3 | 0 |
-| `fake/test_main_refusal_write_dir.py` | 5 | 0 | 0 | 0 | 0 |
-| `fake/test_mcp_job_contract.py` | 12 | 0 | 0 | 0 | 0 |
-| `fake/test_native_maintenance_startup.py` | 41 | 0 | 0 | 0 | 0 |
-| `fake/test_notice_delivery.py` | 15 | 0 | 0 | 0 | 0 |
-| `fake/test_notice_header.py` | 23 | 0 | 0 | 0 | 0 |
-| `fake/test_picker_native.py` | 3 | 0 | 0 | 0 | 0 |
-| `fake/test_policy_sandbox.py` | 25 | 0 | 0 | 0 | 0 |
-| `fake/test_probe_cancel.py` | 24 | 0 | 0 | 0 | 0 |
-| `fake/test_probe_recovery.py` | 9 | 0 | 0 | 0 | 0 |
-| `fake/test_probe_turn.py` | 43 | 0 | 0 | 0 | 0 |
-| `fake/test_prompt_seam.py` | 8 | 0 | 0 | 0 | 0 |
-| `fake/test_provider_active_cap_fake.py` | 60 | 0 | 0 | 0 | 0 |
-| `fake/test_provider_cap_review_evidence.py` | 5 | 0 | 0 | 0 | 0 |
-| `fake/test_provider_qos.py` | 0 | 0 | 0 | 2 | 0 |
-| `fake/test_record_secrecy.py` | 44 | 0 | 0 | 0 | 0 |
-| `fake/test_request_routing.py` | 3 | 0 | 0 | 0 | 0 |
-| `fake/test_reserve_authorization.py` | 12 | 0 | 0 | 0 | 0 |
-| `fake/test_reserve_authorization_validation.py` | 11 | 0 | 0 | 0 | 0 |
-| `fake/test_reset_credit_incident.py` | 19 | 0 | 0 | 0 | 0 |
-| `fake/test_resume_cli.py` | 0 | 0 | 0 | 1 | 0 |
-| `fake/test_resume_contract.py` | 23 | 0 | 0 | 0 | 0 |
-| `fake/test_retention_dormant.py` | 7 | 0 | 0 | 0 | 0 |
-| `fake/test_review130_ab.py` | 12 | 0 | 0 | 0 | 0 |
-| `fake/test_review_r185_adversarial.py` | 1 | 0 | 0 | 0 | 0 |
-| `fake/test_route_view.py` | 8 | 0 | 0 | 0 | 0 |
-| `fake/test_routing_end_to_end.py` | 14 | 0 | 0 | 2 | 0 |
-| `fake/test_routing_tier_preferences.py` | 5 | 0 | 0 | 0 | 0 |
-| `fake/test_salvage_adversarial.py` | 8 | 0 | 0 | 0 | 0 |
-| `fake/test_salvage_finalization.py` | 47 | 0 | 0 | 0 | 0 |
-| `fake/test_sessions_end_to_end.py` | 27 | 0 | 0 | 6 | 0 |
-| `fake/test_state_contract.py` | 37 | 0 | 0 | 0 | 0 |
-| `fake/test_state_fixture_processes.py` | 4 | 0 | 0 | 0 | 0 |
-| `fake/test_status_payload.py` | 2 | 0 | 0 | 0 | 0 |
-| `fake/test_suggestions_fake.py` | 1 | 0 | 0 | 0 | 0 |
-| `fake/test_tier_hold_by_demand.py` | 27 | 0 | 0 | 0 | 0 |
-| `fake/test_timers_busy_admission.py` | 1 | 0 | 0 | 0 | 0 |
-| `fake/test_timers_end_to_end.py` | 6 | 0 | 0 | 1 | 0 |
-| `fake/test_turn_listing.py` | 9 | 0 | 0 | 0 | 0 |
-| `fake/test_turn_retention_cwd.py` | 6 | 0 | 0 | 0 | 0 |
-| `fake/test_turn_retention_cwd_properties.py` | 1 | 0 | 0 | 0 | 0 |
-| `fake/test_turn_retention_job_directory.py` | 2 | 0 | 0 | 0 | 0 |
-| `fake/test_turn_retention_job_properties.py` | 1 | 0 | 0 | 0 | 0 |
-| `fake/test_turn_retention_quarantine.py` | 10 | 0 | 0 | 0 | 0 |
-| `fake/test_turn_trees.py` | 18 | 0 | 0 | 0 | 0 |
-| `fake/test_turn_wait_reasons.py` | 7 | 0 | 0 | 0 | 0 |
-| `fake/test_unadmittable_pin_admission.py` | 24 | 0 | 0 | 0 | 0 |
-| `fake/test_unadmittable_pin_rereview.py` | 6 | 0 | 0 | 0 | 0 |
-| `fake/test_unadmittable_pin_review.py` | 7 | 0 | 0 | 0 | 0 |
-| `fake/test_workspace_contract.py` | 8 | 0 | 0 | 0 | 0 |
-| `fake/test_workspace_enospc.py` | 1 | 0 | 0 | 0 | 0 |
-| `fake/test_workspace_transient.py` | 24 | 0 | 0 | 0 | 0 |
-| `fake/test_writable_fanout.py` | 28 | 0 | 0 | 0 | 0 |
-| `fake/test_writer_retention_fence.py` | 23 | 0 | 0 | 0 | 0 |
-| `unit/test_admission_uncapped.py` | 27 | 0 | 0 | 0 | 0 |
-| `unit/test_agent_secret_credentials.py` | 7 | 0 | 0 | 0 | 0 |
-| `unit/test_app_cutover_daemon.py` | 13 | 0 | 0 | 0 | 0 |
-| `unit/test_approval_commit.py` | 6 | 0 | 0 | 0 | 0 |
-| `unit/test_approval_resolution.py` | 33 | 0 | 0 | 0 | 0 |
-| `unit/test_boot_identity.py` | 10 | 0 | 0 | 0 | 0 |
-| `unit/test_capacity_desktop.py` | 20 | 0 | 0 | 0 | 0 |
-| `unit/test_capacity_steer_mutations.py` | 10 | 0 | 0 | 0 | 0 |
-| `unit/test_capacity_steer_route.py` | 22 | 0 | 0 | 0 | 0 |
-| `unit/test_capacity_view.py` | 20 | 0 | 0 | 0 | 0 |
-| `unit/test_census_counted.py` | 5 | 0 | 0 | 0 | 0 |
-| `unit/test_census_identity_uncertainty.py` | 8 | 0 | 0 | 0 | 0 |
-| `unit/test_census_procargs.py` | 52 | 0 | 0 | 0 | 0 |
-| `unit/test_census_recycled_pid.py` | 25 | 0 | 0 | 0 | 0 |
-| `unit/test_census_responsibility_failures.py` | 20 | 0 | 0 | 0 | 0 |
-| `unit/test_census_responsibility_identity.py` | 17 | 0 | 0 | 0 | 0 |
-| `unit/test_census_responsibility_races.py` | 34 | 0 | 0 | 0 | 0 |
-| `unit/test_census_survivors_review.py` | 14 | 0 | 0 | 0 | 0 |
-| `unit/test_ci_retry_known_flakes.py` | 72 | 0 | 0 | 0 | 0 |
-| `unit/test_ci_shard_plugin.py` | 48 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_adapter.py` | 170 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_attest.py` | 19 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_cards.py` | 96 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_cards_wiring.py` | 15 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_conversation_mcp_scope.py` | 8 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_identity.py` | 30 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_large_stream.py` | 30 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_mcp.py` | 32 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_mcp_launch.py` | 11 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_stream.py` | 60 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_synthetic_error.py` | 63 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_turn.py` | 61 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_usage.py` | 28 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_v1_parity.py` | 6 | 0 | 0 | 0 | 0 |
-| `unit/test_cli.py` | 222 | 0 | 0 | 0 | 0 |
-| `unit/test_cli_batch.py` | 18 | 0 | 0 | 0 | 0 |
-| `unit/test_cli_turns.py` | 23 | 0 | 0 | 0 | 0 |
-| `unit/test_codex_adapter.py` | 172 | 0 | 0 | 0 | 0 |
-| `unit/test_codex_ca_bundle.py` | 46 | 0 | 0 | 0 | 0 |
-| `unit/test_codex_ca_bundle_provider.py` | 6 | 0 | 0 | 0 | 0 |
-| `unit/test_codex_probe.py` | 55 | 0 | 0 | 0 | 0 |
-| `unit/test_codex_shim.py` | 31 | 0 | 0 | 0 | 0 |
-| `unit/test_codex_turn.py` | 58 | 0 | 0 | 0 | 0 |
-| `unit/test_codex_turn_completed.py` | 41 | 0 | 0 | 0 | 0 |
-| `unit/test_compat.py` | 1615 | 0 | 0 | 0 | 0 |
-| `unit/test_continuation_r2.py` | 11 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_catalog.py` | 15 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_catalog_lifecycle.py` | 20 | 1 | 0 | 0 | 0 |
-| `unit/test_conversation_connections.py` | 9 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_diff.py` | 39 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_fifo_reads.py` | 26 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_handoff.py` | 48 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_handoff_briefs.py` | 28 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_handoff_dispatch_races.py` | 9 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_history.py` | 22 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_peers_attachments.py` | unrun | — | — | — | — |
-| `unit/test_conversation_reconcile.py` | unrun | — | — | — | — |
-| `unit/test_conversation_redact.py` | unrun | — | — | — | — |
-| `unit/test_conversation_service.py` | unrun | — | — | — | — |
-| `unit/test_conversation_state_reads.py` | unrun | — | — | — | — |
-| `unit/test_conversation_status.py` | unrun | — | — | — | — |
-| `unit/test_conversation_steer_service.py` | unrun | — | — | — | — |
-| `unit/test_conversation_store.py` | unrun | — | — | — | — |
-| `unit/test_conversation_stream_assertion.py` | unrun | — | — | — | — |
-| `unit/test_conversation_titles.py` | unrun | — | — | — | — |
-| `unit/test_conversation_waits.py` | unrun | — | — | — | — |
-| `unit/test_conversation_wakes.py` | unrun | — | — | — | — |
-| `unit/test_cpu_scaling.py` | unrun | — | — | — | — |
-| `unit/test_daemon_accept.py` | unrun | — | — | — | — |
-| `unit/test_daemon_connections.py` | unrun | — | — | — | — |
-| `unit/test_daemon_fifo_reads.py` | unrun | — | — | — | — |
-| `unit/test_daemon_init_release.py` | unrun | — | — | — | — |
-| `unit/test_daemon_inspection_load.py` | unrun | — | — | — | — |
-| `unit/test_daemon_inspection_properties.py` | unrun | — | — | — | — |
-| `unit/test_daemon_integration.py` | unrun | — | — | — | — |
-| `unit/test_daemon_log_scrubbing.py` | unrun | — | — | — | — |
-| `unit/test_daemon_qos_tools.py` | unrun | — | — | — | — |
-| `unit/test_daemon_refusals_cli.py` | unrun | — | — | — | — |
-| `unit/test_daemon_settle.py` | unrun | — | — | — | — |
-| `unit/test_daemon_verbs.py` | unrun | — | — | — | — |
-| `unit/test_decision_horizon.py` | unrun | — | — | — | — |
-| `unit/test_descriptor_review_fixes.py` | unrun | — | — | — | — |
-| `unit/test_descriptors.py` | unrun | — | — | — | — |
-| `unit/test_descriptors_desktop.py` | unrun | — | — | — | — |
-| `unit/test_desktop_account_cache.py` | unrun | — | — | — | — |
-| `unit/test_desktop_in_use.py` | unrun | — | — | — | — |
-| `unit/test_desktop_ledger.py` | unrun | — | — | — | — |
-| `unit/test_disk_admission.py` | unrun | — | — | — | — |
-| `unit/test_disk_floor.py` | unrun | — | — | — | — |
-| `unit/test_doctor.py` | unrun | — | — | — | — |
-| `unit/test_doctor_ca_bundle.py` | unrun | — | — | — | — |
-| `unit/test_doctor_identity.py` | unrun | — | — | — | — |
-| `unit/test_empty_provider_results.py` | unrun | — | — | — | — |
-| `unit/test_enrollment_runner.py` | unrun | — | — | — | — |
-| `unit/test_fake_codex_http.py` | unrun | — | — | — | — |
-| `unit/test_filesystem_identity_agreement.py` | unrun | — | — | — | — |
-| `unit/test_folders.py` | unrun | — | — | — | — |
-| `unit/test_forget_paced.py` | unrun | — | — | — | — |
-| `unit/test_fresh_until.py` | unrun | — | — | — | — |
-| `unit/test_frozen_provider_streams.py` | unrun | — | — | — | — |
-| `unit/test_gate_admission.py` | unrun | — | — | — | — |
-| `unit/test_gate_merge.py` | unrun | — | — | — | — |
-| `unit/test_gate_replay.py` | unrun | — | — | — | — |
-| `unit/test_gate_revision.py` | unrun | — | — | — | — |
-| `unit/test_gate_service.py` | unrun | — | — | — | — |
-| `unit/test_gate_verdict.py` | unrun | — | — | — | — |
-| `unit/test_guard_overlay.py` | unrun | — | — | — | — |
-| `unit/test_guard_trust.py` | unrun | — | — | — | — |
-| `unit/test_guardian.py` | unrun | — | — | — | — |
-| `unit/test_guardian_qos.py` | unrun | — | — | — | — |
-| `unit/test_handler_refusals.py` | unrun | — | — | — | — |
-| `unit/test_held_waiter_holdback.py` | unrun | — | — | — | — |
-| `unit/test_hidden_environment.py` | unrun | — | — | — | — |
-| `unit/test_hook_cost.py` | unrun | — | — | — | — |
-| `unit/test_hooks.py` | unrun | — | — | — | — |
-| `unit/test_hooks_native_guard.py` | unrun | — | — | — | — |
-| `unit/test_host_push.py` | unrun | — | — | — | — |
-| `unit/test_host_push_admission.py` | unrun | — | — | — | — |
-| `unit/test_host_push_build.py` | unrun | — | — | — | — |
-| `unit/test_host_push_build_budget.py` | unrun | — | — | — | — |
-| `unit/test_host_push_cli.py` | unrun | — | — | — | — |
-| `unit/test_host_push_config_cost.py` | unrun | — | — | — | — |
-| `unit/test_host_push_copy.py` | unrun | — | — | — | — |
-| `unit/test_host_push_export.py` | unrun | — | — | — | — |
-| `unit/test_host_push_intake.py` | unrun | — | — | — | — |
-| `unit/test_host_push_metadata.py` | unrun | — | — | — | — |
-| `unit/test_host_push_mutations.py` | unrun | — | — | — | — |
-| `unit/test_host_push_names.py` | unrun | — | — | — | — |
-| `unit/test_host_push_quarantine_restart.py` | unrun | — | — | — | — |
-| `unit/test_host_push_restart.py` | unrun | — | — | — | — |
-| `unit/test_host_push_retention.py` | unrun | — | — | — | — |
-| `unit/test_host_push_storage_recovery.py` | unrun | — | — | — | — |
-| `unit/test_host_push_storage_retry_budget.py` | unrun | — | — | — | — |
-| `unit/test_host_push_store_completion_pr183.py` | unrun | — | — | — | — |
-| `unit/test_host_push_store_interleavings.py` | unrun | — | — | — | — |
-| `unit/test_host_push_trees.py` | unrun | — | — | — | — |
-| `unit/test_host_push_validated_top.py` | unrun | — | — | — | — |
-| `unit/test_importer.py` | unrun | — | — | — | — |
-| `unit/test_inspection_pacing_properties.py` | unrun | — | — | — | — |
-| `unit/test_invariants_index.py` | unrun | — | — | — | — |
-| `unit/test_keychain_exec_guard_properties.py` | unrun | — | — | — | — |
-| `unit/test_lane_answers.py` | unrun | — | — | — | — |
-| `unit/test_lanes_transfer.py` | unrun | — | — | — | — |
-| `unit/test_launch_env_allowlist.py` | unrun | — | — | — | — |
-| `unit/test_launch_env_helpers.py` | unrun | — | — | — | — |
-| `unit/test_launch_env_mutations.py` | unrun | — | — | — | — |
-| `unit/test_launch_env_policy.py` | unrun | — | — | — | — |
-| `unit/test_launch_env_round2.py` | unrun | — | — | — | — |
-| `unit/test_launch_env_round3.py` | unrun | — | — | — | — |
-| `unit/test_launch_env_round4.py` | unrun | — | — | — | — |
-| `unit/test_launch_env_round5.py` | unrun | — | — | — | — |
-| `unit/test_lease_waiter_selection.py` | unrun | — | — | — | — |
-| `unit/test_legacy_hold.py` | unrun | — | — | — | — |
-| `unit/test_limit_from_model_text.py` | unrun | — | — | — | — |
-| `unit/test_live_store_guard.py` | unrun | — | — | — | — |
-| `unit/test_live_store_guard_round10.py` | unrun | — | — | — | — |
-| `unit/test_live_store_guard_round10_mutations.py` | unrun | — | — | — | — |
-| `unit/test_live_store_guard_round3.py` | unrun | — | — | — | — |
-| `unit/test_live_store_guard_round4.py` | unrun | — | — | — | — |
-| `unit/test_live_store_guard_round5.py` | unrun | — | — | — | — |
-| `unit/test_live_store_guard_round6.py` | unrun | — | — | — | — |
-| `unit/test_live_store_guard_round7.py` | unrun | — | — | — | — |
-| `unit/test_live_store_guard_round7_mutations.py` | unrun | — | — | — | — |
-| `unit/test_live_store_guard_round8.py` | unrun | — | — | — | — |
-| `unit/test_live_store_guard_round8_mutations.py` | unrun | — | — | — | — |
-| `unit/test_live_store_guard_round9.py` | unrun | — | — | — | — |
-| `unit/test_live_store_guard_round9_mutations.py` | unrun | — | — | — | — |
-| `unit/test_live_store_guard_state_root.py` | unrun | — | — | — | — |
-| `unit/test_lockwatch.py` | unrun | — | — | — | — |
-| `unit/test_mcp_cli_contract.py` | unrun | — | — | — | — |
-| `unit/test_mcp_scheduler_contract.py` | unrun | — | — | — | — |
-| `unit/test_mirror_flags_faults.py` | unrun | — | — | — | — |
-| `unit/test_mirror_flags_model.py` | unrun | — | — | — | — |
-| `unit/test_mirror_flags_stateful.py` | unrun | — | — | — | — |
-| `unit/test_native_operations.py` | unrun | — | — | — | — |
-| `unit/test_notice_rendering.py` | unrun | — | — | — | — |
-| `unit/test_notify_push.py` | unrun | — | — | — | — |
-| `unit/test_offline.py` | unrun | — | — | — | — |
-| `unit/test_operator_hold_closures.py` | unrun | — | — | — | — |
-| `unit/test_operator_notices.py` | unrun | — | — | — | — |
-| `unit/test_outcome_unknown.py` | unrun | — | — | — | — |
-| `unit/test_person_boundary.py` | unrun | — | — | — | — |
-| `unit/test_person_boundary_identity.py` | unrun | — | — | — | — |
-| `unit/test_picker.py` | unrun | — | — | — | — |
-| `unit/test_placement_ramp.py` | unrun | — | — | — | — |
-| `unit/test_policy.py` | unrun | — | — | — | — |
-| `unit/test_policy_disk.py` | unrun | — | — | — | — |
-| `unit/test_policy_ramp.py` | unrun | — | — | — | — |
-| `unit/test_policy_support.py` | unrun | — | — | — | — |
-| `unit/test_policy_tier_preferences.py` | unrun | — | — | — | — |
-| `unit/test_pr124_fixes.py` | unrun | — | — | — | — |
-| `unit/test_pr124_review_r2_fixes.py` | unrun | — | — | — | — |
-| `unit/test_pr192_review_r1.py` | unrun | — | — | — | — |
-| `unit/test_pr192_review_r2.py` | unrun | — | — | — | — |
-| `unit/test_procs.py` | unrun | — | — | — | — |
-| `unit/test_protocol_secrecy.py` | unrun | — | — | — | — |
-| `unit/test_provider_active_cap.py` | unrun | — | — | — | — |
-| `unit/test_prune_217.py` | unrun | — | — | — | — |
-| `unit/test_prune_decision_backup_verification.py` | unrun | — | — | — | — |
-| `unit/test_prune_decision_fingerprints.py` | unrun | — | — | — | — |
-| `unit/test_prune_decisions.py` | unrun | — | — | — | — |
-| `unit/test_prune_restore.py` | unrun | — | — | — | — |
-| `unit/test_quota_projection.py` | unrun | — | — | — | — |
-| `unit/test_rank_review_report.py` | unrun | — | — | — | — |
-| `unit/test_reap_liveness.py` | unrun | — | — | — | — |
-| `unit/test_rediscovery_git_trace.py` | unrun | — | — | — | — |
-| `unit/test_relay.py` | unrun | — | — | — | — |
-| `unit/test_render.py` | unrun | — | — | — | — |
-| `unit/test_render_quota_projection.py` | unrun | — | — | — | — |
-| `unit/test_reserve_authorization_plumbing.py` | unrun | — | — | — | — |
-| `unit/test_reset_credit_claim_timing.py` | unrun | — | — | — | — |
-| `unit/test_reset_credit_demand.py` | unrun | — | — | — | — |
-| `unit/test_reset_credit_properties.py` | unrun | — | — | — | — |
-| `unit/test_reset_credit_review_r1.py` | unrun | — | — | — | — |
-| `unit/test_reset_credit_review_r2.py` | unrun | — | — | — | — |
-| `unit/test_reset_credit_review_r3.py` | unrun | — | — | — | — |
-| `unit/test_reset_credit_review_r3_mutants.py` | unrun | — | — | — | — |
-| `unit/test_resource_identity.py` | unrun | — | — | — | — |
-| `unit/test_retention_81_notes.py` | unrun | — | — | — | — |
-| `unit/test_retention_archive.py` | unrun | — | — | — | — |
-| `unit/test_retention_archive_properties.py` | unrun | — | — | — | — |
-| `unit/test_retention_case_alias.py` | unrun | — | — | — | — |
-| `unit/test_retention_nested_leases.py` | unrun | — | — | — | — |
-| `unit/test_retention_ordinary_trees.py` | unrun | — | — | — | — |
-| `unit/test_retention_qos.py` | unrun | — | — | — | — |
-| `unit/test_retention_readback.py` | unrun | — | — | — | — |
-| `unit/test_retention_rediscovery.py` | unrun | — | — | — | — |
-| `unit/test_retention_regenerable.py` | unrun | — | — | — | — |
-| `unit/test_retention_regenerable_properties.py` | unrun | — | — | — | — |
-| `unit/test_retention_salvage_properties.py` | unrun | — | — | — | — |
-| `unit/test_retention_shared_folders.py` | unrun | — | — | — | — |
-| `unit/test_retention_sweep_race.py` | unrun | — | — | — | — |
-| `unit/test_retention_turn_contract.py` | unrun | — | — | — | — |
-| `unit/test_retention_turn_workdirs.py` | unrun | — | — | — | — |
-| `unit/test_retention_turns.py` | unrun | — | — | — | — |
-| `unit/test_retention_worktrees.py` | unrun | — | — | — | — |
-| `unit/test_review130_pass.py` | unrun | — | — | — | — |
-| `unit/test_review_pr127_fixes.py` | unrun | — | — | — | — |
-| `unit/test_review_pr127_history.py` | unrun | — | — | — | — |
-| `unit/test_review_pr127_pr_wakes.py` | unrun | — | — | — | — |
-| `unit/test_review_pr127_report.py` | unrun | — | — | — | — |
-| `unit/test_review_pr127_requests.py` | unrun | — | — | — | — |
-| `unit/test_review_pr127_service.py` | unrun | — | — | — | — |
-| `unit/test_review_r2_repro.py` | unrun | — | — | — | — |
-| `unit/test_review_r3_measure.py` | unrun | — | — | — | — |
-| `unit/test_review_r3_repro.py` | unrun | — | — | — | — |
-| `unit/test_review_r4_repro.py` | unrun | — | — | — | — |
-| `unit/test_review_r5_repro.py` | unrun | — | — | — | — |
-| `unit/test_review_r6_probes.py` | unrun | — | — | — | — |
-| `unit/test_review_r6_restart.py` | unrun | — | — | — | — |
-| `unit/test_round10_refusal_context.py` | unrun | — | — | — | — |
-| `unit/test_route_check.py` | unrun | — | — | — | — |
-| `unit/test_salvage.py` | unrun | — | — | — | — |
-| `unit/test_salvage_optional_transient.py` | unrun | — | — | — | — |
-| `unit/test_salvage_unindexable.py` | unrun | — | — | — | — |
-| `unit/test_scheduler.py` | unrun | — | — | — | — |
-| `unit/test_scheduler_priority_callers.py` | unrun | — | — | — | — |
-| `unit/test_scheduler_split.py` | unrun | — | — | — | — |
-| `unit/test_scheduler_tier_preferences.py` | unrun | — | — | — | — |
-| `unit/test_scheduler_turns.py` | unrun | — | — | — | — |
-| `unit/test_scheduler_weekly.py` | unrun | — | — | — | — |
-| `unit/test_scoped_stream_capacity.py` | unrun | — | — | — | — |
-| `unit/test_scrub_key_order.py` | unrun | — | — | — | — |
-| `unit/test_sessions_cli.py` | unrun | — | — | — | — |
-| `unit/test_sessions_handoff.py` | unrun | — | — | — | — |
-| `unit/test_sessions_handoff_excerpts.py` | unrun | — | — | — | — |
-| `unit/test_sessions_headless_properties.py` | unrun | — | — | — | — |
-| `unit/test_sessions_mirror.py` | unrun | — | — | — | — |
-| `unit/test_sessions_mirror_cache_coherence.py` | unrun | — | — | — | — |
-| `unit/test_sessions_mirror_fifo.py` | unrun | — | — | — | — |
-| `unit/test_sessions_mirror_hot_health.py` | unrun | — | — | — | — |
-| `unit/test_sessions_mirror_hot_progress.py` | unrun | — | — | — | — |
-| `unit/test_sessions_mirror_hot_regressions.py` | unrun | — | — | — | — |
-| `unit/test_sessions_mirror_inventory.py` | unrun | — | — | — | — |
-| `unit/test_sessions_mirror_load_gap.py` | unrun | — | — | — | — |
-| `unit/test_sessions_mirror_safety.py` | unrun | — | — | — | — |
-| `unit/test_sessions_mirror_write_churn.py` | unrun | — | — | — | — |
-| `unit/test_sessions_nudge.py` | unrun | — | — | — | — |
-| `unit/test_sessions_registry.py` | unrun | — | — | — | — |
-| `unit/test_sessions_revive.py` | unrun | — | — | — | — |
-| `unit/test_sessions_revive_reads.py` | unrun | — | — | — | — |
-| `unit/test_sessions_transcripts.py` | unrun | — | — | — | — |
-| `unit/test_settle_properties.py` | unrun | — | — | — | — |
-| `unit/test_soak_tools.py` | unrun | — | — | — | — |
-| `unit/test_status_json.py` | unrun | — | — | — | — |
-| `unit/test_steer_invariants.py` | unrun | — | — | — | — |
-| `unit/test_stop_alarm.py` | unrun | — | — | — | — |
-| `unit/test_stop_watchdog.py` | unrun | — | — | — | — |
-| `unit/test_store_contention_queries.py` | unrun | — | — | — | — |
-| `unit/test_store_ids.py` | unrun | — | — | — | — |
-| `unit/test_store_migration_2.py` | unrun | — | — | — | — |
-| `unit/test_store_properties.py` | unrun | — | — | — | — |
-| `unit/test_store_readers.py` | unrun | — | — | — | — |
-| `unit/test_store_snapshot_plans.py` | unrun | — | — | — | — |
-| `unit/test_suggest_cli.py` | unrun | — | — | — | — |
-| `unit/test_suggest_hint.py` | unrun | — | — | — | — |
-| `unit/test_suggestion_error_boundaries.py` | unrun | — | — | — | — |
-| `unit/test_suggestion_properties.py` | unrun | — | — | — | — |
-| `unit/test_suggestion_secret_properties.py` | unrun | — | — | — | — |
-| `unit/test_suggestion_structural_errors.py` | unrun | — | — | — | — |
-| `unit/test_suggestions.py` | unrun | — | — | — | — |
-| `unit/test_suggestions_r1b_adversarial.py` | unrun | — | — | — | — |
-| `unit/test_suggestions_r3_channels.py` | unrun | — | — | — | — |
-| `unit/test_suggestions_review_boundaries.py` | unrun | — | — | — | — |
-| `unit/test_suggestions_review_multiline.py` | unrun | — | — | — | — |
-| `unit/test_suggestions_review_response.py` | unrun | — | — | — | — |
-| `unit/test_test_module_names.py` | unrun | — | — | — | — |
-| `unit/test_tick_prefilter.py` | unrun | — | — | — | — |
-| `unit/test_timers_alerts.py` | unrun | — | — | — | — |
-| `unit/test_timers_busy_read.py` | unrun | — | — | — | — |
-| `unit/test_timers_daemon.py` | unrun | — | — | — | — |
-| `unit/test_timers_keepalive.py` | unrun | — | — | — | — |
-| `unit/test_timers_probe.py` | unrun | — | — | — | — |
-| `unit/test_timers_reset_credits.py` | unrun | — | — | — | — |
-| `unit/test_timers_retention.py` | unrun | — | — | — | — |
-| `unit/test_title_review_regressions.py` | unrun | — | — | — | — |
-| `unit/test_turn_attachment_replay.py` | unrun | — | — | — | — |
-| `unit/test_turn_overlap.py` | unrun | — | — | — | — |
-| `unit/test_turn_replay.py` | unrun | — | — | — | — |
-| `unit/test_turn_runner.py` | unrun | — | — | — | — |
-| `unit/test_ultracode_effort.py` | unrun | — | — | — | — |
-| `unit/test_unadmittable_pin.py` | unrun | — | — | — | — |
-| `unit/test_wait_hub.py` | unrun | — | — | — | — |
-| `unit/test_wake_cli.py` | unrun | — | — | — | — |
-| `unit/test_weekly_rank_vs_base.py` | unrun | — | — | — | — |
+`full` means a whole-sweep run; `brief only` means fresh passing core coverage
+without the later whole-sweep repeat; `unrun` means no new result in this continuation.
 
-The timer acceptance file was rerun in `unit-1`. Its latest file result replaces the original timing failure in the directory table; the original hold remains above.
+| File under `tests/` | Scope | Passed | Failed | Errors | Skipped | Xfailed |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `fake/test_admission_disk.py` | full | 27 | 0 | 0 | 0 | 0 |
+| `fake/test_admission_held_waiters.py` | full | 1 | 0 | 0 | 0 | 0 |
+| `fake/test_admission_latency.py` | full | 14 | 0 | 0 | 0 | 0 |
+| `fake/test_admission_lease_waiters.py` | full | 16 | 0 | 0 | 0 | 0 |
+| `fake/test_admission_liveness.py` | full | 32 | 0 | 0 | 0 | 0 |
+| `fake/test_admission_priority.py` | full | 32 | 0 | 0 | 0 | 0 |
+| `fake/test_admission_properties.py` | full | 27 | 0 | 0 | 0 | 1 |
+| `fake/test_admission_ramp.py` | full | 19 | 0 | 0 | 0 | 0 |
+| `fake/test_admission_ramp_retention.py` | full | 11 | 0 | 0 | 0 | 0 |
+| `fake/test_admission_route_isolation.py` | full | 93 | 0 | 0 | 0 | 0 |
+| `fake/test_admission_stateful.py` | full | 16 | 0 | 0 | 0 | 0 |
+| `fake/test_admission_visibility.py` | full | 43 | 0 | 0 | 0 | 0 |
+| `fake/test_batch_label.py` | full | 9 | 0 | 0 | 0 | 0 |
+| `fake/test_canonical_identity.py` | full | 24 | 0 | 0 | 0 | 0 |
+| `fake/test_canonical_identity_fix2.py` | full | 21 | 0 | 0 | 0 | 0 |
+| `fake/test_canonical_identity_fix3.py` | full | 17 | 0 | 0 | 0 | 1 |
+| `fake/test_canonical_identity_fix4.py` | full | 11 | 0 | 0 | 0 | 0 |
+| `fake/test_canonical_identity_fix5.py` | full | 14 | 0 | 0 | 0 | 0 |
+| `fake/test_capacity_steer_daemon.py` | full | 54 | 0 | 0 | 0 | 0 |
+| `fake/test_capacity_wait_backoff.py` | full | 30 | 0 | 0 | 0 | 0 |
+| `fake/test_census_escapers_daemon.py` | full | 0 | 0 | 0 | 9 | 0 |
+| `fake/test_census_recycled_pid_daemon.py` | full | 29 | 0 | 0 | 0 | 0 |
+| `fake/test_codex_ca_bundle_fake.py` | full | 0 | 0 | 0 | 6 | 0 |
+| `fake/test_codex_turn_completed_fake.py` | full | 109 | 0 | 0 | 0 | 0 |
+| `fake/test_conversation_pools.py` | full | 2 | 0 | 0 | 0 | 0 |
+| `fake/test_conversation_wakes_fake.py` | full | 4 | 0 | 0 | 0 | 0 |
+| `fake/test_crash_matrix.py` | full | 0 | 0 | 0 | 9 | 0 |
+| `fake/test_daemon_contract.py` | full | 0 | 0 | 0 | 21 | 0 |
+| `fake/test_daemon_descriptors.py` | full | 12 | 0 | 0 | 1 | 0 |
+| `fake/test_daemon_launch.py` | full | 9 | 0 | 0 | 0 | 0 |
+| `fake/test_daemon_stacks.py` | full | 1 | 4 | 0 | 1 | 0 |
+| `fake/test_descriptor_exhaustion.py` | full | 0 | 0 | 0 | 2 | 0 |
+| `fake/test_detached_cwd_pins.py` | full | 18 | 0 | 0 | 0 | 0 |
+| `fake/test_detached_retention_fence.py` | full | 89 | 0 | 0 | 0 | 0 |
+| `fake/test_enrollment_guardian.py` | full | 0 | 0 | 0 | 1 | 0 |
+| `fake/test_fake_provider.py` | full | 13 | 0 | 0 | 0 | 0 |
+| `fake/test_finalization_replay.py` | full | 10 | 0 | 0 | 0 | 0 |
+| `fake/test_folder_spelling.py` | full | 7 | 0 | 0 | 0 | 0 |
+| `fake/test_frozen_stream_nonregular.py` | full | 140 | 0 | 0 | 0 | 0 |
+| `fake/test_gate_end_to_end.py` | full | 10 | 0 | 0 | 1 | 0 |
+| `fake/test_identity_rollback.py` | full | 5 | 0 | 0 | 0 | 0 |
+| `fake/test_idle_cost.py` | full | 0 | 0 | 0 | 2 | 0 |
+| `fake/test_interactive_claude_titles.py` | full | 6 | 0 | 0 | 0 | 0 |
+| `fake/test_interactive_steer.py` | full | 13 | 0 | 0 | 0 | 0 |
+| `fake/test_lane_fault.py` | full | 20 | 0 | 0 | 0 | 0 |
+| `fake/test_lane_pilot.py` | full | 24 | 0 | 0 | 0 | 0 |
+| `fake/test_lanes_enroll.py` | full | 15 | 0 | 0 | 0 | 0 |
+| `fake/test_lanes_reenroll.py` | full | 19 | 0 | 0 | 0 | 0 |
+| `fake/test_lanes_reenroll_keychain.py` | full | 1 | 0 | 0 | 0 | 0 |
+| `fake/test_launch_env_daemon.py` | full | 49 | 0 | 0 | 0 | 0 |
+| `fake/test_launch_env_providers.py` | full | 6 | 0 | 0 | 0 | 0 |
+| `fake/test_launch_gates_above_stdio.py` | full | 0 | 0 | 0 | 9 | 0 |
+| `fake/test_lost_acknowledgement.py` | full | 0 | 0 | 0 | 3 | 0 |
+| `fake/test_main_refusal_write_dir.py` | full | 5 | 0 | 0 | 0 | 0 |
+| `fake/test_mcp_job_contract.py` | full | 12 | 0 | 0 | 0 | 0 |
+| `fake/test_native_maintenance_startup.py` | full | 41 | 0 | 0 | 0 | 0 |
+| `fake/test_notice_delivery.py` | full | 15 | 0 | 0 | 0 | 0 |
+| `fake/test_notice_header.py` | full | 23 | 0 | 0 | 0 | 0 |
+| `fake/test_picker_native.py` | full | 3 | 0 | 0 | 0 | 0 |
+| `fake/test_policy_sandbox.py` | full | 25 | 0 | 0 | 0 | 0 |
+| `fake/test_probe_cancel.py` | full | 24 | 0 | 0 | 0 | 0 |
+| `fake/test_probe_recovery.py` | full | 9 | 0 | 0 | 0 | 0 |
+| `fake/test_probe_turn.py` | full | 43 | 0 | 0 | 0 | 0 |
+| `fake/test_prompt_seam.py` | full | 8 | 0 | 0 | 0 | 0 |
+| `fake/test_provider_active_cap_fake.py` | full | 60 | 0 | 0 | 0 | 0 |
+| `fake/test_provider_cap_review_evidence.py` | full | 5 | 0 | 0 | 0 | 0 |
+| `fake/test_provider_qos.py` | full | 0 | 0 | 0 | 2 | 0 |
+| `fake/test_record_secrecy.py` | full | 44 | 0 | 0 | 0 | 0 |
+| `fake/test_request_routing.py` | full | 3 | 0 | 0 | 0 | 0 |
+| `fake/test_reserve_authorization.py` | full | 12 | 0 | 0 | 0 | 0 |
+| `fake/test_reserve_authorization_validation.py` | full | 11 | 0 | 0 | 0 | 0 |
+| `fake/test_reset_credit_incident.py` | full | 19 | 0 | 0 | 0 | 0 |
+| `fake/test_resume_cli.py` | full | 0 | 0 | 0 | 1 | 0 |
+| `fake/test_resume_contract.py` | full | 23 | 0 | 0 | 0 | 0 |
+| `fake/test_retention_dormant.py` | full | 7 | 0 | 0 | 0 | 0 |
+| `fake/test_review130_ab.py` | full | 12 | 0 | 0 | 0 | 0 |
+| `fake/test_review_r185_adversarial.py` | full | 1 | 0 | 0 | 0 | 0 |
+| `fake/test_route_view.py` | full | 8 | 0 | 0 | 0 | 0 |
+| `fake/test_routing_end_to_end.py` | full | 14 | 0 | 0 | 2 | 0 |
+| `fake/test_routing_tier_preferences.py` | full | 5 | 0 | 0 | 0 | 0 |
+| `fake/test_salvage_adversarial.py` | full | 8 | 0 | 0 | 0 | 0 |
+| `fake/test_salvage_finalization.py` | full | 47 | 0 | 0 | 0 | 0 |
+| `fake/test_sessions_end_to_end.py` | full | 27 | 0 | 0 | 6 | 0 |
+| `fake/test_state_contract.py` | full | 37 | 0 | 0 | 0 | 0 |
+| `fake/test_state_fixture_processes.py` | full | 4 | 0 | 0 | 0 | 0 |
+| `fake/test_status_payload.py` | full | 2 | 0 | 0 | 0 | 0 |
+| `fake/test_suggestions_fake.py` | full | 1 | 0 | 0 | 0 | 0 |
+| `fake/test_tier_hold_by_demand.py` | full | 27 | 0 | 0 | 0 | 0 |
+| `fake/test_timers_busy_admission.py` | full | 1 | 0 | 0 | 0 | 0 |
+| `fake/test_timers_end_to_end.py` | full | 6 | 0 | 0 | 1 | 0 |
+| `fake/test_turn_listing.py` | full | 9 | 0 | 0 | 0 | 0 |
+| `fake/test_turn_retention_cwd.py` | full | 6 | 0 | 0 | 0 | 0 |
+| `fake/test_turn_retention_cwd_properties.py` | full | 1 | 0 | 0 | 0 | 0 |
+| `fake/test_turn_retention_job_directory.py` | full | 2 | 0 | 0 | 0 | 0 |
+| `fake/test_turn_retention_job_properties.py` | full | 1 | 0 | 0 | 0 | 0 |
+| `fake/test_turn_retention_quarantine.py` | full | 10 | 0 | 0 | 0 | 0 |
+| `fake/test_turn_trees.py` | full | 18 | 0 | 0 | 0 | 0 |
+| `fake/test_turn_wait_reasons.py` | full | 7 | 0 | 0 | 0 | 0 |
+| `fake/test_unadmittable_pin_admission.py` | full | 24 | 0 | 0 | 0 | 0 |
+| `fake/test_unadmittable_pin_rereview.py` | full | 6 | 0 | 0 | 0 | 0 |
+| `fake/test_unadmittable_pin_review.py` | full | 7 | 0 | 0 | 0 | 0 |
+| `fake/test_workspace_contract.py` | full | 8 | 0 | 0 | 0 | 0 |
+| `fake/test_workspace_enospc.py` | full | 1 | 0 | 0 | 0 | 0 |
+| `fake/test_workspace_transient.py` | full | 24 | 0 | 0 | 0 | 0 |
+| `fake/test_writable_fanout.py` | full | 28 | 0 | 0 | 0 | 0 |
+| `fake/test_writer_retention_fence.py` | full | 23 | 0 | 0 | 0 | 0 |
+| `unit/test_admission_uncapped.py` | full | 27 | 0 | 0 | 0 | 0 |
+| `unit/test_agent_secret_credentials.py` | full | 7 | 0 | 0 | 0 | 0 |
+| `unit/test_app_cutover_daemon.py` | full | 13 | 0 | 0 | 0 | 0 |
+| `unit/test_approval_commit.py` | full | 6 | 0 | 0 | 0 | 0 |
+| `unit/test_approval_resolution.py` | full | 33 | 0 | 0 | 0 | 0 |
+| `unit/test_boot_identity.py` | full | 10 | 0 | 0 | 0 | 0 |
+| `unit/test_capacity_desktop.py` | full | 20 | 0 | 0 | 0 | 0 |
+| `unit/test_capacity_steer_mutations.py` | full | 10 | 0 | 0 | 0 | 0 |
+| `unit/test_capacity_steer_route.py` | full | 22 | 0 | 0 | 0 | 0 |
+| `unit/test_capacity_view.py` | full | 20 | 0 | 0 | 0 | 0 |
+| `unit/test_census_counted.py` | full | 5 | 0 | 0 | 0 | 0 |
+| `unit/test_census_identity_uncertainty.py` | full | 8 | 0 | 0 | 0 | 0 |
+| `unit/test_census_procargs.py` | full | 52 | 0 | 0 | 0 | 0 |
+| `unit/test_census_recycled_pid.py` | full | 25 | 0 | 0 | 0 | 0 |
+| `unit/test_census_responsibility_failures.py` | full | 20 | 0 | 0 | 0 | 0 |
+| `unit/test_census_responsibility_identity.py` | full | 17 | 0 | 0 | 0 | 0 |
+| `unit/test_census_responsibility_races.py` | full | 34 | 0 | 0 | 0 | 0 |
+| `unit/test_census_survivors_review.py` | full | 14 | 0 | 0 | 0 | 0 |
+| `unit/test_ci_retry_known_flakes.py` | full | 72 | 0 | 0 | 0 | 0 |
+| `unit/test_ci_shard_plugin.py` | full | 48 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_adapter.py` | full | 170 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_attest.py` | full | 19 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_cards.py` | full | 96 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_cards_wiring.py` | full | 15 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_conversation_mcp_scope.py` | full | 8 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_identity.py` | full | 30 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_large_stream.py` | full | 30 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_mcp.py` | full | 32 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_mcp_launch.py` | full | 11 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_stream.py` | full | 60 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_synthetic_error.py` | full | 63 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_turn.py` | full | 61 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_usage.py` | full | 28 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_v1_parity.py` | full | 6 | 0 | 0 | 0 | 0 |
+| `unit/test_cli.py` | full | 222 | 0 | 0 | 0 | 0 |
+| `unit/test_cli_batch.py` | full | 18 | 0 | 0 | 0 | 0 |
+| `unit/test_cli_turns.py` | full | 23 | 0 | 0 | 0 | 0 |
+| `unit/test_codex_adapter.py` | full | 172 | 0 | 0 | 0 | 0 |
+| `unit/test_codex_ca_bundle.py` | full | 46 | 0 | 0 | 0 | 0 |
+| `unit/test_codex_ca_bundle_provider.py` | full | 6 | 0 | 0 | 0 | 0 |
+| `unit/test_codex_probe.py` | full | 55 | 0 | 0 | 0 | 0 |
+| `unit/test_codex_shim.py` | full | 31 | 0 | 0 | 0 | 0 |
+| `unit/test_codex_turn.py` | full | 58 | 0 | 0 | 0 | 0 |
+| `unit/test_codex_turn_completed.py` | full | 41 | 0 | 0 | 0 | 0 |
+| `unit/test_compat.py` | full | 1615 | 0 | 0 | 0 | 0 |
+| `unit/test_continuation_r2.py` | full | 11 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_catalog.py` | full | 15 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_catalog_lifecycle.py` | full | 20 | 1 | 0 | 0 | 0 |
+| `unit/test_conversation_connections.py` | full | 9 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_diff.py` | full | 39 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_fifo_reads.py` | full | 26 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_handoff.py` | full | 48 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_handoff_briefs.py` | full | 28 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_handoff_dispatch_races.py` | full | 9 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_history.py` | full | 22 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_peers_attachments.py` | full | 44 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_reconcile.py` | full | 36 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_redact.py` | full | 9 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_service.py` | full | 98 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_state_reads.py` | full | 18 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_status.py` | full | 9 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_steer_service.py` | full | 45 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_store.py` | full | 32 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_stream_assertion.py` | full | 13 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_titles.py` | full | 89 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_waits.py` | full | 9 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_wakes.py` | full | 22 | 0 | 0 | 0 | 0 |
+| `unit/test_cpu_scaling.py` | full | 2 | 0 | 0 | 0 | 0 |
+| `unit/test_daemon_accept.py` | full | 5 | 0 | 0 | 0 | 0 |
+| `unit/test_daemon_connections.py` | full | 30 | 0 | 0 | 0 | 0 |
+| `unit/test_daemon_fifo_reads.py` | full | 27 | 0 | 0 | 0 | 0 |
+| `unit/test_daemon_init_release.py` | full | 2 | 0 | 0 | 0 | 0 |
+| `unit/test_daemon_inspection_load.py` | full | 22 | 0 | 0 | 0 | 0 |
+| `unit/test_daemon_inspection_properties.py` | full | 4 | 0 | 0 | 0 | 0 |
+| `unit/test_daemon_integration.py` | full | 7 | 0 | 0 | 0 | 0 |
+| `unit/test_daemon_log_scrubbing.py` | full | 86 | 0 | 0 | 0 | 0 |
+| `unit/test_daemon_qos_tools.py` | full | 3 | 1 | 0 | 0 | 0 |
+| `unit/test_daemon_refusals_cli.py` | full | 8 | 0 | 0 | 0 | 0 |
+| `unit/test_daemon_settle.py` | full | 61 | 0 | 0 | 0 | 0 |
+| `unit/test_daemon_verbs.py` | full | 15 | 0 | 0 | 5 | 0 |
+| `unit/test_decision_horizon.py` | full | 7 | 0 | 0 | 0 | 0 |
+| `unit/test_descriptor_review_fixes.py` | full | 56 | 0 | 0 | 0 | 0 |
+| `unit/test_descriptors.py` | full | 15 | 1 | 0 | 0 | 0 |
+| `unit/test_descriptors_desktop.py` | full | 8 | 0 | 0 | 0 | 0 |
+| `unit/test_desktop_account_cache.py` | full | 3 | 0 | 0 | 0 | 0 |
+| `unit/test_desktop_in_use.py` | full | 13 | 0 | 0 | 0 | 0 |
+| `unit/test_desktop_ledger.py` | full | 4 | 0 | 0 | 0 | 0 |
+| `unit/test_disk_admission.py` | full | 27 | 0 | 0 | 0 | 0 |
+| `unit/test_disk_floor.py` | full | 60 | 0 | 0 | 0 | 0 |
+| `unit/test_doctor.py` | full | 42 | 2 | 0 | 0 | 0 |
+| `unit/test_doctor_ca_bundle.py` | full | 16 | 0 | 0 | 0 | 0 |
+| `unit/test_doctor_identity.py` | full | 13 | 0 | 0 | 0 | 0 |
+| `unit/test_empty_provider_results.py` | full | 334 | 0 | 0 | 0 | 0 |
+| `unit/test_enrollment_runner.py` | full | 7 | 0 | 0 | 0 | 0 |
+| `unit/test_fake_codex_http.py` | full | 7 | 0 | 0 | 0 | 0 |
+| `unit/test_filesystem_identity_agreement.py` | full | 37 | 0 | 0 | 3 | 0 |
+| `unit/test_folders.py` | full | 23 | 0 | 0 | 0 | 0 |
+| `unit/test_forget_paced.py` | full | 2 | 0 | 0 | 0 | 0 |
+| `unit/test_fresh_until.py` | full | 1 | 0 | 0 | 0 | 0 |
+| `unit/test_frozen_provider_streams.py` | full | 217 | 0 | 0 | 0 | 0 |
+| `unit/test_gate_admission.py` | full | 24 | 0 | 0 | 0 | 0 |
+| `unit/test_gate_merge.py` | full | 59 | 0 | 0 | 0 | 0 |
+| `unit/test_gate_replay.py` | full | 23 | 0 | 0 | 0 | 0 |
+| `unit/test_gate_revision.py` | full | 16 | 0 | 0 | 0 | 0 |
+| `unit/test_gate_service.py` | full | 25 | 0 | 0 | 0 | 0 |
+| `unit/test_gate_verdict.py` | full | 45 | 0 | 0 | 0 | 0 |
+| `unit/test_guard_overlay.py` | full | 22 | 0 | 0 | 0 | 0 |
+| `unit/test_guard_trust.py` | full | 97 | 1 | 0 | 0 | 0 |
+| `unit/test_guardian.py` | full | 12 | 0 | 0 | 0 | 0 |
+| `unit/test_guardian_qos.py` | full | 14 | 0 | 0 | 0 | 0 |
+| `unit/test_handler_refusals.py` | full | 317 | 0 | 0 | 0 | 0 |
+| `unit/test_held_waiter_holdback.py` | full | 6 | 0 | 0 | 0 | 0 |
+| `unit/test_hidden_environment.py` | full | 7 | 0 | 0 | 0 | 0 |
+| `unit/test_hook_cost.py` | full | 3 | 0 | 0 | 0 | 0 |
+| `unit/test_hooks.py` | full | 66 | 1 | 0 | 0 | 0 |
+| `unit/test_hooks_native_guard.py` | full | 18 | 0 | 0 | 0 | 0 |
+| `unit/test_host_push.py` | full | 118 | 0 | 0 | 0 | 0 |
+| `unit/test_host_push_admission.py` | full | 15 | 0 | 0 | 0 | 0 |
+| `unit/test_host_push_build.py` | full | 10 | 0 | 0 | 1 | 0 |
+| `unit/test_host_push_build_budget.py` | full | 15 | 0 | 0 | 0 | 0 |
+| `unit/test_host_push_cli.py` | full | 7 | 0 | 0 | 0 | 0 |
+| `unit/test_host_push_config_cost.py` | full | 7 | 0 | 0 | 0 | 0 |
+| `unit/test_host_push_copy.py` | full | 11 | 0 | 0 | 0 | 0 |
+| `unit/test_host_push_export.py` | full | 10 | 0 | 0 | 0 | 0 |
+| `unit/test_host_push_intake.py` | full | 13 | 0 | 0 | 0 | 0 |
+| `unit/test_host_push_metadata.py` | full | 33 | 0 | 0 | 0 | 0 |
+| `unit/test_host_push_mutations.py` | full | 24 | 0 | 0 | 0 | 0 |
+| `unit/test_host_push_names.py` | full | 13 | 0 | 0 | 0 | 0 |
+| `unit/test_host_push_quarantine_restart.py` | full | 8 | 0 | 0 | 0 | 0 |
+| `unit/test_host_push_restart.py` | full | 4 | 0 | 0 | 0 | 0 |
+| `unit/test_host_push_retention.py` | full | 2 | 0 | 0 | 0 | 0 |
+| `unit/test_host_push_storage_recovery.py` | full | 2 | 0 | 0 | 0 | 0 |
+| `unit/test_host_push_storage_retry_budget.py` | full | 60 | 0 | 0 | 0 | 0 |
+| `unit/test_host_push_store_completion_pr183.py` | full | 2 | 0 | 0 | 0 | 0 |
+| `unit/test_host_push_store_interleavings.py` | full | 26 | 0 | 0 | 0 | 0 |
+| `unit/test_host_push_trees.py` | full | 5 | 0 | 0 | 0 | 0 |
+| `unit/test_host_push_validated_top.py` | full | 8 | 0 | 0 | 0 | 0 |
+| `unit/test_importer.py` | unrun | — | — | — | — | — |
+| `unit/test_inspection_pacing_properties.py` | unrun | — | — | — | — | — |
+| `unit/test_invariants_index.py` | unrun | — | — | — | — | — |
+| `unit/test_keychain_exec_guard_properties.py` | unrun | — | — | — | — | — |
+| `unit/test_lane_answers.py` | unrun | — | — | — | — | — |
+| `unit/test_lanes_transfer.py` | unrun | — | — | — | — | — |
+| `unit/test_launch_env_allowlist.py` | brief only | 27 | 0 | 0 | 0 | 0 |
+| `unit/test_launch_env_helpers.py` | brief only | 20 | 0 | 0 | 0 | 0 |
+| `unit/test_launch_env_mutations.py` | brief only | 41 | 0 | 0 | 0 | 0 |
+| `unit/test_launch_env_policy.py` | brief only | 26 | 0 | 0 | 0 | 0 |
+| `unit/test_launch_env_round2.py` | brief only | 67 | 0 | 0 | 0 | 0 |
+| `unit/test_launch_env_round3.py` | brief only | 67 | 0 | 0 | 0 | 0 |
+| `unit/test_launch_env_round4.py` | brief only | 40 | 0 | 0 | 0 | 0 |
+| `unit/test_launch_env_round5.py` | brief only | 39 | 0 | 0 | 0 | 0 |
+| `unit/test_lease_waiter_selection.py` | unrun | — | — | — | — | — |
+| `unit/test_legacy_hold.py` | unrun | — | — | — | — | — |
+| `unit/test_limit_from_model_text.py` | unrun | — | — | — | — | — |
+| `unit/test_live_store_guard.py` | unrun | — | — | — | — | — |
+| `unit/test_live_store_guard_round10.py` | unrun | — | — | — | — | — |
+| `unit/test_live_store_guard_round10_mutations.py` | unrun | — | — | — | — | — |
+| `unit/test_live_store_guard_round3.py` | unrun | — | — | — | — | — |
+| `unit/test_live_store_guard_round4.py` | unrun | — | — | — | — | — |
+| `unit/test_live_store_guard_round5.py` | unrun | — | — | — | — | — |
+| `unit/test_live_store_guard_round6.py` | unrun | — | — | — | — | — |
+| `unit/test_live_store_guard_round7.py` | unrun | — | — | — | — | — |
+| `unit/test_live_store_guard_round7_mutations.py` | unrun | — | — | — | — | — |
+| `unit/test_live_store_guard_round8.py` | unrun | — | — | — | — | — |
+| `unit/test_live_store_guard_round8_mutations.py` | unrun | — | — | — | — | — |
+| `unit/test_live_store_guard_round9.py` | unrun | — | — | — | — | — |
+| `unit/test_live_store_guard_round9_mutations.py` | unrun | — | — | — | — | — |
+| `unit/test_live_store_guard_state_root.py` | unrun | — | — | — | — | — |
+| `unit/test_lockwatch.py` | unrun | — | — | — | — | — |
+| `unit/test_mcp_cli_contract.py` | unrun | — | — | — | — | — |
+| `unit/test_mcp_scheduler_contract.py` | unrun | — | — | — | — | — |
+| `unit/test_mirror_flags_faults.py` | unrun | — | — | — | — | — |
+| `unit/test_mirror_flags_model.py` | unrun | — | — | — | — | — |
+| `unit/test_mirror_flags_stateful.py` | unrun | — | — | — | — | — |
+| `unit/test_native_operations.py` | unrun | — | — | — | — | — |
+| `unit/test_notice_rendering.py` | unrun | — | — | — | — | — |
+| `unit/test_notify_push.py` | unrun | — | — | — | — | — |
+| `unit/test_offline.py` | unrun | — | — | — | — | — |
+| `unit/test_operator_hold_closures.py` | unrun | — | — | — | — | — |
+| `unit/test_operator_notices.py` | unrun | — | — | — | — | — |
+| `unit/test_outcome_unknown.py` | unrun | — | — | — | — | — |
+| `unit/test_person_boundary.py` | unrun | — | — | — | — | — |
+| `unit/test_person_boundary_identity.py` | unrun | — | — | — | — | — |
+| `unit/test_picker.py` | unrun | — | — | — | — | — |
+| `unit/test_placement_ramp.py` | unrun | — | — | — | — | — |
+| `unit/test_policy.py` | unrun | — | — | — | — | — |
+| `unit/test_policy_disk.py` | unrun | — | — | — | — | — |
+| `unit/test_policy_ramp.py` | unrun | — | — | — | — | — |
+| `unit/test_policy_support.py` | unrun | — | — | — | — | — |
+| `unit/test_policy_tier_preferences.py` | unrun | — | — | — | — | — |
+| `unit/test_pr124_fixes.py` | unrun | — | — | — | — | — |
+| `unit/test_pr124_review_r2_fixes.py` | unrun | — | — | — | — | — |
+| `unit/test_pr192_review_r1.py` | unrun | — | — | — | — | — |
+| `unit/test_pr192_review_r2.py` | unrun | — | — | — | — | — |
+| `unit/test_procs.py` | unrun | — | — | — | — | — |
+| `unit/test_protocol_secrecy.py` | unrun | — | — | — | — | — |
+| `unit/test_provider_active_cap.py` | unrun | — | — | — | — | — |
+| `unit/test_prune_217.py` | unrun | — | — | — | — | — |
+| `unit/test_prune_decision_backup_verification.py` | unrun | — | — | — | — | — |
+| `unit/test_prune_decision_fingerprints.py` | unrun | — | — | — | — | — |
+| `unit/test_prune_decisions.py` | unrun | — | — | — | — | — |
+| `unit/test_prune_restore.py` | unrun | — | — | — | — | — |
+| `unit/test_quota_projection.py` | unrun | — | — | — | — | — |
+| `unit/test_rank_review_report.py` | unrun | — | — | — | — | — |
+| `unit/test_reap_liveness.py` | unrun | — | — | — | — | — |
+| `unit/test_rediscovery_git_trace.py` | unrun | — | — | — | — | — |
+| `unit/test_relay.py` | unrun | — | — | — | — | — |
+| `unit/test_render.py` | unrun | — | — | — | — | — |
+| `unit/test_render_quota_projection.py` | unrun | — | — | — | — | — |
+| `unit/test_reserve_authorization_plumbing.py` | unrun | — | — | — | — | — |
+| `unit/test_reset_credit_claim_timing.py` | unrun | — | — | — | — | — |
+| `unit/test_reset_credit_demand.py` | unrun | — | — | — | — | — |
+| `unit/test_reset_credit_properties.py` | unrun | — | — | — | — | — |
+| `unit/test_reset_credit_review_r1.py` | unrun | — | — | — | — | — |
+| `unit/test_reset_credit_review_r2.py` | unrun | — | — | — | — | — |
+| `unit/test_reset_credit_review_r3.py` | unrun | — | — | — | — | — |
+| `unit/test_reset_credit_review_r3_mutants.py` | unrun | — | — | — | — | — |
+| `unit/test_resource_identity.py` | unrun | — | — | — | — | — |
+| `unit/test_retention_81_notes.py` | unrun | — | — | — | — | — |
+| `unit/test_retention_archive.py` | unrun | — | — | — | — | — |
+| `unit/test_retention_archive_properties.py` | unrun | — | — | — | — | — |
+| `unit/test_retention_case_alias.py` | unrun | — | — | — | — | — |
+| `unit/test_retention_nested_leases.py` | unrun | — | — | — | — | — |
+| `unit/test_retention_ordinary_trees.py` | unrun | — | — | — | — | — |
+| `unit/test_retention_qos.py` | unrun | — | — | — | — | — |
+| `unit/test_retention_readback.py` | unrun | — | — | — | — | — |
+| `unit/test_retention_rediscovery.py` | unrun | — | — | — | — | — |
+| `unit/test_retention_regenerable.py` | unrun | — | — | — | — | — |
+| `unit/test_retention_regenerable_properties.py` | unrun | — | — | — | — | — |
+| `unit/test_retention_salvage_properties.py` | unrun | — | — | — | — | — |
+| `unit/test_retention_shared_folders.py` | unrun | — | — | — | — | — |
+| `unit/test_retention_sweep_race.py` | unrun | — | — | — | — | — |
+| `unit/test_retention_turn_contract.py` | unrun | — | — | — | — | — |
+| `unit/test_retention_turn_workdirs.py` | unrun | — | — | — | — | — |
+| `unit/test_retention_turns.py` | unrun | — | — | — | — | — |
+| `unit/test_retention_worktrees.py` | unrun | — | — | — | — | — |
+| `unit/test_review130_pass.py` | unrun | — | — | — | — | — |
+| `unit/test_review_pr127_fixes.py` | unrun | — | — | — | — | — |
+| `unit/test_review_pr127_history.py` | unrun | — | — | — | — | — |
+| `unit/test_review_pr127_pr_wakes.py` | unrun | — | — | — | — | — |
+| `unit/test_review_pr127_report.py` | unrun | — | — | — | — | — |
+| `unit/test_review_pr127_requests.py` | unrun | — | — | — | — | — |
+| `unit/test_review_pr127_service.py` | unrun | — | — | — | — | — |
+| `unit/test_review_r2_repro.py` | unrun | — | — | — | — | — |
+| `unit/test_review_r3_measure.py` | unrun | — | — | — | — | — |
+| `unit/test_review_r3_repro.py` | unrun | — | — | — | — | — |
+| `unit/test_review_r4_repro.py` | unrun | — | — | — | — | — |
+| `unit/test_review_r5_repro.py` | unrun | — | — | — | — | — |
+| `unit/test_review_r6_probes.py` | unrun | — | — | — | — | — |
+| `unit/test_review_r6_restart.py` | unrun | — | — | — | — | — |
+| `unit/test_round10_refusal_context.py` | unrun | — | — | — | — | — |
+| `unit/test_route_check.py` | unrun | — | — | — | — | — |
+| `unit/test_salvage.py` | unrun | — | — | — | — | — |
+| `unit/test_salvage_optional_transient.py` | unrun | — | — | — | — | — |
+| `unit/test_salvage_unindexable.py` | unrun | — | — | — | — | — |
+| `unit/test_scheduler.py` | unrun | — | — | — | — | — |
+| `unit/test_scheduler_priority_callers.py` | unrun | — | — | — | — | — |
+| `unit/test_scheduler_split.py` | unrun | — | — | — | — | — |
+| `unit/test_scheduler_tier_preferences.py` | unrun | — | — | — | — | — |
+| `unit/test_scheduler_turns.py` | unrun | — | — | — | — | — |
+| `unit/test_scheduler_weekly.py` | unrun | — | — | — | — | — |
+| `unit/test_scoped_stream_capacity.py` | unrun | — | — | — | — | — |
+| `unit/test_scrub_key_order.py` | unrun | — | — | — | — | — |
+| `unit/test_sessions_cli.py` | unrun | — | — | — | — | — |
+| `unit/test_sessions_handoff.py` | unrun | — | — | — | — | — |
+| `unit/test_sessions_handoff_excerpts.py` | unrun | — | — | — | — | — |
+| `unit/test_sessions_headless_properties.py` | unrun | — | — | — | — | — |
+| `unit/test_sessions_mirror.py` | unrun | — | — | — | — | — |
+| `unit/test_sessions_mirror_cache_coherence.py` | unrun | — | — | — | — | — |
+| `unit/test_sessions_mirror_fifo.py` | unrun | — | — | — | — | — |
+| `unit/test_sessions_mirror_hot_health.py` | unrun | — | — | — | — | — |
+| `unit/test_sessions_mirror_hot_progress.py` | unrun | — | — | — | — | — |
+| `unit/test_sessions_mirror_hot_regressions.py` | unrun | — | — | — | — | — |
+| `unit/test_sessions_mirror_inventory.py` | unrun | — | — | — | — | — |
+| `unit/test_sessions_mirror_load_gap.py` | unrun | — | — | — | — | — |
+| `unit/test_sessions_mirror_safety.py` | unrun | — | — | — | — | — |
+| `unit/test_sessions_mirror_write_churn.py` | unrun | — | — | — | — | — |
+| `unit/test_sessions_nudge.py` | unrun | — | — | — | — | — |
+| `unit/test_sessions_registry.py` | unrun | — | — | — | — | — |
+| `unit/test_sessions_revive.py` | unrun | — | — | — | — | — |
+| `unit/test_sessions_revive_reads.py` | unrun | — | — | — | — | — |
+| `unit/test_sessions_transcripts.py` | unrun | — | — | — | — | — |
+| `unit/test_settle_properties.py` | brief only | 129 | 0 | 0 | 0 | 0 |
+| `unit/test_soak_tools.py` | unrun | — | — | — | — | — |
+| `unit/test_status_json.py` | unrun | — | — | — | — | — |
+| `unit/test_steer_invariants.py` | unrun | — | — | — | — | — |
+| `unit/test_stop_alarm.py` | unrun | — | — | — | — | — |
+| `unit/test_stop_watchdog.py` | unrun | — | — | — | — | — |
+| `unit/test_store_contention_queries.py` | unrun | — | — | — | — | — |
+| `unit/test_store_ids.py` | unrun | — | — | — | — | — |
+| `unit/test_store_migration_2.py` | unrun | — | — | — | — | — |
+| `unit/test_store_properties.py` | unrun | — | — | — | — | — |
+| `unit/test_store_readers.py` | unrun | — | — | — | — | — |
+| `unit/test_store_snapshot_plans.py` | unrun | — | — | — | — | — |
+| `unit/test_suggest_cli.py` | unrun | — | — | — | — | — |
+| `unit/test_suggest_hint.py` | unrun | — | — | — | — | — |
+| `unit/test_suggestion_error_boundaries.py` | unrun | — | — | — | — | — |
+| `unit/test_suggestion_properties.py` | unrun | — | — | — | — | — |
+| `unit/test_suggestion_secret_properties.py` | unrun | — | — | — | — | — |
+| `unit/test_suggestion_structural_errors.py` | unrun | — | — | — | — | — |
+| `unit/test_suggestions.py` | unrun | — | — | — | — | — |
+| `unit/test_suggestions_r1b_adversarial.py` | unrun | — | — | — | — | — |
+| `unit/test_suggestions_r3_channels.py` | unrun | — | — | — | — | — |
+| `unit/test_suggestions_review_boundaries.py` | unrun | — | — | — | — | — |
+| `unit/test_suggestions_review_multiline.py` | unrun | — | — | — | — | — |
+| `unit/test_suggestions_review_response.py` | unrun | — | — | — | — | — |
+| `unit/test_test_module_names.py` | brief only | 1 | 0 | 0 | 0 | 0 |
+| `unit/test_tick_prefilter.py` | unrun | — | — | — | — | — |
+| `unit/test_timers_alerts.py` | unrun | — | — | — | — | — |
+| `unit/test_timers_busy_read.py` | unrun | — | — | — | — | — |
+| `unit/test_timers_daemon.py` | unrun | — | — | — | — | — |
+| `unit/test_timers_keepalive.py` | unrun | — | — | — | — | — |
+| `unit/test_timers_probe.py` | unrun | — | — | — | — | — |
+| `unit/test_timers_reset_credits.py` | unrun | — | — | — | — | — |
+| `unit/test_timers_retention.py` | unrun | — | — | — | — | — |
+| `unit/test_title_review_regressions.py` | unrun | — | — | — | — | — |
+| `unit/test_turn_attachment_replay.py` | unrun | — | — | — | — | — |
+| `unit/test_turn_overlap.py` | unrun | — | — | — | — | — |
+| `unit/test_turn_replay.py` | brief only | 33 | 0 | 0 | 0 | 0 |
+| `unit/test_turn_runner.py` | brief only | 76 | 0 | 0 | 0 | 0 |
+| `unit/test_ultracode_effort.py` | unrun | — | — | — | — | — |
+| `unit/test_unadmittable_pin.py` | unrun | — | — | — | — | — |
+| `unit/test_wait_hub.py` | unrun | — | — | — | — | — |
+| `unit/test_wake_cli.py` | unrun | — | — | — | — | — |
+| `unit/test_weekly_rank_vs_base.py` | unrun | — | — | — | — | — |
 
 </details>
 <!-- /fix6-full-results -->
+
+
+### Cleanup and verification
+
+All foreground test runners and their `lockf` commands exited before cleanup.
+Python `shutil.rmtree` removed all five recorded task scratch roots, including
+the disposable venv, uv cache, Hypothesis storage and raw test evidence. Twelve
+generated workspace cache directories were removed. No `__pycache__`,
+`.pytest_cache` or `.hypothesis` folder remains. The original tracked `.coverage`
+blob matches `0c8be2de0522`. The shared detached HEAD and `.git` pointer are
+unchanged; workspace-local commit metadata is retained for delivery.
+`git diff --check` passes. No task process or task-held suite lock remains.
