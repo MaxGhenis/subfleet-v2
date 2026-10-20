@@ -762,3 +762,32 @@ backlog and the controlled request clock spent zero time, retaining the
 .2 s request timeout and the exact status/diagnostic assertions. This is a
 test correction to C-5.13, not a production timing change. Its targeted rerun
 is included as an unmutated case in the single mutation hold.
+
+### Mutation proof
+
+`tools/stopped_daemon_mutations.py` runs one pytest process under one lock
+hold. For each named case it compiles exactly one source change and replaces
+only that function's code for the call, preserving the test's actual module
+globals, clocks and subprocess stand-ins; it restores the function before the
+next case and never writes production sources. The command succeeds only
+when all seven mutant cases fail, all five mutation types are represented,
+and any additional unmutated selection passes.
+
+The hold completed with **seven expected failures and one unmutated pass**
+in 11.65 s. Inspection of the failure messages confirmed the intended cause
+for every mutant, rather than an import, setup or harness error. The extra
+pass was the corrected fake-stop/no-connection regression.
+
+| Mutation | Named failing test(s) | Observed mutant failure |
+| --- | --- | --- |
+| Remove RequestTimeout from call_settled's resend exception handler | test_settlement_probe_wait_keeps_unknown_outcome | Bare RequestTimeout at .3 s instead of OutcomeUnknown; first wire send remains unanswered. |
+| Remove the call-deadline + 5 cap | test_busy_then_refused_diagnoses_share_original_call_ceiling | 10.006 s on the controlled clock exceeds 7.006 s; unchanged head ends at 7.0 s. |
+| Remove _run's late-observation rejection | test_late_ps_observation_cannot_verify_stopped_holder | A T+ read returned at 5.01 s incorrectly establishes alive=True. |
+| Give notice.pending the whole remaining delivery budget | test_terminal_poll_keeps_delivery_reserve[immediate], [at-poll-deadline] | Pending receives 1.0 instead of .5 s, or .5 instead of .25 s. |
+| Spend the token before boot reads | test_slow_boot_lookup_paces_actual_ps_starts, test_probe_bucket_rate_property | Five ps starts at 1.6 s; the fifth should be at 2.6 s, and the zero-duration window exceeds four. |
+
+Reproduction inside the normal shared-lock/scratch environment:
+`uv run python tools/stopped_daemon_mutations.py -q -p no:cacheprovider`.
+The seven pytest failures are the proof; the harness exits zero only when
+all mutants are killed. All production sources remain identical to their
+committed versions after the hold.
