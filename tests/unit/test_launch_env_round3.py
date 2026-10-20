@@ -148,6 +148,18 @@ def test_every_subfleet_name_the_package_reads_is_listed():
     assert all(not a & b for i, a in enumerate(classes) for b in classes[i + 1:])
 
 
+def test_desktop_and_queue_tray_tool_names_are_classified_without_provider_authority():
+    """#219 + #222: local UI/compiler/test switches never become lane configuration."""
+    local = {"SUBFLEET_OPEN_CONVERSATION", "SUBFLEET_SWIFT_NESTED_SANDBOX", "SUBFLEET_FIX4_MUTANTS"}
+    assert local <= getattr(launch_env, "LOCAL_TOOL_NAMES", frozenset())
+    for name in local:
+        assert not launch_env.allowed_name(name)
+        assert name not in build_environment(environ={name: "dummy-local-setting"})
+        assert environment_report({name: "dummy-local-setting"}) == {"extra_names": [name]}
+    assert not local & (launch_env.ALLOWED_NAMES | launch_env.TEST_SESSION_NAMES |
+                        launch_env.LAUNCH_NAMES | launch_env.RETIRED_NAMES)
+
+
 def test_only_compat_builds_a_subfleet_name_at_run_time():
     """v1's CARPOOL_* aliasing is the one constructed name; no CARPOOL_* name is admitted."""
     _, pieces = production()
