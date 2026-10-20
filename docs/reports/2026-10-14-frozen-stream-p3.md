@@ -819,6 +819,40 @@ remaining files despite the environment failures. The disposable pytest
 entrypoint also checks the 15:56:42 UTC cutoff after any queued lock wait,
 without changing the required lockf command or adding an alarm loop.
 
+### Continuation after the power cut (2026-10-20)
+
+The first fix-6 job (`20261020-072642-pr212-fix6`) was lost when the host lost
+power at about 15:25 UTC, returning rc 125 without a final answer. Its seven
+first-parent commits through `0c8be2de0522` are preserved. This continuation
+read the complete original brief, review r5, report, and step commits.
+
+The cached `origin/release/217` remains `473fe2941953`, already an ancestor of
+`0c8be2de0522` through `e03f0cdc8`; no new merge or conflict resolution is needed.
+An independent check confirms that the merge retains every clause ID and every
+version-3 change-log entry from both parents. No fetch was performed.
+
+| Original brief item | Audit result | Existing implementation / regression |
+| --- | --- | --- |
+| 1: receipted copy with no verdict | Done: receipt existence selects saved-copy retry handling, including crash, ENOSPC, classify and attest interruptions | `a8276f48d` / `4694b44c8` |
+| 2: non-regular cleanup decoys | Done: `lstat` permits unlinking only regular files and symlinks | `a8276f48d` / `4694b44c8` |
+| 3: later-copy crash leftovers | Done: invalid-receipt cleanup retains receipt/verdict names and removes other full/partial copies | `a8276f48d` / `4694b44c8` |
+| 4: completed-check retry reset | Done: regression checks two fresh retry budgets; removing the reset is caught | `4694b44c8`; mutation evidence in `b3c1dcf99` |
+| 5: exhausted-check detail | Done: stored outcome and attempt detail state that the provider stream copy could not be checked | `a8276f48d` / `4694b44c8` |
+| 6: error mapping and retry window | Done: deliberately unchanged, for the reasons recorded above | No production change requested |
+| Release integration / #222 | Done: cached release is merged; fix 6 introduces no `SUBFLEET_*` name or direct guardian launch | `e03f0cdc8` |
+| Tests first / step commits / contract | Done: tests precede production; C-4.3 and C-9.2 and their change-log entry are amended; all seven commits have the required trailer | `4694b44c8`, `a8276f48d` |
+
+Source, tests and contract are unchanged since `a8276f48d`; the later five
+commits only record results. The inherited test counts above describe the lost
+job. This continuation reruns the briefed files and both complete directories
+using the required regular GIL CPython 3.14.7 (`Py_GIL_DISABLED=0`), rather than
+carrying forward the lost job's free-threaded-build results. The locked dev
+dependencies are installed in disposable scratch. `pytest-xdist==3.8.0` and
+`execnet==2.1.2` are added only to that venv for full-suite batches; dependency
+files are unchanged. New commits use this workspace's `.git-local` metadata on
+`fix/frozen-stream-p3`, with read-only alternates to existing Git objects. The
+original `.git` pointer and detached HEAD are preserved.
+
 <!-- fix6-full-results -->
 Full-directory validation:
 
