@@ -130,6 +130,35 @@ def _restored_copy(adir: Path, receipt: dict | None, launch: Launch,
     return path
 
 
+def _cleanup_copies(adir: Path, receipt: dict | None, expected_file: str | None = None) -> None:
+    """Unlink crash leftovers, preserving named evidence and non-regular entries."""
+    named = {expected_file} if isinstance(expected_file, str) else set()
+    if isinstance(receipt, dict) and isinstance(receipt.get("file"), str):
+        named.add(receipt["file"])
+    verdict_path = adir / "finalization.json"
+    try:
+        with open_stream(verdict_path) as stream:
+            verdict = json.load(stream)
+    except (NotRegularFile, ValueError):
+        verdict = None
+    except FileNotFoundError:
+        if _entry_exists(verdict_path):
+            raise
+        verdict = None
+    if isinstance(verdict, dict) and isinstance(verdict.get("stream"), str):
+        named.add(verdict["stream"])
+    for pattern in ("stream.frozen-*.jsonl", ".stream.frozen-*"):
+        for abandoned in adir.glob(pattern):
+            if abandoned.name in named:
+                continue
+            try:
+                info = abandoned.lstat()
+            except FileNotFoundError:
+                continue
+            if stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
+                abandoned.unlink(missing_ok=True)
+
+
 def restore_stream(adir: Path, launch: Launch, expected_file: str) -> tuple[Path, dict]:
     """Validate a verdict's recorded evidence without selecting a live candidate."""
     receipt = read_freeze_receipt(adir)
@@ -137,6 +166,7 @@ def restore_stream(adir: Path, launch: Launch, expected_file: str) -> tuple[Path
         restored = _restored_copy(adir, receipt, launch)
         if restored is not None:
             return restored, receipt
+    _cleanup_copies(adir, receipt, expected_file)
     raise InvalidFrozenStream(errno.ESTALE, "recorded frozen stream is missing or invalid", str(adir))
 
 
@@ -146,13 +176,11 @@ def freeze_stream(adir: Path, launch: Launch, publish: Callable[[str, Path, byte
     receipt = read_freeze_receipt(adir)
     if (restored := _restored_copy(adir, receipt, launch)) is not None:
         return restored
+    # A crash can strand a full/partial later copy behind an earlier,
+    # rejected receipt too. Keep evidence named by either durable record.
+    _cleanup_copies(adir, receipt)
     if _entry_exists(adir / "stream.freeze.json"):
         raise InvalidFrozenStream(errno.ESTALE, "recorded frozen stream is missing or invalid", str(adir))
-    # A crash can leave the copy before its receipt, or a partial atomic-write
-    # temp. With no receipt yet, neither can be authoritative or an artifact.
-    for pattern in ("stream.frozen-*.jsonl", ".stream.frozen-*"):
-        for abandoned in adir.glob(pattern):
-            abandoned.unlink(missing_ok=True)
     raw = Path(launch.raw_stream_path) if launch.raw_stream_path else None
     source = next((path for path in (raw, adir / "stream.jsonl")
                    if path is not None and _entry_exists(path)), None)

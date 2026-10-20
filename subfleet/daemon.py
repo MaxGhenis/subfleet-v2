@@ -8467,18 +8467,17 @@ class Daemon:
                           if result else None)
         frozen_stream, stream_receipt = None, {}
         if job["kind"] != "turn" and not stream_failure:
-            checking_saved_copy = result is not None
+            checking_saved_copy = True
             try:
                 if result is not None and "stream" in result:
                     frozen_stream, stream_receipt = restore_stream(adir, launch, result["stream"])
                 else:
-                    if result is not None:
-                        # A legacy verdict alone does not prove a copy exists.
-                        # Once absence is known, first-capture errors must stick.
-                        try:
-                            (adir / "stream.freeze.json").lstat()
-                        except FileNotFoundError:
-                            checking_saved_copy = False
+                    # A receipt proves capture even if verdict publication
+                    # never finished. Only known absence permits first capture.
+                    try:
+                        (adir / "stream.freeze.json").lstat()
+                    except FileNotFoundError:
+                        checking_saved_copy = False
                     frozen_stream = self._freeze_stream(adir, launch)
                     stream_receipt = read_freeze_receipt(adir) or {}
                     if result is not None and stream_receipt.get("reset_finalization"):
@@ -8540,10 +8539,13 @@ class Daemon:
             if result is None:
                 if stream_failure:
                     incomplete_codex = lane.provider == "codex" and job["kind"] != "turn"
+                    if stream_failure.get("reason") == "copy cannot be checked":
+                        detail = "provider stream copy could not be checked: retry checks exhausted"
+                    else:
+                        detail = ("Codex exited before its turn completed" if incomplete_codex
+                                  else "provider stream unreadable: completion could not be verified")
                     outcome = Outcome(OutcomeClass.TRANSIENT if incomplete_codex else OutcomeClass.UNKNOWN,
-                                      "Codex exited before its turn completed" if incomplete_codex
-                                      else "provider stream unreadable: completion could not be verified",
-                                      evidence={"stream_capture": stream_failure})
+                                      detail, evidence={"stream_capture": stream_failure})
                     attest = AttestationResult(Attestation.UNATTESTED, None, "provider stream unreadable")
                 else:
                     exit_info = ExitInfo(**{k: receipt.get(k) for k in ("rc", "signal", "wall_s", "child_pid", "spawn_error")})

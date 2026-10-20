@@ -673,3 +673,71 @@ staged; every commit has the requested co-author trailer. No logs, JSON
 evidence or bundles were staged. No push.
 
 DONE
+
+
+## Fix 6: review r5, base `54db127f14f4`
+
+Review `~/reviews/subfleet-2110/frozen-stream-p3/review-r5.md` was read in full.
+No network Git remote, sub-agent or push was used. Work stays in the assigned
+workspace. The original worktree's shared metadata and `.git` pointer cannot
+be written in this sandbox; step commits use `GIT_DIR=$PWD/.git-local` on
+`fix/frozen-stream-p3`, borrowing existing objects read-only. The original
+tracked `.coverage` is preserved.
+
+First merged the available `origin/release/217` at `473fe2941`, including #222
+and later merges, in `e03f0cdc8`. The daemon conflict combined launch-environment
+imports with frozen-stream imports, retaining `stream_digest`. The contract
+conflict retained both sides' change-log entries. All clause IDs from both
+parents remain (255 from the PR, 256 from release); every change-log entry
+from both parents remains verbatim. Other clauses retain the combined behavior
+through Git's automatic merge. No fetch was performed.
+
+Regressions were committed first in `4694b44c8`:
+
+- P3-1: both providers, replay and restart, after a crash or ENOSPC before
+  verdict publication, or a classifier/attester interruption. A subsequent
+  EIO, EMFILE or actual mode-000 stderr must raise, preserve the copy and receipt,
+  and recover to `ok` with the original `Finished.` export. Receipt presence,
+  rather than verdict presence, establishes an existing capture.
+- P3-2: directories, FIFOs and sockets matching full-copy or partial-copy names
+  must survive cleanup without blocking first capture. Cleanup checks `lstat`
+  and unlinks only regular files and symlinks.
+- P3-3: reject copy 1 after receipt publication, then crash before copy 2's
+  receipt. Simulate process death by renaming copy 2 before raising, so Python's
+  `finally` cannot remove its inode. Both freeze and restore must remove unnamed
+  full/partial leftovers behind an invalid receipt, while preserving different
+  files named by the receipt and verdict and preserving a directory decoy.
+- Retry reset: two bursts of interrupted checks, separated by completed checks
+  and interrupted salvage, each receive a fresh retry budget. This clause
+  already works at the reviewed head; its regression must fail when the reset
+  `pop` is removed, rather than falsely claiming a base-code failure.
+- Failure detail: exhausted checks must record and persist
+  `provider stream copy could not be checked: retry checks exhausted` instead
+  of claiming Codex never completed. The outcome class and durable reason stay
+  the same.
+
+C-4.3 and C-9.2 are amended with a fix-6 change-log entry. No new `SUBFLEET_*`
+name is introduced. No new test starts a guardian directly. The merged #222
+classification and guardian environment conventions are covered by its tests.
+The brief names two files under `tests/unit` that live under `tests/fake`:
+`test_frozen_stream_nonregular.py` and `test_turn_trees.py`; validation uses
+the existing files.
+
+No change to the review's error-code observation: ENXIO, EOPNOTSUPP/ENOTSUP,
+ELOOP, EINVAL and EISDIR retain their documented `NotRegularFile` mapping;
+EACCES/EPERM still need proof from reinspection. No real regular-local-file
+trigger was found by the review. The three consecutive interrupted checks
+still follow worker backoff (about 0.5 s then 1 s), reset after a completed
+check, and start at zero in a new daemon. This round changes neither code
+mapping nor timing.
+
+Baseline regression hold: **41 failed, 1 passed, 315 deselected**, in 10.11 s,
+against the release merge before any production fixes. All 24 no-verdict
+interruption cases, 14 cleanup cases and three exhausted-detail cases fail for
+the reviewed reasons. The existing retry-reset behavior passes its new control.
+The frozen capture/check implementation exercised is unchanged from the reviewed
+head; #222 changes the adapter factory after the check. Per file:
+`unit/test_frozen_provider_streams.py`: 14 failed;
+`fake/test_frozen_stream_nonregular.py`: 27 failed, 1 passed.
+
+Validation status: corrected frozen-stream files queued next.
