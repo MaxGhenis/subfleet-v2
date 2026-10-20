@@ -122,11 +122,12 @@ struct FollowKey: Equatable {
     /// - Anything else only while the end is on screen: a new row, a new
     ///   followed row, or a tray that changed the timeline's height glide; a
     ///   growing block, or the first page of history landing above, jumps.
+    /// An explicit row reveal suspends catch-up jumps until the end is visible again.
     /// A message queued or withdrawn while the person reads further up moves
     /// nothing; the tray shows it.
-    static func move(from old: FollowKey, to new: FollowKey, atBottom: Bool) -> Move {
+    static func move(from old: FollowKey, to new: FollowKey, atBottom: Bool, suspended: Bool = false) -> Move {
         guard old != new else { return .stay }
-        if old.settling || new.settling { return .jump }
+        if old.settling || new.settling { return suspended ? .stay : .jump }
         if new.last != old.last && new.lastIsOwnSend,
            new.localSend == nil || new.localSend != old.localSend { return .glide }
         guard atBottom else { return .stay }

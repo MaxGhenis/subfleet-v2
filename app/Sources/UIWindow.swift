@@ -321,6 +321,7 @@ struct ConversationView: View {
     /// Whether the end of the timeline is on screen: streamed text is followed
     /// only then, so reading further up is not interrupted.
     @State private var atBottom = true
+    @State private var followSuspended = false
     @State private var renaming = false
     @State private var renamedTitle = ""
     /// The waiting cards already brought into view, so each is scrolled to once.
@@ -361,7 +362,7 @@ struct ConversationView: View {
                             }
                         }
                         Theme.clear.frame(height: 1).id("bottom")
-                            .onAppear { atBottom = true }
+                            .onAppear { atBottom = true; followSuspended = false }
                             .onDisappear { atBottom = false }
                     }
                     .padding(Theme.space.column)
@@ -371,7 +372,7 @@ struct ConversationView: View {
                 }
                 .initialConversationScrollAnchor()
                 .onChange(of: follow) { old, new in
-                    switch FollowKey.move(from: old, to: new, atBottom: atBottom) {
+                    switch FollowKey.move(from: old, to: new, atBottom: atBottom, suspended: followSuspended) {
                     case .stay: break
                     case .jump: jumpToBottom(proxy)
                     case .glide:
@@ -447,6 +448,11 @@ struct ConversationView: View {
                 ChangesPane(model: model, scope: scope, conversation: conversation)
                     .inspectorColumnWidth(min: 360, ideal: 560, max: 1100)
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .conversationRowScroll)) { note in
+            guard note.object as? String == conversation.conversation_id else { return }
+            followSuspended = true
+            atBottom = false
         }
         .onChange(of: timeline?.liveMessageID) { _, _ in
             // A turn started or ended: an open pane compares again.
