@@ -127,6 +127,8 @@ def escaper(kind: str) -> int:
 
 def main() -> int:
     if "--escaper" in sys.argv:
+        if "--new-session" in sys.argv:
+            os.setsid()
         return escaper(sys.argv[sys.argv.index("--escaper") + 1])
     if "--escaped-child" in sys.argv:
         # Popen gave this process its own session, but it belonged to the

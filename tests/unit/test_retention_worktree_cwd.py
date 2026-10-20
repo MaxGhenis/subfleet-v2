@@ -6,6 +6,7 @@ through the real in-process libproc call, never through lsof or a live job.
 
 from contextlib import contextmanager
 import os
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -14,8 +15,10 @@ import pytest
 
 from subfleet import procs, retention
 from tests.unit.test_retention_worktrees import owned  # noqa: F401
+from tests.unit.test_daemon_settle import daemon  # noqa: F401
 
-pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="macOS in-process cwd read")
+pytestmark = [pytest.mark.skipif(sys.platform != "darwin", reason="macOS in-process cwd read"),
+              pytest.mark.real_cwd]
 
 
 @contextmanager
@@ -76,3 +79,22 @@ def test_d_kill3_retention_does_not_hold_an_in_place_workdir_for_cwd(owned, monk
         result = retention.maintenance(store, root, max_jobs=0, holders=lambda *a, **k: {})
         assert result["pruned"] == ["job"]
         assert repository.exists() and child.poll() is None
+
+
+@pytest.mark.parametrize("in_place", [False, True], ids=["owned", "in-place"])
+def test_d_kill3_cwd_holds_only_owned_attempts_and_never_becomes_a_walk_seed(daemon, monkeypatch, in_place):
+    from tests.unit.test_daemon_settle import JOB, attempt
+    worktree = daemon.root / "worktrees" / JOB
+    worktree.mkdir(parents=True)
+    daemon.store.update_job(JOB, sandbox="workspace-write", worktree=str(worktree), in_place=in_place)
+    monkeypatch.setattr(procs, "containment", lambda *a, **k: procs.Containment())
+    with observer(worktree) as child:
+        monkeypatch.setattr(procs.kernel, "pids", lambda: frozenset({child.pid}))
+        census = daemon._contain(attempt(daemon))
+        assert census.verified_empty is in_place
+        if not in_place:
+            assert census.to_dict()["cwd_holders"] == [f"pid {child.pid}: cwd in worktree"]
+        evidence = json.loads(attempt(daemon)["evidence_json"])
+        assert not evidence.get("owned_identities") and not evidence.get("counted_identities")
+        assert child.poll() is None
+    assert daemon._contain(attempt(daemon)).verified_empty

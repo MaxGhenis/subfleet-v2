@@ -45,5 +45,6 @@ testpaths = ["tests"]
 pythonpath = ["."]
 markers = [
     "real_lsof: runs the real process listing retention uses (slow under load)",
+    "real_cwd: reads cwd in process, with the kernel pid list restricted to test-owned processes",
     "documented_limitation: asserts a known limitation that a follow-up must deliberately change",
 ]

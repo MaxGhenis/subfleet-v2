@@ -69,7 +69,7 @@ class FakeAdapter(Adapter):
             # D-KILL3: a shell provider, with a separately grouped lockf child.
             # The test releases the provider only after witnessing an inspection.
             argv = ("/bin/sh", "-c", 'trap "exit 0" INT; '
-                    '"$1" "$2" --escaper lockf & '
+                    '"$1" "$2" --escaper lockf --new-session & '
                     'while [ ! -e "$SUBFLEET_FAKE_MARKER.release" ]; do /bin/sleep .05; done; '
                     'exit 0', "shell-provider", sys.executable, str(binary))
         return Launch(
