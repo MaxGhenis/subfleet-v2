@@ -607,3 +607,23 @@ All foreground runners and owned lock holders exited. Scratch daemon threads
 were stopped and joined, and fixture-owned child processes reaped. No live
 daemon/store, unrelated process, network remote or global cache was changed,
 signalled or cleaned.
+
+
+## Round 5 (2026-10-20)
+
+### Release merge and workspace
+
+Merged the existing local `origin/release/217` ref, `473fe2941`, including
+#222, the `f99da54b0` launch-environment allowlist and later release merges.
+No remote was contacted. Only `docs/acceptance-contract.md` conflicted. Both
+sides' complete change-log entries were retained; the two C-17.8 additions
+(stdin bounds and environment diagnostics) now share that clause as separate
+paragraphs. All other clauses from both sides are retained. CLI and doctor
+merged automatically.
+
+The shared Git metadata rejected writing `ORIG_HEAD.lock` under the sandbox.
+All round-5 commits therefore use `.git-local/` inside this workspace, on
+`fix/stopped-daemon-217`, with a read-only alternate to the original objects.
+The caller's checkout, branch and shared index are untouched. Nothing is pushed.
+
+Validation and remaining work are recorded below as each step completes.

@@ -17,6 +17,7 @@ from pathlib import Path
 
 from ..sessions.transcripts import TooLarge, read_regular
 from ..store import utc_now
+from ..launch_env import helper_policy
 from ..protocol import SubmitArgs, GateStartArgs, GateContinueArgs, coerce_args, ProtocolError
 from .certificate import certificate, load_state, private_dir, write_bytes, write_json
 from .errors import GateError
@@ -86,6 +87,11 @@ def capture(state: dict, *, runner=subprocess.run) -> tuple[dict, bytes | None]:
 
 def preview(args, root: Path, *, runner=subprocess.run, policy: dict | None = None) -> dict:
     """C-19.1: read files/remote metadata only, without a daemon or state mutation."""
+    with helper_policy(policy or {}):
+        return _preview(args, root, runner=runner, policy=policy)
+
+
+def _preview(args, root: Path, *, runner, policy) -> dict:
     if args.gate_command == "continue":
         if not _ID.fullmatch(args.gate_id):
             raise GateError("invalid gate id")
@@ -474,6 +480,11 @@ class GateService:
 
 
 def dispatch(daemon, op: str, args: dict) -> dict:
+    with helper_policy(daemon.policy):
+        return _dispatch(daemon, op, args)
+
+
+def _dispatch(daemon, op: str, args: dict) -> dict:
     recovery = getattr(daemon, "_recovery_complete", None)
     if recovery is not None and not recovery.is_set():
         return {"code": 1, "status": "error", "message": "daemon recovery is in progress; retry the gate command"}

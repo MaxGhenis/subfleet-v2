@@ -1172,6 +1172,81 @@ def explicit_stateful_seed(request, monkeypatch):
 
 @settings(PROFILE, max_examples=1)
 @given(_context=st.none())
+def test_adm3_cancelled_job_does_not_remain_an_older_waiter(_context):
+    """C-6.9, C-6.11: dev seed 6 shrank to a cached hold behind a cancelled review."""
+    machine = ProviderCapMachine()
+    try:
+        review = {"tier": "standard", "model": None, "task": None, "pin": None,
+                  "legacy": False, "authorize": False, "exclusions": "[]"}
+        machine.fleet(cap=None, per_lane=1, reserve=False, claude=[None], codex_email=None,
+                      second_codex=False, capacity=[],
+                      queue=[{**review, "tier": tier} for tier in
+                             ("standard", "standard", "hard", "standard", "hard")],
+                      probe="ok", prove=None, provider_caps={"claude": 1})
+        machine.admission_pass()
+        machine.cancel(job=0, tick=True)
+    finally:
+        machine.teardown()
+
+
+@pytest.mark.parametrize("provider_cap", [1, 2])
+@settings(PROFILE, max_examples=1)
+@given(_context=st.none())
+def test_adm3_started_job_does_not_remain_an_older_waiter(provider_cap, _context):
+    """C-6.4a, C-6.9: a start ends provider FIFO's hold in this very pass."""
+    machine = ProviderCapMachine()
+    try:
+        review = {"tier": "standard", "model": "opus", "task": "review", "pin": None,
+                  "legacy": False, "authorize": False, "exclusions": "[]"}
+        machine.fleet(cap=None, per_lane=None, reserve=False, claude=[None], codex_email=None,
+                      second_codex=False, capacity=[("closure", 0, "model", 5, 1)],
+                      queue=[review, {**review, "model": "sonnet"}],
+                      probe="ok", prove=None, provider_caps={"claude": provider_cap})
+        older, younger = sorted(machine.jobs(), key=machine.seq.get)
+        machine.admission_pass()               # Both recheck at t=1.
+        machine.time_passes(seconds=1)          # Both back off to t=3.
+        machine.time_passes(seconds=2)          # Opus's reset bounds its clock to t=5; Sonnet's is t=7.
+        assert machine.store.get_job(older)["next_check_at"] == machine.clock.iso(2)
+        assert machine.store.get_job(younger)["next_check_at"] == machine.clock.iso(4)
+        machine.clock.advance(2)
+        machine.service._admit()
+        assert machine.store.get_job(older)["state"] == "running"
+        if provider_cap == 2:
+            assert machine.store.get_job(younger)["state"] == "running", machine.service._holds
+        else:
+            assert machine.store.get_job(younger)["state"] == "waiting"
+            assert machine.service._holds[younger]["reason"] == "provider-cap"
+            assert machine.service._holds[younger]["live"] == 1
+        assert len(machine.live()) == provider_cap
+    finally:
+        machine.teardown()
+
+
+@pytest.mark.parametrize("change", ["cancel", "disable"])
+@settings(PROFILE, max_examples=1)
+@given(_context=st.none())
+def test_adm3_obsolete_provider_waiter_is_rechecked(change, _context):
+    """C-6.9, C-11.8: dev seed 7's smaller cancelled and standing-refused predecessors."""
+    machine = ProviderCapMachine()
+    try:
+        review = {"tier": "standard", "model": None, "task": None, "pin": None,
+                  "legacy": False, "authorize": False, "exclusions": "[]"}
+        machine.fleet(cap=None, per_lane=None, reserve=False, claude=[], codex_email=None,
+                      second_codex=False, capacity=[], queue=[], probe="ok", prove=None,
+                      provider_caps={"codex": 1})
+        machine.submit(jobs=[review, dict(review), {**review, "task": "sweep"}], tick=False)
+        machine.admission_pass()
+        if change == "cancel":
+            machine.cancel(job=0, tick=False)
+        else:
+            machine.capacity_changes(change=("toggle", 0, False), tick=False)
+        machine.admission_pass()
+    finally:
+        machine.teardown()
+
+
+@settings(PROFILE, max_examples=1)
+@given(_context=st.none())
 def test_r4_three_standard_reviews_drain_after_probe_os_error(_context):
     """Review r3b: simulated successes must free the only slot for all three reviews."""
     machine = AdmissionMachine()
