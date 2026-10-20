@@ -545,7 +545,9 @@ OLDER_LOG = ("2026-10-01 an older daemon said: password=SECRET7older9\n"
              "2026-10-01 its next record: token:\nSECRET7nextline9 and more\n"
              "Authorization: Bearer SECRET7header9value\n")
 #: And a credential flag with its value on the next line. Folded, as the block form
-#: reads a text, it is `--password SECRET…`, so the tail is written folded to one line.
+#: reads a text, it is `--password SECRET…`; at cce8f1af7 the whole tail was then written
+#: as that one folded line (review r3 of #233, P3-3). Its lines are kept, the value
+#: hidden where it stands.
 OLDER_FLAG = "deploy --password\nSECRET7flagline9 rest\n"
 OLDER_SECRETS = ("SECRET7older9", "SECRET7nextline9", "SECRET7header9value", "SECRET7flagline9")
 
@@ -568,16 +570,20 @@ def test_daemon_start_prints_its_tail_of_daemon_log_scrubbed(root, monkeypatch, 
     err = capsys.readouterr().err
     for secret in OLDER_SECRETS:
         assert secret not in err, secret
-    assert "exited 1" in err and "  | 2026-10-01 an older daemon said: password=[REDACTED]" in err
+    assert "exited 1" in err and "  | 2026-10-01 an older daemon said: password=[REDACTED]\n" in err
+    assert "  | Authorization: [REDACTED]\n" in err             # each line its own
+    if older.endswith(OLDER_FLAG):
+        assert err.endswith("  | deploy --password\n  | [REDACTED] rest\n"), err
     assert (root / "daemon.log").read_text() == older          # the CLI only reads it
 
 
 @pytest.mark.parametrize("before", [2000, 4 * 1024 * 1024])
-@pytest.mark.parametrize("older,lines", [(OLDER_LOG, 6), (OLDER_LOG + OLDER_FLAG, 1)], ids=["lines", "folded"])
+@pytest.mark.parametrize("older,lines", [(OLDER_LOG, 6), (OLDER_LOG + OLDER_FLAG, 6)], ids=["lines", "folded"])
 def test_a_log_tail_is_its_file_scrubbed_whole_then_cut_to_its_lines(tmp_path, before, older, lines):
     """`_log_tail` scrubs the file's text as one record (cut to `RECORD_SCRUB_MAX`
-    first, so a 4 MiB daemon.log costs what a record does), then keeps its last
-    lines, each behind the margin the CLI adds after the scrub."""
+    first, so a 4 MiB daemon.log costs what a record does), its lines kept where
+    folding finds more (review r3 of #233, P3-3: at cce8f1af7 one folded line), then
+    keeps its last lines, each behind the margin the CLI adds after the scrub."""
     path = tmp_path / "daemon.log"
     path.write_text("".join(f"{line:07d} plain words\n" for line in range(before // 20)) + older)
     started = time.monotonic()

@@ -587,9 +587,12 @@ def test_a_group_s_block_never_shows_a_value_its_line_form_hides(words, depth):
 # --- a bound on what one record scrubs (review r1 of #233, P3) ----------------------
 
 FOUR_MIB = 4 * 1024 * 1024
-#: The time one record may hold the handler's lock (C-25.7). The best of three runs is
-#: measured, so that one stall of a loaded host does not decide it.
-TIME_BOUND_S = 0.1
+#: A generous guard on the clock for one 4 MiB record (D-TM1), the best of three runs: 1 s,
+#: as the cost shapes' guard. The bound itself is counted, not timed
+#: (`test_a_cut_s_work_does_not_grow_with_the_text`, and the regex and scan counts of
+#: `test_daemon_log_cut_windows`): at 0.1 s this failed once at load 18 to 21, 0.1297 s
+#: as the best of three (review r3 of #233, P3-2), and passed on rerun.
+TIME_BOUND_S = 1.0
 FRAME = '  File "/x/subfleet/module.py", line 12, in work\n    do_the_work(item, attempt)\n'
 
 
@@ -1079,6 +1082,15 @@ RULE_EXAMPLES = {
 #: Where only folding joins the two parts: the rest are joined across a line break by
 #: the rule itself (`\\s` in it), or not at all.
 FOLDING_RULES = {"_PEM_RE", "flags"}
+#: More of `_HEADER_RE`'s shapes (review r3 of #233): #231's (C-23.14), a header whose
+#: line ends in a key whose value is on the next line, which the named-value rules take
+#: whole, folded or not; and a header opening the text, whose next line only the line
+#: form's folding joins to it, which `cut_whole`'s leading-header rule answers.
+HEADER_EXAMPLES = {"231": ("Cookie: a=SECRET7hdrpre9; session_token=", "SECRET7hdr231val9 tail")}
+LEADING_HEADER_EXAMPLE = ("Authorization: Basic", "SECRET7leadhdr9 rest")
+RULE_CASES = [pytest.param(rule, example, id=rule) for rule, example in sorted(RULE_EXAMPLES.items())] + [
+    pytest.param("_HEADER_RE", example, id=f"_HEADER_RE-{name}") for name, example in HEADER_EXAMPLES.items()] + [
+    pytest.param("_HEADER_RE", LEADING_HEADER_EXAMPLE, id="_HEADER_RE-leading")]
 GAPS = ("\n", " \n", "\n\n  ", "\r\n", "\t\n ")
 FORMS = (daemon_log.scrubbed_block, lambda text: refusals.scrubbed_line(text, UNCUT))
 MARGIN_LINE = re.compile(r"(?m)^(?:  )+[|+](?: |$)")
@@ -1105,13 +1117,19 @@ def test_every_scrub_rule_has_an_example_and_only_the_folding_rules_fold():
     lines). A new rule fails here until it has an example."""
     from subfleet.sessions.handoff import scrub_secrets
     assert set(RULE_EXAMPLES) == _rule_names()
+
+    def folds(text: str, secret: str) -> bool:
+        return (secret in scrub_secrets(text, strip_reminders=True, whole=True)[0]
+                and secret not in refusals.scrubbed_line(text, UNCUT))
     folding = set()
-    for rule, (before, after) in RULE_EXAMPLES.items():
-        secret = SECRET_RUN.search(after).group()
-        text = "plain words\n" + before + "\n" + after + "\nmore words\n"
-        if secret in scrub_secrets(text, strip_reminders=True, whole=True)[0] and secret not in refusals.scrubbed_line(text, UNCUT):
+    for rule, (before, after) in [*RULE_EXAMPLES.items(), *(("_HEADER_RE", one) for one in HEADER_EXAMPLES.values())]:
+        if folds("plain words\n" + before + "\n" + after + "\nmore words\n", SECRET_RUN.search(after).group()):
             folding.add(rule)
     assert folding == FOLDING_RULES
+    # Leading the text, and only there, a header is joined to its next line by folding.
+    before, after = LEADING_HEADER_EXAMPLE
+    secret, text = SECRET_RUN.search(after).group(), before + "\n" + after + "\nmore words\n"
+    assert folds(text, secret) and not folds("plain words\n" + text, secret)
 
 
 def _aligned(before: str, gap: str, piece: str, at: str, limit: int):
@@ -1133,13 +1151,13 @@ def _aligned(before: str, gap: str, piece: str, at: str, limit: int):
             yield text
 
 
-@pytest.mark.parametrize("rule", sorted(RULE_EXAMPLES))
-def test_a_cut_never_parts_what_a_rule_or_folding_joins(rule):
-    """Differential, per rule: with the cut right at the break inside its example, at
-    the head's end, the tail's start or the text's start, after every kind of gap,
-    neither form of the cut text shows a secret the whole text's form hides."""
+@pytest.mark.parametrize("rule,example", RULE_CASES)
+def test_a_cut_never_parts_what_a_rule_or_folding_joins(rule, example):
+    """Differential, per rule and example: with the cut right at the break inside its
+    example, at the head's end, the tail's start or the text's start, after every kind
+    of gap, neither form of the cut text shows a secret the whole text's form hides."""
     from subfleet.sessions import handoff
-    before, after = RULE_EXAMPLES[rule]
+    before, after = example
     for gap in GAPS:
         piece = before + gap + after + "\n"
         for at in ("head", "tail", "start"):
