@@ -73,7 +73,9 @@ def pytest_configure(config):
     os.environ.setdefault("UV_CACHE_DIR", str(original_home / ".cache" / "uv"))
     os.environ["HOME"] = str(base / "home")
     # An OS shell's child exec has no Python audit event. Bare-name shell/env
-    # delegation therefore lands on a recording fixture for the whole session.
+    # delegation that keeps the session PATH therefore lands on a recording
+    # fixture for the whole session; the exec guard refuses a listed wrapper
+    # whose child PATH reaches a system directory first (C-20.6).
     from tests.keychain_standin import StandIn
     recorder = StandIn(base / "keychain-bin")
     config._subfleet_keychain_standin = recorder
