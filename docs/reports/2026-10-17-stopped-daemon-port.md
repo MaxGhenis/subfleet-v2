@@ -375,7 +375,7 @@ worktree, with no existing changes. The available `origin/release/217` ref
 still names `d72597b5c9e2840c4405038a67366484352dbf5a`, already an ancestor of
 this head. The local `release/217` branch names the older ancestor
 `b053e3de8f2e1aa92dee9a9dc8de24097e37b03f`; no release merge or conflict
-resolution was necessary. No remote was contacted. The acceptance contract's
+resolution was necessary. No Git remote was contacted. The acceptance contract's
 other clauses and historical change-log entries are preserved.
 
 The full `review-r3.md` was unavailable in the checkout and at the named caller
@@ -430,7 +430,7 @@ represents tokens with a virtual next-token time: ps may start when
 from the later of its current value and now. This is equivalent to four stored
 tokens with one token refilled per second; idle time caps at four tokens, and
 inspection time also contributes elapsed refill time. Round 5 moves consumption
-to immediately before ps, after boot reads. Failed observations and
+to immediately before ps, after boot reads. Failed ps reads and
 failure diagnostics use the same bucket. Every verifying send still receives
 a fresh state/identity read; no running verdict is cached. C-15.6's explicit
 hook opt-out remains.
@@ -620,7 +620,7 @@ signalled or cleaned.
 
 Merged the existing local `origin/release/217` ref, `473fe2941`, including
 #222, the `f99da54b0` launch-environment allowlist and later release merges.
-No remote was contacted. Only `docs/acceptance-contract.md` conflicted. Both
+No Git remote was contacted. Only `docs/acceptance-contract.md` conflicted. Both
 sides' complete change-log entries were retained; the two C-17.8 additions
 (stdin bounds and environment diagnostics) now share that clause as separate
 paragraphs. All other clauses from both sides are retained. CLI and doctor
@@ -739,3 +739,12 @@ sessions CLI 142, suggest CLI 7). A subsequent self-review split slot
 availability from token consumption: wait before boot reads, then recheck
 and charge at ps. A new expired-slot regression requires no boot read. The
 final client/CI hold and whole-directory runs below revalidate that addition.
+
+The first required hook/offline/outcome hold produced **241 passed, 6 skipped,
+1 failed** in 145.82 s. The Scripted transport in descriptor review fixes
+set `verify_lock=False` while asserting a fresh dead-holder query after a
+busy/refused retry. Its `_call_once` already bypasses preflight entirely.
+It now retains the default verifying policy so that existing liveness
+assertion remains meaningful; actual opted-out clients keep their C-15.6
+no-inspection behavior. The combined final briefed-file hold rechecks this
+fixture, all six required files, the client/CI cases and state/name checks.
