@@ -477,6 +477,11 @@ def test_daemon_start_check_lists_each_inheriting_env_row_and_reads_only_lanes_j
 
 
 def test_the_parser_gives_daemon_start_its_check():
+    """`subfleet`'s entry point (`compat.dispatch`) hands the flags on unchanged."""
+    from subfleet import compat
+    for flags in (["--check"], ["--check", "--json"]):
+        mapping = compat.translate(["daemon", "start", *flags], {})
+        assert (mapping.disposition, mapping.argv, mapping.notes) == ("map", ["daemon", "start", *flags], [])
     args = cli.build_parser().parse_args(["daemon", "start", "--check"])
     assert (args.handler, args.daemon_command, args.check) == (cli.cmd_daemon, "start", True)
     assert cli.build_parser().parse_args(["daemon", "start"]).check is False
