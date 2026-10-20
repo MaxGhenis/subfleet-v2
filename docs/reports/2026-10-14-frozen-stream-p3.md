@@ -778,4 +778,18 @@ parallel workers are used.
 | `fake/test_state_contract.py` | 37 |
 | `unit/test_test_module_names.py` | 1 |
 
-Validation status: exact-base probe, reset mutation and full unit/fake batches pending.
+The exact reviewed `54db127f14f4` versions of `subfleet/daemon.py` and
+`subfleet/frozen_stream.py` were also temporarily restored for a separate
+regression hold: **41 failed, 1 passed, 315 deselected**, in 21.19 s. Per file:
+`unit/test_frozen_provider_streams.py`: 14 failed;
+`fake/test_frozen_stream_nonregular.py`: 27 failed, 1 passed. This confirms every
+changed-behavior regression against the requested head itself. Both source
+files were restored in `finally` before the next hold.
+
+The review's surviving mutation is now caught. Removing only the completed-check
+`_stream_check_failures.pop(...)` produced **1 failed, 139 deselected**, in 2.79 s:
+the regression observes the stale count of 2 immediately after a completed
+check. Source was restored before full-suite validation. This closes the test
+gap without changing the already-correct reset implementation.
+
+Validation status: full unit/fake batches pending.
