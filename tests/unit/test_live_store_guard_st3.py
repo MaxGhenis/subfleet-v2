@@ -62,7 +62,11 @@ def _within(spelled: str, roots) -> bool:
 
 
 FORBIDDEN = [spelled for root in FORBIDDEN_ROOTS for spelled in _spellings(str(root))]
-OWN = _spellings(str(CHECKOUT))
+# This process's own code: the checkout, and the interpreter and environment
+# running it (a job's .venv also sits in a checkout under ~/.subfleet).
+OWN = [spelled for root in {CHECKOUT, Path(sys.prefix), Path(sys.base_prefix), Path(sys.exec_prefix),
+                            Path(pytest.__file__).parents[1]}
+       for spelled in _spellings(str(root))]
 
 
 # Looking up the checkout's own ancestors is how this process reads its files
@@ -74,8 +78,9 @@ def reaches_live(path, dir_fd=None, api=None) -> bool:
     """Whether a call on `path` reaches a forbidden root, by spelling alone.
 
     The walk checks every prefix, so `root/..` still reaches the root. A path
-    that ends inside this checkout is the test's own, wherever it lives, and
-    so is a metadata lookup of one of the checkout's ancestors.
+    that ends inside this process's own code (the checkout, its interpreter
+    and environment) is the test's own, wherever it lives, and so is a
+    metadata lookup of one of their ancestors.
     """
     if isinstance(path, int) or path is None:
         return False
