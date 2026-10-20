@@ -94,6 +94,27 @@ def pytest_unconfigure(config):
     if base is not None:
         shutil.rmtree(base, ignore_errors=True)
 
+
+def waive_process_rule(patch):
+    """D-ST3's one seam, for a test that means production behaviour.
+
+    Whatever os.environ holds, this process refuses the person's stores,
+    because pytest is loaded in it (`home_paths.pytest_process`). A test of
+    production behaviour (`under_pytest()` returning False, a `test_only`
+    default) waives that rule on `patch`, for as long as `patch` holds. The
+    waiver holds only while HOME is not the account's own: production code
+    reads HOME again at every call, so the account's HOME, or none, keeps the
+    rule. Child processes that load no pytest never had it.
+    """
+    from subfleet import home_paths
+    patch.setattr(home_paths, "_process_rule_waived", lambda: True)
+
+
+@pytest.fixture
+def production_process(monkeypatch):
+    """D-ST3: this test means production behaviour (`waive_process_rule`)."""
+    waive_process_rule(monkeypatch)
+
 #: The instant every fixture-driven assertion is pinned to. Matches `NOW_ISO` in
 #: `tests/fixtures/claude/make_fixtures.py`; all experiment-0 reset epochs are later,
 #: so a "reported" clock is always in the future and a "guessed" one is unambiguous.
