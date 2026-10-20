@@ -1301,3 +1301,168 @@ The round-6 install steps stand. Nothing needs restaging: the guard file, TRUST 
 - the first review's `launch.json` carries `notes.publish_hook_self_test` with `ok: true` (daemon.log: `publish hook self-test … ok=True`);
 - a Codex review's argv carries the three `shell_environment_policy.set.…` overrides;
 - a writable Claude review's argv carries `--setting-sources user` before `--settings`.
+
+## Round 8: release with #222 and after, CI's two failures, and the trust refusal's advice
+
+Round 8 (`brief-fix8.md`) ran as two builds. The first, `20261019-081357-pr221-fix8b`, merged `origin/release/217` (#222, #231) and made five commits, then ended `transient` at 14:03Z on a provider server error while the host was off its network. Its last words were "All 466 pass. Committing the refusal fix, then investigating the 3.12 `test_daemon_connections` failure"; the refusal fix was committed, and the investigation hadn't started. The second, `20261020-024213-pr221-fix8c` (`brief-fix8c.md`), merged release again, checked the first build's work against `brief-fix8.md`, did CI item 2 and ran the tests. Both builds committed on a detached HEAD in their job worktrees, and Subfleet keeps their work under `refs/subfleet-salvage/`. `fix/review-needs-shell-217` was not moved. The shared Git directory was writable, so no workspace-local metadata was needed. Nothing was fetched or pushed.
+
+### Commits
+
+| Commit | Change |
+|---|---|
+| `55e3f9472` | Merge `origin/release/217` at `16b24033a` (#222 D-ENV1, #231 D-SCR1) |
+| `f7e877b38` | Tests first: a review launch's pins pass #222's selection and its guardian; the copy's git selects its environment |
+| `2e7c51add` | `LAUNCH_NAMES` lists `SUBFLEET_PUBLISH_DENIED`; `uncommitted._check_applies` gives git `build_environment({"GIT_INDEX_FILE": …})`, not the daemon's whole environment; C-12.3 and C-12.4 amended |
+| `3260ac89e` | CI item 1: the e2e fake Codex lists and trusts every group the override's `state` trusts; `tests/e2e/conftest.py` puts the session's keychain recorder on PATH before `/usr/sbin`; `test_review_publish_e2e.py` runs a policy review (the shipped default) on both providers |
+| `d2dc1c734` | Tests first: an untrusted publish hook gets its own verdict, reason and advice |
+| `36a89279f` | Preflight kind `publish` with `_PUBLISH_FIX`, mapped to `guard-preflight-publish` with its own refusal template; C-14.2 amended |
+| `94e011600` | Merge `origin/release/217` at `473fe2941` (#235 D-ADM3, #236 relay stop bound, #234 D-KILL2, #226 D-ST1) |
+| this commit | This report section |
+
+### The merges
+
+**First, `55e3f9472`, with `16b24033a`:** four files conflicted, and each kept both sides, as the hub's notes in `brief-fix8.md` said:
+- **`subfleet/daemon.py`:** `_guard_override(..., env=None, env_pass=(), publish_command=None)`. Release's `options["env_pass"] = tuple(env_pass)` stays inside `if env is not None:`, and the publish block follows it. The attempt launch's call site passes `env_pass=credential_env` and `publish_command=(publish_hook(self.root) if publishing_denied(spec) and lane.provider == "codex" else None)`. The probe and conversation-turn call sites pass `env_pass` and no publish hook, since neither is a review.
+- **`subfleet/guard/preflight.py`:** `preflight(..., env=None, env_pass=(), publish_command=None)`. Release's `env_pass` feeds `build_environment` and the preflight's Codex calls; this branch's `publish_command` feeds `override_string` and the hooks/list check. They share no line.
+- **`subfleet/sessions/handoff.py`:** `from ..contracts import DEFAULT_CAPS, SCRUB_MAX_CHARS, Exit`, `from ..launch_env import build_environment`, `from ..policy import resolve_sandbox`, `from ..protocol import POLICY_SANDBOX, SubmitArgs`, `from ..salvage import SalvageError, git_head`; no `Sandbox`.
+- **`docs/acceptance-contract.md`:** C-11.1, C-12.3 and C-12.4 merged by hand; both change logs kept.
+- **`assemble`:** `self._provider_environment.assemble(credential_env)` calls it on the instance, the same way release's own call sites do since release made it an instance method. All five `assemble` calls in `daemon.py` go through `self._provider_environment`, as release's five do; three of them feed the guard override (probe, attempt, conversation turn).
+
+**The contract merge, checked sentence by sentence.** Each clause was split into sentences at the merge base `d72597b5c`, at this branch's `7578a7cf2`, at release's `16b24033a` and at the merge:
+
+| Clause | New sentences, this branch | New sentences, release | Missing from the merge |
+|---|---:|---:|---:|
+| C-11.1 | 7 | 10 | 0 |
+| C-12.3 | 3 | 23 | 0 |
+| C-12.4 | 46 | 4 | 0 |
+
+No sentence that one side removed came back, and none that both sides kept was dropped. `2e7c51add` then amended C-12.3 and C-12.4 to match the merged code (below).
+
+**Second, `94e011600`, with `473fe2941`:** one file conflicted, `docs/acceptance-contract.md`, and only in its change log, where both sides had added entries at the head. Every entry from both sides is kept: this branch's round-7 and round-8 entries first, then release's C-20.6, C-5.5, C-26.4 and C-6.9 to C-6.11 entries. Release's blank line before C-23.14 stays, and no clause body conflicted. `subfleet/daemon.py` and `tests/unit/test_sessions_handoff.py` merged cleanly:
+- release's daemon hunks are D-ADM3's predecessor recheck in the admission pass and D-KILL2's `counted_identities` in the census; neither touches a launch, the guard override or the connection path;
+- release's handoff test hunks are the CPU-scaling ratio constant and its docstring, which don't overlap this branch's sandbox tests.
+
+This branch shares no other non-test file with release's changes since `16b24033a` (`credentials.py`, `relay.py`, the CI workflow, `tools/`). Release's C-20.6 change to the test exec guard (#226) reaches this branch's publish-hook self-test, which runs `/bin/sh -c`. The briefed holds, `tests/e2e/test_review_publish_e2e.py` and the whole `tests/e2e` hold below ran after the merge.
+
+### Round 8's items, checked against the commits
+
+| `brief-fix8.md` item | State | Where |
+|---|---|---|
+| 1. The merge's code resolutions (`_guard_override`, `preflight`, `handoff` imports, `assemble`) | Done | `55e3f9472`; re-read at `94e011600` |
+| 1. C-11.1, C-12.3 and C-12.4 merged with every rule from both; both change logs | Done | `55e3f9472`; the sentence check above |
+| 1. Each merged clause says what the merged code does | Done | `2e7c51add` amended C-12.3 (the copy's git selects) and C-12.4 (the pins are launch additions) |
+| 2. `LAUNCH_NAMES` for this PR's launch-owned names | Done | `2e7c51add`. `SUBFLEET_PUBLISH_DENIED` is the only `SUBFLEET_*` name this PR's source adds (a grep of every added line under `subfleet/` against release) |
+| 2. `GIT_ALLOW_PROTOCOL` and `GIT_CONFIG_PARAMETERS` not withheld | Confirmed, no change needed | Neither matches `CREDENTIAL_PATTERN` or Codex's `KEY`/`SECRET`/`TOKEN` excludes, and neither is ambient (`allowed_name` is false for both), so a parent's value is never selected. They are `Launch.env_add` values, which `build_environment` adds after selection, and the guardian passes every name of the daemon-built environment. `test_review_publish_env_round8.py` asserts all of this for both providers and every review mode |
+| 2. All of `tests/unit/test_launch_env*.py` | Pass | Hold 2 below |
+| 3.1 The e2e harness | Done | `3260ac89e` |
+| 3.1 Other e2e tests that submit reviews | Run | The `tests/e2e` hold below |
+| 3.1 The trust refusal's own advice | Done | `d2dc1c734`, `36a89279f` |
+| 3.2 The 3.12 connections failure | Done here; not this PR's | Below |
+
+### CI item 1: `test_c9_5_a_refused_hard_review_runs_next_on_its_chains_next_model`
+
+**Cause.** The brief put it down to the shipped `review: worktree-write` default. The first build found otherwise: that review is submitted `-s read-only`. Every Codex review launch, read-only included, carries the publish hook as the override's second trusted group (C-12.3, C-14.2). The fake app-server's hooks/list answered with the guard's entry only, so the preflight refused "did not list the review publish hook". CI's text came out as "refused the writable job (trust)" because a publish refusal was then kind `trust`, whose template assumes a writable job.
+
+**Fix.** `3260ac89e` makes `tests/fake/interactive_codex.py` list every group the override's `state` trusts, each enabled and trusted with its own hash, the same way it lists the guard. With trust fixed, the launch then stopped at round 7's publish-hook self-test: its `/bin/sh -c` was refused by D-ST1's exec guard (`KeychainExecRefused`), because the harness's PATH reached a system directory before the session's keychain recorder. `tests/e2e/conftest.py` now puts the recorder first. Only a live test session arms that guard. `tests/e2e/test_review_publish_e2e.py` runs a policy review, the shipped default, on Codex and on Claude, end to end.
+
+**The advice.** `d2dc1c734` and `36a89279f` give an untrusted publish group its own preflight kind, `publish`, and reason, `guard-preflight-publish`. Its template says the never-rules guard verified but Codex did not trust the review's publish hook. Its fix points at the attempt's `guard-preflight.json`, notes that doctor doesn't check this hook, and suggests a Claude model meanwhile. It no longer says "the writable job" or "rerun subfleet doctor". C-14.2 is amended, with its change-log entry.
+
+### CI item 2: `test_c16_7_a_stopping_daemon_does_not_count_its_own_shutdown_as_departures` on 3.12
+
+**This PR doesn't change the connection path.** At `94e011600`, these functions are identical, compared by AST source segment, to `origin/release/217`'s:
+- `serve_forever`, `_hold_connection`, `_read_connection` and `_connection`;
+- `_decode`, `_start_request`, `_respond` and `_run_worker`;
+- `close`, `_descriptor_status`, `_count_connection`, `_refuse`, `_end_stream` and `max_connections`;
+- `LOOKUP_OPS`.
+
+`dispatch` differs in three places:
+- `list`'s rows and `show`'s attempts gain `shell_flags`;
+- `show` gains `uncommitted`;
+- `daemon.status` gains `restricted_runs_24h`, one store query.
+
+`Daemon.__init__` gains `_hook_self_tests`. No pool, executor or reader is added or changed.
+
+**What the test waits for, and why it can time out.** The test does the following, in order:
+1. It replaces the request pool with one worker.
+2. It sends a blocking `readings` request.
+3. It waits until `connections == 1`.
+4. It sends three `daemon.status` requests and waits 5 s for the pool's queue to hold 3.
+
+`connections` is counted in `_hold_connection` when the connection is admitted, before its reader thread starts, let alone reads. So step 3 doesn't mean the blocker's request has reached the worker. If a reader thread the scheduler runs late lets one `daemon.status` reach the single worker first, that request runs, the blocker takes the worker after it, and the queue never again holds 3.
+
+This PR's `daemon.status` change can't cause that. The handler runs only once a request reaches the worker, and a slower handler would make a queue of 3 more likely, not less.
+
+**Reproduced.** A scratch plugin (`-p`, not committed) delayed only the blocker's `readings` by 0.5 s between its read and its pool. Nothing else in the daemon or the test changed. The unchanged test then failed 5 of 5 runs on 3.12, at the same place as CI: `until(lambda: service.requests._work_queue.qsize() == 3)` at `:647`, "condition not reached in time" at `:78`. CI's timing matches too: its call took 5.18 s and its teardown 5.03 s, because the blocker's `release.wait(10)` ran out, its timer never having started.
+
+**Repeated.** 50 runs on Python 3.12.14 in one hold, at load average 48 on 18 CPUs: 50 passed, 1.5 to 2.6 s each (hold 5).
+
+**Verdict:** a race in the test's own ordering, not this PR. The test is unchanged, as the brief says. A fix for whoever owns C-16.7's tests would be to have the `readings` stand-in set an event when it starts, and wait for that event instead of `connections == 1`.
+
+### Tests
+
+**Setup:**
+- Python 3.14.7, GIL build, in `.venv`, and Python 3.12.14 in `.venv312`, both synced `--locked --group dev`, with `PYTHONPATH` unset.
+- One pytest process per hold of the shared suite lock, through the brief's `/usr/bin/lockf -k` command, run with `uv run --no-sync`. pytest runs in-process with a 1,140 s alarm, so each hold stays under 20 minutes.
+- No xdist. `HYPOTHESIS_PROFILE=ci` and `SUBFLEET_LIVE=0`, as CI sets them.
+- The job's `SUBFLEET_JOB`/`SUBFLEET_ATTEMPT` markers are left set, so person-only e2e tests skip.
+- Load averaged 48 to 150 on 18 CPUs. Lock waits ran up to 39 minutes.
+
+**The briefed holds, at `94e011600`:**
+
+| Hold | Python | File | Passed |
+|---|---|---|---:|
+| 1 | 3.14 | `tests/fake/test_review_needs_shell.py` | 23 |
+| 1 | 3.14 | `tests/fake/test_review_launch_permissions.py` | 34 |
+| 1 | 3.14 | `tests/unit/test_review_publish_guard.py` | 135 |
+| 1 | 3.14 | `tests/unit/test_publish_rule_round7.py` | 235 |
+| 2 | 3.14 | `tests/unit/test_launch_env_allowlist.py` | 27 |
+| 2 | 3.14 | `tests/unit/test_launch_env_helpers.py` | 20 |
+| 2 | 3.14 | `tests/unit/test_launch_env_mutations.py` | 41 |
+| 2 | 3.14 | `tests/unit/test_launch_env_policy.py` | 26 |
+| 2 | 3.14 | `tests/unit/test_launch_env_round2.py` | 67 |
+| 2 | 3.14 | `tests/unit/test_launch_env_round3.py` | 67 |
+| 2 | 3.14 | `tests/unit/test_launch_env_round4.py` | 40 |
+| 2 | 3.14 | `tests/unit/test_launch_env_round5.py` | 39 |
+| 2 | 3.14 | `tests/fake/test_daemon_launch.py` (the brief's `tests/unit/` path doesn't exist) | 9 |
+| 2 | 3.14 | `tests/unit/test_handler_refusals.py` | 344 |
+| 3 | 3.14 | `tests/unit/test_hooks.py` | 75 |
+| 3 | 3.14 | `tests/unit/test_hooks_native_guard.py` | 18 |
+| 3 | 3.14 | `tests/unit/test_guard_trust.py` | 105 |
+| 3 | 3.14 | `tests/unit/test_guard_overlay.py` | 22 |
+| 4 | 3.14 | `tests/unit/test_codex_adapter.py` | 172 |
+| 4 | 3.14 | `tests/unit/test_claude_adapter.py` | 172 |
+| 4 | 3.14 | `tests/process/test_claude_isolation.py` | 15 |
+| 5 | 3.12 | `tests/e2e/test_capacity_steer_e2e.py` | 2 |
+| 5 | 3.12 | `tests/unit/test_daemon_connections.py`, with the C-16.7 stopping test run 50 times | 79 (29 + 50) |
+| 6 | 3.14 | `tests/fake/test_state_contract.py` | 37 |
+| 6 | 3.14 | `tests/unit/test_test_module_names.py` | 1 |
+
+None failed or skipped. Hold 6 ran inside the `tests/e2e` hold, to save a lock wait.
+
+**All 19 `tests/e2e` files, on 3.14 (hold 7):** 135 passed and 16 skipped, none failed:
+
+| File | Passed | Skipped |
+|---|---:|---:|
+| `test_capacity_steer_e2e.py` | 2 | |
+| `test_codex_turn_completed_e2e.py` | 3 | |
+| `test_conversation_titles_e2e.py` | 9 | |
+| `test_conversation_wakes_e2e.py` | 4 | |
+| `test_conversations.py` | 29 | 15 |
+| `test_guard_and_isolation.py` | 5 | |
+| `test_http_isolation.py` | 1 | |
+| `test_legacy_cockpit.py` | 1 | |
+| `test_milestone1_codex.py` | 9 | |
+| `test_milestone2_claude.py` | 7 | |
+| `test_notice_job_state.py` | 1 | |
+| `test_recovery.py` | 2 | |
+| `test_reserve.py` | 4 | |
+| `test_review_publish_e2e.py` | 4 | |
+| `test_review_r2_strand_e2e.py` | 2 | |
+| `test_review_r3_strand_timing_e2e.py` | 2 | |
+| `test_stop_bound.py` | 3 | |
+| `test_suggestions_e2e.py` | 1 | 1 |
+| `test_suggestions_r1b_peer_e2e.py` | 8 | |
+
+The 16 skips are person-only requests and marker refusals, which can't come from inside a Subfleet job ("run this test outside Subfleet (CI runs it)"). `test_capacity_steer_e2e.py` passed on both Pythons; CI had failed it on both.
+
+**The demonstration hold** (3.12, the scratch late-blocker plugin): the C-16.7 stopping test failed 5 of 5, as described above. That is the expected result, not a regression.
