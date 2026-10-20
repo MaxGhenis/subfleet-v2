@@ -101,7 +101,22 @@ _LONG_BASE64_RE = re.compile(
 _URL_PASSWORD_RE = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://[^\s/:@]+:)([^\s/@]+)(@)")
 _URL_SCHEME_RE = re.compile(r"[a-z0-9+.-]+", re.IGNORECASE)
 _URL_START_RE = re.compile(r"\b[a-z]", re.IGNORECASE)
-_HEADER_RE = re.compile(r"(?im)^([^\S\n]*(?:authorization|cookie|set-cookie)\s*:\s*).+$")
+#: A header's name: an identifier ending in `authorization` or `cookie` (`Authorization`,
+#: `Proxy-Authorization`, `X-Authorization`, `Cookie`, `Set-Cookie`). One that starts its
+#: line is `_HEADER_RE`'s; any other, before `[ \t]*:`, is an inline header's
+#: (`_scrub_inline_headers`). Either takes a header's value, not a plain one (C-23.14).
+_HEADER_NAME = r"[A-Za-z0-9_-]*(?:authorization|cookie)"
+_HEADER_RE = re.compile(r"(?im)^([^\S\n]*" + _HEADER_NAME + r"\s*:\s*).+$")
+#: The word that ends an inline header's name, and its colon. The name's identifier
+#: starts where `_IDENTIFIER_RE` reads back from the word, on the reversed text.
+_INLINE_HEADER_RE = re.compile(r"(?:authorization|cookie)[ \t]*:", re.IGNORECASE)
+_VISIBLE_RE = re.compile(r"\S")
+#: A key ending in a header word with this after it is a header, not a key with a
+#: plain value.
+_HEADER_WORD_RE = re.compile(r"(?:authorization|cookie)\Z", re.IGNORECASE)
+_HEADER_COLON_RE = re.compile(r"[ \t]*:")
+#: A run of backslashes, matched whole (so no run is searched again from inside it).
+_BACKSLASH_RUN_RE = re.compile(r"\\+")
 _SENSITIVE_WORD = (
     r"(?:api[_-]?key|token|secret|password|passwd|authorization|cookie|"
     r"credential|credentials|private[_-]?key|signing[_-]?key|"
@@ -125,18 +140,15 @@ _ASSIGN_SEPARATOR_RE = re.compile(r"(?:\\*[\"'])?\s*[:=]\s*")
 # A value that opens with a quote, escaped or not, is the quoted rule's.
 _PLAIN_VALUE_RE = re.compile(r"(?!\\*[\"'])[^\s,;\"']+")
 _FLAG_VALUE_RE = re.compile(r"[ \t]+(?P<value>[^\s-][^\s]*)")
-# A `Bearer` token, unless the token would begin with a credential key a named-value
-# rule reads: taken, the key leaves its value to no rule (`token_type: Bearer\n
-# access_token: …`, `scheme=bearer oauth.client_secret=…`, `Bearer --api-key …`,
-# C-23.14). The lookahead refuses token characters up to a sensitive ending followed
-# by an assignment's separator (`_ASSIGN_SEPARATOR_RE`), or up to a flag (`--` and
-# `_SENSITIVE_KEY`, as `_SENSITIVE_FLAG_RE` reads one) followed by its value
-# (`_FLAG_VALUE_RE`). After any token characters, `_SENSITIVE_WORD` already covers
-# the compound keys (`db_password`), as `_SENSITIVE_SUFFIX_RE` does for the
-# assignment rules; `_SENSITIVE_KEY` there would nest its repetition in the lazy one.
-_BEARER_RE = re.compile(
-    r"(?i)\bBearer\s+(?![A-Za-z0-9._~+/-]*?(?:" + _SENSITIVE_WORD + _ASSIGN_SEPARATOR_RE.pattern
-    + r"|--" + _SENSITIVE_KEY + r"[ \t]+[^\s-]))[A-Za-z0-9._~+/-]{8,}=*")
+# A `Bearer` token: the run of token characters after the scheme word. Whether the
+# run is a token or a credential key a named-value rule reads is `_bearer_refusal`'s
+# decision, made once per match in Python: the rule's old lookahead tried every
+# prefix of the run, which at the work bound held the GIL some 25 times as long.
+_BEARER_RE = re.compile(r"(?i)\bBearer\s+([A-Za-z0-9._~+/-]{8,})=*")
+#: What may join a credential word to the token run before it (`…_token`, `….token`).
+_TOKEN_JOINERS = "._~+/-"
+#: `Bearer` ending a value whose token may be on the next line (`_header_redaction`).
+_BEARER_END_RE = re.compile(r"(?i)\bBearer\Z")
 _QUOTE_EVENT_RE = re.compile(r"\\[^\n]|[\"'\r\n]")
 #: A run of backslashes, a quote or a line break: each run is one match.
 _ESCAPE_EVENT_RE = re.compile(r"\\+|[\"'\r\n]")
@@ -383,9 +395,14 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
             if nested and value_start < cursor:
                 continue                        # its value is in the previous replacement
             opening = _VALUE_QUOTE_RE.match(text, value_start) if quoted else None
-            if quoted and opening is None and not (ranges and start < ranges[-1][1] <= value_start):
+            if quoted and opening is None and (not (ranges and start < ranges[-1][1] <= value_start) or (
+                    token.start() >= ranges[-1][1] and _HEADER_WORD_RE.search(key[-13:])
+                    and _HEADER_COLON_RE.match(text, token.end()))):
                 # A plain value is the plain rule's, after this pass, unless its key
-                # is in a quoted match that ends before its value starts.
+                # is in a quoted match that ends before its value starts. A header's
+                # name and colon that the match leaves visible (`…"Cookie: Basic …`,
+                # the match ending at the quote before the name) take a header's value,
+                # the header rules', never a plain one (C-23.14).
                 continue
             if opening is not None:
                 if opening.end() - value_start == 1:
@@ -417,6 +434,18 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
                 if value is None:
                     continue
                 end = value.end()
+                if quoted and _HEADER_WORD_RE.search(key[-13:]) and _HEADER_COLON_RE.match(text, token.end()):
+                    # A header's name inside the quoted match, its value past the
+                    # match: a header's value, to its line's end (C-23.14).
+                    end = text.find("\n", value_start)
+                    end = len(text) if end < 0 else end
+                # A credential flag that ends the value (`api_key=x--password …`)
+                # keeps its own value: the value ends before it (C-23.14).
+                flag = _owning_flag(text, value_start, end)
+                if flag is not None:
+                    if flag == value_start:
+                        continue
+                    end = flag
                 out = text[start:value_start] + REDACTED
         if quoted:
             # A surrounding assignment can end at an inner value's opening
@@ -527,11 +556,15 @@ def _neutral_break(text: str, visible: int, after: int) -> bool:
       (`"password"`, and escaped as `\\'password\\'` or `\\"password\\"`), to
       a `:` or `=` after the break;
     - `Bearer`, to a token character after the break.
-    `_BEARER_RE`'s lookahead, which refuses a token that begins with a key, and the
-    header rule's choice to leave the key that ends its line (`_key_past_line`) read
-    past a break only between a key or its closing quote and its `:` or `=`, or
-    between those and the value, which the first two refuse; a refused `Bearer`
-    still refuses the break after it, which is only more cautious.
+    `_bearer_refusal`, which refuses a token that is a key, and the header rules'
+    choice to leave the key that ends a value (`_key_past_line`) read past a break
+    only between a key or its closing quote and its `:` or `=`, or between those and
+    the value, which the first two refuse; a refused `Bearer` still refuses the break
+    after it, which is only more cautious. Whether a flag owns a value past a match
+    (`_owns_past`) is read from the one character after the flag, on its own line.
+    An inline header's value (`_scrub_inline_headers`) crosses a break only between
+    its colon and the value's first visible character, which the first refuses (its
+    name is a key); otherwise it ends on its line, at a closing quote or the break.
     A quote or separator after anything else, a key followed by anything else,
     and a word ending the text are ordinary. No rule's replacement puts a `:`,
     `=` or token character where the first visible character after a break was
@@ -638,31 +671,69 @@ def _apply_rules(text: str, rules, tally: _Tally) -> str:
 
 
 def _header_value(match: re.Match) -> str:
-    """The header rule's replacement: the rest of the header's line, redacted. A
-    credential key that ends the line, with its value past the line (`Authorization:
-    client_secret=` and the secret on the next line), is left to the named-value
-    rules with what follows it (C-23.14): taken, it would leave its value to no rule.
-    What precedes the key is redacted as before; a header holding only the key is
-    left whole, and those rules read it (the header's own name is a key too). The
-    line's trailing whitespace goes either way, as the redaction always took it, and
-    a space parts the redaction from a key that adjoined what it hid (`x.token=`), so
-    the header's own value ends there and a scrubbed line scrubs to itself."""
-    text, start, end = match.string, match.end(1), match.end()
-    key = _key_past_line(text, start, end)
+    """The line-start header rule's replacement: the rest of the header's line,
+    redacted (`_header_redaction`)."""
+    return _header_redaction(match.string, match.start(), match.end(1), match.end())[0]
+
+
+def _header_redaction(text: str, start: int, value_start: int, end: int, *,
+                      rescan: bool = False) -> tuple[str, int]:
+    """A header's replacement for `text[start:end]`, whose value is
+    `text[value_start:end]`: the value redacted whole. A credential key, flag or
+    `Bearer` that ends the value and owns a value past it (`Authorization:
+    client_secret=` and the secret on the next line; `Cookie: x --password` and the
+    password on the next line, which daemon.log's folded line brings onto the
+    flag's; `sent Authorization: Bearer` and the token on the next line, which the
+    `Bearer` rule reads after the inline rule) is left to its own rule with what
+    follows it (C-23.14): taken, it would leave its value to no rule.
+    What precedes it is redacted as before; a header holding only the key or the
+    flag is left whole, and those rules read it (the header's own name is a key
+    too). The trailing whitespace before `end` goes either way, as the redaction
+    always took it, and a space parts the redaction from a key that adjoined what it
+    hid (`x.token=`, `SECRET7…token=`), so the header's own value ends there and a
+    scrubbed line scrubs to itself.
+
+    Returns the replacement and where in `text` it stops: `end`, or, for the inline
+    rule (`rescan`), the start of a kept key that is a header's name (`…: x
+    Authorization:` and the value on the next line), which that rule then reads as
+    a header of its own. The line-start rule keeps such a key in its replacement,
+    and the inline rule's second scan reads it (`_scrub`)."""
+    last = _last_visible(text, end) + 1
+    key = _key_past_line(text, value_start, end)
+    if key is None and (end == len(text) or text[end] == "\n"):
+        # A quote that closes the value ends a flag's, and a `Bearer`'s: their
+        # values may be past the line only when the value ends there.
+        key = _owning_flag(text, value_start, last)
+        if key is None and (bearer := _BEARER_END_RE.search(text, max(value_start, last - 6), last)):
+            key = bearer.start()
     if key is None:
-        return match.group(1) + REDACTED
-    before, last = _last_visible(text, key) + 1, _last_visible(text, end) + 1
-    if before <= start:
-        return text[match.start():last]
-    return match.group(1) + REDACTED + (text[before:last] if before < key else " " + text[key:last])
+        return text[start:value_start] + REDACTED, end
+    before = _last_visible(text, key) + 1
+    if before <= value_start:
+        return text[start:last], end
+    parted = text[before:key] if before < key else " "
+    if rescan and _header_name_at(text, key):
+        return text[start:value_start] + REDACTED + parted, key
+    return text[start:value_start] + REDACTED + parted + text[key:last], end
+
+
+def _header_name_at(text: str, key: int) -> bool:
+    """Whether the key at `key` (after the quote and backslashes that may open it) is
+    a header's name: an identifier ending in a header word, then `[ \t]*:`."""
+    opening = _VALUE_QUOTE_RE.match(text, key)
+    name = _IDENTIFIER_RE.match(text, opening.end() if opening else key)
+    return (name is not None and _HEADER_WORD_RE.search(text, max(name.start(), name.end() - 13), name.end()) is not None
+            and _HEADER_COLON_RE.match(text, name.end()) is not None)
 
 
 def _key_past_line(text: str, start: int, end: int) -> int | None:
-    """Where the credential key ending `text[start:end]`, a line's rest, begins (its
-    opening quote and the backslashes escaping that included) when its separator
-    (`_ASSIGN_SEPARATOR_RE`) reaches past `end` to a value; None otherwise. Only the
-    line's last identifier can: between it and `end` the separator allows nothing
-    but a quote, whitespace and `:` or `=`."""
+    """Where the credential key ending `text[start:end]`, a value's span, begins when
+    its separator (`_ASSIGN_SEPARATOR_RE`) reaches past `end` to a value; None
+    otherwise. Only the span's last identifier can: between it and `end` the
+    separator allows nothing but a quote, whitespace and `:` or `=`. The key is the
+    identifier's credential word (`_SENSITIVE_SUFFIX_RE`), so a secret glued to it
+    (`sid=SECRET7…token` and `=` on the next line) stays in the redaction; a key that
+    is all one word keeps its opening quote and the backslashes escaping that."""
     at = _last_visible(text, end)
     if at >= start and text[at] in ":=":
         at = _last_visible(text, at)
@@ -675,17 +746,168 @@ def _key_past_line(text: str, start: int, end: int) -> int | None:
     key_end = at + 1
     while at > start and _identifier_char(text[at - 1]):
         at -= 1
-    if not _SENSITIVE_SUFFIX_RE.search(text[max(at, key_end - 17):key_end]):
+    window = max(at, key_end - 17)
+    word = _SENSITIVE_SUFFIX_RE.search(text[window:key_end])
+    if word is None:
         return None
     separator = _ASSIGN_SEPARATOR_RE.match(text, key_end)
     if separator is None or separator.end() <= end or not (
             _PLAIN_VALUE_RE.match(text, separator.end()) or _VALUE_QUOTE_RE.match(text, separator.end())):
         return None
+    if window + word.start() > at:
+        return window + word.start()
     if at > start and text[at - 1] in "\"'":
         at -= 1
         while at > start and text[at - 1] == "\\":
             at -= 1
     return at
+
+
+def _owns_past(text: str, end: int) -> bool:
+    """Whether a credential flag ending at `end` may own a value past its match: a
+    space, tab or line break follows it, or nothing does. The flag rule then takes a
+    value on the flag's line (`_FLAG_VALUE_RE`), and daemon.log's folded line puts the
+    next line's first word there; a closing quote or `,` after the flag owns nothing."""
+    return end == len(text) or text[end].isspace()
+
+
+def _owning_flag(text: str, start: int, end: int) -> int | None:
+    """Where the credential flag (`--` and `_SENSITIVE_KEY`, as the flag rule reads
+    one: the last `--` of the identifier ending at `end`) that ends `text[start:end]`
+    begins, when it may own a value past `end` (`_owns_past`); None otherwise. A rule
+    whose match would take the flag ends its match there instead, so the flag's value
+    is the flag rule's exactly as it would be without that rule (C-23.14)."""
+    if not _owns_past(text, end) or not _SENSITIVE_SUFFIX_RE.search(text, max(start, end - 17), end):
+        return None
+    flag = text.rfind("--", start, end)
+    if (flag < 0 or not _IDENTIFIER_RE.fullmatch(text, flag, end)
+            or not _SENSITIVE_FLAG_RE.fullmatch(text, flag + 2, end)):
+        return None
+    return flag
+
+
+def _bearer_refusal(match: re.Match) -> int | None:
+    """Whether `_BEARER_RE`'s run is a credential key a named-value rule reads
+    rather than a token (C-23.14): it ends in a credential word followed by an
+    assignment's separator (`_ASSIGN_SEPARATOR_RE`: `token_type: Bearer\\n
+    access_token: …`, `scheme=bearer oauth.client_secret=…`), or in a credential flag
+    that may own a value (`_owning_flag`: `Bearer --api-key …`). Taken, the key would
+    leave its value to no rule. Both can end only where the run does, so one look at
+    its end decides what the old lookahead decided by trying every prefix.
+
+    None: the run is a token. Otherwise the end of what the rule still takes: the
+    run before the credential word, its joiners (`_TOKEN_JOINERS`) aside, when that
+    reads as a token itself (`_token_like`: `Bearer SECRET7…_token: …`), or the
+    run's start (`Bearer secrets/db_password: …`), where the rule takes nothing."""
+    text, start, end = match.string, match.start(1), match.end(1)
+    word = _SENSITIVE_SUFFIX_RE.search(text, max(start, end - 17), end)
+    if word is not None and _ASSIGN_SEPARATOR_RE.match(text, end):
+        cut = word.start()
+    elif (flag := _owning_flag(text, start, end)) is not None:
+        cut = flag
+    else:
+        return None
+    while cut > start and text[cut - 1] in _TOKEN_JOINERS:
+        cut -= 1
+    return cut if _token_like(text[start:cut]) else start
+
+
+def _token_like(run: str) -> bool:
+    """Whether the run before a refused `Bearer` key's credential word is a token of
+    its own: at least the eight characters `_BEARER_RE` reads as one, with a letter
+    and a digit, as a secret-looking run has (`_value_runs`). A key's own name before
+    its word (`secrets/db_`, `oauth.`, `service_account_`) is not."""
+    return len(run) >= 8 and _DIGIT_RE.search(run) is not None and _LETTER_RE.search(run) is not None
+
+
+_DIGIT_RE = re.compile(r"[0-9]")
+_LETTER_RE = re.compile(r"[A-Za-z]")
+
+
+def _bearer_value(match: re.Match) -> str:
+    """`_BEARER_RE`'s replacement: `Bearer [REDACTED]`, unless the run is a key
+    (`_bearer_refusal`). A refused run is left as it is, or keeps only its key when
+    the run before the key's word is a token: `Bearer [REDACTED]_token: …`."""
+    cut = _bearer_refusal(match)
+    if cut is None:
+        return "Bearer " + REDACTED
+    if cut == match.start(1):
+        return match.group(0)
+    text = match.string
+    return text[match.start():match.start(1)] + REDACTED + text[cut:match.end()]
+
+
+def _scrub_inline_headers(text: str, tally: "_Tally") -> str:
+    """The inline header rule (C-23.14): a header whose name does not start its line
+    (`curl -H 'Authorization: Basic …'`, `wget --header='Cookie: …'`, a header in log
+    prose, one that `refusals.detail_line` prefixes). Its name is an identifier ending
+    in `authorization` or `cookie`, unquoted, then spaces or tabs and `:`. Its value
+    starts at the first visible character after the colon, on the next line if none
+    follows on its own, and ends at the closing quote matching one that opens right
+    before the name (`_inline_value_end`), or else at its line's end. It is redacted
+    whole and counted as a line-start header's (`_header_redaction`), unless it starts
+    with `[REDACTED]`: a value already redacted is left alone, which keeps scrubbing
+    idempotent and keeps the words daemon.log's folded line puts after a redacted
+    header. Every scan is linear: candidates come in order, each name's identifier is
+    read back once, each gap between two candidates is searched once for the line
+    break and the visible text before a name, and each value once for its closing
+    quote and its line's end."""
+    parts: list[str] = []
+    cursor = scanned = 0
+    line_end = -1
+    escapes: dict[int, int] | None = None
+    reverse: str | None = None
+    for hit in _INLINE_HEADER_RE.finditer(text):
+        start, gap = hit.start(), scanned
+        scanned = hit.end()
+        if start > cursor and _identifier_char(text[start - 1]):
+            if reverse is None:
+                reverse = text[::-1]
+            start = max(cursor, start - (_IDENTIFIER_RE.match(reverse, len(text) - start).end() - (len(text) - start)))
+        # A name that starts its line, after whitespace only, is the line-start rule's
+        # (`_HEADER_RE`): there is a line break in the gap before it, or nothing at all
+        # before it, and nothing visible between that and the name.
+        newline = text.rfind("\n", gap, start)
+        if (newline >= 0 or gap == 0) and _VISIBLE_RE.search(text, newline + 1, start) is None:
+            continue
+        if start < cursor:
+            continue                            # inside the value just taken
+        value_start = _WHITESPACE_RUN_RE.match(text, hit.end()).end()
+        if value_start == len(text) or text.startswith(REDACTED, value_start):
+            continue
+        if line_end < value_start:
+            line_end = text.find("\n", value_start)
+            if line_end < 0:
+                line_end = len(text)
+        end = line_end
+        if start and text[start - 1] in "\"'":
+            if escapes is None:
+                escapes = {run.end(): len(run.group()) for run in _BACKSLASH_RUN_RE.finditer(text)
+                           if text[run.end():run.end() + 1] in ("'", '"')}
+            end = _inline_value_end(text, start - 1, value_start, line_end, escapes)
+        if end <= value_start:
+            continue                            # the value is the closing quote's: empty
+        out, stop = _header_redaction(text, start, value_start, end, rescan=True)
+        parts.extend((text[cursor:start], tally(text[start:stop], out, header=True)))
+        cursor = stop
+    parts.append(text[cursor:])
+    return "".join(parts)
+
+
+def _inline_value_end(text: str, opening: int, value_start: int, line_end: int,
+                      escapes: dict[int, int]) -> int:
+    """Where an inline header's value ends: at the closing quote matching the quote at
+    `opening`, right before the header's name (the same kind of quote, escaped by a
+    run of backslashes of the same length, `escapes` giving each escaped quote's:
+    `-H '…'`, `--header="…"`, JSON's `\\"…\\"`), on the value's line, at the start of
+    its backslashes; otherwise at `line_end`, the line's end."""
+    quote, run = text[opening], escapes.get(opening, 0)
+    at = value_start
+    while (at := text.find(quote, at, line_end)) >= 0:
+        if escapes.get(at, 0) == run:
+            return at - run
+        at += 1
+    return line_end
 
 
 def _resolve_blocks(text: str, strip_reminders: bool, tally: _Tally) -> str:
@@ -713,14 +935,25 @@ def _scrub(text: str, strip_reminders: bool, *, multiline: bool = False) -> tupl
         # quoted values before a token rule can take their key (`Bearer
         # okPASSWORD='…'`), as the whole-text pass above does.
         text = _scrub_named_values(text, tally, quoted=True)
+    # Inline headers first among the token rules: a `[REDACTED]` at the start of
+    # an inline value is then one the text already held, never a JWT or prefixed
+    # token this scrub just replaced with the rest of the value still to hide.
+    text = _scrub_inline_headers(text, tally)
     text = _apply_rules(text, (
         (_JWT_RE, REDACTED),
         (_PREFIXED_TOKEN_RE, REDACTED),
-        (_BEARER_RE, "Bearer " + REDACTED),
+        (_BEARER_RE, _bearer_value),
         (_LONG_BASE64_RE, "[BASE64 OMITTED]"),
-        (_HEADER_RE, _header_value),
-        (_URL_PASSWORD_RE, lambda match: match.group(1) + REDACTED + match.group(3)),
     ), tally)
+    headed = _apply_rules(text, ((_HEADER_RE, _header_value),), tally)
+    if headed != text:
+        # A line-start header may leave a key whose value is past its line, and when
+        # that key is a header's name (`Cookie:` and `Set-Cookie:` on the next line)
+        # the key is now an inline header: it takes a header's value, as it would
+        # without the enclosing header, and as a second scrub would give it.
+        headed = _scrub_inline_headers(headed, tally)
+    text = _apply_rules(headed, ((_URL_PASSWORD_RE, lambda match: match.group(1) + REDACTED + match.group(3)),),
+                        tally)
     text = _scrub_named_values(text, tally, quoted=True, multiline=multiline)
     text = _scrub_named_values(text, tally)
     text = _scrub_named_values(text, tally, flags=True)
