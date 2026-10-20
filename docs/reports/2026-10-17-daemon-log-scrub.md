@@ -1042,7 +1042,7 @@ All runs used a fresh `.venv` (`uv sync --locked --group dev`, Python 3.14.7 wit
 
 ### Not run, round 5
 
-- **The whole suites.** Of `tests/unit`'s 329 files, 26 ran (2,183 cases, all passed: holds 2 and 6); of `tests/fake`'s 106, 4 ran (98 cases, all passed). The other 303 and 102 files did not run. Lock waits ran 20 to 45 minutes a hold at load 30 to 110, and this job's wall left no room for the five or six 20-minute holds the two directories need; round 4 ran them whole at `eb6d9a7b0`'s parent code. What did run is every briefed file, and every other file of the two directories that imports what this round changed (`sessions.handoff`, `daemon_log`, the scrubber) or reads the contract. The scrubber's own functions did not change; `_neutral_break` gained an optional parameter whose default is the old behaviour; `cli.py` changed only `_log_tail` and `cmd_daemon_logs`.
+- **The whole suites.** Of `tests/unit`'s 329 files, 26 ran (2,183 cases, all passed: holds 2 and 6); of `tests/fake`'s 106, 4 ran (98 cases, all passed). The other 303 and 102 files did not run. Lock waits ran 20 to 45 minutes a hold at load 30 to 110, and this job's wall left no room for the five or six 20-minute holds the two directories need; round 4 ran them whole, at `a82bbcfd6` and `d44dc5600`. What did run is every briefed file, and every other file of the two directories that imports what this round changed (`sessions.handoff`, `daemon_log`, the scrubber) or reads the contract. The scrubber's own functions did not change; `_neutral_break` gained an optional parameter whose default is the old behaviour; `cli.py` changed only `_log_tail` and `cmd_daemon_logs`.
 - `tests/e2e`, `tests/frontend` and `tests/process`;
 - Python 3.12;
 - CI, since this job has no network.
