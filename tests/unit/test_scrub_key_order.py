@@ -219,15 +219,19 @@ def test_a_header_never_takes_a_key_whose_value_is_past_its_line(text):
 
 def test_a_header_redacts_what_precedes_the_key_and_counts_each_value():
     """C-23.14 and the count rule (`_Tally`): the header still hides and counts its
-    other values; the key and its value go to the named-value rules."""
+    other values; the key's credential word and its value go to the named-value rules.
+    Only the word is kept (D-SCR2, #231 review P3-1), so a secret glued to it stays
+    hidden; a compound key's own name before its word (`session_`) is redacted with
+    the rest, and one that is itself a word (`client_secret`) is kept whole."""
     assert scrub_secrets("Cookie: a=SECRET7cookaa1; session_token=\nSECRET7cookaa2") == (
-        "Cookie: [REDACTED] session_token=\n[REDACTED]", 2)
+        "Cookie: [REDACTED] token=\n[REDACTED]", 2)
     assert scrub_secrets("Authorization: Basic SECRET7cookaa3 client_secret\n= SECRET7cookaa4") == (
         "Authorization: [REDACTED] client_secret\n= [REDACTED]", 2)
     # A header holding only the key is left to those rules whole: its own name is a
     # key, whose value is the key here, and the line's trailing whitespace goes.
     assert scrub_secrets("Cookie: token:   \nSECRET7cookaa5") == ("Cookie: [REDACTED]\n[REDACTED]", 2)
-    for text in ("Cookie: [REDACTED] session_token=\n[REDACTED]", "Cookie: [REDACTED]\n[REDACTED]"):
+    for text in ("Cookie: [REDACTED] token=\n[REDACTED]", "Authorization: [REDACTED] client_secret\n= [REDACTED]",
+                 "Cookie: [REDACTED]\n[REDACTED]"):
         assert scrub_secrets(text) == (text, 0)
 
 
