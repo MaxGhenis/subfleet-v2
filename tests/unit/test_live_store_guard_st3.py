@@ -470,7 +470,8 @@ NAMES = sorted({*SESSION, "HOME", "PATH", "PYTEST_CURRENT_TEST", PYTEST_MARKER, 
 JUNK = st.one_of(
     st.text(alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters="\x00"), max_size=10),
     st.sampled_from(["", "1", "0", "~", "~/", "~/" + STORES[0], "~/x/../" + STORES[1], "relative/dir",
-                     "/nonexistent/st3", "/", ".", "..", "tests/unit/x.py::test (call)"]))
+                     f"~{PERSONAL.name}/{STORES[2]}", "/nonexistent/st3", "/", ".", "..",
+                     "tests/unit/x.py::test (call)"]))
 GUARDED = {
     **{case.id: case.values[1] for case in RESOLVERS},
     "production-state-root": home_paths.production_state_root,
@@ -510,6 +511,8 @@ def names_an_account_store(path) -> bool:
     match, so it never stats beneath a store.
     """
     text = os.path.expanduser(os.fsdecode(path))
+    if any(_within(folded, OWN) for folded in _spellings(os.path.abspath(text))):
+        return False                     # this process's own code, such as its .venv's scripts
     parts = os.path.abspath(text).split("/")
     personal = os.stat(PERSONAL)
     for index, part in enumerate(parts):
