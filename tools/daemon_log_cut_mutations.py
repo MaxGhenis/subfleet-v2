@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Put each of round 5's fixes back (#233 review r3) and see which named test fails.
+"""Put each of rounds 5's and 6's fixes back (#233 reviews r3 and r4) and see which named test fails.
 
 Each mutation is applied in this process with `pytest.MonkeyPatch`, the named test
 functions are called with their fixtures built here, the outcome is printed, and the
@@ -14,7 +14,17 @@ Mutations:
   `\\s*` backtracking (round 4's `_LEADING_HEADER_RE`);
 - `whole-reminder-search`: the reminder tag searched by its regex over the whole text;
 - `folded-tail`: `daemon start`'s tail folded to one line again (no line keeping);
-- `raw-logs`: `daemon logs` printing daemon.log raw, with and without `--follow`.
+- `raw-logs`: `daemon logs` printing daemon.log raw, with and without `--follow`;
+
+and round 6's (review r4):
+- `tail-not-neutralised`: the tail as at round 5 (`tests/reference_tail_1cf653dff.py`):
+  reminders not resolved before the cut, tags not marked after the scrub;
+- `handler-not-neutralised`: the handler writing the tags its scrub leaves;
+- `body-by-regex`: the tail's data URI body check by round 4's regex again,
+  `_NOT_BODY_RE.search(text, comma + 1, first)` (review r4, P3-3);
+- `unmetered-data-body`: `_DATA_BODY_RE` held where the meter does not see it;
+- `pem-prefix-not-held`: `daemon logs -f` no longer holding a private key's first line
+  still being written.
 """
 from __future__ import annotations
 
@@ -35,7 +45,9 @@ sys.path.insert(0, str(REPO))
 
 from subfleet import cli, daemon_log  # noqa: E402
 from subfleet.sessions import handoff  # noqa: E402
+from tests import reference_tail_1cf653dff as round5  # noqa: E402
 from tests.unit import test_daemon_log_cut_windows as windows  # noqa: E402
+from tests.unit import test_daemon_log_reminders as reminders  # noqa: E402
 from tests.unit import test_daemon_log_tail as tail  # noqa: E402
 
 
@@ -120,9 +132,49 @@ def _raw_logs(patch):
     patch.setattr(cli, "cmd_daemon_logs", raw)
 
 
+def _tail_not_neutralised(patch):
+    patch.setattr(daemon_log, "scrubbed_tail", round5.scrubbed_tail)
+
+
+def _handler_not_neutralised(patch):
+    def format(formatter, record):
+        try:
+            return formatter._scrubbed(record)
+        except Exception as exc:            # noqa: BLE001 - as the formatter's own
+            return daemon_log.failed_line(record, exc)
+    patch.setattr(daemon_log.ScrubbingFormatter, "format", format)
+
+
+def _body_by_regex(patch):
+    patch.setattr(handoff, "_NOT_BODY_RE", re.compile(r"[^A-Za-z0-9+/=\s]"), raising=False)
+    patch.setattr(handoff, "_body_between",
+                  lambda text, start, end: handoff._NOT_BODY_RE.search(text, start, end) is None)
+
+
+class _Unseen:
+    """A pattern the meter does not wrap, as one held outside `handoff`'s names would be."""
+
+    def __init__(self, pattern):
+        self._pattern = pattern
+
+    def __getattr__(self, name):
+        return getattr(self._pattern, name)
+
+
+def _unmetered_data_body(patch):
+    patch.setattr(handoff, "_DATA_BODY_RE", _Unseen(handoff._DATA_BODY_RE))
+
+
+def _pem_prefix_not_held(patch):
+    patch.setattr(handoff, "_PEM_START_PREFIX_RE", re.compile(r"(?!)"))
+
+
 MUTATIONS = {"baseline": lambda patch: None, "whole-margins": _whole_margins,
              "backtracking-header": _backtracking_header, "whole-reminder-search": _whole_reminder_search,
-             "folded-tail": _folded_tail, "raw-logs": _raw_logs}
+             "folded-tail": _folded_tail, "raw-logs": _raw_logs,
+             "tail-not-neutralised": _tail_not_neutralised, "handler-not-neutralised": _handler_not_neutralised,
+             "body-by-regex": _body_by_regex, "unmetered-data-body": _unmetered_data_body,
+             "pem-prefix-not-held": _pem_prefix_not_held}
 
 #: The named tests, each with its arguments beyond its fixtures.
 TESTS = [
@@ -142,6 +194,25 @@ TESTS = [
      tail.test_daemon_logs_prints_an_older_daemon_s_raw_lines_scrubbed, {}),
     ("test_daemon_logs_follow_prints_new_lines_scrubbed",
      tail.test_daemon_logs_follow_prints_new_lines_scrubbed, {}),
+    # round 6
+    ("test_at_16_mib_no_regex_reads_past_the_cut_s_windows[data-uri-body]",
+     windows.test_at_16_mib_no_regex_reads_past_the_cut_s_windows, {"shape": "data-uri-body"}),
+    ("test_the_quote_kinds_cost_a_look_each_and_the_meter_counts_the_body_by_what_it_reads",
+     windows.test_the_quote_kinds_cost_a_look_each_and_the_meter_counts_the_body_by_what_it_reads, {}),
+    ("test_a_tag_on_the_first_line_no_longer_blanks_the_tail[40-orphan-open]",
+     reminders.test_a_tag_on_the_first_line_no_longer_blanks_the_tail, {"form": "orphan-open", "count": 40}),
+    ("test_a_tag_on_the_first_line_no_longer_blanks_the_tail[40-complete-block]",
+     reminders.test_a_tag_on_the_first_line_no_longer_blanks_the_tail, {"form": "complete-block", "count": 40}),
+    ("test_daemon_logs_keeps_its_lines_after_a_tagged_first_line[40-handler-line]",
+     reminders.test_daemon_logs_keeps_its_lines_after_a_tagged_first_line, {"form": "handler-line", "count": 40}),
+    ("test_the_handler_writes_no_reminder_tag[orphan-open]",
+     reminders.test_the_handler_writes_no_reminder_tag, {"form": "orphan-open"}),
+    ("test_an_orphan_tag_reaches_daemon_log_as_the_marker_through_a_real_handler",
+     reminders.test_an_orphan_tag_reaches_daemon_log_as_the_marker_through_a_real_handler, {}),
+    ("test_a_private_key_s_first_line_is_held_until_it_can_no_longer_become_one",
+     reminders.test_a_private_key_s_first_line_is_held_until_it_can_no_longer_become_one, {}),
+    ("test_a_split_first_line_past_the_context_still_hides_its_key",
+     reminders.test_a_split_first_line_past_the_context_still_hides_its_key, {}),
 ]
 
 
