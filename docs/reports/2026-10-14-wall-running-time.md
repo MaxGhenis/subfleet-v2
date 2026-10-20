@@ -1581,3 +1581,592 @@ staged. No history was rewritten and nothing was pushed.
 | `c8eb1cd58` | Test-first approval regressions, decision guards and expanded delivery property |
 | `d5aea7ac9` | Explicit stop flag at all 29 sites, flag-based audit, contract amendment and frame sweep |
 | final report commit (bundle tip) | Complete per-file results, mutation proof and cleanup/local delivery status |
+
+
+## Round 10 — CI regressions in relay access and property collection
+
+**Cutoff status:** both CI regressions pass on Python 3.12 and 3.14 under ci and dev; all 15 briefed files pass (665 unique tests). The already-queued `fake-02` full-directory hold is still pending. No later holds will start after the 11:13:14 UTC cutoff. This snapshot will be updated after the foreground command exits.
+
+Assigned head: `1cd756767910`, the hub's merge of release #222, #231 and
+#235. Local `release/217=b053e3de8` is already included, but the tracking
+ref `origin/release/217=473fe2941` adds #226, #234 and #236. My initial check
+incorrectly treated both refs as ancestors; an explicit ancestry check
+caught the tracking ref before full-suite validation. The tracking ref was
+merged locally, retaining the hub's `_run_worker` dispatch wrapper
+and `peer` keyword for kill. The two contract conflicts were resolved by
+retaining both change logs and combining release's bounded shutdown wording
+with the per-send clock interface in C-26.4. No Git remote was contacted.
+The shared Git index rejects writes, so commits use workspace-local
+`.git-local` metadata on `fix/wall-counts-running-time-217`; the original
+`.git` pointer and caller checkout are untouched.
+
+### Causes and fixes
+
+Round 8 installed a stop-delivery clock by reading and setting
+`self.relay.before_send` in `TurnRunner._transmit`. That violates rule 6,
+which restricts runner access to relay assignment and the `status`, `send`
+and `close` calls, and breaks a slotted relay when stop auditing is active.
+`send` now accepts an optional per-call `before_send` callback. The runner
+commits the stop intent first, then passes its clock through that call;
+the real client invokes it after encoding, cap validation and connection
+setup, immediately before `sendall`. Every relay stand-in accepts and either
+invokes or forwards it. No callback remains on the client, and status or
+later frames cannot inherit it. Pre-transmission oversize or connection
+failures take no delivery clock. The round-8 receipt/stop ordering and
+conservative pending-intent semantics are unchanged. C-26.4 and its
+change-log entry now state this interface and timing boundary explicitly.
+
+The round-9 wall property lazily imported `approval_reply` from
+`test_wall_stop_deliveries` inside a generated example. Importing that module
+also evaluated the other property's `@given` decorator in an active
+Hypothesis context, causing `FailedHealthCheck(nested_given)`. Collection
+of both files together can hide the bug. The helper now lives in
+`tests/wall_delivery.py`, which has no property decorators, and both test
+modules import it at collection time. Its function AST and the wall
+property's settings and strategies are unchanged. The property still has
+one `@given`, 60 bounded examples, the same invariants, and the same mix of
+kill-protocol signals, relay interrupt/signal/close frames, and both
+providers' approval replies. No nesting health check was suppressed.
+
+### Test-first evidence and execution
+
+Before changing production code, one foreground locked Python 3.12 hold
+ran the two CI regressions, the audited three-call title relay, and six new
+client timing cases: **9 failed in 10.86 seconds**. The trace identifies the
+lazy import and the stop-delivery property's decorator. The timing cases
+cover write/signal/close, failed connection, local oversize refusal, and
+callback isolation from status and later sends. The audited title case
+requires intent, clock, acknowledgement recording in that order while
+using the same slotted relay.
+
+After the interface fix, the first briefed hold passed **286 tests**:
+conversation titles 89, turn runner 77, relay 20, conversation service 100.
+The first isolated regression hold then passed **23 tests** on Python 3.12
+with the ci profile and seed 314159, without collecting the stop-delivery
+property module.
+
+All pytest invocations use a separate foreground `/usr/bin/lockf -k`
+hold of `/private/tmp/claude-501/subfleet-suites.lock`, with no lock timeout,
+one pytest process and one worker. `SUBFLEET_RETENTION_DORMANT` and the
+inherited installed-release `PYTHONPATH` are unset. The default uv cache is
+not writable, so both interpreter environments, the fallback cache,
+Hypothesis storage and JUnit evidence are in task scratch. Standalone
+profile checks use a scratch plugin that registers the same bounded ci/dev
+profiles as `test_admission_stateful.py`, selected explicitly with
+`--hypothesis-profile`; ci checks also pass `--hypothesis-seed=314159`.
+The deep profile is never run.
+
+### Validation results
+
+All results below are from merged head `9f18c7eea` (or its documentation-only successor).
+The earlier pre-merge holds passed 286 unit tests, 154 wall/notice tests, 177 driver tests and 38 state/module-name tests. Each of the four earlier interpreter/profile regression holds also passed 23 tests, including all six new clock cases. Final holds combine the three regression checks with the required file groups to reduce lock waits.
+
+| Final hold | Python / profile | Seed | Passed | Skipped | Failed / errors |
+| --- | --- | --- | ---: | ---: | ---: |
+| `final-brief-unit` | 3.12.14 / ci | 314159 | 297 | 0 | 0 / 0 |
+| `final-brief-fake` | 3.12.14 / dev | unseeded | 156 | 0 | 0 / 0 |
+| `final-brief-drivers` | 3.14.7 / ci | 314159 | 180 | 0 | 0 / 0 |
+| `final-brief-state` | 3.14.7 / dev | unseeded | 41 | 0 | 0 / 0 |
+
+The CI-profile unit/driver holds collect the wall property without the stop-delivery test module; collection cannot hide its nested-decorator regression. All three core checks are counted separately below.
+
+| Python / profile | Core checks passed | Skipped | Failed / errors |
+| --- | ---: | ---: | ---: |
+| 3.12 / ci | 3 | 0 | 0 / 0 |
+| 3.12 / dev | 3 | 0 | 0 / 0 |
+| 3.14 / ci | 3 | 0 | 0 / 0 |
+| 3.14 / dev | 3 | 0 | 0 / 0 |
+
+### Briefed files: counts per file
+
+Counts use each required file's full final hold; the extra selected regression nodes in other holds are not added again.
+
+| File | Passed | Skipped | Failed / errors |
+| --- | ---: | ---: | ---: |
+| `tests/unit/test_conversation_titles.py` | 89 | 0 | 0 / 0 |
+| `tests/unit/test_turn_runner.py` | 77 | 0 | 0 / 0 |
+| `tests/unit/test_relay.py` | 30 | 0 | 0 / 0 |
+| `tests/unit/test_conversation_service.py` | 100 | 0 | 0 / 0 |
+| `tests/fake/test_wall_running_time.py` | 35 | 0 | 0 / 0 |
+| `tests/fake/test_wall_inspection_order.py` | 18 | 0 | 0 / 0 |
+| `tests/fake/test_wall_cancel_races.py` | 30 | 0 | 0 / 0 |
+| `tests/fake/test_wall_stop_deliveries.py` | 25 | 0 | 0 / 0 |
+| `tests/fake/test_review_r223_wall_probes.py` | 23 | 0 | 0 / 0 |
+| `tests/fake/test_notice_header.py` | 23 | 0 | 0 / 0 |
+| `tests/unit/test_claude_turn.py` | 69 | 0 | 0 / 0 |
+| `tests/unit/test_codex_turn.py` | 67 | 0 | 0 / 0 |
+| `tests/unit/test_codex_turn_completed.py` | 41 | 0 | 0 / 0 |
+| `tests/fake/test_state_contract.py` | 37 | 0 | 0 / 0 |
+| `tests/unit/test_test_module_names.py` | 1 | 0 | 0 / 0 |
+
+### Full unit and fake directory rerun
+
+The full-directory rerun uses Python 3.12, one pytest process/worker per foreground lock hold. It starts after all four final briefed groups pass. The runner stops starting holds at 11:13:14 UTC, a conservative 4h30 cutoff measured from the workspace timestamp (06:43:14 UTC); an already queued/active hold is allowed to finish. Lock waits count toward the job wall.
+
+| Directory | Files run / total | Passed | Skipped | Failed / errors | Files not completed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `tests/unit` | 0 / 326 | 0 | 0 | 0 / 0 | 326 |
+| `tests/fake` | 0 / 112 | 0 | 0 | 0 / 0 | 112 |
+
+Completed full-directory holds: none.
+At this snapshot, **34** files are pending in the queued hold and **404** later files are unrun. They are explicitly marked in the inventory below; earlier briefed-file results are retained above. Full directories on Python 3.14, frontend/process/end-to-end suites, and real providers were not run.
+
+<details>
+<summary>Every unit/fake test file: final full-directory counts and unrun status</summary>
+
+| File | Passed | Skipped | Failed / errors | Status |
+| --- | ---: | ---: | ---: | --- |
+| `tests/fake/test_admission_disk.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_admission_held_waiters.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_admission_latency.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_admission_lease_waiters.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_admission_liveness.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_admission_priority.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_admission_properties.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_admission_ramp.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_admission_ramp_retention.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_admission_route_isolation.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_admission_stateful.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_admission_visibility.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_batch_label.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_canonical_identity.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_canonical_identity_fix2.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_canonical_identity_fix3.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_canonical_identity_fix4.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_canonical_identity_fix5.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_capacity_steer_daemon.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_capacity_wait_backoff.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_census_escapers_daemon.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_census_recycled_pid_daemon.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_codex_ca_bundle_fake.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_codex_turn_completed_fake.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_conversation_pools.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_conversation_wakes_fake.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_crash_matrix.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_daemon_contract.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_daemon_descriptors.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_daemon_launch.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_daemon_stacks.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_descriptor_exhaustion.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_detached_cwd_pins.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_detached_retention_fence.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_enrollment_guardian.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_fake_provider.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_finalization_replay.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_folder_spelling.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_frozen_stream_nonregular.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_gate_end_to_end.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_identity_rollback.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_idle_cost.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_interactive_claude_titles.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_interactive_steer.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_lane_fault.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_lane_pilot.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_lanes_enroll.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_lanes_reenroll.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_lanes_reenroll_keychain.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_launch_env_daemon.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_launch_env_providers.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_launch_gates_above_stdio.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_lost_acknowledgement.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_main_refusal_write_dir.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_mcp_job_contract.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_native_maintenance_startup.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_notice_delivery.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_notice_header.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_picker_native.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_policy_sandbox.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_probe_cancel.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_probe_recovery.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_probe_turn.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_prompt_seam.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_provider_active_cap_fake.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_provider_cap_review_evidence.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_provider_qos.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_record_secrecy.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_request_routing.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_reserve_authorization.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_reserve_authorization_validation.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_reset_credit_incident.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_resume_cli.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_resume_contract.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_retention_dormant.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_retry_for_good_refusals.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_review130_ab.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_review_r185_adversarial.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_review_r223_wall_probes.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_route_view.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_routing_end_to_end.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_routing_tier_preferences.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_salvage_adversarial.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_salvage_finalization.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_sessions_end_to_end.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_state_contract.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_state_fixture_processes.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_status_payload.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_suggestions_fake.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_tier_hold_by_demand.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_timers_busy_admission.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_timers_end_to_end.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_turn_listing.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_turn_retention_cwd.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_turn_retention_cwd_properties.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_turn_retention_job_directory.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_turn_retention_job_properties.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_turn_retention_quarantine.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_turn_trees.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_turn_wait_reasons.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_unadmittable_pin_admission.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_unadmittable_pin_rereview.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_unadmittable_pin_review.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_wall_cancel_races.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_wall_inspection_order.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_wall_running_time.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_wall_stop_deliveries.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_workspace_contract.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_workspace_enospc.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_workspace_transient.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_writable_fanout.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/fake/test_writer_retention_fence.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_admission_uncapped.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_agent_secret_credentials.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_app_cutover_daemon.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_approval_commit.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_approval_resolution.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_boot_identity.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_capacity_desktop.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_capacity_steer_mutations.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_capacity_steer_route.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_capacity_view.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_census_counted.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_census_identity_uncertainty.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_census_procargs.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_census_recycled_pid.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_census_responsibility_failures.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_census_responsibility_identity.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_census_responsibility_races.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_census_survivors_review.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_ci_retry_known_flakes.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_ci_shard_plugin.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_claude_adapter.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_claude_attest.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_claude_cards.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_claude_cards_wiring.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_claude_conversation_mcp_scope.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_claude_identity.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_claude_large_stream.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_claude_mcp.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_claude_mcp_launch.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_claude_stream.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_claude_synthetic_error.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_claude_turn.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_claude_usage.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_claude_v1_parity.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_cli.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_cli_batch.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_cli_turns.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_codex_adapter.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_codex_ca_bundle.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_codex_ca_bundle_provider.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_codex_probe.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_codex_shim.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_codex_turn.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_codex_turn_completed.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_compat.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_continuation_r2.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_conversation_catalog.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_conversation_catalog_lifecycle.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_conversation_connections.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_conversation_diff.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_conversation_fifo_reads.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_conversation_handoff.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_conversation_handoff_briefs.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_conversation_handoff_dispatch_races.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_conversation_history.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_conversation_peers_attachments.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_conversation_reconcile.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_conversation_redact.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_conversation_service.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_conversation_state_reads.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_conversation_status.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_conversation_steer_service.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_conversation_store.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_conversation_stream_assertion.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_conversation_titles.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_conversation_waits.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_conversation_wakes.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_cpu_scaling.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_daemon_accept.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_daemon_connections.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_daemon_fifo_reads.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_daemon_init_release.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_daemon_inspection_load.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_daemon_inspection_properties.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_daemon_integration.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_daemon_log_scrubbing.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_daemon_qos_tools.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_daemon_refusals_cli.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_daemon_settle.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_daemon_verbs.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_decision_horizon.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_descriptor_review_fixes.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_descriptors.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_descriptors_desktop.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_desktop_account_cache.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_desktop_in_use.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_desktop_ledger.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_disk_admission.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_disk_floor.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_doctor.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_doctor_ca_bundle.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_doctor_identity.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_empty_provider_results.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_enrollment_runner.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_fake_codex_http.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_filesystem_identity_agreement.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_folders.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_forget_paced.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_fresh_until.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_frozen_provider_streams.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_gate_admission.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_gate_merge.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_gate_replay.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_gate_revision.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_gate_service.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_gate_verdict.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_guard_overlay.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_guard_trust.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_guardian.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_guardian_qos.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_handler_refusals.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_held_waiter_holdback.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_hidden_environment.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_hook_cost.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_hooks.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_hooks_native_guard.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_host_push.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_host_push_admission.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_host_push_build.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_host_push_build_budget.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_host_push_cli.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_host_push_config_cost.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_host_push_copy.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_host_push_export.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_host_push_intake.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_host_push_metadata.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_host_push_mutations.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_host_push_names.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_host_push_quarantine_restart.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_host_push_restart.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_host_push_retention.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_host_push_storage_recovery.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_host_push_storage_retry_budget.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_host_push_store_completion_pr183.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_host_push_store_interleavings.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_host_push_trees.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_host_push_validated_top.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_importer.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_inspection_pacing_properties.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_invariants_index.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_keychain_exec_guard_properties.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_lane_answers.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_lanes_transfer.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_launch_env_allowlist.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_launch_env_helpers.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_launch_env_mutations.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_launch_env_policy.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_launch_env_round2.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_launch_env_round3.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_launch_env_round4.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_launch_env_round5.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_lease_waiter_selection.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_legacy_hold.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_limit_from_model_text.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_live_store_guard.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_live_store_guard_round10.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_live_store_guard_round10_mutations.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_live_store_guard_round3.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_live_store_guard_round4.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_live_store_guard_round5.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_live_store_guard_round6.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_live_store_guard_round7.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_live_store_guard_round7_mutations.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_live_store_guard_round8.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_live_store_guard_round8_mutations.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_live_store_guard_round9.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_live_store_guard_round9_mutations.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_live_store_guard_state_root.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_lockwatch.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_mcp_cli_contract.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_mcp_scheduler_contract.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_mirror_flags_faults.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_mirror_flags_model.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_mirror_flags_stateful.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_native_operations.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_notice_rendering.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_notify_push.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_offline.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_operator_hold_closures.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_operator_notices.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_outcome_unknown.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_person_boundary.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_person_boundary_identity.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_picker.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_placement_ramp.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_policy.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_policy_disk.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_policy_ramp.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_policy_support.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_policy_tier_preferences.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_pr124_fixes.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_pr124_review_r2_fixes.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_pr192_review_r1.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_pr192_review_r2.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_procs.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_protocol_secrecy.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_provider_active_cap.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_prune_217.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_prune_decision_backup_verification.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_prune_decision_fingerprints.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_prune_decisions.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_prune_restore.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_quota_projection.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_rank_review_report.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_reap_liveness.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_rediscovery_git_trace.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_relay.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_render.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_render_quota_projection.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_reserve_authorization_plumbing.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_reset_credit_claim_timing.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_reset_credit_demand.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_reset_credit_properties.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_reset_credit_review_r1.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_reset_credit_review_r2.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_reset_credit_review_r3.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_reset_credit_review_r3_mutants.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_resource_identity.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_retention_81_notes.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_retention_archive.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_retention_archive_properties.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_retention_case_alias.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_retention_nested_leases.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_retention_ordinary_trees.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_retention_qos.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_retention_readback.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_retention_rediscovery.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_retention_regenerable.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_retention_regenerable_properties.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_retention_salvage_properties.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_retention_shared_folders.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_retention_sweep_race.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_retention_turn_contract.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_retention_turn_workdirs.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_retention_turns.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_retention_worktrees.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_review130_pass.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_review_pr127_fixes.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_review_pr127_history.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_review_pr127_pr_wakes.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_review_pr127_report.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_review_pr127_requests.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_review_pr127_service.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_review_r223_conv_probes.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_review_r2_repro.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_review_r3_measure.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_review_r3_repro.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_review_r4_repro.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_review_r5_repro.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_review_r6_probes.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_review_r6_restart.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_round10_refusal_context.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_route_check.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_salvage.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_salvage_optional_transient.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_salvage_unindexable.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_scheduler.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_scheduler_priority_callers.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_scheduler_split.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_scheduler_tier_preferences.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_scheduler_turns.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_scheduler_weekly.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_scoped_stream_capacity.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_scrub_key_order.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_sessions_cli.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_sessions_handoff.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_sessions_handoff_excerpts.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_sessions_headless_properties.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_sessions_mirror.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_sessions_mirror_cache_coherence.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_sessions_mirror_fifo.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_sessions_mirror_hot_health.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_sessions_mirror_hot_progress.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_sessions_mirror_hot_regressions.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_sessions_mirror_inventory.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_sessions_mirror_load_gap.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_sessions_mirror_safety.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_sessions_mirror_write_churn.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_sessions_nudge.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_sessions_registry.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_sessions_revive.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_sessions_revive_reads.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_sessions_transcripts.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_settle_properties.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_soak_tools.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_status_json.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_steer_invariants.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_stop_alarm.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_stop_watchdog.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_store_contention_queries.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_store_ids.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_store_migration_2.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_store_properties.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_store_readers.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_store_snapshot_plans.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_suggest_cli.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_suggest_hint.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_suggestion_error_boundaries.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_suggestion_properties.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_suggestion_secret_properties.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_suggestion_structural_errors.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_suggestions.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_suggestions_r1b_adversarial.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_suggestions_r3_channels.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_suggestions_review_boundaries.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_suggestions_review_multiline.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_suggestions_review_response.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_test_module_names.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_tick_prefilter.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_timers_alerts.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_timers_busy_read.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_timers_daemon.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_timers_keepalive.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_timers_probe.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_timers_reset_credits.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_timers_retention.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_title_review_regressions.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_turn_attachment_replay.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_turn_overlap.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_turn_replay.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_turn_runner.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_ultracode_effort.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_unadmittable_pin.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_wait_hub.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_wake_cli.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+| `tests/unit/test_weekly_rank_vs_base.py` | — | — | 0 / 0 | unrun in full-directory rerun |
+
+</details>
+
+### Cleanup and local delivery
+
+The foreground runner and its queued lockf command are still active. Task scratch and both environments remain available until that command exits; cleanup and the final offline bundle will then be completed. The caller checkout, original `.git` pointer and shared Git index are untouched. No logs, JSON evidence or bundles were staged, no history was rewritten, and nothing was pushed.
+
+### Commits
+
+| Commit | Coherent step |
+| --- | --- |
+| `1ffcd8f87` | Test-first clock interface and audited slotted-relay regressions |
+| `85c8f0ed8` | Per-send clock interface, every stand-in and C-26.4 amendment |
+| `e8510c7e3` | Decorator-free shared approval builder; remove nested property import |
+| `9f18c7eea` | Merge release #226/#234/#236; retain both logs and both C-26.4 requirements |
+| this cutoff-status commit | Final validation matrix, per-file inventory and cleanup/local-delivery status |
