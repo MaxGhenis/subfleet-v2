@@ -1279,14 +1279,59 @@ capability shape. The view probe hosts the actual conversation view in
 windows never ordered front. `tests/unit/test_launch_env_round3.py` carries
 the local-name classification regression.
 
+
 ### Validation status
 
-Validation is in progress. Final per-file and per-directory counts, build
-results, unrun cases, cleanup and transfer details will replace this status.
-Every pytest invocation is foreground, serial, under its own exact
-`/usr/bin/lockf -k /private/tmp/claude-501/subfleet-suites.lock` hold. The
-bounded CI Hypothesis profile is used; `PYTHONPATH` and
-`SUBFLEET_RETENTION_DORMANT` are unset. The default uv cache was probed and
-refused writes, so each hold uses and removes an owned scratch cache. Probe
-precompilation uses the existing exact-source cache outside the suite lock,
-in one foreground runner with three compiler slots, all children awaited.
+Completed checkpoint: **442 passed, no failures or skips** across the 15
+required registry, routing, refresh, state-contract, module-name and launch-
+environment files. Their per-file counts follow. The complete frontend,
+unit and fake runs remain pending at this checkpoint.
+
+The development app build passed with `sh app/build.sh --dev build/fix6-app`,
+including plist validation and ad hoc signing. It was not launched. This
+repository builds its Swift app with `app/build.sh`; it has no SwiftPM
+`Package.swift` manifest.
+
+The first implementation regression run finished in 18m55s with five passes
+and one search-probe assertion failure. Search expanded, but only five
+native Withdraw controls were materialized, so an assertion requiring six
+was too broad. The refined real-view probe verifies the visible row's actual
+`message.cancel` identity, `queued5`, and erases hosting generics. It compiled
+successfully; its new assertions await the frontend run. The engine's four
+regressions and the real catch-up scroll regression passed in that first
+run. The extracted tray content's explicit return was corrected in
+`558f84c53` before that run completed.
+
+Ten model probes, eleven normal view probes, the four mutation probes and
+the refined real-view probe have been prepared outside the suite lock for
+the final sources. Fixture-generated sources remain the real tests' own
+compiles. Preparatory errors from the earlier missing return and an omitted
+fixture-only access extension are excluded from final test counts.
+
+Every pytest invocation is foreground and uses its own exact
+`/usr/bin/lockf -k /private/tmp/claude-501/subfleet-suites.lock` hold. Invocations
+are serial; the broad frontend run uses four workers. The bounded CI
+Hypothesis profile is used, with `PYTHONPATH` and
+`SUBFLEET_RETENTION_DORMANT` unset. The default uv cache refused writes;
+owned scratch caches are removed after each hold. Precompilation used
+foreground runners with all children awaited. Final directory totals,
+remaining per-file counts, cleanup and transfer details will replace this
+checkpoint.
+
+| File | Passed | Failed | Errors | Skipped |
+| --- | ---: | ---: | ---: | ---: |
+| `tests/fake/test_state_contract.py` | 37 | 0 | 0 | 0 |
+| `tests/unit/test_capacity_steer_route.py` | 22 | 0 | 0 | 0 |
+| `tests/unit/test_conversation_refresh.py` | 2 | 0 | 0 | 0 |
+| `tests/unit/test_launch_env_allowlist.py` | 27 | 0 | 0 | 0 |
+| `tests/unit/test_launch_env_helpers.py` | 20 | 0 | 0 | 0 |
+| `tests/unit/test_launch_env_mutations.py` | 41 | 0 | 0 | 0 |
+| `tests/unit/test_launch_env_policy.py` | 26 | 0 | 0 | 0 |
+| `tests/unit/test_launch_env_round2.py` | 67 | 0 | 0 | 0 |
+| `tests/unit/test_launch_env_round3.py` | 68 | 0 | 0 | 0 |
+| `tests/unit/test_launch_env_round4.py` | 40 | 0 | 0 | 0 |
+| `tests/unit/test_launch_env_round5.py` | 39 | 0 | 0 | 0 |
+| `tests/unit/test_protocol_registry.py` | 4 | 0 | 0 | 0 |
+| `tests/unit/test_route_check.py` | 24 | 0 | 0 | 0 |
+| `tests/unit/test_sessions_registry.py` | 24 | 0 | 0 | 0 |
+| `tests/unit/test_test_module_names.py` | 1 | 0 | 0 | 0 |
