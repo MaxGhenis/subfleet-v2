@@ -24,12 +24,16 @@ and round 6's (review r4):
   `_NOT_BODY_RE.search(text, comma + 1, first)` (review r4, P3-3);
 - `unmetered-data-body`: `_DATA_BODY_RE` held where the meter does not see it;
 - `pem-prefix-not-held`: `daemon logs -f` no longer holding a private key's first line
-  still being written.
+  still being written;
+- `tail-unmarked-after-scrub`: the tail resolving reminders before its cut, but not
+  marking the tags its scrub leaves (a log short enough to be scrubbed whole);
+- `follow-not-neutralised`: `daemon logs -f` writing the tags its scrub leaves.
 """
 from __future__ import annotations
 
 import contextlib
 import io
+import logging
 import os
 import re
 import shutil
@@ -169,12 +173,47 @@ def _pem_prefix_not_held(patch):
     patch.setattr(handoff, "_PEM_START_PREFIX_RE", re.compile(r"(?!)"))
 
 
+def _tail_unmarked_after_scrub(patch):
+    def unmarked(text, count):              # `scrubbed_tail` without its last `neutralised`
+        if count <= 0:
+            return []
+        try:
+            group = daemon_log._GROUP_MARK in text
+            if len(text) > daemon_log._tail_limit(text, count):
+                resolved = daemon_log._reminders_resolved(text)
+                if resolved is not None:
+                    text = resolved
+            cut = handoff.cut_whole(text, daemon_log._tail_limit(text, count))
+            return daemon_log.scrubbed_block(cut, group=group, keep_lines=True).splitlines()[-count:]
+        except Exception as exc:            # noqa: BLE001 - as the tail's own
+            return [daemon_log.failed_line(daemon_log._record("", logging.INFO), exc)]
+    patch.setattr(daemon_log, "scrubbed_tail", unmarked)
+
+
+def _follow_not_neutralised(patch):
+    def write(follower, end):               # `LogFollower._write` without `neutralised`
+        written, follower.pending = follower.pending[:end], follower.pending[end:]
+        try:
+            own = daemon_log.scrubbed_block(written, group=daemon_log._GROUP_MARK in written, keep_lines=True)
+            if follower.context:
+                around = follower.context + written
+                shown = daemon_log.scrubbed_block(around, group=daemon_log._GROUP_MARK in around, keep_lines=True)
+                own = daemon_log._only(own, set(daemon_log._RUN.findall(shown)) | {"|", "+"})
+            lines = own.splitlines()
+        except Exception as exc:            # noqa: BLE001 - as the follower's own
+            lines = [daemon_log.failed_line(daemon_log._record("", logging.INFO), exc)]
+        follower.context = daemon_log._context_of(follower.context + written)
+        return lines
+    patch.setattr(daemon_log.LogFollower, "_write", write)
+
+
 MUTATIONS = {"baseline": lambda patch: None, "whole-margins": _whole_margins,
              "backtracking-header": _backtracking_header, "whole-reminder-search": _whole_reminder_search,
              "folded-tail": _folded_tail, "raw-logs": _raw_logs,
              "tail-not-neutralised": _tail_not_neutralised, "handler-not-neutralised": _handler_not_neutralised,
              "body-by-regex": _body_by_regex, "unmetered-data-body": _unmetered_data_body,
-             "pem-prefix-not-held": _pem_prefix_not_held}
+             "pem-prefix-not-held": _pem_prefix_not_held, "tail-unmarked-after-scrub": _tail_unmarked_after_scrub,
+             "follow-not-neutralised": _follow_not_neutralised}
 
 #: The named tests, each with its arguments beyond its fixtures.
 TESTS = [
@@ -213,6 +252,10 @@ TESTS = [
      reminders.test_a_private_key_s_first_line_is_held_until_it_can_no_longer_become_one, {}),
     ("test_a_split_first_line_past_the_context_still_hides_its_key",
      reminders.test_a_split_first_line_past_the_context_still_hides_its_key, {}),
+    ("test_a_log_too_short_to_cut_shows_each_tag_as_the_marker[orphan-open]",
+     reminders.test_a_log_too_short_to_cut_shows_each_tag_as_the_marker, {"form": "orphan-open"}),
+    ("test_daemon_logs_follow_holds_a_split_first_line",
+     reminders.test_daemon_logs_follow_holds_a_split_first_line, {}),
 ]
 
 

@@ -130,6 +130,20 @@ def test_a_tag_among_the_last_lines_is_its_marker_and_a_whole_reminder_is_stripp
 
 
 @pytest.mark.parametrize("form", sorted(TAG_FORMS))
+def test_a_log_too_short_to_cut_shows_each_tag_as_the_marker(form, root, capsys):
+    """A log short enough that the tail scrubs it whole is not resolved before a cut: the
+    scrub strips a whole reminder, and every tag it leaves is marked after the scrub (round
+    5 showed an orphan tag as it was). `daemon logs` prints the same lines."""
+    text = admissions(3) + f"before {TAG_FORMS[form]} after\n" + admissions(2, 3)
+    assert len(text) < daemon_log.RECORD_SCRUB_MAX
+    tail = daemon_log.scrubbed_tail(text, 40)
+    assert len(tail) == 6 and tail[3] == f"before {SHOWN[form]} after" and not tags(tail)
+    (root / "daemon.log").write_text(text)
+    assert cli.main(["daemon", "logs", "-n", "40"]) == 0
+    assert capsys.readouterr().out.splitlines() == tail
+
+
+@pytest.mark.parametrize("form", sorted(TAG_FORMS))
 def test_the_handler_writes_no_reminder_tag(form):
     """Review r4, P3-2: the handler wrote an orphan tag through. Every tag its scrub leaves
     is now the marker, so daemon.log this daemon writes holds none; a whole reminder is
