@@ -47,7 +47,7 @@ from .contracts import (
     RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, RETENTION_REMOTE_LESS_HISTORY_BYTES, TURN_RETENTION_KEEP_DAYS,
     TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
 )
-from . import folders
+from . import folders, procs
 from .retention_holders import ScanFailed, lsof_holders
 from .store import Store
 
@@ -819,6 +819,23 @@ class _Pass:
             self.errors.append({"job_id": job_id, "error": str(exc)})
             protected.add(job_id)
             return None
+        # An observer may have no attempt marker or lineage at all. Hold the
+        # owned worktree before renaming it; an in-place directory is never ours.
+        if worktree is not None:
+            try:
+                cwd_pids = procs.worktree_cwd_pids(worktree)
+            except (procs.InspectionError, OSError):
+                reason = "worktree cwd inspection unavailable"
+                self.progress["holder_scan_failed"] = True
+            else:
+                reason = "; ".join(f"pid {pid}: cwd in worktree" for pid in sorted(cwd_pids))
+                if reason:
+                    reason = "busy: " + reason
+            if reason:
+                protected.add(job_id)
+                self.progress["deferred"][job_id] = reason
+                self.state.defer(job_id, rarch.DEFER_BUSY_S, reason, self.clock())
+                return None
         holder = f"retention:{job_id}"
         keys = [f"retire:{job_id}"] + ([folders.exclusive_key(folder)] if folder is not None else [])
         with self.store.transaction("retention.selected", job_id=job_id) as conn:
@@ -882,9 +899,18 @@ class _Pass:
         if not wanted:
             return
         try:
-            watches = {job_id: r.watch(inodes=second) for job_id, r in wanted.items()}
-            busy = self.holders(watches, cancel=self.cancel)
-        except ScanFailed as exc:
+            # Recheck the moved owned tree too, including a resumed retirement.
+            # A cwd hold needs no lsof and never includes its command strings.
+            busy = {}
+            for job_id, retirement in wanted.items():
+                if retirement.journal.get("worktree"):
+                    pids = procs.worktree_cwd_pids(retirement.q_worktree)
+                    if pids:
+                        busy[job_id] = [f"pid {pid}: cwd in worktree" for pid in sorted(pids)]
+            watches = {job_id: r.watch(inodes=second) for job_id, r in wanted.items() if job_id not in busy}
+            if watches:
+                busy.update(self.holders(watches, cancel=self.cancel))
+        except (ScanFailed, procs.InspectionError) as exc:
             if self.cancel is not None and self.cancel.is_set():
                 raise rarch.Interrupted("cancelled") from exc
             self.progress["holder_scan_failed"] = True

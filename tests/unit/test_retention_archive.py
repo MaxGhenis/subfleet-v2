@@ -1502,11 +1502,15 @@ def test_byte_copy_path_when_clones_are_unavailable(world, monkeypatch):
 
 @pytest.mark.real_lsof
 @pytest.mark.skipif(not os.access("/usr/sbin/lsof", os.X_OK), reason="needs lsof")
-def test_real_lsof_sees_a_process_whose_cwd_is_in_the_tree(world):
+def test_real_lsof_sees_a_process_whose_cwd_is_in_the_tree(world, monkeypatch):
     """E3: after the rename into quarantine, lsof still names the holder."""
     w = world
     wt = w.job("job-cwd")
-    holder = subprocess.Popen(["/bin/sleep", "600"], cwd=wt)
+    from subfleet import procs
+    # Exercise the existing lsof path after the rename. The independent native
+    # pre-move hold is covered by test_retention_worktree_cwd.py.
+    monkeypatch.setattr(procs, "worktree_cwd_pids", lambda *a: frozenset())
+    holder = subprocess.Popen(["/bin/sleep", "600"], cwd=wt, start_new_session=True)
     try:
         result = retention.maintenance(w.store, w.root, max_jobs=0, max_bytes=0)
         assert result["pruned"] == [] and "busy" in result["deferred"]["job-cwd"], result

@@ -358,6 +358,19 @@ def test_d_kill3_inspection_records_walk_members_without_signal_authority(daemon
     assert len(daemon.store.list_events(JOB)) == len(events)
 
 
+@pytest.mark.parametrize("seed_key", ["owned_identities", "responsible_identities", "counted_identities"])
+@pytest.mark.parametrize("recycled", [False, True], ids=["matching", "recycled"])
+def test_d_kill3_inspection_walks_recorded_survivors_but_not_recycled_seeds(daemon, seed_key, recycled):
+    known = {"pid": 4401, "boot_id": "boot", "proc_start": STARTED}
+    daemon.store.update_attempt(ATTEMPT, evidence_json=json.dumps({seed_key: {"4401": known}}))
+    table = table_showing((4242, 1, 4242, "Ss"), (4401, 1, 4401, "S"), (4402, 4401, 4402, "S"))
+    if recycled:
+        table.rows[4401] = (1, 4401, "S", "Sun Sep  6 11:00:00 2026")
+    daemon._record_owned(attempt(daemon), table)
+    counted = json.loads(attempt(daemon)["evidence_json"]).get("counted_identities", {})
+    assert ("4402" in counted) is not recycled
+
+
 def test_c5_12_a_shared_table_never_pronounces_death(daemon, monkeypatch):
     """C-5.12, C-4.2 a guardian the table does not show is asked about afresh; alive there, it stays running."""
     with_launch(daemon, monkeypatch)

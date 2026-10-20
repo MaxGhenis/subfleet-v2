@@ -125,6 +125,9 @@ def test_recorded_setsid_survivor_is_individually_signalled(monkeypatch, child_r
     signalled, quarantined, saved = [], [], {}
 
     class Store:
+        def get_job(self, job_id):
+            return None
+
         @contextmanager
         def transaction(self, *args, **kwargs):
             yield self

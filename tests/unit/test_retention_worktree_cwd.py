@@ -98,3 +98,28 @@ def test_d_kill3_cwd_holds_only_owned_attempts_and_never_becomes_a_walk_seed(dae
         assert not evidence.get("owned_identities") and not evidence.get("counted_identities")
         assert child.poll() is None
     assert daemon._contain(attempt(daemon)).verified_empty
+
+
+def test_d_kill3_failed_cwd_read_never_verifies_containment(daemon, monkeypatch):
+    from tests.unit.test_daemon_settle import JOB, attempt
+    worktree = daemon.root / "worktrees" / JOB
+    worktree.mkdir(parents=True)
+    daemon.store.update_job(JOB, sandbox="workspace-write", worktree=str(worktree))
+    monkeypatch.setattr(procs, "containment", lambda *a, **k: procs.Containment())
+    def failed():
+        raise procs.InspectionError("process listing unavailable")
+    monkeypatch.setattr(procs.kernel, "pids", failed)
+    census = daemon._contain(attempt(daemon))
+    assert census.unverifiable and not census.verified_empty
+    assert census.errors == ("worktree cwd inspection unavailable",)
+
+
+def test_d_kill3_failed_cwd_read_keeps_retention_before_rename(owned, monkeypatch):
+    store, root, _, worktree = owned
+    def failed():
+        raise procs.InspectionError("process listing unavailable")
+    monkeypatch.setattr(procs.kernel, "pids", failed)
+    result = retention.maintenance(store, root, max_jobs=0, holders=lambda *a, **k: {})
+    assert result["pruned"] == [] and result["holder_scan_failed"]
+    assert result["deferred"]["job"] == "worktree cwd inspection unavailable"
+    assert worktree.exists()

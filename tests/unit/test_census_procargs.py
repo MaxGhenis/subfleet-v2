@@ -395,6 +395,9 @@ class Store:
     def get_attempt(self, attempt_id):
         return dict(self.row)
 
+    def get_job(self, job_id):
+        return None  # These census-only fixtures have no allocated worktree.
+
 
 def core_for(row) -> SimpleNamespace:
     return SimpleNamespace(root=Path("/fixture/state"), store=Store(row), _read_json=lambda path: None)

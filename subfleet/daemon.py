@@ -7894,6 +7894,18 @@ class Daemon:
                     a["evidence_json"] = json.dumps(current)
                     tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
                                (a["evidence_json"], a["attempt_id"]))
+        # D-KILL3: cwd is a hold, never attribution. Do not persist an observer
+        # in counted/owned identities: leaving the worktree must release its hold.
+        if a.get("attempt_id"):
+            from .retention_archive import owned_worktree
+            job = self.store.get_job(a["job_id"])
+            try:
+                worktree = owned_worktree(job, self.root.resolve()) if job else None
+                if worktree is not None:
+                    census = dataclasses.replace(census, cwd_pids=procs.worktree_cwd_pids(worktree))
+            except (procs.InspectionError, OSError, ValueError):
+                census = dataclasses.replace(census, unverifiable=True,
+                                             errors=(*census.errors, "worktree cwd inspection unavailable"))
         return census
 
     @staticmethod
@@ -7976,28 +7988,52 @@ class Daemon:
             self._table_lock.release()
 
     def _record_owned(self, a: dict, table: procs.ProcessTable) -> None:
-        """C-5.6: remember the group's members while the recorded guardian leads it.
+        """C-5.6, C-5.12: remember group ownership and walk containment evidence.
 
-        Both facts come from the one table, so the leader is known to be ours at
-        the instant its members were listed. Only group members are recorded,
-        which is why the marker scan of a full census is not run here. The
-        leader is ours by C-5.3's rule, the one `same_process` applies before
-        the kill protocol records members, so a legacy boot timestamp that
-        matches counts.
+        All observations use this shared table while the recorded guardian
+        leads the group. Only group members gain ownership. Walk members outside
+        it are kept as counted identities, so self-exit or a turn interrupt
+        cannot erase a hidden-marker runner before finalization's first census.
         """
         guardian = a["guardian_pid"]
         if (not table.is_process(guardian, a["boot_id"], a["proc_start"], legacy=True)
                 or table.rows[guardian][1] != a["pgid"]):
             return
-        members = {pid: table.identity(pid) for pid in table.group(a["pgid"])}
         evidence = json.loads(a["evidence_json"] or "{}")
-        before = dict(evidence.get("owned_identities", {}))
-        owned = dict(before)
-        owned.update({str(pid): dataclasses.asdict(ident) for pid, ident in members.items() if ident})
-        if owned != before:
-            evidence["owned_identities"] = owned
-            with self.store.transaction("attempt.processes_recorded", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
-                tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?", (json.dumps(evidence), a["attempt_id"]))
+        members = {pid: table.identity(pid) for pid in table.group(a["pgid"])}
+        owned = dict(evidence.get("owned_identities", {}))
+        fresh_owned = {str(pid): dataclasses.asdict(ident) for pid, ident in members.items()
+                       if ident and owned.get(str(pid)) != dataclasses.asdict(ident)}
+        owned.update(fresh_owned)
+        roots = {guardian}
+        for kept in (owned, evidence.get("responsible_identities", {}), evidence.get("counted_identities", {})):
+            for pid_text, known in kept.items():
+                pid = int(pid_text)
+                row = table.rows.get(pid)
+                if ((not table.live(pid) and (row is None or row[3] == known.get("proc_start")))
+                        or table.is_process(pid, known.get("boot_id"), known.get("proc_start"), legacy=True)):
+                    roots.add(pid)
+        counted = {}
+        for pid in table.descendants(roots) - members.keys():
+            ident = table.identity(pid)
+            if ident is None:
+                continue
+            value = dataclasses.asdict(ident)
+            if all(kept.get(str(pid)) != value for kept in
+                   (owned, evidence.get("responsible_identities", {}), evidence.get("counted_identities", {}))):
+                counted[str(pid)] = value
+        for key, kind, found in (("owned_identities", "attempt.processes_recorded", fresh_owned),
+                                  ("counted_identities", "attempt.counted_recorded", counted)):
+            if not found:
+                continue
+            with self.store.transaction(kind, job_id=a["job_id"], attempt_id=a["attempt_id"],
+                                        data={"pids": sorted(map(int, found))}) as tx:
+                actual = self.store.get_attempt(a["attempt_id"]) or a
+                current = json.loads(actual.get("evidence_json") or "{}")
+                current[key] = {**current.get(key, {}), **found}
+                a["evidence_json"] = json.dumps(current)
+                tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
+                           (a["evidence_json"], a["attempt_id"]))
 
     def _unlaunched(self, a: dict, detail: str, *, deferred: SalvageError | None = None) -> None:
         """An attempt that ended before its provider could run: `failed`, or
