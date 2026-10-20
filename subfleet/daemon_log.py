@@ -403,12 +403,26 @@ class LogFollower:
     is written next. They are then written in the block form with their lines kept, each
     run only where the same lines scrubbed after `FOLLOW_CONTEXT` characters of what was
     already written show it too. Held text past `FOLLOW_HOLD_MAX` is written as it is,
-    scrubbed so; `flush` writes what is held when following stops."""
+    scrubbed so; `flush` writes what is held when following stops.
+
+    `before` is the file as following starts. Its last lines that are not settled yet
+    are held too: what the caller prints of `before` ends at `settled`."""
 
     def __init__(self, before: str):
         complete = before.rfind("\n") + 1
-        self.context = _context_of(before[:complete])
-        self.pending = before[complete:]
+        start = max(0, complete - FOLLOW_CONTEXT - FOLLOW_HOLD_MAX)
+        if start:
+            newline = before.find("\n", start - 1, complete)
+            start = complete if newline < 0 else newline + 1
+        try:
+            settled = start + settled_end(before[start:complete], 0)
+        except Exception:                   # noqa: BLE001 - unsettled, so held to the bound
+            settled = start
+        if complete - settled > FOLLOW_HOLD_MAX:
+            settled = complete              # held past the bound: printed as it is
+        self.settled = settled
+        self.context = _context_of(before[:settled])
+        self.pending = before[settled:]
 
     def feed(self, text: str) -> list[str]:
         """The lines to write once `text` is appended to the file."""
@@ -437,7 +451,8 @@ class LogFollower:
             if self.context:
                 around = self.context + written
                 shown = scrubbed_block(around, group=_GROUP_MARK in around, keep_lines=True)
-                own = _only(own, set(_RUN.findall(shown)))
+                # A margin's mark alone is no value; `shown` may be written without margins.
+                own = _only(own, set(_RUN.findall(shown)) | {"|", "+"})
             lines = own.splitlines()
         except Exception as exc:            # noqa: BLE001 - the marker alone, never the text
             lines = [failed_line(_record("", logging.INFO), exc)]

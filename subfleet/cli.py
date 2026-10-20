@@ -2824,10 +2824,10 @@ def cmd_daemon_logs(args: argparse.Namespace) -> int:
             for line in daemon_log.scrubbed_tail(text, args.lines):
                 out(line)
             return int(Exit.OK)
-        # Following: a last line not yet ended is the follower's to hold.
-        for line in daemon_log.scrubbed_tail(text[:text.rfind("\n") + 1], args.lines):
-            out(line)
+        # Following: the last lines not settled yet are the follower's to hold.
         follower = daemon_log.LogFollower(text)
+        for line in daemon_log.scrubbed_tail(text[:follower.settled], args.lines):
+            out(line)
         try:
             while True:
                 more = stream.read()
