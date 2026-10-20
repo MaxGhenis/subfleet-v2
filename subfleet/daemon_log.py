@@ -13,9 +13,12 @@ The daemon's handler (`ScrubbingStreamHandler`) formats every record through
 Before either, a record's text (its line, traceback and stack together) is cut
 to `RECORD_SCRUB_MAX` characters, keeping whole lines of each part's head and
 tail with a marker, at line breaks no match of the whole-text scrub crosses,
-folded or not (`handoff.cut_whole`, whose work does not grow with the text). So
-one record is scrubbed in tens of milliseconds, however long it is; and it is
-formatted before the handler's lock is taken, so only its write holds the lock.
+folded or not (`handoff.cut_whole`). Every regex the cut runs reads within its
+two windows; past them it reads only in C scans, a few passes over the text
+(counted: `test_daemon_log_cut_windows`), so a cut costs a small multiple of
+what the same length of plain text costs, on every shape measured (C-25.7 gives
+the ratios), and the scrub reads at most `RECORD_SCRUB_MAX` characters. A record
+is formatted before the handler's lock is taken, so only its write holds the lock.
 A one-line message whose cut keeps only the marker is written as the marker
 with the record's level and logger, never its words.
 
@@ -46,7 +49,12 @@ warning (`warnings.showwarning`), and a record no handler took
 (`logging.lastResort`). What the daemon says there itself outside a logger (a
 start refused for its policy or a held lock, a retired alias's note) goes
 through it as well (`write_scrubbed`), and so does what the CLI prints of the
-same text (`scrubbed`: `daemon start`'s refusal and its tail of daemon.log).
+same text (`scrubbed`: `daemon start`'s refusal). What a person reads of
+daemon.log, `daemon start`'s tail and `daemon logs`, is the file scrubbed as a
+record is, its lines kept (`scrubbed_tail`); with `--follow`, each new line is
+held until no match can cross the break after it, then written so
+(`LogFollower`). The file is never rewritten, so it may hold what a daemon before
+D-LOG1 wrote raw.
 faulthandler stays as it is. It writes each frame's file, line number and
 function name only, never an exception's message, a local or a source line
 (CPython's `Python/traceback.c`, `dump_frame`); on Python 3.14, an all-threads
@@ -64,13 +72,13 @@ import warnings
 from typing import Any, Callable
 
 from . import refusals
-from .sessions.handoff import REDACTED, cut_marker, cut_whole, scrub_secrets
+from .sessions.handoff import REDACTED, cut_marker, cut_whole, scrub_secrets, settled_end
 
 #: What a record that cannot be scrubbed is written as (C-25.7).
 SCRUB_FAILED = "[scrub failed]"
 #: The most of one record's text (its line, traceback and stack together) the
 #: handler scrubs (C-25.7). Longer text is cut first (`handoff.cut_whole`), whose
-#: work is bounded whatever the text's length.
+#: regexes read only its windows, and whose C scans past them are a few passes.
 RECORD_SCRUB_MAX = 16_384
 #: What logging's report of a record it could not write becomes.
 WRITE_FAILED = "[log write failed]"
@@ -98,18 +106,22 @@ _GROUP_MARGIN_LINE = re.compile(r"(?m)^(?:  )+[|+](?: |$)")
 _RUN = re.compile(r"\S+")
 
 
-def scrubbed_block(text: str, *, group: bool = False) -> str:
+def scrubbed_block(text: str, *, group: bool = False, keep_lines: bool = False) -> str:
     """`text` for daemon.log in the block form: its lines kept, scrubbed whole
     (C-23.14). When folding it to one line would let the scrubber find more, the
     folded, rescrubbed text is written instead, so that folded, the block is
-    always the line form's text before the cut. An exception group's traceback
+    always the line form's text before the cut; with `keep_lines`, for a person
+    reading daemon.log (`scrubbed_tail`, `LogFollower`), the lines are kept then
+    too and each whitespace-free run is written only where the folded rescrub
+    shows it, else `[REDACTED]` (`_kept_block`). An exception group's traceback
     hides at least what its members' plain tracebacks hide (`_group_block`): a
     text is read as one when `group` says so (the handler decides on the uncut
     record, whose cut may keep no separator: review r2 of #233), when it holds a
     group's separator, or when any of its lines starts with a group's margin."""
-    block = _plain_block(text)
+    plain = _kept_block if keep_lines else _plain_block
+    block = plain(text)
     if group or _GROUP_SEPARATOR.search(text) or _GROUP_MARGIN_LINE.search(text):
-        return _group_block(text, block)
+        return _group_block(text, block, plain)
     return block
 
 
@@ -120,7 +132,18 @@ def _plain_block(text: str) -> str:
     return clean.rstrip("\r\n") if again == folded else again
 
 
-def _group_block(text: str, block: str) -> str:
+def _kept_block(text: str) -> str:
+    """`_plain_block`, its lines kept where folding lets the scrubber find more: each
+    run of the block is written only if the folded, rescrubbed text holds it too
+    (review r3 of #233, P3-3: `daemon start`'s tail had become one folded line)."""
+    clean, _ = scrub_secrets(text, strip_reminders=True, whole=True)
+    folded = " ".join(clean.split())
+    again, _ = scrub_secrets(folded, strip_reminders=True, whole=True)
+    block = clean.rstrip("\r\n")
+    return block if again == folded else _only(block, set(_RUN.findall(again)))
+
+
+def _group_block(text: str, block: str, plain: Callable[[str], str] | None = None) -> str:
     """An exception group's traceback, `block` being its block form as written.
 
     Python writes a margin (`    | `) before each line of a group's members. A value
@@ -133,10 +156,11 @@ def _group_block(text: str, block: str) -> str:
     multi-line value, `Bearer` and its token), the lines no longer pair up and the
     margin-free text is written whole, without margins, by the same rule. Either
     way nothing is written that `block` hides, so the block never shows what the
-    line form hides, nor what the plain traceback hides."""
+    line form hides, nor what the plain traceback hides. `plain` scrubs the
+    margin-free text as `block` was scrubbed (`_plain_block`, or `_kept_block`)."""
     lines = text.rstrip("\r\n").split("\n")
     margins = [match.group() if (match := _GROUP_MARGIN.match(line)) else "" for line in lines]
-    bare = _plain_block("\n".join(line[len(margin):] for line, margin in zip(lines, margins))).split("\n")
+    bare = (plain or _plain_block)("\n".join(line[len(margin):] for line, margin in zip(lines, margins))).split("\n")
     kept = block.split("\n")
     if len(bare) == len(kept) == len(lines):
         return "\n".join(margin + _only(line, set(_RUN.findall(within)))
@@ -323,6 +347,102 @@ def write_scrubbed(text: str, level: int = logging.ERROR) -> None:
     outside a logger: a start refused for its policy or a held lock, a retired
     alias's note (C-25.7, C-11.1). Never raises."""
     _report(_StderrHandler(), level, lambda: text, None, "a line is left out")
+
+
+def _tail_start(text: str, count: int) -> int:
+    """Where `text`'s last `count` lines start (0 when it has no more)."""
+    at = len(text) - 1 if text.endswith("\n") else len(text)
+    for _ in range(count):
+        at = text.rfind("\n", 0, at)
+        if at < 0:
+            return 0
+    return at + 1
+
+
+def scrubbed_tail(text: str, count: int) -> list[str]:
+    """The last `count` lines of `text`, a daemon.log, for a person's terminal (C-25.7:
+    `daemon start`'s tail, `daemon logs`): the text scrubbed as the daemon's handler
+    scrubs a record of it, cut first (`cut_whole`) to `RECORD_SCRUB_MAX` or, for more
+    lines than its tail holds, to twice what they hold and `RECORD_SCRUB_MAX` more,
+    then in the block form with its lines kept (`scrubbed_block(..., keep_lines=True)`),
+    then its last `count` lines. Whoever wrote the file, an earlier daemon included,
+    no line shows a value the handler's own forms would hide. Never raises: what
+    cannot be scrubbed is the fixed `[scrub failed]` line."""
+    if count <= 0:
+        return []
+    try:
+        limit = max(RECORD_SCRUB_MAX, 2 * (len(text) - _tail_start(text, count)) + RECORD_SCRUB_MAX)
+        block = scrubbed_block(cut_whole(text, limit), group=_GROUP_MARK in text, keep_lines=True)
+        return block.splitlines()[-count:]
+    except Exception as exc:                # noqa: BLE001 - the marker alone, never the text
+        return [failed_line(_record("", logging.INFO), exc)]
+
+
+#: The most text `daemon logs --follow` holds back while no break in it is settled
+#: (C-25.7): past it, what it holds is written, scrubbed as it is.
+FOLLOW_HOLD_MAX = RECORD_SCRUB_MAX
+#: How much of what it has written `daemon logs --follow` scrubs new lines beside.
+FOLLOW_CONTEXT = RECORD_SCRUB_MAX // 2
+
+
+def _context_of(text: str) -> str:
+    """The last `FOLLOW_CONTEXT` characters of `text` at most, from a line start."""
+    if len(text) <= FOLLOW_CONTEXT:
+        return text
+    newline = text.find("\n", len(text) - FOLLOW_CONTEXT - 1)
+    return "" if newline < 0 else text[newline + 1:]
+
+
+class LogFollower:
+    """daemon.log's new text, as `daemon logs --follow` writes it (C-25.7).
+
+    Lines arrive as the daemon writes them, so a key, a flag or `Bearer` may end a line
+    whose value the next one starts, and a quoted value, a private key or a data URI
+    may not have ended yet. Whole lines are held until a break after them is settled
+    (`handoff.settled_end`): no match of the whole-text scrub could cross it, whatever
+    is written next. They are then written in the block form with their lines kept, each
+    run only where the same lines scrubbed after `FOLLOW_CONTEXT` characters of what was
+    already written show it too. Held text past `FOLLOW_HOLD_MAX` is written as it is,
+    scrubbed so; `flush` writes what is held when following stops."""
+
+    def __init__(self, before: str):
+        complete = before.rfind("\n") + 1
+        self.context = _context_of(before[:complete])
+        self.pending = before[complete:]
+
+    def feed(self, text: str) -> list[str]:
+        """The lines to write once `text` is appended to the file."""
+        self.pending += text
+        complete = self.pending.rfind("\n") + 1
+        if not complete:
+            return []
+        try:
+            settled = settled_end(self.context + self.pending[:complete], len(self.context)) - len(self.context)
+        except Exception:                   # noqa: BLE001 - unsettled, so held to the bound
+            settled = 0
+        if not settled:
+            if complete <= FOLLOW_HOLD_MAX:
+                return []
+            settled = complete              # held past the bound: written as it is
+        return self._write(settled)
+
+    def flush(self) -> list[str]:
+        """What is held, written when following stops: nothing more can come to it."""
+        return self._write(len(self.pending)) if self.pending else []
+
+    def _write(self, end: int) -> list[str]:
+        written, self.pending = self.pending[:end], self.pending[end:]
+        try:
+            own = scrubbed_block(written, group=_GROUP_MARK in written, keep_lines=True)
+            if self.context:
+                around = self.context + written
+                shown = scrubbed_block(around, group=_GROUP_MARK in around, keep_lines=True)
+                own = _only(own, set(_RUN.findall(shown)))
+            lines = own.splitlines()
+        except Exception as exc:            # noqa: BLE001 - the marker alone, never the text
+            lines = [failed_line(_record("", logging.INFO), exc)]
+        self.context = _context_of(self.context + written)
+        return lines
 
 
 def install_process_hooks() -> Callable[[], None]:
