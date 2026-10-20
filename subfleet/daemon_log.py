@@ -20,7 +20,9 @@ what the same length of plain text costs, on every shape measured (C-25.7 gives
 the ratios), and the scrub reads at most `RECORD_SCRUB_MAX` characters. A record
 is formatted before the handler's lock is taken, so only its write holds the lock.
 A one-line message whose cut keeps only the marker is written as the marker
-with the record's level and logger, never its words.
+with the record's level and logger, never its words. No reminder tag is written:
+the scrub strips each reminder whose two tags a record holds, and every tag left
+(an orphan, in any case or fold) is written as `REMINDER_MARK` (`neutralised`).
 
 The two forms agree. Folded, a block is exactly the line form's text before
 its cut: `scrubbed_block` writes the folded, rescrubbed text in place of the
@@ -51,10 +53,13 @@ start refused for its policy or a held lock, a retired alias's note) goes
 through it as well (`write_scrubbed`), and so does what the CLI prints of the
 same text (`scrubbed`: `daemon start`'s refusal). What a person reads of
 daemon.log, `daemon start`'s tail and `daemon logs`, is the file scrubbed as a
-record is, its lines kept (`scrubbed_tail`); with `--follow`, each new line is
-held until no match can cross the break after it, then written so
+record is, its lines kept, with no reminder tag (`scrubbed_tail`): a file long
+enough to be cut is read with its reminders resolved first (`_reminders_resolved`:
+each reminder the whole-text scrub strips taken out, every other tag marked), so
+one tag no longer leaves the tail only the cut's marker. With `--follow`, each new
+line is held until no match can cross the break after it, then written so
 (`LogFollower`). The file is never rewritten, so it may hold what a daemon before
-D-LOG1 wrote raw.
+D-LOG1, or before round 6 of #233, wrote: raw values, and tags.
 faulthandler stays as it is. It writes each frame's file, line number and
 function name only, never an exception's message, a local or a source line
 (CPython's `Python/traceback.c`, `dump_frame`); on Python 3.14, an all-threads
@@ -72,7 +77,8 @@ import warnings
 from typing import Any, Callable
 
 from . import refusals
-from .sessions.handoff import REDACTED, cut_marker, cut_whole, scrub_secrets, settled_end
+from .sessions.handoff import (REDACTED, cut_marker, cut_whole, quoted_value_mask, reminder_tags,
+                                scrub_secrets, settled_end)
 
 #: What a record that cannot be scrubbed is written as (C-25.7).
 SCRUB_FAILED = "[scrub failed]"
@@ -82,6 +88,12 @@ SCRUB_FAILED = "[scrub failed]"
 RECORD_SCRUB_MAX = 16_384
 #: What logging's report of a record it could not write becomes.
 WRITE_FAILED = "[log write failed]"
+#: What the handler writes, and what a person reads of daemon.log shows, in place of a
+#: reminder tag (C-25.7, review r4 of #233). One run with no whitespace, quote, `,`, `;`,
+#: `:`, `=`, `/` or `@` and no key's ending, so every scrub rule reads it as it reads a tag,
+#: or hides more around it: a value the tag was part of (`password=<system-reminder>…`)
+#: stays one value.
+REMINDER_MARK = "[reminder-tag]"
 
 #: A level or logger name a fixed line may carry; anything else reads as `?`.
 _NAME = re.compile(r"[A-Za-z0-9_.:-]{1,128}\Z")
@@ -173,6 +185,26 @@ def _only(text: str, shown: set[str]) -> str:
     return _RUN.sub(lambda run: run.group() if run.group() in shown else REDACTED, text)
 
 
+def neutralised(text: str) -> str:
+    """`text` with each reminder tag replaced by `REMINDER_MARK`: either tag, in any case,
+    folded or not (`İ`, `ı`, `ſ`), as `handoff.reminder_tags` finds them (C-25.7). Run on
+    what the handler writes and on what a person reads of daemon.log, after the scrub,
+    which has stripped every reminder whose two tags the text holds."""
+    return _marked(text, reminder_tags(text))
+
+
+def _marked(text: str, tags: list[tuple[int, int, bool]]) -> str:
+    """`text` with each of `tags` (`reminder_tags`) replaced by `REMINDER_MARK`."""
+    if not tags:
+        return text
+    pieces, cursor = [], 0
+    for start, end, _ in tags:
+        pieces.extend((text[cursor:start], REMINDER_MARK))
+        cursor = end
+    pieces.append(text[cursor:])
+    return "".join(pieces)
+
+
 def failed_line(record: Any, error: BaseException | None = None, marker: str = SCRUB_FAILED) -> str:
     """The fixed line a record is written as when it cannot be scrubbed: its
     level, its logger and the class of any exception it carries, never its words."""
@@ -211,7 +243,9 @@ class ScrubbingFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         try:
-            return self._scrubbed(record)
+            # No reminder tag reaches daemon.log (review r4 of #233, P3-2): the scrub strips
+            # a reminder whose two tags the record holds, and the tags left are marked.
+            return neutralised(self._scrubbed(record))
         except Exception as exc:            # noqa: BLE001 - never lose the line, never raise into the caller
             return failed_line(record, exc)
 
@@ -359,23 +393,107 @@ def _tail_start(text: str, count: int) -> int:
     return at + 1
 
 
+def _tail_limit(text: str, count: int) -> int:
+    """What `scrubbed_tail` cuts `text` to: `RECORD_SCRUB_MAX` or, for more lines than its
+    tail holds, twice what its last `count` lines hold and `RECORD_SCRUB_MAX` more."""
+    return max(RECORD_SCRUB_MAX, 2 * (len(text) - _tail_start(text, count)) + RECORD_SCRUB_MAX)
+
+
 def scrubbed_tail(text: str, count: int) -> list[str]:
     """The last `count` lines of `text`, a daemon.log, for a person's terminal (C-25.7:
     `daemon start`'s tail, `daemon logs`): the text scrubbed as the daemon's handler
-    scrubs a record of it, cut first (`cut_whole`) to `RECORD_SCRUB_MAX` or, for more
-    lines than its tail holds, to twice what they hold and `RECORD_SCRUB_MAX` more,
-    then in the block form with its lines kept (`scrubbed_block(..., keep_lines=True)`),
-    then its last `count` lines. Whoever wrote the file, an earlier daemon included,
-    no line shows a value the handler's own forms would hide. Never raises: what
-    cannot be scrubbed is the fixed `[scrub failed]` line."""
+    scrubs a record of it, cut first (`cut_whole`) to `_tail_limit`, then in the block
+    form with its lines kept (`scrubbed_block(..., keep_lines=True)`), then its last
+    `count` lines, with no reminder tag (`neutralised`). Whoever wrote the file, an
+    earlier daemon included, no line shows a value the handler's own forms would hide.
+
+    The cut keeps only its marker for a text that holds a reminder tag, and daemon.log is
+    never rewritten, so at round 5 one tag anywhere left every later tail only the marker
+    (review r4 of #233, P3-2). A text that must be cut is read with its reminders resolved
+    first (`_reminders_resolved`), so it has no tag left; one that need not be is scrubbed
+    whole, as before. Never raises: what cannot be scrubbed is the fixed `[scrub failed]`
+    line."""
     if count <= 0:
         return []
     try:
-        limit = max(RECORD_SCRUB_MAX, 2 * (len(text) - _tail_start(text, count)) + RECORD_SCRUB_MAX)
-        block = scrubbed_block(cut_whole(text, limit), group=_GROUP_MARK in text, keep_lines=True)
-        return block.splitlines()[-count:]
+        group = _GROUP_MARK in text
+        if len(text) > _tail_limit(text, count):
+            resolved = _reminders_resolved(text)
+            if resolved is not None:        # else the marker rule: a tag keeps only the marker
+                text = resolved
+        block = scrubbed_block(cut_whole(text, _tail_limit(text, count)), group=group, keep_lines=True)
+        return neutralised(block).splitlines()[-count:]
     except Exception as exc:                # noqa: BLE001 - the marker alone, never the text
         return [failed_line(_record("", logging.INFO), exc)]
+
+
+def _reminders_resolved(text: str) -> str | None:
+    """`text` with no reminder tag left, hiding what the whole-text scrub of `text` hides,
+    for `scrubbed_tail` to cut (C-25.7, review r4 of #233, P3-2); None where it cannot say.
+
+    - No tag: `text` itself.
+    - No opening tag before a closing one: no reading of the text strips anything (its
+      quoted values masked, its margins taken off, folded: each removes tags or keeps them
+      in order, never adds or reorders one), so each tag is replaced by `REMINDER_MARK`,
+      which every scrub rule reads as it reads a tag.
+    - Otherwise each reminder the whole-text scrub strips is taken out, as that scrub finds
+      it: after its first pass has masked quoted values across lines (`quoted_value_mask`),
+      the first opening tag left, to the first closing one after it, and so on
+      (`_stripped`). Taking them out joins what was on either side of each, as the strip
+      does. Then every tag left is replaced by the marker. None (the marker rule) when the
+      text read without a group's margins, as the block form also reads it, would strip
+      other reminders, or when taking them out makes a tag where none was.
+
+    Its cost, past finding the tags in C scans: none; the marks, a copy; reminders to take
+    out, a pass of the quoted-value rule over the text (two, with a group's margins)."""
+    tags = reminder_tags(text)
+    if not tags:
+        return text
+    first = next((start for start, _, opens in tags if opens), None)
+    if first is None or not any(start > first and not opens for start, _, opens in tags):
+        return _marked(text, tags)
+    pairs = _stripped(text, tags)
+    if pairs is None:
+        return None
+    if _GROUP_MARGIN_LINE.search(text) is not None:
+        lines = text.rstrip("\r\n").split("\n")
+        bare = "\n".join(line[len(match.group()):] if (match := _GROUP_MARGIN.match(line)) else line
+                         for line in lines)
+        bare_tags = reminder_tags(bare)
+        if len(bare_tags) != len(tags) or _stripped(bare, bare_tags) != pairs:
+            return None
+    pieces, cursor, inside = [], 0, 0
+    for opening, closing in pairs:
+        pieces.append(text[cursor:tags[opening][0]])
+        cursor, inside = tags[closing][1], inside + closing - opening + 1
+    pieces.append(text[cursor:])
+    kept = "".join(pieces)
+    kept_tags = reminder_tags(kept)
+    if len(kept_tags) != len(tags) - inside:
+        return None                         # a tag made where a reminder was taken out
+    return _marked(kept, kept_tags)
+
+
+def _stripped(text: str, tags: list[tuple[int, int, bool]]) -> list[tuple[int, int]] | None:
+    """The reminders the whole-text scrub of `text` strips, as indexes into `tags` (its
+    opening and its closing tag): `_resolve_blocks` after `_scrub_named_values`' quoted pass
+    has masked what it masks, so a tag inside a masked value is none. None if the mask
+    cannot be made (`quoted_value_mask`)."""
+    masking = quoted_value_mask(text)
+    if masking is None:
+        return None
+    masked, mark = masking
+    pairs, opening = [], None
+    for index, (start, _, opens) in enumerate(tags):
+        if masked[start] == mark:
+            continue
+        if opening is None:
+            if opens:
+                opening = index
+        elif not opens:
+            pairs.append((opening, index))
+            opening = None
+    return pairs
 
 
 #: The most text `daemon logs --follow` holds back while no break in it is settled
@@ -398,12 +516,14 @@ class LogFollower:
 
     Lines arrive as the daemon writes them, so a key, a flag or `Bearer` may end a line
     whose value the next one starts, and a quoted value, a private key or a data URI
-    may not have ended yet. Whole lines are held until a break after them is settled
+    may not have ended yet, nor a private key's first line (`-----BEGIN RSA`, then
+    `PRIVATE KEY-----`). Whole lines are held until a break after them is settled
     (`handoff.settled_end`): no match of the whole-text scrub could cross it, whatever
     is written next. They are then written in the block form with their lines kept, each
     run only where the same lines scrubbed after `FOLLOW_CONTEXT` characters of what was
-    already written show it too. Held text past `FOLLOW_HOLD_MAX` is written as it is,
-    scrubbed so; `flush` writes what is held when following stops.
+    already written show it too, and with no reminder tag (`neutralised`). Held text past
+    `FOLLOW_HOLD_MAX` is written as it is, scrubbed so; `flush` writes what is held when
+    following stops.
 
     `before` is the file as following starts. Its last lines that are not settled yet
     are held too: what the caller prints of `before` ends at `settled`."""
@@ -447,10 +567,10 @@ class LogFollower:
     def _write(self, end: int) -> list[str]:
         written, self.pending = self.pending[:end], self.pending[end:]
         try:
-            own = scrubbed_block(written, group=_GROUP_MARK in written, keep_lines=True)
+            own = neutralised(scrubbed_block(written, group=_GROUP_MARK in written, keep_lines=True))
             if self.context:
                 around = self.context + written
-                shown = scrubbed_block(around, group=_GROUP_MARK in around, keep_lines=True)
+                shown = neutralised(scrubbed_block(around, group=_GROUP_MARK in around, keep_lines=True))
                 # A margin's mark alone is no value; `shown` may be written without margins.
                 own = _only(own, set(_RUN.findall(shown)) | {"|", "+"})
             lines = own.splitlines()

@@ -683,6 +683,10 @@ _HEADER_NAME_MAX = len("authorization")
 #: `_PEM_START_RE` and `_PEM_END_RE` on folded text.
 _PEM_START_FOLDED_RE = re.compile(r"-----BEGIN(?:\s+[A-Z0-9]+)*\s+PRIVATE\s+KEY(?:\s+BLOCK)?-----")
 _PEM_END_FOLDED_RE = re.compile(r"-----END(?:\s+[A-Z0-9]+)*\s+PRIVATE\s+KEY(?:\s+BLOCK)?-----")
+#: What may still become a private key's first line (`_PEM_START_FOLDED_RE`) when more is
+#: written: `-----BEGIN` and uppercase words, with whitespace (line breaks too) between and
+#: after them. `settled_end` reads it from a text's last `-----BEGIN` to the text's end.
+_PEM_START_PREFIX_RE = re.compile(r"-----BEGIN(?:\s++[A-Z0-9]++)*+\s*+")
 #: The margin Python's traceback writes before each line of an exception group and
 #: its members (`daemon_log._GROUP_MARGIN`): two spaces a level, then `|` or `+`, then
 #: a space or the line's end. The daemon's block form also reads a group's text with
@@ -731,7 +735,9 @@ def cut_whole(text: str, limit: int) -> str:
     - with each exception group's margin read as spaces (`_Reading`), as the block
       form's margin-free reading of a group reads it;
     - and a text holding a reminder tag is not cut at all: stripping a reminder
-      joins what was on either side of it, which can make a quote open a value.
+      joins what was on either side of it, which can make a quote open a value. (A
+      record keeps this rule; what a person reads of daemon.log is read with its
+      reminders resolved before it is cut, `daemon_log.scrubbed_tail`.)
       Nor is one that opens with a header when the head would keep none of it:
       folded to one line, as the line form folds it, all of it is the header's.
     `scrub_bounded` needs only the first: it resolves the blocks over the whole
@@ -785,6 +791,44 @@ def _holds_reminder_tag(text: str) -> bool:
             return (_REMINDER_TAG_RE.match(text, at, at + len(tag)) is not None
                     or _REMINDER_TAG_RE.search(text) is not None)
     return False
+
+
+def reminder_tags(text: str) -> list[tuple[int, int, bool]]:
+    """Every reminder tag `_REMINDER_TAG_RE` matches in `text`, in order, as `(start, end,
+    opens)`: found as `_holds_reminder_tag` finds the first, by C scans of the text lowered
+    after `_REMINDER_FOLDS`, and each confirmed by the regex within its length (C-25.7: what
+    a person reads of daemon.log never shows a tag, `daemon_log.neutralised`)."""
+    if "r>" not in text and "R>" not in text:
+        return []
+    folded = text
+    for odd, plain in _REMINDER_FOLDS:
+        if odd in folded:
+            folded = folded.replace(odd, plain)
+    folded = folded.lower()
+    found = []
+    for tag, opens in (("<system-reminder>", True), ("</system-reminder>", False)):
+        at = folded.find(tag)
+        while at >= 0:
+            found.append((at, at + len(tag), opens))
+            at = folded.find(tag, at + len(tag))
+    found.sort()
+    if all(_REMINDER_TAG_RE.match(text, start, end) is not None for start, end, _ in found):
+        return found
+    # Never where the folds are complete, which a test checks; the regex keeps the answer exact.
+    return [(match.start(), match.end(), match.group()[1] != "/") for match in _REMINDER_TAG_RE.finditer(text)]
+
+
+def quoted_value_mask(text: str) -> tuple[str, str] | None:
+    """`text` with each value the whole-text scrub masks first replaced, character for
+    character, by `mark`, a character `text` lacks: `(masked, mark)`, or None if it holds
+    every candidate. The first pass of `scrub_secrets(..., whole=True)` masks quoted values
+    across lines (`_scrub_named_values(..., quoted=True, multiline=True)`) before reminders
+    are stripped, so a tag inside such a value is no tag to that strip (review r4 of #233).
+    The same length as `text`: a position is masked exactly where `masked` holds `mark`."""
+    mark = next((char for char in map(chr, range(0xE000, 0xE100)) if char not in text), None)
+    if mark is None:
+        return None
+    return _scrub_named_values(text, lambda matched, _out: mark * len(matched), quoted=True, multiline=True), mark
 
 
 def _leads_with_header(reading: "_Reading") -> bool:
@@ -1302,8 +1346,10 @@ def settled_end(text: str, start: int) -> int:
     is not yet written is judged for each character that could come (`:` and a token
     character, `_neutral_break`'s and `_folds_to_value`'s two kinds); a value a quote
     may open stays open until its kind's next quote; a private key until its last
-    line; a data URI until a character its body cannot hold; and nothing after a
-    reminder tag settles."""
+    line, and a first line still being written (`-----BEGIN RSA`, then a line break,
+    `PRIVATE KEY-----` not yet: review r4 of #233) until it can no longer become one;
+    a data URI until a character its body cannot hold; and nothing after a reminder
+    tag settles."""
     reading = _Reading(text, len(text), len(text))
     read = reading.read
     starts = [at + 1 for at in _newlines(text, start, len(text))]
@@ -1315,6 +1361,11 @@ def settled_end(text: str, start: int) -> int:
     for key in begins:
         end = _PEM_END_FOLDED_RE.search(read, key.end())
         spans.append((key.start(), len(text) + 1 if end is None else end.end()))
+    # Only the last `-----BEGIN` can still start a first line: an earlier one has the last
+    # one's `-` after it, which no word of a first line holds.
+    prefix = read.rfind("-----BEGIN")
+    if prefix >= 0 and _PEM_START_PREFIX_RE.fullmatch(read, prefix) is not None:
+        spans.append((prefix, len(text) + 1))
     for prefix in _DATA_URI_PREFIX_RE.finditer(read):
         body = _DATA_BODY_RE.match(read, prefix.end())
         finish = prefix.end() if body is None else body.end()
