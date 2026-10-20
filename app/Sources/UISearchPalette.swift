@@ -682,22 +682,10 @@ extension View {
     }
 }
 
-/// Observe the optional environment model where the container's body is built.
-/// Reading the environment reference alone does not observe its published state.
-struct SearchRevealReader<Content: View>: View {
-    @Environment(\.searchPalette) private var palette
-    @ViewBuilder let content: (SearchReveal?) -> Content
-
-    var body: some View {
-        if let palette { Follower(palette: palette, content: content) }
-        else { content(nil) }
-    }
-
-    private struct Follower: View {
-        @ObservedObject var palette: SearchPaletteModel
-        let content: (SearchReveal?) -> Content
-        var body: some View { content(palette.reveal) }
-    }
+/// A row set laid out for this exact reveal, including its repeat-selection token.
+struct SearchRevealLayout: Equatable {
+    var reveal: SearchReveal?
+    var itemIDs: Set<String>
 }
 
 /// Scrolls the conversation to the message a search result matched. It is the
@@ -709,10 +697,11 @@ struct SearchRevealer: View {
     /// Only consume a reveal once its row exists in this scroll container.
     /// The tray supplies ids delivered after layout by its row preference.
     var revealIDs: Set<String>? = nil
+    var layout: SearchRevealLayout? = nil
 
     var body: some View {
         if let palette {
-            Follower(palette: palette, conversationID: conversationID, proxy: proxy, revealIDs: revealIDs)
+            Follower(palette: palette, conversationID: conversationID, proxy: proxy, revealIDs: revealIDs, layout: layout)
         }
     }
 
@@ -721,26 +710,29 @@ struct SearchRevealer: View {
         let conversationID: String
         let proxy: ScrollViewProxy
         let revealIDs: Set<String>?
+        let layout: SearchRevealLayout?
         @State private var following: Task<Void, Never>?
 
         struct Key: Equatable {
             var reveal: SearchReveal?
             var conversationID: String
             var revealIDs: Set<String>?
+            var layout: SearchRevealLayout?
         }
 
         var body: some View {
             Theme.clear.accessibilityHidden(true)
-                .onChange(of: Key(reveal: palette.reveal, conversationID: conversationID, revealIDs: revealIDs), initial: true) { _, _ in
+                .onChange(of: Key(reveal: palette.reveal, conversationID: conversationID, revealIDs: revealIDs, layout: layout), initial: true) { _, _ in
                     following?.cancel()
                     guard let reveal = palette.reveal, reveal.conversationID == conversationID,
                           revealIDs?.contains(reveal.itemID) ?? true else { return }
+                    guard layout.map({ $0.reveal == reveal && $0.itemIDs.contains(reveal.itemID) }) ?? true else { return }
                     following = Task { await follow(reveal) }
                 }
                 .onDisappear { following?.cancel() }
         }
 
-        private func follow(_ reveal: SearchReveal) async {
+        @MainActor private func follow(_ reveal: SearchReveal) async {
             // After the switch's own scroll to the end, and again once the
             // history page that opening reads may have moved the rows.
             for delay: UInt64 in [250_000_000, 550_000_000] {

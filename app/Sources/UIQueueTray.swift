@@ -4,8 +4,7 @@
 import AppKit
 import SwiftUI
 
-/// Emitted from the laid-out row stack. Both the revealer and offscreen probes
-/// can distinguish observing a request from actually laying out its rows.
+/// One layout of the rendered tray, reported outside ViewThatFits' alternatives.
 struct QueueTrayRowLayout: Equatable {
     var conversationID: String?
     var reveal: SearchReveal?
@@ -19,89 +18,161 @@ struct QueueTrayRowLayoutKey: PreferenceKey {
     }
 }
 
-/// The messages waiting their turn, in the order the daemon sends them, each
-/// with Withdraw. Values and closures only, so a probe can host it.
+/// Values and actions owned by the conversation; rendering state lives in Contents.
 struct QueueTray: View {
-    /// `queueTrayTitle`: how many wait, and when they go.
     let title: String
     let rows: [QueuedMessage]
-    /// Rows whose Withdraw the daemon has not answered yet: no second click.
     var withdrawing: Set<String> = []
     let withdraw: (QueuedMessage) -> Void
-    /// Steer a row into the running turn; nil until the daemon offers it (`steer.v1`).
     var steer: ((QueuedMessage) -> Void)? = nil
-    /// An optional seam for a future send notice, attached to its owning message.
-    /// Keep its model/actions owned by that stack; attach its existing view by id.
     var notice: ((String) -> AnyView?)? = nil
     var conversationID: String? = nil
-    @State private var expanded = false
-    @State private var laidOutIDs: Set<String> = []
+    @Environment(\.searchPalette) private var palette
 
     var body: some View {
-        SearchRevealReader { reveal in
-            let presentation = QueueTrayPresentation(rows: rows, expanded: expanded,
-                conversationID: conversationID, reveal: reveal)
+        if let palette { Following(palette: palette, tray: self) }
+        else { Contents(tray: self, reveal: nil) }
+    }
+
+    private struct Following: View {
+        @ObservedObject var palette: SearchPaletteModel
+        let tray: QueueTray
+        var body: some View { Contents(tray: tray, reveal: palette.reveal) }
+    }
+
+    private struct Contents: View {
+        let tray: QueueTray
+        let reveal: SearchReveal?
+        @State private var expanded = false
+        @State private var laidOut = SearchRevealLayout(reveal: nil, itemIDs: [])
+
+        var body: some View {
+            let presentation = QueueTrayPresentation(rows: tray.rows, expanded: expanded,
+                conversationID: tray.conversationID, reveal: reveal)
             ScrollViewReader { proxy in
-                content(presentation, reveal: reveal)
+                content(presentation)
                     .onPreferenceChange(QueueTrayRowLayoutKey.self) { layouts in
-                        laidOutIDs = Set(layouts.flatMap(\.rowIDs))
+                        guard let layout = layouts.last(where: { $0.conversationID == tray.conversationID }) else { return }
+                        laidOut = SearchRevealLayout(reveal: layout.reveal, itemIDs: Set(layout.rowIDs))
                     }
                     .background {
-                        if let conversationID {
-                            SearchRevealer(conversationID: conversationID, proxy: proxy, revealIDs: laidOutIDs)
+                        if let cid = tray.conversationID {
+                            SearchRevealer(conversationID: cid, proxy: proxy, layout: laidOut)
                         }
                     }
-                    .onChange(of: presentation.revealTargetsTray, initial: true) { _, targetsTray in
-                        // Keep the tray open after the revealer consumes its request.
-                        // The projection above already includes every row this pass.
-                        if targetsTray { expanded = true }
+                    .onChange(of: reveal, initial: true) { _, _ in
+                        if presentation.revealTargetsTray { expanded = true }
                     }
             }
         }
-    }
 
-    private func content(_ presentation: QueueTrayPresentation, reveal: SearchReveal?) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Image(systemName: "tray.full").readingFont(.caption).foregroundStyle(.secondary)
-                Text(title).readingFont(.caption).foregroundStyle(.secondary).lineLimit(1)
-                Spacer(minLength: 4)
-                if presentation.expanded && presentation.rows.count > queueTrayVisible(count: rows.count, expanded: false).shown {
-                    Button("Show fewer") { expanded = false }.buttonStyle(.link).readingFont(.caption)
+        private func content(_ presentation: QueueTrayPresentation) -> some View {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: "tray.full").readingFont(.caption).foregroundStyle(.secondary)
+                    Text(tray.title).readingFont(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Spacer(minLength: 4)
+                    if presentation.expanded && presentation.rows.count > queueTrayVisible(count: tray.rows.count, expanded: false).shown {
+                        Button("Show fewer") { expanded = false }.buttonStyle(.link).readingFont(.caption)
+                    }
+                }
+                if presentation.expanded {
+                    ViewThatFits(in: .vertical) {
+                        list(presentation.rows)
+                        ScrollView { list(presentation.rows) }.frame(height: 200)
+                    }
+                    .frame(maxHeight: 200)
+                    .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    list(presentation.rows)
+                }
+                if presentation.hidden > 0 {
+                    Button("Show \(presentation.hidden) more") { expanded = true }.buttonStyle(.link).readingFont(.caption)
+                        .help("Show every queued message")
                 }
             }
-            if presentation.expanded {
-                // A long queue scrolls inside the tray rather than pushing the timeline away.
-                ViewThatFits(in: .vertical) {
-                    list(presentation.rows, reveal: reveal)
-                    ScrollView { list(presentation.rows, reveal: reveal) }.frame(height: 200)
+            .padding(8)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.08)))
+            .background(GeometryReader { _ in
+                Theme.clear.preference(key: QueueTrayRowLayoutKey.self, value: [QueueTrayRowLayout(
+                    conversationID: tray.conversationID, reveal: reveal,
+                    rowIDs: presentation.rows.map { "person:" + $0.id })])
+            })
+        }
+
+        private func list(_ shown: [QueuedMessage]) -> some View {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(shown) { row in
+                    QueueTrayRow(row: row, busy: tray.withdrawing.contains(row.id), withdraw: { tray.withdraw(row) },
+                        steer: tray.steer.map { steer in { steer(row) } }, notice: tray.notice?(row.id))
+                        .id("person:" + row.id)
                 }
-                .frame(maxHeight: 200)
-                .fixedSize(horizontal: false, vertical: true)
-            } else {
-                list(presentation.rows, reveal: reveal)
-            }
-            if presentation.hidden > 0 {
-                Button("Show \(presentation.hidden) more") { expanded = true }.buttonStyle(.link).readingFont(.caption)
-                    .help("Show every queued message")
             }
         }
-        .padding(8)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.08)))
+    }
+}
+
+/// Keep the original SwiftUI link's appearance and action. Owning its AppKit
+/// host lets us attach identity to the real button even without an AX client.
+private struct QueueTrayWithdrawButton: NSViewRepresentable {
+    let id: String
+    let preview: String
+    let action: () -> Void
+    @Environment(\.textScale) private var scale
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.isEnabled) private var enabled
+
+    private var button: some View {
+        Button("Withdraw", action: action).buttonStyle(.link).readingFont(.caption)
+            .help("Withdraw this message; it is not sent")
+            .accessibilityLabel("Withdraw: " + preview)
+            .accessibilityIdentifier("queue-tray-withdraw-" + id)
+            .environment(\.textScale, scale)
+            .environment(\.colorScheme, colorScheme)
+            .disabled(!enabled)
     }
 
-    private func list(_ shown: [QueuedMessage], reveal: SearchReveal?) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            ForEach(shown) { row in
-                QueueTrayRow(row: row, busy: withdrawing.contains(row.id), withdraw: { withdraw(row) },
-                             steer: steer.map { steer in { steer(row) } }, notice: notice?(row.id))
-                    .id("person:" + row.id)
-            }
+    func makeNSView(context: Context) -> QueueTrayWithdrawHost {
+        let view = QueueTrayWithdrawHost(rootView: AnyView(button))
+        view.safeAreaRegions = []
+        updateIdentity(view)
+        return view
+    }
+
+    func updateNSView(_ view: QueueTrayWithdrawHost, context: Context) {
+        view.rootView = AnyView(button)
+        updateIdentity(view)
+        view.needsLayout = true
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: QueueTrayWithdrawHost, context: Context) -> CGSize? {
+        nsView.fittingSize
+    }
+
+    private func updateIdentity(_ view: QueueTrayWithdrawHost) {
+        view.controlID = "queue-tray-withdraw-" + id
+        view.words = "Withdraw: " + preview
+        view.bindIdentity()
+    }
+}
+
+private final class QueueTrayWithdrawHost: NSHostingView<AnyView> {
+    var controlID = ""
+    var words = ""
+
+    override func layout() {
+        super.layout()
+        bindIdentity()
+    }
+
+    func bindIdentity() {
+        func children(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(children) }
+        for button in children(self).compactMap({ $0 as? NSButton }) {
+            button.identifier = NSUserInterfaceItemIdentifier(controlID)
+            button.setAccessibilityIdentifier(controlID)
+            button.setAccessibilityLabel(words)
+            button.toolTip = "Withdraw this message; it is not sent"
         }
-        .background(GeometryReader { _ in
-            Theme.clear.preference(key: QueueTrayRowLayoutKey.self, value: [QueueTrayRowLayout(
-                conversationID: conversationID, reveal: reveal, rowIDs: shown.map { "person:" + $0.id })])
-        })
     }
 }
 
@@ -136,10 +207,7 @@ struct QueueTrayRow: View {
                         .help("Send it into the running turn now instead of after it")
                         .accessibilityLabel("Send now: " + row.preview)
                 }
-                Button("Withdraw", action: withdraw).buttonStyle(.link).readingFont(.caption)
-                    .help("Withdraw this message; it is not sent")
-                    .accessibilityLabel("Withdraw: " + row.preview)
-                    .accessibilityIdentifier("queue-tray-withdraw-" + row.id)
+                QueueTrayWithdrawButton(id: row.id, preview: row.preview, action: withdraw)
             }
         }
     }

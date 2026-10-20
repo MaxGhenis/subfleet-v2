@@ -121,9 +121,14 @@ func conversation(_ cid: String, held: Bool = false) -> Conversation {
         let (host, window) = mount(ConversationView(model: model, conversation: cv)
             .environment(\.searchPalette, palette)
             .onPreferenceChange(QueueTrayRowLayoutKey.self) { trayLayouts += $0 })
+        func withdrawIdentifier(_ button: NSButton) -> String {
+            if let native = button.identifier?.rawValue, native.hasPrefix("queue-tray-withdraw-") { return native }
+            let accessible: String? = button.accessibilityIdentifier()
+            return accessible ?? ""
+        }
         func identifiedWithdraws() -> [NSButton] {
             descendants(host).compactMap { $0 as? NSButton }.filter {
-                $0.accessibilityIdentifier().hasPrefix("queue-tray-withdraw-")
+                withdrawIdentifier($0).hasPrefix("queue-tray-withdraw-")
             }
         }
         // Geometry is a legacy fallback only; identifiers need no widths or positions.
@@ -170,7 +175,7 @@ func conversation(_ cid: String, held: Bool = false) -> Conversation {
         let expandedAfter = Date().timeIntervalSince(started)
         // Expansion and the target's scroll have distinct conditions.
         func targetButton() -> NSButton? {
-            identifiedWithdraws().first { $0.accessibilityIdentifier() == "queue-tray-withdraw-queued5" }
+            identifiedWithdraws().first { withdrawIdentifier($0) == "queue-tray-withdraw-queued5" }
         }
         while (targetButton()?.visibleRect.isEmpty != false || palette.reveal != nil) && Date() < deadline {
             settle(host, seconds: 0.02)
@@ -216,7 +221,7 @@ func conversation(_ cid: String, held: Bool = false) -> Conversation {
                                     "after_identifiers": identifierCount,
                                     "finder": identifierCount == 0 ? "geometry-fallback" : "identifier",
                                     "buttons": descendants(host).compactMap { $0 as? NSButton }.map {
-                                        ["id": $0.accessibilityIdentifier(), "title": $0.title, "width": $0.frame.width,
+                                        ["id": withdrawIdentifier($0), "title": $0.title, "width": $0.frame.width,
                                          "x": $0.convert($0.bounds, to: host).minX] as [String: Any]
                                     },
                                     "target_visible": targetVisible]
