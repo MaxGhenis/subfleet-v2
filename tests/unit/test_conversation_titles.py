@@ -892,9 +892,18 @@ def test_the_runner_reaches_its_relay_only_through_status_send_and_close():
 def test_a_relay_with_only_status_send_and_close_carries_a_titled_turn():
     with title_turn() as turn:
         runner = turn.runner()
+        audit = []
+
+        def stop_delivery(frame, seq):
+            audit.append(("intent", frame.tag))
+            return runner_module.StopDelivery(before_send=lambda: audit.append(("clock", frame.tag)),
+                                              record=lambda sent: audit.append(("record", sent)))
+
+        runner.on_stop_delivery = stop_delivery
         turn.to_result(runner)
         turn.say(runner, response())
         assert turn.logged() == ["init", "user-message", "settings", TITLE_FRAME, "close"]
+        assert audit == [("intent", "close"), ("clock", "close"), ("record", True)]
         assert not runner.relay_failed and runner.frame_refused is None and runner.outbox == []
 
 
