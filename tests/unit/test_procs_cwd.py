@@ -2,6 +2,9 @@
 
 import ctypes
 import errno
+import subprocess
+import sys
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -65,3 +68,18 @@ def test_d_kill3_a_cwd_listing_failure_remains_an_inspection_failure(monkeypatch
     monkeypatch.setattr(procs, "kernel", SimpleNamespace(pids=failed))
     with pytest.raises(procs.InspectionError):
         procs.worktree_cwd_pids("/scratch/owned")
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS native zombie state")
+def test_d_kill3_an_unreaped_zombie_does_not_hold_every_worktree():
+    """Only our unreaped child is inspected, and its scratch group is reaped here."""
+    child = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True,
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        deadline = time.monotonic() + 10
+        while procs.kernel.process(child.pid) is not None:
+            assert time.monotonic() < deadline
+            time.sleep(.01)
+        assert procs.kernel.cwd(child.pid) is None
+    finally:
+        child.wait(timeout=10)
