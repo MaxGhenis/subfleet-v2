@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from subfleet import daemon as daemon_module
+from subfleet import daemon as daemon_module, client as client_module
 from subfleet.client import SEND_MET_CLOSE_ERRNOS, Client, DaemonError, OutcomeUnknown, ResponseLost
 from subfleet.daemon import Daemon
 
@@ -35,6 +35,9 @@ def serve(monkeypatch):
     """Start a daemon core with the given connection settings; yields a starter."""
     monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "fake-boot")
     monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "fake-start")
+    # C-5.13 checks identity on every send; both sides observe this fixture's identity.
+    monkeypatch.setattr(client_module, "boot_id", lambda: "fake-boot")
+    monkeypatch.setattr(client_module, "proc_status", lambda pid: ("S", "fake-start"))
     started = []
     with tempfile.TemporaryDirectory(prefix="sfc-", dir="/tmp") as directory:
         root = Path(directory)
@@ -162,7 +165,6 @@ def test_c16_7_over_the_cap_a_client_is_answered_busy_at_once_and_served_after(s
     # The CLI's client reads the refusal even when its request met a closed socket,
     # sends the request again in the first half of its deadline, then reports busy.
     client = Client(service.root, timeout=.6)
-    client._checked = True                  # the lock records this fixture's fake boot identity
     refused = counts(service)["refused"]
     started = time.monotonic()
     with pytest.raises(DaemonError) as caught:
@@ -197,7 +199,6 @@ def test_c16_7_the_client_reads_busy_whichever_errno_its_send_met(serve, monkeyp
             raise OSError(code, os.strerror(code))
         return real_sendall(sock, data, *flags)
     client = Client(service.root, timeout=5)
-    client._checked = True                  # the lock records this fixture's fake boot identity
     client.timeout = .2                     # the busy retries end with the deadline
     with monkeypatch.context() as patch:
         patch.setattr(socket.socket, "sendall", sendall)
@@ -218,7 +219,6 @@ def test_c16_7_any_other_send_error_is_still_a_lost_answer(serve, monkeypatch):
             raise OSError(errno.ENOBUFS, os.strerror(errno.ENOBUFS))
         return real_sendall(sock, data, *flags)
     client = Client(service.root, timeout=5)
-    client._checked = True
     with monkeypatch.context() as patch:
         patch.setattr(socket.socket, "sendall", sendall)
         with pytest.raises(ResponseLost, match="daemon connection failed"):
@@ -342,7 +342,6 @@ def test_c16_7_a_busy_answer_is_retried_until_the_daemon_has_room(serve):
     until(lambda: counts(service)["connections"] == 1)
     threading.Timer(.4, idle.close).start()
     client = Client(service.root, timeout=5)
-    client._checked = True
     started = time.monotonic()
     assert client.call("ping")["pong"] is True
     assert .3 < time.monotonic() - started < 3
@@ -517,7 +516,6 @@ def test_c16_3_a_lost_answer_names_the_callers_deadline_even_on_a_slow_machine(s
     real = service.dispatch
     service.dispatch = lambda op, args, **kw: (time.sleep(1.5), real(op, args, **kw))[1]
     client = Client(service.root, timeout=1)
-    client._checked = True
     from subfleet import client as client_module
     clock = client_module._clock
     calls = [0]
@@ -590,7 +588,6 @@ def test_c16_7_a_caller_can_take_busy_at_once(serve):
     idle = connect(service)
     until(lambda: counts(service)["connections"] == 1)
     client = Client(service.root, timeout=5, retry_busy=False)
-    client._checked = True
     started = time.monotonic()
     with pytest.raises(DaemonError) as caught:
         client.call("ping")

@@ -19,20 +19,24 @@ from subfleet.daemon import LOOKUP_OPS
 
 
 def test_a_client_that_does_not_verify_the_lock_asks_ps_nothing(tmp_path, monkeypatch):
+    # Always exceed sun_path, so a stale preflight must win before connect.
+    root = tmp_path / ("long-" * 24)
+    root.mkdir()
+    (root / "daemon.lock").write_text(json.dumps({"pid": 12345, "proc_start": "gone"}))
     asked = []
-    monkeypatch.setattr(Client, "lock_report", lambda self: asked.append(1) or (False, "dead"))
-    quiet = Client(tmp_path, verify_lock=False)
+    monkeypatch.setattr(client_module, "_run", lambda argv: asked.append(argv) or (1, ""))
+    quiet = Client(root, verify_lock=False)
     try:
         quiet.call("ping", timeout=.5)
     except DaemonUnavailable:
-        pass                                            # nothing listens: the connect says so
-    assert asked == []
-    loud = Client(tmp_path)
-    try:
+        pass
+    assert asked == []                              # refused connects cost no ps either
+    loud = Client(root)
+    import pytest
+    with pytest.raises(DaemonUnavailable, match="stale") as caught:
         loud.call("ping", timeout=.5)
-    except DaemonUnavailable as exc:
-        assert "stale" in str(exc)                      # the default still checks the lock first
-    assert asked == [1]
+    assert "path too long" not in str(caught.value)
+    assert len(asked) == 1 and asked[0][0] == "/bin/ps"
 
 
 def test_the_hooks_build_their_clients_without_the_lock_check(tmp_path, monkeypatch):

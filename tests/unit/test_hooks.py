@@ -1004,8 +1004,9 @@ def test_terminal_poll_keeps_delivery_reserve(root, final_poll):
             if final_poll:
                 clock[0] += kwargs['timeout']
             return {'jobs': [finished_job()]}
-        assert kwargs['timeout'] >= .2
-        clock[0] += .2
+        remaining = 1.0 - clock[0]
+        assert kwargs['timeout'] == pytest.approx(remaining / 2 if op == 'notice.pending' else remaining)
+        clock[0] += kwargs['timeout']   # even a lookup using its whole share leaves time to mark
         return {'notices': [notice(7)]} if op == 'notice.pending' else {}
 
     stderr = io.StringIO()
