@@ -1958,7 +1958,7 @@ A draft app build and an initial precompile rejected modified inputs; their
 outputs were discarded. The replacement build and precompile use frozen source
 files. Implementation commit `5ae9f1350` follows tests-first commit `134ec6609`.
 
-### Validation status
+### Validation results and remaining coverage
 
 The final application source builds and signs through app/build.sh; the
 native-host revision also passed an independent type check. CPython 3.14.7 is
@@ -1969,8 +1969,11 @@ The corrected combined view hold passed **50 cases in 287.38 seconds**:
 test_review_r219_fix6.py executed 34 cases (four engine cases plus three view
 checks across ten independent probe processes), test_queue_tray_view.py passed
 15, and the new pure visibility regression passed once. There are ten separate
-fix6-view fixture directories. The 30 view assertions ran with the one-minute
-load average between **49.6 and 59.1 on 18 CPUs**. The Python contract hold passed
+fix6-view fixture directories. Every probe found three identifiers before and
+six afterward, reported six model/layout rows, consumed the reveal, and made
+queued5 visible. Completion ranged from **1.08 to 2.39 seconds** against the
+10-second deadline. The 30 view assertions ran with the one-minute load average
+between **49.6 and 59.1 on 18 CPUs**. The Python contract hold passed
 test_state_contract.py **37** and test_test_module_names.py **1**.
 
 The compact diagnostics exposed an additional fixture defect: it folded the
@@ -1981,90 +1984,108 @@ the forward-only production placement rule. Before correction, one native pair
 had 20 passes and two failures; a focused diagnostic had one pure-engine pass
 and two view failures, reporting model/layout/control counts of five.
 
-Two additional required groups were requested before the cutoff and are still
-pending: queue core/notice/engine/search, and conversation view/timeline/review
-probes. No broader frontend hold has been requested while these prerequisites
-remain pending. The full 49-file frontend rerun remains unrun; per-file status
-below distinguishes executed files and the one selected core case.
+The queue core/notice/engine/search hold was interrupted to honor the 20-minute
+cap, exiting with **37 passed in 1,184.64 seconds (19m44s)** and no test failures.
+Those passes are from test_core_queue_tray.py; its remaining cases and the
+notice/engine/search files did not run. The conversation view/timeline/review
+hold exited after an interrupt with **40 passed in 1,208.54 seconds (20m08s)**:
+conversation view 6, core timeline 23, and review probes 11. The first two files
+completed; review probes has unfinished cases. The interrupt was requested
+before 20 minutes, but exit exceeded the cap by 8.54 seconds. This hold did not
+meet the 20-minute requirement; no failed test is hidden by that interruption.
+Both groups were requested before the cutoff and neither was relaunched.
+
+Final-source runs completed **165 passing test executions**, representing
+**137 distinct test identities** after collapsing repeat indices and the pure
+visibility regression run in two holds. They reported zero failures, errors,
+skips or xfails. The two interrupted holds were not complete suite passes.
+Whole-frontend coverage is incomplete: four frontend files completed,
+two have partial coverage, and 43 were entirely unrun. Required outstanding
+coverage includes the rest of core queue tray and review probes, plus the
+notice, queue-engine and search files. Every file is listed below.
 No additional unit or fake files were touched or rerun.
 
-No new holds will be requested after **20:10 UTC**, conservatively measured from
+No new holds were requested after **20:10 UTC**, conservatively measured from
 workspace creation. Every pytest invocation uses the exact shared lockf -k
 command with no acquisition timeout; that lock serializes pytest processes.
 Completed positive holds lasted 23.92 seconds and 287.38 seconds, excluding
-lock waits. The first native pair took 858.89 seconds. Paused runners were
-waited on, without relaunching them.
+lock waits. The interrupted holds lasted 1,184.64 and 1,208.54 seconds; the latter
+overran the cap as recorded above. The first native pair took 858.89 seconds.
+Paused runners were waited on, without relaunching them.
 
 The table counts each test identity once using its latest completed result;
 repeat indices are collapsed only for the three view checks. The core queue
-file's one pass is a selected regression; remaining cases are pending.
-A file marked Unrun has no completed result in this round.
+file has partial coverage; its 37 passes include the selected visibility
+regression already counted in the repeated view hold. Review probes is also
+partial. Unfinished cases are unrun, including JUnit’s unnamed placeholders
+for interrupted cases. A file marked Unrun has no completed result this round.
+The fix-6 row counts seven distinct tests; its repeat hold executed 34 cases.
 
-| File | Passed | Failed | Errors | Skipped | Xfailed |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| tests/frontend/test_app_cutover_start.py | Unrun | — | — | — | — |
-| tests/frontend/test_conversation_view.py | Unrun | — | — | — | — |
-| tests/frontend/test_core_app_cutover_reading.py | Unrun | — | — | — | — |
-| tests/frontend/test_core_approval_notification.py | Unrun | — | — | — | — |
-| tests/frontend/test_core_approval_reach.py | Unrun | — | — | — | — |
-| tests/frontend/test_core_client.py | Unrun | — | — | — | — |
-| tests/frontend/test_core_diff.py | Unrun | — | — | — | — |
-| tests/frontend/test_core_draft.py | Unrun | — | — | — | — |
-| tests/frontend/test_core_idle.py | Unrun | — | — | — | — |
-| tests/frontend/test_core_live.py | Unrun | — | — | — | — |
-| tests/frontend/test_core_live_failure.py | Unrun | — | — | — | — |
-| tests/frontend/test_core_markdown.py | Unrun | — | — | — | — |
-| tests/frontend/test_core_outbox.py | Unrun | — | — | — | — |
-| tests/frontend/test_core_protocol.py | Unrun | — | — | — | — |
-| tests/frontend/test_core_question_card.py | Unrun | — | — | — | — |
-| tests/frontend/test_core_queue_engine.py | Unrun | — | — | — | — |
-| tests/frontend/test_core_queue_tray.py | 1 | 0 | 0 | 0 | 0 |
-| tests/frontend/test_core_search.py | Unrun | — | — | — | — |
-| tests/frontend/test_core_steer.py | Unrun | — | — | — | — |
-| tests/frontend/test_core_steer_properties.py | Unrun | — | — | — | — |
-| tests/frontend/test_core_store.py | Unrun | — | — | — | — |
-| tests/frontend/test_core_suggestions.py | Unrun | — | — | — | — |
-| tests/frontend/test_core_suggestions_r1b.py | Unrun | — | — | — | — |
-| tests/frontend/test_core_text_scale.py | Unrun | — | — | — | — |
-| tests/frontend/test_core_timeline.py | Unrun | — | — | — | — |
-| tests/frontend/test_core_titles.py | Unrun | — | — | — | — |
-| tests/frontend/test_disk_ruling.py | Unrun | — | — | — | — |
-| tests/frontend/test_menu_view.py | Unrun | — | — | — | — |
-| tests/frontend/test_pr124_fixes_ui.py | Unrun | — | — | — | — |
-| tests/frontend/test_pr124_recovery_properties.py | Unrun | — | — | — | — |
-| tests/frontend/test_pr124_review_r2_fixes_ui.py | Unrun | — | — | — | — |
-| tests/frontend/test_queue_tray_fix4_mutations.py | Unrun | — | — | — | — |
-| tests/frontend/test_queue_tray_notice.py | Unrun | — | — | — | — |
-| tests/frontend/test_queue_tray_view.py | 15 | 0 | 0 | 0 | 0 |
-| tests/frontend/test_reading_view.py | Unrun | — | — | — | — |
-| tests/frontend/test_review_pr127_timeline.py | Unrun | — | — | — | — |
-| tests/frontend/test_review_r219_fix4.py | Unrun | — | — | — | — |
-| tests/frontend/test_review_r219_fix6.py | 7 | 0 | 0 | 0 | 0 |
-| tests/frontend/test_review_r219_probes.py | Unrun | — | — | — | — |
-| tests/frontend/test_status_model.py | Unrun | — | — | — | — |
-| tests/frontend/test_visual_progress.py | Unrun | — | — | — | — |
-| tests/frontend/test_visual_report_hygiene.py | Unrun | — | — | — | — |
-| tests/frontend/test_visual_review_fixes.py | Unrun | — | — | — | — |
-| tests/frontend/test_visual_round_five.py | Unrun | — | — | — | — |
-| tests/frontend/test_visual_round_four.py | Unrun | — | — | — | — |
-| tests/frontend/test_visual_round_three.py | Unrun | — | — | — | — |
-| tests/frontend/test_visual_round_two.py | Unrun | — | — | — | — |
-| tests/frontend/test_visual_snapshots.py | Unrun | — | — | — | — |
-| tests/frontend/test_visual_suggestions.py | Unrun | — | — | — | — |
-| tests/fake/test_state_contract.py | 37 | 0 | 0 | 0 | 0 |
-| tests/unit/test_test_module_names.py | 1 | 0 | 0 | 0 | 0 |
-Totals: {'passed': 61}
+| File | Passed | Failed | Errors | Skipped | Xfailed | Status |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| tests/frontend/test_app_cutover_start.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_conversation_view.py | 6 | 0 | 0 | 0 | 0 | Completed |
+| tests/frontend/test_core_app_cutover_reading.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_core_approval_notification.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_core_approval_reach.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_core_client.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_core_diff.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_core_draft.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_core_idle.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_core_live.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_core_live_failure.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_core_markdown.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_core_outbox.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_core_protocol.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_core_question_card.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_core_queue_engine.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_core_queue_tray.py | 37 | 0 | 0 | 0 | 0 | Partial; remaining cases unrun |
+| tests/frontend/test_core_search.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_core_steer.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_core_steer_properties.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_core_store.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_core_suggestions.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_core_suggestions_r1b.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_core_text_scale.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_core_timeline.py | 23 | 0 | 0 | 0 | 0 | Completed |
+| tests/frontend/test_core_titles.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_disk_ruling.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_menu_view.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_pr124_fixes_ui.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_pr124_recovery_properties.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_pr124_review_r2_fixes_ui.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_queue_tray_fix4_mutations.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_queue_tray_notice.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_queue_tray_view.py | 15 | 0 | 0 | 0 | 0 | Completed |
+| tests/frontend/test_reading_view.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_review_pr127_timeline.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_review_r219_fix4.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_review_r219_fix6.py | 7 | 0 | 0 | 0 | 0 | Completed |
+| tests/frontend/test_review_r219_probes.py | 11 | 0 | 0 | 0 | 0 | Partial; remaining cases unrun |
+| tests/frontend/test_status_model.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_visual_progress.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_visual_report_hygiene.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_visual_review_fixes.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_visual_round_five.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_visual_round_four.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_visual_round_three.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_visual_round_two.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_visual_snapshots.py | Unrun | — | — | — | — | Unrun |
+| tests/frontend/test_visual_suggestions.py | Unrun | — | — | — | — | Unrun |
+| tests/fake/test_state_contract.py | 37 | 0 | 0 | 0 | 0 | Completed |
+| tests/unit/test_test_module_names.py | 1 | 0 | 0 | 0 | 0 | Completed |
 
-Pending group outcomes will be updated before delivery. macOS 15 execution
-remains CI-only; no local macOS 15 result is claimed.
+Total: **137 distinct passed** (165 executions including repeats and the selected regression rerun).
+
+macOS 15 execution remains CI-only; no local macOS 15 result is claimed.
 
 ### Delivery and cleanup
 
 Commits are on feat/queue-tray-217 in workspace-local .git-local, with the
 requested co-author trailer. The supplied .git pointer and shared index remain
-unchanged. After the final report commit, a transfer bundle will be written
+unchanged. The final report commit is included in a transfer bundle written
 outside the worktree at /private/tmp/sf-r219f7-delivery-3vo7khe2/queue-tray-fix7.bundle,
 with a66102fa9 as its prerequisite. No log, JSON evidence or bundle is staged.
-Nothing is pushed. Job scratch and the job's ignored build artifacts are
-removed after foreground runners finish; local commit metadata and the
-delivery bundle are retained.
+Nothing is pushed. All foreground runners have exited. Job scratch and the
+job's ignored build artifacts are removed before delivery; local commit
+metadata and the delivery bundle are retained.
