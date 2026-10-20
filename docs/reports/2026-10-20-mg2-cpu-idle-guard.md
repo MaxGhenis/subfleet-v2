@@ -69,16 +69,45 @@ The idle thresholds are the hub's specified proposal. Load is absent: the
 normal memory pressure. The 10/20 saturated CPU shape holds session work.
 Memory settings preserve the previous proposal.
 
-Disk calibration and best-of-N cost measurements: pending the wrapped probe.
-`tools/measure_machine_guard.py` observes existing host activity without adding
-an artificial load, then measures CPU, disk and full-read costs separately.
-`read_cost_s` also reports every pass's reading cost.
+The wrapped probe acquired slot B at 22:46:26 UTC. Twelve approximately
+five-second intervals all read **0% idle** and **disk busy 1.0**; load1 ranged
+292.858–313.084 on 18 logical CPUs. Both signals were readable in 12/12
+intervals. The disk proposals are 20% (background) and 10% (session) below
+this measured bounded saturation plateau: `1.0 * 0.80` and `1.0 * 0.90`.
+Background leaves more storage headroom; a person waiting on session work
+gets the higher threshold. Release is at 0.70 and 0.80 respectively.
+
+This is provisional calibration against an observed saturated host, not a
+measured quiet-to-saturated performance knee. Concurrent I/O can reach the
+plateau before all device throughput is exhausted. No artificial stress was
+added, and no claim of an optimal threshold or a measured quiet baseline is
+made. Live policy remains the operator's choice.
+
+| Reading | N | Best | Median | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Mach CPU tick snapshot | 100 | 18.1 µs | 19.4 µs | 119.8 µs |
+| IOKit disk counters | 100 | 34.3 µs | 37.2 µs | 562.094 ms |
+| Full warm machine reading | 100 | **66.7 µs** | **81.9 µs** | 349.295 ms |
+
+Cold full read: **413.7 µs**. The 12 cadence reads cost 267.7 µs best,
+414.0 µs median, and 71.399 ms maximum. Wall-time tails include host scheduling
+and contention; these are measurements, not a latency bound. The reader stores
+its actual per-pass elapsed cost as `read_cost_s`. The standalone
+`tools/measure_machine_guard.py` observes existing activity and measures each
+source separately; its entire invocation used the required wrapper.
 
 ## Tests and status
 
 All pytest and measurement invocations use the hub's suite-hold wrapper, one
 pytest at a time, GIL CPython 3.14.7, scratch uv cache/venv and bounded ci
-Hypothesis settings. Each hold is kept under 20 minutes. Scratch Hypothesis
+Hypothesis settings. Batches target less than 20 minutes. The first required 13-file group exceeded
+20 minutes while emitting only occasional progress. `ps` was blocked; a native
+status read found its process running (BSD state 2), and the sandbox denied
+SIGINT to that verified owned PID. The runner interrupt input succeeded: the partial run ended with 121 passed,
+no assertion failures, exit 130, in 1403.95 s (23m 23s). It is not counted as
+a completed required group.
+This exception and its final outcome are recorded below; later groups use
+smaller batches and collected node splits for expensive files. Scratch Hypothesis
 storage is removed after each run; no `.hypothesis` is created in the tree.
 
 | File | Coverage |
@@ -98,8 +127,9 @@ Further required groups, mutation results and full-suite counts: in progress.
 
 ## Remaining design question
 
-CPU idle removes the false CPU hold caused by disk-inflated load, making
-background ageing less pressing during those incidents. It does not provide
+CPU idle removes false CPU holds caused by disk-inflated load. That makes
+background ageing less pressing only when measured disk pressure is also below
+threshold. The high-disk 10/11 shape may remain disk-held. This does not provide
 fairness under sustained real CPU or storage saturation: background jobs can
 still wait indefinitely under a continuously binding threshold. The open
 ageing question remains; this build adds no ageing or priority promotion.
@@ -114,4 +144,5 @@ Use `git --git-dir=.mg2-git log` here to inspect them. No history was rewritten.
 
 - `cc16d1921`: tests first, including frozen legacy oracle and admission fake.
 - `c8383c98b`: CPU/disk sampler, opt-in guard, hysteresis, validation, why text and measurement tool.
+- `c1bc17796`: C-6.13/C-6.11 amendment, change log and report.
 - Final validation results: pending wrapped runs.
