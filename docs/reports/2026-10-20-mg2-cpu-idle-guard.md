@@ -42,7 +42,7 @@ and gives all jobs the same snapshot. CPU holds below its minimum; disk holds
 at or above its maximum. Each class/signal latch releases after **two consecutive
 passes** at least **0.03 idle above** its CPU threshold, or **0.10 disk busy below**
 its disk threshold. Release boundaries clamp to [0, 1]. An intervening marginal
-reading resets the count. Policy edits clear latches. Another queued job and
+reading resets the count. Guard threshold edits clear latches. Another queued job and
 `why` cannot advance recovery. Hold records and `why` show readings, thresholds,
 release targets and progress.
 
@@ -123,7 +123,23 @@ Initial focused run: **47 passed, 1 failed, 177 deselected** in 187.51 s. The
 failure was Hypothesis's input-generation wall-time health check during a host
 pause (5 draws took 30.60 s); bounded properties now suppress only `too_slow`,
 as the repository's stateful ci profile does. No behavior assertion failed.
-Further required groups, mutation results and full-suite counts: in progress.
+Focused positive gate after the health-check correction: **48 passed,
+210 deselected** in 166.56 s. Per file: sampler **14**, scheduler signals **12**,
+new policy cases **21**, new admission/why case **1**.
+
+| Temporary mutation | Named failing test | Result |
+| --- | --- | --- |
+| Replace EWMA output with raw idle | `test_machine_signals.py::test_cpu_ticks_are_interval_deltas_and_ewma_uses_sixty_seconds` | 1 failed as expected, 44.32 s |
+| Release after one clear pass | `test_scheduler_machine_signals.py::test_cpu_release_requires_three_point_margin_for_two_consecutive_passes` | 1 failed as expected, 270.30 s |
+| Substitute busy values for unreadable signals | `test_scheduler_machine_signals.py::test_unreadable_signal_holds_nothing_and_clears_a_latch` | 1 failed as expected, 7.59 s |
+
+Each mutation was applied alone and restored in `finally`; each failed its
+specific named test, rather than merely returning a nonzero status. With all
+source restored: **59 passed** in 21.76 s: sampler **14**, scheduler signals
+**12**, and all admission-priority fakes **33**. The source diff was clean
+before proceeding. Mutants and execution logs are not committed.
+
+Further required groups and full-suite counts: in progress.
 
 ## Remaining design question
 
@@ -145,4 +161,5 @@ Use `git --git-dir=.mg2-git log` here to inspect them. No history was rewritten.
 - `cc16d1921`: tests first, including frozen legacy oracle and admission fake.
 - `c8383c98b`: CPU/disk sampler, opt-in guard, hysteresis, validation, why text and measurement tool.
 - `c1bc17796`: C-6.13/C-6.11 amendment, change log and report.
-- Final validation results: pending wrapped runs.
+- `05db46d0a`: measured cost/calibration and the first hold exception.
+- Further required/full-suite validation: in progress.
