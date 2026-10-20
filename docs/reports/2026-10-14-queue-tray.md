@@ -1194,3 +1194,99 @@ cached release `3fbc4b7c5`, already present in the shared repository. The
 bundle is verified against local metadata. Test logs, XML/JSON evidence and
 bundles are excluded from commits. Owned test scratch and generated caches
 are removed after validation; `.git-local` and the transfer bundle are kept.
+
+## Fix 6 — 2026-10-20, review r3
+
+### Release integration and delivery
+
+The first change merges cached `origin/release/217` at `473fe2941`, including
+#222 (`f99da54b0`) and the subsequent release merges, into the supplied
+`c154b2eaa22f`. No remote was contacted. The only conflict was the change log
+in `docs/acceptance-contract.md`: both sides' entries were concatenated;
+every clause and both sides' change-log entries were retained. Later contract
+amendments accompany their corresponding implementation commits.
+
+The shared Git metadata and original `.git` pointer are unwritable in this
+sandbox. Commits use workspace-local `.git-local` metadata on
+`feat/queue-tray-217`; the caller checkout and shared refs are unchanged.
+A verified transfer bundle will accompany the final report. No history is
+rewritten and nothing is pushed. All new commits have the requested
+`Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` trailer.
+
+### Findings, causes and fixes
+
+1. **P2, optional status RPC stalled watch.** Readiness requires
+   `conversations.v1`, but focused refresh called `conversation.status`
+   unconditionally. Two attempts against a ready daemon lacking
+   `conversation.status.v1` delivered zero pages. `ConversationEngine` now
+   caches the capability discovered by availability/reconnect checks and
+   uses the cheap refresh only when advertised. Older daemons use a raw
+   `conversation.open` re-read, preserving feed-thread isolation from the
+   outbox; changed identities outside that snapshot are fetched separately.
+   C-25.1 and C-29.7 describe the fallback. The status handler itself is
+   unchanged and the modern refresh still performs no transcript read.
+
+2. **P2, opening omitted older queued messages.** The launch watch baseline
+   can consume a queue's changes before focus. `conversation.open` returns
+   the latest 50 receipts; a later empty watch page cannot discover the
+   missing older identities. Opening with status support now reads the
+   complete identity set and hydrates missing receipts in batches of at most
+   200, sorts them by sequence, and only then publishes the open result.
+   Regressions use 51, 120 and 251 held messages; the last crosses the receipt
+   batch boundary. C-29.7 records the complete opening count guarantee.
+
+3. **P2, catch-up undid an explicit reveal.** The opening pin already honored
+   row reveals, but `FollowKey.move` independently jumped whenever either
+   key was settling. In the real `ConversationView`, a reveal at offset 250
+   followed by the first 20 history rows jumped to 8965 with `caughtUp=false`;
+   the caught-up control remained at 250. The view now suspends catch-up
+   following on its existing row-reveal notification, marks the end as away,
+   and clears suspension when the end comes into view. C-27.5/C-29.7 retain
+   D3 across later history and event pages.
+
+4. **P3, a collapsed tray hid a search match.** Search targeted
+   `person:queued5` for the unique sixth of six held messages, but the tray
+   still rendered three rows. Tray rows now expose their search identities
+   inside their own `ScrollViewReader`. The owning revealer expands the tray
+   before positioning its row; the timeline consumes only its own targets,
+   so it cannot clear a tray request during expansion. C-29.7/C-29.12 describe
+   expansion and revealing within the tray.
+
+The #222 integration also classifies `SUBFLEET_FIX4_MUTANTS`,
+`SUBFLEET_SWIFT_NESTED_SANDBOX` and the desktop's
+`SUBFLEET_OPEN_CONVERSATION` in `launch_env.LOCAL_TOOL_NAMES`. This inventory
+adds no ambient provider/helper authority: the existing selector still drops
+all three and doctor lists their names. Swift compilation defines are not
+environment controls. The new round-3 inventory regression checks both the
+classification and continued exclusion.
+
+### Tests-first evidence
+
+Production Swift stayed byte-for-byte identical to `c154b2eaa22f` through
+the final baseline run. All authoritative failures were assertions, with
+no compilation/setup errors: four engine cases (legacy watch plus three
+queue sizes), two real-view cases, and the environment inventory case.
+The final UI baseline rendered three rows before and after activation and
+reproduced the 250 → 8965 jump. Earlier view-probe calibration runs are not
+counted as regression evidence: the corrected fixture reads its first
+history page after revealing, and distinguishes the Withdraw column from
+unrelated same-width controls on macOS 26.
+
+The new regressions are in `tests/frontend/test_review_r219_fix6.py`, backed
+by `ReviewR219Fix6EngineProbe.swift` and `ReviewR219Fix6ViewProbe.swift`.
+The engine uses real service result fixtures, including the older daemon's
+capability shape. The view probe hosts the actual conversation view in
+windows never ordered front. `tests/unit/test_launch_env_round3.py` carries
+the local-name classification regression.
+
+### Validation status
+
+Validation is in progress. Final per-file and per-directory counts, build
+results, unrun cases, cleanup and transfer details will replace this status.
+Every pytest invocation is foreground, serial, under its own exact
+`/usr/bin/lockf -k /private/tmp/claude-501/subfleet-suites.lock` hold. The
+bounded CI Hypothesis profile is used; `PYTHONPATH` and
+`SUBFLEET_RETENTION_DORMANT` are unset. The default uv cache was probed and
+refused writes, so each hold uses and removes an owned scratch cache. Probe
+precompilation uses the existing exact-source cache outside the suite lock,
+in one foreground runner with three compiler slots, all children awaited.
