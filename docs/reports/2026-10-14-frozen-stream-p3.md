@@ -731,6 +731,8 @@ still follow worker backoff (about 0.5 s then 1 s), reset after a completed
 check, and start at zero in a new daemon. This round changes neither code
 mapping nor timing.
 
+### Lost-job validation (historical)
+
 Baseline regression hold: **41 failed, 1 passed, 315 deselected**, in 10.11 s,
 against the release merge before any production fixes. All 24 no-verdict
 interruption cases, 14 cleanup cases and three exhausted-detail cases fail for
@@ -814,8 +816,8 @@ and their tests and supporting code are unchanged from `origin/release/217`:
 
 These failures remain visible; no test or native probe was changed to hide them.
 The skipped cases are five in `unit/test_daemon_verbs.py` and three in
-`unit/test_filesystem_identity_agreement.py`. Coverage continues with the
-remaining files despite the environment failures. The disposable pytest
+`unit/test_filesystem_identity_agreement.py`. The power cut interrupted the
+remaining coverage; fresh continuation results are recorded below. The disposable pytest
 entrypoint also checks the 15:56:42 UTC cutoff after any queued lock wait,
 without changing the required lockf command or adding an alarm loop.
 
@@ -854,49 +856,83 @@ files are unchanged. New commits use this workspace's `.git-local` metadata on
 original `.git` pointer and detached HEAD are preserved.
 
 <!-- fix6-continuation-validation -->
-### Continuation validation checkpoint
+### Continuation validation results
 
-The first continuation hold passed **357 tests**, with no failures or skips:
-`unit/test_frozen_provider_streams.py`: **217 passed**;
-`fake/test_frozen_stream_nonregular.py`: **140 passed**.
-Pytest reported **160.19 s (2m 40s)**. These are fresh runs under regular GIL
-CPython 3.14.7, not carried-forward counts from the lost job. The remaining
-four briefed holds have not returned results yet.
+Fresh briefed results: **1,215 passed, 0 failed, 0 errors, 0 skipped**, across **21 files**.
+These counts come only from this continuation. The inherited validation
+above remains historical; no lost-job test count is carried forward.
 
-All holds use the exact `/usr/bin/lockf -k` shared lock without a timeout,
+| Briefed file under `tests/` | Passed | Failed | Errors | Skipped | Xfailed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `unit/test_frozen_provider_streams.py` | 217 | 0 | 0 | 0 | 0 |
+| `fake/test_frozen_stream_nonregular.py` | 140 | 0 | 0 | 0 | 0 |
+| `unit/test_daemon_settle.py` | 61 | 0 | 0 | 0 | 0 |
+| `unit/test_settle_properties.py` | 129 | 0 | 0 | 0 | 0 |
+| `fake/test_finalization_replay.py` | 10 | 0 | 0 | 0 | 0 |
+| `fake/test_salvage_finalization.py` | 47 | 0 | 0 | 0 | 0 |
+| `fake/test_turn_trees.py` | 18 | 0 | 0 | 0 | 0 |
+| `unit/test_turn_runner.py` | 76 | 0 | 0 | 0 | 0 |
+| `unit/test_turn_replay.py` | 33 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_turn.py` | 61 | 0 | 0 | 0 | 0 |
+| `unit/test_codex_turn.py` | 58 | 0 | 0 | 0 | 0 |
+| `unit/test_launch_env_allowlist.py` | 27 | 0 | 0 | 0 | 0 |
+| `unit/test_launch_env_helpers.py` | 20 | 0 | 0 | 0 | 0 |
+| `unit/test_launch_env_mutations.py` | 41 | 0 | 0 | 0 | 0 |
+| `unit/test_launch_env_policy.py` | 26 | 0 | 0 | 0 | 0 |
+| `unit/test_launch_env_round2.py` | 67 | 0 | 0 | 0 | 0 |
+| `unit/test_launch_env_round3.py` | 67 | 0 | 0 | 0 | 0 |
+| `unit/test_launch_env_round4.py` | 40 | 0 | 0 | 0 | 0 |
+| `unit/test_launch_env_round5.py` | 39 | 0 | 0 | 0 | 0 |
+| `fake/test_state_contract.py` | 37 | 0 | 0 | 0 | 0 |
+| `unit/test_test_module_names.py` | 1 | 0 | 0 | 0 | 0 |
+
+| Brief hold | Files | Passed | Failed | Errors | Skipped | Xfailed | JUnit seconds |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `brief-1` | 2 | 357 | 0 | 0 | 0 | 0 | 159.77 |
+| `brief-2` | 19 | 858 | 0 | 0 | 0 | 0 | 158.97 |
+
+**Unrun briefed files: 0.**
+
+Runtime: regular GIL **CPython 3.14.7** (`Py_GIL_DISABLED=0`), installed
+with `uv sync --locked --group dev --python /opt/homebrew/bin/python3.14`.
+The venv and default-cache fallback are in disposable scratch. Dependency
+files are unchanged; xdist 3.8.0 and execnet 2.1.2 are scratch-only additions.
+
+Every hold uses the exact `/usr/bin/lockf -k` shared lock without a timeout,
 `env -u SUBFLEET_RETENTION_DORMANT -u PYTHONPATH`, disabled pytest cache,
-`HYPOTHESIS_PROFILE=ci`, disposable TMPDIR/Hypothesis storage and the scratch
-uv-cache fallback. Briefed holds use one worker; full-directory holds use four.
-The disposable pytest entrypoint checks the 20:17 UTC cutoff after any queued
-lock wait, without replacing or polling the lock. Before later invocations it
-also asserts regular GIL CPython 3.14. No runner is relaunched if paused.
+`HYPOTHESIS_PROFILE=ci`, and disposable TMPDIR/Hypothesis storage.
+The first briefed hold uses one worker; the consolidated second uses four.
+Full holds use four workers. The disposable pytest
+entrypoint checks the 20:13 UTC cutoff after any queued lock wait and
+asserts the required interpreter before later invocations. The lock is
+not polled or replaced. No paused runner is relaunched.
 
-After all briefed holds pass, the full-directory manifest covers all 431 files
-exactly once: first the 106 fake files, then unit batches of 109, 109 and 107.
-The inherited full-directory checkpoint below records only the lost job.
+After a long shared-lock queue, the remaining four core groups were
+combined into one pytest invocation in the already-pending hold. No
+process was restarted or signalled. The scratch entrypoint returns control
+status 81 after a successful pytest run so the prior shell plan stops
+before queuing redundant holds. The tables record pytest results; the
+control status is not a test failure.
 <!-- /fix6-continuation-validation -->
 
 <!-- fix6-full-results -->
-Full-directory validation:
+### Full-directory results from this continuation
+
+The manifest covers all **431** files exactly once: **106 fake** files,
+then unit batches of **109, 109 and 107** files. The table counts this
+continuation's full-directory holds only, without adding briefed repeats
+or the lost job's two unit batches.
 
 | Directory | Files with results / total | Passed | Failed | Errors | Skipped | Xfailed |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `tests/unit` | 108 / 325 | 5507 | 4 | 0 | 8 | 0 |
+| `tests/unit` | 0 / 325 | 0 | 0 | 0 | 0 | 0 |
 | `tests/fake` | 0 / 106 | 0 | 0 | 0 | 0 | 0 |
 
-| Full hold | Files | Passed | Failed | Errors | Skipped | Xfailed | Seconds |
+| Full hold | Files with results | Passed | Failed | Errors | Skipped | Xfailed | JUnit seconds |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `unit-1` | 54 | 3585 | 0 | 0 | 0 | 0 | 1079.08 |
-| `unit-2` | 54 | 1922 | 4 | 0 | 8 | 0 | 262.67 |
 
-One serial full hold and the later holds with four workers cover the files
-above. The unit manifests were combined into four holds and the fake
-manifests into one; redundant initial plan entries perform no pytest run
-and take no lock. The plan covers all 431 files exactly once.
-
-**Unrun full-directory files: 323.** The per-file table below names
-each one as unrun. Earlier briefed results remain valid for files covered
-by a briefed hold.
+**Unrun full-directory files: 431.**
+Every file and its actual result or unrun status is listed below.
 
 <details><summary>Full-directory counts per file</summary>
 
@@ -1008,114 +1044,114 @@ by a briefed hold.
 | `fake/test_workspace_transient.py` | unrun | — | — | — | — |
 | `fake/test_writable_fanout.py` | unrun | — | — | — | — |
 | `fake/test_writer_retention_fence.py` | unrun | — | — | — | — |
-| `unit/test_admission_uncapped.py` | 27 | 0 | 0 | 0 | 0 |
-| `unit/test_agent_secret_credentials.py` | 7 | 0 | 0 | 0 | 0 |
-| `unit/test_app_cutover_daemon.py` | 13 | 0 | 0 | 0 | 0 |
-| `unit/test_approval_commit.py` | 6 | 0 | 0 | 0 | 0 |
-| `unit/test_approval_resolution.py` | 33 | 0 | 0 | 0 | 0 |
-| `unit/test_boot_identity.py` | 10 | 0 | 0 | 0 | 0 |
-| `unit/test_capacity_desktop.py` | 20 | 0 | 0 | 0 | 0 |
-| `unit/test_capacity_steer_mutations.py` | 10 | 0 | 0 | 0 | 0 |
-| `unit/test_capacity_steer_route.py` | 22 | 0 | 0 | 0 | 0 |
-| `unit/test_capacity_view.py` | 20 | 0 | 0 | 0 | 0 |
-| `unit/test_census_counted.py` | 5 | 0 | 0 | 0 | 0 |
-| `unit/test_census_identity_uncertainty.py` | 8 | 0 | 0 | 0 | 0 |
-| `unit/test_census_procargs.py` | 52 | 0 | 0 | 0 | 0 |
-| `unit/test_census_recycled_pid.py` | 25 | 0 | 0 | 0 | 0 |
-| `unit/test_census_responsibility_failures.py` | 20 | 0 | 0 | 0 | 0 |
-| `unit/test_census_responsibility_identity.py` | 17 | 0 | 0 | 0 | 0 |
-| `unit/test_census_responsibility_races.py` | 34 | 0 | 0 | 0 | 0 |
-| `unit/test_census_survivors_review.py` | 14 | 0 | 0 | 0 | 0 |
-| `unit/test_ci_retry_known_flakes.py` | 72 | 0 | 0 | 0 | 0 |
-| `unit/test_ci_shard_plugin.py` | 48 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_adapter.py` | 170 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_attest.py` | 19 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_cards.py` | 96 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_cards_wiring.py` | 15 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_conversation_mcp_scope.py` | 8 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_identity.py` | 30 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_large_stream.py` | 30 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_mcp.py` | 32 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_mcp_launch.py` | 11 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_stream.py` | 60 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_synthetic_error.py` | 63 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_turn.py` | 61 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_usage.py` | 28 | 0 | 0 | 0 | 0 |
-| `unit/test_claude_v1_parity.py` | 6 | 0 | 0 | 0 | 0 |
-| `unit/test_cli.py` | 222 | 0 | 0 | 0 | 0 |
-| `unit/test_cli_batch.py` | 18 | 0 | 0 | 0 | 0 |
-| `unit/test_cli_turns.py` | 23 | 0 | 0 | 0 | 0 |
-| `unit/test_codex_adapter.py` | 172 | 0 | 0 | 0 | 0 |
-| `unit/test_codex_ca_bundle.py` | 46 | 0 | 0 | 0 | 0 |
-| `unit/test_codex_ca_bundle_provider.py` | 6 | 0 | 0 | 0 | 0 |
-| `unit/test_codex_probe.py` | 55 | 0 | 0 | 0 | 0 |
-| `unit/test_codex_shim.py` | 31 | 0 | 0 | 0 | 0 |
-| `unit/test_codex_turn.py` | 58 | 0 | 0 | 0 | 0 |
-| `unit/test_codex_turn_completed.py` | 41 | 0 | 0 | 0 | 0 |
-| `unit/test_compat.py` | 1615 | 0 | 0 | 0 | 0 |
-| `unit/test_continuation_r2.py` | 11 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_catalog.py` | 15 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_catalog_lifecycle.py` | 21 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_connections.py` | 9 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_diff.py` | 39 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_fifo_reads.py` | 26 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_handoff.py` | 48 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_handoff_briefs.py` | 28 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_handoff_dispatch_races.py` | 9 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_history.py` | 22 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_peers_attachments.py` | 44 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_reconcile.py` | 36 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_redact.py` | 9 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_service.py` | 98 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_state_reads.py` | 18 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_status.py` | 9 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_steer_service.py` | 45 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_store.py` | 32 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_stream_assertion.py` | 13 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_titles.py` | 89 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_waits.py` | 9 | 0 | 0 | 0 | 0 |
-| `unit/test_conversation_wakes.py` | 22 | 0 | 0 | 0 | 0 |
-| `unit/test_cpu_scaling.py` | 2 | 0 | 0 | 0 | 0 |
-| `unit/test_daemon_accept.py` | 5 | 0 | 0 | 0 | 0 |
-| `unit/test_daemon_connections.py` | 30 | 0 | 0 | 0 | 0 |
-| `unit/test_daemon_fifo_reads.py` | 27 | 0 | 0 | 0 | 0 |
-| `unit/test_daemon_init_release.py` | 2 | 0 | 0 | 0 | 0 |
-| `unit/test_daemon_inspection_load.py` | 22 | 0 | 0 | 0 | 0 |
-| `unit/test_daemon_inspection_properties.py` | 4 | 0 | 0 | 0 | 0 |
-| `unit/test_daemon_integration.py` | 7 | 0 | 0 | 0 | 0 |
-| `unit/test_daemon_log_scrubbing.py` | 86 | 0 | 0 | 0 | 0 |
-| `unit/test_daemon_qos_tools.py` | 3 | 1 | 0 | 0 | 0 |
-| `unit/test_daemon_refusals_cli.py` | 8 | 0 | 0 | 0 | 0 |
-| `unit/test_daemon_settle.py` | 61 | 0 | 0 | 0 | 0 |
-| `unit/test_daemon_verbs.py` | 15 | 0 | 0 | 5 | 0 |
-| `unit/test_decision_horizon.py` | 7 | 0 | 0 | 0 | 0 |
-| `unit/test_descriptor_review_fixes.py` | 56 | 0 | 0 | 0 | 0 |
-| `unit/test_descriptors.py` | 15 | 1 | 0 | 0 | 0 |
-| `unit/test_descriptors_desktop.py` | 8 | 0 | 0 | 0 | 0 |
-| `unit/test_desktop_account_cache.py` | 3 | 0 | 0 | 0 | 0 |
-| `unit/test_desktop_in_use.py` | 13 | 0 | 0 | 0 | 0 |
-| `unit/test_desktop_ledger.py` | 4 | 0 | 0 | 0 | 0 |
-| `unit/test_disk_admission.py` | 27 | 0 | 0 | 0 | 0 |
-| `unit/test_disk_floor.py` | 60 | 0 | 0 | 0 | 0 |
-| `unit/test_doctor.py` | 42 | 2 | 0 | 0 | 0 |
-| `unit/test_doctor_ca_bundle.py` | 16 | 0 | 0 | 0 | 0 |
-| `unit/test_doctor_identity.py` | 13 | 0 | 0 | 0 | 0 |
-| `unit/test_empty_provider_results.py` | 334 | 0 | 0 | 0 | 0 |
-| `unit/test_enrollment_runner.py` | 7 | 0 | 0 | 0 | 0 |
-| `unit/test_fake_codex_http.py` | 7 | 0 | 0 | 0 | 0 |
-| `unit/test_filesystem_identity_agreement.py` | 37 | 0 | 0 | 3 | 0 |
-| `unit/test_folders.py` | 23 | 0 | 0 | 0 | 0 |
-| `unit/test_forget_paced.py` | 2 | 0 | 0 | 0 | 0 |
-| `unit/test_fresh_until.py` | 1 | 0 | 0 | 0 | 0 |
-| `unit/test_frozen_provider_streams.py` | 217 | 0 | 0 | 0 | 0 |
-| `unit/test_gate_admission.py` | 24 | 0 | 0 | 0 | 0 |
-| `unit/test_gate_merge.py` | 59 | 0 | 0 | 0 | 0 |
-| `unit/test_gate_replay.py` | 23 | 0 | 0 | 0 | 0 |
-| `unit/test_gate_revision.py` | 16 | 0 | 0 | 0 | 0 |
-| `unit/test_gate_service.py` | 25 | 0 | 0 | 0 | 0 |
-| `unit/test_gate_verdict.py` | 45 | 0 | 0 | 0 | 0 |
-| `unit/test_guard_overlay.py` | 22 | 0 | 0 | 0 | 0 |
-| `unit/test_guard_trust.py` | 98 | 0 | 0 | 0 | 0 |
+| `unit/test_admission_uncapped.py` | unrun | — | — | — | — |
+| `unit/test_agent_secret_credentials.py` | unrun | — | — | — | — |
+| `unit/test_app_cutover_daemon.py` | unrun | — | — | — | — |
+| `unit/test_approval_commit.py` | unrun | — | — | — | — |
+| `unit/test_approval_resolution.py` | unrun | — | — | — | — |
+| `unit/test_boot_identity.py` | unrun | — | — | — | — |
+| `unit/test_capacity_desktop.py` | unrun | — | — | — | — |
+| `unit/test_capacity_steer_mutations.py` | unrun | — | — | — | — |
+| `unit/test_capacity_steer_route.py` | unrun | — | — | — | — |
+| `unit/test_capacity_view.py` | unrun | — | — | — | — |
+| `unit/test_census_counted.py` | unrun | — | — | — | — |
+| `unit/test_census_identity_uncertainty.py` | unrun | — | — | — | — |
+| `unit/test_census_procargs.py` | unrun | — | — | — | — |
+| `unit/test_census_recycled_pid.py` | unrun | — | — | — | — |
+| `unit/test_census_responsibility_failures.py` | unrun | — | — | — | — |
+| `unit/test_census_responsibility_identity.py` | unrun | — | — | — | — |
+| `unit/test_census_responsibility_races.py` | unrun | — | — | — | — |
+| `unit/test_census_survivors_review.py` | unrun | — | — | — | — |
+| `unit/test_ci_retry_known_flakes.py` | unrun | — | — | — | — |
+| `unit/test_ci_shard_plugin.py` | unrun | — | — | — | — |
+| `unit/test_claude_adapter.py` | unrun | — | — | — | — |
+| `unit/test_claude_attest.py` | unrun | — | — | — | — |
+| `unit/test_claude_cards.py` | unrun | — | — | — | — |
+| `unit/test_claude_cards_wiring.py` | unrun | — | — | — | — |
+| `unit/test_claude_conversation_mcp_scope.py` | unrun | — | — | — | — |
+| `unit/test_claude_identity.py` | unrun | — | — | — | — |
+| `unit/test_claude_large_stream.py` | unrun | — | — | — | — |
+| `unit/test_claude_mcp.py` | unrun | — | — | — | — |
+| `unit/test_claude_mcp_launch.py` | unrun | — | — | — | — |
+| `unit/test_claude_stream.py` | unrun | — | — | — | — |
+| `unit/test_claude_synthetic_error.py` | unrun | — | — | — | — |
+| `unit/test_claude_turn.py` | unrun | — | — | — | — |
+| `unit/test_claude_usage.py` | unrun | — | — | — | — |
+| `unit/test_claude_v1_parity.py` | unrun | — | — | — | — |
+| `unit/test_cli.py` | unrun | — | — | — | — |
+| `unit/test_cli_batch.py` | unrun | — | — | — | — |
+| `unit/test_cli_turns.py` | unrun | — | — | — | — |
+| `unit/test_codex_adapter.py` | unrun | — | — | — | — |
+| `unit/test_codex_ca_bundle.py` | unrun | — | — | — | — |
+| `unit/test_codex_ca_bundle_provider.py` | unrun | — | — | — | — |
+| `unit/test_codex_probe.py` | unrun | — | — | — | — |
+| `unit/test_codex_shim.py` | unrun | — | — | — | — |
+| `unit/test_codex_turn.py` | unrun | — | — | — | — |
+| `unit/test_codex_turn_completed.py` | unrun | — | — | — | — |
+| `unit/test_compat.py` | unrun | — | — | — | — |
+| `unit/test_continuation_r2.py` | unrun | — | — | — | — |
+| `unit/test_conversation_catalog.py` | unrun | — | — | — | — |
+| `unit/test_conversation_catalog_lifecycle.py` | unrun | — | — | — | — |
+| `unit/test_conversation_connections.py` | unrun | — | — | — | — |
+| `unit/test_conversation_diff.py` | unrun | — | — | — | — |
+| `unit/test_conversation_fifo_reads.py` | unrun | — | — | — | — |
+| `unit/test_conversation_handoff.py` | unrun | — | — | — | — |
+| `unit/test_conversation_handoff_briefs.py` | unrun | — | — | — | — |
+| `unit/test_conversation_handoff_dispatch_races.py` | unrun | — | — | — | — |
+| `unit/test_conversation_history.py` | unrun | — | — | — | — |
+| `unit/test_conversation_peers_attachments.py` | unrun | — | — | — | — |
+| `unit/test_conversation_reconcile.py` | unrun | — | — | — | — |
+| `unit/test_conversation_redact.py` | unrun | — | — | — | — |
+| `unit/test_conversation_service.py` | unrun | — | — | — | — |
+| `unit/test_conversation_state_reads.py` | unrun | — | — | — | — |
+| `unit/test_conversation_status.py` | unrun | — | — | — | — |
+| `unit/test_conversation_steer_service.py` | unrun | — | — | — | — |
+| `unit/test_conversation_store.py` | unrun | — | — | — | — |
+| `unit/test_conversation_stream_assertion.py` | unrun | — | — | — | — |
+| `unit/test_conversation_titles.py` | unrun | — | — | — | — |
+| `unit/test_conversation_waits.py` | unrun | — | — | — | — |
+| `unit/test_conversation_wakes.py` | unrun | — | — | — | — |
+| `unit/test_cpu_scaling.py` | unrun | — | — | — | — |
+| `unit/test_daemon_accept.py` | unrun | — | — | — | — |
+| `unit/test_daemon_connections.py` | unrun | — | — | — | — |
+| `unit/test_daemon_fifo_reads.py` | unrun | — | — | — | — |
+| `unit/test_daemon_init_release.py` | unrun | — | — | — | — |
+| `unit/test_daemon_inspection_load.py` | unrun | — | — | — | — |
+| `unit/test_daemon_inspection_properties.py` | unrun | — | — | — | — |
+| `unit/test_daemon_integration.py` | unrun | — | — | — | — |
+| `unit/test_daemon_log_scrubbing.py` | unrun | — | — | — | — |
+| `unit/test_daemon_qos_tools.py` | unrun | — | — | — | — |
+| `unit/test_daemon_refusals_cli.py` | unrun | — | — | — | — |
+| `unit/test_daemon_settle.py` | unrun | — | — | — | — |
+| `unit/test_daemon_verbs.py` | unrun | — | — | — | — |
+| `unit/test_decision_horizon.py` | unrun | — | — | — | — |
+| `unit/test_descriptor_review_fixes.py` | unrun | — | — | — | — |
+| `unit/test_descriptors.py` | unrun | — | — | — | — |
+| `unit/test_descriptors_desktop.py` | unrun | — | — | — | — |
+| `unit/test_desktop_account_cache.py` | unrun | — | — | — | — |
+| `unit/test_desktop_in_use.py` | unrun | — | — | — | — |
+| `unit/test_desktop_ledger.py` | unrun | — | — | — | — |
+| `unit/test_disk_admission.py` | unrun | — | — | — | — |
+| `unit/test_disk_floor.py` | unrun | — | — | — | — |
+| `unit/test_doctor.py` | unrun | — | — | — | — |
+| `unit/test_doctor_ca_bundle.py` | unrun | — | — | — | — |
+| `unit/test_doctor_identity.py` | unrun | — | — | — | — |
+| `unit/test_empty_provider_results.py` | unrun | — | — | — | — |
+| `unit/test_enrollment_runner.py` | unrun | — | — | — | — |
+| `unit/test_fake_codex_http.py` | unrun | — | — | — | — |
+| `unit/test_filesystem_identity_agreement.py` | unrun | — | — | — | — |
+| `unit/test_folders.py` | unrun | — | — | — | — |
+| `unit/test_forget_paced.py` | unrun | — | — | — | — |
+| `unit/test_fresh_until.py` | unrun | — | — | — | — |
+| `unit/test_frozen_provider_streams.py` | unrun | — | — | — | — |
+| `unit/test_gate_admission.py` | unrun | — | — | — | — |
+| `unit/test_gate_merge.py` | unrun | — | — | — | — |
+| `unit/test_gate_replay.py` | unrun | — | — | — | — |
+| `unit/test_gate_revision.py` | unrun | — | — | — | — |
+| `unit/test_gate_service.py` | unrun | — | — | — | — |
+| `unit/test_gate_verdict.py` | unrun | — | — | — | — |
+| `unit/test_guard_overlay.py` | unrun | — | — | — | — |
+| `unit/test_guard_trust.py` | unrun | — | — | — | — |
 | `unit/test_guardian.py` | unrun | — | — | — | — |
 | `unit/test_guardian_qos.py` | unrun | — | — | — | — |
 | `unit/test_handler_refusals.py` | unrun | — | — | — | — |
