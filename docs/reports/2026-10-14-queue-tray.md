@@ -1890,3 +1890,181 @@ bundle and the final response. Shared Git metadata remains untouched.
 | `tests/unit/test_wait_hub.py` | 44 | 0 | 0 | 0 | 0 | Completed |
 | `tests/unit/test_wake_cli.py` | 2 | 0 | 0 | 0 | 0 | Completed |
 | `tests/unit/test_weekly_rank_vs_base.py` | 26 | 0 | 0 | 0 | 0 | Completed |
+
+## Fix 7 — 2026-10-20, CI macOS 15 search reveal
+
+Cached `origin/release/217` was still `473fe2941`, already incorporated in
+`a66102fa9`; no merge or conflict resolution was needed and no remote was
+contacted. The shared index refused `index.lock` with Operation not permitted.
+This round's commits use workspace-local `.git-local` metadata on
+`feat/queue-tray-217`, preserving the supplied history and original `.git`
+pointer. Named files only are staged. Nothing is pushed.
+
+### Cause and implementation
+
+Expansion previously happened only in `SearchRevealer.Follower`'s background
+`.task`, through a closure mutating the tray's `expanded` state. The tray did
+not itself observe the palette's published reveal. Consequently its row set
+depended on an asynchronous view lifecycle callback, the dependency exposed
+by CI's macOS 15 result (three controls both before and after activation).
+The old width/position finder was independently fragile: the tests-first
+run on this host counted five after expansion and found zero row identifiers.
+
+`QueueTrayPresentation` derives the visible rows in Foundation from
+`expanded || revealTargetsTray`, checking both conversation and row identity.
+A directly observed palette passes the reveal into the rendering view, which
+owns expansion state and keeps the tray open after consumption. No task expands
+it. One geometry preference on the whole tray reports its row set, outside
+`ViewThatFits`' alternative measurements. Scrolling accepts that layout only
+when its reveal token equals the current request and its ids include the target.
+This also handles a repeat selection or a match in the original three rows.
+An explicit `onChange` schedules the scroll; cancelled or superseded scrolls
+cannot clear the current request. C-29.12 and its change log describe the rule.
+
+SwiftUI exposes no AX tree in these offscreen hosts without an assistive client;
+its accessibility modifier alone does not populate the actual `NSButton`.
+A small AppKit host keeps the original SwiftUI link, action, caption scale and
+enabled state, and binds `queue-tray-withdraw-<message-id>` to the real button's
+native identifier and accessibility identifier after layout. The finder uses
+that stable identity, including the exact sixth row when clicking. Geometry
+matching remains a reported legacy fallback, and its use fails the identifier
+regression.
+
+The probe polls expansion, layout, target visibility and reveal consumption
+against one 10-second deadline. Each iteration advances AppKit layout and yields
+the main actor so the scroll continuation can run. A compact assertion string
+keeps all required flags, model/layout/control counts, finder, deadline and
+elapsed time visible in pytest's concise output; the full result is also saved
+inside that fixture's temporary directory. Windows remain offscreen.
+
+### Regression evidence and macOS 15 expectation
+
+Commit `134ec6609` adds the tests before application changes. Against
+byte-for-byte `a66102fa9` application sources, both selected regressions failed
+by assertion (2 failed, no setup/compile errors; 647.21 seconds): the pure
+engine projection returned `[3, 3]` for a reveal of the sixth held row instead
+of `[6, 0]`, and identifier discovery returned zero instead of three before
+activation. The engine test also keeps unrelated-conversation, absent-row
+and absent-reveal cases collapsed. The final probe checks layout and stable
+identifiers rather than relying on its previous 1.5-second sleep.
+
+macOS 15 execution is available only in CI. Beyond improved diagnostics,
+expansion is an ordinary observed state projection checked without AppKit,
+scrolling waits for a layout bearing the exact request token, polling yields
+the main actor, and discovery reads an explicitly owned native identifier
+rather than an AX tree or OS-dependent typography.
+These remove the particular lifecycle and geometry dependencies seen on CI.
+A draft app build and an initial precompile rejected modified inputs; their
+outputs were discarded. The replacement build and precompile use frozen source
+files. Implementation commit `5ae9f1350` follows tests-first commit `134ec6609`.
+
+### Validation status
+
+The final application source builds and signs through app/build.sh; the
+native-host revision also passed an independent type check. CPython 3.14.7 is
+the GIL build (Py_GIL_DISABLED=0), with bounded CI Hypothesis settings and
+storage in job scratch.
+
+The corrected combined view hold passed **50 cases in 287.38 seconds**:
+test_review_r219_fix6.py executed 34 cases (four engine cases plus three view
+checks across ten independent probe processes), test_queue_tray_view.py passed
+15, and the new pure visibility regression passed once. There are ten separate
+fix6-view fixture directories. The 30 view assertions ran with the one-minute
+load average between **49.6 and 59.1 on 18 CPUs**. The Python contract hold passed
+test_state_contract.py **37** and test_test_module_names.py **1**.
+
+The compact diagnostics exposed an additional fixture defect: it folded the
+first receipt before creating its held timeline, permanently placing queued0
+in the timeline. It therefore had five tray rows, despite claiming six. The
+fixture now focuses the held conversation before folding receipts, retaining
+the forward-only production placement rule. Before correction, one native pair
+had 20 passes and two failures; a focused diagnostic had one pure-engine pass
+and two view failures, reporting model/layout/control counts of five.
+
+Two additional required groups were requested before the cutoff and are still
+pending: queue core/notice/engine/search, and conversation view/timeline/review
+probes. No broader frontend hold has been requested while these prerequisites
+remain pending. The full 49-file frontend rerun remains unrun; per-file status
+below distinguishes executed files and the one selected core case.
+No additional unit or fake files were touched or rerun.
+
+No new holds will be requested after **20:10 UTC**, conservatively measured from
+workspace creation. Every pytest invocation uses the exact shared lockf -k
+command with no acquisition timeout; that lock serializes pytest processes.
+Completed positive holds lasted 23.92 seconds and 287.38 seconds, excluding
+lock waits. The first native pair took 858.89 seconds. Paused runners were
+waited on, without relaunching them.
+
+The table counts each test identity once using its latest completed result;
+repeat indices are collapsed only for the three view checks. The core queue
+file's one pass is a selected regression; remaining cases are pending.
+A file marked Unrun has no completed result in this round.
+
+| File | Passed | Failed | Errors | Skipped | Xfailed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| tests/frontend/test_app_cutover_start.py | Unrun | — | — | — | — |
+| tests/frontend/test_conversation_view.py | Unrun | — | — | — | — |
+| tests/frontend/test_core_app_cutover_reading.py | Unrun | — | — | — | — |
+| tests/frontend/test_core_approval_notification.py | Unrun | — | — | — | — |
+| tests/frontend/test_core_approval_reach.py | Unrun | — | — | — | — |
+| tests/frontend/test_core_client.py | Unrun | — | — | — | — |
+| tests/frontend/test_core_diff.py | Unrun | — | — | — | — |
+| tests/frontend/test_core_draft.py | Unrun | — | — | — | — |
+| tests/frontend/test_core_idle.py | Unrun | — | — | — | — |
+| tests/frontend/test_core_live.py | Unrun | — | — | — | — |
+| tests/frontend/test_core_live_failure.py | Unrun | — | — | — | — |
+| tests/frontend/test_core_markdown.py | Unrun | — | — | — | — |
+| tests/frontend/test_core_outbox.py | Unrun | — | — | — | — |
+| tests/frontend/test_core_protocol.py | Unrun | — | — | — | — |
+| tests/frontend/test_core_question_card.py | Unrun | — | — | — | — |
+| tests/frontend/test_core_queue_engine.py | Unrun | — | — | — | — |
+| tests/frontend/test_core_queue_tray.py | 1 | 0 | 0 | 0 | 0 |
+| tests/frontend/test_core_search.py | Unrun | — | — | — | — |
+| tests/frontend/test_core_steer.py | Unrun | — | — | — | — |
+| tests/frontend/test_core_steer_properties.py | Unrun | — | — | — | — |
+| tests/frontend/test_core_store.py | Unrun | — | — | — | — |
+| tests/frontend/test_core_suggestions.py | Unrun | — | — | — | — |
+| tests/frontend/test_core_suggestions_r1b.py | Unrun | — | — | — | — |
+| tests/frontend/test_core_text_scale.py | Unrun | — | — | — | — |
+| tests/frontend/test_core_timeline.py | Unrun | — | — | — | — |
+| tests/frontend/test_core_titles.py | Unrun | — | — | — | — |
+| tests/frontend/test_disk_ruling.py | Unrun | — | — | — | — |
+| tests/frontend/test_menu_view.py | Unrun | — | — | — | — |
+| tests/frontend/test_pr124_fixes_ui.py | Unrun | — | — | — | — |
+| tests/frontend/test_pr124_recovery_properties.py | Unrun | — | — | — | — |
+| tests/frontend/test_pr124_review_r2_fixes_ui.py | Unrun | — | — | — | — |
+| tests/frontend/test_queue_tray_fix4_mutations.py | Unrun | — | — | — | — |
+| tests/frontend/test_queue_tray_notice.py | Unrun | — | — | — | — |
+| tests/frontend/test_queue_tray_view.py | 15 | 0 | 0 | 0 | 0 |
+| tests/frontend/test_reading_view.py | Unrun | — | — | — | — |
+| tests/frontend/test_review_pr127_timeline.py | Unrun | — | — | — | — |
+| tests/frontend/test_review_r219_fix4.py | Unrun | — | — | — | — |
+| tests/frontend/test_review_r219_fix6.py | 7 | 0 | 0 | 0 | 0 |
+| tests/frontend/test_review_r219_probes.py | Unrun | — | — | — | — |
+| tests/frontend/test_status_model.py | Unrun | — | — | — | — |
+| tests/frontend/test_visual_progress.py | Unrun | — | — | — | — |
+| tests/frontend/test_visual_report_hygiene.py | Unrun | — | — | — | — |
+| tests/frontend/test_visual_review_fixes.py | Unrun | — | — | — | — |
+| tests/frontend/test_visual_round_five.py | Unrun | — | — | — | — |
+| tests/frontend/test_visual_round_four.py | Unrun | — | — | — | — |
+| tests/frontend/test_visual_round_three.py | Unrun | — | — | — | — |
+| tests/frontend/test_visual_round_two.py | Unrun | — | — | — | — |
+| tests/frontend/test_visual_snapshots.py | Unrun | — | — | — | — |
+| tests/frontend/test_visual_suggestions.py | Unrun | — | — | — | — |
+| tests/fake/test_state_contract.py | 37 | 0 | 0 | 0 | 0 |
+| tests/unit/test_test_module_names.py | 1 | 0 | 0 | 0 | 0 |
+Totals: {'passed': 61}
+
+Pending group outcomes will be updated before delivery. macOS 15 execution
+remains CI-only; no local macOS 15 result is claimed.
+
+### Delivery and cleanup
+
+Commits are on feat/queue-tray-217 in workspace-local .git-local, with the
+requested co-author trailer. The supplied .git pointer and shared index remain
+unchanged. After the final report commit, a transfer bundle will be written
+outside the worktree at /private/tmp/sf-r219f7-delivery-3vo7khe2/queue-tray-fix7.bundle,
+with a66102fa9 as its prerequisite. No log, JSON evidence or bundle is staged.
+Nothing is pushed. Job scratch and the job's ignored build artifacts are
+removed after foreground runners finish; local commit metadata and the
+delivery bundle are retained.
