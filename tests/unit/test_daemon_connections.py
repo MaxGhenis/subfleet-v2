@@ -628,9 +628,14 @@ def test_c16_7_a_connection_without_a_reader_is_answered_busy(serve, monkeypatch
     assert answer["ok"] is False and answer["error"]["code"] == 69 and "thread" in answer["error"]["message"]
 
 
-def test_c16_7_a_stopping_daemon_does_not_count_its_own_shutdown_as_departures(serve):
+@pytest.mark.parametrize("late", [0.0, 0.5], ids=["prompt", "late-blocker"])
+def test_c16_7_a_stopping_daemon_does_not_count_its_own_shutdown_as_departures(serve, late):
     """C-16.7 close()'s SHUT_RDWR makes getpeername fail as a departed client's
-    would; queued reads are then close()'s to cancel, not 'client hung up'."""
+    would; queued reads are then close()'s to cancel, not 'client hung up'.
+
+    `late` holds the blocker's request back after its connection is counted, as a
+    slow reader thread can (CI, Python 3.12, 10/18): the reads must still queue
+    behind it."""
     service = serve()
     service.requests.shutdown(wait=True)
     service.requests = ThreadPoolExecutor(max_workers=1, thread_name_prefix="subfleet-api")
@@ -638,6 +643,13 @@ def test_c16_7_a_stopping_daemon_does_not_count_its_own_shutdown_as_departures(s
     real = service.dispatch
     service.dispatch = lambda op, args, **kw: (release.wait(10), {"held": True})[1] if op == "readings" \
         else real(op, args, **kw)
+    real_start = service._start_request
+
+    def start(conn, write_lock, req, *rest):
+        if req.op == "readings":
+            time.sleep(late)
+        return real_start(conn, write_lock, req, *rest)
+    service._start_request = start
     blocker = connect(service)
     send(blocker, "readings")
     until(lambda: counts(service)["connections"] == 1)
