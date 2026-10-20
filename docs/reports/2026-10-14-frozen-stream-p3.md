@@ -938,9 +938,9 @@ production behavior or additional contract amendment.
 that batch. An attempted SIGINT targeted only this task's pytest controller;
 the sandbox denied it with EPERM and no signal was sent. A check of the
 controller and all four task-owned workers found no stopped process. I waited
-for the run to exit. Remaining holds select at most 55 unit files, use four
-workers, and install a single 18-minute timer inside pytest after lock
-acquisition. That timer cancels if it observes a stopped worker, preserving
+for the run to exit. The next hold selected 55 unit files and completed in 675.72 pytest seconds.
+Later planned batches contain 82, 82, 82 and 24 unit files, use four workers,
+and install a single 18-minute timer inside pytest after lock acquisition. That timer cancels if it observes a stopped worker, preserving
 the governor-wait instruction. Lock waiting still uses the exact blocking
 `/usr/bin/lockf -k` command, without a timeout, polling or replacement lock.
 Control status 82 stops the original large-unit plan after its first smaller
@@ -951,7 +951,7 @@ actual pytest outcomes, including failures.
 ### Full-directory results from this continuation
 
 The manifest covers all **431** files exactly once: **106 fake** files,
-then unit batches of at most **55 unit files**. One unit hold also repeats the
+then unit batches of **55, 82, 82, 82, 24** unit files. One unit hold also repeats the
 timer acceptance file after its wait fix. The table counts this
 continuation's full-directory holds only, without adding briefed repeats
 or the lost job's two unit batches. For a repeated file it uses the latest
@@ -959,14 +959,15 @@ completed file run; the per-hold table retains earlier outcomes.
 
 | Directory | Files with results / total | Passed | Failed | Errors | Skipped | Xfailed |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `tests/unit` | 0 / 325 | 0 | 0 | 0 | 0 | 0 |
-| `tests/fake` | 105 / 106 | 1883 | 4 | 0 | 76 | 2 |
+| `tests/unit` | 55 / 325 | 3606 | 1 | 0 | 0 | 0 |
+| `tests/fake` | 106 / 106 | 1889 | 4 | 0 | 77 | 2 |
 
 | Full hold | Files with results | Passed | Failed | Errors | Skipped | Xfailed | JUnit seconds |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | `fake-1` | 106 | 1888 | 5 | 0 | 77 | 2 | 1473.82 |
+| `unit-1` | 56 | 3612 | 1 | 0 | 1 | 0 | 675.49 |
 
-**Unrun full-directory files: 326.**
+**Unrun full-directory files: 270.**
 Every file and its actual result or unrun status is listed below.
 
 Full-directory failures/errors, including earlier file attempts:
@@ -976,6 +977,7 @@ Full-directory failures/errors, including earlier file attempts:
 - `fake-1: tests/fake/test_daemon_stacks.py::test_a_daemon_whose_lock_says_stack_dumps_is_dumped_and_lives`
 - `fake-1: tests/fake/test_daemon_stacks.py::test_a_lock_that_changes_between_the_two_reads_is_not_signalled`
 - `fake-1: tests/fake/test_daemon_stacks.py::test_a_daemon_writes_the_flag_after_the_handler_and_drops_it_before`
+- `unit-1: tests/unit/test_conversation_catalog_lifecycle.py::test_a_run_whose_owner_closes_mid_run_writes_nothing`
 
 <details><summary>Full-directory counts per file</summary>
 
@@ -1070,7 +1072,7 @@ Full-directory failures/errors, including earlier file attempts:
 | `fake/test_suggestions_fake.py` | 1 | 0 | 0 | 0 | 0 |
 | `fake/test_tier_hold_by_demand.py` | 27 | 0 | 0 | 0 | 0 |
 | `fake/test_timers_busy_admission.py` | 1 | 0 | 0 | 0 | 0 |
-| `fake/test_timers_end_to_end.py` | unrun | — | — | — | — |
+| `fake/test_timers_end_to_end.py` | 6 | 0 | 0 | 1 | 0 |
 | `fake/test_turn_listing.py` | 9 | 0 | 0 | 0 | 0 |
 | `fake/test_turn_retention_cwd.py` | 6 | 0 | 0 | 0 | 0 |
 | `fake/test_turn_retention_cwd_properties.py` | 1 | 0 | 0 | 0 | 0 |
@@ -1087,61 +1089,61 @@ Full-directory failures/errors, including earlier file attempts:
 | `fake/test_workspace_transient.py` | 24 | 0 | 0 | 0 | 0 |
 | `fake/test_writable_fanout.py` | 28 | 0 | 0 | 0 | 0 |
 | `fake/test_writer_retention_fence.py` | 23 | 0 | 0 | 0 | 0 |
-| `unit/test_admission_uncapped.py` | unrun | — | — | — | — |
-| `unit/test_agent_secret_credentials.py` | unrun | — | — | — | — |
-| `unit/test_app_cutover_daemon.py` | unrun | — | — | — | — |
-| `unit/test_approval_commit.py` | unrun | — | — | — | — |
-| `unit/test_approval_resolution.py` | unrun | — | — | — | — |
-| `unit/test_boot_identity.py` | unrun | — | — | — | — |
-| `unit/test_capacity_desktop.py` | unrun | — | — | — | — |
-| `unit/test_capacity_steer_mutations.py` | unrun | — | — | — | — |
-| `unit/test_capacity_steer_route.py` | unrun | — | — | — | — |
-| `unit/test_capacity_view.py` | unrun | — | — | — | — |
-| `unit/test_census_counted.py` | unrun | — | — | — | — |
-| `unit/test_census_identity_uncertainty.py` | unrun | — | — | — | — |
-| `unit/test_census_procargs.py` | unrun | — | — | — | — |
-| `unit/test_census_recycled_pid.py` | unrun | — | — | — | — |
-| `unit/test_census_responsibility_failures.py` | unrun | — | — | — | — |
-| `unit/test_census_responsibility_identity.py` | unrun | — | — | — | — |
-| `unit/test_census_responsibility_races.py` | unrun | — | — | — | — |
-| `unit/test_census_survivors_review.py` | unrun | — | — | — | — |
-| `unit/test_ci_retry_known_flakes.py` | unrun | — | — | — | — |
-| `unit/test_ci_shard_plugin.py` | unrun | — | — | — | — |
-| `unit/test_claude_adapter.py` | unrun | — | — | — | — |
-| `unit/test_claude_attest.py` | unrun | — | — | — | — |
-| `unit/test_claude_cards.py` | unrun | — | — | — | — |
-| `unit/test_claude_cards_wiring.py` | unrun | — | — | — | — |
-| `unit/test_claude_conversation_mcp_scope.py` | unrun | — | — | — | — |
-| `unit/test_claude_identity.py` | unrun | — | — | — | — |
-| `unit/test_claude_large_stream.py` | unrun | — | — | — | — |
-| `unit/test_claude_mcp.py` | unrun | — | — | — | — |
-| `unit/test_claude_mcp_launch.py` | unrun | — | — | — | — |
-| `unit/test_claude_stream.py` | unrun | — | — | — | — |
-| `unit/test_claude_synthetic_error.py` | unrun | — | — | — | — |
-| `unit/test_claude_turn.py` | unrun | — | — | — | — |
-| `unit/test_claude_usage.py` | unrun | — | — | — | — |
-| `unit/test_claude_v1_parity.py` | unrun | — | — | — | — |
-| `unit/test_cli.py` | unrun | — | — | — | — |
-| `unit/test_cli_batch.py` | unrun | — | — | — | — |
-| `unit/test_cli_turns.py` | unrun | — | — | — | — |
-| `unit/test_codex_adapter.py` | unrun | — | — | — | — |
-| `unit/test_codex_ca_bundle.py` | unrun | — | — | — | — |
-| `unit/test_codex_ca_bundle_provider.py` | unrun | — | — | — | — |
-| `unit/test_codex_probe.py` | unrun | — | — | — | — |
-| `unit/test_codex_shim.py` | unrun | — | — | — | — |
-| `unit/test_codex_turn.py` | unrun | — | — | — | — |
-| `unit/test_codex_turn_completed.py` | unrun | — | — | — | — |
-| `unit/test_compat.py` | unrun | — | — | — | — |
-| `unit/test_continuation_r2.py` | unrun | — | — | — | — |
-| `unit/test_conversation_catalog.py` | unrun | — | — | — | — |
-| `unit/test_conversation_catalog_lifecycle.py` | unrun | — | — | — | — |
-| `unit/test_conversation_connections.py` | unrun | — | — | — | — |
-| `unit/test_conversation_diff.py` | unrun | — | — | — | — |
-| `unit/test_conversation_fifo_reads.py` | unrun | — | — | — | — |
-| `unit/test_conversation_handoff.py` | unrun | — | — | — | — |
-| `unit/test_conversation_handoff_briefs.py` | unrun | — | — | — | — |
-| `unit/test_conversation_handoff_dispatch_races.py` | unrun | — | — | — | — |
-| `unit/test_conversation_history.py` | unrun | — | — | — | — |
+| `unit/test_admission_uncapped.py` | 27 | 0 | 0 | 0 | 0 |
+| `unit/test_agent_secret_credentials.py` | 7 | 0 | 0 | 0 | 0 |
+| `unit/test_app_cutover_daemon.py` | 13 | 0 | 0 | 0 | 0 |
+| `unit/test_approval_commit.py` | 6 | 0 | 0 | 0 | 0 |
+| `unit/test_approval_resolution.py` | 33 | 0 | 0 | 0 | 0 |
+| `unit/test_boot_identity.py` | 10 | 0 | 0 | 0 | 0 |
+| `unit/test_capacity_desktop.py` | 20 | 0 | 0 | 0 | 0 |
+| `unit/test_capacity_steer_mutations.py` | 10 | 0 | 0 | 0 | 0 |
+| `unit/test_capacity_steer_route.py` | 22 | 0 | 0 | 0 | 0 |
+| `unit/test_capacity_view.py` | 20 | 0 | 0 | 0 | 0 |
+| `unit/test_census_counted.py` | 5 | 0 | 0 | 0 | 0 |
+| `unit/test_census_identity_uncertainty.py` | 8 | 0 | 0 | 0 | 0 |
+| `unit/test_census_procargs.py` | 52 | 0 | 0 | 0 | 0 |
+| `unit/test_census_recycled_pid.py` | 25 | 0 | 0 | 0 | 0 |
+| `unit/test_census_responsibility_failures.py` | 20 | 0 | 0 | 0 | 0 |
+| `unit/test_census_responsibility_identity.py` | 17 | 0 | 0 | 0 | 0 |
+| `unit/test_census_responsibility_races.py` | 34 | 0 | 0 | 0 | 0 |
+| `unit/test_census_survivors_review.py` | 14 | 0 | 0 | 0 | 0 |
+| `unit/test_ci_retry_known_flakes.py` | 72 | 0 | 0 | 0 | 0 |
+| `unit/test_ci_shard_plugin.py` | 48 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_adapter.py` | 170 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_attest.py` | 19 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_cards.py` | 96 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_cards_wiring.py` | 15 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_conversation_mcp_scope.py` | 8 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_identity.py` | 30 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_large_stream.py` | 30 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_mcp.py` | 32 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_mcp_launch.py` | 11 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_stream.py` | 60 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_synthetic_error.py` | 63 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_turn.py` | 61 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_usage.py` | 28 | 0 | 0 | 0 | 0 |
+| `unit/test_claude_v1_parity.py` | 6 | 0 | 0 | 0 | 0 |
+| `unit/test_cli.py` | 222 | 0 | 0 | 0 | 0 |
+| `unit/test_cli_batch.py` | 18 | 0 | 0 | 0 | 0 |
+| `unit/test_cli_turns.py` | 23 | 0 | 0 | 0 | 0 |
+| `unit/test_codex_adapter.py` | 172 | 0 | 0 | 0 | 0 |
+| `unit/test_codex_ca_bundle.py` | 46 | 0 | 0 | 0 | 0 |
+| `unit/test_codex_ca_bundle_provider.py` | 6 | 0 | 0 | 0 | 0 |
+| `unit/test_codex_probe.py` | 55 | 0 | 0 | 0 | 0 |
+| `unit/test_codex_shim.py` | 31 | 0 | 0 | 0 | 0 |
+| `unit/test_codex_turn.py` | 58 | 0 | 0 | 0 | 0 |
+| `unit/test_codex_turn_completed.py` | 41 | 0 | 0 | 0 | 0 |
+| `unit/test_compat.py` | 1615 | 0 | 0 | 0 | 0 |
+| `unit/test_continuation_r2.py` | 11 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_catalog.py` | 15 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_catalog_lifecycle.py` | 20 | 1 | 0 | 0 | 0 |
+| `unit/test_conversation_connections.py` | 9 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_diff.py` | 39 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_fifo_reads.py` | 26 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_handoff.py` | 48 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_handoff_briefs.py` | 28 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_handoff_dispatch_races.py` | 9 | 0 | 0 | 0 | 0 |
+| `unit/test_conversation_history.py` | 22 | 0 | 0 | 0 | 0 |
 | `unit/test_conversation_peers_attachments.py` | unrun | — | — | — | — |
 | `unit/test_conversation_reconcile.py` | unrun | — | — | — | — |
 | `unit/test_conversation_redact.py` | unrun | — | — | — | — |
@@ -1413,7 +1415,7 @@ Full-directory failures/errors, including earlier file attempts:
 | `unit/test_wake_cli.py` | unrun | — | — | — | — |
 | `unit/test_weekly_rank_vs_base.py` | unrun | — | — | — | — |
 
-The timer acceptance file is marked unrun for its changed bounded-wait version until its complete-file rerun returns. The original failing run remains in the hold table.
+The timer acceptance file was rerun in `unit-1`. Its latest file result replaces the original timing failure in the directory table; the original hold remains above.
 
 </details>
 <!-- /fix6-full-results -->
