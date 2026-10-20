@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import sys
 
+import hypothesis
 import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
 
@@ -367,7 +368,7 @@ def test_r2_p3_docstring_and_contract_list_the_same_out_of_scope_items():
         assert "a symlink to the reader that a wrapper's bare command finds through PATH" in aliases, aliases
 
 
-# The property: env shapes over direct and wrapped launches.
+# The property: env shapes and argument types over direct and wrapped launches.
 
 GETOPT = {  # Each wrapper's option string, as its macOS binary holds it.
     "xargs": "0E:I:J:L:n:oP:pR:S:s:rtx", "nice": "n:", "nohup": "",
@@ -443,6 +444,30 @@ def materialize(kind_form, alias_directory):
     return kind, {"text": text, "bytes": text.encode(), "path": Path(text)}[form]
 
 
+def form_of(word) -> str:
+    """How an argv word or program is given: text, bytes, a path object, or none of them."""
+    if isinstance(word, (str, bytes)):
+        return "text" if isinstance(word, str) else "bytes"
+    return "path" if isinstance(word, os.PathLike) else "other"
+
+
+@st.composite
+def typed(draw, words):
+    """`words` as text, bytes or path objects, which name the same file, and in
+    about one draw in four one of them as an int, which names none: the first
+    (the program) half the time, otherwise another.
+
+    A word is a path object only where it spells the word unchanged:
+    `Path("./security")` is the bare name `security`, another launch.
+    """
+    out = [{"text": word, "bytes": os.fsencode(word), "path": Path(word)}[
+        draw(st.sampled_from(["text", "bytes", *(["path"] if os.fspath(Path(word)) == word else [])]))]
+        for word in words]
+    if draw(st.integers(0, 3)) == 3:
+        out[0 if draw(st.booleans()) else draw(st.integers(1, len(out) - 1))] = 7
+    return out
+
+
 @st.composite
 def launches(draw, standin):
     alias_directory = str(standin.path.parent)
@@ -462,10 +487,11 @@ def launches(draw, standin):
                 "bare-security": "security", "control": "/usr/bin/true", "bare-control": "true"}[program]
         event = draw(st.sampled_from(["subprocess.Popen", "os.exec"])) if os.path.dirname(name) else \
             "subprocess.Popen"
+        executable, *argv = draw(typed([name, name, *QUERY]))
         if event == "os.exec":
-            details = (name, [name, *QUERY], env)
+            details = (executable, argv, env)
         else:
-            details = (name, [name, *QUERY], cwd, env)
+            details = (executable, argv, cwd, env)
         return event, details, ("direct", program, kinds)
     prefix = draw(wrapper_prefixes())
     command = draw(st.sampled_from(["reader", "nested-reset", "nested-reader", "control"]))
@@ -476,8 +502,8 @@ def launches(draw, standin):
              "nested-reader": ["/usr/bin/nice", str(standin.path)],
              "control": draw(st.sampled_from([["/usr/bin/true"], ["true"], ["/bin/sh", "-c", "true"],
                                               ["/usr/bin/env", "A=1", "/usr/bin/true"]]))}[command]
-    argv = [*prefix, *words]
-    return "subprocess.Popen", (argv[0], argv, None, env), ("wrapped", command, kinds)
+    executable, *argv = draw(typed([prefix[0], *prefix, *words]))
+    return "subprocess.Popen", (executable, argv, None, env), ("wrapped", command, kinds)
 
 
 def expected_refusal(event, details, shape, standin) -> bool:
@@ -487,11 +513,14 @@ def expected_refusal(event, details, shape, standin) -> bool:
     if kind == "wrapped":
         # Every generated key is a PATH key. No key means the wrapper's default,
         # /usr/bin:/bin; no env means the session PATH, recorder first.
-        if "int" in kinds:
-            return True  # A PATH that is not text: the check cannot finish.
+        if "int" in kinds or "other" in map(form_of, [details[0], *details[1]]):
+            return True  # A PATH that is not text, or a word naming no file: the check cannot finish.
         system_first = env is not None and (not env or "system" in kinds)
         return system_first or case != "control"
-    name = details[0]
+    if form_of(details[0]) == "other":
+        return True  # A program naming no file: the check cannot finish.
+    # A direct launch is judged by its program, PATH and directory; its other words decide nothing.
+    name = os.fsdecode(details[0])
     if case == "bare-security":
         return True
     if os.path.dirname(name):
@@ -521,7 +550,11 @@ def tracked(helper, raised):
 @given(data=st.data())
 def test_property_no_launch_that_could_reach_the_reader_and_no_unfinished_check_is_approved(
         property_standin, data):
+    """Whatever types its words, PATH and directory have, a launch is refused exactly when C-20.6's rule refuses it."""
     event, details, shape = data.draw(launches(property_standin))
+    hypothesis.event(f"{shape[0]} program as {form_of(details[0])}")
+    for found in sorted({form_of(word) for word in details[1]}):
+        hypothesis.event(f"{shape[0]} argv holds {found}")
     expected = expected_refusal(event, details, shape, property_standin)
     before = credentials._STANDIN_KEYCHAIN_BINARIES
     credentials._STANDIN_KEYCHAIN_BINARIES = (str(property_standin.path),)
