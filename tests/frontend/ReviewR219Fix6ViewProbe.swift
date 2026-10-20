@@ -103,6 +103,9 @@ func conversation(_ cid: String, held: Bool = false) -> Conversation {
         let cv = conversation("search", held: true)
         var state = ConversationStoreState()
         state.upsert(cv)
+        // Establish the held timeline before the first receipt decides its
+        // immutable placement. Otherwise queued0 is an idle timeline head.
+        state.focus("search")
         for index in 0..<6 {
             let words = index == 5 ? "unique sixth needle" : "queued message \(index)"
             let raw = """
@@ -111,7 +114,6 @@ func conversation(_ cid: String, held: Bool = false) -> Conversation {
             """
             state.apply(receipt: try JSONDecoder().decode(Receipt.self, from: Data(raw.utf8)))
         }
-        state.focus("search")
         let client = Fix6History()
         let model = UIModel(paths: .rooted(at: root.appendingPathComponent("search")), client: client,
                             defaults: Fix6Defaults(), state: state)
