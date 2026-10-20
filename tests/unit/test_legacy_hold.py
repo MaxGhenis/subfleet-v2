@@ -477,7 +477,9 @@ class RecordingRelay:
     def __init__(self, path, timeout_s=30):
         pass
 
-    def send(self, seq, op, line=None, tag=None, sig=None):
+    def send(self, seq, op, line=None, tag=None, sig=None, before_send=None):
+        if before_send is not None:
+            before_send()
         from subfleet.relay import Ack
         RecordingRelay.frames.append((seq, op, tag))
         return Ack(seq=seq, ok=True)
@@ -1191,7 +1193,9 @@ def test_a_stop_acknowledged_before_the_provider_answered_initialize_keeps_the_m
     tags, receipts = [], []
 
     class Relay(RecordingRelay):
-        def send(self, seq, op, line=None, tag=None, sig=None):
+        def send(self, seq, op, line=None, tag=None, sig=None, before_send=None):
+            if before_send is not None:
+                before_send()
             from subfleet.relay import Ack
             tags.append(tag)
             if tag == "init":
@@ -1241,7 +1245,9 @@ def test_a_stop_that_comes_while_the_message_is_handed_over_waits_for_it(world, 
         events["recorded"].set()
 
     class Relay(RecordingRelay):
-        def send(self, seq, op, line=None, tag=None, sig=None):
+        def send(self, seq, op, line=None, tag=None, sig=None, before_send=None):
+            if before_send is not None:
+                before_send()
             from subfleet.relay import Ack
             tags.append(tag)
             if tag == "user-message":
@@ -1493,7 +1499,9 @@ def test_a_relay_slow_to_take_one_message_holds_up_no_other_message_s_stop(world
     handing, release = threading.Event(), threading.Event()
 
     class Relay(RecordingRelay):
-        def send(self, seq, op, line=None, tag=None, sig=None):
+        def send(self, seq, op, line=None, tag=None, sig=None, before_send=None):
+            if before_send is not None:
+                before_send()
             from subfleet.relay import Ack
             if tag == "user-message":
                 handing.set()
@@ -1557,7 +1565,9 @@ class _Race:
         monkeypatch.setattr(svc.store, "transaction", transaction)
 
         class Relay(RecordingRelay):
-            def send(self, seq, op, line=None, tag=None, sig=None):
+            def send(self, seq, op, line=None, tag=None, sig=None, before_send=None):
+                if before_send is not None:
+                    before_send()
                 from subfleet.relay import Ack
                 race.tags.append(tag)
                 race.first_frame.set()

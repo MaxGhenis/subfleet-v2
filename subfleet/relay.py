@@ -451,7 +451,6 @@ class RelayClient:
         self.frame_max = FRAME_MAX       # replaced by the relay's own advertisement
         self._sock: socket.socket | None = None
         self._reader = None
-        self.before_send: Callable[[], None] | None = None
 
     def close(self) -> None:
         if self._sock is not None:
@@ -474,12 +473,12 @@ class RelayClient:
         self._sock = sock
         self._reader = sock.makefile("rb")
 
-    def _exchange(self, payload: bytes) -> dict:
+    def _exchange(self, payload: bytes, *, before_send: Callable[[], None] | None = None) -> dict:
         try:
             self._connect()
             assert self._sock is not None and self._reader is not None
-            if self.before_send is not None:
-                self.before_send()             # after connection setup, before transmission
+            if before_send is not None:
+                before_send()                  # after connection setup, before transmission
             self._sock.sendall(payload)
             raw = self._reader.readline(REPLY_MAX)
         except (OSError, RelayError) as exc:
@@ -516,7 +515,8 @@ class RelayClient:
         return status
 
     def send(self, seq: int, op: str, *, line: str | None = None, tag: str | None = None,
-             sig: str | None = None) -> Ack:
+             sig: str | None = None, before_send: Callable[[], None] | None = None) -> Ack:
+        """Send one frame, sampling its optional clock immediately before the socket write."""
         frame: dict = {"seq": seq, "op": op, "tag": tag, "sha256": frame_sha256(op, line, sig)}
         if line is not None:
             frame["line"] = line
@@ -526,6 +526,6 @@ class RelayClient:
         if len(payload) > self.frame_max:
             # The relay would refuse it and end the connection; it is never sent.
             raise FrameTooLarge(len(payload), self.frame_max)
-        body = self._exchange(payload)
+        body = self._exchange(payload, before_send=before_send)
         return Ack(seq=body.get("seq", seq), ok=bool(body.get("ok")), dup=bool(body.get("dup")),
                    error=body.get("error"))

@@ -43,7 +43,9 @@ def stopped_turn(clocked, monkeypatch):
     server._child = SimpleNamespace(poll=lambda: None,
                                     send_signal=lambda sig: delivered.append((sig, clock.t)))
 
-    def send(seq, op, *, tag, line=None, sig=None):
+    def send(seq, op, *, tag, line=None, sig=None, before_send=None):
+        if before_send is not None:
+            before_send()
         answer = server.apply({"seq": seq, "op": op, "line": line, "sig": sig, "tag": tag,
                                "sha256": frame_sha256(op, line, sig)})
         return Ack(**{k: answer[k] for k in ("seq", "ok", "error") if k in answer})

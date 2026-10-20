@@ -473,13 +473,13 @@ def _lose_the_answer(runner, *, reached: bool):
     real = runner.relay.send
     lost = []
 
-    def send(seq, op, line=None, tag=None, sig=None):
+    def send(seq, op, line=None, tag=None, sig=None, before_send=None):
         if tag == "user-message" and not lost:
             lost.append(tag)
             if reached:
-                real(seq, op, line=line, tag=tag, sig=sig)
+                real(seq, op, line=line, tag=tag, sig=sig, before_send=before_send)
             raise relay_module.RelayError("relay closed the connection before acknowledging")
-        return real(seq, op, line=line, tag=tag, sig=sig)
+        return real(seq, op, line=line, tag=tag, sig=sig, before_send=before_send)
     runner.relay.send = send
 
 
@@ -689,14 +689,14 @@ def test_a_lost_steer_receipt_is_resolved_before_stop_or_retry(relayed, tmp_path
     real_send = runner.relay.send
     first = True
 
-    def send(seq, op, line=None, tag=None, sig=None):
+    def send(seq, op, line=None, tag=None, sig=None, before_send=None):
         nonlocal first
         if tag == f"steer:{STEER_MID}" and first:
             first = False
             if reached:
-                real_send(seq, op, line=line, tag=tag, sig=sig)
+                real_send(seq, op, line=line, tag=tag, sig=sig, before_send=before_send)
             raise relay_module.RelayError("lost steer receipt")
-        return real_send(seq, op, line=line, tag=tag, sig=sig)
+        return real_send(seq, op, line=line, tag=tag, sig=sig, before_send=before_send)
 
     runner.relay.send = send
     runner.steer(STEER_MID)
@@ -864,7 +864,9 @@ def steer_schedule(provider):
             frame_max = 64 * 1024 * 1024
             def status(self):
                 return server.status()["status"]
-            def send(self, seq, op, *, line=None, tag=None, sig=None):
+            def send(self, seq, op, *, line=None, tag=None, sig=None, before_send=None):
+                if before_send is not None:
+                    before_send()
                 body = server.apply({"seq": seq, "op": op, "line": line, "tag": tag, "sig": sig,
                                      "sha256": relay_module.frame_sha256(op, line, sig)})
                 return Ack(seq=seq, ok=body["ok"], dup=body.get("dup", False), error=body.get("error"))

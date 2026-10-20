@@ -146,7 +146,9 @@ class LoggingRelay:
     def status(self):
         return self.server.status()["status"]
 
-    def send(self, seq, op, *, line=None, tag=None, sig=None):
+    def send(self, seq, op, *, line=None, tag=None, sig=None, before_send=None):
+        if before_send is not None:
+            before_send()
         self.on_send(tag)
         body = self.server.apply({"seq": seq, "op": op, "line": line, "tag": tag, "sig": sig,
                                   "sha256": relay_module.frame_sha256(op, line, sig)})

@@ -331,7 +331,7 @@ class InterfaceRelay:
     def status(self):
         return self.server.status()["status"]
 
-    def send(self, seq, op, *, line=None, tag=None, sig=None):
+    def send(self, seq, op, *, line=None, tag=None, sig=None, before_send=None):
         runner = self.runner
         held = self.store._lock.held
         self.sends.append((tag, [frame.tag for frame in runner.outbox], runner.handover.locked(),
@@ -346,11 +346,15 @@ class InterfaceRelay:
             self.failed.append((tag, failure))
             if failure == "large":
                 raise FrameTooLarge(len(line or ""), 1)
+            if before_send is not None:
+                before_send()
             if failure == "refused":
                 return Ack(seq=seq, ok=False, error="conflict")
             if failure == "reached":
                 self.server.apply(frame)
             raise RelayError("relay closed the connection before acknowledging")
+        if before_send is not None:
+            before_send()
         body = self.server.apply(frame)
         return Ack(seq=seq, ok=body["ok"], dup=body.get("dup", False), error=body.get("error"))
 

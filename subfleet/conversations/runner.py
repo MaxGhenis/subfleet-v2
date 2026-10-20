@@ -799,14 +799,14 @@ class TurnRunner:
         audit = (self.on_stop_delivery(frame, self.next_seq)
                  if self.on_stop_delivery is not None
                  and frame.stops else None)
-        if audit is not None:
-            previous_clock = getattr(self.relay, "before_send", None)
-            self.relay.before_send = audit.before_send
+        before_send = audit.before_send if audit is not None else None
         try:
             if frame.op == "signal":
-                ack = self.relay.send(self.next_seq, "signal", tag=frame.tag, sig=frame.line)
+                ack = self.relay.send(self.next_seq, "signal", tag=frame.tag, sig=frame.line,
+                                      before_send=before_send)
             else:
-                ack = self.relay.send(self.next_seq, frame.op, line=frame.line, tag=frame.tag)
+                ack = self.relay.send(self.next_seq, frame.op, line=frame.line, tag=frame.tag,
+                                      before_send=before_send)
         except FrameTooLarge as exc:
             if audit is not None:
                 audit.record(False)            # refused locally, never transmitted
@@ -819,9 +819,6 @@ class TurnRunner:
                 self._steer_tried.add(frame.tag.removeprefix("steer:"))
             self._unacknowledged(f"frame {frame.tag}: {exc}")
             return False
-        finally:
-            if audit is not None:
-                self.relay.before_send = previous_clock
         if audit is not None:
             if ack.ok:
                 audit.record(True)

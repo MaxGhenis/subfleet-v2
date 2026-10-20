@@ -1464,6 +1464,8 @@ def test_adoption_audits_stops_before_starting_the_runner(svc, tmp_path, monkeyp
         event = svc.daemon.store.one("SELECT data_json FROM events WHERE attempt_id=? "
                                     "AND kind='attempt.stop_delivery'", (aid,))
         assert json.loads(event["data_json"])["signal_pending"] is True
+        if kwargs.get("before_send") is not None:
+            kwargs["before_send"]()
         return Ack(seq=seq, ok=True)
     monkeypatch.setattr(runner.relay, "send", send)
     assert runner._transmit(frame)
