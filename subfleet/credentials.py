@@ -86,6 +86,20 @@ def startup_lanes(roster: Iterable[Mapping[str, Any]],
     return lanes
 
 
+def refused_rows(roster: Iterable[Mapping[str, Any]]) -> list[tuple[Any, str]]:
+    """D-ENV2: the (lane id, variable) of each env-kind lanes.json row whose
+    variable is refused (`launch_env.refused_reference`), in file order.
+
+    The install check (`daemon start --check`) lists these. Startup refuses
+    such a row for a new lane and ignores it for a stored one, so either way
+    the row needs editing. Only the rows and the allowlist are read: never the
+    store, a policy or any variable's value.
+    """
+    return [(lane_id, name) for lane_id, name in
+            filter(None, map(lane_reference, (row for row in roster if isinstance(row, Mapping))))
+            if refused_reference(name)]
+
+
 _NATIVE_RUNNER = subprocess.run
 
 
