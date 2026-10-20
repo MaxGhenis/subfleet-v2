@@ -367,7 +367,7 @@ def test_a_frame_in_flight_when_the_runner_starts_is_not_taken_for_a_failure(rel
     finish_write = threading.Event()
 
     def in_flight(server, adir):
-        server._lock.acquire()                       # `apply` holds it for the whole frame
+        server._journal_lock.acquire()               # `apply` holds it for the whole frame
         intent = logged_intent(1, "init", INIT_LINE)
         server._append(intent)
         server._records.append({**intent, "status": "pending"})
@@ -376,7 +376,7 @@ def test_a_frame_in_flight_when_the_runner_starts_is_not_taken_for_a_failure(rel
             finish_write.wait()
             server._append({"kind": "written", "seq": 1})
             server._records[-1]["status"] = "written"
-            server._lock.release()
+            server._journal_lock.release()
         threading.Thread(target=finish, daemon=True).start()
 
     try:
@@ -1024,7 +1024,7 @@ def test_a_steer_pending_at_construction_is_registered_before_its_written_handsh
         for seq, tag in enumerate(("init", "user-message", "settings"), 1):
             server.apply({"seq": seq, "op": "write", "line": "{}", "tag": tag,
                           "sha256": relay_module.line_sha256("{}")})
-        server._lock.acquire()
+        server._journal_lock.acquire()
         intent = logged_intent(4, f"steer:{STEER_MID}", "{}")
         server._append(intent)
         server._records.append({**intent, "status": "pending"})
@@ -1039,7 +1039,7 @@ def test_a_steer_pending_at_construction_is_registered_before_its_written_handsh
         time.sleep(0.05)
         server._append({"kind": "written", "seq": 4})
         server._records[-1]["status"] = "written"
-        server._lock.release()
+        server._journal_lock.release()
 
     threading.Thread(target=finish, daemon=True).start()
     ready_to_steer(runner, tmp_path)

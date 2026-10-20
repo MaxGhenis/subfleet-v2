@@ -8101,11 +8101,19 @@ class Daemon:
         # census saw is kept and seeds the walk afterwards, as a recorded survivor
         # does. It is evidence only: signal authority stays `owned_identities`.
         named = dict(a.get("responsible_identities") or evidence.get("responsible_identities") or {})
+        # D-KILL2: a process counted by the group, the walk or its marker can leave
+        # all three while it lives. A walk member is reparented to init when its
+        # parent dies (the kill protocol's SIGTERM ends the provider), and an Apple
+        # platform binary running with the hardened runtime (`/usr/bin/lockf`) shows
+        # no environment in its argument buffer on macOS 26, so it has no marker to
+        # be found by. Each one a census counted is kept, and seeds the walk, the
+        # same way and with the same lack of authority.
+        counted = dict(a.get("counted_identities") or evidence.get("counted_identities") or {})
         alternatives: dict[int, list[procs.ProcessIdentity]] = {}
-        for pid, value in named.items():
+        for pid, value in [*named.items(), *counted.items()]:
             ident = procs.ProcessIdentity(**value)
             previous = recorded.setdefault(int(pid), ident)
-            if previous != ident:
+            if previous != ident and ident not in alternatives.get(int(pid), ()):
                 alternatives.setdefault(int(pid), []).append(ident)
         if guardian and boot and began:
             ident = procs.ProcessIdentity(guardian, boot, began)
@@ -8131,19 +8139,28 @@ class Daemon:
                  if guardian not in census.recycled
                  and pid != guardian and pid in census.identities
                  and named.get(str(pid)) != dataclasses.asdict(census.identities[pid])}
+        # D-KILL2: the other members, by whichever source counted them. A group
+        # member may already be owned; only an identity not yet kept is written.
+        sighted = {str(pid): dataclasses.asdict(census.identities[pid])
+                   for pid in sorted(census.live_pids - census.responsible_pids)
+                   if pid != guardian and pid in census.identities
+                   and all(kept.get(str(pid)) != dataclasses.asdict(census.identities[pid])
+                           for kept in (owned, named, counted))}
         # `recycled[pid]` excludes an older recorded birth, not a new member
         # observed at the same pid. Its census evidence still must be saved.
-        if fresh and a.get("attempt_id") and "evidence_json" in a:
-            with self.store.transaction("attempt.responsible_recorded", job_id=a["job_id"],
-                                        attempt_id=a["attempt_id"], data={"pids": sorted(map(int, fresh))}) as tx:
-                actual = self.store.get_attempt(a["attempt_id"]) or a
-                current = json.loads(actual.get("evidence_json") or "{}")
-                current["responsible_identities"] = {**current.get("responsible_identities", {}), **fresh}
-                a["evidence_json"] = json.dumps(current)
-                tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
-                           (a["evidence_json"], a["attempt_id"]))
-        elif fresh:
-            a["responsible_identities"] = {**named, **fresh}      # a probe's record, saved by its caller
+        for key, kind, kept, found in (("responsible_identities", "attempt.responsible_recorded", named, fresh),
+                                       ("counted_identities", "attempt.counted_recorded", counted, sighted)):
+            if found and a.get("attempt_id") and "evidence_json" in a:
+                with self.store.transaction(kind, job_id=a["job_id"], attempt_id=a["attempt_id"],
+                                            data={"pids": sorted(map(int, found))}) as tx:
+                    actual = self.store.get_attempt(a["attempt_id"]) or a
+                    current = json.loads(actual.get("evidence_json") or "{}")
+                    current[key] = {**current.get(key, {}), **found}
+                    a["evidence_json"] = json.dumps(current)
+                    tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
+                               (a["evidence_json"], a["attempt_id"]))
+            elif found:
+                a[key] = {**kept, **found}      # a probe's record, saved by its caller
         if census.recycled and a.get("attempt_id"):
             excluded = census.to_dict()["recycled"]
             if any(evidence.get("recycled", {}).get(pid) != value for pid, value in excluded.items()):

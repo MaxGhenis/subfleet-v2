@@ -15,11 +15,17 @@ provider (`tests/bin/fakeprov`), whose escaper is born outside the attempt's gro
 (its parent called setsid and exited), hides from `ps -E`, and outlives the exit
 receipt. Every process a test starts is stopped by its recorded identity, on
 failure too, and each escaper exits by itself within a minute.
+
+D-KILL2's escaper is a setsid'd `/usr/bin/lockf`, whose markers only some kernels hide:
+macOS 26.6.2 returns its argv alone, GitHub's macOS 15.7.9 runner its environment too.
+The real-lockf test skips where they show; its twin hides them through the daemon's
+reader (`tests/hidden_environment.py`), so the incident runs on any macOS.
 """
 
 from __future__ import annotations
 
 import ctypes
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -32,6 +38,7 @@ import uuid
 import pytest
 
 from subfleet import procs
+from tests.hidden_environment import shown_reason, without_environment
 
 pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="C-5.5's census reads macOS process state")
 
@@ -39,11 +46,12 @@ NODE = shutil.which("node")
 TERMINAL = {"quarantined", "succeeded", "failed", "lost", "interrupted"}
 
 
-def submit_escaper(daemon, scenario: str, *, hold_s: float = 0) -> tuple[str, Path]:
+def submit_escaper(daemon, scenario: str, *, hold_s: float = 0,
+                   marker: Path | None = None) -> tuple[str, Path]:
     """Submit `scenario`, whose provider stays `hold_s` after its escaper is ready;
     returns the job id and the file its escaper's pid lands in."""
     args = daemon.submit_args(scenario)
-    marker = daemon.root / f"escaper-{uuid.uuid4().hex[:8]}.pid"
+    marker = marker or daemon.root / f"escaper-{uuid.uuid4().hex[:8]}.pid"
     settings = {"scenario": scenario, "delay_s": hold_s, "marker": str(marker)}
     if NODE:
         settings["node"] = NODE
@@ -228,6 +236,133 @@ def test_d_cen1_an_escaper_seen_through_the_guardian_stays_counted_after_the_kil
         assert evidence["responsible_identities"][str(escaper.pid)]["proc_start"] == escaper.proc_start
         assert str(escaper.pid) not in evidence.get("owned_identities", {})
         assert procs.liveness(escaper.pid, escaper.boot_id, escaper.proc_start) == "alive"
+        assert held(daemon, job_id, attempt["attempt_id"])
+    finally:
+        stop(escaper)
+
+
+def executable(pid: int) -> str | None:
+    """`proc_pidpath`: the file the kernel runs for `pid` now; None once it is gone."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    buffer = ctypes.create_string_buffer(4096)
+    size = libc.proc_pidpath(ctypes.c_int(pid), buffer, ctypes.c_uint32(len(buffer)))
+    return buffer.value.decode() if size > 0 else None
+
+
+def lockf_escaper_holds_the_attempt(daemon, rooted: bool, marker: Path, *, simulated: bool) -> None:
+    """D-KILL2's scenario on a started daemon (the two tests below): its escaper, lockf,
+    lands its pid in `marker`. With `simulated` the daemon's reader hides lockf's
+    environment; without it the host's kernel must, and the test skips where it shows."""
+    lock = os.open(f"{marker}.lock", os.O_CREAT | os.O_RDWR, 0o600)
+    escaper = None
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)          # lockf waits, as 70848 waited for the suite lock
+        job_id, _ = submit_escaper(daemon, "lockf-escape", hold_s=30, marker=marker)
+        attempt_id = f"{job_id}/a1"
+        escaper = escaper_identity(daemon, marker)
+        daemon.until(lambda: executable(escaper.pid) == "/usr/bin/lockf", timeout=30)
+        buffer = procs.kernel.arguments(escaper.pid, ctypes.create_string_buffer(procs._ARGS_BUFFER))
+        assert buffer is not None and b"/usr/bin/lockf" in procs.procargs_strings(buffer)
+        markers = procs.marker_strings(attempt_id, str(daemon.root))
+        if not simulated and procs.procargs_marked(buffer, *markers):
+            pytest.skip(shown_reason())
+        # What the daemon's census reads of lockf: the kernel's buffer, or the stand-in's.
+        assert not procs.procargs_marked(without_environment(buffer) if simulated else buffer, *markers), \
+            "lockf's argument buffer shows its environment: the fixture no longer hides its markers"
+        daemon.until(lambda: daemon.attempts(job_id)[-1]["state"] == "running", timeout=30)
+        daemon.call("kill", job_id=job_id)
+        attempt = settled(daemon, job_id)
+        assert attempt["state"] == "quarantined", (attempt["state"], daemon.job(job_id)["state"])
+        census = json.loads(attempt["quarantine_reason"])
+        assert census["reason"] == "termination could not verify containment"
+        assert escaper.pid in census["live_pids"], census
+        assert escaper.pid in census["descendant_pids"], census                # by its recorded identity
+        assert escaper.pid not in census["marker_pids"] + census["group_pids"], census
+        assert census["shapes"][str(escaper.pid)]["ppid"] == 1, census
+        assert census["shapes"][str(escaper.pid)]["pgid"] == escaper.pid, census
+        evidence = json.loads(attempt["evidence_json"])
+        kept = "responsible_identities" if rooted else "counted_identities"
+        assert evidence[kept][str(escaper.pid)]["proc_start"] == escaper.proc_start, evidence
+        assert str(escaper.pid) not in evidence.get("owned_identities", {})    # no signal authority
+        if rooted:
+            assert_walk_only_from_a_recorded_responsibility(daemon, attempt, escaper.pid, census)
+        else:
+            assert "responsible_root" not in evidence
+        assert procs.liveness(escaper.pid, escaper.boot_id, escaper.proc_start) == "alive"
+        assert held(daemon, job_id, attempt_id)
+
+        daemon.call("kill", job_id=job_id, confirm_dead=True)
+        daemon.until(lambda: daemon.rows("SELECT 1 FROM events WHERE attempt_id=? AND kind=?",
+                                         (attempt_id, "quarantine.still_live")), timeout=30)
+        assert daemon.attempts(job_id)[-1]["state"] == "quarantined"
+        assert held(daemon, job_id, attempt_id), "confirm-dead released the attempt while lockf waited"
+
+        stop(escaper)
+        daemon.call("kill", job_id=job_id, confirm_dead=True)
+        daemon.until(lambda: not held(daemon, job_id, attempt_id), timeout=30)
+        assert daemon.attempts(job_id)[-1]["state"] in ("lost", "interrupted")
+    finally:
+        stop(escaper)
+        os.close(lock)
+
+
+@pytest.mark.parametrize("rooted", [True, False], ids=["rooted", "unrooted"])
+def test_d_kill2_a_setsid_lockf_that_outlives_a_cancel_holds_the_attempt(daemon, rooted):
+    """D-KILL2, C-5.5, C-5.6: incidents 2026-10-16 (lockf 14354) and 2026-10-18 (lockf
+    70848). A running attempt's provider started `/usr/bin/lockf` as the leader of a
+    session of its own, waiting for a lock the test holds, with the markers it
+    inherited; the operator kills the attempt. lockf's buffer shows no environment
+    (checked first, so the fixture is the incident's), and once the kill protocol's
+    SIGTERM ends the provider it has ppid 1: no marker, no group, no parent link. The
+    kill protocol's first census, taken before any signal, counts it (as the provider's
+    child, and, from a self-responsible daemon, as naming the rooted guardian) and
+    records it; the recorded identity keeps it counted after both links are gone, so
+    the attempt is quarantined and lockf is never signalled. `kill --confirm-dead`
+    while it waits (the operator's step on 10/18) leaves the attempt quarantined with
+    its leases; once it is gone, the same step releases them. Unrooted is a daemon
+    started under a terminal or app, and the installed release's three sources. On a
+    host whose kernel shows lockf's environment (GitHub's macOS 15.7.9 runner) the
+    incident cannot happen with lockf, and this skips; the next test runs it there."""
+    daemon.start(rooted=rooted)
+    lockf_escaper_holds_the_attempt(daemon, rooted, daemon.root / f"escaper-{uuid.uuid4().hex[:8]}.pid",
+                                    simulated=False)
+
+
+@pytest.mark.parametrize("rooted", [True, False], ids=["rooted", "unrooted"])
+def test_d_kill2_a_lockf_whose_markers_the_census_cannot_read_holds_the_attempt_on_any_macos(daemon, rooted):
+    """D-KILL2, C-5.5, C-5.6: the test above, on any macOS. The daemon starts with
+    `--hide-environment-of` the escaper's pid file, so its census reader (`procs.kernel`)
+    returns lockf's argument buffer cut after its argv, as macOS 26.6.2's kernel returns
+    it (`tests/hidden_environment.py`); every other process reads as the host shows it.
+    Every assertion is the test above's: quarantined, lockf counted by its recorded
+    identity alone (`counted_identities` unrooted, `responsible_identities` rooted),
+    never by its marker or group, never signalled, and `kill --confirm-dead` releases
+    only once it is gone."""
+    marker = daemon.root / f"escaper-{uuid.uuid4().hex[:8]}.pid"
+    daemon.start("--hide-environment-of", str(marker), rooted=rooted)
+    lockf_escaper_holds_the_attempt(daemon, rooted, marker, simulated=True)
+
+
+def test_d_kill2_the_daemon_s_stand_in_hides_markers_the_host_shows(daemon):
+    """The stand-in the test above starts the daemon with hides what a host's kernel
+    shows, as it must on a host that shows lockf's environment: the `retitled-nul`
+    escaper's raw buffer shows its markers on every macOS (D-CEN1's regression above is
+    counted by them), and with `--hide-environment-of` its pid file the census does not
+    count it by them. It names the rooted guardian, so the attempt is still held."""
+    marker = daemon.root / f"escaper-{uuid.uuid4().hex[:8]}.pid"
+    daemon.start("--hide-environment-of", str(marker), rooted=True)
+    job_id, _ = submit_escaper(daemon, "retitled-nul", marker=marker)
+    escaper = None
+    try:
+        escaper = escaper_identity(daemon, marker)
+        buffer = procs.kernel.arguments(escaper.pid, ctypes.create_string_buffer(procs._ARGS_BUFFER))
+        assert buffer is not None and procs.procargs_marked(
+            buffer, *procs.marker_strings(f"{job_id}/a1", str(daemon.root))), "the host hides this escaper's markers"
+        attempt = settled(daemon, job_id)
+        assert attempt["state"] == "quarantined", (attempt["state"], daemon.job(job_id)["state"])
+        census = json.loads(attempt["quarantine_reason"])
+        assert escaper.pid in census["live_pids"] and escaper.pid in census["responsible_pids"], census
+        assert escaper.pid not in census["marker_pids"] + census["group_pids"], census
         assert held(daemon, job_id, attempt["attempt_id"])
     finally:
         stop(escaper)

@@ -2,8 +2,8 @@
 
 Keychain probes put the stand-in first on PATH, so a reader that gets past every
 guard runs the stand-in and is counted. Behind that, the audit hook installed at
-import refuses, and records, any launch that still resolves to the real binary.
-It shares no code with `subfleet.credentials`, so a defect in the production
+import refuses, and records, any launch that still resolves to the real binary,
+or whose check cannot finish. It shares no code with `subfleet.credentials`, so a defect in the production
 guard cannot disable it too. Nothing here ever starts `/usr/bin/security`.
 """
 
@@ -50,13 +50,12 @@ def _first_executable(name: str, path: str, base: str) -> str | None:
 def _candidates(event: str, details: tuple) -> list[str]:
     if event == "subprocess.Popen":
         name, _argv, cwd, env = details
-        paths = [os.pathsep.join(os.get_exec_path(env))]
+        environments = [env]
     elif event == "os.posix_spawn":
         name, _argv, env = details
-        cwd = None
-        paths = [os.pathsep.join(os.get_exec_path(env)), os.pathsep.join(os.get_exec_path())]
+        cwd, environments = None, [env, None]
     elif event in ("os.exec", "os.spawn"):
-        name, cwd, paths = details[0 if event == "os.exec" else 1], None, []
+        name, cwd, environments = details[0 if event == "os.exec" else 1], None, []
     else:
         return []
     name = os.fsdecode(name)
@@ -66,8 +65,10 @@ def _candidates(event: str, details: tuple) -> list[str]:
             return [REAL_BINARY]  # Refuse before a later hook can change PATH.
     base = "" if cwd is None else os.fsdecode(cwd)
     found = [os.path.join(base, name)]
-    if os.sep not in name:
-        found += [_first_executable(name, path, base) for path in paths]
+    if not os.path.dirname(name):
+        # A launch searches PATH only for a bare name, so only then read env's.
+        found += [_first_executable(name, os.pathsep.join(os.get_exec_path(env)), base)
+                  for env in environments]
     return [target for target in found if target]
 
 
@@ -83,22 +84,30 @@ def _is_real(target: str, identity) -> bool:
     return identity is not None and (found.st_dev, found.st_ino) == identity
 
 
+_IDENTITY = _real_identity()
+
+
+def refusal(event: str, details: tuple) -> str | None:
+    """What the safety net refuses for an audit event: the real binary's path, a
+    note that the check cannot finish, or None. A check that cannot finish
+    refuses, as the production guard's does."""
+    try:
+        return next((target for target in _candidates(event, details) if _is_real(target, _IDENTITY)), None)
+    except Exception as error:  # noqa: BLE001 - any failure to judge is a refusal
+        return f"{event}: the check cannot finish ({type(error).__name__})"
+
+
 def _install() -> list[tuple[str, str]]:
     hits = getattr(sys, _NET, None)
     if hits is not None:
         return hits
     hits = []
-    identity = _real_identity()
 
-    def safety(event, details):
-        try:
-            targets = _candidates(event, details)
-        except (OSError, TypeError, ValueError):
-            return
-        for target in targets:
-            if _is_real(target, identity):
-                hits.append((event, target))
-                raise SafetyNetTripped(f"test safety net: refusing {target}")
+    def safety(event, details, *, _refusal=refusal):
+        target = _refusal(event, details)
+        if target is not None:
+            hits.append((event, target))
+            raise SafetyNetTripped(f"test safety net: refusing {target}")
 
     sys.addaudithook(safety)
     setattr(sys, _NET, hits)
