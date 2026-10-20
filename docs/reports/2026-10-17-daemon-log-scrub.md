@@ -865,7 +865,7 @@ Review r3 (`REQUEST_CHANGES`) found no leak and asked for two P3s; the hub took 
 
 ### 1. The cut's cost (P3-1): windowed margins
 
-The three whole-text passes are gone, and so is a fourth the profile showed.
+The three whole-text passes are gone, and so is a fourth, which I found by reading the cut for every read past a window (no profile was run this round).
 
 - **Margins.** `handoff._Reading` holds the text as the cut reads it. `_MARGIN_MARK_RE` blanks the margins only within the two windows (`_blanked`: the head's first `limit // 2 + 1` characters, and the tail from its first line start; each slice with the one character after it that a mark's lookahead reads). Between the windows the text is as it is. Every look for the last or next visible character that may run past a window goes through `_Reading.before` or `_Reading.after`, which `_neutral_break` now takes as its look-back (`before=`), `_around`, `_quote_events` and `_event_before` call, and `_leads_with_header` uses:
   - A look stops at the first visible character, as `_last_visible` and `_run_end` do. Where that character is a `|` or `+`, `_is_margin_mark` asks whether it is a margin's mark (an even run of two or more spaces from its line start before it, and a space, a line break or the end after it); if so, the look goes on past it.
@@ -895,30 +895,30 @@ The three whole-text passes are gone, and so is a fourth the profile showed.
 | round2-tail | 50,206 and 50,206 | 8,183 | 3.0 |
 | round2-tail-eight-kinds | 61,132 and 61,132 | 8,189 | 3.0 |
 
-At `cce8f1af7` the margins' substitution, the reminder search and the header's match each read all 16 MiB. The test asserts at most `16 × RECORD_SCRUB_MAX` regex characters, no call wider than twice the bound, regex reads no greater at 16 MiB than at 1 MiB (plus the bound), and at most 12 passes of `str` scans. **On `cce8f1af7`'s source** it fails for every shape at 16 MiB (hold 4, below: already at 1 MiB it read 2.1 to 4.2 million characters by regex against the 262,144 allowed, the reminder search and the header's match each reading the whole text, and on the margin shapes the substitution too).
+At `cce8f1af7` the margins' substitution, the reminder search and the header's match each read the whole text, whatever its length. The test asserts at most `16 × RECORD_SCRUB_MAX` regex characters, no call wider than twice the bound, regex reads no greater at 16 MiB than at 1 MiB (plus the bound), and at most 12 passes of `str` scans. **On `cce8f1af7`'s source** it fails for every shape, already at its first size, 1 MiB (hold 4, below: it read 2.1 to 4.2 million characters by regex against the 262,144 allowed, the reminder search and the header's match each reading the whole text, and on the margin shapes the substitution too).
 
 **Measured** (`tools/measure_cut_cost.py`, best of five CPU times, `time.process_time`, Python 3.14.7 with the GIL, one hold, load about 14 to 17 on the host's 18 cores):
 
 | shape | MiB | cut ms | cut / plain | cce8f1af7 cut ms | handler, message ms | handler, traceback ms | Python's formatting ms | traceback / plain |
 |---|---|---|---|---|---|---|---|---|
 | plain | 1 | 3.6 | 1.00 | 3.2 | 24.0 | 26.2 | 3.1 | 1.00 |
-| margin-only lines `  |\n` | 1 | 11.7 | 3.30 | 77.9 | 25.8 | 43.5 | 17.5 | 1.66 |
-| margin-only lines `  | \n` | 1 | 14.0 | 3.94 | 74.2 | 24.1 | 26.8 | 9.1 | 1.02 |
-| member lines `  | member line\n` | 1 | 4.7 | 1.32 | 14.0 | 33.4 | 26.0 | 5.3 | 0.99 |
+| margin-only lines `  \|\n` | 1 | 11.7 | 3.30 | 77.9 | 25.8 | 43.5 | 17.5 | 1.66 |
+| margin-only lines `  \| \n` | 1 | 14.0 | 3.94 | 74.2 | 24.1 | 26.8 | 9.1 | 1.02 |
+| member lines `  \| member line\n` | 1 | 4.7 | 1.32 | 14.0 | 33.4 | 26.0 | 5.3 | 0.99 |
 | leading spaces | 1 | 1.7 | 0.49 | 34.0 | 1.6 | 1.8 | 0.7 | 0.07 |
 | run of `<` | 1 | 2.2 | 0.63 | 23.7 | 8.1 | 11.5 | 4.2 | 0.44 |
 | raised exception group (its traceback) | 1 | 3.7 | 1.04 | 22.0 | nan | 24.7 | 5.6 | 0.94 |
 | plain | 4 | 8.6 | 1.00 | 10.3 | 17.6 | 28.7 | 11.5 | 1.00 |
-| margin-only lines `  |\n` | 4 | 44.2 | 5.14 | 315.3 | 57.0 | 127.2 | 48.5 | 4.43 |
-| margin-only lines `  | \n` | 4 | 45.1 | 5.24 | 270.8 | 49.3 | 124.3 | 41.1 | 4.33 |
-| member lines `  | member line\n` | 4 | 8.7 | 1.01 | 73.5 | 29.3 | 42.8 | 12.4 | 1.49 |
+| margin-only lines `  \|\n` | 4 | 44.2 | 5.14 | 315.3 | 57.0 | 127.2 | 48.5 | 4.43 |
+| margin-only lines `  \| \n` | 4 | 45.1 | 5.24 | 270.8 | 49.3 | 124.3 | 41.1 | 4.33 |
+| member lines `  \| member line\n` | 4 | 8.7 | 1.01 | 73.5 | 29.3 | 42.8 | 12.4 | 1.49 |
 | leading spaces | 4 | 7.9 | 0.92 | 115.2 | 6.6 | 12.8 | 2.6 | 0.44 |
 | run of `<` | 4 | 4.7 | 0.55 | 93.1 | 10.3 | 28.8 | 22.5 | 1.00 |
 | raised exception group (its traceback) | 4 | 13.9 | 1.62 | 54.8 | nan | 51.0 | 15.5 | 1.78 |
 | plain | 16 | 29.4 | 1.00 |  | 49.9 | 136.0 | 59.4 | 1.00 |
-| margin-only lines `  |\n` | 16 | 185.7 | 6.33 |  | 237.8 | 519.4 | 278.8 | 3.82 |
-| margin-only lines `  | \n` | 16 | 173.3 | 5.91 |  | 188.2 | 459.5 | 237.0 | 3.38 |
-| member lines `  | member line\n` | 16 | 49.1 | 1.67 |  | 51.6 | 141.1 | 77.3 | 1.04 |
+| margin-only lines `  \|\n` | 16 | 185.7 | 6.33 |  | 237.8 | 519.4 | 278.8 | 3.82 |
+| margin-only lines `  \| \n` | 16 | 173.3 | 5.91 |  | 188.2 | 459.5 | 237.0 | 3.38 |
+| member lines `  \| member line\n` | 16 | 49.1 | 1.67 |  | 51.6 | 141.1 | 77.3 | 1.04 |
 | leading spaces | 16 | 38.1 | 1.30 |  | 24.1 | 27.2 | 8.2 | 0.20 |
 | run of `<` | 16 | 12.6 | 0.43 |  | 20.3 | 98.0 | 74.6 | 0.72 |
 | raised exception group (its traceback) | 16 | 34.0 | 1.16 |  | nan | 126.0 | 75.8 | 0.93 |
@@ -926,14 +926,14 @@ At `cce8f1af7` the margins' substitution, the reminder search and the header's m
 - **Linear on every shape, within the noise.** From 4 to 16 MiB the cuts grow 2.4 to 5.6 times (plain text 3.4). The largest step is the member lines' (8.7 to 49.1 ms). Reading the code for that shape, what it reads past the windows is the two `r>` scans, one `rfind` for a comma, the looks' copies and the 16 MiB `read` that blanking a window builds; the counting test shows 4.0 passes of the text at both sizes. So I read the step as the cost of touching a fresh 16 MiB copy, not as a pass that grows faster than the text.
 - **Against plain text of the same size** (`cut / plain`): member lines 1.01 to 1.67, leading spaces 0.49 to 1.30, the run of `<` 0.43 to 0.63, the raised exception group 1.04 to 1.62. Against round 4's cut: the margin-only lines 77.9 → 11.7 ms at 1 MiB and 315.3 → 44.2 ms at 4 MiB (review r3: 1,594 ms at 16 MiB, now 185.7), leading spaces 115.2 → 7.9 ms, the run of `<` 93.1 → 4.7 ms, the group 54.8 → 13.9 ms at 4 MiB.
 - **The one shape still well above plain text** is a run of lines holding only whitespace and margins: 3.3, 5.1 and 6.3 times plain text at 1, 4 and 16 MiB (11.7, 44.2, 185.7 ms), linear. Past a window, each of those lines' marks must be told from a `|` or `+` that is not one, and that takes about a dozen C scans over the run (`_margin_lines`), against plain text's two or three. C-25.7 states it as an accepted cost.
-- **The round-2 cost shapes** at 4 MiB, in hold 5 (load about 11 to 16): every cut 0.59 to 1.00 times plain text; for the blank lines after a key as a traceback, 210.7 ms of 4.4 MiB, Python's formatting is 205.4 of it.
+- **The round-2 cost shapes** at 4 MiB, in hold 5 (load about 11 to 16): every cut 0.59 to 1.00 times plain text; for the blank lines after a key as a traceback, Python's formatting is 205.4 ms of the handler's 210.7.
 
 | shape | MiB | cut ms | cut / plain | cce8f1af7 cut ms | handler, message ms | handler, traceback ms | Python's formatting ms | traceback / plain |
 |---|---|---|---|---|---|---|---|---|
 | plain | 4 | 12.6 | 1.00 | 9.1 | 19.1 | 36.1 | 17.7 | 1.00 |
-| margin-only lines `  |\n` | 4 | 49.3 | 3.90 | 312.0 | 58.8 | 148.2 | 68.3 | 4.11 |
-| margin-only lines `  | \n` | 4 | 39.8 | 3.15 | 303.7 | 55.3 | 113.3 | 50.6 | 3.14 |
-| member lines `  | member line\n` | 4 | 8.5 | 0.67 | 64.7 | 27.7 | 53.6 | 14.6 | 1.49 |
+| margin-only lines `  \|\n` | 4 | 49.3 | 3.90 | 312.0 | 58.8 | 148.2 | 68.3 | 4.11 |
+| margin-only lines `  \| \n` | 4 | 39.8 | 3.15 | 303.7 | 55.3 | 113.3 | 50.6 | 3.14 |
+| member lines `  \| member line\n` | 4 | 8.5 | 0.67 | 64.7 | 27.7 | 53.6 | 14.6 | 1.49 |
 | leading spaces | 4 | 6.0 | 0.47 | 108.2 | 6.1 | 6.8 | 2.5 | 0.19 |
 | run of `<` | 4 | 4.1 | 0.33 | 62.8 | 9.1 | 25.7 | 13.5 | 0.71 |
 | round 2: head | 4 | 7.5 | 0.59 | 8.6 | 14.7 | 30.3 | 12.9 | 0.84 |
@@ -946,7 +946,7 @@ At `cce8f1af7` the margins' substitution, the reminder search and the header's m
 | round 2: blank-lines-after-a-flag | 4 | 12.5 | 0.99 | 9.3 | 13.9 | 143.0 | 130.1 | 3.97 |
 | raised exception group (its traceback) | 4 | 7.1 | 0.56 | 66.1 | nan | 58.6 | 16.9 | 1.62 |
 
-- **The handler.** As a traceback, a record costs what Python's own formatting costs plus about 25 to 240 ms at 16 MiB; the group's 6.0 MB traceback in review r3 (234 to 317 ms there) is here 126 ms at 16 MiB of member text, 76 of it Python's formatting.
+- **The handler.** As a traceback, a record costs what Python's own formatting costs plus 19 to 241 ms at 16 MiB (plain text: 77); the group's 6.0 MB traceback in review r3 (234 to 317 ms there) is here 126 ms at 16 MiB of member text, 76 of it Python's formatting.
 
 **The differential.** `tests/reference_cut_cce8f1af7.py` is `cut_whole` as of `cce8f1af7`, with every function and constant it reaches, copied verbatim. The windowed cut's output equals it byte for byte on:
 
@@ -982,7 +982,7 @@ At `cce8f1af7` the margins' substitution, the reminder search and the header's m
 | 4 | 53,773 | 4003 | 1001 |
 | 16 | 215,092 | 17914 | 1120 |
 
-  The default 40 lines are a few KiB, so milliseconds.
+  The default 40 lines: at about 80 characters a line the file is cut to about 22 KiB (twice the range and the bound more), which at that rate is about 25 ms of scrubbing, plus the cut's C scans of the file.
 
 ### 5. The rule table (the reviewer's gap)
 
@@ -994,7 +994,7 @@ Invariant 10 is restated in place above. Each holds for every input and is execu
 
 18. **The windowed cut is the cut as of `cce8f1af7`.** For any text and limit, `cut_whole`'s output equals the reference's. Tests: the four `test_the_windowed_cut_is_the_reference_cut_*` tests.
 19. **The reading's looks are the blanked text's.** For any text and windows, `before`, `after`, the leading-header test and the reminder test give what `_last_visible`, `_run_end` and their regexes give on the text with every margin blanked; the C scans agree with `_MARGIN_MARK_RE` and the body class. Tests: `test_the_reading_s_looks_are_the_blanked_text_s`, `test_the_margin_scans_read_what_the_margin_regex_blanks`, `test_the_reminder_folds_are_every_character_the_tag_regex_takes_for_a_letter`.
-20. **What a person reads of daemon.log hides what the handler's forms hide.** For any log, the tail and what `--follow` writes, in any pieces, show no secret that the whole log's block with its lines kept hides; for a log with no credential-shaped record they are its raw lines. Tests: the four properties in `test_daemon_log_tail.py`.
+20. **What a person reads of daemon.log hides what the handler's forms hide.** For any log, the tail; and, within the follower's stated limits (no text held past 16,384 characters, no match reaching back more than 8,192), what `--follow` writes, in any pieces, show no secret that the whole log's block with its lines kept hides; for a log with no credential-shaped record they are its raw lines. Tests: the four properties in `test_daemon_log_tail.py`.
 
 ### Tests per file, round 5
 
