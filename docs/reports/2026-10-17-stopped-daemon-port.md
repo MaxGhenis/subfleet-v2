@@ -661,7 +661,8 @@ a daemon spawn. All launch-env stand-ins now accept the deadline keyword.
 The latter tests explicitly model the already-closed core's stopped-holder
 preflight and retain their fatal assertion on any daemon launch. These are
 fixture adaptations to C-5.13's intentional fresh preflight and deadline
-propagation; production checks are retained. The full rerun is pending below.
+propagation; production checks are retained. The full rerun passed, as
+recorded below.
 
 ### Review r4 P3s and client behavior
 
@@ -791,3 +792,1174 @@ Reproduction inside the normal shared-lock/scratch environment:
 The seven pytest failures are the proof; the harness exits zero only when
 all mutants are killed. All production sources remain identical to their
 committed versions after the hold.
+
+### Broader validation and environment
+
+All normal round-5 holds use Python 3.14.7, one foreground pytest process
+under each shared-lock hold, isolated temporary/cache directories, no pytest
+cache provider, and bounded Hypothesis settings. The default uv cache is
+outside the writable sandbox, so the task uses its private scratch cache.
+`PYTHONPATH` and `SUBFLEET_RETENTION_DORMANT` are removed from test launches.
+No 3.12 pytest hold has run; the prepared interpreter environment alone is
+not counted as validation.
+
+The full Python 3.14 shard-4 mapping from `.github/test-shards.json` completed
+in three holds: **959 passed / 23 skipped**, **1,217 passed / 3 skipped**,
+and **1,589 passed / 7 skipped**. All **102 mapped files** ran, totaling
+**3,765 passed, zero failed, 33 skipped**. Pytest durations were 309.85,
+743.29 and 712.89 seconds, each below 20 minutes. No additional PR failure
+appeared in this shard. Skips are unavailable native boot/process inspection
+(30) and three `hdiutil create` failures (`Device not configured` for
+case-sensitive HFS+, HFS+ and ExFAT). The earlier briefed-file holds also
+skip native-inspection cases; they do not establish those native paths.
+One shard-4 warning is an existing pytest deprecation for a `zip`
+parametrization in `test_codex_turn_completed.py`.
+
+The exact latest normal counts per file, directory totals, and distinction
+between initial verification and the requested whole-directory sweep follow
+in the final ledger. Expected mutation failures and initial failing
+reproductions do not enter those totals. Shared-lock waiting time counts
+against the task's wall clock; the prescribed no-new-holds cutoff is
+11:22 UTC (four hours thirty minutes after the 06:52 UTC start).
+
+Status at 11:15 UTC: shard 4 and the briefed files are verified, but the
+whole-directory sweep is incomplete. One additional 63-file unit/fake hold
+is queued for the shared lock. The ledger below records completed validation
+only and names every file not yet run or not yet swept.
+
+<!-- round5-validation-ledger -->
+
+### Final validation ledger
+
+One foreground pytest process per shared-lock hold, no cache provider; bounded Hypothesis settings. Per-file counts are the latest complete normal file run plus targeted rechecks. Expected mutation failures and initial failing reproductions are excluded from directory totals. Skipped includes xfail when present. The full-sweep column separately records the requested runs after briefed verification.
+
+| Hold | Passed | Failed | Skipped | Pytest seconds |
+| --- | ---: | ---: | ---: | ---: |
+| baseline-ci | 178 | 7 | 0 | 96.59 |
+| regressions-before | 6 | 3 | 0 | 5.63 |
+| allowlist | 371 | 13 | 0 | 92.93 |
+| allowlist-fixed | 384 | 0 | 0 | 44.96 |
+| required-client | 103 | 0 | 0 | 14.18 |
+| required-cli | 440 | 0 | 0 | 70.58 |
+| required-hooks | 241 | 1 | 6 | 145.82 |
+| required-final | 502 | 1 | 6 | 522.54 |
+| review-mutants | 1 | 7 | 0 | 11.65 |
+| full-suite-shard4-1 | 959 | 0 | 23 | 309.85 |
+| full-suite-shard4-2 | 1217 | 0 | 3 | 743.29 |
+| full-suite-shard4-3 | 1589 | 0 | 7 | 712.89 |
+
+Initial reproductions and review-mutant failures are intentional evidence, described above. Later fixture corrections and rechecks resolve the ordinary failures.
+
+| Directory | Files verified | Passed | Failed | Skipped | Never run | Full-sweep files |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| tests/unit | 97/327 | 4443 | 0 | 15 | 230 | 76/327 |
+| tests/fake | 23/106 | 439 | 0 | 6 | 83 | 20/106 |
+
+Python 3.14 shard 4: 102/102 mapped files verified; 102/102 covered in the whole-file sweep.
+
+Files never run:
+- `tests/fake/test_admission_disk.py`
+- `tests/fake/test_admission_latency.py`
+- `tests/fake/test_admission_lease_waiters.py`
+- `tests/fake/test_admission_liveness.py`
+- `tests/fake/test_admission_priority.py`
+- `tests/fake/test_admission_properties.py`
+- `tests/fake/test_admission_ramp.py`
+- `tests/fake/test_admission_ramp_retention.py`
+- `tests/fake/test_admission_stateful.py`
+- `tests/fake/test_admission_visibility.py`
+- `tests/fake/test_canonical_identity.py`
+- `tests/fake/test_canonical_identity_fix2.py`
+- `tests/fake/test_canonical_identity_fix3.py`
+- `tests/fake/test_canonical_identity_fix4.py`
+- `tests/fake/test_canonical_identity_fix5.py`
+- `tests/fake/test_capacity_steer_daemon.py`
+- `tests/fake/test_capacity_wait_backoff.py`
+- `tests/fake/test_census_escapers_daemon.py`
+- `tests/fake/test_census_recycled_pid_daemon.py`
+- `tests/fake/test_codex_ca_bundle_fake.py`
+- `tests/fake/test_codex_turn_completed_fake.py`
+- `tests/fake/test_crash_matrix.py`
+- `tests/fake/test_daemon_contract.py`
+- `tests/fake/test_daemon_descriptors.py`
+- `tests/fake/test_daemon_launch.py`
+- `tests/fake/test_daemon_stacks.py`
+- `tests/fake/test_descriptor_exhaustion.py`
+- `tests/fake/test_fake_provider.py`
+- `tests/fake/test_finalization_replay.py`
+- `tests/fake/test_folder_spelling.py`
+- `tests/fake/test_frozen_stream_nonregular.py`
+- `tests/fake/test_identity_rollback.py`
+- `tests/fake/test_idle_cost.py`
+- `tests/fake/test_interactive_steer.py`
+- `tests/fake/test_lane_fault.py`
+- `tests/fake/test_lane_pilot.py`
+- `tests/fake/test_lanes_enroll.py`
+- `tests/fake/test_lanes_reenroll.py`
+- `tests/fake/test_lanes_reenroll_keychain.py`
+- `tests/fake/test_launch_gates_above_stdio.py`
+- `tests/fake/test_lost_acknowledgement.py`
+- `tests/fake/test_main_refusal_write_dir.py`
+- `tests/fake/test_mcp_job_contract.py`
+- `tests/fake/test_native_maintenance_startup.py`
+- `tests/fake/test_notice_delivery.py`
+- `tests/fake/test_notice_header.py`
+- `tests/fake/test_policy_sandbox.py`
+- `tests/fake/test_probe_cancel.py`
+- `tests/fake/test_probe_recovery.py`
+- `tests/fake/test_prompt_seam.py`
+- `tests/fake/test_provider_active_cap_fake.py`
+- `tests/fake/test_provider_cap_review_evidence.py`
+- `tests/fake/test_record_secrecy.py`
+- `tests/fake/test_request_routing.py`
+- `tests/fake/test_reserve_authorization_validation.py`
+- `tests/fake/test_reset_credit_incident.py`
+- `tests/fake/test_resume_cli.py`
+- `tests/fake/test_resume_contract.py`
+- `tests/fake/test_retention_dormant.py`
+- `tests/fake/test_review_r185_adversarial.py`
+- `tests/fake/test_route_view.py`
+- `tests/fake/test_salvage_finalization.py`
+- `tests/fake/test_sessions_end_to_end.py`
+- `tests/fake/test_state_fixture_processes.py`
+- `tests/fake/test_status_payload.py`
+- `tests/fake/test_suggestions_fake.py`
+- `tests/fake/test_tier_hold_by_demand.py`
+- `tests/fake/test_timers_busy_admission.py`
+- `tests/fake/test_timers_end_to_end.py`
+- `tests/fake/test_turn_listing.py`
+- `tests/fake/test_turn_retention_cwd.py`
+- `tests/fake/test_turn_retention_cwd_properties.py`
+- `tests/fake/test_turn_retention_job_directory.py`
+- `tests/fake/test_turn_retention_job_properties.py`
+- `tests/fake/test_turn_retention_quarantine.py`
+- `tests/fake/test_turn_wait_reasons.py`
+- `tests/fake/test_unadmittable_pin_admission.py`
+- `tests/fake/test_unadmittable_pin_review.py`
+- `tests/fake/test_workspace_contract.py`
+- `tests/fake/test_workspace_enospc.py`
+- `tests/fake/test_workspace_transient.py`
+- `tests/fake/test_writable_fanout.py`
+- `tests/fake/test_writer_retention_fence.py`
+- `tests/unit/test_admission_uncapped.py`
+- `tests/unit/test_agent_secret_credentials.py`
+- `tests/unit/test_app_cutover_daemon.py`
+- `tests/unit/test_approval_resolution.py`
+- `tests/unit/test_capacity_steer_mutations.py`
+- `tests/unit/test_capacity_view.py`
+- `tests/unit/test_census_counted.py`
+- `tests/unit/test_census_identity_uncertainty.py`
+- `tests/unit/test_census_responsibility_identity.py`
+- `tests/unit/test_census_responsibility_races.py`
+- `tests/unit/test_census_survivors_review.py`
+- `tests/unit/test_ci_retry_known_flakes.py`
+- `tests/unit/test_ci_shard_plugin.py`
+- `tests/unit/test_claude_adapter.py`
+- `tests/unit/test_claude_attest.py`
+- `tests/unit/test_claude_cards_wiring.py`
+- `tests/unit/test_claude_conversation_mcp_scope.py`
+- `tests/unit/test_claude_identity.py`
+- `tests/unit/test_claude_large_stream.py`
+- `tests/unit/test_claude_mcp.py`
+- `tests/unit/test_claude_mcp_launch.py`
+- `tests/unit/test_claude_usage.py`
+- `tests/unit/test_claude_v1_parity.py`
+- `tests/unit/test_cli_batch.py`
+- `tests/unit/test_codex_adapter.py`
+- `tests/unit/test_codex_ca_bundle_provider.py`
+- `tests/unit/test_codex_probe.py`
+- `tests/unit/test_codex_turn.py`
+- `tests/unit/test_compat.py`
+- `tests/unit/test_conversation_catalog.py`
+- `tests/unit/test_conversation_catalog_lifecycle.py`
+- `tests/unit/test_conversation_fifo_reads.py`
+- `tests/unit/test_conversation_handoff_briefs.py`
+- `tests/unit/test_conversation_handoff_dispatch_races.py`
+- `tests/unit/test_conversation_history.py`
+- `tests/unit/test_conversation_peers_attachments.py`
+- `tests/unit/test_conversation_service.py`
+- `tests/unit/test_conversation_state_reads.py`
+- `tests/unit/test_conversation_status.py`
+- `tests/unit/test_conversation_store.py`
+- `tests/unit/test_conversation_stream_assertion.py`
+- `tests/unit/test_conversation_titles.py`
+- `tests/unit/test_conversation_wakes.py`
+- `tests/unit/test_daemon_fifo_reads.py`
+- `tests/unit/test_daemon_init_release.py`
+- `tests/unit/test_daemon_inspection_properties.py`
+- `tests/unit/test_daemon_integration.py`
+- `tests/unit/test_daemon_qos_tools.py`
+- `tests/unit/test_daemon_settle.py`
+- `tests/unit/test_decision_horizon.py`
+- `tests/unit/test_descriptors.py`
+- `tests/unit/test_descriptors_desktop.py`
+- `tests/unit/test_desktop_account_cache.py`
+- `tests/unit/test_desktop_ledger.py`
+- `tests/unit/test_disk_admission.py`
+- `tests/unit/test_disk_floor.py`
+- `tests/unit/test_doctor_ca_bundle.py`
+- `tests/unit/test_doctor_identity.py`
+- `tests/unit/test_enrollment_runner.py`
+- `tests/unit/test_fake_codex_http.py`
+- `tests/unit/test_folders.py`
+- `tests/unit/test_forget_paced.py`
+- `tests/unit/test_fresh_until.py`
+- `tests/unit/test_frozen_provider_streams.py`
+- `tests/unit/test_gate_admission.py`
+- `tests/unit/test_gate_merge.py`
+- `tests/unit/test_gate_replay.py`
+- `tests/unit/test_gate_revision.py`
+- `tests/unit/test_gate_service.py`
+- `tests/unit/test_guard_overlay.py`
+- `tests/unit/test_guard_trust.py`
+- `tests/unit/test_guardian.py`
+- `tests/unit/test_guardian_qos.py`
+- `tests/unit/test_handler_refusals.py`
+- `tests/unit/test_hidden_environment.py`
+- `tests/unit/test_hooks_native_guard.py`
+- `tests/unit/test_host_push_admission.py`
+- `tests/unit/test_host_push_build.py`
+- `tests/unit/test_host_push_build_budget.py`
+- `tests/unit/test_host_push_cli.py`
+- `tests/unit/test_host_push_copy.py`
+- `tests/unit/test_host_push_export.py`
+- `tests/unit/test_host_push_metadata.py`
+- `tests/unit/test_host_push_mutations.py`
+- `tests/unit/test_host_push_quarantine_restart.py`
+- `tests/unit/test_host_push_restart.py`
+- `tests/unit/test_host_push_retention.py`
+- `tests/unit/test_host_push_storage_recovery.py`
+- `tests/unit/test_host_push_storage_retry_budget.py`
+- `tests/unit/test_host_push_store_completion_pr183.py`
+- `tests/unit/test_host_push_store_interleavings.py`
+- `tests/unit/test_host_push_trees.py`
+- `tests/unit/test_host_push_validated_top.py`
+- `tests/unit/test_importer.py`
+- `tests/unit/test_inspection_pacing_properties.py`
+- `tests/unit/test_invariants_index.py`
+- `tests/unit/test_lane_answers.py`
+- `tests/unit/test_lease_waiter_selection.py`
+- `tests/unit/test_limit_from_model_text.py`
+- `tests/unit/test_live_store_guard_round10.py`
+- `tests/unit/test_live_store_guard_round3.py`
+- `tests/unit/test_live_store_guard_round4.py`
+- `tests/unit/test_live_store_guard_round5.py`
+- `tests/unit/test_live_store_guard_round6.py`
+- `tests/unit/test_live_store_guard_round7.py`
+- `tests/unit/test_live_store_guard_round7_mutations.py`
+- `tests/unit/test_live_store_guard_round8.py`
+- `tests/unit/test_live_store_guard_round8_mutations.py`
+- `tests/unit/test_live_store_guard_round9.py`
+- `tests/unit/test_live_store_guard_round9_mutations.py`
+- `tests/unit/test_live_store_guard_state_root.py`
+- `tests/unit/test_mcp_scheduler_contract.py`
+- `tests/unit/test_mirror_flags_model.py`
+- `tests/unit/test_mirror_flags_stateful.py`
+- `tests/unit/test_native_operations.py`
+- `tests/unit/test_notice_rendering.py`
+- `tests/unit/test_notify_push.py`
+- `tests/unit/test_operator_hold_closures.py`
+- `tests/unit/test_person_boundary.py`
+- `tests/unit/test_picker.py`
+- `tests/unit/test_placement_ramp.py`
+- `tests/unit/test_policy_disk.py`
+- `tests/unit/test_policy_ramp.py`
+- `tests/unit/test_policy_support.py`
+- `tests/unit/test_policy_tier_preferences.py`
+- `tests/unit/test_pr124_fixes.py`
+- `tests/unit/test_pr124_review_r2_fixes.py`
+- `tests/unit/test_pr192_review_r1.py`
+- `tests/unit/test_pr192_review_r2.py`
+- `tests/unit/test_procs.py`
+- `tests/unit/test_protocol_secrecy.py`
+- `tests/unit/test_provider_active_cap.py`
+- `tests/unit/test_prune_217.py`
+- `tests/unit/test_prune_decision_fingerprints.py`
+- `tests/unit/test_prune_restore.py`
+- `tests/unit/test_quota_projection.py`
+- `tests/unit/test_rank_review_report.py`
+- `tests/unit/test_rediscovery_git_trace.py`
+- `tests/unit/test_relay.py`
+- `tests/unit/test_render.py`
+- `tests/unit/test_render_quota_projection.py`
+- `tests/unit/test_reserve_authorization_plumbing.py`
+- `tests/unit/test_reset_credit_claim_timing.py`
+- `tests/unit/test_reset_credit_properties.py`
+- `tests/unit/test_reset_credit_review_r3.py`
+- `tests/unit/test_reset_credit_review_r3_mutants.py`
+- `tests/unit/test_retention_archive.py`
+- `tests/unit/test_retention_archive_properties.py`
+- `tests/unit/test_retention_case_alias.py`
+- `tests/unit/test_retention_nested_leases.py`
+- `tests/unit/test_retention_ordinary_trees.py`
+- `tests/unit/test_retention_qos.py`
+- `tests/unit/test_retention_readback.py`
+- `tests/unit/test_retention_rediscovery.py`
+- `tests/unit/test_retention_regenerable.py`
+- `tests/unit/test_retention_salvage_properties.py`
+- `tests/unit/test_retention_shared_folders.py`
+- `tests/unit/test_retention_turn_contract.py`
+- `tests/unit/test_retention_turn_workdirs.py`
+- `tests/unit/test_retention_turns.py`
+- `tests/unit/test_retention_worktrees.py`
+- `tests/unit/test_review130_pass.py`
+- `tests/unit/test_review_pr127_fixes.py`
+- `tests/unit/test_review_pr127_history.py`
+- `tests/unit/test_review_pr127_pr_wakes.py`
+- `tests/unit/test_review_pr127_report.py`
+- `tests/unit/test_review_pr127_service.py`
+- `tests/unit/test_review_r2_repro.py`
+- `tests/unit/test_review_r3_measure.py`
+- `tests/unit/test_review_r3_repro.py`
+- `tests/unit/test_review_r4_repro.py`
+- `tests/unit/test_review_r5_repro.py`
+- `tests/unit/test_review_r6_probes.py`
+- `tests/unit/test_review_r6_restart.py`
+- `tests/unit/test_round10_refusal_context.py`
+- `tests/unit/test_route_check.py`
+- `tests/unit/test_salvage.py`
+- `tests/unit/test_salvage_optional_transient.py`
+- `tests/unit/test_salvage_unindexable.py`
+- `tests/unit/test_scheduler.py`
+- `tests/unit/test_scheduler_priority_callers.py`
+- `tests/unit/test_scheduler_tier_preferences.py`
+- `tests/unit/test_scheduler_turns.py`
+- `tests/unit/test_scrub_key_order.py`
+- `tests/unit/test_sessions_handoff_excerpts.py`
+- `tests/unit/test_sessions_headless_properties.py`
+- `tests/unit/test_sessions_mirror.py`
+- `tests/unit/test_sessions_mirror_cache_coherence.py`
+- `tests/unit/test_sessions_mirror_fifo.py`
+- `tests/unit/test_sessions_mirror_hot_health.py`
+- `tests/unit/test_sessions_mirror_hot_progress.py`
+- `tests/unit/test_sessions_mirror_hot_regressions.py`
+- `tests/unit/test_sessions_mirror_inventory.py`
+- `tests/unit/test_sessions_mirror_load_gap.py`
+- `tests/unit/test_sessions_mirror_safety.py`
+- `tests/unit/test_sessions_mirror_write_churn.py`
+- `tests/unit/test_sessions_nudge.py`
+- `tests/unit/test_sessions_registry.py`
+- `tests/unit/test_sessions_revive_reads.py`
+- `tests/unit/test_sessions_transcripts.py`
+- `tests/unit/test_settle_properties.py`
+- `tests/unit/test_status_json.py`
+- `tests/unit/test_steer_invariants.py`
+- `tests/unit/test_stop_alarm.py`
+- `tests/unit/test_stop_watchdog.py`
+- `tests/unit/test_store_ids.py`
+- `tests/unit/test_store_migration_2.py`
+- `tests/unit/test_store_properties.py`
+- `tests/unit/test_store_readers.py`
+- `tests/unit/test_suggest_hint.py`
+- `tests/unit/test_suggestion_error_boundaries.py`
+- `tests/unit/test_suggestions_r1b_adversarial.py`
+- `tests/unit/test_suggestions_r3_channels.py`
+- `tests/unit/test_suggestions_review_boundaries.py`
+- `tests/unit/test_suggestions_review_multiline.py`
+- `tests/unit/test_suggestions_review_response.py`
+- `tests/unit/test_tick_prefilter.py`
+- `tests/unit/test_timers_alerts.py`
+- `tests/unit/test_timers_daemon.py`
+- `tests/unit/test_timers_keepalive.py`
+- `tests/unit/test_timers_probe.py`
+- `tests/unit/test_timers_reset_credits.py`
+- `tests/unit/test_title_review_regressions.py`
+- `tests/unit/test_turn_attachment_replay.py`
+- `tests/unit/test_turn_replay.py`
+- `tests/unit/test_turn_runner.py`
+- `tests/unit/test_ultracode_effort.py`
+- `tests/unit/test_wait_hub.py`
+- `tests/unit/test_wake_cli.py`
+- `tests/unit/test_weekly_rank_vs_base.py`
+
+Full-sweep files still pending (some were already verified in the briefed holds):
+- `tests/fake/test_admission_disk.py`
+- `tests/fake/test_admission_latency.py`
+- `tests/fake/test_admission_lease_waiters.py`
+- `tests/fake/test_admission_liveness.py`
+- `tests/fake/test_admission_priority.py`
+- `tests/fake/test_admission_properties.py`
+- `tests/fake/test_admission_ramp.py`
+- `tests/fake/test_admission_ramp_retention.py`
+- `tests/fake/test_admission_stateful.py`
+- `tests/fake/test_admission_visibility.py`
+- `tests/fake/test_canonical_identity.py`
+- `tests/fake/test_canonical_identity_fix2.py`
+- `tests/fake/test_canonical_identity_fix3.py`
+- `tests/fake/test_canonical_identity_fix4.py`
+- `tests/fake/test_canonical_identity_fix5.py`
+- `tests/fake/test_capacity_steer_daemon.py`
+- `tests/fake/test_capacity_wait_backoff.py`
+- `tests/fake/test_census_escapers_daemon.py`
+- `tests/fake/test_census_recycled_pid_daemon.py`
+- `tests/fake/test_codex_ca_bundle_fake.py`
+- `tests/fake/test_codex_turn_completed_fake.py`
+- `tests/fake/test_crash_matrix.py`
+- `tests/fake/test_daemon_contract.py`
+- `tests/fake/test_daemon_descriptors.py`
+- `tests/fake/test_daemon_launch.py`
+- `tests/fake/test_daemon_stacks.py`
+- `tests/fake/test_descriptor_exhaustion.py`
+- `tests/fake/test_fake_provider.py`
+- `tests/fake/test_finalization_replay.py`
+- `tests/fake/test_folder_spelling.py`
+- `tests/fake/test_frozen_stream_nonregular.py`
+- `tests/fake/test_identity_rollback.py`
+- `tests/fake/test_idle_cost.py`
+- `tests/fake/test_interactive_steer.py`
+- `tests/fake/test_lane_fault.py`
+- `tests/fake/test_lane_pilot.py`
+- `tests/fake/test_lanes_enroll.py`
+- `tests/fake/test_lanes_reenroll.py`
+- `tests/fake/test_lanes_reenroll_keychain.py`
+- `tests/fake/test_launch_env_daemon.py`
+- `tests/fake/test_launch_env_providers.py`
+- `tests/fake/test_launch_gates_above_stdio.py`
+- `tests/fake/test_lost_acknowledgement.py`
+- `tests/fake/test_main_refusal_write_dir.py`
+- `tests/fake/test_mcp_job_contract.py`
+- `tests/fake/test_native_maintenance_startup.py`
+- `tests/fake/test_notice_delivery.py`
+- `tests/fake/test_notice_header.py`
+- `tests/fake/test_policy_sandbox.py`
+- `tests/fake/test_probe_cancel.py`
+- `tests/fake/test_probe_recovery.py`
+- `tests/fake/test_prompt_seam.py`
+- `tests/fake/test_provider_active_cap_fake.py`
+- `tests/fake/test_provider_cap_review_evidence.py`
+- `tests/fake/test_record_secrecy.py`
+- `tests/fake/test_request_routing.py`
+- `tests/fake/test_reserve_authorization_validation.py`
+- `tests/fake/test_reset_credit_incident.py`
+- `tests/fake/test_resume_cli.py`
+- `tests/fake/test_resume_contract.py`
+- `tests/fake/test_retention_dormant.py`
+- `tests/fake/test_review_r185_adversarial.py`
+- `tests/fake/test_route_view.py`
+- `tests/fake/test_salvage_finalization.py`
+- `tests/fake/test_sessions_end_to_end.py`
+- `tests/fake/test_state_fixture_processes.py`
+- `tests/fake/test_status_payload.py`
+- `tests/fake/test_suggestions_fake.py`
+- `tests/fake/test_tier_hold_by_demand.py`
+- `tests/fake/test_timers_busy_admission.py`
+- `tests/fake/test_timers_end_to_end.py`
+- `tests/fake/test_turn_listing.py`
+- `tests/fake/test_turn_retention_cwd.py`
+- `tests/fake/test_turn_retention_cwd_properties.py`
+- `tests/fake/test_turn_retention_job_directory.py`
+- `tests/fake/test_turn_retention_job_properties.py`
+- `tests/fake/test_turn_retention_quarantine.py`
+- `tests/fake/test_turn_wait_reasons.py`
+- `tests/fake/test_unadmittable_pin_admission.py`
+- `tests/fake/test_unadmittable_pin_rereview.py`
+- `tests/fake/test_unadmittable_pin_review.py`
+- `tests/fake/test_workspace_contract.py`
+- `tests/fake/test_workspace_enospc.py`
+- `tests/fake/test_workspace_transient.py`
+- `tests/fake/test_writable_fanout.py`
+- `tests/fake/test_writer_retention_fence.py`
+- `tests/unit/test_admission_uncapped.py`
+- `tests/unit/test_agent_secret_credentials.py`
+- `tests/unit/test_app_cutover_daemon.py`
+- `tests/unit/test_approval_resolution.py`
+- `tests/unit/test_boot_identity.py`
+- `tests/unit/test_capacity_steer_mutations.py`
+- `tests/unit/test_capacity_view.py`
+- `tests/unit/test_census_counted.py`
+- `tests/unit/test_census_identity_uncertainty.py`
+- `tests/unit/test_census_responsibility_identity.py`
+- `tests/unit/test_census_responsibility_races.py`
+- `tests/unit/test_census_survivors_review.py`
+- `tests/unit/test_ci_retry_known_flakes.py`
+- `tests/unit/test_ci_shard_plugin.py`
+- `tests/unit/test_claude_adapter.py`
+- `tests/unit/test_claude_attest.py`
+- `tests/unit/test_claude_cards_wiring.py`
+- `tests/unit/test_claude_conversation_mcp_scope.py`
+- `tests/unit/test_claude_identity.py`
+- `tests/unit/test_claude_large_stream.py`
+- `tests/unit/test_claude_mcp.py`
+- `tests/unit/test_claude_mcp_launch.py`
+- `tests/unit/test_claude_usage.py`
+- `tests/unit/test_claude_v1_parity.py`
+- `tests/unit/test_cli.py`
+- `tests/unit/test_cli_batch.py`
+- `tests/unit/test_client_availability.py`
+- `tests/unit/test_codex_adapter.py`
+- `tests/unit/test_codex_ca_bundle_provider.py`
+- `tests/unit/test_codex_probe.py`
+- `tests/unit/test_codex_turn.py`
+- `tests/unit/test_compat.py`
+- `tests/unit/test_conversation_catalog.py`
+- `tests/unit/test_conversation_catalog_lifecycle.py`
+- `tests/unit/test_conversation_fifo_reads.py`
+- `tests/unit/test_conversation_handoff_briefs.py`
+- `tests/unit/test_conversation_handoff_dispatch_races.py`
+- `tests/unit/test_conversation_history.py`
+- `tests/unit/test_conversation_peers_attachments.py`
+- `tests/unit/test_conversation_service.py`
+- `tests/unit/test_conversation_state_reads.py`
+- `tests/unit/test_conversation_status.py`
+- `tests/unit/test_conversation_store.py`
+- `tests/unit/test_conversation_stream_assertion.py`
+- `tests/unit/test_conversation_titles.py`
+- `tests/unit/test_conversation_wakes.py`
+- `tests/unit/test_daemon_connections.py`
+- `tests/unit/test_daemon_fifo_reads.py`
+- `tests/unit/test_daemon_init_release.py`
+- `tests/unit/test_daemon_inspection_properties.py`
+- `tests/unit/test_daemon_integration.py`
+- `tests/unit/test_daemon_qos_tools.py`
+- `tests/unit/test_daemon_settle.py`
+- `tests/unit/test_daemon_verbs.py`
+- `tests/unit/test_decision_horizon.py`
+- `tests/unit/test_descriptor_review_fixes.py`
+- `tests/unit/test_descriptors.py`
+- `tests/unit/test_descriptors_desktop.py`
+- `tests/unit/test_desktop_account_cache.py`
+- `tests/unit/test_desktop_ledger.py`
+- `tests/unit/test_disk_admission.py`
+- `tests/unit/test_disk_floor.py`
+- `tests/unit/test_doctor.py`
+- `tests/unit/test_doctor_ca_bundle.py`
+- `tests/unit/test_doctor_identity.py`
+- `tests/unit/test_enrollment_runner.py`
+- `tests/unit/test_fake_codex_http.py`
+- `tests/unit/test_folders.py`
+- `tests/unit/test_forget_paced.py`
+- `tests/unit/test_fresh_until.py`
+- `tests/unit/test_frozen_provider_streams.py`
+- `tests/unit/test_gate_admission.py`
+- `tests/unit/test_gate_merge.py`
+- `tests/unit/test_gate_replay.py`
+- `tests/unit/test_gate_revision.py`
+- `tests/unit/test_gate_service.py`
+- `tests/unit/test_guard_overlay.py`
+- `tests/unit/test_guard_trust.py`
+- `tests/unit/test_guardian.py`
+- `tests/unit/test_guardian_qos.py`
+- `tests/unit/test_handler_refusals.py`
+- `tests/unit/test_hidden_environment.py`
+- `tests/unit/test_hook_cost.py`
+- `tests/unit/test_hooks.py`
+- `tests/unit/test_hooks_native_guard.py`
+- `tests/unit/test_host_push_admission.py`
+- `tests/unit/test_host_push_build.py`
+- `tests/unit/test_host_push_build_budget.py`
+- `tests/unit/test_host_push_cli.py`
+- `tests/unit/test_host_push_copy.py`
+- `tests/unit/test_host_push_export.py`
+- `tests/unit/test_host_push_metadata.py`
+- `tests/unit/test_host_push_mutations.py`
+- `tests/unit/test_host_push_quarantine_restart.py`
+- `tests/unit/test_host_push_restart.py`
+- `tests/unit/test_host_push_retention.py`
+- `tests/unit/test_host_push_storage_recovery.py`
+- `tests/unit/test_host_push_storage_retry_budget.py`
+- `tests/unit/test_host_push_store_completion_pr183.py`
+- `tests/unit/test_host_push_store_interleavings.py`
+- `tests/unit/test_host_push_trees.py`
+- `tests/unit/test_host_push_validated_top.py`
+- `tests/unit/test_importer.py`
+- `tests/unit/test_inspection_pacing_properties.py`
+- `tests/unit/test_invariants_index.py`
+- `tests/unit/test_lane_answers.py`
+- `tests/unit/test_launch_env_allowlist.py`
+- `tests/unit/test_launch_env_helpers.py`
+- `tests/unit/test_launch_env_mutations.py`
+- `tests/unit/test_launch_env_policy.py`
+- `tests/unit/test_launch_env_round2.py`
+- `tests/unit/test_launch_env_round3.py`
+- `tests/unit/test_launch_env_round4.py`
+- `tests/unit/test_lease_waiter_selection.py`
+- `tests/unit/test_limit_from_model_text.py`
+- `tests/unit/test_live_store_guard_round10.py`
+- `tests/unit/test_live_store_guard_round3.py`
+- `tests/unit/test_live_store_guard_round4.py`
+- `tests/unit/test_live_store_guard_round5.py`
+- `tests/unit/test_live_store_guard_round6.py`
+- `tests/unit/test_live_store_guard_round7.py`
+- `tests/unit/test_live_store_guard_round7_mutations.py`
+- `tests/unit/test_live_store_guard_round8.py`
+- `tests/unit/test_live_store_guard_round8_mutations.py`
+- `tests/unit/test_live_store_guard_round9.py`
+- `tests/unit/test_live_store_guard_round9_mutations.py`
+- `tests/unit/test_live_store_guard_state_root.py`
+- `tests/unit/test_mcp_scheduler_contract.py`
+- `tests/unit/test_mirror_flags_model.py`
+- `tests/unit/test_mirror_flags_stateful.py`
+- `tests/unit/test_native_operations.py`
+- `tests/unit/test_notice_rendering.py`
+- `tests/unit/test_notify_push.py`
+- `tests/unit/test_offline.py`
+- `tests/unit/test_operator_hold_closures.py`
+- `tests/unit/test_outcome_unknown.py`
+- `tests/unit/test_person_boundary.py`
+- `tests/unit/test_picker.py`
+- `tests/unit/test_placement_ramp.py`
+- `tests/unit/test_policy_disk.py`
+- `tests/unit/test_policy_ramp.py`
+- `tests/unit/test_policy_support.py`
+- `tests/unit/test_policy_tier_preferences.py`
+- `tests/unit/test_pr124_fixes.py`
+- `tests/unit/test_pr124_review_r2_fixes.py`
+- `tests/unit/test_pr192_review_r1.py`
+- `tests/unit/test_pr192_review_r2.py`
+- `tests/unit/test_procs.py`
+- `tests/unit/test_protocol_secrecy.py`
+- `tests/unit/test_provider_active_cap.py`
+- `tests/unit/test_prune_217.py`
+- `tests/unit/test_prune_decision_fingerprints.py`
+- `tests/unit/test_prune_restore.py`
+- `tests/unit/test_quota_projection.py`
+- `tests/unit/test_rank_review_report.py`
+- `tests/unit/test_rediscovery_git_trace.py`
+- `tests/unit/test_relay.py`
+- `tests/unit/test_render.py`
+- `tests/unit/test_render_quota_projection.py`
+- `tests/unit/test_reserve_authorization_plumbing.py`
+- `tests/unit/test_reset_credit_claim_timing.py`
+- `tests/unit/test_reset_credit_properties.py`
+- `tests/unit/test_reset_credit_review_r3.py`
+- `tests/unit/test_reset_credit_review_r3_mutants.py`
+- `tests/unit/test_retention_archive.py`
+- `tests/unit/test_retention_archive_properties.py`
+- `tests/unit/test_retention_case_alias.py`
+- `tests/unit/test_retention_nested_leases.py`
+- `tests/unit/test_retention_ordinary_trees.py`
+- `tests/unit/test_retention_qos.py`
+- `tests/unit/test_retention_readback.py`
+- `tests/unit/test_retention_rediscovery.py`
+- `tests/unit/test_retention_regenerable.py`
+- `tests/unit/test_retention_salvage_properties.py`
+- `tests/unit/test_retention_shared_folders.py`
+- `tests/unit/test_retention_turn_contract.py`
+- `tests/unit/test_retention_turn_workdirs.py`
+- `tests/unit/test_retention_turns.py`
+- `tests/unit/test_retention_worktrees.py`
+- `tests/unit/test_review130_pass.py`
+- `tests/unit/test_review_pr127_fixes.py`
+- `tests/unit/test_review_pr127_history.py`
+- `tests/unit/test_review_pr127_pr_wakes.py`
+- `tests/unit/test_review_pr127_report.py`
+- `tests/unit/test_review_pr127_service.py`
+- `tests/unit/test_review_r2_repro.py`
+- `tests/unit/test_review_r3_measure.py`
+- `tests/unit/test_review_r3_repro.py`
+- `tests/unit/test_review_r4_repro.py`
+- `tests/unit/test_review_r5_repro.py`
+- `tests/unit/test_review_r6_probes.py`
+- `tests/unit/test_review_r6_restart.py`
+- `tests/unit/test_round10_refusal_context.py`
+- `tests/unit/test_route_check.py`
+- `tests/unit/test_salvage.py`
+- `tests/unit/test_salvage_optional_transient.py`
+- `tests/unit/test_salvage_unindexable.py`
+- `tests/unit/test_scheduler.py`
+- `tests/unit/test_scheduler_priority_callers.py`
+- `tests/unit/test_scheduler_tier_preferences.py`
+- `tests/unit/test_scheduler_turns.py`
+- `tests/unit/test_scrub_key_order.py`
+- `tests/unit/test_sessions_cli.py`
+- `tests/unit/test_sessions_handoff_excerpts.py`
+- `tests/unit/test_sessions_headless_properties.py`
+- `tests/unit/test_sessions_mirror.py`
+- `tests/unit/test_sessions_mirror_cache_coherence.py`
+- `tests/unit/test_sessions_mirror_fifo.py`
+- `tests/unit/test_sessions_mirror_hot_health.py`
+- `tests/unit/test_sessions_mirror_hot_progress.py`
+- `tests/unit/test_sessions_mirror_hot_regressions.py`
+- `tests/unit/test_sessions_mirror_inventory.py`
+- `tests/unit/test_sessions_mirror_load_gap.py`
+- `tests/unit/test_sessions_mirror_safety.py`
+- `tests/unit/test_sessions_mirror_write_churn.py`
+- `tests/unit/test_sessions_nudge.py`
+- `tests/unit/test_sessions_registry.py`
+- `tests/unit/test_sessions_revive_reads.py`
+- `tests/unit/test_sessions_transcripts.py`
+- `tests/unit/test_settle_properties.py`
+- `tests/unit/test_status_json.py`
+- `tests/unit/test_steer_invariants.py`
+- `tests/unit/test_stop_alarm.py`
+- `tests/unit/test_stop_watchdog.py`
+- `tests/unit/test_stopped_daemon.py`
+- `tests/unit/test_store_ids.py`
+- `tests/unit/test_store_migration_2.py`
+- `tests/unit/test_store_properties.py`
+- `tests/unit/test_store_readers.py`
+- `tests/unit/test_suggest_hint.py`
+- `tests/unit/test_suggestion_error_boundaries.py`
+- `tests/unit/test_suggestions_r1b_adversarial.py`
+- `tests/unit/test_suggestions_r3_channels.py`
+- `tests/unit/test_suggestions_review_boundaries.py`
+- `tests/unit/test_suggestions_review_multiline.py`
+- `tests/unit/test_suggestions_review_response.py`
+- `tests/unit/test_test_module_names.py`
+- `tests/unit/test_tick_prefilter.py`
+- `tests/unit/test_timers_alerts.py`
+- `tests/unit/test_timers_daemon.py`
+- `tests/unit/test_timers_keepalive.py`
+- `tests/unit/test_timers_probe.py`
+- `tests/unit/test_timers_reset_credits.py`
+- `tests/unit/test_title_review_regressions.py`
+- `tests/unit/test_turn_attachment_replay.py`
+- `tests/unit/test_turn_replay.py`
+- `tests/unit/test_turn_runner.py`
+- `tests/unit/test_ultracode_effort.py`
+- `tests/unit/test_wait_hub.py`
+- `tests/unit/test_wake_cli.py`
+- `tests/unit/test_weekly_rank_vs_base.py`
+
+#### tests/unit: per-file counts
+
+| File | Passed | Failed | Skipped | Full sweep |
+| --- | ---: | ---: | ---: | --- |
+| [test_admission_uncapped.py](../../tests/unit/test_admission_uncapped.py) | 0 | 0 | 0 | unrun |
+| [test_agent_secret_credentials.py](../../tests/unit/test_agent_secret_credentials.py) | 0 | 0 | 0 | unrun |
+| [test_app_cutover_daemon.py](../../tests/unit/test_app_cutover_daemon.py) | 0 | 0 | 0 | unrun |
+| [test_approval_commit.py](../../tests/unit/test_approval_commit.py) | 6 | 0 | 0 | done |
+| [test_approval_resolution.py](../../tests/unit/test_approval_resolution.py) | 0 | 0 | 0 | unrun |
+| [test_boot_identity.py](../../tests/unit/test_boot_identity.py) | 10 | 0 | 0 | pending |
+| [test_capacity_desktop.py](../../tests/unit/test_capacity_desktop.py) | 20 | 0 | 0 | done |
+| [test_capacity_steer_mutations.py](../../tests/unit/test_capacity_steer_mutations.py) | 0 | 0 | 0 | unrun |
+| [test_capacity_steer_route.py](../../tests/unit/test_capacity_steer_route.py) | 22 | 0 | 0 | done |
+| [test_capacity_view.py](../../tests/unit/test_capacity_view.py) | 0 | 0 | 0 | unrun |
+| [test_census_counted.py](../../tests/unit/test_census_counted.py) | 0 | 0 | 0 | unrun |
+| [test_census_identity_uncertainty.py](../../tests/unit/test_census_identity_uncertainty.py) | 0 | 0 | 0 | unrun |
+| [test_census_procargs.py](../../tests/unit/test_census_procargs.py) | 52 | 0 | 0 | done |
+| [test_census_recycled_pid.py](../../tests/unit/test_census_recycled_pid.py) | 25 | 0 | 0 | done |
+| [test_census_responsibility_failures.py](../../tests/unit/test_census_responsibility_failures.py) | 20 | 0 | 0 | done |
+| [test_census_responsibility_identity.py](../../tests/unit/test_census_responsibility_identity.py) | 0 | 0 | 0 | unrun |
+| [test_census_responsibility_races.py](../../tests/unit/test_census_responsibility_races.py) | 0 | 0 | 0 | unrun |
+| [test_census_survivors_review.py](../../tests/unit/test_census_survivors_review.py) | 0 | 0 | 0 | unrun |
+| [test_ci_retry_known_flakes.py](../../tests/unit/test_ci_retry_known_flakes.py) | 0 | 0 | 0 | unrun |
+| [test_ci_shard_plugin.py](../../tests/unit/test_ci_shard_plugin.py) | 0 | 0 | 0 | unrun |
+| [test_claude_adapter.py](../../tests/unit/test_claude_adapter.py) | 0 | 0 | 0 | unrun |
+| [test_claude_attest.py](../../tests/unit/test_claude_attest.py) | 0 | 0 | 0 | unrun |
+| [test_claude_cards.py](../../tests/unit/test_claude_cards.py) | 96 | 0 | 0 | done |
+| [test_claude_cards_wiring.py](../../tests/unit/test_claude_cards_wiring.py) | 0 | 0 | 0 | unrun |
+| [test_claude_conversation_mcp_scope.py](../../tests/unit/test_claude_conversation_mcp_scope.py) | 0 | 0 | 0 | unrun |
+| [test_claude_identity.py](../../tests/unit/test_claude_identity.py) | 0 | 0 | 0 | unrun |
+| [test_claude_large_stream.py](../../tests/unit/test_claude_large_stream.py) | 0 | 0 | 0 | unrun |
+| [test_claude_mcp.py](../../tests/unit/test_claude_mcp.py) | 0 | 0 | 0 | unrun |
+| [test_claude_mcp_launch.py](../../tests/unit/test_claude_mcp_launch.py) | 0 | 0 | 0 | unrun |
+| [test_claude_stream.py](../../tests/unit/test_claude_stream.py) | 60 | 0 | 0 | done |
+| [test_claude_synthetic_error.py](../../tests/unit/test_claude_synthetic_error.py) | 63 | 0 | 0 | done |
+| [test_claude_turn.py](../../tests/unit/test_claude_turn.py) | 61 | 0 | 0 | done |
+| [test_claude_usage.py](../../tests/unit/test_claude_usage.py) | 0 | 0 | 0 | unrun |
+| [test_claude_v1_parity.py](../../tests/unit/test_claude_v1_parity.py) | 0 | 0 | 0 | unrun |
+| [test_cli.py](../../tests/unit/test_cli.py) | 247 | 0 | 0 | pending |
+| [test_cli_batch.py](../../tests/unit/test_cli_batch.py) | 0 | 0 | 0 | unrun |
+| [test_cli_turns.py](../../tests/unit/test_cli_turns.py) | 23 | 0 | 0 | done |
+| [test_client_availability.py](../../tests/unit/test_client_availability.py) | 22 | 0 | 0 | pending |
+| [test_codex_adapter.py](../../tests/unit/test_codex_adapter.py) | 0 | 0 | 0 | unrun |
+| [test_codex_ca_bundle.py](../../tests/unit/test_codex_ca_bundle.py) | 46 | 0 | 0 | done |
+| [test_codex_ca_bundle_provider.py](../../tests/unit/test_codex_ca_bundle_provider.py) | 0 | 0 | 0 | unrun |
+| [test_codex_probe.py](../../tests/unit/test_codex_probe.py) | 0 | 0 | 0 | unrun |
+| [test_codex_shim.py](../../tests/unit/test_codex_shim.py) | 31 | 0 | 0 | done |
+| [test_codex_turn.py](../../tests/unit/test_codex_turn.py) | 0 | 0 | 0 | unrun |
+| [test_codex_turn_completed.py](../../tests/unit/test_codex_turn_completed.py) | 41 | 0 | 0 | done |
+| [test_compat.py](../../tests/unit/test_compat.py) | 0 | 0 | 0 | unrun |
+| [test_continuation_r2.py](../../tests/unit/test_continuation_r2.py) | 11 | 0 | 0 | done |
+| [test_conversation_catalog.py](../../tests/unit/test_conversation_catalog.py) | 0 | 0 | 0 | unrun |
+| [test_conversation_catalog_lifecycle.py](../../tests/unit/test_conversation_catalog_lifecycle.py) | 0 | 0 | 0 | unrun |
+| [test_conversation_connections.py](../../tests/unit/test_conversation_connections.py) | 9 | 0 | 0 | done |
+| [test_conversation_diff.py](../../tests/unit/test_conversation_diff.py) | 39 | 0 | 0 | done |
+| [test_conversation_fifo_reads.py](../../tests/unit/test_conversation_fifo_reads.py) | 0 | 0 | 0 | unrun |
+| [test_conversation_handoff.py](../../tests/unit/test_conversation_handoff.py) | 48 | 0 | 0 | done |
+| [test_conversation_handoff_briefs.py](../../tests/unit/test_conversation_handoff_briefs.py) | 0 | 0 | 0 | unrun |
+| [test_conversation_handoff_dispatch_races.py](../../tests/unit/test_conversation_handoff_dispatch_races.py) | 0 | 0 | 0 | unrun |
+| [test_conversation_history.py](../../tests/unit/test_conversation_history.py) | 0 | 0 | 0 | unrun |
+| [test_conversation_peers_attachments.py](../../tests/unit/test_conversation_peers_attachments.py) | 0 | 0 | 0 | unrun |
+| [test_conversation_reconcile.py](../../tests/unit/test_conversation_reconcile.py) | 36 | 0 | 0 | done |
+| [test_conversation_redact.py](../../tests/unit/test_conversation_redact.py) | 9 | 0 | 0 | done |
+| [test_conversation_service.py](../../tests/unit/test_conversation_service.py) | 0 | 0 | 0 | unrun |
+| [test_conversation_state_reads.py](../../tests/unit/test_conversation_state_reads.py) | 0 | 0 | 0 | unrun |
+| [test_conversation_status.py](../../tests/unit/test_conversation_status.py) | 0 | 0 | 0 | unrun |
+| [test_conversation_steer_service.py](../../tests/unit/test_conversation_steer_service.py) | 45 | 0 | 0 | done |
+| [test_conversation_store.py](../../tests/unit/test_conversation_store.py) | 0 | 0 | 0 | unrun |
+| [test_conversation_stream_assertion.py](../../tests/unit/test_conversation_stream_assertion.py) | 0 | 0 | 0 | unrun |
+| [test_conversation_titles.py](../../tests/unit/test_conversation_titles.py) | 0 | 0 | 0 | unrun |
+| [test_conversation_waits.py](../../tests/unit/test_conversation_waits.py) | 9 | 0 | 0 | done |
+| [test_conversation_wakes.py](../../tests/unit/test_conversation_wakes.py) | 0 | 0 | 0 | unrun |
+| [test_cpu_scaling.py](../../tests/unit/test_cpu_scaling.py) | 2 | 0 | 0 | done |
+| [test_daemon_accept.py](../../tests/unit/test_daemon_accept.py) | 5 | 0 | 0 | done |
+| [test_daemon_connections.py](../../tests/unit/test_daemon_connections.py) | 30 | 0 | 0 | pending |
+| [test_daemon_fifo_reads.py](../../tests/unit/test_daemon_fifo_reads.py) | 0 | 0 | 0 | unrun |
+| [test_daemon_init_release.py](../../tests/unit/test_daemon_init_release.py) | 0 | 0 | 0 | unrun |
+| [test_daemon_inspection_load.py](../../tests/unit/test_daemon_inspection_load.py) | 22 | 0 | 0 | done |
+| [test_daemon_inspection_properties.py](../../tests/unit/test_daemon_inspection_properties.py) | 0 | 0 | 0 | unrun |
+| [test_daemon_integration.py](../../tests/unit/test_daemon_integration.py) | 0 | 0 | 0 | unrun |
+| [test_daemon_log_scrubbing.py](../../tests/unit/test_daemon_log_scrubbing.py) | 86 | 0 | 0 | done |
+| [test_daemon_qos_tools.py](../../tests/unit/test_daemon_qos_tools.py) | 0 | 0 | 0 | unrun |
+| [test_daemon_refusals_cli.py](../../tests/unit/test_daemon_refusals_cli.py) | 8 | 0 | 0 | done |
+| [test_daemon_settle.py](../../tests/unit/test_daemon_settle.py) | 0 | 0 | 0 | unrun |
+| [test_daemon_verbs.py](../../tests/unit/test_daemon_verbs.py) | 15 | 0 | 5 | pending |
+| [test_decision_horizon.py](../../tests/unit/test_decision_horizon.py) | 0 | 0 | 0 | unrun |
+| [test_descriptor_review_fixes.py](../../tests/unit/test_descriptor_review_fixes.py) | 56 | 0 | 0 | pending |
+| [test_descriptors.py](../../tests/unit/test_descriptors.py) | 0 | 0 | 0 | unrun |
+| [test_descriptors_desktop.py](../../tests/unit/test_descriptors_desktop.py) | 0 | 0 | 0 | unrun |
+| [test_desktop_account_cache.py](../../tests/unit/test_desktop_account_cache.py) | 0 | 0 | 0 | unrun |
+| [test_desktop_in_use.py](../../tests/unit/test_desktop_in_use.py) | 13 | 0 | 0 | done |
+| [test_desktop_ledger.py](../../tests/unit/test_desktop_ledger.py) | 0 | 0 | 0 | unrun |
+| [test_disk_admission.py](../../tests/unit/test_disk_admission.py) | 0 | 0 | 0 | unrun |
+| [test_disk_floor.py](../../tests/unit/test_disk_floor.py) | 0 | 0 | 0 | unrun |
+| [test_doctor.py](../../tests/unit/test_doctor.py) | 44 | 0 | 0 | pending |
+| [test_doctor_ca_bundle.py](../../tests/unit/test_doctor_ca_bundle.py) | 0 | 0 | 0 | unrun |
+| [test_doctor_identity.py](../../tests/unit/test_doctor_identity.py) | 0 | 0 | 0 | unrun |
+| [test_empty_provider_results.py](../../tests/unit/test_empty_provider_results.py) | 334 | 0 | 0 | done |
+| [test_enrollment_runner.py](../../tests/unit/test_enrollment_runner.py) | 0 | 0 | 0 | unrun |
+| [test_fake_codex_http.py](../../tests/unit/test_fake_codex_http.py) | 0 | 0 | 0 | unrun |
+| [test_filesystem_identity_agreement.py](../../tests/unit/test_filesystem_identity_agreement.py) | 37 | 0 | 3 | done |
+| [test_folders.py](../../tests/unit/test_folders.py) | 0 | 0 | 0 | unrun |
+| [test_forget_paced.py](../../tests/unit/test_forget_paced.py) | 0 | 0 | 0 | unrun |
+| [test_fresh_until.py](../../tests/unit/test_fresh_until.py) | 0 | 0 | 0 | unrun |
+| [test_frozen_provider_streams.py](../../tests/unit/test_frozen_provider_streams.py) | 0 | 0 | 0 | unrun |
+| [test_gate_admission.py](../../tests/unit/test_gate_admission.py) | 0 | 0 | 0 | unrun |
+| [test_gate_merge.py](../../tests/unit/test_gate_merge.py) | 0 | 0 | 0 | unrun |
+| [test_gate_replay.py](../../tests/unit/test_gate_replay.py) | 0 | 0 | 0 | unrun |
+| [test_gate_revision.py](../../tests/unit/test_gate_revision.py) | 0 | 0 | 0 | unrun |
+| [test_gate_service.py](../../tests/unit/test_gate_service.py) | 0 | 0 | 0 | unrun |
+| [test_gate_verdict.py](../../tests/unit/test_gate_verdict.py) | 45 | 0 | 0 | done |
+| [test_guard_overlay.py](../../tests/unit/test_guard_overlay.py) | 0 | 0 | 0 | unrun |
+| [test_guard_trust.py](../../tests/unit/test_guard_trust.py) | 0 | 0 | 0 | unrun |
+| [test_guardian.py](../../tests/unit/test_guardian.py) | 0 | 0 | 0 | unrun |
+| [test_guardian_qos.py](../../tests/unit/test_guardian_qos.py) | 0 | 0 | 0 | unrun |
+| [test_handler_refusals.py](../../tests/unit/test_handler_refusals.py) | 0 | 0 | 0 | unrun |
+| [test_held_waiter_holdback.py](../../tests/unit/test_held_waiter_holdback.py) | 6 | 0 | 0 | done |
+| [test_hidden_environment.py](../../tests/unit/test_hidden_environment.py) | 0 | 0 | 0 | unrun |
+| [test_hook_cost.py](../../tests/unit/test_hook_cost.py) | 4 | 0 | 0 | pending |
+| [test_hooks.py](../../tests/unit/test_hooks.py) | 72 | 0 | 1 | pending |
+| [test_hooks_native_guard.py](../../tests/unit/test_hooks_native_guard.py) | 0 | 0 | 0 | unrun |
+| [test_host_push.py](../../tests/unit/test_host_push.py) | 118 | 0 | 0 | done |
+| [test_host_push_admission.py](../../tests/unit/test_host_push_admission.py) | 0 | 0 | 0 | unrun |
+| [test_host_push_build.py](../../tests/unit/test_host_push_build.py) | 0 | 0 | 0 | unrun |
+| [test_host_push_build_budget.py](../../tests/unit/test_host_push_build_budget.py) | 0 | 0 | 0 | unrun |
+| [test_host_push_cli.py](../../tests/unit/test_host_push_cli.py) | 0 | 0 | 0 | unrun |
+| [test_host_push_config_cost.py](../../tests/unit/test_host_push_config_cost.py) | 7 | 0 | 0 | done |
+| [test_host_push_copy.py](../../tests/unit/test_host_push_copy.py) | 0 | 0 | 0 | unrun |
+| [test_host_push_export.py](../../tests/unit/test_host_push_export.py) | 0 | 0 | 0 | unrun |
+| [test_host_push_intake.py](../../tests/unit/test_host_push_intake.py) | 13 | 0 | 0 | done |
+| [test_host_push_metadata.py](../../tests/unit/test_host_push_metadata.py) | 0 | 0 | 0 | unrun |
+| [test_host_push_mutations.py](../../tests/unit/test_host_push_mutations.py) | 0 | 0 | 0 | unrun |
+| [test_host_push_names.py](../../tests/unit/test_host_push_names.py) | 13 | 0 | 0 | done |
+| [test_host_push_quarantine_restart.py](../../tests/unit/test_host_push_quarantine_restart.py) | 0 | 0 | 0 | unrun |
+| [test_host_push_restart.py](../../tests/unit/test_host_push_restart.py) | 0 | 0 | 0 | unrun |
+| [test_host_push_retention.py](../../tests/unit/test_host_push_retention.py) | 0 | 0 | 0 | unrun |
+| [test_host_push_storage_recovery.py](../../tests/unit/test_host_push_storage_recovery.py) | 0 | 0 | 0 | unrun |
+| [test_host_push_storage_retry_budget.py](../../tests/unit/test_host_push_storage_retry_budget.py) | 0 | 0 | 0 | unrun |
+| [test_host_push_store_completion_pr183.py](../../tests/unit/test_host_push_store_completion_pr183.py) | 0 | 0 | 0 | unrun |
+| [test_host_push_store_interleavings.py](../../tests/unit/test_host_push_store_interleavings.py) | 0 | 0 | 0 | unrun |
+| [test_host_push_trees.py](../../tests/unit/test_host_push_trees.py) | 0 | 0 | 0 | unrun |
+| [test_host_push_validated_top.py](../../tests/unit/test_host_push_validated_top.py) | 0 | 0 | 0 | unrun |
+| [test_importer.py](../../tests/unit/test_importer.py) | 0 | 0 | 0 | unrun |
+| [test_inspection_pacing_properties.py](../../tests/unit/test_inspection_pacing_properties.py) | 0 | 0 | 0 | unrun |
+| [test_invariants_index.py](../../tests/unit/test_invariants_index.py) | 0 | 0 | 0 | unrun |
+| [test_keychain_exec_guard_properties.py](../../tests/unit/test_keychain_exec_guard_properties.py) | 3 | 0 | 0 | done |
+| [test_lane_answers.py](../../tests/unit/test_lane_answers.py) | 0 | 0 | 0 | unrun |
+| [test_lanes_transfer.py](../../tests/unit/test_lanes_transfer.py) | 79 | 0 | 0 | done |
+| [test_launch_env_allowlist.py](../../tests/unit/test_launch_env_allowlist.py) | 27 | 0 | 0 | pending |
+| [test_launch_env_helpers.py](../../tests/unit/test_launch_env_helpers.py) | 20 | 0 | 0 | pending |
+| [test_launch_env_mutations.py](../../tests/unit/test_launch_env_mutations.py) | 41 | 0 | 0 | pending |
+| [test_launch_env_policy.py](../../tests/unit/test_launch_env_policy.py) | 26 | 0 | 0 | pending |
+| [test_launch_env_round2.py](../../tests/unit/test_launch_env_round2.py) | 67 | 0 | 0 | pending |
+| [test_launch_env_round3.py](../../tests/unit/test_launch_env_round3.py) | 69 | 0 | 0 | pending |
+| [test_launch_env_round4.py](../../tests/unit/test_launch_env_round4.py) | 40 | 0 | 0 | pending |
+| [test_launch_env_round5.py](../../tests/unit/test_launch_env_round5.py) | 39 | 0 | 0 | done |
+| [test_lease_waiter_selection.py](../../tests/unit/test_lease_waiter_selection.py) | 0 | 0 | 0 | unrun |
+| [test_legacy_hold.py](../../tests/unit/test_legacy_hold.py) | 50 | 0 | 6 | done |
+| [test_limit_from_model_text.py](../../tests/unit/test_limit_from_model_text.py) | 0 | 0 | 0 | unrun |
+| [test_live_store_guard.py](../../tests/unit/test_live_store_guard.py) | 324 | 0 | 0 | done |
+| [test_live_store_guard_round10.py](../../tests/unit/test_live_store_guard_round10.py) | 0 | 0 | 0 | unrun |
+| [test_live_store_guard_round10_mutations.py](../../tests/unit/test_live_store_guard_round10_mutations.py) | 13 | 0 | 0 | done |
+| [test_live_store_guard_round3.py](../../tests/unit/test_live_store_guard_round3.py) | 0 | 0 | 0 | unrun |
+| [test_live_store_guard_round4.py](../../tests/unit/test_live_store_guard_round4.py) | 0 | 0 | 0 | unrun |
+| [test_live_store_guard_round5.py](../../tests/unit/test_live_store_guard_round5.py) | 0 | 0 | 0 | unrun |
+| [test_live_store_guard_round6.py](../../tests/unit/test_live_store_guard_round6.py) | 0 | 0 | 0 | unrun |
+| [test_live_store_guard_round7.py](../../tests/unit/test_live_store_guard_round7.py) | 0 | 0 | 0 | unrun |
+| [test_live_store_guard_round7_mutations.py](../../tests/unit/test_live_store_guard_round7_mutations.py) | 0 | 0 | 0 | unrun |
+| [test_live_store_guard_round8.py](../../tests/unit/test_live_store_guard_round8.py) | 0 | 0 | 0 | unrun |
+| [test_live_store_guard_round8_mutations.py](../../tests/unit/test_live_store_guard_round8_mutations.py) | 0 | 0 | 0 | unrun |
+| [test_live_store_guard_round9.py](../../tests/unit/test_live_store_guard_round9.py) | 0 | 0 | 0 | unrun |
+| [test_live_store_guard_round9_mutations.py](../../tests/unit/test_live_store_guard_round9_mutations.py) | 0 | 0 | 0 | unrun |
+| [test_live_store_guard_state_root.py](../../tests/unit/test_live_store_guard_state_root.py) | 0 | 0 | 0 | unrun |
+| [test_lockwatch.py](../../tests/unit/test_lockwatch.py) | 20 | 0 | 0 | done |
+| [test_mcp_cli_contract.py](../../tests/unit/test_mcp_cli_contract.py) | 6 | 0 | 0 | done |
+| [test_mcp_scheduler_contract.py](../../tests/unit/test_mcp_scheduler_contract.py) | 0 | 0 | 0 | unrun |
+| [test_mirror_flags_faults.py](../../tests/unit/test_mirror_flags_faults.py) | 29 | 0 | 0 | done |
+| [test_mirror_flags_model.py](../../tests/unit/test_mirror_flags_model.py) | 0 | 0 | 0 | unrun |
+| [test_mirror_flags_stateful.py](../../tests/unit/test_mirror_flags_stateful.py) | 0 | 0 | 0 | unrun |
+| [test_native_operations.py](../../tests/unit/test_native_operations.py) | 0 | 0 | 0 | unrun |
+| [test_notice_rendering.py](../../tests/unit/test_notice_rendering.py) | 0 | 0 | 0 | unrun |
+| [test_notify_push.py](../../tests/unit/test_notify_push.py) | 0 | 0 | 0 | unrun |
+| [test_offline.py](../../tests/unit/test_offline.py) | 33 | 0 | 0 | pending |
+| [test_operator_hold_closures.py](../../tests/unit/test_operator_hold_closures.py) | 0 | 0 | 0 | unrun |
+| [test_operator_notices.py](../../tests/unit/test_operator_notices.py) | 79 | 0 | 0 | done |
+| [test_outcome_unknown.py](../../tests/unit/test_outcome_unknown.py) | 58 | 0 | 0 | pending |
+| [test_person_boundary.py](../../tests/unit/test_person_boundary.py) | 0 | 0 | 0 | unrun |
+| [test_person_boundary_identity.py](../../tests/unit/test_person_boundary_identity.py) | 25 | 0 | 0 | done |
+| [test_picker.py](../../tests/unit/test_picker.py) | 0 | 0 | 0 | unrun |
+| [test_placement_ramp.py](../../tests/unit/test_placement_ramp.py) | 0 | 0 | 0 | unrun |
+| [test_policy.py](../../tests/unit/test_policy.py) | 178 | 0 | 0 | done |
+| [test_policy_disk.py](../../tests/unit/test_policy_disk.py) | 0 | 0 | 0 | unrun |
+| [test_policy_ramp.py](../../tests/unit/test_policy_ramp.py) | 0 | 0 | 0 | unrun |
+| [test_policy_support.py](../../tests/unit/test_policy_support.py) | 0 | 0 | 0 | unrun |
+| [test_policy_tier_preferences.py](../../tests/unit/test_policy_tier_preferences.py) | 0 | 0 | 0 | unrun |
+| [test_pr124_fixes.py](../../tests/unit/test_pr124_fixes.py) | 0 | 0 | 0 | unrun |
+| [test_pr124_review_r2_fixes.py](../../tests/unit/test_pr124_review_r2_fixes.py) | 0 | 0 | 0 | unrun |
+| [test_pr192_review_r1.py](../../tests/unit/test_pr192_review_r1.py) | 0 | 0 | 0 | unrun |
+| [test_pr192_review_r2.py](../../tests/unit/test_pr192_review_r2.py) | 0 | 0 | 0 | unrun |
+| [test_procs.py](../../tests/unit/test_procs.py) | 0 | 0 | 0 | unrun |
+| [test_protocol_secrecy.py](../../tests/unit/test_protocol_secrecy.py) | 0 | 0 | 0 | unrun |
+| [test_provider_active_cap.py](../../tests/unit/test_provider_active_cap.py) | 0 | 0 | 0 | unrun |
+| [test_prune_217.py](../../tests/unit/test_prune_217.py) | 0 | 0 | 0 | unrun |
+| [test_prune_decision_backup_verification.py](../../tests/unit/test_prune_decision_backup_verification.py) | 23 | 0 | 0 | done |
+| [test_prune_decision_fingerprints.py](../../tests/unit/test_prune_decision_fingerprints.py) | 0 | 0 | 0 | unrun |
+| [test_prune_decisions.py](../../tests/unit/test_prune_decisions.py) | 48 | 0 | 0 | done |
+| [test_prune_restore.py](../../tests/unit/test_prune_restore.py) | 0 | 0 | 0 | unrun |
+| [test_quota_projection.py](../../tests/unit/test_quota_projection.py) | 0 | 0 | 0 | unrun |
+| [test_rank_review_report.py](../../tests/unit/test_rank_review_report.py) | 0 | 0 | 0 | unrun |
+| [test_reap_liveness.py](../../tests/unit/test_reap_liveness.py) | 7 | 0 | 0 | done |
+| [test_rediscovery_git_trace.py](../../tests/unit/test_rediscovery_git_trace.py) | 0 | 0 | 0 | unrun |
+| [test_relay.py](../../tests/unit/test_relay.py) | 0 | 0 | 0 | unrun |
+| [test_render.py](../../tests/unit/test_render.py) | 0 | 0 | 0 | unrun |
+| [test_render_quota_projection.py](../../tests/unit/test_render_quota_projection.py) | 0 | 0 | 0 | unrun |
+| [test_reserve_authorization_plumbing.py](../../tests/unit/test_reserve_authorization_plumbing.py) | 0 | 0 | 0 | unrun |
+| [test_reset_credit_claim_timing.py](../../tests/unit/test_reset_credit_claim_timing.py) | 0 | 0 | 0 | unrun |
+| [test_reset_credit_demand.py](../../tests/unit/test_reset_credit_demand.py) | 68 | 0 | 0 | done |
+| [test_reset_credit_properties.py](../../tests/unit/test_reset_credit_properties.py) | 0 | 0 | 0 | unrun |
+| [test_reset_credit_review_r1.py](../../tests/unit/test_reset_credit_review_r1.py) | 22 | 0 | 0 | done |
+| [test_reset_credit_review_r2.py](../../tests/unit/test_reset_credit_review_r2.py) | 52 | 0 | 0 | done |
+| [test_reset_credit_review_r3.py](../../tests/unit/test_reset_credit_review_r3.py) | 0 | 0 | 0 | unrun |
+| [test_reset_credit_review_r3_mutants.py](../../tests/unit/test_reset_credit_review_r3_mutants.py) | 0 | 0 | 0 | unrun |
+| [test_resource_identity.py](../../tests/unit/test_resource_identity.py) | 10 | 0 | 0 | done |
+| [test_retention_81_notes.py](../../tests/unit/test_retention_81_notes.py) | 38 | 0 | 0 | done |
+| [test_retention_archive.py](../../tests/unit/test_retention_archive.py) | 0 | 0 | 0 | unrun |
+| [test_retention_archive_properties.py](../../tests/unit/test_retention_archive_properties.py) | 0 | 0 | 0 | unrun |
+| [test_retention_case_alias.py](../../tests/unit/test_retention_case_alias.py) | 0 | 0 | 0 | unrun |
+| [test_retention_nested_leases.py](../../tests/unit/test_retention_nested_leases.py) | 0 | 0 | 0 | unrun |
+| [test_retention_ordinary_trees.py](../../tests/unit/test_retention_ordinary_trees.py) | 0 | 0 | 0 | unrun |
+| [test_retention_qos.py](../../tests/unit/test_retention_qos.py) | 0 | 0 | 0 | unrun |
+| [test_retention_readback.py](../../tests/unit/test_retention_readback.py) | 0 | 0 | 0 | unrun |
+| [test_retention_rediscovery.py](../../tests/unit/test_retention_rediscovery.py) | 0 | 0 | 0 | unrun |
+| [test_retention_regenerable.py](../../tests/unit/test_retention_regenerable.py) | 0 | 0 | 0 | unrun |
+| [test_retention_regenerable_properties.py](../../tests/unit/test_retention_regenerable_properties.py) | 1 | 0 | 0 | done |
+| [test_retention_salvage_properties.py](../../tests/unit/test_retention_salvage_properties.py) | 0 | 0 | 0 | unrun |
+| [test_retention_shared_folders.py](../../tests/unit/test_retention_shared_folders.py) | 0 | 0 | 0 | unrun |
+| [test_retention_sweep_race.py](../../tests/unit/test_retention_sweep_race.py) | 13 | 0 | 0 | done |
+| [test_retention_turn_contract.py](../../tests/unit/test_retention_turn_contract.py) | 0 | 0 | 0 | unrun |
+| [test_retention_turn_workdirs.py](../../tests/unit/test_retention_turn_workdirs.py) | 0 | 0 | 0 | unrun |
+| [test_retention_turns.py](../../tests/unit/test_retention_turns.py) | 0 | 0 | 0 | unrun |
+| [test_retention_worktrees.py](../../tests/unit/test_retention_worktrees.py) | 0 | 0 | 0 | unrun |
+| [test_review130_pass.py](../../tests/unit/test_review130_pass.py) | 0 | 0 | 0 | unrun |
+| [test_review_pr127_fixes.py](../../tests/unit/test_review_pr127_fixes.py) | 0 | 0 | 0 | unrun |
+| [test_review_pr127_history.py](../../tests/unit/test_review_pr127_history.py) | 0 | 0 | 0 | unrun |
+| [test_review_pr127_pr_wakes.py](../../tests/unit/test_review_pr127_pr_wakes.py) | 0 | 0 | 0 | unrun |
+| [test_review_pr127_report.py](../../tests/unit/test_review_pr127_report.py) | 0 | 0 | 0 | unrun |
+| [test_review_pr127_requests.py](../../tests/unit/test_review_pr127_requests.py) | 17 | 0 | 0 | done |
+| [test_review_pr127_service.py](../../tests/unit/test_review_pr127_service.py) | 0 | 0 | 0 | unrun |
+| [test_review_r2_repro.py](../../tests/unit/test_review_r2_repro.py) | 0 | 0 | 0 | unrun |
+| [test_review_r3_measure.py](../../tests/unit/test_review_r3_measure.py) | 0 | 0 | 0 | unrun |
+| [test_review_r3_repro.py](../../tests/unit/test_review_r3_repro.py) | 0 | 0 | 0 | unrun |
+| [test_review_r4_repro.py](../../tests/unit/test_review_r4_repro.py) | 0 | 0 | 0 | unrun |
+| [test_review_r5_repro.py](../../tests/unit/test_review_r5_repro.py) | 0 | 0 | 0 | unrun |
+| [test_review_r6_probes.py](../../tests/unit/test_review_r6_probes.py) | 0 | 0 | 0 | unrun |
+| [test_review_r6_restart.py](../../tests/unit/test_review_r6_restart.py) | 0 | 0 | 0 | unrun |
+| [test_round10_refusal_context.py](../../tests/unit/test_round10_refusal_context.py) | 0 | 0 | 0 | unrun |
+| [test_route_check.py](../../tests/unit/test_route_check.py) | 0 | 0 | 0 | unrun |
+| [test_salvage.py](../../tests/unit/test_salvage.py) | 0 | 0 | 0 | unrun |
+| [test_salvage_optional_transient.py](../../tests/unit/test_salvage_optional_transient.py) | 0 | 0 | 0 | unrun |
+| [test_salvage_unindexable.py](../../tests/unit/test_salvage_unindexable.py) | 0 | 0 | 0 | unrun |
+| [test_scheduler.py](../../tests/unit/test_scheduler.py) | 0 | 0 | 0 | unrun |
+| [test_scheduler_priority_callers.py](../../tests/unit/test_scheduler_priority_callers.py) | 0 | 0 | 0 | unrun |
+| [test_scheduler_split.py](../../tests/unit/test_scheduler_split.py) | 3 | 0 | 0 | done |
+| [test_scheduler_tier_preferences.py](../../tests/unit/test_scheduler_tier_preferences.py) | 0 | 0 | 0 | unrun |
+| [test_scheduler_turns.py](../../tests/unit/test_scheduler_turns.py) | 0 | 0 | 0 | unrun |
+| [test_scheduler_weekly.py](../../tests/unit/test_scheduler_weekly.py) | 33 | 0 | 0 | done |
+| [test_scoped_stream_capacity.py](../../tests/unit/test_scoped_stream_capacity.py) | 17 | 0 | 0 | done |
+| [test_scrub_key_order.py](../../tests/unit/test_scrub_key_order.py) | 0 | 0 | 0 | unrun |
+| [test_sessions_cli.py](../../tests/unit/test_sessions_cli.py) | 142 | 0 | 0 | pending |
+| [test_sessions_handoff.py](../../tests/unit/test_sessions_handoff.py) | 117 | 0 | 0 | done |
+| [test_sessions_handoff_excerpts.py](../../tests/unit/test_sessions_handoff_excerpts.py) | 0 | 0 | 0 | unrun |
+| [test_sessions_headless_properties.py](../../tests/unit/test_sessions_headless_properties.py) | 0 | 0 | 0 | unrun |
+| [test_sessions_mirror.py](../../tests/unit/test_sessions_mirror.py) | 0 | 0 | 0 | unrun |
+| [test_sessions_mirror_cache_coherence.py](../../tests/unit/test_sessions_mirror_cache_coherence.py) | 0 | 0 | 0 | unrun |
+| [test_sessions_mirror_fifo.py](../../tests/unit/test_sessions_mirror_fifo.py) | 0 | 0 | 0 | unrun |
+| [test_sessions_mirror_hot_health.py](../../tests/unit/test_sessions_mirror_hot_health.py) | 0 | 0 | 0 | unrun |
+| [test_sessions_mirror_hot_progress.py](../../tests/unit/test_sessions_mirror_hot_progress.py) | 0 | 0 | 0 | unrun |
+| [test_sessions_mirror_hot_regressions.py](../../tests/unit/test_sessions_mirror_hot_regressions.py) | 0 | 0 | 0 | unrun |
+| [test_sessions_mirror_inventory.py](../../tests/unit/test_sessions_mirror_inventory.py) | 0 | 0 | 0 | unrun |
+| [test_sessions_mirror_load_gap.py](../../tests/unit/test_sessions_mirror_load_gap.py) | 0 | 0 | 0 | unrun |
+| [test_sessions_mirror_safety.py](../../tests/unit/test_sessions_mirror_safety.py) | 0 | 0 | 0 | unrun |
+| [test_sessions_mirror_write_churn.py](../../tests/unit/test_sessions_mirror_write_churn.py) | 0 | 0 | 0 | unrun |
+| [test_sessions_nudge.py](../../tests/unit/test_sessions_nudge.py) | 0 | 0 | 0 | unrun |
+| [test_sessions_registry.py](../../tests/unit/test_sessions_registry.py) | 0 | 0 | 0 | unrun |
+| [test_sessions_revive.py](../../tests/unit/test_sessions_revive.py) | 45 | 0 | 0 | done |
+| [test_sessions_revive_reads.py](../../tests/unit/test_sessions_revive_reads.py) | 0 | 0 | 0 | unrun |
+| [test_sessions_transcripts.py](../../tests/unit/test_sessions_transcripts.py) | 0 | 0 | 0 | unrun |
+| [test_settle_properties.py](../../tests/unit/test_settle_properties.py) | 0 | 0 | 0 | unrun |
+| [test_soak_tools.py](../../tests/unit/test_soak_tools.py) | 49 | 0 | 0 | done |
+| [test_status_json.py](../../tests/unit/test_status_json.py) | 0 | 0 | 0 | unrun |
+| [test_steer_invariants.py](../../tests/unit/test_steer_invariants.py) | 0 | 0 | 0 | unrun |
+| [test_stop_alarm.py](../../tests/unit/test_stop_alarm.py) | 0 | 0 | 0 | unrun |
+| [test_stop_watchdog.py](../../tests/unit/test_stop_watchdog.py) | 0 | 0 | 0 | unrun |
+| [test_stopped_daemon.py](../../tests/unit/test_stopped_daemon.py) | 72 | 0 | 0 | pending |
+| [test_store_contention_queries.py](../../tests/unit/test_store_contention_queries.py) | 212 | 0 | 0 | done |
+| [test_store_ids.py](../../tests/unit/test_store_ids.py) | 0 | 0 | 0 | unrun |
+| [test_store_migration_2.py](../../tests/unit/test_store_migration_2.py) | 0 | 0 | 0 | unrun |
+| [test_store_properties.py](../../tests/unit/test_store_properties.py) | 0 | 0 | 0 | unrun |
+| [test_store_readers.py](../../tests/unit/test_store_readers.py) | 0 | 0 | 0 | unrun |
+| [test_store_snapshot_plans.py](../../tests/unit/test_store_snapshot_plans.py) | 4 | 0 | 0 | done |
+| [test_suggest_cli.py](../../tests/unit/test_suggest_cli.py) | 7 | 0 | 0 | done |
+| [test_suggest_hint.py](../../tests/unit/test_suggest_hint.py) | 0 | 0 | 0 | unrun |
+| [test_suggestion_error_boundaries.py](../../tests/unit/test_suggestion_error_boundaries.py) | 0 | 0 | 0 | unrun |
+| [test_suggestion_properties.py](../../tests/unit/test_suggestion_properties.py) | 1 | 0 | 0 | done |
+| [test_suggestion_secret_properties.py](../../tests/unit/test_suggestion_secret_properties.py) | 7 | 0 | 0 | done |
+| [test_suggestion_structural_errors.py](../../tests/unit/test_suggestion_structural_errors.py) | 40 | 0 | 0 | done |
+| [test_suggestions.py](../../tests/unit/test_suggestions.py) | 30 | 0 | 0 | done |
+| [test_suggestions_r1b_adversarial.py](../../tests/unit/test_suggestions_r1b_adversarial.py) | 0 | 0 | 0 | unrun |
+| [test_suggestions_r3_channels.py](../../tests/unit/test_suggestions_r3_channels.py) | 0 | 0 | 0 | unrun |
+| [test_suggestions_review_boundaries.py](../../tests/unit/test_suggestions_review_boundaries.py) | 0 | 0 | 0 | unrun |
+| [test_suggestions_review_multiline.py](../../tests/unit/test_suggestions_review_multiline.py) | 0 | 0 | 0 | unrun |
+| [test_suggestions_review_response.py](../../tests/unit/test_suggestions_review_response.py) | 0 | 0 | 0 | unrun |
+| [test_test_module_names.py](../../tests/unit/test_test_module_names.py) | 1 | 0 | 0 | pending |
+| [test_tick_prefilter.py](../../tests/unit/test_tick_prefilter.py) | 0 | 0 | 0 | unrun |
+| [test_timers_alerts.py](../../tests/unit/test_timers_alerts.py) | 0 | 0 | 0 | unrun |
+| [test_timers_busy_read.py](../../tests/unit/test_timers_busy_read.py) | 115 | 0 | 0 | done |
+| [test_timers_daemon.py](../../tests/unit/test_timers_daemon.py) | 0 | 0 | 0 | unrun |
+| [test_timers_keepalive.py](../../tests/unit/test_timers_keepalive.py) | 0 | 0 | 0 | unrun |
+| [test_timers_probe.py](../../tests/unit/test_timers_probe.py) | 0 | 0 | 0 | unrun |
+| [test_timers_reset_credits.py](../../tests/unit/test_timers_reset_credits.py) | 0 | 0 | 0 | unrun |
+| [test_timers_retention.py](../../tests/unit/test_timers_retention.py) | 20 | 0 | 0 | done |
+| [test_title_review_regressions.py](../../tests/unit/test_title_review_regressions.py) | 0 | 0 | 0 | unrun |
+| [test_turn_attachment_replay.py](../../tests/unit/test_turn_attachment_replay.py) | 0 | 0 | 0 | unrun |
+| [test_turn_overlap.py](../../tests/unit/test_turn_overlap.py) | 10 | 0 | 0 | done |
+| [test_turn_replay.py](../../tests/unit/test_turn_replay.py) | 0 | 0 | 0 | unrun |
+| [test_turn_runner.py](../../tests/unit/test_turn_runner.py) | 0 | 0 | 0 | unrun |
+| [test_ultracode_effort.py](../../tests/unit/test_ultracode_effort.py) | 0 | 0 | 0 | unrun |
+| [test_unadmittable_pin.py](../../tests/unit/test_unadmittable_pin.py) | 12 | 0 | 0 | done |
+| [test_wait_hub.py](../../tests/unit/test_wait_hub.py) | 0 | 0 | 0 | unrun |
+| [test_wake_cli.py](../../tests/unit/test_wake_cli.py) | 0 | 0 | 0 | unrun |
+| [test_weekly_rank_vs_base.py](../../tests/unit/test_weekly_rank_vs_base.py) | 0 | 0 | 0 | unrun |
+#### tests/fake: per-file counts
+
+| File | Passed | Failed | Skipped | Full sweep |
+| --- | ---: | ---: | ---: | --- |
+| [test_admission_disk.py](../../tests/fake/test_admission_disk.py) | 0 | 0 | 0 | unrun |
+| [test_admission_held_waiters.py](../../tests/fake/test_admission_held_waiters.py) | 1 | 0 | 0 | done |
+| [test_admission_latency.py](../../tests/fake/test_admission_latency.py) | 0 | 0 | 0 | unrun |
+| [test_admission_lease_waiters.py](../../tests/fake/test_admission_lease_waiters.py) | 0 | 0 | 0 | unrun |
+| [test_admission_liveness.py](../../tests/fake/test_admission_liveness.py) | 0 | 0 | 0 | unrun |
+| [test_admission_priority.py](../../tests/fake/test_admission_priority.py) | 0 | 0 | 0 | unrun |
+| [test_admission_properties.py](../../tests/fake/test_admission_properties.py) | 0 | 0 | 0 | unrun |
+| [test_admission_ramp.py](../../tests/fake/test_admission_ramp.py) | 0 | 0 | 0 | unrun |
+| [test_admission_ramp_retention.py](../../tests/fake/test_admission_ramp_retention.py) | 0 | 0 | 0 | unrun |
+| [test_admission_route_isolation.py](../../tests/fake/test_admission_route_isolation.py) | 93 | 0 | 0 | done |
+| [test_admission_stateful.py](../../tests/fake/test_admission_stateful.py) | 0 | 0 | 0 | unrun |
+| [test_admission_visibility.py](../../tests/fake/test_admission_visibility.py) | 0 | 0 | 0 | unrun |
+| [test_batch_label.py](../../tests/fake/test_batch_label.py) | 9 | 0 | 0 | done |
+| [test_canonical_identity.py](../../tests/fake/test_canonical_identity.py) | 0 | 0 | 0 | unrun |
+| [test_canonical_identity_fix2.py](../../tests/fake/test_canonical_identity_fix2.py) | 0 | 0 | 0 | unrun |
+| [test_canonical_identity_fix3.py](../../tests/fake/test_canonical_identity_fix3.py) | 0 | 0 | 0 | unrun |
+| [test_canonical_identity_fix4.py](../../tests/fake/test_canonical_identity_fix4.py) | 0 | 0 | 0 | unrun |
+| [test_canonical_identity_fix5.py](../../tests/fake/test_canonical_identity_fix5.py) | 0 | 0 | 0 | unrun |
+| [test_capacity_steer_daemon.py](../../tests/fake/test_capacity_steer_daemon.py) | 0 | 0 | 0 | unrun |
+| [test_capacity_wait_backoff.py](../../tests/fake/test_capacity_wait_backoff.py) | 0 | 0 | 0 | unrun |
+| [test_census_escapers_daemon.py](../../tests/fake/test_census_escapers_daemon.py) | 0 | 0 | 0 | unrun |
+| [test_census_recycled_pid_daemon.py](../../tests/fake/test_census_recycled_pid_daemon.py) | 0 | 0 | 0 | unrun |
+| [test_codex_ca_bundle_fake.py](../../tests/fake/test_codex_ca_bundle_fake.py) | 0 | 0 | 0 | unrun |
+| [test_codex_turn_completed_fake.py](../../tests/fake/test_codex_turn_completed_fake.py) | 0 | 0 | 0 | unrun |
+| [test_conversation_pools.py](../../tests/fake/test_conversation_pools.py) | 2 | 0 | 0 | done |
+| [test_conversation_wakes_fake.py](../../tests/fake/test_conversation_wakes_fake.py) | 4 | 0 | 0 | done |
+| [test_crash_matrix.py](../../tests/fake/test_crash_matrix.py) | 0 | 0 | 0 | unrun |
+| [test_daemon_contract.py](../../tests/fake/test_daemon_contract.py) | 0 | 0 | 0 | unrun |
+| [test_daemon_descriptors.py](../../tests/fake/test_daemon_descriptors.py) | 0 | 0 | 0 | unrun |
+| [test_daemon_launch.py](../../tests/fake/test_daemon_launch.py) | 0 | 0 | 0 | unrun |
+| [test_daemon_stacks.py](../../tests/fake/test_daemon_stacks.py) | 0 | 0 | 0 | unrun |
+| [test_descriptor_exhaustion.py](../../tests/fake/test_descriptor_exhaustion.py) | 0 | 0 | 0 | unrun |
+| [test_detached_cwd_pins.py](../../tests/fake/test_detached_cwd_pins.py) | 18 | 0 | 0 | done |
+| [test_detached_retention_fence.py](../../tests/fake/test_detached_retention_fence.py) | 89 | 0 | 0 | done |
+| [test_enrollment_guardian.py](../../tests/fake/test_enrollment_guardian.py) | 0 | 0 | 1 | done |
+| [test_fake_provider.py](../../tests/fake/test_fake_provider.py) | 0 | 0 | 0 | unrun |
+| [test_finalization_replay.py](../../tests/fake/test_finalization_replay.py) | 0 | 0 | 0 | unrun |
+| [test_folder_spelling.py](../../tests/fake/test_folder_spelling.py) | 0 | 0 | 0 | unrun |
+| [test_frozen_stream_nonregular.py](../../tests/fake/test_frozen_stream_nonregular.py) | 0 | 0 | 0 | unrun |
+| [test_gate_end_to_end.py](../../tests/fake/test_gate_end_to_end.py) | 10 | 0 | 1 | done |
+| [test_identity_rollback.py](../../tests/fake/test_identity_rollback.py) | 0 | 0 | 0 | unrun |
+| [test_idle_cost.py](../../tests/fake/test_idle_cost.py) | 0 | 0 | 0 | unrun |
+| [test_interactive_claude_titles.py](../../tests/fake/test_interactive_claude_titles.py) | 6 | 0 | 0 | done |
+| [test_interactive_steer.py](../../tests/fake/test_interactive_steer.py) | 0 | 0 | 0 | unrun |
+| [test_lane_fault.py](../../tests/fake/test_lane_fault.py) | 0 | 0 | 0 | unrun |
+| [test_lane_pilot.py](../../tests/fake/test_lane_pilot.py) | 0 | 0 | 0 | unrun |
+| [test_lanes_enroll.py](../../tests/fake/test_lanes_enroll.py) | 0 | 0 | 0 | unrun |
+| [test_lanes_reenroll.py](../../tests/fake/test_lanes_reenroll.py) | 0 | 0 | 0 | unrun |
+| [test_lanes_reenroll_keychain.py](../../tests/fake/test_lanes_reenroll_keychain.py) | 0 | 0 | 0 | unrun |
+| [test_launch_env_daemon.py](../../tests/fake/test_launch_env_daemon.py) | 49 | 0 | 0 | pending |
+| [test_launch_env_providers.py](../../tests/fake/test_launch_env_providers.py) | 6 | 0 | 0 | pending |
+| [test_launch_gates_above_stdio.py](../../tests/fake/test_launch_gates_above_stdio.py) | 0 | 0 | 0 | unrun |
+| [test_lost_acknowledgement.py](../../tests/fake/test_lost_acknowledgement.py) | 0 | 0 | 0 | unrun |
+| [test_main_refusal_write_dir.py](../../tests/fake/test_main_refusal_write_dir.py) | 0 | 0 | 0 | unrun |
+| [test_mcp_job_contract.py](../../tests/fake/test_mcp_job_contract.py) | 0 | 0 | 0 | unrun |
+| [test_native_maintenance_startup.py](../../tests/fake/test_native_maintenance_startup.py) | 0 | 0 | 0 | unrun |
+| [test_notice_delivery.py](../../tests/fake/test_notice_delivery.py) | 0 | 0 | 0 | unrun |
+| [test_notice_header.py](../../tests/fake/test_notice_header.py) | 0 | 0 | 0 | unrun |
+| [test_picker_native.py](../../tests/fake/test_picker_native.py) | 3 | 0 | 0 | done |
+| [test_policy_sandbox.py](../../tests/fake/test_policy_sandbox.py) | 0 | 0 | 0 | unrun |
+| [test_probe_cancel.py](../../tests/fake/test_probe_cancel.py) | 0 | 0 | 0 | unrun |
+| [test_probe_recovery.py](../../tests/fake/test_probe_recovery.py) | 0 | 0 | 0 | unrun |
+| [test_probe_turn.py](../../tests/fake/test_probe_turn.py) | 43 | 0 | 0 | done |
+| [test_prompt_seam.py](../../tests/fake/test_prompt_seam.py) | 0 | 0 | 0 | unrun |
+| [test_provider_active_cap_fake.py](../../tests/fake/test_provider_active_cap_fake.py) | 0 | 0 | 0 | unrun |
+| [test_provider_cap_review_evidence.py](../../tests/fake/test_provider_cap_review_evidence.py) | 0 | 0 | 0 | unrun |
+| [test_provider_qos.py](../../tests/fake/test_provider_qos.py) | 0 | 0 | 2 | done |
+| [test_record_secrecy.py](../../tests/fake/test_record_secrecy.py) | 0 | 0 | 0 | unrun |
+| [test_request_routing.py](../../tests/fake/test_request_routing.py) | 0 | 0 | 0 | unrun |
+| [test_reserve_authorization.py](../../tests/fake/test_reserve_authorization.py) | 12 | 0 | 0 | done |
+| [test_reserve_authorization_validation.py](../../tests/fake/test_reserve_authorization_validation.py) | 0 | 0 | 0 | unrun |
+| [test_reset_credit_incident.py](../../tests/fake/test_reset_credit_incident.py) | 0 | 0 | 0 | unrun |
+| [test_resume_cli.py](../../tests/fake/test_resume_cli.py) | 0 | 0 | 0 | unrun |
+| [test_resume_contract.py](../../tests/fake/test_resume_contract.py) | 0 | 0 | 0 | unrun |
+| [test_retention_dormant.py](../../tests/fake/test_retention_dormant.py) | 0 | 0 | 0 | unrun |
+| [test_review130_ab.py](../../tests/fake/test_review130_ab.py) | 12 | 0 | 0 | done |
+| [test_review_r185_adversarial.py](../../tests/fake/test_review_r185_adversarial.py) | 0 | 0 | 0 | unrun |
+| [test_route_view.py](../../tests/fake/test_route_view.py) | 0 | 0 | 0 | unrun |
+| [test_routing_end_to_end.py](../../tests/fake/test_routing_end_to_end.py) | 14 | 0 | 2 | done |
+| [test_routing_tier_preferences.py](../../tests/fake/test_routing_tier_preferences.py) | 5 | 0 | 0 | done |
+| [test_salvage_adversarial.py](../../tests/fake/test_salvage_adversarial.py) | 8 | 0 | 0 | done |
+| [test_salvage_finalization.py](../../tests/fake/test_salvage_finalization.py) | 0 | 0 | 0 | unrun |
+| [test_sessions_end_to_end.py](../../tests/fake/test_sessions_end_to_end.py) | 0 | 0 | 0 | unrun |
+| [test_state_contract.py](../../tests/fake/test_state_contract.py) | 37 | 0 | 0 | done |
+| [test_state_fixture_processes.py](../../tests/fake/test_state_fixture_processes.py) | 0 | 0 | 0 | unrun |
+| [test_status_payload.py](../../tests/fake/test_status_payload.py) | 0 | 0 | 0 | unrun |
+| [test_suggestions_fake.py](../../tests/fake/test_suggestions_fake.py) | 0 | 0 | 0 | unrun |
+| [test_tier_hold_by_demand.py](../../tests/fake/test_tier_hold_by_demand.py) | 0 | 0 | 0 | unrun |
+| [test_timers_busy_admission.py](../../tests/fake/test_timers_busy_admission.py) | 0 | 0 | 0 | unrun |
+| [test_timers_end_to_end.py](../../tests/fake/test_timers_end_to_end.py) | 0 | 0 | 0 | unrun |
+| [test_turn_listing.py](../../tests/fake/test_turn_listing.py) | 0 | 0 | 0 | unrun |
+| [test_turn_retention_cwd.py](../../tests/fake/test_turn_retention_cwd.py) | 0 | 0 | 0 | unrun |
+| [test_turn_retention_cwd_properties.py](../../tests/fake/test_turn_retention_cwd_properties.py) | 0 | 0 | 0 | unrun |
+| [test_turn_retention_job_directory.py](../../tests/fake/test_turn_retention_job_directory.py) | 0 | 0 | 0 | unrun |
+| [test_turn_retention_job_properties.py](../../tests/fake/test_turn_retention_job_properties.py) | 0 | 0 | 0 | unrun |
+| [test_turn_retention_quarantine.py](../../tests/fake/test_turn_retention_quarantine.py) | 0 | 0 | 0 | unrun |
+| [test_turn_trees.py](../../tests/fake/test_turn_trees.py) | 12 | 0 | 0 | done |
+| [test_turn_wait_reasons.py](../../tests/fake/test_turn_wait_reasons.py) | 0 | 0 | 0 | unrun |
+| [test_unadmittable_pin_admission.py](../../tests/fake/test_unadmittable_pin_admission.py) | 0 | 0 | 0 | unrun |
+| [test_unadmittable_pin_rereview.py](../../tests/fake/test_unadmittable_pin_rereview.py) | 6 | 0 | 0 | pending |
+| [test_unadmittable_pin_review.py](../../tests/fake/test_unadmittable_pin_review.py) | 0 | 0 | 0 | unrun |
+| [test_workspace_contract.py](../../tests/fake/test_workspace_contract.py) | 0 | 0 | 0 | unrun |
+| [test_workspace_enospc.py](../../tests/fake/test_workspace_enospc.py) | 0 | 0 | 0 | unrun |
+| [test_workspace_transient.py](../../tests/fake/test_workspace_transient.py) | 0 | 0 | 0 | unrun |
+| [test_writable_fanout.py](../../tests/fake/test_writable_fanout.py) | 0 | 0 | 0 | unrun |
+| [test_writer_retention_fence.py](../../tests/fake/test_writer_retention_fence.py) | 0 | 0 | 0 | unrun |
+
+#### Shard 4 extra integration files
+
+| File | Passed | Failed | Skipped |
+| --- | ---: | ---: | ---: |
+| [tests/e2e/test_capacity_steer_e2e.py](../../tests/e2e/test_capacity_steer_e2e.py) | 0 | 0 | 2 |
+| [tests/e2e/test_conversation_wakes_e2e.py](../../tests/e2e/test_conversation_wakes_e2e.py) | 0 | 0 | 4 |
+| [tests/e2e/test_milestone1_codex.py](../../tests/e2e/test_milestone1_codex.py) | 0 | 0 | 9 |
+| [tests/e2e/test_stop_bound.py](../../tests/e2e/test_stop_bound.py) | 2 | 0 | 1 |
+| [tests/e2e/test_suggestions_e2e.py](../../tests/e2e/test_suggestions_e2e.py) | 0 | 0 | 2 |
+| [tests/process/test_codex_isolation.py](../../tests/process/test_codex_isolation.py) | 38 | 0 | 0 |
