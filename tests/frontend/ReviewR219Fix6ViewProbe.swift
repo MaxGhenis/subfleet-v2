@@ -59,8 +59,12 @@ func conversation(_ cid: String, held: Bool = false) -> Conversation {
             let cid = caughtUp ? "caught-up" : "catching-up"
             let cv = conversation(cid)
             var state = ConversationStoreState()
-            state.apply(open: ConversationOpenResult(conversation: cv, messages: [], events_cursor: 0,
-                        pending_approvals: [], history: history(100..<150, next: 100)))
+            let messages = (0..<50).map { index in
+                Receipt(message_id: "message\(index)", conversation_id: cid, seq: index + 1, origin: "person",
+                        state: "complete", text: "message \(index) " + String(repeating: "words ", count: 50))
+            }
+            state.apply(open: ConversationOpenResult(conversation: cv, messages: messages, events_cursor: 0,
+                        pending_approvals: []))
             state.focus(cid)
             if caughtUp { state.apply(events: EventsPage(events: [], next: 0, reset: false), conversationID: cid) }
             let model = UIModel(paths: .rooted(at: root.appendingPathComponent(cid)), client: Fix6History(),
@@ -99,7 +103,7 @@ func conversation(_ cid: String, held: Bool = false) -> Conversation {
         let (host, window) = mount(ConversationView(model: model, conversation: cv).environment(\.searchPalette, palette))
         // Compare with the real Withdraw control's width: macOS 26 hides its AX label offscreen.
         let (reference, referenceWindow) = mount(Button("Withdraw") {}.buttonStyle(.link).readingFont(.caption))
-        let width = descendants(reference).compactMap { $0 as? NSButton }.first!.frame.width
+        let width = reference.fittingSize.width
         func withdraws() -> [NSButton] {
             descendants(host).compactMap { $0 as? NSButton }.filter { abs($0.frame.width - width) < 1 }
         }
@@ -109,8 +113,16 @@ func conversation(_ cid: String, held: Bool = false) -> Conversation {
         let target = palette.reveal?.itemID ?? ""
         settle(host, seconds: 1.5)
         let buttons = withdraws()
-        let last = buttons.sorted { $0.convert($0.bounds, to: host).minY > $1.convert($1.bounds, to: host).minY }.last
+        let last = buttons.sorted {
+            let a = $0.convert($0.bounds, to: host).minY, b = $1.convert($1.bounds, to: host).minY
+            return host.isFlipped ? a < b : a > b
+        }.last
         let search: [String: Any] = ["target": target, "before": before, "after": buttons.count,
+                                    "reference_width": width,
+                                    "buttons": descendants(host).compactMap { $0 as? NSButton }.map {
+                                        ["title": $0.title, "width": $0.frame.width,
+                                         "x": $0.convert($0.bounds, to: host).minX] as [String: Any]
+                                    },
                                     "target_visible": last.map { !$0.visibleRect.isEmpty } ?? false]
         referenceWindow.close()
         window.close()
