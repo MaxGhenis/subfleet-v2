@@ -627,3 +627,33 @@ All round-5 commits therefore use `.git-local/` inside this workspace, on
 The caller's checkout, branch and shared index are untouched. Nothing is pushed.
 
 Validation and remaining work are recorded below as each step completes.
+
+### Tests first and allowlist
+
+Commit `d62ed3b4e` adds the review regressions before production fixes.
+Against the merged head, the initial CI reproduction produced **178 passed,
+7 failed**: launch-env round 3 66/1, hook cost 2/1, operator notices 75/4,
+unadmittable pin rereview 5/1 (passed/failed); daemon connections passed 30.
+The separate new-regression hold produced **6 passed, 3 failed**: the explicit
+slow-boot case and the property both observed five ps starts at 1.6 s, and
+the new launched-child test showed the missing ping setting. Settlement,
+shared ceiling, late observation and both notice-split examples already pass
+on the head; their new assertions are intended to kill the requested mutants.
+These are regression coverage for existing protections, not claims that those
+protections themselves were broken at the head.
+
+`SUBFLEET_PING_STDIN_WAIT_S` is now in `CONFIG_NAMES`, alphabetically between
+`SUBFLEET_NOTIFY_MODE` and `SUBFLEET_PROVIDER_QOS`. A two-case test follows both
+it and `SUBFLEET_HOOK_TIMEOUT_S` through `cli.daemon_env`, provider environment
+selection and an actual launched Python child, asserting the configured value
+at every boundary. C-12.3/C-17.8 and the change log state that classification.
+
+The first complete #222 hold ran 384 cases: **371 passed, 13 failed**.
+Round 3 passed all 69, including both real-child cases and the package-name
+scan. Eleven failures were old `_daemon_alive` stand-ins rejecting `timeout`;
+two refused-roster tests mistook the new stopped-holder boot inspection for
+a daemon spawn. All launch-env stand-ins now accept the deadline keyword.
+The latter tests explicitly model the already-closed core's stopped-holder
+preflight and retain their fatal assertion on any daemon launch. These are
+fixture adaptations to C-5.13's intentional fresh preflight and deadline
+propagation; production checks are retained. The full rerun is pending below.

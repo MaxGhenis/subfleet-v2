@@ -296,7 +296,7 @@ def test_daemon_start_refuses_env_pass_naming_a_lane_credential(roster, tmp_path
     with pytest.raises(PolicyError) as error:
         cli.daemon_env(tmp_path)
     assert error.value.key == "env.pass[1]"
-    monkeypatch.setattr(cli, "_daemon_alive", lambda *args: False)
+    monkeypatch.setattr(cli, "_daemon_alive", lambda *args, **kwargs: False)
     monkeypatch.setattr(cli.subprocess, "Popen", lambda *args, **kwargs: pytest.fail("refused policy spawned"))
     assert cli.cmd_daemon_start(SimpleNamespace(state_root=str(tmp_path))) == 2
     err = capsys.readouterr().err
