@@ -37,7 +37,7 @@ struct QueueTray: View {
 
     private var content: some View {
         let visible = queueTrayVisible(count: rows.count, expanded: expanded)
-        VStack(alignment: .leading, spacing: 6) {
+        return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Image(systemName: "tray.full").readingFont(.caption).foregroundStyle(.secondary)
                 Text(title).readingFont(.caption).foregroundStyle(.secondary).lineLimit(1)
