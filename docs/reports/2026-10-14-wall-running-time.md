@@ -1585,14 +1585,15 @@ staged. No history was rewritten and nothing was pushed.
 
 ## Round 10 — CI regressions in relay access and property collection
 
-**Cutoff status:** both CI regressions pass on Python 3.12 and 3.14 under ci and dev; all 15 briefed files pass (665 unique tests). The already-queued `fake-02` full-directory hold is still pending. No later holds will start after the 11:13:14 UTC cutoff. This snapshot will be updated after the foreground command exits.
+**Status:** both CI regressions pass on Python 3.12 and 3.14 under ci and dev (CI seed 314159). All 15 briefed files pass: **665 unique tests**, no failures or skips. The full-directory rerun is incomplete: **516 passed, 20 skipped, 4 native boot-identity failures** across 34 fake files; **404 files remain unrun** (326 unit, 78 fake) after the 4h30 cutoff.
 
 Assigned head: `1cd756767910`, the hub's merge of release #222, #231 and
 #235. Local `release/217=b053e3de8` is already included, but the tracking
 ref `origin/release/217=473fe2941` adds #226, #234 and #236. My initial check
 incorrectly treated both refs as ancestors; an explicit ancestry check
-caught the tracking ref before full-suite validation. The tracking ref was
-merged locally, retaining the hub's `_run_worker` dispatch wrapper
+caught the tracking ref before full-suite validation. That check came after
+the three fix commits, so the pre-merge validation was repeated after merging.
+The tracking ref was merged locally, retaining the hub's `_run_worker` dispatch wrapper
 and `peer` keyword for kill. The two contract conflicts were resolved by
 retaining both change logs and combining release's bounded shutdown wording
 with the per-send clock interface in C-26.4. No Git remote was contacted.
@@ -1656,6 +1657,8 @@ profiles as `test_admission_stateful.py`, selected explicitly with
 `--hypothesis-profile`; ci checks also pass `--hypothesis-seed=314159`.
 The deep profile is never run.
 
+Longest pytest-reported session: **609.52 seconds**, below 20 minutes. The final full-directory hold was queued before the cutoff and completed afterward. No further pytest process was launched; no retry was started for the native inspection failures.
+
 ### Validation results
 
 All results below are from merged head `9f18c7eea` (or its documentation-only successor).
@@ -1703,13 +1706,45 @@ Counts use each required file's full final hold; the extra selected regression n
 
 The full-directory rerun uses Python 3.12, one pytest process/worker per foreground lock hold. It starts after all four final briefed groups pass. The runner stops starting holds at 11:13:14 UTC, a conservative 4h30 cutoff measured from the workspace timestamp (06:43:14 UTC); an already queued/active hold is allowed to finish. Lock waits count toward the job wall.
 
-| Directory | Files run / total | Passed | Skipped | Failed / errors | Files not completed |
+| Directory | Files run / total | Passed | Skipped | Failed / errors | Files unrun |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | `tests/unit` | 0 / 326 | 0 | 0 | 0 / 0 | 326 |
-| `tests/fake` | 0 / 112 | 0 | 0 | 0 / 0 | 112 |
+| `tests/fake` | 34 / 112 | 516 | 20 | 4 / 0 | 78 |
 
-Completed full-directory holds: none.
-At this snapshot, **34** files are pending in the queued hold and **404** later files are unrun. They are explicitly marked in the inventory below; earlier briefed-file results are retained above. Full directories on Python 3.14, frontend/process/end-to-end suites, and real providers were not run.
+Completed full-directory holds: `fake-02`.
+Unrun files in that rerun: **404**. They are explicitly marked in the inventory below; earlier briefed-file results are retained above. Full directories on Python 3.14, frontend/process/end-to-end suites, and real providers were not run.
+
+Skipped cases (reason as reported by pytest):
+
+- `fake-02`: `tests/fake/test_daemon_descriptors.py::test_connections_queue_while_the_accept_loop_pauses` — kern.ipc.somaxconn is 0: no room above the old queue of 64
+- `fake-02`: `tests/fake/test_daemon_stacks.py::test_daemon_stacks_prints_every_thread_of_the_live_daemon` — C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+- `fake-02`: `tests/fake/test_descriptor_exhaustion.py::test_c16_6_emfile_from_accept_is_waited_out_under_a_real_kernel_limit` — C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+- `fake-02`: `tests/fake/test_descriptor_exhaustion.py::test_c16_7_more_clients_than_descriptors_get_answers_and_the_daemon_stays_up` — C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+- `fake-02`: `tests/fake/test_enrollment_guardian.py::test_enrollment_commits_guardian_identity_before_fake_provider_runs` — C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+- `fake-02`: `tests/fake/test_gate_end_to_end.py::test_plan_peer_process_finalizes_through_real_daemon` — C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+- `fake-02`: `tests/fake/test_idle_cost.py::test_c5_12_running_attempts_share_one_ps_per_interval` — C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+- `fake-02`: `tests/fake/test_idle_cost.py::test_c5_12_the_idle_cost_measurement_runs` — C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+- `fake-02`: `tests/fake/test_launch_gates_above_stdio.py::test_a_guardian_starts_its_provider_whatever_standard_stream_the_daemon_has_closed[attempt-closed-0]` — C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+- `fake-02`: `tests/fake/test_launch_gates_above_stdio.py::test_a_guardian_starts_its_provider_whatever_standard_stream_the_daemon_has_closed[attempt-closed-1]` — C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+- `fake-02`: `tests/fake/test_launch_gates_above_stdio.py::test_a_guardian_starts_its_provider_whatever_standard_stream_the_daemon_has_closed[attempt-closed-2]` — C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+- `fake-02`: `tests/fake/test_launch_gates_above_stdio.py::test_a_guardian_starts_its_provider_whatever_standard_stream_the_daemon_has_closed[enrollment-closed-0]` — C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+- `fake-02`: `tests/fake/test_launch_gates_above_stdio.py::test_a_guardian_starts_its_provider_whatever_standard_stream_the_daemon_has_closed[enrollment-closed-1]` — C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+- `fake-02`: `tests/fake/test_launch_gates_above_stdio.py::test_a_guardian_starts_its_provider_whatever_standard_stream_the_daemon_has_closed[enrollment-closed-2]` — C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+- `fake-02`: `tests/fake/test_launch_gates_above_stdio.py::test_a_guardian_starts_its_provider_whatever_standard_stream_the_daemon_has_closed[probe-closed-0]` — C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+- `fake-02`: `tests/fake/test_launch_gates_above_stdio.py::test_a_guardian_starts_its_provider_whatever_standard_stream_the_daemon_has_closed[probe-closed-1]` — C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+- `fake-02`: `tests/fake/test_launch_gates_above_stdio.py::test_a_guardian_starts_its_provider_whatever_standard_stream_the_daemon_has_closed[probe-closed-2]` — C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+- `fake-02`: `tests/fake/test_lost_acknowledgement.py::test_c16_3_a_committed_submit_whose_answer_is_lost_settles_to_its_one_job` — C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+- `fake-02`: `tests/fake/test_lost_acknowledgement.py::test_c16_3_a_kill_whose_answer_is_lost_reports_what_the_job_became` — C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+- `fake-02`: `tests/fake/test_lost_acknowledgement.py::test_c16_3_list_finds_a_job_by_its_request_id` — C-5.3 real daemon tests require permitted sysctl/ps inspection: macOS boot identity is unavailable
+
+### Native inspection failures in the full-directory hold
+
+The four failures all raise `InspectionError: macOS boot identity is unavailable`. Read-only diagnostics confirmed that `/usr/sbin/sysctl -n kern.bootsessionuuid` and `kern.boottime` both return rc 1, `Operation not permitted`, in this sandbox. `tests/fake/test_daemon_stacks.py` and `subfleet/boot_identity.py` are byte-for-byte unchanged from assigned base `1cd756767910`; the AST bodies of `procs.boot_id()` and `_read()` are also unchanged. The failures occur while establishing native boot identity, independently of relay clocks or property imports. These tests were neither changed nor converted to skips. Native stack-dump behavior remains unverified here.
+
+- `tests/fake/test_daemon_stacks.py::test_a_daemon_whose_lock_says_stack_dumps_is_dumped_and_lives` — failed; boot identity unavailable.
+- `tests/fake/test_daemon_stacks.py::test_a_daemon_without_the_flag_is_never_signalled` — failed; boot identity unavailable.
+- `tests/fake/test_daemon_stacks.py::test_a_daemon_writes_the_flag_after_the_handler_and_drops_it_before` — failed; boot identity unavailable.
+- `tests/fake/test_daemon_stacks.py::test_a_lock_that_changes_between_the_two_reads_is_not_signalled` — failed; boot identity unavailable.
 
 <details>
 <summary>Every unit/fake test file: final full-directory counts and unrun status</summary>
@@ -1744,40 +1779,40 @@ At this snapshot, **34** files are pending in the queued hold and **404** later 
 | `tests/fake/test_conversation_wakes_fake.py` | — | — | 0 / 0 | unrun in full-directory rerun |
 | `tests/fake/test_crash_matrix.py` | — | — | 0 / 0 | unrun in full-directory rerun |
 | `tests/fake/test_daemon_contract.py` | — | — | 0 / 0 | unrun in full-directory rerun |
-| `tests/fake/test_daemon_descriptors.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_daemon_launch.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_daemon_stacks.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_descriptor_exhaustion.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_detached_cwd_pins.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_detached_retention_fence.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_enrollment_guardian.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_fake_provider.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_finalization_replay.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_folder_spelling.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_frozen_stream_nonregular.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_gate_end_to_end.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_identity_rollback.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_idle_cost.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_interactive_claude_titles.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_interactive_steer.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_lane_fault.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_lane_pilot.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_lanes_enroll.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_lanes_reenroll.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_lanes_reenroll_keychain.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_launch_env_daemon.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_launch_env_providers.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_launch_gates_above_stdio.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_lost_acknowledgement.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_main_refusal_write_dir.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_mcp_job_contract.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_native_maintenance_startup.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_notice_delivery.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_notice_header.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_picker_native.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_policy_sandbox.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_probe_cancel.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
-| `tests/fake/test_probe_recovery.py` | — | — | 0 / 0 | queued hold `fake-02`; result pending |
+| `tests/fake/test_daemon_descriptors.py` | 12 | 1 | 0 / 0 | passed with skips |
+| `tests/fake/test_daemon_launch.py` | 9 | 0 | 0 / 0 | passed |
+| `tests/fake/test_daemon_stacks.py` | 1 | 1 | 4 / 0 | failed |
+| `tests/fake/test_descriptor_exhaustion.py` | 0 | 2 | 0 / 0 | all skipped |
+| `tests/fake/test_detached_cwd_pins.py` | 18 | 0 | 0 / 0 | passed |
+| `tests/fake/test_detached_retention_fence.py` | 89 | 0 | 0 / 0 | passed |
+| `tests/fake/test_enrollment_guardian.py` | 0 | 1 | 0 / 0 | all skipped |
+| `tests/fake/test_fake_provider.py` | 13 | 0 | 0 / 0 | passed |
+| `tests/fake/test_finalization_replay.py` | 10 | 0 | 0 / 0 | passed |
+| `tests/fake/test_folder_spelling.py` | 7 | 0 | 0 / 0 | passed |
+| `tests/fake/test_frozen_stream_nonregular.py` | 32 | 0 | 0 / 0 | passed |
+| `tests/fake/test_gate_end_to_end.py` | 10 | 1 | 0 / 0 | passed with skips |
+| `tests/fake/test_identity_rollback.py` | 5 | 0 | 0 / 0 | passed |
+| `tests/fake/test_idle_cost.py` | 0 | 2 | 0 / 0 | all skipped |
+| `tests/fake/test_interactive_claude_titles.py` | 6 | 0 | 0 / 0 | passed |
+| `tests/fake/test_interactive_steer.py` | 13 | 0 | 0 / 0 | passed |
+| `tests/fake/test_lane_fault.py` | 20 | 0 | 0 / 0 | passed |
+| `tests/fake/test_lane_pilot.py` | 24 | 0 | 0 / 0 | passed |
+| `tests/fake/test_lanes_enroll.py` | 15 | 0 | 0 / 0 | passed |
+| `tests/fake/test_lanes_reenroll.py` | 19 | 0 | 0 / 0 | passed |
+| `tests/fake/test_lanes_reenroll_keychain.py` | 1 | 0 | 0 / 0 | passed |
+| `tests/fake/test_launch_env_daemon.py` | 49 | 0 | 0 / 0 | passed |
+| `tests/fake/test_launch_env_providers.py` | 6 | 0 | 0 / 0 | passed |
+| `tests/fake/test_launch_gates_above_stdio.py` | 0 | 9 | 0 / 0 | all skipped |
+| `tests/fake/test_lost_acknowledgement.py` | 0 | 3 | 0 / 0 | all skipped |
+| `tests/fake/test_main_refusal_write_dir.py` | 5 | 0 | 0 / 0 | passed |
+| `tests/fake/test_mcp_job_contract.py` | 12 | 0 | 0 / 0 | passed |
+| `tests/fake/test_native_maintenance_startup.py` | 41 | 0 | 0 / 0 | passed |
+| `tests/fake/test_notice_delivery.py` | 15 | 0 | 0 / 0 | passed |
+| `tests/fake/test_notice_header.py` | 23 | 0 | 0 / 0 | passed |
+| `tests/fake/test_picker_native.py` | 3 | 0 | 0 / 0 | passed |
+| `tests/fake/test_policy_sandbox.py` | 25 | 0 | 0 / 0 | passed |
+| `tests/fake/test_probe_cancel.py` | 24 | 0 | 0 / 0 | passed |
+| `tests/fake/test_probe_recovery.py` | 9 | 0 | 0 / 0 | passed |
 | `tests/fake/test_probe_turn.py` | — | — | 0 / 0 | unrun in full-directory rerun |
 | `tests/fake/test_prompt_seam.py` | — | — | 0 / 0 | unrun in full-directory rerun |
 | `tests/fake/test_provider_active_cap_fake.py` | — | — | 0 / 0 | unrun in full-directory rerun |
@@ -2159,7 +2194,7 @@ At this snapshot, **34** files are pending in the queued hold and **404** later 
 
 ### Cleanup and local delivery
 
-The foreground runner and its queued lockf command are still active. Task scratch and both environments remain available until that command exits; cleanup and the final offline bundle will then be completed. The caller checkout, original `.git` pointer and shared Git index are untouched. No logs, JSON evidence or bundles were staged, no history was rewritten, and nothing was pushed.
+All task pytest, runner and lockf commands exited. Task scratch and its contents (both installed environments, fallback uv cache, Hypothesis data and raw JUnit/log evidence) were removed with Python `shutil.rmtree`; no `.hypothesis` folder remains. The caller checkout and shared Git index were not written. Only workspace-local `.git-local` commit metadata and its verified `round10.bundle` remain. No logs, JSON evidence or bundles were staged. No history was rewritten and nothing was pushed.
 
 ### Commits
 
@@ -2169,4 +2204,5 @@ The foreground runner and its queued lockf command are still active. Task scratc
 | `85c8f0ed8` | Per-send clock interface, every stand-in and C-26.4 amendment |
 | `e8510c7e3` | Decorator-free shared approval builder; remove nested property import |
 | `9f18c7eea` | Merge release #226/#234/#236; retain both logs and both C-26.4 requirements |
-| this cutoff-status commit | Final validation matrix, per-file inventory and cleanup/local-delivery status |
+| `1fe76a66e` | 4h30 cutoff snapshot while the queued full-directory hold finishes |
+| final report commit (bundle tip) | Final validation matrix, per-file inventory and cleanup/local-delivery status |
