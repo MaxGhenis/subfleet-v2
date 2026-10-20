@@ -30,6 +30,8 @@ def observation(daemon, monkeypatch):
     with_launch(daemon, monkeypatch)
     (attempt_dir(daemon.root, JOB, 1) / "stream.jsonl").unlink()
     daemon.exit_settle_s = 0
+    daemon.store.acquire_lease("out:/scratch/deliverable", ATTEMPT)
+    daemon.store.acquire_lease("worktree:/scratch/owned", JOB)
     return current, kernel
 
 
@@ -60,9 +62,7 @@ def test_d_kill3_an_inspected_hidden_runner_quarantines_after_provider_exit(daem
     census = json.loads(row["quarantine_reason"])
     assert census["descendant_pids"] == [4401] and not census["marker_pids"]
     assert census["reason"] == "writers remain after exit receipt"
-    assert daemon.store.query("SELECT 1 FROM leases WHERE holder IN (?,?)", (JOB, ATTEMPT)) == []
-    # This core fixture starts with no leases; the quarantine state is the same
-    # lease-preserving path the real daemon test exercises with acquired leases.
+    assert len(daemon.store.query("SELECT 1 FROM leases WHERE holder IN (?,?)", (JOB, ATTEMPT))) == 2
 
 
 @pytest.mark.documented_limitation
