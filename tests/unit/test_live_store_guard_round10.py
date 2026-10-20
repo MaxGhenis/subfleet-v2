@@ -453,9 +453,9 @@ def form_of(word) -> str:
 
 @st.composite
 def typed(draw, words):
-    """`words` as text, bytes or path objects, which name the same file, and in
-    about one draw in four one of them as an int, which names none: the first
-    (the program) half the time, otherwise another.
+    """`words` as text, bytes or path objects, which name the same file, and now
+    and then one of them as an int, which names none: the first (the program)
+    half the time, otherwise another.
 
     A word is a path object only where it spells the word unchanged:
     `Path("./security")` is the bare name `security`, another launch.

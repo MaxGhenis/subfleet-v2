@@ -2,10 +2,11 @@
 
 A fresh Python child imports the round-10 tests from a shadow copy of the
 source and calls the named test function on each case, first unmutated (the
-control), then with the exact mutation. Children are not pytest processes; the
-file runs under the parent's single pytest/lock hold. A mutant that approves a
-launch runs only `sw_vers`, `true` or a registered recording stand-in; nothing
-here starts the reader.
+control), then with the exact mutation. A typed-word mutant must fail the
+round-10 property instead, whose launches are synthetic audit events. Children
+are not pytest processes; the file runs under the parent's single pytest/lock
+hold. A mutant that approves a launch runs only `sw_vers`, `true` or a
+registered recording stand-in; nothing here starts the reader.
 """
 from __future__ import annotations
 
@@ -120,3 +121,60 @@ def test_round10_mutant_fails_its_named_test(tmp_path, shadow, mutant):
         source.write_text(saved)
     assert mutated.returncode != 0, f"survived: {mutant}\n{mutated.stdout}"
     assert "NAMED TEST FAILED: " + name in mutated.stdout, mutated.stdout + mutated.stderr
+
+
+# #226 review r2's P3: mutants only the property's typed inputs reach. Each
+# mishandles an argv word or program given as bytes, a path object or neither;
+# the property at 473fe2941, whose words were all text, passed on each.
+ARGV = "        argv = [os.fsdecode(arg) for arg in argv]\n"
+FIND = '    name = os.fsdecode(name)\n    base = "" if cwd is None else os.fsdecode(cwd)\n'
+PROPERTY_MUTANTS = {
+    "wrapper-drops-typed-words": (ARGV, "        argv = [arg for arg in argv if isinstance(arg, str)]\n"),
+    "wrapper-blanks-untyped-words": (
+        ARGV, '        argv = [os.fsdecode(arg) if isinstance(arg, (str, bytes, os.PathLike)) else ""'
+              " for arg in argv]\n"),
+    "typed-program-names-nothing": (
+        FIND, '    name = name if isinstance(name, str) else ""\n    base = "" if cwd is None else os.fsdecode(cwd)\n'),
+}
+
+PROPERTY_PROBE = '''
+import sys
+from pathlib import Path
+from tests.unit import test_live_store_guard_round10 as round10
+from tests.keychain_standin import StandIn
+scratch = Path(sys.argv[1])
+scratch.mkdir()
+found = StandIn(scratch / "guarded")
+(found.path.parent / round10.ALIAS).symlink_to(found.path)
+try:
+    round10.test_property_no_launch_that_could_reach_the_reader_and_no_unfinished_check_is_approved(
+        property_standin=found)
+except BaseException as error:
+    print("PROPERTY FAILED:", type(error).__name__, " ".join(str(error).split())[:300])
+    sys.exit(1)
+print("property passed")
+'''
+
+
+@pytest.mark.parametrize("mutant", PROPERTY_MUTANTS)
+def test_round10_property_fails_on_each_typed_word_mutant(tmp_path, shadow, mutant):
+    original, replacement = PROPERTY_MUTANTS[mutant]
+    (shadow / "tests" / "unit").mkdir(exist_ok=True)
+    shutil.copyfile(REPO / ROUND10, shadow / ROUND10)
+    source = shadow / CREDENTIALS
+    saved = source.read_text()
+    assert saved.count(original) == 1, (mutant, "stale mutation")
+    env = {**os.environ, "PYTHONPATH": str(shadow), "PYTHONDONTWRITEBYTECODE": "1"}
+
+    def run(label):
+        return subprocess.run([sys.executable, "-c", PROPERTY_PROBE, str(tmp_path / label)],
+                              cwd=shadow, env=env, capture_output=True, text=True, timeout=300)
+    control = run("control")
+    assert control.returncode == 0, control.stdout + control.stderr
+    try:
+        source.write_text(saved.replace(original, replacement))
+        mutated = run("mutant")
+    finally:
+        source.write_text(saved)
+    assert mutated.returncode != 0, f"survived: {mutant}\n{mutated.stdout}"
+    assert "PROPERTY FAILED: " in mutated.stdout, mutated.stdout + mutated.stderr
