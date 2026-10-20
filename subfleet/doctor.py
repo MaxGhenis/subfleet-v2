@@ -513,11 +513,28 @@ def check_daemon_environment(root: Path) -> dict[str, Any]:
     return row(check, PASS, "all daemon names are allowlisted", "nothing to do while this passes")
 
 
+def held_lane_fix(lane: dict[str, Any]) -> str:
+    """D-ENV2 (review r5, P3-2): the lanes.json edit that repairs a held lane.
+
+    C-1.3's one exception binds a variable in place only from a row for the same
+    lane id, provider and account; the variable is a placeholder for the
+    operator's own, never a value.
+    """
+    edit = {"lane_id": lane.get("lane_id"), "provider": lane.get("provider"),
+            "account_key": lane.get("account_key"), "credential_kind": "env",
+            "credential_ref": "<VARIABLE>"}
+    return (f"in lanes.json, give lane {lane.get('lane_id')} the row {json.dumps(edit)} (edit its row if it "
+            "has one, keeping the other fields), where <VARIABLE> is a daemon variable no launch inherits "
+            "that holds the lane's OAuth token; then restart the daemon when no jobs are running")
+
+
 def check_daemon_lane_credentials(root: Path) -> dict[str, Any]:
     """C-17.8: the env-kind lanes' variables the daemon holds, on their own row.
 
     They belong in the daemon, which hands each only to its own lane, so they
-    are listed, not warned about; names only, never values.
+    are listed, not warned about; names only, never values. A held lane, whose
+    variable some launch inherits (C-10.5), warns, naming the lane, its variable
+    and the lanes.json edit that repairs it (review r5, P3-2).
     """
     check = "daemon lane credential variables"
     try:
@@ -530,15 +547,27 @@ def check_daemon_lane_credentials(root: Path) -> dict[str, Any]:
     if not isinstance(names, list):
         return row(check, UNKNOWN, "daemon does not list lane credential variables (predates C-17.8's row)",
                    "restart it on this release when no jobs are running")
-    from .launch_env import valid_name
+    from .launch_env import refused_reference, valid_name
     if any(not isinstance(name, str) for name in names):
         return row(check, UNKNOWN, "daemon returned malformed environment names",
                    "restart it on this release when no jobs are running")
-    if not names:
-        return row(check, PASS, "the daemon holds no env-kind lane variable", "nothing to do")
+    lanes = status.get("lanes")
+    # The scheduler's own rule for `credential-refused` (C-11.8), on the daemon's rows.
+    held = [lane for lane in (lanes if isinstance(lanes, list) else ()) if isinstance(lane, dict)
+            and lane.get("credential_kind") == "env" and refused_reference(lane.get("credential_ref"))]
     display = [name if valid_name(name) else json.dumps(name) for name in sorted(set(names))]
-    return row(check, PASS, "held by the daemon alone, each for its own lane: " + ", ".join(display),
-               "nothing to do; no launch inherits them")
+    listed = ("held by the daemon alone, each for its own lane: " + ", ".join(display) if display
+              else "the daemon holds no env-kind lane variable")
+    if held:
+        many = len(held) > 1
+        lanes_text = ", ".join(f"{lane.get('lane_id')} (credential-refused={lane['credential_ref']})"
+                               for lane in held)
+        return row(check, WARN, f"lane{'s' * many} {lanes_text} {'are' if many else 'is'} held (C-10.5), so "
+                   f"nothing launches on {'them' if many else 'it'}; {listed}",
+                   "; ".join(held_lane_fix(lane) for lane in held))
+    if not names:
+        return row(check, PASS, listed, "nothing to do")
+    return row(check, PASS, listed, "nothing to do; no launch inherits them")
 
 
 def check_live(root: Path) -> dict[str, Any]:
