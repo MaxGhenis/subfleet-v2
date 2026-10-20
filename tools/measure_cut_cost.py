@@ -15,7 +15,7 @@ MiB of an admission log (`daemon_log.scrubbed_tail`, which scrubs the whole rang
 to twice it and the bound more), the best of `--runs` CPU times.
 
 Run it under the suite lock (each run under 20 minutes), never beside a pytest:
-    .venv/bin/python tools/measure_cut_cost.py --sizes 1,4,16 > table.md
+    .venv/bin/python tools/measure_cut_cost.py --sizes 1,4,16 --reference-sizes 1,4 > table.md
     .venv/bin/python tools/measure_cut_cost.py --logs --sizes 1,4 --runs 3
 """
 
@@ -88,16 +88,18 @@ def _raised(text: str) -> BaseException:
         return exc
 
 
-def measure(sizes: list[int], runs: int, with_reference: bool) -> list[dict]:
+def measure(sizes: list[int], runs: int, reference_sizes: set[int], every_shape: bool) -> list[dict]:
     formatter = daemon_log.ScrubbingFormatter()
     rows = []
-    shapes = {**SHAPES, **_cost_shapes()}
+    shapes = {**SHAPES, **_cost_shapes()} if every_shape else SHAPES
     for size in sizes:
         plain = None
+        with_reference = size in reference_sizes
         for name, build in shapes.items():
             text = build(size)
             row = {"shape": name, "MiB": size // MIB, "chars": len(text)}
             row["cut"] = best_cpu(lambda: handoff.cut_whole(text, LIMIT), runs)
+            row["reference"] = float("nan")
             if with_reference:
                 row["reference"] = best_cpu(lambda: reference.cut_whole(text, LIMIT), runs)
                 assert handoff.cut_whole(text, LIMIT) == reference.cut_whole(text, LIMIT), name
@@ -115,6 +117,7 @@ def measure(sizes: list[int], runs: int, with_reference: bool) -> list[dict]:
         text = formatter.formatException((type(group), group, group.__traceback__))
         row = {"shape": "raised exception group (its traceback)", "MiB": size // MIB, "chars": len(text)}
         row["cut"] = best_cpu(lambda: handoff.cut_whole(text, LIMIT), runs)
+        row["reference"] = float("nan")
         if with_reference:
             row["reference"] = best_cpu(lambda: reference.cut_whole(text, LIMIT), runs)
             assert handoff.cut_whole(text, LIMIT) == reference.cut_whole(text, LIMIT)
@@ -138,7 +141,7 @@ def table(rows: list[dict], with_reference: bool) -> str:
     for row in rows:
         cells = [row["shape"], str(row["MiB"]), f"{row['cut']:.1f}", f"{row['cut/plain']:.2f}"]
         if with_reference:
-            cells.append(f"{row['reference']:.1f}")
+            cells.append("" if row["reference"] != row["reference"] else f"{row['reference']:.1f}")
         cells += [f"{row['message']:.1f}", f"{row['traceback']:.1f}", f"{row['python']:.1f}",
                   f"{row['traceback/plain']:.2f}"]
         lines.append("| " + " | ".join(cells) + " |")
@@ -160,7 +163,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--sizes", default="1,4,16", help="MiB, comma-separated (default 1,4,16)")
     parser.add_argument("--runs", type=int, default=5)
-    parser.add_argument("--no-reference", action="store_true", help="skip the cce8f1af7 cut")
+    parser.add_argument("--reference-sizes", default="1,4", help="MiB at which the cce8f1af7 cut runs too")
+    parser.add_argument("--every-shape", action="store_true", help="the round-2 cost shapes too")
     parser.add_argument("--logs", action="store_true", help="measure `daemon logs` over large ranges instead")
     args = parser.parse_args(argv)
     sizes = [int(part) * MIB for part in args.sizes.split(",")]
@@ -170,7 +174,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     print(f"Python {sys.version.split()[0]}, GIL {'on' if getattr(sys, '_is_gil_enabled', lambda: True)() else 'off'}; "
           f"best of {args.runs} CPU times (time.process_time), limit {LIMIT:,}")
-    print(table(measure(sizes, args.runs, not args.no_reference), not args.no_reference))
+    reference_sizes = {int(part) * MIB for part in args.reference_sizes.split(",") if part}
+    print(table(measure(sizes, args.runs, reference_sizes, args.every_shape), True))
     return 0
 
 
