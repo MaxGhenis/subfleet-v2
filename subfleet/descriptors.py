@@ -29,6 +29,7 @@ from typing import Callable
 
 from . import protocol
 from .contracts import Exit
+from .launch_env import build_environment
 
 #: C-16.6: the soft open-file limit the daemon asks for at start, and the value
 #: `daemon install` writes into the launchd plist. The hard limit bounds it.
@@ -262,7 +263,7 @@ def kernel_open_files_ceiling() -> int | None:
         return None
     try:
         done = subprocess.run(["/usr/sbin/sysctl", "-n", "kern.maxfilesperproc"],
-                              capture_output=True, text=True, timeout=5, check=False)
+                              capture_output=True, text=True, timeout=5, check=False, env=build_environment())
         return int(done.stdout.strip()) if done.returncode == 0 else None
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
