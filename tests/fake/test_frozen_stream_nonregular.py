@@ -590,6 +590,9 @@ def test_uncheckable_recorded_copy_retries_then_records_sticky_failure(
     result = json.loads(failed)
     assert result["stream_capture"]["status"] == "unreadable"
     assert result["stream_capture"]["reason"] == "copy cannot be checked"
+    expected_detail = "provider stream copy could not be checked: retry checks exhausted"
+    assert result["outcome"]["detail"] == expected_detail
+    assert daemon.store.get_attempt(attempt["attempt_id"])["outcome_detail"] == expected_detail
     assert daemon.store.get_attempt(attempt["attempt_id"])["outcome_class"] == "transient"
     assert daemon.store.get_job(job_id)["state"] == "failed"
     assert _restored_copy(adir, read_freeze_receipt(adir), launch) == frozen
@@ -643,3 +646,120 @@ def test_legacy_recapture_cannot_rebind_an_unversioned_verdict(state_daemon, mon
     finally:
         if restart:
             active.close()
+
+
+@pytest.mark.parametrize("restart", (False, True), ids=("replay", "restart"))
+@pytest.mark.parametrize("name", ("codex", "claude"))
+@pytest.mark.parametrize("interruption,failure", (
+    ("crash", "copy-eio"), ("crash", "copy-emfile"), ("crash", "stderr-permission"),
+    ("enospc", "copy-eio"), ("classify", "copy-eio"), ("attest", "copy-eio"),
+))
+def test_receipted_copy_retries_a_check_before_any_verdict(
+        state_daemon, monkeypatch, restart, name, interruption, failure):
+    """C-4.3: a receipt proves capture even when verdict publication never finished."""
+    from subfleet.frozen_stream import read_freeze_receipt
+
+    class Crash(BaseException):
+        pass
+
+    daemon, harness = state_daemon
+    out = harness.root / "out.md"
+    job_id, attempt, adir, adapter, launch, finalizing = stage_provider(daemon, harness, name, out)
+    monkeypatch.setattr(module, "get_adapter", lambda _: adapter)
+    with pytest.MonkeyPatch.context() as patch:
+        if interruption in ("crash", "enospc"):
+            def interrupt(role, path):
+                if role == "finalization":
+                    if interruption == "crash":
+                        raise Crash("crashed before verdict publication")
+                    raise OSError(errno.ENOSPC, "verdict disk full")
+            patch.setattr(daemon, "publish_hook", interrupt)
+        else:
+            def interrupt(*args):
+                raise RuntimeError("adapter interrupted before verdict publication")
+            patch.setattr(adapter, interruption, interrupt)
+        with pytest.raises(Crash if interruption == "crash" else
+                           OSError if interruption == "enospc" else RuntimeError):
+            daemon._finalize(finalizing)
+    assert not (adir / "finalization.json").exists()
+    receipt = (adir / "stream.freeze.json").read_bytes()
+    frozen = adir / read_freeze_receipt(adir)["file"]
+    payload = frozen.read_bytes()
+    active = daemon
+    if restart:
+        daemon.close()
+        active = Daemon(harness.root)
+    denied = adir / "stderr"
+    opened = []
+    try:
+        with pytest.MonkeyPatch.context() as patch:
+            error = errno.EACCES
+            if failure.startswith("copy-"):
+                original_open = os.open
+                error = errno.EIO if failure == "copy-eio" else errno.EMFILE
+                def unreadable(path, *args, **kwargs):
+                    if os.fspath(path) == str(frozen) and not opened:
+                        opened.append(path)
+                        raise OSError(error, "saved copy check interrupted")
+                    return original_open(path, *args, **kwargs)
+                patch.setattr(os, "open", unreadable)
+            else:
+                denied.chmod(0)
+            try:
+                with pytest.raises(OSError) as caught:
+                    active._finalize(finalizing)
+                assert caught.value.errno == error
+            finally:
+                denied.chmod(0o600)
+        assert not (adir / "finalization.json").exists()
+        assert (adir / "stream.freeze.json").read_bytes() == receipt
+        assert frozen.read_bytes() == payload
+        assert active.store.get_job(job_id)["accepted_attempt_id"] is None
+        assert active._stream_check_failures[attempt["attempt_id"]] == 1
+        (adir / "stdout").write_bytes(b"later live output\n")
+        active._finalize(finalizing)
+        assert active.store.get_job(job_id)["state"] == "succeeded"
+        assert active.store.get_attempt(attempt["attempt_id"])["outcome_class"] == "ok"
+        assert out.read_bytes() == b"Finished."
+        assert json.loads((adir / "finalization.json").read_text())["stream"] == frozen.name
+        assert attempt["attempt_id"] not in active._stream_check_failures
+    finally:
+        if restart:
+            active.close()
+
+
+def test_completed_copy_check_resets_the_consecutive_retry_budget(state_daemon, monkeypatch):
+    """C-4.3: successful validation between faults grants a fresh retry budget."""
+    daemon, harness = state_daemon
+    out = harness.root / "out.md"
+    job_id, attempt, adir, adapter, launch, finalizing = stage_provider(daemon, harness, "codex", out)
+    monkeypatch.setattr(module, "get_adapter", lambda _: adapter)
+    salvage = daemon._salvage
+    def interrupt(*args):
+        raise RuntimeError("interrupted salvage after completed copy check")
+    monkeypatch.setattr(daemon, "_salvage", interrupt)
+    with pytest.raises(RuntimeError, match="interrupted salvage"):
+        daemon._finalize(finalizing)
+    saved = (adir / "finalization.json").read_bytes()
+    frozen = adir / json.loads(saved)["stream"]
+    original_open = os.open
+    def unreadable(path, *args, **kwargs):
+        if os.fspath(path) == str(frozen):
+            raise OSError(errno.EIO, "copy check interrupted")
+        return original_open(path, *args, **kwargs)
+    for _ in range(2):
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(os, "open", unreadable)
+            for count in range(1, module.STREAM_CHECK_TRIES):
+                with pytest.raises(OSError) as caught:
+                    daemon._finalize(finalizing)
+                assert caught.value.errno == errno.EIO
+                assert daemon._stream_check_failures[attempt["attempt_id"]] == count
+                assert (adir / "finalization.json").read_bytes() == saved
+        with pytest.raises(RuntimeError, match="interrupted salvage"):
+            daemon._finalize(finalizing)
+        assert attempt["attempt_id"] not in daemon._stream_check_failures
+    monkeypatch.setattr(daemon, "_salvage", salvage)
+    daemon._finalize(finalizing)
+    assert daemon.store.get_job(job_id)["state"] == "succeeded"
+    assert out.read_bytes() == b"Finished."

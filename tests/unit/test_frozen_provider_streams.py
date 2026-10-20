@@ -571,3 +571,90 @@ def test_fresh_capture_removes_copies_stranded_by_a_crash(tmp_path, monkeypatch,
     assert list(tmp_path.glob("stream.frozen-*.jsonl")) == copies
     assert not list(tmp_path.glob(".stream.frozen-*"))
     assert unrelated.read_bytes() == b"unrelated temporary file"
+
+
+@pytest.mark.parametrize("kind", ("directory", "fifo", "socket"))
+@pytest.mark.parametrize("pattern", ("stream.frozen-decoy.jsonl", ".stream.frozen-decoy-partial"))
+def test_copy_cleanup_preserves_nonregular_decoys(tmp_path, kind, pattern):
+    """C-4.3: a copy-shaped non-regular entry cannot prevent first capture."""
+    _, launch = provider(tmp_path, "codex")
+    payload = encode([MESSAGE, COMPLETED])
+    (tmp_path / "stream.jsonl").write_bytes(payload)
+    decoy = tmp_path / pattern
+    make_frozen(decoy, kind)
+    before = decoy.lstat()
+    frozen = freeze(tmp_path, launch)
+    assert Path(frozen.raw_stream_path).read_bytes() == payload
+    after = decoy.lstat()
+    assert (after.st_dev, after.st_ino, after.st_mode) == (before.st_dev, before.st_ino, before.st_mode)
+
+
+@pytest.mark.parametrize("verdict", (False, True), ids=("no-verdict", "verdict"))
+@pytest.mark.parametrize("receipt_state", ("missing-copy", "changed-copy"))
+@pytest.mark.parametrize("entrypoint", ("freeze", "restore"))
+def test_invalid_receipt_cleans_an_unpublished_later_copy(tmp_path, monkeypatch, verdict,
+                                                        receipt_state, entrypoint):
+    """C-4.3: a later capture crash cannot strand full copies behind an old receipt."""
+    from subfleet import frozen_stream as module
+    from subfleet.guardian import atomic_copy
+
+    class Crash(BaseException):
+        pass
+
+    _, launch = provider(tmp_path, "codex")
+    payload = encode([MESSAGE, COMPLETED])
+    (tmp_path / "stream.jsonl").write_bytes(payload)
+    copied, published = [], []
+    original_restore = module._restored_copy
+    with pytest.MonkeyPatch.context() as patch:
+        def copy(path, stream):
+            capture = atomic_copy(path, stream)
+            copied.append(path)
+            return capture
+        def restore(*args, **kwargs):
+            if published:
+                published.clear()
+                return None  # Reject copy 1 immediately after its receipt.
+            return original_restore(*args, **kwargs)
+        def publish(role, path, data):
+            if len(copied) == 2:
+                # A process death does not run the capture loop's finally.
+                # Preserve the published inode under an unnamed copy entry.
+                orphan = tmp_path / "stream.frozen-crash-orphan.jsonl"
+                copied[-1].rename(orphan)
+                raise Crash("copy 2 receipt was never published")
+            atomic_publish(path, data)
+            published.append(path)
+        patch.setattr(module, "atomic_copy", copy)
+        patch.setattr(module, "_restored_copy", restore)
+        with pytest.raises(Crash):
+            module.freeze_stream(tmp_path, launch, publish)
+    assert len(copied) == 2
+    receipt = (tmp_path / "stream.freeze.json").read_bytes()
+    receipt_copy = tmp_path / json.loads(receipt)["file"]
+    assert not receipt_copy.exists()
+    if receipt_state == "changed-copy":
+        receipt_copy.write_bytes(b"changed recorded evidence")
+    orphan = tmp_path / "stream.frozen-crash-orphan.jsonl"
+    assert orphan.read_bytes() == payload
+    partial = tmp_path / ".stream.frozen-crash-partial"
+    partial.write_bytes(payload[:8])
+    kept = tmp_path / "stream.frozen-verdict.jsonl"
+    if verdict:
+        kept.write_bytes(b"verdict's evidence")
+        (tmp_path / "finalization.json").write_text(json.dumps({"stream": kept.name}))
+    decoy = tmp_path / "stream.frozen-directory.jsonl"
+    decoy.mkdir()
+    with pytest.raises(module.InvalidFrozenStream):
+        if entrypoint == "freeze":
+            module.freeze_stream(tmp_path, launch, lambda *args: pytest.fail("recaptured live source"))
+        else:
+            module.restore_stream(tmp_path, launch, kept.name if verdict else receipt_copy.name)
+    assert not orphan.exists()
+    assert not partial.exists()
+    assert decoy.is_dir()
+    assert (tmp_path / "stream.freeze.json").read_bytes() == receipt
+    if receipt_state == "changed-copy":
+        assert receipt_copy.read_bytes() == b"changed recorded evidence"
+    if verdict:
+        assert kept.read_bytes() == b"verdict's evidence"
