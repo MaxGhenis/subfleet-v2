@@ -512,8 +512,8 @@ def test_the_v1_binary_is_never_this_process(monkeypatch, tmp_path):
     binary = tmp_path / "subfleet"
     binary.write_text("#!/bin/sh\n")
     binary.chmod(0o755)
-    monkeypatch.delenv(compat.V1_BIN_ENV, raising=False)
-    monkeypatch.setattr(compat, "V1_BIN_DEFAULT", str(tmp_path / "absent"))
+    # D-ST3: under pytest the override, not the person's default install, is the v1 seam.
+    monkeypatch.setenv(compat.V1_BIN_ENV, str(tmp_path / "absent"))
     monkeypatch.setattr(compat.shutil, "which", lambda name: str(binary))
     monkeypatch.setattr(sys, "argv", [str(binary)])
     assert compat.v1_binary() is None

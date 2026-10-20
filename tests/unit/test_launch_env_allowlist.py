@@ -252,7 +252,11 @@ def test_doctor_reports_unusual_os_names_without_line_injection(tmp_path, monkey
 
 
 @pytest.mark.parametrize("source", ["default", "policy", "credential"])
-def test_claude_transcript_location_uses_selected_launch_environment(tmp_path, monkeypatch, source):
+def test_claude_transcript_location_uses_selected_launch_environment(tmp_path, monkeypatch, source,
+                                                                   production_process):
+    """C-12.4: the projects folder follows the launch's environment. Its `default`
+    case is production's HOME fallback, so D-ST3's process rule is waived under
+    this test's own HOME."""
     home, other, lane_home = (tmp_path / name for name in ("home", "other", "lane"))
     monkeypatch.setattr(os, "environ", {"HOME": str(home), "CLAUDE_CONFIG_DIR": str(other)})
     adapter = ClaudeAdapter()
