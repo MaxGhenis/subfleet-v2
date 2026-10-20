@@ -24,7 +24,7 @@ from tests.fake.test_census_escapers_daemon import (
 pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="macOS process census")
 
 
-def interrupt_at_ten_seconds(provider_pid, deliver=os.kill):
+def interrupt_at_ten_seconds(provider_pid, deliver):
     """Use the real turn escalation, delivering its INT frame to our provider."""
     runner = SimpleNamespace(
         clock=lambda: 10, driver=SimpleNamespace(outcome=None), clocks=Clocks(),
@@ -60,7 +60,12 @@ def test_d_kill3_inspection_keeps_a_hidden_lockf_after_its_shell_provider_ends(d
         provider = table.rows[runner.pid][0]  # our shell, still parenting lockf
         assert table.rows[provider][0] == before["guardian_pid"]
         if ending == "stopped-turn":
-            interrupt_at_ten_seconds(provider)
+            provider_identity = table.identity(provider)
+            assert provider_identity is not None
+            def deliver(pid, sig):
+                assert pid == provider_identity.pid
+                assert procs.signal_process(provider_identity, sig)
+            interrupt_at_ten_seconds(provider, deliver)
         else:
             Path(str(marker) + ".release").touch()
         attempt = settled(daemon, job)
