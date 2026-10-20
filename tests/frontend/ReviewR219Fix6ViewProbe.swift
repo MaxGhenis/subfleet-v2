@@ -104,8 +104,15 @@ func conversation(_ cid: String, held: Bool = false) -> Conversation {
         // Compare with the real Withdraw control's width: macOS 26 hides its AX label offscreen.
         let (reference, referenceWindow) = mount(Button("Withdraw") {}.buttonStyle(.link).readingFont(.caption))
         let width = reference.fittingSize.width
+        // Tray Withdraw controls form the rightmost column; two unrelated
+        // conversation controls happen to have the same width on macOS 26.
+        let rowX = descendants(host).compactMap { $0 as? NSButton }
+            .filter { abs($0.frame.width - width) < 1 }
+            .map { $0.convert($0.bounds, to: host).minX }.max()!
         func withdraws() -> [NSButton] {
-            descendants(host).compactMap { $0 as? NSButton }.filter { abs($0.frame.width - width) < 1 }
+            descendants(host).compactMap { $0 as? NSButton }.filter {
+                abs($0.frame.width - width) < 1 && abs($0.convert($0.bounds, to: host).minX - rowX) < 0.5
+            }
         }
         let before = withdraws().count
         let match = SearchIndex(model.state.searchCandidates()).search("needle")!.results.first!
