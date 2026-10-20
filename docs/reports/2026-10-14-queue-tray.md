@@ -1209,8 +1209,10 @@ amendments accompany their corresponding implementation commits.
 The shared Git metadata and original `.git` pointer are unwritable in this
 sandbox. Commits use workspace-local `.git-local` metadata on
 `feat/queue-tray-217`; the caller checkout and shared refs are unchanged.
-A verified transfer bundle will accompany the final report. No history is
-rewritten and nothing is pushed. All new commits have the requested
+A verified transfer bundle is provided at
+`docs/reports/2026-10-20-queue-tray-fix6.bundle` (deliberately untracked). Its
+prerequisites are the supplied `c154b2eaa22f` and merged release `473fe2941`.
+No history is rewritten and nothing is pushed. All new commits have the requested
 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` trailer.
 
 ### Findings, causes and fixes
@@ -1286,9 +1288,10 @@ All **482 test files** have collected results: the 48 existing frontend files
 plus the fix-6 file, all 327 unit files, and all 106 fake files. The table
 counts each test identity once, using its latest outcome; tests-first red
 runs and probe-calibration failures are excluded. No test file was omitted.
-Four retention cases skipped for a cold scratch uv cache are being rerun
-with `sortedcontainers==2.4.0` seeded before the lock is acquired; the last
-invocation was requested at 11:04 UTC, before the 11:20 UTC cutoff.
+The distinct totals are **15,576 passed, 12 failed, 98 skipped and two
+expected failures**, with no setup errors. No test file remains uncollected.
+The final invocation was requested at 11:04 UTC, before the 11:20 UTC
+cutoff; no further holds were requested after the cutoff.
 
 | Directory | Files | Passed | Failed | Errors | Skipped | Xfailed |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -1337,8 +1340,12 @@ one guardian case, 75 fake daemon cases, and one bounded-turn integration
 case. Three unit filesystem-image cases cannot create HFS+/case-sensitive
 HFS+/ExFAT devices (`Device not configured`); one host-push measurement is an
 explicit opt-in benchmark; one fake backlog case cannot read a usable
-`kern.ipc.somaxconn`. Four cold-cache retention skips remain pending the
-cache-backed rerun. The two expected failures are the existing hung-mount
+`kern.ipc.somaxconn`. Four retention cases also remain unexecuted. The
+owned scratch cache was seeded with `sortedcontainers==2.4.0` before the
+last lock request, and its installed package metadata was verified. After
+a 33-minute lock wait, the offline helper still required a registry
+download, so the rerun reported **four skips in 5.54s**, rather than passes.
+The time cutoff prevents another hold. The two expected failures are the existing hung-mount
 wall-clock limitation and the C-6.10 alternating-wait verdict limitation.
 No live store or live daemon was accessed.
 
@@ -1359,23 +1366,27 @@ completed. Ten model probes, eleven normal view probes, four mutation probes
 and the refined real-view probe compiled for the final sources. Preparatory
 compile errors are excluded from test counts.
 
-Every pytest invocation used a separate, serial, foreground
+Every top-level pytest invocation used a separate, serial, foreground
 `/usr/bin/lockf -k /private/tmp/claude-501/subfleet-suites.lock` hold, with no
 lock timeout or polling. Every completed hold stayed below 20 minutes, with
 at most four workers. No stopped pytest was relaunched. The bounded CI
 Hypothesis profile was used, with `PYTHONPATH` and
 `SUBFLEET_RETENTION_DORMANT` unset. The default uv cache refused writes;
-owned scratch caches were used and removed by their runners. The final
-cache-backed invocation warms its own cache before requesting the suite lock.
-The generated build directory has been removed; dependency-cache cleanup
-and final transfer verification follow the last invocation.
+owned scratch caches were used and removed by their runners, including the
+last seeded cache. The generated build directory, dependency environment
+and thirteen bytecode-cache directories have been removed. No workspace
+`.hypothesis` directory remains. All recorded process identities from this
+job, including the final runner and its `lockf`, have exited. The original
+`.git` pointer is unchanged. Workspace-local Git metadata and the small
+transfer bundle are retained; no logs, JSON evidence or bundles were staged.
 
 ### Step commits
 
-The following ledger is first-parent order after the supplied `c154b2eaa22f`;
-it omits the release's already-existing history. All entries have the
-requested coauthor trailer. The final report/transfer commit will be the
-local branch tip.
+This ledger lists the fifteen completed steps before this final report
+commit, in first-parent order after `c154b2eaa22f`; it omits the release's
+already-existing history. Every new commit has the requested coauthor
+trailer. The final report commit is the delivery branch tip in the verified
+bundle and the final response. Shared Git metadata remains untouched.
 
 - `8f3e89213` — Merge origin/release/217 into queue tray fix 6
 - `438624f13` — test: reproduce queue tray review r3 failures and classify local controls
@@ -1391,6 +1402,7 @@ local branch tip.
 - `6b4da2e50` — test: verify the revealed queue row by its action and erase host generics
 - `b99d12477` — docs: record app build and 442 passing required checks for fix6
 - `5c0ec7a43` — docs: record all 49 frontend files passing fix6 validation
+- `07af45d98` — docs: record complete unit and fake validation with sandbox diagnostics
 
 ### Counts per test file
 
