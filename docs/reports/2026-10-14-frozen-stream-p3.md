@@ -842,7 +842,7 @@ version-3 change-log entry from both parents. No fetch was performed.
 | Release integration / #222 | Done: cached release is merged; fix 6 introduces no `SUBFLEET_*` name or direct guardian launch | `e03f0cdc8` |
 | Tests first / step commits / contract | Done: tests precede production; C-4.3 and C-9.2 and their change-log entry are amended; all seven commits have the required trailer | `4694b44c8`, `a8276f48d` |
 
-Source, tests and contract are unchanged since `a8276f48d`; the later five
+Source, tests and contract are unchanged since `a8276f48d`; the later four
 commits only record results. The inherited test counts above describe the lost
 job. This continuation reruns the briefed files and both complete directories
 using the required regular GIL CPython 3.14.7 (`Py_GIL_DISABLED=0`), rather than
@@ -852,6 +852,29 @@ dependencies are installed in disposable scratch. `pytest-xdist==3.8.0` and
 files are unchanged. New commits use this workspace's `.git-local` metadata on
 `fix/frozen-stream-p3`, with read-only alternates to existing Git objects. The
 original `.git` pointer and detached HEAD are preserved.
+
+<!-- fix6-continuation-validation -->
+### Continuation validation checkpoint
+
+The first continuation hold passed **357 tests**, with no failures or skips:
+`unit/test_frozen_provider_streams.py`: **217 passed**;
+`fake/test_frozen_stream_nonregular.py`: **140 passed**.
+Pytest reported **160.19 s (2m 40s)**. These are fresh runs under regular GIL
+CPython 3.14.7, not carried-forward counts from the lost job. The remaining
+four briefed holds have not returned results yet.
+
+All holds use the exact `/usr/bin/lockf -k` shared lock without a timeout,
+`env -u SUBFLEET_RETENTION_DORMANT -u PYTHONPATH`, disabled pytest cache,
+`HYPOTHESIS_PROFILE=ci`, disposable TMPDIR/Hypothesis storage and the scratch
+uv-cache fallback. Briefed holds use one worker; full-directory holds use four.
+The disposable pytest entrypoint checks the 20:17 UTC cutoff after any queued
+lock wait, without replacing or polling the lock. Before later invocations it
+also asserts regular GIL CPython 3.14. No runner is relaunched if paused.
+
+After all briefed holds pass, the full-directory manifest covers all 431 files
+exactly once: first the 106 fake files, then unit batches of 109, 109 and 107.
+The inherited full-directory checkpoint below records only the lost job.
+<!-- /fix6-continuation-validation -->
 
 <!-- fix6-full-results -->
 Full-directory validation:
