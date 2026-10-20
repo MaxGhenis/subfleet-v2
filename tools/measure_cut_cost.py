@@ -117,9 +117,10 @@ def _within(deadline: float | None, row: str) -> bool:
 
 
 def measure(sizes: list[int], runs: int, reference_sizes: set[int], every_shape: bool,
-            deadline: float | None = None) -> list[dict]:
+            deadline: float | None = None, rows: list[dict] | None = None) -> list[dict]:
+    """The rows, appended to `rows` as each is measured, so a stop keeps those done."""
     formatter = daemon_log.ScrubbingFormatter()
-    rows = []
+    rows = [] if rows is None else rows
     shapes = {**SHAPES, **_cost_shapes()} if every_shape else SHAPES
     for size in sizes:
         plain = None
@@ -227,10 +228,13 @@ def realistic_log(size: int, seed: int = 0) -> str:
     return "".join(parts)
 
 
-def measure_logs(sizes: list[int], runs: int, deadline: float | None = None) -> str:
+def measure_logs(sizes: list[int], runs: int, deadline: float | None = None,
+                 lines: list[str] | None = None) -> str:
     """`daemon logs` on `realistic_log`: the whole file as its range, and its default 40
-    lines; then the default 40 lines with a reminder tag on the first line."""
-    lines = ["| file MiB | lines | whole range ms | ms per MiB | `-n 40` ms | `-n 40`, orphan tag on line 1, ms "
+    lines; then the default 40 lines with a reminder tag on the first line. The table's
+    lines are appended to `lines` as each row is measured, so a stop keeps those done."""
+    lines = [] if lines is None else lines
+    lines += ["| file MiB | lines | whole range ms | ms per MiB | `-n 40` ms | `-n 40`, orphan tag on line 1, ms "
              "| `-n 40`, whole reminder on line 1, ms |", "|---|---|---|---|---|---|---|"]
     for size in sizes:
         if not _within(deadline, f"daemon logs at {size // MIB} MiB"):
@@ -263,12 +267,22 @@ def main(argv: list[str] | None = None) -> int:
     started = time.monotonic()
     if args.logs:
         print(f"Python {sys.version.split()[0]}; best of {args.runs} CPU times (time.process_time)")
-        print(measure_logs(sizes, args.runs, deadline))
+        lines: list[str] = []
+        try:
+            measure_logs(sizes, args.runs, deadline, lines)
+        except KeyboardInterrupt:           # a hold's cap: keep the rows measured
+            SKIPPED.append("the rows after a stop")
+        print("\n".join(lines))
     else:
         print(f"Python {sys.version.split()[0]}, GIL {'on' if getattr(sys, '_is_gil_enabled', lambda: True)() else 'off'}; "
               f"best of {args.runs} CPU times (time.process_time), limit {LIMIT:,}")
         reference_sizes = {int(part) * MIB for part in args.reference_sizes.split(",") if part}
-        print(table(measure(sizes, args.runs, reference_sizes, args.every_shape, deadline), True))
+        rows: list[dict] = []
+        try:
+            measure(sizes, args.runs, reference_sizes, args.every_shape, deadline, rows)
+        except KeyboardInterrupt:           # a hold's cap: keep the rows measured
+            SKIPPED.append("the rows after a stop")
+        print(table(rows, True))
     print(f"\n{time.monotonic() - started:.0f} s; left out by --budget-s: {', '.join(SKIPPED) or 'none'}")
     return 0
 
