@@ -162,6 +162,9 @@ func conversation(_ cid: String, held: Bool = false) -> Conversation {
         func laidOutCount() -> Int { trayLayouts.last?.rowIDs.count ?? 0 }
         while (laidOutCount() < 6 || withdraws().count < 6) && Date() < deadline {
             settle(host, seconds: 0.02)
+            // Pump AppKit and yield the actor: a nested RunLoop alone need not
+            // let Swift concurrency's main-actor jobs run on older releases.
+            try await Task.sleep(nanoseconds: 10_000_000)
         }
         let buttons = withdraws()
         let expandedAfter = Date().timeIntervalSince(started)
@@ -171,6 +174,7 @@ func conversation(_ cid: String, held: Bool = false) -> Conversation {
         }
         while (targetButton()?.visibleRect.isEmpty != false || palette.reveal != nil) && Date() < deadline {
             settle(host, seconds: 0.02)
+            try await Task.sleep(nanoseconds: 10_000_000)
         }
         let last = targetButton() ?? buttons.sorted {
             let a = $0.convert($0.bounds, to: host).minY, b = $1.convert($1.bounds, to: host).minY
