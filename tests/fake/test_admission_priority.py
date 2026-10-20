@@ -18,7 +18,7 @@ import pytest
 
 from subfleet import daemon as daemon_module
 from subfleet.contracts import Outcome, OutcomeClass
-from subfleet.policy import MACHINE_GUARD_PROPOSAL
+from tests.machine_guard_reference import LEGACY_GUARD as MACHINE_GUARD_PROPOSAL
 from tests.caps import capped
 from tests.fake.test_state_contract import receipt_fixture, reserve, state_daemon  # noqa: F401 (fixture)
 from tests.fake_adapter import FakeAdapter
@@ -170,6 +170,37 @@ def test_c6_13_the_shipped_policy_holds_nothing_for_the_machine(state_daemon, mo
     job = submit(daemon, harness, "bg", caller_session="gone-session")
     daemon._admit()
     assert reservation_order(daemon) == [job]
+
+
+def test_mg2_cpu_and_disk_hold_once_per_pass_and_why_reports_recovery(state_daemon, monkeypatch):
+    """Many waiting jobs must not turn one recovery reading into two passes."""
+    from subfleet.policy import MACHINE_GUARD_PROPOSAL as proposal
+    daemon, harness = state_daemon
+    daemon.policy["admission"]["machine_guard"] = copy.deepcopy(proposal)
+    reading = dict(QUIET, cpu_idle=.01, disk_busy=.95)
+    calls = []
+
+    def read():
+        calls.append(1)
+        return dict(reading)
+
+    monkeypatch.setattr("subfleet.machine.read", read)
+    jobs = [submit(daemon, harness, f"mg2-{n}", caller_session="gone") for n in range(3)]
+    daemon._admit()
+    assert len(calls) == 1 and reservation_order(daemon) == []
+    for job in jobs:
+        hold = daemon._holds[job]
+        assert hold["cpu_idle"] == .01 and hold["disk_busy"] == .95
+        assert not daemon.store.query("SELECT 1 FROM decisions WHERE job_id=?", (job,))
+        why = json.dumps(daemon.dispatch("why", {"job_id": job}))
+        assert "CPU idle 1.0%" in why and "disk busy 0.950" in why
+    reading.update(cpu_idle=.5, disk_busy=.1)
+    daemon._admit()
+    assert len(calls) == 2 and reservation_order(daemon) == []
+    assert "1/2" in json.dumps(daemon.dispatch("why", {"job_id": jobs[0]}))
+    assert len(calls) == 2  # why does not sample or advance hysteresis
+    daemon._admit()
+    assert len(calls) == 3 and reservation_order(daemon) == jobs
 
 
 def _registry(tmp_path, monkeypatch, **fields):

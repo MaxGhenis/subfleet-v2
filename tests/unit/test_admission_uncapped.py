@@ -23,7 +23,8 @@ import pytest
 from hypothesis import HealthCheck, assume, given, settings, strategies as st
 
 from subfleet import scheduler
-from subfleet.policy import DEFAULT_POLICY_PATH, MACHINE_GUARD_PROPOSAL, load_policy
+from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
+from tests.machine_guard_reference import LEGACY_GUARD as MACHINE_GUARD_PROPOSAL
 from tests.admission_model import run_pass
 from tests.caps import capped
 from tests.routing_strategies import BASE_POLICY, NOW, event, policies, route_jobs, stores, view_of

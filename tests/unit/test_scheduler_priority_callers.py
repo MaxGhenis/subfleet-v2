@@ -6,7 +6,7 @@ import pytest
 from hypothesis import given, settings, strategies as st
 
 from subfleet import scheduler
-from subfleet.policy import MACHINE_GUARD_PROPOSAL
+from tests.machine_guard_reference import LEGACY_GUARD as MACHINE_GUARD_PROPOSAL
 from tests import priority_callers_reference as previous
 
 PROPERTIES = settings(max_examples=500, deadline=None, derandomize=True)

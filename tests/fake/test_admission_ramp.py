@@ -23,7 +23,7 @@ import pytest
 from subfleet import capacity as capacity_module, daemon as daemon_module, scheduler, store as store_module
 from subfleet.contracts import Outcome, OutcomeClass
 from subfleet.disk import GB, epoch
-from subfleet.policy import MACHINE_GUARD_PROPOSAL
+from tests.machine_guard_reference import LEGACY_GUARD as MACHINE_GUARD_PROPOSAL
 from tests.fake.test_admission_latency import add_codex_lanes, fleet_daemon, measure, submit_turn
 from tests.fake.test_state_contract import state_daemon  # noqa: F401
 from tests.unit.test_disk_admission import stamp

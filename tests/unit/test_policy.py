@@ -469,6 +469,30 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
     assert load_policy(write_policy(tmp_path, policy_data))["admission"]["machine_guard"]["session"] is None
 
 
+@pytest.mark.parametrize("key,value", [
+    ("cpu_idle_min", -1), ("cpu_idle_min", 1.01), ("cpu_idle_min", True),
+    ("cpu_idle_min", None), ("cpu_idle_min", "0.15"), ("cpu_idle_min", []),
+    ("cpu_idle_min", float("nan")), ("cpu_idle_min", float("inf")),
+    ("disk_busy_max", 0), ("disk_busy_max", -1), ("disk_busy_max", 1.01),
+    ("disk_busy_max", False), ("disk_busy_max", None), ("disk_busy_max", "0.8"),
+    ("disk_busy_max", {}), ("disk_busy_max", float("nan")), ("disk_busy_max", float("inf")),
+])
+def test_machine_signal_thresholds_reject_bad_values_naming_the_key(tmp_path, policy_data, key, value):
+    policy_data["admission"] = {"machine_guard": {"background": {key: value}}}
+    with pytest.raises(PolicyError) as caught:
+        load_policy(write_policy(tmp_path, policy_data))
+    assert caught.value.key == f"admission.machine_guard.background.{key}"
+
+
+@pytest.mark.parametrize("thresholds", [
+    {"cpu_idle_min": 0}, {"cpu_idle_min": 1}, {"disk_busy_max": 1},
+    {"cpu_idle_min": .15, "disk_busy_max": .8, "load_per_cpu": 6, "memory_pressure": "warn"},
+])
+def test_machine_signals_accept_fraction_boundaries_and_mixed_legacy_keys(tmp_path, policy_data, thresholds):
+    policy_data["admission"] = {"machine_guard": {"background": thresholds}}
+    assert load_policy(write_policy(tmp_path, policy_data))["admission"]["machine_guard"]["background"] == thresholds
+
+
 @pytest.mark.parametrize("section,error_key", [
     ([], "admission"),
     ({"lane_spred": 2}, "admission.lane_spred"),
