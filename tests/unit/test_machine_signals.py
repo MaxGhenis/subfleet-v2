@@ -14,9 +14,8 @@ def samples(monkeypatch, ticks, disks=None, times=None):
     times = iter(times if times is not None else range(0, 1200, 10))
     monkeypatch.setattr(machine, "_cpu_ticks", lambda: next(ticks))
     monkeypatch.setattr(machine, "_disk_counters", lambda: next(disks))
-    monkeypatch.setattr(machine.time, "monotonic", lambda: next(times))
     monkeypatch.setattr(machine, "_sysctl_int", lambda _: 1)
-    return machine.Sampler()
+    return machine.Sampler(clock=lambda: next(times))
 
 
 def test_cpu_ticks_are_interval_deltas_and_ewma_uses_sixty_seconds(monkeypatch):

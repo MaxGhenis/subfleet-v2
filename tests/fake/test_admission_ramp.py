@@ -23,7 +23,7 @@ import pytest
 from subfleet import capacity as capacity_module, daemon as daemon_module, scheduler, store as store_module
 from subfleet.contracts import Outcome, OutcomeClass
 from subfleet.disk import GB, epoch
-from tests.machine_guard_reference import LEGACY_GUARD as MACHINE_GUARD_PROPOSAL
+from tests.machine_guard_reference import LEGACY_GUARD
 from tests.fake.test_admission_latency import add_codex_lanes, fleet_daemon, measure, submit_turn
 from tests.fake.test_state_contract import state_daemon  # noqa: F401
 from tests.unit.test_disk_admission import stamp
@@ -734,7 +734,7 @@ def test_disabled_absent_matches_frozen_pre_change_pass(tmp_path_factory, queue,
             if gate == "disk":
                 service.policy["admission"]["disk"]["enabled"] = True
             elif gate == "machine":
-                service.policy["admission"]["machine_guard"] = copy.deepcopy(MACHINE_GUARD_PROPOSAL)
+                service.policy["admission"]["machine_guard"] = copy.deepcopy(LEGACY_GUARD)
             for lane in service.store.list_lanes():
                 measure(service, lane.lane_id)
             jobs = [submit(service, harness, request_id=f"differential-{n}", caller_session=caller,

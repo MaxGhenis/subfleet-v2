@@ -1001,6 +1001,7 @@ class Daemon:
         # what both write: the holds, `_admission` and the route counts.
         self._pass_locks = {"turn": threading.Lock(), "detached": threading.Lock()}
         self._admission_lock = threading.Lock()
+        self._machine_guard = scheduler.MachineGuard()
         # One pass at a time records what admission left (`_note_admission`),
         # with the placements every pass made since, counted as each is made, so
         # a long detached pass that is placing never reads as idle to the turn
@@ -5716,6 +5717,8 @@ class Daemon:
         liveness = self._liveness(queued) if kind == "detached" else None
         priority_jobs = self._priority_jobs(queued) if kind == "detached" else {}
         reading = machine.read() if kind == "detached" else None
+        if kind == "detached":
+            reading = self._machine_guard.advance(self.policy, reading)
         # C-6.9: FIFO within a tier holds among jobs that compete for a model. An
         # older job that cannot be placed holds back the later jobs that could run
         # where it could, and nothing else: on 2026-09-20 an Opus review with no

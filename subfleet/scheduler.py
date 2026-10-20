@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timedelta, timezone
@@ -318,10 +319,69 @@ def hold_scope(policy: Mapping[str, Any], job: Any, *, roster: Iterable[Any] = (
     return "pool" if pooled else "family" if family else None
 
 
+def _fraction_reading(value: Any) -> bool:
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(value) and 0 <= value <= 1)
+
+
+# Absolute fractions: 3 percentage points of CPU idle, 10 of disk service time.
+MACHINE_SIGNALS = (("cpu_idle", "cpu_idle_min", .03), ("disk_busy", "disk_busy_max", .10))
+
+
+class MachineGuard:
+    """Daemon-owned hysteresis, advanced once per detached pass, never per job.
+
+    New signals release after two consecutive passes beyond their margin.
+    Missing readings clear their own latch immediately. Legacy load/memory
+    remain stateless, preserving existing policy decisions exactly.
+    """
+
+    def __init__(self) -> None:
+        self._limits: dict[str, Any] = {}
+        self._latched: dict[tuple[str, str], int] = {}
+
+    def advance(self, policy: Mapping[str, Any], reading: Mapping[str, Any] | None) -> dict[str, Any]:
+        guard = admission_settings(policy).get("machine_guard") or {}
+        limits = {klass: dict(guard[klass]) for klass in ("background", "session") if guard.get(klass)}
+        if limits != self._limits:
+            self._latched.clear()
+            self._limits = limits
+        snapshot = dict(reading or {})
+        signals = {}
+        for klass, thresholds in limits.items():
+            hold = {}
+            for signal, key, margin in MACHINE_SIGNALS:
+                latch = (klass, signal)
+                threshold, value = thresholds.get(key), snapshot.get(signal)
+                if threshold is None or not _fraction_reading(value):
+                    self._latched.pop(latch, None)
+                    continue
+                busy = value < threshold if signal == "cpu_idle" else value >= threshold
+                resume = min(1.0, threshold + margin) if signal == "cpu_idle" else max(0.0, threshold - margin)
+                clear = value >= resume if signal == "cpu_idle" else value <= resume
+                if busy:
+                    self._latched[latch] = 0
+                elif latch in self._latched:
+                    passes = self._latched[latch] + 1 if clear else 0
+                    if passes >= 2:
+                        self._latched.pop(latch)
+                    else:
+                        self._latched[latch] = passes
+                if latch in self._latched:
+                    hold.update({signal: value, key: threshold, f"{signal}_resume": resume,
+                                 f"{signal}_clear_passes": self._latched[latch]})
+            signals[klass] = (thresholds, hold)
+        snapshot["_machine_guard_signals"] = signals
+        return snapshot
+
+
 def machine_hold(policy: Mapping[str, Any], machine: Mapping[str, Any] | None, klass: str) -> dict[str, Any] | None:
     """C-6.13: the `machine-busy` hold for a job of `klass`, or None to go on.
 
-    A class's threshold is met while the larger of the 1- and 5-minute load
+    CPU idle below cpu_idle_min or disk service time at/above disk_busy_max
+    holds a named class. Admission supplies MachineGuard's per-pass snapshot
+    for hysteresis; a plain reading evaluates fresh conditions without history.
+    Legacy thresholds are met while the larger of the 1- and 5-minute load
     averages per logical CPU is at or above its `load_per_cpu`, or the kernel's
     memory pressure is at or above its `memory_pressure`. The larger average
     holds quickly and lets go slowly, so a dip does not release a burst. An
@@ -344,6 +404,16 @@ def machine_hold(policy: Mapping[str, Any], machine: Mapping[str, Any] | None, k
     named = limits.get("memory_pressure")
     if named is not None and isinstance(level, int) and level >= MEMORY_PRESSURE_LEVELS[named]:
         hold.update(memory_pressure=level, memory_threshold=named)
+    saved = machine.get("_machine_guard_signals", {}).get(klass)
+    if saved is not None and saved[0] == limits:
+        hold.update(saved[1])
+    else:
+        for signal, key, _ in MACHINE_SIGNALS:
+            value, threshold = machine.get(signal), limits.get(key)
+            if threshold is not None and _fraction_reading(value):
+                busy = value < threshold if signal == "cpu_idle" else value >= threshold
+                if busy:
+                    hold.update({signal: value, key: threshold})
     return {"reason": "machine-busy", "class": klass, **hold} if hold else None
 
 

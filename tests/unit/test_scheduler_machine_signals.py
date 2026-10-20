@@ -3,13 +3,15 @@
 import copy
 
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import HealthCheck, given, settings, strategies as st
 
 from subfleet import scheduler
 from subfleet.policy import MACHINE_GUARD_PROPOSAL
 from tests.machine_guard_reference import LEGACY_GUARD, machine_hold as previous_hold
 
-CI = settings(max_examples=40, deadline=None, derandomize=True, database=None)
+# Host governor pauses are wall time inside a draw, not expensive strategies.
+CI = settings(max_examples=40, deadline=None, derandomize=True, database=None,
+              suppress_health_check=[HealthCheck.too_slow])
 FRACTION = st.floats(0, 1, allow_nan=False, allow_infinity=False)
 BAD = st.sampled_from([None, True, False, -1, 2, float("nan"), float("inf"), "busy"])
 

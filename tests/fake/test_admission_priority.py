@@ -18,7 +18,7 @@ import pytest
 
 from subfleet import daemon as daemon_module
 from subfleet.contracts import Outcome, OutcomeClass
-from tests.machine_guard_reference import LEGACY_GUARD as MACHINE_GUARD_PROPOSAL
+from tests.machine_guard_reference import LEGACY_GUARD
 from tests.caps import capped
 from tests.fake.test_state_contract import receipt_fixture, reserve, state_daemon  # noqa: F401 (fixture)
 from tests.fake_adapter import FakeAdapter
@@ -73,7 +73,7 @@ def test_c6_16_priority_caller_jumps_live_sessions_and_uses_fifo(state_daemon, t
 def test_c6_16_descendant_of_finished_priority_caller_bypasses_guard(state_daemon, tmp_path, monkeypatch):
     daemon, harness = state_daemon
     live_session(tmp_path, monkeypatch)
-    daemon.policy["admission"].update(priority_callers=["CHOSEN"], machine_guard=copy.deepcopy(MACHINE_GUARD_PROPOSAL))
+    daemon.policy["admission"].update(priority_callers=["CHOSEN"], machine_guard=copy.deepcopy(LEGACY_GUARD))
     monkeypatch.setattr("subfleet.machine.read", lambda: dict(BUSY, load1=400, memory_pressure=4))
     root = submit(daemon, harness, "root", caller_session="chosen")
     parent = submit(daemon, harness, "parent", caller_session="other", parent_job_id=root)
@@ -138,12 +138,12 @@ def test_c6_9_caps_set_in_policy_still_hold_and_the_order_decides_who_waits(stat
 
 
 def test_c6_13_the_guard_holds_background_work_at_the_door_and_lets_it_go(state_daemon, tmp_path, monkeypatch):
-    """With the proposed guard on (off by default), at 8.3 load per CPU it holds
+    """With the legacy load guard on (off by default), at 8.3 load per CPU it holds
     background jobs (6.0) and places session jobs (10.0); held, a job records no
     decision and prepares no workspace; `why` says what held it; a quiet machine
     lets it go."""
     daemon, harness = state_daemon
-    daemon.policy["admission"]["machine_guard"] = copy.deepcopy(MACHINE_GUARD_PROPOSAL)
+    daemon.policy["admission"]["machine_guard"] = copy.deepcopy(LEGACY_GUARD)
     reading = dict(BUSY)
     monkeypatch.setattr("subfleet.machine.read", lambda: dict(reading))
     live_session(tmp_path, monkeypatch)
@@ -186,7 +186,13 @@ def test_mg2_cpu_and_disk_hold_once_per_pass_and_why_reports_recovery(state_daem
 
     monkeypatch.setattr("subfleet.machine.read", read)
     jobs = [submit(daemon, harness, f"mg2-{n}", caller_session="gone") for n in range(3)]
-    daemon._admit()
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("machine-held admission pass started a subprocess")
+
+    with monkeypatch.context() as admission:
+        admission.setattr(daemon_module.subprocess, "Popen", forbidden)
+        daemon._admit()
     assert len(calls) == 1 and reservation_order(daemon) == []
     for job in jobs:
         hold = daemon._holds[job]
@@ -268,7 +274,7 @@ def test_c6_9_a_reused_pid_is_not_the_caller(state_daemon, tmp_path, monkeypatch
     daemon, harness = state_daemon
     live_session(tmp_path, monkeypatch, start="Thu Jan  1 00:00:00 1970")
     monkeypatch.setattr("subfleet.machine.read", lambda: dict(BUSY))
-    daemon.policy["admission"]["machine_guard"] = copy.deepcopy(MACHINE_GUARD_PROPOSAL)
+    daemon.policy["admission"]["machine_guard"] = copy.deepcopy(LEGACY_GUARD)
     job = submit(daemon, harness, "stale", caller_session=LIVE_SESSION)
     daemon._admit()
     assert daemon._holds[job]["class"] == "background"
@@ -488,7 +494,7 @@ def test_c6_13_a_workspace_retry_is_held_by_the_guard_before_its_git(state_daemo
     at load 150. Due, it is held `machine-busy` before any git; while its clock
     runs it still reports `workspace` (C-6.11)."""
     daemon, harness = state_daemon
-    daemon.policy["admission"]["machine_guard"] = copy.deepcopy(MACHINE_GUARD_PROPOSAL)
+    daemon.policy["admission"]["machine_guard"] = copy.deepcopy(LEGACY_GUARD)
     monkeypatch.setattr("subfleet.machine.read", lambda: dict(BUSY))
     job = submit(daemon, harness, "retry", caller_session="gone-session")
     when = "2000-01-01T00:00:00Z" if clock == "due" else daemon_module.after(300)
