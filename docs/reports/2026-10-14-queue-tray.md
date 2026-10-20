@@ -1282,10 +1282,14 @@ the local-name classification regression.
 
 ### Validation status
 
-Completed checkpoint: **442 passed, no failures or skips** across the 15
-required registry, routing, refresh, state-contract, module-name and launch-
-environment files. Their per-file counts follow. The complete frontend,
-unit and fake runs remain pending at this checkpoint.
+Frontend validation is complete: **828 passed, 1 skipped** across all 49
+files (the 48 existing files plus the fix-6 regression file), in 9m21s. All
+six fix-6 cases pass, including the actual revealed `queued5` row identity,
+and all four mutation checks pass. The live-daemon case skips because the
+sandbox cannot read macOS boot identity. The 15 required registry, routing,
+refresh, state-contract, module-name and launch-environment files also pass:
+**442 passed, no failures or skips**. Complete `tests/unit` and `tests/fake`
+runs remain pending at this checkpoint.
 
 The development app build passed with `sh app/build.sh --dev build/fix6-app`,
 including plist validation and ad hoc signing. It was not launched. This
@@ -1297,8 +1301,8 @@ and one search-probe assertion failure. Search expanded, but only five
 native Withdraw controls were materialized, so an assertion requiring six
 was too broad. The refined real-view probe verifies the visible row's actual
 `message.cancel` identity, `queued5`, and erases hosting generics. It compiled
-successfully; its new assertions await the frontend run. The engine's four
-regressions and the real catch-up scroll regression passed in that first
+successfully and passed the complete frontend run. The engine's four
+regressions and the real catch-up scroll regression also passed in that first
 run. The extracted tray content's explicit return was corrected in
 `558f84c53` before that run completed.
 
@@ -1335,3 +1339,57 @@ checkpoint.
 | `tests/unit/test_route_check.py` | 24 | 0 | 0 | 0 |
 | `tests/unit/test_sessions_registry.py` | 24 | 0 | 0 | 0 |
 | `tests/unit/test_test_module_names.py` | 1 | 0 | 0 | 0 |
+
+#### Complete frontend checkpoint
+
+| File | Passed | Failed | Errors | Skipped |
+| --- | ---: | ---: | ---: | ---: |
+| `tests/frontend/test_app_cutover_start.py` | 13 | 0 | 0 | 0 |
+| `tests/frontend/test_conversation_view.py` | 6 | 0 | 0 | 0 |
+| `tests/frontend/test_core_app_cutover_reading.py` | 15 | 0 | 0 | 0 |
+| `tests/frontend/test_core_approval_notification.py` | 10 | 0 | 0 | 0 |
+| `tests/frontend/test_core_approval_reach.py` | 41 | 0 | 0 | 0 |
+| `tests/frontend/test_core_client.py` | 18 | 0 | 0 | 0 |
+| `tests/frontend/test_core_diff.py` | 7 | 0 | 0 | 0 |
+| `tests/frontend/test_core_draft.py` | 7 | 0 | 0 | 0 |
+| `tests/frontend/test_core_idle.py` | 1 | 0 | 0 | 0 |
+| `tests/frontend/test_core_live.py` | 0 | 0 | 0 | 1 |
+| `tests/frontend/test_core_live_failure.py` | 1 | 0 | 0 | 0 |
+| `tests/frontend/test_core_markdown.py` | 42 | 0 | 0 | 0 |
+| `tests/frontend/test_core_outbox.py` | 13 | 0 | 0 | 0 |
+| `tests/frontend/test_core_protocol.py` | 10 | 0 | 0 | 0 |
+| `tests/frontend/test_core_question_card.py` | 10 | 0 | 0 | 0 |
+| `tests/frontend/test_core_queue_engine.py` | 75 | 0 | 0 | 0 |
+| `tests/frontend/test_core_queue_tray.py` | 50 | 0 | 0 | 0 |
+| `tests/frontend/test_core_search.py` | 20 | 0 | 0 | 0 |
+| `tests/frontend/test_core_steer.py` | 43 | 0 | 0 | 0 |
+| `tests/frontend/test_core_steer_properties.py` | 2 | 0 | 0 | 0 |
+| `tests/frontend/test_core_store.py` | 10 | 0 | 0 | 0 |
+| `tests/frontend/test_core_suggestions.py` | 7 | 0 | 0 | 0 |
+| `tests/frontend/test_core_suggestions_r1b.py` | 4 | 0 | 0 | 0 |
+| `tests/frontend/test_core_text_scale.py` | 7 | 0 | 0 | 0 |
+| `tests/frontend/test_core_timeline.py` | 23 | 0 | 0 | 0 |
+| `tests/frontend/test_core_titles.py` | 1 | 0 | 0 | 0 |
+| `tests/frontend/test_disk_ruling.py` | 8 | 0 | 0 | 0 |
+| `tests/frontend/test_menu_view.py` | 8 | 0 | 0 | 0 |
+| `tests/frontend/test_pr124_fixes_ui.py` | 17 | 0 | 0 | 0 |
+| `tests/frontend/test_pr124_recovery_properties.py` | 1 | 0 | 0 | 0 |
+| `tests/frontend/test_pr124_review_r2_fixes_ui.py` | 19 | 0 | 0 | 0 |
+| `tests/frontend/test_queue_tray_fix4_mutations.py` | 4 | 0 | 0 | 0 |
+| `tests/frontend/test_queue_tray_notice.py` | 2 | 0 | 0 | 0 |
+| `tests/frontend/test_queue_tray_view.py` | 15 | 0 | 0 | 0 |
+| `tests/frontend/test_reading_view.py` | 5 | 0 | 0 | 0 |
+| `tests/frontend/test_review_pr127_timeline.py` | 4 | 0 | 0 | 0 |
+| `tests/frontend/test_review_r219_fix4.py` | 39 | 0 | 0 | 0 |
+| `tests/frontend/test_review_r219_fix6.py` | 6 | 0 | 0 | 0 |
+| `tests/frontend/test_review_r219_probes.py` | 23 | 0 | 0 | 0 |
+| `tests/frontend/test_status_model.py` | 25 | 0 | 0 | 0 |
+| `tests/frontend/test_visual_progress.py` | 5 | 0 | 0 | 0 |
+| `tests/frontend/test_visual_report_hygiene.py` | 15 | 0 | 0 | 0 |
+| `tests/frontend/test_visual_review_fixes.py` | 43 | 0 | 0 | 0 |
+| `tests/frontend/test_visual_round_five.py` | 9 | 0 | 0 | 0 |
+| `tests/frontend/test_visual_round_four.py` | 27 | 0 | 0 | 0 |
+| `tests/frontend/test_visual_round_three.py` | 28 | 0 | 0 | 0 |
+| `tests/frontend/test_visual_round_two.py` | 85 | 0 | 0 | 0 |
+| `tests/frontend/test_visual_snapshots.py` | 3 | 0 | 0 | 0 |
+| `tests/frontend/test_visual_suggestions.py` | 1 | 0 | 0 | 0 |
