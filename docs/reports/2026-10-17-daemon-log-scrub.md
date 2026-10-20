@@ -552,7 +552,7 @@ Round 2's §3 above now carries a correction. `test_a_several_member_group_never
 
 Invariants 7 and 8 are restated in place above. Each of these holds for every input and is executed by the tests named.
 
-10. **The cut's work does not grow with the text.** For any text and limit, the lines `cut_whole` runs, the C functions it calls and its event computations depend only on its two windows. There are at most `2 × (CUT_KINDS_MAX + 2)` = 20 event computations. Tests: `test_a_cut_s_work_does_not_grow_with_the_text`; the clock guard.
+10. **The cut's regexes read only its windows, and past them it reads in a few passes of C scans.** (Restated in round 5. As first written, "the cut's work does not grow with the text", it was false: review r3 of #233 found three regexes reading the whole text, which counting each as one C call had hidden.) For any text and limit, the regexes `cut_whole` runs read at most `16 × RECORD_SCRUB_MAX` characters in all, none more than twice the bound in one call, no more at 16 MiB than at 1 MiB; its `str` scans read at most 12 passes over the text; there are at most `2 × (CUT_KINDS_MAX + 2)` = 20 event computations; and on the round-2 cost shapes the lines it runs and its C calls are the same at 64 KiB and 512 KiB. Its cost is a measured ratio to plain text (round 5, §1): at most 1.7 times on review r3's shapes, and 3.3 to 6.3 times, linear, on runs of margin-only lines, an accepted cost. Tests: `test_at_16_mib_no_regex_reads_past_the_cut_s_windows`, `test_a_cut_s_work_does_not_grow_with_the_text`; the clock guards.
 11. **Folding parts nothing a cut keeps.** No cut falls where folding the text to one line joins what is before the break to what is after into a match. Every scrub rule has an example, and the folding ones are exactly the flags rule and the private-key lines. Tests: `test_every_scrub_rule_has_an_example_and_only_the_folding_rules_fold`, `test_a_cut_never_parts_what_a_rule_or_folding_joins`, the generator.
 12. **A logged exception's words are scrubbed at every site.** No daemon module passes a caught exception raw to a log call, or to a parameter of its own functions whose value reaches one. Tests: `test_no_daemon_module_logs_a_caught_exception_raw`, `test_the_site_lint_fails_runner_py_s_old_lines`.
 
@@ -856,3 +856,215 @@ The base runs are the main control: every regression above fails on `6cbaea975`'
 - this report's round 4
 
 The commits are on this worktree's detached HEAD: the caller's checkout holds `fix/daemon-log-scrub-217`, so Subfleet keeps them under `refs/subfleet-salvage/`. Nothing is pushed.
+
+## Round 5: review r3 of #233
+
+Review r3 (`REQUEST_CHANGES`) found no leak and asked for two P3s; the hub took the optional third and the reviewer's note on `daemon logs`, and one rule-table gap. This round starts from `cce8f1af7`.
+
+**Merge.** `origin/release/217` as the hub last fetched it (`473fe2941`: #235, #236, #234, #226) merged into `cce8f1af7` as `5824f8d87`, without a fetch. The one conflict was the contract's change log, as the reviewer found. Both sides' entries are kept: this branch's four D-LOG1 entries, then release's ten (D-ST1's two C-20.6 entries and its round-9 one, D-KILL2's two C-5.5 entries, #236's and #230's four C-26.4 entries, D-ADM3's), then the shared history. Release's stray blank line between its D-ADM3 entry and the shared C-23.14 entry was dropped, so the list stays one list. `subfleet/daemon.py`, `subfleet/relay.py` and the tests merged cleanly. The three daemon-write lints (`test_no_daemon_module_logs_a_caught_exception_raw`, `test_no_daemon_module_writes_its_standard_streams_past_daemon_log`, `test_no_child_a_daemon_module_starts_writes_to_daemon_log`) read every module of `subfleet/` but the front ends, so the merged `daemon.py` and #236's `relay.py` among them, and pass (holds 1 and 2).
+
+### 1. The cut's cost (P3-1): windowed margins
+
+The three whole-text passes are gone, and so is a fourth the profile showed.
+
+- **Margins.** `handoff._Reading` holds the text as the cut reads it. `_MARGIN_MARK_RE` blanks the margins only within the two windows (`_blanked`: the head's first `limit // 2 + 1` characters, and the tail from its first line start; each slice with the one character after it that a mark's lookahead reads). Between the windows the text is as it is. Every look for the last or next visible character that may run past a window goes through `_Reading.before` or `_Reading.after`, which `_neutral_break` now takes as its look-back (`before=`), `_around`, `_quote_events` and `_event_before` call, and `_leads_with_header` uses:
+  - A look stops at the first visible character, as `_last_visible` and `_run_end` do. Where that character is a `|` or `+`, `_is_margin_mark` asks whether it is a margin's mark (an even run of two or more spaces from its line start before it, and a space, a line break or the end after it); if so, the look goes on past it.
+  - From a mark's line, it passes the whole lines beyond that hold only whitespace and marks, in C scans: `_margin_lines` maps the span to one class byte a character (`bytes.translate`), checks no other character and no bar after a bar or other whitespace, removes the spaces and checks every bar follows a line break, and counts the bars at even columns with `expandtabs(2)` (each bar a tab adds one character at an even column). The spans grow from 64 characters, doubling, then halve after the first that fails, so the work is linear in the run. Each run found is kept (`spans`), so the head's look past its window, the leading header's look from the start and the tail's look back read a run once between them.
+- **Data URI body.** The tail's check that the text between a `;base64,` and its first line is all body characters was a regex search (`_NOT_BODY_RE`) that could read most of the text. `_body_between` does it in the same C scans, with the marks read as spaces. It was not among the reviewer's three; I list it as the fourth whole-text pass, found by reading the cut for every read past a window.
+- **Reminder tag.** `_holds_reminder_tag`: no `r>` or `R>` (two C scans) means no tag. Otherwise the text is lowered after `_REMINDER_FOLDS` (`İ`, `ı` and `ſ`, the only characters other than ASCII cases that the regex, which ignores case, takes for a tag letter; with them replaced `str.lower` keeps every position), `str.find` finds the tag, and `_REMINDER_TAG_RE` confirms it within its 17 or 18 characters. A test checks every code point.
+- **Leading header.** `_leads_with_header` matches the header's name at the text's first visible character (`_HEADER_NAME_RE`, at most 13 characters) and looks for the `:` past it. Nothing backtracks: the regex's `\s*` is now the look, which is one C scan of the run.
+
+**The bound, counted.** `test_at_16_mib_no_regex_reads_past_the_cut_s_windows` meters one cut: every compiled pattern in `handoff` counts the span each call may read (`pos` to `endpos`; a substitution all its string), and the text (and the reading's `read`) counts what each `str` call scans or copies (`find` and `rfind` to where they stop, `count`, `in`, `lower`, `replace`, `isascii`, `encode` and slices). For each of review r3's shapes, plain text and the nine round-2 cost shapes, at 1 and at 16 MiB:
+
+| Shape | Regex characters, 1 MiB and 16 MiB | Widest regex call | `str` passes over the text, 16 MiB |
+|---|---|---|---|
+| plain | 49,106 and 49,106 | 8,177 | 3.0 |
+| margin-only-lines | 65,538 and 65,538 | 8,194 | 5.0 |
+| margin-only-lines-spaced | 65,524 and 65,524 | 8,194 | 5.0 |
+| member-lines | 65,582 and 65,582 | 8,194 | 4.0 |
+| leading-spaces | 10 and 10 | 2 | 6.0 |
+| run-of-lt | 53,258 and 53,258 | 8,192 | 2.0 |
+| exception-group | 65,465 and 65,465 | 8,194 | 4.0 |
+| round2-blank-lines-after-a-flag | 49,279 and 49,279 | 8,191 | 5.0 |
+| round2-blank-lines-after-a-key | 49,244 and 49,244 | 8,192 | 6.0 |
+| round2-blank-lines-after-bearer | 49,255 and 49,255 | 8,192 | 5.0 |
+| round2-head | 49,100 and 49,100 | 8,178 | 3.0 |
+| round2-head-single-quotes | 49,100 and 49,100 | 8,178 | 3.0 |
+| round2-json-dense | 65,486 and 65,486 | 8,184 | 2.0 |
+| round2-quote-dense | 70,986 and 70,986 | 8,190 | 2.0 |
+| round2-tail | 50,206 and 50,206 | 8,183 | 3.0 |
+| round2-tail-eight-kinds | 61,132 and 61,132 | 8,189 | 3.0 |
+
+At `cce8f1af7` the margins' substitution, the reminder search and the header's match each read all 16 MiB. The test asserts at most `16 × RECORD_SCRUB_MAX` regex characters, no call wider than twice the bound, regex reads no greater at 16 MiB than at 1 MiB (plus the bound), and at most 12 passes of `str` scans. **On `cce8f1af7`'s source** it fails for every shape at 16 MiB (hold 4, below: already at 1 MiB it read 2.1 to 4.2 million characters by regex against the 262,144 allowed, the reminder search and the header's match each reading the whole text, and on the margin shapes the substitution too).
+
+**Measured** (`tools/measure_cut_cost.py`, best of five CPU times, `time.process_time`, Python 3.14.7 with the GIL, one hold, load about 14 to 17 on the host's 18 cores):
+
+| shape | MiB | cut ms | cut / plain | cce8f1af7 cut ms | handler, message ms | handler, traceback ms | Python's formatting ms | traceback / plain |
+|---|---|---|---|---|---|---|---|---|
+| plain | 1 | 3.6 | 1.00 | 3.2 | 24.0 | 26.2 | 3.1 | 1.00 |
+| margin-only lines `  |\n` | 1 | 11.7 | 3.30 | 77.9 | 25.8 | 43.5 | 17.5 | 1.66 |
+| margin-only lines `  | \n` | 1 | 14.0 | 3.94 | 74.2 | 24.1 | 26.8 | 9.1 | 1.02 |
+| member lines `  | member line\n` | 1 | 4.7 | 1.32 | 14.0 | 33.4 | 26.0 | 5.3 | 0.99 |
+| leading spaces | 1 | 1.7 | 0.49 | 34.0 | 1.6 | 1.8 | 0.7 | 0.07 |
+| run of `<` | 1 | 2.2 | 0.63 | 23.7 | 8.1 | 11.5 | 4.2 | 0.44 |
+| raised exception group (its traceback) | 1 | 3.7 | 1.04 | 22.0 | nan | 24.7 | 5.6 | 0.94 |
+| plain | 4 | 8.6 | 1.00 | 10.3 | 17.6 | 28.7 | 11.5 | 1.00 |
+| margin-only lines `  |\n` | 4 | 44.2 | 5.14 | 315.3 | 57.0 | 127.2 | 48.5 | 4.43 |
+| margin-only lines `  | \n` | 4 | 45.1 | 5.24 | 270.8 | 49.3 | 124.3 | 41.1 | 4.33 |
+| member lines `  | member line\n` | 4 | 8.7 | 1.01 | 73.5 | 29.3 | 42.8 | 12.4 | 1.49 |
+| leading spaces | 4 | 7.9 | 0.92 | 115.2 | 6.6 | 12.8 | 2.6 | 0.44 |
+| run of `<` | 4 | 4.7 | 0.55 | 93.1 | 10.3 | 28.8 | 22.5 | 1.00 |
+| raised exception group (its traceback) | 4 | 13.9 | 1.62 | 54.8 | nan | 51.0 | 15.5 | 1.78 |
+| plain | 16 | 29.4 | 1.00 |  | 49.9 | 136.0 | 59.4 | 1.00 |
+| margin-only lines `  |\n` | 16 | 185.7 | 6.33 |  | 237.8 | 519.4 | 278.8 | 3.82 |
+| margin-only lines `  | \n` | 16 | 173.3 | 5.91 |  | 188.2 | 459.5 | 237.0 | 3.38 |
+| member lines `  | member line\n` | 16 | 49.1 | 1.67 |  | 51.6 | 141.1 | 77.3 | 1.04 |
+| leading spaces | 16 | 38.1 | 1.30 |  | 24.1 | 27.2 | 8.2 | 0.20 |
+| run of `<` | 16 | 12.6 | 0.43 |  | 20.3 | 98.0 | 74.6 | 0.72 |
+| raised exception group (its traceback) | 16 | 34.0 | 1.16 |  | nan | 126.0 | 75.8 | 0.93 |
+
+- **Linear on every shape, within the noise.** From 4 to 16 MiB the cuts grow 2.4 to 5.6 times (plain text 3.4). The largest step is the member lines' (8.7 to 49.1 ms). Reading the code for that shape, what it reads past the windows is the two `r>` scans, one `rfind` for a comma, the looks' copies and the 16 MiB `read` that blanking a window builds; the counting test shows 4.0 passes of the text at both sizes. So I read the step as the cost of touching a fresh 16 MiB copy, not as a pass that grows faster than the text.
+- **Against plain text of the same size** (`cut / plain`): member lines 1.01 to 1.67, leading spaces 0.49 to 1.30, the run of `<` 0.43 to 0.63, the raised exception group 1.04 to 1.62. Against round 4's cut: the margin-only lines 77.9 → 11.7 ms at 1 MiB and 315.3 → 44.2 ms at 4 MiB (review r3: 1,594 ms at 16 MiB, now 185.7), leading spaces 115.2 → 7.9 ms, the run of `<` 93.1 → 4.7 ms, the group 54.8 → 13.9 ms at 4 MiB.
+- **The one shape still well above plain text** is a run of lines holding only whitespace and margins: 3.3, 5.1 and 6.3 times plain text at 1, 4 and 16 MiB (11.7, 44.2, 185.7 ms), linear. Past a window, each of those lines' marks must be told from a `|` or `+` that is not one, and that takes about a dozen C scans over the run (`_margin_lines`), against plain text's two or three. C-25.7 states it as an accepted cost.
+- **The round-2 cost shapes** at 4 MiB, in hold 5 (load about 11 to 16): every cut 0.59 to 1.00 times plain text; for the blank lines after a key as a traceback, 210.7 ms of 4.4 MiB, Python's formatting is 205.4 of it.
+
+| shape | MiB | cut ms | cut / plain | cce8f1af7 cut ms | handler, message ms | handler, traceback ms | Python's formatting ms | traceback / plain |
+|---|---|---|---|---|---|---|---|---|
+| plain | 4 | 12.6 | 1.00 | 9.1 | 19.1 | 36.1 | 17.7 | 1.00 |
+| margin-only lines `  |\n` | 4 | 49.3 | 3.90 | 312.0 | 58.8 | 148.2 | 68.3 | 4.11 |
+| margin-only lines `  | \n` | 4 | 39.8 | 3.15 | 303.7 | 55.3 | 113.3 | 50.6 | 3.14 |
+| member lines `  | member line\n` | 4 | 8.5 | 0.67 | 64.7 | 27.7 | 53.6 | 14.6 | 1.49 |
+| leading spaces | 4 | 6.0 | 0.47 | 108.2 | 6.1 | 6.8 | 2.5 | 0.19 |
+| run of `<` | 4 | 4.1 | 0.33 | 62.8 | 9.1 | 25.7 | 13.5 | 0.71 |
+| round 2: head | 4 | 7.5 | 0.59 | 8.6 | 14.7 | 30.3 | 12.9 | 0.84 |
+| round 2: tail | 4 | 7.5 | 0.59 | 9.2 | 13.6 | 29.6 | 16.0 | 0.82 |
+| round 2: tail-eight-kinds | 4 | 9.0 | 0.72 | 10.9 | 14.8 | 32.4 | 12.6 | 0.90 |
+| round 2: quote-dense | 4 | 12.6 | 1.00 | 10.6 | 14.4 | 101.5 | 85.6 | 2.82 |
+| round 2: json-dense | 4 | 7.9 | 0.62 | 6.4 | 16.7 | 27.2 | 10.4 | 0.75 |
+| round 2: blank-lines-after-a-key | 4 | 11.8 | 0.94 | 13.5 | 19.4 | 210.7 | 205.4 | 5.84 |
+| round 2: blank-lines-after-bearer | 4 | 10.3 | 0.81 | 20.3 | 11.0 | 102.9 | 74.0 | 2.85 |
+| round 2: blank-lines-after-a-flag | 4 | 12.5 | 0.99 | 9.3 | 13.9 | 143.0 | 130.1 | 3.97 |
+| raised exception group (its traceback) | 4 | 7.1 | 0.56 | 66.1 | nan | 58.6 | 16.9 | 1.62 |
+
+- **The handler.** As a traceback, a record costs what Python's own formatting costs plus about 25 to 240 ms at 16 MiB; the group's 6.0 MB traceback in review r3 (234 to 317 ms there) is here 126 ms at 16 MiB of member text, 76 of it Python's formatting.
+
+**The differential.** `tests/reference_cut_cce8f1af7.py` is `cut_whole` as of `cce8f1af7`, with every function and constant it reaches, copied verbatim. The windowed cut's output equals it byte for byte on:
+
+- review r3's shapes and the round-2 cost shapes, at 4 KiB, 64 KiB and 1 MiB, at limits 400 and 16,384 (96 cases);
+- the rebuilt generator (`fuzz_text`) and the same with #231's 12 header shapes inserted (`header_fuzz_text`: the value before the key or not, the key bare, quoted or escape-quoted, its separator ending the key's line or starting the next, with either colon), 300 texts each in CI, three seeds;
+- the group generator (`MEMBERS`, `distinct_member`, `group_of`, the group's own 1,200 lines when `over`), as a Hypothesis property at limits 200 to 16,384;
+- a Hypothesis property built to differ: runs of up to 600 margin-only lines at depths one to three, near misses among them (an odd run, a tab, a second bar, a carriage return, a wide space), the cut rules' pieces with and without margins, leading whitespace and margins, reminder-like prefixes in each case the regex reads (`<sYstem-reminder>`, `ſ`, `ı`, `İ`, unterminated), CRLF, at limits 40 to 600 that put the windows' edges inside the runs.
+- And everywhere else the round's tests call `cut_whole`: the handler and sites tests' cuts are now the windowed cut's, and they pass (holds 1 and 2).
+
+**No input differs.** Besides the tests, direct runs outside pytest while building found no difference either: 3,000 `fuzz_text` texts, 6,000 texts of long margin runs and near misses at limits 40, 120 and 400, and 600,000 random small texts for the three C-scan predicates. I found no input that could not be made equal, so there is no list of differing inputs: every look past a window computes exactly what the reference's fully blanked text gives. `test_the_reading_s_looks_are_the_blanked_text_s` checks `before`, `after`, the leading header and the reminder test against `_last_visible`, `_run_end` and the two regexes on the fully blanked text, for any windows; `test_the_margin_scans_read_what_the_margin_regex_blanks` checks `_is_margin_mark`, `_margin_lines` and `_body_between` against the substitution, 2,000 examples.
+
+### 2. The clock assertions (P3-2)
+
+- **`TIME_BOUND_S`** (`test_daemon_log_handler.py`) is 1 s, the generous guard, at both its assertions: `test_a_four_mib_record_is_written_bounded_and_scrubbed_within_the_time_bound` and `test_a_short_line_waits_for_a_four_mib_record_no_longer_than_the_bound`. The counting tests carry the bound.
+- **The sweep.** Those were the only wall-clock assertions under 1 s this PR adds or changes. The others are `test_a_four_mib_record_of_a_cost_shape_is_written_within_a_second` (1 s) and `test_a_log_tail_is_its_file_scrubbed_whole_then_cut_to_its_lines` (10 s); the rest are timeouts.
+- **One more, found in hold 1.** `test_a_four_mib_record_of_a_cost_shape_is_written_within_a_second[blank-lines-after-a-key-traceback]` took 1.004 s at load about 55. That case is almost all Python's own formatting of a traceback of four million lines. It, and this round's guard for review r3's shapes, now take the better of two CPU times less Python's own `formatException` of the same traceback (`handler_cpu_beyond_formatting`), under 1 s.
+
+### 3. `daemon start`'s tail keeps its lines (P3-3)
+
+`daemon_log.scrubbed_tail(text, count)` is what a person reads of daemon.log. It cuts the file's text as the handler cuts a record (to `RECORD_SCRUB_MAX`, or for more lines than its tail holds to twice what they hold and the bound more), scrubs it in the block form with its lines kept, and keeps its last `count` lines. **Lines kept:** `scrubbed_block(..., keep_lines=True)` scrubs whole, folds and rescrubs as before; where folding finds more, it writes the block's lines with each whitespace-free run only where the folded rescrub shows it, else `[REDACTED]` (`_kept_block`), as `_group_block` does for margins, and a group's margin-free reading is kept the same way. So the tail is the file's last lines, and a value the folded rescrub hides stays hidden where it stands. On review r3's 60-line log, `_log_tail` gives its last 20 lines; with the flag among them, `[REDACTED] --lane codex-0` in place of the value's line. C-25.7's "that is the one folded line" is replaced.
+
+### 4. `daemon logs` is scrubbed (the reviewer's note)
+
+- **Without `--follow`:** the range is `scrubbed_tail(text, N)`, exactly as `daemon start`'s tail. No flag prints it raw; the file is there to read.
+- **With `--follow`:** the file is read once and followed from there, so no line falls between the read and the follow. `daemon_log.LogFollower` holds whole lines until a break after them is settled (`handoff.settled_end`): no match of the whole-text scrub could cross it, whatever is written next. That is `cut_whole`'s rules with nothing known past the text and no window: a break whose next visible character is not written yet is judged for `:` and for a token character (the two kinds `_neutral_break` and `_folds_to_value` read), so a line that ends in a credential flag, a key, its separator or `Bearer` waits; a value a quote may open stays open until its kind's next quote; a private key until its last line; a data URI until a character its body cannot hold; and nothing after a reminder tag settles. Settled lines are written by `scrubbed_block(..., keep_lines=True)`, each run only where the same lines scrubbed after up to 8,192 characters of what was already written (`FOLLOW_CONTEXT`) show it too; a margin's mark alone is kept. The file's own unsettled end, as following starts, is held the same way. ^C writes what is held.
+- **The residual limits** (C-25.7): held text past 16,384 characters (`FOLLOW_HOLD_MAX`) is written as it is, so the part of a quoted value, private key or data URI longer than that, or of text after a reminder tag, written before its end may show what its end would hide (`test_held_text_past_the_bound_is_written_as_it_is_documented_limitation`); a match that starts more than 8,192 characters before the lines being written is not seen; and a held line is written only when more is written or following stops.
+- **What the follower reads as following starts:** the file's last `FOLLOW_CONTEXT + FOLLOW_HOLD_MAX` characters (24 KiB), for the settled break.
+- **Cost:** scrubbing a range costs what the whole-text scrub of that much text costs, about 1.0 to 1.2 s a MiB (best of three CPU times, one hold):
+
+| range MiB | lines | `daemon logs` ms | ms per MiB |
+|---|---|---|---|
+| 1 | 13,443 | 1192 | 1192 |
+| 4 | 53,773 | 4003 | 1001 |
+| 16 | 215,092 | 17914 | 1120 |
+
+  The default 40 lines are a few KiB, so milliseconds.
+
+### 5. The rule table (the reviewer's gap)
+
+`_HEADER_RE` had one mid-text `Cookie:` example. `HEADER_EXAMPLES` adds #231's shape (`Cookie: a=…; session_token=` with its value on the next line, which the named-value rules take whole, folded or not), and `LEADING_HEADER_EXAMPLE` a header opening the text, whose next line only folding joins to it. The rule-table test checks that the mid-text examples do not fold, and that the leading one folds there and only there (`cut_whole`'s leading-header rule). The per-rule cut test runs all three at the head's end, the tail's start and the text's start, after every gap.
+
+### Invariants, round 5
+
+Invariant 10 is restated in place above. Each holds for every input and is executed by the tests named.
+
+18. **The windowed cut is the cut as of `cce8f1af7`.** For any text and limit, `cut_whole`'s output equals the reference's. Tests: the four `test_the_windowed_cut_is_the_reference_cut_*` tests.
+19. **The reading's looks are the blanked text's.** For any text and windows, `before`, `after`, the leading-header test and the reminder test give what `_last_visible`, `_run_end` and their regexes give on the text with every margin blanked; the C scans agree with `_MARGIN_MARK_RE` and the body class. Tests: `test_the_reading_s_looks_are_the_blanked_text_s`, `test_the_margin_scans_read_what_the_margin_regex_blanks`, `test_the_reminder_folds_are_every_character_the_tag_regex_takes_for_a_letter`.
+20. **What a person reads of daemon.log hides what the handler's forms hide.** For any log, the tail and what `--follow` writes, in any pieces, show no secret that the whole log's block with its lines kept hides; for a log with no credential-shaped record they are its raw lines. Tests: the four properties in `test_daemon_log_tail.py`.
+
+### Tests per file, round 5
+
+New or changed:
+
+- **`tests/unit/test_daemon_log_cut_windows.py`, 137 cases, new:**
+  - the counting test at 1 and 16 MiB, 16 shapes;
+  - the CPU guard for review r3's shapes at 4 MiB, message and traceback, 14 cases;
+  - the differential on the shapes at 4 KiB, 64 KiB and 1 MiB and two limits, 96 cases; on the two fuzz corpora, 3 seeds each; on the group generator; and the property where margins cross the windows;
+  - the C scans against the margin regex and the body class; the reading's looks against the blanked text; the reminder folds over every code point.
+- **`tests/unit/test_daemon_log_tail.py`, 16 cases, new:** review r3's 60-line tail and the same with the flag among the last 20 lines; `daemon logs` over an older daemon's raw lines; `daemon logs -f` over pieces written one at a time; the follower's six cases (a flag held until its value, a key written past the bound, a value open as following starts, ^C, a private key, a reminder and a data URI held until they end) and the documented limitation past the bound; four properties (the tail and following, never showing a secret the folded rescrub hides, and raw lines when nothing is credential-shaped).
+- **`tests/unit/test_daemon_log_handler.py`, 127 cases** (round 4: 125): `TIME_BOUND_S` 1 s; the round-3 cost guard in CPU beyond Python's formatting (`handler_cpu_beyond_formatting`); the rule table's `_HEADER_RE` examples, two more cases.
+- **`tests/unit/test_daemon_log_sites.py`, 82 cases:** the tail through `daemon start` and `_log_tail` keep their lines (six cases' expectations).
+- **`tests/reference_cut_cce8f1af7.py`:** the reference cut.
+- **`tools/measure_cut_cost.py`** and **`tools/daemon_log_cut_mutations.py`:** the measurement and the mutation sweep.
+
+### Runs, round 5
+
+All runs used a fresh `.venv` (`uv sync --locked --group dev`, Python 3.14.7 with the GIL), each in its own hold of the shared lock, in the foreground (the Bash tool moved each call to the background at its 600 s limit; I waited on it in the foreground with a bounded poll and started nothing else), as the venv's `python`, with no xdist, `PYTHONPATH` unset and `HYPOTHESIS_PROFILE=ci`. Each pytest ran in-process with a 19-minute alarm and JUnit XML for per-file counts. Lock waits were 20 to 45 minutes at load 30 to 110.
+
+| Hold | What | Result |
+|---|---|---|
+| m0 | the cost measurement, all sizes with the reference at 16 MiB too, at load 70 to 112 | stopped by me after 10 minutes: it had had 1 min 41 s of CPU, and could not have finished in the hold's 20. No table |
+| 1 | brief group 1 and the two new files, at `b219280b7` with `779e9ff13`'s change in the tree | 822 passed, 2 failed, 273 s: the round-3 cost guard at 1.004 s (§2), and a follower test whose premise `779e9ff13` changed. Both fixed in `21fe7cc82` |
+| 2 | brief groups 1 to 4 and the two new files, one pytest, at `21fe7cc82` (the code as committed since) | **1,477 passed**, 315 s: `test_daemon_log_handler` 127, `test_daemon_log_sites` 82, `test_daemon_log_scrubbing` 86, `test_round10_refusal_context` 59, `test_handler_refusals` 317, `test_daemon_log_cut_windows` 137, `test_daemon_log_tail` 16, `test_scrub_key_order` 70, `test_sessions_handoff` 117, `test_sessions_handoff_excerpts` 153, `test_cli` 222, `test_daemon_verbs` 20, `test_offline` 33, `tests/fake/test_state_contract` 37, `test_test_module_names` 1 |
+| 3 | `tools/measure_cut_cost.py` at 1, 4 and 16 MiB (the reference at 1 and 4), then `--logs` at 1, 4 and 16 MiB, load 14 to 17 | the tables in §1 and §4 |
+| 4 | the counting test and `test_daemon_log_tail.py` on `cce8f1af7`'s source (`git archive`, the new test files copied in, run there with this venv) | 32 failed of 32. The counting test, every shape, on the bound already at 1 MiB (§1); the four named tail and `daemon logs` regressions on their own assertions (one line instead of 20, `SECRET7` printed raw); the other 12 on functions `cce8f1af7` lacks |
+| 5 | `tools/daemon_log_cut_mutations.py`, then the measurement of the round-2 shapes at 4 MiB | below, and §1 |
+| 6 | the other files that import what this round changed, and `test_invariants_index` and `test_desktop_ledger` (the contract changed): 15 files, queued at 07:04, the last hold started | {H6} |
+
+### Mutations, round 5
+
+`tools/daemon_log_cut_mutations.py`, in hold 5: each fix put back in-process, the named tests called with fixtures the tool builds, the baseline as control.
+
+| Mutation | Named tests failed |
+|---|---|
+| baseline | none of 8 |
+| margins blanked over the whole text (`whole-margins`) | the counting test on all four shapes it runs (margin-only lines, the group, leading spaces, the run of `<`): the substitution read 1,048,576 characters at 1 MiB |
+| the leading header by round 4's backtracking regex (`backtracking-header`) | the counting test on margin-only lines and leading spaces (the regex read the whole text). On the group and the run of `<` the mutated match never runs: the cut asks for a leading header only when the head keeps nothing visible (`reading.after(0) >= head`), and both texts begin with a visible character |
+| the reminder by its regex over the whole text (`whole-reminder-search`) | the counting test on all four shapes |
+| the tail folded to one line (`folded-tail`) | `test_daemon_start_s_tail_keeps_its_last_twenty_lines`, `test_a_flag_s_value_in_the_tail_stays_hidden_with_the_lines_kept`, `test_daemon_logs_prints_an_older_daemon_s_raw_lines_scrubbed` |
+| `daemon logs` printing daemon.log raw (`raw-logs`) | `test_daemon_logs_prints_an_older_daemon_s_raw_lines_scrubbed`, `test_daemon_logs_follow_prints_new_lines_scrubbed`, each on `SECRET7` |
+
+"Drop the possessive quantifier" (the brief's wording) is `backtracking-header` here: the fix is not a possessive `\\s*+` but a bounded name match at the first visible character with a look past it, so putting the old regex back is the mutation.
+
+### Not run, round 5
+
+- **The whole suites.** Only the files of holds 1 and 2 ran: 15 files, 1,477 cases, of the 320-odd files of `tests/unit` and 106 of `tests/fake`. Lock waits ran 20 to 45 minutes a hold at load 30 to 110, and this job's wall left no room for the five or six 20-minute holds the two directories need. Unrun, and the first to run: the other files that import what this round changed (`test_conversation_handoff_briefs`, `test_conversation_redact`, `test_outcome_unknown`, `test_lockwatch`, `test_protocol_secrecy`, `test_sessions_cli`, `test_sessions_transcripts`, `test_suggestion_secret_properties`, `test_store_ids`, `test_suggestions_r1b_adversarial`, `tests/fake/test_daemon_launch`, `test_reset_credit_incident`, `test_sessions_end_to_end`), and `test_invariants_index` and `test_desktop_ledger`, which read the contract. The scrubber's own functions did not change; `_neutral_break` gained an optional parameter whose default is the old behaviour.
+- `tests/e2e`, `tests/frontend` and `tests/process`;
+- Python 3.12;
+- CI, since this job has no network.
+
+### Where this round departed from the brief
+
+- **One timing probe outside the lock.** Before the first hold, a 5-second script timed the C primitives the design needed (`str.lower`, `bytes.translate`, `str.replace` with many matches) outside the lock, at load about 4. Every measurement reported here ran under a hold.
+- **The first measurement hold was stopped** (m0 above) when it could not finish within 20 minutes; it was rerun smaller (the reference at 1 and 4 MiB only; review r3 measured it at 16 MiB) in hold 3.
+- **Hold 2 merged the brief's four groups into one pytest**, with many waiters on the lock; hold 5 ran the mutation sweep and a measurement one after the other, neither a pytest.
+- **Holds ran the venv's `python`**, not `uv run`, so a queued hold could not end on uv's cache lock.
+- **The whole suites did not run** (§ Not run).
+
+### Commits, round 5
+
+- `5824f8d87` Merge release/217 (#235 #236 #234 #226) into fix/daemon-log-scrub-217
+- `cc7f45cdb` test: the cut reads margins only where it looks, the tail keeps its lines, and daemon logs is scrubbed (#233 review r3)
+- `7beb6392d` fix: the daemon.log cut reads a group's margins only in its windows and where a look reaches (#233 review r3, P3-1)
+- `b219280b7` fix: daemon start's tail keeps its lines, and daemon logs is scrubbed, with and without --follow (#233 review r3)
+- `779e9ff13` fix: daemon logs --follow also holds the file's unsettled end as it starts, and keeps a margin's mark
+- `21fe7cc82` test: the 4 MiB clock guards count CPU beyond Python's own formatting; the follower's start and context cases
+- `9d799c252` docs: C-25.7 states the cut's cost as a measured ratio to plain text, the tail's kept lines, and daemon logs scrubbed (#233 review r3)
+- `68b11ebfe` tools: put round 5's fixes back one at a time and see which named test fails (#233 review r3)
+- this report's round 5
+
+The commits are on this worktree's detached HEAD, as in round 4: Subfleet keeps them under `refs/subfleet-salvage/`. Nothing is pushed.
