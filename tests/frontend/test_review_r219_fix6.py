@@ -1,4 +1,5 @@
 """Review r3's four executed failures, through the real engine and conversation view."""
+import json
 from pathlib import Path
 
 import pytest
@@ -72,7 +73,17 @@ def fix6_view(tmp_path_factory):
     root = tmp_path_factory.mktemp("fix6-view")
     binary = compile_probe(root / "probe", ROOT / "tests/frontend/ReviewR219Fix6ViewProbe.swift",
                            "SUBFLEET_VIEW_TEST", timeout=900)
-    return run_probe(binary, root, timeout=90)
+    result = run_probe(binary, root, timeout=90)
+    write_json(root / "result.json", result)
+    return result
+
+
+def search_diagnostics(search):
+    """Keep the cause and stage counts visible in pytest's concise CI output."""
+    keys = ("failure_cause", "reveal_set", "tray_saw_reveal", "model_tray_rows", "laid_out_rows",
+            "before", "after", "before_identifiers", "after_identifiers", "finder",
+            "deadline_seconds", "elapsed_seconds", "reveal_consumed", "target_visible", "revealed_id")
+    return json.dumps({key: search.get(key) for key in keys}, separators=(",", ":"))
 
 
 def test_c27_5_row_reveal_survives_history_while_catching_up(fix6_view):
@@ -86,18 +97,20 @@ def test_c27_5_row_reveal_survives_history_while_catching_up(fix6_view):
 
 def test_c29_12_search_expands_and_reveals_the_sixth_held_message(fix6_view):
     search = fix6_view["search"]
-    assert search["failure_cause"] == "none", search
-    assert search["reveal_set"] and search["tray_saw_reveal"] and search["reveal_consumed"], search
-    assert search["laid_out_rows"] == 6 and not search["timed_out"], search
-    assert search["target"] == "person:queued5"
-    assert search["after"] > search["before"], search
-    assert search["before"] == 3, search
-    assert search["revealed_id"] == "queued5", search
-    assert search["target_visible"], search
+    detail = search_diagnostics(search)
+    assert search["failure_cause"] == "none", detail
+    assert search["reveal_set"] and search["tray_saw_reveal"] and search["reveal_consumed"], detail
+    assert search["laid_out_rows"] == 6 and not search["timed_out"], detail
+    assert search["target"] == "person:queued5", detail
+    assert search["after"] > search["before"], detail
+    assert search["before"] == 3, detail
+    assert search["revealed_id"] == "queued5", detail
+    assert search["target_visible"], detail
 
 
 def test_c29_12_withdraw_controls_are_found_by_row_identifier(fix6_view):
     search = fix6_view["search"]
-    assert search["before_identifiers"] == 3, search
-    assert search["after_identifiers"] == 6, search
-    assert search["finder"] == "identifier", search
+    detail = search_diagnostics(search)
+    assert search["before_identifiers"] == 3, detail
+    assert search["after_identifiers"] == 6, detail
+    assert search["finder"] == "identifier", detail
