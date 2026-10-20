@@ -684,8 +684,9 @@ struct PaletteSearchField: NSViewRepresentable {
 extension View {
     /// The conversation's column: its widest grows with the text (C-29.13), and
     /// it scrolls to the message a search result matched (C-29.12).
-    func conversationColumn(_ conversationID: String, proxy: ScrollViewProxy) -> some View {
-        readingColumn().background(SearchRevealer(conversationID: conversationID, proxy: proxy))
+    func conversationColumn(_ conversationID: String, proxy: ScrollViewProxy, revealIDs: Set<String>? = nil) -> some View {
+        readingColumn().background(SearchRevealer(conversationID: conversationID, proxy: proxy,
+            prepare: { revealIDs?.contains($0) ?? true }))
     }
 }
 
@@ -695,10 +696,12 @@ struct SearchRevealer: View {
     @Environment(\.searchPalette) private var palette
     let conversationID: String
     let proxy: ScrollViewProxy
+    /// Expand a matching container before attempting its row scroll.
+    var prepare: (String) -> Bool = { _ in true }
 
     var body: some View {
         if let palette {
-            Follower(palette: palette, conversationID: conversationID, proxy: proxy)
+            Follower(palette: palette, conversationID: conversationID, proxy: proxy, prepare: prepare)
         }
     }
 
@@ -706,6 +709,7 @@ struct SearchRevealer: View {
         @ObservedObject var palette: SearchPaletteModel
         let conversationID: String
         let proxy: ScrollViewProxy
+        let prepare: (String) -> Bool
 
         struct Key: Equatable {
             var reveal: SearchReveal?
@@ -715,7 +719,8 @@ struct SearchRevealer: View {
         var body: some View {
             Theme.clear.accessibilityHidden(true)
                 .task(id: Key(reveal: palette.reveal, conversationID: conversationID)) {
-                    guard let reveal = palette.reveal, reveal.conversationID == conversationID else { return }
+                    guard let reveal = palette.reveal, reveal.conversationID == conversationID,
+                          prepare(reveal.itemID) else { return }
                     // After the switch's own scroll to the end, and again once the
                     // history page that opening reads may have moved the rows.
                     for delay: UInt64 in [250_000_000, 550_000_000] {

@@ -367,7 +367,8 @@ struct ConversationView: View {
                     }
                     .padding(Theme.space.column)
                     .background(ConversationOpeningPin(conversationID: conversation.conversation_id))
-                    .conversationColumn(conversation.conversation_id, proxy: proxy)
+                    .conversationColumn(conversation.conversation_id, proxy: proxy,
+                                        revealIDs: Set(layout?.items.map(\.id) ?? []))
                     .frame(maxWidth: .infinity)
                 }
                 .initialConversationScrollAnchor()
@@ -417,7 +418,8 @@ struct ConversationView: View {
             if let layout, let title = layout.trayTitle {
                 QueueTray(title: title, rows: layout.tray, withdrawing: model.withdrawingMessages,
                           withdraw: { model.withdrawQueued($0, conversationID: conversation.conversation_id) },
-                          steer: { model.steer(messageID: $0.id, conversationID: conversation.conversation_id) })
+                          steer: { model.steer(messageID: $0.id, conversationID: conversation.conversation_id) },
+                          conversationID: conversation.conversation_id)
                     .padding(.horizontal, 14).padding(.top, 6)
             }
             ComposerView(model: model, conversation: conversation)

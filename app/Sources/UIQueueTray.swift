@@ -18,9 +18,24 @@ struct QueueTray: View {
     /// An optional seam for a future send notice, attached to its owning message.
     /// Keep its model/actions owned by that stack; attach its existing view by id.
     var notice: ((String) -> AnyView?)? = nil
+    var conversationID: String? = nil
     @State private var expanded = false
 
     var body: some View {
+        ScrollViewReader { proxy in
+            content.background {
+                if let conversationID {
+                    SearchRevealer(conversationID: conversationID, proxy: proxy, prepare: { itemID in
+                        guard rows.contains(where: { "person:" + $0.id == itemID }) else { return false }
+                        expanded = true
+                        return true
+                    })
+                }
+            }
+        }
+    }
+
+    private var content: some View {
         let visible = queueTrayVisible(count: rows.count, expanded: expanded)
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
@@ -56,6 +71,7 @@ struct QueueTray: View {
             ForEach(shown) { row in
                 QueueTrayRow(row: row, busy: withdrawing.contains(row.id), withdraw: { withdraw(row) },
                              steer: steer.map { steer in { steer(row) } }, notice: notice?(row.id))
+                    .id("person:" + row.id)
             }
         }
     }
