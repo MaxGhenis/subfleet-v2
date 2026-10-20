@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 import pytest
 
@@ -19,6 +20,13 @@ from tests.unit.test_daemon_settle import daemon  # noqa: F401
 
 pytestmark = [pytest.mark.skipif(sys.platform != "darwin", reason="macOS in-process cwd read"),
               pytest.mark.real_cwd]
+
+
+@pytest.fixture
+def tmp_path():
+    """Place these owned trees physically below /private/tmp for alias coverage."""
+    with tempfile.TemporaryDirectory(prefix="sf-kill3-cwd-", dir="/tmp") as directory:
+        yield Path(directory).resolve()
 
 
 @contextmanager
@@ -45,30 +53,23 @@ def observer(folder):
 def test_d_kill3_retention_holds_an_owned_worktree_and_names_only_the_pid(owned, monkeypatch, spelling):
     store, root, _, worktree = owned
     if spelling == "tmp-alias":
-        # tmp_path may live in DARWIN_USER_TEMP_DIR: create an explicit alias
-        # of its tree below /tmp, so resolution still crosses /private/tmp.
-        alias = Path("/tmp") / ("sf-kill3-alias-" + str(os.getpid()))
-        alias.symlink_to(root, target_is_directory=True)
-        recorded = alias / "worktrees" / "job"
+        recorded = Path("/tmp") / worktree.relative_to("/private/tmp")
+        assert str(recorded) != str(worktree)
     else:
-        alias, recorded = None, worktree
-    try:
-        store.update_job("job", worktree=str(recorded))
-        nested = worktree / "nested"
-        nested.mkdir()
-        with observer(nested) as child:
-            monkeypatch.setattr(procs.kernel, "pids", lambda: frozenset({child.pid}))
-            result = retention.maintenance(store, root, max_jobs=0, holders=lambda *a, **k: {})
-            assert result["pruned"] == []
-            assert worktree.exists() and store.get_job("job") is not None
-            reason = result["deferred"]["job"]
-            assert f"pid {child.pid}" in reason and "cwd in worktree" in reason
-            assert sys.executable not in reason and "time.sleep" not in reason
+        recorded = worktree
+    store.update_job("job", worktree=str(recorded))
+    nested = worktree / "nested"
+    nested.mkdir()
+    with observer(nested) as child:
+        monkeypatch.setattr(procs.kernel, "pids", lambda: frozenset({child.pid}))
         result = retention.maintenance(store, root, max_jobs=0, holders=lambda *a, **k: {})
-        assert result["pruned"] == ["job"]
-    finally:
-        if alias is not None:
-            alias.unlink(missing_ok=True)
+        assert result["pruned"] == []
+        assert worktree.exists() and store.get_job("job") is not None
+        reason = result["deferred"]["job"]
+        assert f"pid {child.pid}" in reason and "cwd in worktree" in reason
+        assert sys.executable not in reason and "time.sleep" not in reason
+    result = retention.maintenance(store, root, max_jobs=0, holders=lambda *a, **k: {})
+    assert result["pruned"] == ["job"]
 
 
 def test_d_kill3_retention_does_not_hold_an_in_place_workdir_for_cwd(owned, monkeypatch):
