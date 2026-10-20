@@ -7,6 +7,7 @@ The companion self_exit_daemon file runs the shell/lockf shape on a permitted ho
 
 import json
 import signal
+from types import SimpleNamespace
 
 import pytest
 
@@ -47,6 +48,12 @@ def test_d_kill3_an_inspected_hidden_runner_quarantines_after_provider_exit(daem
         publish_receipt(daemon)
 
     if ending == "stopped-turn":
+        from subfleet.conversations.classify import TurnAdapter
+        daemon.store.update_job(JOB, kind="turn")
+        daemon.conversations = SimpleNamespace(
+            adapter=lambda provider: TurnAdapter(provider),
+            release_socket=lambda aid: pytest.fail("uncontained stopped turn released its relay"),
+        )
         signals = []
         interrupt_at_ten_seconds(4243, lambda pid, sig: (signals.append((pid, sig)), provider_ends()))
         assert signals == [(4243, signal.SIGINT)]
