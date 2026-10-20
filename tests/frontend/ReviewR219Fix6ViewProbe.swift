@@ -117,23 +117,35 @@ func conversation(_ cid: String, held: Bool = false) -> Conversation {
                             defaults: Fix6Defaults(), state: state)
         let palette = SearchPaletteModel()
         palette.model = model
-        let (host, window) = mount(ConversationView(model: model, conversation: cv).environment(\.searchPalette, palette))
-        // Compare with the real Withdraw control's width: macOS 26 hides its AX label offscreen.
-        let (reference, referenceWindow) = mount(Button("Withdraw") {}.buttonStyle(.link).readingFont(.caption))
-        let width = reference.fittingSize.width
-        // Tray Withdraw controls form the rightmost column; two unrelated
-        // conversation controls happen to have the same width on macOS 26.
-        let rowX = descendants(host).compactMap { $0 as? NSButton }
-            .filter { abs($0.frame.width - width) < 1 }
-            .map { $0.convert($0.bounds, to: host).minX }.max()!
+        var trayLayouts: [QueueTrayRowLayout] = []
+        let (host, window) = mount(ConversationView(model: model, conversation: cv)
+            .environment(\.searchPalette, palette)
+            .onPreferenceChange(QueueTrayRowLayoutKey.self) { trayLayouts += $0 })
         func identifiedWithdraws() -> [NSButton] {
             descendants(host).compactMap { $0 as? NSButton }.filter {
-                ($0.accessibilityIdentifier() ?? "").hasPrefix("queue-tray-withdraw-")
+                $0.accessibilityIdentifier().hasPrefix("queue-tray-withdraw-")
             }
+        }
+        // Geometry is a legacy fallback only; identifiers need no widths or positions.
+        let referenceWindow: NSWindow?
+        let width: CGFloat
+        let rowX: CGFloat?
+        if identifiedWithdraws().isEmpty {
+            let (reference, window) = mount(Button("Withdraw") {}.buttonStyle(.link).readingFont(.caption))
+            referenceWindow = window
+            width = reference.fittingSize.width
+            rowX = descendants(host).compactMap { $0 as? NSButton }
+                .filter { abs($0.frame.width - width) < 1 }
+                .map { $0.convert($0.bounds, to: host).minX }.max()
+        } else {
+            referenceWindow = nil
+            width = 0
+            rowX = nil
         }
         func withdraws() -> [NSButton] {
             let identified = identifiedWithdraws()
             if !identified.isEmpty { return identified }
+            guard let rowX else { return [] }
             return descendants(host).compactMap { $0 as? NSButton }.filter {
                 abs($0.frame.width - width) < 1 && abs($0.convert($0.bounds, to: host).minX - rowX) < 0.5
             }
@@ -147,7 +159,8 @@ func conversation(_ cid: String, held: Bool = false) -> Conversation {
         let started = Date()
         let deadlineSeconds = 10.0
         let deadline = started.addingTimeInterval(deadlineSeconds)
-        while withdraws().count < 6 && Date() < deadline {
+        func laidOutCount() -> Int { trayLayouts.last?.rowIDs.count ?? 0 }
+        while (laidOutCount() < 6 || withdraws().count < 6) && Date() < deadline {
             settle(host, seconds: 0.02)
         }
         let buttons = withdraws()
@@ -156,7 +169,7 @@ func conversation(_ cid: String, held: Bool = false) -> Conversation {
         func targetButton() -> NSButton? {
             identifiedWithdraws().first { $0.accessibilityIdentifier() == "queue-tray-withdraw-queued5" }
         }
-        while targetButton()?.visibleRect.isEmpty != false && Date() < deadline {
+        while (targetButton()?.visibleRect.isEmpty != false || palette.reveal != nil) && Date() < deadline {
             settle(host, seconds: 0.02)
         }
         let last = targetButton() ?? buttons.sorted {
@@ -164,6 +177,19 @@ func conversation(_ cid: String, held: Bool = false) -> Conversation {
             return host.isFlipped ? a < b : a > b
         }.last
         let targetVisible = last.map { !$0.visibleRect.isEmpty } ?? false
+        let traySawReveal = trayLayouts.contains { $0.reveal?.itemID == target }
+        let laidOutRows = laidOutCount()
+        let identifierCount = identifiedWithdraws().count
+        let revealConsumed = palette.reveal == nil
+        let elapsed = Date().timeIntervalSince(started)
+        let failureCause: String
+        if !revealSet { failureCause = "palette did not set reveal" }
+        else if !traySawReveal { failureCause = "tray did not observe reveal" }
+        else if laidOutRows < 6 { failureCause = "tray laid out fewer than six rows" }
+        else if identifierCount != 6 { failureCause = "Withdraw identifiers missing from laid-out rows" }
+        else if !revealConsumed { failureCause = "row scroll did not consume reveal before deadline" }
+        else if !targetVisible { failureCause = "matched row remains outside the visible rect" }
+        else { failureCause = "none" }
         last?.performClick(nil)
         for _ in 0..<100 {
             if client.cancelledID != nil { break }
@@ -173,19 +199,24 @@ func conversation(_ cid: String, held: Bool = false) -> Conversation {
                                     "revealed_id": client.cancelledID as Any? ?? NSNull(),
                                     "reference_width": width,
                                     "reveal_set": revealSet,
+                                    "tray_saw_reveal": traySawReveal,
+                                    "laid_out_rows": laidOutRows,
+                                    "reveal_consumed": revealConsumed,
+                                    "timed_out": failureCause != "none" && elapsed >= deadlineSeconds,
+                                    "failure_cause": failureCause,
                                     "deadline_seconds": deadlineSeconds,
-                                    "elapsed_seconds": Date().timeIntervalSince(started),
+                                    "elapsed_seconds": elapsed,
                                     "expanded_after_seconds": expandedAfter,
                                     "model_tray_rows": model.state.layout(conversationID: "search")!.tray.count,
                                     "before_identifiers": beforeIdentifiers,
-                                    "after_identifiers": identifiedWithdraws().count,
-                                    "finder": identifiedWithdraws().isEmpty ? "geometry-fallback" : "identifier",
+                                    "after_identifiers": identifierCount,
+                                    "finder": identifierCount == 0 ? "geometry-fallback" : "identifier",
                                     "buttons": descendants(host).compactMap { $0 as? NSButton }.map {
-                                        ["title": $0.title, "width": $0.frame.width,
+                                        ["id": $0.accessibilityIdentifier(), "title": $0.title, "width": $0.frame.width,
                                          "x": $0.convert($0.bounds, to: host).minX] as [String: Any]
                                     },
                                     "target_visible": targetVisible]
-        referenceWindow.close()
+        referenceWindow?.close()
         window.close()
         let output: [String: Any] = ["scrolls": scrolls, "search": search,
                                    "visible_windows": NSApp.windows.filter(\.isVisible).count]

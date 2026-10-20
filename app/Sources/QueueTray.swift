@@ -286,6 +286,25 @@ func queueTrayVisible(count: Int, expanded: Bool, limit: Int = 4) -> (shown: Int
     return (shown, count - shown)
 }
 
+/// Search visibility is a projection of state, independent of view lifecycle.
+/// A reveal for another conversation or outside this tray leaves it collapsed.
+struct QueueTrayPresentation {
+    let revealTargetsTray: Bool
+    let expanded: Bool
+    let rows: [QueuedMessage]
+    let hidden: Int
+
+    init(rows: [QueuedMessage], expanded: Bool, conversationID: String?, reveal: SearchReveal?, limit: Int = 4) {
+        revealTargetsTray = reveal.map { request in
+            request.conversationID == conversationID && rows.contains { "person:" + $0.id == request.itemID }
+        } ?? false
+        self.expanded = expanded || revealTargetsTray
+        let visible = queueTrayVisible(count: rows.count, expanded: self.expanded, limit: limit)
+        self.rows = Array(rows.prefix(visible.shown))
+        hidden = visible.hidden
+    }
+}
+
 
 /// The label shared by queued-row controls and the engine's state projection.
 func stopLabel(_ action: StopAction) -> String? {

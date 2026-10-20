@@ -121,6 +121,20 @@ func runQueueWords(_ data: Data) throws -> [String: Any] {
             as Any? ?? NSNull()
     }
     let visible = (input["visible"]?.array ?? []).map { value -> [Int] in
+        if let values = value["rows"]?.array {
+            let rows = values.map { row in
+                QueuedMessage(id: row["id"]!.string!, preview: "", text: nil, attachments: 0,
+                              sending: false, status: nil, withdraw: .none)
+            }
+            let reveal = value["reveal"].flatMap { request -> SearchReveal? in
+                guard let cid = request["conversation_id"]?.string, let item = request["item_id"]?.string else { return nil }
+                return SearchReveal(conversationID: cid, itemID: item)
+            }
+            let presentation = QueueTrayPresentation(rows: rows, expanded: value["expanded"]?.bool == true,
+                conversationID: value["conversation_id"]?.string, reveal: reveal,
+                limit: Int(value["limit"]?.double ?? 4))
+            return [presentation.rows.count, presentation.hidden]
+        }
         let shown = queueTrayVisible(count: Int(value["count"]?.double ?? 0), expanded: value["expanded"]?.bool == true,
                                      limit: Int(value["limit"]?.double ?? 4))
         return [shown.shown, shown.hidden]

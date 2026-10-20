@@ -4,6 +4,21 @@
 import AppKit
 import SwiftUI
 
+/// Emitted from the laid-out row stack. Both the revealer and offscreen probes
+/// can distinguish observing a request from actually laying out its rows.
+struct QueueTrayRowLayout: Equatable {
+    var conversationID: String?
+    var reveal: SearchReveal?
+    var rowIDs: [String]
+}
+
+struct QueueTrayRowLayoutKey: PreferenceKey {
+    static let defaultValue: [QueueTrayRowLayout] = []
+    static func reduce(value: inout [QueueTrayRowLayout], nextValue: () -> [QueueTrayRowLayout]) {
+        value += nextValue()
+    }
+}
+
 /// The messages waiting their turn, in the order the daemon sends them, each
 /// with Withdraw. Values and closures only, so a probe can host it.
 struct QueueTray: View {
@@ -20,45 +35,54 @@ struct QueueTray: View {
     var notice: ((String) -> AnyView?)? = nil
     var conversationID: String? = nil
     @State private var expanded = false
+    @State private var laidOutIDs: Set<String> = []
 
     var body: some View {
-        ScrollViewReader { proxy in
-            content.background {
-                if let conversationID {
-                    SearchRevealer(conversationID: conversationID, proxy: proxy, prepare: { itemID in
-                        guard rows.contains(where: { "person:" + $0.id == itemID }) else { return false }
-                        expanded = true
-                        return true
-                    })
-                }
+        SearchRevealReader { reveal in
+            let presentation = QueueTrayPresentation(rows: rows, expanded: expanded,
+                conversationID: conversationID, reveal: reveal)
+            ScrollViewReader { proxy in
+                content(presentation, reveal: reveal)
+                    .onPreferenceChange(QueueTrayRowLayoutKey.self) { layouts in
+                        laidOutIDs = Set(layouts.flatMap(\.rowIDs))
+                    }
+                    .background {
+                        if let conversationID {
+                            SearchRevealer(conversationID: conversationID, proxy: proxy, revealIDs: laidOutIDs)
+                        }
+                    }
+                    .onChange(of: presentation.revealTargetsTray, initial: true) { _, targetsTray in
+                        // Keep the tray open after the revealer consumes its request.
+                        // The projection above already includes every row this pass.
+                        if targetsTray { expanded = true }
+                    }
             }
         }
     }
 
-    private var content: some View {
-        let visible = queueTrayVisible(count: rows.count, expanded: expanded)
-        return VStack(alignment: .leading, spacing: 6) {
+    private func content(_ presentation: QueueTrayPresentation, reveal: SearchReveal?) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Image(systemName: "tray.full").readingFont(.caption).foregroundStyle(.secondary)
                 Text(title).readingFont(.caption).foregroundStyle(.secondary).lineLimit(1)
                 Spacer(minLength: 4)
-                if expanded && visible.shown > queueTrayVisible(count: rows.count, expanded: false).shown {
+                if presentation.expanded && presentation.rows.count > queueTrayVisible(count: rows.count, expanded: false).shown {
                     Button("Show fewer") { expanded = false }.buttonStyle(.link).readingFont(.caption)
                 }
             }
-            if expanded {
+            if presentation.expanded {
                 // A long queue scrolls inside the tray rather than pushing the timeline away.
                 ViewThatFits(in: .vertical) {
-                    list(rows)
-                    ScrollView { list(rows) }.frame(height: 200)
+                    list(presentation.rows, reveal: reveal)
+                    ScrollView { list(presentation.rows, reveal: reveal) }.frame(height: 200)
                 }
                 .frame(maxHeight: 200)
                 .fixedSize(horizontal: false, vertical: true)
             } else {
-                list(Array(rows.prefix(visible.shown)))
+                list(presentation.rows, reveal: reveal)
             }
-            if visible.hidden > 0 {
-                Button("Show \(visible.hidden) more") { expanded = true }.buttonStyle(.link).readingFont(.caption)
+            if presentation.hidden > 0 {
+                Button("Show \(presentation.hidden) more") { expanded = true }.buttonStyle(.link).readingFont(.caption)
                     .help("Show every queued message")
             }
         }
@@ -66,7 +90,7 @@ struct QueueTray: View {
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.08)))
     }
 
-    private func list(_ shown: [QueuedMessage]) -> some View {
+    private func list(_ shown: [QueuedMessage], reveal: SearchReveal?) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             ForEach(shown) { row in
                 QueueTrayRow(row: row, busy: withdrawing.contains(row.id), withdraw: { withdraw(row) },
@@ -74,6 +98,10 @@ struct QueueTray: View {
                     .id("person:" + row.id)
             }
         }
+        .background(GeometryReader { _ in
+            Theme.clear.preference(key: QueueTrayRowLayoutKey.self, value: [QueueTrayRowLayout(
+                conversationID: conversationID, reveal: reveal, rowIDs: shown.map { "person:" + $0.id })])
+        })
     }
 }
 
@@ -111,6 +139,7 @@ struct QueueTrayRow: View {
                 Button("Withdraw", action: withdraw).buttonStyle(.link).readingFont(.caption)
                     .help("Withdraw this message; it is not sent")
                     .accessibilityLabel("Withdraw: " + row.preview)
+                    .accessibilityIdentifier("queue-tray-withdraw-" + row.id)
             }
         }
     }
