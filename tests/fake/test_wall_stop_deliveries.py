@@ -3,7 +3,6 @@
 Real relay application, synthetic child, no process signals or runner threads.
 """
 from datetime import timedelta
-from dataclasses import replace
 import json
 import os
 import signal
@@ -13,14 +12,13 @@ import pytest
 from hypothesis import HealthCheck, Phase, given, settings, strategies as st
 
 from subfleet import daemon as dm
-from subfleet.conversations.claude_turn import ClaudeTurn
-from subfleet.conversations.codex_turn import CodexTurn
 from subfleet.conversations.runner import Clocks, TurnRunner
 from subfleet.conversations.turn import Frame, TurnSpec
 from subfleet.relay import Ack, RelayClient, RelayError, RelayServer, frame_sha256
 from tests.fake.test_review_r223_wall_probes import clocked  # noqa: F401
 from tests.fake.test_state_contract import reserve, state_daemon  # noqa: F401
 from tests.fake.test_wall_cancel_races import setup_running, publish
+from tests.wall_delivery import approval_reply
 
 
 @pytest.fixture
@@ -87,24 +85,6 @@ def stop_events(service, aid):
 def transmit(runner, frame):
     runner.outbox.append(frame)
     assert runner._transmit(frame)
-
-
-def approval_reply(runner, provider, decision):
-    """Build the provider's actual reply, with an active turn and no queued steers."""
-    runner.spec = replace(runner.spec, provider=provider)
-    if provider == "claude":
-        runner.driver = ClaudeTurn(runner.spec, read_bytes=lambda image: b"")
-        runner.driver.phase = "sent"
-        runner.driver.pending["wall-approval"] = {"tool_name": "Bash", "tool_use_id": "tool-1"}
-        step = runner.driver.respond("wall-approval", decision, answers={"Branch?": "dev"})
-    else:
-        runner.driver = CodexTurn(runner.spec)
-        runner.driver.thread_id, runner.driver.turn_id, runner.driver.phase = "thread-1", "turn-1", "running"
-        method = "item/permissions/requestApproval" if decision == "allow-turn" else "item/commandExecution/requestApproval"
-        runner.driver.pending["wall-approval"] = (method, {"permissions": {"network": {"enabled": True}}})
-        step = runner.driver.respond("wall-approval", decision)
-    [frame] = step.frames
-    return frame
 
 
 @pytest.mark.parametrize("provider", ["claude", "codex"])

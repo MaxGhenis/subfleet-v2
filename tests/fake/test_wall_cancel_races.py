@@ -9,6 +9,7 @@ from subfleet import daemon as daemon_module, procs, protocol
 from subfleet.offline import Offline
 from tests.fake.test_review_r223_wall_probes import clocked, cancel_events, mark_starting  # noqa: F401
 from tests.fake.test_state_contract import reserve, state_daemon  # noqa: F401
+from tests.wall_delivery import approval_reply
 
 CLIENT = {"by": "client", "session_id": "operator-session", "pid": 424242, "reason": "stop it"}
 
@@ -241,7 +242,6 @@ def test_wall_interleaving_property(clocked, monkeypatch, exit_stage, client_sta
                 from types import SimpleNamespace
                 from subfleet.conversations.turn import Frame, TurnSpec
                 from subfleet.relay import RelayServer, frame_sha256
-                from tests.fake.test_wall_stop_deliveries import approval_reply
                 if isinstance(relay_stop, tuple):
                     provider, decision = relay_stop
                     spec = TurnSpec(provider=provider, message_id="property", text="hi", model_id="gpt-6-astra",
