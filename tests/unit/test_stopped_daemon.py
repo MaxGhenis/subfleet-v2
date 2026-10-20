@@ -499,15 +499,15 @@ def test_a_verb_with_no_offline_mode_prints_the_diagnosis_not_daemon_start(
 START = "Sun Sep 20 23:26:42 2026"
 
 
-def test_fake_stopped_holder_returns_69_before_timeout(root, monkeypatch, capsys):
+def test_fake_stopped_holder_returns_69_before_timeout(root, monkeypatch, capsys, holder_clock):
     """C-5.13 fake ps T must refuse the CLI call before touching its socket."""
     (root / "daemon.lock").write_text(json.dumps({"pid": 12345, "proc_start": START}))
     monkeypatch.setattr(client_module, "_run", lambda *a, **k: (0, "T+ " + START))
     monkeypatch.setattr(client_module, "DEFAULT_TIMEOUT_S", 0.2)
-    with backlog(root):
-        started = time.monotonic()
+    with backlog(root) as queued:
         assert cli.main(["lanes"]) == int(Exit.DAEMON_UNAVAILABLE)
-        assert time.monotonic() - started < 0.15
+        assert queued() == 0
+        assert holder_clock.now == 0.0
     error = capsys.readouterr().err
     assert "is stopped" in error and "kill -CONT 12345" in error
 

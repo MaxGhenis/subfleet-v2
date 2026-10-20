@@ -672,7 +672,7 @@ propagation; production checks are retained. The full rerun is pending below.
    no-response reason, the "before sending" reason, and exactly one wire send.
 2. Shared ceiling: a real socket replies busy, then its listener closes while
    its path remains. With `timeout=2`, two diagnoses each request a 1.6 s boot
-   read plus 5 s ps; all work ends at 7.0 s (within the review's 7.006 s bound).
+   read plus 5 s ps; all work ends at 7.0 s on the deterministic observation clock (within the review's 7.006 s bound).
    Separate coverage rejects successful ps output observed after its absolute
    observation deadline. The terminal-hook tests now spend the full lookup
    allowance and assert that pending gets exactly half the delivery time,
@@ -748,3 +748,17 @@ It now retains the default verifying policy so that existing liveness
 assertion remains meaningful; actual opted-out clients keep their C-15.6
 no-inspection behavior. The combined final briefed-file hold rechecks this
 fixture, all six required files, the client/CI cases and state/name checks.
+
+The final combined briefed-file hold produced **502 passed, 6 skipped,
+1 failed** in 522.54 s (8m42s, within the hold bound). All reported CI
+regressions, the descriptor fixture correction, state contract (37), module
+names (1), and the new expired-slot case passed. The one failure was the
+PR's older fake-stop test's total CLI wall-time assertion: .239 s exceeded
+its .15 s threshold even though it returned 69 and printed the correct
+continue repair. C-5.13 bounds request/probe work and explicitly excludes
+OS scheduling; CLI setup is outside the request deadline too. The test now
+asserts the stronger intended invariant directly: no connection entered the
+backlog and the controlled request clock spent zero time, retaining the
+.2 s request timeout and the exact status/diagnostic assertions. This is a
+test correction to C-5.13, not a production timing change. Its targeted rerun
+is included as an unmutated case in the single mutation hold.
