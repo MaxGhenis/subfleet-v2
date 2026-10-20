@@ -1342,6 +1342,8 @@ No sentence that one side removed came back, and none that both sides kept was d
 - release's daemon hunks are D-ADM3's predecessor recheck in the admission pass and D-KILL2's `counted_identities` in the census; neither touches a launch, the guard override or the connection path;
 - release's handoff test hunks are the CPU-scaling ratio constant and its docstring, which don't overlap this branch's sandbox tests.
 
+`94e011600`'s message says "the request pool this branch changes". That is a slip: this branch changes no request pool, reader or dispatch path (CI item 2 below).
+
 This branch shares no other non-test file with release's changes since `16b24033a` (`credentials.py`, `relay.py`, the CI workflow, `tools/`). Release's C-20.6 change to the test exec guard (#226) reaches this branch's publish-hook self-test, which runs `/bin/sh -c`. The briefed holds, `tests/e2e/test_review_publish_e2e.py` and the whole `tests/e2e` hold below ran after the merge.
 
 ### Round 8's items, checked against the commits
