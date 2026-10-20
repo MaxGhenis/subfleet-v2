@@ -355,7 +355,7 @@ def test_launch_removal_comment_says_removals_win_and_names_its_test():
 
 @pytest.mark.parametrize("name", ["SUBFLEET_HOOK_TIMEOUT_S", "SUBFLEET_PING_STDIN_WAIT_S"])
 def test_cli_timeout_configuration_reaches_launched_child(name, tmp_path, monkeypatch):
-    """C-12.3, C-17.8 ping's stdin deadline follows the same launch path as hook's."""
+    """C-12.3, C-17.9 ping's stdin deadline follows the same launch path as hook's."""
     import subprocess
     import sys
     monkeypatch.setenv(name, "6.25")

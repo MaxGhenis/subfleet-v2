@@ -4,7 +4,7 @@
 
 Base: `3fbc4b7c5615b582f11b6f766f91125304818bd7` (`origin/release/217`). The requested `origin/pr/35` name is absent locally. Its preserved equivalent, `merge/pr35-stopped-daemon` at `749ccbeae36a42b6ce1e2a4a4a4c3b5ba7bab425`, has the expected seven commits after its merge base with `origin/main` and the expected eleven-file diff. Both history and the full diff were read locally; no network was used. This is a selective port to release's seams, not a cherry-pick.
 
-`C-5.13` and `C-17.8` were both free. Added both clauses and the first bullet under “Changes in version 3”; updated the CLI lane brief.
+`C-5.13` and `C-17.9` were both free. Added both clauses and the first bullet under “Changes in version 3”; updated the CLI lane brief.
 
 ## Ported behavior
 
@@ -92,7 +92,7 @@ All commits are in local metadata on `fix/stopped-daemon-217`:
 - `ea54ad07d`: client identity and continuous-input invariants.
 - `dbcafbeb8`: real reply rendering and a safe endless-device test.
 - `5875f3e2f`: stopped-daemon/client/doctor/CLI port and C-5.13.
-- `a0ba9fbe6`: bounded stdin, suggestion submission and C-17.8.
+- `a0ba9fbe6`: bounded stdin, suggestion submission and C-17.9.
 - `e91851eea`: doctor observation seams, child cleanup and the `ci` profile.
 - `fa8966df5`: remaining offline/daemon observation seams and deterministic first-byte setup.
 - The final documentation commit records this report; its hash is included in the handoff.
@@ -116,7 +116,7 @@ Started from `c658e8d01204`. The local `release/217` at `b053e3de8f2e` is alread
 - A process observation verifies identity only for **rc 0 with exactly one well-formed state/start row**. The parser checks the state token, C-locale date columns and valid numeric date/time. **rc 1 with no output** alone means absent; other failed, empty or malformed results remain unverifiable, regardless of stdout.
 - Ping calls the shared stdin reader for its terminal/missing-stream health check, putting `isatty()` inside the reader's error handling. Closed `StringIO` now produces a clear exit-2 refusal before any client is constructed.
 - C-5.13 states the real detection bound: **one process-probe budget (5 s) plus parsing**, after any probe-spacing wait and the separately bounded boot-identity reads. OS scheduling is excluded; 1.5 s is not guaranteed under load. The real-child test now proves no socket connection, and a controlled 1.6 s probe test demonstrates the probe cost.
-- C-17.8 explicitly documents the existing size behavior: even regular files can be read up to **8 MiB + 1 byte** before rejection. No file-size pre-check was added.
+- C-17.9 explicitly documents the existing size behavior: even regular files can be read up to **8 MiB + 1 byte** before rejection. No file-size pre-check was added.
 
 ### Tests first and baseline evidence
 
@@ -192,7 +192,7 @@ Started from `007dac49a211`; merged the available local `origin/release/217`
 The sole conflict was the acceptance-contract change log: kept both sides'
 entries. Every clause identifier from both parents remains (256 on this
 branch, 254 on release), including release's C-5.8a/C-26.4 and the port's
-C-5.13/C-17.8. Release's shutdown behavior remains intact.
+C-5.13/C-17.9. Release's shutdown behavior remains intact.
 
 `review-r2.md` was absent from both the supplied workspace and the caller's
 named checkout. Its location was requested; the standalone file remains
@@ -621,7 +621,7 @@ signalled or cleaned.
 Merged the existing local `origin/release/217` ref, `473fe2941`, including
 #222, the `f99da54b0` launch-environment allowlist and later release merges.
 No Git remote was contacted. Only `docs/acceptance-contract.md` conflicted. Both
-sides' complete change-log entries were retained; the two C-17.8 additions
+sides' complete change-log entries were retained; the two C-17.9 additions
 (stdin bounds and environment diagnostics) now share that clause as separate
 paragraphs. All other clauses from both sides are retained. CLI and doctor
 merged automatically.
@@ -651,7 +651,7 @@ protections themselves were broken at the head.
 `SUBFLEET_NOTIFY_MODE` and `SUBFLEET_PROVIDER_QOS`. A two-case test follows both
 it and `SUBFLEET_HOOK_TIMEOUT_S` through `cli.daemon_env`, provider environment
 selection and an actual launched Python child, asserting the configured value
-at every boundary. C-12.3/C-17.8 and the change log state that classification.
+at every boundary. C-12.3/C-17.9 and the change log state that classification.
 
 The first complete #222 hold ran 384 cases: **371 passed, 13 failed**.
 Round 3 passed all 69, including both real-child cases and the package-name
@@ -727,7 +727,7 @@ request still gets C-5.13's diagnosis and can enable later preflight.
   `parked for <recipient>` and reason. The daemon still chooses the operator
   inbox when no session is named, and empty/blank input still means liveness.
   The PR-added queued-output test now asserts the required release behavior;
-  existing operator-notice behavior assertions are unchanged. C-17.8 and its
+  existing operator-notice behavior assertions are unchanged. C-17.9 and its
   change log record this correction.
 
 The complete #222 rerun passed **384/384** (44.96 s of pytest time): unit
@@ -1916,3 +1916,9 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 | [tests/e2e/test_stop_bound.py](../../tests/e2e/test_stop_bound.py) | 2 | 0 | 1 |
 | [tests/e2e/test_suggestions_e2e.py](../../tests/e2e/test_suggestions_e2e.py) | 0 | 0 | 2 |
 | [tests/process/test_codex_isolation.py](../../tests/process/test_codex_isolation.py) | 38 | 0 | 0 |
+
+## Hub note, 2026-10-20: this PR's clause is C-17.9
+
+This PR's ping-stdin clause was added as C-17.8 when that number was free. Release later took C-17.8 for #222's `doctor` environment-name report. The round-5 merge (`63cbb04c7`) kept this PR's clause under the shared number and folded release's clause into it as an indented paragraph, so two different rules shared one number. The hub's union check found it.
+
+This PR's clause is now C-17.9, and release's C-17.8 is its own clause again, word for word. This report, `subfleet/cli.py`, `tests/unit/test_cli.py` and `tests/unit/test_launch_env_round3.py` now cite C-17.9 wherever they meant this PR's clause, including the earlier rounds' history lines above. Release's own C-17.8 citations, in `daemon.py`, `doctor.py`, `test_launch_env_round4.py` and the launch-environment report, are unchanged.

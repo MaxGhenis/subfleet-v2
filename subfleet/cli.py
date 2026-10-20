@@ -96,7 +96,7 @@ LANE_ACTIONS = ("list", "probe", "enroll", "hold", "release", "transfer")
 
 AF_UNIX_PATH_MAX = 103          # sun_path is 104 bytes including the NUL
 DAEMON_STATUS_PING_TIMEOUT_S = 5.0
-# C-17.8: one total read budget, including a pipe's first byte and every
+# C-17.9: one total read budget, including a pipe's first byte and every
 # subsequent byte. The finite size bound also covers endless character devices.
 PING_STDIN_WAIT_S = 2.0
 PING_STDIN_WAIT_MAX_S = 86400.0
@@ -2375,7 +2375,7 @@ def cmd_why(args: argparse.Namespace) -> int:
 
 
 def _ping_stdin_wait_s(env: dict[str, str] | None = None) -> float:
-    """C-17.8: a finite, selectable deadline, with the original #35 override."""
+    """C-17.9: a finite, selectable deadline, with the original #35 override."""
     env = os.environ if env is None else env
     try:
         value = float((env.get(PING_STDIN_WAIT_ENV) or "").strip())
@@ -2434,7 +2434,7 @@ def _stdin_bytes(stream: Any, wait_s: float) -> bytes | str:
 
 def _stdin_message(stream: Any = None, wait_s: float | None = None, *,
                    health_check: bool = False) -> tuple[str | None, str | None]:
-    """C-17.8: a finite stdin message, or the reason it could not be read.
+    """C-17.9: a finite stdin message, or the reason it could not be read.
 
     Empty EOF remains an empty message: release's ping uses it as a health
     check. Ping also allows a missing stream or terminal as an empty health

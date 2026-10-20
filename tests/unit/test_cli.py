@@ -1809,7 +1809,7 @@ def test_c16_3_runs_request_id_finds_the_job_offline_too(root, capsys):
     assert capsys.readouterr().out == ""
 
 
-# C-17.8: readers must finish even when the producer keeps its descriptor open.
+# C-17.9: readers must finish even when the producer keeps its descriptor open.
 # Closing the writer in finally also frees an intentionally regressed reader.
 def bounded_stdin_call(argv, stream, close_writer, monkeypatch):
     monkeypatch.setattr(cli.sys, "stdin", stream)
@@ -1842,7 +1842,7 @@ def bounded_stdin_call(argv, stream, close_writer, monkeypatch):
 
 @pytest.mark.parametrize("payload", [b"", b"partial message"])
 def test_ping_open_pipe_is_bounded(daemon, monkeypatch, capsys, payload):
-    """C-17.8 neither an empty pipe nor one readable byte authorizes read-to-EOF."""
+    """C-17.9 neither an empty pipe nor one readable byte authorizes read-to-EOF."""
     server = daemon({"ping": lambda request: {"pong": True, "version": "test"}})
     read_fd, write_fd = os.pipe()
     if payload:
@@ -1859,7 +1859,7 @@ def test_ping_open_pipe_is_bounded(daemon, monkeypatch, capsys, payload):
 
 
 def test_ping_open_socket_is_bounded(daemon, monkeypatch):
-    """C-17.8 a socket writer that stays open has the same bound as a pipe."""
+    """C-17.9 a socket writer that stays open has the same bound as a pipe."""
     server = daemon({"ping": lambda request: {"pong": True}})
     reader, writer = socket.socketpair()
     stream = reader.makefile("r")
@@ -1873,7 +1873,7 @@ def test_ping_open_socket_is_bounded(daemon, monkeypatch):
 
 
 def test_suggest_open_pipe_is_bounded(daemon, monkeypatch):
-    """C-17.8, C-25.7 suggest --brief - shares ping's bounded stdin reader."""
+    """C-17.9, C-25.7 suggest --brief - shares ping's bounded stdin reader."""
     server = daemon({"suggestion.create": lambda request: {"suggestion": {
         "suggestion_id": "sg-1", "worktree": False, "origin_conversation_id": None, "title": "T"}}})
     read_fd, write_fd = os.pipe()
@@ -1884,7 +1884,7 @@ def test_suggest_open_pipe_is_bounded(daemon, monkeypatch):
 
 
 def test_ping_regular_file_is_read(daemon, monkeypatch, tmp_path):
-    """C-17.8 files still supply the complete UTF-8 message."""
+    """C-17.9 files still supply the complete UTF-8 message."""
     server = daemon({"ping": lambda request: {"pong": True}})
     path = tmp_path / "message"
     path.write_text("the sweep finished\n")
@@ -1897,7 +1897,7 @@ def test_ping_regular_file_is_read(daemon, monkeypatch, tmp_path):
 
 
 def test_ping_dev_null_keeps_release_health_check(daemon, monkeypatch):
-    """C-17.8 /dev/null reaches EOF immediately and release sends a health check."""
+    """C-17.9 /dev/null reaches EOF immediately and release sends a health check."""
     server = daemon({"ping": lambda request: {"pong": True, "version": "test"}})
     with open(os.devnull) as stream:
         monkeypatch.setattr(cli.sys, "stdin", stream)
@@ -1909,7 +1909,7 @@ def test_ping_dev_null_keeps_release_health_check(daemon, monkeypatch):
 
 @pytest.mark.parametrize("missing", [False, True])
 def test_ping_terminal_or_missing_stdin_keeps_release_health_check(daemon, monkeypatch, missing):
-    """C-15.8, C-17.8 release's terminal/no-stdin health check must never read."""
+    """C-15.8, C-17.9 release's terminal/no-stdin health check must never read."""
     class Terminal:
         def isatty(self):
             return True
@@ -1924,7 +1924,7 @@ def test_ping_terminal_or_missing_stdin_keeps_release_health_check(daemon, monke
 
 
 def test_ping_pipe_with_eof_and_memory_stream(daemon, monkeypatch):
-    """C-17.8 EOF and in-memory streams read the whole message."""
+    """C-17.9 EOF and in-memory streams read the whole message."""
     server = daemon({"ping": lambda request: {"pong": True}})
     read_fd, write_fd = os.pipe()
     os.write(write_fd, b"closed pipe\n")
@@ -1939,7 +1939,7 @@ def test_ping_pipe_with_eof_and_memory_stream(daemon, monkeypatch):
 
 
 def test_ping_closed_python_stdin_is_refused(monkeypatch, capsys):
-    """C-17.8 a closed stream's isatty failure is a readable exit-2 refusal."""
+    """C-17.9 a closed stream's isatty failure is a readable exit-2 refusal."""
     stream = io.StringIO("closed message")
     stream.close()
     monkeypatch.setattr(cli.sys, "stdin", stream)
@@ -1952,19 +1952,19 @@ def test_ping_closed_python_stdin_is_refused(monkeypatch, capsys):
 
 @pytest.mark.parametrize("value", ["inf", "-inf", "nan", "1e9", "-1", "soon"])
 def test_unusable_stdin_wait_falls_back_to_default(monkeypatch, value):
-    """C-17.8 a malformed or unbounded wait never reaches select."""
+    """C-17.9 a malformed or unbounded wait never reaches select."""
     monkeypatch.setenv("SUBFLEET_PING_STDIN_WAIT_S", value)
     assert cli._ping_stdin_wait_s() == cli.PING_STDIN_WAIT_S
 
 
 def test_stdin_wait_can_be_overridden(monkeypatch):
-    """C-17.8 the environment can accommodate a slow producer."""
+    """C-17.9 the environment can accommodate a slow producer."""
     monkeypatch.setenv("SUBFLEET_PING_STDIN_WAIT_S", "7.5")
     assert cli._ping_stdin_wait_s() == 7.5
 
 
 def test_ping_continuous_input_has_a_total_deadline(daemon, monkeypatch):
-    """C-17.8 a trickling writer cannot extend the read forever."""
+    """C-17.9 a trickling writer cannot extend the read forever."""
     server = daemon({"ping": lambda request: {"pong": True}})
     reader, writer = socket.socketpair()
     done = threading.Event()
@@ -1996,7 +1996,7 @@ def test_ping_continuous_input_has_a_total_deadline(daemon, monkeypatch):
 
 
 def test_ping_character_device_with_no_eof_is_bounded(daemon, monkeypatch):
-    """C-17.8 /dev/zero is readable forever; the finite read budget still applies."""
+    """C-17.9 /dev/zero is readable forever; the finite read budget still applies."""
     daemon({"ping": lambda request: {"pong": True}})
     monkeypatch.setenv("SUBFLEET_PING_STDIN_WAIT_S", "0.05")
     class Device:
@@ -2020,7 +2020,7 @@ def test_ping_character_device_with_no_eof_is_bounded(daemon, monkeypatch):
 
 
 def test_select_failure_never_falls_back_to_an_unbounded_read(monkeypatch):
-    """C-17.8 a readiness failure refuses unread instead of hanging."""
+    """C-17.9 a readiness failure refuses unread instead of hanging."""
     read_fd, write_fd = os.pipe()
 
     def broken(*args):
@@ -2037,7 +2037,7 @@ def test_select_failure_never_falls_back_to_an_unbounded_read(monkeypatch):
 
 @pytest.mark.parametrize("data,expected", [(b"1234", "1234"), (b"\xff", "\ufffd"), (b"12345", None)])
 def test_ping_wrapped_memory_stdin_keeps_byte_bound(monkeypatch, data, expected):
-    """C-17.8 finite TextIOWrapper(BytesIO) input keeps the byte cap and replacement decoding."""
+    """C-17.9 finite TextIOWrapper(BytesIO) input keeps the byte cap and replacement decoding."""
     monkeypatch.setattr(cli, "STDIN_MAX_BYTES", 4)
     with io.TextIOWrapper(io.BytesIO(data)) as stream:
         text, reason = cli._stdin_message(stream)
@@ -2049,7 +2049,7 @@ def test_ping_wrapped_memory_stdin_keeps_byte_bound(monkeypatch, data, expected)
 
 
 def test_ping_prints_the_session_the_daemon_parked_for(daemon, capsys):
-    """C-15.8, C-17.8 preserve the parked reply and daemon-selected session."""
+    """C-15.8, C-17.9 preserve the parked reply and daemon-selected session."""
     daemon({"ping": lambda request: {"pong": True, "session_id": "sess-1", "notice_id": -7}})
     assert run_cli(["ping", "--session", "sess-1", "hi"]) == 0
     captured = capsys.readouterr()
