@@ -562,8 +562,10 @@ def check_daemon_lane_credentials(root: Path) -> dict[str, Any]:
         many = len(held) > 1
         lanes_text = ", ".join(f"{lane.get('lane_id')} (credential-refused={lane['credential_ref']})"
                                for lane in held)
+        others = ("the other lanes' variables, " + listed if display
+                  else "the daemon holds no other lane's variable")
         return row(check, WARN, f"lane{'s' * many} {lanes_text} {'are' if many else 'is'} held (C-10.5), so "
-                   f"nothing launches on {'them' if many else 'it'}; {listed}",
+                   f"nothing launches on {'them' if many else 'it'}; {others}",
                    "; ".join(held_lane_fix(lane) for lane in held))
     if not names:
         return row(check, PASS, listed, "nothing to do")
