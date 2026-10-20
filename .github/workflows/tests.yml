@@ -103,7 +103,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
       # The daemon harnesses (tests/e2e, tests/fake, tests/frontend/test_core_live.py)
-      # copy a failed test's state root to /tmp/sf-failed/<test>; the live app test adds
+      # copy a failed test's state root to /tmp/sf-failed/<pid>/<test>; the live app test adds
       # the probe's record under probe/.
       - name: Upload failed tests' state roots
         if: failure() || cancelled()
