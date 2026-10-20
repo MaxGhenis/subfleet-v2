@@ -331,6 +331,42 @@ def test_contract_and_docstring_state_the_command_word_and_nesting_rule():
     assert "nothing in this repository launches" in clause
 
 
+def out_of_scope(text: str, marker: str) -> list[str]:
+    """The items of the list after `marker` and its colon: split at semicolons
+    outside parentheses, up to the full stop that ends the sentence."""
+    flat = " ".join(text.split())
+    start = flat.index(marker)
+    rest = flat[flat.index(": ", start) + 2:]
+    items, item, depth = [], "", 0
+    for index, character in enumerate(rest):
+        depth += {"(": 1, ")": -1}.get(character, 0)
+        if depth == 0 and (character == ";" or character == "." and rest[index + 1:index + 2] in ("", " ")):
+            items.append(item.strip())
+            item = ""
+            if character == ".":
+                break
+            continue
+        item += character
+    items[-1] = items[-1].removeprefix("and ")
+    return items
+
+
+def test_r2_p3_docstring_and_contract_list_the_same_out_of_scope_items():
+    # #226 review r2's P3: the docstring missed the shell's script operand, and
+    # put every symlink to the reader out of scope, which the guard refuses but
+    # for a wrapper's bare command found through PATH.
+    contract = (Path(__file__).parents[2] / "docs/acceptance-contract.md").read_text()
+    clause = next(line for line in contract.splitlines() if line.startswith("- **C-20.6**"))
+    documented = out_of_scope(clause, "Out of scope, requiring isolated inputs")
+    docstring = out_of_scope(credentials.install_keychain_exec_guard.__doc__, "Outside C-20.6 (D-ST1)")
+    assert len(documented) > 2 and all(documented), documented
+    assert docstring == documented
+    for items in (documented, docstring):
+        assert "a shell's script operand" in items
+        aliases = next(item for item in items if item.startswith("path aliases"))
+        assert "a symlink to the reader that a wrapper's bare command finds through PATH" in aliases, aliases
+
+
 # The property: env shapes over direct and wrapped launches.
 
 GETOPT = {  # Each wrapper's option string, as its macOS binary holds it.
