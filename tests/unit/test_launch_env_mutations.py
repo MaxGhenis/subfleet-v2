@@ -7,6 +7,7 @@ pytest process, source rewrite, provider, credential lookup or live daemon.
 import ast
 import __future__
 import inspect
+import os
 import textwrap
 from types import FunctionType
 
@@ -26,6 +27,7 @@ from tests.fake.test_launch_env_daemon import test_actual_daemon_spawn_rejects_p
 from tests.fake.test_launch_env_daemon import (
     test_review_r4_a_refused_first_start_stores_nothing as first_start_oracle,
     test_review_r4_a_removed_lane_is_held_and_never_blocks_startup as removed_lane_oracle,
+    test_review_r5_a_refused_row_for_a_stored_lane_is_ignored as ignored_row_oracle,
 )
 from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401
 from tests.unit.test_launch_env_allowlist import (
@@ -40,6 +42,9 @@ from tests.unit.test_launch_env_round5 import (
     test_a_name_popped_between_iterating_and_reading_is_skipped as vanishing_oracle,
     test_provider_environment_never_reads_a_withheld_value as withheld_oracle,
     test_session_names_need_the_marker_and_a_live_session as shape_oracle,
+)
+from tests.unit.test_launch_env_round6 import (
+    test_daemon_start_check_lists_each_inheriting_env_row_and_reads_only_lanes_json as install_check_oracle,
 )
 
 
@@ -194,7 +199,12 @@ class SessionOnBareCurrentTest(ast.NodeTransformer):
 
 
 def test_named_first_start_regression_kills_seed_before_check(tmp_path, monkeypatch):
-    """P2-1: seeding lanes.json before the check stores the refused row."""
+    """P2-1: seeding lanes.json before the check stores the refused row.
+
+    Since review r5 (P3-1) the check then finds that lane stored and ignores
+    its row, so the mutant's daemon serves, holding a lane it should never have
+    stored, where it used to exit 2 having stored it. The oracle fails either way.
+    """
     checked = daemon_module.Daemon._open_lanes
 
     def seeded_first(self, policy_path):
@@ -202,7 +212,8 @@ def test_named_first_start_regression_kills_seed_before_check(tmp_path, monkeypa
         return checked(self, policy_path)
 
     monkeypatch.setattr(daemon_module.Daemon, "_open_lanes", seeded_first)
-    with pytest.raises(AssertionError, match="before lanes.json is seeded"):
+    with pytest.raises((AssertionError, pytest.fail.Exception),
+                       match="before lanes.json is seeded|a refused roster served"):
         first_start_oracle(tmp_path, monkeypatch, "SUBFLEET_FAKE_LANE_NINE")
 
 
@@ -243,3 +254,35 @@ def test_named_shape_regression_kills_selecting_on_bare_pytest_current_test(tmp_
     monkeypatch.setattr(launch_env, "_selected", rewritten(launch_env._selected, SessionOnBareCurrentTest()))
     with pytest.raises(AssertionError):
         shape_oracle(tmp_path, shape)
+
+
+@pytest.mark.parametrize("caller", ["daemon start", "daemon startup"])
+def test_named_ignored_row_regression_kills_refusing_a_stored_lanes_row(tmp_path, monkeypatch, caller):
+    """Review r5, P3-1: a refused lanes.json row for a lane the store holds stops
+    startup again, at either caller, when it is checked as a new lane's row."""
+    from subfleet import credentials
+    original = credentials.startup_lanes
+
+    def refusing(roster, stored):
+        return [(lane_id, name, launch_env.ROSTER if source == launch_env.IGNORED else source)
+                for lane_id, name, source in original(roster, stored)]
+
+    monkeypatch.setattr(cli if caller == "daemon start" else daemon_module, "startup_lanes", refusing)
+    with pytest.raises(AssertionError):
+        ignored_row_oracle(tmp_path, monkeypatch, "HOME")
+
+
+def test_named_install_check_regression_kills_reading_a_value(tmp_path, monkeypatch, capsys):
+    """D-ENV2: an install check that reads each listed variable's value, here to
+    say whether it is set, fails the check's own test."""
+    original = cli.lanes_json_refusals
+
+    def reading(root):
+        found = original(root)
+        for _, name in found:
+            os.environ.get(name)
+        return found
+
+    monkeypatch.setattr(cli, "lanes_json_refusals", reading)
+    with pytest.raises(AssertionError, match="read a lane variable's value"):
+        install_check_oracle(tmp_path, monkeypatch, capsys, "SUBFLEET_FAKE_LANE_NINE")
