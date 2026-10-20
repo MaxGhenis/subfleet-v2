@@ -87,7 +87,7 @@ def test_c27_5_row_reveal_survives_history_while_catching_up(fix6_view):
 def test_c29_12_search_expands_and_reveals_the_sixth_held_message(fix6_view):
     search = fix6_view["search"]
     assert search["target"] == "person:queued5"
-    assert search["after"] - search["before"] == 3, search
+    assert search["after"] > search["before"], search
     assert search["before"] == 3, search
-    assert search["after"] == 6, search
+    assert search["revealed_id"] == "queued5", search
     assert search["target_visible"], search

@@ -8,7 +8,23 @@ final class Fix6Defaults: UserDefaults, @unchecked Sendable {
 }
 
 final class Fix6History: DaemonCalling {
+    private let lock = NSLock()
+    private var cancelled: String?
+    var cancelledID: String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
     func call<A: Encodable, R: Decodable>(_ op: DaemonOperation<A, R>, _ args: A) throws -> R {
+        if op.name == "message.cancel" {
+            let value = try JSONValue.from(args)
+            lock.lock()
+            cancelled = value["message_id"]?.string
+            lock.unlock()
+            // Record which actual row was clicked, without withdrawing it.
+            throw DaemonClientError.unavailable("probe records row identity only")
+        }
         guard op.name == "conversation.history" else { throw DaemonClientError.unavailable("probe has no daemon") }
         return try JSONValue.from(history(80..<100, next: 80)).decode(R.self)
     }
@@ -32,8 +48,8 @@ func history(_ range: Range<Int>, next: Int?) -> HistoryPage {
     }
 }
 
-@MainActor func mount<V: View>(_ view: V) -> (NSHostingView<V>, NSWindow) {
-    let host = NSHostingView(rootView: view)
+@MainActor func mount<V: View>(_ view: V) -> (NSHostingView<AnyView>, NSWindow) {
+    let host = NSHostingView(rootView: AnyView(view))
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 700),
                           styleMask: [.borderless], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
@@ -96,7 +112,8 @@ func conversation(_ cid: String, held: Bool = false) -> Conversation {
             state.apply(receipt: try JSONDecoder().decode(Receipt.self, from: Data(raw.utf8)))
         }
         state.focus("search")
-        let model = UIModel(paths: .rooted(at: root.appendingPathComponent("search")), client: Fix6History(),
+        let client = Fix6History()
+        let model = UIModel(paths: .rooted(at: root.appendingPathComponent("search")), client: client,
                             defaults: Fix6Defaults(), state: state)
         let palette = SearchPaletteModel()
         palette.model = model
@@ -124,13 +141,20 @@ func conversation(_ cid: String, held: Bool = false) -> Conversation {
             let a = $0.convert($0.bounds, to: host).minY, b = $1.convert($1.bounds, to: host).minY
             return host.isFlipped ? a < b : a > b
         }.last
+        let targetVisible = last.map { !$0.visibleRect.isEmpty } ?? false
+        last?.performClick(nil)
+        for _ in 0..<100 {
+            if client.cancelledID != nil { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
         let search: [String: Any] = ["target": target, "before": before, "after": buttons.count,
+                                    "revealed_id": client.cancelledID as Any? ?? NSNull(),
                                     "reference_width": width,
                                     "buttons": descendants(host).compactMap { $0 as? NSButton }.map {
                                         ["title": $0.title, "width": $0.frame.width,
                                          "x": $0.convert($0.bounds, to: host).minX] as [String: Any]
                                     },
-                                    "target_visible": last.map { !$0.visibleRect.isEmpty } ?? false]
+                                    "target_visible": targetVisible]
         referenceWindow.close()
         window.close()
         let output: [String: Any] = ["scrolls": scrolls, "search": search,
