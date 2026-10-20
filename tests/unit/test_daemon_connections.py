@@ -639,10 +639,10 @@ def test_c16_7_a_stopping_daemon_does_not_count_its_own_shutdown_as_departures(s
     service = serve()
     service.requests.shutdown(wait=True)
     service.requests = ThreadPoolExecutor(max_workers=1, thread_name_prefix="subfleet-api")
-    release = threading.Event()
+    release, started = threading.Event(), threading.Event()
     real = service.dispatch
-    service.dispatch = lambda op, args, **kw: (release.wait(10), {"held": True})[1] if op == "readings" \
-        else real(op, args, **kw)
+    service.dispatch = lambda op, args, **kw: (started.set(), release.wait(10), {"held": True})[2] \
+        if op == "readings" else real(op, args, **kw)
     real_start = service._start_request
 
     def start(conn, write_lock, req, *rest):
@@ -652,7 +652,9 @@ def test_c16_7_a_stopping_daemon_does_not_count_its_own_shutdown_as_departures(s
     service._start_request = start
     blocker = connect(service)
     send(blocker, "readings")
-    until(lambda: counts(service)["connections"] == 1)
+    # Wait for the blocker's request to hold the single worker, not for its
+    # connection to be counted: a connection counts before its reader has read.
+    until(started.is_set)
     waiting = [connect(service) for _ in range(3)]
     for sock in waiting:
         send(sock, "daemon.status")
