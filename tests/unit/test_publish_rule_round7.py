@@ -491,6 +491,38 @@ def test_the_self_test_passes_the_installed_hook_and_caches_the_pass(tmp_path, m
     assert not third.ok and not third.cached and third.detail == 'exit 0, no deny'
 
 
+def test_a_same_size_rewrite_with_its_mtime_put_back_is_not_a_cached_pass(tmp_path):
+    """C-12.4 (#221 review r3 P3): the digest cache keys on ctime too, which `utime` cannot set."""
+    import os
+    from subfleet import review_publish
+    path = review_publish.install_hook(tmp_path / 'hook')
+    command = review_publish.hook_command(path)
+    files = review_publish.hook_files(command)
+    cache: dict = {}
+    assert review_publish.hook_self_test(command, self_test_env(tmp_path), cwd=str(tmp_path), cache=cache).ok
+    before, original = os.stat(path), path.read_bytes()
+    # Keep the first three lines, so the hook names the same files, and the size;
+    # what follows reads the payload and allows everything.
+    head = b'\n'.join(original.split(b'\n')[:3]) + b'\n'
+    body = b'import sys\nsys.stdin.read()\nraise SystemExit(0)\n'
+    padding = len(original) - len(head) - len(body) - 1
+    assert padding >= 0
+    rewritten = head + body + b'#' * padding + b'\n'
+    assert len(rewritten) == len(original) and rewritten != original
+    path.chmod(0o755)                                # install_hook leaves it read-only (0o555)
+    with open(path, 'r+b') as stream:                # in place: the same inode
+        stream.write(rewritten)
+        stream.truncate()
+    path.chmod(before.st_mode & 0o777)
+    os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+    after = os.stat(path)
+    assert (after.st_ino, after.st_size, after.st_mtime_ns, after.st_mode) == \
+        (before.st_ino, before.st_size, before.st_mtime_ns, before.st_mode)
+    assert review_publish.hook_files(command) == files
+    verdict = review_publish.hook_self_test(command, self_test_env(tmp_path), cwd=str(tmp_path), cache=cache)
+    assert not verdict.ok and not verdict.cached and verdict.detail == 'exit 0, no deny'
+
+
 @pytest.mark.parametrize('script,detail', [
     (b'#!/bin/sh\ncat >/dev/null\nexit 0\n', 'exit 0, no deny'),
     (b'#!/bin/sh\necho \'{"hookSpecificOutput": {"permissionDecision": "allow"}}\'\n', 'exit 0, no deny'),

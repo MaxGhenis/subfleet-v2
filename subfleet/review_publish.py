@@ -227,14 +227,16 @@ def installed_publish_hooks(argv) -> list[str]:
     return commands
 
 
-#: SHA-256 of a file, by its identity (real path, device, inode, size, mtime):
-#: an 18 MB interpreter is hashed once per daemon run, not once per launch.
+#: SHA-256 of a file, by its identity (real path, device, inode, size, mtime, ctime):
+#: an 18 MB interpreter is hashed once per daemon run, not once per launch. The
+#: ctime is there because `utime` can put an mtime back after an in-place rewrite
+#: of the same size, but nothing but the kernel sets ctime (#221 review r3 P3).
 _DIGESTS: dict[tuple, str] = {}
 
 
 def _digest(path: str | Path) -> str:
     info = os.stat(path)
-    key = (os.path.realpath(path), info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
+    key = (os.path.realpath(path), info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
     found = _DIGESTS.get(key)
     if found is None:
         digest = hashlib.sha256()
