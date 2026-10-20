@@ -57,6 +57,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from .contracts import Exit
+from .home_paths import home_path
 from .launch_env import build_environment
 
 PROG = "subfleet"
@@ -510,7 +511,9 @@ def v1_binary(env: dict[str, str] | None = None) -> str | None:
     the process table gave out.
     """
     env = os.environ if env is None else env
-    candidates = [env.get(V1_BIN_ENV), V1_BIN_DEFAULT]
+    # The default is the person's v1 install, which runs against their v1
+    # state: a pytest process names its own or refuses (D-ST3).
+    candidates = [env.get(V1_BIN_ENV), home_path(V1_BIN_ENV, lambda: V1_BIN_DEFAULT, env=env, test_only=True)]
     for candidate in candidates:
         if not candidate:
             continue

@@ -99,6 +99,7 @@ from pathlib import Path
 from typing import Any
 
 from .guardian import atomic_publish
+from .home_paths import home_path
 from .store import SCHEMA_VERSION, SchemaVersionError, Store, utc_now
 
 STORE_NAME = "state.sqlite3"
@@ -1298,7 +1299,8 @@ def main(argv: list[str] | None = None) -> int:
         prog="subfleet.prune_decisions",
         description="delete the redundant decisions rows a waiting job accumulated "
                     "(the daemon must be stopped)")
-    parser.add_argument("--state-root", default=os.environ.get("SUBFLEET_HOME") or "~/.subfleet")
+    parser.add_argument("--state-root", default=None,
+                        help="the state root (default: $SUBFLEET_HOME, else ~/.subfleet)")
     parser.add_argument("--backup-dir", default=None,
                         help="where the backups go (default: <state root>/backups), "
                              "for instance a directory on another volume")
@@ -1313,6 +1315,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="print the report without saving it")
     parser.add_argument("--json", action="store_true", help="print the report as JSON")
     args = parser.parse_args(argv)
+    if args.state_root is None:
+        # D-ST3: the default is the person's live store, which a pytest process refuses.
+        args.state_root = home_path("SUBFLEET_HOME", lambda: "~/.subfleet")
     if args.apply and not args.confirm:
         return _fail(PruneRefused.code, "prune decisions: --apply deletes rows and was not "
                                         "confirmed",
