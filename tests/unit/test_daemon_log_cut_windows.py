@@ -10,7 +10,10 @@ reminder tag; the header is matched at the first visible character.
 
 This file holds:
 - the bound, counted rather than timed: at 16 MiB no regex reads past the windows, and
-  the `str` scans past them stay linear in the text (`Metered`);
+  past them the `str` scans are a fixed number of passes over the text plus at most 20
+  needle looks, each reading the text at most once (`Metered`; review r4 of #233, P3-1:
+  round 5 stated at most 12 passes in all, which a text with ten quote kinds open a side
+  reads past, and counted a data URI body's match to the window's end);
 - the differential: the windowed cut's output is the cut's as of cce8f1af7
   (`tests/reference_cut_cce8f1af7.py`), byte for byte, on review r3's shapes, the fuzz
   corpora and a property whose texts cross both windows;
@@ -58,20 +61,54 @@ REVIEW_R3_SHAPES = {
     "run-of-lt": lambda size: "<<<<<<<<<<<<<<<\n" * (size // 16),
     "exception-group": _group_traceback,
 }
-SHAPES = {**REVIEW_R3_SHAPES, **{f"round2-{name}": shape for name, shape in handler_tests.COST_SHAPES.items()}}
+
+
+def _quote_kinds(size: int) -> str:
+    """Review r4's shape (P3-1): a head that leaves nine kinds of `'` open (the plain one,
+    and eight escaped ones: `k1=`, one backslash and `'a`, to `k8=` and eight), and a tail
+    of nine kinds of `"`, none of which a quote past the windows closes or opens: each kind
+    costs its side one needle look over the text (`_event_from`, `_event_before`)."""
+    head = "".join(f"k{run}={'\\' * run}'a\n" for run in range(1, 9)) + "k='a\n" + 'x "\n'
+    tail = "".join(f"v{run} {'\\' * run}\"\n" for run in range(9))
+    plain = "plain words only\n"
+    return head + plain * ((size - len(head) - len(tail)) // len(plain)) + tail
+
+
+#: Review r4's shapes: the quote kinds; a data URI whose body runs from the head into the
+#: tail's window (P3-3: the tail's body check, `_body_between`, reads it in C scans); and
+#: 480 data URI prefixes in the head, each body ended by the next line (P3-1: the meter
+#: counted each body match to the window's end, 2,012,537 characters at 1 MiB).
+REVIEW_R4_SHAPES = {
+    "quote-kinds": _quote_kinds,
+    "data-uri-body": lambda size: "data:image/png;base64," + "QUJDREVG\n" * ((size - 27) // 9) + "end.\n",
+    "data-uri-prefixes": lambda size: ("data:a/b;base64,\n" * 480
+                                       + "plain words only\n" * ((size - 480 * 17) // 17)),
+}
+SHAPES = {**REVIEW_R3_SHAPES, **{f"round2-{name}": shape for name, shape in handler_tests.COST_SHAPES.items()},
+          **REVIEW_R4_SHAPES}
 
 
 # --- the bound, counted ----------------------------------------------------------------
 
+#: A pattern that is one character class repeated (`[A-Za-z0-9+/=\\s]+`, `\\s*`): a match reads
+#: what it matches and the one character after, no further, so it is metered by that.
+CLASS_RUN = re.compile(r"(?:\[(?:\\.|[^\]\\])+\]|\\[sSwWdD])[+*]")
+
+
 class Meter:
     """What one cut reads: the characters each regex call may read (its `pos` to its
-    `endpos`, the whole string for a substitution), and the characters each `str` call
-    on the text scans or copies (`Metered`)."""
+    `endpos`, the whole string for a substitution; a character class's match, what it
+    reads), and the characters each `str` call on the text scans or copies (`Metered`).
+    The needle looks (`_event_from`, `_event_before`) are kept apart, each its own count,
+    and so is what a look reads of a run of margin-only lines (`_Reading._back` and
+    `_forward`), which C-25.7 counts among the fixed scans: a run is read once."""
 
     def __init__(self):
         self.regex = 0
         self.regex_calls: list[tuple[str, int]] = []
         self.scanned = 0
+        self.looks: list[int] = []
+        self.margins = 0
 
     def read(self, pattern: re.Pattern, span: int) -> None:
         self.regex += span
@@ -79,6 +116,10 @@ class Meter:
 
     def widest(self) -> list[tuple[str, int]]:
         return sorted(self.regex_calls, key=lambda call: -call[1])[:5]
+
+    def fixed(self) -> int:
+        """What the `str` scans read besides the needle looks."""
+        return self.scanned - sum(self.looks)
 
     @contextlib.contextmanager
     def installed(self, monkeypatch):
@@ -96,17 +137,43 @@ class Meter:
                 if not isinstance(reading.read, Metered):
                     reading.read = Metered(reading.read, self)
             monkeypatch.setattr(reading_class, "__init__", metered_reading)
+            for name in ("_back", "_forward"):
+                monkeypatch.setattr(reading_class, name, self._margin_run(getattr(reading_class, name)))
+        for name in ("_event_from", "_event_before"):
+            if hasattr(handoff, name):
+                monkeypatch.setattr(handoff, name, self._look(getattr(handoff, name)))
         try:
             yield self
         finally:
             monkeypatch.undo()
 
+    def _look(self, function):
+        def look(*args):
+            scanned, margins = self.scanned, self.margins
+            try:
+                return function(*args)
+            finally:
+                # A run of margin lines the look meets is the fixed scans' (each run once).
+                self.looks.append(self.scanned - scanned - (self.margins - margins))
+        return look
+
+    def _margin_run(self, function):
+        def run(reading, at):
+            scanned = self.scanned
+            try:
+                return function(reading, at)
+            finally:
+                self.margins += self.scanned - scanned
+        return run
+
 
 class MeteredPattern:
-    """A compiled pattern whose calls count the span they may read."""
+    """A compiled pattern whose calls count the span they may read; a character class's
+    `match` counts what it reads (`CLASS_RUN`), as `_DATA_BODY_RE`'s does (review r4, P3-1)."""
 
     def __init__(self, pattern: re.Pattern, meter: Meter):
         self._pattern, self._meter = pattern, meter
+        self.reads_its_match = CLASS_RUN.fullmatch(pattern.pattern) is not None
 
     def _span(self, string, pos=0, endpos=sys.maxsize):
         self._meter.read(self._pattern, max(0, min(endpos, len(string)) - pos))
@@ -116,8 +183,13 @@ class MeteredPattern:
         return self._pattern.search(string, pos, endpos)
 
     def match(self, string, pos=0, endpos=sys.maxsize):
-        self._span(string, pos, endpos)
-        return self._pattern.match(string, pos, endpos)
+        found = self._pattern.match(string, pos, endpos)
+        if self.reads_its_match:
+            end = min(endpos, len(string))
+            self._meter.read(self._pattern, max(0, min(end, (found.end() if found else pos) + 1) - pos))
+        else:
+            self._span(string, pos, endpos)
+        return found
 
     def fullmatch(self, string, pos=0, endpos=sys.maxsize):
         self._span(string, pos, endpos)
@@ -199,8 +271,16 @@ class Metered(str):
 #: Regex reads per cut, whatever the text's length: the windows' `limit` characters,
 #: each read by a fixed number of patterns.
 REGEX_BOUND = 16 * LIMIT
-#: `str` reads per cut, past the windows' own: a fixed number of scans of the text.
-SCAN_PASSES = 12
+#: C-25.7: at most one needle look for each quote kind open at a candidate cut, two plain
+#: kinds and at most `CUT_KINDS_MAX` escaped ones a side.
+LOOKS_MAX = 2 * (2 + handoff.CUT_KINDS_MAX)
+#: What one look reads past the text's one pass: its finds' overlaps and the runs of
+#: backslashes it counts (`_LOOK` finds, each at most `_LOOK + 1` characters twice), and
+#: the steps of its look at the character before the quote it found (`_run_start`).
+LOOK_SLACK = 2 * LIMIT
+#: The `str` scans besides the needle looks: C-25.7 states a fixed number of passes over
+#: the text. This is the guard on these shapes, which read 2 to 6 (the report's table).
+FIXED_PASSES = 8
 
 
 def metered_cut(text: str, monkeypatch) -> tuple[str, Meter]:
@@ -216,8 +296,11 @@ def test_at_16_mib_no_regex_reads_past_the_cut_s_windows(shape, monkeypatch):
     """Review r3, P3-1: at cce8f1af7 one cut ran a regex over all 16 MiB three times (the
     margins' substitution, the reminder search and the leading header's match), and
     `test_a_cut_s_work_does_not_grow_with_the_text` counted each as one C call. Counted
-    in characters: every regex reads within the windows, the same at 1 and at 16 MiB,
-    and the `str` scans are linear in the text, a fixed number of passes."""
+    in characters: every regex reads within the windows, the same at 1 and at 16 MiB.
+    Review r4, P3-1: past them the `str` scans are a fixed number of passes over the text
+    and at most 20 needle looks, each at most one pass (the quote kinds read about 20
+    passes in all, against round 5's stated 12), and a data URI body's match is counted
+    by what it reads (the 480 prefixes: 2,012,537 characters as counted at round 5)."""
     reads = {}
     for size in (MIB, 16 * MIB):
         text = SHAPES[shape](size)
@@ -226,8 +309,27 @@ def test_at_16_mib_no_regex_reads_past_the_cut_s_windows(shape, monkeypatch):
         reads[size] = meter
         assert meter.regex <= REGEX_BOUND, (size, meter.regex, meter.widest())
         assert max((span for _, span in meter.regex_calls), default=0) <= 2 * LIMIT, meter.widest()
-        assert meter.scanned <= SCAN_PASSES * len(text) + REGEX_BOUND, (size, meter.scanned / len(text))
+        assert len(meter.looks) <= LOOKS_MAX, (size, len(meter.looks))
+        assert max(meter.looks, default=0) <= len(text) + LOOK_SLACK, (size, max(meter.looks) / len(text))
+        assert meter.fixed() <= FIXED_PASSES * len(text) + REGEX_BOUND, (size, meter.fixed() / len(text))
     assert reads[16 * MIB].regex <= reads[MIB].regex + LIMIT, (reads[MIB].regex, reads[16 * MIB].regex)
+
+
+def test_the_quote_kinds_cost_a_look_each_and_the_meter_counts_the_body_by_what_it_reads(monkeypatch):
+    """The two counts review r4 found round 5's statement missed, each seen by the meter:
+    the quote kinds make 18 needle looks, each about a pass over the text; and each data
+    URI body match is counted as what it reads, its match and the character after it,
+    so a meter that stopped counting `_DATA_BODY_RE` (or counted it to the window's end
+    again) fails here."""
+    text = REVIEW_R4_SHAPES["quote-kinds"](MIB)
+    _, meter = metered_cut(text, monkeypatch)
+    assert len(meter.looks) == 18 and min(meter.looks) >= len(text) // 2, meter.looks
+    for shape, matches in (("data-uri-prefixes", 480), ("data-uri-body", 1)):
+        text = REVIEW_R4_SHAPES[shape](MIB)
+        _, meter = metered_cut(text, monkeypatch)
+        body = [span for pattern, span in meter.regex_calls if pattern == handoff._DATA_BODY_RE.pattern[:40]]
+        assert len(body) >= matches, (shape, len(body), "data URI body matches metered")
+        assert sum(body) <= 2 * LIMIT, (shape, sum(body))
 
 
 @pytest.mark.timeout(60)
