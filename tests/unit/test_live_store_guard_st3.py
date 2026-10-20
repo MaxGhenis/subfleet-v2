@@ -1,4 +1,4 @@
-"""D-ST3: a pytest process never resolves the account's live roots, whatever os.environ holds.
+"""C-20.6 (D-ST3): a pytest process never resolves the account's live roots, whatever os.environ holds.
 
 D-ST1's refusals read the test session from os.environ alone: the session
 marker with a live sentinel, else PYTEST_CURRENT_TEST. In #222's fix round 5,
@@ -192,7 +192,7 @@ def replace_environ(patch, environ):
 
 @pytest.mark.parametrize("environ", ENVIRONS.values(), ids=ENVIRONS)
 def test_daemon_start_refuses_the_live_root_before_any_access(environ, sealed, monkeypatch):
-    """#222 round 5's shape: `cmd_daemon_start` with os.environ a plain dict.
+    """C-20.6 (D-ST3): #222 round 5's shape, `cmd_daemon_start` with os.environ a plain dict.
 
     At release it resolved ~/.subfleet and then ran chmod, read policy.json,
     lanes.json and the store, and opened daemon.log for append. Now `_root`
@@ -211,6 +211,7 @@ def test_daemon_start_refuses_the_live_root_before_any_access(environ, sealed, m
 
 @pytest.mark.parametrize("environ", ENVIRONS.values(), ids=ENVIRONS)
 def test_production_state_root_refuses(environ, sealed, monkeypatch):
+    """C-20.6 (D-ST3): production_state_root refuses ~/.subfleet with no session names."""
     replace_environ(monkeypatch, environ)
     with pytest.raises(RuntimeError, match="~/.subfleet"):
         home_paths.production_state_root()
@@ -220,7 +221,7 @@ def test_production_state_root_refuses(environ, sealed, monkeypatch):
 @pytest.mark.parametrize("environ", ENVIRONS.values(), ids=ENVIRONS)
 @pytest.mark.parametrize("variable,resolver,suffix", RESOLVERS)
 def test_every_resolver_refuses_its_default(environ, variable, resolver, suffix, sealed, monkeypatch):
-    """`home_path` with each production default: every D-ST1 resolver refuses."""
+    """C-20.6 (D-ST3): `home_path` with each production default; every D-ST1 resolver refuses."""
     replace_environ(monkeypatch, environ)
     with pytest.raises(RuntimeError, match=variable):
         resolver()
@@ -233,6 +234,7 @@ def test_every_resolver_refuses_its_default(environ, variable, resolver, suffix,
                                      {"expand_override": True}], ids=["plain", "test-only", "accept-empty",
                                                                       "expand"])
 def test_home_path_refuses_each_store_default(environ, store, options, sealed, monkeypatch):
+    """C-20.6 (D-ST3): each store's default is refused, read from os.environ or a given env."""
     replace_environ(monkeypatch, environ)
 
     def default():
@@ -259,6 +261,7 @@ def test_home_path_refuses_each_store_default(environ, store, options, sealed, m
 ], ids=["protected-homes", "codex-app", "desktop-login", "provider-home", "state-root-env", "host-paths",
         "host-environment", "agent-secret"])
 def test_each_guarded_function_refuses(environ, function, variable, sealed, monkeypatch):
+    """C-20.6 (D-ST3): each other guarded function refuses with no session names."""
     replace_environ(monkeypatch, environ)
     with pytest.raises(RuntimeError, match=variable):
         function()
@@ -267,7 +270,7 @@ def test_each_guarded_function_refuses(environ, function, variable, sealed, monk
 
 @pytest.mark.parametrize("environ", ENVIRONS.values(), ids=ENVIRONS)
 def test_the_v1_install_default_is_refused(environ, sealed, monkeypatch):
-    """Step 3's fallback: `compat.v1_binary` defaulted to the person's v1 install."""
+    """C-20.6 (D-ST3): step 3's fallback; `compat.v1_binary` defaulted to the person's v1 install."""
     replace_environ(monkeypatch, environ)
     with pytest.raises(RuntimeError, match=compat.V1_BIN_ENV):
         compat.v1_binary()
@@ -276,7 +279,7 @@ def test_the_v1_install_default_is_refused(environ, sealed, monkeypatch):
 
 @pytest.mark.parametrize("environ", ENVIRONS.values(), ids=ENVIRONS)
 def test_prune_decisions_state_root_default_is_refused(environ, sealed, monkeypatch):
-    """Step 3's fallback: `python -m subfleet.prune_decisions` defaulted to ~/.subfleet."""
+    """C-20.6 (D-ST3): step 3's fallback; `python -m subfleet.prune_decisions` defaulted to ~/.subfleet."""
     replace_environ(monkeypatch, environ)
     with pytest.raises(RuntimeError, match="SUBFLEET_HOME"):
         prune_decisions.main(["--no-report"])
@@ -284,7 +287,7 @@ def test_prune_decisions_state_root_default_is_refused(environ, sealed, monkeypa
 
 
 def test_prune_decisions_state_root_default_keeps_the_environment(tmp_path, monkeypatch):
-    """Outside a refusal the default is unchanged: SUBFLEET_HOME, read once."""
+    """C-20.6 (D-ST3): outside a refusal the default is unchanged: SUBFLEET_HOME, read once."""
     seen = []
     monkeypatch.setattr(prune_decisions, "prune", lambda root, **_: seen.append(root) or pytest.fail("stop"))
     monkeypatch.setenv("SUBFLEET_HOME", str(tmp_path / "chosen"))
@@ -298,6 +301,7 @@ def test_prune_decisions_state_root_default_keeps_the_environment(tmp_path, monk
 
 @pytest.mark.parametrize("environ", ENVIRONS.values(), ids=ENVIRONS)
 def test_the_process_rule_holds_whatever_the_environment(environ, monkeypatch):
+    """C-20.6 (D-ST3): this process is a test process whatever os.environ holds; a child given it is not."""
     replace_environ(monkeypatch, environ)
     assert home_paths.pytest_loaded()
     assert home_paths.under_pytest()
@@ -317,7 +321,7 @@ print(json.dumps({"loaded": home_paths.pytest_loaded(), "under": home_paths.unde
 @pytest.mark.parametrize("markers", ["live", "none"])
 @pytest.mark.parametrize("imports", ["plain", "pytest"])
 def test_a_child_keeps_the_environment_rule_unless_it_loads_pytest(tmp_path, markers, imports):
-    """Subprocesses keep today's marker rule; one that imports pytest is a test process."""
+    """C-20.6 (D-ST3): children keep the marker rule; one that imports pytest is a test process."""
     env = {**os.environ, "PYTHONPATH": str(REPO), "HOME": str(tmp_path / "home")}
     if markers == "none":
         for name in (PYTEST_MARKER, PYTEST_SESSION, PYTEST_SESSION_ID, "PYTEST_CURRENT_TEST"):
@@ -330,7 +334,7 @@ def test_a_child_keeps_the_environment_rule_unless_it_loads_pytest(tmp_path, mar
 
 
 def test_no_subfleet_module_imports_pytest():
-    """A production process could hold pytest's modules only by importing pytest."""
+    """C-20.6 (D-ST3): a production process could hold pytest's modules only by importing pytest."""
     found = []
     for path in sorted((REPO / "subfleet").rglob("*.py")):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
@@ -353,7 +357,7 @@ def test_no_subfleet_module_imports_pytest():
 
 def test_the_seam_waives_the_process_rule_only_while_home_is_not_the_accounts(tmp_path, monkeypatch,
                                                                                 production_process):
-    """The seam turns the process rule off for a test HOME and never for the account's."""
+    """C-20.6 (D-ST3): the seam turns the process rule off for a test HOME, never the account's."""
     for name in (PYTEST_MARKER, "PYTEST_CURRENT_TEST"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
@@ -370,6 +374,7 @@ def test_the_seam_waives_the_process_rule_only_while_home_is_not_the_accounts(tm
 
 
 def test_the_seam_keeps_the_live_root_refused_under_the_accounts_home(sealed, monkeypatch, production_process):
+    """C-20.6 (D-ST3): with the account's HOME the waived rule stands, and nothing is touched."""
     replace_environ(monkeypatch, {"PATH": "/usr/bin:/bin", "HOME": str(PERSONAL)})
     with pytest.raises(RuntimeError, match="~/.subfleet"):
         home_paths.production_state_root()
@@ -379,7 +384,7 @@ def test_the_seam_keeps_the_live_root_refused_under_the_accounts_home(sealed, mo
 
 
 def test_the_seam_restores_production_defaults_under_a_test_home(tmp_path, monkeypatch, production_process):
-    """What the seam is for: a test_only default outside a session, under its own HOME."""
+    """C-20.6 (D-ST3): what the seam is for, a test_only default outside a session under its own HOME."""
     for name in (PYTEST_MARKER, "PYTEST_CURRENT_TEST", "SUBFLEET_CODEX_APP_HOME", "SUBFLEET_DESKTOP_LOGIN"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
@@ -410,7 +415,7 @@ def account_spellings() -> list[str]:
 
 @pytest.mark.parametrize("spelling", account_spellings())
 def test_production_state_root_refuses_every_spelling_of_the_accounts_home(spelling, sealed, monkeypatch):
-    """`home/st3-missing/..` read as a test HOME at release: resolve() then built ~/.subfleet."""
+    """C-20.6 (D-ST3): at release `home/st3-missing/..` read as a test HOME; resolve() built ~/.subfleet."""
     monkeypatch.setenv("HOME", spelling)
     assert home_paths.is_account_home(Path(spelling))
     with pytest.raises(RuntimeError, match="~/.subfleet"):
@@ -421,7 +426,7 @@ def test_production_state_root_refuses_every_spelling_of_the_accounts_home(spell
 
 
 def test_a_home_spelled_through_a_link_past_a_missing_component_is_the_accounts(tmp_path, sealed, monkeypatch):
-    """No stat follows `missing/../link`, but Path.resolve builds on the link's target.
+    """C-20.6 (D-ST3): no stat follows `missing/../link`, but Path.resolve builds on its target.
 
     At release, as a test HOME pointing at the account's home this way,
     production_state_root resolved the person's ~/.subfleet.
@@ -438,7 +443,7 @@ def test_a_home_spelled_through_a_link_past_a_missing_component_is_the_accounts(
 @pytest.mark.parametrize("variable", ["SUBFLEET_HOME", "SUBFLEET_CLAUDE_DIR", "SUBFLEET_CODEX_APP_HOME"])
 @pytest.mark.parametrize("home", ["unset", "account"])
 def test_a_tilde_override_naming_the_accounts_home_is_refused(variable, home, sealed, monkeypatch):
-    """`~/...` expands through HOME, and without one through pwd, to the account's home."""
+    """C-20.6 (D-ST3): `~/...` expands through HOME, or without one through pwd, to the account's home."""
     if home == "unset":
         monkeypatch.delenv("HOME")
     else:
@@ -450,6 +455,7 @@ def test_a_tilde_override_naming_the_accounts_home_is_refused(variable, home, se
 
 
 def test_a_tilde_override_under_a_test_home_is_the_tests(tmp_path, monkeypatch):
+    """C-20.6 (D-ST3): a `~` override under a test HOME is the test's own and resolves there."""
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("SUBFLEET_HOME", "~/chosen")
     assert client.state_root() == tmp_path / "home" / "chosen"
@@ -539,6 +545,7 @@ PROPERTY = settings(max_examples=int(os.environ.get("SUBFLEET_ST3_EXAMPLES", "15
 @PROPERTY
 @given(data=st.data())
 def test_no_guarded_function_returns_an_account_store_whatever_the_environment(tmp_path, sealed, data):
+    """C-20.6 (D-ST3): over environments of session names and junk, no guarded function names a store."""
     environ = data.draw(environments(tmp_path))
     with pytest.MonkeyPatch.context() as patch:
         patch.chdir(tmp_path)        # a relative junk value is judged under the test's own tree
@@ -550,7 +557,7 @@ def test_no_guarded_function_returns_an_account_store_whatever_the_environment(t
 
 
 def test_the_property_oracle_finds_the_account_stores(tmp_path):
-    """The oracle is not vacuous: it names each store by each spelling, and nothing else."""
+    """C-20.6 (D-ST3): the oracle is not vacuous; it names each store by each spelling, nothing else."""
     for spelling in account_spellings():
         for store in STORES:
             assert names_an_account_store(f"{spelling}/{store}"), (spelling, store)
@@ -566,7 +573,7 @@ def connect_unix(path):
 
 
 def test_the_spies_refuse_before_the_call(monkeypatch):
-    """The spies are not vacuous: each refuses a live spelling before its call."""
+    """C-20.6 (D-ST3): the spies are not vacuous; each refuses a live spelling before its call."""
     target = PERSONAL / STORES[0] / "state.sqlite3"
     calls = [lambda: os.stat(target), lambda: os.chmod(target.parent, 0o700), lambda: open(target, "ab"),
              lambda: sqlite3.connect(target.as_uri() + "?mode=ro", uri=True),
