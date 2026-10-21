@@ -192,8 +192,6 @@ def refused_while_busy(client: Any, exc: BaseException, *,
         return False
     if not isinstance(getattr(exc, "__cause__", None), ConnectionRefusedError):
         return False
-    if not getattr(client, "_verify_lock", True):
-        return None                         # C-15.6: a refused hook never inspects
     alive = getattr(client, "lock_holder_alive", None)
     if alive is None:
         return None

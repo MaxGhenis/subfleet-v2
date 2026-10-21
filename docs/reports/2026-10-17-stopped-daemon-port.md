@@ -621,9 +621,10 @@ signalled or cleaned.
 Merged the existing local `origin/release/217` ref, `473fe2941`, including
 #222, the `f99da54b0` launch-environment allowlist and later release merges.
 No Git remote was contacted. Only `docs/acceptance-contract.md` conflicted. Both
-sides' complete change-log entries were retained; the two C-17.9 additions
-(stdin bounds and environment diagnostics) now share that clause as separate
-paragraphs. All other clauses from both sides are retained. CLI and doctor
+sides' complete change-log entries were retained. This PR's stdin-bounds clause
+and release's environment-diagnostics clause first shared one number here; the
+hub note at the end records the renumber: this PR's clause is C-17.9, and
+release's C-17.8 is its own clause again. All other clauses from both sides are retained. CLI and doctor
 merged automatically.
 
 The shared Git metadata rejected writing `ORIG_HEAD.lock` under the sandbox.
@@ -1922,3 +1923,13 @@ Full-sweep files still pending (some were already verified in the briefed holds)
 This PR's ping-stdin clause was added as C-17.8 when that number was free. Release later took C-17.8 for #222's `doctor` environment-name report. The round-5 merge (`63cbb04c7`) kept this PR's clause under the shared number and folded release's clause into it as an indented paragraph, so two different rules shared one number. The hub's union check found it.
 
 This PR's clause is now C-17.9, and release's C-17.8 is its own clause again, word for word. This report, `subfleet/cli.py`, `tests/unit/test_cli.py` and `tests/unit/test_launch_env_round3.py` now cite C-17.9 wherever they meant this PR's clause, including the earlier rounds' history lines above. Release's own C-17.8 citations, in `daemon.py`, `doctor.py`, `test_launch_env_round4.py` and the launch-environment report, are unchanged.
+
+## Hub fix, 2026-10-21: review r5's P2 (C-16.7 for the PostToolUse hook)
+
+Review r5 executed a crashed daemon behind a busy answer: the hook's `wait` was answered busy, then every connect was refused, and `daemon.lock` named a reaped pid. At `1717ee7fc`, `refused_while_busy` returned "can't tell" for any client that opted out of lock inspection, so `post_tool_use` polled until its deadline: 28.6 s of a 30 s budget, 33 connects, no `ps`. With the default 600 s budget, that is about 593 s of a session's Bash call. Release asked once and returned (7.1 s under load, one `ps`).
+
+- **Fix:** the two-line early return in `refused_while_busy` is gone. A refused connect after busy asks about the holder once, opted out or not, as release did and C-16.7 says. C-15.6's opt-out still covers a plain refused connect, through `unreachable()`'s check, which is what `test_hook_cost`'s CI failure needed.
+- **Tests:** `Scripted` in `tests/unit/test_descriptor_review_fixes.py` is release's opted-out client again, so its `dead` case asserts release's behaviour. `test_opted_out_busy_refusal_asks_ps_nothing`, which asserted the break, is replaced by two tests: the refusal after busy asks once and returns False, and `_wait_and_deliver` ends at once (under 1 s of virtual time, two calls) on that shape.
+- **Contract:** the round-5 sentence in C-5.13 and its change-log entry now say the opt-out covers only a plain refused connect. C-16.7 is unchanged.
+- **This report's line about the renumber** now matches the hub note above.
+

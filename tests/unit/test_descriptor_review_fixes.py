@@ -204,9 +204,7 @@ class Scripted(Client):
     """Each send below `call` plays the next step of a script."""
 
     def __init__(self, root, *steps):
-        # The scripted transport already bypasses preflight; refused-after-busy
-        # diagnosis below deliberately models a verifying client (C-5.13).
-        super().__init__(root)
+        super().__init__(root, verify_lock=False)
         self.steps, self.timeouts = list(steps), []
 
     def _call_once(self, op, args, *, request_id, timeout, stated):
