@@ -15,5 +15,8 @@ ROOT = Path("/tmp/sf-failed")
 
 
 def failed_keep_dir(test_name: str) -> Path:
-    """The folder a failed test's state root is copied to: one per process and test."""
+    """The folder a failed test's state root is copied to: one per process and test name.
+
+    Keyed by `request.node.name`, not the full node id, so two modules' tests with the same name share a folder
+    within one process (one such pair exists today, and the fake one keeps nothing)."""
     return ROOT / str(os.getpid()) / re.sub(r"[^A-Za-z0-9_.-]", "_", test_name)
