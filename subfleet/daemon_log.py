@@ -14,11 +14,15 @@ Before either, a record's text (its line, traceback and stack together) is cut
 to `RECORD_SCRUB_MAX` characters, keeping whole lines of each part's head and
 tail with a marker, at line breaks no match of the whole-text scrub crosses,
 folded or not (`handoff.cut_whole`). Every regex the cut runs reads within its
-two windows; past them it reads only in C scans, a few passes over the text
-(counted: `test_daemon_log_cut_windows`), so a cut costs a small multiple of
-what the same length of plain text costs, on every shape measured (C-25.7 gives
-the ratios), and the scrub reads at most `RECORD_SCRUB_MAX` characters. A record
-is formatted before the handler's lock is taken, so only its write holds the lock.
+two windows. Past them it reads only in C scans: a fixed number of scans of the
+text, plus at most 20 needle looks (`handoff._event_from`, `_event_before`: one
+for each quote kind open at a candidate cut, two plain kinds and at most eight
+escaped ones a side), each at most 64 finds of its quote, which together read the
+text at most once (both counted: `test_daemon_log_cut_windows`). So a cut's cost is
+linear in the text, at most 6.7 times what plain text of the same length costs
+on every shape measured (C-25.7 gives the ratios), and the scrub reads at most
+`RECORD_SCRUB_MAX` characters. A record is formatted before the handler's lock is
+taken, so only its write holds the lock.
 A one-line message whose cut keeps only the marker is written as the marker
 with the record's level and logger, never its words. No reminder tag is written:
 the scrub strips each reminder whose two tags a record holds, and every tag left
@@ -84,7 +88,8 @@ from .sessions.handoff import (REDACTED, cut_marker, cut_whole, quoted_value_mas
 SCRUB_FAILED = "[scrub failed]"
 #: The most of one record's text (its line, traceback and stack together) the
 #: handler scrubs (C-25.7). Longer text is cut first (`handoff.cut_whole`), whose
-#: regexes read only its windows, and whose C scans past them are a few passes.
+#: regexes read only its windows, and whose C scans past them are a fixed number of
+#: passes and at most 20 needle looks.
 RECORD_SCRUB_MAX = 16_384
 #: What logging's report of a record it could not write becomes.
 WRITE_FAILED = "[log write failed]"
@@ -444,8 +449,9 @@ def _reminders_resolved(text: str) -> str | None:
       text read without a group's margins, as the block form also reads it, would strip
       other reminders, or when taking them out makes a tag where none was.
 
-    Its cost, past finding the tags in C scans: none; the marks, a copy; reminders to take
-    out, a pass of the quoted-value rule over the text (two, with a group's margins)."""
+    Its cost, besides finding the tags in C scans: with orphans only, a marked copy; with
+    reminders to take out, a pass of the quoted-value rule over the text (two, with a
+    group's margins), and copies."""
     tags = reminder_tags(text)
     if not tags:
         return text
