@@ -130,6 +130,14 @@ def test_c16_7_more_long_waits_than_the_old_reader_pool_still_leave_a_ping_answe
     """C-16.7 the incident: 40 clients in `wait` held all 32 readers and no ping was answered."""
     service = serve()
     assert service.max_connections >= 64            # this test process has a generous limit
+    real, in_wait, lock = service.dispatch, [], threading.Lock()
+
+    def dispatch(op, args, **kw):
+        if op == "wait":
+            with lock:
+                in_wait.append(args)
+        return real(op, args, **kw)
+    service.dispatch = dispatch
     holders = []
     for _ in range(40):
         sock = connect(service)
@@ -141,6 +149,9 @@ def test_c16_7_more_long_waits_than_the_old_reader_pool_still_leave_a_ping_answe
     until(lambda: counts(service)["connections"] >= 40, timeout=30)
     # Every held connection has a reader thread of its own (review of #43, F1).
     assert len(service._readers) == counts(service)["connections"] >= 40
+    # A connection counts before its reader has read its request: the ping must
+    # come only once all 40 waits are dispatched and holding, or it proves nothing.
+    until(lambda: len(in_wait) >= 40, timeout=30)
     started = time.monotonic()
     assert call(service, "ping")["result"]["pong"] is True
     assert time.monotonic() - started < 2
@@ -625,19 +636,33 @@ def test_c16_7_a_connection_without_a_reader_is_answered_busy(serve, monkeypatch
     assert answer["ok"] is False and answer["error"]["code"] == 69 and "thread" in answer["error"]["message"]
 
 
-def test_c16_7_a_stopping_daemon_does_not_count_its_own_shutdown_as_departures(serve):
+@pytest.mark.parametrize("late", [0.0, 0.5], ids=["prompt", "late-blocker"])
+def test_c16_7_a_stopping_daemon_does_not_count_its_own_shutdown_as_departures(serve, late):
     """C-16.7 close()'s SHUT_RDWR makes getpeername fail as a departed client's
-    would; queued reads are then close()'s to cancel, not 'client hung up'."""
+    would; queued reads are then close()'s to cancel, not 'client hung up'.
+
+    `late` holds the blocker's request back after its connection is counted, as a
+    slow reader thread can (CI, Python 3.12, 10/18): the reads must still queue
+    behind it."""
     service = serve()
     service.requests.shutdown(wait=True)
     service.requests = ThreadPoolExecutor(max_workers=1, thread_name_prefix="subfleet-api")
-    release = threading.Event()
+    release, started = threading.Event(), threading.Event()
     real = service.dispatch
-    service.dispatch = lambda op, args, **kw: (release.wait(10), {"held": True})[1] if op == "readings" \
-        else real(op, args, **kw)
+    service.dispatch = lambda op, args, **kw: (started.set(), release.wait(10), {"held": True})[2] \
+        if op == "readings" else real(op, args, **kw)
+    real_start = service._start_request
+
+    def start(conn, write_lock, req, *rest):
+        if req.op == "readings":
+            time.sleep(late)
+        return real_start(conn, write_lock, req, *rest)
+    service._start_request = start
     blocker = connect(service)
     send(blocker, "readings")
-    until(lambda: counts(service)["connections"] == 1)
+    # Wait for the blocker's request to hold the single worker, not for its
+    # connection to be counted: a connection counts before its reader has read.
+    until(started.is_set)
     waiting = [connect(service) for _ in range(3)]
     for sock in waiting:
         send(sock, "daemon.status")
