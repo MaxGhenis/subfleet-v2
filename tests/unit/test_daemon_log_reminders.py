@@ -240,9 +240,13 @@ def test_a_tag_a_quoted_value_masks_is_none_to_the_strip(line, where):
     reminders, so stripping before the cut must read them in that order. The tail hides
     what the whole text's scrub hides, and shows no tag."""
     text = line + admissions(600) if where == "first" else admissions(600) + line
+    # Three lines of a 601-line log: the tail must cut, so it resolves the reminders first
+    # (a count that covers the whole log would scrub it whole, and test nothing of that): the
+    # log is longer than what the tail cuts it to, the bound and twice its last three lines.
+    assert len(text) > daemon_log.RECORD_SCRUB_MAX + 2 * len("".join(text.splitlines(True)[-3:]))
     whole = daemon_log.scrubbed_block(text, keep_lines=True)
-    tail = daemon_log.scrubbed_tail(text, 700)
-    assert secrets("\n".join(tail)) <= secrets(whole) and not tags(tail)
+    tail = daemon_log.scrubbed_tail(text, 3)
+    assert len(tail) == 3 and secrets("\n".join(tail)) <= secrets(whole) and not tags(tail)
     assert ("SECRET7masked9" in whole) is False
     if where == "last":
         assert tail[-1] == TAG.sub(MARK, whole.splitlines()[-1])

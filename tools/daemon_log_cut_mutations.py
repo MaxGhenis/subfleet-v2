@@ -27,7 +27,9 @@ and round 6's (review r4):
   still being written;
 - `tail-unmarked-after-scrub`: the tail resolving reminders before its cut, but not
   marking the tags its scrub leaves (a log short enough to be scrubbed whole);
-- `follow-not-neutralised`: `daemon logs -f` writing the tags its scrub leaves.
+- `follow-not-neutralised`: `daemon logs -f` writing the tags its scrub leaves;
+- `unmasked-strip`: the tail taking reminders out without the whole-text scrub's quoted
+  pass first, so a closing tag inside a quoted value closes a reminder.
 """
 from __future__ import annotations
 
@@ -207,13 +209,20 @@ def _follow_not_neutralised(patch):
     patch.setattr(daemon_log.LogFollower, "_write", write)
 
 
+def _unmasked_strip(patch):
+    def unmasked(text):                     # masks nothing: every tag counts for the strip
+        mark = next(char for char in map(chr, range(0xE000, 0xE100)) if char not in text)
+        return text, mark
+    patch.setattr(daemon_log, "quoted_value_mask", unmasked)
+
+
 MUTATIONS = {"baseline": lambda patch: None, "whole-margins": _whole_margins,
              "backtracking-header": _backtracking_header, "whole-reminder-search": _whole_reminder_search,
              "folded-tail": _folded_tail, "raw-logs": _raw_logs,
              "tail-not-neutralised": _tail_not_neutralised, "handler-not-neutralised": _handler_not_neutralised,
              "body-by-regex": _body_by_regex, "unmetered-data-body": _unmetered_data_body,
              "pem-prefix-not-held": _pem_prefix_not_held, "tail-unmarked-after-scrub": _tail_unmarked_after_scrub,
-             "follow-not-neutralised": _follow_not_neutralised}
+             "follow-not-neutralised": _follow_not_neutralised, "unmasked-strip": _unmasked_strip}
 
 #: The named tests, each with its arguments beyond its fixtures.
 TESTS = [
@@ -256,6 +265,8 @@ TESTS = [
      reminders.test_a_log_too_short_to_cut_shows_each_tag_as_the_marker, {"form": "orphan-open"}),
     ("test_daemon_logs_follow_holds_a_split_first_line",
      reminders.test_daemon_logs_follow_holds_a_split_first_line, {}),
+    ("test_a_tag_a_quoted_value_masks_is_none_to_the_strip[last-MASKED_CLOSE]",
+     reminders.test_a_tag_a_quoted_value_masks_is_none_to_the_strip, {"line": reminders.MASKED_CLOSE, "where": "last"}),
 ]
 
 
