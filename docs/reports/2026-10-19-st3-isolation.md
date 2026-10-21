@@ -5,28 +5,42 @@ Branch `fix/st3-process-isolation-217`, cut from `origin/release/217` at `473fe2
 that branch, so each job committed on a detached HEAD in its own worktree; Subfleet
 keeps the commits as a salvage ref. Nothing was pushed. No live store, live daemon,
 `~/.subfleet`, `~/.claude`, `~/.codex` or `~/chief-of-staff/state` file was opened,
-written or listed, and no live process was signalled. The first job signalled only its
-own lockf waiter; the second signalled nothing. No sub-agents.
+written or listed, and no live process was signalled. There is one exception, by the
+third job: it read its own job's prompt (`~/.subfleet/jobs/20261020-174853-st3-build-d2/a1/prompt.sent.md`)
+once, to compare it with the hub's copy of the brief. It opened no store, log or other
+file there. The first job signalled only its own lockf waiter; the second and third
+signalled nothing (Runs says how the third job's holds were bounded). No sub-agents.
 
-**Two jobs.** The first job (`20261020-073517-st3-build-b`) wrote the commits up to
+**Three jobs.** The first job (`20261020-073517-st3-build-b`) wrote the commits up to
 `d6e7fd601` and the body of this report. It was lost at about 15:25Z on 2026-10-20,
 when the host lost power, so it never committed this report or reported its final runs.
-A second job (`20261020-114751-st3-build-c`) finished the work. That job's first attempt
-also ended without a final answer: Subfleet salvaged its worktree at 19:22Z, holding
-only this report. It had run three holds at `d6e7fd601` but had not written their
-results into the report. Its second attempt did four things:
 
-- checked every item of the brief against the commits (below), and reran the `grep`
-  and the fallback scan;
-- found that `origin/release/217`, as the hub last fetched it, is still `473fe2941`,
-  the commit this branch was cut from, so there was nothing to merge;
-- ran the briefed files, then as much of the rest of `tests/unit` and `tests/fake` as
-  the shared test lock allowed, all at `d6e7fd601` (Runs);
-- committed this report.
+The second job (`20261020-114751-st3-build-c`) had two attempts:
 
-Every count in Runs comes from the second attempt's own runs at `d6e7fd601`, except
-one table, labelled as the first attempt's. The release run under "The cause, as
-executed" is the first job's, and that section says so.
+- The first ended without a final answer. Subfleet salvaged its worktree at 19:22Z,
+  holding only this report. It had run three holds at `d6e7fd601` but had not written
+  their results into the report; they are the table labelled as that attempt's, under
+  Runs.
+- The second attempt checked every item of the brief against the commits (below). It
+  reran the `grep` and the fallback scan, and found `origin/release/217`, as the hub had
+  then fetched it, still at `473fe2941`. It committed this report as `d07ae296e`, with
+  its holds still queued. Its 6-hour wall cancelled it at 21:48Z, after about 1 h 45 m of
+  host freezes, while its holds still waited for the suite lock.
+
+The third job (`20261020-174853-st3-build-d2`) started at 03:05Z on 2026-10-21 and did
+four things:
+
+- checked the brief's items against the commits again;
+- merged `origin/release/217` as the hub last fetched it (`a26d08336`, #237), with no
+  conflict (Commits);
+- ran the briefed files, then every other file in `tests/unit` and `tests/fake`, at the
+  merge (Runs);
+- filled in Runs and committed this report.
+
+Every count under "This job's holds" comes from the third job's own runs at
+`b38cc9f2f`. The table labelled as the second job's first attempt is kept for
+comparison and is not counted there. The release run under "The cause, as executed" is
+the first job's, and that section says so.
 
 ## Commits
 
@@ -39,27 +53,37 @@ executed" is the first job's, and that section says so.
 | `3e104df38` | Docs: C-20.6 amendment and change-log entry; the D-ST3 tests cite C-20.6 |
 | `6b07533ab` | Test: the property's oracle leaves this process's own code alone; `~user` junk |
 | `d6e7fd601` | Tests: the 20 more tests that replaced os.environ name their own store paths or take the seam; a stat-recording test for `home/<store>/..` |
-| (this report) | Report, committed by the second job |
+| `d07ae296e` | Report, committed by the second job with its holds still queued |
+| `b38cc9f2f` | Merge of `origin/release/217` at `a26d08336` (#237), by the third job |
+| (this commit) | Report: the third job's runs |
+
+**The merge.** Since `473fe2941`, release/217 has gained only #237 (`5cd792ad7`,
+`1c6815c35`, `8c0e466aa`, merged as `a26d08336`), which changes only
+`tests/unit/test_daemon_connections.py`. This branch does not touch that file, so `git
+merge` reported no conflict and nothing needed resolving. `docs/acceptance-contract.md`
+is unchanged by #237, so the contract keeps this branch's C-20.6 amendment and change-log
+entry as they were. The tested tree is `d6e7fd601`'s code with #237's test change.
 
 ## The brief's items, checked against the commits
 
 | Item | Where | Status |
 |---|---|---|
 | #222 in the base (`git log --oneline origin/release/217 \| grep -m1 '#222'`) | `f99da54b0`, an ancestor of `473fe2941` | Done |
+| Release merged first, if it moved (the continuation briefs) | `b38cc9f2f` merges `a26d08336` (#237) | Done; no conflict (Commits) |
 | 1. Process-level detection that never reads the environment | `81a672496`: `home_paths.pytest_loaded` | Done; why it cannot be spoofed or missed is under The fix |
-| 1. No `subfleet/` code imports pytest | `grep -rn pytest subfleet/` finds only comments, strings and the `under_pytest`/`PYTEST_*` names (rerun by the second job); static test `test_no_subfleet_module_imports_pytest` | Done |
+| 1. No `subfleet/` code imports pytest | `grep -rn pytest subfleet/` finds only comments, strings and the `under_pytest`/`PYTEST_*` names (rerun by the second and third jobs; no `import pytest`, `import _pytest` or `from pytest` line at `b38cc9f2f`); static test `test_no_subfleet_module_imports_pytest` | Done |
 | 1. Folded into every live-root refusal | `81a672496`: `under_pytest()` is either rule for this process | Done |
 | 2. One explicit seam, only while HOME is not the account's | `be8cbb767` (`production_process`, `waive_process_rule`), `81a672496` (`_process_rule_waived`, read again at every call) | Done |
 | 2. Every test changed, and why | `70bad7117`, `d6e7fd601`; listed under Tests changed | Done |
-| 3. Every fallback to the account's home under `subfleet/`, routed through the guarded functions | `81a672496` routes the two that were not (`compat.v1_binary`, `prune_decisions`); listed below | Done. The second job reran the scan (an AST walk of every `Path.home()`, `pwd.getpw*`, `expanduser`, `"HOME"` and `~`-literal site: 137 sites) and read each site outside the table. Each expands a value its caller supplied. |
+| 3. Every fallback to the account's home under `subfleet/`, routed through the guarded functions | `81a672496` routes the two that were not (`compat.v1_binary`, `prune_decisions`); listed below | Done. The second job reran the scan (an AST walk of every `Path.home()`, `pwd.getpw*`, `expanduser`, `"HOME"` and `~`-literal site: 137 sites) and read each site outside the table. Each expands a value its caller supplied. The merge changes nothing under `subfleet/` (`git diff d6e7fd601 b38cc9f2f -- subfleet/` is empty), so the scan holds at the merge. |
 | Regressions under `{}` and a PATH-only dict, with spies on `os.chmod`, `open` and `sqlite3.connect` (and more) | `be8cbb767`, `f45fdabab`, `d6e7fd601` | Done; at release they fail (the first job's run, below) |
 | The same for `production_state_root`, `home_path` with each default, `protected_provider_homes`, `codex_app_home`, `desktop_login_path` | `be8cbb767` | Done |
 | Property over arbitrary environment dicts (bounded Hypothesis) | `be8cbb767`, `6b07533ab` | Done; 150 derandomized examples, no database |
-| Mutation: the process rule removed fails a named test | `test_live_store_guard_st3_mutations.py::...[no-process-rule]` | Done; all 8 mutants were killed at `d6e7fd601` (Runs) |
+| Mutation: the process rule removed fails a named test | `test_live_store_guard_st3_mutations.py::...[no-process-rule]` | Done; all 8 mutants were killed at `b38cc9f2f` (this job's H1) and at `d6e7fd601` (the second job's first attempt) (Runs) |
 | Live store spied, never read or statted | the spies in `test_live_store_guard_st3.py` | Done |
 | Contract amendment with change-log entry | `3e104df38` | Done |
-| Briefed runs, then the whole of `tests/unit` and `tests/fake` | the second job | See Runs |
-| Report | this file | Committed by the second job |
+| Briefed runs, then the whole of `tests/unit` and `tests/fake` | the third job, at `b38cc9f2f` | Done: all 433 files, 14,995 tests; none fails and none is unrun (Runs) |
+| Report | this file | Committed by the second job (`d07ae296e`); its Runs filled in and committed by the third |
 
 ## The cause, as executed
 
@@ -279,8 +303,9 @@ The first job's first post-fix hold killed seven of the eight. `no-lexical-spell
 survived there, because its named test was then the spelling test above. That test's
 spies allow metadata lookups of the `.venv`'s ancestors, and that job's `.venv` sat
 under `~/.subfleet`. The mutant now names the stat-recording test. At `d6e7fd601`, in
-the second job's hold 1, every control passed and all eight mutants failed their named
-tests (8 passed, Runs).
+the second job's first attempt's hold h1, every control passed and all eight mutants
+failed their named tests (8 passed). At `b38cc9f2f`, in this job's H1, they did again
+(8 passed, Runs).
 
 ## Tests changed, and why
 
@@ -315,23 +340,168 @@ names a path other than through `~` is the test's own selection.
 
 ## Runs
 
-All runs are at `d6e7fd601`; there was no merge, because `origin/release/217` is the
-branch's base. They used GIL CPython 3.14.7, pytest 9.1.1 and Hypothesis 6.168.1 with
-`HYPOTHESIS_PROFILE=ci`. Each hold was one pytest process under the shared suite lock,
-run with the brief's command (`lockf -k … uv run pytest -q -p no:cacheprovider`).
-The briefed patterns matched 52 files: 16 `test_live_store_guard*`, 8 `test_launch_env*`,
-2 `test_claude_mcp*` and 21 `test_host_push*`, plus the five named files. No
-`test_home_paths*.py` or `test_credentials*.py` exists in `tests/unit`.
+**Result:** every file in `tests/unit` and `tests/fake` ran at `b38cc9f2f`, the merge.
+The tree is `d6e7fd601`'s code with #237's test change. Nothing is unrun, and nothing
+fails:
 
-### The second attempt's holds
+| Directory | Files | Tests | Passed | Skipped | Expected failures | Failed |
+|---|---|---|---|---|---|---|
+| `tests/unit` | 327 | 13,137 | 13,136 | 1 | 0 | 0 |
+| `tests/fake` | 106 | 1,858 | 1,856 | 0 | 2 | 0 |
+| Total | 433 | 14,995 | 14,992 | 1 | 2 | 0 |
 
-Status at 21:36Z: none has run yet. The second attempt queued its first hold at
-20:08Z behind up to 11 other holds (load average 70 to 165). It then requeued it as
-one larger hold (A2, below) at 20:52Z, and A2 is still waiting for the lock.
+These counts take the serial rerun's outcome (R1, below) for the 6 tests it reran.
+Before that rerun, the first pass had 2 failures and 4 more skips; all 6 passed in R1.
+The briefed files are 52 of the 433, and all ran in H1 with no failure. Per file:
 
-<!-- the second attempt's results replace this status as each hold ends -->
+| Group | File (under `tests/`) | Passed |
+|---|---|---|
+| 1 | `unit/test_live_store_guard.py` | 324 |
+| 1 | `unit/test_live_store_guard_round10.py` | 60 |
+| 1 | `unit/test_live_store_guard_round10_mutations.py` | 13 |
+| 1 | `unit/test_live_store_guard_round3.py` | 22 |
+| 1 | `unit/test_live_store_guard_round4.py` | 8 |
+| 1 | `unit/test_live_store_guard_round5.py` | 11 |
+| 1 | `unit/test_live_store_guard_round6.py` | 112 |
+| 1 | `unit/test_live_store_guard_round7.py` | 50 |
+| 1 | `unit/test_live_store_guard_round7_mutations.py` | 23 |
+| 1 | `unit/test_live_store_guard_round8.py` | 100 |
+| 1 | `unit/test_live_store_guard_round8_mutations.py` | 4 |
+| 1 | `unit/test_live_store_guard_round9.py` | 89 |
+| 1 | `unit/test_live_store_guard_round9_mutations.py` | 12 |
+| 1 | `unit/test_live_store_guard_st3.py` | 137 |
+| 1 | `unit/test_live_store_guard_st3_mutations.py` | 8 (all 8 mutants killed, each control passing) |
+| 1 | `unit/test_live_store_guard_state_root.py` | 22 |
+| 2 | `unit/test_claude_mcp.py` | 32 |
+| 2 | `unit/test_claude_mcp_launch.py` | 11 |
+| 2 | `unit/test_host_push.py` | 118 |
+| 2 | `unit/test_host_push_admission.py` | 15 |
+| 2 | `unit/test_host_push_build.py` | 10, and 1 skipped |
+| 2 | `unit/test_host_push_build_budget.py` | 15 |
+| 2 | `unit/test_host_push_cli.py` | 7 |
+| 2 | `unit/test_host_push_config_cost.py` | 7 |
+| 2 | `unit/test_host_push_copy.py` | 11 |
+| 2 | `unit/test_host_push_export.py` | 10 |
+| 2 | `unit/test_host_push_intake.py` | 13 |
+| 2 | `unit/test_host_push_metadata.py` | 33 |
+| 2 | `unit/test_host_push_mutations.py` | 24 |
+| 2 | `unit/test_host_push_names.py` | 13 |
+| 2 | `unit/test_host_push_quarantine_restart.py` | 8 |
+| 2 | `unit/test_host_push_restart.py` | 4 |
+| 2 | `unit/test_host_push_retention.py` | 2 |
+| 2 | `unit/test_host_push_storage_recovery.py` | 2 |
+| 2 | `unit/test_host_push_storage_retry_budget.py` | 60 |
+| 2 | `unit/test_host_push_store_completion_pr183.py` | 2 |
+| 2 | `unit/test_host_push_store_interleavings.py` | 26 |
+| 2 | `unit/test_host_push_trees.py` | 5 |
+| 2 | `unit/test_host_push_validated_top.py` | 8 |
+| 2 | `unit/test_launch_env_allowlist.py` | 27 |
+| 2 | `unit/test_launch_env_helpers.py` | 20 |
+| 2 | `unit/test_launch_env_mutations.py` | 41 |
+| 2 | `unit/test_launch_env_policy.py` | 26 |
+| 2 | `unit/test_launch_env_round2.py` | 67 |
+| 2 | `unit/test_launch_env_round3.py` | 67 |
+| 2 | `unit/test_launch_env_round4.py` | 40 |
+| 2 | `unit/test_launch_env_round5.py` | 39 |
+| 3 | `unit/test_cli.py` | 222 |
+| 3 | `unit/test_daemon_accept.py` | 5 |
+| 3 | `unit/test_daemon_verbs.py` | 20 |
+| 4 | `fake/test_state_contract.py` | 37 |
+| 4 | `unit/test_test_module_names.py` | 1 |
 
-### The first attempt's holds (the same job and head; not counted above)
+By group: (1) 16 files, 995 passed; (2) 31 files, 763 passed and 1 skipped; (3) 3 files,
+247 passed; (4) 2 files, 38 passed. That is 2,043 passed and 1 skipped, the same counts
+as the second job's first attempt (below). The briefed patterns matched 52 files: 16
+`test_live_store_guard*`, 8 `test_launch_env*`, 2 `test_claude_mcp*` and 21
+`test_host_push*`, plus the five named files. No `test_home_paths*.py` or
+`test_credentials*.py` exists in `tests/unit`.
+
+The one skip is `test_host_push_build.py::test_real_repo_admission_pass_measurement`, an
+explicit local-repo benchmark that skips by design. The two expected failures are
+documented limitations marked `xfail`:
+
+- `fake/test_canonical_identity_fix3.py::test_hung_mount_identity_work_has_a_real_deadline`
+  (P3-6);
+- `fake/test_admission_properties.py::test_c6_10_a_wait_of_another_kind_does_not_record_the_same_verdict_again`
+  (C-6.10).
+
+#237's changed file, `unit/test_daemon_connections.py`, passed all 31 of its tests (H3).
+
+### This job's holds
+
+**Setup.**
+
+- Interpreter and packages: GIL CPython 3.14.7 (`sys._is_gil_enabled()` true), pytest
+  9.1.1, Hypothesis 6.168.1, `HYPOTHESIS_PROFILE=ci`, and `SUBFLEET_LIVE=0`, as CI sets
+  it. The scratch environment came from `uv sync --locked --group dev`, plus
+  `pytest-xdist` 3.8.0, installed offline from uv's cache.
+- Environment: `PYTHONPATH` was unset; the lane's `SUBFLEET_JOB` and `SUBFLEET_ATTEMPT`
+  markers were left as the lane sets them.
+- The command: each hold was one pytest process through the hub's wrapper,
+  `suite_hold.sh env -u SUBFLEET_RETENTION_DORMANT uv run pytest -q -p no:cacheprovider …`.
+  Every hold took slot A; free disk was under the wrapper's 50 GB line, so slot B stayed
+  closed.
+- Workers: `-n 4 --dist loadfile`, so each file ran whole on one worker. H3 to H5 also
+  passed `--no-loadscope-reorder`, keeping the order given.
+
+**How the holds were bounded.** A scratch plugin in the scratch environment (not
+committed) stops starting tests once a set time has passed. pytest then tears down and
+writes its JUnit report. The time was 960 s for H2, and 840 s for H3 to H5 and R1. The
+plugin's backstop would have sent this pytest process SIGINT 150 to 240 s later; it
+never fired, so this job signalled nothing.
+
+The counts come from each hold's JUnit report and its collected node ids. A file counts
+in the hold in which every one of its collected tests reached an outcome. Every file did
+so in exactly one hold.
+
+| Hold | Queued, held, ended (UTC, 2026-10-21) | Load at start | Files | Result | Pytest time |
+|---|---|---|---|---|---|
+| H1: the briefed run list (all four groups) | 03:14:04, 03:14:04, 03:19:13 | 49.8 | 52 | 2,043 passed, 1 skipped | 304 s |
+| H2: the other 381 files | 03:19:32, 03:19:32, 03:38:06 | 44.1 | 86 complete | 8,699 passed; stopped at 960 s | 1,102 s |
+| H3: a third of the 295 left | 03:39:59, 03:44:17, 03:51:53 | 47.0 | 93 | 1,440 passed, 1 failed, 1 xfailed | 455 s |
+| H4: a third | 03:52:03, 04:03:24, 04:12:33 | 38.8 | 93 | 1,305 passed, 1 failed | 548 s |
+| H5: a third | 04:12:55, 04:26:21, 04:35:08 | 18.3 | 109 | 1,499 passed, 4 skipped, 1 xfailed | 527 s |
+| R1: serial rerun of H3's and H4's failures and H5's skips | 04:36:11, 04:40:15, 04:41:30 | 22.1 | 3 (6 tests) | 6 passed | 58 s |
+| C1: `--collect-only tests/unit tests/fake`, serial | 04:41:48, 05:01:00, 05:01:20 | 61.5 | 433 | 14,995 collected, no errors | 14 s |
+
+The longest a lock was held was 18 m 34 s (H2). After H2's stop, the tests already
+running took 142 s to finish. So H3 to H5 stopped 120 s sooner and were split to fit,
+and none of them reached its stop.
+
+- **H2's stop.** H2 ran xdist's default order, which sorts files by test count, so some
+  of the slowest files started late. When it stopped, 295 files were incomplete or
+  unstarted. H2 had also passed 62 tests in 4 of those files; they are not counted, and
+  each of those files ran again whole.
+- **C1, the collection check.** It collected `tests/unit` and `tests/fake` in one
+  process: 14,995 tests with no collection error. Its node ids are exactly the union of
+  the ids that H1 to H5 completed.
+
+**The two failures were load timeouts, and both passed when rerun.** Each failed inside
+`tests/fake/conftest.py`'s `Harness.start`: the fake daemon had not answered
+`daemon.status` within the harness's 5 s wait (`condition timed out after 5s`). The two
+tests are:
+
+- `fake/test_census_escapers_daemon.py::test_d_cen1_a_retitled_child_alive_after_the_exit_receipt_is_not_released[retitled-node]`.
+  It failed at 5.19 s. The kept state root showed the daemon had started (the first line
+  of its `daemon.log`). Its sibling case, `[retitled-nul]`, passed in the same hold in
+  3.36 s, so a daemon took over 3 s to start then.
+- `fake/test_descriptor_exhaustion.py::test_c16_7_more_clients_than_descriptors_get_answers_and_the_daemon_stays_up`.
+
+This branch changes neither test file, `tests/fake/conftest.py` nor `subfleet/daemon.py`;
+its runtime changes are path checks in `subfleet/home_paths.py`, `compat.v1_binary` and
+`prune_decisions`. Every other daemon start in those holds succeeded, and both tests
+passed in R1, run serially. They are not on `.github/known-flaky.txt`.
+
+**The four skips were uv's cache, and the tests passed once it held the package.**
+`unit/test_retention_ordinary_trees.py` builds a `.venv` by running `uv pip install
+--offline sortedcontainers==2.4.0`, and skips when uv's cache cannot serve it. That
+install failed the same way outside pytest ("sortedcontainers was not found in the
+cache"), so the cause was the cache's contents, not the code. This job then installed
+that one package online into a throwaway virtualenv in its scratch directory, which
+added it to the default uv cache. The same offline install then succeeded, and all 4
+tests passed in R1.
+
+### The second job's first attempt (at `d6e7fd601`; not counted above)
 
 These ran at `d6e7fd601` with `pytest-xdist` added to the scratch environment. An
 in-process alarm bounded each hold, stopping pytest with teardown. Counts are from each
@@ -345,5 +515,5 @@ hold's JUnit report.
 
 h2's skip is `test_host_push_build.py::test_real_repo_admission_pass_measurement`, an
 explicit local-repo benchmark that is skipped by design. h3 also passed 156 tests in
-files it did not finish, and failed none. The first attempt never ran the remaining
-328 files.
+files it did not finish, and failed none. That attempt never ran the remaining 328
+files; this job's holds ran them all.
