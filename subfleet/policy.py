@@ -336,7 +336,7 @@ def _name(value: Any) -> bool:
 
 def _fraction(value: Any, maximum: float = 1) -> bool:
     return (isinstance(value, (int, float)) and not isinstance(value, bool)
-            and math.isfinite(value) and 0 <= value <= maximum)
+            and 0 <= value <= maximum and math.isfinite(value))
 
 
 #: D-ENV1: how a lane whose variable every launch inherits is put right.

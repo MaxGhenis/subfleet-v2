@@ -321,7 +321,7 @@ def hold_scope(policy: Mapping[str, Any], job: Any, *, roster: Iterable[Any] = (
 
 def _fraction_reading(value: Any) -> bool:
     return (isinstance(value, (int, float)) and not isinstance(value, bool)
-            and math.isfinite(value) and 0 <= value <= 1)
+            and 0 <= value <= 1 and math.isfinite(value))
 
 
 # Absolute fractions: 3 percentage points of CPU idle, 10 of disk service time.
