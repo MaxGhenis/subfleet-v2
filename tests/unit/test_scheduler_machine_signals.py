@@ -156,3 +156,12 @@ def test_new_hold_text_names_readings_thresholds_and_release_progress():
     assert "disk busy 0.950" in text and "0.800" in text
     hold = held(state, chosen, cpu_idle=.5, disk_busy=.1)
     assert "1/2" in _machine(hold)
+
+
+@pytest.mark.parametrize("signal,limit,busy", [("cpu_idle", "cpu_idle_min", 0),
+                                             ("disk_busy", "disk_busy_max", 1)])
+def test_oversized_signal_reading_is_unreadable(signal, limit, busy):
+    chosen, state = policy(**{limit: .15 if signal == "cpu_idle" else .8}), scheduler.MachineGuard()
+    assert held(state, chosen, **{signal: busy})
+    assert held(state, chosen, **{signal: 10**1000}) is None
+    assert scheduler.machine_hold(chosen, {signal: 10**1000}, "background") is None

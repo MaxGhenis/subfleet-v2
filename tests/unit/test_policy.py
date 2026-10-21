@@ -493,6 +493,14 @@ def test_machine_signals_accept_fraction_boundaries_and_mixed_legacy_keys(tmp_pa
     assert load_policy(write_policy(tmp_path, policy_data))["admission"]["machine_guard"]["background"] == thresholds
 
 
+@pytest.mark.parametrize("key", ["cpu_idle_min", "disk_busy_max"])
+def test_machine_signal_thresholds_reject_oversized_integers(tmp_path, policy_data, key):
+    policy_data["admission"] = {"machine_guard": {"background": {key: 10**1000}}}
+    with pytest.raises(PolicyError) as caught:
+        load_policy(write_policy(tmp_path, policy_data))
+    assert caught.value.key == f"admission.machine_guard.background.{key}"
+
+
 @pytest.mark.parametrize("section,error_key", [
     ([], "admission"),
     ({"lane_spred": 2}, "admission.lane_spred"),
