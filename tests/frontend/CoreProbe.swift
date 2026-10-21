@@ -229,10 +229,30 @@ func pageResult(_ result: Timeline.PageResult) -> String {
     }
 }
 
+/// `UIModel.approvalID` for the card on `row`, with `listed` as the `approval.list` it
+/// reads, applied as `ConversationStoreState.apply(approvals:)` applies it: `known:<id>`,
+/// `not-pending`, `unidentified`, `listed:<id>` or `listed:none`.
+func resolveApproval(row: String, listed: [ApprovalView], in timeline: inout Timeline) -> String {
+    guard let card = timeline.items.first(where: { $0.id == row })?.card else { return "no-card" }
+    switch Timeline.approvalLookup(for: card, in: timeline) {
+    case .known(let id): return "known:" + id
+    case .notPending: return "not-pending"
+    case .unidentified: return "unidentified"
+    case .needsList:
+        timeline.attach(approvals: listed)
+        timeline.reconcile(pending: listed)
+        return "listed:" + (timeline.listedApprovalID(for: card, listed: listed) ?? "none")
+    }
+}
+
 /// `{"conversation_id", "steps": [{"page"}|{"receipts"}|{"approvals"}|{"pending"}|{"history"}|{"local"}|
-/// {"steer_request"}|{"escape"}|{"esc"}|{"too_late"}|{"steer_answer"}|{"reopen"}|{"elsewhere"}]}`.
+/// {"steer_request"}|{"escape"}|{"esc"}|{"too_late"}|{"steer_answer"}|{"reopen"}|{"elsewhere"}|
+/// {"resolve", "listed"}|{"resolve_all"}]}`.
 /// `approvals` attaches views; `pending` is the daemon's whole pending set,
-/// attached and reconciled as the store does; `reopen` begins a new read, as focusing does. After each
+/// attached and reconciled as the store does; `resolve` acts on one card's row as the
+/// app does (`resolveApproval`, result `resolve:<outcome>`), and `resolve_all` does so for
+/// every card's row, each on its own copy of the timeline, into `resolutions` (the last
+/// one's); `reopen` begins a new read, as focusing does. After each
 /// step the conversation view's `ApprovalFollower` is asked where to scroll, as the view asks it:
 /// `"reveal": true` on a step is the person asking, which stands until a row answers it;
 /// `{"elsewhere": true}` shows another conversation in between.
@@ -244,6 +264,7 @@ func runFold(_ data: Data) throws -> [String: Any] {
     var snapshots: [[String: Any]] = []
     var follower = ApprovalFollower()
     var scrolls: [Any] = []
+    var resolutions: [String: Any] = [:]
     var reveal = false
     for step in input["steps"]?.array ?? [] {
         if let page = step["page"] {
@@ -259,6 +280,17 @@ func runFold(_ data: Data) throws -> [String: Any] {
             timeline.attach(approvals: views)
             timeline.reconcile(pending: views)
             results.append("pending")
+        } else if let row = step["resolve"]?.string {
+            let listed = try step["listed"].map { try $0.decode([ApprovalView].self) } ?? []
+            results.append("resolve:" + resolveApproval(row: row, listed: listed, in: &timeline))
+        } else if let listed = step["resolve_all"] {
+            let views = try listed.decode([ApprovalView].self)
+            resolutions = [:]
+            for item in timeline.items where item.card != nil {
+                var copy = timeline
+                resolutions[item.id] = resolveApproval(row: item.id, listed: views, in: &copy)
+            }
+            results.append("resolve_all")
         } else if step["reopen"]?.bool == true {
             timeline.startReading()
             results.append("reopen")
@@ -318,6 +350,7 @@ func runFold(_ data: Data) throws -> [String: Any] {
     out["results"] = results
     out["snapshots"] = snapshots
     out["scrolls"] = scrolls
+    out["resolutions"] = resolutions
     return out
 }
 

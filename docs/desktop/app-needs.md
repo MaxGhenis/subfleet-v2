@@ -51,7 +51,9 @@ the others are read from the code cited.
    `provider_request_id` (C-27.1), the same value. The app joins by message and
    exact provider request, including when the list arrives first or the event
    log is replayed, so identical display text cannot attach a replacement
-   approval to a stale card. A view from a daemon older than both fields,
+   approval to a stale card. A card carries its own message, and acting on one
+   resolves only that message's approval of its request
+   (`Timeline.listedApprovalID`): provider request ids repeat across turns. A view from a daemon older than both fields,
    which names no request, stays on an independent actionable card keyed by
    immutable approval id. Unmatched event cards have no answer controls; a
    whole pending-list reconciliation withdraws them. Kind and display alone
