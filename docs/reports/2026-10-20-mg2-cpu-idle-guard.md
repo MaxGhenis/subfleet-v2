@@ -5,6 +5,12 @@ the shipped `machine_guard: null`, and default policy bytes are unchanged.
 No push, live-store access, daemon access or background process is part of this
 build. Background ageing is out of scope.
 
+Final feature gates: **52 selected passed**, **61 restored passed** (overlap),
+and **3/3 named mutations caught**. The incomplete whole-suite run records
+**11,621 passed, 13 failed, 96 skipped, 2 xfailed**. Its per-file matrix includes
+**11 partial** and **97 unrun** modules; focused/required results overlap that
+matrix and are shown separately. This is not a green whole-suite result.
+
 ## Signals and admission
 
 `subfleet/machine.py` reads each native source once per detached admission pass,
@@ -179,10 +185,13 @@ All three mutations were repeated and failed the same named tests (EWMA
 admission-priority fakes **33**.
 
 New holds stopped at the **02:00 UTC cutoff** (4 h 29 min after workspace
-creation). At the cutoff, `full-15-unit`, acquired at 01:58:14 UTC, remains
-active under its existing budget; later groups will not start. This is a
-cutoff snapshot pending that result and cleanup. The whole unit/fake run is
-incomplete; no claim of a green whole suite is made.
+creation). The last active hold, `full-15-unit`, acquired at 01:58:14 UTC,
+finished with **81 passed in 205.18 s**. Groups **16–23 did not start**. The
+whole unit/fake run is incomplete: **318 modules completed without failures,
+7 completed with failures, 11 remain partial, and 97 have no whole-suite
+results**. The last matrix column identifies prior focused/required coverage
+within those modules. Any unfinished cases in partial modules remain
+unverified; no claim of a green whole suite is made.
 The first recorded **270 passed, 1 xfailed** in 916.00 s before its guard ended
 it (exit 2, incomplete). The next recorded **15 passed** in 873.88 s, also
 incomplete. Batch 02 completed with **389 passed, 4 failed, 49 skipped,
@@ -235,17 +244,17 @@ Full-suite counts below are disjoint planned selections on the final source; foc
 | `full-12-unit` | 55 passed in 136.21s (0:02:16) | 0 |
 | `full-13-unit` | 54 passed in 88.96s (0:01:28) | 0 |
 | `full-14-unit` | 93 passed, 4 skipped in 197.38s (0:03:17) | 0 |
-| `full-15-unit` | Unrun at report snapshot | — |
-| `full-16-unit` | Unrun at report snapshot | — |
-| `full-17-unit` | Unrun at report snapshot | — |
-| `full-18-unit` | Unrun at report snapshot | — |
-| `full-19-unit` | Unrun at report snapshot | — |
-| `full-20-unit` | Unrun at report snapshot | — |
-| `full-21-unit` | Unrun at report snapshot | — |
-| `full-22-unit` | Unrun at report snapshot | — |
-| `full-23-unit` | Unrun at report snapshot | — |
+| `full-15-unit` | 81 passed in 205.18s (0:03:25) | 0 |
+| `full-16-unit` | Unrun at cutoff | — |
+| `full-17-unit` | Unrun at cutoff | — |
+| `full-18-unit` | Unrun at cutoff | — |
+| `full-19-unit` | Unrun at cutoff | — |
+| `full-20-unit` | Unrun at cutoff | — |
+| `full-21-unit` | Unrun at cutoff | — |
+| `full-22-unit` | Unrun at cutoff | — |
+| `full-23-unit` | Unrun at cutoff | — |
 
-Recorded whole-suite case results: **11540 passed**, **2 xfailed**, **13 failed**, **96 skipped**.
+Recorded whole-suite case results: **11621 passed**, **2 xfailed**, **13 failed**, **96 skipped**.
 
 Per-file status follows the whole-suite plan. “Partial” includes only completed case results from interrupted batches. “Unrun” means no whole-suite batch for that file completed any case; a separate focused/required count can still be present. The last column is the largest passed count in any one non-mutation focused/required run, not a sum or a claim of module completion. `P/F/S` means passed/failed/skipped (including expected failures in XML).
 
@@ -586,10 +595,10 @@ Per-file status follows the whole-suite plan. “Partial” includes only comple
 | `tests/unit/test_retention_nested_leases.py` | Complete | 27/0/0 | — |
 | `tests/unit/test_retention_ordinary_trees.py` | Complete | 0/0/4 | — |
 | `tests/unit/test_retention_qos.py` | Complete | 8/0/0 | — |
-| `tests/unit/test_retention_readback.py` | Unrun | — | — |
-| `tests/unit/test_retention_rediscovery.py` | Unrun | — | — |
-| `tests/unit/test_retention_regenerable.py` | Unrun | — | — |
-| `tests/unit/test_retention_regenerable_properties.py` | Unrun | — | — |
+| `tests/unit/test_retention_readback.py` | Complete | 37/0/0 | — |
+| `tests/unit/test_retention_rediscovery.py` | Complete | 17/0/0 | — |
+| `tests/unit/test_retention_regenerable.py` | Complete | 26/0/0 | — |
+| `tests/unit/test_retention_regenerable_properties.py` | Complete | 1/0/0 | — |
 | `tests/unit/test_retention_salvage_properties.py` | Unrun | — | — |
 | `tests/unit/test_retention_shared_folders.py` | Unrun | — | — |
 | `tests/unit/test_retention_sweep_race.py` | Unrun | — | — |
@@ -690,7 +699,17 @@ Per-file status follows the whole-suite plan. “Partial” includes only comple
 
 </details>
 
-Module statuses: **11 partial**, **314 complete**, **7 failed**, **101 unrun**.
+Module statuses: **11 partial**, **318 complete**, **7 failed**, **97 unrun**.
+
+## Cleanup
+
+The foreground runner/wrapper invocation finished, and native checks found
+both the final pytest child and the long-lived owned runner absent. Owned
+scratch, the GIL 3.14 virtualenv, uv cache, Hypothesis storage, temporary oracle
+extract and private runner scripts were removed. One intentionally read-only
+retention fixture required restoring its owned directory permissions before
+removal. No repository bytecode caches or `.hypothesis` remain. Only the small
+workspace-local Git metadata is retained. No push was made.
 
 ## Remaining design question
 
@@ -716,4 +735,5 @@ Use `git --git-dir=.mg2-git log` here to inspect them. No history was rewritten.
 - `afcc7feb9`: initial positive gates and named mutation failures.
 - `c1d0cf303`: oversized-number regression cases, before the fix.
 - `79d36afe0`: safe fraction bounds before float conversion.
-- Cutoff documentation snapshot: this commit; final active-batch result and cleanup pending.
+- `da3e270d2`: coverage snapshot at the hold cutoff, plus cost and incident wording clarifications.
+- Final validation/cleanup documentation: this commit.
