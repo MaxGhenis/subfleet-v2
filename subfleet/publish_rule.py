@@ -191,8 +191,9 @@ HEREDOC = re.compile(r"(?<!<)<<-?(?!<)\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 #: a command word its value may carry the whole command.
 PARAMETERS = re.compile(r"(?:\$(?:\{[^{}]*\}|[A-Za-z_][A-Za-z0-9_]*|[@*#?$!0-9-])(?:\[[^\]]*\])?)+")
 GLOB = re.compile(r"[*?\[]|\{[^{}]*[,.][^{}]*\}")
-#: `gh` as a word, wherever it is: `/gh`, `-gh}` and `[gh]` count; `ghost`, `gh-dash` and `test_gh` do not.
-GH_WORD = re.compile(r"(?<![\w.])gh(?![\w.-])")
+#: `gh` as a word, wherever it is and in any case: `/gh`, `-gh}`, `[gh]` and `GH` count; `ghost`,
+#: `gh-dash`, `test_gh` and `GH_TOKEN` do not.
+GH_WORD = re.compile(r"(?<![\w.])gh(?![\w.-])", re.IGNORECASE)
 #: Bound on nested `sh -c`, `eval` and substitutions; deeper text is judged by
 #: `_mentions_publish` alone.
 MAX_DEPTH = 6
@@ -453,12 +454,13 @@ def git_publishes(args: Sequence[str]) -> bool:
 
 def _name(word: str) -> str:
     # zsh's `=gh` expands to gh's path; a path names its last component; `.` is the builtin.
-    return (PurePosixPath(word.lstrip("=")).name or word) if word else ""
+    # In lower case: macOS's default volume is case-insensitive, so the shell runs gh for `GH`.
+    return (PurePosixPath(word.lstrip("=")).name or word).lower() if word else ""
 
 
 def _names_gh_binary(word: str) -> bool:
-    """A word that names gh: `gh`, `…/gh` (or `…/gh/`), `!gh`, `=gh`."""
-    bare = word.lstrip("!").lstrip("=").rstrip("/")
+    """A word that names gh, in any case: `gh`, `…/gh` (or `…/gh/`), `!gh`, `=gh`, `GH`."""
+    bare = word.lstrip("!").lstrip("=").rstrip("/").lower()
     return bare == "gh" or bare.endswith("/gh")
 
 
@@ -617,7 +619,8 @@ def _segments(text: str) -> list[list[str]] | None:
 
 def _mentions_publish(text: str) -> bool:
     """The fallback for text that cannot be tokenized: any gh call, or git push."""
-    return bool(re.search(r"(^|[^\w.-])gh\s", text) or re.search(r"\bgit\b[^;&|\n]*\bpush\b", text))
+    return bool(re.search(r"(^|[^\w.-])gh\s", text, re.IGNORECASE)
+                or re.search(r"\bgit\b[^;&|\n]*\bpush\b", text, re.IGNORECASE))
 
 
 def _redirections(words: list[str]) -> tuple[list[str], list[str], bool, bool]:
@@ -816,7 +819,7 @@ def _fallback(words: list[str], command: str, depth: int, names_gh: bool) -> Ref
     `-c`, `-e` and `--exec` are read as shell text."""
     shell_values = command not in NOT_SHELL_VALUES and not command.startswith("python")
     for at, word in enumerate(words):
-        bare = word.lstrip("!").lstrip("=")
+        bare = word.lstrip("!").lstrip("=").lower()
         found = None
         if bare == "gh" or bare.endswith("/gh"):
             found = gh_writes(words[at + 1:])
