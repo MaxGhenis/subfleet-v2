@@ -103,13 +103,33 @@ class AttemptTemp:
         except (OSError, ValueError, TypeError, AttributeError, OverflowError):
             return None
 
+    def owns(self, record: dict) -> bool:
+        """Database allocation evidence remains authority without its marker.
+
+        Markers discover unknown allocations; a provider may remove its own
+        marker without invalidating the daemon's recorded filesystem identity.
+        """
+        try:
+            path = Path(record["path"])
+            if (record.get("store_root") != self.store_root or path.parent != self.root
+                    or not path.name.startswith(PREFIX)):
+                return False
+            found = path.lstat()
+            return (stat.S_ISDIR(found.st_mode) and found.st_uid == os.getuid()
+                    and (found.st_dev, found.st_ino, found.st_uid) ==
+                    (record.get("dev"), record.get("ino"), record.get("uid")))
+        except (OSError, ValueError, TypeError, KeyError):
+            return False
+
     def size(self, record: dict) -> int:
         path = Path(record["path"])
-        current = self._read(path)
-        if current is None or any(current[key] != record.get(key) for key in ("dev", "ino", "attempt_id")):
+        if not self.owns(record):
             return 0
         fd = rfs.open_dir(path)
         try:
+            opened = os.fstat(fd)
+            if (opened.st_dev, opened.st_ino, opened.st_uid) != (record["dev"], record["ino"], record["uid"]):
+                return 0
             return sum(found.st_size for _, found, _, _ in rfs.walk(fd) if not stat.S_ISDIR(found.st_mode))
         finally:
             os.close(fd)
@@ -126,8 +146,7 @@ class AttemptTemp:
                 path.lstat()
             except FileNotFoundError:
                 return True                  # the provider may remove its own scratch
-            current = self._read(path)
-            if current is None or any(current[key] != record.get(key) for key in ("dev", "ino", "attempt_id")):
+            if not self.owns(record):
                 self.log.warning("TMPDIR removal deferred for %s: allocation identity unavailable", record.get("attempt_id"))
                 return False
             # shutil's descriptor-relative walker refuses symlinks swapped in
@@ -195,8 +214,7 @@ def job_tmpdirs(store, store_root: Path, *, job_id: str | None = None):
     for row in [*rows, *probe_tmpdir_rows(store, job_id=job_id)]:
         try:
             record = json.loads(row["tmpdir"])
-            current = scratch._read(Path(record["path"]))
-            if current is not None and all(current[key] == record.get(key) for key in ("dev", "ino", "attempt_id")):
+            if scratch.owns(record):
                 yield row["job_id"], record
         except (TypeError, ValueError, KeyError):
             continue

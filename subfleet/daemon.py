@@ -4936,18 +4936,20 @@ class Daemon:
         try:
             self._attempt_temp.sweep(self._tmpdir_subject, lambda a: self._contain(a).verified_empty,
                                      removed=self._record_tmpdir_removed)
-            # A provider may have removed its own folder. Reconcile that case
-            # too, so retention's durable pin cannot outlive the allocation.
+            # A provider may remove its folder or its discovery marker. Reconcile
+            # either from durable allocation identity, preserving census gates.
             for a in self.store.query(
                     "SELECT * FROM attempts WHERE state IN ('succeeded','failed','interrupted','lost','cancelled') "
                     "AND json_valid(evidence_json) AND json_type(evidence_json,'$.tmpdir')='object' "
                     "AND json_extract(evidence_json,'$.tmpdir.removed_at') IS NULL"):
                 record = _evidence_key(a["evidence_json"], "tmpdir")
-                if isinstance(record.get("path"), str) and not os.path.lexists(record["path"]):
+                if (isinstance(record.get("path"), str)
+                        and self._attempt_temp._read(Path(record["path"])) is None):
                     self._cleanup_attempt_tmpdir(a)
             for row in probe_tmpdir_rows(self.store):
                 record = json.loads(row["tmpdir"])
-                if isinstance(record.get("path"), str) and not os.path.lexists(record["path"]):
+                if (isinstance(record.get("path"), str)
+                        and self._attempt_temp._read(Path(record["path"])) is None):
                     probe = self._probe_record(record["attempt_id"])
                     if probe:
                         self._cleanup_probe_tmpdir(probe)
