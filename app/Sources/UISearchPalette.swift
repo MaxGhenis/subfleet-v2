@@ -716,13 +716,21 @@ struct SearchRevealer: View {
         struct Key: Equatable {
             var reveal: SearchReveal?
             var conversationID: String
-            var revealIDs: Set<String>?
-            var layout: SearchRevealLayout?
+            var targetPresent: Bool
+        }
+
+        private var key: Key {
+            let reveal = palette.reveal
+            let present = reveal.map { target in
+                (revealIDs?.contains(target.itemID) ?? true)
+                    && (layout.map { $0.reveal == target && $0.itemIDs.contains(target.itemID) } ?? true)
+            } ?? false
+            return Key(reveal: reveal, conversationID: conversationID, targetPresent: present)
         }
 
         var body: some View {
             Theme.clear.accessibilityHidden(true)
-                .onChange(of: Key(reveal: palette.reveal, conversationID: conversationID, revealIDs: revealIDs, layout: layout), initial: true) { _, _ in
+                .onChange(of: key, initial: true) { _, _ in
                     following?.cancel()
                     guard let reveal = palette.reveal, reveal.conversationID == conversationID,
                           revealIDs?.contains(reveal.itemID) ?? true else { return }
@@ -739,7 +747,8 @@ struct SearchRevealer: View {
                 try? await Task.sleep(nanoseconds: delay)
                 // Gone, or another conversation shown: this reveal is done with.
                 if Task.isCancelled || palette.reveal != reveal { return }
-                ConversationOpeningPin.revealRow(in: conversationID)
+                // The tray scrolls its own container; it does not move the timeline.
+                if layout == nil { ConversationOpeningPin.revealRow(in: conversationID) }
                 withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(reveal.itemID, anchor: .center) }
             }
             if palette.reveal == reveal { palette.reveal = nil }

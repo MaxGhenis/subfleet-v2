@@ -127,7 +127,7 @@ struct FollowKey: Equatable {
     /// nothing; the tray shows it.
     static func move(from old: FollowKey, to new: FollowKey, atBottom: Bool, suspended: Bool = false) -> Move {
         guard old != new else { return .stay }
-        if old.settling || new.settling { return suspended ? .stay : .jump }
+        if old.settling || new.settling { return suspended && !atBottom ? .stay : .jump }
         if new.last != old.last && new.lastIsOwnSend,
            new.localSend == nil || new.localSend != old.localSend { return .glide }
         guard atBottom else { return .stay }

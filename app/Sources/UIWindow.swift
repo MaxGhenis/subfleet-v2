@@ -453,8 +453,8 @@ struct ConversationView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .conversationRowScroll)) { note in
             guard note.object as? String == conversation.conversation_id else { return }
+            // Only the end marker owns atBottom. A reveal may leave it visible.
             followSuspended = true
-            atBottom = false
         }
         .onChange(of: timeline?.liveMessageID) { _, _ in
             // A turn started or ended: an open pane compares again.
