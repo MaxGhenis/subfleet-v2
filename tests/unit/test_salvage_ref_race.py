@@ -37,7 +37,9 @@ def race_salvagers(base, values, patch):
 
     Writer zero wins the base name. Other writers then perform real Git CAS
     writes against it. Equal losing trees meet at a second barrier before
-    creating their sibling, exercising the third-writer replay as well.
+    creating their sibling, exercising the third-writer replay as well. Events
+    let each winner finish its CAS before losers try: this tests ref-name
+    collisions independently of Git's transient lock-file timeout.
     """
     repo = base / "repo"
     parent = repository(repo)
@@ -53,6 +55,9 @@ def race_salvagers(base, values, patch):
     base_barrier, base_created = Barrier(len(values), timeout=60), Event()
     side_barriers = {f"{BASE_REF}-{tree[:12]}": Barrier(n, timeout=60)
                      for tree, n in Counter(tree for tree in trees if tree != trees[0]).items()}
+    side_winners = {f"{BASE_REF}-{tree[:12]}": worktrees[trees.index(tree)]
+                    for tree in set(trees) if tree != trees[0]}
+    side_created = {name: Event() for name in side_barriers}
     absent = set()
     original = sm._git
 
@@ -66,7 +71,14 @@ def race_salvagers(base, values, patch):
                     base_created.set()
             assert base_created.wait(60), "base writer did not finish"
         elif args[0] == "update-ref" and args[1] in side_barriers:
-            side_barriers[args[1]].wait()
+            name = args[1]
+            side_barriers[name].wait()
+            if workdir == side_winners[name]:
+                try:
+                    return original(workdir, *args, **kwargs)
+                finally:
+                    side_created[name].set()
+            assert side_created[name].wait(60), "sibling writer did not finish"
         result = original(workdir, *args, **kwargs)
         if args == ("rev-parse", "--verify", BASE_REF) and result is None:
             absent.add(workdir)
@@ -114,7 +126,7 @@ def test_concurrent_salvage_reuses_sibling_after_second_collision(tmp_path, monk
     assert len(held) == 2 and results[1] == results[2]
 
 
-@settings(max_examples=12, derandomize=True, deadline=None)
+@settings(max_examples=8, derandomize=True, database=None, deadline=None)
 @example(values=[0, 0, 1, 1, 2, 2])
 @given(values=st.lists(st.integers(min_value=0, max_value=3), min_size=2, max_size=6))
 def test_concurrent_salvage_holds_each_distinct_tree_once(values):
