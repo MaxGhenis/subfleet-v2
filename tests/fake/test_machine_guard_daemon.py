@@ -82,3 +82,16 @@ def test_sample_retention_is_bounded_and_restarts_cannot_exceed_minute(state_dae
     before=len(daemon.store.query("SELECT 1 FROM events WHERE kind='machine.sample'"))
     daemon._start_machine_sampler(); daemon._machine_reading()
     assert len(daemon.store.query("SELECT 1 FROM events WHERE kind='machine.sample'"))==before
+
+
+def test_restart_minute_gate_uses_recording_time_not_snapshot_time(state_daemon,monkeypatch):
+    import time
+    daemon,_=state_daemon
+    daemon.policy['admission']['machine_guard']=copy.deepcopy(MACHINE_GUARD_PROPOSAL)
+    row={'observed_at':time.time()-61,'recorded_at':time.time()-1,'disk_service_ms_raw':2,'disk_device_id':1}
+    with daemon.store.transaction('test.seed') as tx:
+        tx.execute("INSERT INTO events(ts,kind,data_json) VALUES(?,'machine.sample',?)",('2026-10-22T00:00:00Z',json.dumps(row)))
+    monkeypatch.setattr(machine.time,'sleep',lambda _:None)
+    daemon._start_machine_sampler()
+    daemon._machine_reading()
+    assert len(daemon.store.query("SELECT 1 FROM events WHERE kind='machine.sample'"))==1
