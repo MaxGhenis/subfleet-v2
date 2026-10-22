@@ -124,10 +124,11 @@ def test_daemon_logs_follow_prints_new_lines_scrubbed(root, monkeypatch, capsys)
     out = capsys.readouterr().out
     assert "SECRET7" not in out, out
     lines = out.splitlines()
-    # The file ends in a key whose value is not written yet: that line is held with it.
-    assert lines[:3] == admissions(3, 2)
-    assert lines[3:5] == ["its next record: token:", "[REDACTED] and more"]
-    assert lines[5:8] == ["guardian argv: subfleet-guardian --auth-token", "[REDACTED] --lane codex-0", "plain line"]
+    # The file ends in a key whose value is not written yet: following starts with the lines
+    # `daemon logs -n 3` prints (review r5 of #233, P3-2), and the value is hidden beside it.
+    assert lines[:3] == [*admissions(2, 3), "its next record: token:"]
+    assert lines[3] == "[REDACTED] and more"
+    assert lines[4:7] == ["guardian argv: subfleet-guardian --auth-token", "[REDACTED] --lane codex-0", "plain line"]
     assert "upstream said: password='[REDACTED]'" in lines
     assert lines[-1] == "Authorization: [REDACTED]"            # held at the end, written at ^C
 
@@ -149,14 +150,17 @@ def test_a_value_whose_key_was_already_written_is_hidden_beside_it():
     assert follower.feed("SECRET7context9 rest\n") == ["[REDACTED] rest"]
 
 
-def test_a_value_open_when_following_starts_is_held_with_its_lines():
-    """The file already ends inside a quoted value when following starts: its lines are
-    not printed until the value closes, and then hidden with it."""
+@pytest.mark.documented_limitation
+def test_a_value_open_when_following_starts_shows_as_daemon_logs_shows_it_documented_limitation():
+    """C-25.7: following starts with what `daemon logs -n N` prints of the file as it is
+    (review r5 of #233, P3-2). A quoted value still open then shows as that scrub shows it,
+    to its line's end (round 6 held its lines until it closed). What arrives afterwards is
+    read with it, so the rest of the value is hidden when it comes."""
     before = "start\nupstream said: password='open\nmore SECRET7already9\n"
+    assert daemon_log.scrubbed_tail(before, 20) == ["start", "upstream said: password=[REDACTED]", "more SECRET7already9"]
     follower = daemon_log.LogFollower(before)
-    assert before[:follower.settled] == "start\n"
-    assert daemon_log.scrubbed_tail(before[:follower.settled], 20) == ["start"]
-    assert follower.feed("close'\nnext\n") == ["upstream said: password='[REDACTED]'", "next"]
+    assert follower.shown == "upstream said: password='open\nmore SECRET7already9\n"
+    assert follower.feed("close'\nnext\n") == ["[REDACTED]", "next"]
 
 
 def test_what_is_held_is_written_when_following_stops():
@@ -221,28 +225,47 @@ def test_a_tail_with_no_credential_shaped_record_is_the_raw_last_lines(text, cou
     assert daemon_log.scrubbed_tail(text, count) == text.splitlines()[-count:]
 
 
-def fed(text: str, rng: random.Random) -> list[str]:
-    """`text` through a follower in random pieces, the first piece already in the file."""
+def split(text: str, rng: random.Random) -> tuple[str, list[str]]:
+    """`text` in random pieces: the first already in the file, then the ones written."""
     cuts = sorted(rng.sample(range(len(text) + 1), min(len(text) + 1, rng.randint(1, 12))))
     pieces = [text[a:b] for a, b in zip([0, *cuts], [*cuts, len(text)])]
-    first = pieces.pop(0)
+    return pieces[0], pieces[1:]
+
+
+def followed(text: str, rng: random.Random) -> tuple[str, list[str], list[str]]:
+    """`text` through `daemon logs -f` in random pieces: the file as following starts, what it
+    prints first (`daemon logs -n N` of that file, review r5 of #233), and what it writes after."""
+    first, pieces = split(text, rng)
     follower = daemon_log.LogFollower(first)
-    out = daemon_log.scrubbed_tail(first[:follower.settled], 10_000)
+    later = []
     for piece in pieces:
-        out += follower.feed(piece)
-    return out + follower.flush()
+        later += follower.feed(piece)
+    return first, daemon_log.scrubbed_tail(first, 10_000), later + follower.flush()
+
+
+def fed(text: str, rng: random.Random) -> list[str]:
+    """Everything `daemon logs -f` prints of `text` written in random pieces."""
+    _, start, later = followed(text, rng)
+    return start + later
 
 
 @BOUNDED
 @given(lines=LINES, seed=st.integers(0, 2 ** 16))
 def test_following_never_shows_a_secret_the_folded_rescrub_hides(lines, seed):
     """Property: a log written in any pieces, followed from any point, shows no secret the
-    whole log's block with its lines kept hides."""
+    whole log's block with its lines kept hides: what it prints first, none the file as it
+    stood hides; what it writes after, none the whole log hides."""
     text = "".join(lines)
-    assert secrets("\n".join(fed(text, random.Random(seed)))) <= reference(text), text
+    first, start, later = followed(text, random.Random(seed))
+    assert secrets("\n".join(start)) <= reference(first), first
+    assert secrets("\n".join(later)) <= reference(text), text
 
 
 @BOUNDED
 @given(text=PLAIN_LOGS, seed=st.integers(0, 2 ** 16))
 def test_following_a_log_with_no_credential_shaped_record_writes_its_lines(text, seed):
-    assert fed(text, random.Random(seed)) == text.splitlines()
+    """Its lines, each once; a line still being written as following starts is printed as it
+    stood, then whole once it ends."""
+    first, _ = split(text, random.Random(seed))
+    complete = first.rfind("\n") + 1
+    assert fed(text, random.Random(seed)) == first.splitlines() + text[complete:].splitlines()

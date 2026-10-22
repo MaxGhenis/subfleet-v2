@@ -291,21 +291,25 @@ def test_reminder_tags_are_the_tag_regex_s_matches(text):
 @BOUNDED
 @given(lines=st.lists(st.one_of(st.sampled_from(handler_tests.FUZZ_FILLER).map(lambda line: line + "\n"),
                                 handler_tests.SECRETS.flatmap(handler_tests.lines_with)), min_size=1, max_size=20))
-def test_the_quoted_mask_is_the_scrub_s_first_pass(lines):
-    """`handoff.quoted_value_mask` masks, character for character, the spans the whole-text
-    scrub's first pass replaces, and keeps every other character as it is."""
+def test_the_quoted_spans_are_the_scrub_s_first_pass(lines):
+    """`handoff.quoted_value_spans` (round 7; round 6's `quoted_value_mask` gave only the
+    positions): the spans the whole-text scrub's first pass replaces, in order, apart, each
+    with what replaces it, so that replacing them gives that pass's output exactly."""
     text = "".join(lines)
-    masked, mark = handoff.quoted_value_mask(text)
-    assert len(masked) == len(text) and mark not in text
-    spans = []
+    spans = handoff.quoted_value_spans(text)
+    replaced = []
 
-    def replaced(matched, out):
-        spans.append(matched)
+    def recorded(matched, out):
+        replaced.append((matched, out))
         return out
-    handoff._scrub_named_values(text, replaced, quoted=True, multiline=True)
-    assert all(kept == char for kept, char in zip(masked, text) if kept != mark)
-    runs = [text[run.start():run.end()] for run in re.finditer(re.escape(mark) + "+", masked)]
-    assert "".join(runs) == "".join(spans)
+    first_pass = handoff._scrub_named_values(text, recorded, quoted=True, multiline=True)
+    assert [(text[start:end], out) for start, end, out in spans] == replaced
+    assert all(earlier[1] <= later[0] for earlier, later in zip(spans, spans[1:]))
+    rebuilt, cursor = [], 0
+    for start, end, out in spans:
+        rebuilt.extend((text[cursor:start], out))
+        cursor = end
+    assert "".join(rebuilt) + text[cursor:] == first_pass
 
 
 # --- the differential and the properties ----------------------------------------------------

@@ -33,6 +33,7 @@ from hypothesis import strategies as st
 from subfleet import daemon_log
 from subfleet.sessions import handoff
 from tests import reference_cut_cce8f1af7 as reference
+from tests import regex_reads
 from tests.unit import test_daemon_log_handler as handler_tests
 from tests.unit.test_scrub_key_order import HEADER_KEYS, HEADER_SHAPES, HEADER_VALUES
 
@@ -84,24 +85,33 @@ REVIEW_R4_SHAPES = {
     "data-uri-prefixes": lambda size: ("data:a/b;base64,\n" * 480
                                        + "plain words only\n" * ((size - 480 * 17) // 17)),
 }
+
+
+def _backslash_runs(size: int) -> str:
+    """Review r5's shape (P3-1): a run of 8,000 backslashes no quote follows, on its own
+    line at each end of plain text, so in both windows. Round 6's `(\\\\*)(["'])` read each
+    run again from each of its backslashes: 708 ms a cut at 1 MiB, 470 times plain text."""
+    run = "x\n" + "\\" * 8000 + "\n"
+    plain = "plain words only\n"
+    return run + plain * ((size - 2 * len(run)) // len(plain)) + run
+
+
+REVIEW_R5_SHAPES = {"backslash-runs": _backslash_runs}
 SHAPES = {**REVIEW_R3_SHAPES, **{f"round2-{name}": shape for name, shape in handler_tests.COST_SHAPES.items()},
-          **REVIEW_R4_SHAPES}
+          **REVIEW_R4_SHAPES, **REVIEW_R5_SHAPES}
 
 
 # --- the bound, counted ----------------------------------------------------------------
 
-#: A pattern that is one character class repeated (`[A-Za-z0-9+/=\\s]+`, `\\s*`): a match reads
-#: what it matches and the one character after, no further, so it is metered by that.
-CLASS_RUN = re.compile(r"(?:\[(?:\\.|[^\]\\])+\]|\\[sSwWdD])[+*]")
-
-
 class Meter:
-    """What one cut reads: the characters each regex call may read (its `pos` to its
-    `endpos`, the whole string for a substitution; a character class's match, what it
-    reads), and the characters each `str` call on the text scans or copies (`Metered`).
-    The needle looks (`_event_from`, `_event_before`) are kept apart, each its own count,
-    and so is what a look reads of a run of margin-only lines (`_Reading._back` and
-    `_forward`), which C-25.7 counts among the fixed scans: a run is read once."""
+    """What one cut reads: the characters each regex call reads, counted by
+    `tests.regex_reads` (each character test of a backtracking match, at each position a
+    scan tries, review r5 of #233, P3-1: round 6 counted a call by its span, which a run of
+    backslashes `(\\\\*)(["'])` reads again from each of its backslashes), and the
+    characters each `str` call on the text scans or copies (`Metered`). The needle looks
+    (`_event_from`, `_event_before`) are kept apart, each its own count, and so is what a
+    look reads of a run of margin-only lines (`_Reading._back` and `_forward`), which C-25.7
+    counts among the fixed scans: a run is read once."""
 
     def __init__(self):
         self.regex = 0
@@ -109,10 +119,21 @@ class Meter:
         self.scanned = 0
         self.looks: list[int] = []
         self.margins = 0
+        self._plain: dict[int, tuple[str, str]] = {}
 
-    def read(self, pattern: re.Pattern, span: int) -> None:
-        self.regex += span
-        self.regex_calls.append((pattern.pattern[:40], span))
+    def plain(self, string: str) -> str:
+        """`string` as a plain `str`, for the regex count, which a `Metered` text's own
+        counting would otherwise see: one copy each text."""
+        if type(string) is str:
+            return string
+        held = self._plain.get(id(string))
+        if held is None or held[0] is not string:
+            held = self._plain[id(string)] = (string, str.__str__(string))
+        return held[1]
+
+    def read(self, pattern: re.Pattern, reads: int) -> None:
+        self.regex += reads
+        self.regex_calls.append((pattern.pattern[:40], reads))
 
     def widest(self) -> list[tuple[str, int]]:
         return sorted(self.regex_calls, key=lambda call: -call[1])[:5]
@@ -168,42 +189,48 @@ class Meter:
 
 
 class MeteredPattern:
-    """A compiled pattern whose calls count the span they may read; a character class's
-    `match` counts what it reads (`CLASS_RUN`), as `_DATA_BODY_RE`'s does (review r4, P3-1)."""
+    """A compiled pattern whose calls count what they read (`tests.regex_reads`), each
+    call's matches checked against `re`'s own. A call that reads more than `CALL_BUDGET` is
+    counted as `CALL_BUDGET + 1` and not read further: past every bound."""
 
     def __init__(self, pattern: re.Pattern, meter: Meter):
         self._pattern, self._meter = pattern, meter
-        self.reads_its_match = CLASS_RUN.fullmatch(pattern.pattern) is not None
+        self._emulated = regex_reads.emulated(pattern)
 
-    def _span(self, string, pos=0, endpos=sys.maxsize):
-        self._meter.read(self._pattern, max(0, min(endpos, len(string)) - pos))
+    def _count(self, kind, string, pos=0, endpos=sys.maxsize):
+        text = self._meter.plain(string)
+        try:
+            reads, spans = self._emulated.scan(kind, text, pos, endpos, budget=CALL_BUDGET)
+        except regex_reads.OverBudget:
+            self._meter.read(self._pattern, CALL_BUDGET + 1)
+            return
+        assert spans == regex_reads.real_spans(kind, self._pattern, text, pos, endpos), (self._pattern.pattern, kind)
+        self._meter.read(self._pattern, reads)
 
     def search(self, string, pos=0, endpos=sys.maxsize):
-        self._span(string, pos, endpos)
+        self._count("search", string, pos, endpos)
         return self._pattern.search(string, pos, endpos)
 
     def match(self, string, pos=0, endpos=sys.maxsize):
-        found = self._pattern.match(string, pos, endpos)
-        if self.reads_its_match:
-            end = min(endpos, len(string))
-            self._meter.read(self._pattern, max(0, min(end, (found.end() if found else pos) + 1) - pos))
-        else:
-            self._span(string, pos, endpos)
-        return found
+        self._count("match", string, pos, endpos)
+        return self._pattern.match(string, pos, endpos)
 
     def fullmatch(self, string, pos=0, endpos=sys.maxsize):
-        self._span(string, pos, endpos)
+        self._count("fullmatch", string, pos, endpos)
         return self._pattern.fullmatch(string, pos, endpos)
 
     def finditer(self, string, pos=0, endpos=sys.maxsize):
-        self._span(string, pos, endpos)
+        self._count("finditer", string, pos, endpos)
         return self._pattern.finditer(string, pos, endpos)
 
     def sub(self, repl, string, count=0):
-        self._span(string)
+        assert count == 0, "a counted substitution is metered as a whole scan"
+        self._count("sub", string)
         return self._pattern.sub(repl, string, count)
 
     def __getattr__(self, name):
+        if name in ("findall", "split", "subn", "scanner"):
+            raise AttributeError(f"{name} is not metered: meter it before the cut uses it")
         return getattr(self._pattern, name)
 
 
@@ -271,6 +298,8 @@ class Metered(str):
 #: Regex reads per cut, whatever the text's length: the windows' `limit` characters,
 #: each read by a fixed number of patterns.
 REGEX_BOUND = 16 * LIMIT
+#: The most one regex call is read to: past it, it is past every bound.
+CALL_BUDGET = REGEX_BOUND
 #: C-25.7: at most one needle look for each quote kind open at a candidate cut, two plain
 #: kinds and at most `CUT_KINDS_MAX` escaped ones a side.
 LOOKS_MAX = 2 * (2 + handoff.CUT_KINDS_MAX)
@@ -330,6 +359,54 @@ def test_the_quote_kinds_cost_a_look_each_and_the_meter_counts_the_body_by_what_
         body = [span for pattern, span in meter.regex_calls if pattern == handoff._DATA_BODY_RE.pattern[:40]]
         assert len(body) >= matches, (shape, len(body), "data URI body matches metered")
         assert sum(body) <= 2 * LIMIT, (shape, sum(body))
+
+
+#: Round 6's quote regex, which `finditer` restarted at each backslash of a run.
+UNANCHORED_QUOTE_RUN = re.compile(r"(\\*)([\"'])")
+
+
+def test_the_meter_counts_what_a_regex_reads_not_its_span(monkeypatch):
+    """Review r5, P3-1: round 6's meter counted `_QUOTE_RUN_RE` by its span, 49,192
+    characters on the backslash runs, inside the bound. Counted by what it reads, round 6's
+    regex is past the bound on that shape and the anchored one reads each character of the
+    windows a fixed number of times (three: the lookbehind, the run, the quote)."""
+    text = REVIEW_R5_SHAPES["backslash-runs"](MIB)
+    _, meter = metered_cut(text, monkeypatch)
+    quote = [reads for pattern, reads in meter.regex_calls if pattern == handoff._QUOTE_RUN_RE.pattern[:40]]
+    assert len(quote) == 2 and max(quote) <= 3 * (LIMIT // 2 + 8_100), quote
+    monkeypatch.setattr(handoff, "_QUOTE_RUN_RE", UNANCHORED_QUOTE_RUN)
+    _, meter = metered_cut(text, monkeypatch)
+    assert meter.regex > REGEX_BOUND, meter.widest()
+
+
+def test_a_settle_reads_a_run_of_backslashes_a_fixed_number_of_times(monkeypatch):
+    """`settled_end` over one 16,000-backslash line (review r5: 1,359 ms with round 6's
+    regex, and `daemon logs -f` about 0.3 s a feed after an 8,000-backslash line): its
+    regexes read the text a fixed number of times, at most 16 characters a character."""
+    text = "start\n" + "\\" * 16_000 + "\nnext line\n" * 50
+    meter = Meter()
+    with meter.installed(monkeypatch):
+        settled = handoff.settled_end(Metered(text, meter), 0)
+    assert settled == handoff.settled_end(text, 0) == len(text)
+    assert meter.regex <= 16 * len(text), (meter.regex / len(text), meter.widest())
+
+
+@settings(max_examples=400, derandomize=True, database=None, deadline=None)
+@given(text=st.text(alphabet=list("ab\\\"' \n\t:=-|+<>/;,.AZ09_ſİıK\u3000") + [
+    "data:", ";base64,", "-----BEGIN", " PRIVATE KEY-----", "-----END", "token", "password", "Bearer ",
+    "system-reminder", "  | ", "Authorization", "--auth-token", "QUJD", "://u:p@"], max_size=40),
+       data=st.data())
+def test_the_counted_matcher_finds_what_re_finds(text, data):
+    """`tests.regex_reads` matches as `re` does, for every pattern `handoff` holds and every
+    kind of call the meter counts: its count is of the reads of `re`'s own matches."""
+    pos = data.draw(st.integers(0, len(text)))
+    endpos = data.draw(st.one_of(st.just(sys.maxsize), st.integers(pos, len(text))))
+    for name, pattern in sorted(vars(handoff).items()):
+        if isinstance(pattern, re.Pattern):
+            emulated = regex_reads.emulated(pattern)
+            for kind in ("search", "match", "fullmatch", "finditer"):
+                _, spans = emulated.scan(kind, text, pos, endpos)
+                assert spans == regex_reads.real_spans(kind, pattern, text, pos, endpos), (name, kind)
 
 
 @pytest.mark.timeout(60)
