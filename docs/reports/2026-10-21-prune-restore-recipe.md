@@ -259,7 +259,7 @@ These are sandbox-dependent failures, not failures of the restore or credential 
 - `h1-prune`'s one failure was the new test expecting `-l -vv` locals on one line. Commit `b43b4f191` fixed the test to read the multiline representation. Both child-report variants passed in later runs.
 - `h2-guard` covers the requested `test_live_store_guard*` and `test_launch_env*` files selected by the original build; `test_live_store_guard_round3.py` was additionally verified after its dummy-socket adjustment.
 - `chunk0` is the first whole-suite batch from the checkpoint.
-- `resume-focused` passed all 205 executions. Two overlapping filename patterns selected `test_prune_decisions.py` twice (24 tests each); the reconciled per-file table counts its 24 distinct tests once.
+- `resume-focused` passed all 205 distinct tests. Although two filename patterns overlapped, pytest collected the 48 tests in `test_prune_decisions.py` once; the XML contains 48 distinct names and no repetitions.
 - Each broad `resume-all*` hold ended through the budget hook or its timer, returning status 2 for interruption. Every hold's pytest runtime stayed below 20 minutes; lock waits occurred before the pytest timer started. Partial files remained eligible for the next hold.
 - All holds used the existing scratch venv, the hub's suite wrapper, scratch-local `TMPDIR` and Hypothesis storage, and `HYPOTHESIS_PROFILE=ci`. The final hold additionally selected `--hypothesis-profile=ci --hypothesis-seed=18` explicitly and ran `test_prune_restore.py` (20 passed) and `test_session_credential_env.py` (30 passed) first. No deep profile was used.
 - The prior setup used the hub's uv setup wrapper once; the continuation reused the venv with `uv run --no-sync` and performed no installation or network operation.
@@ -721,7 +721,6 @@ Partial files: `tests/fake/test_capacity_steer_daemon.py`, `tests/unit/test_rete
 - `b06b7b66c` — test: round-three host-push checks set their own agent socket (D-PRR1)
 - `8c2e9de04` — test: check the child report for leaks before its outcome (D-PRR1)
 
-The shared index rejected staging with “Operation not permitted.” As authorized in the brief, the final documentation commit uses workspace-local Git metadata at `.prr1-git/`, on the local branch `fix/prune-restore-recipe-217`, directly descended from checkpoint `8c2e9de04`. The supplied shared detached HEAD is unchanged. Review the complete history with `git --git-dir=.prr1-git log --oneline 2eacd580605e..HEAD`. This metadata remains in the assigned workspace; the scratch cleanup does not remove it.
+The shared index rejected staging with “Operation not permitted.” As authorized in the brief, the final documentation commit uses workspace-local Git metadata at `.prr1-git/`, on the local branch `fix/prune-restore-recipe-217`, with history descended from checkpoint `8c2e9de04`. The supplied shared detached HEAD is unchanged. Review the complete history with `git --git-dir=.prr1-git log --oneline 2eacd580605e..HEAD`. This metadata remains in the assigned workspace; the scratch cleanup does not remove it.
 
-The final documentation commit records this reconciled report and the PR body. Every commit uses the requested co-author trailer. No history was rewritten and nothing was pushed.
-
+Documentation commit `77ecaa595` records the reconciled report and PR body; a follow-up corrects their formatting and count explanation. Every commit uses the requested co-author trailer. No history was rewritten and nothing was pushed.
