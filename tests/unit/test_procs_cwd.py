@@ -70,6 +70,16 @@ def test_d_kill3_a_cwd_listing_failure_remains_an_inspection_failure(monkeypatch
         procs.worktree_cwd_pids("/scratch/owned")
 
 
+def test_cwd_comparison_uses_disk_case_on_case_insensitive_apfs(tmp_path, monkeypatch):
+    target = tmp_path / "wt"
+    target.mkdir()
+    alternate = tmp_path / "WT"
+    if not alternate.is_dir():
+        pytest.skip("requires a case-insensitive filesystem")
+    monkeypatch.setattr(procs, "kernel", SimpleNamespace(pids=lambda: {123}, cwd=lambda pid: str(target)))
+    assert procs.worktree_cwd_pids(alternate) == {123}
+
+
 @pytest.mark.skipif(sys.platform != "darwin", reason="macOS native zombie state")
 def test_d_kill3_an_unreaped_zombie_does_not_hold_every_worktree():
     """Only our unreaped child is inspected, and its scratch group is reaped here."""
