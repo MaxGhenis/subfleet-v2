@@ -24,6 +24,8 @@ def test_first_detached_pass_sees_primed_eighteen_busy_cpus(state_daemon,monkeyp
     monkeypatch.setattr(machine,'_disk_counters',lambda:None)
     monkeypatch.setattr(machine.time,'sleep',lambda dt:now.__setitem__(0,now[0]+dt))
     daemon=Daemon(root)
+    def forbidden(*args): raise AssertionError("priming regression must never launch a guardian")
+    monkeypatch.setattr(daemon,"_launch",forbidden)
     try:
         jobs=[submit(daemon,harness,f'primed-{i}',caller_session='gone') for i in range(3)]
         daemon._admit()

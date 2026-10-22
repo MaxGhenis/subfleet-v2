@@ -1,55 +1,50 @@
-"""Measure C-6.13 signals and per-pass cost without starting any subprocess.
+"""Observe C-6.13 on its real 50 ms tick / one-second native-read cadence.
 
-Run through the hub suite-hold wrapper, with the GIL CPython 3.14 environment.
-This observes existing host activity; it creates no storage or CPU workload.
+Run through the suite-hold wrapper. No stress workload is created. JSON output
+belongs in the job's scratch folder, never the repository. --state-root selects
+an owned directory on the volume being measured, never a live state root.
 """
-
 from __future__ import annotations
-
 import argparse
+import json
 import statistics
 import sys
 import time
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from subfleet import machine  # noqa: E402
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--samples", type=int, default=12)
-    parser.add_argument("--interval", type=float, default=5)
-    parser.add_argument("--repeats", type=int, default=100)
-    args = parser.parse_args()
-    if not (2 <= args.samples <= 60 and 0 < args.interval <= 10 and 1 <= args.repeats <= 1000):
-        parser.error("samples 2..60, interval (0,10], repeats 1..1000")
-    sampler = machine.Sampler()
-    first = sampler.read()
-    print(f"cold read: {first['read_cost_s'] * 1e6:.1f} us", flush=True)
-    rows = []
-    for index in range(args.samples):
-        time.sleep(args.interval)
-        row = sampler.read()
-        rows.append(row)
-        print(f"sample {index + 1}: idle={row['cpu_idle']} disk={row['disk_busy']} "
-              f"load1={row['load1']} cpus={row['cpus']} cost_us={row['read_cost_s'] * 1e6:.1f}", flush=True)
-    for key in ("cpu_idle", "disk_busy"):
-        values = [row[key] for row in rows if row[key] is not None]
-        print(f"{key}: readable={len(values)}/{len(rows)} "
-              + (f"min={min(values):.6f} median={statistics.median(values):.6f} max={max(values):.6f}"
-                 if values else "unavailable"), flush=True)
-    for label, function in (("cpu_ticks", machine._cpu_ticks), ("disk_counters", machine._disk_counters),
-                            ("full_read", machine.Sampler().read)):
-        costs = []
-        for _ in range(args.repeats):
-            started = time.perf_counter()
-            function()
-            costs.append((time.perf_counter() - started) * 1e6)
-        print(f"{label}: N={args.repeats} best_us={min(costs):.1f} "
-              f"median_us={statistics.median(costs):.1f} max_us={max(costs):.1f}", flush=True)
+def distribution(values):
+    values=sorted(v for v in values if v is not None)
+    return ({'n':len(values),'min':values[0],'median':statistics.median(values),
+             'p99':values[min(len(values)-1,int(len(values)*.99))],'max':values[-1]} if values else {'n':0})
 
 
-if __name__ == "__main__":
-    main()
+def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--state-root',type=Path,required=True)
+    parser.add_argument('--seconds',type=int,default=90)
+    parser.add_argument('--tick',type=float,default=.05)
+    args=parser.parse_args()
+    if not 2<=args.seconds<=180 or not .05<=args.tick<=1:
+        parser.error('seconds 2..180, tick .05..1')
+    sampler=machine.Sampler(args.state_root)
+    sampler.prime()
+    rows=[]; ticks=[]; reads=[]; legacy=[]; previous=None
+    end=time.monotonic()+args.seconds
+    while time.monotonic()<end:
+        start=time.perf_counter(); row=sampler.read(); ticks.append((time.perf_counter()-start)*1e6)
+        if row['sampled_at']!=previous:
+            rows.append(row); reads.append(row['read_cost_s']*1e6); previous=row['sampled_at']
+            print('sample '+json.dumps(row),flush=True)
+        start=time.perf_counter(); machine.read(); legacy.append((time.perf_counter()-start)*1e6)
+        time.sleep(max(0,args.tick-(time.perf_counter()-start)))
+    summary={key:distribution([r.get(key) for r in rows]) for key in
+             ('cpu_idle','disk_busy','disk_service_ms_raw','disk_in_flight','load1')}
+    summary['cost_us']={'tick':distribution(ticks),'native_read':distribution(reads),'legacy':distribution(legacy)}
+    summary['device_id']=sampler.device_id
+    print('summary '+json.dumps(summary),flush=True)
+
+
+if __name__=='__main__': main()

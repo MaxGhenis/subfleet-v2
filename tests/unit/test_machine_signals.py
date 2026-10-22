@@ -192,3 +192,12 @@ def test_review_argumenterror_at_native_call_is_fail_open(monkeypatch,source):
         monkeypatch.setattr(storage.io,'IORegistryEntryCreateCFProperty',injected)
         monkeypatch.setattr(machine,'_iokit',storage)
         assert machine._disk_counters() is None
+
+
+def test_restored_baseline_age_is_the_calibration_sample_age(monkeypatch,tmp_path):
+    monkeypatch.setattr(machine.time,'time',lambda:2000.0)
+    sampler=machine.Sampler(tmp_path,history=[{'observed_at':1000.0,'disk_service_ms_raw':2.0,'disk_device_id':1}])
+    sampler.device_id=1
+    baseline=sampler.status()['disk_baseline_ms']
+    assert baseline['value']==2
+    assert baseline['age_s']==1000
