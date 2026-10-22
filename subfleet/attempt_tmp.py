@@ -122,7 +122,9 @@ class AttemptTemp:
             path = Path(record["path"])
             if path.parent != self.root or not path.name.startswith(PREFIX):
                 return False
-            if not os.path.lexists(path):
+            try:
+                path.lstat()
+            except FileNotFoundError:
                 return True                  # the provider may remove its own scratch
             current = self._read(path)
             if current is None or any(current[key] != record.get(key) for key in ("dev", "ino", "attempt_id")):
