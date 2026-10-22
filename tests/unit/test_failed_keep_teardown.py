@@ -104,3 +104,20 @@ def test_a_failed_test_keeps_its_root_whether_or_not_close_raises(pytester, monk
         assert (keep / "evidence.txt").read_text() == "written by the test"
         # Taken after close(): a copy made before it (keep code moved above close()) has no marker.
         assert (keep / "closed.txt").read_text() == "close ran"
+
+
+@pytest.mark.parametrize("harness", sorted(CONFTESTS))
+def test_a_copy_that_fails_never_replaces_close_s_error(pytester, monkeypatch, tmp_path, harness):
+    (tmp_path / "kept").write_text("a file where the kept-roots folder should be\n")
+    monkeypatch.setattr(failed_keep, "ROOT", tmp_path / "kept")
+    pytester.makeconftest(CONFTESTS[harness])
+    pytester.makepyfile(test_scratch_teardown=SCRATCH.replace("HARNESS", harness))
+    run = pytester.inline_run("-p", "no:cacheprovider", "-q", "-k", "close_raises")
+    teardowns = {report.nodeid.split("::")[-1]: report for report in run.getreports("pytest_runtest_logreport")
+                 if report.when == "teardown"}
+    assert sorted(teardowns) == ["test_fails[close_raises]", "test_passes[close_raises]"]
+    for report in teardowns.values():
+        assert report.failed
+        assert report.longrepr.reprcrash.message.startswith("subprocess.TimeoutExpired"), report.longrepr.reprcrash
+        assert "could not keep the state root" in report.capstderr
+    assert (tmp_path / "kept").read_text() == "a file where the kept-roots folder should be\n"
