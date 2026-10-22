@@ -235,12 +235,13 @@ def exit_info(rc: int, *, wall_s: float = 4.2, spawn_error: str | None = None) -
 
 
 @pytest.fixture(autouse=True)
-def private_attempt_temp_root(request, tmp_path, monkeypatch):
+def private_attempt_temp_root(request, tmp_path_factory, monkeypatch):
     """D-TMP1 allocations in fixture daemons stay in this test's own tree."""
     from subfleet import attempt_tmp
     original = request.config._subfleet_original_attempt_temp_root
-    root = tmp_path / "attempt-user-temp"
-    root.mkdir()
+    # Keep this beside each test's own tmp_path: filesystem assertions in a
+    # test must not see an unrelated directory created by an autouse fixture.
+    root = tmp_path_factory.mktemp("attempt-user-temp")
     monkeypatch.setattr(attempt_tmp, "user_temp_root", lambda: root)
     return original
 
