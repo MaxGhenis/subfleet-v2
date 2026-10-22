@@ -310,8 +310,9 @@ def test_git_push_stays_refused_in_every_new_form(tmp_path, provider, shell):
     for name, template, hook_sees in GIT_PUSH_FORMS:
         command = fill(template, world)
         assert hooks_deny(launch, provider, command, env) is hook_sees, (provider, name)
+        # 120 s: under load 150 to 250 a `zsh -lc` push form took over 60 s (#221 review r3c P3).
         subprocess.run(SHELLS[shell](command, snapshot), cwd=launch.cwd, env=env, capture_output=True,
-                       text=True, timeout=60)
+                       text=True, timeout=120)
         landed = subprocess.run([git, 'ls-remote', remote], capture_output=True, text=True).stdout
         assert landed == '', (shell, name, landed)
     # Review r2's one push: the environment discarded and the hook routed

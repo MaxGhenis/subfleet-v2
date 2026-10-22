@@ -57,8 +57,9 @@ def review_override(tmp_path, publish=True):
 
 
 def run(args, launch):
+    # 60 s: under load 150 to 250 a wrapper call took over 10 s (#221 review r3c P3).
     return subprocess.run(args, cwd=launch.cwd, env={**os.environ, **launch.env_add},
-                          capture_output=True, text=True, timeout=10)
+                          capture_output=True, text=True, timeout=60)
 
 
 def local_remote(tmp_path):
