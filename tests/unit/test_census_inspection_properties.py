@@ -79,7 +79,8 @@ def test_inspection_ownership_memory_census_and_expiry(observation):
     newly_counted = {int(pid) for pid, value in after["counted_identities"].items()
                      if before["counted_identities"].get(pid) != value}
     assert newly_counted <= expected_walk | group
-    remembered = {int(pid) for values in after.values() for pid, value in values.items()
+    remembered = {int(pid) for key, values in after.items() if key.endswith("_identities")
+                  for pid, value in values.items()
                   if table.identity(int(pid)) is not None and value == asdict(table.identity(int(pid)))}
     assert {pid for pid in expected_walk if table.identity(pid)} <= remembered
     written, snapshot = len(transactions), row["evidence_json"]
@@ -93,7 +94,8 @@ def test_inspection_ownership_memory_census_and_expiry(observation):
             {pid: procargs(["fixture"]) for pid in rows if table.live(pid)},
             starts={pid: r[3] or None for pid, r in rows.items()}))
         census = Daemon._contain(core, dict(row))
-    unreadable_roots = {int(pid) for seeds in after.values() for pid in seeds
+    unreadable_roots = {int(pid) for key, seeds in after.items() if key.endswith("_identities")
+                        for pid in seeds
                         if int(pid) in rows and not rows[int(pid)][3]}
     # An unreadable walk row has no identity to persist; it remains an
     # unverifiable walk anchor, just like an unreadable recorded seed.
