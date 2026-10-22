@@ -421,11 +421,13 @@ def main(argv: list[str]) -> int:
             results = [(label, run(test, arguments)) for label, test, arguments in TESTS]
         finally:
             patch.undo()
-        failed = [label for label, outcome in results if outcome != "passed"]
-        print(f"## {name}: {len(failed)} of {len(results)} named tests failed")
+        failed = [label for label, outcome in results if outcome.startswith("FAILED ")]
+        errors = [label for label, outcome in results if outcome.startswith("ERROR ")]
+        print(f"## {name}: {len(failed)} of {len(results)} named assertions failed; "
+              f"{len(errors)} harness errors")
         for label, outcome in results:
             print(f"- {label}: {outcome}")
-        if (name == "baseline") == bool(failed):
+        if (name == "baseline" and (failed or errors)) or (name != "baseline" and not failed):
             caught = False
     return 0 if caught else 1
 

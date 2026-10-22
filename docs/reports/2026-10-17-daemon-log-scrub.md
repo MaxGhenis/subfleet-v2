@@ -1506,3 +1506,163 @@ where boot/process inspection is permitted. The whole site file will be rerun.
 This first hold totals `tests/unit`: 16 files, 1,616 passed, 2 failed, 5 skipped; `tests/fake`: 1 file, 37 passed. These are first-hold results, before the prerequisite repair.
 
 The contract preservation check found every release clause ID present. C-11.1 and C-26.6 retain this PR's earlier D-LOG1 amendments; every other release clause outside C-25.7 is byte-for-byte present. Every change-log entry from both parents of `74072c7c7` is present.
+
+### Completed census, mutation and timing hold
+
+Slot A ran from 13:59 UTC for about 16.5 minutes; all scheduled commands
+completed before the 18-minute watchdog. GIL Python 3.14.7, one process at a
+time, no xdist, bounded CI Hypothesis, `PYTHONPATH` unset and the scratch venv's
+entry points on PATH. Host load was unavailable: this sandbox denies the
+wrapper's `sysctl` reads. The whole site file reran **80 passed, 2 skipped**
+(53.66 seconds); its two real-daemon tests require C-5.3 process inspection.
+Thus the latest complete briefed-file results are **1,653 passed, 7 skipped**:
+unit 1,616 passed and 7 skipped; fake 37 passed. The first hold's two failures
+remain recorded above rather than being silently removed from the history.
+
+**Historical control.** The corrected round-6 census resolver matched the
+actual `cb03e5a60` functions on 1,004 texts: seeds 0–999 of this grammar plus
+all four real-bound join logs. No mismatches.
+
+**Fresh grammar census.** Seeds 0–59,999, bound 120, counts 1, 8 and 40;
+224 seconds. Detection compares the `SECRET7` runs shown by each resolved
+block or tail with those shown by the original whole-text block. Each § in
+the grammar is replaced by its own dummy label. This is this tree's rebuilt,
+assignment-heavy adversarial grammar, not the reviewer's original generator;
+46,066 texts put a reminder between a separator and a quote. The following
+paired control/fix results use exactly the same texts and detection rule.
+
+| Metric | Round 6 control | Round 7 |
+|---|---:|---:|
+| Texts drawn | 60,000 | 60,000 |
+| Tagged texts inspected | 55,853 | 55,853 |
+| Resolved blocks showing a new secret run | 5,922 | 0 |
+| Marker-rule fallbacks | 1,056 | 41,799 |
+| Tail checks at 1 / 8 / 40 lines | not measured | 167,559 |
+| Tail checks actually cut | not measured | 55,504 |
+| Tails showing a new secret run | not measured | 0 |
+
+The conservative check sacrifices more lines on this deliberately dense join
+grammar. Its fallback frequency is not a frequency estimate for daemon.log.
+On each of round 6's three corpora and its edge generator, 300 draws from seed
+6000, each text's own bound, with a one-line tail to determine cut eligibility:
+
+| Corpus | Draws | Tagged and cut | R6 fallbacks | R7 fallbacks | R6 leaks | R7 leaks |
+|---|---:|---:|---:|---:|---:|---:|
+| edge generator | 300 | 257 | 0 | 9 | 0 | 0 |
+| fuzz_text | 300 | 31 | 0 | 0 | 0 | 0 |
+| fuzz_text-with-231-headers | 300 | 27 | 0 | 0 | 0 | 0 |
+| fuzz_text-with-tags | 300 | 223 | 0 | 2 | 0 | 0 |
+
+There were 0 new leaks in all four corpora. Eleven of the 538 tagged, cut
+texts kept only the marker (nine edge texts, two with tags among the lines).
+Tag-free equality is separately covered by the passing differential tests.
+
+**Mutation sweep.** Each row called the same 33 named tests. Baseline: all 33
+passed. Every mutant produced at least one real assertion failure. Counts
+below exclude harness errors, which do not prove a mutant was detected.
+`test_daemon_log_mutation_tool.py` now checks that an unsupported counter alone
+cannot kill a mutant, an actual assertion can, an un-killed mutant is refused,
+and baseline errors refuse the sweep. The tool now enforces that distinction.
+
+| Mutation | Assertion failures | Harness errors |
+|---|---:|---:|
+| `baseline` | 0 | 0 |
+| `whole-margins` | 5 | 1 |
+| `backtracking-header` | 2 | 0 |
+| `whole-reminder-search` | 6 | 0 |
+| `folded-tail` | 12 | 0 |
+| `raw-logs` | 8 | 0 |
+| `tail-not-neutralised` | 7 | 0 |
+| `handler-not-neutralised` | 2 | 0 |
+| `body-by-regex` | 1 | 0 |
+| `unmetered-data-body` | 1 | 0 |
+| `pem-prefix-not-held` | 3 | 9 |
+| `tail-unmarked-after-scrub` | 2 | 0 |
+| `follow-not-neutralised` | 1 | 0 |
+| `unmasked-strip` | 8 | 0 |
+| `unconditional-take-out` | 6 | 0 |
+| `no-margin-free-check` | 3 | 0 |
+| `unanchored-quote-regex` | 3 | 0 |
+| `follow-start-held` | 2 | 0 |
+
+The ten extra errors belong to two older controls: restoring whole-text margins
+exceeds the counting matcher's Python recursion depth on leading spaces;
+disabling the PEM-prefix pattern as `(?!)` introduces an unsupported `FAILURE`
+node in nine count calls. Those errors are not used as mutation evidence:
+whole-margins has five assertion failures, PEM-prefix-not-held three. All four
+round-7 mutants have only assertion failures (6, 3, 3 and 3 respectively).
+
+**On the real PR-head source.** `git archive cb03e5a60` supplied `subfleet/`;
+the current test/helper files were copied beside it in scratch. The baseline
+named-test driver ran there: 21 passed, 12 assertion failures, no harness errors.
+These failures include all four marker-rule join regressions; the quote and
+margin-free CLI/tail checks; the backslash cut count, meter and settle tests;
+and the follower's initial-tail cases. The private-key input's resolved block
+leaks under round 6, while its original cut prevents the secret reaching the
+tail; its new marker-rule assertion still fails on that source, as documented
+in §1. Additional data-URI/private-key CLI controls are scheduled with the next
+whole-suite hold.
+
+**Fresh cut measurements.** The following is the tool's output, including its
+completion status. Ratios are observations, not bounds. Best of five CPU times;
+all sizes use the reference cut as a control, including 16 MiB. The four-byte
+margin shape and the 8,000-backslash shape are included.
+
+| shape | MiB | cut ms | cut / plain | cce8f1af7 cut ms | handler, message ms | handler, traceback ms | Python's formatting ms | traceback / plain |
+|---|---|---|---|---|---|---|---|---|
+| plain | 1 | 4.4 | 1.00 | 5.0 | 26.3 | 18.4 | 3.6 | 1.00 |
+| margin-only lines `  |\n` | 1 | 12.1 | 2.74 | 77.8 | 25.2 | 32.7 | 16.3 | 1.78 |
+| margin-only lines `  | \n` | 1 | 15.4 | 3.50 | 57.0 | 17.0 | 28.0 | 14.9 | 1.53 |
+| margin-only lines, long and short | 1 | 6.5 | 1.47 | 32.0 | 19.2 | 23.5 | 2.2 | 1.28 |
+| quote kinds (review r4) | 1 | 5.8 | 1.31 | 6.2 | 27.2 | 38.9 | 3.5 | 2.12 |
+| data URI body into the tail's window | 1 | 3.0 | 0.68 | 4.9 | 3.9 | 9.6 | 6.1 | 0.52 |
+| 480 data URI prefixes | 1 | 5.9 | 1.33 | 6.3 | 3.8 | 7.6 | 3.6 | 0.41 |
+| backslash runs (review r5) | 1 | 2.1 | 0.47 | 496.4 | 6.6 | 7.5 | 5.3 | 0.41 |
+| margin-only lines `  | \n`, four-byte text | 1 | 15.1 | 3.43 | 37.4 | 19.5 | 31.8 | 11.7 | 1.73 |
+| margin-only lines `  | \n` among plain lines | 1 | 2.7 | 0.62 | 25.2 | 14.4 | 23.1 | 8.7 | 1.26 |
+| member lines `  | member line\n` | 1 | 2.7 | 0.61 | 14.2 | 63.3 | 58.6 | 6.8 | 3.19 |
+| leading spaces | 1 | 2.4 | 0.55 | 20.8 | 1.7 | 2.2 | 0.8 | 0.12 |
+| run of `<` | 1 | 1.8 | 0.41 | 15.6 | 5.9 | 10.6 | 3.8 | 0.58 |
+| raised exception group (its traceback) | 1 | 2.4 | 0.54 | 14.9 | nan | 70.3 | 3.7 | 3.83 |
+| plain | 4 | 7.2 | 1.00 | 9.5 | 20.1 | 38.2 | 16.2 | 1.00 |
+| margin-only lines `  |\n` | 4 | 40.6 | 5.62 | 269.9 | 48.2 | 104.0 | 84.0 | 2.73 |
+| margin-only lines `  | \n` | 4 | 40.1 | 5.54 | 215.8 | 65.4 | 94.9 | 43.0 | 2.49 |
+| margin-only lines, long and short | 4 | 22.0 | 3.04 | 177.9 | 27.5 | 36.4 | 21.0 | 0.95 |
+| quote kinds (review r4) | 4 | 32.1 | 4.43 | 27.2 | 58.1 | 71.6 | 21.9 | 1.88 |
+| data URI body into the tail's window | 4 | 8.2 | 1.13 | 16.3 | 10.9 | 52.8 | 32.7 | 1.38 |
+| 480 data URI prefixes | 4 | 11.7 | 1.61 | 29.0 | 10.8 | 33.5 | 25.9 | 0.88 |
+| backslash runs (review r5) | 4 | 12.3 | 1.70 | 629.9 | 16.6 | 26.3 | 15.5 | 0.69 |
+| margin-only lines `  | \n`, four-byte text | 4 | 58.6 | 8.10 | 173.6 | 85.8 | 167.7 | 64.6 | 4.40 |
+| margin-only lines `  | \n` among plain lines | 4 | 6.1 | 0.84 | 139.1 | 26.9 | 59.0 | 39.9 | 1.55 |
+| member lines `  | member line\n` | 4 | 8.5 | 1.17 | 63.1 | 39.3 | 64.9 | 23.4 | 1.70 |
+| leading spaces | 4 | 9.3 | 1.28 | 122.7 | 6.3 | 9.0 | 3.1 | 0.24 |
+| run of `<` | 4 | 4.1 | 0.56 | 59.6 | 8.5 | 24.4 | 15.3 | 0.64 |
+| raised exception group (its traceback) | 4 | 6.6 | 0.92 | 57.0 | nan | 44.8 | 14.8 | 1.17 |
+| plain | 16 | 26.1 | 1.00 | 32.9 | 38.8 | 103.4 | 163.4 | 1.00 |
+| margin-only lines `  |\n` | 16 | 210.6 | 8.06 | 981.2 | 226.9 | 525.9 | 281.7 | 5.09 |
+| margin-only lines `  | \n` | 16 | 178.3 | 6.82 | 995.5 | 253.5 | 472.0 | 202.7 | 4.57 |
+| margin-only lines, long and short | 16 | 148.3 | 5.67 | 527.4 | 115.1 | 276.9 | 52.2 | 2.68 |
+| quote kinds (review r4) | 16 | 79.7 | 3.05 | 117.4 | 124.5 | 272.0 | 86.2 | 2.63 |
+| data URI body into the tail's window | 16 | 48.9 | 1.87 | 92.6 | 35.1 | 213.0 | 155.2 | 2.06 |
+| 480 data URI prefixes | 16 | 42.7 | 1.63 | 93.1 | 82.9 | 200.4 | 71.6 | 1.94 |
+| backslash runs (review r5) | 16 | 33.4 | 1.28 | 699.1 | 37.4 | 125.0 | 139.3 | 1.21 |
+| margin-only lines `  | \n`, four-byte text | 16 | 409.9 | 15.68 | 858.0 | 298.5 | 559.1 | 275.4 | 5.41 |
+| margin-only lines `  | \n` among plain lines | 16 | 31.9 | 1.22 | 645.6 | 57.0 | 277.9 | 205.8 | 2.69 |
+| member lines `  | member line\n` | 16 | 38.3 | 1.46 | 333.3 | 83.0 | 164.1 | 104.3 | 1.59 |
+| leading spaces | 16 | 36.1 | 1.38 | 530.5 | 45.1 | 43.1 | 15.4 | 0.42 |
+| run of `<` | 16 | 23.1 | 0.88 | 338.6 | 35.7 | 149.9 | 81.7 | 1.45 |
+| raised exception group (its traceback) | 16 | 29.4 | 1.13 | 372.5 | nan | 142.2 | 80.9 | 1.38 |
+
+Completion: 250 s; left out by --budget-s: none
+
+**Fresh realistic-log measurements.** Best of three CPU times; the first row
+count selects the whole file, then the default 40 lines with no tag, an orphan
+and a complete reminder on line 1. This measures the new two/four-pass check.
+
+| file MiB | lines | whole range ms | ms per MiB | `-n 40` ms | `-n 40`, orphan tag on line 1, ms | `-n 40`, whole reminder on line 1, ms |
+|---|---|---|---|---|---|---|
+| 1 | 15,370 | 2175 | 2175 | 61.6 | 46.4 | 405.3 |
+| 4 | 61,361 | 9142 | 2285 | 89.9 | 93.5 | 1899.5 |
+| 16 | 245,732 | 34719 | 2170 | 97.4 | 87.0 | 6360.5 |
+
+Completion: 213 s; left out by --budget-s: none
