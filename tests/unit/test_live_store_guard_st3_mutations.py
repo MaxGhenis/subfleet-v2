@@ -27,6 +27,7 @@ COMPAT = "subfleet/compat.py"
 PRUNE = "subfleet/prune_decisions.py"
 MCP = "subfleet/adapters/claude_mcp.py"
 DOCTOR = "subfleet/doctor.py"
+PREFLIGHT = "subfleet/guard/preflight.py"
 EMPTY = [{"environ": {}}, {"environ": {"PATH": "/usr/bin:/bin"}}]
 SCRATCH = "{scratch}"  # A fresh directory per case, for a test's tmp_path.
 
@@ -56,6 +57,10 @@ MUTANTS = {
         "test_a_tilde_override_naming_the_accounts_home_is_refused",
         [{"variable": variable, "form": "tilde-user", "home": "test", "below": "st3-not-a-store",
           "tmp_path": SCRATCH} for variable in ("SUBFLEET_HOME", "SUBFLEET_CLAUDE_DIR", "SUBFLEET_CODEX_APP_HOME")]),
+    "cache-base-ignored": (
+        PREFLIGHT, "checked_override(CACHE_ENV, os.environ.get(CACHE_ENV), relative_to=root)",
+        "checked_override(CACHE_ENV, os.environ.get(CACHE_ENV))",
+        "test_relative_cache_override_is_judged_from_the_state_root", [{"tmp_path": SCRATCH}]),
     "doctor-pythonpath-raw": (
         DOCTOR, 'checked_override("PYTHONPATH", item)', "item",
         "test_doctor_checks_each_pythonpath_entry", [{"where": 1, "tmp_path": SCRATCH}]),

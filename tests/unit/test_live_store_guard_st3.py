@@ -974,6 +974,21 @@ ROUTED_READS = {
 }
 
 
+def test_relative_cache_override_is_judged_from_the_state_root(tmp_path, monkeypatch):
+    """C-20.6, C-2.1: cache overrides use the state root, even from a checkout under a store."""
+    account = tmp_path / "stand-in-account"
+    workspace = account / ".subfleet" / "worktrees" / "job"
+    workspace.mkdir(parents=True)
+    monkeypatch.setattr(home_paths, "_account_home", lambda: str(account))
+    monkeypatch.setenv(preflight.CACHE_ENV, "cache")
+    monkeypatch.chdir(workspace)
+    root = tmp_path / "state"
+    assert preflight.cache_dir(root) == root / "cache"
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(home_paths.PersonalPathRefused, match=preflight.CACHE_ENV):
+        preflight.cache_dir(account / ".codex")
+
+
 @pytest.mark.parametrize("where", [0, 1, 2])
 def test_doctor_checks_each_pythonpath_entry(where, tmp_path, sealed, monkeypatch):
     """C-20.6 (D-ST3, review r1 sweep): every searched PYTHONPATH entry is checked before probing."""
