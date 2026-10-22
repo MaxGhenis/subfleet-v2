@@ -254,7 +254,9 @@ class JournalRelay:
     def __init__(self, adir):
         self.path = adir / "stdin.jsonl"
 
-    def send(self, seq, op, *, line=None, tag=None, sig=None):
+    def send(self, seq, op, *, line=None, tag=None, sig=None, before_send=None):
+        if before_send is not None:
+            before_send()
         logged = read_log(self.path)
         assert seq == len(logged) + 1
         with self.path.open("a") as stream:

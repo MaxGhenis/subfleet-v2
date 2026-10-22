@@ -179,7 +179,7 @@ def test_linger_backs_off_only_after_the_exit_settle_window(monkeypatch):
     assert max(delay for _, delay in sleeps) == guardian.LINGER_MAX_S
 
 
-def test_a_quarantined_lingering_guardian_is_reaped_by_the_next_spawn(monkeypatch):
+def test_a_quarantined_lingering_guardian_is_reaped_by_the_next_spawn(monkeypatch, tmp_path):
     from contextlib import contextmanager
     from subfleet import daemon
 
@@ -188,7 +188,8 @@ def test_a_quarantined_lingering_guardian_is_reaped_by_the_next_spawn(monkeypatc
         yield SimpleNamespace(execute=lambda *args: None)
 
     monkeypatch.setattr(procs, "_abandoned", [])
-    core = SimpleNamespace(store=SimpleNamespace(transaction=transaction),
+    core = SimpleNamespace(root=tmp_path, _read_json=Daemon._read_json,
+        store=SimpleNamespace(transaction=transaction),
         _job=lambda job: {"cancel_requested_at": None}, _earlier_attempt=lambda *args, **kwargs: "",
         _notice=lambda *args: None, _notify=lambda: None,
         _children={"job/a1": procs.Spawned(["owned-guardian"], 42)})
