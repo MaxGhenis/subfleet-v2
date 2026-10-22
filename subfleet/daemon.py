@@ -4989,11 +4989,19 @@ class Daemon:
                 return
             if census is None:
                 census = self._contain(actual)
-            record["bytes_at_cleanup"] = self._attempt_temp.size(record)
+            measured = self._attempt_temp.size(record)
             with self.store.transaction("attempt.tmpdir_measured", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
+                # The census can commit new identities. Merge only our byte
+                # measurement into the latest evidence, including any hold.
+                actual = self.store.get_attempt(a["attempt_id"])
+                evidence = json.loads(actual["evidence_json"] or "{}")
+                current = evidence.get("tmpdir") or {}
+                if any(current.get(key) != record.get(key) for key in ("path", "dev", "ino")):
+                    return
+                current["bytes_at_cleanup"] = measured
                 tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?", (json.dumps(evidence), a["attempt_id"]))
-            if self._attempt_temp.remove(record, actual, verified_empty=census.verified_empty):
-                self._record_tmpdir_removed(record)
+            if self._attempt_temp.remove(current, actual, verified_empty=census.verified_empty):
+                self._record_tmpdir_removed(current)
         except Exception as exc:
             self.log.warning("TMPDIR cleanup deferred for %s: %s", a["attempt_id"], type(exc).__name__)
 
