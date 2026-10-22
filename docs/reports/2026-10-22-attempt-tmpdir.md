@@ -50,11 +50,10 @@ Counts below use the latest result of each test case, avoiding double counting r
 
 | Directory | Passed | Skipped | Failed | Errors | Modules seen | Partial | Unrun modules |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `tests/unit` | 10069 | 15 | 9 | 0 | 245/331 | 2 | 86 |
-| `tests/fake` | 172 | 1 | 0 | 0 | 9/107 | 0 | 98 |
+| `tests/unit` | 10070 | 15 | 9 | 0 | 245/331 | 2 | 86 |
+| `tests/fake` | 174 | 1 | 0 | 0 | 9/107 | 0 | 98 |
 
-The post-marker-removal focused hold has not completed. Three new regression cases have no completed hold result yet: `test_known_allocation_survives_marker_removal_then_cleans_up` and `test_sweep_reclaims_known_allocation_after_provider_removes_marker[False/True]`. The changed retention-accounting case also remains unverified at the final implementation commit. Earlier focused counts describe the preceding implementation.
-
+Final post-marker-removal focused hold: 312 passed, 1 skipped. **All 58 new D-TMP1 cases passed**, including all four mutation witnesses and the marker-removal regressions. Their latest per-case results appear below.
 
 | Hold | Passed | Skipped | Failed | Errors | Pytest seconds | Wrapper wall seconds |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -66,8 +65,9 @@ The post-marker-removal focused hold has not completed. Three new regression cas
 | `unit-remaining-02` | 3387 | 6 | 3 | 0 | 424.9 | 645.81 |
 | `unit-remaining-03` | 249 | 0 | 1 | 0 | 1149.52 | — |
 | `fake-retention-all` | 42 | 0 | 0 | 0 | 1147.09 | 1555.01 |
+| `fake-focused-final` | 312 | 1 | 0 | 0 | 406.21 | 1266.0 |
 
-`unit-remaining-03` was interrupted by its execution guard after 19m10s, with its interrupt stack in Git-index copying in unchanged salvage code; the cause of the long runtime was not established. The post-pytest measurement runner was interrupted and reaped after the wrapper exited. The first queued `unit-retention-all` request was cancelled before pytest started so retention and fake files could share one bounded hold. Neither cancellation counts as a completed validation run.
+`unit-remaining-03` was interrupted by its execution guard after 19m10s, with its interrupt stack in Git-index copying in unchanged salvage code; the cause of the long runtime was not established. The post-pytest measurement runner was interrupted and reaped after the wrapper exited. The first queued `unit-retention-all` request was cancelled before pytest started so retention and fake files could share one bounded hold. Neither cancellation counts as a completed validation run. The queued broad `fake-unit-finish` request was also cancelled before pytest started to prioritize the final marker-removal focused hold. Broad runs preceded that follow-up; the final focused hold rechecked all affected launch, guardian, census, retention, probe and contract files.
 
 Observed failures in the latest per-case runs:
 
@@ -81,7 +81,7 @@ Observed failures in the latest per-case runs:
 - `tests/unit/test_importer.py::test_the_daemon_never_adopts_an_external_run` — AssertionError: assert ['20260905-10...0400-live/a1'] == ['20260905-100400-live/a1'] At index 0 diff: '20260905-100300-lost/a1' != '20260905-100400-live/a1' Left contains one more item: '20260905-100400-live/a1' Use -v to get more diff
 - `tests/unit/test_review_pr127_service.py::test_open_is_not_queued_behind_worktree_and_diff` — TimeoutError
 
-The native process/QoS/doctor/kernel-ceiling failures expose denied `/bin/ps`, sysctl or unavailable process identities. Importer liveness assertions also fail under conservative unknown identity; that connection is an inference until compared at the base. The one-second conversation-open timeout occurred under host contention in an unchanged test. These failures were not masked or used to weaken production checks.
+The native process/QoS/doctor/kernel-ceiling failures expose denied `/bin/ps`, sysctl or unavailable process identities. Importer liveness assertions also fail under conservative unknown identity; that connection is an inference until compared at the base. The one-second conversation-open timeout occurred in an unchanged test; its cause was not isolated. These failures were not masked or used to weaken production checks.
 
 A baseline comparison of the eight process-inspection/importer failures was prepared but has not run. No baseline failure claim is made for those eight cases.
 
@@ -102,11 +102,12 @@ The configured default placement reservation is 1.5 GB (`subfleet/policy.py`). T
 | `focused-rerun-measurement` observed peak | 178,336,166 | 200,171,520 |
 | `contract-measurement` observed peak | 197,060,030 | 220,450,816 |
 | `unit-01-measurement` observed peak | 446,182,642 | 489,115,648 |
+| `fake-focused-final-measurement` observed peak | 476,708,882 | 547,033,088 |
 | `unit-remaining-01-measurement` observed peak | 885,011,420 | 948,162,560 |
 | `unit-remaining-02-measurement` observed peak | 1,354,000,544 | 1,473,609,728 |
 | `fake-retention-all-measurement` observed peak | 1,430,910,989 | 1,556,500,480 |
 
-This supports retaining one provisional growth reservation per placement rather than adding already allocated scratch a second time. Remaining scratch is counted in retention measurement; the existing configured volume/free-space policy is unchanged.
+The largest observed block sum exceeds the default 1.5 GB reservation by 56,500,480 bytes. The sample is a sizing input, not an upper bound. One provisional reservation covers anticipated combined growth; already allocated scratch reduces filesystem free space. Remaining scratch is counted in retention measurement; the existing configured volume/free-space policy is unchanged.
 
 ## Delivery and constraints
 
@@ -114,7 +115,7 @@ Setup deviation: the required uv setup sync downloaded dependencies before offli
 
 Commits use workspace-local `.git-tmp1` metadata because the shared Git index is unwritable. The implementation and regression steps, oldest first:
 
-At 12:10 UTC no further hold requests were started. The final focused request obtained a slot before the cutoff and is being allowed to finish; broad directory coverage and the prepared baseline comparison remain incomplete. Final verification status follows in the hold results. Cleanup and report delivery continue within the six-hour wall.
+No further hold requests were started after 12:10 UTC. The existing final focused hold began at 12:09:48 UTC and finished with 312 passed and 1 skipped; all 58 new D-TMP1 cases passed. The controller stopped before requesting the prepared baseline comparison. Whole-directory validation remains incomplete: 184 modules are unrun and two are partial. Required pgrep returned 3 because global process listing is unavailable here; all recorded runner, wrapper and pytest PIDs were absent after completion. The earlier housekeeping pass completed and was reaped.
 
 - `5753ebaf2` test: specify private attempt TMPDIR lifecycle (D-TMP1)
 - `50f17eaa4` test: require Claude writable modes to include attempt scratch
@@ -131,14 +132,17 @@ At 12:10 UTC no further hold requests were started. The final focused request ob
 - `dea5c9e02` test: check probe transitions across scratch evidence records
 - `80d8a62a7` test: reclaim evidenced scratch after its marker is removed
 - `724b12cfd` fix: trust durable allocation identity after marker removal
+- `eccc6d7d3` docs: record TMPDIR design and validation cutoff status
 
 The final report/PR-body commit follows these steps. No push was performed. Scratch logs, JSON evidence, archives and bundles are not staged.
+
+Completion check (2026-10-22 12:26 UTC): the prescribed scratch cleanup finished, and `sf-tmp1` is absent. Thirteen generated workspace cache directories were moved into scratch before removal; no `__pycache__`, `.pytest_cache` or `.hypothesis` remains in the worktree. The final required pgrep check returned 3; process listing is unavailable in this sandbox. All previously recorded runner, wrapper and pytest PIDs were absent, and every foreground command was reaped.
 
 ## Per-file results
 
 | File | Passed | Skipped | Failed | Errors | Status |
 | --- | ---: | ---: | ---: | ---: | --- |
-| `tests/fake/test_admission_disk.py` | 27 | 0 | 0 | 0 | Run before marker follow-up |
+| `tests/fake/test_admission_disk.py` | 27 | 0 | 0 | 0 | Run |
 | `tests/fake/test_admission_held_waiters.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_admission_latency.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_admission_lease_waiters.py` | 0 | 0 | 0 | 0 | Unrun |
@@ -150,7 +154,7 @@ The final report/PR-body commit follows these steps. No push was performed. Scra
 | `tests/fake/test_admission_route_isolation.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_admission_stateful.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_admission_visibility.py` | 0 | 0 | 0 | 0 | Unrun |
-| `tests/fake/test_attempt_tmpdir_daemon.py` | 13 | 0 | 0 | 0 | Run before marker follow-up |
+| `tests/fake/test_attempt_tmpdir_daemon.py` | 15 | 0 | 0 | 0 | Run |
 | `tests/fake/test_batch_label.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_canonical_identity.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_canonical_identity_fix2.py` | 0 | 0 | 0 | 0 | Unrun |
@@ -173,7 +177,7 @@ The final report/PR-body commit follows these steps. No push was performed. Scra
 | `tests/fake/test_descriptor_exhaustion.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_detached_cwd_pins.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_detached_retention_fence.py` | 0 | 0 | 0 | 0 | Unrun |
-| `tests/fake/test_enrollment_guardian.py` | 0 | 1 | 0 | 0 | Run before marker follow-up |
+| `tests/fake/test_enrollment_guardian.py` | 0 | 1 | 0 | 0 | Run |
 | `tests/fake/test_fake_provider.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_finalization_replay.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_folder_spelling.py` | 0 | 0 | 0 | 0 | Unrun |
@@ -188,8 +192,8 @@ The final report/PR-body commit follows these steps. No push was performed. Scra
 | `tests/fake/test_lanes_enroll.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_lanes_reenroll.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_lanes_reenroll_keychain.py` | 0 | 0 | 0 | 0 | Unrun |
-| `tests/fake/test_launch_env_daemon.py` | 49 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/fake/test_launch_env_providers.py` | 6 | 0 | 0 | 0 | Run before marker follow-up |
+| `tests/fake/test_launch_env_daemon.py` | 49 | 0 | 0 | 0 | Run |
+| `tests/fake/test_launch_env_providers.py` | 6 | 0 | 0 | 0 | Run |
 | `tests/fake/test_launch_gates_above_stdio.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_lost_acknowledgement.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_main_refusal_write_dir.py` | 0 | 0 | 0 | 0 | Unrun |
@@ -199,8 +203,8 @@ The final report/PR-body commit follows these steps. No push was performed. Scra
 | `tests/fake/test_notice_header.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_picker_native.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_policy_sandbox.py` | 0 | 0 | 0 | 0 | Unrun |
-| `tests/fake/test_probe_cancel.py` | 24 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/fake/test_probe_recovery.py` | 9 | 0 | 0 | 0 | Run before marker follow-up |
+| `tests/fake/test_probe_cancel.py` | 24 | 0 | 0 | 0 | Run |
+| `tests/fake/test_probe_recovery.py` | 9 | 0 | 0 | 0 | Run |
 | `tests/fake/test_probe_turn.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_prompt_seam.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_provider_active_cap_fake.py` | 0 | 0 | 0 | 0 | Unrun |
@@ -213,7 +217,7 @@ The final report/PR-body commit follows these steps. No push was performed. Scra
 | `tests/fake/test_reset_credit_incident.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_resume_cli.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_resume_contract.py` | 0 | 0 | 0 | 0 | Unrun |
-| `tests/fake/test_retention_dormant.py` | 7 | 0 | 0 | 0 | Run before marker follow-up |
+| `tests/fake/test_retention_dormant.py` | 7 | 0 | 0 | 0 | Run |
 | `tests/fake/test_review130_ab.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_review_r185_adversarial.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_route_view.py` | 0 | 0 | 0 | 0 | Unrun |
@@ -222,7 +226,7 @@ The final report/PR-body commit follows these steps. No push was performed. Scra
 | `tests/fake/test_salvage_adversarial.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_salvage_finalization.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_sessions_end_to_end.py` | 0 | 0 | 0 | 0 | Unrun |
-| `tests/fake/test_state_contract.py` | 37 | 0 | 0 | 0 | Run before marker follow-up |
+| `tests/fake/test_state_contract.py` | 37 | 0 | 0 | 0 | Run |
 | `tests/fake/test_state_fixture_processes.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_status_payload.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_suggestions_fake.py` | 0 | 0 | 0 | 0 | Unrun |
@@ -245,231 +249,231 @@ The final report/PR-body commit follows these steps. No push was performed. Scra
 | `tests/fake/test_workspace_transient.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_writable_fanout.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/fake/test_writer_retention_fence.py` | 0 | 0 | 0 | 0 | Unrun |
-| `tests/unit/test_admission_uncapped.py` | 27 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_agent_secret_credentials.py` | 7 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_app_cutover_daemon.py` | 13 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_approval_commit.py` | 6 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_approval_resolution.py` | 33 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_attempt_tmpdir_guardian.py` | 2 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_attempt_tmpdir_lifecycle.py` | 19 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_attempt_tmpdir_mutations.py` | 4 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_attempt_tmpdir_retention.py` | 5 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_attempt_tmpdir_sandboxes.py` | 12 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_boot_identity.py` | 10 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_capacity_desktop.py` | 20 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_capacity_steer_mutations.py` | 10 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_capacity_steer_route.py` | 22 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_capacity_view.py` | 20 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_census_counted.py` | 5 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_census_identity_uncertainty.py` | 8 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_census_procargs.py` | 52 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_census_recycled_pid.py` | 25 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_census_responsibility_failures.py` | 20 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_census_responsibility_identity.py` | 17 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_census_responsibility_races.py` | 34 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_census_survivors_review.py` | 14 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_ci_retry_known_flakes.py` | 72 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_ci_shard_plugin.py` | 48 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_claude_adapter.py` | 170 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_claude_attest.py` | 19 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_claude_cards.py` | 96 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_claude_cards_wiring.py` | 15 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_claude_conversation_mcp_scope.py` | 8 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_claude_identity.py` | 30 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_claude_large_stream.py` | 30 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_claude_mcp.py` | 32 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_claude_mcp_launch.py` | 11 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_claude_stream.py` | 60 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_claude_synthetic_error.py` | 63 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_claude_turn.py` | 61 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_claude_usage.py` | 28 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_claude_v1_parity.py` | 6 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_cli.py` | 222 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_cli_batch.py` | 18 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_cli_turns.py` | 23 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_codex_adapter.py` | 172 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_codex_ca_bundle.py` | 46 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_codex_ca_bundle_provider.py` | 6 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_codex_probe.py` | 55 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_codex_shim.py` | 31 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_codex_turn.py` | 58 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_codex_turn_completed.py` | 41 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_compat.py` | 1615 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_continuation_r2.py` | 11 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_conversation_catalog.py` | 15 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_conversation_catalog_lifecycle.py` | 21 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_conversation_connections.py` | 9 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_conversation_diff.py` | 39 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_conversation_fifo_reads.py` | 26 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_conversation_handoff.py` | 48 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_conversation_handoff_briefs.py` | 28 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_conversation_handoff_dispatch_races.py` | 9 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_conversation_history.py` | 22 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_conversation_peers_attachments.py` | 44 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_conversation_reconcile.py` | 36 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_conversation_redact.py` | 9 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_conversation_service.py` | 98 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_conversation_state_reads.py` | 18 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_conversation_status.py` | 9 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_conversation_steer_service.py` | 45 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_conversation_store.py` | 32 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_conversation_stream_assertion.py` | 13 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_conversation_titles.py` | 89 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_conversation_waits.py` | 9 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_conversation_wakes.py` | 22 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_cpu_scaling.py` | 2 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_daemon_accept.py` | 5 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_daemon_connections.py` | 31 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_daemon_fifo_reads.py` | 27 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_daemon_init_release.py` | 2 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_daemon_inspection_load.py` | 22 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_daemon_inspection_properties.py` | 4 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_daemon_integration.py` | 7 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_daemon_log_scrubbing.py` | 86 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_daemon_qos_tools.py` | 3 | 0 | 1 | 0 | Run before marker follow-up |
-| `tests/unit/test_daemon_refusals_cli.py` | 8 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_daemon_settle.py` | 61 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_daemon_verbs.py` | 15 | 5 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_decision_horizon.py` | 7 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_descriptor_review_fixes.py` | 56 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_descriptors.py` | 15 | 0 | 1 | 0 | Run before marker follow-up |
-| `tests/unit/test_descriptors_desktop.py` | 8 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_desktop_account_cache.py` | 3 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_desktop_in_use.py` | 13 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_desktop_ledger.py` | 4 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_disk_admission.py` | 27 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_disk_floor.py` | 60 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_doctor.py` | 42 | 0 | 2 | 0 | Run before marker follow-up |
-| `tests/unit/test_doctor_ca_bundle.py` | 16 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_doctor_identity.py` | 13 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_empty_provider_results.py` | 334 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_enrollment_runner.py` | 7 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_failed_keep.py` | 2 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_fake_codex_http.py` | 7 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_filesystem_identity_agreement.py` | 37 | 3 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_folders.py` | 23 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_forget_paced.py` | 2 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_fresh_until.py` | 1 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_frozen_provider_streams.py` | 217 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_gate_admission.py` | 24 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_gate_merge.py` | 59 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_gate_replay.py` | 23 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_gate_revision.py` | 16 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_gate_service.py` | 25 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_gate_verdict.py` | 45 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_guard_overlay.py` | 22 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_guard_trust.py` | 98 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_guardian.py` | 12 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_guardian_qos.py` | 14 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_handler_refusals.py` | 317 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_held_waiter_holdback.py` | 6 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_hidden_environment.py` | 7 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_hook_cost.py` | 3 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_hooks.py` | 66 | 0 | 1 | 0 | Run before marker follow-up |
-| `tests/unit/test_hooks_native_guard.py` | 18 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_host_push.py` | 118 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_host_push_admission.py` | 15 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_host_push_build.py` | 10 | 1 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_host_push_build_budget.py` | 15 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_host_push_cli.py` | 7 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_host_push_config_cost.py` | 7 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_host_push_copy.py` | 11 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_host_push_export.py` | 10 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_host_push_intake.py` | 13 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_host_push_metadata.py` | 33 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_host_push_mutations.py` | 24 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_host_push_names.py` | 13 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_host_push_quarantine_restart.py` | 8 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_host_push_restart.py` | 4 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_host_push_retention.py` | 2 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_host_push_storage_recovery.py` | 2 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_host_push_storage_retry_budget.py` | 60 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_host_push_store_completion_pr183.py` | 2 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_host_push_store_interleavings.py` | 26 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_host_push_trees.py` | 5 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_host_push_validated_top.py` | 8 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_importer.py` | 145 | 0 | 3 | 0 | Run before marker follow-up |
-| `tests/unit/test_inspection_pacing_properties.py` | 1 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_invariants_index.py` | 25 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_keychain_exec_guard_properties.py` | 3 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_lane_answers.py` | 27 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_lanes_transfer.py` | 79 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_launch_env_allowlist.py` | 27 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_launch_env_helpers.py` | 20 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_launch_env_mutations.py` | 41 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_launch_env_policy.py` | 26 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_launch_env_round2.py` | 67 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_launch_env_round3.py` | 67 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_launch_env_round4.py` | 40 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_launch_env_round5.py` | 39 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_lease_waiter_selection.py` | 6 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_legacy_hold.py` | 50 | 6 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_limit_from_model_text.py` | 95 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_live_store_guard.py` | 324 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_live_store_guard_round10.py` | 60 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_live_store_guard_round10_mutations.py` | 13 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_live_store_guard_round3.py` | 22 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_live_store_guard_round4.py` | 8 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_live_store_guard_round5.py` | 11 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_live_store_guard_round6.py` | 112 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_live_store_guard_round7.py` | 50 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_live_store_guard_round7_mutations.py` | 23 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_live_store_guard_round8.py` | 100 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_live_store_guard_round8_mutations.py` | 4 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_live_store_guard_round9.py` | 89 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_live_store_guard_round9_mutations.py` | 12 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_live_store_guard_state_root.py` | 22 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_lockwatch.py` | 20 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_mcp_cli_contract.py` | 6 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_mcp_scheduler_contract.py` | 5 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_mirror_flags_faults.py` | 29 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_mirror_flags_model.py` | 12 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_mirror_flags_stateful.py` | 2 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_native_operations.py` | 28 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_notice_rendering.py` | 21 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_notify_push.py` | 31 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_offline.py` | 33 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_operator_hold_closures.py` | 15 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_operator_notices.py` | 79 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_outcome_unknown.py` | 58 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_person_boundary.py` | 97 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_person_boundary_identity.py` | 25 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_picker.py` | 39 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_placement_ramp.py` | 26 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_policy.py` | 178 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_policy_disk.py` | 57 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_policy_ramp.py` | 46 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_policy_support.py` | 14 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_policy_tier_preferences.py` | 15 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_pr124_fixes.py` | 10 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_pr124_review_r2_fixes.py` | 6 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_pr192_review_r1.py` | 21 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_pr192_review_r2.py` | 9 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_procs.py` | 47 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_protocol_secrecy.py` | 322 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_provider_active_cap.py` | 50 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_prune_217.py` | 9 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_prune_decision_backup_verification.py` | 23 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_prune_decision_fingerprints.py` | 15 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_prune_decisions.py` | 48 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_prune_restore.py` | 4 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_quota_projection.py` | 28 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_rank_review_report.py` | 3 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_reap_liveness.py` | 7 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_rediscovery_git_trace.py` | 17 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_relay.py` | 24 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_render.py` | 20 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_render_quota_projection.py` | 23 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_reserve_authorization_plumbing.py` | 5 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_reset_credit_claim_timing.py` | 2 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_reset_credit_demand.py` | 68 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_reset_credit_properties.py` | 11 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_reset_credit_review_r1.py` | 22 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_reset_credit_review_r2.py` | 52 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_reset_credit_review_r3.py` | 23 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_reset_credit_review_r3_mutants.py` | 12 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_resource_identity.py` | 10 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_retention_81_notes.py` | 38 | 0 | 0 | 0 | Run before marker follow-up |
+| `tests/unit/test_admission_uncapped.py` | 27 | 0 | 0 | 0 | Run |
+| `tests/unit/test_agent_secret_credentials.py` | 7 | 0 | 0 | 0 | Run |
+| `tests/unit/test_app_cutover_daemon.py` | 13 | 0 | 0 | 0 | Run |
+| `tests/unit/test_approval_commit.py` | 6 | 0 | 0 | 0 | Run |
+| `tests/unit/test_approval_resolution.py` | 33 | 0 | 0 | 0 | Run |
+| `tests/unit/test_attempt_tmpdir_guardian.py` | 2 | 0 | 0 | 0 | Run |
+| `tests/unit/test_attempt_tmpdir_lifecycle.py` | 20 | 0 | 0 | 0 | Run |
+| `tests/unit/test_attempt_tmpdir_mutations.py` | 4 | 0 | 0 | 0 | Run |
+| `tests/unit/test_attempt_tmpdir_retention.py` | 5 | 0 | 0 | 0 | Run |
+| `tests/unit/test_attempt_tmpdir_sandboxes.py` | 12 | 0 | 0 | 0 | Run |
+| `tests/unit/test_boot_identity.py` | 10 | 0 | 0 | 0 | Run |
+| `tests/unit/test_capacity_desktop.py` | 20 | 0 | 0 | 0 | Run |
+| `tests/unit/test_capacity_steer_mutations.py` | 10 | 0 | 0 | 0 | Run |
+| `tests/unit/test_capacity_steer_route.py` | 22 | 0 | 0 | 0 | Run |
+| `tests/unit/test_capacity_view.py` | 20 | 0 | 0 | 0 | Run |
+| `tests/unit/test_census_counted.py` | 5 | 0 | 0 | 0 | Run |
+| `tests/unit/test_census_identity_uncertainty.py` | 8 | 0 | 0 | 0 | Run |
+| `tests/unit/test_census_procargs.py` | 52 | 0 | 0 | 0 | Run |
+| `tests/unit/test_census_recycled_pid.py` | 25 | 0 | 0 | 0 | Run |
+| `tests/unit/test_census_responsibility_failures.py` | 20 | 0 | 0 | 0 | Run |
+| `tests/unit/test_census_responsibility_identity.py` | 17 | 0 | 0 | 0 | Run |
+| `tests/unit/test_census_responsibility_races.py` | 34 | 0 | 0 | 0 | Run |
+| `tests/unit/test_census_survivors_review.py` | 14 | 0 | 0 | 0 | Run |
+| `tests/unit/test_ci_retry_known_flakes.py` | 72 | 0 | 0 | 0 | Run |
+| `tests/unit/test_ci_shard_plugin.py` | 48 | 0 | 0 | 0 | Run |
+| `tests/unit/test_claude_adapter.py` | 170 | 0 | 0 | 0 | Run |
+| `tests/unit/test_claude_attest.py` | 19 | 0 | 0 | 0 | Run |
+| `tests/unit/test_claude_cards.py` | 96 | 0 | 0 | 0 | Run |
+| `tests/unit/test_claude_cards_wiring.py` | 15 | 0 | 0 | 0 | Run |
+| `tests/unit/test_claude_conversation_mcp_scope.py` | 8 | 0 | 0 | 0 | Run |
+| `tests/unit/test_claude_identity.py` | 30 | 0 | 0 | 0 | Run |
+| `tests/unit/test_claude_large_stream.py` | 30 | 0 | 0 | 0 | Run |
+| `tests/unit/test_claude_mcp.py` | 32 | 0 | 0 | 0 | Run |
+| `tests/unit/test_claude_mcp_launch.py` | 11 | 0 | 0 | 0 | Run |
+| `tests/unit/test_claude_stream.py` | 60 | 0 | 0 | 0 | Run |
+| `tests/unit/test_claude_synthetic_error.py` | 63 | 0 | 0 | 0 | Run |
+| `tests/unit/test_claude_turn.py` | 61 | 0 | 0 | 0 | Run |
+| `tests/unit/test_claude_usage.py` | 28 | 0 | 0 | 0 | Run |
+| `tests/unit/test_claude_v1_parity.py` | 6 | 0 | 0 | 0 | Run |
+| `tests/unit/test_cli.py` | 222 | 0 | 0 | 0 | Run |
+| `tests/unit/test_cli_batch.py` | 18 | 0 | 0 | 0 | Run |
+| `tests/unit/test_cli_turns.py` | 23 | 0 | 0 | 0 | Run |
+| `tests/unit/test_codex_adapter.py` | 172 | 0 | 0 | 0 | Run |
+| `tests/unit/test_codex_ca_bundle.py` | 46 | 0 | 0 | 0 | Run |
+| `tests/unit/test_codex_ca_bundle_provider.py` | 6 | 0 | 0 | 0 | Run |
+| `tests/unit/test_codex_probe.py` | 55 | 0 | 0 | 0 | Run |
+| `tests/unit/test_codex_shim.py` | 31 | 0 | 0 | 0 | Run |
+| `tests/unit/test_codex_turn.py` | 58 | 0 | 0 | 0 | Run |
+| `tests/unit/test_codex_turn_completed.py` | 41 | 0 | 0 | 0 | Run |
+| `tests/unit/test_compat.py` | 1615 | 0 | 0 | 0 | Run |
+| `tests/unit/test_continuation_r2.py` | 11 | 0 | 0 | 0 | Run |
+| `tests/unit/test_conversation_catalog.py` | 15 | 0 | 0 | 0 | Run |
+| `tests/unit/test_conversation_catalog_lifecycle.py` | 21 | 0 | 0 | 0 | Run |
+| `tests/unit/test_conversation_connections.py` | 9 | 0 | 0 | 0 | Run |
+| `tests/unit/test_conversation_diff.py` | 39 | 0 | 0 | 0 | Run |
+| `tests/unit/test_conversation_fifo_reads.py` | 26 | 0 | 0 | 0 | Run |
+| `tests/unit/test_conversation_handoff.py` | 48 | 0 | 0 | 0 | Run |
+| `tests/unit/test_conversation_handoff_briefs.py` | 28 | 0 | 0 | 0 | Run |
+| `tests/unit/test_conversation_handoff_dispatch_races.py` | 9 | 0 | 0 | 0 | Run |
+| `tests/unit/test_conversation_history.py` | 22 | 0 | 0 | 0 | Run |
+| `tests/unit/test_conversation_peers_attachments.py` | 44 | 0 | 0 | 0 | Run |
+| `tests/unit/test_conversation_reconcile.py` | 36 | 0 | 0 | 0 | Run |
+| `tests/unit/test_conversation_redact.py` | 9 | 0 | 0 | 0 | Run |
+| `tests/unit/test_conversation_service.py` | 98 | 0 | 0 | 0 | Run |
+| `tests/unit/test_conversation_state_reads.py` | 18 | 0 | 0 | 0 | Run |
+| `tests/unit/test_conversation_status.py` | 9 | 0 | 0 | 0 | Run |
+| `tests/unit/test_conversation_steer_service.py` | 45 | 0 | 0 | 0 | Run |
+| `tests/unit/test_conversation_store.py` | 32 | 0 | 0 | 0 | Run |
+| `tests/unit/test_conversation_stream_assertion.py` | 13 | 0 | 0 | 0 | Run |
+| `tests/unit/test_conversation_titles.py` | 89 | 0 | 0 | 0 | Run |
+| `tests/unit/test_conversation_waits.py` | 9 | 0 | 0 | 0 | Run |
+| `tests/unit/test_conversation_wakes.py` | 22 | 0 | 0 | 0 | Run |
+| `tests/unit/test_cpu_scaling.py` | 2 | 0 | 0 | 0 | Run |
+| `tests/unit/test_daemon_accept.py` | 5 | 0 | 0 | 0 | Run |
+| `tests/unit/test_daemon_connections.py` | 31 | 0 | 0 | 0 | Run |
+| `tests/unit/test_daemon_fifo_reads.py` | 27 | 0 | 0 | 0 | Run |
+| `tests/unit/test_daemon_init_release.py` | 2 | 0 | 0 | 0 | Run |
+| `tests/unit/test_daemon_inspection_load.py` | 22 | 0 | 0 | 0 | Run |
+| `tests/unit/test_daemon_inspection_properties.py` | 4 | 0 | 0 | 0 | Run |
+| `tests/unit/test_daemon_integration.py` | 7 | 0 | 0 | 0 | Run |
+| `tests/unit/test_daemon_log_scrubbing.py` | 86 | 0 | 0 | 0 | Run |
+| `tests/unit/test_daemon_qos_tools.py` | 3 | 0 | 1 | 0 | Run |
+| `tests/unit/test_daemon_refusals_cli.py` | 8 | 0 | 0 | 0 | Run |
+| `tests/unit/test_daemon_settle.py` | 61 | 0 | 0 | 0 | Run |
+| `tests/unit/test_daemon_verbs.py` | 15 | 5 | 0 | 0 | Run |
+| `tests/unit/test_decision_horizon.py` | 7 | 0 | 0 | 0 | Run |
+| `tests/unit/test_descriptor_review_fixes.py` | 56 | 0 | 0 | 0 | Run |
+| `tests/unit/test_descriptors.py` | 15 | 0 | 1 | 0 | Run |
+| `tests/unit/test_descriptors_desktop.py` | 8 | 0 | 0 | 0 | Run |
+| `tests/unit/test_desktop_account_cache.py` | 3 | 0 | 0 | 0 | Run |
+| `tests/unit/test_desktop_in_use.py` | 13 | 0 | 0 | 0 | Run |
+| `tests/unit/test_desktop_ledger.py` | 4 | 0 | 0 | 0 | Run |
+| `tests/unit/test_disk_admission.py` | 27 | 0 | 0 | 0 | Run |
+| `tests/unit/test_disk_floor.py` | 60 | 0 | 0 | 0 | Run |
+| `tests/unit/test_doctor.py` | 42 | 0 | 2 | 0 | Run |
+| `tests/unit/test_doctor_ca_bundle.py` | 16 | 0 | 0 | 0 | Run |
+| `tests/unit/test_doctor_identity.py` | 13 | 0 | 0 | 0 | Run |
+| `tests/unit/test_empty_provider_results.py` | 334 | 0 | 0 | 0 | Run |
+| `tests/unit/test_enrollment_runner.py` | 7 | 0 | 0 | 0 | Run |
+| `tests/unit/test_failed_keep.py` | 2 | 0 | 0 | 0 | Run |
+| `tests/unit/test_fake_codex_http.py` | 7 | 0 | 0 | 0 | Run |
+| `tests/unit/test_filesystem_identity_agreement.py` | 37 | 3 | 0 | 0 | Run |
+| `tests/unit/test_folders.py` | 23 | 0 | 0 | 0 | Run |
+| `tests/unit/test_forget_paced.py` | 2 | 0 | 0 | 0 | Run |
+| `tests/unit/test_fresh_until.py` | 1 | 0 | 0 | 0 | Run |
+| `tests/unit/test_frozen_provider_streams.py` | 217 | 0 | 0 | 0 | Run |
+| `tests/unit/test_gate_admission.py` | 24 | 0 | 0 | 0 | Run |
+| `tests/unit/test_gate_merge.py` | 59 | 0 | 0 | 0 | Run |
+| `tests/unit/test_gate_replay.py` | 23 | 0 | 0 | 0 | Run |
+| `tests/unit/test_gate_revision.py` | 16 | 0 | 0 | 0 | Run |
+| `tests/unit/test_gate_service.py` | 25 | 0 | 0 | 0 | Run |
+| `tests/unit/test_gate_verdict.py` | 45 | 0 | 0 | 0 | Run |
+| `tests/unit/test_guard_overlay.py` | 22 | 0 | 0 | 0 | Run |
+| `tests/unit/test_guard_trust.py` | 98 | 0 | 0 | 0 | Run |
+| `tests/unit/test_guardian.py` | 12 | 0 | 0 | 0 | Run |
+| `tests/unit/test_guardian_qos.py` | 14 | 0 | 0 | 0 | Run |
+| `tests/unit/test_handler_refusals.py` | 317 | 0 | 0 | 0 | Run |
+| `tests/unit/test_held_waiter_holdback.py` | 6 | 0 | 0 | 0 | Run |
+| `tests/unit/test_hidden_environment.py` | 7 | 0 | 0 | 0 | Run |
+| `tests/unit/test_hook_cost.py` | 3 | 0 | 0 | 0 | Run |
+| `tests/unit/test_hooks.py` | 66 | 0 | 1 | 0 | Run |
+| `tests/unit/test_hooks_native_guard.py` | 18 | 0 | 0 | 0 | Run |
+| `tests/unit/test_host_push.py` | 118 | 0 | 0 | 0 | Run |
+| `tests/unit/test_host_push_admission.py` | 15 | 0 | 0 | 0 | Run |
+| `tests/unit/test_host_push_build.py` | 10 | 1 | 0 | 0 | Run |
+| `tests/unit/test_host_push_build_budget.py` | 15 | 0 | 0 | 0 | Run |
+| `tests/unit/test_host_push_cli.py` | 7 | 0 | 0 | 0 | Run |
+| `tests/unit/test_host_push_config_cost.py` | 7 | 0 | 0 | 0 | Run |
+| `tests/unit/test_host_push_copy.py` | 11 | 0 | 0 | 0 | Run |
+| `tests/unit/test_host_push_export.py` | 10 | 0 | 0 | 0 | Run |
+| `tests/unit/test_host_push_intake.py` | 13 | 0 | 0 | 0 | Run |
+| `tests/unit/test_host_push_metadata.py` | 33 | 0 | 0 | 0 | Run |
+| `tests/unit/test_host_push_mutations.py` | 24 | 0 | 0 | 0 | Run |
+| `tests/unit/test_host_push_names.py` | 13 | 0 | 0 | 0 | Run |
+| `tests/unit/test_host_push_quarantine_restart.py` | 8 | 0 | 0 | 0 | Run |
+| `tests/unit/test_host_push_restart.py` | 4 | 0 | 0 | 0 | Run |
+| `tests/unit/test_host_push_retention.py` | 2 | 0 | 0 | 0 | Run |
+| `tests/unit/test_host_push_storage_recovery.py` | 2 | 0 | 0 | 0 | Run |
+| `tests/unit/test_host_push_storage_retry_budget.py` | 60 | 0 | 0 | 0 | Run |
+| `tests/unit/test_host_push_store_completion_pr183.py` | 2 | 0 | 0 | 0 | Run |
+| `tests/unit/test_host_push_store_interleavings.py` | 26 | 0 | 0 | 0 | Run |
+| `tests/unit/test_host_push_trees.py` | 5 | 0 | 0 | 0 | Run |
+| `tests/unit/test_host_push_validated_top.py` | 8 | 0 | 0 | 0 | Run |
+| `tests/unit/test_importer.py` | 145 | 0 | 3 | 0 | Run |
+| `tests/unit/test_inspection_pacing_properties.py` | 1 | 0 | 0 | 0 | Run |
+| `tests/unit/test_invariants_index.py` | 25 | 0 | 0 | 0 | Run |
+| `tests/unit/test_keychain_exec_guard_properties.py` | 3 | 0 | 0 | 0 | Run |
+| `tests/unit/test_lane_answers.py` | 27 | 0 | 0 | 0 | Run |
+| `tests/unit/test_lanes_transfer.py` | 79 | 0 | 0 | 0 | Run |
+| `tests/unit/test_launch_env_allowlist.py` | 27 | 0 | 0 | 0 | Run |
+| `tests/unit/test_launch_env_helpers.py` | 20 | 0 | 0 | 0 | Run |
+| `tests/unit/test_launch_env_mutations.py` | 41 | 0 | 0 | 0 | Run |
+| `tests/unit/test_launch_env_policy.py` | 26 | 0 | 0 | 0 | Run |
+| `tests/unit/test_launch_env_round2.py` | 67 | 0 | 0 | 0 | Run |
+| `tests/unit/test_launch_env_round3.py` | 67 | 0 | 0 | 0 | Run |
+| `tests/unit/test_launch_env_round4.py` | 40 | 0 | 0 | 0 | Run |
+| `tests/unit/test_launch_env_round5.py` | 39 | 0 | 0 | 0 | Run |
+| `tests/unit/test_lease_waiter_selection.py` | 6 | 0 | 0 | 0 | Run |
+| `tests/unit/test_legacy_hold.py` | 50 | 6 | 0 | 0 | Run |
+| `tests/unit/test_limit_from_model_text.py` | 95 | 0 | 0 | 0 | Run |
+| `tests/unit/test_live_store_guard.py` | 324 | 0 | 0 | 0 | Run |
+| `tests/unit/test_live_store_guard_round10.py` | 60 | 0 | 0 | 0 | Run |
+| `tests/unit/test_live_store_guard_round10_mutations.py` | 13 | 0 | 0 | 0 | Run |
+| `tests/unit/test_live_store_guard_round3.py` | 22 | 0 | 0 | 0 | Run |
+| `tests/unit/test_live_store_guard_round4.py` | 8 | 0 | 0 | 0 | Run |
+| `tests/unit/test_live_store_guard_round5.py` | 11 | 0 | 0 | 0 | Run |
+| `tests/unit/test_live_store_guard_round6.py` | 112 | 0 | 0 | 0 | Run |
+| `tests/unit/test_live_store_guard_round7.py` | 50 | 0 | 0 | 0 | Run |
+| `tests/unit/test_live_store_guard_round7_mutations.py` | 23 | 0 | 0 | 0 | Run |
+| `tests/unit/test_live_store_guard_round8.py` | 100 | 0 | 0 | 0 | Run |
+| `tests/unit/test_live_store_guard_round8_mutations.py` | 4 | 0 | 0 | 0 | Run |
+| `tests/unit/test_live_store_guard_round9.py` | 89 | 0 | 0 | 0 | Run |
+| `tests/unit/test_live_store_guard_round9_mutations.py` | 12 | 0 | 0 | 0 | Run |
+| `tests/unit/test_live_store_guard_state_root.py` | 22 | 0 | 0 | 0 | Run |
+| `tests/unit/test_lockwatch.py` | 20 | 0 | 0 | 0 | Run |
+| `tests/unit/test_mcp_cli_contract.py` | 6 | 0 | 0 | 0 | Run |
+| `tests/unit/test_mcp_scheduler_contract.py` | 5 | 0 | 0 | 0 | Run |
+| `tests/unit/test_mirror_flags_faults.py` | 29 | 0 | 0 | 0 | Run |
+| `tests/unit/test_mirror_flags_model.py` | 12 | 0 | 0 | 0 | Run |
+| `tests/unit/test_mirror_flags_stateful.py` | 2 | 0 | 0 | 0 | Run |
+| `tests/unit/test_native_operations.py` | 28 | 0 | 0 | 0 | Run |
+| `tests/unit/test_notice_rendering.py` | 21 | 0 | 0 | 0 | Run |
+| `tests/unit/test_notify_push.py` | 31 | 0 | 0 | 0 | Run |
+| `tests/unit/test_offline.py` | 33 | 0 | 0 | 0 | Run |
+| `tests/unit/test_operator_hold_closures.py` | 15 | 0 | 0 | 0 | Run |
+| `tests/unit/test_operator_notices.py` | 79 | 0 | 0 | 0 | Run |
+| `tests/unit/test_outcome_unknown.py` | 58 | 0 | 0 | 0 | Run |
+| `tests/unit/test_person_boundary.py` | 97 | 0 | 0 | 0 | Run |
+| `tests/unit/test_person_boundary_identity.py` | 25 | 0 | 0 | 0 | Run |
+| `tests/unit/test_picker.py` | 39 | 0 | 0 | 0 | Run |
+| `tests/unit/test_placement_ramp.py` | 26 | 0 | 0 | 0 | Run |
+| `tests/unit/test_policy.py` | 178 | 0 | 0 | 0 | Run |
+| `tests/unit/test_policy_disk.py` | 57 | 0 | 0 | 0 | Run |
+| `tests/unit/test_policy_ramp.py` | 46 | 0 | 0 | 0 | Run |
+| `tests/unit/test_policy_support.py` | 14 | 0 | 0 | 0 | Run |
+| `tests/unit/test_policy_tier_preferences.py` | 15 | 0 | 0 | 0 | Run |
+| `tests/unit/test_pr124_fixes.py` | 10 | 0 | 0 | 0 | Run |
+| `tests/unit/test_pr124_review_r2_fixes.py` | 6 | 0 | 0 | 0 | Run |
+| `tests/unit/test_pr192_review_r1.py` | 21 | 0 | 0 | 0 | Run |
+| `tests/unit/test_pr192_review_r2.py` | 9 | 0 | 0 | 0 | Run |
+| `tests/unit/test_procs.py` | 47 | 0 | 0 | 0 | Run |
+| `tests/unit/test_protocol_secrecy.py` | 322 | 0 | 0 | 0 | Run |
+| `tests/unit/test_provider_active_cap.py` | 50 | 0 | 0 | 0 | Run |
+| `tests/unit/test_prune_217.py` | 9 | 0 | 0 | 0 | Run |
+| `tests/unit/test_prune_decision_backup_verification.py` | 23 | 0 | 0 | 0 | Run |
+| `tests/unit/test_prune_decision_fingerprints.py` | 15 | 0 | 0 | 0 | Run |
+| `tests/unit/test_prune_decisions.py` | 48 | 0 | 0 | 0 | Run |
+| `tests/unit/test_prune_restore.py` | 4 | 0 | 0 | 0 | Run |
+| `tests/unit/test_quota_projection.py` | 28 | 0 | 0 | 0 | Run |
+| `tests/unit/test_rank_review_report.py` | 3 | 0 | 0 | 0 | Run |
+| `tests/unit/test_reap_liveness.py` | 7 | 0 | 0 | 0 | Run |
+| `tests/unit/test_rediscovery_git_trace.py` | 17 | 0 | 0 | 0 | Run |
+| `tests/unit/test_relay.py` | 24 | 0 | 0 | 0 | Run |
+| `tests/unit/test_render.py` | 20 | 0 | 0 | 0 | Run |
+| `tests/unit/test_render_quota_projection.py` | 23 | 0 | 0 | 0 | Run |
+| `tests/unit/test_reserve_authorization_plumbing.py` | 5 | 0 | 0 | 0 | Run |
+| `tests/unit/test_reset_credit_claim_timing.py` | 2 | 0 | 0 | 0 | Run |
+| `tests/unit/test_reset_credit_demand.py` | 68 | 0 | 0 | 0 | Run |
+| `tests/unit/test_reset_credit_properties.py` | 11 | 0 | 0 | 0 | Run |
+| `tests/unit/test_reset_credit_review_r1.py` | 22 | 0 | 0 | 0 | Run |
+| `tests/unit/test_reset_credit_review_r2.py` | 52 | 0 | 0 | 0 | Run |
+| `tests/unit/test_reset_credit_review_r3.py` | 23 | 0 | 0 | 0 | Run |
+| `tests/unit/test_reset_credit_review_r3_mutants.py` | 12 | 0 | 0 | 0 | Run |
+| `tests/unit/test_resource_identity.py` | 10 | 0 | 0 | 0 | Run |
+| `tests/unit/test_retention_81_notes.py` | 38 | 0 | 0 | 0 | Run |
 | `tests/unit/test_retention_archive.py` | 4 | 0 | 0 | 0 | Partial; interrupted |
 | `tests/unit/test_retention_archive_properties.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/unit/test_retention_case_alias.py` | 0 | 0 | 0 | 0 | Unrun |
@@ -486,23 +490,23 @@ The final report/PR-body commit follows these steps. No push was performed. Scra
 | `tests/unit/test_retention_turn_contract.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/unit/test_retention_turn_workdirs.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/unit/test_retention_turns.py` | 0 | 0 | 0 | 0 | Unrun |
-| `tests/unit/test_retention_worktrees.py` | 15 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_review130_pass.py` | 21 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_review_pr127_fixes.py` | 12 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_review_pr127_history.py` | 6 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_review_pr127_pr_wakes.py` | 7 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_review_pr127_report.py` | 1 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_review_pr127_requests.py` | 17 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_review_pr127_service.py` | 7 | 0 | 1 | 0 | Run before marker follow-up |
-| `tests/unit/test_review_r2_repro.py` | 31 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_review_r3_measure.py` | 6 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_review_r3_repro.py` | 12 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_review_r4_repro.py` | 27 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_review_r5_repro.py` | 17 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_review_r6_probes.py` | 30 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_review_r6_restart.py` | 5 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_round10_refusal_context.py` | 59 | 0 | 0 | 0 | Run before marker follow-up |
-| `tests/unit/test_route_check.py` | 24 | 0 | 0 | 0 | Run before marker follow-up |
+| `tests/unit/test_retention_worktrees.py` | 15 | 0 | 0 | 0 | Run |
+| `tests/unit/test_review130_pass.py` | 21 | 0 | 0 | 0 | Run |
+| `tests/unit/test_review_pr127_fixes.py` | 12 | 0 | 0 | 0 | Run |
+| `tests/unit/test_review_pr127_history.py` | 6 | 0 | 0 | 0 | Run |
+| `tests/unit/test_review_pr127_pr_wakes.py` | 7 | 0 | 0 | 0 | Run |
+| `tests/unit/test_review_pr127_report.py` | 1 | 0 | 0 | 0 | Run |
+| `tests/unit/test_review_pr127_requests.py` | 17 | 0 | 0 | 0 | Run |
+| `tests/unit/test_review_pr127_service.py` | 7 | 0 | 1 | 0 | Run |
+| `tests/unit/test_review_r2_repro.py` | 31 | 0 | 0 | 0 | Run |
+| `tests/unit/test_review_r3_measure.py` | 6 | 0 | 0 | 0 | Run |
+| `tests/unit/test_review_r3_repro.py` | 12 | 0 | 0 | 0 | Run |
+| `tests/unit/test_review_r4_repro.py` | 27 | 0 | 0 | 0 | Run |
+| `tests/unit/test_review_r5_repro.py` | 17 | 0 | 0 | 0 | Run |
+| `tests/unit/test_review_r6_probes.py` | 30 | 0 | 0 | 0 | Run |
+| `tests/unit/test_review_r6_restart.py` | 5 | 0 | 0 | 0 | Run |
+| `tests/unit/test_round10_refusal_context.py` | 59 | 0 | 0 | 0 | Run |
+| `tests/unit/test_route_check.py` | 24 | 0 | 0 | 0 | Run |
 | `tests/unit/test_salvage.py` | 6 | 0 | 0 | 0 | Partial; interrupted |
 | `tests/unit/test_salvage_optional_transient.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/unit/test_salvage_unindexable.py` | 0 | 0 | 0 | 0 | Unrun |
@@ -557,7 +561,7 @@ The final report/PR-body commit follows these steps. No push was performed. Scra
 | `tests/unit/test_suggestions_review_boundaries.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/unit/test_suggestions_review_multiline.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/unit/test_suggestions_review_response.py` | 0 | 0 | 0 | 0 | Unrun |
-| `tests/unit/test_test_module_names.py` | 1 | 0 | 0 | 0 | Run before marker follow-up |
+| `tests/unit/test_test_module_names.py` | 1 | 0 | 0 | 0 | Run |
 | `tests/unit/test_tick_prefilter.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/unit/test_timers_alerts.py` | 0 | 0 | 0 | 0 | Unrun |
 | `tests/unit/test_timers_busy_read.py` | 0 | 0 | 0 | 0 | Unrun |
