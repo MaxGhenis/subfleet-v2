@@ -84,7 +84,7 @@ def fixtures():
     """The fixtures the named tests take: `monkeypatch`, `tmp_path`, `root`, `capsys`."""
     patch, captured = pytest.MonkeyPatch(), Captured()
     tmp = Path(tempfile.mkdtemp(prefix="sf-mut-"))
-    root = Path(tempfile.mkdtemp(prefix="sf-", dir="/tmp"))
+    root = Path(tempfile.mkdtemp(prefix="sf-"))
     patch.setenv("SUBFLEET_HOME", str(root))
     for name in ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_PID", "SUBFLEET_RUN_DETACH", "SUBFLEET_DAEMON_BIN"):
         patch.delenv(name, raising=False)
