@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import stat
 import sys
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -42,6 +43,27 @@ SAFE_HOME_PATHS = {
     "SUBFLEET_RESET_INHIBIT": "legacy/no-reset.json",
     "SUBFLEET_V1_BIN": "legacy/bin/subfleet",
 }
+
+
+# D-ST3: the account's live roots, each directly beneath its home. A test
+# process resolves none of them, nor a path inside one, by any spelling.
+LIVE_ROOTS = (".subfleet", ".claude", ".codex", ".claude.json")
+# Links `names_live_root` follows before it refuses, as realpath's ELOOP would.
+_MAX_LINKS = 40
+# This process's own code: the tree this package runs from, and the interpreter
+# and environment running it. A job's checkout can sit under ~/.subfleet/worktrees,
+# and a path inside it is the process's own, not the store's.
+_OWN_ROOTS = tuple(sorted({os.path.realpath(root) for root in (
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), sys.prefix, sys.base_prefix,
+    sys.exec_prefix) if root}))
+
+
+class PersonalPathRefused(RuntimeError):
+    """A test process refused a personal path (D-ST1, D-ST3).
+
+    A RuntimeError, as every such refusal always was, so existing handlers
+    still catch it; `daemon.main` reports it in one line instead of a traceback.
+    """
 
 
 # Every credential command execution must go through credentials.keychain_command.
@@ -114,7 +136,7 @@ def pytest_process() -> bool:
     if not _process_rule_waived():
         return True
     try:
-        return is_account_home(Path.home())
+        return personal_home(Path.home())
     except (OSError, RuntimeError, KeyError, ValueError):
         return True
 
@@ -151,7 +173,9 @@ def home_path(variable: str, default: Callable[[], str | Path], *,
     expansion applies only to overrides, never to an already constructed default;
     raw overrides let other callers retain their expansion and empty handling.
     A pytest process refuses whatever os.environ holds (D-ST3), and refuses an
-    override beginning `~` that would expand to the account's own home.
+    override that names the account's home or one of its live roots
+    (`refuse_personal_override`). An empty override that `accept_empty` takes
+    names the working directory, never a live root, and is returned as it is.
     """
     testing = under_pytest()
     if test_only and not testing:
@@ -159,27 +183,239 @@ def home_path(variable: str, default: Callable[[], str | Path], *,
     values = os.environ if env is None else env
     override = values.get(variable)
     if override or (accept_empty and override is not None):
-        if testing and _names_account_home(override):
-            raise RuntimeError(f"Refusing personal path fallback under pytest; {variable} begins with ~, "
-                               "which expands to the account's home here; set it to an isolated test path")
+        if testing:
+            refuse_personal_override(variable, override)
         return Path(override).expanduser() if expand_override else override
     if testing:
-        raise RuntimeError(f"Refusing personal path fallback under pytest; set {variable} "
-                           "to an isolated test path")
+        raise PersonalPathRefused(f"Refusing personal path fallback under pytest; set {variable} "
+                                  "to an isolated test path")
     return default()
+
+
+def checked_override(variable: str, value):
+    """`value`, read raw from path-valued `variable`, unless a test process refuses it.
+
+    For a caller that reads such an override itself instead of through
+    `home_path`: it takes the same refusals as an override there (D-ST3).
+    Outside a test process `value` is returned untouched, without a check.
+    """
+    if value and under_pytest():
+        refuse_personal_override(variable, value)
+    return value
+
+
+def refuse_personal_override(variable: str, value) -> None:
+    """In a test process, refuse an override for `variable` that names the account's own paths.
+
+    Two refusals, each before any access: a leading `~` or `~name` that
+    expands to the account's home, whatever follows it (`_names_account_home`),
+    and a value naming the account's home or a live root, or a path inside
+    one, by any spelling (`names_live_root`).
+    """
+    if _names_account_home(value):
+        raise PersonalPathRefused(f"Refusing personal path fallback under pytest; {variable} begins with ~, "
+                                  "which expands to the account's home here; set it to an isolated test path")
+    if names_live_root(value):
+        raise PersonalPathRefused(f"Refusing personal path under pytest; {variable} names the account's home "
+                                  "or one of its live stores; set it to an isolated test path")
 
 
 def _names_account_home(value: str) -> bool:
     """Whether `value`'s leading `~` or `~name` expands to the account's home.
 
-    Expansion reads HOME and, without one, pwd: the account's home. Only the
-    home a tilde names is compared, never a store beneath it.
+    Expansion reads HOME and, without one, pwd: the account's home. `~name`
+    reads pwd for any name, the account's own included. Only the home a tilde
+    names is compared, never a store beneath it.
     """
     if not isinstance(value, str) or not value.startswith("~"):
         return False
     head = value.split(os.sep, 1)[0]
     expanded = os.path.expanduser(head)
     return expanded != head and is_account_home(Path(expanded))
+
+
+def names_live_root(value) -> bool:
+    """Whether path `value` names the account's home or a live root, or a path inside one.
+
+    Judged by every spelling a caller could reach (D-ST3): after `~` expansion
+    (through HOME, and through pwd when HOME is itself spelled with a `~`),
+    lexically normalized against the working directory, and followed as
+    `Path.resolve` follows its links. Neither a live root nor anything beneath
+    one is stat'ed: the spelling is judged without a stat, and the link walk
+    stops before its first call on or beneath one. A path inside this process's
+    own code (`_OWN_ROOTS`) is the process's own. An empty value names the
+    working directory and is left to its caller; a relative one under a
+    working directory that is gone cannot be judged, so it is refused.
+    """
+    return _live_kind(value) is not None
+
+
+def _live_kind(value) -> str | None:
+    """`names_live_root`'s verdict: "store" for a live root or a path inside one,
+    "home" for the account's home itself, else None."""
+    if isinstance(value, os.PathLike):
+        value = os.fspath(value)
+    if isinstance(value, bytes):
+        value = os.fsdecode(value)
+    if not isinstance(value, str) or not value:
+        return None
+    texts = [os.path.expanduser(value)]
+    if texts[0].startswith("~"):
+        named = _tilde_home(texts[0])
+        if named is not None:
+            texts.append(named)
+    own = _own_roots()
+    found = None
+    for text in texts:
+        if not os.path.isabs(text):
+            try:
+                text = os.path.join(os.getcwd(), text)
+            except OSError:
+                return "store"
+        # A spelling that is lexically the account's home is that, without a
+        # stat (`home/.subfleet/..` included); every caller refuses it or keeps
+        # to isolated paths. Otherwise its links are followed too.
+        kind = _spelled_kind(os.path.normpath(text), own)
+        if kind is None:
+            kind = _resolved_kind(text, own)
+        if kind == "store":
+            return kind
+        found = found or kind
+    return found
+
+
+def _fold(path: str) -> str:
+    """`path` as the file system compares it: case folded, slashes and dots
+    collapsed, without macOS's `/System/Volumes/Data` firmlink."""
+    folded = "/" + os.path.normpath(path).casefold().lstrip("/")
+    data = "/system/volumes/data"
+    return folded[len(data):] if folded.startswith(data + "/") else folded
+
+
+def _spelled_kind(path: str, own) -> str | None:
+    """`_live_kind` of normalized absolute `path` by its spelling alone, without a stat."""
+    if _within(path, own):
+        return None
+    personal = _fold(_account_home())
+    parts = _fold(path).split("/")
+    for index in range(1, len(parts)):
+        if parts[index] in LIVE_ROOTS and ("/".join(parts[:index]) or "/") == personal:
+            return "store"
+    return "home" if _fold(path) == personal else None
+
+
+def _resolved_kind(path: str, own) -> str | None:
+    """`_live_kind` of absolute `path` followed as os.path.realpath follows it.
+
+    Each component is looked up with lstat, and a link's target spliced in, as
+    realpath does; a missing one is kept as spelled. A component that enters a
+    live root, judged by its parent (`is_account_home`, a stat of the parent
+    alone), ends the walk before any call on it, unless it is this process's own
+    code or the rest of the path, as spelled, leads into it.
+    """
+    pending = path.split("/")[::-1]
+    resolved, inside, links = "/", False, 0
+    while pending:
+        name = pending.pop()
+        if name in ("", "."):
+            continue
+        if name == "..":
+            resolved = os.path.dirname(resolved)
+            inside = _spelled_kind(resolved, ()) == "store" or _inside_by_identity(resolved)
+            continue
+        candidate = os.path.join(resolved, name)
+        entering = inside or (name.casefold() in LIVE_ROOTS and is_account_home(Path(resolved)))
+        if entering and not (_within(candidate, own)
+                             or _within(os.path.normpath(os.path.join(candidate, *reversed(pending))), own)):
+            return "store"
+        try:
+            mode = os.lstat(candidate).st_mode
+        except (OSError, ValueError):
+            mode = 0
+        if not stat.S_ISLNK(mode):
+            resolved, inside = candidate, entering
+            continue
+        links += 1
+        if links > _MAX_LINKS:
+            return "store"
+        try:
+            target = os.readlink(candidate)
+        except (OSError, ValueError):
+            resolved, inside = candidate, entering
+            continue
+        if target.startswith("/"):
+            resolved, inside = "/", False
+        pending.extend(target.split("/")[::-1])
+    if _within(resolved, own):
+        return None
+    if inside:
+        return "store"
+    return "home" if is_account_home(Path(resolved)) else None
+
+
+def _inside_by_identity(resolved: str) -> bool:
+    """Whether resolved, link-free `resolved` lies in a live root, by each store-named
+    component's parent (`is_account_home`), checked from the root down."""
+    parts = resolved.split("/")
+    return any(parts[index].casefold() in LIVE_ROOTS and is_account_home(Path("/".join(parts[:index]) or "/"))
+               for index in range(1, len(parts)))
+
+
+def _account_home() -> str:
+    import pwd
+
+    return pwd.getpwuid(os.getuid()).pw_dir
+
+
+def _own_roots() -> tuple[str, ...]:
+    """`_OWN_ROOTS` that hold no live root: none is the account's home, a live
+    root, or a directory above one, so the exemption never covers a store."""
+    personal = _fold(_account_home())
+    stores = [personal.rstrip("/") + "/" + name for name in LIVE_ROOTS]
+    return tuple(root for root in _OWN_ROOTS
+                 if not any(_fold(root) == store or store.startswith(_fold(root).rstrip("/") + "/")
+                            for store in [personal, *stores]))
+
+
+def _within(path: str, roots) -> bool:
+    return any(path == root or path.startswith(root.rstrip("/") + "/") for root in roots)
+
+
+def _tilde_home(spelled: str) -> str | None:
+    """`spelled` with its leading `~` or `~name` replaced by that user's home from
+    pwd, or None when `~name` names no user."""
+    import pwd
+
+    head, sep, rest = spelled.partition(os.sep)
+    try:
+        entry = pwd.getpwuid(os.getuid()) if head == "~" else pwd.getpwnam(head[1:])
+    except (KeyError, ValueError):
+        return None
+    return entry.pw_dir + sep + rest
+
+
+def personal_home(home: Path) -> bool:
+    """Whether HOME `home` would resolve the account's stores (D-ST3).
+
+    It does when it is the account's home by any spelling, or names a live
+    root or a path inside one. A HOME spelled with a leading `~` or `~name` is
+    judged as the home it names through pwd; one naming no user is neither.
+    """
+    return _home_kind(home) is not None
+
+
+def _home_kind(home: Path) -> str | None:
+    """`_live_kind` of a HOME. A leading `~` or `~name` is read through pwd, never
+    through HOME itself; the stat-free store check comes before any stat."""
+    spelled = os.fspath(home)
+    if spelled.startswith("~"):
+        spelled = _tilde_home(spelled)
+        if spelled is None:
+            return None
+    kind = _live_kind(spelled)
+    if kind is None and is_account_home(Path(spelled)):
+        kind = "home"
+    return kind
 
 
 def codex_app_home() -> Path:
@@ -201,8 +437,13 @@ def protected_provider_homes() -> list[Path]:
     if not under_pytest():
         return isolated
     home = Path.home()
-    if is_account_home(home):
+    kind = _home_kind(home)
+    if kind == "home":
         return isolated
+    if kind == "store":
+        # D-ST3: HOME/.claude would be a path inside the account's live root.
+        raise PersonalPathRefused("Refusing provider homes under pytest; HOME names one of the account's "
+                                  "live stores; set HOME to an isolated test home")
     return [home / ".claude", home / ".codex", *isolated]
 
 
@@ -213,11 +454,20 @@ def is_account_home(home: Path) -> bool:
     Otherwise the home directories themselves are compared, never a store
     beneath them: as `home` reads, and as `Path.resolve` would build on it.
     The second catches `home/missing/..`, which no stat can follow but which
-    resolves to the account's home (D-ST3).
+    resolves to the account's home (D-ST3). A home spelled with a leading `~`
+    or `~name`, as a HOME can be, is the home it names through pwd, as a
+    consumer's `os.path.expanduser` reaches it; one naming no user is not the
+    account's.
     """
     import pwd
 
     personal = Path(pwd.getpwuid(os.getuid()).pw_dir)
+    tilde_spelled = os.fspath(home)
+    if tilde_spelled.startswith("~"):
+        named = _tilde_home(tilde_spelled)
+        if named is None:
+            return False
+        home = Path(named)
     if home == personal or Path(os.path.abspath(home)) == personal:
         return True
     return _same_directory(home, personal) or _same_directory(Path(os.path.realpath(home)), personal)
@@ -243,9 +493,9 @@ def production_state_root() -> Path:
     anything beneath it is touched (D-ST1).
     """
     home = Path.home()
-    if under_pytest() and is_account_home(home):
-        raise RuntimeError("Refusing to resolve the personal state root ~/.subfleet under pytest; "
-                           "set HOME to an isolated test home")
+    if under_pytest() and personal_home(home):
+        raise PersonalPathRefused("Refusing to resolve the personal state root ~/.subfleet under pytest; "
+                                  "set HOME to an isolated test home")
     return (home / ".subfleet").resolve()
 
 

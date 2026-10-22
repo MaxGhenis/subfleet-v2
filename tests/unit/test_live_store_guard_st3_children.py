@@ -81,12 +81,15 @@ def test_the_daemon_without_subfleet_home(child, tmp_path):
     assert sorted(path.name for path in store.iterdir()) == ["daemon.lock"]
 
 
-def test_the_daemon_in_this_process_refuses_in_one_line(monkeypatch, capsys):
-    """C-20.6 (D-ST3): `daemon.main` called by a test with no SUBFLEET_HOME returns 7 with one line."""
+def test_the_daemon_program_reports_a_refusal_in_one_line(monkeypatch, capsys):
+    """C-20.6 (D-ST3): the program entry turns the refusal into exit 7 and one line; `main` raises it."""
     from subfleet import daemon
+    from subfleet.home_paths import PersonalPathRefused
     monkeypatch.delenv("SUBFLEET_HOME")
     monkeypatch.setattr(daemon, "Daemon", lambda *a, **k: pytest.fail("a daemon was built"))
-    assert daemon.main([]) == 7
+    with pytest.raises(PersonalPathRefused, match="SUBFLEET_HOME"):
+        daemon.main([])
+    assert daemon.run_program([]) == 7
     assert capsys.readouterr().err.strip().splitlines() == [REFUSAL]
 
 
@@ -250,7 +253,8 @@ DIFFERENTIAL = textwrap.dedent('''
             "CLAUDE_LANE_AGENT_SECRET": account / "bin" / "agent-secret",
             "SUBFLEET_DAEMON_BIN": account / ".subfleet" / "bin" / "subfleetd",
             "SUBFLEET_DEV_APP_EXECUTABLE": account / ".subfleet" / "dev-app", "TMPDIR": account / ".subfleet" / "tmp"}
-    base = {"PATH": str(bindir) + ":/usr/bin:/bin"}
+    (scratch / "tmp").mkdir()
+    base = {"PATH": str(bindir) + ":/usr/bin:/bin", "TMPDIR": str(scratch / "tmp")}
     environments = {
         "account-home": {**base, "HOME": str(account)},
         "test-home": {**base, "HOME": str(other)},
@@ -315,12 +319,12 @@ def test_production_resolves_as_release_217(tmp_path):
 
 DRAWS = textwrap.dedent('''
     import hashlib, json, sys
-    from hypothesis import given, settings, strategies as st
+    from hypothesis import HealthCheck, given, settings, strategies as st
     from tests.unit import test_live_store_guard_st3 as st3
     # The session's values are this process's own; fix them so a digest compares the choices alone.
     st3.SESSION = {name: f"<session {name}>" for name in st3.NAMES[::2]}
     seen = []
-    @settings(max_examples=40, derandomize=True, database=None, deadline=None)
+    @settings(max_examples=40, derandomize=True, database=None, deadline=None, suppress_health_check=list(HealthCheck))
     @given(env=st3.environments(st3.Path("/st3-scratch")))
     def draw(env):
         seen.append(sorted(env.items()) if sys.argv[1] == "sorted" else list(env.items()))

@@ -57,7 +57,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from .contracts import Exit
-from .home_paths import home_path
+from .home_paths import PersonalPathRefused, home_path, under_pytest
 from .launch_env import build_environment
 
 PROG = "subfleet"
@@ -520,6 +520,12 @@ def v1_binary(env: dict[str, str] | None = None) -> str | None:
         path = Path(candidate).expanduser()
         if path.is_file() and os.access(path, os.X_OK):
             return str(path)
+    if under_pytest():
+        # D-ST3: PATH's `subfleet` is a default too, and on the person's PATH it
+        # is their own install, so a test names its v1 binary or refuses.
+        raise PersonalPathRefused(f"Refusing personal path fallback under pytest; {V1_BIN_ENV} names no v1 "
+                                  "binary here, and PATH's subfleet is not a test's; set it to an isolated "
+                                  "test binary")
     found = shutil.which("subfleet")
     if found and not _is_self(found):
         return found

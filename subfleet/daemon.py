@@ -9890,5 +9890,22 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def run_program(argv: list[str] | None = None) -> int:
+    """`python -m subfleet.daemon`: `main`, with a test process's refusal in one line.
+
+    A test process (pytest loaded, or a test marker in its environment) that
+    names no state root, or no other path it would otherwise take from the
+    person's home, is refused (D-ST1, D-ST3). As a program it says so in one
+    line and exits 7, not with a traceback; `main` itself still raises, for a
+    caller in the test process. Production never raises the refusal.
+    """
+    from .home_paths import PersonalPathRefused
+    try:
+        return main(argv)
+    except PersonalPathRefused as exc:
+        print(f"subfleet daemon: {exc}", file=sys.stderr)
+        return int(Exit.REFUSED)
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(run_program())

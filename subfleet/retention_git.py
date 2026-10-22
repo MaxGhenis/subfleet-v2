@@ -461,7 +461,9 @@ def history_bytes(git_dir: Path, heads: Iterable[str], held: list[str], *, timeo
 
 def temp_roots() -> set[str]:
     """Directories whose contents the system or a person may delete at any time."""
-    return {os.path.realpath(p) for p in (*TEMP_ROOTS, tempfile.gettempdir(), os.environ.get("TMPDIR") or "/tmp")}
+    from .home_paths import checked_override
+    return {os.path.realpath(p) for p in (*TEMP_ROOTS, tempfile.gettempdir(),
+                                          checked_override("TMPDIR", os.environ.get("TMPDIR")) or "/tmp")}
 
 
 def scratch_reason(common: Path, state_root: Path, remotes: dict[str, str],

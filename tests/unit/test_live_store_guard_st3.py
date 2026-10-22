@@ -553,17 +553,21 @@ def test_a_tilde_override_under_a_test_home_is_the_tests(tmp_path, monkeypatch):
 # --- overrides naming a live root ------------------------------------------------------------
 
 
+# Making a link touches nothing at its target, but a spy judges the target by
+# its spelling, so test setup makes its links with the unspied call.
+_make_link = os.symlink
+
+
 def live_root_overrides(tmp_path: Path) -> dict[str, str]:
     """Overrides that name a live root, a path inside one, or the account's home, by other spellings.
 
     None begins with a `~` that names the account, so only the live-root
-    refusal can catch them. The links are made under tmp_path; making one
-    touches nothing at its target.
+    refusal can catch them. The links are made under tmp_path.
     """
     store = PERSONAL / STORES[0]
     test_home = tmp_path / "home"
-    (tmp_path / "link").symlink_to(store, target_is_directory=True)
-    (tmp_path / "home-link").symlink_to(PERSONAL, target_is_directory=True)
+    _make_link(str(store), str(tmp_path / "link"), target_is_directory=True)
+    _make_link(str(PERSONAL), str(tmp_path / "home-link"), target_is_directory=True)
     overrides = {
         "absolute": str(store), "inside": str(store / "state.sqlite3"), "trailing-slash": f"{store}/",
         "leading-slashes": f"//{store}", "dot": f"{store}/.", "missing-dot-dot": f"{PERSONAL}/st3-missing/../{STORES[0]}",
