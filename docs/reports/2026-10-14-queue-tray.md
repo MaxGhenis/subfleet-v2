@@ -2089,3 +2089,259 @@ with a66102fa9 as its prerequisite. No log, JSON evidence or bundle is staged.
 Nothing is pushed. All foreground runners have exited. Job scratch and the
 job's ignored build artifacts are removed before delivery; local commit
 metadata and the delivery bundle are retained.
+
+
+## Fix 8 (2026-10-22, review r4)
+
+Merged the already available `a26d08336` (#237) first, without fetching. Its only
+change is `tests/unit/test_daemon_connections.py`. Both parents' contract clause
+ids and change-log entries were checked after the amendments; none is missing.
+The duplicated CI-flakes entry now occurs once.
+
+### Findings, causes and fixes
+
+**P2-1 cause.** The tray revealer posted the timeline's row-scroll notice, and
+that notice forced `atBottom = false`. A reveal leaving the end visible never
+caused another marker appearance, so following remained disabled.
+
+**P2-1 fix.** Only the timeline revealer (`layout == nil`) posts that notice.
+Only the end marker's appearance/disappearance writes `atBottom`; a notice
+suspends timeline catch-up without claiming the end disappeared. Catch-up still
+follows when that marker remains visible. An actual timeline reveal continues
+to end the opening pin under D3.
+
+**P2-2 cause.** Opening considered only its latest 50 receipts known, fetched
+older settled receipts again on every switch, and sorted the full receipt order
+for every receipt on the main thread.
+
+**P2-2 fix.** UIModel captures the app's known receipt identities and passes them
+to the engine; hydration subtracts both those identities and the opening
+snapshot. A batch sorts receipt order once, and unchanged sequences do not
+sort. Placement sorts only waiting messages and skips unchanged writes. Empty
+approval batches and empty card lists do no placement/card work; receipt state
+is decoded once, and cold batches reserve their storage. Status support still
+hydrates every unknown id in batches of at most 200 before publishing the tray.
+
+**P3-1 cause.** Keying the revealer on the entire row-id set cancelled and
+restarted its 250/550 ms pair whenever a new row arrived.
+
+**P3-1 fix.** The key contains the request, conversation, and target readiness.
+Readiness includes the target's layout presence for the tray. Unrelated rows
+neither restart nor repeat the request. Repeat selections retain their request
+token semantics.
+
+**P3-2 cause.** An earlier merge retained two identical “CI flakes (2026-10-17,
+D-2 and D-RL1)” change-log entries.
+
+**P3-2 fix.** Kept one complete entry. C-27.5 and C-29.12 have the reveal/follow
+amendment and its change-log entry; C-29.7 also records the hydration and batch
+work budget. Every distinct entry from both merge parents remains.
+
+### Four invariants and their coverage
+
+1. **Follow:** after any reveal, the timeline follows new output if and only if
+   the end marker is on screen. A tray-only reveal never changes it. The new
+   view regressions cover tray search followed by two 40-line streams, a
+   timeline search leaving the end visible, and tray search during ten catch-up
+   pages. Fix-6's existing reading-position regressions also pass. In the final
+   run, tray reveal/first stream/second stream stayed 0/0/0 pt from the end;
+   timeline reveal/streams stayed 25/25/25 pt; opening at the tray target ended
+   25 pt from the end. See the inherited offscreen observations below for the
+   scope of this claim.
+2. **Queue completeness:** after opening, every queued message held by the daemon
+   is in the tray, for queues of any size. With status support, the bounded
+   Hypothesis property checks open and reopen over sizes 0–601 (16 generated
+   examples, up to five queues each), and the real-service 51/120/251-message
+   regressions pass. The legacy daemon fallback remains capability-gated; its
+   previously documented 50-receipt snapshot limitation is unchanged.
+3. **Bounded open:** opening's main-thread work must not grow with settled
+   history the app already knows. The budget checks cover N=500/2,000/5,000,
+   require open/reopen application below 50 ms, and require no extra receipt
+   hydration on reopen. The reverse-sequence 5,003-receipt batch checks ordering
+   and the same budget. These are measured bounds over the stated sizes, not
+   a claim that every retained-timeline operation is constant-time.
+4. **One reveal per request:** a search reveal fires at most twice, its 250/550 ms
+   pair, however many rows arrive. Both continuous-row reviewer cases pass;
+   the bounded property runs 12 generated schedules plus one saved explicit
+   schedule, with at most 18 arrivals through 1.8 s. Shrinking is disabled for
+   this UI property to bound foreground work. The final 200 ms case fired at
+   0.346/0.898 s, and the 400 ms case at 0.306/0.859 s.
+
+The tests are `test_review_r219_fix8_view.py`,
+`test_review_r219_fix8_engine.py`, and the retained fix-6 regressions. The new
+Swift probes start from the reviewer's R4 engine/view probes and compile the
+real application sources.
+
+### Timings and mutation checks
+
+Main-thread receipt application, milliseconds; engine RPC/hydration work is
+outside these application measurements. Each case has three queued messages.
+
+| Settled messages | Open apply ms | Reopen apply ms | Extra reopen receipt ids |
+| ---: | ---: | ---: | ---: |
+| 500 | 3.93 | 1.29 | 0 |
+| 2,000 | 13.36 | 4.08 | 0 |
+| 5,000 | 22.62 | 11.22 | 0 |
+
+The reverse-sequence 5,003-receipt batch took **18.36 ms**.
+On `ba049fcaf`, the same 5,000-message input took 23,242/24,031 ms for
+open/reopen application and refetched 4,953 receipts on reopen; its reverse
+batch took 30,580 ms. All 12 named reviewer-input regression assertions failed
+on the preserved baseline, as expected.
+
+| Restored mutation | Named test that rejects it |
+| --- | --- |
+| Notice sets `atBottom = false` | `test_timeline_reveal_leaving_end_visible_keeps_follow` |
+| Hydrate the full history again | `test_reopen_fetches_no_known_receipt` |
+| Sort per receipt | `test_receipt_batch_sorts_once_within_50ms` |
+| Key on all row ids | `test_continuous_rows_reveal_at_most_twice` |
+
+All four mutations were compiled and executed against their named tests. All
+four older fix-4 mutations also pass their mutation controls; their deferred
+placement mutation was updated to the new batching implementation.
+
+Two intermediate engine holds exposed additional placement overhead (154 pass /
+2 fail, then 155 pass / 1 fail); the final source passes the unchanged 50 ms
+assertions. The first whole-view attempt completed 26 passes and one failure,
+then was interrupted while Hypothesis shrank a schedule (199 attempted
+schedules). The busy-case probe had sampled consumption after an awaited
+simulated person scroll: the reveal fired at 1.33 s but was recorded as consumed
+at 2.23 s. The probe now observes consumption directly from the publisher and
+retains each schedule's result. The focused rerun passed all three selected
+checks, and the complete final view hold passed all 28. That interrupted attempt
+is not counted as a suite pass.
+
+### Final coverage
+
+Both `app/build.sh` runs passed. Final-source whole-frontend coverage is
+**848 passed, 1 skipped, zero failures/errors**, across **all 52 files**.
+The separately required unit/fake hold adds **38 passed**, for **886 distinct
+passing tests and one skipped test** in the final coverage table. Repeated
+validation and expected failing baseline/mutant assertions are not added to
+those distinct counts.
+
+Each row below is one pytest process through the hub's `suite_hold.sh`, using
+the single reusable GIL CPython 3.14.7 venv. Every setup operation used
+`uv_sync_hold.sh`; no setup ran inside a test hold. Hypothesis storage, caches
+and each hold's TMPDIR stayed under the job scratch folder. No deep profile was
+used. Durations below are JUnit pytest durations; all holds remained below
+20 minutes, with the longest console duration 664.01 s (11:04).
+
+| Whole-frontend hold | Files | Passed | Skipped | Pytest seconds |
+| --- | ---: | ---: | ---: | ---: |
+| `whole-01-view` | 3 | 28 | 0 | 112.70 |
+| `whole-02-engine` | 5 | 156 | 0 | 153.81 |
+| `whole-03-store` | 4 | 62 | 0 | 112.28 |
+| `whole-04-mutations` | 2 | 8 | 0 | 258.87 |
+| `whole-05-core` | 19 | 239 | 1 | 76.01 |
+| `whole-06-views` | 10 | 139 | 0 | 266.26 |
+| `whole-07-visual` | 9 | 216 | 0 | 663.13 |
+
+The contract/module-name hold separately passed 38 tests in 8.25 s. No further
+unit or fake files were rerun. The first three complete briefed holds also
+passed 28/156/62 before the whole-directory pass.
+
+All unlisted failure/error counts in this table are zero.
+
+| Test file | Passed | Skipped |
+| --- | ---: | ---: |
+| `tests/fake/test_state_contract.py` | 37 | 0 |
+| `tests/frontend/test_app_cutover_start.py` | 13 | 0 |
+| `tests/frontend/test_conversation_view.py` | 6 | 0 |
+| `tests/frontend/test_core_app_cutover_reading.py` | 15 | 0 |
+| `tests/frontend/test_core_approval_notification.py` | 10 | 0 |
+| `tests/frontend/test_core_approval_reach.py` | 41 | 0 |
+| `tests/frontend/test_core_client.py` | 18 | 0 |
+| `tests/frontend/test_core_diff.py` | 7 | 0 |
+| `tests/frontend/test_core_draft.py` | 7 | 0 |
+| `tests/frontend/test_core_idle.py` | 1 | 0 |
+| `tests/frontend/test_core_live.py` | 0 | 1 |
+| `tests/frontend/test_core_live_failure.py` | 1 | 0 |
+| `tests/frontend/test_core_markdown.py` | 42 | 0 |
+| `tests/frontend/test_core_outbox.py` | 13 | 0 |
+| `tests/frontend/test_core_protocol.py` | 10 | 0 |
+| `tests/frontend/test_core_question_card.py` | 10 | 0 |
+| `tests/frontend/test_core_queue_engine.py` | 75 | 0 |
+| `tests/frontend/test_core_queue_tray.py` | 51 | 0 |
+| `tests/frontend/test_core_search.py` | 20 | 0 |
+| `tests/frontend/test_core_steer.py` | 43 | 0 |
+| `tests/frontend/test_core_steer_properties.py` | 2 | 0 |
+| `tests/frontend/test_core_store.py` | 10 | 0 |
+| `tests/frontend/test_core_suggestions.py` | 7 | 0 |
+| `tests/frontend/test_core_suggestions_r1b.py` | 4 | 0 |
+| `tests/frontend/test_core_text_scale.py` | 7 | 0 |
+| `tests/frontend/test_core_timeline.py` | 23 | 0 |
+| `tests/frontend/test_core_titles.py` | 1 | 0 |
+| `tests/frontend/test_disk_ruling.py` | 8 | 0 |
+| `tests/frontend/test_menu_view.py` | 8 | 0 |
+| `tests/frontend/test_pr124_fixes_ui.py` | 17 | 0 |
+| `tests/frontend/test_pr124_recovery_properties.py` | 1 | 0 |
+| `tests/frontend/test_pr124_review_r2_fixes_ui.py` | 19 | 0 |
+| `tests/frontend/test_queue_tray_fix4_mutations.py` | 4 | 0 |
+| `tests/frontend/test_queue_tray_notice.py` | 2 | 0 |
+| `tests/frontend/test_queue_tray_view.py` | 15 | 0 |
+| `tests/frontend/test_reading_view.py` | 5 | 0 |
+| `tests/frontend/test_review_pr127_timeline.py` | 4 | 0 |
+| `tests/frontend/test_review_r219_fix4.py` | 39 | 0 |
+| `tests/frontend/test_review_r219_fix6.py` | 7 | 0 |
+| `tests/frontend/test_review_r219_fix8_engine.py` | 8 | 0 |
+| `tests/frontend/test_review_r219_fix8_mutations.py` | 4 | 0 |
+| `tests/frontend/test_review_r219_fix8_view.py` | 6 | 0 |
+| `tests/frontend/test_review_r219_probes.py` | 23 | 0 |
+| `tests/frontend/test_status_model.py` | 25 | 0 |
+| `tests/frontend/test_visual_progress.py` | 5 | 0 |
+| `tests/frontend/test_visual_report_hygiene.py` | 15 | 0 |
+| `tests/frontend/test_visual_review_fixes.py` | 43 | 0 |
+| `tests/frontend/test_visual_round_five.py` | 9 | 0 |
+| `tests/frontend/test_visual_round_four.py` | 27 | 0 |
+| `tests/frontend/test_visual_round_three.py` | 28 | 0 |
+| `tests/frontend/test_visual_round_two.py` | 85 | 0 |
+| `tests/frontend/test_visual_snapshots.py` | 3 | 0 |
+| `tests/frontend/test_visual_suggestions.py` | 1 | 0 |
+| `tests/unit/test_test_module_names.py` | 1 | 0 |
+
+### Limits, delivery and cleanup
+
+The sole skip is
+`test_core_live.py::test_the_app_core_drives_a_development_daemon`: the sandbox
+cannot expose the macOS boot identity needed by its process checks. That case
+was collected but not executed. macOS 15 and Python 3.12 were not run locally;
+no installed app, live store or live daemon was exercised.
+
+The reviewer's already documented offscreen approval/return-to-end observations
+remain recorded: after an approval at the end, subsequent output can lose follow,
+and the offscreen return-to-end cycle can do the same. The final diagnostic probe
+still measured 1,024 pt and 567 pt from the end in those respective inherited
+cases. They fail at the earlier baseline too, and were not attributed to the
+four review findings. This report does not claim those broader inherited
+visibility cases are fixed, or a universal proof of the follow invariant beyond
+the listed acceptance regressions.
+
+The required process-list check (`pgrep -fl 'suite_hold.sh|pytest|lockf'`) was
+attempted after all foreground runners exited. The sandbox denied process
+listing (`sysmond service not found`), so external process-list verification
+was unavailable. No foreign process was signalled. All managed foreground
+commands have returned; job scratch, build artifacts and generated Python
+caches are removed at delivery. No logs, JSON evidence or bundles are staged.
+
+The shared Git index/ref paths are outside this sandbox's writable roots.
+Commits therefore live on `feat/queue-tray-217` in workspace-local
+`.git-workspace`; the supplied `.git` pointer and caller's checkout remain
+unchanged. The source/test commits, oldest first, are:
+
+- `c01b921a2` Merge release/217 at a26d08336 before queue tray fix 8
+- `d4c1d6b5a` test: reproduce r219 follow, hydration cost, and reveal restarts
+- `6fb9ebffe` test: retain follow when a timeline reveal leaves its end visible
+- `a4c821f46` fix: scope search reveals to their scroll container and target
+- `d36e3dce5` fix: reuse known receipts on open and sort each receipt batch once
+- `e2ce9e42d` test: require four fix-8 mutations to fail their named regressions
+- `06bab9c31` fix: resolve queue placement without sorting settled display history
+- `e7d92f8df` perf: skip empty approval placement and decode receipt state once
+- `960cdbcbc` perf: reserve cold receipt batches and skip empty card scans
+- `5f593dcae` test: retain the deferred-placement mutation after batching refactor
+- `ae2ccf999` test: observe reveal consumption directly and bound UI property runs
+
+The report is committed separately with the requested co-author trailer.
+Nothing was fetched or pushed. All holds were requested before the 4 h 30 m
+cutoff; the job began about 08:14 UTC and whole-frontend validation finished
+about 10:51 UTC.
