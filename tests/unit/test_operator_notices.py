@@ -500,7 +500,7 @@ def test_c15_8_a_notice_a_hook_printed_is_not_withdrawn(core, monkeypatch, capsy
     (listed,) = core.dispatch("notice.list", {"session_id": "s-hook"})["notices"]
 
     class Direct:
-        def call(self, op, args=None):
+        def call(self, op, args=None, *, timeout=None):
             return core.dispatch(op, args or {})
 
     assert hooks.session_event("UserPromptSubmit", {"session_id": "s-hook"}, core.root, client=Direct()) == 0
@@ -653,7 +653,7 @@ def test_c15_8_withdrawal_through_the_cli_against_a_real_store(core, root, monke
         def __init__(self, *_args, **_kwargs):
             pass
 
-        def call(self, op, args=None):
+        def call(self, op, args=None, *, timeout=None):
             return core.dispatch(op, args or {})
 
     monkeypatch.setattr(cli, "Client", Direct)

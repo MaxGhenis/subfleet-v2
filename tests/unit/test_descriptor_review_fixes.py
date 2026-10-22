@@ -258,7 +258,7 @@ def test_c16_7_a_connect_refused_after_busy_reports_busy_not_an_absent_daemon(tm
     with pytest.raises(DaemonUnavailable):
         gone.call("list", timeout=10)
     dead = Scripted(tmp_path, busy(), refused())              # crashed: the lock names a dead process
-    dead.lock_holder_alive = lambda: False
+    dead.lock_holder_alive = lambda **kwargs: False
     with pytest.raises(DaemonUnavailable):
         dead.call("list", timeout=10)
 
@@ -269,7 +269,8 @@ def test_c16_7_a_call_can_take_busy_at_once(tmp_path):
     client = Scripted(tmp_path, busy(), {"jobs": []})
     with pytest.raises(DaemonError) as caught:
         client.call("wait", {"job_ids": ["j"], "deadline_s": 60}, timeout=75, retry_busy=False)
-    assert caught.value.busy and client.timeouts == [75]
+    assert caught.value.busy and len(client.timeouts) == 1
+    assert 0 < client.timeouts[0] <= 75
 
 
 def test_c16_7_the_cli_wait_loop_asks_without_retrying_inside_the_call(monkeypatch):
@@ -303,7 +304,7 @@ def test_c16_7_the_hook_wait_takes_busy_as_an_empty_poll(monkeypatch):
             if len(calls) <= 2:
                 raise busy()
             return {"jobs": [{"job_id": "j", "state": "succeeded"}], "timeout": False}
-    monkeypatch.setattr(hooks, "_deliver", lambda client, session, job, stderr: delivered.append(job) or 0)
+    monkeypatch.setattr(hooks, "_deliver", lambda client, session, job, stderr, **kwargs: delivered.append(job) or 0)
     clock = [0.0]
     assert hooks._wait_and_deliver(Hooked(), "s", "j", 100.0, stderr=None, now=lambda: clock[0],
                                    sleep=lambda s: clock.__setitem__(0, clock[0] + s)) == 0
@@ -466,7 +467,7 @@ def test_c16_7_the_hook_wait_takes_a_connect_refused_after_busy_as_busy(monkeypa
             if isinstance(step, BaseException):
                 raise step
             return step
-    monkeypatch.setattr(hooks, "_deliver", lambda client, session, job, stderr: delivered.append(job) or 0)
+    monkeypatch.setattr(hooks, "_deliver", lambda client, session, job, stderr, **kwargs: delivered.append(job) or 0)
     clock = [0.0]
     assert hooks._wait_and_deliver(Hooked(), "s", "j", 100.0, stderr=None, now=lambda: clock[0],
                                    sleep=lambda s: clock.__setitem__(0, clock[0] + s)) == 0
@@ -761,7 +762,7 @@ def test_c16_7_a_cli_wait_bounds_refusals_only_while_the_lock_cannot_say(monkeyp
         if polls[0] < 40:                                   # well past 5 s of refusals
             raise refused()
         return {"jobs": [{"job_id": "20261004-000009-done", "state": "succeeded", "rc": 0}], "timeout": False}
-    monkeypatch.setattr(cli, "_client", lambda *a, **k: SimpleNamespace(call=call, lock_holder_alive=lambda: alive))
+    monkeypatch.setattr(cli, "_client", lambda *a, **k: SimpleNamespace(call=call, lock_holder_alive=lambda **kwargs: alive))
     args = cli.build_parser().parse_args(["wait", "20261004-000009-done"])
     code = cli.wait_jobs(args, ["20261004-000009-done"], timeout=timeout, quiet=True)
     if expected == "gives-up":
