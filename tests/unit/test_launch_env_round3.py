@@ -296,7 +296,7 @@ def test_daemon_start_refuses_env_pass_naming_a_lane_credential(roster, tmp_path
     with pytest.raises(PolicyError) as error:
         cli.daemon_env(tmp_path)
     assert error.value.key == "env.pass[1]"
-    monkeypatch.setattr(cli, "_daemon_alive", lambda *args: False)
+    monkeypatch.setattr(cli, "_daemon_alive", lambda *args, **kwargs: False)
     monkeypatch.setattr(cli.subprocess, "Popen", lambda *args, **kwargs: pytest.fail("refused policy spawned"))
     assert cli.cmd_daemon_start(SimpleNamespace(state_root=str(tmp_path))) == 2
     err = capsys.readouterr().err
@@ -351,3 +351,18 @@ def test_launch_removal_comment_says_removals_win_and_names_its_test():
     test = "test_mandatory_removal_also_beats_selected_additions"
     assert test in comment
     assert f"def {test}(" in (TESTS / "unit" / "test_launch_env_round2.py").read_text()
+
+
+@pytest.mark.parametrize("name", ["SUBFLEET_HOOK_TIMEOUT_S", "SUBFLEET_PING_STDIN_WAIT_S"])
+def test_cli_timeout_configuration_reaches_launched_child(name, tmp_path, monkeypatch):
+    """C-12.3, C-17.9 ping's stdin deadline follows the same launch path as hook's."""
+    import subprocess
+    import sys
+    monkeypatch.setenv(name, "6.25")
+    started = cli.daemon_env(tmp_path)
+    child = ProviderEnvironment(CODEX_POLICY).build("claude", environ=started)
+    assert name in launch_env.CONFIG_NAMES
+    assert started[name] == child[name] == "6.25"
+    result = subprocess.run([sys.executable, "-c", "import os,sys; print(os.environ[sys.argv[1]])", name],
+                            env=child, capture_output=True, text=True, timeout=10, check=True)
+    assert result.stdout.strip() == "6.25"

@@ -162,9 +162,10 @@ def test_daemon_stop_on_a_stale_lock_is_a_no_op(root, capsys, monkeypatch):
 
     def absent(pid):
         assert pid == 999999
-        return ""                      # an inspected, absent pid; None means unknown
+        return "", ""                  # an inspected, absent pid; None means unknown
 
-    monkeypatch.setattr(client, "proc_start", absent)
+    monkeypatch.setattr(client, "proc_status", absent)
+    monkeypatch.setattr(os, "kill", lambda *args: pytest.fail("a stale lock must never be signalled"))
     assert cli.main(["daemon", "stop"]) == 0
     assert "stale lock" in capsys.readouterr().err
 
