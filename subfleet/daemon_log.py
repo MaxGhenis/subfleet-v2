@@ -14,13 +14,14 @@ Before either, a record's text (its line, traceback and stack together) is cut
 to `RECORD_SCRUB_MAX` characters, keeping whole lines of each part's head and
 tail with a marker, at line breaks no match of the whole-text scrub crosses,
 folded or not (`handoff.cut_whole`). Every regex the cut runs reads within its
-two windows. Past them it reads only in C scans: a fixed number of scans of the
-text, plus at most 20 needle looks (`handoff._event_from`, `_event_before`: one
-for each quote kind open at a candidate cut, two plain kinds and at most eight
-escaped ones a side), each at most 64 finds of its quote, which together read the
-text at most once (both counted: `test_daemon_log_cut_windows`). So a cut's cost is
-linear in the text, at most 6.7 times what plain text of the same length costs
-on every shape measured (C-25.7 gives the ratios), and the scrub reads at most
+two windows, at most 16 times `RECORD_SCRUB_MAX` characters in all, counted by what
+each call reads, not its span (`test_daemon_log_cut_windows`, `tests/regex_reads.py`).
+Past them it reads only in C scans: a fixed number of scans of the text, plus at
+most 20 needle looks (`handoff._event_from`, `_event_before`: one for each quote
+kind open at a candidate cut, two plain kinds and at most eight escaped ones a
+side), each at most 64 finds of its quote, which together read the text at most
+once (both counted). So a cut's work is linear in the text; C-25.7 gives its cost
+measured against plain text, a measurement and no bound. The scrub reads at most
 `RECORD_SCRUB_MAX` characters. A record is formatted before the handler's lock is
 taken, so only its write holds the lock.
 A one-line message whose cut keeps only the marker is written as the marker
@@ -59,11 +60,12 @@ same text (`scrubbed`: `daemon start`'s refusal). What a person reads of
 daemon.log, `daemon start`'s tail and `daemon logs`, is the file scrubbed as a
 record is, its lines kept, with no reminder tag (`scrubbed_tail`): a file long
 enough to be cut is read with its reminders resolved first (`_reminders_resolved`:
-each reminder the whole-text scrub strips taken out, every other tag marked), so
-one tag no longer leaves the tail only the cut's marker. With `--follow`, each new
-line is held until no match can cross the break after it, then written so
-(`LogFollower`). The file is never rewritten, so it may hold what a daemon before
-D-LOG1, or before round 6 of #233, wrote: raw values, and tags.
+each reminder the whole-text scrub strips taken out, every other tag marked) where
+that leaves the scrub's first pass replacing what it replaced, else the cut keeps
+only its marker, as at round 5. `--follow` first prints what `daemon logs -n N`
+prints; then each new line is held until no match can cross the break after it,
+and written so (`LogFollower`). The file is never rewritten, so it may hold what a
+daemon before D-LOG1, or before round 6 of #233, wrote: raw values, and tags.
 faulthandler stays as it is. It writes each frame's file, line number and
 function name only, never an exception's message, a local or a source line
 (CPython's `Python/traceback.c`, `dump_frame`); on Python 3.14, an all-threads
@@ -72,6 +74,7 @@ thread's name is fixed words or ids.
 """
 from __future__ import annotations
 
+import bisect
 import copy
 import logging
 import re
@@ -81,7 +84,7 @@ import warnings
 from typing import Any, Callable
 
 from . import refusals
-from .sessions.handoff import (REDACTED, cut_marker, cut_whole, quoted_value_mask, reminder_tags,
+from .sessions.handoff import (REDACTED, cut_marker, cut_whole, quoted_value_spans, reminder_tags,
                                 scrub_secrets, settled_end)
 
 #: What a record that cannot be scrubbed is written as (C-25.7).
@@ -415,9 +418,10 @@ def scrubbed_tail(text: str, count: int) -> list[str]:
     The cut keeps only its marker for a text that holds a reminder tag, and daemon.log is
     never rewritten, so at round 5 one tag anywhere left every later tail only the marker
     (review r4 of #233, P3-2). A text that must be cut is read with its reminders resolved
-    first (`_reminders_resolved`), so it has no tag left; one that need not be is scrubbed
-    whole, as before. Never raises: what cannot be scrubbed is the fixed `[scrub failed]`
-    line."""
+    first (`_reminders_resolved`), so it has no tag left, except where taking them out
+    would change what the scrub's first pass replaces, which keeps that rule (review r5,
+    P2-1); one that need not be is scrubbed whole, as before. Never raises: what cannot
+    be scrubbed is the fixed `[scrub failed]` line."""
     if count <= 0:
         return []
     try:
@@ -442,64 +446,96 @@ def _reminders_resolved(text: str) -> str | None:
       in order, never adds or reorders one), so each tag is replaced by `REMINDER_MARK`,
       which every scrub rule reads as it reads a tag.
     - Otherwise each reminder the whole-text scrub strips is taken out, as that scrub finds
-      it: after its first pass has masked quoted values across lines (`quoted_value_mask`),
-      the first opening tag left, to the first closing one after it, and so on
-      (`_stripped`). Taking them out joins what was on either side of each, as the strip
-      does. Then every tag left is replaced by the marker. None (the marker rule) when the
-      text read without a group's margins, as the block form also reads it, would strip
-      other reminders, or when taking them out makes a tag where none was.
+      it: after its first pass has masked quoted values across lines, the first opening tag
+      left, to the first closing one after it, and so on (`_taken_out`). Taking them out
+      joins what was on either side of each, as the strip does. Then every tag left is
+      replaced by the marker.
 
-    Its cost, besides finding the tags in C scans: with orphans only, a marked copy; with
-    reminders to take out, a pass of the quoted-value rule over the text (two, with a
-    group's margins), and copies."""
+    That scrub runs its first pass on `text` and strips the reminders only after it, but
+    the cut and the tail's scrub run every pass on what is left. So what is left is used
+    only where its first pass replaces exactly what the first pass over `text` replaces
+    outside those reminders, each with the same words (review r5 of #233, P2-1: a reminder
+    between a key's separator and a quote, `password=<system-reminder>…</system-reminder>"`,
+    opened a value there that ran past a quote the first pass had masked, or swallowed a
+    private key's or a data URI's first line). Then the whole-text scrub of what is left is,
+    pass for pass, that of `text`. The same holds of the text read without a group's
+    margins, as the block form also reads it, when it holds one: its reminders are the same,
+    and taking them out leaves the margin-free reading of what is left.
+
+    None (the marker rule: the cut keeps only its marker) where either does not hold, or
+    where taking reminders out makes a tag where none was. Its cost, besides finding the
+    tags in C scans: with orphans only, a marked copy; with reminders to take out, two
+    passes of the quoted-value rule over the text (four, with a group's margins), and
+    copies."""
     tags = reminder_tags(text)
     if not tags:
         return text
     first = next((start for start, _, opens in tags if opens), None)
     if first is None or not any(start > first and not opens for start, _, opens in tags):
         return _marked(text, tags)
-    pairs = _stripped(text, tags)
-    if pairs is None:
+    resolved = _taken_out(text, tags)
+    if resolved is None:
         return None
+    kept, pairs = resolved
     if _GROUP_MARGIN_LINE.search(text) is not None:
-        lines = text.rstrip("\r\n").split("\n")
-        bare = "\n".join(line[len(match.group()):] if (match := _GROUP_MARGIN.match(line)) else line
-                         for line in lines)
+        bare = _margin_free(text)
         bare_tags = reminder_tags(bare)
-        if len(bare_tags) != len(tags) or _stripped(bare, bare_tags) != pairs:
+        if len(bare_tags) != len(tags):
             return None
-    pieces, cursor, inside = [], 0, 0
-    for opening, closing in pairs:
-        pieces.append(text[cursor:tags[opening][0]])
-        cursor, inside = tags[closing][1], inside + closing - opening + 1
-    pieces.append(text[cursor:])
-    kept = "".join(pieces)
+        bare_resolved = _taken_out(bare, bare_tags)
+        if bare_resolved is None or bare_resolved[1] != pairs or bare_resolved[0] != _margin_free(kept):
+            return None
     kept_tags = reminder_tags(kept)
-    if len(kept_tags) != len(tags) - inside:
+    if len(kept_tags) != len(tags) - sum(closing - opening + 1 for opening, closing in pairs):
         return None                         # a tag made where a reminder was taken out
     return _marked(kept, kept_tags)
 
 
-def _stripped(text: str, tags: list[tuple[int, int, bool]]) -> list[tuple[int, int]] | None:
-    """The reminders the whole-text scrub of `text` strips, as indexes into `tags` (its
-    opening and its closing tag): `_resolve_blocks` after `_scrub_named_values`' quoted pass
-    has masked what it masks, so a tag inside a masked value is none. None if the mask
-    cannot be made (`quoted_value_mask`)."""
-    masking = quoted_value_mask(text)
-    if masking is None:
-        return None
-    masked, mark = masking
+def _margin_free(text: str) -> str:
+    """`text` read without a group's margins, as `_group_block` reads it."""
+    return "\n".join(line[len(match.group()):] if (match := _GROUP_MARGIN.match(line)) else line
+                     for line in text.rstrip("\r\n").split("\n"))
+
+
+def _taken_out(text: str, tags: list[tuple[int, int, bool]]) -> tuple[str, list[tuple[int, int]]] | None:
+    """`text` with the reminders the whole-text scrub of `text` strips taken out, and those
+    reminders as indexes into `tags` (each its opening and its closing tag): `_resolve_blocks`
+    after the scrub's first pass (`quoted_value_spans`), so a tag inside what that pass
+    replaces is none. None unless that pass over what is left replaces exactly what it
+    replaces in `text` outside those reminders, by the same words (review r5 of #233, P2-1)."""
+    spans = quoted_value_spans(text)
+    starts = [start for start, _, _ in spans]
     pairs, opening = [], None
     for index, (start, _, opens) in enumerate(tags):
-        if masked[start] == mark:
-            continue
+        at = bisect.bisect_right(starts, start) - 1
+        if at >= 0 and start < spans[at][1]:
+            continue                        # inside a value the first pass replaces
         if opening is None:
             if opens:
                 opening = index
         elif not opens:
             pairs.append((opening, index))
             opening = None
-    return pairs
+    if not pairs:
+        return text, pairs
+    removed = [(tags[opening][0], tags[closing][1]) for opening, closing in pairs]
+    pieces, cursor = [], 0
+    for begin, end in removed:
+        pieces.append(text[cursor:begin])
+        cursor = end
+    pieces.append(text[cursor:])
+    kept = "".join(pieces)
+    expected, shift, index = [], 0, 0
+    for start, end, out in spans:
+        while index < len(removed) and removed[index][1] <= start:
+            shift += removed[index][1] - removed[index][0]
+            index += 1
+        if index < len(removed) and removed[index][0] < end:
+            if removed[index][0] <= start and end <= removed[index][1]:
+                continue                    # taken out with its reminder
+            return None                     # across a reminder's edge: never, as its tags show
+        expected.append((start - shift, end - shift, out))
+    return (kept, pairs) if quoted_value_spans(kept) == expected else None
 
 
 #: The most text `daemon logs --follow` holds back while no break in it is settled
@@ -526,13 +562,18 @@ class LogFollower:
     `PRIVATE KEY-----`). Whole lines are held until a break after them is settled
     (`handoff.settled_end`): no match of the whole-text scrub could cross it, whatever
     is written next. They are then written in the block form with their lines kept, each
-    run only where the same lines scrubbed after `FOLLOW_CONTEXT` characters of what was
-    already written show it too, and with no reminder tag (`neutralised`). Held text past
-    `FOLLOW_HOLD_MAX` is written as it is, scrubbed so; `flush` writes what is held when
-    following stops.
+    run only where the same lines scrubbed after what came before them show it too (up
+    to `FOLLOW_CONTEXT` characters of what was settled, and all that was not), and with
+    no reminder tag (`neutralised`). Held text past `FOLLOW_HOLD_MAX` is written as it
+    is, scrubbed so; `flush` writes what is held when following stops.
 
-    `before` is the file as following starts. Its last lines that are not settled yet
-    are held too: what the caller prints of `before` ends at `settled`."""
+    `before` is the file as following starts, which the caller prints as `daemon logs
+    -n N` does (`scrubbed_tail`), so following starts with the same lines (review r5 of
+    #233, P3-2). Its end that is not settled yet (`shown`, at most `FOLLOW_HOLD_MAX`
+    characters of whole lines) is printed then, and read again with what comes after
+    it, by the break rule and by the scrub, until a break after it settles; only what
+    arrives afterwards is held. A last line still being written is held whole, and
+    written again once it ends."""
 
     def __init__(self, before: str):
         complete = before.rfind("\n") + 1
@@ -542,13 +583,13 @@ class LogFollower:
             start = complete if newline < 0 else newline + 1
         try:
             settled = start + settled_end(before[start:complete], 0)
-        except Exception:                   # noqa: BLE001 - unsettled, so held to the bound
+        except Exception:                   # noqa: BLE001 - unsettled, so read again to the bound
             settled = start
         if complete - settled > FOLLOW_HOLD_MAX:
-            settled = complete              # held past the bound: printed as it is
-        self.settled = settled
+            settled = complete              # past the bound: as if settled, as held text is
         self.context = _context_of(before[:settled])
-        self.pending = before[settled:]
+        self.shown = before[settled:complete]
+        self.pending = before[complete:]
 
     def feed(self, text: str) -> list[str]:
         """The lines to write once `text` is appended to the file."""
@@ -556,11 +597,12 @@ class LogFollower:
         complete = self.pending.rfind("\n") + 1
         if not complete:
             return []
+        before = self.context + self.shown
         try:
-            settled = settled_end(self.context + self.pending[:complete], len(self.context)) - len(self.context)
+            settled = settled_end(before + self.pending[:complete], len(self.context)) - len(before)
         except Exception:                   # noqa: BLE001 - unsettled, so held to the bound
             settled = 0
-        if not settled:
+        if settled <= 0:
             if complete <= FOLLOW_HOLD_MAX:
                 return []
             settled = complete              # held past the bound: written as it is
@@ -572,17 +614,18 @@ class LogFollower:
 
     def _write(self, end: int) -> list[str]:
         written, self.pending = self.pending[:end], self.pending[end:]
+        before = self.context + self.shown
         try:
             own = neutralised(scrubbed_block(written, group=_GROUP_MARK in written, keep_lines=True))
-            if self.context:
-                around = self.context + written
+            if before:
+                around = before + written
                 shown = neutralised(scrubbed_block(around, group=_GROUP_MARK in around, keep_lines=True))
                 # A margin's mark alone is no value; `shown` may be written without margins.
                 own = _only(own, set(_RUN.findall(shown)) | {"|", "+"})
             lines = own.splitlines()
         except Exception as exc:            # noqa: BLE001 - the marker alone, never the text
             lines = [failed_line(_record("", logging.INFO), exc)]
-        self.context = _context_of(self.context + written)
+        self.context, self.shown = _context_of(before + written), ""
         return lines
 
 

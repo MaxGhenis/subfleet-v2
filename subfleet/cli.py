@@ -2982,10 +2982,11 @@ def cmd_daemon_logs(args: argparse.Namespace) -> int:
             for line in daemon_log.scrubbed_tail(text, args.lines):
                 out(line)
             return int(Exit.OK)
-        # Following: the last lines not settled yet are the follower's to hold.
-        follower = daemon_log.LogFollower(text)
-        for line in daemon_log.scrubbed_tail(text[:follower.settled], args.lines):
+        # Following starts with the lines `daemon logs -n N` prints (review r5 of #233, P3-2);
+        # the follower reads their end that is not settled yet again with what comes next.
+        for line in daemon_log.scrubbed_tail(text, args.lines):
             out(line)
+        follower = daemon_log.LogFollower(text)
         try:
             while True:
                 more = stream.read()

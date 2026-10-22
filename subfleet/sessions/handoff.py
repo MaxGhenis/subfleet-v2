@@ -358,8 +358,11 @@ def _flag_start(key: str) -> int:
 
 
 def _scrub_named_values(text: str, replace: Callable[[str, str], str],
-                       *, quoted: bool = False, flags: bool = False, multiline: bool = False) -> str:
-    """Replace assignment/flag values in linear scans, preserving rule order."""
+                       *, quoted: bool = False, flags: bool = False, multiline: bool = False,
+                       spans: list[tuple[int, int, str]] | None = None) -> str:
+    """Replace assignment/flag values in linear scans, preserving rule order. With
+    `spans`, the quoted pass only records what it would replace (`quoted_value_spans`)
+    and returns `text` as it is."""
     parts: list[str] = []
     cursor = 0
     quote_ends: dict[int, int] | None = None
@@ -454,6 +457,9 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
         else:
             parts.extend((text[cursor:start], replace(text[start:end], out)))
             cursor = end
+    if spans is not None:
+        spans.extend(ranges)
+        return text
     for start, end, out in ranges:
         parts.extend((text[cursor:start], replace(text[start:end], out)))
         cursor = end
@@ -663,8 +669,11 @@ _DATA_BODY_RE = re.compile(r"[A-Za-z0-9+/=\s]+")
 #: A quote and the run of backslashes right before it. `_quoted_ends` pairs a quote
 #: after an even run (none included) with the next such quote of its kind;
 #: `_escaped_quote_ends`, one after a run of one or more with the next after a run
-#: of the same length.
-_QUOTE_RUN_RE = re.compile(r"(\\*)([\"'])")
+#: of the same length. A match starts only where a run starts (the lookbehind): without
+#: it, `finditer` read a run no quote follows again from each of its backslashes, so a
+#: run of 8,000 cost the cut 0.7 s (review r5 of #233, P3-1). Each character is then
+#: read a fixed number of times, and a run is matched whole, as before.
+_QUOTE_RUN_RE = re.compile(r"(?<!\\)(\\*)([\"'])")
 #: Either reminder tag (`_REMINDER_START_RE`, `_REMINDER_END_RE`). `cut_whole` runs it
 #: only where C scans found a tag (`_holds_reminder_tag`), never over the whole text.
 _REMINDER_TAG_RE = re.compile(r"</?system-reminder>", re.IGNORECASE)
@@ -737,7 +746,8 @@ def cut_whole(text: str, limit: int) -> str:
     - and a text holding a reminder tag is not cut at all: stripping a reminder
       joins what was on either side of it, which can make a quote open a value. (A
       record keeps this rule; what a person reads of daemon.log is read with its
-      reminders resolved before it is cut, `daemon_log.scrubbed_tail`.)
+      reminders resolved before it is cut where that leaves the scrub's first pass as
+      it was, `daemon_log.scrubbed_tail`.)
       Nor is one that opens with a header when the head would keep none of it:
       folded to one line, as the line form folds it, all of it is the header's.
     `scrub_bounded` needs only the first: it resolves the blocks over the whole
@@ -746,7 +756,9 @@ def cut_whole(text: str, limit: int) -> str:
 
     The work is bounded whatever the text's length (reviews r2 and r3 of #233).
     Every regex runs within the two windows (`limit // 2` characters each, and the
-    lines that hold their edges) or at a fixed position. Past the windows the cut
+    lines that hold their edges) or at a fixed position; counted by what each call
+    reads, they read at most 16 times the bound in all (review r5: `_QUOTE_RUN_RE`
+    starts only where a run of backslashes starts). Past the windows the cut
     reads only in C scans of `str` and `bytes`, each linear in what it reads: a
     fixed number of scans of the text, among them, where a look past a window meets
     a group's margins, a few scans of each run of lines that hold only whitespace and
@@ -819,17 +831,16 @@ def reminder_tags(text: str) -> list[tuple[int, int, bool]]:
     return [(match.start(), match.end(), match.group()[1] != "/") for match in _REMINDER_TAG_RE.finditer(text)]
 
 
-def quoted_value_mask(text: str) -> tuple[str, str] | None:
-    """`text` with each value the whole-text scrub masks first replaced, character for
-    character, by `mark`, a character `text` lacks: `(masked, mark)`, or None if it holds
-    every candidate. The first pass of `scrub_secrets(..., whole=True)` masks quoted values
+def quoted_value_spans(text: str) -> list[tuple[int, int, str]]:
+    """What the first pass of `scrub_secrets(..., whole=True)` replaces in `text`, in order:
+    `(start, end, out)`, `text[start:end]` replaced by `out`. That pass masks quoted values
     across lines (`_scrub_named_values(..., quoted=True, multiline=True)`) before reminders
-    are stripped, so a tag inside such a value is no tag to that strip (review r4 of #233).
-    The same length as `text`: a position is masked exactly where `masked` holds `mark`."""
-    mark = next((char for char in map(chr, range(0xE000, 0xE100)) if char not in text), None)
-    if mark is None:
-        return None
-    return _scrub_named_values(text, lambda matched, _out: mark * len(matched), quoted=True, multiline=True), mark
+    are stripped, so a tag inside one is no tag to that strip (review r4 of #233), and what
+    it replaces is the same whatever the rest of the text holds only if these are (review
+    r5, P2-1: `daemon_log._reminders_resolved`). One pass of that rule over `text`."""
+    spans: list[tuple[int, int, str]] = []
+    _scrub_named_values(text, lambda _matched, out: out, quoted=True, multiline=True, spans=spans)
+    return spans
 
 
 def _leads_with_header(reading: "_Reading") -> bool:
