@@ -421,19 +421,32 @@ struct Timeline: Equatable {
     /// Resolve the first placement together, after each complete batch. A tray
     /// row leaves on binding, a steer, an event, or a terminal withdrawal.
     mutating func recordQueuePlacements() {
-        var ahead = queueHeld || turns.values.contains {
-            $0.messageState.map(MessageState.live.contains) == true && !Timeline.waitsInQueue($0)
-        }
-        for id in displayOrder {
-            guard var turn = turns[id], id != Timeline.conversationKey else { continue }
-            let waiting = Timeline.waitsInQueue(turn)
-            if turn.hasBoundJob || turn.sentAsSteer || !waiting || turn.continues != nil {
-                turn.queuePlacement = .timeline
-            } else if turn.queuePlacement == nil {
-                turn.queuePlacement = (ahead || turn.stateReason?.hasPrefix("deferred:") == true) ? .tray : .timeline
+        var ahead = queueHeld
+        var waiting: [String] = []
+        // Settled turns already have their final placement. Do not sort the
+        // whole display order or write them back when only the queue can move.
+        for id in order {
+            guard let turn = turns[id] else { continue }
+            if Timeline.waitsInQueue(turn) {
+                waiting.append(id)
+            } else {
+                if !ahead, turn.messageState.map(MessageState.live.contains) == true { ahead = true }
+                if id != Timeline.conversationKey, turn.queuePlacement != .timeline {
+                    turns[id]?.queuePlacement = .timeline
+                }
             }
-            if waiting { ahead = true }
-            turns[id] = turn
+        }
+        for id in dispatchOrder(waiting) {
+            guard let turn = turns[id] else { continue }
+            let placement: TurnTimeline.QueuePlacement
+            if turn.hasBoundJob || turn.sentAsSteer || turn.continues != nil {
+                placement = .timeline
+            } else {
+                placement = turn.queuePlacement
+                    ?? ((ahead || turn.stateReason?.hasPrefix("deferred:") == true) ? .tray : .timeline)
+            }
+            if turn.queuePlacement != placement { turns[id]?.queuePlacement = placement }
+            ahead = true
         }
     }
     /// The last event sequence folded in; the next poll's `after`.
@@ -1245,16 +1258,7 @@ struct Timeline: Equatable {
     /// messages, retaining sequence order within each group (C-24.9).
     var displayOrder: [String] {
         let queue = order.filter { turns[$0].map(Timeline.waitsInQueue) ?? false }
-        func priority(_ id: String) -> (Int, Int, Int, Int) {
-            let turn = turns[id]
-            return (Timeline.repairOrigins.contains(turn?.origin ?? "") ? 0 : 1,
-                    turn?.stateReason?.hasPrefix("steer-missed:") == true ? 0 : 1,
-                    turn?.origin == "wake" ? 1 : 0, turn?.seq ?? Int.max)
-        }
-        let waiting = queue.enumerated().sorted {
-            let left = priority($0.element), right = priority($1.element)
-            return left == right ? $0.offset < $1.offset : left < right
-        }.map(\.element)
+        let waiting = dispatchOrder(queue)
         let queued = Set(waiting)
         var latest = 0
         var placed: [(id: String, key: (Int, Int, Int))] = []
@@ -1269,6 +1273,19 @@ struct Timeline: Equatable {
             }
         }
         return placed.sorted { $0.key < $1.key }.map(\.id) + waiting
+    }
+
+    private func dispatchOrder(_ queue: [String]) -> [String] {
+        func priority(_ id: String) -> (Int, Int, Int, Int) {
+            let turn = turns[id]
+            return (Timeline.repairOrigins.contains(turn?.origin ?? "") ? 0 : 1,
+                    turn?.stateReason?.hasPrefix("steer-missed:") == true ? 0 : 1,
+                    turn?.origin == "wake" ? 1 : 0, turn?.seq ?? Int.max)
+        }
+        return queue.enumerated().sorted {
+            let left = priority($0.element), right = priority($1.element)
+            return left == right ? $0.offset < $1.offset : left < right
+        }.map(\.element)
     }
 
     /// The origins the daemon sends ahead of queued person messages
