@@ -370,8 +370,13 @@ class Containment:
         return self.group_pids | self.descendant_pids | self.marker_pids | self.responsible_pids
 
     @property
+    def containment_empty(self) -> bool:
+        """No attributed writers remain; cwd observers hold only the worktree."""
+        return not self.unverifiable and not self.live_pids
+
+    @property
     def verified_empty(self) -> bool:
-        return not self.unverifiable and not self.live_pids and not self.cwd_pids
+        return self.containment_empty and not self.cwd_pids
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -1058,7 +1063,8 @@ def worktree_cwd_pids(worktree: str | os.PathLike) -> frozenset[int]:
     spellings within this one scan; nothing about observers is persisted.
     Other users denied by libproc are skipped, as in the census.
     """
-    target = os.path.realpath(worktree)
+    from .folders import canonical
+    target = canonical(worktree)
     prefix = target.rstrip(os.sep) + os.sep
     resolved: dict[str, str] = {}
     found = set()
@@ -1067,7 +1073,7 @@ def worktree_cwd_pids(worktree: str | os.PathLike) -> frozenset[int]:
         if cwd is None:
             continue
         if cwd not in resolved:
-            resolved[cwd] = os.path.realpath(cwd)
+            resolved[cwd] = canonical(cwd)
         current = resolved[cwd]
         if current == target or current.startswith(prefix):
             found.add(pid)

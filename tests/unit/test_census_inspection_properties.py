@@ -88,15 +88,24 @@ def test_inspection_ownership_memory_census_and_expiry(observation):
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(procs, "snapshot", lambda: table)
         patch.setattr(procs, "boot_id", lambda: BOOT_A)
+        patch.setattr(procs, "_read", lambda *a: pytest.fail("generated tables must not inspect host processes"))
         patch.setattr(procs, "kernel", FakeKernel(
             {pid: procargs(["fixture"]) for pid in rows if table.live(pid)},
             starts={pid: r[3] or None for pid, r in rows.items()}))
         census = Daemon._contain(core, dict(row))
     unreadable_roots = {int(pid) for seeds in after.values() for pid in seeds
                         if int(pid) in rows and not rows[int(pid)][3]}
-    assert census.descendant_pids <= remembered | walk(rows, unreadable_roots)
+    # An unreadable walk row has no identity to persist; it remains an
+    # unverifiable walk anchor, just like an unreadable recorded seed.
+    unreadable_walk = {pid for pid in expected_walk if not rows[pid][3]}
+    assert census.descendant_pids <= remembered | unreadable_walk | walk(rows, unreadable_roots)
+    if census.descendant_pids & unreadable_walk:
+        assert census.unverifiable
     # Every former command is now absent; repeated calls on the same table
     # cannot count as the second observation. A readable live birth survives.
+    # Start a fresh observation pair (as after restart): the generated first
+    # table may itself have already proved a seed absent once.
+    core._counted_absent = {}
     remaining = {pid: r for pid, r in rows.items() if pid in (GUARDIAN, 43)}
     first = procs.ProcessTable(remaining, BOOT_A)
     Daemon._record_owned(core, dict(row), first)

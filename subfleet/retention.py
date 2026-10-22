@@ -823,7 +823,7 @@ class _Pass:
         # owned worktree before renaming it; an in-place directory is never ours.
         if worktree is not None:
             try:
-                cwd_pids = procs.worktree_cwd_pids(worktree)
+                cwd_pids = procs.worktree_cwd_pids(folder)
             except (procs.InspectionError, OSError):
                 reason = "worktree cwd inspection unavailable"
                 self.progress["holder_scan_failed"] = True

@@ -37,3 +37,17 @@ def test_observer_after_move_is_rechecked_before_pruning(owned, monkeypatch, cra
         assert result["pruned"] == []
         assert f"pid {child.pid}: cwd in worktree" in result["deferred"]["job"]
         assert worktree.exists() and store.get_job("job")
+
+
+@pytest.mark.real_cwd
+def test_retention_holds_a_worktree_recorded_with_different_case(owned, monkeypatch):
+    store, root, _, worktree = owned
+    recorded = worktree.with_name(worktree.name.upper())
+    if not recorded.is_dir():
+        pytest.skip("requires case-insensitive APFS")
+    store.update_job("job", worktree=str(recorded))
+    with observer(worktree) as child:
+        monkeypatch.setattr(procs.kernel, "pids", lambda: frozenset({child.pid}))
+        result = retention.maintenance(store, root, max_jobs=0, holders=lambda *a, **k: {})
+        assert result["pruned"] == []
+        assert f"pid {child.pid}: cwd in worktree" in result["deferred"]["job"]

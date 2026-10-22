@@ -107,3 +107,30 @@ def test_real_daemon_rc_zero_after_eight_seconds_keeps_deliverable_with_observer
         child.wait(timeout=10)
     daemon.until(lambda: not daemon.rows("SELECT 1 FROM leases WHERE lease_key=?",
                                          (folders.exclusive_key(worktree),)), timeout=30)
+
+
+def test_counted_and_cwd_evidence_never_authorize_signals_or_release_quarantine(core, monkeypatch):
+    core.term_grace_s = core.kill_settle_s = 0
+    core.store.acquire_lease("worktree:/scratch/owned", JOB)
+    census = procs.Containment(descendant_pids=frozenset({4401}), cwd_pids=frozenset({4500}),
+                               identities={4401: procs.ProcessIdentity(4401, "boot", "start")})
+    core._contain = lambda a: census
+    signals = []
+    monkeypatch.setattr(procs, "signal_group", lambda pgid, sig, **kw: signals.append((pgid, sig)))
+    monkeypatch.setattr(procs, "signal_process", lambda *a, **k: pytest.fail("evidence is not authority"))
+    core._kill_attempt(attempt(core))
+    assert attempt(core)["state"] == "quarantined"
+    assert all(pid == 4242 for pid, _ in signals)
+    assert JOB not in core._pending_worktree_holds()
+    core._release_worktree_hold(JOB)
+    assert core.store.one("SELECT 1 FROM leases WHERE lease_key='worktree:/scratch/owned'")
+
+
+def test_unreadable_cwd_recheck_keeps_terminal_worktree_lease(core, monkeypatch):
+    core.store.update_job(JOB, state="succeeded")
+    core.store.acquire_lease("worktree:/scratch/owned", JOB)
+    def failed(job):
+        raise procs.InspectionError("unreadable")
+    core._worktree_observers = failed
+    core._release_worktree_hold(JOB)
+    assert core.store.one("SELECT 1 FROM leases WHERE lease_key='worktree:/scratch/owned'")
