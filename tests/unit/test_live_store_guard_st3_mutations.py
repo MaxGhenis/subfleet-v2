@@ -74,6 +74,11 @@ MUTANTS = {
     "v1-path-fallback": (
         COMPAT, "    if under_pytest():\n        # D-ST3: PATH's", "    if False:\n        # D-ST3: PATH's",
         "test_the_v1_path_fallback_is_refused", [{"tmp_path": SCRATCH}]),
+    # The link walk begins at `/` again, so a path in this process's own code
+    # under a live root is either looked up through that root or refused.
+    "own-walk-from-slash": (
+        HOMES, "        if parts[:len(head)] == head:\n", "        if False:\n",
+        "test_own_code_inside_a_live_root_is_judged_without_a_call_above_it", [{"tmp_path": SCRATCH}]),
     "no-resolved-spelling": (
         HOMES, " or _same_directory(Path(os.path.realpath(home)), personal)", "",
         "test_a_home_spelled_through_a_link_past_a_missing_component_is_the_accounts",

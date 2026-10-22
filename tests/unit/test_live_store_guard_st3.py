@@ -666,6 +666,36 @@ def test_this_process_s_own_code_is_its_own_inside_a_live_root(tmp_path, monkeyp
         assert home_paths.names_live_root(str(account / STORES[0] / "state.sqlite3")), wide
 
 
+def test_own_code_inside_a_live_root_is_judged_without_a_call_above_it(tmp_path, monkeypatch):
+    """C-20.6 (D-ST3): a path spelled under this process's own code is walked from that code's root.
+
+    A job's checkout sits under ~/.subfleet/worktrees. Walking such a path from
+    `/` looked up the live root and every directory between it and the checkout;
+    now no call lands on any of them. A link inside the code whose absolute
+    target leads back in is followed from the code's root too. Spelled through
+    `..` from the live root instead, the path enters the live root and is refused.
+    """
+    account = tmp_path / "account"
+    own = account / STORES[0] / "worktrees" / "job"
+    (own / "tests").mkdir(parents=True)
+    (own / "again").symlink_to(own / "tests", target_is_directory=True)
+    monkeypatch.setattr(pwd, "getpwuid", lambda uid: SimpleNamespace(pw_dir=str(account), pw_name="st3"))
+    monkeypatch.setattr(home_paths, "_OWN_ROOTS", (str(own),))
+    above = [str(account / STORES[0]), str(account / STORES[0] / "worktrees")]
+    calls = []
+    for name in ("stat", "lstat", "readlink"):
+        def spy(path, *args, _real=getattr(os, name), _name=name, **kwargs):
+            calls.append((_name, os.fsdecode(path)))
+            return _real(path, *args, **kwargs)
+        monkeypatch.setattr(os, name, spy)
+    for allowed in (own / "tests" / "state", own, own / "again" / "state", f"{own}//./tests/x"):
+        assert not home_paths.names_live_root(str(allowed)), allowed
+    refused = account / STORES[0] / "worktrees" / "other" / ".." / "job" / "tests"
+    assert home_paths.names_live_root(str(refused))
+    assert [call for call in calls if call[1].rstrip("/") in above] == []
+    assert ("readlink", str(own / "again")) in calls        # the walk did run, past the own root
+
+
 # --- a HOME spelled `~<account>` ---------------------------------------------------------------
 
 

@@ -312,10 +312,12 @@ def _resolved_kind(path: str, own) -> str | None:
     realpath does; a missing one is kept as spelled. A component that enters a
     live root, judged by its parent (`is_account_home`, a stat of the parent
     alone), ends the walk before any call on it, unless it is this process's own
-    code or the rest of the path, as spelled, leads into it.
+    code. A path spelled under an own root is walked from that root
+    (`_walk_start`), so nothing above it is stat'ed, a live root holding it
+    included.
     """
-    pending = path.split("/")[::-1]
-    resolved, inside, links = "/", False, 0
+    resolved, pending, inside = _walk_start(path, own)
+    links = 0
     while pending:
         name = pending.pop()
         if name in ("", "."):
@@ -326,8 +328,7 @@ def _resolved_kind(path: str, own) -> str | None:
             continue
         candidate = os.path.join(resolved, name)
         entering = inside or (name.casefold() in LIVE_ROOTS and is_account_home(Path(resolved)))
-        if entering and not (_within(candidate, own)
-                             or _within(os.path.normpath(os.path.join(candidate, *reversed(pending))), own)):
+        if entering and not _within(candidate, own):
             return "store"
         try:
             mode = os.lstat(candidate).st_mode
@@ -345,13 +346,33 @@ def _resolved_kind(path: str, own) -> str | None:
             resolved, inside = candidate, entering
             continue
         if target.startswith("/"):
-            resolved, inside = "/", False
+            resolved, pending, inside = _walk_start("/".join([target, *reversed(pending)]), own)
+            continue
         pending.extend(target.split("/")[::-1])
     if _within(resolved, own):
         return None
     if inside:
         return "store"
     return "home" if is_account_home(Path(resolved)) else None
+
+
+def _walk_start(path: str, own) -> tuple[str, list[str], bool]:
+    """Where `_resolved_kind`'s walk of absolute `path` begins: the directory, the
+    components left (last first, as the walk pops them), and whether it is inside
+    a live root.
+
+    An own root is a realpath, so a walk from `/` would reach it unchanged; a path
+    spelled under one, past empty and `.` components, begins there without a call.
+    Any other path begins at `/`. A job's checkout under ~/.subfleet/worktrees is
+    thus walked without a stat of ~/.subfleet; one spelled otherwise (through `..`,
+    a firmlink or another case) enters the live root and is refused.
+    """
+    parts = [part for part in path.split("/") if part not in ("", ".")]
+    for root in own:
+        head = [part for part in root.split("/") if part]
+        if parts[:len(head)] == head:
+            return root, parts[len(head):][::-1], _spelled_kind(root, ()) == "store"
+    return "/", parts[::-1], False
 
 
 def _inside_by_identity(resolved: str) -> bool:
