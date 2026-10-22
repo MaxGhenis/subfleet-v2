@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -16,6 +17,7 @@ from tests.unit.test_daemon_settle import (
 
 
 @pytest.mark.real_cwd
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS in-process cwd read")
 @pytest.mark.parametrize("ending", ["receipt", "start-grace", "leaves-within-window"])
 def test_cwd_only_preserves_outcome_and_holds_only_worktree(core, monkeypatch, ending):
     worktree = core.root / "worktrees" / JOB
@@ -74,6 +76,7 @@ def test_cwd_only_preserves_outcome_and_holds_only_worktree(core, monkeypatch, e
             child.terminate()
             child.wait(timeout=10)
             monkeypatch.setattr(procs.kernel, "pids", lambda: frozenset())
+            now[0] += core.inspect_interval_s
             core._release_worktree_hold(JOB)
             assert not core.store.one("SELECT 1 FROM leases WHERE lease_key=?", (key,))
         assert not json.loads(row["evidence_json"]).get("counted_identities")
@@ -83,6 +86,7 @@ def test_cwd_only_preserves_outcome_and_holds_only_worktree(core, monkeypatch, e
         child.wait(timeout=10)
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS process census")
 def test_real_daemon_rc_zero_after_eight_seconds_keeps_deliverable_with_observer(daemon):
     """The reviewer's rc-0 /bin/sleep input through the real daemon and guardian."""
     from tests.unit.test_retention_worktrees import git

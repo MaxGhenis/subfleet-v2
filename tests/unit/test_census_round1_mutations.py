@@ -2,6 +2,7 @@
 
 import inspect
 import textwrap
+import sys
 
 import pytest
 
@@ -37,6 +38,8 @@ def replace_function(monkeypatch, owner, name, replacements):
 @pytest.mark.parametrize("mutant", ["cwd-quarantines", "never-expire", "one-miss", "raw-paths"])
 def test_round1_mutant_fails_named_regression(mutant, core, monkeypatch, tmp_path):
     if mutant == "cwd-quarantines":
+        if sys.platform != "darwin":
+            pytest.skip("macOS in-process cwd read")
         replace_function(monkeypatch, Daemon, "_finalize", [
             ("if not census.containment_empty:", "if not census.verified_empty:")])
         cwd_outcome(core, monkeypatch, "receipt")

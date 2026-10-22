@@ -2,12 +2,15 @@
 
 from contextlib import ExitStack
 import json
+import sys
 
 import pytest
 
 from subfleet import procs, retention, retention_archive as rarch
 from tests.unit.test_retention_worktrees import owned  # noqa: F401
 from tests.unit.test_retention_worktree_cwd import observer
+
+pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="macOS in-process cwd read")
 
 
 @pytest.mark.real_cwd
