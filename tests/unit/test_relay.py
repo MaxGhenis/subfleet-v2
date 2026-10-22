@@ -52,6 +52,59 @@ def _drain(fd: int) -> bytes:
         return b""
 
 
+@pytest.mark.parametrize("op", ["write", "signal", "close"])
+def test_send_clocks_each_frame_after_connecting_and_before_transmission(tmp_path, monkeypatch, op):
+    from types import SimpleNamespace
+    from subfleet.relay import RelayClient
+
+    client = RelayClient(tmp_path / "unused.sock")
+    events = []
+
+    def connect():
+        events.append("connect")
+        client._sock = SimpleNamespace(sendall=lambda payload: events.append("transmit"))
+        client._reader = SimpleNamespace(readline=lambda cap: b'{"seq":1,"ok":true}\n')
+
+    monkeypatch.setattr(client, "_connect", connect)
+    assert client.send(1, op, line="stop" if op == "write" else None,
+                       sig="INT" if op == "signal" else None,
+                       before_send=lambda: events.append("clock")).ok
+    assert events == ["connect", "clock", "transmit"]
+
+
+@pytest.mark.parametrize("failure", ["connect", "oversized"])
+def test_send_never_clocks_a_frame_that_cannot_reach_transmission(tmp_path, monkeypatch, failure):
+    from subfleet.relay import FrameTooLarge, RelayClient, RelayError
+
+    client = RelayClient(tmp_path / "unused.sock")
+    clocks = []
+
+    def unavailable():
+        raise RelayError("no connection")
+
+    monkeypatch.setattr(client, "_connect", unavailable)
+    if failure == "oversized":
+        client.frame_max = 1
+    with pytest.raises(FrameTooLarge if failure == "oversized" else RelayError):
+        client.send(1, "close", before_send=lambda: clocks.append(True))
+    assert clocks == []
+
+
+def test_a_send_clock_does_not_leak_into_status_or_later_frames(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from subfleet.relay import RelayClient
+
+    client = RelayClient(tmp_path / "unused.sock")
+    clocks = []
+    client._sock = SimpleNamespace(sendall=lambda payload: None)
+    client._reader = SimpleNamespace(readline=lambda cap: b'{"ok":true,"status":{"applied":1}}\n')
+    monkeypatch.setattr(client, "_connect", lambda: None)
+    assert client.send(1, "close", before_send=lambda: clocks.append(True)).ok
+    assert client.status() == {"applied": 1}
+    assert client.send(2, "close").ok
+    assert clocks == [True]
+
+
 def test_frames_apply_once_in_order(server):
     """C-26.4 a frame is written once; a resent number is acknowledged as a duplicate
     and not written again; a gap is refused."""
