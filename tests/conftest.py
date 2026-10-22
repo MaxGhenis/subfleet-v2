@@ -20,7 +20,7 @@ import pytest
 
 from subfleet.home_paths import (
     PYTEST_MARKER, PYTEST_SENTINEL, PYTEST_SESSION, PYTEST_SESSION_ID,
-    SAFE_ENV_REMOVALS, SAFE_HOME_PATHS,
+    SAFE_ENV_REMOVALS, SAFE_HOME_PATHS, remove_credentials, restore_credentials,
 )
 from subfleet.contracts import (
     Credential, ExitInfo, JobSpec, Lane, LaneOwner, Launch, Sandbox,
@@ -45,6 +45,10 @@ def pytest_configure(config):
         for name in ("HOME", "PATH", "UV_CACHE_DIR", PYTEST_MARKER, PYTEST_SESSION, PYTEST_SESSION_ID,
                      *SAFE_HOME_PATHS, *SAFE_ENV_REMOVALS)
     }
+    # D-PRR1: no test, child or report can print a credential the session
+    # inherited, whatever a failing frame holds. Taken after the snapshot
+    # above, so both restore the same values at unconfigure.
+    config._subfleet_removed_credentials = remove_credentials(os.environ)
     base = Path(tempfile.mkdtemp(prefix="sf-test-homes-"))
     token = secrets.token_hex(32)
     with (base / PYTEST_SENTINEL).open("x", encoding="ascii") as sentinel:
@@ -91,6 +95,10 @@ def pytest_unconfigure(config):
             else:
                 os.environ[name] = value
         del config._subfleet_original_home_env
+    removed = getattr(config, "_subfleet_removed_credentials", None)
+    if removed is not None:
+        restore_credentials(os.environ, removed)
+        del config._subfleet_removed_credentials
     if base is not None:
         shutil.rmtree(base, ignore_errors=True)
 
