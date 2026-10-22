@@ -473,7 +473,7 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
     ("cpu_idle_min", -1), ("cpu_idle_min", 1.01), ("cpu_idle_min", True),
     ("cpu_idle_min", None), ("cpu_idle_min", "0.15"), ("cpu_idle_min", []),
     ("cpu_idle_min", float("nan")), ("cpu_idle_min", float("inf")),
-    ("disk_busy_max", 0), ("disk_busy_max", -1), ("disk_busy_max", 1.01),
+    ("disk_busy_max", 0), ("disk_busy_max", -1), 
     ("disk_busy_max", False), ("disk_busy_max", None), ("disk_busy_max", "0.8"),
     ("disk_busy_max", {}), ("disk_busy_max", float("nan")), ("disk_busy_max", float("inf")),
 ])
@@ -485,7 +485,7 @@ def test_machine_signal_thresholds_reject_bad_values_naming_the_key(tmp_path, po
 
 
 @pytest.mark.parametrize("thresholds", [
-    {"cpu_idle_min": 0}, {"cpu_idle_min": 1}, {"disk_busy_max": 1},
+    {"cpu_idle_min": 0}, {"cpu_idle_min": 1}, {"disk_busy_max": 1}, {"disk_busy_max": 25}, {"disk_busy_max": 1e100},
     {"cpu_idle_min": .15, "disk_busy_max": .8, "load_per_cpu": 6, "memory_pressure": "warn"},
 ])
 def test_machine_signals_accept_fraction_boundaries_and_mixed_legacy_keys(tmp_path, policy_data, thresholds):
@@ -493,7 +493,7 @@ def test_machine_signals_accept_fraction_boundaries_and_mixed_legacy_keys(tmp_pa
     assert load_policy(write_policy(tmp_path, policy_data))["admission"]["machine_guard"]["background"] == thresholds
 
 
-@pytest.mark.parametrize("key", ["cpu_idle_min", "disk_busy_max"])
+@pytest.mark.parametrize("key", ["cpu_idle_min", "disk_busy_max", "load_per_cpu"])
 def test_machine_signal_thresholds_reject_oversized_integers(tmp_path, policy_data, key):
     policy_data["admission"] = {"machine_guard": {"background": {key: 10**1000}}}
     with pytest.raises(PolicyError) as caught:
