@@ -19,6 +19,8 @@ def test_first_detached_pass_sees_primed_eighteen_busy_cpus(state_daemon,monkeyp
         calls.append(1)
         return tuple((int(now[0]*100),0,0,0) for _ in range(18))
     real=machine.Sampler
+    legacy_reader=real(clock=lambda:now[0])
+    monkeypatch.setattr(machine,'read',legacy_reader.read)
     monkeypatch.setattr(machine,'Sampler',lambda root=None,history=():real(root,clock=lambda:now[0],history=history))
     monkeypatch.setattr(machine,'_cpu_ticks',ticks)
     monkeypatch.setattr(machine,'_disk_counters',lambda:None)
@@ -57,7 +59,7 @@ def test_status_and_store_expose_aged_samples_and_survive_restart(state_daemon,m
     daemon._start_machine_sampler()
     for _ in range(3):
         now[0]+=1
-        daemon._machine_reading()
+        daemon._admit()  # calibration continues even with an empty queue
     rows=daemon.store.query("SELECT data_json FROM events WHERE kind='machine.sample'")
     assert len(rows)==1
     view=daemon.dispatch('daemon.status',{})['machine_guard']

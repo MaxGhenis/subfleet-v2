@@ -15,12 +15,19 @@ def held(state,chosen,at=0,**reading):
     return scheduler.machine_hold(chosen,state.advance(chosen,dict(reading,sampled_at=at)),'background')
 
 @CI
-@given(SEQ)
-def test_stateful_class_ordering_and_never_held_exemptions(sequence):
-    chosen={'admission':{'machine_guard':{'background':{'cpu_idle_min':.15,'disk_busy_max':4},'session':{'cpu_idle_min':.05,'disk_busy_max':8}}}}
+@given(SEQ,st.booleans())
+def test_stateful_class_ordering_and_never_held_exemptions(sequence,with_disk):
+    chosen={'admission':{'machine_guard':copy.deepcopy(MACHINE_GUARD_PROPOSAL)}}
+    limits=chosen['admission']['machine_guard']
+    if with_disk:
+        limits['background']['disk_busy_max']=4
+        limits['session']['disk_busy_max']=8
+    for exempt in ('attended','priority'):
+        limits[exempt]={'cpu_idle_min':1,'disk_busy_max':.01,'memory_pressure':'warn'}
     state=scheduler.MachineGuard(); now=0
     for dt,idle,disk in sequence:
-        now+=dt; row=state.advance(chosen,{'cpu_idle':idle,'disk_busy':disk,'sampled_at':now})
+        now+=dt; row=state.advance(chosen,{'cpu_idle':idle,'disk_busy':disk,'sampled_at':now,
+            'memory_pressure':None if disk is None else (1,2,4)[int(disk)%3]})
         if scheduler.machine_hold(chosen,row,'session'): assert scheduler.machine_hold(chosen,row,'background')
         for klass in ('attended','priority','unknown'): assert scheduler.machine_hold(chosen,row,klass) is None
 
@@ -84,7 +91,8 @@ def test_release_is_never_earlier_than_hold_plus_ten_seconds(sequence):
         if idle is not None and idle<.15: last_busy=now
         if last_busy is not None and now<last_busy+10 and idle is not None: assert hold
 
-LEGACY=st.one_of(st.none(),st.fixed_dictionaries({'load1':st.one_of(st.none(),st.floats()),'load5':st.one_of(st.none(),st.floats()),'cpus':st.one_of(st.none(),st.integers(-1,256)),'memory_pressure':st.one_of(st.none(),st.integers(-1,10))}))
+LEGACY=st.one_of(st.none(),st.fixed_dictionaries({'load1':st.one_of(st.none(),st.floats()),'load5':st.one_of(st.none(),st.floats()),'cpus':st.one_of(st.none(),st.integers(-1,256)),'memory_pressure':st.one_of(st.none(),st.integers(-1,10)),
+    'cpu_idle':st.one_of(F,BAD),'disk_busy':st.one_of(BAD,st.floats(0,50,allow_nan=False,allow_infinity=False))}))
 @CI
 @given(st.lists(LEGACY,min_size=1,max_size=12),st.sampled_from([None,{},LEGACY_GUARD,{'background':{'load_per_cpu':.01}},{'session':{'memory_pressure':'warn'}}]))
 def test_legacy_only_guard_matches_473fe2941_on_every_generated_reading(readings,guard):
