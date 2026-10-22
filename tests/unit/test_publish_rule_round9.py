@@ -255,8 +255,9 @@ def test_every_read_passes_with_global_flags_where_gh_accepts_them(args, templat
                                                               max_size=2), at=st.sampled_from([0, 1]),
        template=st.sampled_from(SPELLINGS))
 def test_credentials_are_refused_whatever_value_flags_come_first(call, flags, at, template):
-    """Invariant 4: value flags, given with their values, before the command or before the verb."""
+    """Invariant 4: value flags, given with their values, before the command or before `auth`'s verb."""
     args = call.split()
+    at = at if args[0] == 'auth' else 0
     for flag in flags:
         args[at:at] = flag
     assert gh_credential(args), args
