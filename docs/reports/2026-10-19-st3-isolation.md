@@ -517,3 +517,40 @@ h2's skip is `test_host_push_build.py::test_real_repo_admission_pass_measurement
 explicit local-repo benchmark that is skipped by design. h3 also passed 156 tests in
 files it did not finish, and failed none. That attempt never ran the remaining 328
 files; this job's holds ran them all.
+
+## Review round 1: continuation audit (2026-10-22)
+
+The continuation starts at `27c575d9542d`, after the earlier round-1 attempts.
+Its wall starts at 11:11:35 UTC; no new hold starts after 15:41:35 UTC.
+The original checkout was clean. The sandbox permits reading shared Git metadata
+but writing only in this workspace and temporary folders, so this continuation
+commits on `fix/st3-process-isolation-217` in workspace-local `.git-local`
+metadata, with the original objects as read-only alternates. Nothing is pushed.
+
+### Decisions checked against the commits since PR head `aa74cd62a`
+
+| Decision | Existing commits and evidence | Status on arrival |
+|---|---|---|
+| Release merge, keeping both contract histories | `81ef0431d` merges `43f42d83d`, the locally available `origin/release/217`; that ref is an ancestor of `27c575d95` | Done; no fetch or further merge needed |
+| 1. Every override gets the same refusal; deterministic draws and four exact regressions | `5fefefe11`, `b5b9c332d`, `093b061cd`: `checked_override`, raw-read call sites, sorted name draws, explicit review inputs | Code/tests done; resolver table and final runs partly done |
+| 2. Deterministic `~user` overrides and mutant | `5fefefe11`: account name from pwd, `tilde-user-ignored` mutant with control | Done; rerun required |
+| 3. Tilde-spelled account HOME and HOME inside a store | `b5b9c332d`, `093b061cd`: `_tilde_home`, `_home_kind`, bounded waiver and provider-home refusal | Done; rerun required |
+| 4. Refuse v1 PATH fallback under pytest | `b5b9c332d`: `compat.v1_binary`; regression and mutant in `5fefefe11` | Done; rerun required |
+| 5. Explicit live-root overrides; accept_empty wording; PR body | `b5b9c332d`, `093b061cd`, `27c575d95`: lexical/link walk and own-code handling; `66b465a77`: C-20.6 and change log | Code/contract done; PR body not started |
+| 6. Establish daemon condition and report one line | `5fefefe11`, `b5b9c332d`: fresh plain/marked/importing-pytest children, `PersonalPathRefused`, `daemon.run_program` | Code/tests done; report partly done |
+| 7. Static plugin-import check and fresh runtime import check | `5fefefe11`: `pytest_*` imports, import-every-module child | Done; rerun required |
+| Five invariants, complete file counts, final report | Existing tests cover each invariant; original report stops before round 1 | Partly done; completed by this continuation's results below |
+
+The prior scratch folder contains logs but no round-1 report certifying every
+green file, so this continuation reruns all files rather than skipping any on that
+evidence. Earlier build results above remain historical and are not counted as this
+continuation's results.
+
+**Discovery deviations.** The named brief was absent from the assigned checkout.
+Before its full rules were located, one read-only discovery sub-agent was started
+and ended; no further delegation is used. Discovery read job prompts and listed
+directories under `~/.subfleet`, and printed the inherited environment before
+learning the brief forbade those actions. It read no credential file, keychain,
+live store or daemon log, and signalled no live process. Subsequent work uses the
+hub's brief at `~/reviews/subfleet-hub/st3-2026-10-19/` and the required
+`sf-r242f1` scratch folder.
