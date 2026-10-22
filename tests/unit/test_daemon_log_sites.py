@@ -46,7 +46,7 @@ from subfleet.conversations.turn import TurnSpec
 from subfleet.daemon import Daemon
 from subfleet.daemon_log import RECORD_SCRUB_MAX
 from subfleet.procs import Containment
-from tests.fake.conftest import Harness
+from tests.fake.conftest import Harness, process_inspection_available  # noqa: F401 - fixture
 from tests.fake_adapter import FakeAdapter
 from tests.unit.test_conversation_service import SETTINGS, svc  # noqa: F401 - svc: the conversation service fixture
 from tests.unit.test_protocol_secrecy import wire_reply
@@ -365,7 +365,8 @@ def test_under_daemon_start_a_refused_policy_is_exit_2_and_scrubbed_before_any_s
     assert not (root / "daemon.log").exists()
 
 
-def test_under_daemon_start_the_daemon_s_own_refusal_reaches_daemon_log_scrubbed(root, monkeypatch, capsys):
+def test_under_daemon_start_the_daemon_s_own_refusal_reaches_daemon_log_scrubbed(
+        root, monkeypatch, capsys, process_inspection_available):
     """policy.json edited after `daemon start` checked it, before the daemon reads it:
     the daemon's own refusal is exit 2 with its message in daemon.log (C-11.1),
     scrubbed, and `daemon start` prints it in its tail of daemon.log, scrubbed."""
@@ -386,7 +387,8 @@ def test_under_daemon_start_the_daemon_s_own_refusal_reaches_daemon_log_scrubbed
     assert "exited 2" in err and "  | subfleet daemon: " in err
 
 
-def test_under_launchd_a_refused_policy_is_exit_2_and_reaches_daemon_log_scrubbed(root, monkeypatch):
+def test_under_launchd_a_refused_policy_is_exit_2_and_reaches_daemon_log_scrubbed(
+        root, monkeypatch, process_inspection_available):
     """The plist's own program, folder, environment and output paths, as launchd runs
     them; and the tail `daemon install` prints when the socket does not appear."""
     _subfleetd(monkeypatch)

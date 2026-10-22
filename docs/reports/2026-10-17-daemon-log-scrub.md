@@ -1466,3 +1466,43 @@ regressions, mutants, census and timings, then all remaining unit and fake files
 No prior round-7 whole-suite files are skipped: there is no file-by-file green
 report for them. The final ledger below will distinguish completed, interrupted
 and unrun files.
+
+### First completed continuation hold
+
+Slot A ran the combined four briefed groups at 13:34 UTC: **1,653 passed,
+5 skipped, 2 failed**, 363.96 seconds, 1,660 cases across 17 complete files.
+The real-bound first-pass regressions and grammar properties, the anchored-regex
+count tests, tag-free differential and follower/static properties all passed.
+
+Both failures were preconditions of two older real-daemon refusal tests:
+`procs.boot_id()` raised `InspectionError("macOS boot identity is unavailable")`
+before the child reached policy parsing. The launchd-shaped child therefore
+exited 1 rather than its expected policy-refusal exit 2. Five tests in
+`test_daemon_verbs.py` already skip on this host for the same C-5.3 prerequisite.
+The two site tests now request the existing `process_inspection_available`
+fixture; their bodies and assertions are unchanged, and they continue to run
+where boot/process inspection is permitted. The whole site file will be rerun.
+
+| File | Passed | Failed | Skipped |
+|---|---:|---:|---:|
+| `tests/unit/test_daemon_log_handler.py` | 127 | 0 | 0 |
+| `tests/unit/test_daemon_log_sites.py` | 80 | 2 | 0 |
+| `tests/unit/test_daemon_log_scrubbing.py` | 86 | 0 | 0 |
+| `tests/unit/test_daemon_log_cut_windows.py` | 169 | 0 | 0 |
+| `tests/unit/test_daemon_log_tail.py` | 16 | 0 | 0 |
+| `tests/unit/test_daemon_log_reminders.py` | 101 | 0 | 0 |
+| `tests/unit/test_daemon_log_first_pass.py` | 25 | 0 | 0 |
+| `tests/unit/test_round10_refusal_context.py` | 59 | 0 | 0 |
+| `tests/unit/test_handler_refusals.py` | 317 | 0 | 0 |
+| `tests/unit/test_scrub_key_order.py` | 70 | 0 | 0 |
+| `tests/unit/test_sessions_handoff.py` | 117 | 0 | 0 |
+| `tests/unit/test_sessions_handoff_excerpts.py` | 153 | 0 | 0 |
+| `tests/unit/test_cli.py` | 247 | 0 | 0 |
+| `tests/unit/test_daemon_verbs.py` | 15 | 0 | 5 |
+| `tests/unit/test_offline.py` | 33 | 0 | 0 |
+| `tests/fake/test_state_contract.py` | 37 | 0 | 0 |
+| `tests/unit/test_test_module_names.py` | 1 | 0 | 0 |
+
+This first hold totals `tests/unit`: 16 files, 1,616 passed, 2 failed, 5 skipped; `tests/fake`: 1 file, 37 passed. These are first-hold results, before the prerequisite repair.
+
+The contract preservation check found every release clause ID present. C-11.1 and C-26.6 retain this PR's earlier D-LOG1 amendments; every other release clause outside C-25.7 is byte-for-byte present. Every change-log entry from both parents of `74072c7c7` is present.
