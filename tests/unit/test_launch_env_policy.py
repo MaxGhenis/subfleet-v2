@@ -68,7 +68,7 @@ def test_daemon_start_refuses_invalid_env_policy_before_spawn(tmp_path, monkeypa
     policy["env"] = {"pass": ["FOO*"]}
     (tmp_path / "policy.json").write_text(json.dumps(policy))
     monkeypatch.setenv("SUBFLEET_HOME", str(tmp_path))
-    monkeypatch.setattr(cli, "_daemon_alive", lambda *args: False)
+    monkeypatch.setattr(cli, "_daemon_alive", lambda *args, **kwargs: False)
     monkeypatch.setattr(cli.subprocess, "Popen", lambda *args, **kwargs: pytest.fail("invalid policy spawned daemon"))
     assert cli.cmd_daemon_start(SimpleNamespace(state_root=str(tmp_path))) == 2
     assert "env.pass[0]" in capsys.readouterr().err
