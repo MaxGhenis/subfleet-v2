@@ -314,7 +314,9 @@ def test_the_path_wrapper_judges_gh_with_the_same_predicate(tmp_path, monkeypatc
 SHELL_WRITES = [
     ('alias through arch', 'arch -arm64 gh pr new --title t --body b'),
     ('alias after a substitution', '$(command -v gh) pr new --title t --body b'),
-    ('alias after a brace word', '{gh,} pr new -t t -b b'),
+    # zsh parses a brace word in command position (`{g,}h pr new`) as a group and refuses it; the rule
+    # refuses it too (above). A glob word is what zsh expands there.
+    ('alias after a glob word', '{brew}/g[h] pr new -t t -b b'),
     ('flag before the verb through arch', 'arch -arm64 gh pr -R o/r comment 7 --body x'),
     ('flag before the verb after a substitution', '$(command -v gh) pr -R o/r comment 7 --body x'),
     ('flag before the verb after a glob', '{brew}/g? pr -R o/r comment 7 --body x'),
