@@ -369,13 +369,13 @@ def _machine(hold: Mapping[str, Any]) -> str:
     if hold.get("cpu_idle") is not None:
         parts.append(f"CPU idle {hold['cpu_idle']:.1%}, minimum {hold['cpu_idle_min']:.1%}")
     if hold.get("disk_busy") is not None:
-        parts.append(f"disk busy {hold['disk_busy']:.3f} service s/s, maximum {hold['disk_busy_max']:.3f}")
+        parts.append(f"disk service {hold['disk_busy']:.3f} ms/op, maximum {hold['disk_busy_max']:.3f}")
     for signal, label, direction in (("cpu_idle", "CPU idle", "at least"), ("disk_busy", "disk busy", "at most")):
         if f"{signal}_resume" in hold:
             resume = hold[f"{signal}_resume"]
-            target = f"{resume:.1%}" if signal == "cpu_idle" else f"{resume:.3f} service s/s"
+            target = f"{resume:.1%}" if signal == "cpu_idle" else f"{resume:.3f} ms/op"
             parts.append(f"{label} release needs {direction} {target} "
-                         f"for two passes ({hold[f'{signal}_clear_passes']}/2)")
+                         f"for {hold[f'{signal}_release_s']:g} seconds ({hold[f'{signal}_clear_s']:.1f} s clear)")
     return "; ".join(part for part in parts if part) or "busy"
 
 

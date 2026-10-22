@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 from subfleet import machine
+REAL_READ = machine.read
 
 
 def samples(monkeypatch, ticks, disks=None, times=None):
@@ -118,12 +119,13 @@ def test_legacy_read_avoids_new_native_sources(monkeypatch):
     def forbidden(): pytest.fail('new native read in legacy mode')
     monkeypatch.setattr(machine,'_cpu_ticks',forbidden)
     monkeypatch.setattr(machine,'_disk_counters',forbidden)
-    assert 'load1' in machine.read()
+    assert 'load1' in REAL_READ()
 
 
 def test_a_read_starts_no_subprocess_even_on_first_library_load():
     code = '''import sys
 from subfleet import machine
+REAL_READ = machine.read
 seen=[]
 def audit(event,args):
     if event in ('subprocess.Popen','os.system','os.posix_spawn','os.fork','os.forkpty') or event.startswith('os.exec'):
@@ -176,3 +178,17 @@ def test_unreadable_device_does_not_hide_healthy_neighbor(failure):
     storage=object.__new__(machine._Storage); storage.io=registry; storage.cf=registry
     assert set(storage.read()) == {2}
     assert 1 in registry.released
+
+
+@pytest.mark.skipif(sys.platform!='darwin',reason='Mach/IOKit boundary')
+@pytest.mark.parametrize('source',['cpu','disk'])
+def test_review_argumenterror_at_native_call_is_fail_open(monkeypatch,source):
+    def injected(*args): raise ctypes.ArgumentError('review injection')
+    if source=='cpu':
+        monkeypatch.setattr(machine._system(),'host_processor_info',injected)
+        assert machine._cpu_ticks() is None
+    else:
+        storage=machine._Storage()
+        monkeypatch.setattr(storage.io,'IORegistryEntryCreateCFProperty',injected)
+        monkeypatch.setattr(machine,'_iokit',storage)
+        assert machine._disk_counters() is None

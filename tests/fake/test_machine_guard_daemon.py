@@ -3,6 +3,7 @@ import copy
 import json
 import pytest
 from subfleet import machine
+REAL_READ = machine.read
 from subfleet.daemon import Daemon
 from subfleet.policy import MACHINE_GUARD_PROPOSAL
 from tests.fake.test_state_contract import state_daemon  # noqa: F401
@@ -35,6 +36,7 @@ def test_first_detached_pass_sees_primed_eighteen_busy_cpus(state_daemon,monkeyp
 @pytest.mark.parametrize('guard',[None,{'background':{'load_per_cpu':6,'memory_pressure':'warn'}}])
 def test_legacy_policy_does_no_new_native_reads(state_daemon,monkeypatch,guard):
     daemon,harness=state_daemon; daemon.policy['admission']['machine_guard']=guard
+    monkeypatch.setattr(machine,'read',REAL_READ)
     def forbidden(): pytest.fail('new native read under legacy policy')
     monkeypatch.setattr(machine,'_cpu_ticks',forbidden); monkeypatch.setattr(machine,'_disk_counters',forbidden)
     submit(daemon,harness,'legacy',caller_session='gone')
@@ -49,8 +51,8 @@ def test_status_and_store_expose_aged_samples_and_survive_restart(state_daemon,m
     monkeypatch.setattr(machine,'_cpu_ticks',lambda:((int(now[0]*50),0,int(now[0]*50),0),))
     monkeypatch.setattr(machine,'_disk_counters',lambda:{1:(int(now[0]*20e9),0,int(now[0]*10000),0)})
     monkeypatch.setattr(machine.time,'sleep',lambda dt:now.__setitem__(0,now[0]+dt))
+    monkeypatch.setattr(machine,'_state_device_id',lambda _:1)
     daemon._start_machine_sampler()
-    daemon._machine_sampler.device_id=1
     for _ in range(3):
         now[0]+=1
         daemon._machine_reading()

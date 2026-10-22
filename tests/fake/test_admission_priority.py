@@ -173,40 +173,37 @@ def test_c6_13_the_shipped_policy_holds_nothing_for_the_machine(state_daemon, mo
 
 
 def test_mg2_cpu_and_disk_hold_once_per_pass_and_why_reports_recovery(state_daemon, monkeypatch):
-    """Many waiting jobs must not turn one recovery reading into two passes."""
-    from subfleet.policy import MACHINE_GUARD_PROPOSAL as proposal
     daemon, harness = state_daemon
-    daemon.policy["admission"]["machine_guard"] = copy.deepcopy(proposal)
-    reading = dict(QUIET, cpu_idle=.01, disk_busy=.95)
+    daemon.policy["admission"]["machine_guard"] = {
+        "background": {"cpu_idle_min": .15, "disk_busy_max": 4}}
+    reading = dict(QUIET, cpu_idle=.01, disk_busy=5, sampled_at=0)
     calls = []
-
-    def read():
-        calls.append(1)
-        return dict(reading)
-
-    monkeypatch.setattr("subfleet.machine.read", read)
+    class Samples:
+        def read(self):
+            calls.append(1)
+            return dict(reading)
+    daemon._machine_sampler = Samples()
+    daemon._last_machine_sample_wall = time.time()
     jobs = [submit(daemon, harness, f"mg2-{n}", caller_session="gone") for n in range(3)]
-
-    def forbidden(*args, **kwargs):
-        pytest.fail("machine-held admission pass started a subprocess")
-
-    with monkeypatch.context() as admission:
-        admission.setattr(daemon_module.subprocess, "Popen", forbidden)
-        daemon._admit()
+    daemon._admit()
     assert len(calls) == 1 and reservation_order(daemon) == []
     for job in jobs:
         hold = daemon._holds[job]
-        assert hold["cpu_idle"] == .01 and hold["disk_busy"] == .95
+        assert hold["cpu_idle"] == .01 and hold["disk_busy"] == 5
         assert not daemon.store.query("SELECT 1 FROM decisions WHERE job_id=?", (job,))
         why = json.dumps(daemon.dispatch("why", {"job_id": job}))
-        assert "CPU idle 1.0%" in why and "disk busy 0.950" in why
-    reading.update(cpu_idle=.5, disk_busy=.1)
+        assert "CPU idle 1.0%" in why and "ms/op" in why
+    reading.update(cpu_idle=.5, disk_busy=1, sampled_at=1)
     daemon._admit()
     assert len(calls) == 2 and reservation_order(daemon) == []
-    assert "1/2" in json.dumps(daemon.dispatch("why", {"job_id": jobs[0]}))
-    assert len(calls) == 2  # why does not sample or advance hysteresis
+    assert "seconds" in json.dumps(daemon.dispatch("why", {"job_id": jobs[0]}))
+    assert len(calls) == 2
+    reading['sampled_at'] = 1.05
     daemon._admit()
-    assert len(calls) == 3 and reservation_order(daemon) == jobs
+    assert reservation_order(daemon) == []
+    reading['sampled_at'] = 11
+    daemon._admit()
+    assert len(calls) == 4 and reservation_order(daemon) == jobs
 
 
 def _registry(tmp_path, monkeypatch, **fields):

@@ -229,8 +229,8 @@ def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
 #: attempt, the next pilot (C-6.14); null waits for the pilot however long. Five
 #: minutes: the incident's refusals took 78 to 181 s to arrive under its load.
 MACHINE_GUARD_PROPOSAL: dict[str, dict[str, Any]] = {
-    "background": {"cpu_idle_min": .15, "disk_busy_max": .8, "memory_pressure": "warn"},
-    "session": {"cpu_idle_min": .05, "disk_busy_max": .9, "memory_pressure": "critical"},
+    "background": {"cpu_idle_min": .15, "memory_pressure": "warn"},
+    "session": {"cpu_idle_min": .05, "memory_pressure": "critical"},
 }
 #: C-6.17: disk admission is opt-in. GB is decimal (1e9 bytes). A detached
 #: placement needs room for its reserve above the floor; a low refusal latches
@@ -622,17 +622,19 @@ def load_policy(path: str | Path) -> dict[str, Any]:
             if not isinstance(limits, dict) or not limits:
                 fail(where, "must be an object with cpu_idle_min, disk_busy_max, load_per_cpu, or memory_pressure")
             for key, item in limits.items():
-                if key == "load_per_cpu":
-                    if (not isinstance(item, (int, float)) or isinstance(item, bool) or not math.isfinite(item)
-                            or item <= 0):
-                        fail(f"{where}.load_per_cpu", "must be a positive finite number")
+                if key in ("load_per_cpu", "disk_busy_max"):
+                    try:
+                        valid = isinstance(item, (int, float)) and not isinstance(item, bool) and item > 0 and math.isfinite(item)
+                    except OverflowError:
+                        valid = False
+                    if not valid:
+                        fail(f"{where}.{key}", "must be a positive finite number" + (" of ms/op" if key == "disk_busy_max" else ""))
                 elif key == "memory_pressure":
                     if item not in ("warn", "critical"):
                         fail(f"{where}.memory_pressure", "must be \"warn\" or \"critical\"")
-                elif key in ("cpu_idle_min", "disk_busy_max"):
-                    if not _fraction(item) or key == "disk_busy_max" and item == 0:
-                        fail(f"{where}.{key}", "must be a finite fraction between 0 and 1"
-                             + (", greater than 0" if key == "disk_busy_max" else ""))
+                elif key == "cpu_idle_min":
+                    if not _fraction(item):
+                        fail(f"{where}.{key}", "must be a finite fraction between 0 and 1")
                 else:
                     fail(f"{where}.{key}", "is not a guard threshold "
                          "(cpu_idle_min, disk_busy_max, load_per_cpu, memory_pressure)")

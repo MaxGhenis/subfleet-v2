@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import time
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timedelta, timezone
@@ -324,53 +325,68 @@ def _fraction_reading(value: Any) -> bool:
             and 0 <= value <= 1 and math.isfinite(value))
 
 
-# Absolute fractions: 3 percentage points of CPU idle, 10 of disk service time.
+# CPU release is +3 percentage points; disk release is 10% below its ms/op threshold.
 MACHINE_SIGNALS = (("cpu_idle", "cpu_idle_min", .03), ("disk_busy", "disk_busy_max", .10))
+MACHINE_RELEASE_S = 10.0
+
+
+def _signal_reading(signal: str, value: Any) -> bool:
+    if signal == "cpu_idle":
+        return _fraction_reading(value)
+    try:
+        return isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0 and math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 class MachineGuard:
-    """Daemon-owned hysteresis, advanced once per detached pass, never per job.
-
-    New signals release after two consecutive passes beyond their margin.
-    Missing readings clear their own latch immediately. Legacy load/memory
-    remain stateless, preserving existing policy decisions exactly.
+    """One timestamped snapshot per pass. Missing signals preserve latches,
+    interrupt recovery and hold nothing. Only usable clear time releases them.
+    Legacy load/memory remain stateless and exactly compatible.
     """
-
     def __init__(self) -> None:
         self._limits: dict[str, Any] = {}
-        self._latched: dict[tuple[str, str], int] = {}
+        self._latched: dict[tuple[str, str], float | None] = {}
 
     def advance(self, policy: Mapping[str, Any], reading: Mapping[str, Any] | None) -> dict[str, Any]:
         guard = admission_settings(policy).get("machine_guard") or {}
-        limits = {klass: dict(guard[klass]) for klass in ("background", "session") if guard.get(klass)}
+        limits = {k:dict(guard[k]) for k in ("background","session") if guard.get(k)}
         if limits != self._limits:
             self._latched.clear()
             self._limits = limits
         snapshot = dict(reading or {})
+        now = snapshot.get("sampled_at", time.monotonic())
         signals = {}
         for klass, thresholds in limits.items():
             hold = {}
-            for signal, key, margin in MACHINE_SIGNALS:
-                latch = (klass, signal)
-                threshold, value = thresholds.get(key), snapshot.get(signal)
-                if threshold is None or not _fraction_reading(value):
-                    self._latched.pop(latch, None)
+            for signal,key,margin in MACHINE_SIGNALS:
+                latch = klass, signal
+                threshold,value = thresholds.get(key), snapshot.get(signal)
+                if threshold is None:
+                    self._latched.pop(latch,None)
+                    continue
+                if not _signal_reading(signal,value):
+                    if latch in self._latched:
+                        self._latched[latch] = None
                     continue
                 busy = value < threshold if signal == "cpu_idle" else value >= threshold
-                resume = min(1.0, threshold + margin) if signal == "cpu_idle" else max(0.0, threshold - margin)
+                resume = min(1.0,threshold+margin) if signal == "cpu_idle" else threshold*(1-margin)
                 clear = value >= resume if signal == "cpu_idle" else value <= resume
                 if busy:
-                    self._latched[latch] = 0
+                    self._latched[latch] = None
                 elif latch in self._latched:
-                    passes = self._latched[latch] + 1 if clear else 0
-                    if passes >= 2:
+                    if not clear:
+                        self._latched[latch] = None
+                    elif self._latched[latch] is None:
+                        self._latched[latch] = now
+                    elif now-self._latched[latch] >= MACHINE_RELEASE_S:
                         self._latched.pop(latch)
-                    else:
-                        self._latched[latch] = passes
                 if latch in self._latched:
-                    hold.update({signal: value, key: threshold, f"{signal}_resume": resume,
-                                 f"{signal}_clear_passes": self._latched[latch]})
-            signals[klass] = (thresholds, hold)
+                    since = self._latched[latch]
+                    hold.update({signal:value,key:threshold,f"{signal}_resume":resume,
+                                 f"{signal}_clear_s":max(0.0,now-since) if since is not None else 0.0,
+                                 f"{signal}_release_s":MACHINE_RELEASE_S})
+            signals[klass] = thresholds,hold
         snapshot["_machine_guard_signals"] = signals
         return snapshot
 
@@ -410,7 +426,7 @@ def machine_hold(policy: Mapping[str, Any], machine: Mapping[str, Any] | None, k
     else:
         for signal, key, _ in MACHINE_SIGNALS:
             value, threshold = machine.get(signal), limits.get(key)
-            if threshold is not None and _fraction_reading(value):
+            if threshold is not None and _signal_reading(signal,value):
                 busy = value < threshold if signal == "cpu_idle" else value >= threshold
                 if busy:
                     hold.update({signal: value, key: threshold})

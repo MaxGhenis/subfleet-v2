@@ -1,9 +1,7 @@
-"""One subprocess-free machine reading per detached admission pass (C-6.13).
+"""C-6.13: subprocess-free, one-second machine samples and bounded calibration.
 
-CPU idle is a delta of Mach per-CPU ticks, with a 60 s time-constant EWMA.
-Disk busy is the busiest block device's read + write service seconds per wall
-second, bounded at 1; concurrent requests can overlap, so it is a saturation
-proxy, not a physical utilization percentage. Missing signals are always None.
+Disk busy is service milliseconds per operation on the state root's physical
+device. In-flight requests are recorded separately, never capped.
 """
 
 from __future__ import annotations
@@ -12,6 +10,8 @@ import ctypes
 import math
 import os
 import sys
+import stat
+from pathlib import Path
 import time
 from collections.abc import Callable
 from typing import Any
@@ -19,8 +19,13 @@ from typing import Any
 _libc: Any = None
 _iokit: Any = None
 CPU_EWMA_S = 60.0
+DISK_EWMA_S = 60.0
+SAMPLE_INTERVAL_S = 1.0
+DEVICE_LIMIT = 1024
+HISTORY_LIMIT = 1440
+HISTORY_WINDOW_S = 86400.0
 Ticks = tuple[tuple[int, ...], ...]
-DiskCounters = dict[int, tuple[int, int]]
+DiskCounters = dict[int, tuple[int, int, int, int]]
 
 
 def _system() -> Any:
@@ -43,6 +48,8 @@ def _system() -> Any:
         lib.sysctlbyname.argtypes = [ctypes.c_char_p, ctypes.c_void_p,
                                     ctypes.POINTER(ctypes.c_size_t), ctypes.c_void_p, ctypes.c_size_t]
         lib.sysctlbyname.restype = ctypes.c_int
+        lib.devname.argtypes = [ctypes.c_int32, ctypes.c_uint32]
+        lib.devname.restype = ctypes.c_char_p
         _libc = lib
     return _libc
 
@@ -56,7 +63,7 @@ def _sysctl_int(name: str) -> int | None:
         if lib.sysctlbyname(name.encode(), ctypes.byref(value), ctypes.byref(size), None, 0):
             return None
         return int(value.value) if size.value == ctypes.sizeof(value) else None
-    except (OSError, AttributeError, TypeError, ValueError):
+    except Exception:
         return None
 
 
@@ -84,7 +91,7 @@ def _cpu_ticks() -> Ticks | None:
                 lib.vm_deallocate(task, ctypes.cast(data, ctypes.c_void_p).value,
                                   count.value * ctypes.sizeof(ctypes.c_uint32))
             lib.mach_port_deallocate(task, host)
-    except (OSError, AttributeError, TypeError, ValueError):
+    except Exception:
         return None
 
 
@@ -101,6 +108,10 @@ class _Storage:
             (self.io.IOServiceMatching, [ctypes.c_char_p], pointer),
             (self.io.IOServiceGetMatchingServices, [uint, pointer, ctypes.POINTER(uint)], ctypes.c_int),
             (self.io.IOIteratorNext, [uint], uint),
+            (self.io.IOBSDNameMatching, [uint, uint, ctypes.c_char_p], pointer),
+            (self.io.IOServiceGetMatchingService, [uint, pointer], uint),
+            (self.io.IORegistryEntryGetParentEntry, [uint, ctypes.c_char_p, ctypes.POINTER(uint)], ctypes.c_int),
+            (self.io.IOObjectConformsTo, [uint, ctypes.c_char_p], ctypes.c_bool),
             (self.io.IOObjectRelease, [uint], ctypes.c_int),
             (self.io.IORegistryEntryGetRegistryEntryID, [uint, ctypes.POINTER(ctypes.c_uint64)], ctypes.c_int),
             (self.io.IORegistryEntryCreateCFProperty, [uint, pointer, pointer, uint], pointer),
@@ -115,12 +126,47 @@ class _Storage:
         for function, args, result in signatures:
             function.argtypes, function.restype = args, result
 
+    def device_id(self, root: Path) -> int | None:
+        """Walk the state volume's IOService ancestry to its storage driver.
+
+        devname resolves st_dev even for an APFS volume; its registry ancestry
+        crosses the APFS container and partition to the physical storage driver.
+        Only that driver's counters enter the guard. No busiest-device fallback.
+        """
+        io = self.io
+        name = _system().devname(os.stat(root).st_dev, stat.S_IFBLK)
+        if not name:
+            return None
+        matching = io.IOBSDNameMatching(0, 0, name)
+        if not matching:
+            return None
+        device = io.IOServiceGetMatchingService(0, matching)  # consumes matching
+        try:
+            for _ in range(DEVICE_LIMIT):
+                if not device:
+                    return None
+                if io.IOObjectConformsTo(device, b"IOBlockStorageDriver"):
+                    identity = ctypes.c_uint64()
+                    if not io.IORegistryEntryGetRegistryEntryID(device, ctypes.byref(identity)):
+                        return identity.value
+                    return None
+                parent = ctypes.c_uint32()
+                if io.IORegistryEntryGetParentEntry(device, b"IOService", ctypes.byref(parent)):
+                    return None
+                io.IOObjectRelease(device)
+                device = parent.value
+            return None
+        finally:
+            if device:
+                io.IOObjectRelease(device)
+
     def read(self) -> DiskCounters | None:
         io, cf = self.io, self.cf
         keys = []
         iterator = ctypes.c_uint32()
         try:
-            for name in (b"Statistics", b"Total Time (Read)", b"Total Time (Write)"):
+            for name in (b"Statistics", b"Total Time (Read)", b"Total Time (Write)",
+                         b"Operations (Read)", b"Operations (Write)"):
                 key = cf.CFStringCreateWithCString(None, name, 0x08000100)  # UTF-8
                 if not key:
                     return None
@@ -132,7 +178,7 @@ class _Storage:
             if io.IOServiceGetMatchingServices(0, matching, ctypes.byref(iterator)):
                 return None
             result = {}
-            for _ in range(64):  # bound work even on an unexpectedly large registry
+            for _ in range(DEVICE_LIMIT):  # exactly 1,024 entries, including the last
                 device = io.IOIteratorNext(iterator.value)
                 if not device:
                     return result or None
@@ -140,24 +186,28 @@ class _Storage:
                 try:
                     identity = ctypes.c_uint64()
                     if io.IORegistryEntryGetRegistryEntryID(device, ctypes.byref(identity)):
-                        return None
+                        continue
                     stats = io.IORegistryEntryCreateCFProperty(device, keys[0], None, 0)
                     if not stats or cf.CFGetTypeID(stats) != cf.CFDictionaryGetTypeID():
-                        return None
+                        continue
                     counters = []
                     for key in keys[1:]:
                         number = cf.CFDictionaryGetValue(stats, key)
                         value = ctypes.c_int64()
                         if (not number or cf.CFGetTypeID(number) != cf.CFNumberGetTypeID()
                                 or not cf.CFNumberGetValue(number, 4, ctypes.byref(value)) or value.value < 0):
-                            return None
+                            break
                         counters.append(value.value)
-                    result[identity.value] = (counters[0], counters[1])
+                    if len(counters) == 4:
+                        result[identity.value] = tuple(counters)
+                except Exception:
+                    # A disappearing or unreadable neighbor cannot hide this SSD.
+                    continue
                 finally:
                     if stats:
                         cf.CFRelease(stats)
                     io.IOObjectRelease(device)
-            return None
+            return result or None
         finally:
             if iterator.value:
                 io.IOObjectRelease(iterator.value)
@@ -171,60 +221,158 @@ def _disk_counters() -> DiskCounters | None:
         if _iokit is None:
             _iokit = _Storage()
         return _iokit.read()
-    except (OSError, AttributeError, TypeError, ValueError):
+    except Exception:
         return None
 
 
-class Sampler:
-    """A sampling history, owned by the detached admission reader.
 
-    First samples, missing data, changed device/CPU sets, reset counters and
-    nonpositive intervals hold nothing. A lost CPU reading resets its EWMA;
-    stale utilization is never carried across an unreadable interval.
-    """
-
-    def __init__(self, *, clock: Callable[[], float] = time.monotonic) -> None:
-        self._clock = clock
-        self._at: float | None = None
-        self._ticks: Ticks | None = None
-        self._disks: DiskCounters | None = None
-        self._idle: float | None = None
-
-    def read(self) -> dict[str, Any]:
-        started = time.perf_counter()
-        now = self._clock()
-        ticks, disks = _cpu_ticks(), _disk_counters()
-        elapsed = now - self._at if self._at is not None else 0
-        idle = disk = None
-        if elapsed > 0 and ticks and self._ticks and len(ticks) == len(self._ticks):
-            deltas = [tuple((cur - old) & 0xFFFFFFFF for cur, old in zip(current, previous))
-                      for current, previous in zip(ticks, self._ticks)]
-            total = sum(sum(cpu) for cpu in deltas)
-            # A backwards counter is a reset, except for a normal uint32 wrap.
-            if total > 0 and all(delta < 2**31 for cpu in deltas for delta in cpu):
-                raw = sum(cpu[2] for cpu in deltas) / total
-                alpha = -math.expm1(-elapsed / CPU_EWMA_S)
-                idle = raw if self._idle is None else self._idle + alpha * (raw - self._idle)
-        if elapsed > 0 and disks and self._disks and disks.keys() == self._disks.keys():
-            changes = [tuple(current - previous for current, previous in zip(values, self._disks[key]))
-                       for key, values in disks.items()]
-            if all(delta >= 0 for pair in changes for delta in pair):
-                disk = min(1.0, max(sum(pair) for pair in changes) / (elapsed * 1e9))
-        self._at, self._ticks, self._disks, self._idle = now, ticks, disks, idle
-        try:
-            load1, load5, _ = os.getloadavg()
-        except OSError:
-            load1 = load5 = None
-        level = _sysctl_int("kern.memorystatus_vm_pressure_level")
-        return {"load1": load1, "load5": load5, "cpus": os.cpu_count(),
-                "memory_pressure": level if level in (1, 2, 4) else None,
-                "cpu_idle": idle, "disk_busy": disk, "observed_at": time.time(),
-                "read_cost_s": time.perf_counter() - started}
+def _state_device_id(root: Path) -> int | None:
+    global _iokit
+    try:
+        if _iokit is None:
+            _iokit = _Storage()
+        return _iokit.device_id(root)
+    except Exception:
+        return None
 
 
-_sampler = Sampler()
+def _source(function: Callable, *args: Any) -> Any:
+    """Every independent source fails open on Exception, never BaseException."""
+    try:
+        return function(*args)
+    except Exception:
+        return None
+
+
+def _legacy_read() -> dict[str, Any]:
+    """Legacy fields only: null/load/memory policies run no new native source."""
+    started = time.perf_counter()
+    loads = _source(os.getloadavg)
+    level = _source(_sysctl_int, "kern.memorystatus_vm_pressure_level")
+    return {"load1": loads[0] if loads else None, "load5": loads[1] if loads else None,
+            "cpus": _source(os.cpu_count), "memory_pressure": level if level in (1, 2, 4) else None,
+            "observed_at": time.time(), "read_cost_s": time.perf_counter() - started}
 
 
 def read() -> dict[str, Any]:
-    """Read once per detached pass; no subprocess, including the first call."""
-    return _sampler.read()
+    return _legacy_read()
+
+
+class _EWMA:
+    """Bias-corrected, elapsed-time EWMA; a short first sample has short weight."""
+    def __init__(self, tau: float) -> None:
+        self.tau, self.total, self.weight = tau, 0.0, 0.0
+
+    def add(self, value: float, elapsed: float) -> float:
+        alpha = -math.expm1(-elapsed / self.tau)
+        self.total += alpha * (value - self.total)
+        self.weight += alpha * (1.0 - self.weight)
+        return self.total / self.weight
+
+
+class Sampler:
+    """Daemon-owned history; native sources run at most once per second.
+
+    A lost/zero-tick read changes neither the valid baseline nor EWMA. The
+    snapshot marks that source unreadable, so it cannot hold or recover a latch.
+    Quiet baseline: p10 of up to 1,440 minute samples in the preceding 24 hours,
+    on this device. The daemon restores those samples from its bounded events.
+    Baseline is calibration evidence, not an automatically selected threshold.
+    """
+    def __init__(self, root: str | Path | None = None, *, clock: Callable[[], float] = time.monotonic,
+                 history: Any = ()) -> None:
+        self.root = Path(root or Path.cwd())
+        self._clock = clock
+        self.device_id: int | None = None
+        self._polled: float | None = None
+        self._cpu_at: float | None = None
+        self._disk_at: float | None = None
+        self._ticks: Ticks | None = None
+        self._disk: tuple[int, ...] | None = None
+        self._disk_id: int | None = None
+        self._cpu_ewma, self._disk_ewma = _EWMA(CPU_EWMA_S), _EWMA(DISK_EWMA_S)
+        self._snapshot: dict[str, Any] = {}
+        self._latest: dict[str, tuple[Any, float]] = {}
+        self._history = list(history)[-HISTORY_LIMIT:]
+
+    @property
+    def baseline_ms(self) -> float | None:
+        cutoff = time.time() - HISTORY_WINDOW_S
+        values = sorted(row['disk_service_ms_raw'] for row in self._history
+                        if row.get('observed_at', 0) >= cutoff
+                        and (self.device_id is None or row.get('disk_device_id') == self.device_id)
+                        and isinstance(row.get('disk_service_ms_raw'), (int, float))
+                        and row['disk_service_ms_raw'] > 0 and math.isfinite(row['disk_service_ms_raw']))
+        return values[int((len(values)-1)*.1)] if values else None
+
+    def record(self, row: dict[str, Any]) -> None:
+        self._history = (self._history + [dict(row)])[-HISTORY_LIMIT:]
+
+    def prime(self) -> None:
+        # Startup only, before admission is offered. The wait ensures its first
+        # pass has a full sampling interval, while keeping reads <= 1 Hz.
+        self.read()
+        time.sleep(SAMPLE_INTERVAL_S)
+
+    def read(self) -> dict[str, Any]:
+        now = self._clock()
+        if self._polled is not None and now - self._polled < SAMPLE_INTERVAL_S:
+            return dict(self._snapshot)
+        started = time.perf_counter()
+        self._polled = now
+        ticks = _source(_cpu_ticks)
+        disks = _source(_disk_counters)
+        idle = disk = raw_disk = in_flight = None
+        if ticks:
+            if self._ticks and len(ticks) == len(self._ticks):
+                deltas = [tuple((cur-old) & 0xFFFFFFFF for cur, old in zip(cur_cpu, old_cpu))
+                          for cur_cpu, old_cpu in zip(ticks, self._ticks)]
+                total = sum(map(sum, deltas))
+                if total > 0 and all(d < 2**31 for cpu in deltas for d in cpu):
+                    elapsed = now - self._cpu_at
+                    if elapsed > 0:
+                        idle = self._cpu_ewma.add(sum(cpu[2] for cpu in deltas)/total, elapsed)
+                    self._ticks, self._cpu_at = ticks, now
+                elif total > 0:  # reset; a zero delta retains the old baseline
+                    self._ticks, self._cpu_at = ticks, now
+            else:
+                self._ticks, self._cpu_at = ticks, now
+        if self.device_id is None:
+            self.device_id = _source(_state_device_id, self.root)
+        current = (disks or {}).get(self.device_id)
+        if current is not None:
+            if self._disk is not None and self._disk_id == self.device_id:
+                changes = tuple(c-p for c,p in zip(current,self._disk))
+                operations = sum(changes[2:])
+                if all(d >= 0 for d in changes) and operations > 0:
+                    elapsed = now - self._disk_at
+                    raw_disk = sum(changes[:2]) / operations / 1e6
+                    if elapsed > 0:
+                        disk = self._disk_ewma.add(raw_disk,elapsed)
+                        in_flight = sum(changes[:2]) / (elapsed * 1e9)
+                    self._disk, self._disk_at = current, now
+                elif any(d < 0 for d in changes):
+                    self._disk, self._disk_at = current, now
+            else:
+                self._disk, self._disk_at, self._disk_id = current, now, self.device_id
+        row = _legacy_read()
+        row.update(cpu_idle=idle, disk_busy=disk, disk_service_ms_raw=raw_disk,
+                   disk_in_flight=in_flight, disk_device_id=self.device_id,
+                   disk_baseline_ms=self.baseline_ms, sampled_at=now, observed_at=time.time())
+        row['read_cost_s'] = time.perf_counter() - started
+        self._snapshot = row
+        for key in ('cpu_idle','disk_busy','disk_in_flight','disk_baseline_ms','read_cost_s'):
+            if row[key] is not None:
+                self._latest[key] = row[key], row['observed_at']
+        return dict(row)
+
+    def status(self) -> dict[str, Any]:
+        units = {'cpu_idle':'fraction','disk_busy':'ms/op','disk_in_flight':'requests',
+                 'disk_baseline_ms':'ms/op','read_cost_s':'seconds'}
+        result = {key: {'value':self._latest.get(key,(None,None))[0],
+                        'age_s':max(0,time.time()-self._latest[key][1]) if key in self._latest else None,
+                        'unit':unit, 'readable':self._snapshot.get(key) is not None}
+                  for key,unit in units.items()}
+        result.update(sample_interval_s=SAMPLE_INTERVAL_S, disk_device_id=self.device_id,
+                      baseline_samples=len(self._history))
+        return result
