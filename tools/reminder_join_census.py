@@ -7,7 +7,8 @@ margins, reminders and orphans, with reminders between a separator and a quote. 
 the text the tail would cut (`daemon_log._reminders_resolved`) is computed twice:
 
 - `round 6`: reminders taken out whatever the first pass over what is left replaces, as
-  round 6 took them out (the mutation tool's `unconditional-take-out`);
+  round 6 took them out, checking only the margin-free reading's pairs (the mutation
+  tool's `unconditional-take-out`);
 - `round 7`: this tree's, which takes them out only where that pass replaces exactly what
   the original's does outside them, and its margin-free reading the same.
 
@@ -54,17 +55,20 @@ def resolved_round6(text: str):
         patch.undo()
 
 
-def corpora(texts: int) -> None:
+def corpora(texts: int, budget_s: float | None = None) -> int:
     """The same counts over round 6's corpora (`test_daemon_log_reminders.CORPORA`, each
     text's own bound, and the edge generator), whose tags sit on their own lines or between
     pieces: how often a realistic tagged log keeps only the marker now."""
     from tests.unit import test_daemon_log_reminders as reminders
     sources = {name: build for name, build in reminders.CORPORA.items()}
     sources["edge generator"] = lambda rng: reminders.edge_text(rng)[:2]
+    started, leaks = time.monotonic(), 0
     for name, build in sorted(sources.items()):
         rng = random.Random(6000)
         counted = {"texts": 0, "tagged and cut": 0, "r6 falls back": 0, "r7 falls back": 0, "r6 leaks": 0, "r7 leaks": 0}
         for _ in range(texts):
+            if budget_s is not None and time.monotonic() - started > budget_s:
+                break
             text, bound = build(rng)
             counted["texts"] += 1
             saved = daemon_log.RECORD_SCRUB_MAX
@@ -81,7 +85,9 @@ def corpora(texts: int) -> None:
                     counted[f"{key} falls back"] += 1
                 elif shown(resolved) - whole:
                     counted[f"{key} leaks"] += 1
-        print(f"- {name}: " + ", ".join(f"{key} {value:,}" for key, value in counted.items()))
+        leaks += counted["r7 leaks"]
+        print(f"- {name}: " + ", ".join(f"{key} {value:,}" for key, value in counted.items()), flush=True)
+    return int(bool(leaks))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -94,8 +100,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--corpora", type=int, default=0, help="texts of each of round 6's corpora, instead")
     args = parser.parse_args(argv)
     if args.corpora:
-        corpora(args.corpora)
-        return 0
+        return corpora(args.corpora, args.budget_s)
     counts = [int(part) for part in args.counts.split(",")]
     started = time.monotonic()
     totals = {"texts": 0, "tagged": 0, "between": 0, "r6 leaks": 0, "r6 falls back": 0, "r7 leaks": 0,
@@ -134,7 +139,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"- {key}: {value:,}")
     for name, example in examples.items():
         print(f"- first {name} leak: {example[:600]}")
-    return 0
+    return int(bool(totals["r7 leaks"] or totals["r7 tail leaks"]))
 
 
 if __name__ == "__main__":

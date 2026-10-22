@@ -245,7 +245,30 @@ def _unconditional_take_out(patch):
             cursor = tags[closing][1]
         pieces.append(text[cursor:])
         return "".join(pieces), pairs
+
+    def resolved(text):
+        # Round 6 checked the margin-free reading's pairs only. Keeping round 7's
+        # extra comparison of the text left by that reading would strengthen this
+        # historical control, and undercount its leaks and fallbacks in the census.
+        tags = daemon_log.reminder_tags(text)
+        if not tags:
+            return text
+        first = next((start for start, _, opens in tags if opens), None)
+        if first is None or not any(start > first and not opens for start, _, opens in tags):
+            return daemon_log._marked(text, tags)
+        kept, pairs = unconditional(text, tags)
+        if daemon_log._GROUP_MARGIN_LINE.search(text) is not None:
+            bare = daemon_log._margin_free(text)
+            bare_tags = daemon_log.reminder_tags(bare)
+            if len(bare_tags) != len(tags) or unconditional(bare, bare_tags)[1] != pairs:
+                return None
+        kept_tags = daemon_log.reminder_tags(kept)
+        if len(kept_tags) != len(tags) - sum(closing - opening + 1 for opening, closing in pairs):
+            return None
+        return daemon_log._marked(kept, kept_tags)
+
     patch.setattr(daemon_log, "_taken_out", unconditional)
+    patch.setattr(daemon_log, "_reminders_resolved", resolved)
 
 
 def _no_margin_free_check(patch):
