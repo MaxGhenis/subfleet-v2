@@ -22,7 +22,7 @@ No decision needed further implementation changes in this continuation.
 | 3. Publish complete cached probes atomically | **Done** | `acd1e8805`: same-folder temporary copy and `os.replace`, with cleanup. Four cases pass; direct copying to the final name kills all four. Readers use neither size nor digest checks. |
 | 4. Prune old roots of gone processes | **Done** | `21fa297b0`: session-start pruning plus the documented 24-hour rule. Eleven cases pass; treating a live pid as gone kills three named cases. |
 
-There are **no partly implemented or unstarted decisions**. Remaining work is the baseline rerun and the
+There are **no partly implemented or unstarted decisions**. Remaining work, as the build ended, was the baseline rerun and the
 unrun suite cases listed file by file below, plus verification of the two inspection failures in a capable environment.
 
 ## Commits and release integration
@@ -47,10 +47,9 @@ with the resulting document. `git diff --check` passes.
 The KR1-specific implementation changes are under `tests/` and `docs/`. The merge also imports release's
 existing production changes. `.github/workflows/tests.yml` remains unchanged.
 
-Commits are on **`fix/kept-roots-followups-217` in workspace-local `.git-local` metadata**. The shared Git
-metadata is outside the writable sandbox, and its `.git` pointer is read-only too. In this workspace use
-`GIT_DIR="$PWD/.git-local" git log` (or other Git commands) to inspect this history. No shared metadata,
-caller files, remote refs or history were rewritten. **Nothing was pushed.**
+The build's commits were made in workspace-local `.git-local` metadata, since its sandbox could not write the shared
+index. The hub then salvaged them onto `fix/kept-roots-followups-217`, merged release `4f5983f4c` (`cb1803cf6`),
+pushed the branch and opened #247. The section "After review r1" at the end records what followed.
 
 ## Invariants
 
@@ -141,8 +140,9 @@ mode from the compiled binary, so the cached probe stays executable.
 
 - A reader that opened the file before a second writer's rename keeps reading the whole inode it opened.
 
-- One case this does not cover: a *pre-fix* writer killed mid-copy may have left a truncated file under a digest
-  name in a long-lived checkout's `build/`. Fresh Subfleet worktrees and CI runners have no `build/`. If a frontend
+- One case this does not cover: a *pre-fix* writer whose copy failed may have left a truncated file under a digest
+  name in a long-lived checkout's `build/`, whether it was killed mid-copy or hit a write error (#247 review r1 saw
+  an EFBIG failure leave 1 MiB under the final name at the base). Fresh Subfleet worktrees and CI runners have no `build/`. If a frontend
   probe fails to run in an old checkout, delete `build/frontend-probes` once.
 
 **Tests.** `tests/unit/test_frontend_probe_cache.py` replaces the compiler with a stand-in, and `compile_probe`'s
@@ -182,7 +182,7 @@ requires the whole probe.
 
 - If the claimed folder's mtime changed, or its pid answers as alive afterwards, it is renamed back.
 
-- `prune` never raises: a folder it cannot read, claim or remove is left as it is.
+- `prune` never raises. A folder it cannot read or claim is left as it is; one it claims but cannot fully remove is put back under its pid name and not reported removed (#247 review r1, P3-1, fixed by the hub below).
 
 **CI.** Pruning changes nothing there, and the upload is unchanged.
 
@@ -789,3 +789,18 @@ the unstarted baseline queue was interrupted and returned exit 130. The required
 (`sysmond service not found`, exit 3). No unrelated process was signalled.
 
 DONE
+
+## After review r1 (hub, 2026-10-22)
+
+Review r1 (`20261022-121038-pr247-review-r1`) approved `cb1803cf6`, with three P3s.
+- **The baseline rerun is done:** the review ran it (its hold 3). Every new regression fails at `4f5983f4c`: teardown 4 of 4, pruning 11 of 11, cache 4 of 4, and the layout literal.
+- **P3-1, fixed here.** `prune` renamed a folder it claimed but could not fully remove to `.pruning-*`, counted it as removed, and never looked at it again. Now:
+  - a claimed path that is no longer a directory (a symlink swapped in) is put back unremoved;
+  - so is a folder that `rmtree` leaves partly in place, under its pid name, for a later session to retry;
+  - only a folder that is fully gone is reported removed;
+  - a claimed `.pruning-<pid>-<pruner>-<hex>` folder left behind by an interrupted pruner is swept by the same rules: its pruner and pid gone, and older than a day.
+  - **Tests,** in `tests/unit/test_failed_keep_prune.py`, one per executed input: an unreadable folder inside; a symlink swapped in between the check and the claim; and stale, young, live-pruner and oddly named claimed folders.
+  - The docstring and `docs/lanes/README.md` now say exactly this.
+- **P3-2, not here:** a test whose *setup* fails keeps nothing, since the keep condition reads only `rep_call`. It predates this PR, and it's a follow-up.
+- **P3-3:** this report and the PR body no longer say the commits are unpushed, or that the baseline never ran.
+

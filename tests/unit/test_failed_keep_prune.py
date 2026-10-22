@@ -14,6 +14,7 @@ from __future__ import annotations
 import errno
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import threading
 import time
@@ -250,3 +251,58 @@ def test_the_old_root_is_gone_already():
     run = pytester.inline_run("-p", "no:cacheprovider", "-q")
     assert run.ret == 0
     run.assertoutcome(passed=1)
+
+
+# #247 review r1, P3-1: a folder pruning claimed but could not fully remove was left as `.pruning-*`, counted as
+# pruned, and never looked at again.
+
+def test_a_folder_whose_removal_cannot_finish_is_put_back_and_not_reported(tmp_path):
+    """D-KR1: an unreadable folder inside keeps rmtree from finishing; the folder keeps its pid name."""
+    now = time.time_ns()
+    pid = dead_pid()
+    folder = kept_root(tmp_path, str(pid), age_ns=2 * DAY_NS, now_ns=now)
+    locked = folder / "test_x" / "locked"
+    locked.mkdir()
+    (locked / "f").write_text("x")
+    os.chmod(locked, 0)
+    os.utime(folder, ns=(now - 2 * DAY_NS, now - 2 * DAY_NS))
+    try:
+        assert failed_keep.prune(tmp_path, now_ns=now) == []
+        assert folder.is_dir() and graves(tmp_path) == []
+    finally:
+        os.chmod(locked, 0o700)
+
+
+def test_a_symlink_swapped_in_before_the_claim_is_put_back(tmp_path):
+    """D-KR1: what the claim renamed is no longer a directory, so it goes back unremoved, target untouched."""
+    now = time.time_ns()
+    pid = dead_pid()
+    folder = kept_root(tmp_path / "root", str(pid), age_ns=2 * DAY_NS, now_ns=now)
+    target = tmp_path / "outside"
+    target.mkdir()
+    (target / "keep").write_text("mine")
+    swapped = []
+
+    def kill(p, sig):
+        if not swapped:                 # between the check and the claim: the folder becomes a symlink
+            shutil.rmtree(folder)
+            folder.symlink_to(target)
+            os.utime(folder, ns=(now - 2 * DAY_NS, now - 2 * DAY_NS), follow_symlinks=False)
+            swapped.append(True)
+        raise ProcessLookupError
+
+    assert failed_keep.prune(tmp_path / "root", now_ns=now, kill=kill) == []
+    assert folder.is_symlink() and (target / "keep").read_text() == "mine"
+    assert graves(tmp_path / "root") == []
+
+
+def test_a_claimed_folder_left_behind_is_swept_once_its_pruner_is_gone(tmp_path):
+    """D-KR1: a stale `.pruning-*` folder goes by the same rules: pruner and pid gone, older than a day."""
+    now = time.time_ns()
+    gone, gone_pruner = dead_pid(), dead_pid()
+    stale = kept_root(tmp_path, f".pruning-{gone}-{gone_pruner}-0123abcd", age_ns=2 * DAY_NS, now_ns=now)
+    young = kept_root(tmp_path, f".pruning-{gone}-{gone_pruner}-89abcdef", age_ns=DAY_NS // 2, now_ns=now)
+    live_pruner = kept_root(tmp_path, f".pruning-{gone}-{os.getpid()}-fedcba98", age_ns=2 * DAY_NS, now_ns=now)
+    odd = kept_root(tmp_path, ".pruning-notes", age_ns=2 * DAY_NS, now_ns=now)
+    assert failed_keep.prune(tmp_path, now_ns=now) == [stale]
+    assert not stale.exists() and young.is_dir() and live_pruner.is_dir() and odd.is_dir()
