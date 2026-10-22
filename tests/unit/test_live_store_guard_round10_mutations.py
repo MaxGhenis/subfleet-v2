@@ -24,6 +24,10 @@ ROUND10 = "tests/unit/test_live_store_guard_round10.py"
 CREDENTIALS = "subfleet/credentials.py"
 NET = "tests/keychain_standin.py"
 SCRATCH = "{scratch}"  # A fresh directory per case, for a test's tmp_path.
+# The lines the typed-word mutants change: argv decoding in the wrapper check,
+# and the program decoding in the launch search.
+ARGV = "        argv = [os.fsdecode(arg) for arg in argv]\n"
+FIND = '    name = os.fsdecode(name)\n    base = "" if cwd is None else os.fsdecode(cwd)\n'
 
 # name: (file, exact original, replacement, named test, cases). The first three
 # are the review's requested mutations; the rest pin each other rule this round adds.
@@ -74,6 +78,19 @@ MUTANTS = {
     "net-fail-open": (
         NET, 'return f"{event}: the check cannot finish ({type(error).__name__})"', "return None",
         "test_p2_safety_net_refuses_a_check_that_cannot_finish", [[]]),
+    # #245 review r1's P3: the typed-word mutants, each pinned to a fixed example
+    # as well as to the property below, whose catch depends on its seed.
+    "wrapper-drops-typed-words": (
+        CREDENTIALS, ARGV, "        argv = [arg for arg in argv if isinstance(arg, str)]\n",
+        "test_r1_p3_a_wrapper_command_given_as_bytes_or_a_path_is_judged", [["bytes"], ["path"]]),
+    "wrapper-blanks-untyped-words": (
+        CREDENTIALS, ARGV, '        argv = [os.fsdecode(arg) if isinstance(arg, (str, bytes, os.PathLike)) else ""'
+                           " for arg in argv]\n",
+        "test_r1_p3_a_wrapper_argv_word_that_names_nothing_is_refused", [[]]),
+    "typed-program-names-nothing": (
+        CREDENTIALS, FIND,
+        '    name = name if isinstance(name, str) else ""\n    base = "" if cwd is None else os.fsdecode(cwd)\n',
+        "test_r1_p3_a_program_given_as_bytes_or_a_path_is_judged", [["bytes"], ["path"]]),
 }
 
 PROBE = '''
@@ -101,6 +118,7 @@ print("named test passed:", name, len(cases), "cases")
 
 @pytest.mark.parametrize("mutant", MUTANTS)
 def test_round10_mutant_fails_its_named_test(tmp_path, shadow, mutant):
+    """C-20.6 each mutation of the guard or its safety net fails the round-10 test named for it."""
     relative, original, replacement, name, cases = MUTANTS[mutant]
     (shadow / "tests" / "unit").mkdir(exist_ok=True)
     shutil.copyfile(REPO / ROUND10, shadow / ROUND10)
@@ -125,17 +143,13 @@ def test_round10_mutant_fails_its_named_test(tmp_path, shadow, mutant):
 
 # #226 review r2's P3: mutants only the property's typed inputs reach. Each
 # mishandles an argv word or program given as bytes, a path object or neither;
-# the property at 473fe2941, whose words were all text, passed on each.
-ARGV = "        argv = [os.fsdecode(arg) for arg in argv]\n"
-FIND = '    name = os.fsdecode(name)\n    base = "" if cwd is None else os.fsdecode(cwd)\n'
-PROPERTY_MUTANTS = {
-    "wrapper-drops-typed-words": (ARGV, "        argv = [arg for arg in argv if isinstance(arg, str)]\n"),
-    "wrapper-blanks-untyped-words": (
-        ARGV, '        argv = [os.fsdecode(arg) if isinstance(arg, (str, bytes, os.PathLike)) else ""'
-              " for arg in argv]\n"),
-    "typed-program-names-nothing": (
-        FIND, '    name = name if isinstance(name, str) else ""\n    base = "" if cwd is None else os.fsdecode(cwd)\n'),
-}
+# the property at 473fe2941, whose words were all text, passed on each. The
+# property must still catch them; MUTANTS above pins each to a fixed example too.
+# Left out here: wrapper-blanks-untyped-words, which the property caught under
+# only 9 of 30 seeds in #245 review r1's sweep, so its pin would hold by the
+# seed's luck. Its fixed example is the only pin it needs.
+PROPERTY_MUTANTS = {name: MUTANTS[name][1:3]
+                    for name in ("wrapper-drops-typed-words", "typed-program-names-nothing")}
 
 PROPERTY_PROBE = '''
 import sys
@@ -158,6 +172,7 @@ print("property passed")
 
 @pytest.mark.parametrize("mutant", PROPERTY_MUTANTS)
 def test_round10_property_fails_on_each_typed_word_mutant(tmp_path, shadow, mutant):
+    """C-20.6 the property catches a guard that mishandles argv words or programs given as bytes or paths."""
     original, replacement = PROPERTY_MUTANTS[mutant]
     (shadow / "tests" / "unit").mkdir(exist_ok=True)
     shutil.copyfile(REPO / ROUND10, shadow / ROUND10)

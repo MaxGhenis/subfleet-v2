@@ -353,9 +353,12 @@ def out_of_scope(text: str, marker: str) -> list[str]:
 
 
 def test_r2_p3_docstring_and_contract_list_the_same_out_of_scope_items():
-    # #226 review r2's P3: the docstring missed the shell's script operand, and
-    # put every symlink to the reader out of scope, which the guard refuses but
-    # for a wrapper's bare command found through PATH.
+    """C-20.6 the guard's docstring and the clause list the same out-of-scope items.
+
+    #226 review r2's P3: the docstring missed the shell's script operand, and
+    put every symlink to the reader out of scope, which the guard refuses but
+    for a wrapper's bare command found through PATH.
+    """
     contract = (Path(__file__).parents[2] / "docs/acceptance-contract.md").read_text()
     clause = next(line for line in contract.splitlines() if line.startswith("- **C-20.6**"))
     documented = out_of_scope(clause, "Out of scope, requiring isolated inputs")
@@ -366,6 +369,30 @@ def test_r2_p3_docstring_and_contract_list_the_same_out_of_scope_items():
         assert "a shell's script operand" in items
         aliases = next(item for item in items if item.startswith("path aliases"))
         assert "a symlink to the reader that a wrapper's bare command finds through PATH" in aliases, aliases
+
+
+# #245 review r1's P3: fixed examples for argv words and programs given as
+# bytes, a path object or neither. The property draws them too, but whether its
+# fixed seed lands on one depends on the property's source, so the mutation
+# tests pin these instead. Each is a synthetic audit event: nothing starts.
+TYPED_FORMS = {"bytes": os.fsencode, "path": Path}
+
+
+@pytest.mark.parametrize("form", TYPED_FORMS)
+def test_r1_p3_a_wrapper_command_given_as_bytes_or_a_path_is_judged(form):
+    """C-20.6 `arch` running the reader by path is refused when that word is bytes or a path object."""
+    refuses(["arch", "-arm64", TYPED_FORMS[form](READER)])
+
+
+def test_r1_p3_a_wrapper_argv_word_that_names_nothing_is_refused():
+    """C-20.6 a wrapper's argv word that is not text, bytes or a path cannot be judged, so it is refused."""
+    refuses([7, "-arm64", "/usr/bin/true"], program="/usr/bin/arch")
+
+
+@pytest.mark.parametrize("form", TYPED_FORMS)
+def test_r1_p3_a_program_given_as_bytes_or_a_path_is_judged(form):
+    """C-20.6 the reader launched by path is refused when the program is bytes or a path object."""
+    refuses([TYPED_FORMS[form](READER), *QUERY])
 
 
 # The property: env shapes and argument types over direct and wrapped launches.
