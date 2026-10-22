@@ -224,6 +224,17 @@ def exit_info(rc: int, *, wall_s: float = 4.2, spawn_error: str | None = None) -
 
 
 @pytest.fixture(autouse=True)
+def private_attempt_temp_root(tmp_path, monkeypatch):
+    """D-TMP1 allocations in fixture daemons stay in this test's own tree."""
+    from subfleet import attempt_tmp
+    original = attempt_tmp.user_temp_root
+    root = tmp_path / "attempt-user-temp"
+    root.mkdir()
+    monkeypatch.setattr(attempt_tmp, "user_temp_root", lambda: root)
+    return original
+
+
+@pytest.fixture(autouse=True)
 def no_process_listing(request, monkeypatch):
     """Retention lists every process on the machine (`lsof`, design d635) before
     it deletes; under load one listing takes seconds to minutes, and what it

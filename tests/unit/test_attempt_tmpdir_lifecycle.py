@@ -49,6 +49,47 @@ def test_clean_terminal_attempt_is_removed(tmp_path):
     assert not Path(record["path"]).exists()
 
 
+def test_cleanup_does_not_follow_nested_symlinks_or_count_their_targets(tmp_path):
+    scratch = manager(tmp_path)
+    record = scratch.create("job/a1")
+    target = tmp_path / "other-job"
+    target.mkdir()
+    sentinel = target / "venv"
+    sentinel.write_bytes(b"x" * 65536)
+    (Path(record["path"]) / "link").symlink_to(target, target_is_directory=True)
+    assert scratch.size(record) < 65536
+    assert scratch.remove(record, subject(), verified_empty=True)
+    assert sentinel.read_bytes() == b"x" * 65536
+
+
+def test_cleanup_refuses_an_allocation_replaced_by_another_folder(tmp_path):
+    scratch = manager(tmp_path)
+    record = scratch.create("job/a1")
+    path = Path(record["path"])
+    path.rename(scratch.root / "held")
+    path.mkdir()
+    (path / "unrelated").write_text("keep")
+    assert not scratch.remove(record, subject(), verified_empty=True)
+    assert (path / "unrelated").read_text() == "keep"
+
+
+def test_cleanup_reconciles_scratch_removed_by_its_provider(tmp_path):
+    scratch = manager(tmp_path)
+    record = scratch.create("job/a1")
+    shutil.rmtree(record["path"])
+    assert scratch.remove(record, subject(), verified_empty=True)
+
+
+def test_cleanup_refuses_an_allocation_owned_by_someone_else(tmp_path, monkeypatch):
+    scratch = manager(tmp_path)
+    record = scratch.create("job/a1")
+    uid = os.getuid()
+    with monkeypatch.context() as patch:
+        patch.setattr(os, "getuid", lambda: uid + 1)
+        assert not scratch.remove(record, subject(), verified_empty=True)
+    assert Path(record["path"]).exists()
+
+
 def test_sweep_requires_prefix_even_with_valid_creation_record(tmp_path):
     scratch = manager(tmp_path)
     record = scratch.create("job/a1")
@@ -97,7 +138,6 @@ def test_unknown_attempt_waits_24_hours_and_foreign_store_is_untouched(tmp_path)
 def test_removal_error_is_logged_and_sweep_retries(tmp_path, monkeypatch, caplog):
     scratch = manager(tmp_path)
     record = scratch.create("job/a1")
-    original = shutil.rmtree
     with monkeypatch.context() as patch:
         patch.setattr(shutil, "rmtree", lambda *a, **kw: (_ for _ in ()).throw(PermissionError("dummy")))
         assert not scratch.remove(record, subject(), verified_empty=True)
@@ -120,13 +160,14 @@ def test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority(st
         link.symlink_to(protected, target_is_directory=True)
         for operation, index, empty in steps:
             name = f"job-{index}/a1"
+            present = {key for key, record in records.items() if Path(record["path"]).exists()}
             if operation == "start" and name not in states:
                 states[name], empties[name] = subject(name, "running"), False
                 records[name] = scratch.create(name)
                 path = records[name]["path"]
                 assert path not in all_paths
                 all_paths.add(path)
-            elif name in states and operation in {"finalize", "quarantine"}:
+            elif name in present and states[name]["state"] == "running" and operation in {"finalize", "quarantine"}:
                 states[name]["state"] = "succeeded" if operation == "finalize" else "quarantined"
                 empties[name] = empty
                 scratch.remove(records[name], states[name], verified_empty=empty)
@@ -134,7 +175,5 @@ def test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority(st
                 scratch.sweep(states.get, lambda a: empties[a["attempt_id"]])
             for key, row in states.items():
                 if row["state"] in {"running", "quarantined"} or not empties[key]:
-                    # Do not resurrect already removed attempts in the model.
-                    if Path(records[key]["path"]).exists():
-                        assert Path(records[key]["path"]).is_dir()
+                    assert Path(records[key]["path"]).is_dir()
             assert protected.is_dir() and link.is_symlink()

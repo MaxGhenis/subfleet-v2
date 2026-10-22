@@ -48,6 +48,7 @@ from .contracts import (
     TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
 )
 from . import folders
+from .attempt_tmp import job_tmpdirs, probe_tmpdir_rows
 from .retention_holders import ScanFailed, lsof_holders
 from .store import Store
 
@@ -260,6 +261,16 @@ def _pin_reasons(store: Store, explicit: set[str], landed_salvage: set[int] | No
             add(row["job_id"], "gate-review")
         elif row["kind"] == "turn" and turn_keep_s > 0 and not _ended_before(row["finished_at"], kept_since):
             add(row["job_id"], "turn-keep-days")   # C-26.12: kept for days after it ends
+    # Also runs in archive transactions: use durable cleanup receipts, never
+    # filesystem inspection, to preserve each leftover's census authority.
+    for row in store.query(
+            "SELECT job_id FROM attempts WHERE json_valid(evidence_json) "
+            "AND json_type(evidence_json,'$.tmpdir')='object' "
+            "AND json_extract(evidence_json,'$.tmpdir.removed_at') IS NULL"
+            + (" AND job_id=?" if only else ""), params):
+        add(row["job_id"], "attempt-tmpdir")
+    for row in probe_tmpdir_rows(store, job_id=only):
+        add(row["job_id"], "probe-tmpdir")
     for reason, sql in _PIN_QUERIES:
         for row in store.query(sql):
             add(row["job_id"], reason)
@@ -790,6 +801,8 @@ class _Pass:
                 worktree = _owned_worktree(job, self.root)
                 if worktree is not None:
                     size += _size(worktree, cancel=self.cancel)
+                for _, record in job_tmpdirs(self.store, self.root, job_id=job_id):
+                    size += _size(Path(record["path"]), cancel=self.cancel)
             except _Interrupted:
                 raise rarch.Interrupted("cancelled") from None
             except (OSError, ValueError) as exc:

@@ -43,6 +43,7 @@ from . import __version__
 from . import capacity, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, ramp, render, route_check, scheduler
 from . import refusals, resource_leases
 from .actions import demand_verdict
+from .attempt_tmp import AttemptTemp, probe_tmpdir_rows
 from .conversations.store import canonical_native, native_any_case
 from .conversations.peers import peer_token
 from .adapters import claude_mcp
@@ -825,6 +826,7 @@ class Daemon:
                                                          references=self._withheld_references)
         # C-3.7: reads outside a transaction take a read connection, not the store lock.
         self.store = Store(self.root / "state.sqlite3", readers=READ_CONNECTIONS)
+        self._attempt_temp = AttemptTemp(self.root, log=self.log)
         self._disk = disk.DiskAdmission(self.root, recheck_latch=True)
         self._disk.settings = disk_settings(self.policy)
         if self._disk.settings["enabled"]:
@@ -894,6 +896,7 @@ class Daemon:
         self._recovery_complete = threading.Event()
         # C-10.3: the desktop profile answer, at most one per reading window.
         self._desktop_cache: tuple[float, Any] = (0.0, _UNSET)
+        self._sweep_attempt_tmpdirs()
 
     def _release_partial_init(self) -> None:
         """Undo a construction that raised part way (see `_released_on_failure`).
@@ -1214,9 +1217,11 @@ class Daemon:
                   'timer_kind': 'enroll', 'model_id': 'enrollment',
                   'directory': str(directory), 'state': 'reserved', 'created_at': utcnow(),
                   'owned_identities': {}, 'deadline_at': after(timeout)}
+        record['tmpdir'] = self._attempt_temp.create(holder)
         self._save_probe(record)
         package_root = str(Path(__file__).resolve().parent.parent)
         env = self._provider_environment.assemble(env)
+        env['TMPDIR'] = record['tmpdir']['path']
         env.update(SUBFLEET_ATTEMPT=holder, SUBFLEET_ROOT=str(self.root), SUBFLEET_PROBE='1')
         provider_env_args = guardian_pass_args(env)
         read_fd, write_fd = procs.pipe_above_stdio()
@@ -1248,6 +1253,7 @@ class Daemon:
             raise AdapterError('enrollment containment is quarantined; its lane remains fenced', code=7, reason="enroll-quarantined")
         if not receipt:
             raise AdapterError('enrollment ended without an exit receipt', code=5, reason="enroll-receipt")
+        self._cleanup_probe_tmpdir(record)
         rc = receipt.get('rc')
         if rc is None:
             rc = -receipt['signal'] if receipt.get('signal') else 1
@@ -4294,6 +4300,7 @@ class Daemon:
         # oldest first, and says when more is waiting, so a backlog is worked
         # off in catch-up passes seconds apart instead of timing out hourly.
         # Once per retention call (one bounded batch), including interruptions.
+        self._sweep_attempt_tmpdirs()
         try:
             self._prune_service_notices()
         except Exception as exc:
@@ -4920,6 +4927,88 @@ class Daemon:
     def _save_probe(self, record: dict) -> None:
         self.store.add_event("probe.state", job_id=record["job_id"], lane_id=record["lane_id"], data=record)
 
+    def _tmpdir_subject(self, identity: str) -> dict | None:
+        return self.store.get_attempt(identity) or self._probe_record(identity)
+
+    def _sweep_attempt_tmpdirs(self) -> None:
+        try:
+            self._attempt_temp.sweep(self._tmpdir_subject, lambda a: self._contain(a).verified_empty,
+                                     removed=self._record_tmpdir_removed)
+            # A provider may have removed its own folder. Reconcile that case
+            # too, so retention's durable pin cannot outlive the allocation.
+            for a in self.store.query(
+                    "SELECT * FROM attempts WHERE state IN ('succeeded','failed','interrupted','lost','cancelled') "
+                    "AND json_valid(evidence_json) AND json_type(evidence_json,'$.tmpdir')='object' "
+                    "AND json_extract(evidence_json,'$.tmpdir.removed_at') IS NULL"):
+                record = _evidence_key(a["evidence_json"], "tmpdir")
+                if isinstance(record.get("path"), str) and not os.path.lexists(record["path"]):
+                    self._cleanup_attempt_tmpdir(a)
+            for row in probe_tmpdir_rows(self.store):
+                record = json.loads(row["tmpdir"])
+                if isinstance(record.get("path"), str) and not os.path.lexists(record["path"]):
+                    probe = self._probe_record(record["attempt_id"])
+                    if probe:
+                        self._cleanup_probe_tmpdir(probe)
+        except Exception as exc:
+            self.log.warning("TMPDIR sweep deferred: %s", type(exc).__name__)
+
+    def _record_tmpdir_removed(self, record: dict) -> None:
+        actual = self.store.get_attempt(record["attempt_id"])
+        if actual:
+            with self.store.transaction("attempt.tmpdir_removed", job_id=actual["job_id"], attempt_id=record["attempt_id"]) as tx:
+                actual = self.store.get_attempt(record["attempt_id"])
+                evidence = json.loads(actual["evidence_json"] or "{}")
+                current = evidence.get("tmpdir") or {}
+                if all(current.get(key) == record.get(key) for key in ("path", "dev", "ino")):
+                    current["removed_at"] = utcnow()
+                    if "bytes_at_cleanup" in record:
+                        current["bytes_at_cleanup"] = record["bytes_at_cleanup"]
+                    tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?", (json.dumps(evidence), record["attempt_id"]))
+        elif (probe := self._probe_record(record["attempt_id"])) and probe.get("tmpdir", {}).get("path") == record["path"]:
+            probe["tmpdir"]["removed_at"] = utcnow()
+            if "bytes_at_cleanup" in record:
+                probe["tmpdir"]["bytes_at_cleanup"] = record["bytes_at_cleanup"]
+            self._save_probe(probe)
+
+    def _prepare_attempt_tmpdir(self, a: dict) -> str:
+        record = self._attempt_temp.create(a["attempt_id"])
+        with self.store.transaction("attempt.tmpdir", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
+            actual = self.store.get_attempt(a["attempt_id"])
+            evidence = json.loads(actual["evidence_json"] or "{}")
+            evidence["tmpdir"] = record
+            a["evidence_json"] = json.dumps(evidence)
+            tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?", (a["evidence_json"], a["attempt_id"]))
+        return record["path"]
+
+    def _cleanup_attempt_tmpdir(self, a: dict, census=None) -> None:
+        try:
+            actual = self.store.get_attempt(a["attempt_id"])
+            evidence = json.loads(actual["evidence_json"] or "{}")
+            record = evidence.get("tmpdir")
+            if not record:
+                return
+            if census is None:
+                census = self._contain(actual)
+            record["bytes_at_cleanup"] = self._attempt_temp.size(record)
+            with self.store.transaction("attempt.tmpdir_measured", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
+                tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?", (json.dumps(evidence), a["attempt_id"]))
+            if self._attempt_temp.remove(record, actual, verified_empty=census.verified_empty):
+                self._record_tmpdir_removed(record)
+        except Exception as exc:
+            self.log.warning("TMPDIR cleanup deferred for %s: %s", a["attempt_id"], type(exc).__name__)
+
+    def _cleanup_probe_tmpdir(self, record: dict) -> None:
+        try:
+            if record.get("tmpdir"):
+                census = self._probe_census(record)
+                record["tmpdir"]["bytes_at_cleanup"] = self._attempt_temp.size(record["tmpdir"])
+                self._save_probe(record)
+                if self._attempt_temp.remove(record["tmpdir"], record, verified_empty=census.verified_empty):
+                    record["tmpdir"]["removed_at"] = utcnow()
+                    self._save_probe(record)
+        except Exception as exc:
+            self.log.warning("TMPDIR cleanup deferred for %s: %s", record["holder"], type(exc).__name__)
+
     def _probe_census(self, record: dict):
         return self._contain(record)
 
@@ -5026,9 +5115,11 @@ class Daemon:
         """
         record = self._probe_record(holder)
         directory = Path(record["directory"])
+        record["tmpdir"] = self._attempt_temp.create(holder)
+        self._save_probe(record)
         adapter = self._adapter(lane.provider)
         self._validate_home(lane)
-        credential_env = self._credential_environment(lane)
+        credential_env = {**self._credential_environment(lane), "TMPDIR": record["tmpdir"]["path"]}
         prompt = directory / "prompt.md"
         self._publish("probe-prompt", prompt, b"Reply with exactly OK. Do not use tools.\n")
         spec = self._spec(job, kind="probe", workdir=str(directory), prompt_path=str(prompt),
@@ -5043,6 +5134,7 @@ class Daemon:
         safe_launch.pop("env_add")
         self._publish("probe-launch", directory / "launch.json", json_bytes(safe_launch))
         env = self._launch_environment(lane, launch)
+        env["TMPDIR"] = record["tmpdir"]["path"]
         env.update(SUBFLEET_JOB=job["job_id"], SUBFLEET_ATTEMPT=holder, SUBFLEET_ROOT=str(self.root), SUBFLEET_PROBE="1")  # C-5.1, C-11.4
         provider_env_args = guardian_pass_args(env)
         package_root = str(Path(__file__).resolve().parent.parent)
@@ -5117,6 +5209,7 @@ class Daemon:
                                               ReadingLabel.ADMISSION_OBSERVED, "keepalive", sent))
             record.update(state="completed")
             self._save_probe(record)
+            self._cleanup_probe_tmpdir(record)
             self.store.release_leases(record["holder"])
             shutil.rmtree(record["directory"], ignore_errors=True)
             if outcome.cls == OutcomeClass.OK:
@@ -5143,6 +5236,7 @@ class Daemon:
             tx.execute("DELETE FROM leases WHERE holder=?", (record["holder"],))
             tx.execute("UPDATE jobs SET wait_reason='capacity',next_check_at=? WHERE job_id=? AND state='waiting' AND wait_reason='uncertain'",
                        (utcnow(), record["job_id"]))
+        self._cleanup_probe_tmpdir(record)
         shutil.rmtree(record["directory"], ignore_errors=True)
         if outcome.cls == OutcomeClass.OK:
             self._record_answer(record["lane_id"], "probe")        # C-6.14: C-11.4's probe is a model turn
@@ -7464,6 +7558,8 @@ class Daemon:
                     validate_writable_workdir(job.get("worktree") or job["workdir"], timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
             self._validate_home(lane)
             credential_env = self._credential_environment(lane)
+            tmpdir = self._prepare_attempt_tmpdir(a)
+            credential_env = {**credential_env, "TMPDIR": tmpdir}
             spec = self._spec(job, workdir=self._launch_dir(job, lane.provider), prompt_path=str(prompt_path))
             guard_override = None if spec.isolated_review or job["kind"] == "turn" else self._guard_override(
                 adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir), self.root,
@@ -7529,6 +7625,7 @@ class Daemon:
         self._publish("launch", adir / "launch.json", json_bytes(safe_launch))
         self._publish("lane-log", adir / "lane.log", b"")
         env = self._launch_environment(lane, launch)
+        env["TMPDIR"] = tmpdir
         env.update(SUBFLEET_JOB=a["job_id"], SUBFLEET_ATTEMPT=a["attempt_id"], SUBFLEET_ROOT=str(self.root))  # C-5.1 markers
         env.update(self._push_environment(job))
         # The guardian starts in package_root, so `-m` finds Subfleet without
@@ -8038,6 +8135,7 @@ class Daemon:
                 # C-13.1, C-15.1: a retry that never launched names the attempt before it.
                 earlier = self._earlier_attempt(tx, job, before=a["seq"])
                 self._notice(tx, job, (f"attempt a{a['seq']}: " if earlier else "") + detail + earlier)
+        self._cleanup_attempt_tmpdir(a)
         self._notify()
 
     def _defer_after_launch(self, tx, job: dict, exc: SalvageError) -> None:
@@ -8168,6 +8266,7 @@ class Daemon:
                 self._notice(tx, job, f"released from quarantine (attempt a{a['seq']})"
                              + self._salvage_summary(job, artifacts, salvage_evidence), again=True)
             tx.execute("UPDATE attempts SET state=? WHERE attempt_id=?", ("interrupted" if self._job(a["job_id"])["cancel_requested_at"] else "lost", a["attempt_id"]))
+        self._cleanup_attempt_tmpdir(a, census)
         self._notify()
 
     def _lost(self, a: dict) -> None:
@@ -8765,6 +8864,7 @@ class Daemon:
                     # no notice).
                     summary += self._earlier_attempt(tx, job, before=a["seq"])
                 self._notice(tx, job, summary)
+        self._cleanup_attempt_tmpdir(a, census)
         if stream_failure:
             self.log.warning("attempt %s stream capture failed (%s): %s", a["attempt_id"],
                              stream_failure["error_type"], stream_failure["error"])

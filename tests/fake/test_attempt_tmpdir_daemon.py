@@ -7,7 +7,7 @@ import stat
 
 import pytest
 
-from subfleet import procs
+from subfleet import daemon as daemon_module, procs
 from tests.fake.test_launch_env_daemon import daemon_spawn_environment
 from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401
 
@@ -50,8 +50,9 @@ def test_two_live_attempts_never_share_tmpdir(routing_state, monkeypatch, tmp_pa
 def test_finalization_removes_only_clean_attempt_tmpdir(routing_state, monkeypatch, tmp_path, quarantined):
     service, _ = routing_state
     monkeypatch.setattr(service, "_unlaunched", lambda *args, **kwargs: None)
-    _, env = daemon_spawn_environment(routing_state, monkeypatch, "detached",
-                                      extra={"TMPDIR": str(tmp_path / "shared")})
+    with monkeypatch.context() as patch:
+        _, env = daemon_spawn_environment(routing_state, patch, "detached",
+                                          extra={"TMPDIR": str(tmp_path / "shared")})
     folder = Path(env["TMPDIR"])
     assert folder.exists(), "provider must start with its folder already created"
     (folder / "left-behind").write_text("scratch")
@@ -63,5 +64,58 @@ def test_finalization_removes_only_clean_attempt_tmpdir(routing_state, monkeypat
     service._launch_failure(attempt, "dummy failed launch")
     service._finalize(service.store.get_attempt(attempt["attempt_id"]))
     assert folder.exists() == quarantined
+    evidence = json.loads(service.store.get_attempt(attempt["attempt_id"])["evidence_json"])
+    assert bool(evidence["tmpdir"].get("removed_at")) != quarantined
     if quarantined:
         assert service.store.get_attempt(attempt["attempt_id"])["state"] == "quarantined"
+        monkeypatch.setattr(service, "_contain", lambda a: procs.Containment())
+        service._sweep_attempt_tmpdirs()
+        assert folder.exists(), "quarantine needs explicit resolution even after its census clears"
+
+
+def test_retention_cadence_sweeps_even_when_archiving_is_dormant(routing_state, monkeypatch):
+    service, _ = routing_state
+    calls = []
+    monkeypatch.setattr(service, "_sweep_attempt_tmpdirs", lambda: calls.append("swept"))
+    monkeypatch.setenv("SUBFLEET_RETENTION_DORMANT", "1")
+    service._retention()
+    assert calls == ["swept"]
+
+
+def terminal_leftover(routing_state):
+    service, harness = routing_state
+    job_id = service.dispatch("submit", harness.submit_args())["job_id"]
+    service._admit()
+    attempt = service.store.list_attempts(job_id)[0]
+    folder = Path(service._prepare_attempt_tmpdir(attempt))
+    (folder / "left-behind").write_text("dummy scratch")
+    service.store.conn.execute("UPDATE attempts SET state='failed' WHERE attempt_id=?", (attempt["attempt_id"],))
+    service.store.conn.execute("UPDATE jobs SET state='failed' WHERE job_id=?", (job_id,))
+    return attempt, folder
+
+
+def test_daemon_start_sweeps_a_clean_terminal_leftover(routing_state, monkeypatch):
+    service, _ = routing_state
+    attempt, folder = terminal_leftover(routing_state)
+    root = service.root
+    service.close()
+    monkeypatch.setattr(daemon_module.Daemon, "_contain", lambda self, a: procs.Containment())
+    restarted = daemon_module.Daemon(root)
+    try:
+        assert not folder.exists()
+        record = json.loads(restarted.store.get_attempt(attempt["attempt_id"])["evidence_json"])["tmpdir"]
+        assert record["removed_at"] and record["bytes_at_cleanup"] >= len("dummy scratch")
+    finally:
+        restarted.close()
+
+
+def test_daemon_sweep_waits_for_terminal_attempt_census_to_clear(routing_state, monkeypatch):
+    service, _ = routing_state
+    attempt, folder = terminal_leftover(routing_state)
+    monkeypatch.setattr(service, "_contain", lambda a: procs.Containment(unverifiable=True))
+    service._sweep_attempt_tmpdirs()
+    assert folder.exists()
+    monkeypatch.setattr(service, "_contain", lambda a: procs.Containment())
+    service._sweep_attempt_tmpdirs()
+    assert not folder.exists()
+    assert json.loads(service.store.get_attempt(attempt["attempt_id"])["evidence_json"])["tmpdir"]["removed_at"]

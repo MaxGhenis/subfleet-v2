@@ -262,6 +262,10 @@ class DiskAdmission:
         self.snapshot = self._snapshot()
 
     def evidence(self) -> dict[str, float]:
+        # D-TMP1: one placement budget covers all new bytes, worktree and
+        # private TMPDIR together. statvfs already sees both on this volume;
+        # a second reservation for the same bytes would double-count them.
+        # The budget remains provisional, never a per-directory quota.
         return {"bytes": self._bytes("placement_reserve_gb"),
                 "ttl_s": self.settings["reserve_ttl_s"]}
 

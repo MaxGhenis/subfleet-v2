@@ -1,7 +1,5 @@
 """D-TMP1: Claude's writable tool modes explicitly include attempt scratch."""
 
-from pathlib import Path
-
 import pytest
 
 from subfleet.contracts import Sandbox
