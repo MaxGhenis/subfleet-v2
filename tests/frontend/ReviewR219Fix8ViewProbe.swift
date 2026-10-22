@@ -276,6 +276,21 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
             scene.close()
         }
 
+        // A timeline search reveal whose target and end both fit on screen.
+        // The end sentinel stays mounted; a notice must not change its visibility.
+        do {
+            let scene = await Scene("timeline-end", root: root, prior: 30, priorText: plain, tray: [],
+                                    liveText: "the live endneedle request")
+            let activation = await scene.activate("endneedle", item: "person:live")
+            let afterReveal = sample(scene.host)
+            await scene.stream(40)
+            let afterStream = sample(scene.host)
+            await scene.stream(40)
+            out["timeline_end"] = ["activation": activation, "after_reveal": afterReveal,
+                                    "after_stream": afterStream, "after_second_stream": sample(scene.host)]
+            scene.close()
+        }
+
         // C. A new approval card arrives at the end; the person answers; the reply streams.
         do {
             let scene = await Scene("approval-end", root: root, prior: 30, priorText: plain, tray: [])

@@ -30,6 +30,13 @@ def test_tray_reveal_keeps_following_two_40_line_streams(fix8_view):
         assert run[key]["from_end"] <= END, run
 
 
+def test_timeline_reveal_leaving_end_visible_keeps_follow(fix8_view):
+    run = fix8_view["timeline_end"]
+    assert run["activation"]["found"] and run["activation"]["consumed"], run
+    for key in ("after_reveal", "after_stream", "after_second_stream"):
+        assert run[key]["from_end"] <= END, run
+
+
 def test_tray_reveal_during_ten_catchup_pages_keeps_open_at_end(fix8_view):
     for key in ("opening_control", "tray_opening"):
         run = fix8_view[key]
