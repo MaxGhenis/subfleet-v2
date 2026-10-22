@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Combine
 
 // Review r4 of #219: the real ConversationView, UIModel.open and its events loop
 // against a scripted daemon. Measures whether the timeline keeps following its
@@ -390,6 +391,11 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
             let match = results.first { $0.snippet?.itemID == "person:live" }
             var samples: [[String: Any]] = []
             var consumedAt = -1.0
+            // Observe consumption itself. The simulated person's scroll below
+            // awaits layout and can delay the probe's next sampling turn.
+            let consumption = scene.palette.$reveal.dropFirst().sink { value in
+                if value == nil && consumedAt < 0 { consumedAt = Date().timeIntervalSince(started) }
+            }
             var scrolledAt = -1.0
             var afterPerson: Double = -1
             if let match {
@@ -423,6 +429,7 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
                 if consumedAt < 0 && scene.palette.reveal == nil { consumedAt = Date().timeIntervalSince(started) }
                 await settle(scene.host, seconds: 0.5)
             }
+            consumption.cancel()
             NotificationCenter.default.removeObserver(observer)
             let after = samples.filter { ($0["t"] as? Double ?? 0) > scrolledAt && scrolledAt >= 0 }
             out[name] = ["found": match != nil, "consumed_at": consumedAt, "person_scrolled_at": scrolledAt,
@@ -478,8 +485,11 @@ struct ArrivalView: View {
     let observer = NotificationCenter.default.addObserver(forName: .conversationRowScroll, object: nil, queue: .main) { note in
         if note.object as? String == "schedule" { reveals.append(Date().timeIntervalSince(started)) }
     }
-    palette.reveal = SearchReveal(conversationID: "schedule", itemID: "target")
     var consumed = -1.0
+    let consumption = palette.$reveal.dropFirst().sink { value in
+        if value == nil && consumed < 0 { consumed = Date().timeIntervalSince(started) }
+    }
+    palette.reveal = SearchReveal(conversationID: "schedule", itemID: "target")
     for (index, arrival) in schedule.enumerated() {
         while Date().timeIntervalSince(started) < arrival {
             await settle(host, seconds: 0.01)
@@ -491,6 +501,7 @@ struct ArrivalView: View {
     let deadline = Date().addingTimeInterval(2)
     while palette.reveal != nil && Date() < deadline { await settle(host, seconds: 0.01) }
     if consumed < 0 && palette.reveal == nil { consumed = Date().timeIntervalSince(started) }
+    consumption.cancel()
     NotificationCenter.default.removeObserver(observer)
     window.close()
     return ["reveals": reveals, "consumed_at": consumed, "schedule": schedule]

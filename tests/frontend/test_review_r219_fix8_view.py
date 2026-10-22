@@ -1,6 +1,6 @@
 """Fix 8: reviewer r4's tray streams, catch-up pages and busy search reveals."""
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import Phase, example, given, settings, strategies as st
 from tests.frontend.conftest import needs_swift, run_probe, write_json
 from tests.frontend.swift import ROOT, compile_probe
 
@@ -52,10 +52,12 @@ def test_continuous_rows_reveal_at_most_twice(fix8_view, name):
     assert run["max_from_end_after_person"] <= END and run["final"]["from_end"] <= END, run
 
 
-@settings(max_examples=12, deadline=None, derandomize=True)
+@settings(max_examples=12, deadline=None, derandomize=True, phases=(Phase.explicit, Phase.generate))
+@example(schedule=[0, 0, 0, 0.001, 0.137, 0.149, 0.185, 0.263, 0.333, 1.071])
 @given(schedule=st.lists(st.integers(min_value=0, max_value=1800), min_size=0, max_size=18).map(lambda xs: sorted(x / 1000 for x in xs)))
 def test_one_reveal_pair_for_bounded_row_schedules(fix8_view_binary, tmp_path_factory, schedule):
     root = tmp_path_factory.mktemp("fix8-arrivals")
     result = run_probe(fix8_view_binary, root, write_json(root / "schedule.json", schedule), timeout=15)
+    write_json(root / "result.json", result)
     assert len(result["reveals"]) == 2, result
     assert 0 <= result["consumed_at"] <= 1.5, result
