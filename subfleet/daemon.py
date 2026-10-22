@@ -689,6 +689,7 @@ class Daemon:
         # still draining; the exit settle window is measured from there.
         self._exit_settle: dict[str, float] = {}
         self._cwd_settle: dict[str, float] = {}
+        self._cwd_recheck_next: dict[str, float] = {}
         self._counted_tables: dict[str, procs.ProcessTable] = {}
         # C-26.14: attempt id -> transient failures of its end snapshot so far.
         self._tree_failures: dict[str, int] = {}
@@ -4080,12 +4081,21 @@ class Daemon:
 
     def _pending_worktree_holds(self) -> list[str]:
         """Terminal jobs whose worktree lease still needs a cwd recheck, on restart too."""
-        return [row["job_id"] for row in self.store.query(
-            "SELECT job_id FROM jobs WHERE state IN ('succeeded','failed','cancelled','lost') "
+        # Drive this per-tick look from active leases, never the retained jobs.
+        held = {row['job_id'] for row in self.store.query(
+            "WITH held(job_id) AS (SELECT holder FROM leases WHERE lease_key LIKE 'worktree:%' "
+            "UNION SELECT a.job_id FROM leases l CROSS JOIN attempts a ON a.attempt_id=l.holder "
+            "WHERE l.lease_key LIKE 'worktree:%') "
+            "SELECT jobs.job_id FROM held CROSS JOIN jobs ON jobs.job_id=held.job_id "
+            "WHERE state IN ('succeeded','failed','cancelled','lost') "
             "AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.job_id=jobs.job_id AND a.state='quarantined') "
-            "AND (job_id IN (SELECT holder FROM leases WHERE lease_key LIKE 'worktree:%') "
-            "OR job_id IN (SELECT a.job_id FROM attempts a JOIN leases l ON l.holder=a.attempt_id "
-            "WHERE l.lease_key LIKE 'worktree:%'))")]
+        )}
+        clocks = self.__dict__.get('_cwd_recheck_next', {})
+        for job_id in clocks.copy():
+            if job_id not in held:
+                clocks.pop(job_id, None)
+        now = time.monotonic()
+        return sorted(job_id for job_id in held if now >= clocks.get(job_id, 0))
 
     def _worktree_observers(self, job: dict) -> frozenset[int]:
         from .retention_archive import owned_worktree
@@ -4093,10 +4103,19 @@ class Daemon:
         return procs.worktree_cwd_pids(worktree) if worktree is not None else frozenset()
 
     def _release_worktree_hold(self, job_id: str) -> None:
+        clocks = self.__dict__.setdefault('_cwd_recheck_next', {})
+        now = time.monotonic()
+        if now < clocks.get(job_id, 0):
+            return
         job = self._job(job_id)
         if job['state'] not in TERMINAL or self.store.one(
                 "SELECT 1 FROM attempts WHERE job_id=? AND state='quarantined'", (job_id,)):
+            clocks.pop(job_id, None)
             return
+        # Success with a live holder, and an unreadable scan, are both normal
+        # returns: C-5.10's exception backoff does not pace them. Recheck once
+        # per existing inspection interval, measured from before the read.
+        clocks[job_id] = now + self.inspect_interval_s
         try:
             if self._worktree_observers(job):
                 return
@@ -4105,6 +4124,7 @@ class Daemon:
         with self.store.transaction('job.worktree_released', job_id=job_id) as tx:
             tx.execute("DELETE FROM leases WHERE lease_key LIKE 'worktree:%' AND (holder=? "
                        "OR holder IN (SELECT attempt_id FROM attempts WHERE job_id=?))", (job_id, job_id))
+        clocks.pop(job_id, None)
         self._notify()
 
     def _cwd_wait(self, a: dict, census: procs.Containment) -> bool:
