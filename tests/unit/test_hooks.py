@@ -334,8 +334,11 @@ def test_the_hook_command_with_the_daemons_markers_spawns_nothing_and_surfaces_o
         assert "surface me" in result.stdout and "a nudge for a person" not in result.stdout
     assert set(server.ops()) == {"notice.pending", "notice.mark"}
     assert marked == [[1], [1]]
-    table = subprocess.run(["/bin/ps", "-axww", "-o", "command="], capture_output=True,
-                           text=True, timeout=30).stdout
+    try:
+        table = subprocess.run(["/bin/ps", "-axww", "-o", "command="], capture_output=True,
+                               text=True, timeout=30).stdout
+    except PermissionError:
+        pytest.skip("native ps inspection is unavailable; hook output/mark assertions passed")
     assert session not in table, "a sessions-kit worker was spawned for the turn"
 
     control = _hook_process("UserPromptSubmit", {
@@ -553,7 +556,8 @@ def test_post_tool_use_delivers_a_finished_job_with_exit_two(daemon, root):
         payload("PostToolUse", tool_name="Bash",
                 tool_input={"command": "subfleet run -p p.md"},
                 tool_response=f"{JOB}\nrequest=req-1"),
-        root, budget_s=30, stderr=stderr, now=clock, sleep=clock.sleep)
+        # Leave time after the 60-second poll for notice lookup and mark.
+        root, budget_s=65, stderr=stderr, now=clock, sleep=clock.sleep)
     assert code == int(Exit.INVALID_INPUT) == 2
     assert stderr.getvalue().strip() == "demo done"
     # `offered`, not `surfaced`: this transport gets no acknowledgement, so
@@ -917,3 +921,117 @@ def test_timeout_is_explicit_and_overridable(monkeypatch):
     assert hooks.desired_groups("/x/sf hook")["PostToolUse"]["hooks"][0]["timeout"] == 45
     monkeypatch.setenv("SUBFLEET_HOOK_TIMEOUT_S", "junk")
     assert hooks.timeout_s() == 600
+
+
+def test_post_tool_candidate_call_uses_remaining_deadline(root):
+    """C-15.2 the initial list cannot spend more than the whole hook budget."""
+    from types import SimpleNamespace
+    from subfleet.protocol import ProtocolError
+
+    def call(op, args, **kwargs):
+        assert op == 'list' and kwargs['timeout'] <= .6
+        raise ProtocolError('controlled timeout', Exit.OPERATIONAL)
+
+    assert hooks.post_tool_use(payload('PostToolUse', tool_name='Bash'), root,
+                               client=SimpleNamespace(call=call, timeout=15),
+                               budget_s=.6, now=lambda: 0.0) == int(Exit.OK)
+
+
+def test_post_tool_notice_calls_keep_the_remaining_deadline(root):
+    """C-15.2 notice lookup and mark cannot restart a nearly spent hook budget."""
+    import io
+    from types import SimpleNamespace
+    clock, ops = [0.0], []
+
+    def sleep(seconds):
+        clock[0] += seconds
+
+    def call(op, args, **kwargs):
+        assert kwargs['timeout'] <= 65 - clock[0]
+        ops.append(op)
+        clock[0] += .1
+        if op == 'list':
+            return {'jobs': [{'job_id': JOB, 'state': 'running'}]}
+        if op == 'wait':
+            return {'jobs': [{'job_id': JOB, 'state': 'succeeded'}]}
+        if op == 'notice.pending':
+            return {'notices': [notice(1)]}
+        assert op == 'notice.mark'
+        return {}
+
+    assert hooks.post_tool_use(payload('PostToolUse', tool_name='Bash'), root,
+                               client=SimpleNamespace(call=call, root=root, timeout=15),
+                               budget_s=65, now=lambda: clock[0], sleep=sleep,
+                               stderr=io.StringIO()) == int(Exit.INVALID_INPUT)
+    assert ops == ['list', 'wait', 'notice.pending', 'notice.mark']
+    assert clock[0] <= 65
+
+
+def test_post_tool_six_second_timeout_keeps_notice_and_mark(daemon, root):
+    """C-15.2 the reviewer's short command hook surfaces its available notice."""
+    marked = []
+    server = daemon({
+        'list': lambda request: {'jobs': [running_job()]},
+        'wait': lambda request: {'jobs': [finished_job()]},
+        'notice.pending': lambda request: {'notices': [notice(7, text='round four notice')]},
+        'notice.mark': lambda request: marked.append(request.args) or {},
+    })
+    env = {**os.environ, 'SUBFLEET_HOME': str(root), 'PYTHONPATH': str(REPO),
+           'SUBFLEET_HOOK_TIMEOUT_S': '6'}
+    result = _hook_process('PostToolUse', payload('PostToolUse', tool_name='Bash'), env)
+    assert result.returncode == 2, result.stderr
+    assert result.stderr.strip() == 'round four notice'
+    assert server.ops() == ['list', 'wait', 'notice.pending', 'notice.mark']
+    assert marked == [{'session_id': SESSION, 'notice_ids': [7],
+                       'state': 'offered', 'transport': 'hook:PostToolUse'}]
+
+
+@pytest.mark.parametrize('final_poll', [False, True], ids=['immediate', 'at-poll-deadline'])
+def test_terminal_poll_keeps_delivery_reserve(root, final_poll):
+    """C-15.2 terminal replies precede backoff; both notice calls retain time."""
+    from types import SimpleNamespace
+    clock, sleeps, ops = [0.0], [], []
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        clock[0] += seconds
+
+    def call(op, args, **kwargs):
+        ops.append(op)
+        if op == 'wait':
+            assert 0 < args['deadline_s'] <= .5
+            assert kwargs['timeout'] <= .5
+            if final_poll:
+                clock[0] += kwargs['timeout']
+            return {'jobs': [finished_job()]}
+        remaining = 1.0 - clock[0]
+        assert kwargs['timeout'] == pytest.approx(remaining / 2 if op == 'notice.pending' else remaining)
+        clock[0] += kwargs['timeout']   # even a lookup using its whole share leaves time to mark
+        return {'notices': [notice(7)]} if op == 'notice.pending' else {}
+
+    stderr = io.StringIO()
+    code = hooks._wait_and_deliver(SimpleNamespace(call=call, root=root, timeout=15),
+                                  SESSION, JOB, 1.0, stderr=stderr,
+                                  now=lambda: clock[0], sleep=sleep)
+    assert code == 2 and stderr.getvalue().strip() == 'run finished'
+    assert ops == ['wait', 'notice.pending', 'notice.mark']
+    assert sleeps == [] and clock[0] <= 1.0
+
+
+def test_idle_hook_backoff_preserves_delivery_reserve(root):
+    """C-15.2 an empty early poll cannot sleep into the notice reserve."""
+    from types import SimpleNamespace
+    clock, sleeps = [0.0], []
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        clock[0] += seconds
+
+    def call(op, args, **kwargs):
+        assert op == 'wait' and kwargs['timeout'] <= .5
+        clock[0] += .1
+        return {'timeout': True}
+
+    assert hooks._wait_and_deliver(SimpleNamespace(call=call), SESSION, JOB, 1.0,
+                                   stderr=io.StringIO(), now=lambda: clock[0], sleep=sleep) == 0
+    assert clock[0] <= .5 and sum(sleeps) <= .4
