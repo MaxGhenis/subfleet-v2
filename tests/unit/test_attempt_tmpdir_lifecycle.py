@@ -80,6 +80,24 @@ def test_cleanup_reconciles_scratch_removed_by_its_provider(tmp_path):
     assert scratch.remove(record, subject(), verified_empty=True)
 
 
+def test_inaccessible_allocation_is_logged_and_kept_for_retry(tmp_path, monkeypatch, caplog):
+    scratch = manager(tmp_path)
+    record = scratch.create("job/a1")
+    folder = Path(record["path"])
+    original = os.lstat
+
+    def inaccessible(path, *args, **kwargs):
+        if isinstance(path, (str, Path)) and Path(path) == folder:
+            raise PermissionError("dummy allocation inspection failure")
+        return original(path, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(os, "lstat", inaccessible)
+        assert not scratch.remove(record, subject(), verified_empty=True)
+    assert folder.is_dir()
+    assert "PermissionError" in caplog.text
+
+
 def test_cleanup_refuses_an_allocation_owned_by_someone_else(tmp_path, monkeypatch):
     scratch = manager(tmp_path)
     record = scratch.create("job/a1")
