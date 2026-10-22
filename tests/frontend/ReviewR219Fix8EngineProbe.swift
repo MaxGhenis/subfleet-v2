@@ -152,7 +152,7 @@ func ms(_ start: DispatchTime) -> Double { Double(DispatchTime.now().uptimeNanos
             // Switch away and back: the engine opens again, whatever the app already knows.
             daemon.statusIDs = []
             start = DispatchTime.now()
-            let again = try engine.open(.conversation(cid))
+            let again = try engine.open(.conversation(cid), knownMessageIDs: state.knownMessageIDs(in: cid))
             let reopenMS = ms(start)
             start = DispatchTime.now()
             state.apply(open: again)
@@ -176,7 +176,7 @@ func ms(_ start: DispatchTime) -> Double { Double(DispatchTime.now().uptimeNanos
             state.apply(open: try engine.open(.conversation(cid)))
             let first = state.layout(conversationID: cid)!.tray.map(\.id)
             daemon.statusIDs = []
-            state.apply(open: try engine.open(.conversation(cid)))
+            state.apply(open: try engine.open(.conversation(cid), knownMessageIDs: state.knownMessageIDs(in: cid)))
             queues.append(["count": count, "first": first, "again": state.layout(conversationID: cid)!.tray.map(\.id),
                            "reads": daemon.statusIDs.flatMap { $0 }, "batch_sizes": daemon.statusIDs.map(\.count)])
         }

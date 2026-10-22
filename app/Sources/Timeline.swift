@@ -549,8 +549,9 @@ struct Timeline: Equatable {
         guard turns[id] == nil else { return }
         turns[id] = TurnTimeline(messageID: id, state: "sending")
         arrival[id] = arrival.count
+        // A new turn has no sequence yet and the latest arrival index, so it
+        // belongs at the end. Receipts sort once after assigning their sequences.
         order.append(id)
-        sortOrder()
     }
 
     private mutating func sortOrder() {
@@ -835,7 +836,15 @@ struct Timeline: Equatable {
     // MARK: Receipts and the person's own messages
 
     mutating func apply(receipts: [Receipt]) {
-        for receipt in receipts { fold(receipt: receipt) }
+        var orderChanged = false
+        for receipt in receipts {
+            // An unchanged opening snapshot does not re-sort settled history.
+            if receipt.conversation_id == nil || receipt.conversation_id == conversationID {
+                if turns[receipt.message_id]?.seq != receipt.seq { orderChanged = true }
+            }
+            fold(receipt: receipt)
+        }
+        if orderChanged { sortOrder() }
         recordQueuePlacements()
     }
 
@@ -874,7 +883,6 @@ struct Timeline: Equatable {
         }
         Timeline.withdrawIfEnded(&turn)
         turns[receipt.message_id] = turn
-        sortOrder()
     }
 
     /// Retained across receipts, which may beat the first view update.

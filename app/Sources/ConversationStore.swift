@@ -958,7 +958,7 @@ final class ConversationEngine {
     /// Open a conversation or continue a native session (`native:{provider,
     /// session_id}` creates its conversation once). Records the conversation's
     /// last person message for the outbox.
-    func open(_ target: SidebarEntry.Target) throws -> ConversationOpenResult {
+    func open(_ target: SidebarEntry.Target, knownMessageIDs: Set<String> = []) throws -> ConversationOpenResult {
         let args: ConversationOpenArgs
         switch target {
         case .conversation(let id): args = .conversation(id)
@@ -970,7 +970,8 @@ final class ConversationEngine {
             // The wire snapshot has only the latest 50 receipts. Hydrate older
             // identities before the UI can publish an incomplete queue count,
             // even when the launch watch baseline already consumed their changes.
-            let refresh = try refreshConversation(cid, knownMessageIDs: Set(open.messages.map(\.message_id)))
+            let known = knownMessageIDs.union(open.messages.map(\.message_id))
+            let refresh = try refreshConversation(cid, knownMessageIDs: known)
             open.conversation = refresh.conversation
             open.messages += refresh.receipts
             open.messages.sort { ($0.seq ?? Int.max) < ($1.seq ?? Int.max) }

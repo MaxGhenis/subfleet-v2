@@ -433,8 +433,20 @@ final class UIModel: ObservableObject {
         busy = true
         defer { busy = false }
         do {
+            // Capture the app's receipt identities on the main actor before
+            // opening on the outbox queue. Settled history already held here
+            // must not be fetched and folded on each conversation switch.
+            let knownConversationID: String?
+            switch target {
+            case .conversation(let id): knownConversationID = id
+            case .native(let native):
+                knownConversationID = state.conversations.first {
+                    $0.provider == native.provider && $0.native_session_id == native.session_id
+                }?.conversation_id
+            }
+            let known = knownConversationID.map { state.knownMessageIDs(in: $0) } ?? []
             let (result, steers) = try await onOutbox { () throws -> (ConversationOpenResult, [OutboxSteer]) in
-                let open = try engine.open(target)
+                let open = try engine.open(target, knownMessageIDs: known)
                 return (open, engine.outbox.steers(in: open.conversation.conversation_id))
             }
             // The daemon's state is kept either way; the screen moves only if the
