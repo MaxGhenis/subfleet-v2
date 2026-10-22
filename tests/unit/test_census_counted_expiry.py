@@ -42,6 +42,14 @@ def test_a_live_birth_resets_absence_and_is_never_expired():
         assert json.loads(row["evidence_json"])["counted_identities"]["61"] == asdict(ident(61))
 
 
+def test_the_second_absence_after_restart_expires_the_recorded_birth():
+    row = attempt_row(counted_identities={"61": asdict(ident(61))})
+    Daemon._record_owned(core_for(row), dict(row), table())
+    assert "61" in json.loads(row["evidence_json"])["counted_identities"]
+    Daemon._record_owned(core_for(row), dict(row), table())
+    assert "61" not in json.loads(row["evidence_json"])["counted_identities"]
+
+
 def test_claude_shaped_command_groups_reach_a_steady_record_size():
     row, sizes = attempt_row(), []
     core = core_for(row)

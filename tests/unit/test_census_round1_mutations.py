@@ -25,7 +25,8 @@ def replace_function(monkeypatch, owner, name, replacements):
     original = getattr(owner, name)
     source = textwrap.dedent(inspect.getsource(original))
     for before, after in replacements:
-        assert before in source
+        if before not in source:
+            raise RuntimeError(f"mutation target missing: {before}")
         source = source.replace(before, after)
     namespace = {}
     exec(compile(source, f"<mutation:{name}>", "exec"), original.__globals__, namespace)

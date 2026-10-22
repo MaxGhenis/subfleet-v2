@@ -24,8 +24,8 @@ pytestmark = [pytest.mark.skipif(sys.platform != "darwin", reason="macOS in-proc
 
 @pytest.fixture
 def tmp_path():
-    """Place these owned trees physically below /private/tmp for alias coverage."""
-    with tempfile.TemporaryDirectory(prefix="sf-kill3-cwd-", dir="/tmp") as directory:
+    """Keep fixtures inside the hold's TMPDIR, including on a /var temp volume."""
+    with tempfile.TemporaryDirectory(prefix="sf-kill3-cwd-") as directory:
         yield Path(directory).resolve()
 
 
@@ -53,7 +53,7 @@ def observer(folder):
 def test_d_kill3_retention_holds_an_owned_worktree_and_names_only_the_pid(owned, monkeypatch, spelling):
     store, root, _, worktree = owned
     if spelling == "tmp-alias":
-        recorded = Path("/tmp") / worktree.relative_to("/private/tmp")
+        recorded = Path("/tmp") / os.path.relpath(worktree, "/private/tmp")
         assert str(recorded) != str(worktree)
     else:
         recorded = worktree
