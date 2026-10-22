@@ -1388,3 +1388,21 @@ Invariants 10, 20, 22 and 24 are restated in place. Each holds for every input a
 - **20** (what a person reads): what `--follow` writes after its first print hides what the whole log's block hides, within the stated limits; its first print hides what the file's block hides as following starts.
 - **22:** for any log, the tail shows no secret that the whole log's block with its lines kept hides. A file that must be cut keeps its last lines unless it is in one of §1's three cases, where it keeps only the marker.
 - **24:** `quoted_value_spans`, each span replaced by its out, is the first pass's output (`test_spans_are_what_the_scrub_s_first_pass_replaces`, and round 6's property, now over the spans).
+
+### Continuation audit at `e475b9879`
+
+This continuation started at 2026-10-22 11:11 UTC; its last time to start a hold is
+15:41 UTC. The checkout was clean. No history is rewritten and nothing is pushed.
+
+| Brief decision | State on entry | Commits and remaining work |
+|---|---|---|
+| Merge the fetched release, preserving the contract | Done | `74072c7c7` already contains `origin/release/217` (`43f42d83d`), including #223, #232 and #238. Both change logs remain. No fetch or further merge is needed. |
+| P2-1: preserve the first quoted pass, including the margin-free reading | Implemented; validation partly done | Tests `ba250915b`, implementation `d66c4dbe3`, test repairs `2eb068dbb`. The whole first group, census, base regressions and mutants still need completed evidence. |
+| P3-1: anchored quote regex, actual regex reads, measured cost | Implemented; measurements unfinished | The same test and implementation commits contain the regex and meter. `e475b9879` adds measurement shapes and provisional prose. Re-run the count tests and fill the cost table. |
+| P3-2: follow starts with the static tail | Implemented; validation partly done | `d66c4dbe3` changes the CLI and follower; `2eb068dbb` judges the initial print by the initial file. Re-run both properties and the follower mutant. |
+| P3-3: accurate contract and report | Partly done | `e475b9879` corrects C-25.7, invariant 22 and the superseded round-6 argument. The round-7 runs, counts, cost table and final status were not started in the committed report. |
+
+The earlier attempt's scratch contains a first-group run with four failures, repairs
+and selected passing reruns, and an interrupted combined run. It does not provide a
+file-by-file green whole-suite report for round 7. This continuation therefore starts
+with all four briefed groups, then runs every remaining unit and fake file.
