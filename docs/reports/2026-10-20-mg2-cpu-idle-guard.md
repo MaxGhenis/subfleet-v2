@@ -789,11 +789,15 @@ aging question remains open.
 - `eb47f7108`: test: exercise real startup reads, idle-queue sampling and complete read-point cost
 - `2e23816ac`: test: replay recorded disk rates through counter deltas before admission
 
-Final report/PR-body and cleanup commits follow these validation steps.
+- `1b2de4a00`: docs: report round-one guard fixes, measured cost and complete suite counts
+- Final cleanup verification and handoff: this commit.
 All owned foreground pytest, wrapper and measurement roots completed and were
 reaped. No detached process was started. The requested
 `pgrep -fl 'suite_hold.sh|pytest|lockf'` could not enumerate processes in this
 sandbox (`sysmond service not found`); no unrelated process was signalled.
-Scratch and repository cache cleanup: **pending final cleanup step**.
+Scratch cleanup is **verified complete**: the owned `sf-r241f1` folder is absent,
+and repository bytecode caches and `.hypothesis` directories both count zero.
+The specified guarded `shutil.rmtree` cleanup was used; no shared temp folder
+was removed. Read-only owned test directories had traversal restored first.
 Only workspace-local Git metadata is retained for the hub to import. Logs, JSON
 and XML evidence, venv, caches, probes and bundles are not staged.
