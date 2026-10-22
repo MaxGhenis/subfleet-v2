@@ -81,12 +81,14 @@ MUTATIONS = {
 }
 
 # Review r5: an empty steered decision has no standing-refusal evaluations.
+# #223 round 7: permanent retry grace now precedes these checks for disabled
+# lanes. Far operator holds still reach them and release FIFO without grace.
 EMPTY_DUE = ("                            if (not decision.chosen_lane and not rotation\n"
              "                                    and decision_job.get(\"capacity_steer\")\n"
              "                                    and (not decision.evaluations or for_good)):\n")
 EMPTY_MOVED = ("                if (not rotation and decision_job.get(\"capacity_steer\")\n"
                "                        and (not decision.evaluations or moved_for_good)):\n")
-EMPTY_TEST = FAKE + "::test_r6_an_empty_steered_chain_keeps_no_slot_when_all_its_lanes_are_disabled"
+EMPTY_TEST = FAKE + "::test_r7_an_empty_steered_chain_keeps_no_slot_during_a_far_operator_hold"
 ROTATION_TEST = FAKE + "::test_r6_rotation_refusals_never_release_the_waiters_fifo_slot"
 MUTATIONS.update({
     "r6: omit the empty decision at the due-look site": (

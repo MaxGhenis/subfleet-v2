@@ -34,6 +34,7 @@ import pytest
 from subfleet import protocol, refusals
 from subfleet.adapters.base import AdapterError
 from subfleet.contracts import Credential, Lane, LaneOwner
+from subfleet.daemon import Daemon
 from subfleet.conversations import attachments as attachment_module
 from subfleet.conversations import catalog as catalog_module
 from subfleet.conversations import service as service_module
@@ -56,6 +57,15 @@ POLICY = {"models": {"opus": {"provider": "claude", "id": "claude-opus-5-5"}},
 
 
 class FakeDaemon:
+    _job = Daemon._job
+    _running_s = Daemon._running_s
+    _request_cancel = Daemon._request_cancel
+    _cancel_info = Daemon._cancel_info
+    _cancel_requester = staticmethod(Daemon._cancel_requester)
+    _notice = Daemon._notice
+    _earlier_attempt = Daemon._earlier_attempt
+    _start_stop_delivery = Daemon._start_stop_delivery
+
     def __init__(self, root: Path):
         self.root = root
         self.log = logging.getLogger("test-conversations")
@@ -711,8 +721,8 @@ def test_a_real_catalog_run_writes_the_catalog_the_list_reads(svc, monkeypatch, 
 # --- compaction (C-25.4, review IR-6) --------------------------------------------
 
 
-def turn_attempt(svc, message_id: str, *, state: str, n: int) -> str:
-    job_id = f"turn-job-{n}"
+def turn_attempt(svc, message_id: str, *, state: str, n: int, job_id: str | None = None) -> str:
+    job_id = job_id or f"turn-job-{n}"
     svc.daemon.store.add_job(job_id=job_id, request_id=f"turn:{message_id}:{n}", payload_digest="d", kind="turn",
                              workdir="/w", prompt_path="/p", sandbox="read-only", state="running")
     attempt_id = f"{job_id}/a1"
@@ -1428,6 +1438,40 @@ def launched_turn(svc, tmp_path, stdout=(), *, n=0) -> str:
             "cwd": svc.test_workspace, "new_session_id": str(uuid.uuid4())}
     (job / "manifest.json").write_text(json.dumps({TURN_MANIFEST_KEY: turn}))
     return attempt_id
+
+
+@pytest.mark.parametrize("source", ["client", "replay"])
+def test_adoption_audits_stops_before_starting_the_runner(svc, tmp_path, monkeypatch, source):
+    """C-26.6 / C-9.2: client and replayed interrupts share the delivery audit,
+    which is installed before the runner can send anything."""
+    from subfleet.conversations.runner import TurnRunner
+    from subfleet.conversations.turn import Frame
+    from subfleet.relay import Ack
+
+    aid = launched_turn(svc, tmp_path)
+    monkeypatch.setattr(TurnRunner, "start", lambda runner: None)
+    svc._adopt_runners()
+    runner = svc.runners[aid]
+    if source == "client":
+        svc.op_turn_interrupt({"message_id": runner.message_id}, None)
+        assert runner.commands.get_nowait() == ("interrupt",)
+    else:
+        svc.store.request_stop(runner.message_id, stop_at="2026-10-19T00:00:00Z", requester=None)
+        runner.interrupt("stopped")             # the catch-up replay's command
+    frame = Frame("interrupt", "write", '{"type":"control_request"}')
+    runner.outbox.append(frame)
+    def send(seq, op, **kwargs):
+        event = svc.daemon.store.one("SELECT data_json FROM events WHERE attempt_id=? "
+                                    "AND kind='attempt.stop_delivery'", (aid,))
+        assert json.loads(event["data_json"])["signal_pending"] is True
+        if kwargs.get("before_send") is not None:
+            kwargs["before_send"]()
+        return Ack(seq=seq, ok=True)
+    monkeypatch.setattr(runner.relay, "send", send)
+    assert runner._transmit(frame)
+    event = svc.daemon.store.one("SELECT data_json FROM events WHERE attempt_id=? "
+                                "AND kind='attempt.stop_delivery'", (aid,))
+    assert json.loads(event["data_json"])["signal_sent"] is True
 
 
 class Hold:
