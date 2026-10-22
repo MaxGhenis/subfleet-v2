@@ -689,7 +689,7 @@ class Daemon:
         # still draining; the exit settle window is measured from there.
         self._exit_settle: dict[str, float] = {}
         self._cwd_settle: dict[str, float] = {}
-        self._counted_absent: dict[str, tuple[procs.ProcessTable, dict[str, dict]]] = {}
+        self._counted_tables: dict[str, procs.ProcessTable] = {}
         # C-26.14: attempt id -> transient failures of its end snapshot so far.
         self._tree_failures: dict[str, int] = {}
         # C-13.1: attempt id -> transient failures of its salvage so far.
@@ -4136,7 +4136,7 @@ class Daemon:
         for pacing in (self._inspect_next,):
             for aid in [aid for aid in pacing.copy() if aid not in live]:
                 pacing.pop(aid, None)
-        for name in ('_counted_absent', '_cwd_settle'):
+        for name in ('_counted_tables', '_cwd_settle'):
             pacing = self.__dict__.get(name, {})
             for aid in [aid for aid in pacing.copy() if aid not in live]:
                 pacing.pop(aid, None)
@@ -8087,14 +8087,17 @@ class Daemon:
                    (owned, evidence.get("responsible_identities", {}), evidence.get("counted_identities", {}))):
                 counted[str(pid)] = value
         # Two distinct shared tables must prove absence/reuse. An unreadable
-        # birth is no such proof. Keep the first miss only in bounded daemon
-        # memory: a restart conservatively starts its two observations again.
-        history = getattr(self, '_counted_absent', None)
+        # birth is no such proof. Persist the first miss beside its birth so
+        # a restart cannot turn repeated short inspections into growing memory.
+        # Only table deduplication is in memory; a restart reads a new table.
+        history = getattr(self, '_counted_tables', None)
         if history is None:
-            history = self._counted_absent = {}
-        previous_table, previous = history.get(a['attempt_id'], (None, {}))
+            history = self._counted_tables = {}
+        previous = evidence.get('counted_absent', {})
+        previous_table = history.get(a['attempt_id'])
         absent = {}
         expired = {}
+        aging = False
         if previous_table is not table:
             for pid_text, known in evidence.get('counted_identities', {}).items():
                 pid = int(pid_text)
@@ -8104,11 +8107,13 @@ class Daemon:
                     absent[pid_text] = known
                     if previous.get(pid_text) == known:
                         expired[pid_text] = known
-            history[a['attempt_id']] = (table, absent)
+            absent = {pid: value for pid, value in absent.items() if pid not in expired}
+            aging = absent != previous
         for key, kind, found in (("owned_identities", "attempt.processes_recorded", fresh_owned),
                                   ("counted_identities", "attempt.counted_recorded", counted)):
             dropping = expired if key == 'counted_identities' else {}
-            if not found and not dropping:
+            age_changed = key == 'counted_identities' and aging
+            if not found and not dropping and not age_changed:
                 continue
             with self.store.transaction(kind, job_id=a["job_id"], attempt_id=a["attempt_id"],
                                         data={"pids": sorted(map(int, found)),
@@ -8120,9 +8125,17 @@ class Daemon:
                 current[key] = {pid: value for pid, value in current.get(key, {}).items()
                                 if dropping.get(pid) != value}
                 current[key].update(found)
+                if key == 'counted_identities' and previous_table is not table:
+                    current['counted_absent'] = {pid: value for pid, value in absent.items()
+                                                if current[key].get(pid) == value and pid not in found}
+                    if not current['counted_absent']:
+                        current.pop('counted_absent')
                 a["evidence_json"] = json.dumps(current)
                 tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
                            (a["evidence_json"], a["attempt_id"]))
+        # A failed write must repeat this observation, rather than publishing
+        # a table whose first-miss state never reached the store.
+        history[a['attempt_id']] = table
 
     def _unlaunched(self, a: dict, detail: str, *, deferred: SalvageError | None = None,
                     census: procs.Containment | None = None) -> None:

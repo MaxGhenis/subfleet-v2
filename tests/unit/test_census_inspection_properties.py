@@ -103,9 +103,12 @@ def test_inspection_ownership_memory_census_and_expiry(observation):
         assert census.unverifiable
     # Every former command is now absent; repeated calls on the same table
     # cannot count as the second observation. A readable live birth survives.
-    # Start a fresh observation pair (as after restart): the generated first
-    # table may itself have already proved a seed absent once.
-    core._counted_absent = {}
+    # Start a fresh observation pair: the generated first table may itself
+    # already have proved a seed absent. Restart durability has its own test.
+    reset = json.loads(row['evidence_json'])
+    reset.pop('counted_absent', None)
+    row['evidence_json'] = json.dumps(reset)
+    core._counted_tables = {}
     remaining = {pid: r for pid, r in rows.items() if pid in (GUARDIAN, 43)}
     first = procs.ProcessTable(remaining, BOOT_A)
     Daemon._record_owned(core, dict(row), first)
