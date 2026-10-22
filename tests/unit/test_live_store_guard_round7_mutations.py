@@ -47,7 +47,7 @@ MUTANTS = {
         'raise PermissionError(_REFUSAL)', 'code'),
     'm13-home-root': (HOMES, 'return (home / ".subfleet").resolve()',
         'return (provider_home() / ".subfleet").resolve()', 'home-root'),
-    'm14-account-refusal': (HOMES, 'if under_pytest() and is_account_home(home):', 'if False:', 'account'),
+    'm14-account-refusal': (HOMES, 'if under_pytest() and personal_home(home):', 'if False:', 'account'),
     'm15-account-identity': (HOMES,
         'return _same_directory(home, personal) or _same_directory(Path(os.path.realpath(home)), personal)',
         'return False', 'account-alias'),
@@ -155,6 +155,8 @@ elif kind in ('account', 'account-alias'):
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(pwd, 'getpwuid', lambda uid: SimpleNamespace(pw_dir=str(account)))
         patch.setenv('HOME', str(alias if kind == 'account-alias' else account))
+        # D-ST3's link walk also follows the alias, so ask the identity check itself.
+        assert home_paths.is_account_home(Path(os.environ['HOME']))
         with untouchable(patch, account / '.subfleet'):
             try:
                 home_paths.production_state_root()

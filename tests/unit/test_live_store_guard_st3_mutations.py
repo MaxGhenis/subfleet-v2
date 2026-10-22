@@ -25,6 +25,7 @@ GUARD = "tests/unit/test_live_store_guard.py"
 HOMES = "subfleet/home_paths.py"
 COMPAT = "subfleet/compat.py"
 PRUNE = "subfleet/prune_decisions.py"
+MCP = "subfleet/adapters/claude_mcp.py"
 EMPTY = [{"environ": {}}, {"environ": {"PATH": "/usr/bin:/bin"}}]
 SCRATCH = "{scratch}"  # A fresh directory per case, for a test's tmp_path.
 
@@ -38,12 +39,41 @@ MUTANTS = {
         HOMES, "return pytest_process() or _session_environment(os.environ)",
         "return _session_environment(os.environ)", "test_production_state_root_refuses", EMPTY),
     "seam-ignores-home": (
-        HOMES, "        return is_account_home(Path.home())\n", "        return False\n",
+        HOMES, "        return personal_home(Path.home())\n", "        return False\n",
         "test_the_seam_keeps_the_live_root_refused_under_the_accounts_home", [{}]),
     "no-tilde-refusal": (
-        HOMES, "if testing and _names_account_home(override):", "if False:",
+        HOMES, "    if _names_account_home(value):", "    if False:",
         "test_a_tilde_override_naming_the_accounts_home_is_refused",
-        [{"variable": "SUBFLEET_HOME", "home": "unset"}, {"variable": "SUBFLEET_CLAUDE_DIR", "home": "account"}]),
+        [{"variable": "SUBFLEET_HOME", "form": "tilde", "home": "unset", "below": "st3-not-a-store",
+          "tmp_path": SCRATCH},
+         {"variable": "SUBFLEET_CLAUDE_DIR", "form": "tilde", "home": "account", "below": "st3-not-a-store",
+          "tmp_path": SCRATCH}]),
+    # Review r1's: the `~<name>` refusal checked only a bare `~`.
+    "tilde-user-ignored": (
+        HOMES, "    head = value.split(os.sep, 1)[0]\n",
+        "    head = value.split(os.sep, 1)[0]\n    if head != \"~\":\n        return False\n",
+        "test_a_tilde_override_naming_the_accounts_home_is_refused",
+        [{"variable": variable, "form": "tilde-user", "home": "test", "below": "st3-not-a-store",
+          "tmp_path": SCRATCH} for variable in ("SUBFLEET_HOME", "SUBFLEET_CLAUDE_DIR", "SUBFLEET_CODEX_APP_HOME")]),
+    "mcp-config-raw": (
+        MCP, 'configured = checked_override("CLAUDE_CONFIG_DIR", env.get("CLAUDE_CONFIG_DIR"))',
+        'configured = env.get("CLAUDE_CONFIG_DIR")', "test_the_reviews_mcp_config_inputs_name_no_store",
+        [{"environ": environ, "tmp_path": SCRATCH} for environ in (
+            {"CLAUDE_CONFIG_DIR": "~"}, {"CLAUDE_CONFIG_DIR": "~", "AI_AGENT": "claude-code"},
+            {"CLAUDE_CONFIG_DIR": "~/", "PATH": "/usr/bin:/bin"})]),
+    "tilde-home-not-expanded": (
+        HOMES, '    if tilde_spelled.startswith("~"):', "    if False:", "test_a_tilde_spelled_home_is_the_accounts",
+        [{}]),
+    "no-live-root-refusal": (
+        HOMES, "    if names_live_root(value):", "    if False:", "test_an_override_naming_a_live_root_is_refused",
+        [{"spelling": spelling, "tmp_path": SCRATCH} for spelling in ("absolute", "test-home-dot-dot", "link")]),
+    "home-in-store-allowed": (
+        HOMES, '    if kind == "store":\n        # D-ST3: HOME/.claude', '    if False:\n        # D-ST3: HOME/.claude',
+        "test_a_home_inside_a_live_root_is_refused",
+        [{"spelling": "~/.codex"}]),
+    "v1-path-fallback": (
+        COMPAT, "    if under_pytest():\n        # D-ST3: PATH's", "    if False:\n        # D-ST3: PATH's",
+        "test_the_v1_path_fallback_is_refused", [{"tmp_path": SCRATCH}]),
     "no-resolved-spelling": (
         HOMES, " or _same_directory(Path(os.path.realpath(home)), personal)", "",
         "test_a_home_spelled_through_a_link_past_a_missing_component_is_the_accounts",

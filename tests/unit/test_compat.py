@@ -21,6 +21,7 @@ import pytest
 
 from subfleet import cli, compat
 from subfleet.contracts import Exit
+from subfleet.home_paths import PYTEST_MARKER
 
 CASES_PATH = Path(__file__).resolve().parents[1] / "fixtures" / "compat" / "cases.json"
 CASES = json.loads(CASES_PATH.read_text())["cases"]
@@ -505,14 +506,18 @@ def test_delegation_says_so_when_the_v1_install_is_gone(monkeypatch, capsys):
     assert "SUBFLEET_V1_BIN" in capsys.readouterr().err
 
 
-def test_the_v1_binary_is_never_this_process(monkeypatch, tmp_path):
+def test_the_v1_binary_is_never_this_process(monkeypatch, tmp_path, production_process):
     """C-5.3's reasoning applied to a binary: after the flip `which subfleet`
     is v2, and delegating to it would recurse until the process table gave out,
     so identity is checked before the call and not after."""
     binary = tmp_path / "subfleet"
     binary.write_text("#!/bin/sh\n")
     binary.chmod(0o755)
-    # D-ST3: under pytest the override, not the person's default install, is the v1 seam.
+    # D-ST3: PATH's `subfleet` is a production default, which a test process
+    # refuses; this test means production, under its own HOME and no markers.
+    for name in (PYTEST_MARKER, "PYTEST_CURRENT_TEST"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv(compat.V1_BIN_ENV, str(tmp_path / "absent"))
     monkeypatch.setattr(compat.shutil, "which", lambda name: str(binary))
     monkeypatch.setattr(sys, "argv", [str(binary)])
