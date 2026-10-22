@@ -30,6 +30,7 @@ def test_attempt_names_are_unique_even_after_path_sanitizing(tmp_path):
 
 @pytest.mark.parametrize("state,empty,keep", [
     ("finalizing", True, False), ("running", True, False),
+    ("contained", True, False),
     ("quarantined", True, False), ("succeeded", False, False),
     ("failed", True, True),
 ])
@@ -134,6 +135,7 @@ def test_sweep_defers_live_quarantined_salvage_and_nonempty(tmp_path):
     scratch = manager(tmp_path)
     states = {name: subject(name, state, **evidence) for name, state, evidence in [
         ("live", "running", {}), ("q", "quarantined", {}),
+        ("classifying", "contained", {}),
         ("salvage", "failed", {"salvage_skipped": {"count": 1}}),
         ("busy", "succeeded", {}), ("dead", "failed", {})]}
     records = {name: scratch.create(name) for name in states}

@@ -10,6 +10,7 @@ import pytest
 from subfleet import daemon as daemon_module, procs
 from tests.fake.test_launch_env_daemon import daemon_spawn_environment
 from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401
+from tests.fake.test_probe_recovery import reserved_probe
 
 
 @pytest.mark.parametrize("mode", ["detached", "turn", "probe", "enrollment"])
@@ -140,3 +141,19 @@ def test_cleanup_preserves_evidence_committed_during_its_census(routing_state, m
     assert evidence[change] == value
     assert folder.exists()
     assert "removed_at" not in evidence["tmpdir"]
+
+
+def test_probe_scratch_is_kept_between_containment_and_finalization(routing_state, monkeypatch):
+    service, harness = routing_state
+    job_id = service.dispatch("submit", harness.submit_args())["job_id"]
+    record = reserved_probe(service, job_id, state="contained")
+    record["tmpdir"] = service._attempt_temp.create(record["holder"])
+    service._save_probe(record)
+    folder = Path(record["tmpdir"]["path"])
+    monkeypatch.setattr(service, "_contain", lambda a: procs.Containment())
+    service._sweep_attempt_tmpdirs()
+    assert folder.exists(), "classification may still need scratch after containment"
+    record["state"] = "completed"
+    service._save_probe(record)
+    service._sweep_attempt_tmpdirs()
+    assert not folder.exists()
