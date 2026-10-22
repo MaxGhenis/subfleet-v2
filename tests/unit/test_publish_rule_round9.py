@@ -459,3 +459,65 @@ def test_gh_subcommands_holds_every_command_subcommand_and_alias_real_gh_lists(g
             for alias in listed_aliases(real_gh(gh_2_100, [command, verb, '--help']).stdout):
                 assert alias in GH_SUBCOMMANDS[command] or GH_COMMAND_ALIASES.get(alias) == command, \
                     (command, verb, alias)
+
+
+# Beyond review r3c: macOS's default APFS volume is case-insensitive, so the
+# shell finds gh for `GH` and `Gh` (zsh and bash ran the recording gh for
+# `GH pr comment 7` on this host), and git, the shells, `env` and the copiers
+# the same way. The rule compares command names case-insensitively.
+CASE_WRITES = ['GH pr comment 7 --body x', 'Gh pr merge 7', 'gH issue close 1', '/opt/homebrew/bin/GH pr comment 7',
+               'arch -arm64 GH pr new --title t', 'ENV gh pr comment 7', 'env GH pr comment 7', 'command GH pr merge 7',
+               "BASH <<< 'gh pr comment 7'", "ZSH -c 'gh pr comment 7'", "EVAL 'gh pr comment 7'",
+               'GIT push origin HEAD', 'arch -arm64 GIT push origin HEAD', 'CP /opt/homebrew/bin/gh ./g',
+               'cp /opt/homebrew/bin/GH ./g', 'LN -s "$(command -v gh)" ./g', "c='GH pr comment 7'; ${=c}",
+               "c='GH pr comment 7'; eval \"$c\"", 'Find . -exec GH pr comment 7 \\;']
+CASE_CREDENTIAL = ['GH auth token', 'arch -arm64 Gh auth git-credential get']
+CASE_PASSES = ['GH pr view 7', 'arch -arm64 Gh pr ls', 'GH_PAGER=cat gh pr view 7', 'echo $GH_TOKEN_FILE', 'GREP -n gh x',
+               'Git log --oneline -5', 'echo GH']
+
+
+@pytest.mark.parametrize('command', CASE_WRITES)
+def test_a_command_name_in_another_case_is_judged_as_the_command(command):
+    refused = command_refusal(command)
+    assert refused and refused.kind == 'publish', command
+
+
+@pytest.mark.parametrize('command', CASE_CREDENTIAL)
+def test_a_credential_call_in_another_case_keeps_the_credential_wording(command):
+    refused = command_refusal(command)
+    assert refused and refused.kind == 'credential', command
+
+
+@pytest.mark.parametrize('command', CASE_PASSES)
+def test_reads_and_other_words_in_another_case_pass(command):
+    assert command_refusal(command) is None, command
+
+
+@settings(max_examples=200, derandomize=True, database=None, deadline=None)
+@given(name=st.sampled_from(['gh', 'Gh', 'gH', 'GH']), path=st.sampled_from(['', '/opt/homebrew/bin/', './']),
+       call=st.sampled_from(R3C_ALIASES + FLAG_FIRST + ['pr comment 7 -b x', 'api -XPOST repos/o/r']),
+       template=st.sampled_from(['{w}', 'arch -arm64 {w}', 'env {w}', "bash -c '{w}'", 'nohup {w}']))
+def test_any_casing_of_gh_is_judged_as_gh(name, path, call, template):
+    word = path + name
+    command = template.replace('{w}', f'{word} {shlex.join(shlex.split(call))}')
+    assert command_refusal(command), command
+
+
+def case_insensitive(directory: Path) -> bool:
+    probe = directory / 'case-probe'
+    probe.write_text('')
+    return (directory / 'CASE-PROBE').exists()
+
+
+@pytest.mark.parametrize('provider', ['codex', 'claude'])
+def test_a_differently_cased_gh_runs_gh_here_and_the_hooks_deny_it(tmp_path, provider):
+    if not case_insensitive(tmp_path):
+        pytest.skip('this filesystem is case-sensitive: `GH` does not find gh')
+    launch = protected(tmp_path, provider=provider)
+    env, log, snapshot = zsh_environment(tmp_path, launch)
+    for command in ('GH pr comment 7 --body published', 'Gh pr merge 7', "BASH <<< 'gh pr comment 7 --body x'"):
+        assert hooks_deny(launch, provider, command, env), (provider, command)
+        before = len(recorded(log))
+        subprocess.run(SHELLS['zsh -c'](command, snapshot), cwd=launch.cwd, env=env, capture_output=True, text=True,
+                       timeout=120)
+        assert len(recorded(log)) > before, command
