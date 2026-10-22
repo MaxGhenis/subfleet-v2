@@ -252,7 +252,7 @@ DIFFERENTIAL = textwrap.dedent('''
             "SUBFLEET_CODEX_GUARD_CACHE": account / ".subfleet" / "cache", "CODEX_HOME": account / ".codex",
             "CLAUDE_LANE_AGENT_SECRET": account / "bin" / "agent-secret",
             "SUBFLEET_DAEMON_BIN": account / ".subfleet" / "bin" / "subfleetd",
-            "SUBFLEET_DEV_APP_EXECUTABLE": account / ".subfleet" / "dev-app", "TMPDIR": account / ".subfleet" / "tmp"}
+            "SUBFLEET_DEV_APP_EXECUTABLE": account / ".subfleet" / "dev-app", "TMPDIR": account / ".subfleet" / "tmp", "PYTHONPATH": account / ".subfleet"}
     (scratch / "tmp").mkdir()
     base = {"PATH": str(bindir) + ":/usr/bin:/bin", "TMPDIR": str(scratch / "tmp")}
     environments = {
@@ -309,7 +309,7 @@ def test_production_resolves_as_release_217(tmp_path):
                           timeout=300)
     assert done.returncode == 0, done.stdout[-3000:] + done.stderr[-3000:]
     compared = json.loads(done.stdout.splitlines()[-1])
-    assert len(compared) == 13 * 16
+    assert len(compared) == 13 * 17
     # Not vacuous: release's own answers include values and exceptions both.
     assert {"value", "exception"} <= set(compared.values())
 

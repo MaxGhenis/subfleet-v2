@@ -32,7 +32,7 @@ from types import SimpleNamespace
 import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
 
-from subfleet import cli, client, compat, credentials, home_paths, host_push, prune_decisions, retention_git
+from subfleet import cli, client, compat, credentials, doctor, home_paths, host_push, prune_decisions, retention_git
 from subfleet.adapters.claude_mcp import global_config_path
 from subfleet.guard import preflight
 from subfleet.home_paths import (
@@ -797,7 +797,7 @@ SESSION = dict(os.environ)
 NAMES = tuple(sorted({
     "HOME", "PATH", "TMPDIR", "USER", "LOGNAME", "SHELL", "PWD", "XDG_CONFIG_HOME", "CODEX_HOME", "AI_AGENT",
     "CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "PYTHONPATH", "SSH_AUTH_SOCK", "SUBFLEET_GUARD_TRUST",
-    "SUBFLEET_CODEX_GUARD_CACHE", "SUBFLEET_DAEMON_BIN", "SUBFLEET_HOOK_COMMAND", "PYTEST_CURRENT_TEST",
+    "SUBFLEET_CODEX_GUARD_CACHE", "SUBFLEET_DAEMON_BIN", "SUBFLEET_HOOK_COMMAND", "PYTHONPATH", "PYTEST_CURRENT_TEST",
     PYTEST_MARKER, PYTEST_SESSION, PYTEST_SESSION_ID, *SAFE_HOME_PATHS, *SAFE_ENV_REMOVALS,
 }))
 JUNK = st.one_of(
@@ -818,6 +818,7 @@ GUARDED = {
     "guard-cache": preflight.cache_dir,
     "lane-codex-home": lambda: preflight._lane_home(None),
     "temp-roots": lambda: sorted(retention_git.temp_roots()),
+    "doctor-pythonpath": doctor.check_pythonpath,
 }
 
 
@@ -834,7 +835,7 @@ def live_spellings() -> list[str]:
 # Each name a guarded function reads as a path may also take a live spelling.
 PATH_NAMES = frozenset({*SAFE_HOME_PATHS, "CODEX_HOME", "XDG_CONFIG_HOME", "TMPDIR", "SUBFLEET_GUARD_TRUST",
                         "SUBFLEET_CODEX_GUARD_CACHE", "SUBFLEET_DAEMON_BIN", "CLAUDE_LANE_AGENT_SECRET",
-                        "SUBFLEET_DEV_APP_EXECUTABLE"})
+                        "SUBFLEET_DEV_APP_EXECUTABLE", "PYTHONPATH"})
 # HOME may also be spelled `~<account>` or lie inside a live root.
 HOME_SPELLINGS = [f"~{ACCOUNT}", f"~{ACCOUNT}/{STORES[2]}", str(PERSONAL / STORES[2]), str(PERSONAL / STORES[1] / "x")]
 
@@ -969,7 +970,20 @@ ROUTED_READS = {
     "SUBFLEET_DAEMON_BIN": lambda tmp: cli._daemond_argv(tmp),
     "SUBFLEET_DEV_APP_EXECUTABLE": _app_executables,
     "TMPDIR": lambda tmp: retention_git.temp_roots(),
+    "PYTHONPATH": lambda tmp: doctor.check_pythonpath(),
 }
+
+
+@pytest.mark.parametrize("where", [0, 1, 2])
+def test_doctor_checks_each_pythonpath_entry(where, tmp_path, sealed, monkeypatch):
+    """C-20.6 (D-ST3, review r1 sweep): every searched PYTHONPATH entry is checked before probing."""
+    monkeypatch.setattr(doctor, "_ignores_environment", lambda: False)
+    entries = [str(tmp_path / "first"), str(tmp_path / "second")]
+    entries.insert(where, str(PERSONAL / ".subfleet"))
+    monkeypatch.setenv("PYTHONPATH", os.pathsep.join(entries))
+    with pytest.raises(home_paths.PersonalPathRefused, match="PYTHONPATH"):
+        doctor.check_pythonpath()
+    assert sealed.touched == []
 
 
 @pytest.mark.parametrize("variable", ROUTED_READS)
