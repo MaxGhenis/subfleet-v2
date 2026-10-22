@@ -109,7 +109,9 @@ def _put_back(claimed: Path, folder: Path) -> None:
 
 def _sweep_claimed(root: Path, entries, now_ns: int, kill) -> list[Path]:
     """Claimed folders a pruner left behind: removed once the pruner and the folder's pid are gone and it is
-    older than PRUNE_AFTER_S (its own mtime; a rename does not change it)."""
+    older than PRUNE_AFTER_S (its own mtime; a rename does not change it). Each is claimed again by rename before
+    removal, so it is reported once however many pruners run; what a sweep cannot finish stays under the
+    sweeper's own claim name, for a later sweep once that sweeper is gone and the claim is a day old."""
     swept = []
     for entry in entries:
         m = _CLAIMED.fullmatch(entry.name)
@@ -126,7 +128,17 @@ def _sweep_claimed(root: Path, entries, now_ns: int, kill) -> list[Path]:
         if _alive(int(m.group(2)), kill) or _alive(int(m.group(1)), kill):
             continue
         path = Path(entry.path)
-        if _remove(path):
+        # Claim it first, as the main loop does (#247 review r2, P3-1): of several sweepers one takes it, and a
+        # claim that went, or was put back, meanwhile is not this one's to report.
+        mine = root / f".pruning-{m.group(1)}-{os.getpid()}-{secrets.token_hex(4)}"
+        try:
+            os.rename(path, mine)
+            st = os.lstat(mine)
+        except OSError:
+            continue
+        if not stat.S_ISDIR(st.st_mode):
+            _put_back(mine, path)
+        elif _remove(mine):
             swept.append(path)
     return swept
 

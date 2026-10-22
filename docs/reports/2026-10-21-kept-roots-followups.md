@@ -799,8 +799,15 @@ Review r1 (`20261022-121038-pr247-review-r1`) approved `cb1803cf6`, with three P
   - so is a folder that `rmtree` leaves partly in place, under its pid name, for a later session to retry;
   - only a folder that is fully gone is reported removed;
   - a claimed `.pruning-<pid>-<pruner>-<hex>` folder left behind by an interrupted pruner is swept by the same rules: its pruner and pid gone, and older than a day.
-  - **Tests,** in `tests/unit/test_failed_keep_prune.py`, one per executed input: an unreadable folder inside; a symlink swapped in between the check and the claim; and stale, young, live-pruner and oddly named claimed folders.
+  - **Tests,** in `tests/unit/test_failed_keep_prune.py`: an unreadable folder inside; a symlink swapped in between the check and the claim; and stale, young, live-pruner and oddly named claimed folders. Mode 000 and `KeyboardInterrupt` are covered by review r2's probes, not by tests of their own.
   - The docstring and `docs/lanes/README.md` now say exactly this.
 - **P3-2, not here:** a test whose *setup* fails keeps nothing, since the keep condition reads only `rep_call`. It predates this PR, and it's a follow-up.
 - **P3-3:** this report and the PR body no longer say the commits are unpushed, or that the baseline never ran.
+- **Review r2** (`20261022-133527-pr247-review-r2`) approved `b022d5a9f`, with three P3s, all fixed here:
+  - **The sweep now claims by rename before removing,** so several pruners report each stale claim once, and a claim that was put back meanwhile is never reported. Review r2's two tests cover this.
+  - **New tests pin the sweep's guards:**
+    - a stale claim whose removal can't finish stays unreported;
+    - names past `pid_t` are left alone, since `os.kill` would raise `OverflowError`;
+    - so are leading zeros, uppercase hex, a suffix and 7 hex digits.
+  - **The README** says a partly removed folder is retried once it is a day old again.
 

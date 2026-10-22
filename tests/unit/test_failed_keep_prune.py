@@ -306,3 +306,78 @@ def test_a_claimed_folder_left_behind_is_swept_once_its_pruner_is_gone(tmp_path)
     odd = kept_root(tmp_path, ".pruning-notes", age_ns=2 * DAY_NS, now_ns=now)
     assert failed_keep.prune(tmp_path, now_ns=now) == [stale]
     assert not stale.exists() and young.is_dir() and live_pruner.is_dir() and odd.is_dir()
+
+
+# #247 review r2: the sweep claims before it removes, so each stale claim is reported once, and its guards are pinned.
+
+def dead(pid, sig):
+    raise ProcessLookupError
+
+
+def test_pruners_at_once_sweep_each_claimed_folder_exactly_once(tmp_path):
+    """D-KR1: four pruners at once report each stale claim exactly once (review r2's test)."""
+    now = time.time_ns()
+    stale = {kept_root(tmp_path, f".pruning-{1_000_000 + i}-{2_000_000 + i}-{i:08x}", age_ns=2 * DAY_NS, now_ns=now)
+             for i in range(40)}
+    removed, start = [], threading.Barrier(4)
+
+    def prune():
+        start.wait()
+        removed.append(failed_keep.prune(tmp_path, now_ns=now, kill=dead))
+
+    threads = [threading.Thread(target=prune) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    every = [path for each in removed for path in each]
+    assert len(every) == len(set(every)) == len(stale) and set(every) == stale
+
+
+def test_a_claim_that_went_back_meanwhile_is_not_reported(tmp_path):
+    """D-KR1: its pruner puts the claim back between the sweep's check and its removal; nothing is reported."""
+    now = time.time_ns()
+    claim = kept_root(tmp_path, ".pruning-1000001-2000001-0000abcd", age_ns=2 * DAY_NS, now_ns=now)
+    back = tmp_path / "1000001"
+
+    def kill(pid, sig):
+        if pid == 2000001 and claim.exists():
+            os.rename(claim, back)      # the claim's pruner put it back and ended
+            os.utime(back, ns=(now, now))
+        raise ProcessLookupError
+
+    assert failed_keep.prune(tmp_path, now_ns=now, kill=kill) == []
+    assert (back / "test_x" / "daemon.log").read_text() == "evidence\n"
+
+
+def test_a_stale_claim_whose_removal_cannot_finish_is_not_reported(tmp_path):
+    """D-KR1: an unreadable folder inside keeps the sweep from finishing; it is not reported."""
+    now = time.time_ns()
+    claim = kept_root(tmp_path, ".pruning-1000002-2000002-0000abce", age_ns=2 * DAY_NS, now_ns=now)
+    locked = claim / "test_x" / "locked"
+    locked.mkdir()
+    os.chmod(locked, 0)
+    os.utime(claim, ns=(now - 2 * DAY_NS, now - 2 * DAY_NS))
+    try:
+        assert failed_keep.prune(tmp_path, now_ns=now, kill=dead) == []
+        assert any(path.name.startswith(".pruning-1000002-") for path in tmp_path.iterdir())
+    finally:
+        for path in tmp_path.rglob("locked"):
+            os.chmod(path, 0o700)
+
+
+@pytest.mark.parametrize("name", [
+    ".pruning-5-2147483648-0123abcd",    # a pruner pid past pid_t: os.kill would raise OverflowError
+    ".pruning-2147483648-5-0123abcd",
+    ".pruning-05-5-0123abcd",            # leading zero
+    ".pruning-5-5-0123ABCD",             # uppercase hex
+    ".pruning-5-5-0123abcd-x",           # a suffix
+    ".pruning-5-5-0123abc",              # 7 hex digits
+])
+def test_a_folder_not_named_as_a_claim_is_left_alone(tmp_path, name):
+    """D-KR1: the sweep takes only `.pruning-<pid>-<pid>-<8 lowercase hex>` with both pids in pid_t's range."""
+    now = time.time_ns()
+    folder = kept_root(tmp_path, name, age_ns=2 * DAY_NS, now_ns=now)
+    assert failed_keep.prune(tmp_path, now_ns=now) == []
+    assert folder.is_dir()
+
