@@ -1,12 +1,14 @@
 """D-TMP1: temp allocations count as job bytes and pin census evidence."""
 
 import json
+import os
 from pathlib import Path
 
 from subfleet import attempt_tmp, retention
 from subfleet.disk import DiskAdmission
 from subfleet.store import Store
 from tests.conftest import make_lane
+from subfleet.home_paths import PYTEST_SESSION
 
 
 def test_retention_counts_private_scratch_and_keeps_its_attempt_evidence(tmp_path):
@@ -80,3 +82,16 @@ def test_production_darwin_root_comes_from_confstr_not_tmpdir(tmp_path, monkeypa
     monkeypatch.setattr(attempt_tmp.os, "confstr", lambda key: calls.append(key) or str(tmp_path))
     assert attempt_tmp.user_temp_root() == tmp_path.resolve()
     assert calls == [attempt_tmp.os.confstr_names.get("CS_DARWIN_USER_TEMP_DIR", 65537)]
+
+
+def test_session_scratch_baseline_survives_fixture_undo_and_environment_replacement(tmp_path, monkeypatch):
+    session = Path(os.environ[PYTEST_SESSION]).resolve()
+    monkeypatch.undo()
+    with monkeypatch.context() as patch:
+        patch.setattr(os, "environ", {"PATH": os.defpath})
+        scratch = attempt_tmp.AttemptTemp(tmp_path / "store")
+        # Check before any mkdir: the failing version must create no folder
+        # outside this test session's scratch.
+        assert scratch.root.is_relative_to(session)
+        record = scratch.create("job/a1")
+        assert scratch.remove(record, {"attempt_id": "job/a1", "state": "succeeded"}, verified_empty=True)
