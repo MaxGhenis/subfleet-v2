@@ -25,7 +25,7 @@ from . import retention_fs as rfs
 PREFIX = "subfleet-attempt-"
 MARKER = ".subfleet-attempt.json"
 ORPHAN_AGE_S = 24 * 3600
-TERMINAL = frozenset({"succeeded", "failed", "interrupted", "cancelled", "lost", "contained", "completed"})
+TERMINAL = frozenset({"succeeded", "failed", "interrupted", "cancelled", "lost", "completed"})
 
 
 def user_temp_root() -> Path:

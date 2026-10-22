@@ -1201,6 +1201,9 @@ class Daemon:
                 if not record or record['state'] in ('contained', 'completed', 'reserved'):
                     self.store.release_leases(enrollment_holder)
                     if record:
+                        record['state'] = 'completed'
+                        self._save_probe(record)
+                        self._cleanup_probe_tmpdir(record)
                         shutil.rmtree(record['directory'], ignore_errors=True)
 
     def _enrollment_turn(self, lane_id, holder, argv, *, cwd, env, timeout, **_):
@@ -1253,7 +1256,6 @@ class Daemon:
             raise AdapterError('enrollment containment is quarantined; its lane remains fenced', code=7, reason="enroll-quarantined")
         if not receipt:
             raise AdapterError('enrollment ended without an exit receipt', code=5, reason="enroll-receipt")
-        self._cleanup_probe_tmpdir(record)
         rc = receipt.get('rc')
         if rc is None:
             rc = -receipt['signal'] if receipt.get('signal') else 1
