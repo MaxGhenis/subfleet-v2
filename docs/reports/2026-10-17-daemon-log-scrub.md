@@ -1666,3 +1666,40 @@ and a complete reminder on line 1. This measures the new two/four-pass check.
 | 16 | 245,732 | 34719 | 2170 | 97.4 | 87.0 | 6360.5 |
 
 Completion: 213 s; left out by --budget-s: none
+
+### Whole-suite hold 1
+
+Slot A began at 14:55 UTC. The additional historical CLI controls completed:
+`cb03e5a60` had **13 assertion failures and 22 passes out of 35**, no harness
+errors. This includes the data-URI `daemon logs` / `_log_tail` check. The
+private-key CLI check passes there, as the review reported: the original cut
+hides that body, while the resolved-text and marker-rule tests expose the
+unsafe resolution. All three inputs have now run through the real-bound tail,
+`daemon logs -n 8` and `_log_tail` on the PR-head source.
+
+Pytest then collected 14,160 cases across the 425 selected files. Its overall
+18-minute watchdog interrupted the hold; pytest reported **698 passed,
+49 skipped, 2 xfailed, 5 failed**, in 1,062.93 seconds (the historical controls
+used the beginning of the hold). The new mutation-runner regression passed
+all four cases and the module-name check passed. Thirty-two fake files and
+two unit files finished; `test_detached_cwd_pins.py` completed 17 of 18 cases
+and must rerun whole. The remaining unvisited files are retained in the next
+hold's explicit inventory; none is treated as green merely from collection.
+
+Four failures in `test_daemon_stacks.py` came from unavailable macOS boot
+identity, before the subprocess or real daemon could perform its test. Those
+four tests now declare the same existing process-inspection prerequisite; their
+assertions remain. The whole six-case file is first in the next hold.
+
+The fifth failure was
+`test_admission_liveness.py::test_c6_3_c26_9_admission_places_what_e053b2c_placed_pass_for_pass`:
+the optional 120-second per-test timeout I added to the scratch runner fired.
+It is not an assertion failure proving a behavioral difference. Neither this
+test nor `subfleet/procs.py` differs from `cb03e5a60`. No production admission
+code is changed here. The per-test cap is removed for the next hold; its
+18-minute overall watchdog remains. This timed-out property is reported as
+unresolved, not as a green file or a proven pre-existing product defect.
+
+The next hold puts the repaired stack file and untouched unit files first,
+then unfinished fake files, to cover more distinct code before the 15:41 UTC
+cutoff. A file interrupted in teardown is also incomplete in the ledger.
