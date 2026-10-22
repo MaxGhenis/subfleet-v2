@@ -386,8 +386,8 @@ def test_c5_12_a_healthy_attempt_is_inspected_once_per_interval_from_the_shared_
     observed = [daemon_module.utcnow_ms()]
     monkeypatch.setattr(daemon_module, "utcnow_ms", lambda: observed[0])
     reads = []
-    daemon._process_table = shared(table_showing((4242, 1, 4242, "Ss"), (4243, 4242, 4242, "S"), (4300, 1, 4300, "S")),
-                                   reads)
+    table = table_showing((4242, 1, 4242, "Ss"), (4243, 4242, 4242, "S"), (4300, 1, 4300, "S"))
+    daemon._process_table = shared(table, reads)
     monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: pytest.fail("the table already answered"))
     monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: pytest.fail("no second table"))
     daemon._contain = never_census
@@ -400,6 +400,9 @@ def test_c5_12_a_healthy_attempt_is_inspected_once_per_interval_from_the_shared_
     assert [row["kind"] for row in daemon.store.list_events(JOB)].count("attempt.processes_recorded") == 1
     observed[0] = daemon_module._later(observed[0], 1)
     daemon._inspect_next[ATTEMPT] = 0                     # the interval ends
+    # A fresh ps read creates a distinct snapshot even when its rows match.
+    # Reusing the old snapshot must not advance either liveness or absence age.
+    daemon._process_table = shared(ProcessTable(dict(table.rows), "boot"), reads)
     daemon._process_attempt(ATTEMPT)
     assert reads == [1, 1]
     assert json.loads(attempt(daemon)["evidence_json"])["last_observed_alive_at"] == observed[0]

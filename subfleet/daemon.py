@@ -8353,12 +8353,13 @@ class Daemon:
             self._table_lock.release()
 
     def _record_owned(self, a: dict, table: procs.ProcessTable) -> None:
-        """C-5.6, C-5.12: remember group ownership and walk containment evidence.
+        """C-5.6, C-5.12: remember liveness, group ownership and walk evidence.
 
-        All observations use this shared table while the recorded guardian
-        leads the group. Only group members gain ownership. Walk members outside
-        it are kept as counted identities, so self-exit or a turn interrupt
-        cannot erase a hidden-marker runner before finalization's first census.
+        A matching guardian birth confirms liveness even after it leaves the
+        recorded group. Only group members observed while it still leads that
+        group gain ownership. Other live walk members are counted evidence, so
+        self-exit or a turn interrupt cannot erase a hidden-marker runner before
+        finalization's first census.
         """
         guardian = a["guardian_pid"]
         if not table.is_process(guardian, a["boot_id"], a["proc_start"], legacy=True):
