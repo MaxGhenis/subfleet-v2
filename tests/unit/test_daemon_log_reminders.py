@@ -33,6 +33,7 @@ from subfleet.sessions import handoff
 from tests import reference_tail_1cf653dff as round5
 from tests.unit import test_daemon_log_cut_windows as windows
 from tests.unit import test_daemon_log_handler as handler_tests
+from tests.unit.test_daemon_log_tail import follow, followed
 
 #: The marker (`daemon_log.REMINDER_MARK`); named here too so these tests run, and fail on
 #: their own assertions, against round 5's code.
@@ -215,7 +216,6 @@ def test_a_split_first_line_past_the_context_still_hides_its_key():
 
 def test_daemon_logs_follow_holds_a_split_first_line(root, monkeypatch, capsys):
     """Through `daemon logs -f`, the pieces written one at a time."""
-    from tests.unit.test_daemon_log_tail import follow
     (root / "daemon.log").write_text(admissions(5))
     follow(root, monkeypatch, ["-----BEGIN RSA\n", "\n" * 9000, "PRIVATE KEY-----\nSECRET7clipem9\n",
                                "-----END RSA PRIVATE KEY-----\n", "done\n", "a <system-reminder> line\n"])
@@ -422,10 +422,12 @@ def test_no_tag_reaches_a_tail_and_no_secret_the_whole_scrub_hides(lines, count,
 @BOUNDED
 @given(lines=st.lists(LOG_LINES, min_size=1, max_size=30), seed=st.integers(0, 2 ** 16))
 def test_no_tag_reaches_what_daemon_logs_follow_writes(lines, seed):
-    """Property: followed in any pieces, `daemon logs -f` writes no tag, and no secret the
-    whole log's scrub hides."""
-    from tests.unit.test_daemon_log_tail import fed
+    """Property: followed in any pieces, `daemon logs -f` writes no tag. What it prints first
+    is `daemon logs -n N` of the file as following starts (review r5 of #233, P3-2), so it
+    shows no secret that file's scrub hides; what it writes after, none the whole log's
+    scrub hides."""
     text = "".join(lines)
-    written = fed(text, random.Random(seed))
-    assert not tags(written)
-    assert secrets("\n".join(written)) <= reference(text), text
+    first, start, later = followed(text, random.Random(seed))
+    assert not tags(start) and not tags(later)
+    assert secrets("\n".join(start)) <= reference(first), first
+    assert secrets("\n".join(later)) <= reference(text), text

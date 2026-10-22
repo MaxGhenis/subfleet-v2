@@ -35,6 +35,7 @@ from subfleet import cli, daemon_log
 from subfleet.sessions import handoff
 from tests import reference_tail_1cf653dff as round5
 from tests.unit.test_daemon_log_reminders import MARK, TAG, admissions, secrets, tags
+from tests.unit.test_daemon_log_tail import follow
 
 BOUNDED = settings(max_examples=150, derandomize=True, database=None, deadline=None)
 REMINDER = "<system-reminder>r</system-reminder>"
@@ -272,7 +273,6 @@ def test_following_starts_with_the_tag_s_line_marked(count, root, monkeypatch, c
 def test_lines_after_the_start_are_still_held_by_a_tag_and_scrubbed_with_it(root, monkeypatch, capsys):
     """What arrives afterwards is the follower's: a reminder whose closing tag comes later is
     stripped with what came between, as the whole-text scrub strips it."""
-    from tests.unit.test_daemon_log_tail import follow
     (root / "daemon.log").write_text(admissions(40) + "note <system-reminder> opened\n" + admissions(3, 40))
     follow(root, monkeypatch, ["SECRET7insidereminder9\n", "</system-reminder> closed\n", "done\n"], lines=4)
     out = capsys.readouterr().out

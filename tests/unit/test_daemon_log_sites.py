@@ -564,7 +564,7 @@ def test_daemon_start_prints_its_tail_of_daemon_log_scrubbed(root, monkeypatch, 
 
         def poll(self):
             return 1
-    monkeypatch.setattr(cli, "_daemon_alive", lambda *args: False)
+    monkeypatch.setattr(cli, "_daemon_alive", lambda *args, **kwargs: False)   # #232: `timeout=`
     monkeypatch.setattr(cli.subprocess, "Popen", lambda argv, **kwargs: Exited())
     assert cli.main(["daemon", "start"]) == 69
     err = capsys.readouterr().err

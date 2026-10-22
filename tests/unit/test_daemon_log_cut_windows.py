@@ -392,9 +392,9 @@ def test_a_settle_reads_a_run_of_backslashes_a_fixed_number_of_times(monkeypatch
 
 
 @settings(max_examples=400, derandomize=True, database=None, deadline=None)
-@given(text=st.text(alphabet=list("ab\\\"' \n\t:=-|+<>/;,.AZ09_ſİıK\u3000") + [
+@given(text=st.lists(st.sampled_from(list("ab\\\"' \n\t:=-|+<>/;,.AZ09_ſİıK\u3000") + [
     "data:", ";base64,", "-----BEGIN", " PRIVATE KEY-----", "-----END", "token", "password", "Bearer ",
-    "system-reminder", "  | ", "Authorization", "--auth-token", "QUJD", "://u:p@"], max_size=40),
+    "system-reminder", "  | ", "Authorization", "--auth-token", "QUJD", "://u:p@"]), max_size=40).map("".join),
        data=st.data())
 def test_the_counted_matcher_finds_what_re_finds(text, data):
     """`tests.regex_reads` matches as `re` does, for every pattern `handoff` holds and every
