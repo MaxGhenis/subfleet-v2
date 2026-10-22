@@ -18,7 +18,7 @@ import subprocess
 import threading
 import time
 
-from hypothesis import given, settings, strategies as st
+from hypothesis import example, given, settings, strategies as st
 import pytest
 
 from tests import failed_keep
@@ -123,7 +123,8 @@ STATES = {
 }
 names = st.one_of(st.integers(1, 2**31 - 1).map(str), st.just(str(os.getpid())),
                   st.sampled_from(["0", "007", "-5", "12x", "notes", "１２", str(2**31), "1" * 12]))
-ages = st.one_of(st.integers(-DAY_NS, 3 * DAY_NS), st.sampled_from([DAY_NS - 1, DAY_NS, DAY_NS + 1]))
+ages = st.one_of(st.sampled_from([DAY_NS + 1, 30 * DAY_NS, DAY_NS, DAY_NS - 1, 0, -60 * 10**9]),
+                st.integers(-DAY_NS, 3 * DAY_NS))
 entries = st.lists(st.tuples(names, st.sampled_from(["dir", "file", "symlink"]), ages, st.sampled_from(sorted(STATES))),
                    max_size=8, unique_by=lambda entry: entry[0])
 
@@ -132,8 +133,18 @@ def is_pid(name: str) -> bool:
     return name.isascii() and name.isdigit() and not name.startswith("0") and int(name) < 2**31
 
 
+# Derandomized draws favour simple values (young ages, short lists), so every answer kill can give for an
+# old folder, the boundary, this process and each kind of entry are given explicitly as well.
+EVERY_ANSWER = [("101", "dir", DAY_NS + 1, "alive"), ("102", "dir", 2 * DAY_NS, "dead"),
+                ("103", "dir", 2 * DAY_NS, "not ours"), ("104", "dir", 2 * DAY_NS, "unknown"),
+                ("105", "dir", DAY_NS, "dead"), ("106", "dir", DAY_NS + 1, "dead"),
+                (str(os.getpid()), "dir", 2 * DAY_NS, "dead"), ("107", "symlink", 2 * DAY_NS, "dead"),
+                ("108", "file", 2 * DAY_NS, "dead"), ("0109", "dir", 2 * DAY_NS, "dead")]
+
+
 @settings(max_examples=40, derandomize=True, database=None, deadline=None)
 @given(entries)
+@example(EVERY_ANSWER)
 def test_pruning_removes_exactly_the_folders_the_rule_names(tmp_path_factory, spec):
     root = tmp_path_factory.mktemp("prune") / "kept"
     root.mkdir()

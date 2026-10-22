@@ -96,14 +96,15 @@ def test_a_failed_test_keeps_its_root_whether_or_not_close_raises(pytester, monk
     for test in ("test_fails[close_returns]", "test_passes[close_returns]"):
         assert outcome(test, "teardown") == "passed"
 
+    for name in ("test_fails[close_raises]", "test_fails[close_returns]", "test_passes[close_raises]"):
+        keep = failed_keep.failed_keep_dir(name)
+        assert (keep / "evidence.txt").read_text() == "written by the test", f"{name} kept nothing"
+        # Taken after close(): a copy made before it (keep code moved above close()) has no marker.
+        assert (keep / "closed.txt").exists(), f"{name}'s root was copied before close() ran"
+        assert (keep / "closed.txt").read_text() == "close ran"
     kept = {path.name for path in (tmp_path / "kept").glob("*/*")}
     assert kept == {failed_keep.failed_keep_dir(name).name
                     for name in ("test_fails[close_raises]", "test_fails[close_returns]", "test_passes[close_raises]")}
-    for name in ("test_fails[close_raises]", "test_fails[close_returns]", "test_passes[close_raises]"):
-        keep = failed_keep.failed_keep_dir(name)
-        assert (keep / "evidence.txt").read_text() == "written by the test"
-        # Taken after close(): a copy made before it (keep code moved above close()) has no marker.
-        assert (keep / "closed.txt").read_text() == "close ran"
 
 
 @pytest.mark.parametrize("harness", sorted(CONFTESTS))
