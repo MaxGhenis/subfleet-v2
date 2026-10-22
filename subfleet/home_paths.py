@@ -192,7 +192,7 @@ def home_path(variable: str, default: Callable[[], str | Path], *,
     return default()
 
 
-def checked_override(variable: str, value):
+def checked_override(variable: str, value, *, relative_to: str | Path | None = None):
     """`value`, read raw from path-valued `variable`, unless a test process refuses it.
 
     For a caller that reads such an override itself instead of through
@@ -200,11 +200,11 @@ def checked_override(variable: str, value):
     Outside a test process `value` is returned untouched, without a check.
     """
     if value and under_pytest():
-        refuse_personal_override(variable, value)
+        refuse_personal_override(variable, value, relative_to=relative_to)
     return value
 
 
-def refuse_personal_override(variable: str, value) -> None:
+def refuse_personal_override(variable: str, value, *, relative_to: str | Path | None = None) -> None:
     """In a test process, refuse an override for `variable` that names the account's own paths.
 
     Two refusals, each before any access: a leading `~` or `~name` that
@@ -215,7 +215,13 @@ def refuse_personal_override(variable: str, value) -> None:
     if _names_account_home(value):
         raise PersonalPathRefused(f"Refusing personal path fallback under pytest; {variable} begins with ~, "
                                   "which expands to the account's home here; set it to an isolated test path")
-    if names_live_root(value):
+    checked = value
+    if relative_to is not None and isinstance(value, (str, bytes, os.PathLike)):
+        expanded = os.path.expanduser(os.fsdecode(value))
+        if not os.path.isabs(expanded):
+            # Match the consumer's base without resolving or probing it first.
+            checked = os.path.join(os.path.abspath(relative_to), expanded)
+    if names_live_root(checked):
         raise PersonalPathRefused(f"Refusing personal path under pytest; {variable} names the account's home "
                                   "or one of its live stores; set it to an isolated test path")
 

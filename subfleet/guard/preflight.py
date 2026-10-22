@@ -305,7 +305,7 @@ def cache_dir(state_root: str | Path | None = None) -> Path:
     """
     from ..home_paths import checked_override
     root = Path(state_root) if state_root is not None else Path(_state_root())
-    override = checked_override(CACHE_ENV, os.environ.get(CACHE_ENV))
+    override = checked_override(CACHE_ENV, os.environ.get(CACHE_ENV), relative_to=root)
     if override:
         path = Path(os.path.expanduser(override))
         if path.is_absolute():
