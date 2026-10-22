@@ -157,3 +157,21 @@ def test_probe_scratch_is_kept_between_containment_and_finalization(routing_stat
     service._save_probe(record)
     service._sweep_attempt_tmpdirs()
     assert not folder.exists()
+
+
+@pytest.mark.parametrize("probe", [False, True])
+def test_sweep_reclaims_known_allocation_after_provider_removes_marker(routing_state, monkeypatch, probe):
+    service, _ = routing_state
+    attempt, folder = terminal_leftover(routing_state)
+    if probe:
+        record = reserved_probe(service, attempt["job_id"], state="completed")
+        record["tmpdir"] = service._attempt_temp.create(record["holder"])
+        service._save_probe(record)
+        folder = Path(record["tmpdir"]["path"])
+    (folder / ".subfleet-attempt.json").unlink()
+    monkeypatch.setattr(service, "_contain", lambda a: procs.Containment())
+    service._sweep_attempt_tmpdirs()
+    assert not folder.exists()
+    evidence = (service._probe_record(record["holder"]) if probe else
+                json.loads(service.store.get_attempt(attempt["attempt_id"])["evidence_json"]))
+    assert evidence["tmpdir"]["removed_at"]

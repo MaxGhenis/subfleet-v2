@@ -16,6 +16,7 @@ def test_retention_counts_private_scratch_and_keeps_its_attempt_evidence(tmp_pat
     root.mkdir()
     scratch = attempt_tmp.AttemptTemp(root)
     record = scratch.create("job/a1")
+    (Path(record["path"]) / ".subfleet-attempt.json").unlink()
     payload = Path(record["path"]) / "venv-file"
     payload.write_bytes(b"x" * 65536)
     with Store(root / "state.sqlite3") as store:

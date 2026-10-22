@@ -197,3 +197,16 @@ def test_generated_attempt_lifetimes_preserve_isolation_and_cleanup_authority(st
                 if row["state"] in {"running", "quarantined"} or not empties[key]:
                     assert Path(records[key]["path"]).is_dir()
             assert protected.is_dir() and link.is_symlink()
+
+
+def test_known_allocation_survives_marker_removal_then_cleans_up(tmp_path):
+    scratch = manager(tmp_path)
+    record = scratch.create("job/a1")
+    folder = Path(record["path"])
+    (folder / ".subfleet-attempt.json").unlink()
+    (folder / "payload").write_bytes(b"x" * 65536)
+    assert scratch.size(record) >= 65536
+    assert not scratch.remove(record, subject(state="quarantined"), verified_empty=True)
+    assert not scratch.remove(record, subject(), verified_empty=False)
+    assert scratch.remove(record, subject(), verified_empty=True)
+    assert not folder.exists()
