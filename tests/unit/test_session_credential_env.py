@@ -163,7 +163,9 @@ def test_c20_6_a_failing_session_prints_no_part_of_an_inherited_credential(tmp_p
     assert re.search(r"\b2 failed, 1 passed\b", report), report[-2000:]
     # Each channel printed something, so each was searched.
     assert "kwargs = {'env': {" in report
-    assert re.search(r"^values +=.*'SUBFLEET_DUMMY_TOKEN': None", report, re.MULTILINE)
+    # -l's locals: on one line, or with -vv pretty-printed over several.
+    assert re.search(r"^values +=", report, re.MULTILINE)
+    assert "'SUBFLEET_DUMMY_TOKEN': None" in report
     assert "Captured stdout call" in report
     assert "environment={" in report
     assert [name for name, value in values.items() if _leaked(value, report)] == []
