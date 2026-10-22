@@ -334,7 +334,9 @@ class JournalRelay:
     def __init__(self, adir: Path):
         self.path = adir / "stdin.jsonl"
 
-    def send(self, seq, op, *, line=None, tag=None, sig=None):
+    def send(self, seq, op, *, line=None, tag=None, sig=None, before_send=None):
+        if before_send is not None:
+            before_send()
         from subfleet.relay import Ack, frame_sha256
         with self.path.open("a") as stream:
             stream.write(json.dumps({"kind": "intent", "seq": seq, "op": op, "tag": tag,

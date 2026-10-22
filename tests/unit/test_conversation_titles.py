@@ -28,7 +28,7 @@ from subfleet.conversations.titles import (
 )
 from subfleet.conversations.turn import Frame, TurnSpec
 from subfleet.relay import Ack, FrameTooLarge, RelayError, RelayServer, read_log
-from tests.unit.test_conversation_service import SETTINGS, FakeDaemon, svc  # noqa: F401
+from tests.unit.test_conversation_service import SETTINGS, FakeDaemon, svc, turn_attempt  # noqa: F401
 from tests.unit.test_turn_runner import INIT_OK, MID, SID, STEER_CAPS, STEER_MID, claim_steer
 from tests.unit.test_title_review_regressions import Held
 
@@ -331,7 +331,7 @@ class InterfaceRelay:
     def status(self):
         return self.server.status()["status"]
 
-    def send(self, seq, op, *, line=None, tag=None, sig=None):
+    def send(self, seq, op, *, line=None, tag=None, sig=None, before_send=None):
         runner = self.runner
         held = self.store._lock.held
         self.sends.append((tag, [frame.tag for frame in runner.outbox], runner.handover.locked(),
@@ -346,11 +346,15 @@ class InterfaceRelay:
             self.failed.append((tag, failure))
             if failure == "large":
                 raise FrameTooLarge(len(line or ""), 1)
+            if before_send is not None:
+                before_send()
             if failure == "refused":
                 return Ack(seq=seq, ok=False, error="conflict")
             if failure == "reached":
                 self.server.apply(frame)
             raise RelayError("relay closed the connection before acknowledging")
+        if before_send is not None:
+            before_send()
         body = self.server.apply(frame)
         return Ack(seq=seq, ok=body["ok"], dup=body.get("dup", False), error=body.get("error"))
 
@@ -377,6 +381,7 @@ class TitleTurn:
         self.store.submit_message(conversation_id=self.cid, message_id=MID, after_message_id=None, text=text,
                                   attachments=[], settings=claude)
         self.store.set_state(MID, "starting", expect=("queued",))
+        turn_attempt(self.svc, MID, state="starting", n=0, job_id="job")
         self.claude = claude
         self.spec = TurnSpec(provider="claude", message_id=MID, text=text, model_id="opus[1m]",
                              permission="ask", native_session_id=None, new_session_id=SID, cwd=str(root))
@@ -891,9 +896,18 @@ def test_the_runner_reaches_its_relay_only_through_status_send_and_close():
 def test_a_relay_with_only_status_send_and_close_carries_a_titled_turn():
     with title_turn() as turn:
         runner = turn.runner()
+        audit = []
+
+        def stop_delivery(frame, seq):
+            audit.append(("intent", frame.tag))
+            return runner_module.StopDelivery(before_send=lambda: audit.append(("clock", frame.tag)),
+                                              record=lambda sent: audit.append(("record", sent)))
+
+        runner.on_stop_delivery = stop_delivery
         turn.to_result(runner)
         turn.say(runner, response())
         assert turn.logged() == ["init", "user-message", "settings", TITLE_FRAME, "close"]
+        assert audit == [("intent", "close"), ("clock", "close"), ("record", True)]
         assert not runner.relay_failed and runner.frame_refused is None and runner.outbox == []
 
 
