@@ -9,10 +9,11 @@ from tests.unit.test_daemon_settle import daemon, JOB, ATTEMPT  # noqa: F401
 
 
 @pytest.mark.parametrize("unreadable", [False, True])
-def test_terminal_cwd_scans_follow_the_inspection_interval(daemon, monkeypatch, unreadable):
+@pytest.mark.parametrize("holder", [JOB, ATTEMPT], ids=["job-lease", "attempt-lease"])
+def test_terminal_cwd_scans_follow_the_inspection_interval(daemon, monkeypatch, unreadable, holder):
     daemon.store.update_job(JOB, state="succeeded")
     daemon.store.update_attempt(ATTEMPT, state="succeeded")
-    daemon.store.acquire_lease("worktree:/scratch/owned", JOB)
+    daemon.store.acquire_lease("worktree:/scratch/owned", holder)
     now, scans, live = [0.0], [], [True]
     monkeypatch.setattr(daemon_module, "time", SimpleNamespace(monotonic=lambda: now[0]))
     def observers(job):
@@ -33,6 +34,29 @@ def test_terminal_cwd_scans_follow_the_inspection_interval(daemon, monkeypatch, 
     assert daemon._pending_worktree_holds() == [JOB]
     daemon._release_worktree_hold(JOB)
     assert scans == [0.0, daemon.inspect_interval_s]
+    assert daemon.store.list_leases() == []
+    assert daemon._pending_worktree_holds() == []
+
+
+def test_recovered_terminal_lease_is_rechecked_without_the_old_clock(daemon, monkeypatch):
+    daemon.store.update_job(JOB, state="succeeded")
+    daemon.store.update_attempt(ATTEMPT, state="succeeded")
+    daemon.store.acquire_lease("worktree:/scratch/owned", ATTEMPT)
+    now, live, scans = [0.0], [True], []
+    monkeypatch.setattr(daemon_module, "time", SimpleNamespace(monotonic=lambda: now[0]))
+    def observers(job):
+        scans.append(now[0])
+        return frozenset({5500}) if live[0] else frozenset()
+    daemon._worktree_observers = observers
+    daemon._release_worktree_hold(JOB)
+    assert daemon._pending_worktree_holds() == []
+    # Restart discards only the in-memory clock; the stored attempt lease is
+    # sufficient to rediscover the worktree without scanning retained jobs.
+    daemon._cwd_recheck_next = {}
+    live[0] = False
+    assert daemon._pending_worktree_holds() == [JOB]
+    daemon._release_worktree_hold(JOB)
+    assert scans == [0.0, 0.0]
     assert daemon.store.list_leases() == []
     assert daemon._pending_worktree_holds() == []
 
