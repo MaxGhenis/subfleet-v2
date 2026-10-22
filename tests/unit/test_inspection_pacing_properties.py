@@ -63,9 +63,11 @@ def world(tmp_path, monkeypatch):
     root.mkdir()
     core = object.__new__(Daemon)
     core.root, core.store = root, Store(root / "state.sqlite3")
+    core.crash_hook = core.publish_hook = None    # what __init__ sets; C-4.3's stream freeze reads publish_hook
     core.stopping = threading.Event()
     core.term_grace_s, core.kill_settle_s, core.exit_settle_s, core.start_grace_s = .05, .3, .3, 10
     core._exit_settle, core._children, core._pending_launches, core._starting_deadlines = {}, {}, set(), {}
+    core._stream_check_failures = {}
     core._inspect_next, core.inspect_interval_s, core._inspect_retry = {}, INTERVAL, set()
     core._reset_admission_state()        # C-6.14: what the attempt worker has heard of models answering
     core.policy = {}                     # C-6.14: `admission.prove_*` at their defaults
