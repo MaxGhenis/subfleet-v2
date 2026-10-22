@@ -1434,8 +1434,8 @@ or on this tree's stronger reminder check.
 | Default `-n 40`, whole reminder on line 1, ms | 213 | 774 | 3,283 |
 
 The last row measured round 6's single quoted pass (two with group margins),
-not round 7's two passes (four with margins). Fresh measurements remain pending
-until a suite slot runs `tools/measure_cut_cost.py`, including its `--logs` mode.
+not round 7's two passes (four with margins). Fresh measurements completed in the later hold below, including `--logs`;
+the historical baseline and the new check's measurements remain separate.
 
 ### Census provenance and tool corrections
 
@@ -1444,8 +1444,8 @@ The reviewer's original 60,000-text grammar run found 4 leaking resolutions and
 fallbacks. Those are supplied review results, not this continuation's census.
 This tree's rebuilt grammar includes assignments with reminders between a
 separator and a quote, every quote kind, escapes, flags, key/data-URI pieces,
-margins and orphan tags. Its census is still pending, so no fresh leak or
-fallback count is claimed here.
+margins and orphan tags. Its completed census appears in the later hold below; its results use the
+rebuilt generator rather than the reviewer's original corpus.
 
 `c124b6ea4` corrects the census control: the purported round-6 resolver had kept
 round 7's stronger comparison of the margin-free text left after removal.
@@ -1455,16 +1455,16 @@ and its corpus mode honors its time budget. `99ddd1798` moves mutation fixtures
 from a hard-coded `/tmp` to the hold's `TMPDIR` inside scratch. Production code
 is unchanged by these tool corrections.
 
-### Continuation validation status
+### Queue checkpoint before the first completed hold
 
 At this checkpoint no pytest or measurement command has acquired a suite slot.
 The first group waited about 50 minutes and was canceled before collection;
 combined briefed runs were canceled before collection to finish batching,
-correct the venv PATH and remove the contract's provisional tokens. The current
-validation plan is one pytest over all 17 briefed files, then the historical
+correct the venv PATH and remove the contract's provisional tokens. At that checkpoint the
+validation plan was one pytest over all 17 briefed files, then the historical
 regressions, mutants, census and timings, then all remaining unit and fake files.
 No prior round-7 whole-suite files are skipped: there is no file-by-file green
-report for them. The final ledger below will distinguish completed, interrupted
+report for them. The final ledger below distinguishes completed, interrupted
 and unrun files.
 
 ### First completed continuation hold
@@ -1481,7 +1481,7 @@ exited 1 rather than its expected policy-refusal exit 2. Five tests in
 `test_daemon_verbs.py` already skip on this host for the same C-5.3 prerequisite.
 The two site tests now request the existing `process_inspection_available`
 fixture; their bodies and assertions are unchanged, and they continue to run
-where boot/process inspection is permitted. The whole site file will be rerun.
+where boot/process inspection is permitted. The whole site file was subsequently rerun in the next hold, below.
 
 | File | Passed | Failed | Skipped |
 |---|---:|---:|---:|
@@ -1611,44 +1611,44 @@ margin shape and the 8,000-backslash shape are included.
 | shape | MiB | cut ms | cut / plain | cce8f1af7 cut ms | handler, message ms | handler, traceback ms | Python's formatting ms | traceback / plain |
 |---|---|---|---|---|---|---|---|---|
 | plain | 1 | 4.4 | 1.00 | 5.0 | 26.3 | 18.4 | 3.6 | 1.00 |
-| margin-only lines `  |\n` | 1 | 12.1 | 2.74 | 77.8 | 25.2 | 32.7 | 16.3 | 1.78 |
-| margin-only lines `  | \n` | 1 | 15.4 | 3.50 | 57.0 | 17.0 | 28.0 | 14.9 | 1.53 |
+| margin-only lines `  \|\n` | 1 | 12.1 | 2.74 | 77.8 | 25.2 | 32.7 | 16.3 | 1.78 |
+| margin-only lines `  \| \n` | 1 | 15.4 | 3.50 | 57.0 | 17.0 | 28.0 | 14.9 | 1.53 |
 | margin-only lines, long and short | 1 | 6.5 | 1.47 | 32.0 | 19.2 | 23.5 | 2.2 | 1.28 |
 | quote kinds (review r4) | 1 | 5.8 | 1.31 | 6.2 | 27.2 | 38.9 | 3.5 | 2.12 |
 | data URI body into the tail's window | 1 | 3.0 | 0.68 | 4.9 | 3.9 | 9.6 | 6.1 | 0.52 |
 | 480 data URI prefixes | 1 | 5.9 | 1.33 | 6.3 | 3.8 | 7.6 | 3.6 | 0.41 |
 | backslash runs (review r5) | 1 | 2.1 | 0.47 | 496.4 | 6.6 | 7.5 | 5.3 | 0.41 |
-| margin-only lines `  | \n`, four-byte text | 1 | 15.1 | 3.43 | 37.4 | 19.5 | 31.8 | 11.7 | 1.73 |
-| margin-only lines `  | \n` among plain lines | 1 | 2.7 | 0.62 | 25.2 | 14.4 | 23.1 | 8.7 | 1.26 |
-| member lines `  | member line\n` | 1 | 2.7 | 0.61 | 14.2 | 63.3 | 58.6 | 6.8 | 3.19 |
+| margin-only lines `  \| \n`, four-byte text | 1 | 15.1 | 3.43 | 37.4 | 19.5 | 31.8 | 11.7 | 1.73 |
+| margin-only lines `  \| \n` among plain lines | 1 | 2.7 | 0.62 | 25.2 | 14.4 | 23.1 | 8.7 | 1.26 |
+| member lines `  \| member line\n` | 1 | 2.7 | 0.61 | 14.2 | 63.3 | 58.6 | 6.8 | 3.19 |
 | leading spaces | 1 | 2.4 | 0.55 | 20.8 | 1.7 | 2.2 | 0.8 | 0.12 |
 | run of `<` | 1 | 1.8 | 0.41 | 15.6 | 5.9 | 10.6 | 3.8 | 0.58 |
 | raised exception group (its traceback) | 1 | 2.4 | 0.54 | 14.9 | nan | 70.3 | 3.7 | 3.83 |
 | plain | 4 | 7.2 | 1.00 | 9.5 | 20.1 | 38.2 | 16.2 | 1.00 |
-| margin-only lines `  |\n` | 4 | 40.6 | 5.62 | 269.9 | 48.2 | 104.0 | 84.0 | 2.73 |
-| margin-only lines `  | \n` | 4 | 40.1 | 5.54 | 215.8 | 65.4 | 94.9 | 43.0 | 2.49 |
+| margin-only lines `  \|\n` | 4 | 40.6 | 5.62 | 269.9 | 48.2 | 104.0 | 84.0 | 2.73 |
+| margin-only lines `  \| \n` | 4 | 40.1 | 5.54 | 215.8 | 65.4 | 94.9 | 43.0 | 2.49 |
 | margin-only lines, long and short | 4 | 22.0 | 3.04 | 177.9 | 27.5 | 36.4 | 21.0 | 0.95 |
 | quote kinds (review r4) | 4 | 32.1 | 4.43 | 27.2 | 58.1 | 71.6 | 21.9 | 1.88 |
 | data URI body into the tail's window | 4 | 8.2 | 1.13 | 16.3 | 10.9 | 52.8 | 32.7 | 1.38 |
 | 480 data URI prefixes | 4 | 11.7 | 1.61 | 29.0 | 10.8 | 33.5 | 25.9 | 0.88 |
 | backslash runs (review r5) | 4 | 12.3 | 1.70 | 629.9 | 16.6 | 26.3 | 15.5 | 0.69 |
-| margin-only lines `  | \n`, four-byte text | 4 | 58.6 | 8.10 | 173.6 | 85.8 | 167.7 | 64.6 | 4.40 |
-| margin-only lines `  | \n` among plain lines | 4 | 6.1 | 0.84 | 139.1 | 26.9 | 59.0 | 39.9 | 1.55 |
-| member lines `  | member line\n` | 4 | 8.5 | 1.17 | 63.1 | 39.3 | 64.9 | 23.4 | 1.70 |
+| margin-only lines `  \| \n`, four-byte text | 4 | 58.6 | 8.10 | 173.6 | 85.8 | 167.7 | 64.6 | 4.40 |
+| margin-only lines `  \| \n` among plain lines | 4 | 6.1 | 0.84 | 139.1 | 26.9 | 59.0 | 39.9 | 1.55 |
+| member lines `  \| member line\n` | 4 | 8.5 | 1.17 | 63.1 | 39.3 | 64.9 | 23.4 | 1.70 |
 | leading spaces | 4 | 9.3 | 1.28 | 122.7 | 6.3 | 9.0 | 3.1 | 0.24 |
 | run of `<` | 4 | 4.1 | 0.56 | 59.6 | 8.5 | 24.4 | 15.3 | 0.64 |
 | raised exception group (its traceback) | 4 | 6.6 | 0.92 | 57.0 | nan | 44.8 | 14.8 | 1.17 |
 | plain | 16 | 26.1 | 1.00 | 32.9 | 38.8 | 103.4 | 163.4 | 1.00 |
-| margin-only lines `  |\n` | 16 | 210.6 | 8.06 | 981.2 | 226.9 | 525.9 | 281.7 | 5.09 |
-| margin-only lines `  | \n` | 16 | 178.3 | 6.82 | 995.5 | 253.5 | 472.0 | 202.7 | 4.57 |
+| margin-only lines `  \|\n` | 16 | 210.6 | 8.06 | 981.2 | 226.9 | 525.9 | 281.7 | 5.09 |
+| margin-only lines `  \| \n` | 16 | 178.3 | 6.82 | 995.5 | 253.5 | 472.0 | 202.7 | 4.57 |
 | margin-only lines, long and short | 16 | 148.3 | 5.67 | 527.4 | 115.1 | 276.9 | 52.2 | 2.68 |
 | quote kinds (review r4) | 16 | 79.7 | 3.05 | 117.4 | 124.5 | 272.0 | 86.2 | 2.63 |
 | data URI body into the tail's window | 16 | 48.9 | 1.87 | 92.6 | 35.1 | 213.0 | 155.2 | 2.06 |
 | 480 data URI prefixes | 16 | 42.7 | 1.63 | 93.1 | 82.9 | 200.4 | 71.6 | 1.94 |
 | backslash runs (review r5) | 16 | 33.4 | 1.28 | 699.1 | 37.4 | 125.0 | 139.3 | 1.21 |
-| margin-only lines `  | \n`, four-byte text | 16 | 409.9 | 15.68 | 858.0 | 298.5 | 559.1 | 275.4 | 5.41 |
-| margin-only lines `  | \n` among plain lines | 16 | 31.9 | 1.22 | 645.6 | 57.0 | 277.9 | 205.8 | 2.69 |
-| member lines `  | member line\n` | 16 | 38.3 | 1.46 | 333.3 | 83.0 | 164.1 | 104.3 | 1.59 |
+| margin-only lines `  \| \n`, four-byte text | 16 | 409.9 | 15.68 | 858.0 | 298.5 | 559.1 | 275.4 | 5.41 |
+| margin-only lines `  \| \n` among plain lines | 16 | 31.9 | 1.22 | 645.6 | 57.0 | 277.9 | 205.8 | 2.69 |
+| member lines `  \| member line\n` | 16 | 38.3 | 1.46 | 333.3 | 83.0 | 164.1 | 104.3 | 1.59 |
 | leading spaces | 16 | 36.1 | 1.38 | 530.5 | 45.1 | 43.1 | 15.4 | 0.42 |
 | run of `<` | 16 | 23.1 | 0.88 | 338.6 | 35.7 | 149.9 | 81.7 | 1.45 |
 | raised exception group (its traceback) | 16 | 29.4 | 1.13 | 372.5 | nan | 142.2 | 80.9 | 1.38 |
