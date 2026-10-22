@@ -869,8 +869,9 @@ struct Timeline: Equatable {
         guard receipt.conversation_id == nil || receipt.conversation_id == conversationID else { return }
         ensureTurn(receipt.message_id)
         guard var turn = turns[receipt.message_id] else { return }
-        if receipt.messageState != .unknown {
-            if receipt.messageState == .steering || receipt.messageState == .steered
+        let messageState = receipt.messageState
+        if messageState != .unknown {
+            if messageState == .steering || messageState == .steered
                 || receipt.steered_into != nil || steeredInto(stateReason: receipt.state_reason) != nil
                 || receipt.state_reason?.hasPrefix("steer-missed:") == true {
                 turn.sentAsSteer = true
@@ -879,8 +880,8 @@ struct Timeline: Equatable {
             turn.stateReason = receipt.state_reason
             turn.steeredInto = receipt.steered_into ?? steeredInto(stateReason: receipt.state_reason)
             // A queued receipt may be its submit's, ahead of its steer's answer.
-            if receipt.messageState != .queued { turn.steerRequested = false }
-            if receipt.messageState == .steering || receipt.messageState == .steered { turn.steerRefusal = nil }
+            if messageState != .queued { turn.steerRequested = false }
+            if messageState == .steering || messageState == .steered { turn.steerRefusal = nil }
         }
         if let job = receipt.job_id { turn.jobID = job; turn.hasBoundJob = true }
         turn.seq = receipt.seq ?? turn.seq
@@ -973,6 +974,8 @@ struct Timeline: Equatable {
     /// request id. Summaries cannot identify a request (C-27.1). A legacy view
     /// without that id gets its own card, keyed by its immutable approval id.
     mutating func attach(approvals: [ApprovalView]) {
+        // No cards changed: receipts already resolved the queue for this open.
+        guard !approvals.isEmpty else { return }
         for approval in approvals where approval.conversation_id == conversationID {
             knownApprovals[approval.approval_id] = approval
             ensureTurn(approval.message_id)
