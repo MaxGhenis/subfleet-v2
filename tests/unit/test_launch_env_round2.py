@@ -17,7 +17,7 @@ def test_daemon_start_preserves_harness_configuration_not_credentials(tmp_path, 
               "SUBFLEET_LIVE": "0", "SUBFLEET_TEST_TOKEN": "dummy"}
     monkeypatch.setattr(os, "environ", parent)
     states = iter([False, True])
-    monkeypatch.setattr(cli, "_daemon_alive", lambda client: next(states))
+    monkeypatch.setattr(cli, "_daemon_alive", lambda client, *, timeout=None: next(states))
     monkeypatch.setattr(cli, "_daemond_argv", lambda root: ["fake-daemon"])
     monkeypatch.setattr(cli.Client, "lock_info", lambda self: {})
     seen = []

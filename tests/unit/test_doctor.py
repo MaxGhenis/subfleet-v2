@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from subfleet import cli, doctor
+from subfleet import cli, client, doctor
 from subfleet.contracts import Exit
 
 STATUSES = {doctor.PASS, doctor.FAIL, doctor.UNKNOWN, doctor.WARN}
@@ -313,9 +313,10 @@ def test_daemon_lock_row_passes_with_neither_lock_nor_socket(root):
     assert item["status"] == doctor.PASS and "no daemon" in item["detail"]
 
 
-def test_daemon_lock_row_fails_on_a_lock_whose_process_is_gone(root):
+def test_daemon_lock_row_fails_on_a_lock_whose_process_is_gone(root, monkeypatch):
     """C-5.8 a lock naming a dead pid beside a live socket is the stale case."""
     (root / "daemon.sock").touch()
+    monkeypatch.setattr(client, "proc_status", lambda pid: ("", ""))
     (root / "daemon.lock").write_text(json.dumps(
         {"pid": 999999, "boot_id": "1", "proc_start": "Mon Jan  1 00:00:00 2001"}))
     item = doctor.check_daemon_lock(root)
@@ -329,10 +330,13 @@ def test_daemon_lock_row_fails_on_a_socket_with_no_lock(root):
     assert item["status"] == doctor.FAIL and "no daemon.lock" in item["detail"]
 
 
-def test_daemon_lock_row_passes_against_a_live_daemon(daemon, root):
+def test_daemon_lock_row_passes_against_a_live_daemon(daemon, root, monkeypatch):
     """C-5.3 the lock is verified by process identity, not by a bare pid; here
     the fake daemon holds the socket and the lock names this very process."""
     from subfleet.client import boot_id, proc_start
+    # Process parsing/inspection has its own tests. This table test should not
+    # depend on a runner allowing ps to inspect even the current process.
+    monkeypatch.setattr(client, "proc_status", lambda pid: ("S", "Sun Sep 20 23:26:42 2026"))
     daemon({"ping": lambda request: {"pong": True, "version": "test"}})
     (root / "daemon.lock").write_text(json.dumps(
         {"pid": os.getpid(), "boot_id": boot_id(), "proc_start": proc_start(os.getpid())}))

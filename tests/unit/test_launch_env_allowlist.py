@@ -161,7 +161,7 @@ def test_daemon_start_popen_gets_only_selected_names(tmp_path, monkeypatch):
     """C-17.x: exercise the actual CLI spawn seam, without starting a daemon."""
     monkeypatch.setattr(os, "environ", {"PATH": "/usr/bin:/bin", "SUBFLEET_HOME": str(tmp_path), **POLLUTION})
     states = iter([False, True])
-    monkeypatch.setattr(cli, "_daemon_alive", lambda client: next(states))
+    monkeypatch.setattr(cli, "_daemon_alive", lambda client, *, timeout=None: next(states))
     monkeypatch.setattr(cli, "_daemond_argv", lambda root: ["fake-daemon"])
     monkeypatch.setattr(cli.Client, "lock_info", lambda self: {})
     seen = []
