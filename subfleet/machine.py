@@ -373,6 +373,14 @@ class Sampler:
                         'age_s':max(0,time.time()-self._latest[key][1]) if key in self._latest else None,
                         'unit':unit, 'readable':self._snapshot.get(key) is not None}
                   for key,unit in units.items()}
+        baseline = self.baseline_ms
+        # Its age belongs to the newest usable calibration observation, not to
+        # a new daemon merely recomputing a percentile from yesterday's rows.
+        calibrated = [r['observed_at'] for r in self._history
+                      if r.get('disk_service_ms_raw') is not None
+                      and (self.device_id is None or r.get('disk_device_id') == self.device_id)]
+        result['disk_baseline_ms'].update(value=baseline, readable=baseline is not None,
+            age_s=max(0,time.time()-max(calibrated)) if baseline is not None and calibrated else None)
         result.update(sample_interval_s=SAMPLE_INTERVAL_S, disk_device_id=self.device_id,
                       baseline_samples=len(self._history))
         return result

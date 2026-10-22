@@ -3525,7 +3525,7 @@ class Daemon:
                     history.append(sample)
             except (ValueError, TypeError):
                 continue
-        self._last_machine_sample_wall = max((r["observed_at"] for r in history), default=0.0)
+        self._last_machine_sample_wall = max((r.get("recorded_at", r["observed_at"]) for r in history), default=0.0)
         self._machine_sampler = machine.Sampler(self.root, history=history)
         self._machine_sampler.prime()
 
@@ -3539,6 +3539,7 @@ class Daemon:
         now = time.time()
         if now - self._last_machine_sample_wall >= 60.0:
             sample = {key: value for key, value in reading.items() if key != "sampled_at"}
+            sample["recorded_at"] = now
             # One sample and its normal C-3.2 audit row per minute; both kinds
             # retain at most 1,440 rows. Restart restores the minute gate too.
             with self.store.transaction("machine.sample.retention") as tx:
