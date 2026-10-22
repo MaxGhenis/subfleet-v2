@@ -791,6 +791,24 @@ GUARDED = {
 }
 
 
+def live_spellings() -> list[str]:
+    """Values that name the account's home, a live root or a path inside one, by `~` or otherwise."""
+    spellings = ["~", "~/", "~/" + STORES[0], f"~{ACCOUNT}", f"~{ACCOUNT}/{STORES[1]}", f"~{ACCOUNT}/st3-elsewhere",
+                 str(PERSONAL), str(PERSONAL / STORES[2]), str(PERSONAL / STORES[0] / "state.sqlite3"),
+                 f"{PERSONAL}/st3-missing/../{STORES[3]}", f"//{PERSONAL}/{STORES[1]}/x"]
+    if sys.platform == "darwin":
+        spellings += ["/System/Volumes/Data" + str(PERSONAL / STORES[0]), str(PERSONAL / STORES[1]).upper()]
+    return spellings
+
+
+# Each name a guarded function reads as a path may also take a live spelling.
+PATH_NAMES = frozenset({*SAFE_HOME_PATHS, "CODEX_HOME", "XDG_CONFIG_HOME", "TMPDIR", "SUBFLEET_GUARD_TRUST",
+                        "SUBFLEET_CODEX_GUARD_CACHE", "SUBFLEET_DAEMON_BIN", "CLAUDE_LANE_AGENT_SECRET",
+                        "SUBFLEET_DEV_APP_EXECUTABLE"})
+# HOME may also be spelled `~<account>` or lie inside a live root.
+HOME_SPELLINGS = [f"~{ACCOUNT}", f"~{ACCOUNT}/{STORES[2]}", str(PERSONAL / STORES[2]), str(PERSONAL / STORES[1] / "x")]
+
+
 @st.composite
 def environments(draw, scratch: Path):
     """Any subset of NAMES plus junk names, each a session or junk value.
@@ -804,9 +822,11 @@ def environments(draw, scratch: Path):
     for name in draw(st.lists(st.sampled_from(NAMES), unique=True, max_size=len(NAMES))):
         options = [JUNK, st.just(SESSION.get(name, ""))]
         if name == "HOME":
-            options += [st.sampled_from(account_spellings()), st.just(str(scratch / "home"))]
+            options += [st.sampled_from(account_spellings() + HOME_SPELLINGS), st.just(str(scratch / "home"))]
         if name in SAFE_HOME_PATHS:
             options.append(st.just(str(scratch / "chosen" / name)))
+        if name in PATH_NAMES:
+            options.append(st.sampled_from(live_spellings()))
         env[name] = draw(st.one_of(*options))
     for name, value in draw(st.dictionaries(st.from_regex(r"[A-Z_][A-Z0-9_]{0,8}", fullmatch=True), JUNK,
                                             max_size=3)).items():

@@ -225,13 +225,14 @@ def _names_account_home(value: str) -> bool:
 
     Expansion reads HOME and, without one, pwd: the account's home. `~name`
     reads pwd for any name, the account's own included. Only the home a tilde
-    names is compared, never a store beneath it.
+    names is judged, never a store beneath it, and as a HOME is judged
+    (`personal_home`): a HOME inside a live root counts, and is never stat'ed.
     """
     if not isinstance(value, str) or not value.startswith("~"):
         return False
     head = value.split(os.sep, 1)[0]
     expanded = os.path.expanduser(head)
-    return expanded != head and is_account_home(Path(expanded))
+    return expanded != head and personal_home(Path(expanded))
 
 
 def names_live_root(value) -> bool:
