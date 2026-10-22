@@ -61,6 +61,18 @@ def _review_r4_shapes() -> dict:
             "480 data URI prefixes": windows.REVIEW_R4_SHAPES["data-uri-prefixes"]}
 
 
+def _review_r5_shapes() -> dict:
+    """Review r5's (P3-1): the 8,000-backslash runs at both ends of plain text; and the
+    spaced margin-only lines in a text Python stores four bytes a character (an emoji, `r>`
+    and the three characters `_REMINDER_FOLDS` reads, on the first line), alone and with
+    plain lines between them."""
+    from tests.unit import test_daemon_log_cut_windows as windows
+    wide = "\U0001F600 r> İ ı ſ\n"
+    return {"backslash runs (review r5)": windows.REVIEW_R5_SHAPES["backslash-runs"],
+            "margin-only lines `  | \\n`, four-byte text": lambda size: wide + "  | \n" * ((size - len(wide)) // 5),
+            "margin-only lines `  | \\n` among plain lines": lambda size: ("  | \n" * 8 + "plain words only\n") * (size // 57)}
+
+
 #: In the order they are measured: `--budget-s` leaves out the last first.
 SHAPES = {
     "plain": lambda size: "plain words only\n" * (size // 17),
@@ -68,6 +80,7 @@ SHAPES = {
     "margin-only lines `  | \\n`": lambda size: "  | \n" * (size // 5),
     "margin-only lines, long and short": lambda size: ("  |" + " " * 70 + "\n  |\n") * (size // 79),
     **_review_r4_shapes(),
+    **_review_r5_shapes(),
     "member lines `  | member line\\n`": lambda size: "  | member line\n" * (size // 16),
     "leading spaces": lambda size: " " * size + "\nx\n",
     "run of `<`": lambda size: "<<<<<<<<<<<<<<<\n" * (size // 16),

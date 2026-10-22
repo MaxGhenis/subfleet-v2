@@ -29,10 +29,19 @@ and round 6's (review r4):
   marking the tags its scrub leaves (a log short enough to be scrubbed whole);
 - `follow-not-neutralised`: `daemon logs -f` writing the tags its scrub leaves;
 - `unmasked-strip`: the tail taking reminders out without the whole-text scrub's quoted
-  pass first, so a closing tag inside a quoted value closes a reminder.
+  pass first, so a closing tag inside a quoted value closes a reminder;
+
+and round 7's (review r5):
+- `unconditional-take-out`: reminders taken out whatever the first pass over what is left
+  replaces, as round 6 took them out (P2-1);
+- `no-margin-free-check`: the margin-free reading no longer checked (P2-1);
+- `unanchored-quote-regex`: `_QUOTE_RUN_RE` without its lookbehind, `(\\*)(["'])` (P3-1);
+- `follow-start-held`: `daemon logs -f` printing first only what the follower settled,
+  the lines before the first tag (P3-2).
 """
 from __future__ import annotations
 
+import bisect
 import contextlib
 import io
 import logging
@@ -53,6 +62,7 @@ from subfleet import cli, daemon_log  # noqa: E402
 from subfleet.sessions import handoff  # noqa: E402
 from tests import reference_tail_1cf653dff as round5  # noqa: E402
 from tests.unit import test_daemon_log_cut_windows as windows  # noqa: E402
+from tests.unit import test_daemon_log_first_pass as first_pass  # noqa: E402
 from tests.unit import test_daemon_log_reminders as reminders  # noqa: E402
 from tests.unit import test_daemon_log_tail as tail  # noqa: E402
 
@@ -195,25 +205,97 @@ def _tail_unmarked_after_scrub(patch):
 def _follow_not_neutralised(patch):
     def write(follower, end):               # `LogFollower._write` without `neutralised`
         written, follower.pending = follower.pending[:end], follower.pending[end:]
+        before = follower.context + follower.shown
         try:
             own = daemon_log.scrubbed_block(written, group=daemon_log._GROUP_MARK in written, keep_lines=True)
-            if follower.context:
-                around = follower.context + written
+            if before:
+                around = before + written
                 shown = daemon_log.scrubbed_block(around, group=daemon_log._GROUP_MARK in around, keep_lines=True)
                 own = daemon_log._only(own, set(daemon_log._RUN.findall(shown)) | {"|", "+"})
             lines = own.splitlines()
         except Exception as exc:            # noqa: BLE001 - as the follower's own
             lines = [daemon_log.failed_line(daemon_log._record("", logging.INFO), exc)]
-        follower.context = daemon_log._context_of(follower.context + written)
+        follower.context, follower.shown = daemon_log._context_of(before + written), ""
         return lines
     patch.setattr(daemon_log.LogFollower, "_write", write)
 
 
 def _unmasked_strip(patch):
-    def unmasked(text):                     # masks nothing: every tag counts for the strip
-        mark = next(char for char in map(chr, range(0xE000, 0xE100)) if char not in text)
-        return text, mark
-    patch.setattr(daemon_log, "quoted_value_mask", unmasked)
+    patch.setattr(daemon_log, "quoted_value_spans", lambda text: [])     # masks nothing
+
+
+def _unconditional_take_out(patch):
+    def unconditional(text, tags):          # round 6: what is left used, whatever its first pass replaces
+        spans = daemon_log.quoted_value_spans(text)
+        starts = [start for start, _, _ in spans]
+        pairs, opening = [], None
+        for index, (start, _, opens) in enumerate(tags):
+            at = bisect.bisect_right(starts, start) - 1
+            if at >= 0 and start < spans[at][1]:
+                continue
+            if opening is None:
+                if opens:
+                    opening = index
+            elif not opens:
+                pairs.append((opening, index))
+                opening = None
+        pieces, cursor = [], 0
+        for opening, closing in pairs:
+            pieces.append(text[cursor:tags[opening][0]])
+            cursor = tags[closing][1]
+        pieces.append(text[cursor:])
+        return "".join(pieces), pairs
+    patch.setattr(daemon_log, "_taken_out", unconditional)
+
+
+def _no_margin_free_check(patch):
+    def resolved(text):                     # `_reminders_resolved` without the margin-free reading
+        tags = daemon_log.reminder_tags(text)
+        if not tags:
+            return text
+        first = next((start for start, _, opens in tags if opens), None)
+        if first is None or not any(start > first and not opens for start, _, opens in tags):
+            return daemon_log._marked(text, tags)
+        taken = daemon_log._taken_out(text, tags)
+        if taken is None:
+            return None
+        kept, pairs = taken
+        kept_tags = daemon_log.reminder_tags(kept)
+        if len(kept_tags) != len(tags) - sum(closing - opening + 1 for opening, closing in pairs):
+            return None
+        return daemon_log._marked(kept, kept_tags)
+    patch.setattr(daemon_log, "_reminders_resolved", resolved)
+
+
+def _unanchored_quote_regex(patch):
+    patch.setattr(handoff, "_QUOTE_RUN_RE", re.compile(r"(\\*)([\"'])"))
+
+
+def _follow_start_held(patch):
+    real = cli.cmd_daemon_logs
+
+    def held(args):                         # round 6's start: only what the follower settled
+        if not args.follow:
+            return real(args)
+        with open(cli._root(args) / cli.LOG_NAME, "r", errors="replace") as stream:
+            text = stream.read()
+            follower = daemon_log.LogFollower(text)
+            settled = len(text) - len(follower.shown) - len(follower.pending)
+            for line in daemon_log.scrubbed_tail(text[:settled], args.lines):
+                cli.out(line)
+            try:
+                while True:
+                    more = stream.read()
+                    if more:
+                        for line in follower.feed(more):
+                            cli.out(line)
+                    else:
+                        cli.time.sleep(0.25)
+            except KeyboardInterrupt:
+                for line in follower.flush():
+                    cli.out(line)
+                return int(cli.Exit.OK)
+    patch.setattr(cli, "cmd_daemon_logs", held)
 
 
 MUTATIONS = {"baseline": lambda patch: None, "whole-margins": _whole_margins,
@@ -222,7 +304,9 @@ MUTATIONS = {"baseline": lambda patch: None, "whole-margins": _whole_margins,
              "tail-not-neutralised": _tail_not_neutralised, "handler-not-neutralised": _handler_not_neutralised,
              "body-by-regex": _body_by_regex, "unmetered-data-body": _unmetered_data_body,
              "pem-prefix-not-held": _pem_prefix_not_held, "tail-unmarked-after-scrub": _tail_unmarked_after_scrub,
-             "follow-not-neutralised": _follow_not_neutralised, "unmasked-strip": _unmasked_strip}
+             "follow-not-neutralised": _follow_not_neutralised, "unmasked-strip": _unmasked_strip,
+             "unconditional-take-out": _unconditional_take_out, "no-margin-free-check": _no_margin_free_check,
+             "unanchored-quote-regex": _unanchored_quote_regex, "follow-start-held": _follow_start_held}
 
 #: The named tests, each with its arguments beyond its fixtures.
 TESTS = [
@@ -267,6 +351,27 @@ TESTS = [
      reminders.test_daemon_logs_follow_holds_a_split_first_line, {}),
     ("test_a_tag_a_quoted_value_masks_is_none_to_the_strip[last-MASKED_CLOSE]",
      reminders.test_a_tag_a_quoted_value_masks_is_none_to_the_strip, {"line": reminders.MASKED_CLOSE, "where": "last"}),
+    # round 7
+    *((f"test_a_join_that_opens_a_value_keeps_the_marker_rule[{name}]",
+       first_pass.test_a_join_that_opens_a_value_keeps_the_marker_rule, {"name": name}) for name in sorted(first_pass.JOINS)),
+    ("test_daemon_logs_and_daemon_start_s_tail_hide_what_the_whole_scrub_hides[quote]",
+     first_pass.test_daemon_logs_and_daemon_start_s_tail_hide_what_the_whole_scrub_hides, {"name": "quote"}),
+    ("test_daemon_logs_and_daemon_start_s_tail_hide_what_the_whole_scrub_hides[margin-free]",
+     first_pass.test_daemon_logs_and_daemon_start_s_tail_hide_what_the_whole_scrub_hides, {"name": "margin-free"}),
+    ("test_where_the_margin_free_reading_strips_other_reminders_the_marker_rule_stays",
+     reminders.test_where_the_margin_free_reading_strips_other_reminders_the_marker_rule_stays, {}),
+    ("test_a_join_that_opens_nothing_is_still_resolved[40]",
+     first_pass.test_a_join_that_opens_nothing_is_still_resolved, {"count": 40}),
+    ("test_at_16_mib_no_regex_reads_past_the_cut_s_windows[backslash-runs]",
+     windows.test_at_16_mib_no_regex_reads_past_the_cut_s_windows, {"shape": "backslash-runs"}),
+    ("test_the_meter_counts_what_a_regex_reads_not_its_span",
+     windows.test_the_meter_counts_what_a_regex_reads_not_its_span, {}),
+    ("test_a_settle_reads_a_run_of_backslashes_a_fixed_number_of_times",
+     windows.test_a_settle_reads_a_run_of_backslashes_a_fixed_number_of_times, {}),
+    ("test_following_a_tagged_log_starts_with_its_last_lines",
+     first_pass.test_following_a_tagged_log_starts_with_its_last_lines, {}),
+    ("test_following_starts_with_the_tag_s_line_marked[40]",
+     first_pass.test_following_starts_with_the_tag_s_line_marked, {"count": 40}),
 ]
 
 
