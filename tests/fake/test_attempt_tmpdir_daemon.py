@@ -119,3 +119,24 @@ def test_daemon_sweep_waits_for_terminal_attempt_census_to_clear(routing_state, 
     service._sweep_attempt_tmpdirs()
     assert not folder.exists()
     assert json.loads(service.store.get_attempt(attempt["attempt_id"])["evidence_json"])["tmpdir"]["removed_at"]
+
+
+@pytest.mark.parametrize("change", ["seen_identities", "tmpdir_keep"])
+def test_cleanup_preserves_evidence_committed_during_its_census(routing_state, monkeypatch, change):
+    service, _ = routing_state
+    attempt, folder = terminal_leftover(routing_state)
+    value = {"12345": {"pid": 12345, "boot_id": "dummy", "proc_start": "dummy"}} if change == "seen_identities" else True
+
+    def census(a):
+        current = service.store.get_attempt(a["attempt_id"])
+        evidence = json.loads(current["evidence_json"])
+        evidence[change] = value
+        service.store.update_attempt(a["attempt_id"], evidence_json=json.dumps(evidence))
+        return procs.Containment(unverifiable=change == "seen_identities")
+
+    monkeypatch.setattr(service, "_contain", census)
+    service._cleanup_attempt_tmpdir(attempt)
+    evidence = json.loads(service.store.get_attempt(attempt["attempt_id"])["evidence_json"])
+    assert evidence[change] == value
+    assert folder.exists()
+    assert "removed_at" not in evidence["tmpdir"]
