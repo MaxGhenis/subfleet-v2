@@ -1528,3 +1528,223 @@ Hold 10 reran both whole files first: 9 of 9 and 6 of 6 passed. The two quaranti
 - the person-only e2e tests, which skip inside a Subfleet job; CI runs them.
 
 **Hold 11 also printed one warning**, at collection, from release's test code: `PytestRemovedIn10Warning` for a `zip` passed to `parametrize` in `tests/unit/test_codex_turn_completed.py`. It is not a failure, and that file is not this PR's.
+
+## Round 9: one judgment decides gh on every path, and command names in any case
+
+Round 9 (`brief-fix9.md`) answers review r3c (`review-r3c.md`, REQUEST_CHANGES: one P2 and two P3s). It ran as `20261021-211630-pr221-fix9` on a detached HEAD in its job worktree. Its base is `31b1ceb65`, which merges `origin/release/217` at `a26d08336` (#237, a C-16.7 test race fix that touches only `tests/unit/test_daemon_connections.py`) into `8d5330fa5`. This job's first attempt made that merge, and Subfleet kept it under `refs/subfleet-salvage/detached-20261022T070045Z-a1`, whose tree `31b1ceb65` equals. `fix/review-needs-shell-217` was not moved. The shared Git directory was writable, so no workspace-local metadata was needed. Nothing was fetched or pushed.
+
+### Commits
+
+| Commit | Change |
+|---|---|
+| `4045a3d3b` | P3: each guard wrapper call gets 60 s (`test_review_publish_guard.py:61`) and each round-7 push form's shell run 120 s (`test_publish_rule_round7.py:314`) |
+| `ff2981af8` | Tests first: `tests/unit/test_publish_rule_round9.py` (regressions, the four invariants' properties, real hooks and shells, the PATH wrapper, offline differentials against real gh) |
+| `8af90e3a6` | The credential property inserts value flags only where a gh call can have them |
+| `93d3a3c66` | The fix: `_gh_path`; `gh_writes` returns the direct path's verdict; aliases and `ls` as data; `gh_read` skips flags before the verb; `auth git-credential` is a credential call. C-12.4 amended |
+| `84986ac8d` | Tests first: command names in another case |
+| `1eac2d15c` | Command names compared in any case. C-12.4 amended |
+| `14ddf7139` | The real-shell test reaches gh through a glob word, not a brace word, which zsh refuses in command position |
+| the commit after it | This section |
+
+### P2: the fallback and run-time words refused only the verbs they could name
+
+**Cause.** `_fallback` and `_runtime` judged gh with `gh_writes` (`publish_rule.py:327-347` at `8d5330fa5`). It refused a call only when the word right after the command (past leading `-R`, `--repo` or `--hostname`) was a verb listed in `GH_SUBCOMMANDS` that `gh_read` didn't accept. Everything else passed. So three things gh itself accepts got through `arch`, `$(command -v gh)`, a glob or brace word and a variable, though the direct path refused each:
+1. gh's built-in aliases (`pr new`, `cs delete`), which `GH_SUBCOMMANDS` didn't list;
+2. a flag before the verb (`gh pr -R o/r comment 7`): the word after `pr` was `-R`;
+3. the hidden `gh auth git-credential get`, which prints `password=<token>`. `gh_credential` didn't name it, so even the direct path refused it with the `publish` wording.
+
+**Fix.** One predicate, `gh_read`, decides gh everywhere:
+- **Finding the command.** `_gh_path(args)` finds the command and subcommand the way gh's parser (cobra) finds them:
+  - it reads level by level, from the first word each time;
+  - at each level it takes the first word that is not a flag or a flag's value;
+  - a flag without `=` takes the next word as its value, unless gh reads it as a switch at that level: `--help` everywhere, and `--version` only at the top (gh's `-h` is `--hostname`, never help);
+  - a cluster such as `-Ro/r` takes no value, and `--` ends the search.
+- **One verdict.** Once `_gh_path` reaches one of gh's commands (`GH_SUBCOMMANDS`, aliases included), or the call would print the credential, `gh_writes` returns `_gh_verdict`, the direct path's judgment: refused unless `gh_read` accepts the whole argument list, with the `credential` wording when `gh_credential` names it.
+  - A first word gh doesn't know as a command is not judged there. That keeps C-12.4's stated limit for config aliases and extensions, so `grep gh file` and `echo gh` pass.
+  - `_runtime` returns early only for a read; any other gh call gets `gh_writes`'s verdict.
+- **Data, not code paths:**
+  - `GH_SUBCOMMANDS` gains every alias gh 2.100.0's own `--help` lists, for each command and each subcommand, read offline on 2026-10-22. That is the review's nine subcommand aliases and six command aliases, plus `agents`, `agent-tasks`, `extensions`, `skill show`, `pr co` and every `ls`.
+  - The command aliases are commands of their own (`GH_COMMAND_ALIASES`), with their command's subcommands.
+  - So are `co` (the alias gh writes into a new config, `pr checkout`), cobra's `help`, and the hidden commands found by name: `credits`, `repo credits`, `repo garden` and `auth git-credential`.
+  - `GH_READS` gains `ls` wherever it has `list`: `pr`, `issue`, `run`, `workflow`, `release` and `label`.
+- **Flags before the verb.** `gh_read` skips `-R`/`--repo`/`--hostname`, each with its value, before the verb as well as before the command (P3, below). Any other flag there still makes a call no read.
+- **Credentials.**
+  - `gh_read` refuses any call `gh_credential` names, so the PATH wrapper now refuses `gh pr view 7 --show-token` too.
+  - `gh_credential` finds `auth token`, `auth git-credential` and `auth status` with `_gh_path`, whatever flags come before the subcommand. Real gh ran `auth token` for `gh auth -h h token` and `gh auth -u x token`.
+  - The credential deny text names `gh auth git-credential`.
+
+**Beyond the review's three gaps.** Checking the fix against real gh turned up two more:
+- **A verb's own flag before the command.** Real gh ran `pr comment` for `gh --body x pr comment 7` and `gh -b x pr comment 7`, and `api` with `--method POST` for `gh --method POST api repos/o/r`. The old fallback passed these, because `--body` stopped `_without_globals`; `_gh_path` finds the command past them.
+- **Aliases the review didn't list:** `agents`, `agent-tasks`, `extensions`, `skill show`, `pr co` and `co`.
+
+**Real gh's parser, offline.** Real gh 2.100.0 ran with a scratch `GH_CONFIG_DIR` and `HOME` and no token. Outside pytest it also ran under `sandbox-exec` with the network, DNS and the keychain denied. `gh <args> --help` names the command gh found and makes no request: its USAGE line names it, or, for an unknown subcommand, the error names the parent gh looked it up in. On all 80 argument lists `test_the_rule_finds_the_command_real_gh_finds` probes, `_gh_path` finds what gh finds. Some of them:
+
+| `gh …` | gh found | the rule found |
+|---|---|---|
+| `pr -R o/r view 7` | `pr view` | `pr view` |
+| `--body x pr comment 7` | `pr comment` | `pr comment` |
+| `pr -b x comment 7` | `pr comment` | `pr comment` |
+| `--method POST api repos/o/r` | `api` | `api` |
+| `issue -R o/r new` | `issue create` | `issue new`, its alias |
+| `cs ls` | `codespace list` | `cs ls`, its aliases |
+| `auth -h h token` | `auth token` | `auth token` |
+| `auth --hostname h git-credential get` | `auth git-credential` | `auth git-credential` |
+| `--version pr comment 7` | `pr` | `pr` |
+| `pr --web view 7` | `pr` | `pr` |
+| `-h pr comment 7` | none (`unknown command "comment" for "gh"`) | none |
+| `-- pr view 7` | none | none |
+
+The first version of `_gh_path` read all the words in one pass, with `--version` a switch everywhere, and found `pr comment` for `gh --version pr comment 7`. The differential caught it: cobra reads the leading flags again at each level, and below the top level `--version` takes a value. `_gh_path` now reads each level from the start. Both readings refused that call.
+
+`test_gh_subcommands_holds_every_command_subcommand_and_alias_real_gh_lists` reads every command's and subcommand's `--help` the same way. It checks that `GH_SUBCOMMANDS` and `GH_COMMAND_ALIASES` hold every command, subcommand and alias gh lists. It took 64 s here.
+
+**The review's executed inputs**, each now a regression in `test_each_input_review_r3c_executed_is_refused` and `test_gh_auth_git_credential_is_refused_with_the_credential_wording`:
+
+| Input | r3c's verdict | Now |
+|---|---|---|
+| `arch -arm64 gh pr new --title t --body b` | allowed | refused, `gh pr new` |
+| `$(command -v gh) pr new --title t --body b` | allowed | refused, `gh pr new` |
+| `{g,}h pr new -t t -b b` | allowed | refused, `gh pr new` |
+| `arch -arm64 gh pr -R o/r comment 7 --body x` | allowed | refused, `gh pr comment` |
+| `$(command -v gh) pr -R o/r comment 7 --body x` | allowed | refused, `gh pr comment` |
+| `/opt/homebrew/bin/g? pr -R o/r comment 7 --body x` | allowed | refused, `gh pr comment` |
+| `g=gh; $g pr -R o/r comment 7 --body x` | allowed | refused, `gh pr comment` |
+| `arch -arm64 gh pr --repo=o/r comment 7 --body x` | allowed | refused, `gh pr comment` |
+| `arch -arm64 gh auth git-credential get` | allowed | refused, `credential` wording |
+| `gh auth git-credential get` | refused, `publish` wording | refused, `credential` wording |
+| `gh pr new --title t --body b`, `$(command -v gh) cs delete --all`, `arch -arm64 gh pr comment 7 -b x` | refused | refused |
+
+**Through the real command paths.** `test_each_input_is_denied_by_the_real_hooks_and_reaches_gh_past_them` takes 12 writes (the review's inputs and the new forms) and 5 reads. It runs them through the PreToolUse hooks a real review launch carries, in each provider's shells (Codex `zsh -c` and `zsh -lc`; Claude `zsh -c`, `zsh -lc` and its snapshot shape). Every one is denied with the right wording. With the hooks skipped, each shell runs the recording gh at the Homebrew position, which shows the input really reaches gh. The read forms are allowed by the hooks and reach the recorder once each.
+
+One harness row failed in hold 1, in all five shells: `{gh,} pr new`. zsh parses a brace word in command position as a group and stops with a parse error, so it never ran gh. The review's `{g,}h pr new` fails in zsh the same way, though the rule should and does refuse it. `14ddf7139` uses `<brew>/g[h] pr new` there, which zsh expands to the recorder, and hold 2 passed all five shells.
+
+**The PATH wrapper** (layer 3) already judged with `gh_read`. `test_the_path_wrapper_judges_gh_with_the_same_predicate` runs it on aliases, flags before the verb, git-credential, `--show-token` and the new reads.
+
+### P3: the read form
+
+`gh pr -R o/r view 7` and `gh pr --repo o/r view 7` are reads now, on every path. So are `--repo=o/r` and `-Ro/r` there, repeated flags, `-R` before the command, and `ls` where gh has it. gh reads each the same way (the table above). `test_reads_with_a_flag_before_the_verb_pass_on_every_path` covers 18 read forms through all 36 spellings.
+
+### P3: two timeouts
+
+`tests/unit/test_review_publish_guard.py:61` gives each wrapper call 60 s (it was 10 s), and `tests/unit/test_publish_rule_round7.py:314` gives each push form's shell run 120 s (it was 60 s), as the hub decided. The 23 ids review r3c reran had failed only on `TimeoutExpired` at load 150 to 250. `:151`, the round-7 spellings' shell run, keeps its 60 s, as the brief names only `:314`; it didn't fail in r3b's hold.
+
+### Beyond review r3c: command names in any case
+
+**Cause.** macOS's default APFS volume is case-insensitive, so the shell finds gh for `GH`, git for `GIT` and bash for `BASH`. On this host zsh and bash both ran the recording gh for `GH pr comment 7`. The rule compared command names case-sensitively, so it allowed:
+- `GH pr comment 7` and `/opt/homebrew/bin/GH pr comment 7`;
+- `arch -arm64 GH pr new`;
+- `GIT push`, which the git pins would still refuse, since `GIT` runs the same git with the same environment;
+- `BASH <<< 'gh pr comment 7'`, whose here-string it never read;
+- `cp /opt/homebrew/bin/GH ./g`.
+
+**Fix.** `_name` lowers the command name before every comparison. `_names_gh_binary` and the fallback's gh and git words do the same, and `GH_WORD` and `_mentions_publish` match in any case. Lowering only adds judgments: a builtin spelled in capitals (`EVAL`) is judged as the builtin, and a text searcher in capitals (`GREP`) keeps its pattern. `GH_TOKEN` and `GH_PAGER` still don't name gh. Tests: `test_a_command_name_in_another_case_is_judged_as_the_command` (19 forms), a credential pair, the reads that still pass, a property over every casing of gh with and without a path, and the real hooks in both providers on a case-insensitive filesystem (skipped on a case-sensitive one). C-12.4 states it, with its own change-log entry.
+
+This is not in the review. It is the same class as its P2, a spelling that reaches gh past the rule, and it lies in the same code. The two commits (`84986ac8d`, `1eac2d15c`) stand alone if the hub would rather take it separately.
+
+### The invariants
+
+For every argument list `a` given to gh. Each is a Hypothesis property in `test_publish_rule_round9.py`: 300 examples, derandomized, no database.
+
+1. **One judgment.** Wherever `a` reaches one of gh's commands as gh's parser finds them, reads, or would print the credential, every spelling gives the same verdict, and it is `gh_read`'s: none for a read, `credential` when `gh_credential` names the call, `publish` otherwise. The spellings (`test_one_judgment_decides_gh_on_every_path`):
+   - **the direct path and the known wrappers (16):** `gh`, a path, `=gh`, `env`, `env X=1`, `command`, `nohup`, `sudo -u x`, `timeout 5`, `nice -n 5`, `exec`, `-`, `noglob`, a leading redirection, `cd . &&` and `true;`;
+   - **the unknown runners (8):** `arch`, `lockf`, `taskpolicy`, `uv run`, `caffeinate … lockf`, a path through `arch`, `ssh` and `docker run`;
+   - **the run-time words (12):** `$(command -v gh)` bare, quoted and in backquotes; `"$GH"`; `${GH:-gh}`; `{gh,}`; `{g,}h`; `g[h]`; `g?`; `g=gh; $g`; and two behind unknown runners;
+   - **the argv forms.**
+2. **Fail closed.** Such an `a` that `gh_read` doesn't accept is refused on every path, and any `a` it doesn't accept is refused on the direct path (`test_every_gh_call_gh_read_does_not_accept_is_refused`).
+3. **Reads pass.** Every call in `GH_READS`, `ls` included, is allowed on every path with `-R`/`--repo` in any of its forms before the command, before the verb or after it, inserted only between words that are not a flag and its value (`test_every_read_passes_with_global_flags_where_gh_accepts_them`).
+4. **Credentials.** `auth token`, `auth git-credential`, `auth status -t` or `--show-token`, and `--show-token` on any call are refused on every path with the `credential` wording. Value flags may come first, with their values, before the command or before `auth`'s verb (`test_credentials_are_refused_whatever_value_flags_come_first`, and 18 forms through all 36 spellings in `test_credential_calls_are_refused_everywhere_with_the_credential_wording`).
+
+**The generator** (`gh_argument_lists`) draws:
+- the command, from `GH_SUBCOMMANDS` (aliases included) and four unknown words;
+- the verb, from that command's subcommands, its reads and the unknown words;
+- up to three operands;
+- up to three flags, each inserted anywhere, splitting another flag from its value included. They come from gh's global value flags (`-R`, `--repo`, `--hostname`, each form), verb flags gh accepts before the verb (`--body x`, `-b x`, `--json title`, `-X POST`, `--method GET`, `-f q=x`, `-h h`, `-u x`), and flags given alone (`--web`, `-t`, `--show-token`, `--help`, `--version`, `--`).
+
+**Outside the domain, as C-12.4 states.** A first word gh doesn't know as a command (`arch -arm64 gh myalias 7`, `grep gh file`) is judged only on the direct path. `test_an_unknown_first_word_after_an_unknown_runner_is_not_judged_documented_limitation` is marked `documented_limitation`.
+
+**An over-refusal this round accepts, stated in C-12.4.**
+- **What:** a run-time word followed by a gh command word is judged as gh, whatever program it names. So `$HOME/.local/bin/uv run pytest` is refused as `gh run pytest`, and `"$GIT" status` as `gh status`.
+- **Before:** only a known non-read verb after the word was refused, so `run pytest` passed.
+- **What still passes:** spelled out, `uv run` and `git status`; and `"$VIRTUAL_ENV/bin/python" -m pytest` and `$PYTHON -m pytest`.
+- **Why not read the word's last path component as the program** (`…/uv` is not gh): a splitting expansion can put gh first. That covers `${=x}/uv` in zsh, and every unquoted parameter in bash.
+
+**A remaining edge, not new this round.** A run-time word whose value carries the start of a gh call, followed by words that read, is judged by those words alone. For example, `$(printf 'g%s pr comment --body' h) pr view` would run `gh pr comment --body pr view`, a comment on the PR of branch `view`. It belongs to C-12.4's stated limit, a command assembled at run time from pieces that never spell gh: the substitution's text doesn't spell gh. Where the text does spell gh (`c='gh pr comment --body'`), the assignment is judged and refused.
+
+### Mutations
+
+All four ran in one hold, one pytest process after another, each over `test_publish_rule_round9.py` (without the gh-tree differential) and three round-7 rule tests. Each was undone with `git checkout -- subfleet/publish_rule.py`, and the driver checked the file matched the commit again.
+
+| Mutant | Failed | Named tests that failed (count of ids) |
+|---|---:|---|
+| (a) restore round 8's name-only `gh_writes` on the fallback and run-time paths | 210 | `test_a_flag_before_the_verb_is_refused_on_every_path` (154), `test_gh_aliases_and_hidden_verbs_are_refused_on_every_path` (42), `test_each_input_is_denied_by_the_real_hooks_and_reaches_gh_past_them` (5), `test_each_input_review_r3c_executed_is_refused` (3), `test_a_run_time_word_before_a_gh_command_word_is_judged_as_gh` (3), and the properties for invariants 1 and 2 |
+| (b) drop the flag skipping: `gh_read` takes the word after the command as the verb, and `_gh_path` stops at the first flag | 744 | `test_reads_with_a_flag_before_the_verb_pass_on_every_path` (360), `test_credential_calls_are_refused_everywhere_with_the_credential_wording` (288), `test_a_flag_before_the_verb_is_refused_on_every_path` (84), the real hooks (5), the PATH wrapper (2), the real-gh differential, the properties for invariants 3 and 4, and round 7's credential test |
+| (c) drop `git-credential` from `gh_credential` | 153 | `test_credential_calls_are_refused_everywhere_with_the_credential_wording` (144), the real hooks (5), `test_gh_auth_git_credential_is_refused_with_the_credential_wording` (2), the invariant-4 property, and the case credential test |
+| (d) compare command names case-sensitively again | 20 | `test_a_command_name_in_another_case_is_judged_as_the_command` (15), the real hooks on this filesystem (2), the case credential test (2), the casing property |
+
+Under (a), 3 of the review's 11 executed inputs fail: the flag-before-the-verb forms through `arch` and a glob word. With the aliases now in `GH_SUBCOMMANDS`, the old name-only judgment catches `pr new` and `cs delete`. The same forms after `$(command -v gh)` or `$g` stay refused because the text names gh and the word is only a parameter or a substitution.
+
+### Tests
+
+**Setup:**
+- **Python:** CPython 3.14.7, GIL build, in a scratch venv synced `--locked --group dev` through the hub's setup wrapper, with `PYTHONPATH` unset.
+- **Workers:** for the whole-suite sweep only, pytest-xdist 3.8.0 and execnet 2.1.2 were installed into that venv from the uv cache, offline, through the same wrapper, for `-n 4 --dist loadfile`. The briefed holds ran in one process, as CI's shards do.
+- **The lock:** each hold ran through `suite_hold.sh`, calling the venv's `python -m pytest`, or `runpytest.py`, which runs pytest in-process with a 1,140 s alarm. No hold reached the alarm.
+- **Environment:** `SUBFLEET_LIVE=0`, and Hypothesis storage in scratch. The job's `SUBFLEET_JOB`/`SUBFLEET_ATTEMPT` markers stayed set, as in round 8.
+- **Host:** load averaged 10 to 120 on 18 CPUs. Lock waits ran 0 to 19 minutes. The second slot was closed at times: first by load over 120, then by free disk at 49 GB, under the 50 GB floor.
+- **One lost hold.** The first attempt at hold 2 ran `uv run --no-sync`. uv waited 300 s for the shared cache lock (`~/.cache/uv/.lock`, held by another job's sync) and exited 2 before pytest started. Every later hold called the venv's python directly.
+
+**Holds:**
+
+| Hold | Head | What | Result |
+|---|---|---|---|
+| 1 | `1eac2d15c` | briefed group 1, with `test_publish_rule_round9.py` | 3,136 passed, 5 failed: the brace-word harness row in all five shells (above), fixed in `14ddf7139` |
+| 2 | `14ddf7139` | briefed group 2, with hold 1's 5 failed ids | 226 passed |
+| 3 | `14ddf7139` | briefed group 3 | 38 passed |
+| M | `14ddf7139` | the four mutants, one pytest after another | each caught (above); the source restored |
+| S1 | `14ddf7139` | all 108 `tests/fake` files, `-n 4` | 1,913 passed, 2 xfailed, 1 failed (below) |
+| S2 | `14ddf7139` | unit chunk 1 (78 files), with `test_routing_end_to_end.py` again | 5,556 passed, 1 skipped |
+| S3 | `14ddf7139` | unit chunks 2 and 3 (174 files) | 7,100 passed, 4 skipped |
+| S4 | `14ddf7139` | unit chunk 4 (79 files) | 3,675 passed |
+| 1b | `14ddf7139` | briefed group 1 again, with `tests/e2e/test_review_publish_e2e.py` | 3,145 passed |
+
+The unit chunks split `tests/unit` by CI's per-file seconds (`.github/test-shards.json`), counting 25 s for each file the map doesn't list yet.
+
+**Each briefed file, at `14ddf7139`.** None failed or skipped.
+
+| File | Passed | Hold |
+|---|---:|---|
+| `tests/unit/test_publish_rule_round7.py` | 236 | 1b |
+| `tests/unit/test_review_publish_guard.py` | 135 | 1b |
+| `tests/fake/test_review_needs_shell.py` | 23 | 1b |
+| `tests/unit/test_publish_rule_round9.py` (new) | 2,747 | 1b |
+| `tests/e2e/test_review_publish_e2e.py` (not briefed: the publish hook end to end on both providers) | 4 | 1b |
+| `tests/unit/test_daemon_integration.py` | 7 | 2 |
+| `tests/fake/test_review_launch_permissions.py` | 34 | 2 |
+| `tests/unit/test_hooks.py` | 75 | 2 |
+| `tests/unit/test_guard_trust.py` | 105 | 2 |
+| `tests/fake/test_state_contract.py` | 37 | 3 |
+| `tests/unit/test_test_module_names.py` | 1 | 3 |
+
+Most of `test_publish_rule_round9.py`'s 2,747 are its parametrized cases: each of 26 alias and hidden-verb calls, 12 flag-first calls, 18 read forms and 18 credential calls through all 36 spellings.
+
+### The whole-suite sweep
+
+Every file in `tests/unit` and `tests/fake` ran, at `14ddf7139`, in four workers.
+- **`tests/fake`, all 108 files:** 1,913 passed, 2 xfailed (`test_admission_properties.py` and `test_canonical_identity_fix3.py`, one each, as in round 8), and 1 failed.
+  - **The failure:** `test_routing_end_to_end.py::test_c11_5_socket_submission_and_cli_why_print_recorded_walk`. The fake daemon didn't answer within the harness's 5 s start wait (`tests/fake/conftest.py:88`). Its kept log stops after its two startup lines. It started at 09:45Z, with three other workers busy and load near 30.
+  - **The rerun:** in S2, all 16 of the file's tests passed.
+  - **Not this round's:** it failed in `daemon.start()`, before it submitted its research job. This round changes no daemon code, only `subfleet/publish_rule.py`. The PR leaves the test file unchanged; its one change to `tests/fake/conftest.py` removes the policy's `requires` key before the daemon starts, which adds nothing to the start.
+- **`tests/unit`, all 331 files** (330 and the new one): 16,315 passed, 5 skipped, none failed.
+  - `test_retention_ordinary_trees.py` skipped 4: `sortedcontainers==2.4.0` is not in this host's uv cache, an environment condition.
+  - `test_host_push_build.py` skipped 1, an explicit local-repo benchmark.
+- **Warnings:** release's `PytestRemovedIn10Warning` for a `zip` passed to `parametrize` in `tests/unit/test_codex_turn_completed.py`, as in round 8.
+
+The sweep ran four workers per process, so it is not CI's single-process shard run. Its one failure was a start-time bound under that load, and the rerun passed.
+
+### Not run
+
+- **Other test directories:** the rest of `tests/e2e` (only `test_review_publish_e2e.py` ran), `tests/process`, `tests/frontend` and `tests/live`.
+- **Python 3.12**, which CI also runs.
+- **The suite as one process**, and `pytest --collect-only` over the whole tree. The duplicate-basename guard, `test_test_module_names.py`, passed.
+- **Real providers:** no real provider turn, and no real gh beyond offline `--help`.
+- **The sweep families review r3c didn't reach,** apart from command names in another case: here-strings, process substitution into `source`, leading redirections, `${=c}`, `"$@"` and `$*` through the new forms; the name-splitting family; wrappers other than those in the invariants' spellings; copies, `alias`, `function` and `hash -p`.
