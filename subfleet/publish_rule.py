@@ -27,13 +27,17 @@ Where it cannot name the command (a runner it doesn't know, a shell function,
 a value git runs), a fallback judges every word equal to `gh` or ending in
 `/gh` (after quote removal, without a leading `!`) as the start of a gh call,
 and every word equal to `git` the same way, as do assignment values and the
-values of `-c`, `-e` and `--exec`. The fallback refuses only what it can name
-as a write; reads, and words like `grep gh file`, pass (#221 review r2, P2).
+values of `-c`, `-e` and `--exec`. Once such a call, or one after a run-time
+word, reaches a gh command as gh's own parser finds it (aliases included, and
+whatever flags come before the command or its verb), it gets the direct
+path's judgment: refused unless `gh_read` accepts it, so one predicate decides
+gh everywhere (#221 review r3c, P2). A first word gh doesn't know as a command
+is not judged there, so `grep gh file` and `echo gh` pass.
 
 It also refuses copying gh under another name (`ln`, `cp`, `install`, `mv`,
 `rsync`, `ditto`, a `cat` or `dd` into a file), and calls that would print the
-GitHub credential into the review's output (`gh auth token`, `gh auth status
--t`, `--show-token`), with their own wording.
+GitHub credential into the review's output (`gh auth token`, `gh auth
+git-credential`, `gh auth status -t`, `--show-token`), with their own wording.
 
 It cannot see code that runs `gh` or `git` from another language or a script
 on disk, git that discards its environment, a raw HTTPS call with a credential
@@ -56,44 +60,60 @@ from typing import Any, Sequence
 #: process inherits the provider's environment, which the job cannot change.
 PUBLISH_MARKER = "SUBFLEET_PUBLISH_DENIED"
 
-#: `gh <command> <verb>` calls a review may make: each only reads.
+#: `gh <command> <verb>` calls a review may make: each only reads. `ls` is gh's
+#: own alias for each of these `list`s (#221 review r3c).
 GH_READS: dict[str, frozenset[str]] = {
-    "pr": frozenset({"view", "diff", "checks", "list", "status"}),
-    "issue": frozenset({"view", "list", "status"}),
-    "run": frozenset({"view", "list", "watch"}),
-    "workflow": frozenset({"view", "list"}),
+    "pr": frozenset({"view", "diff", "checks", "list", "ls", "status"}),
+    "issue": frozenset({"view", "list", "ls", "status"}),
+    "run": frozenset({"view", "list", "ls", "watch"}),
+    "workflow": frozenset({"view", "list", "ls"}),
     "repo": frozenset({"view"}),
-    "release": frozenset({"view", "list"}),
-    "label": frozenset({"list"}),
+    "release": frozenset({"view", "list", "ls"}),
+    "label": frozenset({"list", "ls"}),
     "search": frozenset({"prs", "issues", "commits", "code", "repos"}),
 }
-#: Every command gh 2.100.0 lists, and each one's subcommands (`gh help`,
-#: `gh <command> --help`, read offline 2026-10-19). Where the fallback finds a
-#: gh call it cannot see as a command, a known verb that is not a read is a
-#: write; an unknown word is not (gh would refuse it), so `grep gh file` passes.
+#: Every command gh 2.100.0 lists, and each one's subcommands, aliases included
+#: (`gh help`, `gh <command> --help` and `gh <command> <subcommand> --help`,
+#: read offline 2026-10-19, and for the aliases 2026-10-22, #221 review r3c):
+#: `pr new` is `pr create`, `secret remove` is `secret delete`, `ls` is `list`.
+#: Also commands of their own: cobra's `help`, `co` (the alias gh writes into a
+#: new config, `pr checkout`), and the hidden commands found by name
+#: (`credits`, `repo credits`, `repo garden`, `auth git-credential`). Where the
+#: fallback or a run-time word reaches one of these commands, `gh_read` judges
+#: the call, as on the direct path (`gh_writes`).
 GH_SUBCOMMANDS: dict[str, frozenset[str]] = {name: frozenset(verbs.split()) for name, verbs in {
-    "agent-task": "create list view", "alias": "delete import list set", "api": "",
+    "agent-task": "create list view", "alias": "delete import list ls set", "api": "",
     "attestation": "download trusted-root verify",
-    "auth": "login logout refresh setup-git status switch token", "browse": "", "cache": "delete list",
-    "codespace": "code cp create delete edit jupyter list logs ports rebuild ssh stop view", "completion": "",
-    "config": "clear-cache get list set", "copilot": "", "discussion": "create list comment edit view",
-    "extension": "browse create exec install list remove search upgrade",
-    "gist": "clone create delete edit list rename view", "gpg-key": "add delete list",
-    "issue": "create list status close comment delete develop edit lock pin reopen transfer unlock unpin view",
-    "label": "clone create delete edit list", "licenses": "", "org": "list", "preview": "prompter",
-    "pr": ("create list status checkout checks close comment diff edit lock merge ready reopen revert review "
-           "unlock update-branch view"),
+    "auth": "git-credential login logout refresh setup-git status switch token", "browse": "",
+    "cache": "delete list ls", "co": "",
+    "codespace": "code cp create delete edit jupyter list ls logs ports rebuild ssh stop view", "completion": "",
+    "config": "clear-cache get list ls set", "copilot": "", "credits": "",
+    "discussion": "create list ls comment edit view",
+    "extension": "browse create exec install list ls remove uninstall search upgrade",
+    "gist": "clone create new delete edit list ls rename view", "gpg-key": "add delete list ls", "help": "",
+    "issue": ("create new list ls status close comment delete develop edit lock pin reopen transfer unlock unpin "
+              "view"),
+    "label": "clone create delete edit list ls", "licenses": "", "org": "list ls", "preview": "prompter",
+    "pr": ("create new list ls status checkout co checks close comment diff edit lock merge ready reopen revert "
+           "review unlock update-branch view"),
     "project": ("close copy create delete edit field-create field-delete field-list item-add item-archive "
-                "item-create item-delete item-edit item-list link list mark-template unlink view"),
-    "release": "create list delete delete-asset download edit upload verify verify-asset view",
-    "repo": ("create list archive autolink clone delete deploy-key edit fork gitignore license read-dir "
-             "read-file rename set-default sync unarchive view"),
-    "ruleset": "check list view", "run": "cancel delete download list rerun view watch",
-    "search": "code commits issues prs repos", "secret": "delete list set",
-    "skill": "install list preview publish search update", "ssh-key": "add delete list", "status": "",
-    "variable": "delete get list set", "workflow": "disable enable list run view", "version": "",
+                "item-create item-delete item-edit item-list link list ls mark-template unlink view"),
+    "release": "create new list ls delete delete-asset download edit upload verify verify-asset view",
+    "repo": ("create new list ls archive autolink clone credits delete deploy-key edit fork garden gitignore "
+             "license read-dir read-file rename set-default sync unarchive view"),
+    "ruleset": "check list ls view", "run": "cancel delete download list ls rerun view watch",
+    "search": "code commits issues prs repos", "secret": "delete remove list ls set",
+    "skill": "install add list ls preview show publish search update", "ssh-key": "add delete list ls",
+    "status": "", "variable": "delete remove get list ls set", "workflow": "disable enable list ls run view",
+    "version": "",
 }.items()}
-#: gh's flags that may come before its command, each taking a value.
+#: gh's command aliases, each listed in its command's `--help` (`gh cs` is
+#: `gh codespace`): commands of their own, with their command's subcommands.
+GH_COMMAND_ALIASES = {"agent": "agent-task", "agents": "agent-task", "agent-tasks": "agent-task",
+                      "at": "attestation", "cs": "codespace", "ext": "extension", "extensions": "extension",
+                      "rs": "ruleset", "skills": "skill"}
+GH_SUBCOMMANDS.update((alias, GH_SUBCOMMANDS[name]) for alias, name in GH_COMMAND_ALIASES.items())
+#: gh's flags that may come before its command or its subcommand, each taking a value.
 GH_GLOBAL_VALUES = ("-R", "--repo", "--hostname")
 #: `gh api`'s flags (`gh api --help`, 2.100.0): long names, and the shorthand
 #: letters gh's flag parser (pflag) reads in a cluster: a boolean letter may
@@ -233,21 +253,64 @@ def _auth_status_reads(args: Sequence[str]) -> bool:
     return True
 
 
+#: The flags gh's command parser reads as switches while it looks for the
+#: command, then for the subcommand: gh defines `--help` everywhere and
+#: `--version` only at its top level (its `-h` is `--hostname`, never help).
+GH_SWITCHES = (frozenset({"--help", "--version"}), frozenset({"--help"}))
+
+
+def _gh_path(args: Sequence[str]) -> tuple[list[str], list[str]]:
+    """The command and subcommand gh would run for `gh <args>`, and the words it
+    would give them, found the way gh's command parser (cobra) finds them
+    (#221 review r3c, P2). Level by level, from the first word each time, the
+    first word that is not a flag or a flag's value is taken, where a flag
+    without `=` takes the next word as its value unless it is a switch there
+    (`GH_SWITCHES`), a cluster such as `-Ro/r` takes none, and `--` ends the
+    search. Real gh 2.100.0, offline: `gh --body x pr comment 7`, `gh pr -b x
+    comment 7`, `gh pr -R o/r new` and `gh auth -h h token` found `pr comment`,
+    `pr create` and `auth token`; `gh --version pr comment 7` found `pr` alone,
+    and `gh -h pr comment` and `gh -- pr view` no command."""
+    path: list[str] = []
+    rest = list(args)
+    for switches in GH_SWITCHES:
+        index = 0
+        while index < len(rest) and rest[index] != "--":
+            arg = rest[index]
+            if arg.startswith("-"):
+                takes_value = "=" not in arg and arg not in switches and (arg.startswith("--") or len(arg) == 2)
+                index += 2 if takes_value else 1
+            elif arg:
+                path.append(rest.pop(index))
+                break
+            else:
+                index += 1
+        else:
+            break
+    return path, rest
+
+
 def gh_credential(args: Sequence[str]) -> bool:
     """Whether `gh <args>` would print the GitHub credential (#221 review r2,
-    P2 item 4): `gh auth token`, `gh auth status` with anything but its read
-    flags, or `--show-token` anywhere. Not publishing, but it would copy the
-    token into the review's output."""
+    P2 item 4; r3c): `gh auth token`, `gh auth git-credential` (git's
+    credential helper, which prints `password=<token>`), `gh auth status` with
+    anything but its read flags, or `--show-token` anywhere, whatever flags
+    come before the subcommand. Not publishing, but it would copy the token
+    into the review's output."""
     if any(arg == "--show-token" or arg.startswith("--show-token=") for arg in args):
         return True
-    rest, _ = _without_globals(args)
-    if rest[:2] == ["auth", "token"]:
+    path, rest = _gh_path(args)
+    if path in (["auth", "token"], ["auth", "git-credential"]):
         return True
-    return rest[:2] == ["auth", "status"] and not _auth_status_reads(rest[2:])
+    return path == ["auth", "status"] and not _auth_status_reads(rest)
 
 
 def gh_read(args: Sequence[str]) -> bool:
-    """Whether `gh <args>` only reads. Fails closed on everything else."""
+    """Whether `gh <args>` only reads. Fails closed on everything else, a call
+    that would print the credential included. gh's `-R`/`--repo`/`--hostname`
+    may come before the command and before its subcommand: gh reads `gh pr -R
+    o/r view 7` as `pr view` (#221 review r3c, P3)."""
+    if gh_credential(args):
+        return False
     rest, only_globals = _without_globals(args)
     if not only_globals:
         return rest == ["--version"]
@@ -257,10 +320,12 @@ def gh_read(args: Sequence[str]) -> bool:
         return True
     if rest[0] == "api":
         return _api_read(rest[1:])
-    if rest[:2] == ["auth", "status"]:
-        return _auth_status_reads(rest[2:])
-    verbs = GH_READS.get(rest[0])
-    return verbs is not None and len(rest) >= 2 and rest[1] in verbs
+    verb, only_globals = _without_globals(rest[1:])
+    if not only_globals or not verb:
+        return False
+    if rest[0] == "auth" and verb[0] == "status":
+        return _auth_status_reads(verb[1:])
+    return verb[0] in GH_READS.get(rest[0], frozenset())
 
 
 def _api_read(args: Sequence[str]) -> bool:
@@ -325,33 +390,32 @@ def _api_read(args: Sequence[str]) -> bool:
 
 
 def gh_writes(args: Sequence[str]) -> Refusal | None:
-    """What `gh <args>` would publish or expose, named positively: the
-    fallback's judgment, where the rule could not see `gh` as the command.
+    """The judgment of `gh <args>` where the rule could not see `gh` as the
+    command (the fallback, a run-time word; #221 review r3c, P2).
 
-    A known verb that is not a read is a write, as is `gh api` that does not
-    read and `gh copilot` (an agent that can run gh itself); a word gh does not
-    know is not, so `grep gh file` and `echo gh` pass.
+    Once gh's command parser would reach one of gh's commands (`_gh_path`;
+    `GH_SUBCOMMANDS`, aliases included), or the call would print the
+    credential, it is the direct path's judgment, `_gh_verdict`: so one
+    predicate, `gh_read`, decides gh everywhere, and an alias, a hidden verb or
+    a flag before the verb is refused as it is there. A first word gh does not
+    know as a command is not judged: gh would refuse it, or run an alias or
+    extension from its own config (C-12.4's stated limit), so `grep gh file`
+    and `echo gh` pass.
     """
-    if gh_credential(args):
-        return _refusal("gh credential", "credential")
-    rest, _ = _without_globals(args)
-    if not rest:
-        return None
-    if rest[0] == "api":
-        return None if _api_read(rest[1:]) else _refusal("gh api")
-    if rest[0] == "copilot":
-        return _refusal("gh copilot")
-    verbs = GH_SUBCOMMANDS.get(rest[0])
-    if verbs and len(rest) >= 2 and rest[1] in verbs and not gh_read(rest):
-        return _refusal(f"gh {rest[0]} {rest[1]}")
+    path, _ = _gh_path(args)
+    if (path and path[0] in GH_SUBCOMMANDS) or gh_credential(args):
+        return _gh_verdict(args)
     return None
 
 
 def _gh_verdict(args: Sequence[str]) -> Refusal | None:
-    """`gh` as the command: refused unless a known read (fail closed)."""
-    if gh_credential(args):
-        return _refusal("gh " + " ".join(_without_globals(args)[0][:2]), "credential")
-    return None if gh_read(args) else _refusal("gh " + " ".join(args[:2]))
+    """`gh <args>`, wherever the rule finds the call: refused unless a known
+    read (fail closed), with the credential wording when it would print the
+    token. The refusal names the command and subcommand gh would run."""
+    if gh_read(args):
+        return None
+    path, _ = _gh_path(args)
+    return _refusal(" ".join(["gh", *(path or args[:2])]), "credential" if gh_credential(args) else "publish")
 
 
 def git_publishes(args: Sequence[str]) -> bool:
@@ -725,14 +789,18 @@ def _parallel(args: list[str], depth: int, names_gh: bool) -> tuple[Refusal | No
 def _runtime(word: str, rest: list[str], names_gh: bool) -> Refusal | None:
     """A command word only known at run time (#221 review r2, P2).
 
-    Followed by a gh command (after gh's global flags, `$(command -v gh) -R o/r
-    pr comment`), it is judged as gh would be; followed by a push, as git. A
-    word that is only parameters (`$c`, `${=c}`, `"$@"`) may carry the whole
-    command, so it is refused when the command text names gh anywhere.
+    Followed by a gh read, or by words that reach a gh command whatever flags
+    come first (`$(command -v gh) -R o/r pr comment`, `{g,}h pr new`), it is
+    judged as gh would be (`gh_writes`, #221 review r3c); followed by a push,
+    as git. A word that is only parameters (`$c`, `${=c}`, `"$@"`) may carry
+    the whole command, so it is refused when the command text names gh
+    anywhere.
     """
-    after, only_globals = _without_globals(rest)
-    if after == ["--version"] or (only_globals and after and after[0] in GH_SUBCOMMANDS):
-        return gh_writes(rest)
+    if gh_read(rest):
+        return None
+    found = gh_writes(rest)
+    if found:
+        return found
     if rest and git_publishes(rest):
         return _refusal("git push")
     if names_gh and PARAMETERS.fullmatch(word):
@@ -742,9 +810,10 @@ def _runtime(word: str, rest: list[str], names_gh: bool) -> Refusal | None:
 
 def _fallback(words: list[str], command: str, depth: int, names_gh: bool) -> Refusal | None:
     """The words of a command the rule could not otherwise judge (#221 review
-    r2, P2 item 2): every word naming gh starts a gh call judged by what it
-    names (`gh_writes`), as does a word naming git (`git_publishes`); assignment
-    values and the values of `-c`, `-e` and `--exec` are read as shell text."""
+    r2, P2 item 2): every word naming gh starts a gh call, judged as the direct
+    path judges gh once it reaches a gh command (`gh_writes`, r3c), as does a
+    word naming git (`git_publishes`); assignment values and the values of
+    `-c`, `-e` and `--exec` are read as shell text."""
     shell_values = command not in NOT_SHELL_VALUES and not command.startswith("python")
     for at, word in enumerate(words):
         bare = word.lstrip("!").lstrip("=")
@@ -939,8 +1008,8 @@ DENIALS = {
                 "it never pushes, comments, reviews, merges or edits on GitHub. Reads still work: "
                 "gh pr view|diff|checks|list|status, gh issue view|list, gh run view|list, gh api GETs."),
     "credential": ("subfleet review publish: denied ({refused}). A review never prints a GitHub credential: "
-                   "gh auth token, gh auth status -t and --show-token would copy the token into the "
-                   "review's output. gh auth status alone still works."),
+                   "gh auth token, gh auth git-credential, gh auth status -t and --show-token would copy the "
+                   "token into the review's output. gh auth status alone still works."),
 }
 
 
