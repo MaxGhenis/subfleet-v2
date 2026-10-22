@@ -50,6 +50,26 @@ def test_the_second_absence_after_restart_expires_the_recorded_birth():
     assert "61" not in json.loads(row["evidence_json"])["counted_identities"]
 
 
+def test_failed_first_miss_write_is_retried_on_the_same_table():
+    row = attempt_row(owned_identities={str(pid): asdict(ident(pid)) for pid in (GUARDIAN, 43)},
+                      counted_identities={"61": asdict(ident(61))})
+    core = core_for(row)
+    original = core.store.transaction
+    failures = [True]
+    def transaction(*args, **kwargs):
+        if failures.pop() if failures else False:
+            raise OSError("scratch store write interrupted")
+        return original(*args, **kwargs)
+    core.store.transaction = transaction
+    first = table()
+    with pytest.raises(OSError):
+        Daemon._record_owned(core, dict(row), first)
+    Daemon._record_owned(core, dict(row), first)
+    assert "61" in json.loads(row["evidence_json"])["counted_absent"]
+    Daemon._record_owned(core, dict(row), table())
+    assert "61" not in json.loads(row["evidence_json"])["counted_identities"]
+
+
 def test_claude_shaped_command_groups_reach_a_steady_record_size():
     row, sizes = attempt_row(), []
     core = core_for(row)
