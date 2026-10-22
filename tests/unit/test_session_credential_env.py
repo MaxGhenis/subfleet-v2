@@ -160,6 +160,7 @@ def test_c20_6_a_failing_session_prints_no_part_of_an_inherited_credential(tmp_p
         cwd=REPO, env=environment, capture_output=True, text=True, timeout=600)
     report = completed.stdout + completed.stderr
 
+    assert [name for name, value in values.items() if _leaked(value, report)] == []
     assert re.search(r"\b2 failed, 1 passed\b", report), report[-2000:]
     # Each channel printed something, so each was searched.
     assert "kwargs = {'env': {" in report
@@ -168,7 +169,6 @@ def test_c20_6_a_failing_session_prints_no_part_of_an_inherited_credential(tmp_p
     assert "'SUBFLEET_DUMMY_TOKEN': None" in report
     assert "Captured stdout call" in report
     assert "environment={" in report
-    assert [name for name, value in values.items() if _leaked(value, report)] == []
 
     outcome = json.loads(result.read_text())
     digests = {name: hashlib.sha256(value.encode()).hexdigest()
