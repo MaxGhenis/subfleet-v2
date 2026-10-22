@@ -128,6 +128,12 @@ def test_recorded_setsid_survivor_is_individually_signalled(monkeypatch, child_r
         def get_job(self, job_id):
             return None
 
+        def get_attempt(self, aid):
+            return a
+
+        def one(self, *args):
+            return {"id": 1}
+
         @contextmanager
         def transaction(self, *args, **kwargs):
             yield self
@@ -142,12 +148,13 @@ def test_recorded_setsid_survivor_is_individually_signalled(monkeypatch, child_r
                            _publish=lambda *args: None,
                            _quarantine=lambda *args: quarantined.append(args),
                            _begin_finalizing=lambda *args: pytest.fail("live survivor finalized"))
+    core._cancel_info = lambda job_id: None
     core._contain = lambda attempt: Daemon._contain(core, attempt)
     install(monkeypatch, rows)
     monkeypatch.setattr(procs, "same_process", lambda pid, boot, began:
                         pid in rows and boot == BOOT_A and rows[pid][3] == began)
     monkeypatch.setattr(procs, "signal_group", lambda *args, **kwargs: False)
-    monkeypatch.setattr(procs, "signal_process", lambda owned, sig: signalled.append((owned, sig)))
+    monkeypatch.setattr(procs, "signal_process", lambda owned, sig, **kwargs: signalled.append((owned, sig)))
     Daemon._kill_attempt(core, a)
     assert signalled == [(ident(43, 1), signal.SIGKILL)]
     assert saved["43"] == asdict(ident(43, 1))
