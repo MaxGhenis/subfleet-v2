@@ -1,4 +1,4 @@
-"""Compile four fix-4 mutants in the foreground, outside the pytest lock.
+"""Compile four fix-4 mutants in the foreground.
 
 The mutation tests call each named regression with these binaries. Source
 copies live in scratch; this script never edits the checkout's Swift sources.
@@ -20,8 +20,8 @@ MUTATIONS = {
                     || turn.stateReason?.hasPrefix("external-writer:") == true
                     || turn.stateReason?.hasPrefix("deferred:") == true))''', ''),
     'deferred_returns_to_tray': ('Timeline.swift',
-        'else if turn.queuePlacement == nil {',
-        'else if turn.queuePlacement == nil || turn.stateReason?.hasPrefix("deferred:") == true {'),
+        'placement = turn.queuePlacement',
+        'placement = turn.stateReason?.hasPrefix("deferred:") == true ? .tray : turn.queuePlacement'),
     'skip_unknown_fetch': ('ConversationStore.swift',
         'receipts: try receipts(for: wanted)', 'receipts: []'),
     'app_scroll_keeps_pin': ('ConversationOpeningPin.swift',
