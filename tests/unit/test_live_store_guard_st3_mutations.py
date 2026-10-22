@@ -74,7 +74,7 @@ MUTANTS = {
         HOMES, '    if tilde_spelled.startswith("~"):', "    if False:", "test_a_tilde_spelled_home_is_the_accounts",
         [{}]),
     "no-live-root-refusal": (
-        HOMES, "    if names_live_root(value):", "    if False:", "test_an_override_naming_a_live_root_is_refused",
+        HOMES, "    if names_live_root(checked):", "    if False:", "test_an_override_naming_a_live_root_is_refused",
         [{"spelling": spelling, "tmp_path": SCRATCH} for spelling in ("absolute", "test-home-dot-dot", "link")]),
     "home-in-store-allowed": (
         HOMES, '    if kind == "store":\n        # D-ST3: HOME/.claude', '    if False:\n        # D-ST3: HOME/.claude',

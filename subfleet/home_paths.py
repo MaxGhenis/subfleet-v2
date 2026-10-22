@@ -197,6 +197,8 @@ def checked_override(variable: str, value, *, relative_to: str | Path | None = N
 
     For a caller that reads such an override itself instead of through
     `home_path`: it takes the same refusals as an override there (D-ST3).
+    A caller that consumes relative values under a different base supplies
+    `relative_to`, so the refusal judges that path rather than the cwd.
     Outside a test process `value` is returned untouched, without a check.
     """
     if value and under_pytest():
