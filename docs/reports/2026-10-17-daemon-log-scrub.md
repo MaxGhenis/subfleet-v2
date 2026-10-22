@@ -552,7 +552,7 @@ Round 2's §3 above now carries a correction. `test_a_several_member_group_never
 
 Invariants 7 and 8 are restated in place above. Each of these holds for every input and is executed by the tests named.
 
-10. **The cut's regexes read only its windows; past them it reads a fixed number of passes of C scans and at most 20 needle looks.** (Restated in rounds 5 and 6. As first written, "the cut's work does not grow with the text", it was false: review r3 of #233 found three regexes reading the whole text, which counting each as one C call had hidden. Round 5's "at most 12 passes" was false too: review r4 found that each quote kind open at a candidate cut costs a look over the text, up to ten a side, and that the meter counted a data URI body's match to the window's end.) For any text and limit, the regexes `cut_whole` runs read at most `16 × RECORD_SCRUB_MAX` characters in all, counted by what each call reads (round 7: each character test of a backtracking match at each position a scan tries, `tests/regex_reads.py`; until then by the span each call may read, which review r5 found a quadratic regex within), none more than twice the bound in one call, and no more at 16 MiB than at 1 MiB. Past the windows its `str` scans are a fixed number of passes over the text plus at most `2 × (CUT_KINDS_MAX + 2)` = 20 needle looks, each reading the text at most once. On the round-2 cost shapes the lines it runs and its C calls are the same at 64 KiB and 512 KiB. Its ratio to plain text is a measurement, not part of the invariant (round 7, §2, and its cost table). Tests: `test_at_16_mib_no_regex_reads_past_the_cut_s_windows`, `test_the_quote_kinds_cost_a_look_each_and_the_meter_counts_the_body_by_what_it_reads`, `test_a_cut_s_work_does_not_grow_with_the_text`; the clock guards.
+10. **The cut's regexes read only its windows; past them it reads a fixed number of passes of C scans and at most 20 needle looks.** (Restated in rounds 5 and 6. As first written, "the cut's work does not grow with the text", it was false: review r3 of #233 found three regexes reading the whole text, which counting each as one C call had hidden. Round 5's "at most 12 passes" was false too: review r4 found that each quote kind open at a candidate cut costs a look over the text, up to ten a side, and that the meter counted a data URI body's match to the window's end.) For any text at the daemon's `RECORD_SCRUB_MAX` limit, the regexes `cut_whole` runs read at most `16 × RECORD_SCRUB_MAX` characters in all, counted by what each call reads (round 7: each character test of a backtracking match at each position a scan tries, `tests/regex_reads.py`; until then by the span each call may read, which review r5 found a quadratic regex within), none more than twice the bound in one call; the count test allows at most one additional bound of regex reads at 16 MiB compared with 1 MiB. Past the windows its `str` scans are a fixed number of passes over the text plus at most `2 × (CUT_KINDS_MAX + 2)` = 20 needle looks, each reading the text at most once. On the round-2 cost shapes the lines it runs and its C calls are the same at 64 KiB and 512 KiB. Its ratio to plain text is a measurement, not part of the invariant (round 7, §2, and its cost table). Tests: `test_at_16_mib_no_regex_reads_past_the_cut_s_windows`, `test_the_quote_kinds_cost_a_look_each_and_the_meter_counts_the_body_by_what_it_reads`, `test_a_cut_s_work_does_not_grow_with_the_text`; the clock guards.
 11. **Folding parts nothing a cut keeps.** No cut falls where folding the text to one line joins what is before the break to what is after into a match. Every scrub rule has an example, and the folding ones are exactly the flags rule and the private-key lines. Tests: `test_every_scrub_rule_has_an_example_and_only_the_folding_rules_fold`, `test_a_cut_never_parts_what_a_rule_or_folding_joins`, the generator.
 12. **A logged exception's words are scrubbed at every site.** No daemon module passes a caught exception raw to a log call, or to a parameter of its own functions whose value reaches one. Tests: `test_no_daemon_module_logs_a_caught_exception_raw`, `test_the_site_lint_fails_runner_py_s_old_lines`.
 
@@ -1344,9 +1344,9 @@ A file with orphans only, or closing tags before opening ones, is marked, as in 
 - one or two for `^`, `$` and `\b`;
 - a lookbehind's characters before the position.
 
-Each one-character test is `re`'s own answer, a pattern compiled from the same node with the same flags, so case folding and categories are `re`'s. `MeteredPattern` counts every call through it and checks each call's matches against `re`'s; a construct it does not know raises. `test_the_counted_matcher_finds_what_re_finds` checks it against `re` on every pattern `handoff` holds, and a probe ran 49,200 calls with no difference. `re` makes the same attempts; its optimizations, such as a literal prefix found by a fast scan, only read less. The count is about the reads, not the time, so a regex that restarts at each position, or backtracks badly within one, is counted for it.
+Each one-character test is `re`'s own answer, a pattern compiled from the same node with the same flags, so case folding and categories are `re`'s. `MeteredPattern` counts every call through it and checks each call's matches against `re`'s; a construct it does not know raises. `test_the_counted_matcher_finds_what_re_finds` checks it against `re` on every pattern `handoff` holds; the validation ledger below records whether that property has run in this continuation. `re` makes the same attempts; its optimizations, such as a literal prefix found by a fast scan, only read less. The count is about the reads, not the time, so a regex that restarts at each position, or backtracks badly within one, is counted for it.
 - **`REGEX_BOUND` stays at 16 × the bound,** and `CALL_BUDGET` caps one call at it: a call past it counts as past every bound and is not read further.
-- **Counted this way at 1 MiB,** the shapes read ⟨66,876 to 114,693⟩ regex characters, one call at most ⟨24,577⟩, all within the bound. The quote regex reads three characters a position in each window: the lookbehind, the repeat's test and the quote's.
+- **The executable bounds** are `REGEX_BOUND = 16 × RECORD_SCRUB_MAX` in all and twice the bound in one call. The salvaged prose's unverified numerical range is omitted. The anchored quote regex charges the lookbehind, the repeat's test and the quote's test, including failed backtracking attempts; the validation ledger records the actual runs.
 - **The backslash shape,** `REVIEW_R5_SHAPES["backslash-runs"]`, joins the count test (`test_at_16_mib_no_regex_reads_past_the_cut_s_windows[backslash-runs]`). With the old regex, the meter's own test (`test_the_meter_counts_what_a_regex_reads_not_its_span`) and the count test see the bound passed. `test_a_settle_reads_a_run_of_backslashes_a_fixed_number_of_times` holds `settled_end` over a 16,000-backslash line to 16 reads a character.
 
 **The cost sentences** (C-25.7, `daemon_log`'s docstring, invariant 10). The bound the code gives is this: a cut's work is linear in the text. Its regexes read at most 16 times the bound in all, counted by what they read; past the windows, a fixed number of C scans and at most 20 looks, each at most a pass. That gives no ratio to plain text, so "at most 6.7 times … on any shape measured" is gone. The ratios are given as measurements, with the shapes and the conditions they were taken under, the four-byte margin shape included. Python's formatting sentence now gives the measured ratios.
@@ -1375,7 +1375,7 @@ Invariants 10, 20, 22 and 24 are restated in place. Each holds for every input a
     - the three P2-1 regressions and the margin-free one, through `scrubbed_tail`, `daemon logs -n 8` and `cli._log_tail`;
     - round 6's differential and properties.
 26. **Tag-free equality.** For every text with no tag, the tail is round 5's byte for byte. Test: round 6's differential (`test_the_tail_is_round_5_s_without_a_tag_and_hides_what_the_whole_scrub_hides_with_one`, `test_the_tail_on_review_r4_s_window_edges`), kept unchanged.
-27. **Linear cost.** The cut's regexes read at most `16 × RECORD_SCRUB_MAX` characters in all, counted by what they read, none more than twice the bound in one call, and no more at 16 MiB than at 1 MiB. The count test fails for any whole-text pass or quadratic regex put back. Tests:
+27. **Linear cost.** The cut's regexes read at most `16 × RECORD_SCRUB_MAX` characters in all, counted by what they read, none more than twice the bound in one call; the count test allows at most one additional bound of regex reads at 16 MiB compared with 1 MiB. The count test fails for any whole-text pass or quadratic regex put back. Tests:
     - `test_at_16_mib_no_regex_reads_past_the_cut_s_windows` (all shapes, the backslash runs included);
     - `test_the_meter_counts_what_a_regex_reads_not_its_span`;
     - `test_a_settle_reads_a_run_of_backslashes_a_fixed_number_of_times`;
@@ -1406,3 +1406,63 @@ The earlier attempt's scratch contains a first-group run with four failures, rep
 and selected passing reruns, and an interrupted combined run. It does not provide a
 file-by-file green whole-suite report for round 7. This continuation therefore starts
 with all four briefed groups, then runs every remaining unit and fake file.
+
+### Cost observations supplied with review r5
+
+These tables transcribe the executed measurements in the hub's `review-r5.md`,
+read in full with the brief. They are historical reviewer observations, not new
+runs in this continuation. The review used GIL Python 3.14.7 and the hub's
+suite-hold wrapper. Its cut-table runs reported host load 26 to 34; the
+interleaved margin comparison used best of ten CPU times. The review separately
+executed the anchored-regex direction. No ratio here is a bound on other inputs
+or on this tree's stronger reminder check.
+
+| Shape / measurement | 1 MiB | 4 MiB | 16 MiB |
+|---|---:|---:|---:|
+| 8,000-backslash shape, old regex, cut ms | 708 | 566 | 741 |
+| Same shape, anchored-regex direction, cut ms | 2.2 | not supplied | 36 |
+| Spaced margin-only lines in four-byte text, cut / plain | 11.6 | 8.9 | 6.9 |
+| Spaced margin-only lines among plain lines, cut / plain | 7.65 | not supplied | 6.42 |
+| Python's traceback formatting / cut, run of `<` | not supplied | 6.4 | 8.2 |
+| Python's traceback formatting / cut, data-URI body | not supplied | not supplied | 4.9 |
+| Python's traceback formatting / cut, quote kinds | not supplied | not supplied | 1.05 |
+
+| Round-6 realistic daemon.log, review r5's run | 1 MiB | 4 MiB | 16 MiB |
+|---|---:|---:|---:|
+| Whole range, CPU seconds per MiB | 1.60 | 2.22 | 2.24 |
+| Default `-n 40`, ms | 40 | 50 | 134 |
+| Default `-n 40`, whole reminder on line 1, ms | 213 | 774 | 3,283 |
+
+The last row measured round 6's single quoted pass (two with group margins),
+not round 7's two passes (four with margins). Fresh measurements remain pending
+until a suite slot runs `tools/measure_cut_cost.py`, including its `--logs` mode.
+
+### Census provenance and tool corrections
+
+The reviewer's original 60,000-text grammar run found 4 leaking resolutions and
+129 fallbacks in round 6; its executed fix direction found 0 leaks and 2,655
+fallbacks. Those are supplied review results, not this continuation's census.
+This tree's rebuilt grammar includes assignments with reminders between a
+separator and a quote, every quote kind, escapes, flags, key/data-URI pieces,
+margins and orphan tags. Its census is still pending, so no fresh leak or
+fallback count is claimed here.
+
+`c124b6ea4` corrects the census control: the purported round-6 resolver had kept
+round 7's stronger comparison of the margin-free text left after removal.
+The historical control now keeps only round 6's comparison of reminder pairs,
+as `cb03e5a60`'s source does. The census also returns nonzero for a round-7 leak,
+and its corpus mode honors its time budget. `99ddd1798` moves mutation fixtures
+from a hard-coded `/tmp` to the hold's `TMPDIR` inside scratch. Production code
+is unchanged by these tool corrections.
+
+### Continuation validation status
+
+At this checkpoint no pytest or measurement command has acquired a suite slot.
+The first group waited about 50 minutes and was canceled before collection;
+combined briefed runs were canceled before collection to finish batching,
+correct the venv PATH and remove the contract's provisional tokens. The current
+validation plan is one pytest over all 17 briefed files, then the historical
+regressions, mutants, census and timings, then all remaining unit and fake files.
+No prior round-7 whole-suite files are skipped: there is no file-by-file green
+report for them. The final ledger below will distinguish completed, interrupted
+and unrun files.
