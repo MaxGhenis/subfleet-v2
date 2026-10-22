@@ -76,9 +76,20 @@ def pytest_configure(config):
     recorder = StandIn(base / "keychain-bin")
     config._subfleet_keychain_standin = recorder
     os.environ["PATH"] = recorder.search_path(os.environ.get("PATH", os.defpath))
+    # D-TMP1: a permanent baseline survives fixture undo and tests replacing
+    # os.environ wholesale. Nothing in this session allocates in user scratch.
+    from subfleet import attempt_tmp
+    config._subfleet_original_attempt_temp_root = attempt_tmp.user_temp_root
+    scratch_root = base / "attempt-temp"
+    scratch_root.mkdir(mode=0o700)
+    attempt_tmp.user_temp_root = lambda: scratch_root
 
 
 def pytest_unconfigure(config):
+    original_temp_root = getattr(config, "_subfleet_original_attempt_temp_root", None)
+    if original_temp_root is not None:
+        from subfleet import attempt_tmp
+        attempt_tmp.user_temp_root = original_temp_root
     # Expire captured children even if store directories survive or are recreated.
     base = getattr(config, "_subfleet_safe_home_base", None)
     if base is not None:
@@ -224,10 +235,10 @@ def exit_info(rc: int, *, wall_s: float = 4.2, spawn_error: str | None = None) -
 
 
 @pytest.fixture(autouse=True)
-def private_attempt_temp_root(tmp_path, monkeypatch):
+def private_attempt_temp_root(request, tmp_path, monkeypatch):
     """D-TMP1 allocations in fixture daemons stay in this test's own tree."""
     from subfleet import attempt_tmp
-    original = attempt_tmp.user_temp_root
+    original = request.config._subfleet_original_attempt_temp_root
     root = tmp_path / "attempt-user-temp"
     root.mkdir()
     monkeypatch.setattr(attempt_tmp, "user_temp_root", lambda: root)
