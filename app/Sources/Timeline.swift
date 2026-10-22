@@ -805,6 +805,7 @@ struct Timeline: Equatable {
     /// that ends without `result` writes no event withdrawing its requests. A
     /// message whose delivery is unknown was settled the same way.
     private static func withdrawIfEnded(_ turn: inout TurnTimeline) {
+        guard !turn.items.isEmpty else { return }
         guard let state = turn.messageState, state.isTerminal || state == .deliveryUnknown else { return }
         for index in turn.items.indices {
             if case .approval(var card) = turn.items[index].content, card.isPending {
@@ -849,6 +850,12 @@ struct Timeline: Equatable {
     // MARK: Receipts and the person's own messages
 
     mutating func apply(receipts: [Receipt]) {
+        // A cold open already knows the batch size. Allocate its storage once.
+        if turns.isEmpty {
+            turns.reserveCapacity(receipts.count)
+            arrival.reserveCapacity(receipts.count)
+            order.reserveCapacity(receipts.count)
+        }
         var orderChanged = false
         for receipt in receipts {
             // An unchanged opening snapshot does not re-sort settled history.
