@@ -1,6 +1,6 @@
-# The restore recipe's fence survives any path, and no test failure can print a credential (D-PRR1)
+# The restore recipe's fence survives any path, and a test session keeps inherited credentials out of its reports (D-PRR1)
 
-Build on `fix/prune-restore-recipe-217`, cut from `release/217` at `2eacd5806`. Initial work began on 2026-10-22 at 04:34 UTC; this continuation resumed checkpoint `8c2e9de04` at 07:51 UTC. Report reconciled at 2026-10-22 09:29 UTC. The initial phase observed host load averages of 60–223; this continuation's managed sandbox denies host process and kernel queries. The caller's branch remains in its own checkout, so this job retains the supplied detached history. Nothing was pushed.
+Build on `fix/prune-restore-recipe-217`, cut from `release/217` at `2eacd5806`. Initial work began on 2026-10-22 at 04:34 UTC; this continuation resumed checkpoint `8c2e9de04` at 07:51 UTC. Report reconciled at 2026-10-22 09:29 UTC. Fix round 1 (#244 review r1, 2026-10-23 UTC) has its own section at the end; it narrows this report's claims to what the session guarantees. The initial phase observed host load averages of 60–223; this continuation's managed sandbox denies host process and kernel queries. The caller's branch remains in its own checkout, so this job retains the supplied detached history. Nothing was pushed.
 
 ## What went wrong on 2026-10-21
 
@@ -49,7 +49,7 @@ There is one adjacent class, which is not fenced and was not changed. Fourteen f
   - backticks mixed with the alphabet's other characters, `"a```$;'b````\"(!&"`;
   - `"\n```\n"`, a run on a line of its own, which executes a restore through a path that ends a three-backtick fence for CommonMark.
 
-## Decision 3: no test can print a credential
+## Decision 3: keep inherited credentials out of test reports
 
 ### The mechanism
 
@@ -83,12 +83,12 @@ Exact probe options, after `python -m pytest -p no:cacheprovider tests/unit/test
 - **The pattern.** `subfleet/home_paths.py` holds `CREDENTIAL_ENV_PATTERN`, beside `SAFE_ENV_REMOVALS`. It matches names ending in `_TOKEN`, `_KEY`, `_SECRET`, `_PASSWORD` or `_COOKIE`, and names holding `CREDENTIAL` or `_AUTH`, ignoring case. The ASCII case-folding follows `launch_env.CREDENTIAL_PATTERN`'s precedent, and catches npm-style lower-case names like `npm_config__auth`. `credential_shaped(name)` never matches the session's markers (`PYTEST_MARKER`, `PYTEST_SESSION`, `PYTEST_SESSION_ID`). `remove_credentials(environ)` deletes the matching variables and returns them; `restore_credentials(environ, removed)` puts them back.
 - **Configure.** `tests/conftest.py`'s `pytest_configure` calls `remove_credentials(os.environ)` before collection and keeps the result on `config`. The call comes after the existing baseline snapshot, so both snapshots hold the true originals. `CLAUDE_LANE_AGENT_SECRET` and `SUBFLEET_AGENT_SECRET` match the pattern and are in both, so they come back with the same value whichever restore runs last.
 - **Unconfigure.** `pytest_unconfigure` restores them after the baseline's own restore.
-- **Why nothing in the process can print one.** On a POSIX build, `os.environ` deletes through to the C environment, and the interpreter's startup snapshot is the same dict. A check in this job on macOS, printing booleans only, confirmed three things:
+- **What the removal guarantees.** On a POSIX build, `os.environ` deletes through to the C environment, and the interpreter's startup snapshot is the same dict. A check in this job on macOS, printing booleans only, confirmed three things:
   - `os.environ._data is posix.environ`;
   - a deleted name is gone from `posix.environ`;
   - an inheriting `/bin/sh` child does not see it.
 
-  So no test, no child that inherits the environment, and no traceback can print a credential the session inherited.
+  So while the session lives, a credential it inherited is in neither the test process's environment nor an inheriting child's. That is all the removal guarantees. Review r1 found a test that printed one anyway, from the session's own store of removed values; fix round 1, at the end of this report, makes the stores show names only and states the limit.
 - **Out of the pattern's scope.** A credential in a variable whose name does not look like one: for example `OTEL_EXPORTER_OTLP_HEADERS`, or a URL with a password in it.
 
 **What a lane's environment loses.** These are the names the pattern removes from the initial checkpoint phase's environment. The audit displayed names only; it displayed no values.
@@ -724,3 +724,184 @@ Partial files: `tests/fake/test_capacity_steer_daemon.py`, `tests/unit/test_rete
 The shared index rejected staging with “Operation not permitted.” As authorized in the brief, the final documentation commit uses workspace-local Git metadata at `.prr1-git/`, on the local branch `fix/prune-restore-recipe-217`, with history descended from checkpoint `8c2e9de04`. The supplied shared detached HEAD is unchanged. Review the complete history with `git --git-dir=.prr1-git log --oneline 2eacd580605e..HEAD`. This metadata remains in the assigned workspace; the scratch cleanup does not remove it.
 
 Documentation commit `77ecaa595` records the reconciled report and PR body; a follow-up corrects their formatting and count explanation. Every commit uses the requested co-author trailer. No history was rewritten and nothing was pushed.
+
+## Fix round 1: the session's stores show names only (#244 review r1)
+
+Fix round on head `e824c6a0b`, begun 2026-10-23 at 02:03 UTC. Review r1 requested changes for one P1 and passed everything else: the fence, the local recipe leak, the session hooks, the report's inventory. This round fixes the P1, closes two more paths of the same kind that its audit found, and narrows the claims above to what the session guarantees.
+
+### The merge
+
+GitHub reported the PR conflicting with `release/217`. The brief named release at `4f5983f4c` (#212, #223, #232, #238). The hub's last fetch, which this round merged without fetching, holds `origin/release/217` at `e345f0803`: `4f5983f4c` plus #243 (the salvage ref race). Merge commit `973857899`.
+
+- **One conflict,** in the contract's change log: both sides added entries at its head. Every entry is kept, newest first: this PR's D-PRR1 entry (2026-10-22), then release's, in release's order. No clause conflicted.
+- **Release changed none of this PR's files** (`subfleet/home_paths.py`, `subfleet/prune_decisions.py`, `tests/conftest.py` and the changed tests), and neither C-11.5 nor C-20.6: both clauses were byte-identical at `2eacd5806` and `e345f0803`.
+- **Release's 56 new or changed test files under `tests/unit` and `tests/fake`** had never run with this PR's session removal. No added line in them, or in release's `tests/*.py` and conftest files, reads or sets a credential-shaped variable. Seven are briefed files (`test_state_contract.py` and six `test_launch_env*.py`) and ran whole below; the rest are left to CI, except those in review r1's unrun list.
+
+### The cause
+
+- **Review r1's case.** `test_c20_6_this_session_holds_no_inherited_credential` bound `removed = request.config._subfleet_removed_credentials`, the store `remove_credentials` returned: a `dict` of name to value. Review r1 ran it with an inherited `SUBFLEET_DUMMY_TOKEN` and a second dummy, `PRR1_LATE_TOKEN`, set after configure. The sanity check `present <= set(SAFE_HOME_PATHS)` then failed, and `-l` printed `removed`, value included.
+- **Why `-l` prints a whole local.** pytest 9.1.1's `repr_locals` (`_pytest/_code/code.py:1040`) prints each local through `saferepr`, cut to 240 characters, at verbosity 1 or less, and through `safeformat`, a whole `pprint.pformat`, above it (`_pytest/nodes.py:430`). `-q -vvv` is verbosity 2. Cut or whole, a dict's first entries print.
+- **A second store held values: the baseline snapshot.** `pytest_configure` snapshots `HOME`, `PATH`, the markers, `SAFE_HOME_PATHS` and `SAFE_ENV_REMOVALS` into `config._subfleet_original_home_env` before it removes credentials. Two of those names are credential-shaped, `CLAUDE_LANE_AGENT_SECRET` and `SUBFLEET_AGENT_SECRET`, so the snapshot held their inherited values (the build's report noted they were "in both"). A test that bound the snapshot and failed printed them: the regression's `test_binds_the_baseline_snapshot` did so at the tests-first commit.
+- **A `Mapping` store would still print values.** The brief suggested a `Mapping` subclass with a redacting `repr`. But pytest 9.1.1 explains a failing `==` between any two `collections.abc.Mapping`s item by item (`_pytest/assertion/_compare_any.py` dispatches on `ismapping`). `_compare_eq_mapping` (`_pytest/assertion/_compare_mapping.py`) prints `{k: left[k]}` for each differing key, and pretty-prints every extra key with its value. So `assert store == {}` would print every value whatever the `repr`. Mutation M8 below executes this.
+
+### The fix
+
+- **The check binds names only:** `removed = set(request.config._subfleet_removed_credentials)`.
+- **The store shows names only.** `home_paths.RemovedCredentials` keeps what `remove_credentials` took.
+  - Its `repr` and `str` are `<RemovedCredentials names=['A_TOKEN', 'B_KEY'], values withheld>`, with the names sorted.
+  - Each report printer reaches that `repr`: pytest's `saferepr` (`SafeRepr.repr_instance`), `safeformat` and its assertion-diff printer (`_pytest/_io/pprint.py`), which call `repr` for a type with its own, and Hypothesis's `pretty`, which registers no printer for the class or for `object`, so it falls back to `_repr_pprint`.
+  - It is not a `Mapping`, so a failing comparison falls to pytest's iterable diff, which pretty-prints each side whole, the store through its `repr`.
+  - A value is read by name only. `keys()` and `[name]` serve `MutableMapping.update`'s `keys()` branch, which `os.environ.update` takes, and `dict()`. Iteration, `len` and `in` give names. `__slots__` leaves no `__dict__` for `vars()` to show.
+  - `restore_credentials` is unchanged: `environ.update(removed)`.
+- **The snapshot holds no credential value.** It records a credential-shaped name as absent (`None`). At cleanup it pops the name, and the store then puts back its value, if it had one. The store is taken right after the snapshot, so a name is in the store exactly when the snapshot saw it set, and with the same value. Cleanup therefore restores exactly what it did before; the regressions' before-and-after digests check both names.
+- **Absolute claims removed.** "No test, child or report can print one" is gone from C-20.6, the earlier change-log entry, `home_paths`, `conftest.py`, the test module's docstring, this report and the PR body. The guarantee is stated below, with its limit.
+
+### What is guaranteed, and the limit
+
+- **Credential-shaped variables are absent from the test process's environment for the session.** `pytest_configure` removes every one it inherited, before collection, from `os.environ` and so from the C environment and every child that inherits it. `pytest_unconfigure` puts each back exactly, an empty value included. No module copies the environment at import, before configure runs. An AST scan of the code outside function bodies, over the 144 modules under `subfleet/`, the helpers in `tests/` and every conftest, finds two reads: `credentials.py:653` tests two marker names' presence, and `client.py:258` reads `PATH`.
+- **The stores show names only.** The removed-credentials store's text is its sorted names. The baseline snapshot holds no credential-shaped value.
+- **Tests bind names only.** The audit below lists every local in this PR's tests that holds a value, and none holds an inherited one.
+- **The limit.** A test that copies a value into a local by hand can still print it: `dict(store)`, `store[name]`, or `store._values`. So can a test that prints a variable set after configure, by itself or a plugin, since the session removes only what it inherited. A credential under a name that is not credential-shaped, such as a URL holding a password, is out of scope, as before.
+
+### The audit: locals that hold a value
+
+Every test and helper in this PR, and every use of `_subfleet_removed_credentials` under `tests/`. "Own dummy" means a value the test itself makes, never one the session inherited.
+
+| Where | Local or argument | What it holds | Verdict |
+| --- | --- | --- | --- |
+| `test_session_credential_env.py`, `test_c20_6_this_session_holds_no_inherited_credential` | `removed` | was the store's `dict` of inherited values; now a `set` of names | **the P1, fixed** |
+| same | `present` | names | names only |
+| same, `test_c20_6_unconfigure_puts_back_exactly_what_configure_removed` | `removed`, `config` | own dummies (`SECRET7prr1-restore`, empty), and a store over them | own dummy |
+| same, `test_c20_6_removal_takes_exactly_the_credentials_and_restore_puts_each_back` | `environ`, `changes`, `original`, `removed`, `session` | values Hypothesis draws | own dummy |
+| same, `test_c20_6_the_store_of_removed_credentials_shows_names_only` | `values`, `environ`, `store`, `twin` | values Hypothesis draws, and stores over them | own dummy |
+| same, `_child_session`, `_dummies`, `_leaks`, `_digests`, `_leaked` | `inherited`, `late`, `environment`, `value`, `dummies` | own dummies, and the child's `PATH`, `HOME`, `TMPDIR`, `LANG`, `LC_ALL` | own dummy |
+| same, the three child-session tests | `inherited`, `late`, `report`, `outcome` | own dummies; the child's report, searched for them before any later assertion; digests | own dummy |
+| same, the name tests | `name` | a name | names only |
+| `tests/credential_leak_child.py` (run only as a child) | `values`, `env={**os.environ}`, the drawn `environment` | the child session's own environment, copied by hand | by design: it probes that the environment holds no inherited dummy |
+| `tests/credential_store_child.py` (run only as a child) | `store`, `snapshot`, `_check`'s `store`, the drawn `store` | the store and the snapshot themselves | by design: it probes that they print no value |
+| `tests/conftest.py`, `pytest_configure` | `config._subfleet_removed_credentials`, `config._subfleet_original_home_env` | the store; the snapshot, which held `CLAUDE_LANE_AGENT_SECRET`'s and `SUBFLEET_AGENT_SECRET`'s values | **snapshot fixed**; store shows names |
+| `tests/conftest.py`, `pytest_unconfigure` | `removed`, `original`, `name`, `value` | the store; the snapshot and its entries | names only, after the snapshot fix |
+| `tests/unit/test_prune_restore.py`, `_recipe_environment`, `_run_recipe` | `environment`, `subprocess.run`'s `kwargs` | `PATH`, `HOME`, `TMPDIR`, `LANG`, `LC_ALL`, `state_root` | no credential-shaped name |
+| same, `test_run_recipe_gives_the_shell_only_the_variables_it_needs` | `PRR1_CANARY_TOKEN`, set with `monkeypatch` | own dummy, bound to no local | own dummy |
+| same, the fence and recipe tests | `path`, `recipe`, `block`, `script`, `launched` | backup paths and recipe text | no value |
+| `tests/markdown_fences.py` | text and fences | Markdown text | no value |
+| `tests/unit/test_prune_217.py:166` | `subprocess.run`'s `kwargs`: `env={**os.environ, …}` | a copy of the session's environment, which holds no inherited credential | unchanged (the build's sweep); a variable set during the session would print if this failed |
+| `tests/unit/test_live_store_guard_round3.py`, the two changed tests | `SSH_AUTH_SOCK`, set with `monkeypatch`; `launches`' `env` | own dummy socket paths; `host_push`'s child environment | own dummy |
+| The tests that run a nested `conftest.pytest_configure` (`test_live_store_guard.py`, `_round3`, `_round6`, `_round7`, `_round7_mutations`, `_round8`, `_round8_mutations`) | the nested config's store and snapshot | what the session's environment holds then: no inherited credential | names only |
+
+### The invariants
+
+1. **No credential in test output.** With dummy credential-shaped variables set before the session (`CLAUDE_LANE_AGENT_SECRET` and `SUBFLEET_AGENT_SECRET` among them) and one set after configure, a failing test's whole report holds no part of either kind: not the whole value, its fixed prefix, or any ten characters of its random tail. That covers the plain traceback, `-l` locals cut and whole, `--tb=long`, `-vv` and Hypothesis's report, including when the test holds the store or the snapshot. pytest's default `--tb=auto` is `long` for a test's failure, so the plain report is the `-l` report less its locals.
+   - `test_c20_6_the_session_check_failing_prints_no_part_of_a_dummy`, under `-q -l --tb=long -vvv` (review r1's options) and `-l --tb=long`: review r1's case, failing at the sanity check on the late dummy's name.
+   - `test_c20_6_a_test_holding_the_store_prints_no_part_of_a_dummy`, under the same two: `tests/credential_store_child.py`'s six tests hold the store or the snapshot and fail through a local, a helper's argument, captured output, an assertion's operand, a comparison with a dict and a Hypothesis draw. The test checks that each channel printed the store.
+   - The build's `test_c20_6_a_failing_session_prints_no_part_of_an_inherited_credential`, unchanged in substance.
+2. **The store's text holds names only.** For every mapping of credential-shaped names to dummy values, `repr` and `str` of the store contain no value.
+   - `test_c20_6_the_store_of_removed_credentials_shows_names_only`, 100 examples: names are drawn stems with every credential suffix, and each value is a dummy, empty, or a part of a name, its own or another's.
+   - It asserts `repr(store) == str(store)`, the exact names-only text. For eleven printers (`repr`, `str`, `format`, `ascii`, pytest's `saferepr` cut and not, `safeformat` and assertion-diff printer, Hypothesis's `pretty`, `pprint.pformat`, `reprlib.repr`), it asserts the text equals that of a store with the same names and other values. A value that is empty or part of a name occurs in any names-only text, so a substring search cannot decide it; this differential does. Every other value must be absent outright.
+3. **Restored after the session.** Unchanged from the build. `pytest_unconfigure` puts every removed variable back exactly, an empty value included.
+   - `test_c20_6_unconfigure_puts_back_exactly_what_configure_removed`, now through a `RemovedCredentials`.
+   - Each of the three child-session tests hashes every inherited dummy before `pytest.main` and after it returns; the store-holding test's dummies include the snapshot's two names.
+   - `test_c20_6_removal_takes_exactly_the_credentials_and_restore_puts_each_back`.
+4. **The fence still holds.** The build's invariants 1 and 2 hold: `test_restore_fix_block_is_the_template_script_for_every_path`, the fence tests and the restore property all pass, and mutations M1 and M2 still fail them.
+
+### Regressions at the tests-first commit, and mutations
+
+The regressions were committed first, in `5cf14fffc`, on the merged head; release changed none of their files, so that tree is `e824c6a0b` plus the new tests. All six new tests failed there; the other 29 tests in the module passed.
+
+| Case | Failed at `5cf14fffc` |
+| --- | --- |
+| R1: review r1's case, `test_c20_6_the_session_check_failing_prints_no_part_of_a_dummy`, under `-q -l --tb=long -vvv` and `-l --tb=long` | both: the dummies reached the report (`Left contains 9 more items, first extra item: 'SUBFLEET_DUMMY_TOKEN'`) |
+| R2: a test holding the store or the snapshot, `test_c20_6_a_test_holding_the_store_prints_no_part_of_a_dummy`, under the same two | both: the dummies reached the report (11 named) |
+| Invariant 2's property, `test_c20_6_the_store_of_removed_credentials_shows_names_only` | `repr(store)` was `{}` for the shrunk `values={}` |
+| `test_c20_6_unconfigure_puts_back_exactly_what_configure_removed`, now through the store | `home_paths` had no `RemovedCredentials` |
+
+`_leaks` names every dummy once any of them leaks, because each holds the shared prefix it searches for; the counts say the report leaked, not how many values it held.
+
+Each mutant ran in a scratch copy of the head, one pytest at a time, in one hold. The build's five mutants ran on whole `test_prune_restore.py`; the session mutants ran on the tests expected to kill them (`-k`), since group 1 had already run the whole module.
+
+| Mutant | Selection | Failed | Passed |
+| --- | --- | --- | ---: |
+| M0: none (the head, after the channel-check fix) | `holding_the_store` | — | 2 |
+| M6: the session check binds `dict(store)` again | `session_check_failing` | both `test_c20_6_the_session_check_failing_prints_no_part_of_a_dummy` options | 0 |
+| M6b: the session check binds the store itself | `session_check_failing` | none: the store's `repr` covers it. An intended survivor, the defence in depth working | 2 |
+| M7: the store's `__repr__` shows its values | `shows_names_only or holding_the_store` | the invariant 2 property and both store-holding options | 0 |
+| M8: the store is a `collections.abc.Mapping` | `shows_names_only or holding_the_store` | both store-holding options, through the comparison tests | 1: the property, which renders but does not compare |
+| M9: the baseline snapshot keeps values | `holding_the_store` | `-q -l --tb=long -vvv`, where `-l` prints whole locals | 1: under `-l` alone the cut `repr` stops after four entries, before the two names |
+| M1: a fixed three-backtick fence | whole file | the restore property, all 4 fence tests, 2 `test_run_recipe_hands_the_shell_the_whole_block` paths and the invariant 1 property | 12 |
+| M2: the harness splits at the first triple backtick | whole file | the restore property and all 4 `test_run_recipe_hands_the_shell_the_whole_block` paths | 15 |
+| M3: `_run_recipe` copies `os.environ` | whole file | `test_run_recipe_gives_the_shell_only_the_variables_it_needs` | 19 |
+| M4: the session's removal dropped | `this_session_holds or holding_the_store` | `test_c20_6_this_session_holds_no_inherited_credential` and both store-holding options | 0 |
+| M5: unconfigure does not restore | `unconfigure or holding_the_store` | `test_c20_6_unconfigure_puts_back_exactly_what_configure_removed` and both store-holding options | 0 |
+
+M1 to M5 fail the same tests as in the build. M4's session check fails because every hold set a dummy, `PRR1_HOLD_TOKEN`, for the session to remove.
+
+### How the holds ran
+
+- **Environment.** One venv, built once through the hub's setup wrapper, on Python 3.14.7 (GIL) with pytest 9.1.1 and Hypothesis 6.168.1. Holds ran `<venv>/bin/python` directly, as `uv run` would, without its sync check. Each pytest ran in-process under a 1,140-second alarm, with `-q -p no:cacheprovider`, `HYPOTHESIS_PROFILE=ci`, and `TMPDIR` and Hypothesis's storage in scratch.
+- **Credentials.** Every hold started with the job's inherited credential-shaped variables unset (`env -u`, five names: `SSH_AUTH_SOCK` and four integration tokens), and with one dummy set, `PRR1_HOLD_TOKEN=SECRET7…`, for the session to remove. No hold's log holds any part of that dummy, or of any `SECRET7` value.
+- **Holds, serially, each through the suite wrapper.** The lock was contended: the first three holds waited 29, 75 and 86 minutes for a slot.
+
+| Hold | Tree | What ran | Result | Pytest time |
+| --- | --- | --- | --- | ---: |
+| `base-r1` | `5cf14fffc` (tests first) | `test_session_credential_env.py` | 29 passed, 6 failed (the regressions) | 163 s |
+| `g1-prune` | `2415e397d` (the fix) | group 1: `test_session_credential_env.py`, `test_prune_restore.py`, `test_prune_decision*.py`, `test_prune_217.py` | 149 passed, 1 failed (below) | 122 s |
+| `mutants` | `e2ded7d12`, then the worktree at `4748c6211` | M0 to M9 as above; then groups 3 and 2, merged, and the first wider files, one pytest | mutants as above; 1,266 passed, 0 failed, stopped by the alarm | 1,133 s in all |
+| `wider2` | `4748c6211` | the rest of review r1's 95 unrun files | queued at 06:14:30 UTC; see below | — |
+
+- **`g1-prune`'s one failure** was the new store-holding test's own channel check, under `-l` alone: it looked for `assert <RemovedCredentials names=[`, but below `-vv` pytest cuts an assertion's operand to 30 characters (`assertrepr_compare`), so the report read `<RemovedCrede...es withheld>`. Its leak check, which runs first, had passed under both options. `e2ded7d12` loosens the check to `assert (not )?<RemovedCred`; M0 then passed both options.
+- **Groups 2 and 3 ran as one pytest,** with the first wider files after them, inside the mutation hold. Each later hold waited over an hour for a slot, and the brief's last start was 06:33 UTC.
+- **One withdrawn submission.** The first `wider2` submission, at 06:02:59 UTC, computed no names to unset, because its script read them from inside a scratch folder already removed. It was withdrawn at 06:14 UTC while still waiting for a slot, before any test ran, and resubmitted at 06:14:30 UTC with the five names unset.
+
+### Test counts
+
+The latest outcome per test, on the final test code. Every briefed file ran whole.
+
+| File | Passed | Failed | Skipped | Status |
+| --- | ---: | ---: | ---: | --- |
+| `tests/unit/test_session_credential_env.py` | 35 | 0 | 0 | complete (34 in `g1-prune`; the corrected test's two options in M0) |
+| `tests/unit/test_prune_restore.py` | 20 | 0 | 0 | complete |
+| `tests/unit/test_prune_decisions.py` | 48 | 0 | 0 | complete |
+| `tests/unit/test_prune_decision_backup_verification.py` | 23 | 0 | 0 | complete |
+| `tests/unit/test_prune_decision_fingerprints.py` | 15 | 0 | 0 | complete |
+| `tests/unit/test_prune_217.py` | 9 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard.py` | 324 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard_round3.py` | 22 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard_round4.py` | 8 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard_round5.py` | 11 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard_round6.py` | 112 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard_round7.py` | 50 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard_round7_mutations.py` | 23 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard_round8.py` | 100 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard_round8_mutations.py` | 4 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard_round9.py` | 89 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard_round9_mutations.py` | 12 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard_round10.py` | 60 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard_round10_mutations.py` | 13 | 0 | 0 | complete |
+| `tests/unit/test_live_store_guard_state_root.py` | 22 | 0 | 0 | complete |
+| `tests/unit/test_launch_env_allowlist.py` | 27 | 0 | 0 | complete |
+| `tests/unit/test_launch_env_helpers.py` | 20 | 0 | 0 | complete |
+| `tests/unit/test_launch_env_mutations.py` | 41 | 0 | 0 | complete |
+| `tests/unit/test_launch_env_policy.py` | 26 | 0 | 0 | complete |
+| `tests/unit/test_launch_env_round2.py` | 67 | 0 | 0 | complete |
+| `tests/unit/test_launch_env_round3.py` | 69 | 0 | 0 | complete |
+| `tests/unit/test_launch_env_round4.py` | 40 | 0 | 0 | complete |
+| `tests/unit/test_launch_env_round5.py` | 39 | 0 | 0 | complete |
+| `tests/fake/test_state_contract.py` | 37 | 0 | 0 | complete |
+| `tests/unit/test_test_module_names.py` | 1 | 0 | 0 | complete |
+| `tests/unit/test_suggestion_secret_properties.py` | 7 | 0 | 0 | complete (wider) |
+| `tests/fake/test_record_secrecy.py` | 42 | 0 | 0 | partial: the alarm stopped the hold inside it (wider) |
+
+Briefed files: 30 files, 1,367 tests, all passed. `test_live_store_guard*`, which runs nested `pytest_configure` and `pytest_unconfigure` calls, passed whole with the snapshot change, and `_round8`, `_round9` and `_round10`'s checks of C-20.6's text passed on the rewritten clause.
+
+**Review r1's 95 unrun files (3,151 cases).** Ordered with the files that hand a copied environment to a child, or test secrecy, first. One ran whole, one in part, and 93 have no result yet in this round: the `wider2` hold, submitted before the cutoff, was still waiting for a slot. CI covers every file.
+
+### Commits in this round
+
+- `973857899` — Merge release/217 (e345f0803: #212, #223, #232, #238, #243) into fix/prune-restore-recipe-217
+- `5cf14fffc` — test: a failing test that holds the credential store or its values prints neither (D-PRR1 r1)
+- `2415e397d` — fix: the session's credential stores show names only, and its check binds names (D-PRR1 r1)
+- `e2ded7d12` — test: find the store in an assertion's operand cut to 30 characters (D-PRR1 r1)
+- `4748c6211` — docs: C-20.6 states what the session guarantees, and its limit (D-PRR1 r1)
+- the report and PR body commits that add this section and its results
+
+Every commit was made on this job's detached checkout of the shared repository, through the shared Git metadata, with the requested co-author trailer. Nothing was pushed.
