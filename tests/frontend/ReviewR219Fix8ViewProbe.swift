@@ -2,6 +2,35 @@ import AppKit
 import SwiftUI
 import Combine
 
+// Position/count probes need a live view hierarchy and synchronous scroll
+// transactions. This module-local overload controls the app's unqualified
+// withAnimation calls only when this probe is compiled alongside its sources.
+enum ProbePresentation {
+    static var animationCalls = 0
+    static var mountedWindows = 0
+}
+func withAnimation<Value>(_ animation: Animation? = .default, _ body: () -> Value) -> Value {
+    ProbePresentation.animationCalls += 1
+    var transaction = Transaction(animation: nil)
+    transaction.disablesAnimations = true
+    return SwiftUI.withTransaction(transaction, body)
+}
+
+@MainActor func mountOffscreen(_ window: NSWindow) {
+    let screens = NSScreen.screens.map(\.frame)
+    let left = (screens.map(\.minX).min() ?? 0) - 10000
+    let below = (screens.map(\.minY).min() ?? 0) - 10000
+    window.isRestorable = false
+    window.setFrameOrigin(NSPoint(x: left, y: below))
+    precondition(!screens.contains { $0.intersects(window.frame) })
+    window.orderBack(nil)
+    window.displayIfNeeded()
+    precondition(window.isVisible && !window.isKeyWindow
+                 && !screens.contains { $0.intersects(window.frame) })
+    ProbePresentation.mountedWindows += 1
+}
+
+
 // Review r4 of #219: the real ConversationView, UIModel.open and its events loop
 // against a scripted daemon. Measures whether the timeline keeps following its
 // end after the app's own row reveals (approval follow, search), compiled at the
@@ -129,6 +158,8 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
     while Date() < end {
         RunLoop.main.run(until: Date().addingTimeInterval(0.01))
         view.layoutSubtreeIfNeeded()
+        NSApp.updateWindows()
+        view.window?.displayIfNeeded()
         try? await Task.sleep(nanoseconds: 5_000_000)
     }
 }
@@ -208,12 +239,13 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
             exit(3)
         }
         host = NSHostingView(rootView: AnyView(ConversationView(model: model, conversation: shown)
-            .environment(\.searchPalette, palette)))
+            .environment(\.searchPalette, palette).transaction { $0.animation = nil; $0.disablesAnimations = true }))
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 760), styleMask: [.borderless],
                           backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
         host.frame = window.contentView!.bounds
+        mountOffscreen(window)
         if pauseCatchup {
             // Establish the invariant's actual precondition, independent of host scheduling:
             // the opening pin has placed the live row/end on screen, and catch-up is pending.
@@ -236,6 +268,13 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
         let revealDeadline = Date().addingTimeInterval(60)
         while palette.reveal != nil && Date() < revealDeadline { await settle(host, seconds: 0.02) }
         await settle(host, seconds: 1.2)
+        if revealOnMount == nil {
+            // Wait for the opening pin's final layout, not a fixed sampling time.
+            let endDeadline = Date().addingTimeInterval(60)
+            while (sample(host)["from_end"] ?? 1e9) > 30 && Date() < endDeadline {
+                await settle(host, seconds: 0.02)
+            }
+        }
     }
 
     var caughtUp: Bool { model.state.timelines[cid]?.caughtUp == true }
@@ -298,6 +337,14 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
 @main struct R4ViewProbe {
     @MainActor static func main() async throws {
         NSApplication.shared.setActivationPolicy(.prohibited)
+        NSApp.finishLaunching()
+        NSApp.setActivationPolicy(.accessory)
+        if CommandLine.arguments.last == "fix10" {
+            let root = URL(fileURLWithPath: CommandLine.arguments[1])
+            let result = await fix10Cases(root)
+            print(String(decoding: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), as: UTF8.self))
+            return
+        }
         if let mode = CommandLine.arguments.last, mode.hasPrefix("fix9") {
             let root = URL(fileURLWithPath: CommandLine.arguments[1])
             let result = await fix9Cases(root, mode: mode)
@@ -731,5 +778,93 @@ struct SettlingPageView: View {
         scene.close()
     }
     out["visible_windows"] = NSApp.windows.filter(\.isVisible).count
+    return out
+}
+
+
+// Reviewer r5's five distant targets, using the same real model, search
+// activation and reveal code. Arrival counts are finite; completion is state based.
+@MainActor func farReveal(_ name: String, root: URL, interval: Double, kind: String) async -> [String: Any] {
+    let word = "zebraneedle"
+    let scene = await Scene(name, root: root, prior: 30,
+                            priorText: { $0 == 10 ? "person message \($0) \(word) here" : "person message \($0) asks something" },
+                            tray: [])
+    await scene.stream(30)
+    let start = sample(scene.host)
+    var notices: [Double] = []
+    var starts = 0
+    let started = Date()
+    let observer = NotificationCenter.default.addObserver(forName: .conversationRowScroll, object: nil,
+                                                          queue: .main) { note in
+        if note.object as? String == name { notices.append(Date().timeIntervalSince(started)) }
+    }
+    let startObserver = NotificationCenter.default.addObserver(forName: .init("subfleet.test.searchRevealStarted"),
+                                                               object: nil, queue: .main) { note in
+        if note.object as? String == name { starts += 1 }
+    }
+    defer {
+        NotificationCenter.default.removeObserver(observer)
+        NotificationCenter.default.removeObserver(startObserver)
+        scene.close()
+    }
+    let results = SearchIndex(scene.model.state.searchCandidates()).search(word)?.results ?? []
+    let match = results.first { $0.snippet?.itemID == "person:m000010" }
+    var pushed = 0
+    if let match {
+        scene.palette.activate(match)
+        let count = interval > 0 ? Int((2.5 / interval).rounded(.up)) : 0
+        for _ in 0..<count {
+            pushed += 1
+            scene.seq += 1
+            if kind == "text" {
+                scene.daemon.push([event(scene.seq, "live", "text.delta",
+                                         ["block": "live", "text": "chunk \(pushed) of streamed words\n"])])
+            } else {
+                scene.daemon.push([event(scene.seq, "live", "tool.started",
+                                         ["id": "t\(pushed)", "name": "Read", "summary": "file \(pushed)"])])
+            }
+            await settle(scene.host, seconds: interval)
+        }
+    }
+    let deadline = Date().addingTimeInterval(60)
+    while scene.palette.reveal != nil && Date() < deadline { await settle(scene.host, seconds: 0.02) }
+    await scene.waitFolded(scene.seq)
+    await settle(scene.host, seconds: 0.8)
+    let quiet = sample(scene.host)
+    await scene.stream(20)
+    return ["found": match != nil, "start": start, "notices_at": notices, "reveal_starts": starts,
+            "reveal_consumed": scene.palette.reveal == nil, "caught_up": scene.caughtUp,
+            "pushed": pushed, "quiet": quiet, "after_more": sample(scene.host)]
+}
+
+@MainActor func farOpening(_ name: String, root: URL, delay: Double, size: Int) async -> [String: Any] {
+    var notices = 0
+    let observer = NotificationCenter.default.addObserver(forName: .conversationRowScroll, object: nil,
+                                                          queue: .main) { note in
+        if note.object as? String == name { notices += 1 }
+    }
+    let scene = await Scene(name, root: root, prior: 120,
+                            priorText: { "person message \($0) asks something" }, tray: [],
+                            pageDelay: delay, pageSize: size, revealOnMount: "person:m000040")
+    defer { NotificationCenter.default.removeObserver(observer); scene.close() }
+    let opened = sample(scene.host)
+    await scene.stream(20)
+    return ["after_open": opened, "after_stream": sample(scene.host), "caught_up": scene.caughtUp,
+            "reveal_consumed": scene.palette.reveal == nil, "notices": notices]
+}
+
+@MainActor func fix10Cases(_ root: URL) async -> [String: Any] {
+    var out: [String: Any] = [:]
+    for (name, interval, kind) in [("far_quiet", 0.0, "text"), ("far_text_50ms", 0.05, "text"),
+                                   ("far_text_120ms", 0.12, "text"), ("far_rows_150ms", 0.15, "tool"),
+                                   ("far_rows_400ms", 0.4, "tool")] {
+        out[name] = await farReveal(name, root: root, interval: interval, kind: kind)
+    }
+    for (name, delay, size) in [("open_reveal_250", 0.25, 40), ("open_reveal_100", 0.1, 20)] {
+        out[name] = await farOpening(name, root: root, delay: delay, size: size)
+    }
+    out["visible_windows"] = NSApp.windows.filter(\.isVisible).count
+    out["mounted_windows"] = ProbePresentation.mountedWindows
+    out["animation_calls"] = ProbePresentation.animationCalls
     return out
 }

@@ -15,6 +15,7 @@ def distant_reveals(fix8_view_binary, tmp_path_factory):
     write_json(root / "result.json", result)
     print("distant reveal positions: " + str(result))
     assert result["visible_windows"] == 0
+    assert result["mounted_windows"] == 7 and result["animation_calls"] > 0
     return result
 
 
