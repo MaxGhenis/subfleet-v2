@@ -170,6 +170,22 @@ PROVIDER_QUARANTINES = (
     "FROM attempts WHERE state='quarantined' ORDER BY reserved_at,seq")
 PENDING_EXPORTS = ("SELECT job_id FROM jobs WHERE accepted_attempt_id IS NOT NULL "
                    "AND job_id IN (SELECT holder FROM leases WHERE lease_key NOT LIKE 'worktree:%') ORDER BY rowid")
+# C-5.9: only a settled, allocated worktree hold belongs to the cwd worker.
+# Start from active leases; use this same predicate again inside the release
+# transaction, since publication or another lease can change after an offer.
+CWD_WORKTREE_HOLDS = (
+    "WITH held(job_id) AS (SELECT holder FROM leases WHERE lease_key LIKE 'worktree:%' "
+    "UNION SELECT a.job_id FROM leases l CROSS JOIN attempts a ON a.attempt_id=l.holder "
+    "WHERE l.lease_key LIKE 'worktree:%') "
+    "SELECT jobs.job_id FROM held CROSS JOIN jobs ON jobs.job_id=held.job_id "
+    "WHERE jobs.state IN ('succeeded','failed','cancelled','lost') AND jobs.in_place=0 "
+    "AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.job_id=jobs.job_id AND a.state='quarantined') "
+    "AND NOT EXISTS (SELECT 1 FROM leases l WHERE l.lease_key NOT LIKE 'worktree:%' "
+    "AND (l.holder=jobs.job_id OR l.holder IN (SELECT a.attempt_id FROM attempts a WHERE a.job_id=jobs.job_id))) "
+    "AND (jobs.accepted_attempt_id IS NULL OR jobs.out_path IS NULL OR jobs.export_error IS NOT NULL "
+    "OR EXISTS (SELECT 1 FROM artifacts WHERE attempt_id=jobs.accepted_attempt_id AND role='export')) "
+    "AND (jobs.accepted_attempt_id IS NULL OR jobs.push_branch IS NULL "
+    "OR EXISTS (SELECT 1 FROM job_pushes WHERE job_id=jobs.job_id AND result<>'pending')) ")
 #: C-3.7: a holder's newest probe record, newest first: the newest JSON payload
 #: naming it (`hit`, one step of `events_probe_holder`), and every probe.state
 #: payload SQLite does not read as JSON (`events_not_json`, normally none),
@@ -3996,7 +4012,7 @@ class Daemon:
             if alive != "alive":
                 if alive == "dead" and a["state"] == "running":
                     census = self._contain(a)
-                    if census.verified_empty:
+                    if census.containment_empty:
                         self._lost(a)
                     else:
                         self._kill_attempt(a, lost=True)
@@ -4330,14 +4346,7 @@ class Daemon:
     def _pending_worktree_holds(self) -> list[str]:
         """Terminal jobs whose worktree lease still needs a cwd recheck, on restart too."""
         # Drive this per-tick look from active leases, never the retained jobs.
-        held = {row['job_id'] for row in self.store.query(
-            "WITH held(job_id) AS (SELECT holder FROM leases WHERE lease_key LIKE 'worktree:%' "
-            "UNION SELECT a.job_id FROM leases l CROSS JOIN attempts a ON a.attempt_id=l.holder "
-            "WHERE l.lease_key LIKE 'worktree:%') "
-            "SELECT jobs.job_id FROM held CROSS JOIN jobs ON jobs.job_id=held.job_id "
-            "WHERE state IN ('succeeded','failed','cancelled','lost') "
-            "AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.job_id=jobs.job_id AND a.state='quarantined') "
-        )}
+        held = {row['job_id'] for row in self.store.query(CWD_WORKTREE_HOLDS)}
         clocks = self.__dict__.get('_cwd_recheck_next', {})
         for job_id in clocks.copy():
             if job_id not in held:
@@ -4356,8 +4365,8 @@ class Daemon:
         if now < clocks.get(job_id, 0):
             return
         job = self._job(job_id)
-        if job['state'] not in TERMINAL or self.store.one(
-                "SELECT 1 FROM attempts WHERE job_id=? AND state='quarantined'", (job_id,)):
+        eligible = CWD_WORKTREE_HOLDS + "AND jobs.job_id=?"
+        if not self.store.one(eligible, (job_id,)):
             clocks.pop(job_id, None)
             return
         # Success with a live holder, and an unreadable scan, are both normal
@@ -4370,18 +4379,26 @@ class Daemon:
         except (procs.InspectionError, OSError, ValueError):
             return                         # an unreadable cwd scan releases nothing
         with self.store.transaction('job.worktree_released', job_id=job_id) as tx:
+            if not tx.execute(eligible, (job_id,)).fetchone():
+                return
             tx.execute("DELETE FROM leases WHERE lease_key LIKE 'worktree:%' AND (holder=? "
                        "OR holder IN (SELECT attempt_id FROM attempts WHERE job_id=?))", (job_id, job_id))
         clocks.pop(job_id, None)
         self._notify()
 
-    def _cwd_wait(self, a: dict, census: procs.Containment) -> bool:
+    def _cwd_wait(self, a: dict, census: procs.Containment, *, began: float) -> bool:
         timers = self.__dict__.setdefault('_cwd_settle', {})
+        clocks = self.__dict__.setdefault('_cwd_wait_next', {})
         if not census.containment_empty or not census.cwd_pids:
             timers.pop(a['attempt_id'], None)
+            clocks.pop(a['attempt_id'], None)
             return False
         now = time.monotonic()
+        clocks[a['attempt_id']] = began + self.inspect_interval_s
         return now - timers.setdefault(a['attempt_id'], now) < CWD_SETTLE_S
+
+    def _cwd_census_due(self, a: dict) -> bool:
+        return time.monotonic() >= self.__dict__.get('_cwd_wait_next', {}).get(a['attempt_id'], 0)
 
     @staticmethod
     def _cwd_notice(census: procs.Containment) -> str:
@@ -4404,7 +4421,7 @@ class Daemon:
         for pacing in (self._inspect_next,):
             for aid in [aid for aid in pacing.copy() if aid not in live]:
                 pacing.pop(aid, None)
-        for name in ('_counted_tables', '_cwd_settle'):
+        for name in ('_counted_tables', '_cwd_settle', '_cwd_wait_next'):
             pacing = self.__dict__.get(name, {})
             for aid in [aid for aid in pacing.copy() if aid not in live]:
                 pacing.pop(aid, None)
@@ -8053,6 +8070,9 @@ class Daemon:
             deadline = self._starting_deadlines.setdefault(aid, time.monotonic() + self.start_grace_s)
             if time.monotonic() < deadline:
                 return
+            if not self._cwd_census_due(a):
+                return
+            began = time.monotonic()
             census = self._contain(a)
             # The guardian writes start.json, runs the provider, writes exit.json
             # and exits, so the receipts can land while the census runs, and a
@@ -8065,7 +8085,7 @@ class Daemon:
             if self._read_json(adir / "start.json") or self._read_json(adir / "exit.json"):
                 return
             if census.containment_empty:
-                if self._cwd_wait(a, census):
+                if self._cwd_wait(a, census, began=began):
                     return
                 self._unlaunched(a, "starting-no-receipt", census=census)
             else:
@@ -8668,7 +8688,7 @@ class Daemon:
 
     def _resolve_quarantine(self, a: dict, args: protocol.KillArgs) -> None:
         census = self._contain(a)
-        if not args.force_release and not census.verified_empty:
+        if not args.force_release and not census.containment_empty:
             with self.store.transaction("quarantine.still_live", job_id=a["job_id"], attempt_id=a["attempt_id"], data=census.to_dict()) as tx:
                 tx.execute("UPDATE attempts SET quarantine_reason=? WHERE attempt_id=?", (json.dumps(census.to_dict()), a["attempt_id"]))
             return
@@ -8678,24 +8698,29 @@ class Daemon:
             # C-26.10: a turn writes no salvage ref; its end snapshot is taken only
             # when nothing can still be writing (C-26.14). An operator's one-shot
             # request is never retried, so a git failure is recorded, not raised.
-            self._turn_trees(job, a, retry=False, error=None if census.verified_empty else
+            self._turn_trees(job, a, retry=False, error=None if census.containment_empty else
                              "released from quarantine with writers still live; no end snapshot")
-        elif census.verified_empty:
+        elif census.containment_empty:
             artifacts, _, salvage_evidence = self._salvage(job, a, retry=False)
         wall_exited = self._wall_exited_descendants(a["job_id"]) if a.get("killed_by") == "max_wall_s" else set()
         with self.store.transaction("quarantine.force_release" if args.force_release else "quarantine.confirmed_dead", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"operator_note": args.operator_note, "containment": census.to_dict(), "override": args.force_release, **salvage_evidence}) as tx:
             for artifact in artifacts:
                 self.store.add_artifact(a["attempt_id"], **artifact)
-            tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (a["job_id"], a["attempt_id"]))
+            tx.execute("DELETE FROM leases WHERE holder IN (?,?)" +
+                       (" AND lease_key NOT LIKE 'worktree:%'" if census.cwd_pids else ''),
+                       (a["job_id"], a["attempt_id"]))
             actual = self.store.get_attempt(a["attempt_id"])
-            if salvage_evidence and actual["state"] == "quarantined":
+            if (salvage_evidence or census.cwd_pids) and actual["state"] == "quarantined":
                 # C-13.1: `kill --confirm-dead` answered before this ran, and the
                 # job's notice went out when it was quarantined, so what salvage
                 # could not save is told in the evidence and in one more notice.
                 evidence = {**json.loads(actual["evidence_json"] or "{}"), **salvage_evidence}
+                if census.cwd_pids:
+                    evidence['cwd_holders'] = census.to_dict()['cwd_holders']
                 tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?", (json.dumps(evidence), a["attempt_id"]))
                 self._notice(tx, job, f"released from quarantine (attempt a{a['seq']})"
-                             + self._salvage_summary(job, artifacts, salvage_evidence), again=True)
+                             + self._salvage_summary(job, artifacts, salvage_evidence)
+                             + self._cwd_notice(census), again=True)
             tx.execute("UPDATE attempts SET state=? WHERE attempt_id=?", ("interrupted" if self._job(a["job_id"])["cancel_requested_at"] else "lost", a["attempt_id"]))
             self._cascade_final_wall(a, wall_exited)
         self._notify()
@@ -8984,10 +9009,13 @@ class Daemon:
         current = self.store.one("SELECT MAX(seq) n FROM attempts WHERE job_id=?", (a["job_id"],))["n"]
         if job["state"] in TERMINAL or job["accepted_attempt_id"] or current != a["seq"] or actual["state"] not in ("starting", "running", "finalizing"):
             return
+        if not self._cwd_census_due(a):
+            return
         adir = attempt_dir(self.root, a["job_id"], a["seq"])
         adir.mkdir(mode=0o700, exist_ok=True)
+        began = time.monotonic()
         census = self._contain(a)
-        waiting_cwd = self._cwd_wait(a, census)
+        waiting_cwd = self._cwd_wait(a, census, began=began)
         if not census.containment_empty:
             # The guardian writes the receipt just before it exits, and processes
             # it already reaped can still be leaving the process table under

@@ -109,11 +109,13 @@ def test_wall_dead_guardian_with_cwd_only_records_loss_without_a_kill(daemon, mo
 
 
 @pytest.mark.parametrize("ending", ["finalization", "start-grace"])
-def test_cwd_wait_censuses_follow_inspect_interval(daemon, monkeypatch, ending):
+@pytest.mark.parametrize("scan_s", [0, .254], ids=["instant", "review-cost"])
+def test_cwd_wait_censuses_follow_inspect_interval(daemon, monkeypatch, ending, scan_s):
     now, calls = [0.0], []
     monkeypatch.setattr(daemon_module, "time", SimpleNamespace(monotonic=lambda: now[0]))
     def contain(a):
         calls.append(now[0])
+        now[0] += scan_s
         return CWD
     daemon._contain = contain
     if ending == "finalization":
