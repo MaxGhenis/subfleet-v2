@@ -2,6 +2,151 @@
 
 Base: `c0759bd658d6b55a656117badf3ccfa8271eab43`. Work began at 2026-10-22 07:41 UTC. All changes are confined to the assigned worktree. Shared Git metadata is unwritable, and the assigned branch is already checked out by the caller, so commits use workspace-local `.git-tmp1` metadata on `fix/attempt-tmpdir-217`. No history was rewritten and nothing was pushed.
 
+## Round-1 fix (#246 review r1, 2026-10-23)
+
+Review r1 asked for changes: three P2s and seven P3s, all executed. This section reports the fix round. It began at 06:42 UTC in a detached checkout at `a9b7c6195`. Where the build's text below disagrees with this section (salvage holds, `tmpdir_keep`, marker-based ageing, the single shared 24-hour clock), this section wins, and so does C-12.10.
+
+Commits, oldest first. Shared Git metadata was writable this time, so these are ordinary commits; nothing was pushed.
+- `7b4d43e7b`: merge `origin/release/217` at `7e2dc5a35` (#243, #245, #247, #249).
+- `f931baee3`: test (the regressions, written before the fix).
+- `8370b6e53`: fix.
+- `529979343`: docs (C-12.10 and its change log; the disk comment).
+- `af8001c86`: test (the c14_2 assertion reads `TMPDIR` from preflight's environment; `env_pass` is a tuple of names).
+- One more docs commit for this report and the PR body.
+
+### The merge
+
+Two files conflicted. Both kept both sides.
+- **`docs/acceptance-contract.md`, the version 3 change log.** It kept this branch's C-12.10 entry and every entry release added since the build's base, in release's order: C-20.6 (#226 r2's P3s), C-13.1 (D-SALV1), C-26.4/C-9.2, C-17.8/C-17.9, C-5.13, C-15.2, C-12.3 and C-17.9. The round-1 C-12.10 entry now sits above them, newest first.
+- **`subfleet/daemon.py`, `_resolve_quarantine`.** Release added `self._cascade_final_wall(a, wall_exited)` inside the quarantine-release transaction, where release put it. This branch's TMPDIR cleanup still runs after that transaction commits. `tests/conftest.py` merged without conflict.
+
+### Findings: cause and fix
+
+**P2-1, the c14_2 test.**
+- *Cause:* the build added `TMPDIR` to `credential_env`, which becomes guard preflight's environment and `env_pass`. The test still expected only `CODEX_HOME` and the certificate names.
+- *Fix:* the expected set includes `TMPDIR`, as C-12.10 says it should. The test also checks that preflight's `TMPDIR` is the attempt's recorded folder with its trailing slash.
+
+**P2-2, scratch that pinned its job for ever.**
+- *Cause:* `remove()` refused a salvage-held attempt before it looked for the folder. So an attempt with `salvage_error` or `salvage_skipped` never got a receipt, and retention pinned its job. Salvage holds were written once and never cleared, and nothing wrote `tmpdir_keep`. Every sweep also took a census of each held attempt, and `_cleanup_probe_tmpdir` saved a probe record every time it ran. And `rmtree` could not delete a 0555 directory.
+- *Fix, in `subfleet/attempt_tmp.py` and the daemon:*
+  - **Holds.** `remove()` looks for the folder first: absent returns `"absent"`, whatever holds it. Otherwise only a terminal, non-quarantined holder with a verified-empty census may proceed. Salvage evidence is never read, and `retained()` and `tmpdir_keep` are gone.
+  - **Release receipts.** A recorded allocation gets a receipt (`removed_at`, `outcome`) when it is `absent`, `removed`, `replaced` (its path holds something else) or `outside` (its path is not under this temp root). Nothing is removed in the last two cases.
+  - **`cleared_at`.** A verified-empty census writes `cleared_at`. Retention's pin and `probe_tmpdir_rows(..., pinning=True)` skip an allocation with `cleared_at`, so a removal that keeps failing never pins its job. It is retried on each sweep with no new census.
+  - **No repeated work.** `_release_tmpdir` takes no census and measures nothing for a live or quarantined holder. A terminal holder whose census found members (`live_pids`) is remembered with its state and gets no census again until that state changes. A daemon restart forgets this. An unverifiable census is asked again on the next pass.
+  - **Probes.** A probe whose containment census was verified empty uses that census, and its record is saved only when the TMPDIR is released or cleared. The save merges into the newest record inside one transaction.
+  - **Read-only trees.** Removal deletes through descriptors (`_empty`). It makes each directory inside the verified tree readable, writable and searchable by its owner first, never following a symlink and never above the tree. Symlinks are unlinked, never followed, and another device is never entered.
+  - Quarantine still resolves only through `kill --confirm-dead`, after which the holder is terminal and the next sweep removes the folder (`test_quarantine_released_by_confirm_dead_then_swept`).
+
+**P2-3, Codex's writable roots shrink.**
+- *Cause:* this is D-TMP1 working as designed. Codex derives a workspace-write root from the child's `TMPDIR`, so the user temp root as a whole is no longer writable.
+- *Fix:* kept. C-12.10, this report and the PR body now carry the operational note: briefs keep their scratch under `$TMPDIR`. The hub's `${TMPDIR%/}/sf-<tag>` works before and after this ships. Nothing in the hub's briefs was changed here.
+
+**P3-4, age and identity came from the provider.**
+- *Cause:* the sweep took the attempt id from the folder's marker and aged an unknown folder by `max(marker created_at, st_birthtime)`. A provider can write both: `utime(0, 0)` sets APFS birth time to 0.
+- *Fix:*
+  - The store decides everything. A folder is *known* if any allocation record names its path. That means an attempt's evidence or a probe's newest record, released or not.
+  - An *unknown* folder is aged from the store's first sighting, `tmpdir.unknown_seen`. That event records the path, device, inode, owner and the daemon's clock. The folder is removed 24 hours later, after an identity check against that sighting, and the removal is recorded as `tmpdir.unknown_removed`. A different folder at the path starts a new sighting.
+  - The allocation record itself is the attempt's evidence (`attempt.tmpdir`) or the probe record. It holds the path, holder, daemon-clock creation time, device, inode and owner.
+  - The marker no longer carries a clock. It is consulted only to refuse: a folder without this store's marker, written for that exact folder, is never recorded or removed as unknown, and that covers another store's folders. Choosing it as a veto and not as authority is my reading of "never trust the marker's contents"; the review had confirmed that unmarked and foreign folders should be kept.
+  - The false "cannot backdate the OS birth time" comment is gone, and the module docstring says what the store decides.
+
+**P3-5, one allocation per attempt.**
+- *Cause:* `_launch` called `create()` on every try. An `OSError` from `create()` escaped `_launch`, which left the attempt `reserved`.
+- *Fix:* `_prepare_attempt_tmpdir` reuses the folder the attempt's evidence names while it is present and not released, and probes do the same. An allocation `OSError` becomes `_launch_failure(a, "attempt TMPDIR could not be allocated: <class>: [Errno N] <text>")`, and the attempt finalizes with that reason.
+
+**P3-6, extra censuses.**
+- No census is taken for an absent folder or a held holder (above), and none at probe completion when containment was verified empty.
+- The startup sweep no longer runs in `Daemon.__init__`. `_recover_then_start_timers` schedules it as a one-shot worker job (`tmpdir-sweep`) once recovery has finished and the daemon is serving. A non-blocking lock keeps it from overlapping retention's sweep.
+- `_tmpdir_turn` lets one cleanup per holder run at a time, so finalization and a sweep never remove the same folder at once.
+- Re-timing, in one hold (h1, load 45 to 60). `test_probe_gate_rechecks_terminal_or_stamp[failed]` took 0.046 s at head (`8370b6e53`), 0.723 s at release/217 (`7e2dc5a35`) and 0.403 s at the build (`a9b7c6195`). These are pytest's setup, call and teardown times. The review's 3.38 s at host load 116 did not recur at this load.
+
+**P3-7, the trailing slash.** `attempt_tmp.env_value()` gives the folder with one trailing slash. The attempt launch, guard preflight, probes and enrollment all pass that form, and the evidence keeps the canonical path without it.
+
+**P3-8, identity after `owns()`.**
+- *Cause:* `rmtree` ran on the path name after the check, so a directory renamed in between was deleted.
+- *Fix, `AttemptTemp._remove`:*
+  - Rename the folder to a fresh `subfleet-attempt-removing-<random>` tombstone in the same parent, then `lstat` the tombstone. It must be a directory of this user with the recorded device and inode: never a symlink, and the store's record.
+  - Open it with `O_NOFOLLOW` and check its identity, then empty it through descriptors and `rmdir` it.
+  - On a mismatch or any failure, rename it back, but never over a name that has reappeared, and refuse, logging why.
+  - A crash leaves a tombstone. That is an unknown folder carrying this store's marker, which the sweep ages and removes.
+
+**P3-9, conversation turns.** C-12.10 now says it: a turn is its own attempt, so a file a turn leaves in `$TMPDIR`, or a path under it shown to the person, is gone once the turn finalizes.
+
+**P3-10, the budget sentence.** C-12.10 and the `disk.py` comment now say exactly what happens, and no policy value changed:
+- Disk admission reserves `placement_reserve_gb` (1.5 GB) per placed attempt. It holds for `reserve_ttl_s` (600 s), or until execution ends, against the free space measured on the state root's volume.
+- That one provisional amount stands for the growth of the worktree and the TMPDIR together until their bytes appear in measured free space.
+- It is an estimate, not a quota, and measured scratch can exceed it: the build measured 1.56 GB by block sum.
+
+### Invariants (stated and tested)
+
+1. **Two attempts never share a TMPDIR.**
+   - Unique names, two live launches, the generated model (`assert path not in all_paths`), and the `reuse` mutation.
+2. **The folder exists, is 0700 and belongs to the user when the provider starts.**
+   - `test_provider_starts_with_private_tmpdir` in all four modes, and the guardian test.
+3. **A TMPDIR is never removed while its holder is live or quarantined or its census is not verified empty.**
+   - `test_cleanup_requires_terminal_empty_attempt`, the held-sweep test, the generated model's held-identity check, and the `no-census` mutation.
+4. **The sweep never removes a folder outside the prefix, a symlink, or a live attempt's folder.**
+   - The prefix and symlink tests and mutations, the named-folder case, and the model's protected folder and symlink.
+5. **Probes and turns get one.** The mode-parametrized spawn test.
+6. **No permanent pin.** A job is never pinned by a TMPDIR that is absent, or whose holder is terminal with a verified-empty census.
+   - `test_absent_folder_is_released_whatever_holds_it` and the `absent-no-receipt` mutation.
+   - `test_salvage_skipped_jobs_both_retire_whatever_their_scratch`.
+   - `test_a_cleared_or_absent_allocation_pins_nothing`.
+   - The generated model's closing check that every absent or terminal-and-empty allocation is released.
+   - `test_salvage_evidence_never_holds_scratch` and the `salvage-hold` mutation.
+7. **One folder per attempt.** Three launch tries leave one folder, and the evidence names it (`test_launch_tries_of_one_attempt_share_one_allocation`).
+8. **Identity.** A folder is removed only if it is the store's recorded allocation, or for an unknown folder the store's recorded sighting. A directory or symlink swapped in is never removed.
+   - `test_directory_renamed_in_after_the_check_is_refused_and_put_back` and the `no-rename-verify` mutation.
+   - The replaced-folder test and the swap-restarts-sighting test.
+   - The generated model's victims, which are never removed.
+   - Age: `test_unknown_folder_ages_from_the_store_never_its_marker_or_birth_time`, with the `age-from-marker` and `age-from-birth-time` mutations.
+
+The property test (Hypothesis ci profile, at most 40 examples of at most 35 steps) now also generates:
+- quarantine resolution;
+- unknown allocations that carry this store's marker;
+- swaps of a known folder for an unrelated directory;
+- folders a provider deletes;
+- the clock moving in 6-hour steps.
+
+At each step it checks invariants 1, 3, 4 and 8. It also checks that no unknown folder goes before 24 hours have passed since the store's first sighting, and it ends with invariant 6.
+
+### Mutations
+
+Each mutant is the production module with one decision changed, executed in memory, and each must fail a named test. A second parametrized test runs every oracle against the real module, so a kill is the mutation's doing.
+
+| Mutation | What changes | Test that fails |
+| --- | --- | --- |
+| reuse | one shared folder | `test_attempt_names_are_unique_even_after_path_sanitizing` |
+| no-census | removal without the verified-empty check | `test_cleanup_requires_terminal_empty_attempt[succeeded-False]` |
+| no-prefix | prefix check dropped | `test_sweep_requires_prefix_even_with_valid_creation_record` |
+| follow-symlink | stat, open and chmod follow symlinks | `test_sweep_never_follows_symlink` |
+| salvage-hold | salvage evidence keeps TMPDIR | `test_salvage_evidence_never_holds_scratch[salvage_skipped]` |
+| absent-no-receipt | an absent folder is released only when terminal and verified | `test_absent_folder_is_released_whatever_holds_it[quarantined-False]` |
+| no-rename-verify | delete the path with no tombstone or identity check | `test_directory_renamed_in_after_the_check_is_refused_and_put_back` |
+| age-from-marker | age from the marker's `created_at` | `test_unknown_folder_ages_from_the_store_never_its_marker_or_birth_time` |
+| age-from-birth-time | age from `st_birthtime` | the same test |
+
+All nine are killed at head (h1: 18 of 18 in `test_attempt_tmpdir_mutations.py`).
+
+### Regressions at `a9b7c6195`
+
+In hold h1, the round-1 test files ran on `a9b7c6195`'s tree with only those five test files replaced by `f931baee3`'s: 64 failed and 19 passed. Every new or changed regression is among the 64, each failing on its new assertion:
+- the c14_2 set: on the trailing slash, once the test's own `env_pass` bug is fixed;
+- both salvage-skipped jobs retiring: the job with TMPDIR evidence stayed;
+- the 0555 tree;
+- three sweeps over held scratch: censuses for the quarantined attempt and both probes;
+- three launch tries: 3 folders;
+- `ENOSPC` and `EACCES`: the `OSError` escaped `_launch`;
+- the renamed-in directory, the backdated marker and birth time, and the trailing slash;
+- startup sweeps in the constructor, the property, and every new mutation.
+
+The 19 that passed are the build's unchanged cases.
+
+<!-- ROUND1_COUNTS -->
+
+## The build (2026-10-22)
+
+
 Each launch allocates an exclusive `subfleet-attempt-<safe-id>-<random>` directory with mode 0700 under the user's canonical Darwin temp root. The Darwin SDK defines `_CS_DARWIN_USER_TEMP_DIR` as 65537; Python uses that numeric constant when its `confstr_names` lacks the spelling. Production does not derive this root from the daemon's inherited TMPDIR. Test daemons use isolated fixture or test-session scratch. The daemon records the path, creation time, uid, device and inode before releasing the guardian's launch gate. A marker binds each allocation to its store, preventing one store's sweep from reclaiming another store's live work. Only TMPDIR is added or replaced; no other environment variable is introduced. The same path reaches guard preflight, the guardian, provider and its children. Retries, resumes, turns, capacity probes and enrollment all use this lifecycle.
 
 Cleanup follows finalization and verified-empty containment. Both the terminal state and the census check are required at the deletion boundary. Quarantine, unknown containment, live members, salvage errors/skipped content and an explicit `tmpdir_keep` retain scratch. The deletion check requires the canonical temp parent, exact prefix, owning uid, directory type, no symlink, and the recorded device/inode. A known allocation remains identifiable from its durable evidence if a provider removes the discovery marker; unknown allocations require their store-bound marker. Descriptor-relative `shutil.rmtree` supplies its own symlink-swap protection. Nested symlinks are unlinked without traversing their targets. Deletion errors are logged and never fail finalization.
