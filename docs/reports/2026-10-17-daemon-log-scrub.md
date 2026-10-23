@@ -2716,7 +2716,7 @@ Notes on the table:
 - **Totals:** 46,000 texts, 0 leaks from this branch's resolutions, and 0 of 115,854 tails. Fallbacks fell from 30,555 at `c2e080e44` to 15,048.
 - **The first version** (`545dcbb21`, conservative data URI check, hold 2): 13,815 and 4,060 fallbacks on the first two rows, 0 leaks.
 
-**Why the 1,236 margin files still keep the marker** (`reasons.py` in scratch, hold 5, the same 20,000 texts):
+**Why the 1,236 margin files still keep the marker** (`tools/reminder_join_census.py --texts 0 --margin-texts 20000`, hold 8 at `6243755b0`, the same 20,000 texts; hold 5's scratch probe counted the same):
 - **The masks differ:** 822. A quote in the final reminder closes a value only one reading opens (`  | token\n  | ='…`, whose key the margins part).
 - **The breaks complete a data URI body:** 332. Review r6's direction alone would have shown a secret in 171 of these. The check does not ask whether the tail would show anything, so it refuses the other 161 as well.
 - **A CRLF bare margin:** 82.
@@ -2865,4 +2865,6 @@ Each carries the requested co-author trailer:
 - `8ee49100b` tools: measure each size of the cut's scaling in a process of its own
 - `8120d909a` test: the margin files' data URI refusals are rarer once only completed bodies count
 - `1d3627968` docs: C-25.7's cost sentences give this tree's measurements, and the stronger check's cost
-- this report section and the PR body (`docs/reports/2026-10-17-daemon-log-scrub-followups-pr-body.md`)
+- `36d29bfe6` docs: the follow-ups' report section and PR body
+- `6243755b0` tools: the census says why each margin file keeps the marker
+- this commit: the report cites the census for the reasons (`docs/reports/2026-10-17-daemon-log-scrub-followups-pr-body.md`)
