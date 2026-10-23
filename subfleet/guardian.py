@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import errno
+import hashlib
 import json
 import os
 import signal
@@ -78,13 +79,37 @@ def clamp_spawn_error(rc: int, stderr_path: str, name: str) -> str | None:
     return str(OSError(number, reason, name)) if number else f"{reason}: {name!r}"
 
 
+def stream_digest(source, destination=None) -> dict:
+    """Hash (and optionally copy) a stream with at most one MiB per read."""
+    digest, size = hashlib.sha256(), 0
+    while chunk := source.read(1024 * 1024):
+        digest.update(chunk)
+        size += len(chunk)
+        if destination is not None:
+            destination.write(chunk)
+    return {"sha256": digest.hexdigest(), "bytes": size}
+
+
+def atomic_copy(path: str | Path, source) -> dict:
+    """Publish fresh bytes from one descriptor, with bounded memory (C-8.1)."""
+    def write(destination):
+        digest = stream_digest(source, destination)
+        info = os.fstat(destination.fileno())
+        return {**digest, "device": info.st_dev, "inode": info.st_ino}
+    return _atomic_write(path, write)
+
+
 def atomic_publish(path: str | Path, data: bytes) -> None:
     """Publish a private file by temp, fsync, rename, directory fsync (C-8.1)."""
+    _atomic_write(path, lambda stream: stream.write(data))
+
+
+def _atomic_write(path, write):
     path = Path(path)
     fd, temporary = tempfile.mkstemp(prefix=f".{path.name}-", dir=path.parent)
     try:
         with os.fdopen(fd, "wb") as stream:
-            stream.write(data)
+            result = write(stream)
             stream.flush()
             os.fsync(stream.fileno())
         os.rename(temporary, path)
@@ -93,6 +118,7 @@ def atomic_publish(path: str | Path, data: bytes) -> None:
             os.fsync(dir_fd)
         finally:
             os.close(dir_fd)
+        return result
     finally:
         try:
             os.unlink(temporary)
@@ -105,7 +131,7 @@ def _receipt(path: Path, value: dict) -> None:
 
 
 def _utc() -> str:
-    return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def _output(path: Path):
@@ -210,6 +236,7 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
                     try:
                         relay.serve(write_end, child=child)
                         rc = child.wait()
+                        finished_at, ended = _utc(), time.monotonic()
                     finally:
                         relay.stop()
                 else:
@@ -220,7 +247,9 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
                             _receipt(attempt_dir / "request.json", {"requested_at": _utc()})
                         child = subprocess.Popen(command, cwd=cwd, stdin=stdin, stdout=stdout, stderr=stderr, env=child_env)
                         rc = child.wait()
+                        finished_at, ended = _utc(), time.monotonic()
         except OSError as exc:
+            finished_at, ended = _utc(), time.monotonic()
             rc = 127
             # OSError contains the executable/path and errno, never child env.
             spawn_error = str(exc)
@@ -237,8 +266,8 @@ def run_guardian(argv: list[str], *, attempt_dir: Path, cwd: str,
                 except OSError:
                     pass
         exit_receipt = {
-            "rc": rc, "signal": -rc if rc < 0 else None, "finished_at": _utc(),
-            "wall_s": round(time.monotonic() - started, 6),
+            "rc": rc, "signal": -rc if rc < 0 else None, "finished_at": finished_at,
+            "wall_s": round(ended - started, 6),
             "child_pid": child.pid if child else None,
         }
         if spawn_error:

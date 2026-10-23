@@ -48,6 +48,7 @@ def daemon(tmp_path, monkeypatch):
     core.stopping = threading.Event()
     core.term_grace_s, core.kill_settle_s, core.exit_settle_s = .05, .3, .3
     core._exit_settle = {}
+    core._stream_check_failures = {}
     core._children, core._pending_launches, core._starting_deadlines = {}, set(), {}
     # C-5.12: a shared process table that shows no process, so every verdict is the injected `liveness`.
     core._inspect_next, core.inspect_interval_s, core._inspect_retry = {}, .5, set()
@@ -64,6 +65,7 @@ def daemon(tmp_path, monkeypatch):
     core._notify = lambda: None
     core._boundary = lambda *args: None
     core._publish = lambda role, path, contents: atomic_publish(path, contents)
+    core.crash_hook = core.publish_hook = None    # what __init__ sets; C-4.3's stream freeze reads publish_hook
     home = root / "home"
     core.store.put_lane(Lane("codex-1", "codex", "codex:test", Credential("codex", str(home), "home"),
                              str(home), LaneOwner.V2, False))
@@ -73,7 +75,7 @@ def daemon(tmp_path, monkeypatch):
     core.store.add_attempt(attempt_id=ATTEMPT, job_id=JOB, seq=1, lane_id="codex-1",
                            model_requested="astra", state="running", guardian_pid=4242,
                            child_pid=4243, pgid=4242, boot_id="boot", proc_start=STARTED,
-                           started_at="2026-09-05T14:00:00Z", evidence_json="{}")
+                           started_at=daemon_module.utcnow(), evidence_json="{}")
     # No real process is signalled or inspected: the leader is gone, signals succeed.
     monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args, **kwargs: False)
     monkeypatch.setattr(daemon_module.procs, "signal_group", lambda *args, **kwargs: True)
@@ -221,6 +223,88 @@ def with_launch(core, monkeypatch):
     monkeypatch.setattr(daemon_module, "get_adapter", lambda provider: StubAdapter())
 
 
+@pytest.mark.parametrize("error", [OSError("capture I/O failed"), RuntimeError("capture bug")],
+                         ids=["oserror", "unexpected"])
+@pytest.mark.parametrize("has_receipt", [False, True], ids=["dead-guardian", "exit-receipt"])
+@pytest.mark.parametrize("provider", ["codex", "claude"])
+@pytest.mark.parametrize("cached", [False, True], ids=["first-capture", "cached-success"])
+def test_freeze_failure_records_the_attempt_end_in_the_same_pass(
+        daemon, monkeypatch, caplog, error, has_receipt, provider, cached):
+    """C-4.2/C-9.2: failed capture cannot wedge death or accept live completion proof."""
+    with_launch(daemon, monkeypatch)
+    with daemon.store.transaction() as tx:
+        tx.execute("UPDATE lanes SET provider=? WHERE lane_id='codex-1'", (provider,))
+    if has_receipt:
+        publish_receipt(daemon)
+        daemon._begin_finalizing(attempt(daemon), json.loads(receipt_path(daemon).read_text()))
+    adir = attempt_dir(daemon.root, JOB, 1)
+    # Even a previous success verdict and captured answer cannot supply proof
+    # after this capture fails. The live stream above claims completion too.
+    if cached:
+        (adir / "finalization.json").write_text(json.dumps({
+            "outcome": {"cls": "ok", "detail": "cached success"},
+            "attestation": {"status": "attested", "served_model": "astra"},
+            "rule": daemon_module.FINALIZATION_RULE, "stream": "previous-copy.jsonl"}))
+        (adir / "deliverable.md").write_bytes(b"cached answer\n")
+    daemon._contain = lambda a: EMPTY
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
+
+    def fail_freeze(*args):
+        raise error
+
+    monkeypatch.setattr(daemon, "_freeze_stream", fail_freeze)
+    monkeypatch.setattr(StubAdapter, "classify", lambda *args: pytest.fail("live classification"))
+    monkeypatch.setattr(StubAdapter, "deliverable", lambda *args: pytest.fail("live extraction"))
+    with caplog.at_level(logging.WARNING, logger=daemon.log.name):
+        daemon._process_attempt(ATTEMPT)
+    ended = attempt(daemon)
+    assert ended["state"] == ("failed" if has_receipt else "lost"), ended
+    assert ended["finished_at"]
+    assert ended["outcome_class"] == ("transient" if has_receipt and provider == "codex" else "unknown")
+    assert ended["attestation"] == "unattested"
+    classification = json.loads(ended["evidence_json"])["classification"]
+    assert classification["stream_capture"]["status"] == "unreadable"
+    error_type = "InvalidFrozenStream" if cached else type(error).__name__
+    assert classification["stream_capture"]["error_type"] == error_type
+    if has_receipt and provider == "codex":
+        assert classification["turn_completed"] is False
+    job = daemon.store.get_job(JOB)
+    assert job["accepted_attempt_id"] is None
+    assert not [row for row in daemon.store.list_artifacts(ATTEMPT) if row["role"] in ("raw-stream", "export")]
+    assert "stream capture failed" in caplog.text
+    assert error_type in caplog.text
+
+
+def test_unreadable_provider_files_cannot_repeat_a_freeze_failure(daemon, monkeypatch):
+    """The same read error in diagnostics cannot prevent recording a failed capture."""
+    with_launch(daemon, monkeypatch)
+    publish_receipt(daemon)
+    daemon._begin_finalizing(attempt(daemon), json.loads(receipt_path(daemon).read_text()))
+    daemon._contain = lambda a: EMPTY
+
+    def unreadable(*args, **kwargs):
+        raise PermissionError("provider files unreadable")
+
+    monkeypatch.setattr(daemon, "_freeze_stream", unreadable)
+    monkeypatch.setattr(daemon, "_artifact", unreadable)
+    daemon._process_attempt(ATTEMPT)
+    ended = attempt(daemon)
+    assert ended["state"] == "failed" and ended["finished_at"]
+    assert ended["outcome_class"] == "transient"
+    assert daemon.store.get_job(JOB)["accepted_attempt_id"] is None
+
+
+def test_bare_daemon_has_optional_hook_defaults(tmp_path):
+    """Bare cores get the same optional hooks as __init__, including real publish."""
+    core = object.__new__(Daemon)
+    assert core.crash_hook is None
+    assert core.publish_hook is None
+    core._boundary("test", JOB, ATTEMPT)
+    path = tmp_path / "published"
+    core._publish("test", path, b"published\n")
+    assert path.read_bytes() == b"published\n"
+
+
 def never_census(a):
     raise AssertionError("the census must not run on this path")
 
@@ -299,6 +383,8 @@ def shared(table: ProcessTable | None, reads: list | None = None):
 
 def test_c5_12_a_healthy_attempt_is_inspected_once_per_interval_from_the_shared_table(daemon, monkeypatch):
     """C-5.12, C-5.6 the shared table answers "alive" and lists the group; nothing else is asked until the interval ends."""
+    observed = [daemon_module.utcnow_ms()]
+    monkeypatch.setattr(daemon_module, "utcnow_ms", lambda: observed[0])
     reads = []
     daemon._process_table = shared(table_showing((4242, 1, 4242, "Ss"), (4243, 4242, 4242, "S"), (4300, 1, 4300, "S")),
                                    reads)
@@ -312,10 +398,12 @@ def test_c5_12_a_healthy_attempt_is_inspected_once_per_interval_from_the_shared_
     assert owned == {"4242": {"pid": 4242, "boot_id": "boot", "proc_start": STARTED},
                      "4243": {"pid": 4243, "boot_id": "boot", "proc_start": STARTED}}
     assert [row["kind"] for row in daemon.store.list_events(JOB)].count("attempt.processes_recorded") == 1
+    observed[0] = daemon_module._later(observed[0], 1)
     daemon._inspect_next[ATTEMPT] = 0                     # the interval ends
     daemon._process_attempt(ATTEMPT)
     assert reads == [1, 1]
-    # The same members again: nothing to record, so no second event.
+    assert json.loads(attempt(daemon)["evidence_json"])["last_observed_alive_at"] == observed[0]
+    # Liveness advances, but unchanged membership has no second processes-recorded event.
     assert [row["kind"] for row in daemon.store.list_events(JOB)].count("attempt.processes_recorded") == 1
 
 
@@ -358,7 +446,9 @@ def test_c5_12_members_are_recorded_only_while_the_recorded_guardian_leads_the_g
     # The recorded guardian, alive, but no longer leading the recorded group: not its members either.
     elsewhere = ProcessTable({4242: (1, 1, "S", STARTED), 4243: (4242, 4242, "S", STARTED)}, "boot")
     daemon._record_owned(attempt(daemon), elsewhere)
-    assert "owned_identities" not in json.loads(attempt(daemon)["evidence_json"])
+    evidence = json.loads(attempt(daemon)["evidence_json"])
+    assert "owned_identities" not in evidence
+    assert evidence["last_observed_alive_at"]
 
 
 def test_c5_12_a_failed_process_table_read_is_rationed_like_a_good_one(daemon, monkeypatch):
@@ -385,7 +475,7 @@ def add_running(core, job_id: str, guardian: int) -> str:
     core.store.add_attempt(attempt_id=job_id + "/a1", job_id=job_id, seq=1, lane_id="codex-1",
                            model_requested="astra", state="running", guardian_pid=guardian,
                            child_pid=guardian + 1, pgid=guardian, boot_id="boot", proc_start=STARTED,
-                           started_at="2026-09-05T14:00:00Z", evidence_json="{}")
+                           started_at=daemon_module.utcnow(), evidence_json="{}")
     attempt_dir(core.root, job_id, 1).mkdir(parents=True)
     return job_id + "/a1"
 

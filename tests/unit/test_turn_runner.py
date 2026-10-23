@@ -6,6 +6,7 @@ sent (the relay is never reached), so these check only what each step queues.
 
 from __future__ import annotations
 
+import ast
 import pytest
 
 from subfleet.conversations.runner import Clocks, TurnRunner
@@ -14,6 +15,18 @@ from subfleet.conversations.turn import TurnSpec
 
 MID = "7f1c9a0e-1111-4222-8333-444455556666"
 SID = "0b0e0f00-aaaa-4bbb-8ccc-dddddddddddd"
+
+
+def test_every_production_frame_explicitly_declares_stop_capability():
+    """C-9.2: every new construction must be classified during protocol review."""
+    directory = Path(__file__).resolve().parents[2] / "subfleet" / "conversations"
+    missing = []
+    for path in sorted(directory.glob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "Frame":
+                if not any(keyword.arg == "stops" for keyword in node.keywords):
+                    missing.append(f"{path.name}:{node.lineno}")
+    assert missing == [], f"Frame constructions without an explicit stops flag: {missing}"
 
 
 class Clock:
@@ -460,13 +473,13 @@ def _lose_the_answer(runner, *, reached: bool):
     real = runner.relay.send
     lost = []
 
-    def send(seq, op, line=None, tag=None, sig=None):
+    def send(seq, op, line=None, tag=None, sig=None, before_send=None):
         if tag == "user-message" and not lost:
             lost.append(tag)
             if reached:
-                real(seq, op, line=line, tag=tag, sig=sig)
+                real(seq, op, line=line, tag=tag, sig=sig, before_send=before_send)
             raise relay_module.RelayError("relay closed the connection before acknowledging")
-        return real(seq, op, line=line, tag=tag, sig=sig)
+        return real(seq, op, line=line, tag=tag, sig=sig, before_send=before_send)
     runner.relay.send = send
 
 
@@ -676,14 +689,14 @@ def test_a_lost_steer_receipt_is_resolved_before_stop_or_retry(relayed, tmp_path
     real_send = runner.relay.send
     first = True
 
-    def send(seq, op, line=None, tag=None, sig=None):
+    def send(seq, op, line=None, tag=None, sig=None, before_send=None):
         nonlocal first
         if tag == f"steer:{STEER_MID}" and first:
             first = False
             if reached:
-                real_send(seq, op, line=line, tag=tag, sig=sig)
+                real_send(seq, op, line=line, tag=tag, sig=sig, before_send=before_send)
             raise relay_module.RelayError("lost steer receipt")
-        return real_send(seq, op, line=line, tag=tag, sig=sig)
+        return real_send(seq, op, line=line, tag=tag, sig=sig, before_send=before_send)
 
     runner.relay.send = send
     runner.steer(STEER_MID)
@@ -851,7 +864,9 @@ def steer_schedule(provider):
             frame_max = 64 * 1024 * 1024
             def status(self):
                 return server.status()["status"]
-            def send(self, seq, op, *, line=None, tag=None, sig=None):
+            def send(self, seq, op, *, line=None, tag=None, sig=None, before_send=None):
+                if before_send is not None:
+                    before_send()
                 body = server.apply({"seq": seq, "op": op, "line": line, "tag": tag, "sig": sig,
                                      "sha256": relay_module.frame_sha256(op, line, sig)})
                 return Ack(seq=seq, ok=body["ok"], dup=body.get("dup", False), error=body.get("error"))

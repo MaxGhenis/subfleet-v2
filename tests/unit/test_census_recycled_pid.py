@@ -177,11 +177,16 @@ def test_e_recycled_root_never_becomes_a_new_kill_target(monkeypatch, generated,
     saved, signalled = {}, []
 
     class Store:
+        def one(self, *args):
+            return {"id": 1}
+
         @contextmanager
         def transaction(self, *args, **kwargs):
             yield self
 
         def execute(self, sql, args):
+            if not sql.startswith("UPDATE attempts"):
+                return  # Signal audit writes do not change the owned identities.
             value = args[0] if sql.startswith("UPDATE attempts SET evidence_json") else args[1]
             saved.update(json.loads(value)["owned_identities"])
 
@@ -192,13 +197,14 @@ def test_e_recycled_root_never_becomes_a_new_kill_target(monkeypatch, generated,
                            stopping=SimpleNamespace(wait=lambda _: False),
                            _read_json=lambda path: {"rc": 0} if path.name == "exit.json" else None,
                            _begin_finalizing=lambda *args: None, _quarantine=lambda *args: None)
+    core._cancel_info = lambda job_id: None
     core._contain = lambda attempt: Daemon._contain(core, attempt)
     with monkeypatch.context() as patch:
         install(patch, rows)
         patch.setattr(procs, "same_process", lambda pid, boot, began:
                       pid in rows and rows[pid][3] == began and boot == BOOT_A)
         patch.setattr(procs, "signal_group", lambda *args, **kwargs: False)
-        patch.setattr(procs, "signal_process", lambda identity, sig: signalled.append(identity))
+        patch.setattr(procs, "signal_process", lambda identity, sig, **kwargs: signalled.append(identity))
         Daemon._kill_attempt(core, a)
     assert saved[str(target)] == asdict(old)
     assert all(identity.pid != target for identity in signalled)

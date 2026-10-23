@@ -166,12 +166,15 @@ def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path,
     runner = SimpleNamespace(driver=SimpleNamespace(outcome=None), respond=lambda *a: None,
                              interrupt=lambda reason: None, end_title=lambda why: None,
                              stop=lambda: None, join=lambda timeout: True,
-                             message_id=fixture["second"]["message_id"], finished=threading.Event())
+                             message_id=fixture["second"]["message_id"], finished=threading.Event(),
+                             attempt_id=harness.store.approval(approval["approval_id"])["attempt_id"])
     harness.service.runners[harness.store.approval(approval["approval_id"])["attempt_id"]] = runner
     detail = results["approval.get"]
     results["approval.respond"] = harness.call("approval.respond", approval_id=approval["approval_id"], decision="allow",
                                                nonce=detail["nonce"], request_sha256=detail["request_sha256"])
     results["turn.interrupt"] = harness.call("turn.interrupt", message_id=fixture["second"]["message_id"])
+    assert harness.cancels[-1][1] == {"by": "client", "session_id": None,
+                                      "pid": harness.peer.pid, "reason": "stopped"}
     # The diff ops' unavailable shapes; tests/frontend/test_core_diff.py has the real diffs.
     results["turn.diff"] = harness.call("turn.diff", message_id=fixture["third"]["message_id"])
     results["conversation.diff"] = harness.call("conversation.diff", conversation_id=cid)

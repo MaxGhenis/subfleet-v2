@@ -1,6 +1,7 @@
 """Milestone 2 through the CLI, daemon, and real Claude adapter (C-21)."""
 
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -66,8 +67,15 @@ def test_allowed_readings_percentages_and_raw_stream(e2e):
 
     artifacts = {artifact["role"]: artifact for artifact in shown["artifacts"]}
     assert {"deliverable", "stdout", "stderr", "raw-stream", "launch", "prompt-sent"} <= artifacts.keys()
-    assert Path(artifacts["raw-stream"]["path"]).name == "stream.jsonl"
-    assert Path(artifacts["raw-stream"]["path"]).read_bytes() == Path(artifacts["stdout"]["path"]).read_bytes()
+    raw = artifacts["raw-stream"]
+    frozen, stdout = Path(raw["path"]), Path(artifacts["stdout"]["path"])
+    freeze_receipt = json.loads((frozen.parent / "stream.freeze.json").read_text())
+    assert frozen.name == freeze_receipt["file"]
+    payload = frozen.read_bytes()
+    assert payload == stdout.read_bytes()
+    assert raw["bytes"] == len(payload)
+    assert raw["sha256"] == hashlib.sha256(payload).hexdigest()
+    assert not frozen.samefile(stdout)
     assert Path(artifacts["deliverable"]["path"]).read_text() == want["deliverable"]
     launch = json.loads(Path(artifacts["launch"]["path"]).read_text())
     notes = launch["notes"]
