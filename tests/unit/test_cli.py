@@ -764,7 +764,8 @@ def test_kill_reaches_the_kill_op_with_its_resolutions(daemon, capsys):
                      "wait": lambda request: terminal("cancelled")})
     assert run_cli(["kill", JOB]) == 0
     assert server.args("kill") == {"job_id": JOB, "confirm_dead": False,
-                                   "force_release": False, "operator_note": None}
+                                   "force_release": False, "operator_note": None,
+                                   "session_id": None, "reason": None}
     assert run_cli(["kill", JOB, "--confirm-dead", "--note", "checked"]) == 0
     assert server.args("kill")["confirm_dead"] is True
     assert server.args("kill")["operator_note"] == "checked"
@@ -1807,6 +1808,16 @@ def test_c16_3_runs_request_id_finds_the_job_offline_too(root, capsys):
     assert [row["job_id"] for row in rows] == [job_id]
     assert run_cli(["runs", "--request-id", "no-such-request", "--json"]) == 0
     assert capsys.readouterr().out == ""
+
+
+def test_kill_sends_requesting_session_and_reason(daemon, monkeypatch, capsys):
+    """D-KILL1: the client supplies its session and optional explanation."""
+    monkeypatch.setattr(cli, "session_id", lambda: "requesting-session")
+    server = daemon({"kill": lambda request: {"status": "cancel requested"}})
+    assert run_cli(["kill", JOB, "--reason", "operator hold cleanup"]) == 0
+    assert server.args("kill")["session_id"] == "requesting-session"
+    assert server.args("kill")["reason"] == "operator hold cleanup"
+    capsys.readouterr()
 
 
 # C-17.9: readers must finish even when the producer keeps its descriptor open.

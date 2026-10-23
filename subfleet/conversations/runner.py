@@ -91,6 +91,14 @@ class Clocks:
                                     else float(section["approval_wait_s"])))
 
 
+@dataclass(frozen=True)
+class StopDelivery:
+    """A durable intent's pre-transmission clock and acknowledgement recorder."""
+
+    before_send: Callable[[], None]
+    record: Callable[[bool], None]
+
+
 def make_driver(spec: TurnSpec, read_bytes: Callable[[Image], bytes], *,
                 frame_recorded: Callable[[str], bool] = lambda tag: False,
                 image_path: Callable[[Image], str] = lambda image: image.path):
@@ -106,7 +114,8 @@ class TurnRunner:
                  clocks: Clocks = Clocks(), clock: Callable[[], float] = time.monotonic,
                  log=None, on_catalog: Callable[[str, str | None, list], None] | None = None,
                  handover: threading.Lock | None = None, ended: bool = False,
-                 handover_for: Callable[[str], Any] | None = None):
+                 handover_for: Callable[[str], Any] | None = None,
+                 on_stop_delivery: Callable[[Frame, int], StopDelivery] | None = None):
         self.store = store
         # A replay of an attempt the job store has ended (`ConversationService._replay_unsettled`):
         # its provider is gone whether or not it left an exit receipt.
@@ -120,6 +129,7 @@ class TurnRunner:
         self.control_socket = control_socket
         self.on_outcome = on_outcome
         self.on_contain = on_contain
+        self.on_stop_delivery = on_stop_delivery
         self.on_catalog = on_catalog
         self.catalog_reported = False
         self.clocks = clocks
@@ -307,7 +317,7 @@ class TurnRunner:
                 self.stop_reason = self.recorded.get("stop_reason") or self.stop_reason
                 for name in ("accepted", "answered", "limited", "served_model"):
                     setattr(self.driver, name, getattr(self.driver.outcome, name))
-                self._apply(Step(frames=[Frame("close", "close")], outcome=self.driver.outcome))
+                self._apply(Step(frames=[Frame("close", "close", stops=True)], outcome=self.driver.outcome))
             else:
                 self._apply(self.driver.start())
             withhold_pending = self.withheld
@@ -783,12 +793,23 @@ class TurnRunner:
 
     def _transmit(self, frame: Frame) -> bool:
         """Send the head frame and act on the answer; whether the outbox may go on."""
+        # C-9.2 / D-WALL1: queuing a stop is not delivery. The builder knows
+        # its protocol: approval cancel/abort replies can stop just as interrupts,
+        # signals and stdin close can. A lost answer leaves the intent pending.
+        audit = (self.on_stop_delivery(frame, self.next_seq)
+                 if self.on_stop_delivery is not None
+                 and frame.stops else None)
+        before_send = audit.before_send if audit is not None else None
         try:
             if frame.op == "signal":
-                ack = self.relay.send(self.next_seq, "signal", tag=frame.tag, sig=frame.line)
+                ack = self.relay.send(self.next_seq, "signal", tag=frame.tag, sig=frame.line,
+                                      before_send=before_send)
             else:
-                ack = self.relay.send(self.next_seq, frame.op, line=frame.line, tag=frame.tag)
+                ack = self.relay.send(self.next_seq, frame.op, line=frame.line, tag=frame.tag,
+                                      before_send=before_send)
         except FrameTooLarge as exc:
+            if audit is not None:
+                audit.record(False)            # refused locally, never transmitted
             self._refuse_frame(frame, exc)
             return True
         except RelayError as exc:
@@ -798,6 +819,12 @@ class TurnRunner:
                 self._steer_tried.add(frame.tag.removeprefix("steer:"))
             self._unacknowledged(f"frame {frame.tag}: {exc}")
             return False
+        if audit is not None:
+            if ack.ok:
+                audit.record(True)
+            elif (ack.error == "closed" and frame.op == "close") or (ack.error == "no-child" and frame.op == "signal"):
+                audit.record(False)            # the relay proves nothing was delivered
+            # Other failures can follow a partial write: keep the intent pending.
         self.resends = 0
         if ack.ok:
             self.sent[frame.tag] = "written"
@@ -1010,7 +1037,7 @@ class TurnRunner:
         self.frame_refused = self.frame_refused or frame.tag
         self.outbox.clear()
         self._discard_steers("host-frame-refused")
-        self.outbox[:] = [] if frame.op == "close" else [Frame("close", "close")]
+        self.outbox[:] = [] if frame.op == "close" else [Frame("close", "close", stops=True)]
 
     def _relay_lost(self, why: str) -> None:
         """Nothing more can be written (C-26.4). A turn with no terminal event is
@@ -1053,17 +1080,17 @@ class TurnRunner:
             waited = now - self.stop_at
             if waited >= clocks.sigint_after_s and "sigint" not in self.escalated:
                 self.escalated.add("sigint")
-                self.outbox.append(Frame("signal:int", "signal", "INT"))
+                self.outbox.append(Frame("signal:int", "signal", "INT", stops=True))
             if waited >= clocks.close_after_s and "close" not in self.escalated:
                 self.escalated.add("close")
-                self.outbox.append(Frame("close", "close"))
+                self.outbox.append(Frame("close", "close", stops=True))
             if waited >= clocks.contain_after_s and "contain" not in self.escalated:
                 self.escalated.add("contain")
                 self.on_contain(self.attempt_id)
         if self.ended_at is not None and now - self.ended_at >= clocks.after_result_s and "late" not in self.escalated:
             # D-15: background work outlived the ceiling; stop it the same way.
             self.escalated.add("late")
-            self.outbox.append(Frame("signal:int:late", "signal", "INT"))
+            self.outbox.append(Frame("signal:int:late", "signal", "INT", stops=True))
             self.late_stop_at = now
         late = self.late_stop_at
         if (late is not None and now - late >= clocks.contain_after_s - clocks.sigint_after_s
