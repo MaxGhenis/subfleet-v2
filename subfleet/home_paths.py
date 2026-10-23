@@ -178,7 +178,8 @@ def home_path(variable: str, default: Callable[[], str | Path], *,
     A pytest process refuses whatever os.environ holds (D-ST3), and refuses an
     override that names the account's home or one of its live roots
     (`refuse_personal_override`). An empty override that `accept_empty` takes
-    names the working directory, never a live root, and is returned as it is.
+    names the working directory: a test process judges it as `.`, so one inside
+    a live root is refused, and otherwise it is returned as it is.
     """
     testing = under_pytest()
     if test_only and not testing:
@@ -201,10 +202,11 @@ def checked_override(variable: str, value, *, relative_to: str | Path | None = N
     For a caller that reads such an override itself instead of through
     `home_path`: it takes the same refusals as an override there (D-ST3).
     A caller that consumes relative values under a different base supplies
-    `relative_to`, so the refusal judges that path rather than the cwd.
+    `relative_to`, so the refusal judges that path rather than the cwd. An
+    empty value is judged too, as the working directory it names.
     Outside a test process `value` is returned untouched, without a check.
     """
-    if value and under_pytest():
+    if value is not None and under_pytest():
         refuse_personal_override(variable, value, relative_to=relative_to)
     return value
 
@@ -215,14 +217,15 @@ def refuse_personal_override(variable: str, value, *, relative_to: str | Path | 
     Two refusals, each before any access: a leading `~` or `~name` that
     expands to the account's home, whatever follows it (`_names_account_home`),
     and a value naming the account's home or a live root, or a path inside
-    one, by any spelling (`names_live_root`).
+    one, by any spelling of its name (`names_live_root`). An empty value names
+    the working directory, so it is judged as `.` (review r2).
     """
     if _names_account_home(value):
         raise PersonalPathRefused(f"Refusing personal path fallback under pytest; {variable} begins with ~, "
                                   "which expands to the account's home here; set it to an isolated test path")
-    checked = value
-    if relative_to is not None and isinstance(value, (str, bytes, os.PathLike)):
-        expanded = os.path.expanduser(os.fsdecode(value))
+    checked = os.curdir if isinstance(value, (str, bytes)) and not value else value
+    if relative_to is not None and isinstance(checked, (str, bytes, os.PathLike)):
+        expanded = os.path.expanduser(os.fsdecode(checked))
         if not os.path.isabs(expanded):
             # Match the consumer's base without resolving or probing it first.
             checked = os.path.join(os.path.abspath(relative_to), expanded)
@@ -259,8 +262,9 @@ def names_live_root(value) -> bool:
     spelling, before any call on it (`_by_inode`); a hard link, another name
     for a live file's inode, is judged by its own name. A path inside this
     process's own code (`_OWN_ROOTS`) is the process's own. An empty value names
-    the working directory and is left to its caller; a relative one under a
-    working directory that is gone cannot be judged, so it is refused.
+    the working directory and is left to its caller (a test process's override
+    refusal judges it as `.`); a relative one under a working directory that is
+    gone cannot be judged, so it is refused.
     """
     return _live_kind(value) is not None
 
