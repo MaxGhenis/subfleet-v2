@@ -420,3 +420,54 @@ def test_no_cut_record_shows_a_secret_its_whole_record_hides():
                 failures.append((text, limit))
                 break
     assert failures == []
+
+
+# --- found by this round's combined generator --------------------------------------------
+
+#: Joining cells of the matrices above found two shapes the first version of this round's
+#: fix still showed where 473fe2941 hid them: a credential flag whose name reads as a
+#: secret with no rule around it (473fe2941 hid it only where a union or header took the
+#: whole line), and a line-start header whose value an unclosed escaped quote had already
+#: redacted to a bare carriage return, so neither header scan read past the line.
+COMBINED_FOUND = {
+    "bare-secret-flag": ("--password --db-SECRET7k9-password\nSECRET7nxt9", "--password [REDACTED]\n[REDACTED]"),
+    "bare-secret-flag-same-line": ("deploy --SECRET7abc1_token value", "deploy [REDACTED] [REDACTED]"),
+    "header-after-carriage-return": ('x\nAuthorization: \\" SECRET7nl1276x -v\r--password --passwordSECRET7a1_token\nSECRET7nxt9',
+                                     "x\nAuthorization: [REDACTED]\n[REDACTED]"),
+    "union-then-bare-flag": ('Authorization:"Authorization:\ny api_key: Bearer\r\nSECRET7un234x rest--password '
+                             "--db-SECRET7k9-password\nSECRET7nxt9", None),
+}
+
+
+@pytest.mark.parametrize("text,scrubbed", COMBINED_FOUND.values(), ids=COMBINED_FOUND.keys())
+def test_what_the_combined_generator_found_is_hidden(text, scrubbed):
+    _assert_hidden(text)
+    assert _splits(text) == [] and _unstable(text) == {}
+    if scrubbed is not None:
+        assert handoff.scrub_secrets(text)[0] == scrubbed
+
+
+def _combined_text(rng) -> str:
+    pool = _COMBINED_POOL
+    parts = [rng.choice(pool) for _ in range(rng.randint(2, 4))]
+    return parts[0] + "".join(rng.choice((" ", "\n", "\n  ", "", "\r\n", "\r", "  \n", "\t", "\n\n")) + part
+                              for part in parts[1:])
+
+
+_COMBINED_POOL = [*flag_matrix(), *union_matrix(), *next_line_matrix()[::4], *(quoted for quoted, _ in ownership_matrix()),
+                  *P4_OPENED, *P2_1.values(), *CHECK_2.values(),
+                  *(shape.format(n="Cookie", m="Authorization", s="SECRET7cx1") for shape in CUT_HEADERS)]
+
+
+def test_joined_cells_show_nothing_a_reference_hides():
+    """Invariants 1 to 3 over 400 texts of two to four cells joined (seed 2392); the
+    round's scratch run took 4,500 over three seeds, all clean once the two shapes
+    above were fixed."""
+    import random
+    rng = random.Random(2392)
+    failures = []
+    for _ in range(400):
+        text = _combined_text(rng)
+        if (leaks := _new_leaks(text)) or _splits(text) or _unstable(text):
+            failures.append((text, leaks))
+    assert failures == []
