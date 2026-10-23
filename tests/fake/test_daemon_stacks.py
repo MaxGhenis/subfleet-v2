@@ -162,6 +162,9 @@ def test_a_daemon_writes_the_flag_after_the_handler_and_drops_it_before(
         tmp_path, monkeypatch, process_inspection_available):
     """The order that makes the flag true whenever it is read (C-3.6)."""
     from subfleet import daemon as daemon_module
+    # This unit checks handler/flag ordering, independent of host identity access.
+    monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "fixture-boot")
+    monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "fixture-start")
     seen = []
     register, unregister = faulthandler.register, faulthandler.unregister
 

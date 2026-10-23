@@ -1810,6 +1810,42 @@ def test_c16_3_runs_request_id_finds_the_job_offline_too(root, capsys):
     assert capsys.readouterr().out == ""
 
 
+@pytest.mark.parametrize('model', ['sol61', 'luna'])
+def test_d_sh1_cli_accepts_new_policy_models(daemon, capsys, model):
+    server = daemon({'submit': submit_ok})
+    assert run_cli(['run', '-m', model, '-d', 'run tests']) == 0
+    assert server.args('submit')['pinned_model'] == model
+
+
+@pytest.mark.parametrize('flag,value', [('--needs-shell', True), ('--no-needs-shell', False), (None, None)])
+def test_d_sh1_shell_requirement_is_tri_state(daemon, flag, value):
+    server = daemon({'submit': submit_ok})
+    assert run_cli(['run', '-m', 'astra', '-d', *([flag] if flag else []), 'run tests']) == 0
+    assert server.args('submit')['needs_shell'] is value
+
+
+def test_every_shipped_policy_model_is_pinnable():
+    from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
+    parser = cli.build_parser()
+    for model in load_policy(DEFAULT_POLICY_PATH)['models']:
+        assert parser.parse_args(['run', '-m', model, 'task']).m == model
+    assert {'sol61', 'luna'} <= set(load_policy(DEFAULT_POLICY_PATH)['models'])
+
+
+def test_daemon_is_authority_for_custom_policy_model(daemon):
+    server = daemon({'submit': submit_ok})
+    assert run_cli(['run', '-m', 'custom-policy-model', '-d', 'task']) == 0
+    assert server.args('submit')['pinned_model'] == 'custom-policy-model'
+
+
+def test_batch_accepts_shell_override_and_policy_models(tmp_path):
+    path = tmp_path / 'jobs.toml'
+    path.write_text('[defaults]\nmodel="luna"\nneeds_shell=true\n[[jobs]]\nprompt_text="review"\nneeds_shell=false\n')
+    _, defaults, jobs = cli.load_batch(path)
+    assert defaults['m'] == 'luna' and defaults['needs_shell'] is True
+    assert jobs[0]['needs_shell'] is False
+
+
 def test_kill_sends_requesting_session_and_reason(daemon, monkeypatch, capsys):
     """D-KILL1: the client supplies its session and optional explanation."""
     monkeypatch.setattr(cli, "session_id", lambda: "requesting-session")

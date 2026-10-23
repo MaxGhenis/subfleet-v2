@@ -141,10 +141,15 @@ class E2E:
         for name in (PYTEST_SESSION, PYTEST_SESSION_ID):
             if name in os.environ:
                 self.env[name] = os.environ[name]
+        # D-ST1 (C-20.6): a shell the daemon starts, such as a review launch's
+        # publish hook self-test (C-12.4), meets this session's keychain
+        # recorder before any system directory, or the exec guard refuses it.
+        recorder = ((str(Path(os.environ[PYTEST_SESSION]) / "keychain-bin"),)
+                    if PYTEST_SESSION in os.environ else ())
         self.env.update({
             PYTEST_MARKER: "1",
             "HOME": str(user_home), "SUBFLEET_HOME": str(self.root),
-            "PATH": os.pathsep.join((str(binary_dir), "/usr/sbin", "/sbin", "/bin",
+            "PATH": os.pathsep.join((str(binary_dir), *recorder, "/usr/sbin", "/sbin", "/bin",
                                      os.environ.get("PATH", "/usr/bin"))),
             "PYTHONPATH": os.pathsep.join((str(observer_dir), str(REPO))),
             "CLAUDE_CODE_SESSION_ID": "e2e-caller", "CLAUDECODE": "1",

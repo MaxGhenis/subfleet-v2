@@ -183,6 +183,8 @@ class SubmitArgs:
     batch: dict | None = None
     # C-8.5: explicit host-side publication of this dispatch's accepted bundle.
     push_branch: str | None = None
+    # C-11.1–2: None takes policy requires; a boolean is an explicit override.
+    needs_shell: bool | None = None
 
 
 @dataclass
@@ -271,6 +273,8 @@ class WhyArgs:
     pinned_model: str | None = None
     exclusions: list[str] = field(default_factory=list)
     allow_desktop: bool = False
+    needs_shell: bool | None = None
+    sandbox: str | None = None
 
 
 @dataclass

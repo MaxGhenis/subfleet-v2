@@ -32,6 +32,8 @@ ACTIVE = ("reserved", "starting", "running", "finalizing")
 ENDED = ("succeeded", "failed", "cancelled", "interrupted", "lost", "quarantined")
 CANONICAL = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
 BASE_POLICY = load_policy(DEFAULT_POLICY_PATH)
+# D-SH1 has dedicated requirement properties; legacy differential cases have none.
+BASE_POLICY.pop("requires", None)
 
 
 def stamp(at: datetime, shape: str = "canonical") -> str:
