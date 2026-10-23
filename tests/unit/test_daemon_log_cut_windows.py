@@ -575,6 +575,16 @@ def test_the_reading_s_looks_are_the_blanked_text_s(lead, segments, data):
     assert handoff._holds_reminder_tag(text) is (handoff._REMINDER_TAG_RE.search(text) is not None)
 
 
+def test_the_header_name_characters_are_every_one_the_header_regex_reads():
+    """`_HEADER_NAME_CHARS`, which `_leads_with_header` scans by, holds exactly the code
+    points `_HEADER_RE`'s name reads (`[A-Za-z0-9_-]`, case ignored: `ſ`, `ı`, `İ` and
+    the Kelvin sign too; #239)."""
+    import sys
+    name = re.compile(r"(?i)[A-Za-z0-9_-]")
+    assert handoff._HEADER_NAME_CHARS == "".join(chr(point) for point in range(sys.maxunicode + 1)
+                                                 if name.fullmatch(chr(point)))
+
+
 def test_the_reminder_folds_are_every_character_the_tag_regex_takes_for_a_letter():
     """`_REMINDER_FOLDS`: for each letter of the tag, the characters `_REMINDER_TAG_RE`
     (which ignores case) matches are exactly those that lower to it once folded; and

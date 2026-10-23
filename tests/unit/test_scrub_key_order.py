@@ -134,7 +134,9 @@ BEARER_TAKES_A_KEY = {
     "escaped-closing-quote": ('token_type: Bearer\naccess_token\\": SECRET7bearaa7',
                               'token_type: Bearer\naccess_token\\": [REDACTED]'),
     "flag": ("auth=bearer --client-secret SECRET7bearaa8", "auth=bearer --client-secret [REDACTED]"),
-    "flag-after-path": ("Bearer x/--api-key SECRET7bearaa9", "Bearer x/--api-key [REDACTED]"),
+    # Since #239 round 2 the run before a refused flag goes too, token or not (the flag
+    # form of the refused-`Bearer` converse, `Bearer SECRET7--secret x`).
+    "flag-after-path": ("Bearer x/--api-key SECRET7bearaa9", "Bearer [REDACTED]/--api-key [REDACTED]"),
     "prefixed-key": ("Bearer okPASSWORD=SECRET7bearab1", "Bearer okPASSWORD=[REDACTED]"),
 }
 
@@ -351,6 +353,25 @@ TEXTS = st.builds(lambda parts, joins: "".join(join + part for join, part in zip
                                                                      min_size=6, max_size=6))
 
 
+_MARKS = re.compile("|".join(re.escape(mark) for mark in handoff._PLACEHOLDERS) + r"|\s+")
+
+
+def _revealed(first: str, second: str) -> str:
+    """What a second scrub shows that the first hid (invariant 2, monotone): with every
+    marker and all whitespace taken out of both, the second's characters must be a
+    subsequence of the first's, case aside (the `Bearer` rule writes its own scheme
+    word), since a scrub only takes text out and puts markers in.
+    Returns the first character of `second` past that subsequence ("" when none)."""
+    kept, again = _MARKS.sub("", first).lower(), _MARKS.sub("", second).lower()
+    at = 0
+    for index, char in enumerate(again):
+        at = kept.find(char, at)
+        if at < 0:
+            return again[index:index + 40]
+        at += 1
+    return ""
+
+
 def _neutral_breaks(text: str) -> list[int]:
     """The line breaks an excerpt may be cut after (`_neutral_break`)."""
     return [at + 1 for at, char in enumerate(text) if char == "\n" and handoff._neutral_break(
@@ -363,15 +384,16 @@ def test_no_credential_value_survives_and_excerpts_agree_with_the_whole(text):
     """Over keys, separators, `Bearer`, line-start and inline headers (every quoting
     form, `Proxy-Authorization` included), flags, quoted and unquoted values, secrets
     that end in a credential word and filler: no `SECRET7` value survives in any mode,
-    `detail_line` included; scrubbing a scrubbed text changes nothing; and an excerpt
+    `detail_line` included; scrubbing a scrubbed text shows nothing it hid; and an excerpt
     is the whole text's scrub of the same lines, both where a cut is allowed and as
     `scrub_bounded` keeps it."""
     if not SECRET.search(text):
         return
     found = _assert_kept_out(text, excerpt=len(text) + 1)
-    assert scrub_secrets(found["excerpt"])[0] == found["excerpt"]
-    assert scrub_secrets(found["whole"], whole=True)[0] == found["whole"]
-    assert refusals.scrubbed_line(found["daemon.log line"]) == found["daemon.log line"]
+    # A second scrub shows nothing the first hid; it may remove more (#239 review r2, P3-3).
+    assert _revealed(found["excerpt"], scrub_secrets(found["excerpt"])[0]) == ""
+    assert _revealed(found["whole"], scrub_secrets(found["whole"], whole=True)[0]) == ""
+    assert _revealed(found["daemon.log line"], refusals.scrubbed_line(found["daemon.log line"])) == ""
     whole = handoff._scrub(text, False)[0]
     for cut in _neutral_breaks(text):
         assert handoff._scrub(text[:cut], False)[0] + handoff._scrub(text[cut:], False)[0] == whole, cut

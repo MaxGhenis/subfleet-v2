@@ -1,7 +1,8 @@
 """C-23.14 (D-SCR2 fix round 1, #239 review r1): no mode of the head's scrubber shows
 a `SECRET7` value that 473fe2941 (this branch's base, `scrub_473fe2941`) or release/217
-(`scrub_release217`) hides; a second scrub changes nothing; and an excerpt cut at any
-line break `_neutral_break` allows scrubs exactly as the whole text does there.
+(`scrub_release217`) hides; a second scrub shows nothing the first hid (round 2: it may
+remove more, review r2's P3-3, so this is monotone, not idempotence); and an excerpt cut
+at any line break `_neutral_break` allows scrubs exactly as the whole text does there.
 
 Two seeded generators feed it. The builder's (`_fuzz_text` in `test_scrub_key_order`,
 seeds 225 and 2026) and a reconstruction of #239 review r1's, whose own code was not
@@ -24,7 +25,7 @@ from subfleet.conversations import suggestions
 from subfleet.sessions import handoff
 from tests.unit import scrub_473fe2941 as base473
 from tests.unit import scrub_release217 as release217
-from tests.unit.test_scrub_key_order import ALNUM, CI, SECRET, _fuzz_text, _neutral_breaks
+from tests.unit.test_scrub_key_order import ALNUM, CI, SECRET, _fuzz_text, _neutral_breaks, _revealed
 
 PREFIX = "request submit refused (ValueError): "
 TREES = {"head": handoff, "473fe2941": base473, "release/217": release217}
@@ -109,8 +110,8 @@ def _outputs(scrubber, text: str) -> dict[str, str]:
 
 def _check(text: str, secrets) -> dict[str, list]:
     """What breaks an invariant for one text: the head's new leaks (reference, mode,
-    secret), the modes a second scrub changes, and the cuts whose excerpts disagree
-    with the whole text's scrub."""
+    secret), the modes whose second scrub shows what the first hid, and the cuts whose
+    excerpts disagree with the whole text's scrub."""
     found = {name: _outputs(scrubber, text) for name, scrubber in TREES.items()}
     shown = {name: {(mode, secret) for mode, out in modes.items() for secret in secrets if secret in out}
              for name, modes in found.items()}
@@ -120,7 +121,7 @@ def _check(text: str, secrets) -> dict[str, list]:
     unstable = [mode for mode, again in (("excerpt", handoff.scrub_secrets(head["excerpt"])[0]),
                                          ("whole", handoff.scrub_secrets(head["whole"], whole=True)[0]),
                                          ("daemon.log line", refusals.scrubbed_line(head["daemon.log line"])))
-                if again != head[mode]]
+                if _revealed(head[mode], again)]
     whole = handoff._scrub(text, False)[0]
     splits = [cut for cut in _neutral_breaks(text)
               if handoff._scrub(text[:cut], False)[0] + handoff._scrub(text[cut:], False)[0] != whole]

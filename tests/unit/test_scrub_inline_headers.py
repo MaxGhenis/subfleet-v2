@@ -240,13 +240,16 @@ def test_a_swallowed_flag_or_key_still_owns_its_next_line_value(text, twin, flag
 @pytest.mark.parametrize("text,scrubbed", [
     ("api_key=xyz--password SECRET7ownaa1 rest", "api_key=[REDACTED]--password [REDACTED] rest"),
     ("Authorization: Bearer --client-secret\nSECRET7ownaa2", "Authorization: [REDACTED] --client-secret\nSECRET7ownaa2"),
-    ("Cookie: --auth-token\nSECRET7ownaa3", "Cookie: --auth-token\nSECRET7ownaa3"),
+    ("Cookie: --auth-token\nSECRET7ownaa3", "Cookie: [REDACTED]\n[REDACTED]"),
 ], ids=["plain-value-same-line", "header-and-bearer", "header-holding-only-the-flag"])
 def test_a_flag_left_by_its_enclosure_is_read_by_the_flag_rule(text, scrubbed):
     """The mechanism: an enclosing match ends before a credential flag that ends it
     and may own a value past it (`_owning_flag`), and leaves the flag and what
     follows it in place. A plain value that ended in such a flag swallowed even a
-    same-line value (the first case leaked in every mode at the base)."""
+    same-line value (the first case leaked in every mode at the base). Since round 2
+    a header whose whole value is the flag takes it, and the value daemon.log's
+    folded line gives it: kept, daemon.log's folded line read the header's value to
+    the record's end, past any cut `handoff.cut_whole` makes (C-25.7)."""
     assert scrub_secrets(text, whole=True)[0] == scrub_secrets(text)[0] == scrubbed
     assert SECRET.search(text).group() not in refusals.scrubbed_line(text)
     _assert_stable(text, scrubbed)
@@ -683,11 +686,26 @@ def _bearer_texts():
         yield rng.choice(BEARER_PIECES[:3]) + "".join(parts) + rng.choice(("", " tail"))
 
 
+def _secret_named_flag_run(match) -> bool:
+    """Whether a `Bearer` run ends in a credential flag whose name reads as a secret,
+    which owns nothing since round 2 (#239 review r2, P4), so the rule takes the run."""
+    text, start, end = match.string, match.start(1), match.end(1)
+    return handoff._ending_flag(text, start, end) is not None and handoff._owning_flag(text, start, end) is None
+
+
 def test_bearer_refuses_exactly_what_the_lookahead_did():
-    """The matches `_bearer_refusal` accepts are the lookahead's, span for span."""
-    tried = 0
+    """The matches `_bearer_refusal` accepts are the lookahead's, span for span, and
+    since round 2 those whose run ends in a secret-named flag (P4): the lookahead
+    refused `Bearer --passwordSECRET7a1_token tail`, which is now redacted, the value
+    daemon.log's folded line gives the flag too (`Bearer [REDACTED] [REDACTED]`)."""
+    tried = reread = 0
     for text in _bearer_texts():
-        accepted = [match.span() for match in handoff._BEARER_RE.finditer(text) if handoff._bearer_refusal(match) is None]
-        assert accepted == [match.span() for match in LOOKAHEAD_231.finditer(text)], text
+        matches = list(handoff._BEARER_RE.finditer(text))
+        accepted = [match.span() for match in matches if handoff._bearer_refusal(match) is None]
+        expected = {match.span() for match in LOOKAHEAD_231.finditer(text)}
+        expected |= {match.span() for match in matches if _secret_named_flag_run(match)}
+        assert accepted == sorted(expected & {match.span() for match in matches}), text
+        reread += any(_secret_named_flag_run(match) for match in matches)
         tried += 1
-    assert tried > 45_000
+    assert tried > 45_000 and reread >= 10
+    assert scrub_secrets("Bearer --passwordSECRET7a1_token tail")[0] == "Bearer [REDACTED] [REDACTED]"
