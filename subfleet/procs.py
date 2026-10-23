@@ -364,15 +364,26 @@ class Containment:
 
     # Hold only: observers never become walk seeds or signal targets.
     cwd_pids: frozenset[int] = frozenset()
+    # D-KILL4: ancestors of a marked member added by the parent-chain rule, and
+    # why each was added ("pid <pid>: ancestor of marked pid <pid>, <reason>").
+    chain_pids: frozenset[int] = frozenset()
+    chain_reasons: dict[int, str] = field(default_factory=dict)
+    # D-KILL4: a live parent of a marked member that the rule may not add (no
+    # recorded identity, no cwd in the job's own worktree). It holds the attempt
+    # as a writer would, but is never a walk seed and never a signal target.
+    held_pids: frozenset[int] = frozenset()
+    held_reasons: dict[int, str] = field(default_factory=dict)
+    held_identities: dict[int, ProcessIdentity] = field(default_factory=dict)
 
     @property
     def live_pids(self) -> frozenset[int]:
-        return self.group_pids | self.descendant_pids | self.marker_pids | self.responsible_pids
+        return (self.group_pids | self.descendant_pids | self.marker_pids | self.responsible_pids
+                | self.chain_pids)
 
     @property
     def containment_empty(self) -> bool:
         """No attributed writers remain; cwd observers hold only the worktree."""
-        return not self.unverifiable and not self.live_pids
+        return not self.unverifiable and not self.live_pids and not self.held_pids
 
     @property
     def verified_empty(self) -> bool:
@@ -391,6 +402,12 @@ class Containment:
             "errors": list(self.errors),
             "shapes": {str(pid): dict(value) for pid, value in sorted(self.shapes.items())},
             "recycled": {str(pid): dict(value) for pid, value in sorted(self.recycled.items())},
+            **({"chain_pids": sorted(self.chain_pids),
+                "chain": [self.chain_reasons[pid] for pid in sorted(self.chain_pids) if pid in self.chain_reasons]}
+               if self.chain_pids else {}),
+            **({"held_pids": sorted(self.held_pids),
+                "held": [self.held_reasons[pid] for pid in sorted(self.held_pids) if pid in self.held_reasons]}
+               if self.held_pids else {}),
         }
 
 
@@ -442,6 +459,7 @@ _VNODE_INFO_SIZE = 152
 _MAXPATHLEN = 1024
 _VNODE_PATHINFO_SIZE = 2 * (_VNODE_INFO_SIZE + _MAXPATHLEN)
 _UNIQUEID_OFFSET = _BSDINFO_SIZE + 16
+_UID_OFFSET = 20                       # pbi_uid, after flags, status, xstatus, pid and ppid
 _PROC_FLAG_INEXIT = 4                  # pbi_flags: the process has begun to exit
 _SZOMB = 5                             # pbi_status: a zombie
 #: Initial allocation; a full read retries up to the kernel's own KERN_ARGMAX.
@@ -463,6 +481,21 @@ class KernelProcess:
     exiting: bool
     unique_id: int | None
     proc_start: str | None = None
+    #: D-KILL4: `pbi_uid`, the effective uid, from the same record. None: unread.
+    uid: int | None = None
+
+
+@dataclass(frozen=True)
+class ParentChain:
+    """D-KILL4: who C-5.5's parent-chain rule may add above a marked member whose
+    parent the census lacks. `worktree` is the job's own worktree (None for an
+    in-place workdir or a probe), `exclude` the pids never added (the daemon,
+    its parent, the guardians of other attempts) and `uid` the daemon's own."""
+    worktree: str | None
+    exclude: frozenset[int]
+    uid: int
+    #: Parents held by earlier censuses (`Containment.held_pids`), by recorded birth.
+    held: dict[int, "ProcessIdentity"] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -590,7 +623,8 @@ class Darwin:
             started = (f"{weekday} {month} {born.tm_mday:2d} {born.tm_hour:02d}:"
                        f"{born.tm_min:02d}:{born.tm_sec:02d} {born.tm_year}") if seconds else None
             return KernelProcess(pid, bool(flags & _PROC_FLAG_INEXIT),
-                                 struct.unpack_from("=Q", info.raw, _UNIQUEID_OFFSET)[0], started)
+                                 struct.unpack_from("=Q", info.raw, _UNIQUEID_OFFSET)[0], started,
+                                 struct.unpack_from("=I", info.raw, _UID_OFFSET)[0])
         if got <= 0 and failure in (errno.ESRCH, errno.EPERM):
             return None
         raise InspectionError(f"process inspection of pid {pid} unavailable")
@@ -759,7 +793,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 recorded_identities: dict[int, ProcessIdentity] | None = None,
                 recorded_alternatives: dict[int, list[ProcessIdentity]] | None = None,
                 started_at: str | None = None, finished_at: str | None = None,
-                responsible_root: ResponsibleRoot | None = None) -> Containment:
+                responsible_root: ResponsibleRoot | None = None,
+                parent_chain: ParentChain | None = None) -> Containment:
     """Collect C-5.5 sources; failed sources or needed identity reads prevent release.
 
     Receipt timestamps are accepted for caller compatibility, but cannot prove
@@ -784,6 +819,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     other identities come from the snapshot. A root without a recorded unique
     id needs a matching start-time read before the member scan. Every scanned
     root's current holder is read in process afterwards (C-5.12).
+    With `parent_chain`, a marked member whose parent the census lacks has its
+    parent chain followed (`_parent_chain`, D-KILL4).
     Commands and environments are never retained.
     """
     groups: set[int] = set()
@@ -1015,8 +1052,13 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             continue
         if not state or state.startswith("Z"):
             markers.discard(pid)
+    chain: dict[int, str] = {}
+    held: dict[int, str] = {}
+    if parent_chain is not None and seen is not None:
+        chain, held = _parent_chain(seen, markers, groups | descendants | markers | responsible,
+                                    parent_chain, errors)
     identities: dict[int, ProcessIdentity] = {}
-    for pid in groups | descendants | markers | responsible:
+    for pid in groups | descendants | markers | responsible | chain.keys():
         try:
             # A missing snapshot start still prevents verification. A kernel
             # responsibility record keeps its own birth for later censuses.
@@ -1045,14 +1087,90 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 descendants.discard(pid)
                 markers.discard(pid)
                 responsible.discard(pid)
+                chain.pop(pid, None)
         except InspectionError:
             errors.append(f"identity inspection unavailable for pid {pid}")
     shapes = {pid: {"ppid": table[pid][0], "pgid": table[pid][1], "stat": table[pid][2]}
-              for pid in groups | descendants | markers | responsible if pid in table
+              for pid in groups | descendants | markers | responsible | chain.keys() if pid in table
               and (pid not in responsible_records or responsible_records[pid].proc_start == table[pid][3])}
+    held = {pid: why for pid, why in held.items() if pid not in identities}
+    held_identities: dict[int, ProcessIdentity] = {}
+    for pid in sorted(held):
+        try:
+            found = seen.identity(pid) if seen is not None else None
+        except InspectionError:
+            found = None
+            errors.append(f"identity inspection unavailable for pid {pid}")
+        if found is not None:
+            held_identities[pid] = found
     return Containment(frozenset(groups), frozenset(descendants), frozenset(markers),
                        bool(errors), identities, tuple(errors), shapes, recycled,
-                       frozenset(responsible))
+                       frozenset(responsible), chain_pids=frozenset(chain), chain_reasons=chain,
+                       held_pids=frozenset(held), held_reasons=held, held_identities=held_identities)
+
+
+def _parent_chain(seen: ProcessTable, markers: set[int], members: set[int], rule: ParentChain,
+                  errors: list[str]) -> tuple[dict[int, str], dict[int, str]]:
+    """C-5.5's parent-chain rule (D-KILL4): (pid -> why added, pid -> why held) for
+    the ancestors of marked members that the census lacks.
+
+    A shell driver's markers are invisible on macOS 26 (an Apple platform binary
+    running with the hardened runtime), so a loop that respawns marked children
+    is no census member once it leaves the group and the walk; killing its
+    children only makes it start more (incident 2026-10-20, walled
+    `us10299-review-shell-b`: marker pid 80881 born after the kill, its parent
+    loop 78382 never counted). From each marked member whose parent the census
+    lacks, follow the parent links of the census's own snapshot. Add each
+    ancestor that is live, below launchd (pid > 1), outside `rule.exclude`, of
+    the daemon's uid by its kernel record, and whose canonical cwd is the job's
+    own worktree or inside it. (An ancestor this attempt counted is a walk seed,
+    so already a member, and the chain stops there.) The first ancestor of the
+    daemon's uid that is none of those is held, never added: it keeps the census
+    from being empty while it lives, and is remembered by its birth for later
+    censuses (`rule.held`), but it seeds no walk and is never signalled. So an
+    operator's shell outside the worktree, which was never counted, is never
+    signalled, and nothing above it is looked at. A cwd holder that is no
+    ancestor of a marked member is neither added nor held. A failed read of an
+    ancestor makes the census unverifiable, as a failed source does."""
+    from .folders import canonical
+    target = canonical(rule.worktree) if rule.worktree is not None else None
+    prefix = target.rstrip(os.sep) + os.sep if target is not None else None
+    found: dict[int, str] = {}
+    held: dict[int, str] = {}
+    for pid, known in sorted(rule.held.items()):
+        if pid not in members and seen.live(pid) and known.proc_start and seen.rows[pid][3] == known.proc_start:
+            held[pid] = f"pid {pid}: recorded parent of a marked process, outside the census; held, never signalled"
+    for start in sorted(markers):
+        if start not in seen.rows:
+            continue                      # listed after the snapshot: no parent link to follow
+        parent = seen.rows[start][0]
+        while parent > 1 and parent not in members and parent not in found and parent not in held:
+            if parent in rule.exclude or not seen.live(parent):
+                break
+            try:
+                record = kernel.process(parent)
+            except InspectionError:
+                errors.append(f"parent chain inspection unavailable for pid {parent}")
+                break
+            if record is None or record.exiting or record.uid is None or record.uid != rule.uid:
+                break                     # gone, another user's, or leaving: neither added nor held
+            inside = False
+            if target is not None:
+                try:
+                    cwd = kernel.cwd(parent)
+                except InspectionError:
+                    errors.append(f"parent chain cwd inspection unavailable for pid {parent}")
+                    break
+                if cwd is not None:
+                    current = canonical(cwd)
+                    inside = current == target or current.startswith(prefix)
+            if not inside:
+                held[parent] = (f"pid {parent}: parent of marked pid {start}, outside the census and "
+                                "the worktree; held, never signalled")
+                break
+            found[parent] = f"pid {parent}: ancestor of marked pid {start}, cwd in worktree"
+            parent = seen.rows[parent][0]
+    return found, held
 
 
 def worktree_cwd_pids(worktree: str | os.PathLike) -> frozenset[int]:
