@@ -207,7 +207,8 @@ def test_c5_5_a_held_escaper_quarantines_and_force_release_records_override(daem
     with hidden markers (`--hide-environment-of`), reparented to launchd outside any worktree,
     whose marked child names it."""
     marker = daemon.root / "driver.pid"
-    daemon.start("--hide-environment-of", str(marker))
+    # No inspection before the loop is reparented, so none counts it (it would then be contained).
+    daemon.start("--hide-environment-of", str(marker), "--inspect-interval-s", "20")
     args = daemon.submit_args(out_path=str(daemon.root / "export.md"))
     Path(args["prompt_path"]).write_text(json.dumps({"scenario": "loop-driver-detached", "marker": str(marker)}))
     job_id = daemon.call("submit", **args)["job_id"]

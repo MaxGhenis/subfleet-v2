@@ -24,6 +24,7 @@ import os
 from pathlib import Path
 import signal
 import sys
+import time
 import uuid
 
 import pytest
@@ -60,6 +61,17 @@ def driver_running(daemon, marker: Path) -> procs.ProcessIdentity:
     # Its child is running and shows the markers the loop hides.
     daemon.until(lambda: any(row[0] == driver.pid for pid, row in procs.snapshot().rows.items()), timeout=30)
     return driver
+
+
+def end_loop(driver: procs.ProcessIdentity) -> None:
+    """Freeze the loop so it starts nothing more, end its children, then end it."""
+    procs.signal_process(driver, signal.SIGSTOP)
+    table = procs.snapshot()
+    for pid, row in table.rows.items():
+        child = table.identity(pid) if row[0] == driver.pid else None
+        if child is not None:
+            stop(child)
+    stop(driver)
 
 
 def alive(identity: procs.ProcessIdentity | None) -> bool:
@@ -120,7 +132,9 @@ def test_an_uncounted_detached_loop_in_an_in_place_workdir_is_held_and_quarantin
     Before D-KILL4 the census named only whichever child was alive (or nothing,
     between two children, and the attempt ended with the loop running)."""
     marker = daemon.root / f"driver-{uuid.uuid4().hex[:8]}.pid"
-    start(daemon, "--hide-environment-of", str(marker), isolated_group=True)
+    # Inspection paced at 20 s: none runs before the loop is reparented, so none counts it
+    # (with the default 1 s, one can land while its short-lived intermediate parent lives).
+    start(daemon, "--hide-environment-of", str(marker), "--inspect-interval-s", "20", isolated_group=True)
     driver = None
     try:
         job = submit_driver(daemon, marker, "loop-driver-detached",
@@ -142,10 +156,12 @@ def test_an_uncounted_detached_loop_in_an_in_place_workdir_is_held_and_quarantin
         daemon.until(lambda: daemon.rows("SELECT 1 FROM events WHERE attempt_id=? AND kind=?",
                                          (attempt["attempt_id"], "quarantine.still_live")), timeout=30)
         assert daemon.attempts(job)[-1]["state"] == "quarantined"
-        stop(driver)
-        daemon.until(lambda: no_live_children(driver), timeout=10)
-        daemon.call("kill", job_id=job, confirm_dead=True)
-        daemon.until(lambda: not held(daemon, job, attempt["attempt_id"]), timeout=30)
+        end_loop(driver)
+        until = time.monotonic() + 30
+        while held(daemon, job, attempt["attempt_id"]):
+            assert time.monotonic() < until, "confirm-dead never released the attempt once the loop was gone"
+            daemon.call("kill", job_id=job, confirm_dead=True)
+            time.sleep(1)
     finally:
         stop(driver)
         Path(str(marker) + ".release").touch()

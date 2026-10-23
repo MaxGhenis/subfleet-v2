@@ -133,6 +133,8 @@ def test_start_grace_quarantines_a_guardian_it_cannot_end_and_reserves_no_retry(
     a = attempt(daemon)
     assert a["state"] == "quarantined"
     assert json.loads(a["quarantine_reason"])["reason"] == "start grace expired without a receipt"
+    assert "attempt.kill_started" in kinds(daemon)            # contained first, then quarantined
+    assert json.loads(a["evidence_json"])["terminal_containment"][-1]["contained"] is False
     assert daemon.store.get_job(JOB)["state"] == "lost"
     assert len(daemon.store.query("SELECT 1 FROM attempts WHERE job_id=?", (JOB,))) == 1
 
@@ -248,6 +250,7 @@ def test_another_attempts_guardian_and_the_daemon_are_never_signalled(daemon, wo
     me = world.add(procs.os.getpid(), 1, procs.os.getpid(), marked=True)
     finalizing(daemon)
     daemon._finalize(attempt(daemon))
+    assert "attempt.containment_started" in kinds(daemon)     # the protocol ran over them
     assert other.pid not in world.signalled() and me.pid not in world.signalled()
     assert attempt(daemon)["state"] == "quarantined"
 
