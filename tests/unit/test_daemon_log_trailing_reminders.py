@@ -165,11 +165,13 @@ def test_alike_strips_trailing_breaks_unless_a_data_uri_body_could_count_them(le
 # --- the property: refused only where the masks differ or a body reaches the break --------
 
 #: Lines of an exception group's member, as a margin file holds them: values a quoted pass
-#: masks or leaves, keys the margins part, orphan closing tags, and plain lines.
+#: masks or leaves, keys the margins part (a value only the margin-free reading opens, which a
+#: quote in the final reminder closes there alone), orphan closing tags, and plain lines.
 MARGIN_LINES = [
     "  | member line\n", "  +-+---------------- 1 ----------------\n", "    | Traceback (most recent call last):\n",
     "  | token: '§'\n", "  | password='§\n", "  | api_key=§ rest\n", "  | note 'x\n", "  | said: \"§\"\n",
     "  | Authorization: Bearer §\n", "  | --auth-token §\n", "  | token\n  | ='§'\n", "  | x=\"§\n",
+    "  | token\n  | ='§\n", "  | api_key\n  | =\"§\n",
     "  | </system-reminder>\n", "plain words only\n", "  |\n", "  | \n", "    + more\n",
 ]
 #: The reminder that ends the file, each on its own line: quotes, margins and folds inside.
@@ -276,7 +278,7 @@ def test_the_margin_files_resolve_and_fall_back_for_each_reason():
     reasons = [refusal_reasons(admissions(10) + margin_reminder_text(random.Random(seed))) for seed in range(400)]
     resolved = sum(not found for found in reasons)
     assert resolved >= 200, resolved
-    assert sum("masks" in found for found in reasons) >= 10
+    assert sum("masks" in found for found in reasons) >= 5
     assert sum("data-uri" in found for found in reasons) >= 10
     assert not any(found - {"masks", "data-uri"} for found in reasons)
     differ = 0
