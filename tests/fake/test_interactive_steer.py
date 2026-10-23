@@ -167,8 +167,8 @@ def test_runner_and_fake_settle_one_steer_across_boundaries_and_restart(tmp_path
 
     with world() as w, wire(provider, tmp_path) as (send, until, seen):
         class PipeRelay(JournalRelay):
-            def send(self, seq, op, *, line=None, tag=None, sig=None):
-                ack = super().send(seq, op, line=line, tag=tag, sig=sig)
+            def send(self, seq, op, *, line=None, tag=None, sig=None, before_send=None):
+                ack = super().send(seq, op, line=line, tag=tag, sig=sig, before_send=before_send)
                 if op == "write":
                     send(json.loads(line))
                 return ack

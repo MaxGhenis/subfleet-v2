@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import io
 import json
+import time
 
 from subfleet import hooks
 from subfleet.daemon import utcnow
@@ -89,7 +90,8 @@ def test_rr_a_pending_pin_notice_is_not_delivered_with_a_successful_end(fleet, m
     job = service.store.get_job(stuck)
     assert job["state"] == "succeeded", job["state"]
     err = io.StringIO()
-    hooks._deliver(_Client(service), "caller-session", job, stderr=err)
+    hooks._deliver(_Client(service), "caller-session", job, stderr=err,
+                   deadline=time.monotonic() + 1, now=time.monotonic)
     assert "can never admit it" not in err.getvalue(), err.getvalue()[:400]
 
 

@@ -307,7 +307,7 @@ def daemon_start_environ(monkeypatch, root, **names):
 
 
 def no_spawn(monkeypatch):
-    monkeypatch.setattr(cli, "_daemon_alive", lambda *args: False)
+    monkeypatch.setattr(cli, "_daemon_alive", lambda *args, **kwargs: False)
     monkeypatch.setattr(cli.subprocess, "Popen", lambda *args, **kwargs: pytest.fail("a refused start spawned"))
 
 
@@ -321,7 +321,7 @@ def spawned(monkeypatch):
         def poll(self):
             return None
 
-    monkeypatch.setattr(cli, "_daemon_alive", lambda client: next(alive, True))
+    monkeypatch.setattr(cli, "_daemon_alive", lambda client, *, timeout=None: next(alive, True))
     monkeypatch.setattr(cli.Client, "lock_info", lambda self: None)
     monkeypatch.setattr(cli.subprocess, "Popen", lambda argv, **kwargs: seen.append(kwargs["env"]) or Child())
     return seen
