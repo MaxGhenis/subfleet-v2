@@ -794,7 +794,9 @@ struct SettlingPageView: View {
         await settle(host, seconds: 0.02)
         let current = sample(host)
         let eligible = current["offset"] != nil && (!awayFromEnd || (current["from_end"] ?? 0) > 600)
-        let unchanged = ["offset", "content", "viewport"].allSatisfy {
+        // LazyVStack can revise its offscreen height estimate while the visible
+        // position stays fixed. Track the viewport geometry for this barrier.
+        let unchanged = ["offset", "viewport"].allSatisfy {
             guard let old = previous[$0], let new = current[$0] else { return false }
             return abs(old - new) <= 0.5
         }
