@@ -72,6 +72,42 @@ def pushes(world):
     return [args for _, args in world.calls if args[0] == "push"]
 
 
+@pytest.mark.parametrize("in_place", [False, True], ids=["allocated", "in-place"])
+def test_terminal_cwd_tick_keeps_writer_until_inflight_push_settles(worlds, in_place):
+    """The review input: enter publication before giving the cwd worker a tick."""
+    with worlds() as world:
+        core = world.core
+        job = submit(world, in_place=in_place)
+        writer = "worktree:" + str(core._push_root(core._job(job)))
+        core.store.acquire_lease(writer, job)
+        sha = commit(world.repo)
+        gate, entered = threading.Event(), threading.Event()
+        actual = core._publish_bundle
+
+        def held(row):
+            entered.set()
+            assert gate.wait(timeout=600)
+            return actual(row)
+
+        core._publish_bundle = held
+        try:
+            accept(world, settle=False)
+            assert entered.wait(timeout=600)
+            assert not core._push_settled(job)
+            for pending in core._pending_worktree_holds():
+                core._release_worktree_hold(pending)
+            assert core.store.one("SELECT 1 FROM leases WHERE lease_key=? AND holder=?", (writer, job)), (
+                "cwd tick released the writer key while publication was in flight")
+            assert not core._push_settled(job)
+        finally:
+            gate.set()
+        core.pushes.submit(lambda: None).result(timeout=900)
+        core._export(job)
+        assert core._push_settled(job) and core._job(job)["push_sha"] == sha
+        assert remote_heads(world)["refs/heads/jobs/finished"] == sha
+        assert core.store.list_leases(job) == []
+
+
 @pytest.mark.parametrize("decision", sorted(DECISIONS))
 @pytest.mark.parametrize("push", ["pushed", "refused", "none"])
 def test_a_push_settles_with_leases_held_then_the_canonical_export_is_an_ordinary_jobs(worlds, push, decision):
