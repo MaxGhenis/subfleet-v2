@@ -30,6 +30,7 @@ def test_distant_search_reveal_lands_and_keeps_position(distant_reveals, name):
     assert run["output_released"] and run["folded_seq"] == run["target_seq"], run
     expected = dict(zip(FAR, [0, 50, 21, 17, 7]))[name]
     assert run["pushed"] == expected and run["arrival_pages"] == int(expected > 0), run
+    assert run["quiet_stable_samples"] >= 3 and run["after_more_stable_samples"] >= 3, run
     assert abs(run["quiet"]["offset"] - before["position"]["offset"]) <= 2, run
     assert run["quiet"]["from_end"] > 600, run
     assert abs(run["after_more"]["offset"] - run["quiet"]["offset"]) <= 2, run

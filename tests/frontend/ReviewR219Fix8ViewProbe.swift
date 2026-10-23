@@ -783,8 +783,30 @@ struct SettlingPageView: View {
 }
 
 
-// Reviewer r5's five distant targets, using the same real model, search
-// activation and reveal code. Arrival counts are finite; completion is state based.
+// Drive presentation until successive layout samples agree. Deadlines guard a
+// hung probe; neither a timestamp nor a fixed post-reveal sleep proves landing.
+@MainActor func stablePosition(_ host: NSView, awayFromEnd: Bool = false) async
+    -> (position: [String: Double], samples: Int) {
+    let deadline = Date().addingTimeInterval(60)
+    var previous: [String: Double] = [:]
+    var stable = 0
+    while Date() < deadline {
+        await settle(host, seconds: 0.02)
+        let current = sample(host)
+        let eligible = current["offset"] != nil && (!awayFromEnd || (current["from_end"] ?? 0) > 600)
+        let unchanged = ["offset", "content", "viewport"].allSatisfy {
+            guard let old = previous[$0], let new = current[$0] else { return false }
+            return abs(old - new) <= 0.5
+        }
+        stable = eligible && unchanged ? stable + 1 : 0
+        if stable >= 3 { return (current, stable) }
+        previous = current
+    }
+    return (sample(host), stable)
+}
+
+// Reviewer r5's five distant targets, using the real model, search activation
+// and reveal code. No output is released until the actual reveal has landed.
 @MainActor func farReveal(_ name: String, root: URL, interval: Double, kind: String) async -> [String: Any] {
     let word = "zebraneedle"
     let scene = await Scene(name, root: root, prior: 30,
@@ -811,31 +833,52 @@ struct SettlingPageView: View {
     let results = SearchIndex(scene.model.state.searchCandidates()).search(word)?.results ?? []
     let match = results.first { $0.snippet?.itemID == "person:m000010" }
     var pushed = 0
+    var arrivalPages = 0
+    var landed = (position: start, samples: 0)
     if let match {
         scene.palette.activate(match)
+        let deadline = Date().addingTimeInterval(60)
+        while scene.palette.reveal != nil && Date() < deadline { await settle(scene.host, seconds: 0.02) }
+        landed = await stablePosition(scene.host, awayFromEnd: true)
+    }
+    let beforeOutput: [String: Any] = ["position": landed.position, "stable_samples": landed.samples,
+                                      "consumed": scene.palette.reveal == nil, "notices": notices.count]
+    let ready = match != nil && scene.palette.reveal == nil && notices.count == 2
+        && landed.samples >= 3 && (landed.position["from_end"] ?? 0) > 600
+    if ready {
         let count = interval > 0 ? Int((2.5 / interval).rounded(.up)) : 0
+        // The interval is now a stimulus after measured landing. Release one
+        // atomic page with the same finite arrivals, rather than let early
+        // chunks race the two-scroll reveal or depend on timer scheduling.
+        if count > 0 { await settle(scene.host, seconds: interval) }
+        var page: [[String: Any]] = []
         for _ in 0..<count {
             pushed += 1
             scene.seq += 1
             if kind == "text" {
-                scene.daemon.push([event(scene.seq, "live", "text.delta",
-                                         ["block": "live", "text": "chunk \(pushed) of streamed words\n"])])
+                page.append(event(scene.seq, "live", "text.delta",
+                                  ["block": "live", "text": "chunk \(pushed) of streamed words\n"]))
             } else {
-                scene.daemon.push([event(scene.seq, "live", "tool.started",
-                                         ["id": "t\(pushed)", "name": "Read", "summary": "file \(pushed)"])])
+                page.append(event(scene.seq, "live", "tool.started",
+                                  ["id": "t\(pushed)", "name": "Read", "summary": "file \(pushed)"]))
             }
-            await settle(scene.host, seconds: interval)
+        }
+        if !page.isEmpty {
+            scene.daemon.push(page)
+            arrivalPages += 1
         }
     }
-    let deadline = Date().addingTimeInterval(60)
-    while scene.palette.reveal != nil && Date() < deadline { await settle(scene.host, seconds: 0.02) }
     await scene.waitFolded(scene.seq)
-    await settle(scene.host, seconds: 0.8)
-    let quiet = sample(scene.host)
-    await scene.stream(20)
+    let quiet = await stablePosition(scene.host)
+    if ready { await scene.stream(20) }
+    let afterMore = await stablePosition(scene.host)
     return ["found": match != nil, "start": start, "notices_at": notices, "reveal_starts": starts,
             "reveal_consumed": scene.palette.reveal == nil, "caught_up": scene.caughtUp,
-            "pushed": pushed, "quiet": quiet, "after_more": sample(scene.host)]
+            "before_output": beforeOutput, "output_released": ready,
+            "folded_seq": scene.model.state.timelines[name]?.cursor ?? 0, "target_seq": scene.seq,
+            "pushed": pushed, "arrival_pages": arrivalPages,
+            "quiet": quiet.position, "quiet_stable_samples": quiet.samples,
+            "after_more": afterMore.position, "after_more_stable_samples": afterMore.samples]
 }
 
 @MainActor func farOpening(_ name: String, root: URL, delay: Double, size: Int) async -> [String: Any] {
