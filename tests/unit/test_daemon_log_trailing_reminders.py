@@ -293,14 +293,15 @@ def test_a_margin_file_ending_in_a_reminder_is_refused_only_where_the_masks_diff
 
 def test_the_margin_files_resolve_and_fall_back_for_each_reason():
     """The property's texts are not vacuous: most resolve, and each reason for keeping the
-    marker occurs; at c2e080e44 every one whose readings differ only at its end fell back."""
+    marker occurs (at 20,000 seeds: masks 822, data URI bodies 332, CRLF bare margins 82); at
+    c2e080e44 every one whose readings differ only at its end fell back."""
     texts = [admissions(10) + margin_reminder_text(random.Random(seed)) for seed in range(400)]
     reasons = [refusal_reasons(text) for text in texts]
     assert all("\r" in text for text, found in zip(texts, reasons) if "texts" in found)
     resolved = sum(not found for found in reasons)
     assert resolved >= 200, resolved
     assert sum("masks" in found for found in reasons) >= 5
-    assert sum("data-uri" in found for found in reasons) >= 10
+    assert sum("data-uri" in found for found in reasons) >= 3
     assert not any(found - {"masks", "data-uri", "texts"} for found in reasons)
     differ = 0
     for seed in range(400):
