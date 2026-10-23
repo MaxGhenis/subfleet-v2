@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 
 from . import __version__
 from . import capacity, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, ramp, render, route_check, scheduler
-from . import refusals, resource_leases
+from . import daemon_log, refusals, resource_leases
 from .actions import demand_verdict
 from .conversations.store import canonical_native, native_any_case
 from .conversations.peers import peer_token
@@ -170,6 +170,22 @@ PROVIDER_QUARANTINES = (
     "FROM attempts WHERE state='quarantined' ORDER BY reserved_at,seq")
 PENDING_EXPORTS = ("SELECT job_id FROM jobs WHERE accepted_attempt_id IS NOT NULL "
                    "AND job_id IN (SELECT holder FROM leases WHERE lease_key NOT LIKE 'worktree:%') ORDER BY rowid")
+# C-5.9: only a settled, allocated worktree hold belongs to the cwd worker.
+# Start from active leases; use this same predicate again inside the release
+# transaction, since publication or another lease can change after an offer.
+CWD_WORKTREE_HOLDS = (
+    "WITH held(job_id) AS (SELECT holder FROM leases WHERE lease_key LIKE 'worktree:%' "
+    "UNION SELECT a.job_id FROM leases l CROSS JOIN attempts a ON a.attempt_id=l.holder "
+    "WHERE l.lease_key LIKE 'worktree:%') "
+    "SELECT jobs.job_id FROM held CROSS JOIN jobs ON jobs.job_id=held.job_id "
+    "WHERE jobs.state IN ('succeeded','failed','cancelled','lost') AND jobs.in_place=0 "
+    "AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.job_id=jobs.job_id AND a.state='quarantined') "
+    "AND NOT EXISTS (SELECT 1 FROM leases l WHERE l.lease_key NOT LIKE 'worktree:%' "
+    "AND (l.holder=jobs.job_id OR l.holder IN (SELECT a.attempt_id FROM attempts a WHERE a.job_id=jobs.job_id))) "
+    "AND (jobs.accepted_attempt_id IS NULL OR jobs.out_path IS NULL OR jobs.export_error IS NOT NULL "
+    "OR EXISTS (SELECT 1 FROM artifacts WHERE attempt_id=jobs.accepted_attempt_id AND role='export')) "
+    "AND (jobs.accepted_attempt_id IS NULL OR jobs.push_branch IS NULL "
+    "OR EXISTS (SELECT 1 FROM job_pushes WHERE job_id=jobs.job_id AND result<>'pending')) ")
 #: C-3.7: a holder's newest probe record, newest first: the newest JSON payload
 #: naming it (`hit`, one step of `events_probe_holder`), and every probe.state
 #: payload SQLite does not read as JSON (`events_not_json`, normally none),
@@ -809,7 +825,8 @@ class Daemon:
         for stale in list(self.log.handlers):
             self.log.removeHandler(stale)
         log_fd = os.open(self.root / "daemon.log", os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
-        self._log_handler = logging.StreamHandler(os.fdopen(log_fd, "a"))
+        # C-25.7: every line and traceback it writes is scrubbed here, whoever logged it.
+        self._log_handler = daemon_log.ScrubbingStreamHandler(os.fdopen(log_fd, "a"))
         self.log.addHandler(self._log_handler)
         self.log.setLevel(logging.INFO)
         # C-3.6: the identity is written only now that SIGUSR1 has its handler, and
@@ -841,6 +858,7 @@ class Daemon:
                                                          references=self._withheld_references)
         # C-3.7: reads outside a transaction take a read connection, not the store lock.
         self.store = Store(self.root / "state.sqlite3", readers=READ_CONNECTIONS)
+        self._start_machine_sampler()  # C-6.13: prime before detached admission can run
         self._disk = disk.DiskAdmission(self.root, recheck_latch=True)
         self._disk.settings = disk_settings(self.policy)
         if self._disk.settings["enabled"]:
@@ -858,7 +876,7 @@ class Daemon:
         self._lane_answers, self._attempt_answers = self._load_answers()      # C-6.14
         # C-15.5: one reader answers every `wait`; its thread starts with the first.
         self.wait_hub = WaitHub(self.store, recheck_s=WAIT_RECHECK_S, on_error=lambda exc: self.log.warning(
-            "wait hub: %s: %s (its waiters read for themselves)", type(exc).__name__, exc))
+            "wait hub: %s (its waiters read for themselves)", refusals.scrubbed_words(exc)))
         # D-ENV1: policy validation that needs the lanes, run before lanes.json
         # is seeded (review r4, P2-1). `_released_on_failure` gives back the rest.
         self._open_lanes(policy_path)
@@ -1027,6 +1045,9 @@ class Daemon:
         # what both write: the holds, `_admission` and the route counts.
         self._pass_locks = {"turn": threading.Lock(), "detached": threading.Lock()}
         self._admission_lock = threading.Lock()
+        self._machine_guard = scheduler.MachineGuard()
+        self._machine_sampler: machine.Sampler | None = None
+        self._last_machine_sample_wall = 0.0
         # One pass at a time records what admission left (`_note_admission`),
         # with the placements every pass made since, counted as each is made, so
         # a long detached pass that is placing never reads as idle to the turn
@@ -2423,7 +2444,7 @@ class Daemon:
             except SalvageError as exc:
                 # C-6.8: nothing was submitted, so the caller retries; a timed-out
                 # `rev-parse` must not read as "not a repository" or "not on main".
-                self.log.warning("submit could not inspect %s: %s", args.workdir, exc)
+                self.log.warning("submit could not inspect %s: %s", args.workdir, refusals.scrubbed_words(exc))
                 raise AdapterError(f"could not inspect the workdir: {exc}", code=int(Exit.OPERATIONAL),
                                    fix="submit again; raise caps.workspace_git_timeout_s if this repository is slow", reason="inspect-workdir") from exc
             except (OSError, ValueError, TypeError, RuntimeError) as exc:
@@ -2521,7 +2542,7 @@ class Daemon:
                     # C-6.8: exit 1 with nothing stored, as the checks above; only
                     # the prompt has been written, under a job id nobody was given.
                     shutil.rmtree(jobdir, ignore_errors=True)
-                    self.log.warning("submit could not inspect %s: %s", args.workdir, exc)
+                    self.log.warning("submit could not inspect %s: %s", args.workdir, refusals.scrubbed_words(exc))
                     raise AdapterError(f"could not inspect the workdir: {exc}", code=int(Exit.OPERATIONAL),
                                        fix="submit again; raise caps.workspace_git_timeout_s if this repository is slow", reason="inspect-workdir") from exc
                 prefix = (None if args.push_branch is not None else _git_prefix(str(workdir), cap)) or os.path.relpath(os.path.realpath(workdir),
@@ -3509,6 +3530,8 @@ class Daemon:
                     "claude_cards": self.timers.cards_view(),  # C-9.10
                     "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"],
                     "admission": self._admission_status(view),
+                    "machine_guard": ({"enabled": True, **self._machine_sampler.status()}
+                                      if self._machine_sampler else {"enabled": False}),
                     "priority_callers": self._priority_callers_status(),
                     # C-17.8: names only; the lanes' own variables listed apart.
                     "environment": environment_report(references=self._lane_credential_references()),
@@ -3516,6 +3539,53 @@ class Daemon:
                     "read_pool": self.store.read_pool(),             # C-3.7
                     "wait_hub": self.wait_hub.status()}              # C-15.5
         raise protocol.request_error("unknown-op")
+
+    def _machine_signals_enabled(self) -> bool:
+        guard = scheduler.admission_settings(self.policy).get("machine_guard") or {}
+        return any(isinstance(limits, dict) and any(key in limits for key in ("cpu_idle_min", "disk_busy_max"))
+                   for klass, limits in guard.items() if klass in ("background", "session"))
+
+    def _start_machine_sampler(self) -> None:
+        if not self._machine_signals_enabled():
+            self._machine_sampler = None
+            return
+        rows = self.store.query("SELECT data_json FROM events WHERE kind='machine.sample' "
+                                "ORDER BY event_id DESC LIMIT ?", (machine.HISTORY_LIMIT,))
+        history = []
+        for row in reversed(rows):
+            try:
+                sample = json.loads(row["data_json"])
+                if isinstance(sample, dict) and isinstance(sample.get("observed_at"), (int, float)):
+                    history.append(sample)
+            except (ValueError, TypeError):
+                continue
+        self._last_machine_sample_wall = max((r.get("recorded_at", r["observed_at"]) for r in history), default=0.0)
+        self._machine_sampler = machine.Sampler(self.root, history=history)
+        self._machine_sampler.prime()
+
+    def _machine_reading(self) -> dict:
+        if not self._machine_signals_enabled():
+            self._machine_sampler = None
+            return machine.read()  # exact old fields, no new native reads
+        if self._machine_sampler is None:  # an explicit policy edit enabled it
+            self._start_machine_sampler()
+        reading = self._machine_sampler.read()
+        now = time.time()
+        if now - self._last_machine_sample_wall >= 60.0:
+            sample = {key: value for key, value in reading.items() if key != "sampled_at"}
+            sample["recorded_at"] = now
+            # One sample and its normal C-3.2 audit row per minute; both kinds
+            # retain at most 1,440 rows. Restart restores the minute gate too.
+            with self.store.transaction("machine.sample.retention") as tx:
+                for kind in ("machine.sample", "machine.sample.retention"):
+                    tx.execute("DELETE FROM events WHERE kind=? AND event_id NOT IN "
+                               "(SELECT event_id FROM events WHERE kind=? ORDER BY event_id DESC LIMIT ?)",
+                               (kind, kind, machine.HISTORY_LIMIT-1))
+                tx.execute("INSERT INTO events(ts,kind,data_json) VALUES(?, 'machine.sample', ?)",
+                           (utcnow(), json.dumps(sample, allow_nan=False)))
+            self._last_machine_sample_wall = now
+            self._machine_sampler.record(sample)
+        return reading
 
     def _disk_rows(self) -> list[dict]:
         # C-3.7: only live attempts and the tiny budget, never their full evidence.
@@ -4001,7 +4071,7 @@ class Daemon:
             if alive != "alive":
                 if alive == "dead" and a["state"] == "running":
                     census = self._contain(a)
-                    if census.verified_empty:
+                    if census.containment_empty:
                         self._lost(a)
                     else:
                         self._kill_attempt(a, lost=True)
@@ -4412,14 +4482,7 @@ class Daemon:
     def _pending_worktree_holds(self) -> list[str]:
         """Terminal jobs whose worktree lease still needs a cwd recheck, on restart too."""
         # Drive this per-tick look from active leases, never the retained jobs.
-        held = {row['job_id'] for row in self.store.query(
-            "WITH held(job_id) AS (SELECT holder FROM leases WHERE lease_key LIKE 'worktree:%' "
-            "UNION SELECT a.job_id FROM leases l CROSS JOIN attempts a ON a.attempt_id=l.holder "
-            "WHERE l.lease_key LIKE 'worktree:%') "
-            "SELECT jobs.job_id FROM held CROSS JOIN jobs ON jobs.job_id=held.job_id "
-            "WHERE state IN ('succeeded','failed','cancelled','lost') "
-            "AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.job_id=jobs.job_id AND a.state='quarantined') "
-        )}
+        held = {row['job_id'] for row in self.store.query(CWD_WORKTREE_HOLDS)}
         clocks = self.__dict__.get('_cwd_recheck_next', {})
         for job_id in clocks.copy():
             if job_id not in held:
@@ -4438,8 +4501,8 @@ class Daemon:
         if now < clocks.get(job_id, 0):
             return
         job = self._job(job_id)
-        if job['state'] not in TERMINAL or self.store.one(
-                "SELECT 1 FROM attempts WHERE job_id=? AND state='quarantined'", (job_id,)):
+        eligible = CWD_WORKTREE_HOLDS + "AND jobs.job_id=?"
+        if not self.store.one(eligible, (job_id,)):
             clocks.pop(job_id, None)
             return
         # Success with a live holder, and an unreadable scan, are both normal
@@ -4452,18 +4515,26 @@ class Daemon:
         except (procs.InspectionError, OSError, ValueError):
             return                         # an unreadable cwd scan releases nothing
         with self.store.transaction('job.worktree_released', job_id=job_id) as tx:
+            if not tx.execute(eligible, (job_id,)).fetchone():
+                return
             tx.execute("DELETE FROM leases WHERE lease_key LIKE 'worktree:%' AND (holder=? "
                        "OR holder IN (SELECT attempt_id FROM attempts WHERE job_id=?))", (job_id, job_id))
         clocks.pop(job_id, None)
         self._notify()
 
-    def _cwd_wait(self, a: dict, census: procs.Containment) -> bool:
+    def _cwd_wait(self, a: dict, census: procs.Containment, *, began: float) -> bool:
         timers = self.__dict__.setdefault('_cwd_settle', {})
+        clocks = self.__dict__.setdefault('_cwd_wait_next', {})
         if not census.containment_empty or not census.cwd_pids:
             timers.pop(a['attempt_id'], None)
+            clocks.pop(a['attempt_id'], None)
             return False
         now = time.monotonic()
+        clocks[a['attempt_id']] = began + self.inspect_interval_s
         return now - timers.setdefault(a['attempt_id'], now) < CWD_SETTLE_S
+
+    def _cwd_census_due(self, a: dict) -> bool:
+        return time.monotonic() >= self.__dict__.get('_cwd_wait_next', {}).get(a['attempt_id'], 0)
 
     @staticmethod
     def _cwd_notice(census: procs.Containment) -> str:
@@ -4486,7 +4557,7 @@ class Daemon:
         for pacing in (self._inspect_next,):
             for aid in [aid for aid in pacing.copy() if aid not in live]:
                 pacing.pop(aid, None)
-        for name in ('_counted_tables', '_cwd_settle', '_containment_rounds'):
+        for name in ('_counted_tables', '_cwd_settle', '_cwd_wait_next', '_containment_rounds'):
             pacing = self.__dict__.get(name, {})
             for aid in [aid for aid in pacing.copy() if aid not in live]:
                 pacing.pop(aid, None)
@@ -4751,7 +4822,7 @@ class Daemon:
             # Stay due. _schedule records the error and applies C-5.10.
             raise TimeoutError("retention deadline reached after progress")
         for error in (result.get("errors") or [])[:5]:
-            self.log.warning("retention: %s: %s", error.get("job_id"), str(error.get("error"))[:300])
+            self.log.warning("retention: %s: %s", error.get("job_id"), refusals.scrubbed_line(str(error.get("error")), 300))
         if result.get("more") and progressed:
             delay = RETENTION_CATCH_UP_S
             self.log.info("retention catch-up: retired %d jobs (freed %d bytes, %d on disk; moved %d bytes into the "
@@ -4839,7 +4910,7 @@ class Daemon:
             try:
                 lane = scheduler.resolve_lane(lanes, pin, scheduler.pin_provider(self.policy, job))
             except scheduler.RouteError as exc:
-                self.log.warning("job %s pin %r was left as it is: %s", job["job_id"], pin, exc)
+                self.log.warning("job %s pin %r was left as it is: %s", job["job_id"], pin, refusals.scrubbed_words(exc))
                 continue
             if lane is None:
                 self.log.warning("job %s pin %r was left as it is: it names no lane", job["job_id"], pin)
@@ -5013,7 +5084,8 @@ class Daemon:
             try:
                 count = self._push_workspace_store_failures.get(job_id, 0)
                 tail = f" after {count} completion write failures" if count else ""
-                self._fail_queued(job, f"workspace completion could not be recorded{tail}: {type(exc).__name__}: {exc}",
+                # A job's notice and failure name sqlite's error by its class (C-25.7).
+                self._fail_queued(job, f"workspace completion could not be recorded{tail}: {refusals.fixed_error(exc)}",
                                   kind="job.workspace_failed")
             except sqlite3.Error:
                 return None
@@ -5830,7 +5902,7 @@ class Daemon:
                 self.conversations.note_holds(holds, placed=tally.get("placed_jobs", ()), seq=seq)
                 self._note_error = None
             except Exception as exc:                      # noqa: BLE001
-                error = f"{type(exc).__name__}: {exc}"[:300]
+                error = refusals.scrubbed_line(refusals.scrubbed_words(exc), 300)
                 if error != self._note_error:             # said once, not every tick
                     self.log.warning("admission: could not note why turns wait: %s", error)
                 self._note_error = error
@@ -6130,7 +6202,9 @@ class Daemon:
         # never held by the guard, so the turn pass reads neither and stays cheap.
         liveness = self._liveness(queued) if kind == "detached" else None
         priority_jobs = self._priority_jobs(queued) if kind == "detached" else {}
-        reading = machine.read() if kind == "detached" else None
+        reading = self._machine_reading() if kind == "detached" else None
+        if kind == "detached":
+            reading = self._machine_guard.advance(self.policy, reading)
         # C-6.9: FIFO within a tier holds among jobs that compete for a model. An
         # older job that cannot be placed holds back the later jobs that could run
         # where it could, and nothing else: on 2026-09-20 an Opus review with no
@@ -7700,7 +7774,7 @@ class Daemon:
         if isinstance(cause, scheduler.RouteError) and not (
                 cause.policy_dependent and job.get("policy_hash") != self.policy_digest):
             self._route_deferrals.pop(job_id, None)
-            self.log.warning("job %s refused at admission: %s", job_id, cause)
+            self.log.warning("job %s refused at admission: %s", job_id, refusals.scrubbed_words(cause))
             self._fail_queued(job, f"refused at admission: {cause}", rc=int(Exit.INVALID_INPUT),
                               kind="job.route_refused", data=record)
             self._discard_fresh_worktree(job_id)
@@ -8155,6 +8229,9 @@ class Daemon:
             deadline = self._starting_deadlines.setdefault(aid, time.monotonic() + self.start_grace_s)
             if time.monotonic() < deadline:
                 return
+            if not self._cwd_census_due(a):
+                return
+            began = time.monotonic()
             census = self._contain(a)
             # The guardian writes start.json, runs the provider, writes exit.json
             # and exits, so the receipts can land while the census runs, and a
@@ -8167,7 +8244,7 @@ class Daemon:
             if self._read_json(adir / "start.json") or self._read_json(adir / "exit.json"):
                 return
             if census.containment_empty:
-                if self._cwd_wait(a, census):
+                if self._cwd_wait(a, census, began=began):
                     return
                 self._unlaunched(a, "starting-no-receipt", census=census)
             else:
@@ -8957,7 +9034,7 @@ class Daemon:
 
     def _resolve_quarantine(self, a: dict, args: protocol.KillArgs) -> None:
         census = self._contain(a)
-        if not args.force_release and not census.verified_empty:
+        if not args.force_release and not census.containment_empty:
             with self.store.transaction("quarantine.still_live", job_id=a["job_id"], attempt_id=a["attempt_id"], data=census.to_dict()) as tx:
                 tx.execute("UPDATE attempts SET quarantine_reason=? WHERE attempt_id=?", (json.dumps(census.to_dict()), a["attempt_id"]))
             return
@@ -8967,24 +9044,29 @@ class Daemon:
             # C-26.10: a turn writes no salvage ref; its end snapshot is taken only
             # when nothing can still be writing (C-26.14). An operator's one-shot
             # request is never retried, so a git failure is recorded, not raised.
-            self._turn_trees(job, a, retry=False, error=None if census.verified_empty else
+            self._turn_trees(job, a, retry=False, error=None if census.containment_empty else
                              "released from quarantine with writers still live; no end snapshot")
-        elif census.verified_empty:
+        elif census.containment_empty:
             artifacts, _, salvage_evidence = self._salvage(job, a, retry=False)
         wall_exited = self._wall_exited_descendants(a["job_id"]) if a.get("killed_by") == "max_wall_s" else set()
         with self.store.transaction("quarantine.force_release" if args.force_release else "quarantine.confirmed_dead", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"operator_note": args.operator_note, "containment": census.to_dict(), "override": args.force_release, **salvage_evidence}) as tx:
             for artifact in artifacts:
                 self.store.add_artifact(a["attempt_id"], **artifact)
-            tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (a["job_id"], a["attempt_id"]))
+            tx.execute("DELETE FROM leases WHERE holder IN (?,?)" +
+                       (" AND lease_key NOT LIKE 'worktree:%'" if census.cwd_pids else ''),
+                       (a["job_id"], a["attempt_id"]))
             actual = self.store.get_attempt(a["attempt_id"])
-            if salvage_evidence and actual["state"] == "quarantined":
+            if (salvage_evidence or census.cwd_pids) and actual["state"] == "quarantined":
                 # C-13.1: `kill --confirm-dead` answered before this ran, and the
                 # job's notice went out when it was quarantined, so what salvage
                 # could not save is told in the evidence and in one more notice.
                 evidence = {**json.loads(actual["evidence_json"] or "{}"), **salvage_evidence}
+                if census.cwd_pids:
+                    evidence['cwd_holders'] = census.to_dict()['cwd_holders']
                 tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?", (json.dumps(evidence), a["attempt_id"]))
                 self._notice(tx, job, f"released from quarantine (attempt a{a['seq']})"
-                             + self._salvage_summary(job, artifacts, salvage_evidence), again=True)
+                             + self._salvage_summary(job, artifacts, salvage_evidence)
+                             + self._cwd_notice(census), again=True)
             tx.execute("UPDATE attempts SET state=? WHERE attempt_id=?", ("interrupted" if self._job(a["job_id"])["cancel_requested_at"] else "lost", a["attempt_id"]))
             self._cascade_final_wall(a, wall_exited)
         self._notify()
@@ -9273,10 +9355,13 @@ class Daemon:
         current = self.store.one("SELECT MAX(seq) n FROM attempts WHERE job_id=?", (a["job_id"],))["n"]
         if job["state"] in TERMINAL or job["accepted_attempt_id"] or current != a["seq"] or actual["state"] not in ("starting", "running", "finalizing"):
             return
+        if not self._cwd_census_due(a):
+            return
         adir = attempt_dir(self.root, a["job_id"], a["seq"])
         adir.mkdir(mode=0o700, exist_ok=True)
+        began = time.monotonic()
         census = self._contain(a)
-        waiting_cwd = self._cwd_wait(a, census)
+        waiting_cwd = self._cwd_wait(a, census, began=began)
         if not census.containment_empty:
             # The guardian writes the receipt just before it exits, and processes
             # it already reaped can still be leaving the process table under
@@ -9293,7 +9378,9 @@ class Daemon:
             census = self._contain_writers(a, census, "writers remain after exit receipt")
             if census is None:
                 return
-            waiting_cwd = self._cwd_wait(a, census)
+            # #240 round 2 paces the cwd wait from when its census began; the
+            # protocol's last census has just been taken.
+            waiting_cwd = self._cwd_wait(a, census, began=time.monotonic())
         if waiting_cwd:
             return
         self._exit_settle.pop(a["attempt_id"], None)
@@ -10066,7 +10153,8 @@ class Daemon:
                         # main (#55). A pool shut down by a stopping daemon refuses
                         # the same way, and is not counted.
                         if not self.stopping.is_set():
-                            self._count_connection("unscheduled", f"{req.op} ({exc})")
+                            # Logged: the exception's words scrubbed, as C-25.7 asks of each site.
+                            self._count_connection("unscheduled", f"{req.op} ({refusals.scrubbed_words(exc)})")
                         continue
                     if future is None:
                         note_reply()
@@ -10358,7 +10446,7 @@ class Daemon:
                 # Registered over the default action, faulthandler would put that
                 # back at the last close or at exit (review of 78bfbf0, P2).
                 self.log.warning("could not set SIGUSR1 to be ignored beneath its handler (%s): "
-                                 "this daemon does not dump stacks on SIGUSR1", exc)
+                                 "this daemon does not dump stacks on SIGUSR1", refusals.scrubbed_words(exc))
                 return False
         # Joined, then settled: SIGUSR1 goes to this daemon's stream, replaced in
         # place while another daemon's lock says `stack_dumps`, never let go first
@@ -10397,7 +10485,7 @@ class Daemon:
                 if not isinstance(exc, OSError):
                     raise                                  # it stays; the interrupted close keeps the stream
                 self.log.warning("daemon.lock could not drop stack_dumps (%s): SIGUSR1 may still dump "
-                                 "into this log", exc)
+                                 "into this log", refusals.scrubbed_words(exc))
                 return                                     # it stays in `_ADVERTISED`, its stream kept
             self._leave_advertised(token)
             if not isinstance(exc, OSError):
@@ -10759,16 +10847,24 @@ def main(argv: list[str] | None = None) -> int:
     if args.state_root is None:
         from .home_paths import home_path
         args.state_root = home_path("SUBFLEET_HOME", lambda: "~/.subfleet", accept_empty=True)
+    # C-25.7: this process's stdout and stderr are daemon.log, under `daemon start`
+    # and launchd alike. From here an uncaught exception, a thread's, an unraisable
+    # one, a warning and a record no handler takes are written there scrubbed. The
+    # hooks stay for the life of the process, so they hold after `main` returns or
+    # raises and through interpreter shutdown; nothing before them takes input but
+    # the arguments.
+    daemon_log.install_process_hooks()
     limits = descriptors.raise_open_file_limit()
     try:
         daemon = Daemon(args.state_root)
     except DaemonUnavailable as exc:
-        print(str(exc), file=sys.stderr)
+        daemon_log.write_scrubbed(str(exc))
         return 69
     except PolicyError as exc:
         # C-11.1: a refused policy or lane roster is exit 2 with its message in
-        # daemon.log, not a traceback.
-        print(f"subfleet daemon: {exc}", file=sys.stderr)
+        # daemon.log, not a traceback; scrubbed there as the handler scrubs a
+        # record (C-25.7), since a refused key is the policy's own text.
+        daemon_log.write_scrubbed(f"subfleet daemon: {exc}")
         return int(Exit.INVALID_INPUT)
     log_open_file_limit(daemon.log, *limits)
     daemon.log.info("stack dumps: `kill -USR1 %d` (or `subfleet daemon stacks`) writes every "

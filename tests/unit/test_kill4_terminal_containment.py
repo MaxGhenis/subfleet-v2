@@ -203,6 +203,7 @@ def test_an_uncounted_operator_process_in_the_worktree_is_never_signalled_and_th
     daemon._finalize(attempt(daemon))                                   # contains lockf, then waits on cwd
     assert attempt(daemon)["state"] == "finalizing"
     daemon._cwd_settle[ATTEMPT] -= daemon_module.CWD_SETTLE_S + 1
+    daemon._cwd_wait_next = {}                                          # #240 round 2 paces the wait
     daemon._finalize(attempt(daemon))
     a, job = attempt(daemon), daemon.store.get_job(JOB)
     assert operator.alive and operator.pid not in world.signalled()

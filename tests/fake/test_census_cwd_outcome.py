@@ -48,13 +48,14 @@ def test_cwd_only_preserves_outcome_and_holds_only_worktree(core, monkeypatch, e
         now[0] = 3.1
         step()
         assert attempt(core)["state"] in ("starting", "finalizing")
-        now[0] = 29.9
+        now[0] = 29.0
         step()
         assert not attempt(core)["quarantine_reason"]
         if ending == "leaves-within-window":
             child.terminate()
             child.wait(timeout=10)
             monkeypatch.setattr(procs.kernel, "pids", lambda: frozenset())
+            now[0] = 29.9  # a fresh due census sees the departure within 30 s
         else:
             now[0] = 30.1
         step()
