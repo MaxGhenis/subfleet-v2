@@ -11,6 +11,9 @@ stopped by its recorded identity on failure too; nothing else is ever signalled.
 2. Review r1's P1: a leaderless process group at an attempt's recorded pgid, left by
    a process that called setsid, forked a sleeping member and exited. `kill` on the
    finished job must never signal the member.
+3. Review r1's P3-1: a TERM-ignoring provider starts a child that stops itself every
+   0.25 s; the attempt is cancelled. Every child born after the group's TERM gets a
+   TERM of its own before its continue.
 """
 
 from __future__ import annotations
@@ -147,3 +150,56 @@ def test_kill_on_a_finished_job_never_signals_a_real_leaderless_group_at_its_rec
     finally:
         if member is not None:
             REAL["signal_process"](member, signal.SIGKILL)
+
+
+GUARDIAN = """
+import os, signal, subprocess, sys, time
+os.setsid()
+signal.signal(signal.SIGTERM, lambda *_: None)          # as subfleet.guardian: its TERM is a no-op
+open(sys.argv[1], "w").write(str(os.getpid()))
+subprocess.Popen([sys.executable, "-c", sys.argv[2]]).wait()
+time.sleep(60)
+"""
+PROVIDER = """
+import os, signal, subprocess, sys, time
+signal.signal(signal.SIGTERM, signal.SIG_IGN)            # a provider that ignores TERM
+child = ("import os, signal, time; signal.signal(signal.SIGTERM, lambda *_: os._exit(0)); "
+         "os.kill(os.getpid(), signal.SIGSTOP); time.sleep(60)")
+end = time.monotonic() + 60
+while time.monotonic() < end:
+    subprocess.Popen([sys.executable, "-c", child], preexec_fn=lambda: signal.signal(signal.SIGTERM, signal.SIG_DFL))
+    time.sleep(.25)
+"""
+
+
+def test_self_stopping_children_born_after_the_group_term_each_get_their_own_term_before_a_continue(
+        real, tmp_path):
+    pidfile = tmp_path / "guardian.pid"
+    env = {**os.environ, "SUBFLEET_ATTEMPT": ATTEMPT, "SUBFLEET_ROOT": str(real.root)}
+    launcher = subprocess.Popen([sys.executable, "-c", GUARDIAN, str(pidfile), PROVIDER], env=env,
+                                stdin=subprocess.DEVNULL)
+    guardian = None
+    try:
+        until(lambda: pidfile.exists() and pidfile.read_text().strip())
+        guardian = procs.identity(int(pidfile.read_text()))
+        assert guardian is not None and guardian.pid == launcher.pid
+        until(lambda: len(procs.snapshot().group(guardian.pid)) >= 4)       # guardian, provider, children
+        real.store.update_attempt(ATTEMPT, state="running", guardian_pid=guardian.pid, pgid=guardian.pid,
+                                  child_pid=None, boot_id=guardian.boot_id, proc_start=guardian.proc_start)
+        real.store.update_job(JOB, cancel_requested_at=daemon_module.utcnow())
+        real.term_grace_s, real.kill_settle_s = 3.0, 3.0
+        real._process_attempt(ATTEMPT)
+        first = json.loads(real.store.one("SELECT data_json FROM events WHERE kind='attempt.containment' "
+                                          "ORDER BY event_id")["data_json"])["census"]
+        before = set(first["group_pids"])                     # the members the group's TERM reached
+        assert ("group", guardian.pid, int(signal.SIGTERM)) in real.sent, real.sent
+        continued = [pid for kind, pid, sig in real.sent if kind == "pid" and sig == int(signal.SIGCONT)]
+        joiners = [pid for pid in continued if pid not in before]
+        assert len(joiners) >= 5, (joiners, real.sent)
+        for pid in joiners:
+            cont = real.sent.index(("pid", pid, int(signal.SIGCONT)))
+            assert ("pid", pid, int(signal.SIGTERM)) in real.sent[:cont], (pid, real.sent)
+        assert guardian.pid not in continued
+    finally:
+        end_group(guardian)
+        launcher.wait(timeout=10)
