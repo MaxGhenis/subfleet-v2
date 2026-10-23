@@ -2792,7 +2792,7 @@ The whole reminder costs 465, 421 and 414 ms a MiB: linear in the file. That is 
 
 ### Tests per file, follow-ups
 
-Final code head `1d3627968`. The briefed groups, one pytest a hold, through the wrapper, `-p no:cacheprovider`, bounded Hypothesis.
+The briefed groups, one pytest a hold, through the wrapper, `-p no:cacheprovider`, bounded Hypothesis. Holds 6 and 7 ran at `1d3627968`; the commits after it touch only the docs and the census tool, which no test imports.
 
 | File | Hold 3, `e05dec779` | Hold 5, `8ee49100b` | Hold 7, `1d3627968` |
 |---|---:|---:|---:|

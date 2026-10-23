@@ -49,7 +49,7 @@ Round 6's control leaked on 2,008 and 171 texts of the first two rows. The margi
 - 332 where the breaks complete a data URI body (171 of which the hub's direction alone would have leaked);
 - 82 CRLF bare margins.
 
-**Tests**, at the final code head `1d3627968`, one pytest a hold through the hub's wrapper:
+**Tests**, at `1d3627968` (the commits after it touch only the docs and the census tool, which no test imports), one pytest a hold through the hub's wrapper:
 - **First group,** with the new file, `test_daemon_log_first_pass.py` and `test_daemon_log_mutation_tool.py`: **673 passed**.
 - **Second group,** with the three files that read the contract and the new file: **393 passed**.
 - **New file** `tests/unit/test_daemon_log_trailing_reminders.py`: 56 cases, among them a bounded Hypothesis property of 150 examples at the real bound.
