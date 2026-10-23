@@ -34,7 +34,7 @@ struct MainWindow: View {
                 } else if let locked = model.lockedEntry {
                     LockedSessionView(entry: locked)
                 } else if let conversation = model.state.focusedConversation {
-                    ConversationView(model: model, conversation: conversation)
+                    ConversationView(model: model, conversation: conversation).id(conversation.conversation_id)
                 } else {
                     EmptyConversationView { model.openNewDraft() }
                 }
@@ -307,6 +307,13 @@ struct SidebarRow: View {
 
 // MARK: - Conversation
 
+extension View {
+    @ViewBuilder func initialConversationScrollAnchor() -> some View {
+        if #available(macOS 15.0, *) { self.defaultScrollAnchor(.bottom, for: .initialOffset) }
+        else { self }
+    }
+}
+
 struct ConversationView: View {
     @ObservedObject var model: UIModel
     let conversation: Conversation
@@ -314,6 +321,7 @@ struct ConversationView: View {
     /// Whether the end of the timeline is on screen: streamed text is followed
     /// only then, so reading further up is not interrupted.
     @State private var atBottom = true
+    @State private var followSuspended = false
     @State private var renaming = false
     @State private var renamedTitle = ""
     /// The waiting cards already brought into view, so each is scrolled to once.
@@ -324,6 +332,8 @@ struct ConversationView: View {
     var body: some View {
         let timeline = model.state.timelines[conversation.conversation_id]
         let pendingRows = timeline?.pendingApprovalItems ?? []
+        let layout = model.state.layout(conversationID: conversation.conversation_id)
+        let follow = layout?.followKey(length: streamedLength) ?? .empty
         VStack(spacing: 0) {
             header
             RunsStrip(runs: model.runs[conversation.conversation_id] ?? [])
@@ -340,7 +350,7 @@ struct ConversationView: View {
                                 Task { await model.loadHistory(conversation.conversation_id, follow: true) }
                             }.buttonStyle(.link)
                         }
-                        ForEach(timeline.map(WorkPresentation.rows) ?? []) { row in
+                        ForEach(timeline.map { WorkPresentation.rows(in: $0, items: layout?.items) } ?? []) { row in
                             switch row {
                             case .item(let item):
                                 TimelineRow(model: model, conversation: conversation, item: item, review: review).id(item.id)
@@ -352,41 +362,28 @@ struct ConversationView: View {
                             }
                         }
                         Theme.clear.frame(height: 1).id("bottom")
-                            .onAppear { atBottom = true }
+                            .onAppear { atBottom = true; followSuspended = false }
                             .onDisappear { atBottom = false }
                     }
                     .padding(Theme.space.column)
-                    .conversationColumn(conversation.conversation_id, proxy: proxy)
+                    .background(ConversationOpeningPin(conversationID: conversation.conversation_id))
+                    .conversationColumn(conversation.conversation_id, proxy: proxy,
+                                        revealIDs: Set(layout?.items.map(\.id) ?? []))
                     .frame(maxWidth: .infinity)
                 }
-                .onChange(of: timeline?.items.last?.id) { _, _ in
-                    // A new last row: followed while the end is on screen, and always
-                    // for the message the person just sent. Rows 'Load earlier' adds go
-                    // first and change no last row.
-                    let own = timeline?.items.last.map {
-                        if case .person(_, _, let state) = $0.content { return state == "sending" } else { return false }
-                    } ?? false
-                    if atBottom || own {
+                .initialConversationScrollAnchor()
+                .onChange(of: follow) { old, new in
+                    switch FollowKey.move(from: old, to: new, atBottom: atBottom, suspended: followSuspended) {
+                    case .stay: break
+                    case .jump: jumpToBottom(proxy)
+                    case .glide:
                         withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("bottom", anchor: .bottom) }
                     }
                 }
-                .onChange(of: timeline?.followedItem?.id) { _, _ in
-                    // A new row of a turn that has started, above the messages still
-                    // queued: followed while the end is on screen.
-                    if atBottom { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("bottom", anchor: .bottom) } }
-                }
-                .onChange(of: timeline?.followedItem.map(streamedLength) ?? 0) { _, _ in
-                    // A text or thinking block growing in place adds no row.
-                    if atBottom { proxy.scrollTo("bottom", anchor: .bottom) }
-                }
                 .onChange(of: approvalKey(timeline, pendingRows)) { _, _ in followApprovals(proxy) }
                 .onChange(of: model.approvalReveal) { _, _ in followApprovals(proxy) }
-                .onChange(of: conversation.conversation_id) { _, _ in
-                    atBottom = true
-                    proxy.scrollTo("bottom", anchor: .bottom)
-                }
                 .onAppear {
-                    proxy.scrollTo("bottom", anchor: .bottom)
+                    if #unavailable(macOS 15.0) { jumpToBottom(proxy) }
                     followApprovals(proxy)
                 }
             }
@@ -418,6 +415,13 @@ struct ConversationView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 14).padding(.top, 6)
             }
+            if let layout, let title = layout.trayTitle {
+                QueueTray(title: title, rows: layout.tray, withdrawing: model.withdrawingMessages,
+                          withdraw: { model.withdrawQueued($0, conversationID: conversation.conversation_id) },
+                          steer: { model.steer(messageID: $0.id, conversationID: conversation.conversation_id) },
+                          conversationID: conversation.conversation_id)
+                    .padding(.horizontal, 14).padding(.top, 6)
+            }
             ComposerView(model: model, conversation: conversation)
         }
         .foregroundStyle(Theme.text.primary.color)
@@ -447,12 +451,23 @@ struct ConversationView: View {
                     .inspectorColumnWidth(min: 360, ideal: 560, max: 1100)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .conversationRowScroll)) { note in
+            guard note.object as? String == conversation.conversation_id else { return }
+            // Only the end marker owns atBottom. A reveal may leave it visible.
+            followSuspended = true
+        }
         .onChange(of: timeline?.liveMessageID) { _, _ in
             // A turn started or ended: an open pane compares again.
             if let scope = model.changesScope, scope.conversationID == conversation.conversation_id {
                 Task { await model.loadChanges(scope) }
             }
         }
+    }
+
+    private func jumpToBottom(_ proxy: ScrollViewProxy) {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { proxy.scrollTo("bottom", anchor: .bottom) }
     }
 
     /// Opens a card's request for the person to answer.
@@ -490,14 +505,22 @@ struct ConversationView: View {
     private func followApprovals(_ proxy: ScrollViewProxy) {
         let id = conversation.conversation_id
         guard let timeline = model.state.timelines[id] else { return }
+        let opening = approvals.conversationID != id || approvals.shown.isEmpty
         var reveal = model.approvalReveal?.conversationID == id
         let target = approvals.target(in: timeline, reveal: &reveal)
         if !reveal { model.revealed(id) }
         guard let target else { return }
+        ConversationOpeningPin.revealRow(in: id)
         // After this update's own scrolling (to the end, for a row that just
         // arrived), so the view settles on the card.
         DispatchQueue.main.async {
-            withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(target, anchor: .center) }
+            if opening {
+                var transaction = Transaction(animation: nil)
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { proxy.scrollTo(target, anchor: .center) }
+            } else {
+                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(target, anchor: .center) }
+            }
         }
     }
 
@@ -574,13 +597,11 @@ struct TimelineRow: View {
                 Text((kind.map { "\($0): " } ?? "") + message + (willRetry ? " (retrying)" : ""))
             }
         case .notice(let words):
-            VStack(alignment: .leading, spacing: Theme.space.step) {
-                NoticeRow(symbol: "info.circle") { Text(words) }
-                if item.id.hasPrefix("person:"), let id = item.messageID,
-                   let turn = model.state.timelines[conversation.conversation_id]?.turn(id) {
-                    TurnStatusLine(model: model, conversation: conversation, turn: turn)
-                }
-            }
+            let turn = item.id.hasPrefix("person:") ? item.messageID.flatMap {
+                model.state.timelines[conversation.conversation_id]?.turn($0)
+            } : nil
+            ConversationNoticeRow(words: words, withdrawn: turn.map(Timeline.withdrawnBeforeStart) ?? false,
+                status: turn.map { AnyView(TurnStatusLine(model: model, conversation: conversation, turn: $0)) })
         case .taskNotification(let notice):
             TaskNotificationView(notice: notice)
         case .steered:
@@ -637,6 +658,13 @@ struct TurnStatusLine: View {
                     Text(model.state.timelines[conversation.conversation_id]?.statusText(
                         of: turn.messageID, assistant: conversation.provider == "codex" ? "Codex" : "Claude") ?? turn.statusText)
                         .readingFont(.caption).foregroundStyle(Theme.text.secondary.color)
+                }
+                if turn.queuedWithdrawal != .none {
+                    Button("Withdraw") {
+                        model.withdrawQueued(QueuedMessage(turn: turn), conversationID: conversation.conversation_id)
+                    }
+                    .buttonStyle(.link).readingFont(.caption)
+                    .disabled(model.withdrawingMessages.contains(turn.messageID))
                 }
                 if let stats = model.turnChanges[turn.messageID], stats.files > 0 {
                     Button {

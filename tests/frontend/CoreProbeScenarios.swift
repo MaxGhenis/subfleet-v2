@@ -303,10 +303,30 @@ func runStore(_ data: Data) throws -> [String: Any] {
         }
         if let open = step["open"] { state.apply(open: try open.decode(ConversationOpenResult.self)); log.append("open") }
         if let page = step["events"], let cid = step["conversation_id"]?.string {
-            log.append(pageResult(state.apply(events: try page.decode(EventsPage.self), conversationID: cid)))
+            let decoded = try page.decode(EventsPage.self)
+            if let socket = step["refresh_socket"]?.string {
+                let client = DaemonClient(transport: try probeTransport(socket))
+                let engine = ConversationEngine(client: client, outbox: try Outbox(url: nil))
+                let receipts = try engine.unknownReceipts(in: decoded, knownMessageIDs: state.knownMessageIDs(in: cid))
+                state.apply(receipts: receipts, conversationID: cid)
+            }
+            log.append(pageResult(state.apply(events: decoded, conversationID: cid)))
         }
         if let page = step["watch"] {
-            switch state.apply(watch: try page.decode(WatchPage.self)) {
+            let decoded = try page.decode(WatchPage.self)
+            let folded: ConversationStoreState.WatchResult
+            if let socket = step["refresh_socket"]?.string {
+                let client = DaemonClient(transport: try probeTransport(socket))
+                let journal = URL(fileURLWithPath: socket).deletingLastPathComponent().appendingPathComponent("watch-outbox.json")
+                let engine = ConversationEngine(client: client, outbox: try Outbox(url: journal))
+                let update = try engine.refreshing(decoded, after: state.watchCursor,
+                                                  focusedConversationID: state.focusedConversationID,
+                                                  knownMessageIDs: state.focusedConversationID.map { state.knownMessageIDs(in: $0) } ?? [])
+                folded = state.apply(update: update)
+            } else {
+                folded = state.apply(watch: decoded)
+            }
+            switch folded {
             case .applied(let count): log.append("watch:\(count)")
             case .superseded: log.append("watch:superseded")
             }
@@ -361,8 +381,10 @@ func runStore(_ data: Data) throws -> [String: Any] {
     var steerHints: [String: Any] = [:]
     var items: [String: Any] = [:]
     var projected: [String: Any] = [:]
+    var layouts: [String: Any] = [:]
     for conversation in state.conversations {
         let id = conversation.conversation_id
+        layouts[id] = state.layout(conversationID: id).map(project) ?? NSNull()
         composer[id] = state.composerOptions(for: id).map(project) ?? NSNull()
         // C-26.8 (review of 0eac67b4, P2): the composer's options follow a model
         // picked but not yet saved, so its efforts and default are that model's.
@@ -410,6 +432,12 @@ func runStore(_ data: Data) throws -> [String: Any] {
     out["steer_hints"] = steerHints
     out["items"] = items
     out["timeline"] = projected
+    out["layouts"] = layouts
+    var withdrawals: [String: Any] = [:]
+    for timeline in state.timelines.values {
+        for turn in timeline.turns.values { withdrawals[turn.messageID] = project(turn.queuedWithdrawal) }
+    }
+    out["queued_withdrawals"] = withdrawals
     return out
 }
 
@@ -449,8 +477,8 @@ func runWatchLoop(socket: String, journal: String, turns: Int) throws -> [String
                   left -= 1
                   return left >= 0 ? after : nil
               },
-              deliver: { page in
-                  after = page.next
+              deliver: { update in
+                  after = update.page.next
                   log.append("page")
               },
               lost: { error in
