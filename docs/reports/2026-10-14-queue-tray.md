@@ -2634,3 +2634,304 @@ no foreign process was signalled. At delivery the job scratch, build directory
 and generated Python/Hypothesis caches are removed. Workspace-local Git metadata
 is retained for the commits. No logs, JSON evidence or bundles are staged, and
 nothing was fetched or pushed.
+
+
+## Fix 10 (2026-10-23, review r6)
+
+**Implementation and requested settling proof complete; whole-frontend validation incomplete at the prescribed cutoff.**
+There are **514 distinct frontend passes, 1 skip and 347 unrun cases** across the
+54-file manifest. The fake contract file adds 37 passes and the module-name file
+adds 1: **552 distinct requested repository cases passed**. No completed
+final-source assertion failed. Interrupted invocations are recorded separately;
+raw reviewer-probe failures below are diagnostic results, not canonical-suite passes.
+No new hold was requested after 14:26 UTC (4 h 30 m from this job's approximately
+09:56 UTC start). The final hold was requested at approximately 14:16 UTC and
+stopped before 20 minutes. No push occurred.
+
+### Merge and commit storage
+
+The first commit, `fa9cd6ffe`, merges the explicitly pinned `c2e080e44` into
+`3f95e80b3c13`. No fetch occurred. The only conflict was
+`docs/acceptance-contract.md`. Ran the required command:
+
+```
+python3 /Users/maxghenis/reviews/subfleet-hub/host-runs/merge_contract.py HEAD c2e080e44
+```
+
+It exited 0, merging against `7e2dc5a35`, and reported **254 clauses, none
+duplicated**. The exact requested clause-ID grep/sort/uniq command printed
+nothing, both after resolution and at delivery. The merge commit's body
+incorrectly says 333 clauses; the verified count is 254. History is preserved.
+`subfleet/conversations/service.py` merged automatically; no other file conflicted
+and no additional hand resolution was needed.
+
+Shared Git metadata is read-only. Commits are on `feat/queue-tray-217` in this
+workspace's `.git-local`; the supplied `.git` pointer and caller's checkout are
+unchanged. Inspect with `GIT_DIR="$PWD/.git-local" GIT_WORK_TREE="$PWD" git log`.
+Every commit has the requested co-author trailer. Source/test commits, oldest first:
+
+- `fa9cd6ffe` merge release at `c2e080e44`.
+- `a94d2f098` tests first: require controlled settling inputs and separate schedules.
+- `c81c9c89d` implement the controlled settling page and retain mutation evidence in scratch.
+- `bd52d97c5` tests first: port the seven distant-row cases.
+- `19a6649d9` mount probe windows offscreen, control transactions and wait for state.
+
+This report is committed separately. No shipping app source changed in this round.
+
+### P2: deterministic settling mutation control
+
+The old fixture inferred branch coverage from page spacing. It could complete a
+100 ms mutant opening at the end without ever exercising a changed settling key
+with both `suspended` and `atBottom` true. Sequential `pytest.raises` checks also
+let a failure on one schedule prevent evaluation of the other.
+
+The named regression now retains the real `UIModel` slow-opening check and adds
+a focused real `ScrollViewReader`/`SearchRevealer` fixture. The probe completes the
+two-scroll reveal, explicitly positions at and measures the end, retains the
+observed reveal suspension, then releases one 4,000-point page that changes the
+actual `FollowKey`. Its `.onChange` calls the real `FollowKey.move`. It reports
+changed-key, settling, suspension and end-visible inputs. These are asserted as
+setup outside mutation rejection. No timing is used to decide whether the
+required predicate inputs have been established. The 100/250 ms delays remain
+stimuli. The two schedules are separate pytest items.
+
+The focused control is distinct from the retained UIModel integration check.
+One original 100 ms mutant still finished 24 points from the end; it is rejected
+by the focused changed-key transition. The test no longer infers predicate
+coverage from that original opening's final position.
+
+Five repetitions each launched **fresh head and mutant native processes**. They
+reuse the exact final-source binaries already compiled in the successful view
+hold; the mutant's saved `QueueTray.swift` was checked against the exact expected
+single-clause replacement before reuse. Each repetition invokes the original
+head regression and the canonical mutation regression separately for each
+schedule. This is five new native measurements, not five assertions on one
+cached result. All prerequisites passed, each named mutant regression raised,
+and every result was identical:
+
+| Fresh run | Head 250 ms (pt) | Mutant 250 ms (pt) | Head 100 ms (pt) | Mutant 100 ms (pt) |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 0 | 4000 | 0 | 4000 |
+| 2 | 0 | 4000 | 0 | 4000 |
+| 3 | 0 | 4000 | 0 | 4000 |
+| 4 | 0 | 4000 | 0 | 4000 |
+| 5 | 0 | 4000 | 0 | 4000 |
+
+The end tolerance remains 30 points. The controlled mutant is 4,000 points away
+on both schedules. The five-run driver produced **10 passing pytest items**.
+The canonical frontend mutation file has 6 distinct completed passes and 1
+uncompleted case: `key_on_all_rows`. The UIModel known-receipt, notice/atBottom,
+full-history hydration and per-receipt-sort mutants were each rejected by their
+named regressions. The row-set mutation was attempted twice but interrupted
+before completion; it is unrun coverage, not a confirmed rejection.
+
+### Distant-row question: classification (c), probe environment sensitivity
+
+`brief-review-r5.md` explicitly identifies the approved head as `a01711839`.
+Thus two requested revision labels name the same commit; they were run
+independently. Comparing its app sources with the merged head found only the
+previous fix-9 probe counters/notifications, guarded by test compilation flags.
+Shipping app code did not regress between those revisions.
+
+Copied the supplied reviewer files into job scratch. Ran the original first
+probe's 14 cases plus the second probe's three normal controls and two distant
+catch-up assertions, using its `controls,openlive,trayfar,open` groups. Mutant-only
+checks were not part of this product-revision comparison. Every invocation used
+the required wrapper, CPython 3.14.7 and the same Swift flags.
+
+Release predates `Notification.Name.conversationRowScroll` and
+`ConversationStoreState.knownMessageIDs`. The untouched probes first produced
+19 compilation setup errors there. To measure the baseline, added scratch-only
+observer aliases: the notification's existing string name, and a known-ID getter
+returning `Set(timelines[cid]?.displayOrder ?? [])`. They do not post notifications
+or alter scrolling. Baseline notice counts are zero; its opening controls also
+fail, so large baseline catch-up distances do not demonstrate a successful reveal.
+
+Raw probe results, before any rendering control (P/F counts cover 19 assertions):
+
+| Revision | Passed / failed | Five distant cases passed | Quiet distance (pt) | Round 1 catch-up 250 / 100 ms (pt) | Round 2 catch-up 250 / 100 ms (pt) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Release without PR: `c2e080e44` | 6 / 13 | 0 / 5 | 25 | 22831 / 20645 | 22831 / 20470 |
+| R5-approved head: `a01711839` (A) | 10 / 9 | 0 / 5 | 0 | 25 / 25 | 25 / 25 |
+| `a01711839` independent repeat (B) | 9 / 10 | 0 / 5 | 0 | 25 / 76 | 25 / 75 |
+| Merged head: `fa9cd6ffe` app sources | 9 / 10 | 0 / 5 | 0 | 25 / 25 | 25 / 25 |
+
+All seven distant behaviors fail in the original first probe at both approved
+head runs and merged head. The extra failure in repeat B/merged head is an
+opening-control outlier. The two round-2 distant behaviors also fail at each.
+
+R5's saved `out/r5-round1/view_head.json` differs concretely: quiet distance
+**5,249.5 pt**, catch-up **15,178.5 / 17,402 pt**, with unchanged offsets after
+further output. Its review was based on actual positive evidence. Those results
+can be reproduced on the same app source once the probe's rendering lifecycle
+is controlled; this is not evidence that r5 invented its result or that this
+PR's product source later changed.
+
+The original probes create unpresented windows and rely on animated
+`ScrollViewProxy` calls and fixed post-layout sampling. A host transaction
+modifier alone still failed all seven head checks. Controlling the animation
+call site improved five but left two failures. Mounting the windows beyond all
+screen bounds and driving AppKit updates restored all seven distant behaviors
+at both revisions. Remaining Python failures sampled no-reveal opening controls
+at 298/72 pt; a second later they were 24/0 pt. Waiting for the actual end state,
+with a 60-second hang guard, also closes those control failures.
+
+The final fixture therefore finishes AppKit launch, mounts each window outside
+all screens without taking keyboard focus, drives `updateWindows`/display, uses
+a probe-module animation overload with synchronous transactions, and waits for
+cursor/caught-up/reveal/end state. Windows are nonrestorable and closed after
+each case. Seven permanent regressions cover quiet output, text at 50/120 ms,
+rows at 150/400 ms, and both distant catch-up schedules. Their arrivals are finite
+counts; they assert positions, consumption and reveal/start counts, never a
+performance time bound. Mount counts and animation-call counts make ineffective
+controls fail setup. No shipping animation implementation was changed.
+
+After these test-only controls, **all 14 original reviewer assertions passed**
+(head and approved source), including the no-reveal controls:
+
+| Controlled revision | Five distant cases passed | Their final distance range (pt) | Catch-up 250 ms (pt) | Catch-up 100 ms (pt) | Offset shift after more output (pt) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `a01711839` | 5 / 5 | 4751–5434 | 17447 | 17985 | 0 |
+| `head` | 5 / 5 | 4710–5320 | 17447 | 19018 | 0 |
+
+This establishes (c). The historical host event that changed the old unpresented
+window's behavior was not recorded, so no OS-version or HOME-change cause is
+claimed. The reproducible dependency is the probe's window/transaction/layout
+preparation. Visible production-window animation was not exercised by this
+controlled geometry probe.
+
+### Stability, holds and protocol exception
+
+The required three files contain 17 checks (fix-8 view 6, fix-8 engine 8, fix-9
+view 3). They completed with **17 passed, 0 failed in each of three separate
+holds**: `stability-1`, `stability-2`, and `stability-3-core`. The first two also
+completed all 7 new distant-row checks. Their additional mutation/core work was
+interrupted separately; the completed required cases did not fail.
+
+| Hold | Completed passes | Skips | Recorded pytest duration | Outcome |
+| --- | ---: | ---: | ---: | --- |
+| `brief-view-and-deterministic-probes` | 54 | 0 | 18m 32.12s | completed |
+| `brief-engine` | 156 | 0 | 13m 35.62s | completed |
+| `brief-conversation` | 62 | 0 | 4m 21.19s | completed |
+| `brief-contract` | 38 | 0 | 0m 41.91s | completed |
+| `stability-1` | 28 | 0 | 21m 42.47s | interrupted after completed cases |
+| `stability-2` | 24 | 0 | 17m 53.87s | interrupted after completed cases |
+| `stability-3` | 10 | 0 | 15m 38.68s | interrupted after completed cases |
+| `stability-3-core` | 108 | 0 | 17m 30.08s | interrupted after completed cases |
+| `last-frontend` | 161 | 1 | 17m 58.81s | interrupted after completed cases |
+
+**Protocol exception:** I let `stability-1` run **21m 42.47s**, exceeding the
+20-minute maximum, before interrupting it. That was my error in grouping and
+monitoring the work. Later holds were stopped below 20 minutes. No completed
+assertion failed in interrupted holds; their unfinished cases are not counted
+as passes. The first combined approved-head comparison was also split before
+20 minutes. No test process was run concurrently with another of mine.
+
+The build passed through the wrapper after the pinned merge. Environment setup
+used the prescribed setup wrapper once, with GIL CPython 3.14.7. Tests reused that
+venv and a scratch uv cache; no deep Hypothesis profile was run. Remaining runs
+explicitly selected the ci profile. The previous work-count audit remains in
+force: new assertions are counts or positions; timestamps and milliseconds are
+diagnostic, and deadlines are generous completion guards.
+
+### Four retained invariants and open items
+
+1. Follow after a reveal depends on the end being visible; a tray reveal leaves
+   timeline follow alone. The explicit settling transition and distant-position
+   cases now have deterministic probe controls.
+2. Opening includes all queued identities, including queues larger than the
+   opening snapshot. The briefed queue/status properties passed.
+3. Reopening fetches zero known receipts, and a changed receipt batch sorts once
+   (zero for an unchanged batch). These are work counts, not a universal wall-time
+   claim; engine histories 500/2,000/5,000 passed.
+4. A continuously present target gets one reveal start and its two-scroll pair,
+   even while rows arrive. The positive checks passed; the row-set mutation's
+   completed negative control remains outstanding.
+
+Open items: complete the 347 unrun frontend cases below, especially the named
+row-set mutation; the older approval-card reply/follow timing and return-to-end
+follow observations remain outside this round as directed by brief fix 9.
+No claim is made that those older observations are fixed.
+
+### Per-file final-source coverage
+
+Unique completed cases, combining briefed and subsequent holds; repetitions are
+not added to these counts. Manifest counts are review r6's unchanged file counts,
+with the independent second settling case and seven new distant-row cases added.
+Blank/incomplete JUnit entries created by interruption are excluded. All completed
+repository assertions passed. The skip is the development-daemon case whose
+process/boot-identity checks are unavailable in this sandbox.
+
+| Frontend file | Passed | Skipped | Unrun |
+| --- | ---: | ---: | ---: |
+| `test_app_cutover_start.py` | 13 | 0 | 0 |
+| `test_conversation_view.py` | 6 | 0 | 0 |
+| `test_core_app_cutover_reading.py` | 15 | 0 | 0 |
+| `test_core_approval_notification.py` | 10 | 0 | 0 |
+| `test_core_approval_reach.py` | 41 | 0 | 0 |
+| `test_core_client.py` | 18 | 0 | 0 |
+| `test_core_diff.py` | 7 | 0 | 0 |
+| `test_core_draft.py` | 7 | 0 | 0 |
+| `test_core_idle.py` | 1 | 0 | 0 |
+| `test_core_live.py` | 0 | 1 | 0 |
+| `test_core_live_failure.py` | 1 | 0 | 0 |
+| `test_core_markdown.py` | 42 | 0 | 0 |
+| `test_core_outbox.py` | 13 | 0 | 0 |
+| `test_core_protocol.py` | 10 | 0 | 0 |
+| `test_core_question_card.py` | 10 | 0 | 0 |
+| `test_core_queue_engine.py` | 75 | 0 | 0 |
+| `test_core_queue_tray.py` | 51 | 0 | 0 |
+| `test_core_search.py` | 20 | 0 | 0 |
+| `test_core_steer.py` | 43 | 0 | 0 |
+| `test_core_steer_properties.py` | 2 | 0 | 0 |
+| `test_core_store.py` | 10 | 0 | 0 |
+| `test_core_suggestions.py` | 7 | 0 | 0 |
+| `test_core_suggestions_r1b.py` | 4 | 0 | 0 |
+| `test_core_text_scale.py` | 7 | 0 | 0 |
+| `test_core_timeline.py` | 23 | 0 | 0 |
+| `test_core_titles.py` | 1 | 0 | 0 |
+| `test_disk_ruling.py` | 0 | 0 | 8 |
+| `test_menu_view.py` | 0 | 0 | 8 |
+| `test_pr124_fixes_ui.py` | 0 | 0 | 17 |
+| `test_pr124_recovery_properties.py` | 0 | 0 | 1 |
+| `test_pr124_review_r2_fixes_ui.py` | 0 | 0 | 19 |
+| `test_queue_tray_fix4_mutations.py` | 0 | 0 | 4 |
+| `test_queue_tray_notice.py` | 2 | 0 | 0 |
+| `test_queue_tray_view.py` | 15 | 0 | 0 |
+| `test_reading_view.py` | 0 | 0 | 5 |
+| `test_review_pr127_timeline.py` | 0 | 0 | 4 |
+| `test_review_r219_fix10_view.py` | 7 | 0 | 0 |
+| `test_review_r219_fix4.py` | 0 | 0 | 39 |
+| `test_review_r219_fix6.py` | 7 | 0 | 0 |
+| `test_review_r219_fix8_engine.py` | 8 | 0 | 0 |
+| `test_review_r219_fix8_mutations.py` | 6 | 0 | 1 |
+| `test_review_r219_fix8_view.py` | 6 | 0 | 0 |
+| `test_review_r219_fix9_view.py` | 3 | 0 | 0 |
+| `test_review_r219_probes.py` | 23 | 0 | 0 |
+| `test_status_model.py` | 0 | 0 | 25 |
+| `test_visual_progress.py` | 0 | 0 | 5 |
+| `test_visual_report_hygiene.py` | 0 | 0 | 15 |
+| `test_visual_review_fixes.py` | 0 | 0 | 43 |
+| `test_visual_round_five.py` | 0 | 0 | 9 |
+| `test_visual_round_four.py` | 0 | 0 | 27 |
+| `test_visual_round_three.py` | 0 | 0 | 28 |
+| `test_visual_round_two.py` | 0 | 0 | 85 |
+| `test_visual_snapshots.py` | 0 | 0 | 3 |
+| `test_visual_suggestions.py` | 0 | 0 | 1 |
+| **Total** | **514** | **1** | **347** |
+
+| Other requested file | Passed | Skipped | Unrun |
+| --- | ---: | ---: | ---: |
+| `tests/fake/test_state_contract.py` | 37 | 0 | 0 |
+| `tests/unit/test_test_module_names.py` | 1 | 0 | 0 |
+
+### Delivery and cleanup
+
+The required `pgrep -fl 'suite_hold.sh|pytest|lockf'` check was attempted; the
+sandbox denied process listing (`sysmond service not found`). A fallback `lsof`
+check of all this job's hold logs returned no open descriptors. Every managed
+foreground command returned; no foreign process was signalled. Job scratch,
+venv/cache/probes and the generated `build/` directory are removed at delivery.
+The workspace-local Git metadata is retained. No logs, JSON evidence or bundles
+are staged. No installed app, live store or live daemon was touched. Nothing
+was fetched or pushed.
