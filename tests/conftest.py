@@ -262,6 +262,9 @@ def no_process_listing(request, monkeypatch):
         return
     from subfleet import retention
     monkeypatch.setattr(retention, "lsof_holders", lambda watches, **_: {})
+    if not request.node.get_closest_marker("real_cwd"):
+        from subfleet import procs
+        monkeypatch.setattr(procs, "worktree_cwd_pids", lambda *a, **k: frozenset(), raising=False)
 
 
 @pytest.fixture(autouse=True)
