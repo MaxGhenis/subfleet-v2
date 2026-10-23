@@ -51,6 +51,15 @@ def test_unsettled_publication_blocks_even_a_worktree_only_hold(daemon, pending)
     assert daemon.store.list_leases(JOB)
 
 
+def test_settled_export_failure_allows_its_worktree_only_hold_to_clear(daemon):
+    terminal(daemon)
+    daemon.store.update_job(JOB, accepted_attempt_id=ATTEMPT, out_path="/scratch/result",
+                            export_error="export failed: scratch refusal")
+    assert daemon._pending_worktree_holds() == [JOB]
+    daemon._release_worktree_hold(JOB)
+    assert daemon.store.list_leases() == []
+
+
 def test_cwd_worker_revalidates_after_the_observer_scan(daemon):
     terminal(daemon)
     def observers(job):
@@ -104,6 +113,13 @@ def test_wall_dead_guardian_with_cwd_only_records_loss_without_a_kill(daemon, mo
     monkeypatch.setattr(procs, "signal_process", lambda *a, **kw: pytest.fail("no writer to signal"))
     assert daemon._enforce_wall(attempt(daemon), daemon._job(JOB)) is False
     assert lost == [ATTEMPT]
+    assert attempt(daemon)["killed_by"] is None
+    assert not daemon.store.query("SELECT 1 FROM events WHERE kind='attempt.kill_started'")
+    # Finish the bounded cwd wait through the real finalizer too.
+    daemon._cwd_settle[ATTEMPT] -= daemon_module.CWD_SETTLE_S + 1
+    daemon._cwd_wait_next = {}
+    daemon._lost(attempt(daemon))
+    assert attempt(daemon)["state"] == "lost"
     assert attempt(daemon)["killed_by"] is None
     assert not daemon.store.query("SELECT 1 FROM events WHERE kind='attempt.kill_started'")
 
