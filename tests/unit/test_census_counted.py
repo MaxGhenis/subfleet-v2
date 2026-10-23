@@ -106,18 +106,20 @@ PIDS = st.sets(st.integers(50, 70), max_size=8)
 
 
 @settings(max_examples=40, derandomize=True, deadline=None, database=None)
-@given(groups=PIDS, walk=PIDS, marked=PIDS, named=PIDS, missing=PIDS)
+@given(groups=PIDS, walk=PIDS, marked=PIDS, named=PIDS, missing=PIDS, verified=st.booleans())
 def test_d_kill2_property_every_counted_member_is_kept_once_and_seeds_the_next(groups, walk, marked,
-                                                                              named, missing):
+                                                                              named, missing, verified):
     """For every census result: after `_contain`, each live member other than the guardian
     whose identity was captured is in exactly one of `responsible_identities` (seen naming
     the root) and `counted_identities` (every other source), under that identity; the
     next census receives each as a recorded survivor; nothing is added to
-    `owned_identities`; and a second identical census writes nothing."""
+    `owned_identities`; and a second identical census writes nothing. D-KILL4 fix 1
+    (P1): a member only a group whose leader the census did not verify names is not
+    counted: that group may be a stranger's, and a counted identity would seed walks."""
     identities = {pid: ident(pid) for pid in groups | walk | marked | named | {GUARDIAN} if pid not in missing}
     seen = procs.Containment(group_pids=frozenset(groups | {GUARDIAN}), descendant_pids=frozenset(walk),
                              marker_pids=frozenset(marked), responsible_pids=frozenset(named),
-                             identities=identities)
+                             identities=identities, leader_verified=verified)
     row = attempt_row(responsible_root={"pid": GUARDIAN, "unique_id": 77})
     core = core_for(row)
     with pytest.MonkeyPatch.context() as patch:
@@ -128,7 +130,8 @@ def test_d_kill2_property_every_counted_member_is_kept_once_and_seeds_the_next(g
     evidence = json.loads(row["evidence_json"])
     responsible = evidence.get("responsible_identities", {})
     counted = evidence.get("counted_identities", {})
-    expected = {str(pid) for pid in seen.live_pids if pid != GUARDIAN and pid in identities}
+    unattributed = set() if verified else set(groups) - set(walk) - set(marked) - set(named)
+    expected = {str(pid) for pid in seen.live_pids - unattributed if pid != GUARDIAN and pid in identities}
     assert set(responsible) | set(counted) == expected
     assert set(responsible).isdisjoint(counted)
     assert set(responsible) == {str(pid) for pid in named if pid in identities}

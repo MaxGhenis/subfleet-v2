@@ -37,9 +37,10 @@ MUTANTS = {
     "no-parent-chain": [(Daemon, "_contain", [
         ('**({"parent_chain": chain} if chain is not None else {})', '**{}')])],
     # Signal an uncounted process because its cwd is in the worktree.
-    "signal-cwd": [(Daemon, "_signal_targets", [
+    "signal-cwd": [(Daemon, "_signal_reasons", [
         ("for pid in sorted(census.live_pids):", "for pid in sorted(census.live_pids | census.cwd_pids):"),
-        ("ident = census.identities.get(pid)", "ident = census.identities.get(pid) or procs.identity(pid)")])],
+        ("ident = census.identities.get(pid)", "ident = census.identities.get(pid) or procs.identity(pid)"),
+        ("elif pid in census.responsible_pids:", "elif pid in census.responsible_pids | census.cwd_pids:")])],
     # Let a cwd-only census change a verdict again (#240's rule).
     "cwd-verdict": [(Daemon, "_finalize", [("if not census.containment_empty:", "if not census.verified_empty:")]),
                     (Daemon, "_contain_writers", [("if not census.containment_empty:",

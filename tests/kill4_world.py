@@ -145,8 +145,8 @@ class World:
 
     def signal_group(self, pgid: int, sig, *, boot_id: str, proc_start: str, before_signal=None) -> bool:
         leader = self.procs.get(pgid)
-        if leader is None or not leader.alive or leader.start != proc_start:
-            return False
+        if leader is None or not leader.alive or leader.start != proc_start or leader.pgid != pgid:
+            return False                      # as procs.signal_group: only a live leader of its own group
         if before_signal is not None:
             before_signal()
         self.signals.append(("group", pgid, int(sig)))

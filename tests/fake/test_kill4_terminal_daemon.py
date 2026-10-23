@@ -185,6 +185,9 @@ def test_a_guardian_alive_past_start_grace_is_killed_before_any_retry(daemon, st
     first = daemon.until(lambda: next((a for a in daemon.attempts(job) if a["seq"] == 1 and a["guardian_pid"]), None))
     guardian = procs.ProcessIdentity(first["guardian_pid"], first["boot_id"], first["proc_start"])
     if stopped:
+        # Stopped once it leads its group (its first act), as the 2026-10-20 guardian was:
+        # before its setsid, killpg cannot reach it (the unit regression covers that shape).
+        daemon.until(lambda: os.getpgid(guardian.pid) == guardian.pid, timeout=30)
         procs.signal_process(guardian, signal.SIGSTOP)
         if (daemon.root / "jobs" / job / "a1" / "start.json").exists():
             pytest.skip("setup race: the guardian wrote start.json before the test could stop it")

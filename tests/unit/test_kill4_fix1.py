@@ -144,6 +144,19 @@ def test_the_guardian_is_never_continued_on_a_cancel(daemon, world):
     assert not provider.alive
 
 
+def test_start_grace_kills_a_guardian_stopped_before_its_setsid_and_never_terms_or_continues_it(daemon, world):
+    """The guardian was stopped before its setsid, so it does not lead group 4242 and the
+    group's KILL cannot reach it (killpg is refused). It is still unlaunched: it is
+    KILLed alone, never TERMed or continued."""
+    guardian = world.add(4242, 1, 4100, start=STARTED, marked=True, stopped=True)   # still in its spawner's group
+    daemon.store.update_attempt(ATTEMPT, state="starting")
+    daemon.start_grace_s, daemon._starting_deadlines[ATTEMPT] = 10, 0.0
+    daemon._process_attempt(ATTEMPT)
+    assert not guardian.alive and guardian.ended_by == KILL
+    assert [s for s in world.signals if s[1] == 4242] == [("pid", 4242, KILL)], world.signals
+    assert attempt(daemon)["state"] == "lost"
+
+
 # P3-1: the group's TERM is credited only to the census taken before it.
 
 def test_self_stopping_children_born_after_the_group_term_each_get_a_term_before_any_cont(daemon, world):
