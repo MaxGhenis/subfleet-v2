@@ -113,7 +113,9 @@ STILL_PASSES = [
     'ls ./* "$x"', 'echo "$a" "$b"; gh pr view 7', 'for n in 1 2; do gh pr view "$n"; done', 'env -vS "gh pr view 7"',
     "env -iS 'PATH=/usr/bin git status'", "bash -euo pipefail -c 'git status'", "tcsh -fc 'echo hi'", 'echo hi | tcsh -f',
     "csh -fc 'gh pr view 7'", 'ps aux | grep bash', 'which bash', 'find . -name "*.py" -exec wc -l {} +',
-    'cat "$a" "$b"', 'gh pr list --json number -q ".[].number"',
+    'cat "$a" "$b"', 'gh pr list --json number -q ".[].number"', 'rg -n "gh pr comment" docs; which bash',
+    'grep -rn "gh pr comment" tests | head -3; ls -la /bin/sh /bin/tcsh', "echo bash -c 'gh pr view 7'",
+    'gh run watch "$id"', 'arch -arm64 gh run watch "$id"',
 ]
 
 
