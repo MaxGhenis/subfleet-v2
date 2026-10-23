@@ -23,7 +23,7 @@ def test_first_detached_pass_sees_primed_eighteen_busy_cpus(state_daemon,monkeyp
     monkeypatch.setattr(machine,'read',legacy_reader.read)
     monkeypatch.setattr(machine,'Sampler',lambda root=None,history=():real(root,clock=lambda:now[0],history=history))
     monkeypatch.setattr(machine,'_cpu_ticks',ticks)
-    monkeypatch.setattr(machine,'_disk_counters',lambda:None)
+    monkeypatch.setattr(machine,'_disk_counters',lambda *args:None)
     monkeypatch.setattr(machine.time,'sleep',lambda dt:now.__setitem__(0,now[0]+dt))
     daemon=Daemon(root)
     def forbidden(*args): raise AssertionError("priming regression must never launch a guardian")
@@ -53,7 +53,7 @@ def test_status_and_store_expose_aged_samples_and_survive_restart(state_daemon,m
     now=[0.0]; real=machine.Sampler
     monkeypatch.setattr(machine,'Sampler',lambda root=None,history=():real(root,clock=lambda:now[0],history=history))
     monkeypatch.setattr(machine,'_cpu_ticks',lambda:((int(now[0]*50),0,int(now[0]*50),0),))
-    monkeypatch.setattr(machine,'_disk_counters',lambda:{1:(int(now[0]*20e9),0,int(now[0]*10000),0)})
+    monkeypatch.setattr(machine,'_disk_counters',lambda *args:{1:(int(now[0]*20e9),0,int(now[0]*10000),0)})
     monkeypatch.setattr(machine.time,'sleep',lambda dt:now.__setitem__(0,now[0]+dt))
     monkeypatch.setattr(machine,'_state_device_id',lambda _:1)
     daemon._start_machine_sampler()

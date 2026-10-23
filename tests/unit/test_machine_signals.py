@@ -15,10 +15,10 @@ def samples(monkeypatch, ticks, disks=None, times=None):
     ticks, disks = iter(ticks), iter(disks or [None] * 30)
     times = iter(times if times is not None else range(0, 300, 10))
     monkeypatch.setattr(machine, '_cpu_ticks', lambda: next(ticks))
-    monkeypatch.setattr(machine, '_disk_counters', lambda: next(disks))
+    monkeypatch.setattr(machine, '_disk_counters', lambda *args: next(disks))
     monkeypatch.setattr(machine, '_sysctl_int', lambda _: 1)
     sampler = machine.Sampler(clock=lambda: next(times))
-    sampler.device_id = 1
+    monkeypatch.setattr(machine, '_state_device_id', lambda _: 1)
     return sampler
 
 
@@ -187,8 +187,9 @@ def test_ordinary_counter_replay_holds_nothing_under_proposal(monkeypatch):
 
 def test_reads_run_at_most_once_per_second(monkeypatch):
     calls=[]
+    monkeypatch.setattr(machine, '_state_device_id', lambda _: 1)
     monkeypatch.setattr(machine,'_cpu_ticks',lambda: calls.append('cpu'))
-    monkeypatch.setattr(machine,'_disk_counters',lambda: calls.append('disk'))
+    monkeypatch.setattr(machine,'_disk_counters',lambda *args: calls.append('disk'))
     times=iter([0,.05,.9,1,1.1,2])
     sampler=machine.Sampler(clock=lambda:next(times))
     for _ in range(6): sampler.read()
