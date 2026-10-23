@@ -17,8 +17,9 @@ whole-text scrub, which counts the break before the reminder, and shown by the t
 block form strips it: `SECRET7dataend9` at `daemon logs -n 2`. That file keeps the marker.
 
 What is held: no tail shows a secret the whole-text scrub hides; a margin file ending in a
-reminder is refused only where the quoted pass's masks differ or a data URI's body reaches
-the break, never for a trailing break alone.
+reminder is refused only where the quoted pass's masks differ, a data URI's body reaches the
+break, or, in a CRLF text, a last member line that is only a margin's mark reads as a margin
+once its `\r` goes with the trailing breaks; never for a trailing break alone.
 """
 from __future__ import annotations
 
@@ -258,11 +259,14 @@ def test_a_margin_file_ending_in_a_reminder_is_refused_only_where_the_masks_diff
     """Over margin files that end in a reminder on its own line: the resolution is refused
     exactly where the quoted pass's masks differ or a data URI's body reaches the trailing
     break, never for a trailing line break alone (at c2e080e44, also for that). Taking out
-    a reminder that ends the file changes neither reading but at its end, and makes no tag.
-    Whatever is resolved, no tail shows a secret the whole-text scrub hides."""
+    a reminder that ends the file changes neither reading but at its end, and makes no tag;
+    in a CRLF text only, it may change whether a last member line that is a bare margin's
+    mark is read as a margin (`test_a_crlf_margin_file_..._documented_limitation`). Whatever
+    is resolved, no tail shows a secret the whole-text scrub hides."""
     whole = admissions(600) + text
     reasons = refusal_reasons(whole)
-    assert reasons <= {"masks", "data-uri"}, (reasons, text)
+    assert reasons <= {"masks", "data-uri", "texts"}, (reasons, text)
+    assert "texts" not in reasons or "\r" in text, (reasons, text)
     resolved = daemon_log._reminders_resolved(whole)
     assert (resolved is None) == bool(reasons), (reasons, text)
     tail = daemon_log.scrubbed_tail(whole, count)
@@ -275,12 +279,14 @@ def test_a_margin_file_ending_in_a_reminder_is_refused_only_where_the_masks_diff
 def test_the_margin_files_resolve_and_fall_back_for_each_reason():
     """The property's texts are not vacuous: most resolve, and each reason for keeping the
     marker occurs; at c2e080e44 every one whose readings differ only at its end fell back."""
-    reasons = [refusal_reasons(admissions(10) + margin_reminder_text(random.Random(seed))) for seed in range(400)]
+    texts = [admissions(10) + margin_reminder_text(random.Random(seed)) for seed in range(400)]
+    reasons = [refusal_reasons(text) for text in texts]
+    assert all("\r" in text for text, found in zip(texts, reasons) if "texts" in found)
     resolved = sum(not found for found in reasons)
     assert resolved >= 200, resolved
     assert sum("masks" in found for found in reasons) >= 5
     assert sum("data-uri" in found for found in reasons) >= 10
-    assert not any(found - {"masks", "data-uri"} for found in reasons)
+    assert not any(found - {"masks", "data-uri", "texts"} for found in reasons)
     differ = 0
     for seed in range(400):
         text = admissions(10) + margin_reminder_text(random.Random(seed))
@@ -290,6 +296,23 @@ def test_the_margin_files_resolve_and_fall_back_for_each_reason():
         if taken and bare_taken and bare_taken[0] != daemon_log._margin_free(taken[0]):
             differ += 1
     assert differ >= 100, differ
+
+
+def test_a_crlf_margin_file_whose_last_member_line_is_a_bare_margin_keeps_the_marker_documented_limitation(
+        root, capsys):
+    """A conservative fallback this follow-up keeps. In a CRLF text, a member line that is only
+    a margin's mark (`  |\r\n`) right before a reminder that ends the file is no margin to
+    the file's margin-free reading (its `\r` follows the mark) and is one to that of what is
+    left, whose trailing `\r\n` goes before its lines are read. The readings then differ by
+    more than trailing line breaks, so `scrubbed_tail` keeps the marker. `daemon logs` reads
+    daemon.log with universal newlines, so it meets the LF text, and prints the last lines."""
+    text = (admissions(600) + MEMBER + "  |\n" + ENDINGS["one-line"]).replace("\n", "\r\n")
+    assert daemon_log._reminders_resolved(text) is None
+    assert daemon_log.scrubbed_tail(text, 3) == [handoff.cut_marker(len(text))]
+    (root / "daemon.log").write_text(text, newline="")
+    assert cli.main(["daemon", "logs", "-n", "3"]) == 0
+    assert capsys.readouterr().out.splitlines() == ["2026-10-20 admission: placed job 599 on lane codex-0",
+                                                    "  | member line", "  |"]
 
 
 def test_no_tag_is_left_in_what_is_resolved():
