@@ -263,6 +263,12 @@ SALVAGE_TRIES = 3
 STREAM_CHECK_TRIES = 3
 #: C-5.9: allow a runner whose cwd is its last evidence to leave the tree.
 CWD_SETTLE_S = 30.0
+#: D-KILL4: kill-protocol rounds one attempt's finalization may run before writers
+#: that keep reappearing quarantine it, and the rounds its evidence keeps.
+TERMINAL_CONTAINMENT_ROUNDS = 3
+TERMINAL_CONTAINMENT_KEPT = 4
+#: D-KILL4: how long a guardian whose launch gate closed unopened may take to exit.
+GATED_REAP_S = 2.0
 #: C-6.8: how an attempt ends whose launch-time main/master re-check git gave no answer
 #: to (`_launch`), and how `_defer_after_launch` counts those in a row.
 LAUNCH_CHECK_UNFINISHED = "workdir-branch-check-unfinished:"
@@ -4208,9 +4214,42 @@ class Daemon:
         quarantine = self.store.one("SELECT * FROM attempts WHERE job_id=? AND state='quarantined' ORDER BY seq DESC LIMIT 1", (args.job_id,))
         if args.confirm_dead or args.force_release:
             if not quarantine:
+                if args.confirm_dead and job["state"] in TERMINAL:
+                    # D-KILL4, C-5.7: never "dead" while the last attempt's census
+                    # is not verified empty, quarantined or not.
+                    live = self._terminal_census(args.job_id)
+                    if live is not None:
+                        a, census = live
+                        return {"job_id": args.job_id, "status": "not quarantined",
+                                "detail": f"attempt a{a['seq']} still has {self._census_words(census)}; nothing "
+                                          f"was released; `subfleet kill {args.job_id}` contains them"}
                 return {"job_id": args.job_id, "status": "already finished" if job["state"] in TERMINAL else "not quarantined"}
             self._schedule("resolve:" + args.job_id, self._resolve_quarantine, quarantine, args)
             return {"job_id": args.job_id, "status": "resolution requested"}
+        if job["state"] in TERMINAL:
+            # D-KILL4: a finished job whose last attempt still has census members
+            # (an attempt an older daemon finalized, or a quarantine) is contained
+            # again: the kill protocol against the full census, on a worker.
+            live = self._terminal_census(args.job_id)
+            if live is not None:
+                a, census = live
+                self._schedule("recontain:" + args.job_id, self._recontain, a, census)
+                if job["cancel_requested_at"]:
+                    # A cancelled parent's kill still cascades to live dependents (C-7.3).
+                    self._request_cancel(args.job_id, {"by": "client", "session_id": args.session_id,
+                                                       "pid": pid, "reason": args.reason or "client-request"},
+                                         family=True)
+                return {"job_id": args.job_id, "status": "containment requested",
+                        "detail": f"attempt a{a['seq']}: {self._census_words(census)}; the kill protocol "
+                                  f"runs now; `subfleet runs show {args.job_id}` and the next kill report its result"}
+            last = self.store.one("SELECT * FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1", (args.job_id,))
+            rounds = json.loads((last or {}).get("evidence_json") or "{}").get("recontainment")
+            if rounds and not job["cancel_requested_at"]:
+                result = rounds[-1]
+                return {"job_id": args.job_id, "status": "already finished",
+                        "detail": f"attempt a{last['seq']} re-contained at {result['at']}: "
+                                  + ("verified empty" if result["contained"] else
+                                     "survivors remained: " + ", ".join(f"pid {p}" for p in result["survivors"]))}
         if job["state"] in TERMINAL and not job["cancel_requested_at"]:
             return {"job_id": args.job_id, "status": "already finished"}
         requested = self._request_cancel(args.job_id, {"by": "client", "session_id": args.session_id,
@@ -4218,6 +4257,50 @@ class Daemon:
         if not requested and self._job(args.job_id)["state"] in TERMINAL:
             return {"job_id": args.job_id, "status": "already finished"}
         return {"job_id": args.job_id, "status": "cancel requested"}
+
+    def _terminal_census(self, job_id: str) -> tuple[dict, procs.Containment] | None:
+        """D-KILL4: the last attempt of a finished job, and its census, when that census
+        is not empty (cwd holders aside, C-5.5); None when it is, or when the attempt
+        never had a guardian (nothing launched) or is still live."""
+        a = self.store.one("SELECT * FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1", (job_id,))
+        if not a or a["state"] in LIVE or not a.get("guardian_pid"):
+            return None
+        census = self._contain(dict(a))
+        return None if census.containment_empty else (dict(a), census)
+
+    @staticmethod
+    def _census_words(census: procs.Containment) -> str:
+        if census.unverifiable and not census.live_pids:
+            return "a census that cannot be verified (" + "; ".join(census.errors[:3]) + ")"
+        pids = sorted(census.live_pids)
+        return (f"{len(pids)} live census process{'es' if len(pids) != 1 else ''} ("
+                + ", ".join(f"pid {pid}" for pid in pids[:12]) + (", ..." if len(pids) > 12 else "") + ")"
+                + ("; unverifiable" if census.unverifiable else ""))
+
+    def _recontain(self, a: dict, census: procs.Containment) -> None:
+        """D-KILL4: `subfleet kill <job>` on a finished job whose last attempt's census
+        is not empty. The kill protocol runs against the full census, its result is
+        recorded (`recontainment` evidence, event `attempt.recontained`), and the
+        attempt's state is left as it was: a quarantine still needs `--confirm-dead`
+        (C-5.7), and a finished verdict is not reopened."""
+        a = dict(self.store.get_attempt(a["attempt_id"]) or a)
+        # The durable intent precedes every signal (C-7.3).
+        self.store.add_event("attempt.recontainment_started", job_id=a["job_id"], attempt_id=a["attempt_id"],
+                             data={"live_pids": sorted(census.live_pids), "signal_pending": True})
+        ended = self._kill_protocol(a, census, lambda send: send(None) is not False)
+        if ended is None:
+            return
+        census, _ = ended
+        result = {"at": utcnow_ms(), "contained": census.containment_empty,
+                  "survivors": sorted(census.live_pids), "unverifiable": census.unverifiable}
+        with self.store.transaction("attempt.recontained", job_id=a["job_id"], attempt_id=a["attempt_id"],
+                                    data=result) as tx:
+            actual = self.store.get_attempt(a["attempt_id"]) or a
+            current = json.loads(actual.get("evidence_json") or "{}")
+            current["recontainment"] = [*current.get("recontainment", []), result][-TERMINAL_CONTAINMENT_KEPT:]
+            tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
+                       (json.dumps(current), a["attempt_id"]))
+        self._notify()
 
     def _notice(self, tx, job: dict, summary: str, *, again: bool = False) -> None:
         """C-15.1: the notice of a job the same transaction has just made terminal.
@@ -4403,7 +4486,7 @@ class Daemon:
         for pacing in (self._inspect_next,):
             for aid in [aid for aid in pacing.copy() if aid not in live]:
                 pacing.pop(aid, None)
-        for name in ('_counted_tables', '_cwd_settle'):
+        for name in ('_counted_tables', '_cwd_settle', '_containment_rounds'):
             pacing = self.__dict__.get(name, {})
             for aid in [aid for aid in pacing.copy() if aid not in live]:
                 pacing.pop(aid, None)
@@ -7892,6 +7975,7 @@ class Daemon:
         if self.guardian_start_delay_s:
             command += ["--start-delay-s", str(self.guardian_start_delay_s)]
         command += [*provider_env_args, "--", *launch.argv]
+        child = None
         try:
             child, root = self._spawn_guardian(command, env, read_fd, package_root)
             self._children[a["attempt_id"]] = child
@@ -7928,6 +8012,10 @@ class Daemon:
             # Closing the gate guarantees an unrecorded guardian cannot launch.
             os.close(write_fd)
             write_fd = -1
+            # D-KILL4: and it ends at once on the end-of-file (127). Reap it, by
+            # this daemon's own unreaped handle, before the attempt ends and its
+            # job may retry, so no earlier guardian outlives the retry's start.
+            self._reap_gated(child)
             # The attempt's detail and notice name an OS error by class and errno
             # (C-25.7); procs' own messages are ours. Its words go to daemon.log.
             self.log.error("attempt %s guardian identity unavailable: %s", a["attempt_id"], refusals.scrubbed_words(exc))
@@ -7946,6 +8034,22 @@ class Daemon:
         # for a fresh `liveness` and a table of its own to record its group.
         self._inspect_next[a["attempt_id"]] = now + self.inspect_interval_s
         self._boundary("starting", a["job_id"], a["attempt_id"])
+
+    @staticmethod
+    def _reap_gated(child) -> None:
+        """Wait briefly for a guardian whose gate closed unopened, then end it by
+        its handle: the pid is this daemon's unreaped child, so it is not reused."""
+        if not callable(getattr(child, "wait", None)):
+            return
+        try:
+            child.wait(timeout=GATED_REAP_S)
+        except subprocess.TimeoutExpired:
+            with contextlib.suppress(OSError):
+                child.kill()
+            with contextlib.suppress(subprocess.TimeoutExpired, OSError):
+                child.wait(timeout=GATED_REAP_S)
+        except OSError:
+            pass
 
     def _launch_failure(self, a: dict, detail: str, *, rc: int = 127) -> None:
         adir = attempt_dir(self.root, a["job_id"], a["seq"])
@@ -8067,7 +8171,13 @@ class Daemon:
                     return
                 self._unlaunched(a, "starting-no-receipt", census=census)
             else:
-                self._quarantine(a, census, "start grace expired without a receipt")
+                # D-KILL4: a guardian alive past start grace (stopped before its
+                # start.json, 2026-10-20: it later ran its provider for 56 min
+                # beside the job's rerun) is contained before anything follows:
+                # the kill protocol, then a loss on verified empty (which a
+                # read-only job retries, C-4.5), else quarantine. No retry is
+                # reserved while this attempt's census is non-empty.
+                self._kill_attempt(a, lost=True, reason="start grace expired without a receipt")
             return
         return None if inspected else DEFERRED if retry else None
 
@@ -8210,6 +8320,21 @@ class Daemon:
         rooted = a.get("responsible_root") or evidence.get("responsible_root")
         responsible = (procs.ResponsibleRoot(guardian, boot, rooted.get("unique_id"))
                        if isinstance(rooted, dict) and guardian and rooted.get("pid") == guardian else None)
+        # D-KILL3: cwd is a hold, never attribution, and so is read for job-owned
+        # worktrees only. D-KILL4: the same worktree bounds the parent-chain rule.
+        worktree, worktree_error = None, False
+        if a.get("attempt_id"):
+            from .retention_archive import owned_worktree
+            job = self.store.get_job(a["job_id"])
+            try:
+                worktree = owned_worktree(job, self.root.resolve()) if job else None
+            except (OSError, ValueError):
+                worktree_error = True
+        held = dict(a.get("held_parents") or evidence.get("held_parents") or {})
+        chain = (procs.ParentChain(str(worktree) if worktree is not None else None,
+                                   Daemon._never_signalled(self, a), os.geteuid(),
+                                   {int(pid): procs.ProcessIdentity(**value) for pid, value in held.items()})
+                 if a.get("attempt_id") else None)
         census = procs.containment(a.get("pgid") or start.get("pgid"), guardian,
                                    a.get("child_pid") or receipt.get("child_pid"),
                                    a.get("attempt_id") or a["holder"], root=str(self.root),
@@ -8218,7 +8343,8 @@ class Daemon:
                                    started_at=a.get("started_at") or start.get("started_at")
                                    or a.get("reserved_at") or a.get("created_at"),
                                    finished_at=receipt.get("finished_at"),
-                                   responsible_root=responsible)
+                                   responsible_root=responsible,
+                                   **({"parent_chain": chain} if chain is not None else {}))
         fresh = {str(pid): dataclasses.asdict(census.identities[pid]) for pid in sorted(census.responsible_pids)
                  if guardian not in census.recycled
                  and pid != guardian and pid in census.identities
@@ -8232,8 +8358,12 @@ class Daemon:
                            for kept in (owned, named, counted))}
         # `recycled[pid]` excludes an older recorded birth, not a new member
         # observed at the same pid. Its census evidence still must be saved.
+        # D-KILL4: a held parent is remembered by its birth, never as a seed.
+        parents = {str(pid): dataclasses.asdict(ident) for pid, ident in sorted(census.held_identities.items())
+                   if held.get(str(pid)) != dataclasses.asdict(ident)}
         for key, kind, kept, found in (("responsible_identities", "attempt.responsible_recorded", named, fresh),
-                                       ("counted_identities", "attempt.counted_recorded", counted, sighted)):
+                                       ("counted_identities", "attempt.counted_recorded", counted, sighted),
+                                       ("held_parents", "attempt.parents_held", held, parents)):
             if found and a.get("attempt_id") and "evidence_json" in a:
                 with self.store.transaction(kind, job_id=a["job_id"], attempt_id=a["attempt_id"],
                                             data={"pids": sorted(map(int, found))}) as tx:
@@ -8261,17 +8391,26 @@ class Daemon:
                                (a["evidence_json"], a["attempt_id"]))
         # D-KILL3: cwd is a hold, never attribution. Do not persist an observer
         # in counted/owned identities: leaving the worktree must release its hold.
-        if a.get("attempt_id"):
-            from .retention_archive import owned_worktree
-            job = self.store.get_job(a["job_id"])
-            try:
-                worktree = owned_worktree(job, self.root.resolve()) if job else None
-                if worktree is not None:
-                    census = dataclasses.replace(census, cwd_pids=procs.worktree_cwd_pids(worktree))
-            except (procs.InspectionError, OSError, ValueError):
-                census = dataclasses.replace(census, unverifiable=True,
-                                             errors=(*census.errors, "worktree cwd inspection unavailable"))
+        try:
+            if worktree_error:
+                raise ValueError("owned worktree unavailable")
+            if worktree is not None:
+                census = dataclasses.replace(census, cwd_pids=procs.worktree_cwd_pids(worktree))
+        except (procs.InspectionError, OSError, ValueError):
+            census = dataclasses.replace(census, unverifiable=True,
+                                         errors=(*census.errors, "worktree cwd inspection unavailable"))
         return census
+
+    def _never_signalled(self, a: dict) -> frozenset[int]:
+        """D-KILL4: pids C-5.6 never signals individually and the parent-chain rule
+        never adds, whatever a census says: launchd, this daemon and its parent, and
+        the recorded guardian of every other attempt this store still tracks."""
+        query = getattr(self.store, "query", None)     # census-only fixtures keep one row
+        others = query(
+            "SELECT guardian_pid FROM attempts WHERE guardian_pid IS NOT NULL AND attempt_id<>? "
+            "AND state IN ('starting','running','finalizing','quarantined')",
+            (a.get("attempt_id") or "",)) if query else ()
+        return frozenset({0, 1, os.getpid(), os.getppid(), *(int(row["guardian_pid"]) for row in others)})
 
     @staticmethod
     def _new_group_identities(pgid: int | None, recorded: dict) -> dict[str, dict]:
@@ -8538,7 +8677,12 @@ class Daemon:
             self._request_cancel(a["job_id"], {k: request[k] for k in ("by", "reason", "running_s") if k in request},
                                  family=True, exited=exited)
 
-    def _kill_attempt(self, a: dict, *, lost: bool = False) -> None:
+    def _kill_attempt(self, a: dict, *, lost: bool = False,
+                      reason: str = "termination could not verify containment") -> None:
+        """C-5.6 for a cancel, a wall stop, a dead guardian (`lost`) and an expired
+        start grace (`lost`, D-KILL4): the kill protocol against the full census,
+        then `finalizing` on verified empty, `_lost` for a loss without a
+        receipt, and `quarantined` with `reason` for anything else."""
         # Fresh request attribution matters for descendants and clients that
         # replaced the wall after the worker read its attempt row.
         a = self.store.get_attempt(a["attempt_id"])
@@ -8556,9 +8700,9 @@ class Daemon:
                 self._begin_finalizing(a, receipt)
                 return
         evidence = json.loads(a["evidence_json"] or "{}")
-        # Only group members observed while the recorded leader is still ours
-        # may become additional signal targets. Escaped/new marker pids remain
-        # evidence for quarantine, never authority inferred from a PID alone.
+        # Group members observed while the recorded leader is still ours stay
+        # recorded as owned (C-5.6). D-KILL4: signal authority is the census
+        # itself now (`_kill_protocol`); ownership remains walk evidence.
         owned = {int(pid): procs.ProcessIdentity(**value) for pid, value in evidence.get("owned_identities", {}).items()}
         leader_live = a["guardian_pid"] and procs.same_process(a["guardian_pid"], a["boot_id"], a["proc_start"])
         if leader_live:
@@ -8601,39 +8745,16 @@ class Daemon:
             # The durable intent precedes the syscall. A crash before this
             # enrichment leaves ordering unknown and can never manufacture ok.
             record_signal(signal_at)
+            return delivered is not False
 
-        if a.get("pgid"):
-            send_signal(lambda stamp: procs.signal_group(a["pgid"], signal.SIGTERM, boot_id=a["boot_id"],
-                                                        proc_start=a["proc_start"], before_signal=stamp))
-        else:
+        if not a.get("pgid"):
             send_signal(lambda stamp: False)
-        deadline = time.monotonic() + self.term_grace_s
-        while not census.containment_empty and time.monotonic() < deadline:
-            if self.stopping.wait(min(.1, max(0, deadline - time.monotonic()))):
-                return
-            census = self._contain(a)
-        escalated = not census.containment_empty
-        if escalated and a.get("pgid"):
-            send_signal(lambda stamp: procs.signal_group(a["pgid"], signal.SIGKILL, boot_id=a["boot_id"],
-                                                        proc_start=a["proc_start"], before_signal=stamp))
-        census = self._contain(a)
-        for pid in census.live_pids:
-            if pid in owned:
-                send_signal(lambda stamp: procs.signal_process(owned[pid], signal.SIGKILL, before_signal=stamp))
-        # Signalled processes leave the process table only when the kernel has
-        # finished tearing them down, and under load that takes longer than one
-        # read. Re-enumerate for a bounded settle window (C-5.6, kill_settle_s).
-        # The loop ends early only on a verified-empty census; the last census,
-        # never a guess about a pid, decides. No SQLite transaction is open.
-        settle_until = time.monotonic() + self.kill_settle_s
-        while True:
-            if self.stopping.wait(.05):
-                return
-            census = self._contain(a)
-            if census.containment_empty or time.monotonic() >= settle_until:
-                break
+        ended = self._kill_protocol(a, census, send_signal)
+        if ended is None:
+            return                                     # the daemon is stopping
+        census, escalated = ended
         if not census.containment_empty:
-            self._quarantine(a, census, "termination could not verify containment")
+            self._quarantine(a, census, reason)
             return
         receipt = self._read_json(adir / "exit.json")
         if lost and receipt is None:
@@ -8645,6 +8766,153 @@ class Daemon:
                        "wall_s": age(a["started_at"]), "finished_at": utcnow_ms(), "killed_by": killed_by}
             self._publish("exit", adir / "exit.json", json_bytes(receipt))
         self._begin_finalizing(a, receipt)
+
+    def _signal_targets(self, a: dict, census: procs.Containment) -> dict[int, procs.ProcessIdentity]:
+        """D-KILL4, C-5.6: the census members the kill protocol may signal one by one.
+
+        Every live member a source counts (the group, the walk with its recorded
+        seeds, the marker, responsibility, and the parent-chain rule), with the
+        identity the census captured, which `procs.signal_process` checks afresh
+        just before its syscall (C-5.3). Never a cwd holder (the census keeps them
+        apart), never a held parent, never a member with no captured identity,
+        never `_never_signalled`. An unverifiable census may have kept a seed whose
+        birth it could not compare, or responsibility members it could not bound
+        (C-5.5's retained strangers), so there only the recorded group's members,
+        marked members, parent-chain members and members matching a recorded
+        identity of their own are targets; the rest hold the attempt instead."""
+        never = Daemon._never_signalled(self, a)
+        evidence = json.loads(a.get("evidence_json") or "{}")
+        recorded = {(int(pid), value.get("proc_start")) for key in
+                    ("owned_identities", "responsible_identities", "counted_identities")
+                    for pid, value in (evidence.get(key) or {}).items()}
+        strong = census.group_pids | census.marker_pids | census.chain_pids
+        targets = {}
+        for pid in sorted(census.live_pids):
+            ident = census.identities.get(pid)
+            if pid in never or ident is None:
+                continue
+            if census.unverifiable and pid not in strong and (pid, ident.proc_start) not in recorded:
+                continue
+            targets[pid] = ident
+        return targets
+
+    def _kill_protocol(self, a: dict, census: procs.Containment, send_signal: Callable
+                       ) -> tuple[procs.Containment, bool] | None:
+        """C-5.6 against the full census (D-KILL4); None when the daemon stops.
+
+        TERM the recorded group, after its leader's identity (C-5.4), and every
+        other target one by one; continue each stopped target right after its
+        TERM, so that it can act on it (a TERM sent to a stopped process stays
+        pending until it is continued, and Fleet ops' governor and the clamshell
+        guard both stop processes); re-take the census through `term_grace_s`,
+        signalling any member found since; then KILL the group and every target,
+        which needs no continue, and re-take the census through `kill_settle_s`,
+        killing members found since, until it is verified empty. `send_signal`
+        takes a signalling call and returns whether it was delivered; it records
+        each signal durably. Nothing outside the census is signalled or continued."""
+        sent: dict[tuple[int, int], procs.ProcessIdentity] = {}
+        group: dict[int, bool] = {}
+        first = census
+
+        def stopped(found: procs.Containment, pid: int) -> bool:
+            return str((found.shapes.get(pid) or {}).get("stat") or "").startswith("T")
+
+        def deliver(found: procs.Containment, sig: signal.Signals) -> None:
+            if sig not in group and a.get("pgid"):
+                group[sig] = send_signal(lambda stamp: procs.signal_group(
+                    a["pgid"], sig, boot_id=a["boot_id"], proc_start=a["proc_start"], before_signal=stamp))
+            for pid, ident in self._signal_targets(a, found).items():
+                reached = (group.get(sig) and pid in found.group_pids) or sent.get((pid, sig)) == ident
+                if not reached:
+                    reached = send_signal(lambda stamp, ident=ident: procs.signal_process(
+                        ident, sig, before_signal=stamp))
+                    if reached:
+                        sent[(pid, sig)] = ident
+                if (sig == signal.SIGTERM and reached and stopped(found, pid)
+                        and sent.get((pid, signal.SIGCONT)) != ident):
+                    if send_signal(lambda stamp, ident=ident: procs.signal_process(
+                            ident, signal.SIGCONT, before_signal=stamp)):
+                        sent[(pid, signal.SIGCONT)] = ident
+
+        deliver(census, signal.SIGTERM)
+        deadline = time.monotonic() + self.term_grace_s
+        while not census.containment_empty and time.monotonic() < deadline:
+            if self.stopping.wait(min(.1, max(0, deadline - time.monotonic()))):
+                return None
+            census = self._contain(a)
+            deliver(census, signal.SIGTERM)     # members found since: respawned, newly counted
+        escalated = not census.containment_empty
+        if escalated:
+            deliver(census, signal.SIGKILL)
+        census = self._contain(a)
+        if not census.containment_empty:
+            deliver(census, signal.SIGKILL)
+        # Signalled processes leave the process table only when the kernel has
+        # finished tearing them down, and under load that takes longer than one
+        # read. Re-enumerate for a bounded settle window (C-5.6, kill_settle_s).
+        # The loop ends early only on a verified-empty census; the last census,
+        # never a guess about a pid, decides. No SQLite transaction is open.
+        settle_until = time.monotonic() + self.kill_settle_s
+        while True:
+            if self.stopping.wait(.05):
+                return None
+            census = self._contain(a)
+            if census.containment_empty or time.monotonic() >= settle_until:
+                break
+            if escalated:
+                deliver(census, signal.SIGKILL)
+        self._record_containment(a, first, census, sorted({pid for pid, _ in sent}),
+                                 sorted(int(sig) for sig, delivered in group.items() if delivered))
+        return census, escalated
+
+    def _record_containment(self, a: dict, first: procs.Containment, census: procs.Containment,
+                            signalled: list[int], group: list[int]) -> None:
+        """D-KILL4: what the protocol signalled (the group's signals, the pids it
+        signalled one by one) and why any pid was added by the parent-chain rule,
+        as pids and reasons, never commands. The event also keeps the census the
+        protocol started from, as C-5.5 records it."""
+        if not a.get("attempt_id"):
+            return
+        chain = [*first.to_dict().get("chain", []), *census.to_dict().get("chain", [])]
+        summary = {"group_signals": group, "signalled": signalled, "contained": census.containment_empty,
+                   **({"chain": list(dict.fromkeys(chain))} if chain else {})}
+        with self.store.transaction("attempt.containment", job_id=a["job_id"], attempt_id=a["attempt_id"],
+                                    data={**summary, "census": first.to_dict()}) as tx:
+            actual = self.store.get_attempt(a["attempt_id"]) or a
+            current = json.loads(actual.get("evidence_json") or "{}")
+            rounds = [*current.get("terminal_containment", []), {"at": utcnow_ms(), **summary}]
+            current["terminal_containment"] = rounds[-TERMINAL_CONTAINMENT_KEPT:]
+            a["evidence_json"] = json.dumps(current)
+            tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
+                       (a["evidence_json"], a["attempt_id"]))
+
+    def _contain_writers(self, a: dict, census: procs.Containment, reason: str) -> procs.Containment | None:
+        """D-KILL4: the kill protocol for writers that outlive the exit receipt (or a
+        receipt-less loss), before finalization. The provider ended before any
+        signal, so its verdict stands and no `killed_by` is recorded. Returns the
+        verified-empty census, or None after quarantining survivors with `reason`
+        (or when the daemon is stopping). A finalization whose writers reappear
+        after `TERMINAL_CONTAINMENT_ROUNDS` protocol runs quarantines at once."""
+        rounds = self.__dict__.setdefault("_containment_rounds", {})
+        if rounds.get(a["attempt_id"], 0) >= TERMINAL_CONTAINMENT_ROUNDS:
+            self._quarantine(a, census, reason)
+            return None
+        rounds[a["attempt_id"]] = rounds.get(a["attempt_id"], 0) + 1
+        # The durable intent precedes every signal (C-7.3).
+        self.store.add_event("attempt.containment_started", job_id=a["job_id"], attempt_id=a["attempt_id"],
+                             data={"reason": reason, "live_pids": sorted(census.live_pids), "signal_pending": True})
+
+        def send_signal(send):
+            return send(None) is not False
+
+        ended = self._kill_protocol(a, census, send_signal)
+        if ended is None:
+            return None
+        census, _ = ended
+        if not census.containment_empty:
+            self._quarantine(a, census, reason)
+            return None
+        return census
 
     def _quarantine(self, a: dict, census, reason: str) -> None:
         detail = json.dumps({"reason": reason, **census.to_dict()}, sort_keys=True)
@@ -8995,8 +9263,14 @@ class Daemon:
             if time.monotonic() - since < self.exit_settle_s:
                 return
             self._exit_settle.pop(a["attempt_id"], None)
-            self._quarantine(a, census, "writers remain after exit receipt")
-            return
+            # D-KILL4: no terminal state with live census pids. The writers that
+            # remain are contained first (C-5.6 against the full census), and
+            # only survivors quarantine; a verified-empty end finalizes from the
+            # attempt's own receipt, as an empty census always did.
+            census = self._contain_writers(a, census, "writers remain after exit receipt")
+            if census is None:
+                return
+            waiting_cwd = self._cwd_wait(a, census)
         if waiting_cwd:
             return
         self._exit_settle.pop(a["attempt_id"], None)
