@@ -130,9 +130,10 @@ def escaper(kind: str) -> int:
 #: binary whose environment macOS 26 hides, so only its children show the markers;
 #: it outlives the provider in a session of its own (`--driver`), reparented to
 #: launchd once the provider ends (`--detached`: at once, by a fork that exits).
-#: It ends by itself within DRIVER_S, and each child within CHILD_S.
+#: It ends by itself within DRIVER_S, and each child within CHILD_S (long enough that a census
+#: sees one: a census landing between two children sees nothing of an uncounted loop).
 DRIVER_S = 90
-CHILD_S = 0.4
+CHILD_S = 5.0
 DRIVER_LOOP = ('end=$(( $(/bin/date +%s) + {limit} )); '
                'while [ "$(/bin/date +%s)" -lt "$end" ]; do "$0" "$1" --marked-child; done')
 
