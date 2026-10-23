@@ -32,6 +32,7 @@ def test_live_row_reveal_during_slow_catchup_keeps_the_end(fix9_view, name):
     assert run["before_catchup"]["from_end"] <= END, run
     assert run["after_initial_reveal"]["from_end"] <= END, run
     assert run["caught_up"] and run["reveal_consumed"] and run["notices"] == 2, run
-    # Head is 24 pt away; the settling mutant is more than 11,000 pt away.
+    # The reviewer measured about 24 pt at head and over 11,000 pt for the mutant.
+    # Keep the end-padding tolerance; the gated fixture still needs its mutant run.
     assert run["after_open"]["from_end"] <= END, run
     assert run["after_stream"]["from_end"] <= END, run

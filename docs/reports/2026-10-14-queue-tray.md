@@ -2345,3 +2345,292 @@ The report is committed separately with the requested co-author trailer.
 Nothing was fetched or pushed. All holds were requested before the 4 h 30 m
 cutoff; the job began about 08:14 UTC and whole-frontend validation finished
 about 10:51 UTC.
+
+## Fix 9 (2026-10-23, review r5)
+
+**Status: implementation committed; validation incomplete at the prescribed cutoff.**
+There are **204 distinct passing tests**, zero final-source assertion failures,
+errors or skips in the executed cases. The two final-source pytest invocations
+reported 156 and 56 passes; eight engine checks overlap, so their 212 passing
+executions are not 212 distinct tests. Only one of the three required stability
+holds completed. Four requested mutation controls and the whole-frontend phase
+remain unrun. The last slot also exceeded the 20-minute rule by about 12 seconds,
+as explained below. This section does not claim completion of the requested
+validation.
+
+### Release merge and commits
+
+The first commit merges the explicitly briefed release commit `4f5983f4c`
+(#232, #238, #223) into `a01711839139`. No fetch occurred. The already-local
+`origin/release/217` was actually newer, `e345f0803` (#243); that later update
+was outside the pinned merge target and is not included.
+
+`docs/acceptance-contract.md` had two conflict blocks:
+
+1. At the beginning of Changes, retain the queue-tray fix-8/fix-7/fix-6/fix-4
+   entries and all incoming #223, #232 and #212 entries, concatenating both sides.
+2. Beside the original queue-tray entry, retain it alongside incoming capture
+   amendments. The incoming CI-flakes entry was identical to the copy already
+   retained above; the immediate follow-up commit consolidates it to one copy.
+
+Static verification against both merge parents found no missing numbered
+clauses and no missing unique line from either conflict block. The CI-flakes
+entry appears exactly once. Release's other automatic clause amendments and
+the queue-tray clauses remain present; no side's change-log content was dropped.
+
+Commits, oldest first (the report is committed separately):
+
+- `f7cd31322` Merge release/217 at 4f5983f4c before queue tray fix 9
+- `c2abab4b5` docs: retain one copy of the shared CI flakes merge entry
+- `3a066d468` test: assert queue tray work counts and reviewer r5 positions
+- `06378ba08` test: expose sort and reveal-start counters only in probe builds
+- `e3226b549` test: establish the live-row catch-up precondition without a timing race
+- `127743845` test: wait for reveal completion and check mutant preconditions
+
+The shared Git metadata rejected `ORIG_HEAD` writes. All commits therefore live
+on `feat/queue-tray-217` in workspace-local `.git-local`; use
+`GIT_DIR="$PWD/.git-local" git log` from this workspace to inspect them. The
+supplied `.git` pointer and caller's checkout remain unchanged. Every commit
+uses the requested co-author trailer. No push occurred.
+
+### Findings: causes and changes
+
+**P2-1 — debug-build wall-clock assertions measured host scheduling as well as
+work.** Replace the 50 ms checks with receipt completeness, zero known-receipt
+fetches on reopen, and a counter in the actual sort helper: one sort for a
+changed batch and zero for an unchanged batch. Replace reveal-consumption time
+bounds with exactly two scroll notices, one eligible reveal start, consumption,
+and a continuously present target. A counter records starts cancelled before
+any scroll, so postponing one pair through repeated restarts cannot pass merely
+by producing two late scrolls. The counters/notification compile only into probe
+builds. Shipping product behavior and snapshots are unchanged.
+
+Catch-up waits for its cursor and caught-up state, with a 60-second hang guard.
+Mount reveals also wait for consumption. Milliseconds and reveal timestamps
+remain recorded output, without performance assertions. Both fix-8 files pass
+in the completed paired run, including reveals consumed at 2.751 and 1.647 s.
+
+**P3-1 — the engine probe excludes `UIModel.swift`.** Extend the real view probe
+with the reviewer's `UIModel.open`-twice case: 64 receipts, a 50-receipt opening
+snapshot, and three tray rows. Count the actual identities requested through
+`message.status`: first open asks for 14, reopening asks for zero, all 64 remain
+known, and all three tray rows remain visible. The new named regression passed.
+The compiled mutation `let known: Set<String> = []` was rejected by
+`test_real_uimodel_reopen_fetches_no_known_receipt`; its mutation control passed.
+
+**P3-2 — prior tests did not exercise an end-visible timeline reveal while
+catch-up is suspended.** Reuse the reviewer's 120-turn live-row cases with page
+settings 250 ms/40 events and 100 ms/20 events (the review's ten/eighteen-page
+schedules). An initial ungated transplant failed one head case: 10,288 pt from
+the end. It had not established that the reveal left the end visible before
+history growth. The final fixture holds the first catch-up read pending until
+the opening end is visible and the actual search reveal is consumed, asserts
+that setup, then releases the slow pages. Both before/after-reveal distances
+were 0 pt; both completed openings and subsequent streams ended 25 pt from the
+end, within the unchanged 30 pt padding tolerance. Both named position cases
+passed. **The settling-clause mutation was not executed in this job**, so the
+new gated fixture's negative-control coverage remains unverified.
+
+### Wall-clock audit
+
+Audited all **33 frontend files changed or added by the PR relative to the
+pinned release**, including Python assertions and Swift probe guards. Replaced:
+
+- `test_open_and_reopen_stay_under_50ms`: first/reopen apply bounds become
+  complete known-message counts and zero reopen receipt requests; renamed to
+  `test_open_and_reopen_apply_complete_receipts`.
+- `test_receipt_batch_sorts_once_within_50ms`: order plus sort counts 1/0;
+  renamed to `test_receipt_batch_sorts_once`.
+- `test_continuous_rows_reveal_at_most_twice`: remove `consumed_at <= 1.5` and
+  the position check tied to a person scrolling at one elapsed second. Assert
+  two reveals, one start, consumption and target presence. The diagnostic person
+  scroll now waits for consumption.
+- `test_one_reveal_pair_for_bounded_row_schedules`: remove the additional
+  `consumed_at <= 1.5` assertion; assert consumption and exactly one reveal pair
+  with one start. Its two-second completion wait becomes a 60-second hang guard.
+- `ReviewR219Fix8ViewProbe.waitFolded`: replace the fixed eight-second catch-up
+  allowance with a state/cursor wait bounded by 60 seconds. Reveal waits formerly
+  bounded by four/six seconds also use the 60-second completion guard.
+- The audit's additional completion check was fix 6's `not search["timed_out"]`.
+  Keep its laid-out-row/target-visible/consumed assertions, but extend its
+  ten-second probe deadline to 60 seconds. This changed probe was **not rerun**.
+
+The only remaining measured-time assertion candidate is that fix-6 completion
+flag, now governed by the generous hang deadline. No measured millisecond or
+reveal-consumption performance bound remains. Stimulus intervals, layout-pump
+waits and subprocess/compiler hang guards are not asserted performance targets.
+
+Recorded debug-build application times (not pass/fail criteria):
+
+| Run | Settled messages | Open apply ms | Reopen apply ms | Reopen receipt ids |
+| --- | ---: | ---: | ---: | ---: |
+| Brief engine | 500 | 27.15 | 0.81 | 0 |
+| Brief engine | 2,000 | 233.54 | 60.74 | 0 |
+| Brief engine | 5,000 | 868.24 | 224.70 | 0 |
+| Stability 1 | 500 | 20.93 | 10.63 | 0 |
+| Stability 1 | 2,000 | 210.34 | 99.40 | 0 |
+| Stability 1 | 5,000 | 891.61 | 178.85 | 0 |
+
+Brief engine: batch 282.06 ms, 1 sort, 0 sorts on unchanged reapplication. Stability 1: batch 607.32 ms, 1 sort, 0 sorts on unchanged reapplication.
+
+### Four unchanged invariants
+
+1. **Follow:** after a reveal, the timeline follows new output iff its end marker
+   is on screen; a tray-only reveal leaves timeline follow alone. Position tests
+   cover tray/timeline reveals, streams and catch-up. The older offscreen cases
+   below remain outside this round; fix 6's additional position checks are unrun.
+2. **Queue completeness:** status-supported opening includes every queued
+   identity, including queues larger than the opening snapshot. The bounded
+   0–601-size open/reopen property and core queue-tray/service checks passed.
+3. **Bounded reopening work:** reuse known settled receipts, fetch none on
+   reopen, and sort at most once per changed receipt batch (zero for unchanged
+   sequences). Counts passed at 500/2,000/5,000 settled messages. These are work
+   counts over the stated inputs, not a universal constant-time claim for every
+   retained-timeline operation.
+4. **One reveal per request:** a present target gets its two-scroll pair once;
+   unrelated row arrivals neither postpone it by restarting nor repeat it.
+   Both busy cases and the 12 generated schedules plus saved explicit example
+   passed with two reveals and one start.
+
+These assertions use counts or positions, never wall-clock performance bounds.
+The coverage table states what was actually rerun; it is not a universal proof
+of all four invariants.
+
+### Holds, stability and mutations
+
+Setup ran once through `uv_sync_hold.sh`, using the same GIL CPython 3.14.7 venv
+for every hold. Each pytest used `suite_hold.sh`, one process and no workers,
+with job-local TMPDIR, caches and Hypothesis storage. Completed final-source
+holds explicitly selected the bounded `ci` profile; no deep profile ran.
+
+| Hold | Pytest outcome | Pytest seconds | Total seconds including queue | Status |
+| --- | --- | ---: | ---: | --- |
+| Initial view group | Counts unavailable | about 19 min | not retained | Interrupted before 20 min; no count credit |
+| Ungated new view cases | 2 passed, 1 failed | 73.18 | 289.06 | Before fixture correction; excluded from final-source totals |
+| Barrier-only request | No pytest started | — | 3,090.21 | Queued request cancelled to finish fixture/grouping changes |
+| Engine plus new view request | 156 passed | 1,155.11 | 3,634.08 | All five engine files complete; interrupted before new-view checks completed |
+| Stability 1, contract, new view, UIModel mutant | 56 passed | 1,196.56 | 5,335.34 | Complete, no failures/errors/skips |
+
+**Operational overrun:** the last pytest duration was 19:56, but the slot header
+was 06:14:21 UTC and pytest started about 15 seconds later. Its slot therefore
+lasted about **20:12**, exceeding the requested cap by roughly 12 seconds. I
+missed the planned interrupt while awaiting the final control. The console
+pytest duration alone does not establish compliance with the slot cap.
+
+Work began at about 01:59:44 UTC. No new hold was requested after the prescribed
+06:29:44 UTC cutoff. The already-running final hold finished at about 06:34 UTC.
+The long shared-lock waits consumed the remaining validation window.
+
+| Required stability run (both fix-8 files together) | Outcome |
+| --- | --- |
+| 1 | 14 passed (8 engine, 6 view), no failures/errors/skips; in the 56-pass hold |
+| 2 | Unrun at cutoff |
+| 3 | Unrun at cutoff |
+
+The earlier engine-only execution is not counted as another paired stability
+run. The three-run requirement is incomplete.
+
+| Mutation | Named regression | Executed result |
+| --- | --- | --- |
+| UIModel drops known ids | `test_real_uimodel_reopen_fetches_no_known_receipt` | Killed: compiled mutant triggered the expected assertion |
+| `suspended ? .stay : .jump` | `test_live_row_reveal_during_slow_catchup_keeps_the_end`, both schedules | Unrun; gated-fixture negative control remains required |
+| Full-history hydration | `test_reopen_fetches_no_known_receipt[500]` | Unrun |
+| Per-receipt sort | `test_receipt_batch_sorts_once` | Unrun |
+| Revealer keyed on all rows | `test_continuous_rows_reveal_at_most_twice[busy_400ms]` | Unrun |
+| Existing notice sets at-bottom false control | `test_timeline_reveal_leaving_end_visible_keeps_follow` | Unrun |
+
+The settling mutation control asserts its initial end-visible setup separately
+before expecting final-position failures. The sort mutant uses a small batch;
+its rejection depends on counts, not on making a quadratic workload slow.
+
+### Per-file coverage and outstanding suites
+
+All failure/error/skip counts below are zero **for the executed final-source
+cases**. Historical pre-correction failures appear in the hold table above.
+Unrun-case counts use the prior fix-8 manifest plus the new cases; unrun files
+were not recollected here. The manifest matches all 53 current frontend files.
+There are **166 distinct frontend passes plus 38 unit/fake passes**, and
+**688 manifest cases remain unrun**, including five mutation parameters in a
+partially executed file. The live-core case is unrun, not claimed skipped.
+
+The required fix-6/tray-view and conversation-view/timeline/store/reviewer-probe
+groups remain incomplete. The required **whole-frontend phase after the briefed
+groups did not start**; targeted passes are not relabelled as a whole-suite pass.
+No unrequested unit/fake suites were run.
+
+| Test file | Passed | Failed/errors | Skipped | Unrun (manifest) |
+| --- | ---: | ---: | ---: | ---: |
+| `tests/fake/test_state_contract.py` | 37 | 0 | 0 | 0 |
+| `tests/frontend/test_app_cutover_start.py` | 0 | 0 | 0 | 13 |
+| `tests/frontend/test_conversation_view.py` | 0 | 0 | 0 | 6 |
+| `tests/frontend/test_core_app_cutover_reading.py` | 0 | 0 | 0 | 15 |
+| `tests/frontend/test_core_approval_notification.py` | 0 | 0 | 0 | 10 |
+| `tests/frontend/test_core_approval_reach.py` | 0 | 0 | 0 | 41 |
+| `tests/frontend/test_core_client.py` | 0 | 0 | 0 | 18 |
+| `tests/frontend/test_core_diff.py` | 0 | 0 | 0 | 7 |
+| `tests/frontend/test_core_draft.py` | 0 | 0 | 0 | 7 |
+| `tests/frontend/test_core_idle.py` | 0 | 0 | 0 | 1 |
+| `tests/frontend/test_core_live.py` | 0 | 0 | 0 | 1 |
+| `tests/frontend/test_core_live_failure.py` | 0 | 0 | 0 | 1 |
+| `tests/frontend/test_core_markdown.py` | 0 | 0 | 0 | 42 |
+| `tests/frontend/test_core_outbox.py` | 0 | 0 | 0 | 13 |
+| `tests/frontend/test_core_protocol.py` | 0 | 0 | 0 | 10 |
+| `tests/frontend/test_core_question_card.py` | 0 | 0 | 0 | 10 |
+| `tests/frontend/test_core_queue_engine.py` | 75 | 0 | 0 | 0 |
+| `tests/frontend/test_core_queue_tray.py` | 51 | 0 | 0 | 0 |
+| `tests/frontend/test_core_search.py` | 20 | 0 | 0 | 0 |
+| `tests/frontend/test_core_steer.py` | 0 | 0 | 0 | 43 |
+| `tests/frontend/test_core_steer_properties.py` | 0 | 0 | 0 | 2 |
+| `tests/frontend/test_core_store.py` | 0 | 0 | 0 | 10 |
+| `tests/frontend/test_core_suggestions.py` | 0 | 0 | 0 | 7 |
+| `tests/frontend/test_core_suggestions_r1b.py` | 0 | 0 | 0 | 4 |
+| `tests/frontend/test_core_text_scale.py` | 0 | 0 | 0 | 7 |
+| `tests/frontend/test_core_timeline.py` | 0 | 0 | 0 | 23 |
+| `tests/frontend/test_core_titles.py` | 0 | 0 | 0 | 1 |
+| `tests/frontend/test_disk_ruling.py` | 0 | 0 | 0 | 8 |
+| `tests/frontend/test_menu_view.py` | 0 | 0 | 0 | 8 |
+| `tests/frontend/test_pr124_fixes_ui.py` | 0 | 0 | 0 | 17 |
+| `tests/frontend/test_pr124_recovery_properties.py` | 0 | 0 | 0 | 1 |
+| `tests/frontend/test_pr124_review_r2_fixes_ui.py` | 0 | 0 | 0 | 19 |
+| `tests/frontend/test_queue_tray_fix4_mutations.py` | 0 | 0 | 0 | 4 |
+| `tests/frontend/test_queue_tray_notice.py` | 2 | 0 | 0 | 0 |
+| `tests/frontend/test_queue_tray_view.py` | 0 | 0 | 0 | 15 |
+| `tests/frontend/test_reading_view.py` | 0 | 0 | 0 | 5 |
+| `tests/frontend/test_review_pr127_timeline.py` | 0 | 0 | 0 | 4 |
+| `tests/frontend/test_review_r219_fix4.py` | 0 | 0 | 0 | 39 |
+| `tests/frontend/test_review_r219_fix6.py` | 0 | 0 | 0 | 7 |
+| `tests/frontend/test_review_r219_fix8_engine.py` | 8 | 0 | 0 | 0 |
+| `tests/frontend/test_review_r219_fix8_mutations.py` | 1 | 0 | 0 | 5 |
+| `tests/frontend/test_review_r219_fix8_view.py` | 6 | 0 | 0 | 0 |
+| `tests/frontend/test_review_r219_fix9_view.py` | 3 | 0 | 0 | 0 |
+| `tests/frontend/test_review_r219_probes.py` | 0 | 0 | 0 | 23 |
+| `tests/frontend/test_status_model.py` | 0 | 0 | 0 | 25 |
+| `tests/frontend/test_visual_progress.py` | 0 | 0 | 0 | 5 |
+| `tests/frontend/test_visual_report_hygiene.py` | 0 | 0 | 0 | 15 |
+| `tests/frontend/test_visual_review_fixes.py` | 0 | 0 | 0 | 43 |
+| `tests/frontend/test_visual_round_five.py` | 0 | 0 | 0 | 9 |
+| `tests/frontend/test_visual_round_four.py` | 0 | 0 | 0 | 27 |
+| `tests/frontend/test_visual_round_three.py` | 0 | 0 | 0 | 28 |
+| `tests/frontend/test_visual_round_two.py` | 0 | 0 | 0 | 85 |
+| `tests/frontend/test_visual_snapshots.py` | 0 | 0 | 0 | 3 |
+| `tests/frontend/test_visual_suggestions.py` | 0 | 0 | 0 | 1 |
+| `tests/unit/test_test_module_names.py` | 1 | 0 | 0 | 0 |
+
+### Open items and cleanup
+
+The older behaviors explicitly excluded from this round remain open: an
+approval card's reply can lose follow depending on timing, and following does
+not reliably resume after the person scrolls back to the end. Neither behavior
+was changed. Pending validation also includes the four requested unrun mutants,
+two stability holds, the remaining briefed files and the whole frontend suite.
+macOS 15, Python 3.12, the installed app and live daemon were not exercised.
+No snapshot changed.
+
+After every managed runner returned, the requested
+`pgrep -fl 'suite_hold.sh|pytest|lockf'` check was attempted. The sandbox denied
+process listing (`sysmond service not found`), so external process-list
+verification was unavailable. All owned managed foreground runners returned;
+no foreign process was signalled. At delivery the job scratch, build directory
+and generated Python/Hypothesis caches are removed. Workspace-local Git metadata
+is retained for the commits. No logs, JSON evidence or bundles are staged, and
+nothing was fetched or pushed.
