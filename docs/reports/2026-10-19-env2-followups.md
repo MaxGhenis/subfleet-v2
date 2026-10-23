@@ -11,7 +11,7 @@ then the tests. No credential store, secret loader, live store, live daemon or l
 process was read or changed. Every test value is a dummy, and nothing here quotes an
 environment value.
 
-**History.** Three jobs wrote this.
+**History.** Four jobs wrote this.
 - **The first build** (`20261020-073952-env2-build`) was lost to the
   2026-10-20 power cut, at about 15:25Z, with no final answer. Before that it
   made the seven commits from `251625c37` to `290b7bb5a` and wrote this report
@@ -23,6 +23,9 @@ environment value.
   release/217 and re-ran every test count in the Validation section at the
   merged head. Then it finished this report and wrote the PR body,
   `docs/reports/2026-10-19-env2-followups-pr-body.md`.
+
+- **The fourth job** (`20261023-043149-pr248-fix1`) fixed review r1 of #248's
+  three P3s at `364fefdbf`. Its work is the "Fix round 1" section at the end.
 
 The causes, the fix, the choices, the control at the base and the mutations
 below are the first build's work and wording. The Validation, Not run, Commits
@@ -202,7 +205,10 @@ Each is stated for every input and checked by a property or differential test
   200 examples).
 - **No transfer writes a refused row.** After every transfer of every stored
   lane to either owner, no env-kind `lanes.json` row names a refused variable
-  (`test_no_transfer_writes_a_refused_row_into_lanes_json`).
+  (`test_no_transfer_writes_a_refused_row_into_lanes_json`). Review r1 of #248
+  found this held only when `lanes.json` started without one: a transfer kept
+  the lane's existing refused row. Fix round 1, below, repairs that row, and
+  states the invariant exactly.
 - **No refused variable's value is read by resolution or by the install check**
   (a recording environment, for each probe name and for each listed row).
 
@@ -480,3 +486,325 @@ The third job's cleanup:
   matches `38afc8110`.
 - **Processes:** none of the job's processes is running at report time, and
   none holds or waits on either lock.
+
+## Fix round 1 (review r1 of #248)
+
+Review r1 of #248 (`~/reviews/subfleet-hub/env2-2026-10-19/review-r1.md`)
+approved with three P3s. All three come from a refused `lanes.json` row that this
+PR lets the daemon start with, where the base exited 2. The hub ruled that all
+three are fixed before merging, since P3-1 loses a secrecy property the base had.
+The fourth job (`20261023-043149-pr248-fix1`) did this round at `364fefdbf`; the
+causes below are read from that code and executed against it (hold A).
+
+### P3-1: an ignored row's harness hook reached every launch
+
+**Cause.** `credentials.withheld_references` was fed the store's lanes alone, at
+both of the daemon's withheld sets: `Daemon._withheld_references`, behind the
+daemon's `ProviderEnvironment` (every lane launch, probe and relaunch), and
+`Timers._provider_environment`, the timers' own (the card sensor's reads).
+`startup_lanes` tags a refused row for a stored lane `IGNORED`, and nothing
+remembered the tag past the startup warning. So a harness hook that only such a
+row named was withheld from no launch, that lane's own included. Before this PR,
+startup refused such a row (exit 2: the table at the top, P3-1's input 2), so no
+launch ever ran beside one.
+
+**Fix** (`ba1814366`).
+- `credentials.ignored_hooks(found)` gives the harness hooks of the `IGNORED`
+  rows in `check_lane_credentials`'s result.
+- `Daemon._open_lanes` stores them as `_ignored_hooks`. Its class default is the
+  empty set, for daemons the unit tests build without `__init__`.
+- `_withheld_references` returns the stored lanes' names plus those hooks.
+- `Timers` takes a `references` callable. The daemon hands it
+  `_withheld_references`, so the two sets are one set.
+- A listed or session name that an ignored row gives (HOME) is left to the
+  selection, as a held lane's is.
+- The hooks are read once, at startup, because the daemon checks and seeds
+  `lanes.json` only then (`_open_lanes`). A row added to `lanes.json` later is
+  not checked until the next start, as before.
+
+### P3-2: `daemon start --check` printed lane ids unscrubbed
+
+**Cause.** `_daemon_start_check` printed the (lane id, variable) pairs from
+`lanes_json_refusals` as read, in text and in `--json`. `daemon start` prints its
+refusal of the same row through `daemon_log.scrubbed` (C-25.7, #233).
+
+**Fix** (`5f2241c98`).
+- Each row's lane id (its text) and variable go through `daemon_log.scrubbed`
+  once, and both modes print the result.
+- One change in `--json`: a lane id that is not a string is now printed as its
+  text, where it used to be the raw JSON value.
+- Doctor's held-lane row had the same gap. That row, which this PR added, printed
+  the store's lane ids and accounts as read; the store took them from
+  `lanes.json`. I found this while testing invariant 2, which names doctor.
+- Doctor now scrubs each held lane's words separately. Scrubbing the joined text
+  would cut it at the 2,000-character line bound (`refusals.LOG_LINE_MAX`) once
+  about five lanes are held.
+
+**A limit of the scrubber, seen and not changed.** The scrubber's token patterns
+stop at `(?<![A-Za-z0-9_-])` and `(?![A-Za-z0-9_-])` (`sessions/handoff.py`). It
+left `ghp_…-9` as it was (hold B), and by the same boundary it would leave
+`lane-ghp_…`, which I read but did not run. `daemon_log.scrubbed`, which
+`daemon start`'s refusal and daemon.log go through, prints such an id unchanged.
+`--check` now matches them exactly, so it does too. The bounded property found
+this case, and lists its shape (`JOINED`) apart. Whether the scrubber
+should read through a hyphen is a question for C-25.7's owner. A harness-hook
+name with a token-shaped tail (`SUBFLEET_FAKE_ghp_…`) is also read as one word,
+and printed as `daemon start` prints it.
+
+### P3-3: a transfer left the lane's refused row behind
+
+**Cause.** `_v2_roster_edit` set only `owner` (and, for a Codex lane, the home) on
+the first row naming the lane. Take `claude-9`, stored on `SUBFLEET_TEST_OAUTH`,
+with a row naming `HOME`. A transfer planned
+`{"credential_ref": "HOME", "owner": "v1"}`, and a store rebuilt from that file
+refused startup.
+
+**Fix** (`b47f49624`): the hub's rule.
+- `_repair_refused_row` runs on every row for the lane whose credential, as
+  startup reads it (`lane_reference`), names a refused variable.
+- That row takes the store's own credential, in the row's own shape: a
+  `credential` object, or the flat `credential_kind`, `credential_ref` and
+  `credential_epoch`. "The store's own" means its kind, its variable, or its home
+  after the transfer, plus its epoch.
+- Owner and home are set on the first row, as before.
+- A lane whose stored variable is refused is still refused first
+  (`transfer-held`), so the store's credential is always an accepted one.
+
+**One choice.** A transfer changes no other lane's row, so the PR body's
+invariant 3 holds as written whenever the file's other rows are clean. Another
+lane's refused row is not this transfer's to repair. If that lane is stored,
+startup ignores the row and names it in its warning. If not, the row refuses
+startup and `--check` lists it. Invariant 3 below says this exactly.
+
+### Invariants
+
+1. **Withholding.** Every variable named as a harness hook by any lane, stored or
+   by an ignored row, is withheld from every launch except that lane's own. An
+   ignored row's hook is withheld from all of them, since it is no lane's
+   credential.
+   - `test_bounded_property_every_lanes_hook_is_withheld_from_every_launch`
+     checks this without a daemon: 300 examples of stores and rosters over three
+     hooks, four other refused names and two good variables. The withheld names
+     equal a model written from the rule, not from the code (seeding, repair,
+     ignored rows), and a launch selected from a parent holding every name
+     carries exactly the hooks no lane names.
+   - `test_bounded_property_the_daemon_withholds_every_lanes_hook` (fake, 25
+     examples) checks the same model against real `Daemon` constructions. Both
+     withheld sets equal it, and an assembled launch carries no named hook.
+   - Scope: "launch" means what the daemon's `ProviderEnvironment` and the
+     timers' assemble. Seen and not changed: Codex's isolated-review inspection
+     selects its own environment (`CodexAdapter._launch`,
+     `build_environment(credential_env)`, then `isolation.inspect_codex`), which
+     withholds no lane's names. A held lane's hook reaches that one spawn at the
+     base too. I read this; I did not execute it.
+2. **No value printed.** No output path prints a dummy value, or a token-shaped
+   id the scrubber reads as standing alone. The paths are `daemon start` (stderr
+   and its refusal), `--check` (text and JSON), doctor's lane-variable row,
+   `lanes transfer` (its refusal, and its dry-run and applied output) and
+   daemon.log.
+   - `test_daemon_start_check_scrubs_a_token_shaped_lane_id`.
+   - `test_bounded_property_the_check_prints_each_row_as_daemon_start_would`
+     (150 examples, differential between text, JSON and `daemon start`'s
+     scrubbing).
+   - `test_doctor_names_a_held_lane_by_its_id_scrubbed`.
+   - `test_a_held_lanes_transfer_refusal_names_no_token_shaped_id`.
+   - The transfer tests check that each result names variables only. No dummy
+     was set while they ran, so for `lanes transfer` the no-value half rests on
+     its code handling names only, which I read.
+   - The fake regression asserts no dummy in daemon.log or either start's stderr.
+   - A transfer's applied output echoes the lane id the operator typed, and the
+     `lanes.json` diff, as before this PR.
+3. **Transfers.** After any transfer of lane L, dry run or not, no `lanes.json`
+   row for L names a refused variable as startup reads it, and no other lane's
+   row changes. So a file whose other rows were clean ends with no refused row.
+   A transfer whose stored lane is held is refused (`transfer-held`) and writes
+   nothing.
+   - `test_bounded_property_no_transfer_leaves_a_refused_row` (60 examples of up
+     to four transfers each, flat and object rows, env- and home-kind rows and
+     stored lanes, unknown lanes).
+   - The regressions below.
+
+### Tests
+
+**Regressions.** Each fails at `364fefdbf` (hold A ran the new files against an
+export of `096a1fcd7`, which is `364fefdbf`'s code plus only these tests) and
+passes at the fix:
+
+| Finding | Test (cases) | At `364fefdbf` |
+| --- | --- | --- |
+| P3-1 | fake `test_review_r1_an_ignored_rows_harness_hook_reaches_no_launch[ignored-row]`, review r1's input | "a withheld set misses the hook" |
+| P3-1 | `test_an_ignored_rows_harness_hook_is_withheld_as_a_held_lanes_is` (2: a hook row beside an env-kind and a home-kind stored lane) | the hook is not withheld |
+| P3-1 | `test_bounded_property_every_lanes_hook_is_withheld_from_every_launch`, and fake `test_bounded_property_the_daemon_withholds_every_lanes_hook` | withheld `frozenset()` where the model has `{SUBFLEET_FAKE_LANE_EIGHT}`; minimal inputs: a home-kind `claude-7` whose row names the hook (pure), and `claude-7` held on `HOME` with the same row (daemon) |
+| P3-2 | `test_daemon_start_check_scrubs_a_token_shaped_lane_id` (6: text and `--json`, each with `HOME`, `SUBFLEET_FAKE_LANE_EIGHT` and `PYTEST_CURRENT_TEST`) | "the check printed the lane id unscrubbed" |
+| P3-2 | `test_bounded_property_the_check_prints_each_row_as_daemon_start_would` | the raw id where `daemon start` prints `[REDACTED]` |
+| P3-2 | `test_doctor_names_a_held_lane_by_its_id_scrubbed` | the token-shaped id in doctor's row |
+| P3-3 | `test_review_r1_a_transfer_repairs_the_lanes_refused_row` (4: dry run and applied, to v1 and to v2), review r1's input | planned `("env", "HOME", <owner>)`, not the store's `SUBFLEET_TEST_OAUTH` |
+| P3-3 | `test_a_transfer_repairs_every_refused_row_of_its_lane_in_its_own_shape` (6: a `credential` object, duplicate rows, a home-kind stored lane; dry run and applied) | the refused rows stay |
+| P3-3 | `test_a_codex_transfer_repairs_its_refused_row_to_the_relocated_home` (2) | the row keeps kind `env` beside the home path |
+| P3-3 | `test_bounded_property_no_transfer_leaves_a_refused_row` | a stored lane's refused row survives its transfer |
+
+Hold A's whole result was 26 failed and 5 passed. The five that passed are the
+controls, which pass at both heads: the held lane on the hook (fake and unit),
+an ignored row naming `HOME` (left to the selection), the held lane's transfer
+refusal naming no token-shaped id, and a held lane's transfer still refused.
+
+**Mutations,** in `tests/unit/test_launch_env_mutations.py`, each run in memory
+against its named regression. Each passed in hold B, so each mutant was killed:
+
+| Mutant | Killed by |
+| --- | --- |
+| the ignored hooks dropped from both withheld sets (`daemon.ignored_hooks` returns none) | `test_review_r1_an_ignored_rows_harness_hook_reaches_no_launch[ignored-row]`: "a withheld set misses the hook" |
+| the timers' set built from the store alone again | the same test, on the second set |
+| `--check --json` listing the rows unscrubbed (an AST rewrite of the `emit` comprehension) | `test_daemon_start_check_scrubs_a_token_shaped_lane_id[json-*]`: "printed the lane id unscrubbed" |
+| a transfer writing only `owner` again (`_repair_refused_row` a no-op) | `test_review_r1_a_transfer_repairs_the_lanes_refused_row`, dry run and applied |
+
+**Holds.** Each hold is one pytest process under the hub's `suite_hold.sh`,
+with the job's venv (GIL CPython 3.14.7, built once through `uv_sync_hold.sh`).
+Credential-shaped names were removed from each child, and each hold wrote only
+to the scratch folder.
+
+| Hold | Where | Files | Waited | Ran | Result |
+| --- | --- | --- | ---: | ---: | --- |
+| 0 | worktree, before the commits | the new files, round 6, transfer, doctor | 81 min, then stopped by me unrun | none | none (see below) |
+| B | worktree, uncommitted then: the code of `ba1814366` to `b47f49624`, the contract edits, and `096a1fcd7`'s tests before the property's fix | every briefed file: review r1's hold 1 and hold 2 files, the new files, the state contract and module names | 8 min | 7 min 27 s | 901 passed, 11 failed |
+| A | export of `096a1fcd7` (`364fefdbf`'s code, the new tests) | the two new test files | 32 min | 1 min 46 s | 26 failed, 5 passed, as above |
+| C | worktree, with the contract commit `6e5abecce` | the new files and mutations again, the state contract, module names, the four contract-reading files, and hold B's two failing fake files whole | 64 min | 4 min 2 s | 245 passed, 1 failed |
+
+- **Hold 0** queued at 20:29Z while the host's 1-minute load stood over 120, so only
+  slot A was open. A slot is taken by whichever waiter polls first, not in queue
+  order, so a broader hold waits no longer than a narrow one. I stopped hold 0's
+  wrapper (my own two processes, which were waiting and held no lock) and queued
+  hold B, which covers everything hold 0 would have run.
+- **Hold B's 11 failures:**
+  - **One was mine:** `test_bounded_property_the_check_prints_each_row_as_daemon_start_would`
+    drew `ghp_…-9`. That is the scrubber limit described under P3-2. `--check`
+    printed the id exactly as `daemon start` does, so the property's
+    differential held, but its claim that no token-shaped id is shown is true
+    only for a token standing alone. The property now lists the hyphen-joined
+    shape apart (`JOINED`) and makes that claim for standalone shapes only.
+  - **The other 10 are the fake daemon harness's 5 s bound**
+    (`tests/fake/conftest.py:145`, "condition timed out after 5s"):
+    - 9 in `Harness.start`, 1 in `attempt_state`;
+    - 2 in `test_daemon_contract.py`, 8 of the 9 in
+      `test_census_escapers_daemon.py`.
+  - **The kept state roots** (`/tmp/sf-failed/17652`): their `daemon.log`s held
+    0 to 3 startup lines each. None had an error, a refusal, a traceback or a
+    credential line, so those daemons were still starting when the bound ran
+    out.
+  - **Comparison:** this is the failure mode the third job and review r1 both
+    recorded, in the same files. At review r1's load of 30 to 36 all of them
+    passed. Hold B began at a 1-minute load of 61; the host stood near 95 to
+    120 for the rest of the job.
+  - **The startup change in this round** is one set comprehension over the
+    startup check's result.
+
+**Per file:**
+
+| File | Hold B (fix) | Hold A (`364fefdbf`) |
+| --- | ---: | ---: |
+| `tests/unit/test_launch_env_round7.py` (new) | 27 passed, 1 failed (the property above; fixed since) | 4 passed, 24 failed |
+| `tests/fake/test_launch_env_ignored_hook.py` (new) | 3 passed | 1 passed, 2 failed |
+| `tests/unit/test_launch_env_mutations.py` (6 new) | 50 passed | not run |
+| `tests/unit/test_launch_env_round6.py` | 43 passed | |
+| `tests/unit/test_lanes_transfer.py` | 79 passed | |
+| `tests/unit/test_doctor.py` | 44 passed | |
+| `tests/unit/test_cli.py` | 248 passed | |
+| `tests/unit/test_daemon_accept.py` | 5 passed | |
+| `tests/unit/test_launch_env_allowlist.py` | 27 passed | |
+| `tests/unit/test_launch_env_helpers.py` | 20 passed | |
+| `tests/unit/test_launch_env_policy.py` | 26 passed | |
+| `tests/unit/test_launch_env_round2.py` | 67 passed | |
+| `tests/unit/test_launch_env_round3.py` | 69 passed | |
+| `tests/unit/test_launch_env_round4.py` | 40 passed | |
+| `tests/unit/test_launch_env_round5.py` | 39 passed | |
+| `tests/fake/test_launch_env_daemon.py` | 52 passed | |
+| `tests/fake/test_state_contract.py` | 37 passed | |
+| `tests/unit/test_test_module_names.py` | 1 passed | |
+| `tests/fake/test_resume_cli.py` | 1 passed | |
+| `tests/fake/test_daemon_contract.py` | 19 passed, 2 failed (5 s start bound) | |
+| `tests/fake/test_lost_acknowledgement.py` | 3 passed | |
+| `tests/fake/test_census_escapers_daemon.py` | 1 passed, 8 failed (5 s start bound) | |
+| **Total** | **901 passed, 11 failed** | **5 passed, 26 failed** |
+
+Hold C, at the fix with the contract amended (begun at a 1-minute load of 29):
+
+| File | Passed | Failed |
+| --- | ---: | ---: |
+| `tests/unit/test_launch_env_round7.py` (the property fixed) | 28 | 0 |
+| `tests/fake/test_launch_env_ignored_hook.py` | 3 | 0 |
+| `tests/unit/test_launch_env_mutations.py` | 50 | 0 |
+| `tests/fake/test_state_contract.py` | 37 | 0 |
+| `tests/unit/test_test_module_names.py` | 1 | 0 |
+| `tests/unit/test_invariants_index.py` (reads the contract) | 25 | 0 |
+| `tests/unit/test_desktop_ledger.py` (reads the contract) | 4 | 0 |
+| `tests/unit/test_retention_turn_contract.py` (reads the contract) | 2 | 0 |
+| `tests/unit/test_live_store_guard_round10.py` (reads the contract) | 66 | 0 |
+| `tests/fake/test_daemon_contract.py` | 20 | 1 |
+| `tests/fake/test_census_escapers_daemon.py` | 9 | 0 |
+| **Total** | **245** | **1** |
+
+Hold C's one failure, `test_daemon_contract.py::test_c6_2_request_id_is_idempotent_and_digest_conflicts_are_code_2`,
+is the same 5 s start bound. Its kept `daemon.log` was one startup line with
+no error. That test passed in hold B, and both of hold B's failing tests in that
+file passed here. So every test in the two fake files passed in at least one of
+the two holds, and all 9 census tests passed in hold C.
+
+**Not run:**
+- The rest of `tests/unit` and `tests/fake`, `tests/e2e`, `tests/process`,
+  `tests/frontend` and `tests/live`, Python 3.12, free-threaded 3.14t, and CI.
+  The job had no network.
+- A third hold of `tests/fake/test_daemon_contract.py` whole, to see all 21 pass
+  in one run. Hold C ended at 23:54Z, a quarter hour before the 4 h 30 m cutoff,
+  and the slot waits had run from 8 to 81 minutes.
+- The mutations at `364fefdbf`: three of them patch names the fix added, so they
+  mean nothing there.
+- Outside the holds: two sub-second scrubber probes (`daemon_log.scrubbed` on
+  dummy strings) and one listing of this shell's environment-variable names (no
+  values) ran directly with the job's venv, before I applied the rule that probes
+  go through the wrapper too.
+
+### Contract
+
+C-10.4, C-10.5, C-12.3, C-17.8 and C-25.7 are amended, with one change-log entry
+dated 2026-10-23:
+- **C-10.4:** a transfer repairs its lane's refused rows.
+- **C-10.5:** an ignored row's hook is withheld, and `--check` prints rows
+  scrubbed.
+- **C-12.3:** an ignored row's variable is withheld as a held lane's is.
+- **C-17.8:** the held-lane row is scrubbed.
+- **C-25.7:** `--check` joins `daemon start`'s scrubbed output.
+
+### Commits
+
+On top of `364fefdbf`, in this job's detached worktree:
+
+| Commit | What |
+| --- | --- |
+| `096a1fcd7` | test: the regressions for review r1 of #248's three P3s, and their mutations |
+| `ba1814366` | fix: withhold an ignored `lanes.json` row's harness hook from every launch |
+| `5f2241c98` | fix: `daemon start --check` and doctor's held-lane row scrub lane ids |
+| `b47f49624` | fix: a transfer repairs its lane's refused `lanes.json` rows |
+| `6e5abecce` | docs: amend C-10.4, C-10.5, C-12.3, C-17.8 and C-25.7 |
+| this commit | docs: this section, the earlier sections' pointers to it, and the PR body |
+
+Nothing is pushed.
+
+### Cleanup
+
+- **Scratch:** everything of this job's lived in
+  `$(getconf DARWIN_USER_TEMP_DIR)sf-env2f1`: the venv (built once through
+  `uv_sync_hold.sh`), each hold's `TMPDIR`, the Hypothesis store, the export of
+  `096a1fcd7`, and the logs and junit files. The folder is removed right after
+  this commit, with the brief's `shutil.rmtree` command. One `rm -rf` of a
+  scratch path ran before the export was made. The path did not exist yet, so
+  it removed nothing. The default uv cache was used.
+- **Kept state roots:** the fake harness kept 10 roots under
+  `/tmp/sf-failed/17652` (hold B's pytest) and one under `/tmp/sf-failed/4822`
+  (hold C's). Both folders are removed. `/tmp/sf-failed` itself is shared, so it
+  stays.
+- **The worktree:** the holds ran with `PYTHONDONTWRITEBYTECODE=1`. The three
+  `__pycache__` folders under `subfleet/` came from the probes outside the
+  holds, and are removed. No `.hypothesis` folder was written. Apart from this
+  commit, the worktree matches `6e5abecce`.
+- **Processes:** hold 0's wrapper was stopped while it was waiting, holding no
+  lock. None of this job's processes is running at report time.

@@ -22,8 +22,10 @@ Review r5 of #222 approved the launch-environment allowlist (D-ENV1) with three 
 
 1. Only a refused row for a new lane refuses startup. For every `lanes.json` and store pair (up to 4 rows, 3 stored lanes, five refused and two good variables, home-kind stored lanes and `env.pass`), startup is refused exactly when `env.pass` names a lane credential or a refused row's lane id is not stored. Each held lane and each lane with an ignored row gets exactly one warning, "held" only when held, and no other lane is named (300 examples; round 5's daemon-level property runs the same rule through `cli.daemon_env` and real `Daemon` constructions, 25 examples).
 2. The install check agrees with startup. With an empty store, startup refuses exactly the lanes the check lists; with every lane stored, it refuses none and warns once per listed lane (200 examples, including a variable that is no exact name).
-3. No transfer writes a refused row: after every transfer of every stored lane to either owner, no env-kind `lanes.json` row names a refused variable.
+3. No transfer writes or leaves a refused row: after any transfer of lane L, dry run or not, no `lanes.json` row for L names a refused variable as startup reads it, and no other lane's row changes; so a file whose other rows were clean ends with none (fix round 1, P3-3).
 4. No refused variable's value is read, by resolution or by the install check (a recording environment, for each probe name and each listed row).
+5. Every variable named as a harness hook by any lane, stored or by an ignored row, is withheld from every launch but that lane's own; an ignored row's from all (fix round 1, P3-1).
+6. No output path prints a dummy value, or a token-shaped id the scrubber reads as standing alone: `daemon start`, `--check` (text and JSON), doctor, `lanes transfer` and daemon.log (fix round 1, P3-2).
 
 **Contract:** C-1.3, C-10.4, C-10.5, C-11.1, C-12.3, C-17.1 and C-17.8 are amended, with one change-log entry (2026-10-20).
 
@@ -43,6 +45,13 @@ Review r5 of #222 approved the launch-environment allowlist (D-ENV1) with three 
   The seven holds ran 8,277 tests in all, reruns and cut-short files included.
 - **All 12 failures are the fake daemon harness's 5 s start bound** (`tests/fake/conftest.py:145`), under host load, in `test_resume_cli` (1), `test_census_escapers_daemon` (1), `test_daemon_contract` (9) and `test_lost_acknowledgement` (1). The kept daemon logs showed only startup lines, with no error or refusal. Rerun whole, the first three files passed: 1, 9 and 21 tests. `test_lost_acknowledgement` failed after the cutoff for reruns and was not run again.
 - **Not run:** 293 files, listed in the report. Locally the suite ran 2.6 to 20 times slower than CI, slot waits reached 86 minutes, and xdist is not in the lock. Also not run: the control again at `fd1e4b65c`, `tests/e2e`, `tests/process`, `tests/frontend` and `tests/live`, Python 3.12, and CI.
+
+**Fix round 1** (review r1 of #248, three P3s, each from a refused `lanes.json` row this PR lets the daemon start with, where the base exited 2):
+
+- **P3-1, an ignored row's harness hook reached every launch.** The daemon withheld only the stored lanes' names, at both of its withheld sets. It now remembers the ignored rows' hooks at startup (`credentials.ignored_hooks`), and both sets add them, exactly as for a held lane's hook (`ba1814366`).
+- **P3-2, `daemon start --check` printed lane ids unscrubbed.** Each listed row's lane id and variable are now printed as `daemon start` prints them, through `daemon_log.scrubbed`, in text and `--json`; doctor's held-lane row scrubs each lane's words too (`5f2241c98`).
+- **P3-3, a transfer kept the lane's refused row.** Each of the lane's rows naming a refused variable is repaired to the store's own credential, in the row's own shape, dry run or not; a held lane is still refused (`b47f49624`).
+- Tests first (`096a1fcd7`): the reviewer's three inputs as regressions, failing at `364fefdbf`; bounded properties for the three invariants; a named mutation for each fix. Contract: C-10.4, C-10.5, C-12.3, C-17.8 and C-25.7, one change-log entry (2026-10-23). The report's "Fix round 1" section has the counts.
 
 **History:** the first build (`20261020-073952-env2-build`) was lost to the 2026-10-20 power cut after its seven commits, with its report unwritten past the test sections. The follow-on job (`20261020-191828-env2-build-b`) was pinned to a lane that stayed closed for two days and never started. This job merged the release, re-ran every test count reported here, and finished the report and this body.
 
