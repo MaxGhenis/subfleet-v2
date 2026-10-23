@@ -2,8 +2,9 @@
 
 A fresh Python child imports the round-10 tests from a shadow copy of the
 source and calls the named test function on each case, first unmutated (the
-control), then with the exact mutation. A typed-word mutant must fail the
-round-10 property instead, whose launches are synthetic audit events. Children
+control), then with the exact mutation. Each typed-word mutant fails its
+fixed-example named test; two of them must also fail the round-10 property,
+whose launches are synthetic audit events. Children
 are not pytest processes; the file runs under the parent's single pytest/lock
 hold. A mutant that approves a launch runs only `sw_vers`, `true` or a
 registered recording stand-in; nothing here starts the reader.
@@ -78,8 +79,9 @@ MUTANTS = {
     "net-fail-open": (
         NET, 'return f"{event}: the check cannot finish ({type(error).__name__})"', "return None",
         "test_p2_safety_net_refuses_a_check_that_cannot_finish", [[]]),
-    # #245 review r1's P3: the typed-word mutants, each pinned to a fixed example
-    # as well as to the property below, whose catch depends on its seed.
+    # #245 review r1's P3: the typed-word mutants, each pinned to a fixed example,
+    # and all but the blanked-word one to the property below too, whose catch
+    # depends on its seed.
     "wrapper-drops-typed-words": (
         CREDENTIALS, ARGV, "        argv = [arg for arg in argv if isinstance(arg, str)]\n",
         "test_r1_p3_a_wrapper_command_given_as_bytes_or_a_path_is_judged", [["bytes"], ["path"]]),
