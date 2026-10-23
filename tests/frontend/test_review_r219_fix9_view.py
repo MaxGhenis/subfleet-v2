@@ -28,6 +28,9 @@ def test_real_uimodel_reopen_fetches_no_known_receipt(fix9_view):
 @pytest.mark.parametrize("name", ["open_live_250", "open_live_100"])
 def test_live_row_reveal_during_slow_catchup_keeps_the_end(fix9_view, name):
     run = fix9_view[name]
+    assert run["held_before_reveal"], run
+    assert run["before_catchup"]["from_end"] <= END, run
+    assert run["after_initial_reveal"]["from_end"] <= END, run
     assert run["caught_up"] and run["reveal_consumed"] and run["notices"] == 2, run
     # Head is 24 pt away; the settling mutant is more than 11,000 pt away.
     assert run["after_open"]["from_end"] <= END, run

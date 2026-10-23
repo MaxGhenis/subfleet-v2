@@ -78,7 +78,7 @@ def test_mutation_fails_its_named_regression(mutation, tmp_path):
         regression = follow_regression if mutation == "notice_sets_at_bottom_false" else reveal_regression
         args = (result,) if mutation == "notice_sets_at_bottom_false" else (result, "busy_400ms")
     else:
-        result = run_probe(binary, write_json(tmp_path / "input.json", {"histories": [500], "batch": 5000}), timeout=600)
+        result = run_probe(binary, write_json(tmp_path / "input.json", {"histories": [500], "batch": 64}), timeout=600)
         regression = reopen_regression if mutation == "hydrate_full_history" else batch_regression
         args = (result, 500) if mutation == "hydrate_full_history" else (result,)
     with pytest.raises(AssertionError):

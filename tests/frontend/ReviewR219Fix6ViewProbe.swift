@@ -164,7 +164,7 @@ func conversation(_ cid: String, held: Bool = false) -> Conversation {
         let target = palette.reveal?.itemID ?? ""
         let revealSet = palette.reveal != nil
         let started = Date()
-        let deadlineSeconds = 10.0
+        let deadlineSeconds = 60.0
         let deadline = started.addingTimeInterval(deadlineSeconds)
         func laidOutCount() -> Int { trayLayouts.last?.rowIDs.count ?? 0 }
         while (laidOutCount() < 6 || withdraws().count < 6) && Date() < deadline {

@@ -26,6 +26,19 @@ func event(_ seq: Int, _ mid: String, _ kind: String, _ data: [String: Any]) -> 
 final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
     private let lock = NSLock()
     private var log: [[String: Any]]
+    private let catchupGate = NSCondition()
+    private var catchupReleased = true
+    private var waitingForCatchup = false
+    var catchupPending: Bool {
+        catchupGate.lock(); defer { catchupGate.unlock() }
+        return waitingForCatchup
+    }
+    func pauseCatchup() {
+        catchupGate.lock(); catchupReleased = false; catchupGate.unlock()
+    }
+    func resumeCatchup() {
+        catchupGate.lock(); catchupReleased = true; catchupGate.broadcast(); catchupGate.unlock()
+    }
     let conversation: [String: Any]
     let receipts: [[String: Any]]
     /// A slow catch-up: each page read with wait_s 0 takes this long and holds at most pageSize events.
@@ -78,7 +91,20 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
             out = ["messages": receipts.filter { ids.contains($0["message_id"] as! String) }]
         case "conversation.events":
             let after = value["after"]?.int ?? 0
-            if pageDelay > 0, (value["wait_s"]?.double ?? 0) == 0 { Thread.sleep(forTimeInterval: pageDelay) }
+            if (value["wait_s"]?.double ?? 0) == 0 {
+                catchupGate.lock()
+                waitingForCatchup = !catchupReleased
+                let deadline = Date().addingTimeInterval(60)
+                while !catchupReleased {
+                    if !catchupGate.wait(until: deadline) {
+                        catchupGate.unlock()
+                        throw DaemonClientError.unavailable("probe catch-up barrier was never released")
+                    }
+                }
+                waitingForCatchup = false
+                catchupGate.unlock()
+                if pageDelay > 0 { Thread.sleep(forTimeInterval: pageDelay) }
+            }
             var events = page(after: after)
             if events.isEmpty, (value["wait_s"]?.double ?? 0) > 0 {
                 Thread.sleep(forTimeInterval: 0.03)
@@ -136,10 +162,13 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
     var window: NSWindow!
     var seq: Int
     let live = "live"
+    var beforeCatchup: [String: Double] = [:]
+    var afterInitialReveal: [String: Double] = [:]
+    var heldBeforeReveal = false
 
     init(_ cid: String, root: URL, prior: Int, priorText: (Int) -> String, tray: [String],
          pageDelay: Double = 0, pageSize: Int = 200, revealOnMount: String? = nil,
-         liveText: String = "the live request") async {
+         liveText: String = "the live request", pauseCatchup: Bool = false) async {
         self.cid = cid
         var events: [[String: Any]] = []
         var receipts: [[String: Any]] = []
@@ -170,6 +199,7 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
         daemon = R4ViewDaemon(conversation: conversation, receipts: receipts, events: events)
         daemon.pageDelay = pageDelay
         daemon.pageSize = pageSize
+        if pauseCatchup { daemon.pauseCatchup() }
         model = UIModel(paths: .rooted(at: root.appendingPathComponent(cid)), client: daemon, defaults: R4Defaults())
         palette.model = model
         await model.open(.conversation(cid))
@@ -184,8 +214,24 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
         window.isReleasedWhenClosed = false
         window.contentView = host
         host.frame = window.contentView!.bounds
-        // The palette set this before the conversation showed (activate, then select).
+        if pauseCatchup {
+            // Establish the invariant's actual precondition, independent of host scheduling:
+            // the opening pin has placed the live row/end on screen, and catch-up is pending.
+            let deadline = Date().addingTimeInterval(60)
+            while (!daemon.catchupPending || (sample(host)["from_end"] ?? 1e9) > 30) && Date() < deadline {
+                await settle(host, seconds: 0.02)
+            }
+            beforeCatchup = sample(host)
+            heldBeforeReveal = daemon.catchupPending && !caughtUp
+        }
         if let revealOnMount { palette.reveal = SearchReveal(conversationID: cid, itemID: revealOnMount) }
+        if pauseCatchup {
+            let deadline = Date().addingTimeInterval(60)
+            while palette.reveal != nil && Date() < deadline { await settle(host, seconds: 0.02) }
+            await settle(host, seconds: 0.3)
+            afterInitialReveal = sample(host)
+            daemon.resumeCatchup()
+        }
         await waitFolded(daemon.lastSeq)
         await settle(host, seconds: 1.2)
     }
@@ -550,7 +596,8 @@ struct ArrivalView: View {
         if note.object as? String == name { notices += 1 }
     }
     let scene = await Scene(name, root: root, prior: 120, priorText: { "person message \($0) asks something" },
-                            tray: [], pageDelay: delay, pageSize: size, revealOnMount: reveal, liveText: liveText)
+                            tray: [], pageDelay: delay, pageSize: size, revealOnMount: reveal, liveText: liveText,
+                            pauseCatchup: true)
     let opened = sample(scene.host)
     await settle(scene.host, seconds: 1.0)
     let later = sample(scene.host)
@@ -558,7 +605,9 @@ struct ArrivalView: View {
     NotificationCenter.default.removeObserver(observer)
     let result: [String: Any] = ["after_open": opened, "a_second_later": later, "after_stream": sample(scene.host),
                                  "caught_up": scene.caughtUp, "reveal_consumed": scene.palette.reveal == nil,
-                                 "notices": notices]
+                                 "notices": notices, "before_catchup": scene.beforeCatchup,
+                                 "after_initial_reveal": scene.afterInitialReveal,
+                                 "held_before_reveal": scene.heldBeforeReveal]
     scene.close()
     return result
 }
