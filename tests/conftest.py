@@ -78,6 +78,17 @@ def pytest_configure(config):
     os.environ["PATH"] = recorder.search_path(os.environ.get("PATH", os.defpath))
 
 
+def pytest_sessionstart(session):
+    """Before any test runs, remove the kept state roots of test processes that are gone and in
+    which nothing has been kept for 24 hours (tests/failed_keep.py's `prune`, D-KR1)."""
+    from tests.failed_keep import ROOT, prune
+    removed = prune()
+    reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+    if removed and reporter is not None:
+        reporter.write_line(f"pruned {len(removed)} kept state roots of finished test processes under {ROOT}: "
+                            + " ".join(sorted(path.name for path in removed)))
+
+
 def pytest_unconfigure(config):
     # Expire captured children even if store directories survive or are recreated.
     base = getattr(config, "_subfleet_safe_home_base", None)
