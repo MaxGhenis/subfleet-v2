@@ -6,7 +6,7 @@ import pytest
 from hypothesis import given, settings, strategies as st
 
 from subfleet import scheduler
-from subfleet.policy import MACHINE_GUARD_PROPOSAL
+from tests.machine_guard_reference import LEGACY_GUARD
 from tests import priority_callers_reference as previous
 
 PROPERTIES = settings(max_examples=500, deadline=None, derandomize=True)
@@ -17,7 +17,7 @@ CALLER = "92ec8be9-0000-4000-8000-00000000abcd"
 
 def policy(callers=None):
     return {"tiers": TIERS, "admission": {"priority_callers": callers,
-                                         "machine_guard": copy.deepcopy(MACHINE_GUARD_PROPOSAL)}}
+                                         "machine_guard": copy.deepcopy(LEGACY_GUARD)}}
 
 
 @st.composite
