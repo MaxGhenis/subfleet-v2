@@ -34,3 +34,13 @@ def test_distant_search_reveal_during_catchup_keeps_position(distant_reveals, de
     assert run["caught_up"] and run["reveal_consumed"] and run["notices"] == 2, run
     assert run["after_open"]["from_end"] > 600, run
     assert abs(run["after_stream"]["offset"] - run["after_open"]["offset"]) <= 2, run
+
+
+def test_focused_50ms_probe_lands_and_keeps_position(fix8_view_binary, tmp_path):
+    """Allow fresh-process repetitions without rerunning six unrelated scenes."""
+    result = run_probe(fix8_view_binary, tmp_path, "fix10-far-text-50ms", timeout=90)
+    write_json(tmp_path / "result.json", result)
+    print("focused distant reveal positions: " + str(result))
+    assert result["visible_windows"] == 0
+    assert result["mounted_windows"] == 1 and result["animation_calls"] > 0
+    test_distant_search_reveal_lands_and_keeps_position(result, "far_text_50ms")
