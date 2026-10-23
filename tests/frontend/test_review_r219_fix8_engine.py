@@ -20,7 +20,9 @@ def costs(fix8_engine, tmp_path_factory):
     root = tmp_path_factory.mktemp("fix8-costs")
     result = run_probe(fix8_engine, write_json(root / "input.json", {"histories": [500, 2000, 5000], "batch": 5000}), timeout=180)
     write_json(root / "costs.json", result)
-    print("engine costs (milliseconds are diagnostic): " + json.dumps(result))
+    print("engine costs (milliseconds are diagnostic): " + json.dumps({
+        "cost": result["cost"], "batch": {k: result["batch"][k]
+            for k in ("apply_ms", "sorts", "unchanged_sorts")}}))
     return result
 
 

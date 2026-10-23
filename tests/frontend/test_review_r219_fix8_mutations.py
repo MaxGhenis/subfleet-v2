@@ -12,6 +12,7 @@ from tests.frontend.test_review_r219_fix8_engine import (
     test_receipt_batch_sorts_once as batch_regression,
 )
 from tests.frontend.test_review_r219_fix8_view import (
+    END,
     test_timeline_reveal_leaving_end_visible_keeps_follow as follow_regression,
     test_continuous_rows_reveal_at_most_twice as reveal_regression,
 )
@@ -66,10 +67,19 @@ def test_mutation_fails_its_named_regression(mutation, tmp_path):
     compiled = subprocess.run(command, capture_output=True, text=True, timeout=900)
     assert compiled.returncode == 0, compiled.stderr[-20000:]
     if mutation in {"uimodel_drops_known_receipts", "settling_stops_follow_at_end"}:
-        result = run_probe(binary, tmp_path, "fix9", timeout=600)
+        mode = "fix9-reopen" if mutation == "uimodel_drops_known_receipts" else "fix9-catchup"
+        result = run_probe(binary, tmp_path, mode, timeout=600)
         if mutation == "uimodel_drops_known_receipts":
             regression, args = uimodel_regression, (result,)
         else:
+            # Kill this mutant on its final position, after confirming both fixtures' setup.
+            for name in ("open_live_250", "open_live_100"):
+                run = result[name]
+                assert run["held_before_reveal"], run
+                assert run["before_catchup"]["from_end"] <= END, run
+                assert run["after_initial_reveal"]["from_end"] <= END, run
+                assert run["caught_up"] and run["reveal_consumed"] and run["notices"] == 2, run
+                print(f"{mutation} {name}: {run['after_open']['from_end']} pt from end")
             regression, args = catchup_regression, (result, "open_live_250")
             with pytest.raises(AssertionError):
                 catchup_regression(result, "open_live_100")

@@ -233,6 +233,8 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
             daemon.resumeCatchup()
         }
         await waitFolded(daemon.lastSeq)
+        let revealDeadline = Date().addingTimeInterval(60)
+        while palette.reveal != nil && Date() < revealDeadline { await settle(host, seconds: 0.02) }
         await settle(host, seconds: 1.2)
     }
 
@@ -296,9 +298,9 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
 @main struct R4ViewProbe {
     @MainActor static func main() async throws {
         NSApplication.shared.setActivationPolicy(.prohibited)
-        if CommandLine.arguments.last == "fix9" {
+        if let mode = CommandLine.arguments.last, mode.hasPrefix("fix9") {
             let root = URL(fileURLWithPath: CommandLine.arguments[1])
-            let result = await fix9Cases(root)
+            let result = await fix9Cases(root, mode: mode)
             print(String(decoding: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), as: UTF8.self))
             return
         }
@@ -587,7 +589,7 @@ struct ArrivalView: View {
 }
 
 // Reused from reviewer r5’s R5ViewProbe2.swift: slow live-row opening and real UIModel reopen.
-/// Opening while `pages` slow catch-up pages are read, with an optional reveal set before the view mounts.
+/// Reviewer’s slow-page fixture, with the end-visible reveal established before releasing catch-up.
 @MainActor func opening(_ name: String, root: URL, reveal: String?, delay: Double, size: Int,
                         liveText: String = "the live request") async -> [String: Any] {
     var notices = 0
@@ -613,23 +615,27 @@ struct ArrivalView: View {
 }
 
 
-@MainActor func fix9Cases(_ root: URL) async -> [String: Any] {
+@MainActor func fix9Cases(_ root: URL, mode: String = "fix9") async -> [String: Any] {
     var out: [String: Any] = [:]
-    for (name, delay, size) in [("open_live_250", 0.25, 40), ("open_live_100", 0.1, 20)] {
-        out[name] = await opening(name, root: root, reveal: "person:live", delay: delay, size: size)
+    if mode != "fix9-reopen" {
+        for (name, delay, size) in [("open_live_250", 0.25, 40), ("open_live_100", 0.1, 20)] {
+            out[name] = await opening(name, root: root, reveal: "person:live", delay: delay, size: size)
+        }
     }
-    let scene = await Scene("reopen", root: root, prior: 60,
-                            priorText: { "person message \($0) asks something" },
-                            tray: ["queued zero", "queued one", "queued two"])
-    let first = scene.daemon.takeStatusIDs()
-    let trayFirst = trayIdentifiers(scene.host)
-    await scene.model.open(.conversation("reopen"))
-    await scene.waitFolded(scene.daemon.lastSeq)
-    await settle(scene.host, seconds: 0.5)
-    out["reopen"] = ["first_open_status_ids": first, "reopen_status_ids": scene.daemon.takeStatusIDs(),
-                     "tray_first": trayFirst, "tray_again": trayIdentifiers(scene.host),
-                     "known": scene.model.state.knownMessageIDs(in: "reopen").count]
-    scene.close()
+    if mode != "fix9-catchup" {
+        let scene = await Scene("reopen", root: root, prior: 60,
+                                priorText: { "person message \($0) asks something" },
+                                tray: ["queued zero", "queued one", "queued two"])
+        let first = scene.daemon.takeStatusIDs()
+        let trayFirst = trayIdentifiers(scene.host)
+        await scene.model.open(.conversation("reopen"))
+        await scene.waitFolded(scene.daemon.lastSeq)
+        await settle(scene.host, seconds: 0.5)
+        out["reopen"] = ["first_open_status_ids": first, "reopen_status_ids": scene.daemon.takeStatusIDs(),
+                         "tray_first": trayFirst, "tray_again": trayIdentifiers(scene.host),
+                         "known": scene.model.state.knownMessageIDs(in: "reopen").count]
+        scene.close()
+    }
     out["visible_windows"] = NSApp.windows.filter(\.isVisible).count
     return out
 }
