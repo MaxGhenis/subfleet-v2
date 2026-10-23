@@ -386,6 +386,7 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
     line_end = -1
     ranges: list[tuple[int, int, str]] = []
     visible: dict[int, int] = {}
+    owned: dict[int, tuple[int | None, int, tuple[int, int] | None]] = {}
 
     def visible_end(at: int) -> int:
         # The end of the last visible character before `at`, walked back once per
@@ -394,7 +395,23 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
             visible[at] = _last_visible(text, at) + 1
         return visible[at]
 
+    def owned_before(start: int, last: int) -> tuple[int | None, tuple[int, int] | None]:
+        # What ends the text before `last`, a line's last visible character, read once
+        # per line end however many unclosed values, or header names a quoted match
+        # swallows, share it (#239 review r2, P3-1):
+        # the item that owns a value past the line (`_owned_item`), if it starts at or
+        # after `start`, else the value a secret-named flag there is given
+        # (`_secret_flag`), if the flag does.
+        if last not in owned:
+            item = _owned_item(text, 0, last)
+            flag = _ending_flag(text, 0, last) if item is None else None
+            owned[last] = (item, -1 if flag is None else flag,
+                           None if flag is None else _secret_flag(text, flag, last))
+        item, flag, fold = owned[last]
+        return (item if item is not None and item >= start else None), (fold if flag >= start else None)
+
     for token in _IDENTIFIER_RE.finditer(text):
+        fold = None
         # Inside the previous plain replacement (the quoted rule keeps no cursor).
         nested = not flags and token.start() < cursor
         key = token.group()
@@ -417,6 +434,8 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
             glued = _owning_flag(text, value_start, end)
             if glued is not None:
                 end = glued
+            else:
+                fold = _secret_flag(text, value_start, end)   # one glued to it is taken whole
             out = text[start:value_start] + REDACTED
         else:
             separator = _ASSIGN_SEPARATOR_RE.match(text, token.end())
@@ -461,7 +480,7 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
                     # A credential flag or `Bearer` that ends the line keeps its own
                     # value, which may be past the line, exactly as it would with no
                     # quote: the redaction ends before it (`_owned_item`, C-23.14).
-                    item = _owned_item(text, opening.end(), visible_end(end))
+                    item, fold = owned_before(opening.end(), visible_end(end))
                     if item is not None:
                         if item == opening.end():
                             continue                # the value is the item alone: its rule's
@@ -482,11 +501,18 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
                     # last visible character, as `_header_redaction` reads it.
                     end = text.find("\n", value_start)
                     end = len(text) if end < 0 else end
-                    item = _owned_item(text, value_start, visible_end(end))
+                    item, fold = owned_before(value_start, visible_end(end))
+                elif quoted:
+                    # A key in a quoted match whose plain value is past the match: a
+                    # `Bearer` ending the value is an item too, whose token the union
+                    # would otherwise take from the `Bearer` rule (#239 review r2, P2-2).
+                    item = _owned_item(text, value_start, end)
+                    fold = None if item is not None else _secret_flag(text, value_start, end)
                 else:
                     # A credential flag that ends the value (`api_key=x--password …`)
                     # keeps its own value: the value ends before it (C-23.14).
                     item = _owning_flag(text, value_start, end)
+                    fold = None if item is not None else _secret_flag(text, value_start, end)
                 if item is not None:
                     if item == value_start:
                         continue
@@ -502,11 +528,12 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
             # the key. Outside whole-text mode a match spans a line break only
             # between its key and its value, which `_neutral_break` never cuts,
             # so neither does a union.
-            if ranges and start < ranges[-1][1]:
-                previous_start, previous_end, previous_out = ranges[-1]
-                ranges[-1] = (previous_start, max(previous_end, end), previous_out)
-            else:
-                ranges.append((start, end, out))
+            for start, end, out in ((start, end, out), *(() if fold is None else ((*fold, REDACTED),))):
+                if ranges and start < ranges[-1][1]:
+                    previous_start, previous_end, previous_out = ranges[-1]
+                    ranges[-1] = (previous_start, max(previous_end, end), previous_out)
+                else:
+                    ranges.append((start, end, out))
         elif nested:
             # A plain value that ends in a key whose own value follows (`a=xtoken
             # = y`): that value goes too, though its key went with the first.
@@ -515,6 +542,11 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
         else:
             parts.extend((text[cursor:start], replace(text[start:end], out)))
             cursor = end
+        if fold is not None and not quoted:
+            # The value daemon.log's folded line gives a secret-named flag the match
+            # took (`_secret_flag`): redacted too, on its own, the text between kept.
+            parts.extend((text[cursor:fold[0]], replace(text[fold[0]:fold[1]], REDACTED)))
+            cursor = fold[1]
     if spans is not None:
         spans.extend(ranges)
         return text
@@ -638,13 +670,19 @@ def _neutral_break(text: str, visible: int, after: int,
       `Cookie` and `Set-Cookie` headers have), or a key's closing quote
       (`"password"`, and escaped as `\\'password\\'` or `\\"password\\"`), to
       a `:` or `=` after the break;
-    - `Bearer`, to a token character after the break.
+    - `Bearer`, to a token character after the break;
+    - a credential flag (`_flag_ends_at`), to any visible character but `-` after the
+      break: a rule that takes the flag (one whose name reads as a secret, or one that
+      is a header's whole value) takes the value daemon.log's folded line gives it
+      too (`_secret_flag`, `_header_redaction`).
     `_bearer_refusal`, which refuses a token that is a key, and the header rules'
     choice to leave the key that ends a value (`_key_past_line`) read past a break
     only between a key or its closing quote and its `:` or `=`, or between those and
     the value, which the first two refuse; a refused `Bearer` still refuses the break
-    after it, which is only more cautious. Whether a flag owns a value past a match
-    (`_owns_past`) is read from the one character after the flag, on its own line.
+    after it, which is only more cautious, and is where a header that a refused
+    `Bearer` ends takes the `Bearer`'s next line (`_refused_bearer`). Whether a flag
+    owns a value past a match (`_owns_past`) is read from the one character after the
+    flag, on its own line.
     An inline header's value (`_scrub_inline_headers`) crosses a break only between
     its colon and the value's first visible character, which the first refuses (its
     name is a key); otherwise it ends on its line, at a closing quote or the break.
@@ -666,7 +704,10 @@ def _neutral_break(text: str, visible: int, after: int,
     if last in "\"'":
         return not (separator and _key_ends_at(text, visible, quoted=True))
     if _key_ends_at(text, visible):
-        return not separator
+        # A credential flag's value, which the header or other rule that takes the
+        # flag redacts with it, may be on a later line (`_secret_flag`,
+        # `_header_redaction`), as daemon.log's folded line reads it.
+        return not separator and not (following not in ("", "-") and _flag_ends_at(text, visible))
     if _last_word(text, visible).lower().endswith("bearer"):
         return not (following and _BEARER_TOKEN_CHAR_RE.fullmatch(following))
     return True
@@ -1498,8 +1539,28 @@ def _apply_rules(text: str, rules, tally: _Tally) -> str:
             out = replacement(match) if callable(replacement) else match.expand(replacement)
             return tally(matched, out, header=pattern is _HEADER_RE)
 
-        text = _linear_sub(pattern, replace, text)
+        text = _bearer_sub(text, replace, tally) if pattern is _BEARER_RE else _linear_sub(pattern, replace, text)
     return text
+
+
+def _bearer_sub(text: str, replace: Callable[[re.Match], str], tally: _Tally) -> str:
+    """`_BEARER_RE.sub(replace, text)`, and for a run that ends in a secret-named
+    credential flag, which the rule takes as a token (`_owning_flag`), the value
+    daemon.log's folded line gives the flag, redacted too (`_secret_flag`). Each
+    search starts where the last replacement ended, as `re.sub`'s do."""
+    parts: list[str] = []
+    cursor = 0
+    while (match := _BEARER_RE.search(text, cursor)) is not None:
+        parts.extend((text[cursor:match.start()], replace(match)))
+        cursor = match.end()
+        if match.end() == match.start():
+            break                               # never: the pattern reads `Bearer` and a run
+        fold = _secret_flag(text, match.start(1), match.end(1)) if match.end() == match.end(1) else None
+        if fold is not None and _bearer_refusal(match) is None:
+            parts.extend((text[cursor:fold[0]], tally(text[fold[0]:fold[1]], REDACTED)))
+            cursor = fold[1]
+    parts.append(text[cursor:])
+    return "".join(parts)
 
 
 def _header_value(match: re.Match) -> str:
@@ -1538,6 +1599,30 @@ def _header_redaction(text: str, start: int, value_start: int, end: int, *,
         # A quote that closes the value ends a flag's, and a `Bearer`'s: their
         # values may be past the line only when the value ends there.
         key = _owned_item(text, value_start, last)
+        if key is None:
+            joined = _secret_flag(text, value_start, last)
+        elif not text.startswith("--", key):
+            joined = _refused_bearer(text, key)
+        elif _last_visible(text, key) < value_start:
+            # The value is a credential flag alone. Kept, it would leave daemon.log's
+            # folded line a header whose value runs to the record's end, past any
+            # cut (`handoff.cut_whole`): the header takes the flag, and the value
+            # that line gives it.
+            joined, key = _fold_value(text, last), None
+        else:
+            joined = None
+        if joined is not None:
+            # A secret-named flag that ends the value is the header's, with the value
+            # daemon.log's folded line gives it (`_secret_flag`); so is the line after
+            # a `Bearer` ending it whose run there is a key (`_refused_bearer`), which
+            # release/217 took by joining the two lines (#239 review r2). Only the
+            # inline rule reaches past the line: the line-start rule leaves the header
+            # whole, and the inline rule's second scan reads it (`_scrub`).
+            if not rescan:
+                return text[start:end], end
+            # The value's own redaction takes the whitespace before its line's end, as
+            # it always did, so the result scrubs to itself.
+            return text[start:value_start] + REDACTED + text[end:joined[0]] + REDACTED, joined[1]
     if key is None:
         return text[start:value_start] + REDACTED, end
     before = _last_visible(text, key) + 1
@@ -1605,12 +1690,11 @@ def _owns_past(text: str, end: int) -> bool:
     return end == len(text) or text[end].isspace()
 
 
-def _owning_flag(text: str, start: int, end: int) -> int | None:
+def _ending_flag(text: str, start: int, end: int) -> int | None:
     """Where the credential flag (`--` and `_SENSITIVE_KEY`, as the flag rule reads
     one: the last `--` of the identifier ending at `end`) that ends `text[start:end]`
-    begins, when it may own a value past `end` (`_owns_past`); None otherwise. A rule
-    whose match would take the flag ends its match there instead, so the flag's value
-    is the flag rule's exactly as it would be without that rule (C-23.14)."""
+    begins, when it may own a value past `end` (`_owns_past`), whatever its name;
+    None otherwise."""
     if not _owns_past(text, end) or not _SENSITIVE_SUFFIX_RE.search(text, max(start, end - 17), end):
         return None
     flag = text.rfind("--", start, end)
@@ -1618,6 +1702,62 @@ def _owning_flag(text: str, start: int, end: int) -> int | None:
             or not _SENSITIVE_FLAG_RE.fullmatch(text, flag + 2, end)):
         return None
     return flag
+
+
+def _owning_flag(text: str, start: int, end: int) -> int | None:
+    """Where the credential flag that ends `text[start:end]` begins (`_ending_flag`),
+    unless its name reads as a secret (`_value_runs`: `--SECRET7…_token`): a flag of
+    that name owns nothing (#239 review r2, P2-1), and a rule whose match would take
+    it takes it, with the value daemon.log's folded line would give it (`_secret_flag`).
+    A rule whose match would take any other ends its match there instead, so the
+    flag's value is the flag rule's exactly as it would be without that rule
+    (C-23.14)."""
+    flag = _ending_flag(text, start, end)
+    if flag is None or _value_runs(text[flag + 2:end]):
+        return None
+    return flag
+
+
+def _secret_flag(text: str, start: int, end: int) -> tuple[int, int] | None:
+    """For a credential flag that ends `text[start:end]` and whose name reads as a
+    secret (`_ending_flag`, `_value_runs`), which an enclosing rule takes whole
+    (`_owning_flag`): the span of the value daemon.log's folded line gives it
+    (`_fold_value`), which that rule redacts too (#239 review r2, the hub's decision:
+    fail closed). None for any other end, or when the flag has no such value."""
+    flag = _ending_flag(text, start, end)
+    if flag is None or not _value_runs(text[flag + 2:end]):
+        return None
+    return _fold_value(text, end)
+
+
+#: A run of visible characters: a flag's value once folding puts a space before it.
+_VISIBLE_RUN_RE = re.compile(r"\S+")
+
+
+def _fold_value(text: str, end: int) -> tuple[int, int] | None:
+    """The value the flag rule reads for a flag ending at `end` once daemon.log's
+    folded line joins what follows it (`_FLAG_VALUE_RE` on the folded text): the next
+    run of visible characters past any whitespace, line breaks and blank lines
+    included, unless it starts with `-`; None if there is none. A credential key,
+    flag or `Bearer` that ends the run and owns a value past it (`_key_past_line`,
+    `_owned_item`) is left to its own rule, as an enclosing rule leaves one: the span
+    ends before it, and is None when that leaves nothing."""
+    value = _run_end(text, end)
+    if value == end or value >= len(text) or text[value] == "-":
+        return None
+    return _kept_span(text, value, _VISIBLE_RUN_RE.match(text, value).end())
+
+
+def _kept_span(text: str, start: int, stop: int) -> tuple[int, int] | None:
+    """`(start, stop)`, ended before a credential key, flag or `Bearer` that ends it and
+    owns a value past it (`_key_past_line`, `_owned_item`), which is left to its own
+    rule as an enclosing rule leaves one; None when that leaves nothing."""
+    item = _key_past_line(text, start, stop)
+    if item is None:
+        item = _owned_item(text, start, stop)
+    if item is not None:
+        stop = _last_visible(text, item) + 1
+    return (start, stop) if stop > start else None
 
 
 def _owned_item(text: str, start: int, last: int) -> int | None:
@@ -1635,6 +1775,22 @@ def _owned_item(text: str, start: int, last: int) -> int | None:
     return item
 
 
+def _refused_bearer(text: str, bearer: int) -> tuple[int, int] | None:
+    """For a `Bearer` at `bearer` that ends a header's value: when `_BEARER_RE` reads a
+    run after it that `_bearer_refusal` refuses, whole or in part (a key, not a token:
+    `Authorization: Bearer` and `client_secret=…` on the next line), the span from that
+    run to the end of its line, which the header takes (#239 review r2, check 2), ended
+    before a key, flag or `Bearer` that ends it and owns a value past it (`_kept_span`:
+    `Authorization: "Bearer` and `password=` on the next line, its value after that);
+    None when the `Bearer` reads no run, or a token, which the `Bearer` rule takes, or
+    when nothing is left."""
+    match = _BEARER_RE.match(text, bearer)
+    if match is None or _bearer_refusal(match) is None:
+        return None
+    stop = text.find("\n", match.start(1))
+    return _kept_span(text, match.start(1), _last_visible(text, len(text) if stop < 0 else stop) + 1)
+
+
 def _bearer_refusal(match: re.Match) -> int | None:
     """Whether `_BEARER_RE`'s run is a credential key a named-value rule reads
     rather than a token (C-23.14): it ends in a credential word followed by an
@@ -1650,6 +1806,7 @@ def _bearer_refusal(match: re.Match) -> int | None:
     run's start (`Bearer secrets/db_password: …`), where the rule takes nothing."""
     text, start, end = match.string, match.start(1), match.end(1)
     word = _SENSITIVE_SUFFIX_RE.search(text, max(start, end - 17), end)
+    flag = None
     if word is not None and _ASSIGN_SEPARATOR_RE.match(text, end):
         cut = word.start()
     elif (flag := _owning_flag(text, start, end)) is not None:
@@ -1658,6 +1815,8 @@ def _bearer_refusal(match: re.Match) -> int | None:
         return None
     while cut > start and text[cut - 1] in _TOKEN_JOINERS:
         cut -= 1
+    if flag is not None:
+        return cut           # a run glued to the flag goes, token or not (`Bearer SECRET7--secret x`)
     return cut if _token_like(text[start:cut]) else start
 
 
@@ -1727,6 +1886,8 @@ def _scrub_inline_headers(text: str, tally: "_Tally", *, line_start: bool = Fals
         value_start = _WHITESPACE_RUN_RE.match(text, hit_end).end()
         if value_start == len(text) or text.startswith(REDACTED, value_start):
             continue
+        if "\n" in text[hit_end:value_start] and _header_name_at(text, value_start):
+            continue                            # that line's header is its own (#239 review r2, P2-3)
         if line_end < value_start:
             line_end = text.find("\n", value_start)
             if line_end < 0:
