@@ -10328,8 +10328,10 @@ def run_program(argv: list[str] | None = None) -> int:
     from .home_paths import PersonalPathRefused
     try:
         return main(argv)
-    except PersonalPathRefused as exc:
-        print(f"subfleet daemon: {exc}", file=sys.stderr)
+    except PersonalPathRefused as refused:
+        # Written as `main`'s own refusals are (C-25.7): this stderr is daemon.log
+        # under `daemon start`. The refusal names a variable, never a value.
+        daemon_log.write_scrubbed(f"subfleet daemon: {refused}")
         return int(Exit.REFUSED)
 
 
