@@ -40,9 +40,25 @@ def withheld_references(lanes: Iterable[Lane | Mapping[str, Any]]) -> frozenset[
     never reads one, so withholding it costs nothing and keeps whatever was put
     there from every other lane. A held lane's listed or session name is not
     withheld: every launch needs HOME or PATH, and a test's child its session.
+    The daemon adds the hooks of the lanes.json rows startup ignored
+    (`ignored_hooks`).
     """
     variables = [found[1] for found in map(lane_reference, lanes) if found]
     return frozenset(ref for ref in variables if not refused_reference(ref) or harness_name(ref))
+
+
+def ignored_hooks(found: Iterable[tuple[Any, str, str]]) -> frozenset[str]:
+    """D-ENV2 (review r1 of #248, P3-1): the harness hooks named by lanes.json
+    rows that startup ignored, from `policy.check_lane_credentials`'s (lane id,
+    variable, source) list.
+
+    Such a row is no lane's credential: the store keeps its lane on the lane's
+    own. So its hook is withheld from every launch, that lane's own included,
+    exactly as a held lane's is (`withheld_references`); a listed or session
+    name is not, for the same reason. The daemon reads them once, at startup,
+    since lanes.json is read only then.
+    """
+    return frozenset(name for _, name, source in found if source == IGNORED and harness_name(name))
 
 
 def reference_repair(stored: Lane | Mapping[str, Any], row: Mapping[str, Any]) -> str | None:
