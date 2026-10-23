@@ -9103,11 +9103,17 @@ class Daemon:
                 reached = ((sig == signal.SIGTERM and in_group and mine in reached_by[signal.SIGTERM])
                            or sent.get((pid, sig)) == ident)
                 if not reached:
-                    reached = send_signal(lambda stamp, ident=ident: procs.signal_process(
-                        ident, sig, before_signal=stamp))
+                    # An unlaunched guardian the group's KILL did not reach (stopped before
+                    # its setsid, so not yet its group's leader) is KILLed too, never TERMed.
+                    own = (signal.SIGKILL if unlaunched and sig == signal.SIGTERM and pid == guardian
+                           else sig)
+                    reached = send_signal(lambda stamp, ident=ident, own=own: procs.signal_process(
+                        ident, own, before_signal=stamp))
                     if reached:
                         sent[(pid, sig)] = ident
-                        record(found, pid, sig, why)
+                        record(found, pid, own, why)
+                        if own != sig:
+                            continue
                 if (sig == signal.SIGTERM and reached and stopped(found, pid) and pid != guardian
                         and sent.get((pid, signal.SIGCONT)) != ident):
                     if send_signal(lambda stamp, ident=ident: procs.signal_process(

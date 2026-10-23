@@ -954,6 +954,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         # Thus a different process at pid == pgid proves the old group is gone.
         # An absent leader does NOT: retain its surviving group members.
         groups = set(seen.group(pgid))
+        compared = len(errors)
         if pgid and groups and is_recycled(pgid):
             groups.clear()
         if pgid and groups and pgid in recorded_identities:
@@ -963,19 +964,24 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             # leader leaves its members in the census, holding the attempt, but they
             # are signal targets only when another source or an owned identity
             # attributes them: the leader may have exited long ago and its pgid been
-            # taken by a stranger's leaderless group. A recorded boot that is not this
-            # one drops the group source (no process outlives its boot), and one that
-            # cannot be compared drops it too and makes the census unverifiable.
-            match = leader_boot(pgid)
+            # taken by a stranger's leaderless group. A recorded boot that is provably
+            # not this one drops the group source (no process outlives its boot); one
+            # that cannot be compared leaves its members holding, never signalled, and
+            # makes the census unverifiable. A present leader was compared by
+            # `is_recycled` just now (a failed comparison appended its error), so only
+            # an absent one is compared here, with C-5.12's fresh read of a mismatch.
             known = recorded_identities[pgid]
-            if match is None:
-                errors.append(f"boot identity unavailable for group {pgid}")
-                groups.clear()
-            elif match is False:
+            if pgid in table:
+                match = None if len(errors) > compared else True
+            else:
+                match = leader_boot(pgid)
+                if match is None:
+                    errors.append(f"boot identity unavailable for group {pgid}")
+            if match is False:
                 recycled.setdefault(pgid, {"recorded": asdict(known), "now": {"pid": pgid},
                                            "reason": "group of another boot"})
                 groups.clear()
-            else:
+            elif match is True:
                 leader_verified = bool(live(pgid) and known.proc_start and table[pgid][3] == known.proc_start)
         # There is no recorded group before setsid. The other sources
         # still enumerate the guardian and any inherited marker.
