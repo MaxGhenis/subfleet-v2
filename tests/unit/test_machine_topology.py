@@ -188,3 +188,19 @@ def test_baseline_value_and_age_share_one_cutoff_at_window_boundary(monkeypatch,
     baseline = sampler.status()['disk_baseline_ms']
     assert baseline['value'] == 2
     assert baseline['age_s'] == 86400
+
+
+def test_status_keeps_value_and_age_together_during_device_eviction(monkeypatch, tmp_path):
+    class Evicting(dict):
+        def get(self, key, default=None):
+            # Model a device change clearing the entry just after it was read.
+            value = super().get(key, default)
+            self.pop(key, None)
+            return value
+    monkeypatch.setattr(machine.time, 'time', lambda: 2000)
+    sampler = machine.Sampler(tmp_path)
+    sampler._latest = Evicting(disk_busy=(4, 1000))
+    sampler._snapshot = {'disk_busy': 4}
+    view = sampler.status()['disk_busy']
+    assert view['value'] == 4
+    assert view['age_s'] == 1000
