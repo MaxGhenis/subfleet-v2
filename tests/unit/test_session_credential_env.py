@@ -274,7 +274,8 @@ def test_c20_6_a_test_holding_the_store_prints_no_part_of_a_dummy(tmp_path, opti
     assert re.search(r"^snapshot +=", report, re.MULTILINE)
     assert "store = <RemovedCredentials names=[" in report
     assert "Captured stdout call" in report
-    assert "assert <RemovedCredentials names=[" in report
+    # Below -vv, an assertion's operand is cut to 30 characters.
+    assert re.search(r"assert (not )?<RemovedCred", report)
     assert "Draw 1 (store): <RemovedCredentials names=[" in report
     outcome = json.loads(result.read_text())
     assert outcome["code"] == 1
