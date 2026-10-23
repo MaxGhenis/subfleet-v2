@@ -15,7 +15,7 @@ def test_the_kept_root_is_under_the_uploaded_folder_and_this_process():
     keep = failed_keep_dir("test_x[param/a b]")
     assert keep.parent == ROOT / str(os.getpid())
     assert keep.name == "test_x_param_a_b_"
-    assert keep.is_relative_to(Path("/tmp/sf-failed"))
+    # That ROOT is the folder CI uploads: test_failed_keep_layout.py reads the workflow.
 
 
 def test_two_processes_keep_the_same_test_in_different_folders():

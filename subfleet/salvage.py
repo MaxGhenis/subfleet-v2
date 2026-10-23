@@ -37,7 +37,8 @@ TRANSIENT_ERRNOS = frozenset({
 #: `strerror`, and sometimes omits the errno: an index or ref lock file it
 #: could not finish writing, an allocation failure, or a held reftable lock.
 #: These all get bounded retries (C-6.8, C-13.1). `cannot lock ref` alone also
-#: covers a ref that exists or a name that conflicts, which no retry changes.
+#: covers existing refs or conflicting names, not host pressure. `_hold` handles
+#: a create-only write losing a race to another snapshot separately.
 #: Read only under the C locale (`_git_env`), on git's own `error:` and `fatal:`
 #: lines, and at a line's end, so a file name quoted earlier in a line or
 #: ending a `hint:` or `warning:` line is not read as an error. `strerror`
@@ -663,23 +664,34 @@ def _hold(workdir: str | Path, ref: str, tree: str, parent: str, message: str, *
 
     A ref that already holds `tree` on `parent` (a replay) is reused. One that
     holds other bytes is never overwritten: the snapshot goes beside it, under
-    `<ref>-<first 12 of the tree>`, and `update-ref` creates only (its old value
-    is all zeros), so a ref another writer made meanwhile fails the call."""
-    previous = _git(workdir, "rev-parse", "--verify", ref, optional=True, timeout_s=timeout_s)
-    if previous:
+    `<ref>-<first 12 of the tree>`. Each name is created only (the old value is
+    all zeros). If another writer creates it first, read it once more and apply
+    the same replay/conflict rule. A collision at the sibling can only replay;
+    a different snapshot there, or any other git failure, still raises."""
+    commit = None
+    for candidate in (ref, f"{ref}-{tree[:12]}"):
+        previous = _git(workdir, "rev-parse", "--verify", candidate,
+                        optional=True, timeout_s=timeout_s)
+        if not previous:
+            if commit is None:
+                commit = _git(workdir, "-c", "user.name=subfleet", "-c", "user.email=subfleet@localhost",
+                              "commit-tree", tree, "-p", parent, "-m", message, timeout_s=timeout_s)
+            try:
+                _git(workdir, "update-ref", candidate, commit, "0" * 40, timeout_s=timeout_s)
+            except SalvageError as exc:
+                # `_git` fixes the locale. Only a lost create race permits this
+                # reread; timeouts, held lock files and I/O errors still raise.
+                if exc.transient or not str(exc).endswith(": reference already exists"):
+                    raise
+                previous = _git(workdir, "rev-parse", "--verify", candidate,
+                                optional=True, timeout_s=timeout_s)
+                if not previous:
+                    raise
+            else:
+                return candidate, commit
         previous_tree = _git(workdir, "rev-parse", f"{previous}^{{tree}}", timeout_s=timeout_s)
         previous_parent = _git(workdir, "rev-parse", f"{previous}^", optional=True, timeout_s=timeout_s)
         if previous_tree == tree and previous_parent == parent:
-            return ref, previous
-        # Never overwrite a previous snapshot with different bytes.
-        ref = f"{ref}-{tree[:12]}"
-    commit = _git(workdir, "-c", "user.name=subfleet", "-c", "user.email=subfleet@localhost",
-                  "commit-tree", tree, "-p", parent, "-m", message, timeout_s=timeout_s)
-    existing = _git(workdir, "rev-parse", "--verify", ref, optional=True, timeout_s=timeout_s)
-    if existing:
-        if (_git(workdir, "rev-parse", f"{existing}^{{tree}}", timeout_s=timeout_s) == tree
-                and _git(workdir, "rev-parse", f"{existing}^", timeout_s=timeout_s) == parent):
-            return ref, existing
-        raise SalvageError("salvage reference already names a different snapshot")
-    _git(workdir, "update-ref", ref, commit, "0" * 40, timeout_s=timeout_s)
-    return ref, commit
+            return candidate, previous
+        if candidate != ref:
+            raise SalvageError("salvage reference already names a different snapshot")

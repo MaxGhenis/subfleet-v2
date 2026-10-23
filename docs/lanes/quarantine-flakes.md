@@ -12,7 +12,7 @@ Both were seen on 2026-09-05 after the state-root marker fix (C-5.1, C-5.5: `SUB
 - `docs/acceptance-contract.md` C-5.1 to C-5.7 (containment, quarantine, the three census sources) and C-13.1 (salvage after a writable kill).
 - `subfleet/procs.py` `containment()` (group, parent chain, markers; any failed inspection prevents release) and `subfleet/daemon.py` `_quarantine`, the kill path around line 1599 to 1626, and the start-grace path around line 1543.
 - `subfleet/guardian.py` (start and exit receipts) and `tests/bin/{codex,claude,fakeprov}` (the fake providers; `SUBFLEET_FAKE_SCENARIO`, `SUBFLEET_FAKE_DELAY_S`, `SUBFLEET_PROBE`).
-- `tests/fake/conftest.py`: on failure the `daemon` fixture copies the state root to `/tmp/sf-failed/<pid>/<test name>/` (the pytest process's pid); read `daemon.log`, the `events` table (`attempt.quarantined` carries the containment census as data), and the receipts under the attempt directory.
+- `tests/fake/conftest.py`: on failure the `daemon` fixture copies the state root to `/tmp/sf-failed/<pid>/<test name>/` (the pytest process's pid; pruned once that process is gone and the folder is a day old, see `docs/lanes/README.md`); read `daemon.log`, the `events` table (`attempt.quarantined` carries the containment census as data), and the receipts under the attempt directory.
 
 ## Steps
 
