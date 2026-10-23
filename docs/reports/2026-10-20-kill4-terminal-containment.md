@@ -54,7 +54,7 @@ Every terminal path that met live census members either quarantined without sign
 ## The parent-chain rule's safety argument
 
 - **Start.** Only a marked member, whose own argument buffer holds both whole strings `SUBFLEET_ATTEMPT=<this attempt>` and `SUBFLEET_ROOT=<this state root>`.
-- **Direction.** Up the snapshot's parent links only, never down. A held parent seeds no walk, so an operator's other processes are never pulled in.
+- **Direction.** Up the snapshot's parent links only, never down. An added ancestor is kept by its birth in `chain_identities`, with its reason, never as a walk seed, so its other descendants are members only when another source attributes them; a held parent seeds no walk either. So an operator's other processes are never pulled in. (Until fix round 1 an added ancestor was persisted as a counted walk seed, so its whole subtree became members and was signalled: review r1's P3-3. This line claimed the opposite then.)
 - **Qualification.** Live, pid > 1, not launchd, the daemon, its parent or another attempt's recorded guardian, of the daemon's effective uid by the kernel record (other users' processes are EPERM and read as gone), not exiting, and a canonical cwd (APFS case and `/private` spelling, as admission compares) equal to or under the job's own daemon-allocated worktree (`owned_worktree`, C-13.4: never an in-place workdir, never a probe).
 - **Stop.** The first ancestor that does not qualify is held and nothing above it is examined. An operator's shell outside the worktree is never signalled, and neither is its parent.
 - **cwd alone.** A cwd holder that is no ancestor of a marked member is neither added nor held. Cwd-only censuses keep #240's rule: they hold the worktree and never change a verdict.
@@ -64,12 +64,14 @@ Every terminal path that met live census members either quarantined without sign
 ## What remains open
 
 - **Seen by no census.** A hidden-marker loop that leaves the group and the walk before any inspection counts it, and that has no marked child alive at any census, is seen by no source. This is D-KILL3's documented limitation, extended. A census landing between two children of such a loop reads verified empty; the fixture's 0.4 s children showed it, and a real loop's `pytest` child lives far longer.
-- **In-place jobs.** A loop seen as the parent of a marked child is held, so the attempt quarantines, but it is never signalled: the operator-safety limit the hub set. The operator ends it and then runs `--confirm-dead`.
+- **Held loops: in-place jobs, and owned-worktree jobs whose loop runs outside the worktree** (a scratch folder, which hub briefs require). A loop seen as the parent of a marked child is held, so the attempt quarantines, but it is never signalled: the operator-safety limit the hub set. `kill` and `--confirm-dead` name it; the operator ends it and then runs `--confirm-dead`, or uses `--force-release`. Since fix round 1 a held parent is held again only while the last census saw a marked process name it (the kill protocol's censuses count as one), so one whose marked processes are gone releases. A slow respawner whose children are absent at two deciding censuses in a row is released between them, and its next marked child is a census member of the finished attempt, which `kill` re-contains.
 - **Unrooted daemons.** No responsibility source; decision 6 below.
 - **Uncertain records fall back to quarantine.** A member first recorded by an unverifiable census, or below one, is never signalled.
 - **Same-second pid reuse.** C-5.3's limit still applies to every identity check before a signal.
 - **The accepted operator case.** An operator process whose cwd is in the job's own worktree and which is an ancestor of a marked member is signalled by design.
-- **Probes and offline kills** keep their containment (group and owned only). They are not job attempts.
+- **Probes and offline kills** keep their containment (group and owned only). They are not job attempts, and run no parent chain.
+- **Markers are signal authority wherever a process runs.** A process that inherited the attempt's environment is signalled even outside the attempt's lineage, for example a pane of a tmux server the agent started (review r1, check 2, read only). Accepted; C-5.5 says so.
+- **A stranger's leaderless group at the recorded pgid holds the attempt.** Since fix round 1 its members are never signalled, but they are census members: `kill` on the finished job answers `containment requested` and its protocol ends with them as survivors, and `--confirm-dead` refuses while they live. `--force-release` resolves it.
 
 ## Decision 6: does every guardian record a responsibility root?
 
@@ -89,7 +91,7 @@ For jobs with an owned worktree, the cwd hold and now the parent-chain rule cove
 
 ## Stopped processes: how the base behaved
 
-- **A stopped group member** received the group TERM and stayed stopped, with the TERM pending, through all of `term_grace_s` (15 s). The census stayed non-empty until the group KILL.
+- **A stopped group member that handles TERM** (node, the guardian) received the group TERM and stayed stopped, with the TERM pending, through all of `term_grace_s` (15 s). The census stayed non-empty until the group KILL. A stopped member with TERM's default action ended on the TERM at once: review r1 measured a stopped Python process go from T to Z within 0.5 s of SIGTERM, while one with a TERM handler stayed T until SIGCONT. (This line said every stopped member waited, which overstated it.)
 - **A stopped escaped member** was never signalled, so the attempt quarantined (cancel) or quarantined without any signal (finalization, start grace).
 - **Now:** both get SIGCONT right after their TERM. The regressions end within the grace by TERM, not KILL (`test_a_stopped_group_member_is_continued_after_its_term_and_ends_within_the_grace`, `test_a_stopped_escaped_member_is_continued_and_contained_and_nothing_else_is`, and the real-daemon stopped-guardian case).
 
@@ -97,7 +99,7 @@ For jobs with an owned worktree, the cwd hold and now the parent-chain rule cove
 
 1. **No terminal state with live census pids.** An attempt that ends anything but `quarantined` has a verified-empty census at its end, cwd holders aside (property, regressions).
 2. **Nothing outside the census is signalled.** Every pid signalled one by one was a live member of a census the protocol took; group signals go only to the recorded group (property).
-3. **Continue follows TERM.** A process is continued only right after the protocol sent it TERM (property, regressions).
+3. **Continue follows TERM.** Every CONT delivered to a process follows a TERM delivered to that same process, pid and birth; the guardian is never continued (fix round 1; property, regressions).
 4. **Never signalled:** an operator's process in the worktree that is no ancestor of a marked member, a held parent, another user's process, the daemon, its parent, another attempt's guardian (property, regressions).
 5. **No retry before containment.** No retry is reserved while an earlier attempt's census is not empty (regressions, in process and through a real daemon).
 6. **cwd never decides a verdict.** A cwd-only census never changes a verdict (#240; regression and mutation).
@@ -174,3 +176,107 @@ Holds (each through `suite_hold.sh`, GIL CPython 3.14 venv in scratch, single pr
 - **No real Codex or Claude provider** was run.
 
 The harness's 5 s daemon-start wait (`tests/fake/conftest.py:87`) is pre-existing (review r1 of #240) and was left unchanged. Only this build's own daemon file waits up to 60 s, through a local wrapper.
+
+## Fix round 1 (review r1 of #250, 2026-10-23)
+
+Review r1 asked for changes: one P1, one P2 and nine P3s, each executed against `96be9454d` and the base `3d94eb563`. Every finding below is fixed, each with a regression that fails at `96be9454d` (plus the restack merge).
+
+### Restack onto #240's round 2
+
+`fix/kill3-self-exit-217` at `3aa49607c` (#240's fix round 2 and release `15a73b7bd`, which brings #241) is merged in `90e8e362a`.
+- **The contract** was merged by the hub's `merge_contract.py HEAD 3aa49607c`: 254 clauses, none duplicated.
+- **`subfleet/daemon.py`, the one conflict:** `_forget_paced` drops the per-attempt dicts both sides added (`_cwd_wait_next` from #240, `_containment_rounds` from D-KILL4).
+- **A semantic conflict the merge needed fixed:** #240 round 2 made `_cwd_wait` take the time its census began (`began=`, for pacing). D-KILL4's receipt-writers path calls it after the kill protocol's last census, so it passes `time.monotonic()`. Without this, every finalization whose writers were contained would raise `TypeError`. The kill4 cwd-rule unit test clears `_cwd_wait_next` as #240's own tests do.
+- **#240's rules kept:**
+  - the cwd worker's lease fence (`CWD_WORKTREE_HOLDS`);
+  - the paced waits (`_cwd_census_due`);
+  - containment-only evidence in `_resolve_quarantine`;
+  - the wall's dead-guardian branch: `_lost` on an empty containment census, else D-KILL4's `_kill_attempt(lost=True)`. #240 review r2's P3 on that branch running a protocol with no targets no longer applies.
+- **What the merge broke** (the reviewer's holds, on the merge):
+  - #240's round-1 strict mutant `cwd-quarantines` (`_finalize` deciding on `verified_empty`) passed its named regression. #240 round 2 moved that test's clock (29.9 s to 29.0 s). Under D-KILL4 the mutant's only effect is a kill protocol with no targets, so neither the verdict nor its timing showed it. The regression now asserts what C-5.5 says: a cwd-only census starts no kill protocol (`9ce8b1501`).
+  - Nothing else. Hold 2's 21 failures were all `Harness.start`'s 5 s readiness wait at load 105 to 118, before any test behaviour ran. That wait is now 60 s (`949d6811c`).
+
+### Findings: cause and fix
+
+- **P1: a recycled, leaderless group was signalled as the attempt's.**
+  - **Cause:** `is_recycled` returned False for an absent leader, so the census kept `seen.group(pgid)` with no birth or boot check. `_signal_targets` then treated every group member as attributed by the census, in any census. `_contain` also persisted those members as counted identities, which made them walk seeds from the next census on.
+  - **Fix:**
+    - The census verifies the recorded leader: alive in this table with its recorded birth and boot (`Containment.leader_verified`).
+    - A group member is a target only when the leader is verified (the group's TERM reaches it anyway) or when its identity is in `owned_identities`. Otherwise it holds the attempt and is never counted for its group.
+    - A recorded boot that is provably not this one drops the group source (`recycled`: `group of another boot`). One that cannot be compared leaves the members holding, never signalled for their group, and makes the census unverifiable. The brief said to drop that group too; dropping it would change no signal, would hide its members from the evidence, and would break C-5.3's four pinned cases (`test_census_recycled_pid.py`: "unknown identity retains the root and group"), so members of an uncomparable group are held instead.
+    - C-5.4 and C-5.5 say so.
+- **P2: start grace continued a stopped guardian, which then launched its provider.**
+  - **Cause:** start grace sent the group a TERM, which the guardian ignores by design (`guardian.py:186`). The protocol then continued every stopped member, the guardian included.
+  - **Fix:**
+    - Start grace with no `start.json` KILLs the group at once (`unlaunched`). The guardian has launched nothing, and its TERM is a no-op. A guardian stopped before its setsid does not yet lead its group, so killpg is refused: it is KILLed alone, never TERMed (F1 found this shape through the real daemon, under load).
+    - The protocol never continues the guardian, on any path.
+    - Start grace also passes its deciding census to the protocol, rather than taking a second one.
+- **P3-1: later joiners were continued without a TERM.**
+  - **Cause:** `reached` credited a delivered group TERM to every current group member, including those born after the killpg.
+  - **Fix:** the group's TERM is credited only to the (pid, birth) pairs of the census taken before it that are still in the group. A member found since gets its own TERM before any continue. After a KILL, each surviving target still gets a KILL of its own.
+- **P3-2: held parents could quarantine forever, and `kill` did not name them.**
+  - **Cause:** `_parent_chain` held a recorded parent by its birth whether or not any marked process remained, and `_census_words` listed only live pids.
+  - **Fix, holding:**
+    - A held parent is held again only while the last census saw a marked process name it (`held_marked`, written from `Containment.held_fresh`).
+    - The kill protocol's censuses count as one census. Without that, each child of a respawning driver that the protocol TERMs opens a gap, and two censuses 0.1 s apart would release the driver mid-protocol.
+    - An attempt recorded before this key falls back to `held_parents`.
+  - **Fix, naming:** `kill` and `--confirm-dead` answers name held parents (`held parent, never signalled`).
+  - **The report:** "What remains open" now names owned-worktree jobs whose loop runs outside the worktree.
+- **P3-3: a parent-chain ancestor became a walk seed.**
+  - **Cause:** `_contain` persisted every live member as a counted identity, chain ancestors included, so the walk descended from them.
+  - **Fix:**
+    - Chain ancestors are kept by their birth in `chain_identities`, with their reasons in `chain_reasons` (event `attempt.chain_recorded`). Later censuses re-add them while they live with that birth (`ParentChain.recorded`).
+    - They are never counted and never seed a walk, so their other descendants are members only when another source attributes them.
+    - The report's safety argument (its "Direction" line) is corrected.
+- **P3-4: chain reasons never reached durable evidence on the incident paths.**
+  - **Cause:** the deciding census on those paths persisted the ancestor only as a counted identity, and `_record_containment` kept reasons from the protocol's first and last censuses only.
+  - **Fix:**
+    - Every census persists each chain addition with its reason, on every path.
+    - The protocol accumulates the chain and held reasons of every census it takes.
+    - Each run's evidence lists every signal it sent one by one, with the pid, why that pid is the attempt's, the census sources that counted it then, and its parent (`signals`, up to 256), plus the group's signals and their reason.
+- **P3-5: taint could be laundered.**
+  - **Cause:** taint spread only along the current census's parent links. Once the tainted ancestor exited, its orphaned child looked clean.
+  - **Fix:** a census persists the identity of every seed it finds tainted, through its parent links, into `unverified_identities` (event `attempt.taint_recorded`). The taint then outlives the ancestor.
+- **P3-6: the stopped-process premise was overstated.**
+  - **Fix:** the report and C-5.6 now state what was measured. TERM's default action ends a stopped process. A handler leaves the TERM pending until continued.
+  - **`tests/kill4_world.py` models both kinds** (`term_handler`), and SIG_IGN too.
+- **P3-7: C-5.5's probe sentence was wrong.** Probes run no parent chain: their records have no attempt id. The sentence is removed (the hub's default), and C-5.5 now speaks of in-place jobs only.
+- **P3-8: weakened tests are restored.**
+  - **`test_census_escapers_daemon.py`:**
+    - the lockf cases, rooted and unrooted, again check D-KILL2's counting by recorded identity with ppid 1, and the 10/18 `--confirm-dead` step while lockf waits. The escapers ignore TERM (an inherited SIG_IGN, which a waiting lockf keeps, measured), and the daemon runs a 4 s TERM grace;
+    - the `:223` case checks the KILL sent after the guardian's death, not only the first census;
+    - the docstrings say what the tests now check.
+  - **`test_daemon_settle.py`:** start grace's census list is strict again: exactly one census of its own, the rest the protocol's.
+  - **`test_census_self_exit_daemon.py`:** asserts `contained`, and that the runner is dead at the verdict.
+- **P3-9:** `docs/release-gates.md` points at the current quarantine test.
+- **Markers as signal authority** (check 2, read only): a process that inherited the attempt's environment is signalled wherever it runs, a tmux pane included. Stated as accepted in C-5.5 and under "What remains open".
+
+### Invariants
+
+1. **No stranger is signalled.** A process is signalled only when attributed by one of:
+   - a verified leader;
+   - an owned identity;
+   - a recorded counted identity of matching birth;
+   - the attempt's markers;
+   - the parent-chain rule.
+
+   Never by a recycled or leaderless group, cwd alone, or a held parent. Tested by the property (strangers in a leaderless group at the recorded pgid are reached by no signal), the six P1 regressions, and the real leaderless-group process test.
+2. **Contained before anything follows.** On every terminal path, no retry is reserved and no verdict is written while a census member lives, unless the attempt quarantines. Tested by the property (invariant 1) and the build's regressions.
+3. **No CONT without that pid's TERM, and never a CONT to the guardian.** Every CONT delivered follows a TERM delivered to that same (pid, birth). Tested by the property, the joiner regressions (simulated and real), and the guardian regressions (simulated, real guardian and real daemon).
+4. **Held parents release.** A held parent with no marked descendant in the last census no longer holds. Tested by `test_a_held_parent_with_no_marked_descendant_left_releases`, with `test_a_held_parent_stays_held_while_a_marked_child_is_seen` as its control.
+5. **Evidence is complete.** Every pid signalled one by one appears in durable evidence with its reason, and every chain addition with its reason, on every path. Tested by the property (invariant 5) and `test_every_path_records_the_chain_ancestor_and_its_reason` (start grace, dead guardian, exit receipt, cancel, wall).
+
+### Mutations
+
+Each mutant is detected by its named regression, as a strict xfail in `tests/unit/test_kill4_fix1_mutations.py`:
+
+| Mutant | Named regression |
+|---|---|
+| keep a recycled group's members as targets | `test_kill_on_a_finished_job_never_signals_a_strangers_leaderless_group` |
+| continue the guardian | `test_the_guardian_is_never_continued_on_a_cancel` |
+| credit the group TERM to later joiners | `test_self_stopping_children_born_after_the_group_term_each_get_a_term_before_any_cont` |
+| re-hold parents forever | `test_a_held_parent_with_no_marked_descendant_left_releases` |
+| seed walks from chain ancestors | `test_a_chain_ancestors_unmarked_child_is_never_signalled` |
+| drop chain reasons from evidence | `test_every_path_records_the_chain_ancestor_and_its_reason[exit-receipt]` |
+
+The build's `retry-first` mutant now targets the new start-grace call.
