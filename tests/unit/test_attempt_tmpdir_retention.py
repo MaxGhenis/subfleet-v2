@@ -96,3 +96,30 @@ def test_session_scratch_baseline_survives_fixture_undo_and_environment_replacem
         assert scratch.root.is_relative_to(session)
         record = scratch.create("job/a1")
         assert scratch.remove(record, {"attempt_id": "job/a1", "state": "succeeded"}, verified_empty=True)
+
+
+def test_a_cleared_or_absent_allocation_pins_nothing(tmp_path):
+    """Invariant 6: a TMPDIR whose census was verified empty (`cleared_at`), or
+    which was released as absent, never keeps its job, even while removal retries."""
+    root = tmp_path / "store"
+    root.mkdir()
+    scratch = attempt_tmp.AttemptTemp(root)
+    record = scratch.create("job/a1")
+    probe = {"holder": "probe:dummy", "job_id": "job", "state": "completed", "tmpdir": scratch.create("probe:dummy")}
+    with Store(root / "state.sqlite3") as store:
+        store.put_lane(make_lane("fake"))
+        store.add_job(job_id="job", request_id="request", payload_digest="digest", kind="dispatch",
+                      workdir=str(tmp_path), prompt_path="/prompt", sandbox="read-only", state="succeeded")
+        store.conn.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at,evidence_json) "
+                           "VALUES('job/a1','job',1,'fake','fake','succeeded','2026-10-22T00:00:00Z',?)",
+                           (json.dumps({"tmpdir": record}),))
+        store.add_event("probe.state", job_id="job", data=probe)
+        assert retention._pin_reasons(store, set(), None, root=root)["job"] == "attempt-tmpdir"
+        store.conn.execute("UPDATE attempts SET evidence_json=json_set(evidence_json,'$.tmpdir.cleared_at','now')")
+        assert retention._pin_reasons(store, set(), None, root=root)["job"] == "probe-tmpdir"
+        probe["tmpdir"].update(removed_at="now", outcome="absent")
+        store.add_event("probe.state", job_id="job", data=probe)
+        assert "job" not in retention._pin_reasons(store, set(), None, root=root)
+        # Still on disk: still counted in the job's bytes.
+        assert [found for _, found in attempt_tmp.job_tmpdirs(store, root, job_id="job")] == [
+            {**record, "cleared_at": "now"}]
