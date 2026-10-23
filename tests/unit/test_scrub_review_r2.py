@@ -303,6 +303,33 @@ def next_line_matrix() -> list[str]:
     return cells
 
 
+#: P3-2's class (invariant 4): a line-ending `Bearer` that is a key's value inside an
+#: unclosed single, double or escaped quote, or a header name a quoted match swallows on
+#: the same line, and the same text without the opening quote.
+OWNERSHIP_ENCLOSURES = (("api_key='x ", "api_key=x "), ('api_key="x ', "api_key=x "), ("api_key=\\'x ", "api_key=x "),
+                        ("secret:'Cookie: x ", "secret:Cookie: x "))
+
+
+def ownership_matrix() -> list[tuple[str, str]]:
+    return [(quoted + key + join + bearer.format(s=f"SECRET7ow{n}x") + " rest",
+             twin + key + join + bearer.format(s=f"SECRET7ow{n}x") + " rest")
+            for n, ((quoted, twin), key, join, bearer) in enumerate(itertools.product(
+                OWNERSHIP_ENCLOSURES, UNION_KEYS, UNION_JOINS, UNION_BEARERS))]
+
+
+def test_a_quoted_bearer_value_is_hidden_where_its_twin_is():
+    """Invariant 4 over P3-2's 360 cells (review r2: 300 showed what the twin hides, at
+    every tree): each mode hides every secret the twin's same mode hides."""
+    cells = ownership_matrix()
+    assert len(cells) == 360
+    failures = []
+    for quoted, twin in cells:
+        secrets = _secrets(quoted)
+        if (shown := _shown(_outputs(handoff, quoted), secrets) - _shown(_outputs(handoff, twin), secrets)):
+            failures.append((quoted, sorted(shown)))
+    assert failures == []
+
+
 MATRICES = {"flag": (flag_matrix, 768), "union": (union_matrix, 630), "next-line": (next_line_matrix, 4032)}
 
 
