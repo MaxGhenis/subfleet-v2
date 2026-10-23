@@ -334,11 +334,40 @@ def test_interrupt_waits_for_the_turn_id_then_uses_turn_interrupt():
     early = turn.interrupt()
     assert early.frames == []
     step = turn.feed(resp(ID_TURN, {"turn": {"id": "turn-1", "status": "inProgress", "items": []}}), 4)
+    assert step.frames[-1].stops is True
     body = json.loads(step.frames[-1].line)
     assert body["method"] == "turn/interrupt" and body["params"] == {"threadId": "thr-1", "turnId": "turn-1"}
     check_frames(step)
     end = turn.feed(note("turn/completed", threadId="thr-1", turn={"id": "turn-1", "status": "interrupted", "items": []}), 5)
     assert end.outcome.state == "interrupted"
+
+
+@pytest.mark.parametrize("method, decisions", [
+    ("item/commandExecution/requestApproval", ("allow", "allow-session", "deny", "cancel-turn")),
+    ("item/fileChange/requestApproval", ("allow", "allow-session", "deny", "cancel-turn")),
+    ("item/permissions/requestApproval", ("allow-turn", "deny")),
+])
+def test_codex_approval_stop_flag_matches_wire_cancel(method, decisions):
+    for decision in decisions:
+        turn = CodexTurn(spec())
+        turn.pending["42"] = (method, {"permissions": {"network": {"enabled": True}}})
+        [frame] = turn.respond("42", decision).frames
+        payload = json.loads(frame.line)["result"]
+        assert frame.stops is (payload.get("decision") == "cancel")
+
+
+@pytest.mark.parametrize("method, stops", [
+    ("applyPatchApproval", True), ("execCommandApproval", True),
+    ("mcpServer/elicitation/request", False), ("item/tool/requestUserInput", False),
+    ("account/chatgptAuthTokens/refresh", False), ("unknown/request", False),
+])
+def test_codex_unsupported_reply_stop_flag_matches_wire_abort(method, stops):
+    turn = CodexTurn(spec())
+    to_running(turn)
+    [frame] = turn.feed(json.dumps({"id": 42, "method": method, "params": {}}), 30).frames
+    payload = json.loads(frame.line)
+    assert frame.stops is stops
+    assert frame.stops is (payload.get("result", {}).get("decision") == "abort")
 
 
 def test_model_mismatch_on_the_thread_stops_before_the_turn():

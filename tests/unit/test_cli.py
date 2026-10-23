@@ -6,7 +6,11 @@ Every test names the clause it proves (C-20.5).
 from __future__ import annotations
 
 import json
+import io
 import os
+import socket
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -679,7 +683,7 @@ def test_a_lock_whose_holder_is_dead_is_no_daemon(daemon, root, capsys, workdir,
     """C-5.8 the CLI treats a lock with a dead recorded identity as no daemon."""
     from subfleet import client as client_module
     monkeypatch.setattr(client_module, "boot_id", lambda: "1")
-    monkeypatch.setattr(client_module, "proc_start", lambda pid: "")
+    monkeypatch.setattr(client_module, "proc_status", lambda pid: ("", ""))
     daemon({"submit": submit_ok, "wait": lambda request: terminal("succeeded", rc=0)})                 # a socket that would answer
     (root / "daemon.lock").write_text(json.dumps(
         {"pid": 999999, "boot_id": "1", "proc_start": "Mon Jan  1 00:00:00 2001",
@@ -760,7 +764,8 @@ def test_kill_reaches_the_kill_op_with_its_resolutions(daemon, capsys):
                      "wait": lambda request: terminal("cancelled")})
     assert run_cli(["kill", JOB]) == 0
     assert server.args("kill") == {"job_id": JOB, "confirm_dead": False,
-                                   "force_release": False, "operator_note": None}
+                                   "force_release": False, "operator_note": None,
+                                   "session_id": None, "reason": None}
     assert run_cli(["kill", JOB, "--confirm-dead", "--note", "checked"]) == 0
     assert server.args("kill")["confirm_dead"] is True
     assert server.args("kill")["operator_note"] == "checked"
@@ -828,17 +833,20 @@ def test_json_wait_output_stays_prose_free_on_a_provider_rc(daemon, capsys, work
     assert "provider rc 42" in capsys.readouterr().err
 
 
-def test_the_identity_check_runs_once_per_client(root, monkeypatch):
-    """C-5.8 the lock identity check costs one ps per process, not one per call."""
+def test_the_identity_check_is_fresh_and_paced_per_call(root, monkeypatch, poll_clock):
+    """C-5.13 unverifiable observations also spend the four-token bucket."""
     from subfleet import client as client_module
     (root / "daemon.lock").write_text(json.dumps({"pid": os.getpid()}))
-    calls: list[int] = []
-    monkeypatch.setattr(client_module, "identity_report",
-                        lambda *a, **k: calls.append(1) or (None, "stubbed"))
+    calls: list[float] = []
+    monkeypatch.setattr(client_module, "proc_status",
+                        lambda *a, **k: calls.append(poll_clock.now) or (None, None))
     probe = client_module.Client(root)
     for _ in range(4):
         probe.check_available()
-    assert len(calls) == 1
+    assert calls == [0.0] * 4 and poll_clock.sleeps == []
+    probe.check_available()
+    assert calls == [0.0] * 4 + [1.0]
+    assert poll_clock.sleeps == [1.0]
 
 
 def test_boot_id_is_read_once(monkeypatch):
@@ -1520,7 +1528,7 @@ def test_an_identity_mismatch_names_the_rendering_trap(root, capsys, workdir, mo
     message has to let a reader tell those apart.
     """
     from subfleet import client as client_module
-    monkeypatch.setattr(client_module, "proc_start", lambda pid: "Sun Oct 11 00:00:00 2026")
+    monkeypatch.setattr(client_module, "proc_status", lambda pid: ("S", "Sun Oct 11 00:00:00 2026"))
     (root / "daemon.lock").write_text(json.dumps(
         {"pid": os.getpid(), "proc_start": "Sat Jan  1 00:00:00 2000"}))
     assert run_cli(["run", "-m", "opus", "-C", str(workdir), "hi"]) == 69
@@ -1800,3 +1808,268 @@ def test_c16_3_runs_request_id_finds_the_job_offline_too(root, capsys):
     assert [row["job_id"] for row in rows] == [job_id]
     assert run_cli(["runs", "--request-id", "no-such-request", "--json"]) == 0
     assert capsys.readouterr().out == ""
+
+
+def test_kill_sends_requesting_session_and_reason(daemon, monkeypatch, capsys):
+    """D-KILL1: the client supplies its session and optional explanation."""
+    monkeypatch.setattr(cli, "session_id", lambda: "requesting-session")
+    server = daemon({"kill": lambda request: {"status": "cancel requested"}})
+    assert run_cli(["kill", JOB, "--reason", "operator hold cleanup"]) == 0
+    assert server.args("kill")["session_id"] == "requesting-session"
+    assert server.args("kill")["reason"] == "operator hold cleanup"
+    capsys.readouterr()
+
+
+# C-17.9: readers must finish even when the producer keeps its descriptor open.
+# Closing the writer in finally also frees an intentionally regressed reader.
+def bounded_stdin_call(argv, stream, close_writer, monkeypatch):
+    monkeypatch.setattr(cli.sys, "stdin", stream)
+    monkeypatch.setenv("SUBFLEET_PING_STDIN_WAIT_S", "0.05")
+    results, errors = [], []
+
+    def invoke():
+        try:
+            results.append(run_cli(argv))
+        except BaseException as exc:
+            errors.append(exc)
+
+    worker = threading.Thread(target=invoke)
+    started = time.monotonic()
+    try:
+        worker.start()
+        worker.join(0.75)
+        finished = not worker.is_alive()
+        elapsed = time.monotonic() - started
+    finally:
+        close_writer()
+        worker.join(5)
+        stream.close()
+    assert not worker.is_alive(), "stdin reader did not finish even after EOF"
+    assert not errors, errors
+    assert finished, "stdin read blocked while its writer stayed open"
+    assert elapsed < 0.75
+    return results[0]
+
+
+@pytest.mark.parametrize("payload", [b"", b"partial message"])
+def test_ping_open_pipe_is_bounded(daemon, monkeypatch, capsys, payload):
+    """C-17.9 neither an empty pipe nor one readable byte authorizes read-to-EOF."""
+    server = daemon({"ping": lambda request: {"pong": True, "version": "test"}})
+    read_fd, write_fd = os.pipe()
+    if payload:
+        os.write(write_fd, payload)
+    stream = os.fdopen(read_fd, "r")
+    code = bounded_stdin_call(["ping", "--session", "sess-1"], stream,
+                              lambda: os.close(write_fd), monkeypatch)
+    assert code == (0 if payload else int(Exit.INVALID_INPUT))
+    if payload:
+        assert server.args("ping")["text"] == payload.decode()
+    else:
+        assert server.ops() == []
+        assert "within" in capsys.readouterr().err
+
+
+def test_ping_open_socket_is_bounded(daemon, monkeypatch):
+    """C-17.9 a socket writer that stays open has the same bound as a pipe."""
+    server = daemon({"ping": lambda request: {"pong": True}})
+    reader, writer = socket.socketpair()
+    stream = reader.makefile("r")
+    writer.sendall(b"socket message")
+    try:
+        assert bounded_stdin_call(["ping"], stream, writer.close, monkeypatch) == 0
+        assert server.args("ping")["text"] == "socket message"
+    finally:
+        reader.close()
+        writer.close()
+
+
+def test_suggest_open_pipe_is_bounded(daemon, monkeypatch):
+    """C-17.9, C-25.7 suggest --brief - shares ping's bounded stdin reader."""
+    server = daemon({"suggestion.create": lambda request: {"suggestion": {
+        "suggestion_id": "sg-1", "worktree": False, "origin_conversation_id": None, "title": "T"}}})
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, b"a complete brief")
+    assert bounded_stdin_call(["suggest", "--title", "T", "--tldr", "S", "--brief", "-"],
+                              os.fdopen(read_fd, "r"), lambda: os.close(write_fd), monkeypatch) == 0
+    assert server.args("suggestion.create")["brief"] == "a complete brief"
+
+
+def test_ping_regular_file_is_read(daemon, monkeypatch, tmp_path):
+    """C-17.9 files still supply the complete UTF-8 message."""
+    server = daemon({"ping": lambda request: {"pong": True}})
+    path = tmp_path / "message"
+    path.write_text("the sweep finished\n")
+    with path.open() as stream:
+        monkeypatch.setattr(cli.sys, "stdin", stream)
+        started = time.monotonic()
+        assert run_cli(["ping"]) == 0
+        assert time.monotonic() - started < 0.75
+    assert server.args("ping")["text"] == "the sweep finished\n"
+
+
+def test_ping_dev_null_keeps_release_health_check(daemon, monkeypatch):
+    """C-17.9 /dev/null reaches EOF immediately and release sends a health check."""
+    server = daemon({"ping": lambda request: {"pong": True, "version": "test"}})
+    with open(os.devnull) as stream:
+        monkeypatch.setattr(cli.sys, "stdin", stream)
+        started = time.monotonic()
+        assert run_cli(["ping"]) == 0
+        assert time.monotonic() - started < 0.75
+    assert server.args("ping")["text"] == ""
+
+
+@pytest.mark.parametrize("missing", [False, True])
+def test_ping_terminal_or_missing_stdin_keeps_release_health_check(daemon, monkeypatch, missing):
+    """C-15.8, C-17.9 release's terminal/no-stdin health check must never read."""
+    class Terminal:
+        def isatty(self):
+            return True
+
+        def read(self, *args):
+            pytest.fail("a terminal must never be read")
+
+    server = daemon({"ping": lambda request: {"pong": True, "version": "test"}})
+    monkeypatch.setattr(cli.sys, "stdin", None if missing else Terminal())
+    assert run_cli(["ping"]) == 0
+    assert server.args("ping")["text"] == ""
+
+
+def test_ping_pipe_with_eof_and_memory_stream(daemon, monkeypatch):
+    """C-17.9 EOF and in-memory streams read the whole message."""
+    server = daemon({"ping": lambda request: {"pong": True}})
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, b"closed pipe\n")
+    os.close(write_fd)
+    with os.fdopen(read_fd, "r") as stream:
+        monkeypatch.setattr(cli.sys, "stdin", stream)
+        assert run_cli(["ping"]) == 0
+    assert server.args("ping")["text"] == "closed pipe\n"
+    monkeypatch.setattr(cli.sys, "stdin", io.StringIO("memory message"))
+    assert run_cli(["ping"]) == 0
+    assert server.args("ping")["text"] == "memory message"
+
+
+def test_ping_closed_python_stdin_is_refused(monkeypatch, capsys):
+    """C-17.9 a closed stream's isatty failure is a readable exit-2 refusal."""
+    stream = io.StringIO("closed message")
+    stream.close()
+    monkeypatch.setattr(cli.sys, "stdin", stream)
+    monkeypatch.setattr(cli, "_client", lambda args: pytest.fail("unreadable stdin must not send"))
+    assert run_cli(["ping"]) == int(Exit.INVALID_INPUT)
+    error = capsys.readouterr().err
+    assert "ping: cannot read the message" in error
+    assert "stdin could not be read" in error and "closed" in error
+
+
+@pytest.mark.parametrize("value", ["inf", "-inf", "nan", "1e9", "-1", "soon"])
+def test_unusable_stdin_wait_falls_back_to_default(monkeypatch, value):
+    """C-17.9 a malformed or unbounded wait never reaches select."""
+    monkeypatch.setenv("SUBFLEET_PING_STDIN_WAIT_S", value)
+    assert cli._ping_stdin_wait_s() == cli.PING_STDIN_WAIT_S
+
+
+def test_stdin_wait_can_be_overridden(monkeypatch):
+    """C-17.9 the environment can accommodate a slow producer."""
+    monkeypatch.setenv("SUBFLEET_PING_STDIN_WAIT_S", "7.5")
+    assert cli._ping_stdin_wait_s() == 7.5
+
+
+def test_ping_continuous_input_has_a_total_deadline(daemon, monkeypatch):
+    """C-17.9 a trickling writer cannot extend the read forever."""
+    server = daemon({"ping": lambda request: {"pong": True}})
+    reader, writer = socket.socketpair()
+    done = threading.Event()
+    writer.settimeout(0.1)
+    writer.sendall(b"x")  # Keep the first byte independent of producer scheduling.
+
+    def produce():
+        try:
+            while not done.wait(0.01):
+                writer.sendall(b"x")
+        except OSError:
+            pass
+
+    producer = threading.Thread(target=produce)
+
+    def finish():
+        done.set()
+        producer.join(1)
+        writer.close()
+
+    try:
+        producer.start()
+        assert bounded_stdin_call(["ping"], reader.makefile("r"), finish, monkeypatch) == 0
+        assert server.args("ping")["text"].startswith("x")
+    finally:
+        finish()
+        reader.close()
+    assert not producer.is_alive()
+
+
+def test_ping_character_device_with_no_eof_is_bounded(daemon, monkeypatch):
+    """C-17.9 /dev/zero is readable forever; the finite read budget still applies."""
+    daemon({"ping": lambda request: {"pong": True}})
+    monkeypatch.setenv("SUBFLEET_PING_STDIN_WAIT_S", "0.05")
+    class Device:
+        def __init__(self, stream):
+            self.stream = stream
+
+        def fileno(self):
+            return self.stream.fileno()
+
+        def isatty(self):
+            return False
+
+        def read(self, *args):
+            pytest.fail("an endless character device must not be read through EOF")
+
+    with open("/dev/zero", "rb") as stream:
+        monkeypatch.setattr(cli.sys, "stdin", Device(stream))
+        started = time.monotonic()
+        assert run_cli(["ping"]) == int(Exit.INVALID_INPUT)
+        assert time.monotonic() - started < 0.75
+
+
+def test_select_failure_never_falls_back_to_an_unbounded_read(monkeypatch):
+    """C-17.9 a readiness failure refuses unread instead of hanging."""
+    read_fd, write_fd = os.pipe()
+
+    def broken(*args):
+        raise OSError("readiness unavailable")
+
+    try:
+        with os.fdopen(read_fd, "r") as stream:
+            monkeypatch.setattr(cli.select, "select", broken)
+            text, reason = cli._stdin_message(stream)
+            assert text is None and "readiness unavailable" in reason
+    finally:
+        os.close(write_fd)
+
+
+@pytest.mark.parametrize("data,expected", [(b"1234", "1234"), (b"\xff", "\ufffd"), (b"12345", None)])
+def test_ping_wrapped_memory_stdin_keeps_byte_bound(monkeypatch, data, expected):
+    """C-17.9 finite TextIOWrapper(BytesIO) input keeps the byte cap and replacement decoding."""
+    monkeypatch.setattr(cli, "STDIN_MAX_BYTES", 4)
+    with io.TextIOWrapper(io.BytesIO(data)) as stream:
+        text, reason = cli._stdin_message(stream)
+    assert text == expected
+    if expected is None:
+        assert reason and "exceeds 4" in reason
+    else:
+        assert reason is None
+
+
+def test_ping_prints_the_session_the_daemon_parked_for(daemon, capsys):
+    """C-15.8, C-17.9 preserve the parked reply and daemon-selected session."""
+    daemon({"ping": lambda request: {"pong": True, "session_id": "sess-1", "notice_id": -7}})
+    assert run_cli(["ping", "--session", "sess-1", "hi"]) == 0
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "parked for sess-1"
+    assert "the session has no live inbox" in captured.err
+
+
+def test_ping_still_renders_a_reported_delivery(daemon, capsys):
+    """C-15.2 a transport's explicit delivery answer is still rendered."""
+    daemon({"ping": lambda request: {"delivered": True, "name": "cli-1"}})
+    assert run_cli(["ping", "--session", "sess-1", "hi"]) == 0
+    assert capsys.readouterr().out.strip() == "delivered to cli-1"

@@ -1002,26 +1002,34 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
 
 
 def signal_group(pgid: int, sig: int | signal.Signals, *, boot_id: str,
-                 proc_start: str) -> bool:
-    """Signal only a recorded, still-identical group leader (C-5.4)."""
+                 proc_start: str, before_signal: Callable[[], None] | None = None) -> bool:
+    """Signal only a recorded, still-identical group leader (C-5.4).
+
+    Capture a signal clock after identity reads, immediately before the syscall.
+    """
     if pgid <= 1 or pgid == os.getpgrp() or not same_process(pgid, boot_id, proc_start):
         return False
     try:
         if os.getpgid(pgid) != pgid:
             return False
+        if before_signal is not None:
+            before_signal()
         os.killpg(pgid, sig)
         return True
     except (ProcessLookupError, PermissionError):
         return False
 
 
-def signal_process(recorded: ProcessIdentity, sig: int | signal.Signals) -> bool:
+def signal_process(recorded: ProcessIdentity, sig: int | signal.Signals, *,
+                   before_signal: Callable[[], None] | None = None) -> bool:
     """Signal a survivor only with previously recorded ownership (C-5.6)."""
     if recorded.pid <= 1 or recorded.pid == os.getpid():
         return False
     if not same_process(recorded.pid, recorded.boot_id, recorded.proc_start):
         return False
     try:
+        if before_signal is not None:
+            before_signal()
         os.kill(recorded.pid, sig)
         return True
     except (ProcessLookupError, PermissionError):
