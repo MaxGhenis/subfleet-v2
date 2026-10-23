@@ -19,6 +19,17 @@ Codex 0.159.0's `debug prompt-input` and the review's `codex sandbox` probe conf
 
 Round 1 (review r1: three P2s, seven P3s) is in the report's round-1 section, which has each finding's cause and fix, the eight invariants, the mutation witnesses, and the counts per file. Release/217 at `7e2dc5a35` (#243, #245, #247, #249) is merged in; both conflicts kept both sides.
 
-VALIDATION_SUMMARY
+**Validation (round 1).**
+- **Coverage:** every module in `tests/unit` (339) and `tests/fake` (113) ran this round, single-process, one pytest per hold slot.
+  - `tests/unit`: 13,468 passed, 18 skipped, 0 failed.
+  - `tests/fake`: 2,152 passed, 2 xfailed, 0 failed.
+  - All 18 skips are environmental: 13 come from archive trees with no Git history, 4 from a dependency that isn't in the offline uv cache, and 1 is an explicit benchmark.
+- **At the final code head (`134908a5c`):** the PR's six test files, `test_daemon_launch.py`, `test_probe_cancel.py`, the state contract and the module-name guard passed 168 of 168.
+- **Regressions:** every round-1 regression fails at `a9b7c6195` (64 failed, 19 unchanged cases passed).
+- **Mutations:** all nine are killed: the build's four, plus a salvage hold, an absent folder without a receipt, removal without rename-and-verify, and age taken from the marker or the birth time.
+- **A defect validation found:** this round's own cleanup lock sat outside the never-raise guard. It failed 33 cases of `test_daemon_settle.py`, was fixed in `134908a5c` with a regression test, and the module then passed 61 of 61.
+- **Re-timing:** `test_probe_gate_rechecks_terminal_or_stamp[failed]`, run in one hold, took 0.046 s at head, 0.723 s at release/217 and 0.403 s at `a9b7c6195`.
+
+Per-file counts, the holds and every finding's cause and fix are in [the report's round-1 section](docs/reports/2026-10-22-attempt-tmpdir.md).
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
