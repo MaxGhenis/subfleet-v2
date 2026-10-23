@@ -92,7 +92,9 @@ def test_mutation_fails_its_named_regression(mutation, tmp_path):
 def settling_mutant(tmp_path_factory):
     root = tmp_path_factory.mktemp("settling-mutant")
     binary, _ = compile_mutation("settling_stops_follow_at_end", root)
-    return run_probe(binary, root, "fix9-catchup", timeout=600)
+    result = run_probe(binary, root, "fix9-catchup", timeout=600)
+    write_json(root / "result.json", result)
+    return result
 
 
 @pytest.mark.parametrize("name", ["open_live_250", "open_live_100"])

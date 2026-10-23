@@ -609,8 +609,102 @@ struct ArrivalView: View {
                                  "caught_up": scene.caughtUp, "reveal_consumed": scene.palette.reveal == nil,
                                  "notices": notices, "before_catchup": scene.beforeCatchup,
                                  "after_initial_reveal": scene.afterInitialReveal,
-                                 "held_before_reveal": scene.heldBeforeReveal]
+                                 "held_before_reveal": scene.heldBeforeReveal,
+                                 "settling_control": await controlledSettlingPage(name, delay: delay)]
     scene.close()
+    return result
+}
+
+// A focused view fixture for the settling predicate. The full UIModel opening
+// above is still exercised, but its historical pages need not happen to change
+// the follow key at exactly the right point in lazy layout. Here the probe owns
+// that sequence: real reveal, measured end position, then one changed-key page.
+@MainActor final class SettlingPage: ObservableObject {
+    @Published var loaded = false
+    var suspended = false
+    var atBottom = false
+    var transition: [String: Bool] = [:]
+
+    var key: FollowKey {
+        FollowKey(last: "live", lastIsOwnSend: false, followed: "reply:live",
+                  followedLength: loaded ? 4000 : 0, tray: [], settling: true, hasHistory: false)
+    }
+}
+
+struct SettlingPageView: View {
+    @ObservedObject var page: SettlingPage
+    let conversationID: String
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 0) {
+                    Text("Earlier history").frame(height: 900)
+                    Text("The live request").frame(height: 40).id("person:live")
+                    if page.loaded { Text("One catch-up page").frame(height: 4000) }
+                    Color.clear.frame(height: 1).id("bottom")
+                }
+                .conversationColumn(conversationID, proxy: proxy, revealIDs: ["person:live"])
+            }
+            .onChange(of: page.key) { old, new in
+                page.transition = ["changed_key": old != new, "settling": old.settling || new.settling,
+                                   "suspended": page.suspended, "at_bottom": page.atBottom]
+                // This is the actual product predicate, including the mutation
+                // under test. Only the fixture's state/page sequence is controlled.
+                if FollowKey.move(from: old, to: new, atBottom: page.atBottom,
+                                  suspended: page.suspended) == .jump {
+                    var transaction = Transaction(animation: nil)
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) { proxy.scrollTo("bottom", anchor: .bottom) }
+                }
+            }
+        }
+    }
+}
+
+@MainActor func controlledSettlingPage(_ name: String, delay: Double) async -> [String: Any] {
+    let cid = name + "-controlled"
+    let page = SettlingPage(), palette = SearchPaletteModel()
+    let host = NSHostingView(rootView: SettlingPageView(page: page, conversationID: cid)
+        .environment(\.searchPalette, palette))
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 760),
+                          styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView = host
+    var reveals = 0
+    let observer = NotificationCenter.default.addObserver(forName: .conversationRowScroll, object: nil,
+                                                          queue: .main) { note in
+        if note.object as? String == cid { reveals += 1; page.suspended = true }
+    }
+    defer { NotificationCenter.default.removeObserver(observer); window.close() }
+    await settle(host, seconds: 0.1)
+    palette.reveal = SearchReveal(conversationID: cid, itemID: "person:live")
+    let deadline = Date().addingTimeInterval(60)
+    while palette.reveal != nil && Date() < deadline { await settle(host, seconds: 0.02) }
+    // Explicitly position at the end after the reveal and before releasing the
+    // page. This does not generate a person-scroll/reveal or alter suspension.
+    while Date() < deadline {
+        if let scroll = timelineScroll(host), let document = scroll.documentView {
+            let clip = scroll.contentView
+            clip.scroll(to: NSPoint(x: 0, y: document.isFlipped ? max(0, document.frame.height - clip.bounds.height) : 0))
+            scroll.reflectScrolledClipView(clip)
+        }
+        await settle(host, seconds: 0.02)
+        if (sample(host)["from_end"] ?? 1e9) <= 30 { break }
+    }
+    let before = sample(host)
+    page.atBottom = (before["from_end"] ?? 1e9) <= 30
+    // Both original schedules are retained as stimuli, never as pass/fail bounds.
+    // No page can arrive until all the above state has been established.
+    await settle(host, seconds: delay)
+    page.loaded = true
+    while page.transition.isEmpty && Date() < deadline { await settle(host, seconds: 0.02) }
+    await settle(host, seconds: 0.3)
+    var result: [String: Any] = page.transition
+    result["before_page"] = before
+    result["after_page"] = sample(host)
+    result["reveals"] = reveals
+    result["consumed"] = palette.reveal == nil
     return result
 }
 
