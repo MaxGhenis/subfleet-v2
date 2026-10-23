@@ -386,11 +386,17 @@ def test_a_folder_not_named_as_a_claim_is_left_alone(tmp_path, name):
 # #247 review r3's P3: the sweep's own-pid check and its 24-hour boundary.
 
 def test_a_stale_claim_whose_own_pid_lives_is_left_alone(tmp_path):
-    """D-KR1: a claim's pid is alive (its folder may yet be put back), so the sweep leaves it, however old."""
+    """D-KR1: a claim's pid is alive (its folder may yet be put back), so the sweep leaves it, however old. The pid
+    is a live child's, not this process's, so the check goes through `kill(pid, 0)` (#249 review r1, P3-2)."""
     now = time.time_ns()
-    claim = kept_root(tmp_path, f".pruning-{os.getpid()}-{dead_pid()}-0000abcf", age_ns=30 * DAY_NS, now_ns=now)
-    assert failed_keep.prune(tmp_path, now_ns=now) == []
-    assert claim.is_dir()
+    child = subprocess.Popen(["/bin/sleep", "60"])
+    try:
+        claim = kept_root(tmp_path, f".pruning-{child.pid}-{dead_pid()}-0000abcf", age_ns=30 * DAY_NS, now_ns=now)
+        assert failed_keep.prune(tmp_path, now_ns=now) == []
+        assert claim.is_dir()
+    finally:
+        child.kill()
+        child.wait()
 
 
 def test_the_sweep_keeps_a_claim_exactly_a_day_old_and_takes_one_a_nanosecond_older(tmp_path):
