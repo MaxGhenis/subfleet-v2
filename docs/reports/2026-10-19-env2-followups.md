@@ -1,13 +1,32 @@
 # Review r5 of #222: refused lanes.json rows, held lanes and the lane-variable checks (D-ENV2)
 
 Base: `origin/release/217` at `473fe2941`, which has #222 (the launch-environment
-allowlist, merged as `f99da54b0`). Review r5
+allowlist, merged as `f99da54b0`). Release at `fd1e4b65c` is merged in since
+(`38afc8110`, "The release merge" below), and every count in Validation is from
+that merged head. Review r5
 (`~/reviews/subfleet-hub/launch-env-2026-10-14/review-r5.md`) approved #222 with
 three P3s, and the hub ruled on each. The hub also asked for C-1.3's wording and an
 install check. This report gives each cause as executed at the base, then the fix,
 then the tests. No credential store, secret loader, live store, live daemon or live
 process was read or changed. Every test value is a dummy, and nothing here quotes an
 environment value.
+
+**History.** Three jobs wrote this.
+- **The first build** (`20261020-073952-env2-build`) was lost to the
+  2026-10-20 power cut, at about 15:25Z, with no final answer. Before that it
+  made the seven commits from `251625c37` to `290b7bb5a` and wrote this report
+  up to its test sections. The hub committed that draft unchanged as `757bb71d9`.
+- **The follow-on job** (`20261020-191828-env2-build-b`) was pinned to one lane
+  that stayed closed for two days, and never started.
+- **The third job** (`20261022-125125-env2-build-c`) checked each of the
+  brief's items against the commits and found them all done. It merged
+  release/217 and re-ran every test count in the Validation section at the
+  merged head. Then it finished this report and wrote the PR body,
+  `docs/reports/2026-10-19-env2-followups-pr-body.md`.
+
+The causes, the fix, the choices, the control at the base and the mutations
+below are the first build's work and wording. The Validation, Not run, Commits
+and Cleanup sections are the third job's.
 
 ## The causes, as executed at the base
 
@@ -200,7 +219,51 @@ one entry for them, dated 2026-10-20.
 
 ### Per file
 
-STATUS-TESTS
+These are the brief's files, run by the third job at the merged head `38afc8110`,
+plus `tests/fake/test_launch_env_daemon.py`, which this change edits. Each hold
+is one pytest process (no workers) on GIL CPython 3.14.7, in a venv built once
+with `uv sync --locked --group dev`. No `tests/unit/test_credentials*.py` exists.
+
+| Hold | File | Passed | Failed |
+| --- | --- | ---: | ---: |
+| 1 | `tests/unit/test_launch_env_allowlist.py` | 27 | 0 |
+| 1 | `tests/unit/test_launch_env_helpers.py` | 20 | 0 |
+| 1 | `tests/unit/test_launch_env_mutations.py` | 44 | 0 |
+| 1 | `tests/unit/test_launch_env_policy.py` | 26 | 0 |
+| 1 | `tests/unit/test_launch_env_round2.py` | 67 | 0 |
+| 1 | `tests/unit/test_launch_env_round3.py` | 69 | 0 |
+| 1 | `tests/unit/test_launch_env_round4.py` | 40 | 0 |
+| 1 | `tests/unit/test_launch_env_round5.py` | 39 | 0 |
+| 1 | `tests/unit/test_launch_env_round6.py` (new) | 43 | 0 |
+| 1 | `tests/unit/test_lanes_transfer.py` | 79 | 0 |
+| 2 | `tests/unit/test_doctor.py` | 44 | 0 |
+| 2 | `tests/unit/test_cli.py` | 248 | 0 |
+| 2 | `tests/unit/test_daemon_accept.py` | 5 | 0 |
+| 3 | `tests/unit/test_live_store_guard.py` | 324 | 0 |
+| 3 | `tests/unit/test_live_store_guard_round3.py` | 22 | 0 |
+| 3 | `tests/unit/test_live_store_guard_round4.py` | 8 | 0 |
+| 3 | `tests/unit/test_live_store_guard_round5.py` | 11 | 0 |
+| 3 | `tests/unit/test_live_store_guard_round6.py` | 112 | 0 |
+| 3 | `tests/unit/test_live_store_guard_round7.py` | 50 | 0 |
+| 3 | `tests/unit/test_live_store_guard_round7_mutations.py` | 23 | 0 |
+| 3 | `tests/unit/test_live_store_guard_round8.py` | 100 | 0 |
+| 3 | `tests/unit/test_live_store_guard_round8_mutations.py` | 4 | 0 |
+| 3 | `tests/unit/test_live_store_guard_round9.py` | 89 | 0 |
+| 3 | `tests/unit/test_live_store_guard_round9_mutations.py` | 12 | 0 |
+| 3 | `tests/unit/test_live_store_guard_round10.py` | 60 | 0 |
+| 3 | `tests/unit/test_live_store_guard_round10_mutations.py` | 13 | 0 |
+| 3 | `tests/unit/test_live_store_guard_state_root.py` | 22 | 0 |
+| 3 | `tests/fake/test_state_contract.py` | 37 | 0 |
+| 3 | `tests/unit/test_test_module_names.py` | 1 | 0 |
+| 3 | `tests/fake/test_launch_env_daemon.py` (changed) | 52 | 0 |
+| | **Total** | **1,691** | **0** |
+
+The brief's files alone are 1,639 passed; the changed fake file adds 52.
+The named mutations pass, which means each mutant is killed by its test:
+`test_named_ignored_row_regression_kills_refusing_a_stored_lanes_row` (both
+callers), `test_named_install_check_regression_kills_reading_a_value` and the
+amended `test_named_first_start_regression_kills_seed_before_check`, all in
+`test_launch_env_mutations.py`.
 
 ### Control: the regressions at the base
 
@@ -256,16 +319,164 @@ its oracle and says why.
 
 ### Validation
 
-STATUS-VALIDATION
+All counts are from the third job's runs at the merged head `38afc8110`. Each hold
+is one pytest process under the hub's `suite_hold.sh`, which queues for a slot of
+the shared suite lock. The whole-suite holds ran with `--session-timeout`, which
+stops pytest between tests, to keep each hold under 20 minutes. Files run to
+completion are counted; a file a timeout cut short was run again whole in the next
+hold, when one was left.
+
+| Hold | Files | Waited | Ran | Result |
+| --- | --- | ---: | ---: | --- |
+| 1 | brief: `test_launch_env*`, `test_lanes*` | 3 min 22 s | 3 min 44 s | 454 passed |
+| 2 | brief: `test_doctor`, `test_cli`, `test_daemon_accept` | 18 min 34 s | 1 min 51 s | 297 passed |
+| 3 | brief: `test_live_store_guard*`, state contract, module names; the fake daemon file | 4 min 36 s | 9 min 44 s | 940 passed |
+| 4 | suite: 70 files whole, then `test_record_secrecy` (cut) | 4 min 40 s | 17 min 15 s | 2,043 passed, 2 failed |
+| 5 | suite: 22 files whole, then `test_compat` (cut) | under 1 s | 16 min 50 s | 2,603 passed, 9 failed |
+| 6 | suite: `test_compat` whole, then `test_unadmittable_pin` (cut) | 59 min 31 s | 18 min 33 s | 1,616 passed |
+| 7 | the three failing fake files again, then 31 suite files whole and `test_reset_credit_incident` (cut) | 86 min 17 s | 15 min 1 s | 312 passed, 1 failed |
+
+**The whole-suite rule, per directory** (files run to completion, holds 1 to 7):
+
+| Directory | Files run | Passed | Failed | Files unrun |
+| --- | ---: | ---: | ---: | ---: |
+| `tests/unit` | 97 of 335 | 5,811 | 0 | 238 |
+| `tests/fake` | 57 of 112 | 795 | 12 | 55 |
+
+In all, the seven holds executed 8,277 tests: 7,385 in `tests/unit` and 892 in
+`tests/fake`. Besides the table, that total includes:
+- 31 reruns;
+- 1,628 tests from the four cut runs: 43 in `test_record_secrecy`, 1,573 in
+  `test_compat`, 1 in `test_unadmittable_pin` and 11 in
+  `test_reset_credit_incident`, all passed.
+
+**The 12 failures are one failure mode, the fake daemon harness's 5 s start
+bound.** Daemon startup does run this change's check (`Daemon._open_lanes`). The
+daemons that logged their reset-credit line had passed it, since that line comes
+after it in `Daemon.__init__`. None of them logged a refusal or an error:
+- **Which tests:**
+  - hold 4: `test_resume_cli.py::test_resume_cli_decodes_raw_show_row_and_continues_native_session`
+    and `test_census_escapers_daemon.py::test_d_cen1_a_retitled_child_alive_after_the_exit_receipt_is_not_released[retitled-node]`;
+  - hold 5: nine consecutive tests of `test_daemon_contract.py`, from
+    `test_c4_2_starting_recovers_late_or_missing_receipt[late-receipt]` to
+    `test_c8_3_unwritable_export_keeps_success_and_records_error`;
+  - hold 7: `test_lost_acknowledgement.py::test_c16_3_a_kill_whose_answer_is_lost_reports_what_the_job_became`.
+- **How each failed:** `Harness.start` raised "condition timed out after 5s" (`tests/fake/conftest.py:145`).
+  The kept state roots held a `daemon.log` of one or two startup lines (the
+  open-file limit, then the reset-credit line), or none at all. No log had an
+  error, a refusal, a traceback or a credential line. The daemons were still
+  starting when the bound ran out.
+- **The host:** the 1-minute load was 41 to 49 when these holds began and
+  reached 90 during the job, with about 47 `suite_hold.sh` processes queued or
+  holding host-wide. The other daemon-harness tests in the same holds started
+  and passed. Among them were 12 more in `test_daemon_contract.py`, 8 more in
+  `test_census_escapers_daemon.py` and 2 more in `test_lost_acknowledgement.py`.
+- **The reruns:** hold 7 ran the three files of the first eleven failures
+  again, whole, first: `test_resume_cli.py` 1 of 1, `test_census_escapers_daemon.py`
+  9 of 9 and `test_daemon_contract.py` 21 of 21 passed. The twelfth,
+  `test_lost_acknowledgement.py`, failed in hold 7, after the 4 h 30 m cutoff
+  had closed reruns; it has not been run again.
 
 ### Not run
 
-STATUS-NOTRUN
+- **293 of 447 files in `tests/unit` and `tests/fake`:** 238 in `tests/unit` and
+  55 in `tests/fake`, unreached at the 4 h 30 m cutoff. Runs took 2.6 to 20 times their CI time from `.github/test-shards.json`
+  (hold 2's three files: 111 s here, 37 s in CI), and slot waits reached 86
+  minutes. `pytest-xdist` is not in the lock, and the job's rules forbade
+  fetching it, so every hold used one process. The unrun files are below.
+- **A rerun of `test_lost_acknowledgement.py`** after its hold 7 start timeout.
+- **The control at the merged release.** The table above comes from the first
+  build's run against `473fe2941`. The third job exported `fd1e4b65c` with the
+  two new and changed test files, to run them again against today's release,
+  but no hold was left before the cutoff.
+- **Outside the brief:** `tests/e2e`, `tests/process`, `tests/frontend` and
+  `tests/live`; Python 3.12 and free-threaded 3.14t; CI on GitHub, since the job
+  had no network.
+
+<details><summary>The 293 unrun files</summary>
+
+`tests/fake/` (55): `test_admission_held_waiters`, `test_admission_latency`, `test_admission_lease_waiters`, `test_admission_liveness`, `test_admission_priority`, `test_admission_properties`, `test_admission_ramp`, `test_admission_stateful`, `test_admission_visibility`, `test_canonical_identity`, `test_canonical_identity_fix2`, `test_canonical_identity_fix3`, `test_canonical_identity_fix5`, `test_capacity_wait_backoff`, `test_codex_ca_bundle_fake`, `test_codex_turn_completed_fake`, `test_crash_matrix`, `test_descriptor_exhaustion`, `test_detached_cwd_pins`, `test_detached_retention_fence`, `test_frozen_stream_nonregular`, `test_gate_end_to_end`, `test_idle_cost`, `test_interactive_claude_titles`, `test_lane_fault`, `test_lane_pilot`, `test_launch_gates_above_stdio`, `test_native_maintenance_startup`, `test_notice_delivery`, `test_probe_cancel`, `test_probe_turn`, `test_provider_active_cap_fake`, `test_provider_qos`, `test_reset_credit_incident` (11 of its tests passed before the cut), `test_review130_ab`, `test_review_r223_wall_probes`, `test_routing_end_to_end`, `test_salvage_adversarial`, `test_salvage_finalization`, `test_sessions_end_to_end`, `test_suggestions_fake`, `test_timers_end_to_end`, `test_turn_retention_cwd`, `test_turn_retention_cwd_properties`, `test_turn_retention_job_directory`, `test_turn_retention_job_properties`, `test_turn_retention_quarantine`, `test_turn_trees`, `test_wall_cancel_races`, `test_wall_inspection_order`, `test_wall_running_time`, `test_wall_stop_deliveries`, `test_workspace_transient`, `test_writable_fanout`, `test_writer_retention_fence`.
+
+`tests/unit/` (238): `test_admission_uncapped`, `test_approval_commit`, `test_approval_resolution`, `test_boot_identity`, `test_capacity_desktop`, `test_capacity_steer_mutations`, `test_capacity_steer_route`, `test_capacity_view`, `test_census_counted`, `test_census_identity_uncertainty`, `test_census_procargs`, `test_census_recycled_pid`, `test_census_responsibility_failures`, `test_census_responsibility_identity`, `test_census_responsibility_races`, `test_census_survivors_review`, `test_ci_retry_known_flakes`, `test_ci_shard_plugin`, `test_claude_attest`, `test_claude_cards`, `test_claude_cards_wiring`, `test_claude_conversation_mcp_scope`, `test_claude_identity`, `test_claude_large_stream`, `test_claude_mcp`, `test_claude_mcp_launch`, `test_claude_stream`, `test_claude_synthetic_error`, `test_claude_turn`, `test_claude_usage`, `test_claude_v1_parity`, `test_codex_ca_bundle`, `test_codex_ca_bundle_provider`, `test_codex_probe`, `test_codex_shim`, `test_codex_turn`, `test_codex_turn_completed`, `test_continuation_r2`, `test_conversation_catalog`, `test_conversation_catalog_lifecycle`, `test_conversation_connections`, `test_conversation_diff`, `test_conversation_fifo_reads`, `test_conversation_handoff`, `test_conversation_handoff_briefs`, `test_conversation_handoff_dispatch_races`, `test_conversation_history`, `test_conversation_peers_attachments`, `test_conversation_reconcile`, `test_conversation_redact`, `test_conversation_service`, `test_conversation_state_reads`, `test_conversation_steer_service`, `test_conversation_stream_assertion`, `test_conversation_titles`, `test_conversation_waits`, `test_conversation_wakes`, `test_cpu_scaling`, `test_decision_horizon`, `test_descriptor_review_fixes`, `test_descriptors`, `test_descriptors_desktop`, `test_desktop_account_cache`, `test_desktop_in_use`, `test_desktop_ledger`, `test_disk_admission`, `test_disk_floor`, `test_empty_provider_results`, `test_failed_keep`, `test_failed_keep_layout`, `test_failed_keep_prune`, `test_failed_keep_teardown`, `test_fake_codex_http`, `test_filesystem_identity_agreement`, `test_folders`, `test_forget_paced`, `test_fresh_until`, `test_frontend_probe_cache`, `test_frozen_provider_streams`, `test_gate_admission`, `test_gate_merge`, `test_gate_replay`, `test_gate_revision`, `test_gate_service`, `test_gate_verdict`, `test_held_waiter_holdback`, `test_hook_cost`, `test_hooks`, `test_host_push`, `test_host_push_admission`, `test_host_push_build`, `test_host_push_build_budget`, `test_host_push_config_cost`, `test_host_push_copy`, `test_host_push_export`, `test_host_push_intake`, `test_host_push_metadata`, `test_host_push_mutations`, `test_host_push_names`, `test_host_push_quarantine_restart`, `test_host_push_restart`, `test_host_push_retention`, `test_host_push_storage_recovery`, `test_host_push_storage_retry_budget`, `test_host_push_trees`, `test_host_push_validated_top`, `test_importer`, `test_inspection_pacing_properties`, `test_invariants_index`, `test_lane_answers`, `test_lease_waiter_selection`, `test_legacy_hold`, `test_limit_from_model_text`, `test_lockwatch`, `test_mirror_flags_faults`, `test_mirror_flags_model`, `test_mirror_flags_stateful`, `test_native_operations`, `test_notify_push`, `test_operator_hold_closures`, `test_operator_notices`, `test_outcome_unknown`, `test_person_boundary`, `test_person_boundary_identity`, `test_picker`, `test_placement_ramp`, `test_pr124_fixes`, `test_pr124_review_r2_fixes`, `test_pr192_review_r1`, `test_pr192_review_r2`, `test_procs`, `test_protocol_secrecy`, `test_provider_active_cap`, `test_prune_217`, `test_prune_decision_backup_verification`, `test_prune_decision_fingerprints`, `test_prune_decisions`, `test_quota_projection`, `test_rank_review_report`, `test_reap_liveness`, `test_rediscovery_git_trace`, `test_relay`, `test_reserve_authorization_plumbing`, `test_reset_credit_claim_timing`, `test_reset_credit_demand`, `test_reset_credit_properties`, `test_reset_credit_review_r1`, `test_reset_credit_review_r2`, `test_reset_credit_review_r3`, `test_reset_credit_review_r3_mutants`, `test_resource_identity`, `test_retention_81_notes`, `test_retention_archive`, `test_retention_archive_properties`, `test_retention_case_alias`, `test_retention_nested_leases`, `test_retention_ordinary_trees`, `test_retention_qos`, `test_retention_readback`, `test_retention_rediscovery`, `test_retention_regenerable`, `test_retention_regenerable_properties`, `test_retention_salvage_properties`, `test_retention_shared_folders`, `test_retention_sweep_race`, `test_retention_turn_workdirs`, `test_retention_turns`, `test_retention_worktrees`, `test_review130_pass`, `test_review_pr127_fixes`, `test_review_pr127_history`, `test_review_pr127_pr_wakes`, `test_review_pr127_report`, `test_review_pr127_requests`, `test_review_pr127_service`, `test_review_r223_conv_probes`, `test_review_r2_repro`, `test_review_r3_measure`, `test_review_r3_repro`, `test_review_r4_repro`, `test_review_r5_repro`, `test_review_r6_probes`, `test_review_r6_restart`, `test_route_check`, `test_salvage`, `test_salvage_optional_transient`, `test_salvage_ref_race`, `test_salvage_unindexable`, `test_scoped_stream_capacity`, `test_sessions_handoff`, `test_sessions_handoff_excerpts`, `test_sessions_headless_properties`, `test_sessions_mirror`, `test_sessions_mirror_cache_coherence`, `test_sessions_mirror_fifo`, `test_sessions_mirror_hot_health`, `test_sessions_mirror_hot_progress`, `test_sessions_mirror_hot_regressions`, `test_sessions_mirror_inventory`, `test_sessions_mirror_load_gap`, `test_sessions_mirror_safety`, `test_sessions_mirror_write_churn`, `test_sessions_nudge`, `test_sessions_registry`, `test_sessions_revive`, `test_sessions_revive_reads`, `test_sessions_transcripts`, `test_settle_properties`, `test_soak_tools`, `test_steer_invariants`, `test_stop_alarm`, `test_stop_watchdog`, `test_suggest_hint`, `test_suggestion_error_boundaries`, `test_suggestion_properties`, `test_suggestion_secret_properties`, `test_suggestion_structural_errors`, `test_suggestions`, `test_suggestions_r1b_adversarial`, `test_suggestions_r3_channels`, `test_suggestions_review_boundaries`, `test_suggestions_review_multiline`, `test_suggestions_review_response`, `test_tick_prefilter`, `test_timers_alerts`, `test_timers_busy_read`, `test_timers_keepalive`, `test_timers_probe`, `test_timers_reset_credits`, `test_timers_retention`, `test_title_review_regressions`, `test_turn_attachment_replay`, `test_turn_overlap`, `test_turn_replay`, `test_turn_runner`, `test_ultracode_effort`, `test_wait_hub`, `test_weekly_rank_vs_base`.
+
+</details>
+
+The files run first were picked by name for the code this change and the merge
+touch: launch environment, credentials, policy, scheduler, render, refusals,
+doctor, daemon, lanes, store, offline, compat, the adapters, isolation, the
+stopped daemon, CLI and status. The rest of `tests/fake` came next, then the
+rest of `tests/unit`. Within each group, files ran in rising order of their CI
+time. The unrun files are the remainder: retention, sessions, conversations,
+suggestions, host push, gates, the turn runner, timers and the slowest fake
+files.
 
 ## Commits
 
-STATUS-COMMITS
+On `fix/env2-followups-217`, first-parent from `473fe2941`:
+
+| Commit | What |
+| --- | --- |
+| `251625c37` | test: the regressions for review r5's P3s, and the named mutations |
+| `1a92f1a5b` | fix: a refused `lanes.json` row for a stored lane is ignored; `lanes transfer` refuses a held lane; the probe names are refused; "no launch inherits" |
+| `7a3791883` | fix: doctor names each held lane with the `lanes.json` edit that repairs it |
+| `751432ce2` | feat: `daemon start --check`, the install check |
+| `5bb81a3aa` | fix: judge a transferred lane by `lane_reference`; doctor's held-lane wording |
+| `95d1d54b8` | docs: amend C-1.3, C-10.4, C-10.5, C-11.1, C-12.3, C-17.1 and C-17.8 |
+| `290b7bb5a` | test: `subfleet`'s entry point passes `daemon start --check` through |
+| `757bb71d9` | wip: this report's draft, as the first build left it (committed by the hub) |
+| `38afc8110` | merge: `origin/release/217` at `fd1e4b65c` (see "The release merge") |
+| this commit | docs: this report finished, and the PR body |
+
+Nothing is pushed. The third job committed in its own worktree, which shares
+the repository's Git metadata.
+
+## The release merge
+
+`origin/release/217` was at `4f5983f4c` when the brief was written. By the
+time the third job ran, the hub had fetched it to `fd1e4b65c`, which is
+`4f5983f4c` plus #243 and #247. The job merged `fd1e4b65c`, as the hub last
+fetched it; it ran no fetch. The merge is `38afc8110`, and it brings
+#237, #212, #238, #232, #223, #243 and #247 into the branch.
+
+Only `docs/acceptance-contract.md` conflicted, in two places:
+- **The change log.** D-ENV2's entry comes first, followed by every entry
+  release added, unchanged and in release's order.
+- **C-17.1.** Release added `kill <id> [--wait] [--reason TEXT] ...`, and
+  D-ENV2 added `daemon [start [--check] [--json]|stop|status|logs|install]`
+  with its parenthesis. The merged line is release's line with D-ENV2's
+  `daemon` part. A check confirmed that the two lines differed in nothing else.
+
+A three-way line check of the merged contract found every line either side
+added present, and every line either side removed gone. The only line in
+neither parent is the combined C-17.1.
+
+The code merged cleanly, and its parts don't interact:
+- Release added no caller of `check_lane_credentials`, `startup_lanes` or
+  `held_lane_message`, whose shapes D-ENV2 changed.
+- Release gave `daemon start` a stopped-holder preflight (#232, C-5.13). That
+  preflight runs after `Client(root)`, and `daemon start --check` returns
+  before it.
+- Release's change to `tests/fake/test_launch_env_daemon.py` (the
+  `_daemon_alive` stand-ins take `timeout`, and a stopped-holder stand-in) sits
+  beside D-ENV2's new tests there.
 
 ## Cleanup
 
-STATUS-CLEANUP
+The third job's cleanup:
+- **Scratch:** everything of its own lived in one folder,
+  `$(getconf DARWIN_USER_TEMP_DIR)sf-env2c`. That held the venv (10 MB, built
+  once through the hub's `uv_sync_hold.sh`), each hold's `TMPDIR`, the
+  Hypothesis store, the export of `fd1e4b65c` for the control, and the logs and
+  junit files. The folder is removed right after this commit. The default uv
+  cache was used.
+- **pytest-xdist:** the attempt to install it, `uv pip install --offline`
+  through the same wrapper, found nothing in the cache and changed nothing.
+- **Kept state roots:** the fake daemon harness had kept three, under
+  `/tmp/sf-failed/2916`, `32269` and `72788` (3.7 MB). Each is named for a
+  pytest of this job's, and all three are removed. `/tmp/sf-failed` itself is
+  the harness's shared folder, so it stays.
+- **The worktree:** the 13 bytecode folders the runs wrote are removed, and no
+  `.hypothesis` folder was written. Apart from this commit, the worktree
+  matches `38afc8110`.
+- **Processes:** none of the job's processes is running at report time, and
+  none holds or waits on either lock.
