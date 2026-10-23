@@ -47,12 +47,14 @@ TERMINAL = {"quarantined", "succeeded", "failed", "lost", "interrupted"}
 
 
 def submit_escaper(daemon, scenario: str, *, hold_s: float = 0,
-                   marker: Path | None = None) -> tuple[str, Path]:
+                   marker: Path | None = None, ignore_term: bool = False) -> tuple[str, Path]:
     """Submit `scenario`, whose provider stays `hold_s` after its escaper is ready;
-    returns the job id and the file its escaper's pid lands in."""
+    returns the job id and the file its escaper's pid lands in. With `ignore_term`
+    the escaper ignores TERM, so it outlives the kill protocol's TERM phase."""
     args = daemon.submit_args(scenario)
     marker = marker or daemon.root / f"escaper-{uuid.uuid4().hex[:8]}.pid"
-    settings = {"scenario": scenario, "delay_s": hold_s, "marker": str(marker)}
+    settings = {"scenario": scenario, "delay_s": hold_s, "marker": str(marker),
+                **({"ignore_term": 1} if ignore_term else {})}
     if NODE:
         settings["node"] = NODE
     Path(args["prompt_path"]).write_text(json.dumps(settings))
@@ -118,6 +120,16 @@ def first_census(daemon, attempt_id: str) -> dict:
                        (attempt_id, "attempt.containment"))
     assert rows, "the kill protocol never ran"
     return json.loads(rows[0]["data_json"])
+
+
+def killed_by_record(daemon, attempt: dict, pid: int) -> dict:
+    """D-KILL4 fix 1: the protocol's KILL to `pid`, with the census sources that counted it
+    then and its parent, from the attempt's durable evidence."""
+    rounds = json.loads(attempt["evidence_json"])["terminal_containment"]
+    kills = [entry for round_ in rounds for entry in round_.get("signals", [])
+             if entry["pid"] == pid and entry["signal"] == int(signal.SIGKILL)]
+    assert kills, rounds
+    return kills[-1]
 
 
 def contained(daemon, attempt: dict, pid: int) -> dict:
@@ -222,12 +234,15 @@ def test_d_cen1_a_renamed_setsid_escaper_is_found_by_responsibility_and_released
 
 def test_d_cen1_an_escaper_seen_through_the_guardian_stays_counted_after_the_kill_protocol(daemon):
     """D-CEN1, C-5.5, C-5.6: the operator kills a running attempt whose provider left a
-    renamed perl escaper. The kill protocol's first census, taken while the guardian
-    lives, sees the escaper name it and records it. A responsibility member gains no
-    ownership, but since D-KILL4 it is a census member, which the protocol signals:
-    it ends, and the attempt is interrupted, not quarantined with it running."""
-    daemon.start(rooted=True)
-    job_id, marker = submit_escaper(daemon, "perl-escape", hold_s=30)
+    renamed perl escaper, which ignores TERM. The kill protocol's first census, taken
+    while the guardian lives, sees the escaper name it and records it. The group's
+    KILL then ends the guardian, after which the kernel names the escaper as its own
+    responsible process: the census after the kill still counts it, by its recorded
+    identity alone (the walk, ppid 1), and the protocol KILLs it from that census.
+    A responsibility member gains no ownership, but since D-KILL4 it is a census
+    member: the attempt is interrupted, not quarantined with it running."""
+    daemon.start("--term-grace-s", "2", rooted=True)
+    job_id, marker = submit_escaper(daemon, "perl-escape", hold_s=30, ignore_term=True)
     escaper = None
     try:
         escaper = escaper_identity(daemon, marker)
@@ -240,6 +255,11 @@ def test_d_cen1_an_escaper_seen_through_the_guardian_stays_counted_after_the_kil
         evidence = json.loads(attempt["evidence_json"])
         assert evidence["responsible_identities"][str(escaper.pid)]["proc_start"] == escaper.proc_start
         assert str(escaper.pid) not in evidence.get("owned_identities", {})
+        # After the kill protocol's group KILL: counted by its recorded identity alone.
+        kill = killed_by_record(daemon, attempt, escaper.pid)
+        assert "walk" in kill["sources"] and not {"marker", "group"} & set(kill["sources"]), kill
+        assert kill["ppid"] == 1, kill
+        assert procs.liveness(escaper.pid, escaper.boot_id, escaper.proc_start) == "dead"
     finally:
         stop(escaper)
 
@@ -255,12 +275,14 @@ def executable(pid: int) -> str | None:
 def lockf_escaper_is_contained(daemon, rooted: bool, marker: Path, *, simulated: bool) -> None:
     """D-KILL2's scenario on a started daemon (the two tests below): its escaper, lockf,
     lands its pid in `marker`. With `simulated` the daemon's reader hides lockf's
-    environment; without it the host's kernel must, and the test skips where it shows."""
+    environment; without it the host's kernel must, and the test skips where it shows.
+    The daemon runs a 4 s TERM grace and lockf ignores TERM, as a waiting lockf with an
+    inherited SIG_IGN does, so it is still waiting once its provider is gone."""
     lock = os.open(f"{marker}.lock", os.O_CREAT | os.O_RDWR, 0o600)
     escaper = None
     try:
         fcntl.flock(lock, fcntl.LOCK_EX)          # lockf waits, as 70848 waited for the suite lock
-        job_id, _ = submit_escaper(daemon, "lockf-escape", hold_s=30, marker=marker)
+        job_id, _ = submit_escaper(daemon, "lockf-escape", hold_s=30, marker=marker, ignore_term=True)
         attempt_id = f"{job_id}/a1"
         escaper = escaper_identity(daemon, marker)
         daemon.until(lambda: executable(escaper.pid) == "/usr/bin/lockf", timeout=30)
@@ -273,7 +295,15 @@ def lockf_escaper_is_contained(daemon, rooted: bool, marker: Path, *, simulated:
         assert not procs.procargs_marked(without_environment(buffer) if simulated else buffer, *markers), \
             "lockf's argument buffer shows its environment: the fixture no longer hides its markers"
         daemon.until(lambda: daemon.attempts(job_id)[-1]["state"] == "running", timeout=30)
+        attempt_id = daemon.attempts(job_id)[-1]["attempt_id"]
         daemon.call("kill", job_id=job_id)
+        # The provider ends on its TERM; lockf, ignoring it, waits on with ppid 1.
+        daemon.until(lambda: procs.snapshot().rows.get(escaper.pid, (0,))[0] == 1, timeout=30)
+        assert procs.liveness(escaper.pid, escaper.boot_id, escaper.proc_start) == "alive"
+        # The operator's step on 10/18, while lockf waits: nothing is released or reported dead.
+        answer = daemon.call("kill", job_id=job_id, confirm_dead=True)
+        assert answer["status"] == "not quarantined", answer
+        assert held(daemon, job_id, attempt_id), "confirm-dead released the attempt while lockf waited"
         attempt = settled(daemon, job_id)
         census = contained(daemon, attempt, escaper.pid)            # D-KILL4: signalled, not left waiting
         assert attempt["state"] == "interrupted"
@@ -289,6 +319,15 @@ def lockf_escaper_is_contained(daemon, rooted: bool, marker: Path, *, simulated:
         else:
             assert "responsible_root" not in evidence
             assert escaper.pid in census["descendant_pids"], census           # the provider's child
+        # D-KILL2: counted by its recorded identity once both links are gone (ppid 1, and
+        # the guardian ended by the group's KILL): the walk alone, never its marker or group.
+        kill = killed_by_record(daemon, attempt, escaper.pid)
+        assert kill["ppid"] == 1, kill
+        assert "walk" in kill["sources"] and not {"marker", "group"} & set(kill["sources"]), kill
+        if not rooted:
+            assert kill["sources"] == ["walk"], kill
+        assert procs.liveness(escaper.pid, escaper.boot_id, escaper.proc_start) == "dead"
+        assert not held(daemon, job_id, attempt_id)
     finally:
         stop(escaper)
         os.close(lock)
@@ -304,15 +343,20 @@ def test_d_kill2_a_setsid_lockf_that_outlives_a_cancel_is_contained(daemon, root
     SIGTERM ends the provider it has ppid 1: no marker, no group, no parent link. The
     kill protocol's first census, taken before any signal, counts it (as the provider's
     child, and, from a self-responsible daemon, as naming the rooted guardian) and
-    records it; the recorded identity keeps it counted after both links are gone, and
-    since D-KILL4 the protocol signals it as a census member: it ends, and the attempt
-    is interrupted with nothing left waiting on the lock. Unrooted is a daemon
+    records it. lockf ignores TERM here (an inherited SIG_IGN, which a waiting lockf
+    keeps), so it waits on through the protocol's TERM grace with ppid 1: `kill
+    --confirm-dead` then (the operator's step on 10/18) releases nothing and reports
+    nothing dead. The recorded identity keeps it counted after both links are gone:
+    the protocol's KILL reaches it from a census whose walk counts it by that identity
+    alone, with ppid 1, never by its marker or group. Since D-KILL4 the protocol
+    signals it as a census member: it ends, and the attempt is interrupted with
+    nothing left waiting on the lock. Unrooted is a daemon
     started under a terminal or app, and the installed release's three sources. On a
     host whose kernel shows lockf's environment (GitHub's macOS 15.7.9 runner) the
     incident cannot happen with lockf, and this skips; the next test runs it there."""
-    daemon.start(rooted=rooted)
+    daemon.start("--term-grace-s", "4", rooted=rooted)
     lockf_escaper_is_contained(daemon, rooted, daemon.root / f"escaper-{uuid.uuid4().hex[:8]}.pid",
-                                    simulated=False)
+                               simulated=False)
 
 
 @pytest.mark.parametrize("rooted", [True, False], ids=["rooted", "unrooted"])
@@ -321,11 +365,12 @@ def test_d_kill2_a_lockf_whose_markers_the_census_cannot_read_is_contained_on_an
     `--hide-environment-of` the escaper's pid file, so its census reader (`procs.kernel`)
     returns lockf's argument buffer cut after its argv, as macOS 26.6.2's kernel returns
     it (`tests/hidden_environment.py`); every other process reads as the host shows it.
-    Every assertion is the test above's: lockf counted by its recorded identity
-    (`counted_identities` unrooted, `responsible_identities` rooted), never by its
-    marker or group, and signalled as a census member, so the attempt is contained."""
+    Every assertion is the test above's: `kill --confirm-dead` while lockf waits releases
+    nothing; lockf is counted by its recorded identity (`counted_identities` unrooted,
+    `responsible_identities` rooted) once both links are gone, never by its marker or
+    group, and signalled as a census member, so the attempt is contained."""
     marker = daemon.root / f"escaper-{uuid.uuid4().hex[:8]}.pid"
-    daemon.start("--hide-environment-of", str(marker), rooted=rooted)
+    daemon.start("--hide-environment-of", str(marker), "--term-grace-s", "4", rooted=rooted)
     lockf_escaper_is_contained(daemon, rooted, marker, simulated=True)
 
 

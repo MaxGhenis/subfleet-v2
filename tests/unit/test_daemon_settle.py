@@ -900,7 +900,9 @@ def test_c4_2_start_grace_takes_only_a_receipt_the_tick_would_take(daemon, monke
     adir, censuses = attempt_dir(daemon.root, JOB, 1), []
 
     def contain(a):
-        censuses.append(1)
+        # Which census this is: start grace's own, or one the kill protocol took after it.
+        started = daemon.store.one("SELECT 1 FROM events WHERE kind='attempt.kill_started'")
+        censuses.append("protocol" if started else "start grace")
         atomic_publish(adir / "start.json", empty.encode())
         atomic_publish(adir / "exit.json", empty.encode())
         return census
@@ -908,12 +910,14 @@ def test_c4_2_start_grace_takes_only_a_receipt_the_tick_would_take(daemon, monke
     daemon._process_attempt(ATTEMPT)
     a = attempt(daemon)
     if census is EMPTY:
-        assert censuses == [1]
+        assert censuses == ["start grace"]
         assert a["state"] == "failed" and a["outcome_detail"] == "starting-no-receipt"
     else:
-        # D-KILL4: the first census decides at once, to contain: the kill protocol's own
-        # censuses follow it in the same pass, not on later ticks.
-        assert censuses[0] == 1 and "attempt.kill_started" in [row["kind"] for row in daemon.store.list_events(JOB)]
+        # D-KILL4: the one census start grace takes decides at once, to contain (fix 1: the
+        # kill protocol starts from that census); every other census is the protocol's own,
+        # in the same pass, none on a later tick.
+        assert censuses[0] == "start grace" and len(censuses) > 1
+        assert censuses == ["start grace"] + ["protocol"] * (len(censuses) - 1), censuses
         assert a["state"] == "quarantined"
         assert json.loads(a["quarantine_reason"])["reason"] == "start grace expired without a receipt"
 

@@ -106,7 +106,12 @@ def lockf_escaper() -> int:
 
 def escaper(kind: str) -> int:
     """The escaper's parent: started in a new session, it forks and exits.
-    `lockf` is the exception: it stays the session's leader (`lockf_escaper`)."""
+    `lockf` is the exception: it stays the session's leader (`lockf_escaper`).
+    With SUBFLEET_FAKE_IGNORE_TERM the escaper ignores TERM (SIG_IGN survives exec, and
+    lockf sets its own handler only once it holds its lock), so a test can watch the
+    kill protocol count it between the TERM and the KILL (D-KILL4 fix 1)."""
+    if os.environ.get("SUBFLEET_FAKE_IGNORE_TERM"):
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
     if kind == "lockf":
         return lockf_escaper()
     if os.fork():

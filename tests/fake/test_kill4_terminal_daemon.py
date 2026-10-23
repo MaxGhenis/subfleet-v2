@@ -167,20 +167,27 @@ def test_an_uncounted_detached_loop_in_an_in_place_workdir_is_held_and_quarantin
         Path(str(marker) + ".release").touch()
 
 
-@pytest.mark.parametrize("stopped", [False, True], ids=["sleeping", "stopped"])
-def test_a_guardian_alive_past_start_grace_is_killed_before_any_retry(daemon, stopped):
+@pytest.mark.parametrize("stopped,delay,grace", [(False, 30, None), (True, 30, None), (True, 2, 4)],
+                         ids=["sleeping", "stopped", "stopped-short-delay"])
+def test_a_guardian_alive_past_start_grace_is_killed_before_any_retry(daemon, stopped, delay, grace):
     """The guardian is alive past start grace without a start.json: sleeping before it
     (`--start-delay`), or also stopped, as Fleet ops' governor or the clamshell guard
-    stop processes. The kill protocol ends it (TERM, which it ignores, a continue
-    for the stopped one, then KILL); the attempt is lost, and the read-only job's
-    retry is reserved only once that guardian is dead. Before D-KILL4 it was
-    quarantined alive, and it would have started its provider 30 s later."""
-    start(daemon, "--start-delay", "30", isolated_group=True)
+    stop processes. The kill protocol KILLs its group at once (fix 1: its TERM is a
+    no-op by design, and a continue would only resume its launch); the attempt is
+    lost, and the read-only job's retry is reserved only once that guardian is dead.
+    With a short `--start-delay` (2 s, under a 4 s start grace) the stopped guardian's
+    delay has run out by the time start grace expires, so a continue would start its
+    provider at once (review r1's P2): it never starts. Before D-KILL4 it was
+    quarantined alive, and would have started its provider when continued."""
+    options = ["--start-delay", str(delay), *(["--start-grace-s", str(grace)] if grace else [])]
+    start(daemon, *options, isolated_group=True)
     job = daemon.submit("ok", max_attempts=2)
     first = daemon.until(lambda: next((a for a in daemon.attempts(job) if a["seq"] == 1 and a["guardian_pid"]), None))
     guardian = procs.ProcessIdentity(first["guardian_pid"], first["boot_id"], first["proc_start"])
     if stopped:
         procs.signal_process(guardian, signal.SIGSTOP)
+        if (daemon.root / "jobs" / job / "a1" / "start.json").exists():
+            pytest.skip("setup race: the guardian wrote start.json before the test could stop it")
     try:
         def checked():
             rows = daemon.attempts(job)
@@ -193,8 +200,13 @@ def test_a_guardian_alive_past_start_grace_is_killed_before_any_retry(daemon, st
         assert a1["killed_by"] == "recovery" and not a1["quarantine_reason"]
         assert not alive(guardian)
         assert not (daemon.root / "jobs" / job / "a1" / "start.json").exists()
+        stdout = daemon.root / "jobs" / job / "a1" / "stdout"
+        assert not stdout.exists() or not stdout.read_bytes(), "the provider ran"
         evidence = json.loads(a1["evidence_json"])
-        assert evidence["terminal_containment"][-1]["contained"] is True
+        last = evidence["terminal_containment"][-1]
+        assert last["contained"] is True
+        assert last["group_signals"] == [int(signal.SIGKILL)], last          # KILLed at once, never TERMed
+        assert guardian.pid not in last["signalled"], last                    # never continued, nor signalled alone
     finally:
         if alive(guardian):
             procs.signal_process(guardian, signal.SIGKILL)

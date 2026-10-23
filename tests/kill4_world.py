@@ -6,10 +6,15 @@ processes with a parent, a group, a state, a birth, markers (visible or hidden,
 as macOS 26 hides an Apple platform binary's environment), a cwd and a uid. It
 serves `procs.snapshot`, `procs.kernel` (a `FakeKernel` rebuilt from it on each
 read) and the two signalling calls, and it applies each signal as a kernel
-would: TERM ends a running process that does not ignore it and stays pending on
-a stopped one until CONT, KILL ends any process, CONT resumes. A driver respawns
-a marked child whenever it has none. Every signal is recorded, so a test can
-check what was signalled, in what order, and that nothing else was.
+would: TERM ends a running process that does not ignore it; on a stopped one it
+ends a process with TERM's default action at once and stays pending until CONT
+on one that handles TERM (measured on macOS 2026-10-23: a stopped Python process
+with the default action went from T to Z within 0.5 s of SIGTERM, one with a
+handler stayed T until SIGCONT); SIG_IGN discards it. KILL ends any process, CONT
+resumes. A driver respawns a marked child whenever it has none, and a spawner
+starts a child that stops itself on every table. Every signal is recorded, and
+every delivery by the identity it reached, so a test can check what was
+signalled, in what order, and that nothing else was.
 
 No real process is inspected or signalled.
 """
@@ -40,12 +45,14 @@ class Proc:
     start: str
     marked: bool = False           # carries SUBFLEET_ATTEMPT / SUBFLEET_ROOT of the attempt
     hidden: bool = False           # its environment is invisible (an Apple platform binary)
-    ignores_term: bool = False
+    ignores_term: bool = False     # survives TERM: SIG_IGN, or a handler that ignores it
+    term_handler: bool = False     # handles TERM (node, the guardian): pending while stopped
     stopped: bool = False
     pending_term: bool = False
     cwd: str | None = None
     uid: int = UID
     respawns: bool = False         # a driver loop: always has one marked child
+    spawns_stopped: bool = False   # starts a marked child that stops itself, on every table
     exits_childless: bool = False  # a guardian: exits once its provider has ended
     alive: bool = True
     ended_by: int | None = None
@@ -57,6 +64,8 @@ class World:
     root: str
     procs: dict[int, Proc] = field(default_factory=dict)
     signals: list[tuple[str, int, int]] = field(default_factory=list)   # ("pid"|"group", pid|pgid, sig)
+    delivered: list[tuple[int, str, int]] = field(default_factory=list)  # (pid, birth, sig) each signal reached
+    born_after: dict[int, int] = field(default_factory=dict)  # pid -> how many signals preceded its birth
     next_pid: int = 9000
     births: int = 1000
     unsignallable: set[int] = field(default_factory=set)
@@ -69,6 +78,7 @@ class World:
         self.births += 1
         proc = Proc(pid, ppid, pgid if pgid is not None else pid, start or birth(self.births), **options)
         self.procs[pid] = proc
+        self.born_after[pid] = len(self.signals)
         return proc
 
     def live(self) -> dict[int, Proc]:
@@ -89,6 +99,12 @@ class World:
                     child.alive and child.ppid == guardian.pid for child in self.procs.values()):
                 self._end(guardian, 0)
         self.tables += 1
+        for spawner in list(self.procs.values()):
+            if spawner.alive and spawner.spawns_stopped and not spawner.stopped:
+                self.next_pid += 1
+                self.add(self.next_pid, spawner.pid, spawner.pgid, marked=True, stopped=True, term_handler=True,
+                         cwd=spawner.cwd)
+                self.respawned.append(self.next_pid)
         for driver in list(self.procs.values()):
             if self.tables % self.respawn_every:
                 break
@@ -140,11 +156,17 @@ class World:
         return True
 
     def _apply(self, proc: Proc, sig: int) -> None:
+        self.delivered.append((proc.pid, proc.start, sig))
         if sig == signal.SIGKILL:
             self._end(proc, sig)
         elif sig == signal.SIGTERM:
+            if proc.ignores_term and not proc.term_handler:
+                return                                  # SIG_IGN: discarded
             if proc.stopped:
-                proc.pending_term = True
+                if proc.term_handler:
+                    proc.pending_term = True            # runs once continued
+                else:
+                    self._end(proc, sig)                # the default action ends it stopped
             elif not proc.ignores_term:
                 self._end(proc, sig)
         elif sig == signal.SIGCONT:

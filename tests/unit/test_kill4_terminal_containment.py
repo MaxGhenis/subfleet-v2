@@ -100,7 +100,8 @@ def test_writers_that_survive_the_protocol_quarantine_after_it_ran(daemon, world
 # 2. Lost at start (hub-build-mi-household-members-std): no retry while the census lives.
 
 def test_start_grace_contains_a_stopped_guardian_before_any_retry(daemon, world, monkeypatch):
-    guardian = world.add(4242, 1, 4242, start=STARTED, marked=True, ignores_term=True, stopped=True)
+    guardian = world.add(4242, 1, 4242, start=STARTED, marked=True, ignores_term=True, term_handler=True,
+                         stopped=True)
     daemon.store.update_attempt(ATTEMPT, state="starting")
     daemon.store.update_job(JOB, max_attempts=3)
     daemon.start_grace_s, daemon._starting_deadlines[ATTEMPT] = 10, 0.0
@@ -118,8 +119,10 @@ def test_start_grace_contains_a_stopped_guardian_before_any_retry(daemon, world,
     assert decided and all(not alive for _, alive in decided), decided
     assert a["state"] == "lost" and a["killed_by"] == "recovery", a
     assert job["state"] == "waiting"                    # a read-only loss retries (C-4.5), now contained
-    assert ("group", 4242, TERM) in world.signals and ("pid", 4242, CONT) in world.signals
-    assert world.signals.index(("group", 4242, TERM)) < world.signals.index(("pid", 4242, CONT))
+    # Fix 1 (P2): no start.json, so its group is KILLed at once; the guardian is never
+    # continued (a continue would only resume its launch) and gets no TERM it ignores.
+    assert world.signals[0] == ("group", 4242, KILL), world.signals
+    assert not [s for s in world.signals if s[2] in (TERM, CONT)], world.signals
     assert not (attempt_dir(daemon.root, JOB, 1) / "start.json").exists()
 
 
@@ -216,8 +219,9 @@ def test_an_uncounted_operator_process_in_the_worktree_is_never_signalled_and_th
 # 6. Stopped processes (2026-10-22: 13 escaped processes, all ps state T, for over a day).
 
 def test_a_stopped_group_member_is_continued_after_its_term_and_ends_within_the_grace(daemon, world):
-    world.add(4242, 1, 4242, start=STARTED, marked=True, ignores_term=True, exits_childless=True)
-    provider = world.add(4243, 4242, 4242, start=STARTED, marked=True, stopped=True)
+    world.add(4242, 1, 4242, start=STARTED, marked=True, ignores_term=True, term_handler=True,
+              exits_childless=True)
+    provider = world.add(4243, 4242, 4242, start=STARTED, marked=True, stopped=True, term_handler=True)
     daemon.store.update_job(JOB, cancel_requested_at=daemon_module.utcnow())
     daemon.term_grace_s = 5
     started = time.monotonic()
@@ -229,7 +233,7 @@ def test_a_stopped_group_member_is_continued_after_its_term_and_ends_within_the_
 
 
 def test_a_stopped_escaped_member_is_continued_and_contained_and_nothing_else_is(daemon, world):
-    lockf = world.add(4401, 1, 4401, marked=True, hidden=True, stopped=True)
+    lockf = world.add(4401, 1, 4401, marked=True, hidden=True, stopped=True, term_handler=True)
     stranger = world.add(7000, 1, 7000, stopped=True)                   # someone else's stopped process
     counted(daemon, world, lockf.pid)
     daemon.term_grace_s = 5

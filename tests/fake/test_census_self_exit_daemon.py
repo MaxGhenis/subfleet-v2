@@ -80,13 +80,15 @@ def test_d_kill3_inspection_keeps_a_hidden_lockf_after_its_shell_provider_ends(d
             "pid": runner.pid, "boot_id": runner.boot_id, "proc_start": runner.proc_start}
         assert str(runner.pid) not in evidence.get("owned_identities", {})
         assert runner.pid in evidence["terminal_containment"][-1]["signalled"]
+        assert evidence["terminal_containment"][-1]["contained"] is True
         census = json.loads(daemon.rows("SELECT data_json FROM events WHERE attempt_id=? AND kind=? "
                                         "ORDER BY event_id", (attempt["attempt_id"], "attempt.containment"))[0]
                             ["data_json"])["census"]
         assert runner.pid in census["descendant_pids"]
         assert runner.pid not in census["marker_pids"] + census["group_pids"]
         assert census["shapes"][str(runner.pid)]["ppid"] == 1
-        daemon.until(lambda: procs.liveness(runner.pid, runner.boot_id, runner.proc_start) == "dead", timeout=10)
+        # Contained before the verdict: no wait for its death after it.
+        assert procs.liveness(runner.pid, runner.boot_id, runner.proc_start) == "dead"
     finally:
         stop(runner)
         Path(str(marker) + ".release").touch()

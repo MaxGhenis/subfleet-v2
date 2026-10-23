@@ -11,9 +11,13 @@ cancelled attempt on a simulated host (`tests/kill4_world.py`). For every input:
 2. every pid the protocol signalled one by one was a live member of a census it
    took, and every group signal went to the attempt's recorded group: nothing
    outside the attempt's census is signalled;
-3. a process is continued only right after the protocol sent it TERM;
-4. an operator's process, a held parent, another user's process and the daemon
-   are never signalled.
+3. every CONT delivered to a process follows a TERM delivered to that same
+   process (pid and birth), and the guardian is never continued (fix 1, P2, P3-1);
+4. an operator's process, a held parent, another user's process, the daemon, and
+   a stranger in a leaderless group at the recorded pgid are never signalled
+   (fix 1, P1);
+5. every pid signalled one by one is named in the attempt's durable evidence with
+   the reason it is the attempt's (fix 1, P3-4).
 """
 
 from __future__ import annotations
@@ -94,7 +98,7 @@ def build_core(root: Path) -> Daemon:
 def trees(draw):
     """A guardian (alive or gone), its provider, and up to eight more processes."""
     spec = {"guardian": draw(st.booleans()), "ending": draw(st.sampled_from(["receipt", "cancel"])),
-            "rows": [], "counted": [], "operator": draw(st.booleans())}
+            "rows": [], "counted": [], "operator": draw(st.booleans()), "strangers": []}
     parents = [1, 4242, 4243]
     for n in range(draw(st.integers(0, 8))):
         pid = 5000 + n
@@ -103,6 +107,7 @@ def trees(draw):
             "pgid": draw(st.sampled_from(["guardian", "own", "foreign"])),
             "marked": draw(st.booleans()), "hidden": draw(st.booleans()),
             "stopped": draw(st.booleans()), "ignores_term": draw(st.booleans()),
+            "term_handler": draw(st.booleans()), "spawns_stopped": draw(st.integers(0, 5)) == 0,
             "respawns": draw(st.booleans()), "cwd": draw(st.sampled_from(["worktree", "elsewhere", None])),
             "other_uid": draw(st.integers(0, 9)) == 0,
             "orphaned": draw(st.booleans()),             # its parent died: reparented to launchd
@@ -111,6 +116,13 @@ def trees(draw):
     for row in spec["rows"]:
         if draw(st.booleans()):
             spec["counted"].append(row["pid"])
+    if not spec["guardian"]:
+        # Fix 1 (P1): the recorded guardian is long gone and its pgid is a stranger's
+        # leaderless group (a double-fork daemonizer, a pipeline whose first stage
+        # exited): unmarked, uncounted, outside the worktree, maybe stopped.
+        for n in range(draw(st.integers(0, 2))):
+            spec["strangers"].append({"pid": 5100 + n, "stopped": draw(st.booleans()),
+                                      "term_handler": draw(st.booleans())})
     return spec
 
 
@@ -118,15 +130,19 @@ def build_world(core, spec) -> World:
     world = World(ATTEMPT, str(core.root))
     tree = str(core.root / "worktrees" / JOB)
     if spec["guardian"]:
-        world.add(4242, 1, 4242, start=STARTED, marked=True, ignores_term=True, exits_childless=True)
+        world.add(4242, 1, 4242, start=STARTED, marked=True, ignores_term=True, term_handler=True,
+                  exits_childless=True)
         world.add(4243, 4242, 4242, start=STARTED, marked=True)
     for row in spec["rows"]:
         ppid = 1 if row["orphaned"] or row["ppid"] not in world.procs else row["ppid"]
         pgid = {"guardian": 4242, "own": row["pid"], "foreign": 7777}[row["pgid"]]
         world.add(row["pid"], ppid, pgid, marked=row["marked"], hidden=row["hidden"],
-                  stopped=row["stopped"], ignores_term=row["ignores_term"], respawns=row["respawns"],
+                  stopped=row["stopped"], ignores_term=row["ignores_term"], term_handler=row["term_handler"],
+                  respawns=row["respawns"], spawns_stopped=row["spawns_stopped"] and row["marked"],
                   cwd={"worktree": tree, "elsewhere": "/elsewhere", None: None}[row["cwd"]],
                   **({"uid": 0} if row["other_uid"] else {}))
+    for row in spec["strangers"]:
+        world.add(row["pid"], 1, 4242, stopped=row["stopped"], term_handler=row["term_handler"], cwd="/elsewhere")
     if spec["operator"]:
         world.add(OPERATOR, 1, OPERATOR, cwd=tree)          # an operator's shell in the worktree
     return world
@@ -178,14 +194,22 @@ def test_no_finalized_attempt_keeps_census_pids_and_nothing_outside_the_census_i
             # 2. Only census members, one by one; only the recorded group, as a group.
             assert individually <= members, (individually - members, world.signals)
             assert {pgid for kind, pgid, _ in world.signals if kind == "group"} <= {4242}
-            # 4. Never these, whatever the tree.
-            never = {OPERATOR, os.getpid(), *held}
+            # 4. Never these, whatever the tree; and no signal at all reaches a stranger.
+            strangers = {row["pid"] for row in spec["strangers"]}
+            never = {OPERATOR, os.getpid(), *held, *strangers}
             assert not (individually & never), (individually & never, world.signals)
-            # 3. CONT only right after the protocol's TERM reached that process.
-            for n, (kind, pid, sig) in enumerate(world.signals):
+            assert not [d for d in world.delivered if d[0] in strangers], (world.delivered, world.signals)
+            # 3. Every CONT delivered follows a TERM delivered to that same process; never the guardian's.
+            for n, (pid, born, sig) in enumerate(world.delivered):
                 if sig == CONT:
-                    earlier = world.signals[:n]
-                    assert ("pid", pid, TERM) in earlier or ("group", world.procs[pid].pgid, TERM) in earlier
+                    assert (pid, born, TERM) in world.delivered[:n], (pid, world.delivered)
+                    assert pid != 4242, world.delivered
+            # 5. Each pid signalled one by one is in the evidence with its reason.
+            evidence = json.loads(a["evidence_json"] or "{}")
+            named = {entry["pid"]: entry["why"] for round_ in evidence.get("terminal_containment", [])
+                     for entry in round_.get("signals", [])}
+            assert individually <= named.keys(), (individually - named.keys(), evidence)
+            assert all(named[pid] for pid in individually)
             # 1. No terminal state, nor a finalization under way, with live census pids.
             if a["state"] != "quarantined" and a["state"] not in ("running", "starting"):
                 if not (a["state"] == "finalizing" and core.__dict__.get("_cwd_settle", {}).get(ATTEMPT)):
