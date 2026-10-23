@@ -43,6 +43,14 @@ def isolated_overlay(tmp_path, monkeypatch):
     return install_guard(root)
 
 
+#: The deadline the hung-probe tests give the preflight (#221 review r4, P3-2). At 0.5 s, a host at load
+#: ~87 had not started the fake's Python before the deadline, so no report.json existed and the tests
+#: failed on scheduling, not on the timeout path. The fake's hung probes sleep 300 s, far past it, and
+#: are reaped at the deadline; REAP_MARGIN_S bounds the refusal's own work after it.
+HUNG_DEADLINE_S = 10.0
+REAP_MARGIN_S = 20.0
+
+
 @pytest.fixture
 def fake_codex(tmp_path, monkeypatch):
     """C-14.2 exercise the preflight protocol without invoking installed Codex."""
@@ -61,7 +69,7 @@ if sys.argv[1:] == ["--version"]:
             {k: os.environ[k] for k in ("SSL_CERT_FILE", "SSL_CERT_DIR") if k in os.environ}))
     if os.environ.get("GUARD_TEST_VERSION_MODE") == "hang":
         Path(os.environ["GUARD_TEST_REPORT"]).write_text(json.dumps({"version_pid": os.getpid()}))
-        time.sleep(30)
+        time.sleep(300)
         raise SystemExit(1)
     if os.environ.get("GUARD_TEST_VERSION_MODE") == "fail":
         print("fake launcher: node not found", file=sys.stderr)
@@ -79,7 +87,7 @@ Path(os.environ["GUARD_TEST_REPORT"]).write_text(json.dumps(report))
 mode = os.environ.get("GUARD_TEST_MODE", "trusted")
 print("fake app-server starting in mode " + mode, file=sys.stderr, flush=True)
 if mode == "hang":
-    time.sleep(30)
+    time.sleep(300)
     raise SystemExit(1)
 if mode == "launcher-exits":
     # The npm launcher shape: spawn the "native" child in the same session and
@@ -317,8 +325,8 @@ def test_preflight_bounds_and_reaps_hung_probe(fake_codex, monkeypatch):
     fake, report_path = fake_codex
     monkeypatch.setenv("GUARD_TEST_MODE", "hang")
     started = time.monotonic()
-    result = guard.preflight(fake, timeout_s=0.5)
-    assert time.monotonic() - started < 3
+    result = guard.preflight(fake, timeout_s=HUNG_DEADLINE_S)
+    assert time.monotonic() - started < HUNG_DEADLINE_S + REAP_MARGIN_S
     assert not result.ok and result.code == 7 and "deadline" in result.message
     assert result.override is None
     assert "daemon scheduling" in result.fix and "trust remains unverified" in result.fix
@@ -332,7 +340,7 @@ def test_preflight_bounds_and_reaps_hung_probe(fake_codex, monkeypatch):
 def test_version_timeout_does_not_claim_version_drift(fake_codex, monkeypatch):
     fake, report_path = fake_codex
     monkeypatch.setenv("GUARD_TEST_VERSION_MODE", "hang")
-    result = guard.preflight(fake, timeout_s=0.5)
+    result = guard.preflight(fake, timeout_s=HUNG_DEADLINE_S)
     assert not result.ok and result.code == 7 and result.override is None
     assert result.version is None and "daemon scheduling" in result.fix
     assert "Restore" not in result.fix
@@ -450,7 +458,7 @@ def test_timeout_refusal_is_a_timeout_not_a_trust_mismatch(fake_codex, monkeypat
     probe pid, elapsed time, deadline, transcript and stderr tail kept for diagnosis."""
     fake, report_path = fake_codex
     monkeypatch.setenv("GUARD_TEST_MODE", "hang")
-    result = guard.preflight(fake, timeout_s=0.5)
+    result = guard.preflight(fake, timeout_s=HUNG_DEADLINE_S)
     assert result.kind == guard.TIMEOUT and result.override is None
     assert result.message.startswith("Guard preflight timed out")
     assert "unverified, not mismatched" in result.message
@@ -458,8 +466,8 @@ def test_timeout_refusal_is_a_timeout_not_a_trust_mismatch(fake_codex, monkeypat
     report = json.loads(report_path.read_text())
     assert result.probe_pid == report["pid"]
     assert f"probe pid {report['pid']}" in result.message
-    assert result.elapsed_s is not None and 0.5 <= result.elapsed_s < 4
-    assert result.timeout_s == 0.5
+    assert result.elapsed_s is not None and HUNG_DEADLINE_S <= result.elapsed_s < HUNG_DEADLINE_S + REAP_MARGIN_S
+    assert result.timeout_s == HUNG_DEADLINE_S
     assert result.executable == str(fake.resolve())
     assert "fake app-server starting in mode hang" in result.stderr_tail
     sent = [line for line in result.transcript if line.startswith("> ")]
@@ -472,7 +480,7 @@ def test_timeout_refusal_is_a_timeout_not_a_trust_mismatch(fake_codex, monkeypat
 def test_version_timeout_is_reported_as_a_timeout(fake_codex, monkeypatch):
     fake, report_path = fake_codex
     monkeypatch.setenv("GUARD_TEST_VERSION_MODE", "hang")
-    result = guard.preflight(fake, timeout_s=0.5)
+    result = guard.preflight(fake, timeout_s=HUNG_DEADLINE_S)
     assert result.kind == guard.TIMEOUT and result.message.startswith("Guard preflight timed out")
     assert "--version" in result.message and "unverified, not mismatched" in result.message
     assert "argv" not in json.loads(report_path.read_text())
