@@ -936,6 +936,26 @@ def test_a_tilde_home_reaches_the_judge_on_every_python(spelling, sealed, monkey
     assert sealed.touched == []
 
 
+@pytest.mark.parametrize("spelling, kind", [
+    ("~/..", "home"), ("~st3-no-such-user-r4/..", "home"),
+    ("~/../" + STORES[2], "store"), ("~st3-no-such-user-r4/../" + STORES[1] + "/x", "store")])
+def test_a_tilde_home_is_judged_literally_against_the_working_directory(spelling, kind, sealed, monkeypatch):
+    """C-20.6 (D-ST3, #242 review r4): from the account's home, HOME `~/..` read literally is that home, though pwd
+    reads it as the home's parent; `production_state_root` joins it to the working directory, so both readings are
+    judged. A `~name` naming no user keeps its literal reading."""
+    monkeypatch.chdir(PERSONAL)
+    monkeypatch.setenv("HOME", spelling)
+    with pytest.raises(RuntimeError, match="~/.subfleet"):
+        home_paths.production_state_root()
+    if kind == "store":
+        with pytest.raises(RuntimeError, match="HOME names one of the account's live stores"):
+            home_paths.protected_provider_homes()
+    else:
+        homes = home_paths.protected_provider_homes()
+        assert Path(spelling) / ".claude" not in homes and Path(spelling) / ".codex" not in homes
+    assert sealed.touched == []
+
+
 def test_a_home_of_bare_tilde_names_no_directory(monkeypatch):
     """`spelled_home` refuses HOME `~` itself, as 3.14's `Path.home()` does."""
     monkeypatch.setenv("HOME", "~")

@@ -2117,3 +2117,18 @@ most 4 workers, and the longest hold ran 12.5 minutes. P1 and P2 ran in
 archives under scratch. Before this report, `pgrep -fl 'suite_hold.sh|pytest|lockf'`
 listed only other jobs' processes: their own scratch folders, or none of
 mine. A `pgrep` for this job's scratch folder found nothing.
+
+## Review r4's P2: a tilde HOME's literal reading (hub, 2026-10-23)
+
+**The gap:** review r4 (`20261023-143112-pr242-review-r4d`) found that `_home_kind` judged a HOME spelled with a leading `~` or `~<name>` only through pwd, but `production_state_root` and `protected_provider_homes` join HOME to the working directory (`Path(HOME) / ... .resolve()`).
+- From a folder inside the account's home, `~/..`-style spellings name that home or one of its live roots only in that literal reading. The reviewer's four executed spellings were `~/../..`, `~st3-no-such-user-r4/../..`, `~/../../.codex` and `~st3-no-such-user-r4/x`.
+- On Python 3.14 this predates the PR; `spelled_home` extended it to 3.12 and 3.13, whose `Path.home()` had refused such a HOME.
+
+**The fix:** `_home_kind` judges both readings, the pwd home and the literal path joined to the working directory, and "store" outranks "home".
+- A `~<name>` naming no user keeps its literal reading.
+- An unreadable working directory counts as a live root.
+- C-20.6 now says this.
+
+**Tests:** `test_a_tilde_home_is_judged_literally_against_the_working_directory` covers four spellings from the account's home (`~/..`, `~st3-no-such-user-r4/..`, `~/../.codex`, `~st3-no-such-user-r4/../.claude/x`).
+- Every case fails with the previous `_home_kind` on Python 3.12 and 3.14 (4 failed), and passes with the fix.
+- The production readings are unchanged; the judge runs only under pytest.

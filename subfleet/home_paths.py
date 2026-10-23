@@ -477,23 +477,40 @@ def personal_home(home: Path) -> bool:
 
     It does when it is the account's home by any spelling, or names a live
     root or a path inside one. A HOME spelled with a leading `~` or `~name` is
-    judged as the home it names through pwd; one naming no user is neither.
+    judged as the home it names through pwd and, literally, against the working
+    directory (`_home_kind`); one naming no user has only the literal reading.
     """
     return _home_kind(home) is not None
 
 
 def _home_kind(home: Path) -> str | None:
     """`_live_kind` of a HOME. A leading `~` or `~name` is read through pwd, never
-    through HOME itself; the stat-free store check comes before any stat."""
+    through HOME itself; the stat-free store check comes before any stat.
+
+    A HOME spelled with a leading `~` has two readings, and both are judged
+    (#242 review r4): the home pwd names, which a consumer's
+    `os.path.expanduser` reaches, and the literal path joined to the working
+    directory, which `Path(HOME) / ... .resolve()` reaches (`~/../..` from a
+    folder two levels inside the account's home is that home). A `~name` that
+    names no user keeps its literal reading. "store" outranks "home"."""
     spelled = os.fspath(home)
+    readings = [spelled]
     if spelled.startswith("~"):
-        spelled = _tilde_home(spelled)
-        if spelled is None:
-            return None
-    kind = _live_kind(spelled)
-    if kind is None and is_account_home(Path(spelled)):
-        kind = "home"
-    return kind
+        named = _tilde_home(spelled)
+        try:
+            literal = os.path.join(os.getcwd(), spelled)
+        except OSError:
+            return "store"                      # no working directory: no literal reading can be judged
+        readings = ([named] if named is not None else []) + [literal]
+    found = None
+    for text in readings:
+        kind = _live_kind(text)
+        if kind is None and is_account_home(Path(text)):
+            kind = "home"
+        if kind == "store":
+            return kind
+        found = found or kind
+    return found
 
 
 def codex_app_home() -> Path:
