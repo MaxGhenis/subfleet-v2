@@ -8912,6 +8912,9 @@ class Daemon:
         with self.store.transaction("attempt.kill_started", job_id=a["job_id"], attempt_id=a["attempt_id"],
                                     data={"signal_pending": True}) as tx:
             tx.execute("UPDATE attempts SET killed_by=COALESCE(killed_by,?),evidence_json=? WHERE attempt_id=?", (killed_by, json.dumps(evidence), a["attempt_id"]))
+        # The protocol reads ownership from this row (`_signal_reasons`): what was just
+        # recorded under the live leader counts from its first signal.
+        a = {**a, "evidence_json": json.dumps(evidence)}
         kill_event = self.store.one("SELECT MAX(event_id) AS id FROM events WHERE attempt_id=? "
                                     "AND kind='attempt.kill_started'", (a["attempt_id"],))["id"]
 
