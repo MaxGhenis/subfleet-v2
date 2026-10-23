@@ -73,18 +73,12 @@ func codec<A: Codable, R: Codable>(_ op: DaemonOperation<A, R>) -> OpCodec {
         call: { client, args in try sortedEncoder.encode(client.call(op, JSONDecoder().decode(A.self, from: args))) })
 }
 
+struct OpCodecVisitor: DaemonOperationVisitor {
+    func visit<A: Codable, R: Codable>(_ op: DaemonOperation<A, R>) -> OpCodec { codec(op) }
+}
+
 let codecs: [String: OpCodec] = {
-    let all = [
-        codec(Ops.capabilities), codec(Ops.conversationList), codec(Ops.conversationOpen), codec(Ops.conversationCreate),
-        codec(Ops.conversationSettings), codec(Ops.conversationRename), codec(Ops.conversationUnblock), codec(Ops.conversationHistory),
-        codec(Ops.conversationEvents), codec(Ops.conversationWatch), codec(Ops.messageSubmit), codec(Ops.messageStatus),
-        codec(Ops.messageCancel), codec(Ops.messageSteer), codec(Ops.turnInterrupt), codec(Ops.messageResolve), codec(Ops.approvalList),
-        codec(Ops.approvalGet), codec(Ops.approvalRespond), codec(Ops.attachmentAdd), codec(Ops.catalogRefresh),
-        codec(Ops.modelsList), codec(Ops.conversationRuns), codec(Ops.turnDiff), codec(Ops.conversationDiff),
-        codec(Ops.conversationHandoff), codec(Ops.workspaceCheck), codec(Ops.conversationWake),
-        codec(Ops.suggestionCreate), codec(Ops.suggestionList), codec(Ops.suggestionStart), codec(Ops.suggestionDismiss),
-        codec(Ops.suggestionWithdraw),
-    ]
+    let all = Ops.all(OpCodecVisitor())
     return Dictionary(uniqueKeysWithValues: all.map { ($0.name, $0) })
 }()
 
@@ -182,9 +176,11 @@ func project(_ item: TimelineItem) -> [String: Any] {
 func project(_ turn: TurnTimeline) -> [String: Any] {
     [
         "message_id": turn.messageID, "seq": turn.seq as Any? ?? NSNull(), "state": turn.state,
+        "job_id": turn.jobID as Any? ?? NSNull(), "has_bound_job": turn.hasBoundJob,
+        "queued_withdrawal": project(turn.queuedWithdrawal), "shows_acknowledgment": turn.showsMessageAcknowledgment,
         "continues": turn.continues as Any? ?? NSNull(), "first_event": turn.firstEventSeq as Any? ?? NSNull(),
         "state_reason": turn.stateReason as Any? ?? NSNull(), "origin": turn.origin as Any? ?? NSNull(),
-        "person_text": turn.personText as Any? ?? NSNull(), "phases": turn.phases.map(\.phase), "accepted": turn.accepted,
+        "person_text": turn.personText as Any? ?? NSNull(), "locally_sent": turn.locallySent, "phases": turn.phases.map(\.phase), "accepted": turn.accepted,
         "served": jsonObject(turn.served), "outcome": turn.outcome.map { ["state": $0.state, "reason": $0.reason as Any? ?? NSNull(),
                                                                            "served_model": $0.servedModel as Any? ?? NSNull()] } as Any? ?? NSNull(),
         "limits": turn.limits.map(jsonObject) as Any? ?? NSNull(), "diff": turn.diff as Any? ?? NSNull(),
@@ -368,6 +364,8 @@ struct CoreProbe {
         switch arguments[1] {
         case "ops":
             emit(Ops.names)
+        case "codec-ops":
+            emit(codecs.keys.sorted())
         case "request":
             // request <op> <args.json> [id]
             let line = try opCodec(arguments[2]).requestLine(readFile(arguments[3]), arguments.count > 4 ? arguments[4] : "probe-1")
@@ -447,6 +445,10 @@ struct CoreProbe {
             let code = MarkdownBounds.code(text, maxLines: Int(arguments[3]) ?? 40)
             emit(["shown_lines": code.shown.split(separator: "\n", omittingEmptySubsequences: false).count,
                   "hidden_lines": code.hiddenLines])
+        case "queue": emit(try runQueue(readFile(arguments[2])))
+        case "queue-words": emit(try runQueueWords(readFile(arguments[2])))
+        case "queue-engine": emit(try runQueueEngine(readFile(arguments[2])))
+        case "queue-state": emit(try runQueueState(readFile(arguments[2])))
         case "fold":
             emit(try runFold(readFile(arguments[2])))
         case "questions":

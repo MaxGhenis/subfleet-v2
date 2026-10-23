@@ -72,7 +72,8 @@ def test_review_presentation_keeps_masked_command_and_serving_facts_in_their_pla
     assert out["fallback"] == "provider command"
     assert out["noCommand"] is None, "Do not replace a loaded request with provider input"
     assert not any(out["acknowledgments"][s] for s in
-                   ("waiting", "starting", "running", "approval-needed"))
+                   ("waiting-bound", "starting", "running", "approval-needed"))
+    assert out["acknowledgments"]["waiting"], "An unbound wait retains its reason and Withdraw action"
     assert out["acknowledgments"]["complete"]
     assert all(out["acknowledgments"][s] for s in ("queued", "steering", "steered", "delivery-unknown", "unknown", "sending"))
     assert "max@example.com" in out["tooltip"] and "claude-opus-5-5" in out["tooltip"]
