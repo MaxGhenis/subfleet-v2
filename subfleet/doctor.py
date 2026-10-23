@@ -556,7 +556,10 @@ def check_daemon_lane_credentials(root: Path) -> dict[str, Any]:
     They belong in the daemon, which hands each only to its own lane, so they
     are listed, not warned about; names only, never values. A held lane, whose
     variable some launch inherits (C-10.5), warns, naming the lane, its variable
-    and the lanes.json edit that repairs it (review r5, P3-2).
+    and the lanes.json edit that repairs it (review r5, P3-2). That warning names
+    the store's lane ids and accounts, which came from lanes.json, so it is
+    scrubbed as `daemon start` scrubs its note on the same lane (C-25.7; review
+    r1 of #248, P3-2).
     """
     check = "daemon lane credential variables"
     try:
@@ -581,14 +584,16 @@ def check_daemon_lane_credentials(root: Path) -> dict[str, Any]:
     listed = ("held by the daemon alone, each for its own lane: " + ", ".join(display) if display
               else "the daemon holds no env-kind lane variable")
     if held:
+        from .daemon_log import scrubbed
         many = len(held) > 1
-        lanes_text = ", ".join(f"{lane.get('lane_id')} (credential-refused={lane['credential_ref']})"
+        # Each lane's words are scrubbed apart, so no lane's is cut for the others' length.
+        lanes_text = ", ".join(scrubbed(f"{lane.get('lane_id')} (credential-refused={lane['credential_ref']})")
                                for lane in held)
         others = ("the other lanes' variables, " + listed if display
                   else "the daemon holds no other lane's variable")
         return row(check, WARN, f"lane{'s' * many} {lanes_text} {'are' if many else 'is'} held (C-10.5), so "
                    f"nothing launches on {'them' if many else 'it'}; {others}",
-                   "; ".join(held_lane_fix(lane) for lane in held))
+                   "; ".join(scrubbed(held_lane_fix(lane)) for lane in held))
     if not names:
         return row(check, PASS, listed, "nothing to do")
     return row(check, PASS, listed, "nothing to do; no launch inherits them")

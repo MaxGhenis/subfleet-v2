@@ -2695,18 +2695,24 @@ def _daemon_start_check(args: argparse.Namespace, root: Path) -> int:
     Exit 2 when it lists any, as startup would for such a row naming a new lane;
     for a lane the store already holds, startup ignores the row instead. The
     check cannot tell which, since it never reads the store.
+
+    A row's lane id and variable are lanes.json's own text, so each is printed
+    as `daemon start` prints its refusal of the same row, scrubbed (C-25.7;
+    review r1 of #248, P3-2), in text and in `--json` alike.
     """
+    from . import daemon_log
     path = root / "lanes.json"
     try:
         found = lanes_json_refusals(root)
     except (OSError, ValueError) as exc:
         return fail(Exit.INVALID_INPUT, f"daemon start --check: cannot read {path} ({exc.__class__.__name__})",
                     "repair lanes.json, or remove it")
+    rows = [(daemon_log.scrubbed(str(lane_id)), daemon_log.scrubbed(name)) for lane_id, name in found]
     if getattr(args, "json", False):
         emit({"lanes_json": str(path), "refused": [{"lane_id": lane_id, "variable": name}
-                                                    for lane_id, name in found]})
+                                                    for lane_id, name in rows]})
     else:
-        for lane_id, name in found:
+        for lane_id, name in rows:
             out(f"{lane_id} {name}")
     if not found:
         note(f"{PROG} daemon start --check: no env-kind row of {path} names a variable some launch inherits")
