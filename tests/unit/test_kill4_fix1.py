@@ -152,7 +152,7 @@ def test_self_stopping_children_born_after_the_group_term_each_get_a_term_before
     world.add(4242, 1, 4242, start=STARTED, marked=True, ignores_term=True, term_handler=True)
     world.add(4243, 4242, 4242, start=STARTED, marked=True, ignores_term=True, spawns_stopped=True)
     daemon.store.update_job(JOB, cancel_requested_at=daemon_module.utcnow())
-    daemon.term_grace_s = .6
+    daemon.term_grace_s = 2.0
     daemon._process_attempt(ATTEMPT)
     group_term = world.signals.index(("group", 4242, TERM))
     joiners = {pid for pid in world.respawned if world.born_after[pid] > group_term}
