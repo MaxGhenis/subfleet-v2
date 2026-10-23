@@ -497,13 +497,13 @@ def _gh_verdict(args: Sequence[str], fed: bool = False) -> Refusal | None:
     if not fed and gh_read(args):
         return None
     path, _ = _gh_path(args)
-    words = " ".join(["gh", *(path or args[:2])])
+    words = " ".join(["gh", *(SHOWN.get(word, word) for word in path or args[:2])])
     if gh_credential(args):
         return _refusal(words, "credential")
     if fed:
-        return _refusal(f"{words}, its arguments from xargs")
+        return _refusal(f"{words}, its arguments from xargs or parallel")
     if _gh_unsettled(args):
-        return _refusal(f"{words}, its command known only at run time")
+        return _refusal(f"{words}, with a word known only at run time before its verb")
     return _refusal(words)
 
 
@@ -647,6 +647,8 @@ def _strip_heredocs(command: str) -> tuple[str, list[tuple[str, bool]], bool]:
 SUBSTITUTED = "$__subfleet_substitution__"
 SUBSTITUTED_GH = "$__subfleet_gh_substitution__"
 PROCESS_FILE = "/dev/fd/63"
+#: How a refusal names those words.
+SHOWN = {SUBSTITUTED: "$(…)", SUBSTITUTED_GH: "$(…)", PROCESS_FILE: "<(…)"}
 
 
 def _close(text: str, start: int) -> int:
