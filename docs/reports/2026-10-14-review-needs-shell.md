@@ -1748,3 +1748,298 @@ The sweep ran four workers per process, so it is not CI's single-process shard r
 - **The suite as one process**, and `pytest --collect-only` over the whole tree. The duplicate-basename guard, `test_test_module_names.py`, passed.
 - **Real providers:** no real provider turn, and no real gh beyond offline `--help`.
 - **The sweep families review r3c didn't reach,** apart from command names in another case: here-strings, process substitution into `source`, leading redirections, `${=c}`, `"$@"` and `$*` through the new forms; the name-splitting family; wrappers other than those in the invariants' spellings; copies, `alias`, `function` and `hash -p`.
+
+## Round 10: gh's command spelled literally on every path, and the runners review r4 found
+
+Round 10 (`brief-fix10.md`) answers review r4 (`review-r4.md`, REQUEST_CHANGES: two P2s and two P3s, every row executed through the installed hook). Both P2s are older gaps: the rule before round 9 allowed every one of them too. It ran as `20261022-093401-pr221-fix10b` on a detached HEAD in its job worktree, from `e60509af1`. `fix/review-needs-shell-217` was not moved. The shared Git directory was writable, so no workspace-local metadata was needed. Nothing was fetched or pushed.
+
+### Commits
+
+| Commit | Change |
+|---|---|
+| `e09418c86` | Merge `origin/release/217` at `e345f0803` (below) |
+| `c6514daa7` | Tests first: new `tests/unit/test_publish_rule_round10.py`. Its message miscounts the review rows the hook allowed at `e60509af1`: it says 13 of 15, and the count is 11 (5 in P2-1's table, 6 in P2-2's) |
+| `78378148d` | P3-2: the hung-probe guard tests give the preflight 10 s |
+| `a0f3d63c2` | The fix, with the C-12.4 amendment and its change-log entry |
+| `a9e3c4fc3` | The denial names a substitution `$(…)`, and says which word is known only at run time |
+| `fabeb07a8` | Tests first: a shell's name among an inspector's words (`which bash`, `ls /bin/sh`), and `gh run watch`, start no command |
+| `2510f4441` | The fallback starts no nested command among an inspector's words (`INSPECTORS`) |
+| `16e31c173` | C-12.4 says so |
+| `b55f7b189` | The round-10 real-shell tests keep the session's `PATH`, which the keychain guard needs (hold 1's 13 failures) |
+| `43ca1ab07` | The shell property and the real-shell test draw from their own list of shells, so dropping one from the rule fails them (mutant 4) |
+| the commit after it | This section |
+
+### The merge
+
+The brief named release at `4f5983f4c`. `origin/release/217`, as last fetched, had moved on to `e345f0803`: #243 (the salvage ref race) on top of `4f5983f4c`. The merge took the ref as found; nothing was fetched. Seven files conflicted, and each was resolved by keeping both sides:
+- **`docs/acceptance-contract.md`:**
+  - The change log keeps every entry from both sides, this branch's first.
+  - C-15.1 takes this branch's launch-evidence and workspace sentences; release left it unchanged.
+  - C-15.2 takes release's delivery reserve; this branch left it unchanged.
+  - C-17.1 takes release's `kill --reason`; C-17.2 takes this branch's `--needs-shell` and model-pin sentences.
+  - A line check confirmed no line either side added is missing and no line either side removed survives.
+- **`subfleet/daemon.py`:**
+  - The imports take both `cancel_info` and `shell_flags`.
+  - `show` returns both `uncommitted` and `cancel`.
+  - A cancelled job's notice adds release's requester line to its summary, and `render.notice_text` then renders it, so launch evidence stays the last line.
+- **`subfleet/offline.py`:** the imports take both, and `show_job` reads release's cancel record and keeps `shell_flags` on its attempts.
+- **`tests/fake/test_notice_header.py`:** release's `cancel requested by max_wall_s` line comes before this branch's launch-evidence line, which stays last.
+- **`tests/unit/test_cli.py`, `tests/unit/test_hooks.py`:** both sides' new tests are kept. Both sides had added the same ps-denied skip, and release's wording was kept.
+- **`tests/unit/test_doctor.py`:** release's client reads a process through `proc_status`, not `proc_start`.
+  - So both of this branch's lock stubs now stub `proc_status`, and still assert that the inspected pid is the lock's.
+  - One of the two was in a hunk git merged without a conflict. It failed the first check hold (`assert [] == [999999]`) and was fixed before the merge was committed.
+
+**The merge's check hold** ran `test_cli.py`, `test_hooks.py`, `test_doctor.py` and `test_notice_header.py`: 407 passed and 1 failed, the doctor stub above. After the fix, `test_doctor.py` passed all 47.
+
+### P2-1: a gh call whose words are known only at run time, or that xargs feeds
+
+**Cause.** The direct path refused `gh $v comment` because `gh_read` doesn't accept it. The fallback is what a runner the rule doesn't know (`arch`, `lockf`, `uv run`) reaches. There, `gh_writes` judged a gh word only when `_gh_path` found one of gh's commands as its first word, and `$v` is none. The fallback then judged `$v` itself as a run-time command word with `names_gh=False`, and the words after it (`comment 7`) reach no gh command, so the call passed. `${=a}`, `$(echo pr)` and `"$v"` passed the same way. Two `xargs` gaps sat beside it:
+- `… | xargs arch -arm64 gh` passed: behind `arch`, gh's empty argument list reached nothing.
+- `xargs gh pr view` passed: the direct path read `pr view` as a read, though xargs adds words the text doesn't show.
+
+**Fix.** One rule, on every path where the command word is gh: gh's command and subcommand must be spelled literally.
+- **`_gh_unsettled(args)`** reads gh's words the way `_gh_path` does, and reports whether a word known only at run time comes before gh's verb is settled:
+  - as gh's command;
+  - as its subcommand, when the command has subcommands;
+  - or as a flag or a flag's value before either.
+
+  The run-time words are those `_dynamic` already named, plus the file a process substitution names. That covers a parameter (`${=a}` and `$=a` included), a command substitution (arithmetic `$((…))` included), a glob and a brace word. The verb is settled after a command without subcommands (`api`), after one gh doesn't know (C-12.4's stated limit for aliases and extensions), and after the subcommand. So `gh pr view "$n"` and `gh api "repos/$r/pulls"` pass as before.
+- **`gh_read`** refuses such a list. The direct path, the fallback (`gh_writes`) and the run-time words (`_runtime`) all judge gh through it, so one predicate still decides gh everywhere.
+- **Fed calls.** gh whose arguments come from `xargs` (`fed`) is no read, wherever the rule finds the call:
+  - directly, behind the known wrappers, behind a runner the rule doesn't know, before or after `xargs` (`xargs arch -arm64 gh`, `arch -arm64 xargs gh`);
+  - inside a shell script or `eval` text that `xargs` runs (`xargs sh -c 'gh api … "$@"' _`).
+
+  So is gh fed by GNU `parallel`, whose template takes its `:::` lists or its standard input as arguments. `parallel gh api repos/o/r/pulls/1/merge ::: -XPUT` merges, and the rule had judged the template and each argument apart. The credential wording still wins where the literal words already print the token.
+- **Run-time command words.** A run-time command word that may be gh is judged the same way (`_could_be_gh`):
+  - it names gh itself (`"$GH"`, `${GH:-gh}`, `$dir/gh`, `$(command -v gh)`);
+  - it reads a variable the text sets to a value naming gh, by an assignment or a `for` loop (`g=gh; arch -arm64 $g $v comment`);
+  - it is a glob or brace word whose last part matches gh and spells g or h (`{g,}h`, `g?`, `g[h]`);
+  - or, as the command word itself, it is only parameters while the text names gh (round 9's rule).
+
+  A substitution whose command is gh (`"$(gh pr list -q …)"`) prints gh's output, not gh, so `echo "$(gh pr view 1 …)" "$(gh pr view 2 …)"` passes. A word that cannot be gh is not judged as gh, so `"$PY" "$script"` and `diff "$a" "$b" | grep gh` pass.
+- **Text tools.** A program in `NOT_SHELL_VALUES` gets neither addition, so `grep gh "$f"`, `xargs grep gh` and `git log --grep gh "$rev"` pass.
+- **The denial** names what it refused: `gh $v comment, with a word known only at run time before its verb`, or `gh pr view, its arguments from xargs or parallel`. A substitution shows as `$(…)`, not the rule's internal marker.
+
+**A choice beyond the brief's words, which the hub should know about.** The brief names the words gh reads as its command and subcommand, after skipping the flags `_gh_path` skips. Round 10 also counts a run-time word as the value of a flag before the verb. `gh -R ${=a} pr view` is the reason: zsh splits `${=a}` even in double quotes, so with `a='o/r pr comment 7'` it runs `pr comment`, and `$(…)` splits unquoted too. The rule loses quoting when it tokenizes, so it can't tell a split word from a whole one there. The cost:
+- `gh -R "$REPO" pr view 7` is refused;
+- `gh pr view 7 -R "$REPO"` passes, since gh reads `-R` after the verb too.
+
+C-12.4 states both. Reverting this to the brief's narrower reading is one line in `_gh_unsettled`; it would bring back that `${=a}` form.
+
+**The review's executed rows**, each a regression in `test_each_row_review_r4_executed_is_refused_with_the_publish_wording`:
+
+| Input | At `e60509af1` | Now |
+|---|---|---|
+| `v=pr; gh $v comment 7 -b x` | refused | refused, run-time word before the verb |
+| `v=pr; arch -arm64 gh $v comment 7 -b x` | allowed | refused, run-time word before the verb |
+| `v=pr; arch -arm64 gh "$v" comment 7 -b x` | allowed | refused, run-time word before the verb |
+| `arch -arm64 gh $(echo pr) comment 7 -b x` | allowed | refused, run-time word before the verb |
+| `a='pr comment 7 -b x'; arch -arm64 gh ${=a}` | allowed | refused, run-time word before the verb |
+| `printf '%s\n' pr comment 7 \| xargs arch -arm64 gh` | allowed | refused, fed by xargs |
+| `printf '%s\n' pr comment 7 \| xargs gh` | refused | refused, fed by xargs |
+
+### P2-2: `env`'s option clusters and `-S` escapes, and the C shells
+
+**Cause.**
+- **`env`.** `_env` found `-S` only as a whole word or a word's prefix, so in `env -vS '…'` and `env -iS '…'`, `-S` hid inside a cluster. `-S`'s value was then split with `shlex`, which doesn't know env's own escapes. In `env -S 'gh\_pr\_comment'`, `\_` separates words for env.
+- **The C shells.** `SHELLS` lacked `csh` and `tcsh`, both in `/bin` here, so their `-c`, piped input, heredocs and here-strings went unread.
+- **Behind a runner.** The fallback read only an exact `-c` value. So `arch -arm64 bash -ec '…'`, and shell input given to a shell behind a runner (`echo '…' | arch -arm64 bash`, `arch -arm64 bash <<< '…'`), went unread too.
+
+**Fix.**
+- **`env`'s options** are read as its getopt reads them. macOS `env`'s usage is `[-0iv] [-C workdir] [-P utilpath] [-S string] [-u name]`, which `env -h` printed on this host.
+  - A value letter (`C`, `P`, `S`, `u`, and GNU's `a`) takes the rest of its word or the next word, so `-vS '…'`, `-iS'…'`, `-uNAME -S'…'` and `-P/bin -S …` are found.
+  - GNU env's long options count by any unambiguous prefix (`--split`), and the words an `-S` value splits into are env's own arguments again (`-S'-v gh …'`).
+- **`-S` escapes: refused, not modelled.** An `-S` value holding a backslash or `${` is refused (`env -S with an escape or ${…}`). This is the brief's fallback, chosen because env's escapes are more than a small function:
+  - On this host's `/usr/bin/env`, a recorder showed that `\_` separates words outside quotes and is a blank inside double quotes, `\c` ends the string, `\t` is a tab, and `#` starting an argument ends the string.
+  - `${NAME}` is substituted from env's own environment, which the rule can't see.
+  - An unknown escape is an error.
+  - GNU env, which Homebrew can put first on PATH, has its own grammar.
+
+  A model that drifted from either env would be a bypass. Refusing costs nothing a review needs. `_names_gh` also reads `\_` as the word break it is, so `x='gh\_pr\_comment'; env -S "$x"` is refused as a run-time command word in a text that names gh.
+- **The C shells.** `csh` and `tcsh` are in `SHELLS`, so their `-c`, piped input, heredocs, here-strings and process substitutions are judged as for the other shells.
+- **Every listed shell's `-c` in a cluster.** `_shell_script` judges every reading of a shell's options:
+  - `c` and `s` count anywhere in a cluster.
+  - A cluster's `o` or `O` is judged both ways: taking the next word, as bash and sh read `-euo pipefail -c '…'`, and taking none, as this host's ksh ran `ksh -oc 'cmd'` and zsh reads `-O`.
+  - The C shells have no `o`, and their `-b` ends the options.
+  - fish isn't on this host. Any of its option words holding `c` or `C` is read as carrying a script, attached or in the next word, as is a long option's value. That covers `fish -c'…'`, `--command=…` and `-C …`.
+- **Behind a runner.** The fallback reads a word naming a shell, `env` or `xargs` as the start of a command the direct path judges. Its stdin and here-strings then count: `arch -arm64 bash -ec '…'`, `echo '…' | arch -arm64 tcsh -f`, `arch -arm64 env -vS '…'`.
+  - **Not among gh's own arguments:** in `gh run watch "$id"`, `watch` is gh's verb, not the runner.
+  - **Not among an inspector's words:** a program that only prints, finds or inspects its words (`INSPECTORS`: `echo`, `printf`, `which`, `type`, `file`, `ls`, `stat`, `man`, `cat`, `head`, `tail`, `wc` and their kin) never runs them. Without this exemption, `rg -n "gh pr comment" docs; which bash` would be refused: `which`'s `bash` would read as a shell reading the command's input, and the data refusal then judges every segment's words as a script. That combination is plausible in a review of this very rule, so it is a regression test now.
+- **Here-strings.** A command that reads its standard input as a script gets its here-strings judged after the fallback, so `parallel <<< 'gh pr comment 7'` and `arch -arm64 bash <<< '…'` are read too.
+
+**Each listed shell's real reading of a cluster, on this host.** The script is `touch <marker>`, run with no startup files' effect (`HOME` in scratch). `test_the_rule_judges_the_script_wherever_each_real_shell_runs_it` runs this table and asserts that the rule refuses a gh write wherever the shell ran the script:
+
+| Cluster | sh | bash | zsh | dash | ksh | csh | tcsh |
+|---|---|---|---|---|---|---|---|
+| `-c`, `-ec`, `-xc`, `-fc`, `-ce`, `-cx`, `-cf`, `-sc` | ran | ran | ran | ran | ran | ran | ran |
+| `-eo pipefail -c`, `-euo pipefail -xc` | ran | ran | ran | not (no `pipefail`) | ran | not | not |
+| `-o errexit -c`, `+o errexit -c` | ran | ran | ran | ran | ran | not | not |
+| `-oc` | not | not | not | not | ran | not | not |
+| `-eO extglob -c` | ran | ran | not | not | not | not | not |
+| `-Oc` | not | not | ran | not | not | not | not |
+
+**The review's executed rows**, each a regression in the same test:
+
+| Input | At `e60509af1` | Now |
+|---|---|---|
+| `env -vS 'gh pr comment 7 -b x'` | allowed | refused, `gh pr comment` |
+| `env -S 'gh\_pr\_comment\_7\_-b\_x'` | allowed | refused, `env -S with an escape` |
+| `env -iS 'gh pr comment 7 -b x'` | allowed | refused, `gh pr comment` |
+| `tcsh -fc 'gh pr comment 7 -b x'` | allowed | refused, `gh pr comment` |
+| `csh -fc 'gh pr comment 7 -b x'` | allowed | refused, `gh pr comment` |
+| `echo 'gh pr comment 7 -b x' \| tcsh -f` | allowed | refused, `gh pr comment` |
+| `env -S 'gh pr comment 7 -b x'` | refused | refused |
+| `tcsh -c 'gh pr comment 7 -b x'` | refused | refused |
+
+Eleven of the fifteen rows were allowed at `e60509af1`, and each is refused now with the `publish` wording.
+
+### P3-1
+
+Nothing to change in code. This round's answer calls no pre-existing test "added": `tests/unit/test_publish_rule_round10.py` is the one new test file, and the e2e test is listed as existing.
+
+### P3-2: the hung-probe guard tests
+
+**What changed.**
+- Four tests now give the preflight `HUNG_DEADLINE_S = 10.0` (it was 0.5 s):
+  - the three the review named: `test_preflight_bounds_and_reaps_hung_probe`, `test_timeout_refusal_is_a_timeout_not_a_trust_mismatch` and `test_version_timeout_is_reported_as_a_timeout`;
+  - and `test_version_timeout_does_not_claim_version_drift`, which reads the same `report.json` after the same deadline.
+- The fake's hung probes sleep 300 s (it was 30 s), far past the deadline. The probes are reaped at the deadline.
+- The elapsed-time bounds became the deadline plus a 20 s margin.
+
+**Why 10 s.** At 0.5 s, the review's load of ~87 had not started the fake's Python before the deadline. The tests then failed on the missing report, not on the timeout path; 10 s is 20 times that. Nothing in `subfleet/guard` changed.
+
+### The invariants
+
+For every argument list `a` given to gh. Each is a Hypothesis property in `test_publish_rule_round10.py`: 300 examples, derandomized, no database.
+1. **One judgment.** Every path gives the same verdict:
+   - `test_one_judgment_with_a_run_time_word_before_the_verb` puts a run-time word as gh's command, its subcommand, or a flag's value before them. The words are `$v`, `"$v"`, `${v}`, `${v:-pr}`, `"$@"`, `$(…)`, backquotes, `${=a}`, `$=a`, `p?`, `p[r]`, `{pr,}`, `{p,}r`, `$((1))` and `<(…)`. The verdict must be the refusal (credential where the literal words print the token) on all 36 of round 9's spellings: the direct path, the known wrappers, the unknown runners and the run-time command words.
+   - `test_one_judgment_when_xargs_or_parallel_feeds_gh` does the same for 20 fed spellings: xargs with `-0`, `-I{}` and `-n1`; through `sudo`, `env`, `nohup`, `arch` and `lockf`; `arch -arm64 xargs`; after `{g,}h`, `"$GH"`, `$(command -v gh)` and `g?`; and parallel with `:::` or its standard input.
+   - Round 9's `test_one_judgment_decides_gh_on_every_path` still covers the literal lists.
+2. **Fail closed.** Any gh call whose command or subcommand isn't spelled literally, or that xargs or parallel feeds, is refused on every path (the two properties above). Any literal list `gh_read` doesn't accept is refused on the direct path, and on every path once it reaches a gh command (round 9's property, unchanged).
+3. **Reads pass.** Every literal `GH_READS` call passes on every path, with run-time words after the settled verb (`"$n"`, `$n`, `$(cat n)`, `"${n:-7}"`, `${=extra}`, `"$@"`), in `test_reads_pass_with_run_time_words_after_the_settled_verb`. Round 9's `test_every_read_passes_with_global_flags_where_gh_accepts_them` still holds for the literal forms.
+4. **Runners are seen through.**
+   - **`env`:** a gh write is refused in any option cluster (`test_a_write_through_env_in_any_option_cluster_is_refused`). The clusters combine booleans `0iv` in any order and count, value options before it (`-u NAME`, `-uNAME`, `-P`, `-C`, assignments), and the forms `-…S value`, `-…Svalue`, `--split-string=` and `--split-string value`, with the split words carrying more options. They run directly and behind `arch`, `nohup` and an assignment.
+   - **`-S` escapes:** an `-S` value with any of env's escapes (`\_ \t \n \r \f \v \c \# \$ \\ \' \"`, `${…}`) is refused, whatever it runs (`test_an_env_split_string_with_an_escape_is_refused`).
+   - **Shells:** every shell in `SHELLS` is drawn (`test_a_write_given_to_any_shell_by_a_cluster_or_its_input_is_refused`). The write goes by `-c` anywhere in a cluster of that shell's letters, with `o`/`O` and a value for the non-C shells, or as its input by a pipe, a heredoc, a here-string or `< <(…)`. Each form is tried bare, with a path, and behind `arch`, `nohup` and `env`.
+
+**Real shells and real hooks.** `test_each_row_is_denied_by_the_real_hooks_and_reaches_gh_past_them` runs with each provider (Codex and Claude), with the recording gh first on `PATH`:
+- **Rows:** the 11 rows the hook allowed at `e60509af1`, plus five more (`env -iS 'PATH=… gh …'`, `xargs gh pr view`, a run-time `-R` value before the verb, `| csh -f`, and `bash -eo pipefail -ec`).
+- **Hooks:** each row goes through the PreToolUse hooks a real review launch carries, and each is denied with the `publish` wording.
+- **Shells:** past the hooks, `zsh -f` runs every row. `/bin/csh -f` and `/bin/tcsh -f` run the 11 in their syntax.
+- **Result:** each reaches the recording gh, so each denial is what stops the call. The exception is `env -iS '…'`, whose `-i` clears PATH, as the review saw.
+
+### Over-refusals this round accepts (stated in C-12.4)
+
+- `gh -R "$REPO" pr view 7` and `gh pr --repo "$r" view 7`: put `-R` after the verb.
+- `xargs gh pr view`, `xargs -I{} gh pr view {}` and `parallel gh pr view ::: 1 2`: their words are not in the text. `find … -exec gh pr view {} \;` and a shell loop still pass.
+- A run-time word that may be gh, followed by a run-time word, wherever the fallback finds it: `"$GH" "$x"`, and `echo "$(command -v gh)" "$x"`.
+- A text tool behind a runner the rule doesn't know, given gh and then a run-time word: `arch -arm64 grep gh "$f"`. Run it directly.
+- Any `env -S` value with a backslash or `${`.
+
+### Remaining edges, not closed
+
+- **`gh api` given its method or fields by a run-time word after `api`**, where the verb is settled: `gh api ${=a}` with `a='-XPUT repos/…/merge'`. The brief keeps run-time words after a settled verb passing. For `api`, that verb's flags carry the method. Closing it would refuse `gh api "$endpoint"`, a common read. C-12.4 now lists it as a limit; it is a decision for the hub.
+- **A variable set to gh some other way** (`read`, a file), read behind a runner the rule doesn't know and followed by a run-time word. Also a glob that names neither letter of gh (`/opt/homebrew/bin/??`) followed by a run-time word. C-12.4 lists both under "pieces that never spell gh".
+
+### The old-versus-new comparison
+
+Round 9's rule (`subfleet/publish_rule.py` at `e60509af1`) and round 10's both judged 240,934 commands (`compare.py`, run in scratch at `16e31c173`):
+- **Test literals:** every string literal in the publish tests (`test_publish_rule_round7`, `round9`, `round10`, `test_review_publish_guard`, `test_review_needs_shell`, `test_review_publish_env_round8`, `test_review_publish_e2e`, `test_publish_trust_refusal_round8`, `test_hooks`), 1,802 after template filling.
+- **gh's command tree:** every command in `GH_SUBCOMMANDS` alone and with each of its verbs, plain, with an operand and with `-R o/r` before the command or the verb. Each ran through round 9's 36 spellings and the 20 fed spellings, and with each of `$v`, `"$v"`, `$(echo x)` and `${=a}` as its command or verb.
+
+No command that round 9 refused is allowed now, and neither rule raised an error. Every class below is a refusal round 9 didn't make:
+
+| Class | All commands | Test literals |
+|---|---:|---:|
+| A run-time word before gh's verb settles | 35,744 | 30 |
+| gh fed by xargs or parallel, reads included | 2,334 | 58 |
+| The C shells (`tcsh -fc`, `\| csh -f`, heredocs, here-strings, `< <(…)`) | 14 | 14 |
+| A shell's `-c` cluster, its input, or `env` behind a runner the rule doesn't know | 6 | 6 |
+| `env` option clusters (`-vS`, `-iS`, `-0vS`, `--split`) | 5 | 5 |
+| `o` inside a shell's cluster (`bash -eo pipefail -ec`, `sh -euo pipefail -fc`) | 3 | 3 |
+| fish's attached and long `-c`/`-C` | 3 | 3 |
+| xargs into a shell behind a runner | 1 | 1 |
+| `env -S` with an escape | 1 | 1 |
+| `\_` read as a word break when the text names gh | 1 | 1 |
+
+The rows outside the first two classes are the same commands in both columns: the generated tree adds only run-time and fed spellings. Two refusals changed kind, both `credential` to `publish`: `parallel gh auth status ::: 1` and `parallel arch -arm64 gh auth status ::: 1 2`. Round 9's fallback read `:::` as an argument to `gh auth status`, which made it a credential call. Round 10 refuses the template first, as fed by parallel. Both rules refuse it.
+
+### Mutations
+
+Each mutant was applied to `subfleet/publish_rule.py` at `43ca1ab07`, and round 10's tests were called against it. The source was restored and its SHA-256 checked after each.
+
+| Mutant | Failed | Named tests that failed (count) |
+|---|---:|---|
+| (1) let a run-time word before gh's verb through (`_gh_unsettled` always false, round 9's judgment) | 21 | `test_the_same_gaps_in_neighbouring_forms_are_refused` (16), `test_each_row_review_r4_executed_is_refused_with_the_publish_wording` (4: rows 2 to 5), `test_one_judgment_with_a_run_time_word_before_the_verb` |
+| (2) drop the xargs rule (`xargs` no longer marks gh fed) | 9 | the neighbours (7), the review rows (1: `… \| xargs arch -arm64 gh`), `test_one_judgment_when_xargs_or_parallel_feeds_gh` |
+| (3) find `-S` only as a whole word or a prefix again (round 9's `_env`) | 9 | the neighbours (4), the review rows (3: `env -vS`, `env -S '…\_…'`, `env -iS`), `test_a_write_through_env_in_any_option_cluster_is_refused`, `test_an_env_split_string_with_an_escape_is_refused` |
+| (4) drop `csh` and `tcsh` from `SHELLS` | 17 | the neighbours (12), the review rows (3: `tcsh -fc`, `csh -fc`, `\| tcsh -f`), `test_the_text_tools_and_the_shells_are_the_ones_named`, `test_a_write_given_to_any_shell_by_a_cluster_or_its_input_is_refused` |
+
+**How these ran: in-process, as a probe.** Each mutant's source was executed into the module, then round 10's test functions were called: the rows, the neighbours, the properties and the checks, but not the real-process tests.
+- **The briefed pytest run** of the four mutants, as one hold, queued at 04:07:45Z and had no slot by the 4 h 30 m cutoff (02:13:39 EDT). It was then stopped unstarted, so it never touched the source.
+- **What this leaves unproven:** that pytest, rather than a direct call, reports the same failures.
+
+**Mutant (4) at first.** The shell property and the real-shell test had drawn their shells from the rule's own `SHELLS`, so dropping a shell there dropped it from the draws too, and only the membership check caught (4). Since `43ca1ab07` they draw from their own list, and the property catches (4) as well.
+
+### Tests
+
+**Setup:**
+- **Python:** CPython 3.14.7, GIL build, in a scratch venv synced `--locked --group dev` through the hub's setup wrapper, with `PYTHONPATH` unset. pytest-xdist isn't in this host's uv cache, and the network was off-limits, so every hold ran one process.
+- **The lock:** each hold ran through `suite_hold.sh` (`uv run pytest`), with `TMPDIR` and Hypothesis storage in scratch.
+- **The host:** load ran 40 to 120 on 18 CPUs, with about ten holds waiting for the two slots most of the night. Waits ran 13 to 58 minutes; the mutation hold waited longest (below).
+
+**Holds:**
+
+| Hold | Head | What | Result |
+|---|---|---|---|
+| merge | `e09418c86` (uncommitted then) | the four files the merge conflicted in or touched: `test_cli`, `test_hooks`, `test_doctor`, `test_notice_header` | 407 passed, 1 failed (the `test_doctor` stub, fixed before the merge commit); then `test_doctor` 47 passed |
+| 1 | `16e31c173` | briefed group 1 with `test_publish_rule_round10.py` | 3,269 passed, 13 failed in 610 s: round 10's real-process tests, each refused by the test session's keychain guard (below) |
+| 2 | `b55f7b189` | `test_publish_rule_round10.py` again, with briefed groups 2 and 3 in the same process | 410 passed in 367 s |
+| M | `43ca1ab07` | the four mutants | queued 04:07:45Z, no slot in 2 h 07 m; stopped unstarted at the cutoff (the probe above stands in) |
+
+Groups 2 and 3 shared one process (one pytest in one hold), since each slot cost up to an hour of waiting.
+
+**Hold 1's 13 failures** were `test_the_rule_judges_the_script_wherever_each_real_shell_runs_it` (7 shells) and `test_each_row_is_denied_by_the_real_hooks_and_reaches_gh_past_them` (6). Each raised `KeychainExecRefused` from `subfleet/credentials.py`'s test guard. The tests had given the shells a bare `/usr/bin:/bin` PATH, which searches a system directory before the session's recording `security`. `b55f7b189` gives them the session's PATH, with the recording gh first, and hold 2 passed all 141 of the file's tests.
+
+**Each briefed file.** None skipped.
+
+| File | Tests | Hold | Result |
+|---|---:|---|---|
+| `tests/unit/test_publish_rule_round7.py` | 236 | 1 | passed |
+| `tests/unit/test_publish_rule_round9.py` | 2,747 | 1 | passed |
+| `tests/unit/test_review_publish_guard.py` | 135 | 1 | passed |
+| `tests/fake/test_review_needs_shell.py` | 23 | 1 | passed |
+| `tests/unit/test_publish_rule_round10.py` (new) | 141 | 1, then 2 | 128 passed and 13 failed in hold 1; all passed in hold 2 |
+| `tests/e2e/test_review_publish_e2e.py` (existing, from `36a89279f`) | 4 | 2 | passed |
+| `tests/unit/test_daemon_integration.py` | 7 | 2 | passed |
+| `tests/fake/test_review_launch_permissions.py` | 34 | 2 | passed |
+| `tests/unit/test_hooks.py` (75, and release's 6) | 81 | 2 | passed |
+| `tests/unit/test_guard_trust.py` | 105 | 2 | passed |
+| `tests/fake/test_state_contract.py` | 37 | 2 | passed |
+| `tests/unit/test_test_module_names.py` | 1 | 2 | passed |
+
+The holds ran with `-q`, which prints no per-file totals. Each file's count is its collected cases:
+- round 10's 141 are counted from its parameter lists: 15 rows, 67 neighbours, 39 passes, 7 properties and checks, 7 installed shells, and 6 provider-and-shell pairs;
+- the others are round 9's counts, plus release's 6 new `test_hooks` tests;
+- each hold's total equals the sum.
+
+### The whole-suite sweep
+
+Not run. After hold 2, about ten holds were waiting for the two slots, and the mutation hold, queued next, had no slot by the 4 h 30 m cutoff. pytest-xdist could not shorten the sweep (it isn't in the uv cache). The plan, from CI's per-file seconds, was eight holds of about 9 to 11 CI-minutes each: two for `tests/fake` and six for `tests/unit`.
+
+| Directory | Files run | Tests run | Unrun |
+|---|---:|---:|---|
+| `tests/unit` | 10 of 337 | 3,453 in holds 1 and 2; `test_doctor.py` 47 and `test_cli.py` in the merge's check hold | the other 327 files |
+| `tests/fake` | 4 of 114 | 94 in holds 1 and 2 (`test_review_needs_shell`, `test_review_launch_permissions`, `test_state_contract`); `test_notice_header.py` in the merge's check hold | the other 110 files |
+
+- **The ten unit files:** the eight briefed ones, plus `test_cli.py` and `test_doctor.py`.
+- **The merge's check hold** ran `test_cli.py` and `test_notice_header.py` with 280 tests between them; with `-q` it printed no per-file totals. It ran at the merge's tree, before this round's rule changes. Of its four files, only `test_hooks.py` names the publish rule, and hold 2 ran it again. The others reach the rule only through a launch's hook self-test, whose `gh pr comment 1 --body x` this round still denies.
+
+### Not run
+
+- **The whole-suite sweep** (above): 327 unit files and 110 fake files.
+- **The mutants under pytest:** they ran in-process, as a probe, instead.
+- **Other test directories:** the rest of `tests/e2e`, plus `tests/process`, `tests/frontend` and `tests/live`.
+- **Also not run:** Python 3.12, and the suite as one process.
+- **gh:** no real gh beyond round 9's own offline `--version` and `--help` reads in hold 1, with a scratch config.
+- **fish and mksh,** which aren't on this host: the rule's reading of fish comes from its option letters, not a run.
