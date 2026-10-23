@@ -105,6 +105,10 @@ def test_a_push_settles_with_leases_held_then_the_canonical_export_is_an_ordinar
         if decision != "unheld":
             # The census sees both spellings: two keys, one output.
             assert claim.key != alias and alias in resource_leases.OutputClaim.prepare(core.store.query, out).keys
+        if push != "none":
+            # Admission's writer fence is still needed while the push reads
+            # the bundle from this tree, after the verdict has been committed.
+            core.store.acquire_lease("worktree:" + str(core._push_root(core._job(job))), job)
         before = {lease["lease_key"] for lease in core.store.list_leases(job)}
         sha = commit(world.repo) if push != "none" else None
 
@@ -117,6 +121,9 @@ def test_a_push_settles_with_leases_held_then_the_canonical_export_is_an_ordinar
             return actual(row)
 
         def in_flight():
+            # The control loop also offers terminal cwd holds on every tick.
+            for pending in core._pending_worktree_holds():
+                core._release_worktree_hold(pending)
             # The push is queued or running: nothing is decided or written, every lease is held.
             # Every message ends IN_FLIGHT: a lease released on the push thread can
             # be seen by any of these first, so a mutation test matches on that.
