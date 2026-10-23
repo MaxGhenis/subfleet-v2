@@ -1,50 +1,60 @@
-D-MG2 adds opt-in CPU idle and state-device service latency admission, with startup
-priming and ten-second recovery. Live/default policy bytes are unchanged.
+D-MG2 adds opt-in CPU idle and state-device service-ms/op admission, with
+one-second sampling, bias-corrected 60 s EWMAs, startup priming and ten sampled
+seconds of clear recovery. Null/load/memory-only policies retain frozen
+473fe2941 decisions and hold records with no new CPU/IOKit reads.
 
-Round 1 fixes the capped concurrency measure: `disk_busy` now means **ms/op** on
-the state-root device, with uncapped requests in flight alongside it. Both signals
-use bias-corrected 60 s EWMAs, sampled at most once per second. Missing reads
-preserve baselines and latches while holding nothing. Null/legacy-only policies
-run no new native read. No reader starts a subprocess.
+Round 2 follows state-root device changes without recreating the sampler. Root
+stat runs at sample cadence; ancestry is resolved only on change or failed
+selected-driver reads. Stable reads select one registry entry without neighbor
+enumeration. Device changes clear counters, EWMA and old disk observations: the
+first successful new-device sample is baseline-only; the next positive delta is
+readable. Unreadable data holds nothing and releases no latch. Baseline value and
+age use one eligible set and cutoff, excluding zero-service observations; status
+fetches each value/timestamp pair together during eviction.
 
-The daemon primes before its first detached pass. Release needs ten seconds of
-readable clear data, rather than two 50 ms passes: +0.03 CPU idle, or disk service
-10% below its threshold. `why` names readings and elapsed recovery. Status JSON
-exposes values, units, ages, baseline and read cost. At most one minute sample is
-recorded, retaining 1,440 samples plus their audit rows across restarts.
+Merged cached release/217 at **e345f0803** without fetching (merge **08ba94992**,
+including 4f5983f4c and #243). The only conflict was the acceptance change-log
+insertion; every clause and both histories were retained. Daemon admission
+auto-merged, preserving release routing, wall/stop and finalization behavior with
+the MG2 detached read point. C-6.13 is amended.
 
-Merged cached `origin/release/217` **43f42d83d**, including the brief's **2eacd5806**,
-without fetching. The contract change-log conflict retains both sides' entries
-and every release clause. Daemon admission auto-merged; release liveness/priority,
-routing and frozen-stream finalization changes remain. C-6.13/C-6.11 are amended.
+**Max's d1377 ruling is unchanged:** no live-policy edit and identical shipped
+`machine_guard: null` bytes. The proposal remains background idle 0.15/memory warn,
+session idle 0.05/memory critical, with **no load or disk threshold**. The earlier
+capped disk term's historical 10/11 claim remains withdrawn; its true service
+latency is unknown. Quiet-versus-deliberate-saturation separation remains
+unverified, and no threshold is suggested.
 
-**Proposal for Max under d1377, not applied:** background idle minimum **0.15**,
-memory **warn**; session idle minimum **0.05**, memory **critical**. No load or disk
-threshold. The old 0.80/0.90 disk fractions are withdrawn; the key now means ms/op.
-The first ordinary 90 s AC recording produced 81 smoothed values at
-1.662–2.264 ms/op (median 2.059), despite 6.95–76.98 requests in flight: the old
-cap was 1.000 on every read. Its counter replay holds nothing under the proposal.
-The deliberate saturation loop was **skipped** because `df -g` showed 67 available
-before the experiment (52 at the final run), below the required >70 gate. No disk
-threshold is suggested. The historical 10/11 shape would have been held by the
-old disk term; its new service latency is **unknown**.
+On AC, 22 real-device samples with injected identity invalidations/failure made
+22 root checks, four ancestry resolutions and zero neighbor enumerations.
+Root stat median/p99: **31/103 µs**; ancestry: **3.48/5.83 ms**; complete steady sampler
+read: **1.55/2.71 ms**. N is small and p99 coarse. The report distinguishes these
+sampler costs from round 1's full daemon/store cost and gives exact inputs.
 
-Final full read-point cost on AC, offered at 50 ms: **33.9 µs median / 1.33 ms p99
-per tick**, **519 µs median / 12.45 ms p99** on ticks doing native reads. These
-include policy checks and minute writes. Host scheduling delayed offered ticks;
-the report compares the review's 330 µs / 3.0 ms and legacy 5.7 µs measurements.
-Retention measured 0.918 MB with about 52 MB/day estimated WAL traffic plus
-checkpoint I/O.
+**Validation:** 404 distinct required cases passed, including the final status
+regression; the final guard/policy/daemon gate is 259 passed. Both bounded
+properties pass, and all four requested mutations fail named regressions with
+positive controls. Five alternating head/release repetitions of each timing test
+produced identical pass/fail counts on both versions (guard 0/5, timer 3/5), with
+overlapping durations and lower head medians. No timing bounds or code changed.
 
-**Validation:** 392 required cases passed; the final strengthened feature gate is
-247 passed. Nineteen selected regressions fail against the original guard files
-without setup/collection errors. All eight named mutations were caught.
-Whole local suites completed all 437 files: **15,241 passed, 11 failed, 98 skipped,
-2 xfailed; zero unrun or partial files**. The failures are sandbox process/kernel
-access cases, three unchanged importer assertions and two timing checks. Both
-timing checks passed isolated retry; all original failures remain counted.
-`test_prune_restore.py` passed all four cases. This is not a green whole suite.
+The directory census is **2,343 passed, 5 failed, 77 skipped, 2 xfailed**:
 
-Report and every file's counts: `docs/reports/2026-10-20-mg2-cpu-idle-guard.md`.
-No push or remote CI query. Commits use workspace-local `.git-local` because the
-shared Git metadata is read-only.
+| Directory | Complete files | Passed | Failed | Skipped | Xfailed | Unrun |
+|---|---:|---:|---:|---:|---:|---:|
+| tests/unit | 7 / 333 | 290 | 0 | 0 | 0 | 326 files |
+| tests/fake | 113 / 113 | 2,053 | 5 | 77 | 2 | 0 |
+
+This is **not a green or complete whole-suite run**. Shared-lock waits consumed
+the hold-start window. Four fake failures are the review-confirmed boot-identity
+base cases. The extra unknown-pin fixture expected claude-7 but seeded claude-9
+with a one-second-earlier reset, which the unchanged ranking rule prefers. Its
+controlled release replay remained queued at the cutoff, so it is not claimed as
+an executed base reproduction. The nine review-confirmed base failures were not
+modified. All 326 unrun unit files and every completed file's counts appear in
+`docs/reports/2026-10-20-mg2-cpu-idle-guard.md`, together with merge resolutions,
+all timing samples/load, costs, invariants, mutations and cleanup status.
+
+No push or network remote. Commits use workspace-local `.git-local` on
+`fix/mg2-cpu-idle-guard-217` because shared Git metadata and the `.git` pointer are
+read-only; the hub must import that local ref.
