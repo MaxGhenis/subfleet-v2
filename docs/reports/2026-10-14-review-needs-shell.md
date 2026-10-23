@@ -1943,7 +1943,7 @@ For every argument list `a` given to gh. Each is a Hypothesis property in `test_
 
 ### The old-versus-new comparison
 
-Round 9's rule (`subfleet/publish_rule.py` at `e60509af1`) and round 10's both judged 240,934 commands (`compare.py`, run in scratch at `16e31c173`):
+Round 9's rule (`subfleet/publish_rule.py` at `e60509af1`) and round 10's both judged 240,934 commands at `16e31c173`. A scratch script loaded both rules and ran them over the corpus below; it went with the scratch folder, as did the mutation driver. The corpus:
 - **Test literals:** every string literal in the publish tests (`test_publish_rule_round7`, `round9`, `round10`, `test_review_publish_guard`, `test_review_needs_shell`, `test_review_publish_env_round8`, `test_review_publish_e2e`, `test_publish_trust_refusal_round8`, `test_hooks`), 1,802 after template filling.
 - **gh's command tree:** every command in `GH_SUBCOMMANDS` alone and with each of its verbs, plain, with an operand and with `-R o/r` before the command or the verb. Each ran through round 9's 36 spellings and the 20 fed spellings, and with each of `$v`, `"$v"`, `$(echo x)` and `${=a}` as its command or verb.
 
