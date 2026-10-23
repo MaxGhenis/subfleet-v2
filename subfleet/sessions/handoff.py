@@ -107,9 +107,12 @@ _URL_START_RE = re.compile(r"\b[a-z]", re.IGNORECASE)
 #: (`_scrub_inline_headers`). Either takes a header's value, not a plain one (C-23.14).
 _HEADER_NAME = r"[A-Za-z0-9_-]*(?:authorization|cookie)"
 _HEADER_RE = re.compile(r"(?im)^([^\S\n]*" + _HEADER_NAME + r"\s*:\s*).+$")
-#: The word that ends an inline header's name, and its colon. The name's identifier
-#: starts where `_IDENTIFIER_RE` reads back from the word, on the reversed text.
-_INLINE_HEADER_RE = re.compile(r"(?:authorization|cookie)[ \t]*:", re.IGNORECASE)
+#: The word that ends an inline header's name, and its colon, read on the reversed
+#: text: each match starts at a `:`, which the regex engine finds by a plain search,
+#: where the same words read forwards were tried, case folded, at every character
+#: (about a tenth of the cost per MiB). The name's identifier starts where
+#: `_IDENTIFIER_RE` reads back from the word, on the same reversed text.
+_INLINE_HEADER_REVERSED_RE = re.compile(r":[ \t]*(?:noitazirohtua|eikooc)", re.IGNORECASE)
 _VISIBLE_RE = re.compile(r"\S")
 #: A key ending in a header word with this after it is a header, not a key with a
 #: plain value.
@@ -366,11 +369,18 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
     line_ends = None
     line_end = -1
     ranges: list[tuple[int, int, str]] = []
+    visible: dict[int, int] = {}
+
+    def visible_end(at: int) -> int:
+        # The end of the last visible character before `at`, walked back once per
+        # position: candidates that share a line's end, or an item, share the walk.
+        if at not in visible:
+            visible[at] = _last_visible(text, at) + 1
+        return visible[at]
+
     for token in _IDENTIFIER_RE.finditer(text):
         # Inside the previous plain replacement (the quoted rule keeps no cursor).
-        nested = token.start() < cursor
-        if nested and flags:
-            continue
+        nested = not flags and token.start() < cursor
         key = token.group()
         if not _SENSITIVE_SUFFIX_RE.search(key[-17:]):
             continue
@@ -380,10 +390,17 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
             if flag_start < 0 or not _SENSITIVE_FLAG_RE.fullmatch(key[flag_start + 2:]):
                 continue
             start += flag_start
+            if start < cursor:
+                continue                        # the flag is inside the previous flag's value
             value = _FLAG_VALUE_RE.match(text, token.end())
             if value is None:
                 continue
             value_start, end = value.start("value"), value.end()
+            # A credential flag glued to the value's end (`--password x--token …`) keeps
+            # its own value: the value ends before it, as a plain value's does (C-23.14).
+            glued = _owning_flag(text, value_start, end)
+            if glued is not None:
+                end = glued
             out = text[start:value_start] + REDACTED
         else:
             separator = _ASSIGN_SEPARATOR_RE.match(text, token.end())
@@ -425,6 +442,14 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
                     while line_end < value_start:
                         line_end = next(line_ends).start()
                     end = line_end
+                    # A credential flag or `Bearer` that ends the line keeps its own
+                    # value, which may be past the line, exactly as it would with no
+                    # quote: the redaction ends before it (`_owned_item`, C-23.14).
+                    item = _owned_item(text, opening.end(), visible_end(end))
+                    if item is not None:
+                        if item == opening.end():
+                            continue                # the value is the item alone: its rule's
+                        end = visible_end(item)
                     out = text[start:value_start] + REDACTED
                 else:
                     end = closing + opening.end() - value_start
@@ -436,16 +461,20 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
                 end = value.end()
                 if quoted and _HEADER_WORD_RE.search(key[-13:]) and _HEADER_COLON_RE.match(text, token.end()):
                     # A header's name inside the quoted match, its value past the
-                    # match: a header's value, to its line's end (C-23.14).
+                    # match: a header's value, to its line's end (C-23.14). A flag or
+                    # `Bearer` that ends the line keeps its value, read at the line's
+                    # last visible character, as `_header_redaction` reads it.
                     end = text.find("\n", value_start)
                     end = len(text) if end < 0 else end
-                # A credential flag that ends the value (`api_key=x--password …`)
-                # keeps its own value: the value ends before it (C-23.14).
-                flag = _owning_flag(text, value_start, end)
-                if flag is not None:
-                    if flag == value_start:
+                    item = _owned_item(text, value_start, visible_end(end))
+                else:
+                    # A credential flag that ends the value (`api_key=x--password …`)
+                    # keeps its own value: the value ends before it (C-23.14).
+                    item = _owning_flag(text, value_start, end)
+                if item is not None:
+                    if item == value_start:
                         continue
-                    end = flag
+                    end = visible_end(item)
                 out = text[start:value_start] + REDACTED
         if quoted:
             # A surrounding assignment can end at an inner value's opening
@@ -695,21 +724,23 @@ def _header_redaction(text: str, start: int, value_start: int, end: int, *,
 
     Returns the replacement and where in `text` it stops: `end`, or, for the inline
     rule (`rescan`), the start of a kept key that is a header's name (`…: x
-    Authorization:` and the value on the next line), which that rule then reads as
-    a header of its own. The line-start rule keeps such a key in its replacement,
-    and the inline rule's second scan reads it (`_scrub`)."""
+    Authorization:` and the value on the next line, or a value that is only that
+    name: `X-Authorization:` with `Authorization:` on the next line), which that rule
+    then reads as a header of its own. The line-start rule keeps such a key in its
+    replacement, or leaves a value that is only the key whole, and the inline rule's
+    second scan reads it there, at a line start too (`_scrub`)."""
     last = _last_visible(text, end) + 1
     key = _key_past_line(text, value_start, end)
     if key is None and (end == len(text) or text[end] == "\n"):
         # A quote that closes the value ends a flag's, and a `Bearer`'s: their
         # values may be past the line only when the value ends there.
-        key = _owning_flag(text, value_start, last)
-        if key is None and (bearer := _BEARER_END_RE.search(text, max(value_start, last - 6), last)):
-            key = bearer.start()
+        key = _owned_item(text, value_start, last)
     if key is None:
         return text[start:value_start] + REDACTED, end
     before = _last_visible(text, key) + 1
     if before <= value_start:
+        if rescan and _header_name_at(text, key):
+            return text[start:key], key
         return text[start:last], end
     parted = text[before:key] if before < key else " "
     if rescan and _header_name_at(text, key):
@@ -786,6 +817,21 @@ def _owning_flag(text: str, start: int, end: int) -> int | None:
     return flag
 
 
+def _owned_item(text: str, start: int, last: int) -> int | None:
+    """Where the credential flag (`_owning_flag`) or the `Bearer` (`_BEARER_END_RE`)
+    that ends `text[start:last]` begins; None if neither does. `last` is the end of
+    the last visible character before the line break that ends the enclosing value,
+    so whitespace after the item hides neither (`x --password  ` and its value on the
+    next line). A rule whose value runs to that break ends before the item, which
+    keeps its own value past the line, exactly as with no enclosing rule (C-23.14):
+    a header's (`_header_redaction`), a header name's the quoted rule swallows, and an
+    unclosed quoted value's (`_scrub_named_values`)."""
+    item = _owning_flag(text, start, last)
+    if item is None and (bearer := _BEARER_END_RE.search(text, max(start, last - 6), last)):
+        item = bearer.start()
+    return item
+
+
 def _bearer_refusal(match: re.Match) -> int | None:
     """Whether `_BEARER_RE`'s run is a credential key a named-value rule reads
     rather than a token (C-23.14): it ends in a credential word followed by an
@@ -837,7 +883,7 @@ def _bearer_value(match: re.Match) -> str:
     return text[match.start():match.start(1)] + REDACTED + text[cut:match.end()]
 
 
-def _scrub_inline_headers(text: str, tally: "_Tally") -> str:
+def _scrub_inline_headers(text: str, tally: "_Tally", *, line_start: bool = False) -> str:
     """The inline header rule (C-23.14): a header whose name does not start its line
     (`curl -H 'Authorization: Basic …'`, `wget --header='Cookie: …'`, a header in log
     prose, one that `refusals.detail_line` prefixes). Its name is an identifier ending
@@ -848,31 +894,34 @@ def _scrub_inline_headers(text: str, tally: "_Tally") -> str:
     whole and counted as a line-start header's (`_header_redaction`), unless it starts
     with `[REDACTED]`: a value already redacted is left alone, which keeps scrubbing
     idempotent and keeps the words daemon.log's folded line puts after a redacted
-    header. Every scan is linear: candidates come in order, each name's identifier is
-    read back once, each gap between two candidates is searched once for the line
-    break and the visible text before a name, and each value once for its closing
-    quote and its line's end."""
+    header. `line_start`, for the second scan after the line-start rule (`_scrub`):
+    a name that starts its line is read too. Every scan is linear: candidates come in
+    order from one scan of the reversed text, each name's identifier is read back once,
+    each gap between two candidates is searched once for the line break and the
+    visible text before a name, and each value once for its closing quote and its
+    line's end."""
+    if ":" not in text:
+        return text
     parts: list[str] = []
     cursor = scanned = 0
     line_end = -1
     escapes: dict[int, int] | None = None
-    reverse: str | None = None
-    for hit in _INLINE_HEADER_RE.finditer(text):
-        start, gap = hit.start(), scanned
-        scanned = hit.end()
+    size, reverse = len(text), text[::-1]
+    hits = [(size - hit.end(), size - hit.start()) for hit in _INLINE_HEADER_REVERSED_RE.finditer(reverse)]
+    for start, hit_end in reversed(hits):
+        gap, scanned = scanned, hit_end
         if start > cursor and _identifier_char(text[start - 1]):
-            if reverse is None:
-                reverse = text[::-1]
-            start = max(cursor, start - (_IDENTIFIER_RE.match(reverse, len(text) - start).end() - (len(text) - start)))
+            start = max(cursor, start - (_IDENTIFIER_RE.match(reverse, size - start).end() - (size - start)))
         # A name that starts its line, after whitespace only, is the line-start rule's
         # (`_HEADER_RE`): there is a line break in the gap before it, or nothing at all
         # before it, and nothing visible between that and the name.
-        newline = text.rfind("\n", gap, start)
-        if (newline >= 0 or gap == 0) and _VISIBLE_RE.search(text, newline + 1, start) is None:
-            continue
+        if not line_start:
+            newline = text.rfind("\n", gap, start)
+            if (newline >= 0 or gap == 0) and _VISIBLE_RE.search(text, newline + 1, start) is None:
+                continue
         if start < cursor:
             continue                            # inside the value just taken
-        value_start = _WHITESPACE_RUN_RE.match(text, hit.end()).end()
+        value_start = _WHITESPACE_RUN_RE.match(text, hit_end).end()
         if value_start == len(text) or text.startswith(REDACTED, value_start):
             continue
         if line_end < value_start:
@@ -945,14 +994,20 @@ def _scrub(text: str, strip_reminders: bool, *, multiline: bool = False) -> tupl
         (_BEARER_RE, _bearer_value),
         (_LONG_BASE64_RE, "[BASE64 OMITTED]"),
     ), tally)
-    headed = _apply_rules(text, ((_HEADER_RE, _header_value),), tally)
-    if headed != text:
-        # A line-start header may leave a key whose value is past its line, and when
-        # that key is a header's name (`Cookie:` and `Set-Cookie:` on the next line)
-        # the key is now an inline header: it takes a header's value, as it would
-        # without the enclosing header, and as a second scrub would give it.
-        headed = _scrub_inline_headers(headed, tally)
-    text = _apply_rules(headed, ((_URL_PASSWORD_RE, lambda match: match.group(1) + REDACTED + match.group(3)),),
+    text = _apply_rules(text, ((_HEADER_RE, _header_value),), tally)
+    # The inline rule's second scan, which reads names that start their line too. It
+    # reads a header the first scan could not: a key a line-start header keeps that
+    # is a header's name (`Cookie:` and `Set-Cookie:` on the next line), a line-start
+    # header's value that is only such a name (`X-Authorization:` and `Authorization:`
+    # on the next line), which `_HEADER_RE` leaves whole, and a header a token rule
+    # made (`Bearer` joining a value's line to its token's line, or cutting a token
+    # before `Authorization:`). Each takes a header's value, as it would on its own
+    # and as a second scrub would give it; a value that now starts with `[REDACTED]`
+    # is left as the first scan leaves one, whichever rule put it there. It always
+    # runs, so whether a line is read again never depends on the rest of the text,
+    # and an excerpt scrubs as the whole does.
+    text = _scrub_inline_headers(text, tally, line_start=True)
+    text = _apply_rules(text, ((_URL_PASSWORD_RE, lambda match: match.group(1) + REDACTED + match.group(3)),),
                         tally)
     text = _scrub_named_values(text, tally, quoted=True, multiline=multiline)
     text = _scrub_named_values(text, tally)

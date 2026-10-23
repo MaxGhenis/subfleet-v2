@@ -425,7 +425,8 @@ def test_an_excerpt_agrees_with_the_whole_scrub_at_the_real_bound():
     whole = scrub_secrets(text, whole=True)[0]
     excerpt = scrub_bounded(text, None)[0]
     assert "SECRET7" not in whole and "SECRET7" not in excerpt
-    assert whole.endswith(excerpt.partition(" characters omitted] …\n")[2])
+    # `scrub_bounded` strips each excerpt; the tail is the whole scrub's last lines.
+    assert whole.rstrip().endswith(excerpt.partition(" characters omitted] …\n")[2])
     assert "SECRET7" not in refusals.detail_line("submit", ValueError(text))
 
 
@@ -611,7 +612,32 @@ print(json.dumps({"longest_cpu_gap": min(gaps), "gaps": gaps}))
 #: escaped, a long name, long backslash runs, and `Bearer` runs ending in keys.
 LINEAR_UNITS = ("x Cookie: [REDACTED] ", "-H 'Cookie: a' ", "'Cookie: ", "x Authorization:", "a Cookie:\n",
                 "\\\\\\'Cookie: x ", "a_cookie_", "Bearer a1b2c3d4_token: x ", "Bearer x--password\n",
-                "Bearer " + "--s" * 9, "Bearer ~--a_~--a_ ")
+                "Bearer " + "--s" * 9, "Bearer ~--a_~--a_ ",
+                # Fix round 1: each of A to E's paths, and the reversed scan's colons.
+                "secret:'Cookie:\nx Bearer  \n", "api_key='x --password   \n", "--password x--token ",
+                "X-Authorization:\nAuthorization:\n", "Bearer\nabc1pi_keyAuthorization:--secret x\n", "x\t: ")
+
+
+def test_an_unclosed_value_reads_its_lines_end_once():
+    """Fix round 1: an unclosed value looks for a flag or `Bearer` at its line's last
+    visible character (`_owned_item`). Each kind of escaped quote, by its run of
+    backslashes, can leave one value unclosed on a line, so a line can hold hundreds;
+    each walking back over the line's trailing whitespace again would be quadratic.
+    The walk is kept per position, so this costs what release/217's scrub does."""
+    measured = _scrubber_probe('''
+import json
+from subfleet.sessions import handoff
+from tests.cpu_scaling import best_cpu_ratio
+from tests.unit import scrub_release217 as base
+values = "".join("api_key=" + "\\\\" * run + "'x " for run in range(1, 500))
+text = values + " " * (handoff.MAX_SCRUB_CHARS - len(values) - 1) + "\\n"
+def head():
+    handoff.scrub_secrets(text)
+def reference():
+    base.scrub_secrets(text)
+print(json.dumps(best_cpu_ratio(head, reference, rounds=3)))
+''')
+    assert measured["ratio"] < 4, measured
 
 
 @pytest.mark.parametrize("unit", LINEAR_UNITS)
