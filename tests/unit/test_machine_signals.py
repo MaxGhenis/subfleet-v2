@@ -211,9 +211,11 @@ def test_baseexception_is_not_swallowed(monkeypatch):
 
 
 def test_legacy_read_avoids_new_native_sources(monkeypatch):
-    def forbidden(): pytest.fail('new native read in legacy mode')
+    def forbidden(*args): pytest.fail('new native read in legacy mode')
     monkeypatch.setattr(machine,'_cpu_ticks',forbidden)
     monkeypatch.setattr(machine,'_disk_counters',forbidden)
+    monkeypatch.setattr(machine,'_root_device_id',forbidden)
+    monkeypatch.setattr(machine,'_state_device_id',forbidden)
     assert 'load1' in REAL_READ()
 
 

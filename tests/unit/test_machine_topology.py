@@ -112,11 +112,13 @@ def test_generated_topology_appear_disappear_replace_return_and_reused_id(monkey
 
 def test_review_zero_service_observation_does_not_refresh_baseline_age(monkeypatch, tmp_path):
     source = Source(monkeypatch, tmp_path)
-    source.now = 999
+    source.now = 998
     source.read(10, 1, {1: (0, 0, 0, 0)})
-    source.sampler.record({'observed_at': 1000, 'disk_device_id': 1, 'disk_service_ms_raw': 2})
+    source.sampler.record(source.read(10, 1, {1: (2_000_000, 0, 1, 0)}))
     source.now = 1998
-    source.sampler.record(source.read(10, 1, {1: (0, 0, 1, 0)}))
+    zero = source.read(10, 1, {1: (2_000_000, 0, 2, 0)})
+    assert zero['disk_service_ms_raw'] == 0
+    source.sampler.record(zero)
     source.now = 2000
     baseline = source.sampler.status()['disk_baseline_ms']
     assert baseline['value'] == 2
@@ -163,3 +165,26 @@ def test_unresolved_root_has_no_baseline_from_other_devices(monkeypatch, tmp_pat
     sampler = machine.Sampler(tmp_path, history=[
         {'observed_at': 1000, 'disk_service_ms_raw': 2, 'disk_device_id': 1}])
     assert sampler.status()['disk_baseline_ms']['readable'] is False
+
+
+def test_reused_registry_id_on_new_root_discards_counter_baseline(monkeypatch, tmp_path):
+    source = Source(monkeypatch, tmp_path)
+    source.read(10, 1, {1: (0, 0, 0, 0)})
+    old = source.read(10, 1, {1: (1_000_000_000, 0, 100, 0)})
+    source.sampler.record(old)
+    changed = source.read(20, 1, {1: (8_000_000_000, 0, 300, 0)})
+    assert changed['disk_busy'] is None
+    assert changed['disk_baseline_ms'] is None
+    assert source.sampler.status()['disk_busy']['value'] is None
+    assert source.read(20, 1, {1: (8_100_000_000, 0, 400, 0)})['disk_busy'] == 1
+
+
+def test_baseline_value_and_age_share_one_cutoff_at_window_boundary(monkeypatch, tmp_path):
+    wall = iter([100000.0, 100000.5])
+    monkeypatch.setattr(machine.time, 'time', lambda: next(wall))
+    sampler = machine.Sampler(tmp_path, history=[
+        {'observed_at': 13600, 'disk_service_ms_raw': 2, 'disk_device_id': 1}])
+    sampler.device_id = 1
+    baseline = sampler.status()['disk_baseline_ms']
+    assert baseline['value'] == 2
+    assert baseline['age_s'] == 86400
