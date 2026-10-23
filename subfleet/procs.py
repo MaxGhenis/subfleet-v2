@@ -459,7 +459,8 @@ _VNODE_INFO_SIZE = 152
 _MAXPATHLEN = 1024
 _VNODE_PATHINFO_SIZE = 2 * (_VNODE_INFO_SIZE + _MAXPATHLEN)
 _UNIQUEID_OFFSET = _BSDINFO_SIZE + 16
-_UID_OFFSET = 20                       # pbi_uid, after flags, status, xstatus, pid and ppid
+_PPID_OFFSET = 16                      # pbi_ppid, after flags, status, xstatus and pid
+_UID_OFFSET = 20                       # pbi_uid, right after it
 _PROC_FLAG_INEXIT = 4                  # pbi_flags: the process has begun to exit
 _SZOMB = 5                             # pbi_status: a zombie
 #: Initial allocation; a full read retries up to the kernel's own KERN_ARGMAX.
@@ -481,8 +482,9 @@ class KernelProcess:
     exiting: bool
     unique_id: int | None
     proc_start: str | None = None
-    #: D-KILL4: `pbi_uid`, the effective uid, from the same record. None: unread.
+    #: D-KILL4: `pbi_uid`, the effective uid, and `pbi_ppid`, from the same record. None: unread.
     uid: int | None = None
+    ppid: int | None = None
 
 
 @dataclass(frozen=True)
@@ -624,7 +626,8 @@ class Darwin:
                        f"{born.tm_min:02d}:{born.tm_sec:02d} {born.tm_year}") if seconds else None
             return KernelProcess(pid, bool(flags & _PROC_FLAG_INEXIT),
                                  struct.unpack_from("=Q", info.raw, _UNIQUEID_OFFSET)[0], started,
-                                 struct.unpack_from("=I", info.raw, _UID_OFFSET)[0])
+                                 struct.unpack_from("=I", info.raw, _UID_OFFSET)[0],
+                                 struct.unpack_from("=I", info.raw, _PPID_OFFSET)[0])
         if got <= 0 and failure in (errno.ESRCH, errno.EPERM):
             return None
         raise InspectionError(f"process inspection of pid {pid} unavailable")
@@ -1141,9 +1144,19 @@ def _parent_chain(seen: ProcessTable, markers: set[int], members: set[int], rule
         if pid not in members and seen.live(pid) and known.proc_start and seen.rows[pid][3] == known.proc_start:
             held[pid] = f"pid {pid}: recorded parent of a marked process, outside the census; held, never signalled"
     for start in sorted(markers):
-        if start not in seen.rows:
-            continue                      # listed after the snapshot: no parent link to follow
-        parent = seen.rows[start][0]
+        if start in seen.rows:
+            parent = seen.rows[start][0]
+        else:
+            # Listed after the snapshot (a respawned child is often this young):
+            # its own kernel record names its parent.
+            try:
+                record = kernel.process(start)
+            except InspectionError:
+                errors.append(f"parent chain inspection unavailable for pid {start}")
+                continue
+            if record is None or not record.ppid:
+                continue
+            parent = record.ppid
         while parent > 1 and parent not in members and parent not in found and parent not in held:
             if parent in rule.exclude or not seen.live(parent):
                 break
