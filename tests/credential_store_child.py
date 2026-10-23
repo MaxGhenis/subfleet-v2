@@ -5,8 +5,9 @@ that inherits dummy credential-shaped variables and sets one more after
 configure, then searches the whole report for any part of their values. Each
 test fails while it holds the store of removed credentials, or the session's
 baseline snapshot, in one way a report prints a value: a local under `-l`, a
-helper's argument, an assertion's operand, captured output and a Hypothesis
-draw. The suite does not collect this file: its name does not match `test_*.py`.
+helper's argument, an assertion's operand, a comparison with a dict, captured
+output and a Hypothesis draw. The suite does not collect this file: its name
+does not match `test_*.py`.
 """
 
 from __future__ import annotations
@@ -24,6 +25,12 @@ def test_binds_the_store(pytestconfig):
 def test_binds_the_baseline_snapshot(pytestconfig):
     snapshot = pytestconfig._subfleet_original_home_env
     assert not snapshot
+
+
+def test_compares_the_baseline_snapshot(pytestconfig):
+    # pytest diffs two dicts item by item, sorted, so a snapshot holding a
+    # credential's value prints it even under `-l` alone (#244 review r2's P3-3).
+    assert pytestconfig._subfleet_original_home_env == {}
 
 
 def test_compares_the_store(pytestconfig):

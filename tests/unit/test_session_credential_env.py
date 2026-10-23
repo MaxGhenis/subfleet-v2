@@ -262,7 +262,9 @@ def test_c20_6_a_test_holding_the_store_prints_no_part_of_a_dummy(tmp_path, opti
     each way a report prints them, and the whole report holds no part of any
     dummy, an inherited one or one set after configure. Two of the dummies,
     `CLAUDE_LANE_AGENT_SECRET` and `SUBFLEET_AGENT_SECRET`, are names the
-    baseline snapshot restores as well."""
+    baseline snapshot restores as well. Comparing the snapshot with a dict
+    prints those two entries under `-l` alone, where a cut local stops before
+    them (#244 review r2's P3-3)."""
     inherited = _dummies(*DUMMY_NAMES, "CLAUDE_LANE_AGENT_SECRET", "SUBFLEET_AGENT_SECRET")
     late = _dummies(LATE_NAME)
 
@@ -270,10 +272,10 @@ def test_c20_6_a_test_holding_the_store_prints_no_part_of_a_dummy(tmp_path, opti
                                     "tests/credential_store_child.py", *options)
 
     assert _leaks({**inherited, **late}, report) == []
-    assert re.search(r"\b6 failed\b", report), report[-2000:]
+    assert re.search(r"\b7 failed\b", report), report[-2000:]
     # Each way a report prints a value printed the store, so each was searched:
     # -l's locals, a helper's argument, captured output, an assertion's
-    # operand and Hypothesis's draw.
+    # operand, a dict diff of the snapshot and Hypothesis's draw.
     assert re.search(r"^store +=", report, re.MULTILINE)
     assert re.search(r"^snapshot +=", report, re.MULTILINE)
     assert "store = <RemovedCredentials names=[" in report
@@ -281,6 +283,10 @@ def test_c20_6_a_test_holding_the_store_prints_no_part_of_a_dummy(tmp_path, opti
     # Below -vv, an assertion's operand is cut to 30 characters.
     assert re.search(r"assert (not )?<RemovedCred", report)
     assert "Draw 1 (store): <RemovedCredentials names=[" in report
+    # The dict diff lists the snapshot's entries sorted, these two among the first.
+    assert re.search(r"Left contains \d+ more items:", report)
+    assert "'CLAUDE_LANE_AGENT_SECRET': None," in report
+    assert "'SUBFLEET_AGENT_SECRET': None," in report
     outcome = json.loads(result.read_text())
     assert outcome["code"] == 1
     assert outcome["before"] == _digests(inherited)
