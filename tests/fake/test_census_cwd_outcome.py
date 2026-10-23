@@ -81,6 +81,10 @@ def test_cwd_only_preserves_outcome_and_holds_only_worktree(core, monkeypatch, e
             core._release_worktree_hold(JOB)
             assert not core.store.one("SELECT 1 FROM leases WHERE lease_key=?", (key,))
         assert not json.loads(row["evidence_json"]).get("counted_identities")
+        # D-KILL4: a cwd-only census starts no kill protocol either (cwd grants no
+        # containment, C-5.5), so neither the verdict nor its timing depends on one.
+        kinds = {event["kind"] for event in core.store.list_events(JOB)}
+        assert not kinds & {"attempt.containment_started", "attempt.kill_started", "attempt.containment"}, kinds
     finally:
         if child.poll() is None:
             child.kill()
