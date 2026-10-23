@@ -42,8 +42,11 @@ MUTANTS = {
         HOMES, "return pytest_process() or _session_environment(os.environ)",
         "return _session_environment(os.environ)", "test_production_state_root_refuses", EMPTY),
     "seam-ignores-home": (
-        HOMES, "        return personal_home(Path.home())\n", "        return False\n",
+        HOMES, "        return personal_home(spelled_home())\n", "        return False\n",
         "test_the_seam_keeps_the_live_root_refused_under_the_accounts_home", [{}]),
+    "judge-reads-path-home": (
+        HOMES, "    home = spelled_home()\n    kind = _home_kind(home)", "    home = Path.home()\n    kind = _home_kind(home)",
+        "test_a_tilde_home_reaches_the_judge_on_every_python", [{"spelling": "~/.codex"}]),
     "no-tilde-refusal": (
         HOMES, "    if _names_account_home(value):", "    if False:",
         "test_a_tilde_override_naming_the_accounts_home_is_refused",

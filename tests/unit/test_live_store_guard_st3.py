@@ -918,6 +918,31 @@ def test_a_home_inside_a_live_root_is_refused(spelling, sealed, monkeypatch):
     assert sealed.touched == []
 
 
+@pytest.mark.parametrize("spelling", [f"~{ACCOUNT}/{STORES[2]}", f"~{ACCOUNT}/{STORES[1]}/x", "~/" + STORES[2]])
+def test_a_tilde_home_reaches_the_judge_on_every_python(spelling, sealed, monkeypatch):
+    """C-20.6 (D-ST3, #242 CI): Python 3.12 and 3.13's `Path.home()` refuse a HOME spelled with
+    `~` before the guard judges it, so on 3.12 the refusal named no live store. With
+    `Path.home` made to refuse as 3.12 does, on any interpreter, both guards still name it."""
+    def refuse(cls):
+        raise RuntimeError("Could not determine home directory.")
+
+    monkeypatch.setattr(Path, "home", classmethod(refuse))
+    monkeypatch.setenv("HOME", spelling)
+    assert home_paths.spelled_home() == Path(spelling)
+    with pytest.raises(RuntimeError, match="HOME names one of the account's live stores"):
+        home_paths.protected_provider_homes()
+    with pytest.raises(RuntimeError, match="~/.subfleet"):
+        home_paths.production_state_root()
+    assert sealed.touched == []
+
+
+def test_a_home_of_bare_tilde_names_no_directory(monkeypatch):
+    """`spelled_home` refuses HOME `~` itself, as 3.14's `Path.home()` does."""
+    monkeypatch.setenv("HOME", "~")
+    with pytest.raises(RuntimeError, match="Could not determine home directory"):
+        home_paths.spelled_home()
+
+
 # --- `compat.v1_binary`'s PATH fallback ----------------------------------------------------------
 
 

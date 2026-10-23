@@ -133,14 +133,14 @@ def pytest_process() -> bool:
     A test of production behaviour may waive it (the `production_process`
     fixture), and the waiver holds only while HOME is not the account's own,
     read again at every call: with the account's HOME by any spelling, or
-    with none, which `Path.home()` reads as the account's, the rule stands.
+    with none, which `spelled_home()` reads as the account's, the rule stands.
     """
     if not pytest_loaded():
         return False
     if not _process_rule_waived():
         return True
     try:
-        return personal_home(Path.home())
+        return personal_home(spelled_home())
     except (OSError, RuntimeError, KeyError, ValueError):
         return True
 
@@ -436,6 +436,24 @@ def _within(path: str, roots) -> bool:
     return any(path == root or path.startswith(root.rstrip("/") + "/") for root in roots)
 
 
+def spelled_home() -> Path:
+    """HOME as spelled, as `Path.home()` reads it on Python 3.14, on every
+    supported Python.
+
+    Python 3.12 and 3.13 refuse a HOME that itself begins with `~` (`~/x`,
+    `~name/x`) with "Could not determine home directory."; 3.14 returns it as
+    spelled. D-ST3 judges those spellings (`_home_kind`, `personal_home`), so
+    they must reach the judge on every interpreter, not fail before it on some.
+    Only a HOME of `~` itself, which names no directory, is refused, as 3.14
+    refuses it. Only the pytest judgement reads it: production defaults keep
+    `Path.home()`, so they resolve exactly as release/217 does on each Python.
+    """
+    home = os.path.expanduser("~")
+    if home == "~":
+        raise RuntimeError("Could not determine home directory.")
+    return Path(home)
+
+
 def _tilde_home(spelled: str) -> str | None:
     """`spelled` with its leading `~` or `~name` replaced by that user's home from
     pwd, or None when `~name` names no user."""
@@ -491,7 +509,7 @@ def protected_provider_homes() -> list[Path]:
                                test_only=True)), codex_app_home()]
     if not under_pytest():
         return isolated
-    home = Path.home()
+    home = spelled_home()
     kind = _home_kind(home)
     if kind == "home":
         return isolated
@@ -547,8 +565,9 @@ def production_state_root() -> Path:
     account's own would resolve the person's live store, so it is refused before
     anything beneath it is touched (D-ST1).
     """
-    home = Path.home()
-    if under_pytest() and personal_home(home):
+    testing = under_pytest()
+    home = spelled_home() if testing else Path.home()
+    if testing and personal_home(home):
         raise PersonalPathRefused("Refusing to resolve the personal state root ~/.subfleet under pytest; "
                                   "set HOME to an isolated test home")
     return (home / ".subfleet").resolve()
