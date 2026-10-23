@@ -41,7 +41,7 @@ This was established with a dummy `SECRET7prr1` in minimal environments, with ou
 - Credential-shaped variables are absent from the test process's environment for the session. Each is put back exactly at cleanup.
 - The removed-credentials store shows names only, and the baseline snapshot holds no credential-shaped value.
 - Tests bind names only. The report's audit lists every local in this PR's tests that holds a value; none holds an inherited one.
-- **The limit:** a test that copies a value into a local by hand (`dict(store)`, `store[name]`) can still print it. So can a test that prints a variable set after configure.
+- **The limit:** a test that reads a value out of the store (by name, `dict()`, `_values` or `__getstate__`) or copies one by hand can still print it. So can a test that prints a variable set after configure. Pickling or copying the store raises `TypeError` (round 2).
 
 ### Invariants
 

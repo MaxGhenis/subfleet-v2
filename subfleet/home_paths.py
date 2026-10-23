@@ -6,6 +6,7 @@ import os
 import re
 from collections.abc import Callable, Iterator, Mapping, MutableMapping
 from pathlib import Path
+from typing import NoReturn, SupportsIndex
 
 PYTEST_MARKER = "SUBFLEET_UNDER_PYTEST"
 # Session descendants keep isolation only while this exact sentinel lives.
@@ -78,9 +79,13 @@ class RemovedCredentials:
     (#244 review r1). It is not a `collections.abc.Mapping`, because pytest 9
     diffs a failing comparison of two mappings item by item, values included.
     A value is read by its name, as `dict()` and `os.environ.update` read one.
+    Pickling and copying raise: a pickle printed the values under `-vv`, and
+    `__reduce_ex__` and `copy` handed them on (#244 review r2).
     """
 
     __slots__ = ("_values",)
+    _NOT_CARRIED = ("RemovedCredentials cannot be pickled or copied: it would carry "
+                    "the removed values (D-PRR1)")
 
     def __init__(self, values: Mapping[str, str]) -> None:
         self._values = dict(values)
@@ -104,6 +109,12 @@ class RemovedCredentials:
         return f"<RemovedCredentials names={sorted(self._values)!r}, values withheld>"
 
     __str__ = __repr__
+
+    def __reduce__(self) -> NoReturn:
+        raise TypeError(self._NOT_CARRIED)
+
+    def __reduce_ex__(self, protocol: SupportsIndex) -> NoReturn:
+        raise TypeError(self._NOT_CARRIED)
 
 
 def remove_credentials(environ: MutableMapping[str, str]) -> RemovedCredentials:

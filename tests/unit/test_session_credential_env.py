@@ -8,15 +8,19 @@ with `-vv` prints every variable in full. So `tests/conftest.py` removes every
 credential-shaped variable before collection, and puts each back exactly at
 unconfigure. The store that keeps them shows names only, and tests bind names
 only (#244 review r1: a test that bound the store's values printed one under
-`-l`). A test that copies a value into a local by hand can still print it. A
+`-l`), and pickling or copying the store raises (#244 review r2). A test that
+reads a value out of the store, or copies one by hand, can still print it. A
 test that needs a credential sets a dummy itself. Every value here is a dummy.
 """
 
 from __future__ import annotations
 
+import copy
+import functools
 import hashlib
 import json
 import os
+import pickle
 import pprint
 import re
 import reprlib
@@ -338,3 +342,42 @@ def test_c20_6_the_store_of_removed_credentials_shows_names_only(values):
     assert sorted(store) == sorted(values) and len(store) == len(values)
     home_paths.restore_credentials(environ, store)
     assert environ == {**values, "PATH": "/usr/bin", "HOME": "/home"}
+
+
+#: Each way the standard library pickles or copies an object.
+CARRIERS = {
+    **{f"pickle protocol {protocol}": functools.partial(pickle.dumps, protocol=protocol)
+       for protocol in range(pickle.HIGHEST_PROTOCOL + 1)},
+    "copy": copy.copy, "deepcopy": copy.deepcopy,
+    "deepcopy, inside a dict": lambda store: copy.deepcopy({"store": store}),
+    "__reduce__": lambda store: store.__reduce__(),
+    "__reduce_ex__": lambda store: store.__reduce_ex__(pickle.HIGHEST_PROTOCOL),
+}
+
+
+@pytest.mark.parametrize("carrier", CARRIERS)
+def test_c20_6_the_store_cannot_be_pickled_or_copied(carrier):
+    """C-20.6, D-PRR1 fix round 2: #244 review r2's P3-1. A failing test that
+    pickled the store printed its values under `-vv`, and its `__reduce_ex__`
+    handed them out; a copy carried them on. Each raises now, and its message
+    holds no value."""
+    values = _dummies("PRR1_PICKLE_TOKEN", "PRR1_PICKLE_KEY")
+    store = home_paths.remove_credentials({**values, "PATH": "/usr/bin"})
+
+    with pytest.raises(TypeError, match="cannot be pickled or copied") as raised:
+        CARRIERS[carrier](store)
+
+    assert _leaks(values, str(raised.value)) == []
+
+
+@pytest.mark.documented_limitation
+def test_c20_6_a_value_read_out_of_the_store_by_hand_is_the_value_documented_limitation():
+    """C-20.6's stated limit (#244 review r2's P3-1): the store keeps each value
+    to put it back, so a test that reads one out of it by name, `dict()`,
+    `_values` or `__getstate__` holds the value, and could print it."""
+    values = _dummies("PRR1_BY_HAND_TOKEN")
+    store = home_paths.RemovedCredentials(values)
+
+    assert store["PRR1_BY_HAND_TOKEN"] == values["PRR1_BY_HAND_TOKEN"]
+    assert dict(store) == store._values == values
+    assert store.__getstate__() == (None, {"_values": values})
