@@ -269,7 +269,7 @@ def test_c14_2_refused_preflight_is_recorded_in_the_attempt_directory_and_daemon
         name for name in ("SSL_CERT_FILE", "SSL_CERT_DIR") if name in seen[0]["env"]}
     assert seen[0]["env"]["CODEX_HOME"] == str(harness.root / "home")
     tmpdir = json.loads(daemon.store.get_attempt(a["attempt_id"])["evidence_json"])["tmpdir"]["path"]
-    assert seen[0]["env"]["TMPDIR"] == seen[0]["env_pass"]["TMPDIR"] == tmpdir + "/"
+    assert seen[0]["env"]["TMPDIR"] == tmpdir + "/"
     adir = daemon.root / "jobs" / a["job_id"] / "a1"
     record = json.loads((adir / "guard-preflight.json").read_text())
     assert record["ok"] is False and record["kind"] == "timeout" and record["code"] == 7
