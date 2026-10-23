@@ -100,7 +100,7 @@ For jobs with an owned worktree, the cwd hold and now the parent-chain rule cove
 1. **No terminal state with live census pids.** An attempt that ends anything but `quarantined` has a verified-empty census at its end, cwd holders aside (property, regressions).
 2. **Nothing outside the census is signalled.** Every pid signalled one by one was a live member of a census the protocol took; group signals go only to the recorded group (property).
 3. **Continue follows TERM.** Every CONT delivered to a process follows a TERM delivered to that same process, pid and birth; the guardian is never continued (fix round 1; property, regressions).
-4. **Never signalled:** an operator's process in the worktree that is no ancestor of a marked member, a held parent, another user's process, the daemon, its parent, another attempt's guardian (property, regressions).
+4. **Never signalled:** an operator's process in the worktree that is no ancestor of a marked member, a held parent, another user's process, the daemon, its parent, another attempt's guardian, and (fix round 1) a stranger in a leaderless group at the recorded pgid (property, regressions).
 5. **No retry before containment.** No retry is reserved while an earlier attempt's census is not empty (regressions, in process and through a real daemon).
 6. **cwd never decides a verdict.** A cwd-only census never changes a verdict (#240; regression and mutation).
 
@@ -280,3 +280,45 @@ Each mutant is detected by its named regression, as a strict xfail in `tests/uni
 | drop chain reasons from evidence | `test_every_path_records_the_chain_ancestor_and_its_reason[exit-receipt]` |
 
 The build's `retry-first` mutant now targets the new start-grace call.
+
+### Fix round 1 holds
+
+Each hold was one pytest through `suite_hold.sh` on a GIL CPython 3.14.7 venv in scratch, single process. Each ran from a `git archive` snapshot of the named commit, with `PYTHONPATH` set to it, so edits made while a hold waited could not leak in. Load was 70 to 145, with up to about ten holds queued host-wide, and slot waits ran 17 to 90 minutes.
+
+| Hold | Commit | Files | Result |
+|---|---|---|---|
+| m-hold1 | merge `90e8e362a` | review r1's hold 1 | 252 passed, 12 xfailed, 1 failed: #240's `cwd-quarantines` mutant passed its regression (fixed in `9ce8b1501`); 10 m 41 s |
+| m-hold2 | merge | review r1's hold 2 | 187 passed, 21 failed: every failure was `Harness.start`'s 5 s readiness wait at load 105 to 118 (now 60 s, `949d6811c`); 11 m 50 s |
+| h-hold3 | merge code, the new tests and the 60 s wait | review r1's hold 3, plus the new regressions run against the head | hold 3: 61 passed, 4 xfailed (D-KILL2's documented cases), 1 failed. The failure is `test_d_cen1_a_real_recycled_root_and_its_child_are_strangers[after-absent-ps-True]`, a pure-`procs` test the merge did not touch (neither `procs.py` nor the test changed): a host-wide marker scan made the census unverifiable under load; rerun in f-hold2. The new regressions at the head: 30 failed, each for its finding (below), and 2 controls passed; 2 m 55 s |
+| f-hold1 | `6b220c43c` plus the joiner grace (`200532a83`) | the new unit, mutation, property and process files, review r1's hold 1, `test_daemon_settle`, `test_state_contract`, `test_census_cwd_outcome` | 380 passed, 18 xfailed, 8 failed, all fixed in `9714784c3` and `bf787a891`: C-5.3's four uncomparable-boot cases, D-KILL2's counted property, the moved `signal-cwd` mutant target, and the two real-daemon stopped-guardian cases (stopped before its setsid); 7 m 05 s |
+
+**At the head, each new regression failed for its finding** (h-hold3):
+- **P1:** the six simulated shapes TERMed the stranger (`[('pid', 5600, 15)]`, `[('pid', 5601, 15)]`), and the real leaderless group's member was signalled.
+- **P2:** the real guardian started its provider ("the protocol started the provider it was stopping"). The real daemon's start grace sent the group `[9, 15]`, and the simulated guardian was continued.
+- **P3-1:** joiners were continued with no TERM of their own.
+- **P3-2:** `kill` and `--confirm-dead` did not name the held parent, and it never released.
+- **P3-3:** the chain ancestor's unmarked child was TERMed (`('pid', 6202, 15)`).
+- **P3-4:** no `chain_reasons` on any of the five paths.
+- **P3-5:** the orphan was TERMed (`('pid', 5700, 15)`).
+- **P3-8:** start grace took two censuses before acting.
+- **The property** found three distinct failures: evidence missing a signalled pid, a CONT with no TERM of its own, and a stranger signalled.
+- **The restored escaper checks** failed at the head only on the evidence the fix adds (`signals`); the behaviour they check held there.
+
+f-hold1, per file:
+
+| File | Result |
+|---|---|
+| `tests/unit/test_kill4_fix1.py` | 20 passed |
+| `tests/unit/test_kill4_fix1_mutations.py` | 6 xfailed (all mutants detected) |
+| `tests/process/test_kill4_fix1_process.py` | 3 passed (real guardian, real leaderless group, real joiners) |
+| `tests/unit/test_kill4_properties.py` | 1 passed (120 examples) |
+| `tests/unit/test_kill4_terminal_containment.py` | 17 passed |
+| `tests/unit/test_kill4_mutations.py` | 7 xfailed, 1 failed (`signal-cwd` target moved; fixed) |
+| `tests/fake/test_kill4_terminal_daemon.py` | 5 passed, 2 failed (stopped before setsid; fixed) |
+| `tests/process/test_census_parent_chain_process.py` | 3 passed |
+| `tests/unit/test_daemon_settle.py` | 68 passed |
+| `tests/fake/test_state_contract.py` | 37 passed |
+| `tests/fake/test_census_cwd_outcome.py` | 6 passed |
+| `tests/unit/test_census_recycled_pid.py` | 21 passed, 4 failed (fixed) |
+| `tests/unit/test_census_counted.py` | 4 passed, 1 failed (fixed) |
+| the other 14 `tests/unit/test_census*.py` files | 195 passed, 5 xfailed (#240's round-1 and round-2 mutants) |
