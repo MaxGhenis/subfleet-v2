@@ -249,17 +249,28 @@ def daemon(request, process_inspection_available):
     # AF_UNIX on macOS has a 104-byte path limit; pytest's default temp path is longer.
     with tempfile.TemporaryDirectory(prefix="sf-", dir="/tmp") as directory:
         harness = Harness(Path(directory))
+        closed = False
         try:
             yield harness
         finally:
-            harness.close()
-            # Keep the state root of a failed test so daemon.log and the store can be read.
-            report = getattr(request.node, "rep_call", None)
-            if report is not None and report.failed:
-                import shutil, sys
-                from tests.failed_keep import failed_keep_dir
-                keep = failed_keep_dir(request.node.name)
-                shutil.rmtree(keep, ignore_errors=True)
-                shutil.copytree(directory, keep, symlinks=True, ignore_dangling_symlinks=True,
-                                ignore=_sockets)
-                print(f"\n[daemon harness] kept state root at {keep}", file=sys.stderr)
+            try:
+                harness.close()
+                closed = True
+            finally:
+                # Keep the state root of a failed test so daemon.log and the store can be read,
+                # and of a close() that raised (a daemon that would not stop is the run most worth
+                # keeping), as the live app test's dev_daemon does. The copy is taken after close()
+                # either way; close()'s error is raised after it, and a copy that fails never replaces it.
+                report = getattr(request.node, "rep_call", None)
+                if not closed or report is not None and report.failed:
+                    import shutil, sys
+                    from tests.failed_keep import failed_keep_dir
+                    keep = failed_keep_dir(request.node.name)
+                    try:
+                        shutil.rmtree(keep, ignore_errors=True)
+                        shutil.copytree(directory, keep, symlinks=True, ignore_dangling_symlinks=True,
+                                        ignore=_sockets)
+                    except OSError as error:
+                        print(f"\n[daemon harness] could not keep the state root ({error})", file=sys.stderr)
+                    else:
+                        print(f"\n[daemon harness] kept state root at {keep}", file=sys.stderr)
