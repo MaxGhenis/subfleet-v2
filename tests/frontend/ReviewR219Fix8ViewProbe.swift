@@ -339,9 +339,10 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
         NSApplication.shared.setActivationPolicy(.prohibited)
         NSApp.finishLaunching()
         NSApp.setActivationPolicy(.accessory)
-        if CommandLine.arguments.last == "fix10" {
+        if let mode = CommandLine.arguments.last,
+           mode == "fix10" || mode == "fix10-far-text-50ms" {
             let root = URL(fileURLWithPath: CommandLine.arguments[1])
-            let result = await fix10Cases(root)
+            let result = await fix10Cases(root, only: mode == "fix10" ? nil : "far_text_50ms")
             print(String(decoding: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), as: UTF8.self))
             return
         }
@@ -853,14 +854,14 @@ struct SettlingPageView: View {
             "reveal_consumed": scene.palette.reveal == nil, "notices": notices]
 }
 
-@MainActor func fix10Cases(_ root: URL) async -> [String: Any] {
+@MainActor func fix10Cases(_ root: URL, only: String? = nil) async -> [String: Any] {
     var out: [String: Any] = [:]
     for (name, interval, kind) in [("far_quiet", 0.0, "text"), ("far_text_50ms", 0.05, "text"),
                                    ("far_text_120ms", 0.12, "text"), ("far_rows_150ms", 0.15, "tool"),
-                                   ("far_rows_400ms", 0.4, "tool")] {
+                                   ("far_rows_400ms", 0.4, "tool")] where only == nil || only == name {
         out[name] = await farReveal(name, root: root, interval: interval, kind: kind)
     }
-    for (name, delay, size) in [("open_reveal_250", 0.25, 40), ("open_reveal_100", 0.1, 20)] {
+    for (name, delay, size) in [("open_reveal_250", 0.25, 40), ("open_reveal_100", 0.1, 20)] where only == nil || only == name {
         out[name] = await farOpening(name, root: root, delay: delay, size: size)
     }
     out["visible_windows"] = NSApp.windows.filter(\.isVisible).count
