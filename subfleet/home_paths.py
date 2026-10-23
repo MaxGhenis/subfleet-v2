@@ -50,6 +50,9 @@ SAFE_HOME_PATHS = {
 LIVE_ROOTS = (".subfleet", ".claude", ".codex", ".claude.json")
 # Links `names_live_root` follows before it refuses, as realpath's ELOOP would.
 _MAX_LINKS = 40
+# macOS's volfs: `/.vol/<device>/<inode>` names a file by its inode, not by a
+# name, so no spelling says whether it is a live root (D-ST3, review r2).
+_BY_INODE = "/.vol"
 # This process's own code: the tree this package runs from, and the interpreter
 # and environment running it. A job's checkout can sit under ~/.subfleet/worktrees,
 # and a path inside it is the process's own, not the store's.
@@ -250,10 +253,13 @@ def names_live_root(value) -> bool:
     (through HOME, and through pwd when HOME is itself spelled with a `~`),
     lexically normalized against the working directory, and followed as
     `Path.resolve` follows its links. Neither a live root nor anything beneath
-    one is stat'ed: the spelling is judged without a stat, and the link walk
-    stops before its first call on or beneath one. A path inside this process's
-    own code (`_OWN_ROOTS`) is the process's own. An empty value names the
-    working directory and is left to its caller; a relative one under a
+    one is stat'ed by its name: the spelling is judged without a stat, and the
+    link walk stops before its first call on or beneath one. A path under
+    `/.vol/`, which names a file by its inode, counts as a live root by any
+    spelling, before any call on it (`_by_inode`); a hard link, another name
+    for a live file's inode, is judged by its own name. A path inside this
+    process's own code (`_OWN_ROOTS`) is the process's own. An empty value names
+    the working directory and is left to its caller; a relative one under a
     working directory that is gone cannot be judged, so it is refused.
     """
     return _live_kind(value) is not None
@@ -261,7 +267,8 @@ def names_live_root(value) -> bool:
 
 def _live_kind(value) -> str | None:
     """`names_live_root`'s verdict: "store" for a live root or a path inside one,
-    "home" for the account's home itself, else None."""
+    or a path no name can judge (`_by_inode`), "home" for the account's home
+    itself, else None."""
     if isinstance(value, os.PathLike):
         value = os.fspath(value)
     if isinstance(value, bytes):
@@ -281,10 +288,13 @@ def _live_kind(value) -> str | None:
                 text = os.path.join(os.getcwd(), text)
             except OSError:
                 return "store"
+        normalized = os.path.normpath(text)
+        if _by_inode(normalized):
+            return "store"
         # A spelling that is lexically the account's home is that, without a
         # stat (`home/.subfleet/..` included); every caller refuses it or keeps
         # to isolated paths. Otherwise its links are followed too.
-        kind = _spelled_kind(os.path.normpath(text), own)
+        kind = _spelled_kind(normalized, own)
         if kind is None:
             kind = _resolved_kind(text, own)
         if kind == "store":
@@ -299,6 +309,13 @@ def _fold(path: str) -> str:
     folded = "/" + os.path.normpath(path).casefold().lstrip("/")
     data = "/system/volumes/data"
     return folded[len(data):] if folded.startswith(data + "/") else folded
+
+
+def _by_inode(path: str) -> bool:
+    """Whether absolute `path` lies under `/.vol`, folded as `_fold` folds it,
+    without a stat: a path there is a file's inode, which no name can judge."""
+    folded = _fold(path)
+    return folded == _BY_INODE or folded.startswith(_BY_INODE + "/")
 
 
 def _spelled_kind(path: str, own) -> str | None:
@@ -320,7 +337,8 @@ def _resolved_kind(path: str, own) -> str | None:
     realpath does; a missing one is kept as spelled. A component that enters a
     live root, judged by its parent (`is_account_home`, a stat of the parent
     alone), ends the walk before any call on it, unless it is this process's own
-    code. A path spelled under an own root is walked from that root
+    code, and so does one that reaches `/.vol` (`_by_inode`), through a link
+    too. A path spelled under an own root is walked from that root
     (`_walk_start`), so nothing above it is stat'ed, a live root holding it
     included.
     """
@@ -335,6 +353,8 @@ def _resolved_kind(path: str, own) -> str | None:
             inside = _spelled_kind(resolved, ()) == "store" or _inside_by_identity(resolved)
             continue
         candidate = os.path.join(resolved, name)
+        if _by_inode(candidate):
+            return "store"
         entering = inside or (name.casefold() in LIVE_ROOTS and is_account_home(Path(resolved)))
         if entering and not _within(candidate, own):
             return "store"
