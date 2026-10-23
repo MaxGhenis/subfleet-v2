@@ -256,8 +256,9 @@ def daemon(request, process_inspection_available):
             # Keep the state root of a failed test so daemon.log and the store can be read.
             report = getattr(request.node, "rep_call", None)
             if report is not None and report.failed:
-                import re, shutil, sys
-                keep = Path("/tmp/sf-failed") / re.sub(r"[^A-Za-z0-9_.-]", "_", request.node.name)
+                import shutil, sys
+                from tests.failed_keep import failed_keep_dir
+                keep = failed_keep_dir(request.node.name)
                 shutil.rmtree(keep, ignore_errors=True)
                 shutil.copytree(directory, keep, symlinks=True, ignore_dangling_symlinks=True,
                                 ignore=_sockets)

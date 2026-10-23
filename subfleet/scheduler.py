@@ -1022,10 +1022,11 @@ def pin_unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: An
 
 
 def unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any,
-                 memo: dict | None = None) -> list[str] | None:
+                 memo: dict | None = None, *, permanent_only: bool = False) -> list[str] | None:
     """C-11.8, C-6.9: the standing refusals that keep every lane from a job now,
     whatever capacity does, or None when some lane could take it once capacity
-    comes back.
+    comes back. With `permanent_only`, operator holds and provider limits with
+    a reset are excluded, however far away: these never expire a retry's grace.
 
     A lane-pinned job is its pinned lane's (`pin_unadmittable`). Any other job
     must be refused for a standing reason by every lane of every model its chain
@@ -1048,7 +1049,8 @@ def unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any,
             closures.setdefault(row.get("lane_id"), []).append(row)
         found: list[str] = []
         for short in setup["chain"]:
-            key = (short, frozenset(setup["excluded"]), bool(job.get("allow_desktop")), setup["is_turn"])
+            key = (short, frozenset(setup["excluded"]), bool(job.get("allow_desktop")), setup["is_turn"],
+                   permanent_only)
             if memo is not None and key in memo:
                 refusals = memo[key]
             else:
@@ -1061,6 +1063,12 @@ def unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any,
                                                  in_flight=0, unavailable=view.get("unavailable_lanes") or {})
                     standing = standing_refusals(reasons, detail, lane, closures.get(lane["lane_id"], ()),
                                                  setup["now"], far)
+                    if permanent_only:
+                        standing = [reason for reason in standing if not reason.startswith("closed:")]
+                        if any(row.get("reason") == "auth-dead"
+                               and f"closed:{row['scope']}:{row['until_at']}" in reasons
+                               for row in closures.get(lane["lane_id"], ())):
+                            standing.append("auth-dead")
                     if not standing:
                         refusals = None
                         break

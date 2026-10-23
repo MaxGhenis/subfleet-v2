@@ -24,7 +24,7 @@ from .client import same_process
 from .contracts import READING_TTL_S, Exit, JobState
 from .quota_projection import weekly_projections
 from .store import SCHEMA_VERSION as KNOWN_SCHEMA_VERSION
-from .store import WEEKLY_HISTORY_SQL, notice_rows, shell_flags, weekly_history_params
+from .store import WEEKLY_HISTORY_SQL, cancel_info, notice_rows, shell_flags, weekly_history_params
 
 STORE_NAME = "state.sqlite3"
 RECEIPTS = ("start", "exit")            # C-5.2 receipts beside the store (C-17.5)
@@ -251,6 +251,11 @@ class Offline:
             if row is None:
                 raise LookupError(f"no job {job_id!r} in {self.store_path}")
             job = self._job_dict(row)
+            cancel = conn.execute("SELECT ts,data_json FROM events WHERE job_id=? "
+                                  "AND kind='job.cancel_requested' AND event_id>COALESCE((SELECT MAX(event_id) "
+                                  "FROM events WHERE job_id=? AND kind='job.wall_cancel_superseded'),0) "
+                                  "ORDER BY event_id DESC LIMIT 1", (job_id, job_id)).fetchone()
+            job["cancel"] = cancel_info(cancel["ts"], cancel["data_json"]) if cancel and job["cancel_requested_at"] else None
             job["attempts"] = [shell_flags(item) for item in conn.execute(
                 "SELECT * FROM attempts WHERE job_id = ? ORDER BY seq", (job_id,))]
             ids = [attempt["attempt_id"] for attempt in job["attempts"]]

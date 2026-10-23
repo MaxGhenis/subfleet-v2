@@ -9,7 +9,7 @@ drives the daemon through the app's own engine, outbox and store state and
 records every exchange; this test checks its results, the daemon's store,
 and that every answer decodes into the app's models without losing a field.
 Nothing here touches ~/.subfleet. A failed run's state root and the probe's
-record are kept under /tmp/sf-failed, which CI uploads.
+record are kept under /tmp/sf-failed/<pid>/, which CI uploads.
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import re
 import shutil
 import sqlite3
 import sys
@@ -87,12 +86,13 @@ def dev_daemon(request, core_probe, tmp_path):
 
 
 def keep_failed_root(name: str, root: Path, record: Path) -> Path | None:
-    """Copy a failed run's state root to /tmp/sf-failed/<test>, with the probe's record
+    """Copy a failed run's state root to /tmp/sf-failed/<pid>/<test>, with the probe's record
     beside it under probe/ (its checks, its stopped state, every exchange, the app's
     outbox and staged attachments), and delete the original. Sockets are left out, as
     the other harnesses leave them out. A copy that fails leaves the original in place."""
     from tests.e2e.conftest import _sockets
-    keep = Path("/tmp/sf-failed") / re.sub(r"[^A-Za-z0-9_.-]", "_", name)
+    from tests.failed_keep import failed_keep_dir
+    keep = failed_keep_dir(name)
     try:
         shutil.rmtree(keep, ignore_errors=True)
         shutil.copytree(root, keep, symlinks=True, ignore_dangling_symlinks=True, ignore=_sockets)

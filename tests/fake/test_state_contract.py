@@ -545,7 +545,7 @@ def test_c5_6_state_kill_escalation_signals_only_owned_survivors(state_daemon, m
     monkeypatch.setattr(daemon_module.procs, "signal_group",
                         lambda pgid, sig, **identity: signals.append(("group", pgid, sig)))
     monkeypatch.setattr(daemon_module.procs, "signal_process",
-                        lambda identity, sig: signals.append(("process", identity.pid, sig)))
+                        lambda identity, sig, **kwargs: signals.append(("process", identity.pid, sig)))
     daemon.term_grace_s = 0
     daemon.dispatch("kill", {"job_id": job_id})
     daemon._kill_attempt(attempt)
@@ -719,8 +719,8 @@ def test_c4_5_state_transient_retries_same_lane_once_then_another(state_daemon):
     assert [row["lane_id"] for row in daemon.store.list_attempts(job_id)] == ["codex-2", "codex-2", "codex-1"]
 
 
-def test_c6_4_state_wall_limit_cancels_a_job_waiting_for_retry(state_daemon):
-    """C-6.4 max_wall_s also bounds a job waiting between attempts and preserves terminal notice."""
+def test_c6_4_state_wall_does_not_cancel_a_held_retry(state_daemon):
+    """D-WALL1: a transient retry waits through a hold beyond the wall, then runs."""
     daemon, harness = state_daemon
     job_id, attempt, adir = reserve(daemon, harness)
 
@@ -730,8 +730,15 @@ def test_c6_4_state_wall_limit_cancels_a_job_waiting_for_retry(state_daemon):
 
     register("codex", TransientAdapter)
     daemon._finalize(receipt_fixture(daemon, attempt, adir, rc=1))
-    daemon.store.update_job(job_id, started_at="2000-01-01T00:00:00Z")
+    daemon.store.update_job(job_id, started_at="2000-01-01T00:00:00Z", max_wall_s=10, next_check_at=None)
+    daemon.store.update_lane(attempt["lane_id"], enabled=False)
     daemon._admit()
-    assert daemon.store.get_job(job_id)["state"] == "cancelled"
-    assert len(daemon.store.list_notices()) == 1
+    assert daemon.store.get_job(job_id)["state"] == "waiting"
+    assert daemon.store.get_job(job_id)["cancel_requested_at"] is None
+    assert daemon.store.list_notices() == []
     assert len(daemon.store.list_attempts(job_id)) == 1
+    daemon.store.update_lane(attempt["lane_id"], enabled=True)
+    daemon.store.update_job(job_id, next_check_at=None)
+    daemon._admit()
+    assert daemon.store.get_job(job_id)["state"] == "running"
+    assert len(daemon.store.list_attempts(job_id)) == 2

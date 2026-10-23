@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from subfleet import cli, doctor
+from subfleet import cli, client, doctor
 from subfleet.contracts import Exit
 from tests.fake.conftest import process_inspection_available  # noqa: F401
 
@@ -316,16 +316,14 @@ def test_daemon_lock_row_passes_with_neither_lock_nor_socket(root):
 
 def test_daemon_lock_row_fails_on_a_lock_whose_process_is_gone(root, monkeypatch):
     """C-5.8 a lock naming a dead pid beside a live socket is the stale case."""
-    from subfleet import client
-
     seen = []
 
     def gone(pid):
         seen.append(pid)
-        return ""
+        return "", ""
 
     monkeypatch.setattr(client, "boot_id", lambda: "1")
-    monkeypatch.setattr(client, "proc_start", gone)
+    monkeypatch.setattr(client, "proc_status", gone)
     (root / "daemon.sock").touch()
     (root / "daemon.lock").write_text(json.dumps(
         {"pid": 999999, "boot_id": "1", "proc_start": "Mon Jan  1 00:00:00 2001"}))
@@ -344,22 +342,22 @@ def test_daemon_lock_row_fails_on_a_socket_with_no_lock(root):
 def test_daemon_lock_row_passes_against_a_live_daemon(daemon, root, monkeypatch):
     """C-5.3 the lock is verified by process identity, not by a bare pid; here
     the fake daemon holds the socket and the lock names this very process."""
-    from subfleet import client
-
-    started = "Mon Jan 1 00:00:00 2001"
+    # Process parsing/inspection has its own tests. This table test should not
+    # depend on a runner allowing ps to inspect even the current process.
+    started = "Sun Sep 20 23:26:42 2026"
     seen = []
 
-    def process_start(pid):
+    def process_status(pid):
         seen.append(pid)
-        return started
+        return "S", started
 
     monkeypatch.setattr(client, "boot_id", lambda: "1")
-    monkeypatch.setattr(client, "proc_start", process_start)
+    monkeypatch.setattr(client, "proc_status", process_status)
     daemon({"ping": lambda request: {"pong": True, "version": "test"}})
     (root / "daemon.lock").write_text(json.dumps(
         {"pid": os.getpid(), "boot_id": "1", "proc_start": started}))
     assert doctor.check_daemon_lock(root)["status"] == doctor.PASS
-    assert seen == [os.getpid()]
+    assert seen and set(seen) == {os.getpid()}
 
 
 # --- --live -------------------------------------------------------------------

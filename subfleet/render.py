@@ -360,6 +360,7 @@ _PIN_REFUSALS = {
     "config-dir": "{lane} has its own config directory, where the conversation's transcript is not (C-26.2)",
     "owner-v1": "{lane} is owned by Subfleet v1",
     "disabled": "{lane} is disabled",
+    "auth-dead": "{lane}'s provider rejected its credential; a new login or re-enrolment is needed",
     "identity-mismatch": "{lane}'s credential proved to hold another account (C-10.6)",
     "credential-refused": "{lane} names {credential_ref}, a variable every launch inherits, so it holds no "
                           "credential of its own (D-ENV1); point it at a daemon variable off the launch "
@@ -413,6 +414,10 @@ def pin_notice(job_id: str, stuck: Mapping[str, Any], fail_at: str | None) -> st
 
     Not a C-15.1 notice (the job has not ended): a service notice to the
     session that submitted it, which the session hooks surface (C-15.2)."""
+    if stuck.get("all_lanes"):
+        return (f"{job_id}: waiting; every candidate lane refuses its retry: {pin_refusals(stuck)}.\n"
+                f"Fix: restore a usable lane or `subfleet kill {job_id}`. "
+                f"Meanwhile {pin_ends(fail_at)}, and it holds no other job back (C-11.8).")
     lane = stuck.get("lane_id") or "its lane"
     return (f"{job_id}: waiting; its pinned lane {lane} can never admit it: {pin_refusals(stuck)}.\n"
             f"Fix: resubmit it unpinned, or pinned to another lane (-a or -H), then `subfleet kill {job_id}`; "
@@ -423,6 +428,10 @@ def pin_notice(job_id: str, stuck: Mapping[str, Any], fail_at: str | None) -> st
 
 def pin_failure(stuck: Mapping[str, Any], since: str | None) -> str:
     """C-11.8: the summary of the terminal notice of a job failed for its pin (C-15.1)."""
+    if stuck.get("all_lanes"):
+        return ("no lane: every candidate lane refused its retry"
+                + (f" from {since} on" if since else "") + f": {pin_refusals(stuck)}; "
+                "fix: restore a usable lane and resubmit (C-11.8)")
     lane = stuck.get("lane_id") or "its lane"
     return (f"no lane: its pinned lane {lane} could never admit it"
             + (f" from {since} on" if since else "") + f": {pin_refusals(stuck)}; "
@@ -503,7 +512,7 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
                       "machine": _machine(hold)}
             if reason == "disk" and hold.get("free_gb") is None:
                 fields["free_gb"] = "unknown"
-            if reason == "pin-unadmittable":
+            if reason in ("pin-unadmittable", "lanes-unadmittable"):
                 fields.update(refusals=pin_refusals(hold), ends=pin_ends(hold.get("fail_at")))
             lines.append("Held: " + template.format_map({**dict.fromkeys(
                 ("behind", "tier", "max_active_attempts", "kept_for", "live", "error_type", "error",
@@ -526,6 +535,9 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
                              + " takes it first)")
         else:
             lines.append(f"Held: no lane admits it ({reason})")
+            if reason == "lanes-unadmittable":
+                lines.append(f"Every candidate lane refuses its retry: {pin_refusals(hold)}; "
+                             f"{pin_ends(hold.get('fail_at'))}; fix: restore a usable lane")
         if hold.get("for_good"):
             # C-11.8, C-6.9: every lane it could use refuses it for a reason no wait ends.
             lines.append("Every lane it could use refuses it for a reason no wait ends ("
