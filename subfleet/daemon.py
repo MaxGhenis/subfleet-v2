@@ -9095,8 +9095,8 @@ class Daemon:
         def one_by_one(found: procs.Containment, sig: signal.Signals) -> None:
             for pid, (ident, why) in Daemon._signal_reasons(self, a, found).items():
                 mine, in_group = (pid, ident.proc_start), pid in found.group_pids
-                if in_group and mine in reached_by[signal.SIGKILL]:
-                    continue                           # the group's KILL reached it
+                if sig == signal.SIGTERM and in_group and mine in reached_by[signal.SIGKILL]:
+                    continue                           # the group's KILL reached it: no TERM after it
                 reached = ((sig == signal.SIGTERM and in_group and mine in reached_by[signal.SIGTERM])
                            or sent.get((pid, sig)) == ident)
                 if not reached:

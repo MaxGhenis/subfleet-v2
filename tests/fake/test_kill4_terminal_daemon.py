@@ -206,7 +206,9 @@ def test_a_guardian_alive_past_start_grace_is_killed_before_any_retry(daemon, st
         last = evidence["terminal_containment"][-1]
         assert last["contained"] is True
         assert last["group_signals"] == [int(signal.SIGKILL)], last          # KILLed at once, never TERMed
-        assert guardian.pid not in last["signalled"], last                    # never continued, nor signalled alone
+        # Never continued, and never TERMed alone: at most a KILL to it as a survivor.
+        assert not [e for e in last.get("signals", []) if e["pid"] == guardian.pid
+                    and e["signal"] != int(signal.SIGKILL)], last
     finally:
         if alive(guardian):
             procs.signal_process(guardian, signal.SIGKILL)
