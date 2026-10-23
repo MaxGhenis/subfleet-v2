@@ -2665,11 +2665,16 @@ def daemon_env(root: Path, *, notes: list[str] | None = None) -> dict[str, str]:
 
 
 def _log_tail(path: Path, lines: int = 20) -> str:
+    """daemon.log's last `lines` lines, for a person's terminal (C-25.7): the file's
+    text scrubbed as the daemon's handler scrubs a record, cut to its bound first,
+    whoever wrote it, its lines kept (`daemon_log.scrubbed_tail`), each behind a
+    margin added after the scrub."""
+    from . import daemon_log
     try:
         text = path.read_text(errors="replace")
     except OSError:
         return f"(no {path})"
-    tail = text.splitlines()[-lines:]
+    tail = daemon_log.scrubbed_tail(text, lines)
     return "\n".join(f"  | {line}" for line in tail) or f"(empty {path})"
 
 
@@ -2702,12 +2707,15 @@ def cmd_daemon_start(args: argparse.Namespace) -> int:
     except OSError as exc:
         return fail(Exit.OPERATIONAL, f"daemon start: cannot create {root}: {exc}")
     held: list[str] = []
+    # C-25.7: a refusal names the policy's or the roster's own text, so it is
+    # printed as the daemon's handler would write it, scrubbed.
+    from . import daemon_log
     try:
         env = daemon_env(root, notes=held)
     except PolicyError as exc:
-        return fail(Exit.INVALID_INPUT, str(exc))
+        return fail(Exit.INVALID_INPUT, daemon_log.scrubbed(str(exc)))
     for text in held:
-        note(f"{PROG} daemon start: {text}")
+        note(daemon_log.scrubbed(f"{PROG} daemon start: {text}"))
     argv = _daemond_argv(root)
     log_path = root / LOG_NAME
     try:
@@ -2952,29 +2960,45 @@ def cmd_daemon_status(args: argparse.Namespace) -> int:
 
 
 def cmd_daemon_logs(args: argparse.Namespace) -> int:
+    """daemon.log's last lines, then with `--follow` what is written after them, each
+    scrubbed as `daemon start`'s tail is (C-25.7): the file is never rewritten, so it
+    may hold what a daemon before D-LOG1 wrote raw. There is no raw form; the file is
+    there to read."""
+    from . import daemon_log
     path = _root(args) / LOG_NAME
     if not path.exists():
         return fail(Exit.OPERATIONAL, f"daemon logs: no {path}")
-    try:
-        text = path.read_text(errors="replace")
-    except OSError as exc:
-        return fail(Exit.OPERATIONAL, f"daemon logs: {exc}")
     if args.lines < 0:
         return fail(Exit.INVALID_INPUT, "daemon logs: --lines must be non-negative")
-    for line in (text.splitlines()[-args.lines:] if args.lines else []):
-        out(line)
-    if not args.follow:
-        return int(Exit.OK)
-    with open(path, "r", errors="replace") as stream:
-        stream.seek(0, os.SEEK_END)
+    try:
+        stream = open(path, "r", errors="replace")
+    except OSError as exc:
+        return fail(Exit.OPERATIONAL, f"daemon logs: {exc}")
+    with stream:
+        try:
+            text = stream.read()
+        except OSError as exc:
+            return fail(Exit.OPERATIONAL, f"daemon logs: {exc}")
+        if not args.follow:
+            for line in daemon_log.scrubbed_tail(text, args.lines):
+                out(line)
+            return int(Exit.OK)
+        # Following starts with the lines `daemon logs -n N` prints (review r5 of #233, P3-2);
+        # the follower reads their end that is not settled yet again with what comes next.
+        for line in daemon_log.scrubbed_tail(text, args.lines):
+            out(line)
+        follower = daemon_log.LogFollower(text)
         try:
             while True:
-                line = stream.readline()
-                if line:
-                    out(line.rstrip("\n"))
+                more = stream.read()
+                if more:
+                    for line in follower.feed(more):
+                        out(line)
                 else:
                     time.sleep(0.25)
         except KeyboardInterrupt:
+            for line in follower.flush():
+                out(line)
             return int(Exit.OK)
 
 

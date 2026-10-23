@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
-import sys
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
@@ -847,7 +847,11 @@ def resolve_model(policy: Mapping[str, Any], name: str, *, key: str = "pinned_mo
         if name in retired:
             target = retired[name]
             if note:
-                print(f"subfleet: retired model {name!r} resolves to {target!r}", file=sys.stderr)
+                # The daemon's stderr is daemon.log: written as its handler writes a
+                # record, since both names are the policy's own text (C-25.7).
+                from . import daemon_log
+                daemon_log.write_scrubbed(f"subfleet: retired model {name!r} resolves to {target!r}",
+                                          logging.WARNING)
             return target
         for short, model in models.items():
             if model["id"] == name:

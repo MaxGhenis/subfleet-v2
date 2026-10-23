@@ -65,17 +65,34 @@ from .turn import (
 
 
 def _suggestion_errors(handler):
-    """Keep direct suggestion refusals inside the public template vocabulary too."""
+    """Keep direct suggestion refusals inside the public template vocabulary too.
+    What the template leaves out, the refusing op's own words, goes to daemon.log
+    only, scrubbed (C-26.10, C-25.7)."""
+    op = handler.__name__.removeprefix("op_").replace("_", ".", 1)     # `op_suggestion_start`: suggestion.start
+
     @functools.wraps(handler)
     def checked(self, args, peer):
         try:
             return handler(self, args, peer)
         except ConversationError as exc:
+            if not _template_only(exc):
+                refusals.log_detail(self.log, op, exc)
             reason = suggestions.error_reason(exc) or "suggestion-failed"
             raise suggestions.SuggestionError(reason, suggestions.scrub_error(exc), code=suggestions.error_code(exc),
                                               fix=suggestions.error_fix(exc),
                                               details=suggestions.error_details(exc)) from None
     return checked
+
+
+def _template_only(exc: ConversationError) -> bool:
+    """Whether a suggestion refusal's words and repair are the template the wire shows,
+    so daemon.log would learn nothing from them."""
+    reason = suggestions.error_reason(exc)
+    try:
+        return (reason is not None and str(exc) == suggestions.error_message(reason, suggestions.error_details(exc))
+                and exc.fix in (None, suggestions.error_fix(exc)))
+    except Exception:                       # noqa: BLE001 - words that cannot be compared are logged
+        return False
 
 # `jobs.kind.v1`: `list` honours `kind` and `include_turns` and leaves turn jobs out by
 # default; `status.json` rows carry `kind` (C-18.2, C-26.12, C-29.6).
@@ -299,7 +316,7 @@ class ConversationService:
                                          suggestions.error_fix(exc))
             else:
                 response = protocol.refuse(req.id, exc)
-                refusals.log_detail(self.log, req.op, exc)
+            refusals.log_detail(self.log, req.op, exc)
         except (ValueError, TypeError, KeyError) as exc:
             message = (suggestions.scrub_error(exc, prefix="invalid arguments: ")
                        if req.op in suggestions.SUGGESTION_OPS else
@@ -1950,7 +1967,7 @@ class ConversationService:
         try:
             self._lift_fence(cid, fence)
         except Exception as exc:
-            self.log.error("lifting handoff fence %s of %s failed: %s: %s", fence, cid, type(exc).__name__, exc)
+            self.log.error("lifting handoff fence %s of %s failed: %s", fence, cid, refusals.scrubbed_words(exc))
 
     def _lift_stale_fence(self, conversation: dict) -> dict:
         """A fence nobody holds is one a failed or interrupted handoff left: lift
@@ -2273,7 +2290,7 @@ class ConversationService:
                     self._catalog_fence = pipe_above_stdio()
                 process = spawn_refresh(self.root, fence_fd=self._catalog_fence[0])
             except OSError as exc:
-                self.log.warning("catalog run not started: %s", exc)
+                self.log.warning("catalog run not started: %s", refusals.scrubbed_words(exc))
                 return {"requested": False, "running": bool(refresh_running(self.root))}
             if process is None:                 # another run holds the lock
                 return {"requested": False, "running": bool(refresh_running(self.root))}
@@ -2940,7 +2957,7 @@ class ConversationService:
         try:
             self._record_start(turn, dict(attempt))   # C-26.14: the turn's diff has a base
         except Exception as exc:                      # finalization records it again; a turn never waits on it
-            self.log.warning("turn %s start snapshot not recorded: %s: %s", aid, type(exc).__name__, exc)
+            self.log.warning("turn %s start snapshot not recorded: %s", aid, refusals.scrubbed_words(exc))
         return True
 
     def _writer_check(self, turn: dict, adir: Path) -> list[int]:

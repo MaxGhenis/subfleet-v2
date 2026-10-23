@@ -2,10 +2,12 @@
 
 A fresh Python child imports the round-10 tests from a shadow copy of the
 source and calls the named test function on each case, first unmutated (the
-control), then with the exact mutation. Children are not pytest processes; the
-file runs under the parent's single pytest/lock hold. A mutant that approves a
-launch runs only `sw_vers`, `true` or a registered recording stand-in; nothing
-here starts the reader.
+control), then with the exact mutation. Each typed-word mutant fails its
+fixed-example named test; two of them must also fail the round-10 property,
+whose launches are synthetic audit events. Children
+are not pytest processes; the file runs under the parent's single pytest/lock
+hold. A mutant that approves a launch runs only `sw_vers`, `true` or a
+registered recording stand-in; nothing here starts the reader.
 """
 from __future__ import annotations
 
@@ -23,6 +25,10 @@ ROUND10 = "tests/unit/test_live_store_guard_round10.py"
 CREDENTIALS = "subfleet/credentials.py"
 NET = "tests/keychain_standin.py"
 SCRATCH = "{scratch}"  # A fresh directory per case, for a test's tmp_path.
+# The lines the typed-word mutants change: argv decoding in the wrapper check,
+# and the program decoding in the launch search.
+ARGV = "        argv = [os.fsdecode(arg) for arg in argv]\n"
+FIND = '    name = os.fsdecode(name)\n    base = "" if cwd is None else os.fsdecode(cwd)\n'
 
 # name: (file, exact original, replacement, named test, cases). The first three
 # are the review's requested mutations; the rest pin each other rule this round adds.
@@ -73,6 +79,20 @@ MUTANTS = {
     "net-fail-open": (
         NET, 'return f"{event}: the check cannot finish ({type(error).__name__})"', "return None",
         "test_p2_safety_net_refuses_a_check_that_cannot_finish", [[]]),
+    # #245 review r1's P3: the typed-word mutants, each pinned to a fixed example,
+    # and all but the blanked-word one to the property below too, whose catch
+    # depends on its seed.
+    "wrapper-drops-typed-words": (
+        CREDENTIALS, ARGV, "        argv = [arg for arg in argv if isinstance(arg, str)]\n",
+        "test_r1_p3_a_wrapper_command_given_as_bytes_or_a_path_is_judged", [["bytes"], ["path"]]),
+    "wrapper-blanks-untyped-words": (
+        CREDENTIALS, ARGV, '        argv = [os.fsdecode(arg) if isinstance(arg, (str, bytes, os.PathLike)) else ""'
+                           " for arg in argv]\n",
+        "test_r1_p3_a_wrapper_argv_word_that_names_nothing_is_refused", [[]]),
+    "typed-program-names-nothing": (
+        CREDENTIALS, FIND,
+        '    name = name if isinstance(name, str) else ""\n    base = "" if cwd is None else os.fsdecode(cwd)\n',
+        "test_r1_p3_a_program_given_as_bytes_or_a_path_is_judged", [["bytes"], ["path"]]),
 }
 
 PROBE = '''
@@ -100,6 +120,7 @@ print("named test passed:", name, len(cases), "cases")
 
 @pytest.mark.parametrize("mutant", MUTANTS)
 def test_round10_mutant_fails_its_named_test(tmp_path, shadow, mutant):
+    """C-20.6 each mutation of the guard or its safety net fails the round-10 test named for it."""
     relative, original, replacement, name, cases = MUTANTS[mutant]
     (shadow / "tests" / "unit").mkdir(exist_ok=True)
     shutil.copyfile(REPO / ROUND10, shadow / ROUND10)
@@ -120,3 +141,57 @@ def test_round10_mutant_fails_its_named_test(tmp_path, shadow, mutant):
         source.write_text(saved)
     assert mutated.returncode != 0, f"survived: {mutant}\n{mutated.stdout}"
     assert "NAMED TEST FAILED: " + name in mutated.stdout, mutated.stdout + mutated.stderr
+
+
+# #226 review r2's P3: mutants only the property's typed inputs reach. Each
+# mishandles an argv word or program given as bytes, a path object or neither;
+# the property at 473fe2941, whose words were all text, passed on each. The
+# property must still catch them; MUTANTS above pins each to a fixed example too.
+# Left out here: wrapper-blanks-untyped-words, which the property caught under
+# only 9 of 30 seeds in #245 review r1's sweep, so its pin would hold by the
+# seed's luck. Its fixed example is the only pin it needs.
+PROPERTY_MUTANTS = {name: MUTANTS[name][1:3]
+                    for name in ("wrapper-drops-typed-words", "typed-program-names-nothing")}
+
+PROPERTY_PROBE = '''
+import sys
+from pathlib import Path
+from tests.unit import test_live_store_guard_round10 as round10
+from tests.keychain_standin import StandIn
+scratch = Path(sys.argv[1])
+scratch.mkdir()
+found = StandIn(scratch / "guarded")
+(found.path.parent / round10.ALIAS).symlink_to(found.path)
+try:
+    round10.test_property_no_launch_that_could_reach_the_reader_and_no_unfinished_check_is_approved(
+        property_standin=found)
+except BaseException as error:
+    print("PROPERTY FAILED:", type(error).__name__, " ".join(str(error).split())[:300])
+    sys.exit(1)
+print("property passed")
+'''
+
+
+@pytest.mark.parametrize("mutant", PROPERTY_MUTANTS)
+def test_round10_property_fails_on_each_typed_word_mutant(tmp_path, shadow, mutant):
+    """C-20.6 the property catches a guard that mishandles argv words or programs given as bytes or paths."""
+    original, replacement = PROPERTY_MUTANTS[mutant]
+    (shadow / "tests" / "unit").mkdir(exist_ok=True)
+    shutil.copyfile(REPO / ROUND10, shadow / ROUND10)
+    source = shadow / CREDENTIALS
+    saved = source.read_text()
+    assert saved.count(original) == 1, (mutant, "stale mutation")
+    env = {**os.environ, "PYTHONPATH": str(shadow), "PYTHONDONTWRITEBYTECODE": "1"}
+
+    def run(label):
+        return subprocess.run([sys.executable, "-c", PROPERTY_PROBE, str(tmp_path / label)],
+                              cwd=shadow, env=env, capture_output=True, text=True, timeout=300)
+    control = run("control")
+    assert control.returncode == 0, control.stdout + control.stderr
+    try:
+        source.write_text(saved.replace(original, replacement))
+        mutated = run("mutant")
+    finally:
+        source.write_text(saved)
+    assert mutated.returncode != 0, f"survived: {mutant}\n{mutated.stdout}"
+    assert "PROPERTY FAILED: " in mutated.stdout, mutated.stdout + mutated.stderr
