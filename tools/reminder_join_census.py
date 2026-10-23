@@ -4,7 +4,7 @@
 Each text is `tests.unit.test_daemon_log_first_pass.grammar_text(random.Random(seed))`:
 keys, separators, every quote kind, escapes, flags, private-key and data-URI pieces,
 margins, reminders and orphans, with reminders between a separator and a quote. For each,
-the text the tail would cut (`daemon_log._reminders_resolved`) is computed twice:
+the text the tail would cut (`daemon_log._reminders_resolved`) is computed three ways:
 
 - `round 6`: reminders taken out whatever the first pass over what is left replaces, as
   round 6 took them out, checking only the margin-free reading's pairs (the mutation
@@ -19,7 +19,11 @@ the text the tail would cut (`daemon_log._reminders_resolved`) is computed twice
 With `--margin-texts N`, N more texts are drawn after the grammar's: margin files that end
 in a reminder (`tests.unit.test_daemon_log_trailing_reminders.margin_reminder_text`, the
 shape review r6 noted no test drew), each counted the same way, its tails at `--bound`
-(that file's property runs them after 600 admission lines at the real bound).
+(that file's property runs them after 600 admission lines at the real bound). For those it
+also says why each refused text keeps the marker (that file's `refusal_reasons`), how many
+data URI refusals review r6's direction alone (the mutation tool's
+`trailing-breaks-stripped-alone`) would have leaked, and whether any text `c2e080e44`
+resolves is refused here or resolves to another text.
 
 A text leaks when the whole-text scrub of what would be cut (its block, lines kept) shows
 a secret the whole-text scrub of the text hides. A text falls back when the resolution is
@@ -46,7 +50,7 @@ sys.path.insert(0, str(REPO / "tools"))
 
 from subfleet import daemon_log  # noqa: E402
 from tests.unit.test_daemon_log_first_pass import BETWEEN, grammar_text  # noqa: E402
-from tests.unit.test_daemon_log_trailing_reminders import margin_reminder_text  # noqa: E402
+from tests.unit.test_daemon_log_trailing_reminders import margin_reminder_text, refusal_reasons  # noqa: E402
 
 import daemon_log_cut_mutations as mutations  # noqa: E402
 
@@ -70,6 +74,15 @@ def resolved_c2e080e44(text: str):
     patch = pytest.MonkeyPatch()
     try:
         mutations._asymmetric_margin_free_comparison(patch)
+        return daemon_log._reminders_resolved(text)
+    finally:
+        patch.undo()
+
+
+def resolved_stripped_alone(text: str):
+    patch = pytest.MonkeyPatch()
+    try:
+        mutations._trailing_breaks_stripped_alone(patch)
         return daemon_log._reminders_resolved(text)
     finally:
         patch.undo()
@@ -136,13 +149,15 @@ def main(argv: list[str] | None = None) -> int:
             ("review r5's grammar", grammar_text, args.bound, args.texts),
             ("margin files ending in a reminder", margin_reminder_text, args.bound, args.margin_texts)):
         if texts:
-            failed |= census(label, draw, args.seed, texts, bound, counts, started, args.budget_s)
+            failed |= census(label, draw, args.seed, texts, bound, counts, started, args.budget_s,
+                             explain=draw is margin_reminder_text)
     return int(failed)
 
 
 def census(label: str, draw, first: int, texts: int, bound: int, counts: list[int], started: float,
-           budget_s: float | None) -> bool:
-    """One corpus's counts, printed; whether this tree leaked on it."""
+           budget_s: float | None, explain: bool = False) -> bool:
+    """One corpus's counts, printed; whether this tree leaked on it. With `explain`, each
+    refusal's reason and the comparison with `c2e080e44` too."""
     began = time.monotonic()
     totals = {"texts": 0, "tagged": 0, "between": 0}
     for name, _ in RESOLVERS:
@@ -159,13 +174,16 @@ def census(label: str, draw, first: int, texts: int, bound: int, counts: list[in
         totals["tagged"] += 1
         totals["between"] += bool(BETWEEN.search(text))
         whole = shown(text)
+        results = {}
         for name, resolver in RESOLVERS:
-            resolved = resolver(text)
+            resolved = results[name] = resolver(text)
             if resolved is None:
                 totals[f"{name} falls back"] += 1
             elif shown(resolved) - whole:
                 totals[f"{name} leaks"] += 1
                 examples.setdefault(name, repr(text))
+        if explain:
+            explained(text, whole, results, totals)
         saved = daemon_log.RECORD_SCRUB_MAX
         daemon_log.RECORD_SCRUB_MAX = bound
         try:
@@ -185,6 +203,24 @@ def census(label: str, draw, first: int, texts: int, bound: int, counts: list[in
     for name, example in examples.items():
         print(f"- first {name} leak: {example[:600]}")
     return bool(totals["r7 leaks"] or totals["r7 tail leaks"])
+
+
+def explained(text: str, whole: set[str], results: dict, totals: dict) -> None:
+    """Why this tree refuses `text`, and how its resolution compares with `c2e080e44`'s."""
+    before, after = results["c2e080e44"], results["r7"]
+    reasons = refusal_reasons(text)
+    assert (after is None) == bool(reasons), text
+    for reason in sorted(reasons):
+        totals[f"refused: {reason}"] = totals.get(f"refused: {reason}", 0) + 1
+    if "data-uri" in reasons:
+        alone = resolved_stripped_alone(text)
+        if alone is not None and shown(alone) - whole:
+            totals["refused: data-uri, which review r6's direction alone leaks"] = \
+                totals.get("refused: data-uri, which review r6's direction alone leaks", 0) + 1
+    for key, counted in (("refused at c2e080e44, resolved here", before is None and after is not None),
+                         ("resolved at c2e080e44, refused here", before is not None and after is None),
+                         ("resolved both ways, to different texts", None not in (before, after) and before != after)):
+        totals[key] = totals.get(key, 0) + counted
 
 
 if __name__ == "__main__":
