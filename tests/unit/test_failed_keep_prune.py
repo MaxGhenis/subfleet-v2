@@ -381,3 +381,23 @@ def test_a_folder_not_named_as_a_claim_is_left_alone(tmp_path, name):
     assert failed_keep.prune(tmp_path, now_ns=now) == []
     assert folder.is_dir()
 
+
+
+# #247 review r3's P3: the sweep's own-pid check and its 24-hour boundary.
+
+def test_a_stale_claim_whose_own_pid_lives_is_left_alone(tmp_path):
+    """D-KR1: a claim's pid is alive (its folder may yet be put back), so the sweep leaves it, however old."""
+    now = time.time_ns()
+    claim = kept_root(tmp_path, f".pruning-{os.getpid()}-{dead_pid()}-0000abcf", age_ns=30 * DAY_NS, now_ns=now)
+    assert failed_keep.prune(tmp_path, now_ns=now) == []
+    assert claim.is_dir()
+
+
+def test_the_sweep_keeps_a_claim_exactly_a_day_old_and_takes_one_a_nanosecond_older(tmp_path):
+    """D-KR1: the sweep's rule is the main loop's: older than PRUNE_AFTER_S, not equal to it."""
+    now = time.time_ns()
+    gone, pruner = dead_pid(), dead_pid()
+    day = kept_root(tmp_path, f".pruning-{gone}-{pruner}-0000abd0", age_ns=DAY_NS, now_ns=now)
+    older = kept_root(tmp_path, f".pruning-{gone}-{pruner}-0000abd1", age_ns=DAY_NS + 1, now_ns=now)
+    assert failed_keep.prune(tmp_path, now_ns=now) == [older]
+    assert day.is_dir() and not older.exists()
