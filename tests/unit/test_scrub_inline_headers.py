@@ -4,10 +4,15 @@ match, and a flag or key another rule's redaction encloses still owns its value.
 
 Each regression leaked at the base this branch was cut from (release/217 after
 #231, `16b24033a`), in the modes it names; the guards pin what must not change.
-`scrub_release217` is release/217 before #231, for the cost comparisons."""
+`scrub_release217` is release/217 before #231, for the cost comparisons.
+
+Fix round 1 (#239 review r1) adds regressions that failed at this branch's
+reviewed head `d3a19518b`, each checked against `scrub_473fe2941`, the base kept
+whole: no mode of the head shows a value that base or release/217 hides."""
 
 from __future__ import annotations
 
+import contextlib
 import itertools
 import random
 import re
@@ -15,11 +20,13 @@ import re
 import pytest
 
 from subfleet import refusals
+from subfleet.conversations import suggestions
 from subfleet.conversations.redact import mask_approval
 from subfleet.sessions import handoff
-from subfleet.sessions.handoff import scrub_secrets
+from subfleet.sessions.handoff import scrub_bounded, scrub_secrets
+from tests.unit import scrub_473fe2941 as base473
 from tests.unit import scrub_release217 as release217
-from tests.unit.test_scrub_key_order import SECRET, _assert_kept_out, _modes
+from tests.unit.test_scrub_key_order import SECRET, _assert_kept_out, _cut_through, _lines_of_length, _modes
 from tests.unit.test_sessions_handoff import _scrubber_probe
 
 
@@ -215,7 +222,7 @@ def _matrix():
                            id=f"{enclosure}/{item.strip(':=')}/{placement}")
 
 
-@pytest.mark.parametrize("text,twin,flag", _matrix())
+@pytest.mark.parametrize("text,twin,flag", tuple(_matrix()))
 def test_a_swallowed_flag_or_key_still_owns_its_next_line_value(text, twin, flag):
     """The hub's rule: its next-line value is redacted exactly as it would be without
     the enclosing rule. A key's is hidden in every mode. A flag's value is read on the
@@ -255,13 +262,15 @@ def test_a_bearer_that_ends_an_inline_value_keeps_its_next_line_token(text):
 
 
 @pytest.mark.documented_limitation
-@pytest.mark.parametrize("text", ["x --password\nSECRET7flgaa1 rest", "intro\nAuthorization: x --password\nSECRET7flgaa2"])
+@pytest.mark.parametrize("text", ["x --password\nSECRET7flgaa1 rest", "intro\nAuthorization: x --password\nSECRET7flgaa2",
+                                  "x --password\n\n  \nSECRET7flgaa3 rest"])
 def test_a_flags_next_line_value_shows_outside_the_folded_line_documented_limitation(text):
     """Outside D-SCR2, at the base as here: the flag rule reads a value on the flag's
-    own line only (`_FLAG_VALUE_RE`), so a value on the next line shows in the
+    own line only (`_FLAG_VALUE_RE`), so a value on a later line shows in the
     whole-text, excerpt and cut modes, with an enclosing header or without one. Only
-    daemon.log's folded line puts it on the flag's line. A follow-up must decide
-    whether a flag that ends its line takes the next line's first word."""
+    daemon.log's folded line puts it on the flag's line, past any blank lines (the
+    fold joins every run of whitespace). A follow-up must decide whether a flag that
+    ends its line takes the next line's first word."""
     secret = SECRET.search(text).group()
     assert secret in scrub_secrets(text)[0] and secret in scrub_secrets(text, whole=True)[0]
     assert secret not in refusals.scrubbed_line(text)
@@ -273,6 +282,246 @@ def test_curl_user_password_has_no_rule_documented_limitation():
     text = "curl -u admin:SECRET7curlaa1 https://x"
     assert "SECRET7curlaa1" in scrub_secrets(text)[0]
     assert "SECRET7curlaa1" in release217.scrub_secrets(text)[0]
+
+
+# --- fix round 1 (#239 review r1): no mode shows a value 473fe2941 hides -----------
+
+#: The three scrubbers the differential compares, mode by mode.
+TREES = {"head": handoff, "473fe2941": base473, "release/217": release217}
+PREFIX = "request submit refused (ValueError): "
+
+
+@contextlib.contextmanager
+def _all_excerpts_of(chars: int):
+    """`_excerpts_of` for every tree at once, so that one set of cut blocks serves all."""
+    with pytest.MonkeyPatch.context() as patch:
+        for scrubber in TREES.values():
+            patch.setattr(scrubber, "EXCERPT_CHARS", chars)
+            patch.setattr(scrubber, "MAX_SCRUB_CHARS", 2 * chars)
+        yield
+
+
+def _fold(scrubber, text: str) -> str:
+    """daemon.log's line without its 2,000-character bound, as the frozen trees keep it:
+    scrubbed whole, folded, scrubbed whole again (`suggestions._scrub_line`)."""
+    return suggestions._scrub_line(text)[0] if scrubber is handoff else scrubber.scrubbed_line(text)
+
+
+def _tree_modes(text: str, *, cuts: bool = True) -> dict[str, dict[str, str]]:
+    """What each mode of each tree leaves of `text`: the excerpt and whole-text scrubs,
+    `clean`, daemon.log's line alone and as a refusal's detail, and (`cuts`) blocks
+    whose head and tail excerpts are cut at each of its line breaks."""
+    found = {name: {"excerpt": scrubber.scrub_secrets(text)[0], "whole": scrubber.scrub_secrets(text, whole=True)[0],
+                    "clean": scrubber.clean(text, 4000)[0], "daemon.log line": _fold(scrubber, text),
+                    "daemon.log": _fold(scrubber, PREFIX + text)} for name, scrubber in TREES.items()}
+    if cuts:
+        with _all_excerpts_of(len(text) + 1):
+            blocks = _cut_through(text)
+            for name, scrubber in TREES.items():
+                for n, block in enumerate(blocks):
+                    found[name][f"cut {n // 2} {('head', 'tail')[n % 2]}"] = scrubber.scrub_bounded(block, None)[0]
+    return found
+
+
+def _new_leaks(text: str, *, cuts: bool = True) -> set[tuple[str, str, str]]:
+    """The (reference, mode, secret) triples where the head shows a `SECRET7` value
+    that 473fe2941 or release/217 hides."""
+    secrets = set(SECRET.findall(text))
+    found = _tree_modes(text, cuts=cuts)
+    shown = {name: {(mode, secret) for mode, out in modes.items() for secret in secrets if secret in out}
+             for name, modes in found.items()}
+    return {(name, mode, secret) for name in ("473fe2941", "release/217")
+            for mode, secret in shown["head"] - shown[name]}
+
+
+#: P2-1: a line-start header whose whole value is the next line's header name. The
+#: line-start rule left the value whole (it is a key whose value is past its line),
+#: the inline rule's second scan skipped a name that starts its line, and the plain
+#: rule took one word of the name's own value. The first two leaked from D-SCR2's
+#: wider header names; the third already leaked at 473fe2941 (#231).
+SWALLOWED_HEADER_NAMES = {
+    "x-authorization": ("X-Authorization:\nAuthorization:\n  Basic SECRET7xa1",
+                        "X-Authorization:\n[REDACTED]\n  [REDACTED]"),
+    "proxy-then-cookie": ("Proxy-Authorization:\nCookie:\n  sid=1; s2=SECRET7lone2",
+                          "Proxy-Authorization:\n[REDACTED]\n  [REDACTED]"),
+    "authorization-then-cookie": ("Authorization:\nCookie:\n  sid=1; s2=SECRET7lone3",
+                                  "Authorization:\n[REDACTED]\n  [REDACTED]"),
+    "yaml-proxy-authorization": ("proxy_authorization:\n  cookie:\n    sid=1; s2=SECRET7yml1",
+                                 "proxy_authorization:\n  [REDACTED]\n    [REDACTED]"),
+    "yaml-session-cookie": ("session_cookie:\n  cookie:\n    a=1; b=SECRET7yml2",
+                            "session_cookie:\n  [REDACTED]\n    [REDACTED]"),
+}
+
+
+@pytest.mark.parametrize("text,scrubbed", SWALLOWED_HEADER_NAMES.values(), ids=SWALLOWED_HEADER_NAMES.keys())
+def test_a_header_name_a_line_start_header_swallows_takes_a_headers_value(text, scrubbed):
+    """The inline rule's second scan reads names at a line start too, and a header
+    whose whole value is a header's name stops there (`_header_redaction`'s `rescan`),
+    so the name takes a header's value, as it would on its own line."""
+    found = _assert_kept_out(text, excerpt=4096)
+    assert found["whole"] == found["excerpt"] == scrubbed
+    assert _new_leaks(text) == set()
+    _assert_stable(text, scrubbed)
+
+
+#: P3-1: the quoted pass gives a header's name it swallows a header's value to its
+#: line's end. It looked for a `Bearer` or flag that ends the value at the line break,
+#: so it found neither, and the item's value on the next line went to no rule; the
+#: second leaked in every mode (from #239 review r1's seed 9001), the third only
+#: through daemon.log, its trailing spaces hiding the flag.
+LINE_ENDING_ITEMS = {
+    "bearer": ("secret:'Cookie:\nx Bearer\nSECRET7k3bcd", "secret:[REDACTED] Bearer [REDACTED]"),
+    "bearer-after-a-carriage-return": ("token:'Authorization:\r2 Bearer\nSECRET70lrvoqzo6q3",
+                                       "token:[REDACTED] Bearer [REDACTED]"),
+    "flag-trailing-spaces": ("secret:'Cookie:\nx --password  \nSECRET7k3cde",
+                             "secret:[REDACTED] --password  \nSECRET7k3cde"),
+}
+
+
+@pytest.mark.parametrize("text,scrubbed", LINE_ENDING_ITEMS.values(), ids=LINE_ENDING_ITEMS.keys())
+def test_a_bearer_or_flag_ending_a_swallowed_headers_line_keeps_its_value(text, scrubbed):
+    """The check reads the line's last visible character, as `_header_redaction` does:
+    the `Bearer` takes its token, and the flag its value where daemon.log folds it onto
+    the flag's line. Elsewhere the flag's next-line value shows, as at 473fe2941 (the
+    documented limitation below)."""
+    assert scrub_secrets(text, whole=True)[0] == scrub_secrets(text)[0] == scrubbed
+    assert _new_leaks(text) == set()
+    secret = SECRET.search(text).group()
+    assert secret not in refusals.scrubbed_line(text)
+    assert secret not in refusals.detail_line("submit", ValueError(text))
+    _assert_stable(text, scrubbed)
+
+
+#: P3-2: the plain rule leaves a value that is a credential flag to the flag rule, and
+#: the flag rule's value swallowed a credential flag glued to its end, so that flag's
+#: own value showed. The third also leaked at 473fe2941; release/217 hid it.
+GLUED_FLAGS = {
+    "plain-value-is-a-flag": ("api_key=--password x--token SECRET7l4d", "api_key=--password [REDACTED]--token [REDACTED]"),
+    "tab": ("token:--passwd 1--token\tSECRET7b1", "token:--passwd [REDACTED]--token\t[REDACTED]"),
+    "bearer-then-two-flags": ("BEARER SECRET7i8b11q0credentials--password z--client-secret  SECRET7qq1api-key",
+                              "BEARER [REDACTED]--password [REDACTED]--client-secret  [REDACTED]"),
+}
+
+
+@pytest.mark.parametrize("text,scrubbed", GLUED_FLAGS.values(), ids=GLUED_FLAGS.keys())
+def test_a_flag_glued_to_another_flags_value_keeps_its_own_value(text, scrubbed):
+    """A flag's value ends before a credential flag glued to its end (`_owning_flag`),
+    and the flag rule skips only a flag inside the previous flag's value."""
+    found = _assert_kept_out(text, excerpt=4096)
+    assert found["whole"] == found["excerpt"] == scrubbed
+    assert _new_leaks(text) == set()
+    _assert_stable(text, scrubbed)
+
+
+def test_an_excerpt_agrees_with_the_whole_scrub_at_the_real_bound():
+    """P3-3: whether the inline rule read a line again after `Bearer` merged it with
+    its token's depended on whether a line-start header anywhere else in the text
+    changed, so the tail excerpt (no such header) showed what the whole scrub (with
+    `Cookie: a` in its head) hid. The second scan now always runs."""
+    tail = "sent Authorization: Bearer\nSECRET7tok123 SECRET7oth456 rest\n" + "closing line\n" * 50
+    head = "Cookie: a\n"
+    text = head + _lines_of_length(handoff.MAX_SCRUB_CHARS + 46_000 - len(head) - len(tail)) + tail
+    assert len(text) > handoff.MAX_SCRUB_CHARS and text.index("sent Authorization") > len(text) - handoff.EXCERPT_CHARS
+    whole = scrub_secrets(text, whole=True)[0]
+    excerpt = scrub_bounded(text, None)[0]
+    assert "SECRET7" not in whole and "SECRET7" not in excerpt
+    assert whole.endswith(excerpt.partition(" characters omitted] …\n")[2])
+    assert "SECRET7" not in refusals.detail_line("submit", ValueError(text))
+
+
+def test_a_header_name_a_partial_bearer_cut_exposes_is_read_in_the_same_scrub():
+    """P3-4: `Bearer` redacts a token before the credential word its run ends in, which
+    leaves `Authorization:` after a placeholder: a header no rule had read, which a
+    second scrub then took. The inline rule's second scan reads it the first time."""
+    text = "Bearer\nabc1pi_keyAuthorization:--secret x"
+    for whole in (False, True):
+        once = scrub_secrets(text, whole=whole)[0]
+        assert once == "Bearer\n[REDACTED]Authorization:[REDACTED]"
+        assert scrub_secrets(once, whole=whole) == (once, 0)
+    line = refusals.scrubbed_line(text)
+    assert refusals.scrubbed_line(line) == line
+
+
+#: P3-5: a quoted value with no closing quote is redacted to its line's end, which
+#: took a `Bearer` or credential flag ending the line; leaked at release/217,
+#: 473fe2941 and `d3a19518b` alike. Each has its twin without the opening quote.
+UNCLOSED = {
+    "single-bearer": ("api_key='xyz Bearer\nSECRET7p5a rest", "api_key=xyz Bearer\nSECRET7p5a rest"),
+    "single-flag": ("api_key='xyz --password\nSECRET7p5b rest", "api_key=xyz --password\nSECRET7p5b rest"),
+    "double-bearer": ('password: "abc Bearer\nSECRET7p5c rest', "password: abc Bearer\nSECRET7p5c rest"),
+    "double-flag": ('password: "abc --password\nSECRET7p5d rest', "password: abc --password\nSECRET7p5d rest"),
+    "escaped-bearer-crlf": ("token=\\'xyz Bearer\r\n  SECRET7p5e rest", "token=xyz Bearer\r\n  SECRET7p5e rest"),
+}
+
+
+@pytest.mark.parametrize("text,twin", UNCLOSED.values(), ids=UNCLOSED.keys())
+def test_an_unclosed_quoted_value_leaves_a_line_ending_bearer_or_flag_its_value(text, twin):
+    """The unclosed value ends before the `Bearer` or flag at its line's last visible
+    character (`_owned_item`), so the item's own rule reads it, and every mode gives
+    what the twin gives."""
+    for whole in (False, True):
+        assert scrub_secrets(text, whole=whole)[0] == scrub_secrets(twin, whole=whole)[0]
+    secret = SECRET.search(text).group()
+    found, bare = _modes(text, excerpt=4096), _modes(twin, excerpt=4096)
+    assert {mode: secret in out for mode, out in found.items()} == {mode: secret in out for mode, out in bare.items()}
+    for mode in FOLDED:
+        assert secret not in found[mode], mode
+    assert _new_leaks(text) == set()
+    _assert_stable(text, scrub_secrets(text)[0])
+
+
+#: Section 5's matrix for the enclosures P3-5 found: an unclosed quoted value, single,
+#: double and escaped, with a `Bearer` among the swallowed items.
+UNCLOSED_ENCLOSURES = {
+    "unclosed-single": ("intro\napi_key='xyz {item}", "intro\napi_key=xyz {item}"),
+    "unclosed-double": ('intro\npassword: "abc {item}', "intro\npassword: abc {item}"),
+    "unclosed-escaped": ("intro\ntoken=\\'xyz {item}", "intro\ntoken=xyz {item}"),
+}
+
+
+def _unclosed_matrix():
+    for n, ((enclosure, (text, twin)), item, (placement, gap)) in enumerate(itertools.product(
+            UNCLOSED_ENCLOSURES.items(), FLAGS + KEYS + ("Bearer",), PLACEMENTS.items())):
+        tail = f"{gap}SECRET7ux{n} rest\ntail"
+        yield pytest.param(text.format(item=item) + tail, twin.format(item=item) + tail, item in FLAGS,
+                           id=f"{enclosure}/{item.strip(':=')}/{placement}")
+
+
+@pytest.mark.parametrize("text,twin,flag", tuple(_unclosed_matrix()))
+def test_an_unclosed_quote_does_not_take_what_a_swallowed_item_owns(text, twin, flag):
+    """As `test_a_swallowed_flag_or_key_still_owns_its_next_line_value`: mode by mode,
+    what the twin without the opening quote gives; a key's and a `Bearer`'s value is
+    hidden in every mode, a flag's in the folded ones."""
+    secret = SECRET.search(text).group()
+    found, bare = _modes(text, excerpt=4096), _modes(twin, excerpt=4096)
+    assert {mode: secret in out for mode, out in found.items()} == {mode: secret in out for mode, out in bare.items()}
+    if not flag:
+        assert not any(secret in out for out in found.values())
+    for mode in FOLDED:
+        assert secret not in found[mode], mode
+
+
+@pytest.mark.documented_limitation
+def test_a_refused_bearers_short_run_before_a_credential_word_shows_documented_limitation():
+    """P3-6, the converse of D-SCR2's section 2 decision, stated in C-23.14: a refused
+    `Bearer` redacts the run before the credential word only when that run reads as a
+    token (eight or more characters, a letter and a digit). `SECRET7` is seven, so it
+    shows, at 473fe2941 as here; release/217 hid it with the key."""
+    text = "invalid Bearer SECRET7_token: expired"
+    for scrubber in (handoff, base473):
+        assert scrubber.scrub_secrets(text)[0] == "invalid Bearer SECRET7_token: [REDACTED]"
+    assert release217.scrub_secrets(text)[0] == "invalid Bearer [REDACTED]: expired"
+
+
+@pytest.mark.documented_limitation
+def test_a_shell_continuation_after_a_flag_shows_its_value_documented_limitation():
+    """P3-6: `--password \\` and the value on the next line. The flag rule takes the
+    backslash as the flag's value, so the next line's word shows in every mode that
+    keeps the line, the folded daemon.log line included, at 473fe2941 and release/217
+    as here (follow-up 2)."""
+    text = "mysql -u root --password \\\n  SECRET7c4c -h db"
+    for name, modes in _tree_modes(text).items():
+        assert all("SECRET7c4c" in out for mode, out in modes.items() if not mode.startswith("cut")), name
 
 
 # --- section 3: Bearer's cost ----------------------------------------------------
