@@ -1,8 +1,9 @@
 """C-20.6 (D-ST3, review r1): fresh children, for what one pytest process cannot show.
 
-- Decision 6: `python -m subfleet.daemon` with no SUBFLEET_HOME. A plain process,
-  with neither pytest loaded nor a test marker, resolves HOME/.subfleet as
-  release/217 does; a test process refuses in one line, not a traceback.
+- Decision 6: `python -m subfleet.daemon`, and the installed `subfleetd` (review r2),
+  with no SUBFLEET_HOME. A plain process, with neither pytest loaded nor a test
+  marker, resolves HOME/.subfleet as release/217 does; a test process refuses in
+  one line, not a traceback.
 - Decision 7: importing every `subfleet` module in a fresh, minimal child loads
   neither pytest, _pytest nor a `pytest_*` plugin.
 - Invariant 2: in a plain child, every function D-ST3 changes returns what
@@ -18,11 +19,13 @@ directory and no child names the account's own paths.
 from __future__ import annotations
 
 import fcntl
+import importlib.metadata
 import json
 import os
 import subprocess
 import sys
 import textwrap
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -78,6 +81,42 @@ def test_the_daemon_without_subfleet_home(child, tmp_path):
         assert done.returncode == 7, done.stderr
         assert done.stderr.strip().splitlines() == [REFUSAL]
         assert "Traceback" not in done.stderr
+    assert sorted(path.name for path in store.iterdir()) == ["daemon.lock"]
+
+
+@pytest.mark.parametrize("launch", ["script", "daemon-start"])
+@pytest.mark.parametrize("child", ["plain", "bare-marker", "current-test"])
+def test_the_installed_subfleetd_without_subfleet_home(child, launch, tmp_path):
+    """C-20.6 (D-ST3, review r2's P3-1): the installed `subfleetd` answers as `python -m subfleet.daemon`.
+
+    Run on its own shebang, and as `daemon start` runs it (`cli._daemond_argv`:
+    this interpreter, `-E -P`). A marked child with a temporary HOME and no
+    SUBFLEET_HOME exits 7 with one line; a plain one exits 69 at the held
+    `daemon.lock`, as release/217's does. At `c45c2e0ec` the script ran
+    `daemon.main`, and a marked child exited 1 with an 11-line traceback.
+    """
+    script = Path(sys.executable).parent / "subfleetd"
+    assert script.is_file(), "run uv sync --group dev to install subfleetd"
+    declared = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))["project"]["scripts"]["subfleetd"]
+    installed = [found.value for found in importlib.metadata.entry_points(group="console_scripts", name="subfleetd")]
+    assert installed == [declared], "this environment's subfleetd is stale; run uv sync --group dev"
+    extra, _ = DAEMON_CHILDREN[child]
+    home = tmp_path / "home"
+    store = home / ".subfleet"
+    store.mkdir(parents=True)
+    argv = [str(script)] if launch == "script" else [sys.executable, "-E", "-P", str(script)]
+    held = os.open(store / "daemon.lock", os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        done = subprocess.run(argv, env=minimal_env(home, **extra), cwd=tmp_path, capture_output=True, text=True,
+                              timeout=120)
+    finally:
+        os.close(held)
+    if child == "plain":
+        assert (done.returncode, done.stderr.strip()) == (69, "another daemon holds daemon.lock"), done.stderr
+    else:
+        assert done.returncode == 7, done.stderr
+        assert done.stderr.strip().splitlines() == [REFUSAL]
     assert sorted(path.name for path in store.iterdir()) == ["daemon.lock"]
 
 
@@ -271,11 +310,14 @@ DIFFERENTIAL = textwrap.dedent('''
         "tilde-user-overrides": {**base, "HOME": str(other), **{name: "~acct/" + str(path.relative_to(account))
                                                                  if path != account else "~acct" for name, path in live.items()}},
         "empty-overrides": {**base, "HOME": str(other), **{name: "" for name in live}},
+        # Review r2's P3-3: `""` names the working directory, here inside a live root.
+        "empty-overrides-in-store": {**base, "HOME": str(other), **{name: "" for name in live}},
         "relative-overrides": {**base, "HOME": str(other), **{name: "relative/" + name.lower() for name in live}},
     }
     compared = {}
-    os.chdir(scratch)
+    working = {"empty-overrides-in-store": account / ".subfleet"}
     for label, environment in environments.items():
+        os.chdir(working.get(label, scratch))
         os.environ.clear()
         os.environ.update(environment)
         for (module, qualname) in SOURCES:
@@ -298,8 +340,9 @@ def test_production_resolves_as_release_217(tmp_path):
 
     The environments include HOMEs spelled `~acct`, `~` and inside a live root, and
     overrides naming the stand-in account's live roots directly, through `..`,
-    through `~` and `~acct`, empty and relative: production refuses none of them,
-    exactly as release does. Every value and exception must agree.
+    through `~` and `~acct`, empty (from a working directory inside a live root,
+    too) and relative: production refuses none of them, exactly as release does.
+    Every value and exception must agree.
     """
     (tmp_path / "home").mkdir()
     scratch = tmp_path / "scratch"
@@ -309,7 +352,7 @@ def test_production_resolves_as_release_217(tmp_path):
                           timeout=300)
     assert done.returncode == 0, done.stdout[-3000:] + done.stderr[-3000:]
     compared = json.loads(done.stdout.splitlines()[-1])
-    assert len(compared) == 13 * 17
+    assert len(compared) == 14 * 17
     # Not vacuous: release's own answers include values and exceptions both.
     assert {"value", "exception"} <= set(compared.values())
 

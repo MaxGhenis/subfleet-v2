@@ -16,6 +16,7 @@ from __future__ import annotations
 import ast
 import builtins
 import contextlib
+import importlib
 import io
 import json
 import os
@@ -25,6 +26,7 @@ import sqlite3
 import subprocess
 import sys
 import textwrap
+import tomllib
 import urllib.parse
 from pathlib import Path
 from types import SimpleNamespace
@@ -210,6 +212,37 @@ def test_daemon_start_refuses_the_live_root_before_any_access(environ, sealed, m
     with pytest.raises(RuntimeError, match="SUBFLEET_HOME"):
         cli.cmd_daemon_start(SimpleNamespace(state_root=None))
     assert alive == [] and sealed.touched == [] and sealed.launched == []
+
+
+DAEMON_REFUSAL = ("subfleet daemon: Refusing personal path fallback under pytest; set SUBFLEET_HOME to an "
+                  "isolated test path")
+
+
+def test_the_subfleetd_console_script_is_the_program_entry(monkeypatch):
+    """C-20.6 (D-ST3, review r2's P3-1): `subfleetd` runs what `python -m subfleet.daemon` runs, so a
+    test process's refusal is exit 7 and one line, not a traceback.
+
+    At `c45c2e0ec` the console script was `subfleet.daemon:main`, which raises the
+    refusal, and `cli._daemond_argv` launches that script whenever it finds one. The
+    entry `pyproject.toml` declares is called here as its generated script calls it.
+    """
+    from subfleet import daemon
+    declared = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))["project"]["scripts"]
+    module, _, attribute = declared["subfleetd"].partition(":")
+    entry = getattr(importlib.import_module(module), attribute)
+    monkeypatch.delenv("SUBFLEET_HOME", raising=False)
+    monkeypatch.setattr(sys, "argv", ["subfleetd"])
+    monkeypatch.setattr(daemon, "Daemon", lambda *a, **k: pytest.fail("a daemon was built"))
+    stderr = io.StringIO()
+    with contextlib.redirect_stderr(stderr), pytest.raises(SystemExit) as exited:
+        sys.exit(entry())
+    assert exited.value.code == 7
+    assert stderr.getvalue().strip().splitlines() == [DAEMON_REFUSAL]
+    # The same function `-m subfleet.daemon`'s `__main__` block runs.
+    tree = ast.parse((REPO / "subfleet" / "daemon.py").read_text(encoding="utf-8"))
+    blocks = [node for node in tree.body if isinstance(node, ast.If) and ast.unparse(node.test) == "__name__ == '__main__'"]
+    assert [ast.unparse(statement) for block in blocks for statement in block.body] == [
+        f"raise SystemExit({attribute}())"]
 
 
 # --- each guarded function ---------------------------------------------------------------
@@ -620,6 +653,105 @@ def test_every_override_takes_the_live_root_refusal(variable, tmp_path, sealed, 
     assert sealed.touched == []
 
 
+def stand_in_account(tmp_path: Path, monkeypatch) -> Path:
+    """A stand-in account: pwd names it for this uid, its live roots are temporary, and HOME is the test's."""
+    account = tmp_path / "stand-in-account"
+    for store in STORES[:3]:
+        (account / store).mkdir(parents=True)
+    (account / STORES[3]).write_text("{}")
+    monkeypatch.setattr(pwd, "getpwuid", lambda uid: SimpleNamespace(pw_dir=str(account), pw_name="st3"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    return account
+
+
+def by_inode(path: Path) -> str:
+    """macOS's volfs name for `path`: `/.vol/<device>/<inode>`."""
+    found = path.stat()
+    return f"/.vol/{found.st_dev}/{found.st_ino}"
+
+
+def inode_overrides(tmp_path: Path, account: Path) -> dict[str, str]:
+    """Spellings under `/.vol/`, review r2's first; the links are made under tmp_path."""
+    store = by_inode(account / STORES[0])
+    here = os.path.realpath(tmp_path)
+    _make_link(store, str(tmp_path / "vol-link"), target_is_directory=True)
+    _make_link(os.path.relpath(store, here), str(tmp_path / "vol-relative-link"), target_is_directory=True)
+    return {
+        "by-inode": store, "inside-by-inode": f"{store}/state.sqlite3",
+        # Review r2's control: refused at `c45c2e0ec` too, through the home's identity.
+        "home-by-inode": f"{by_inode(account)}/{STORES[0]}",
+        "case": store.replace("/.vol/", "/.VOL/"), "doubled-slash": "/" + store,
+        "firmlink": "/System/Volumes/Data" + store, "dot-dot": "/private/.." + store,
+        "relative": os.path.relpath(store, here), "link": str(tmp_path / "vol-link"),
+        "relative-link": str(tmp_path / "vol-relative-link"), "no-such-volume": "/.vol/1/2",
+    }
+
+
+INODE_OVERRIDES = ["by-inode", "inside-by-inode", "home-by-inode", "case", "doubled-slash", "firmlink", "dot-dot",
+                   "relative", "link", "relative-link", "no-such-volume"]
+# One read through `home_path`, one raw read through `checked_override`.
+INODE_ROUTES = {"home-path": ("SUBFLEET_HOME", lambda: client.state_root()),
+                "raw-read": ("CODEX_HOME", lambda: preflight._lane_home(None))}
+
+
+def recorded_calls(patch) -> list[tuple[str, str]]:
+    """Record every metadata, open and listing call from here on, by the path it names."""
+    calls = []
+    for name in ("stat", "lstat", "readlink", "open", "listdir", "scandir", "access"):
+        def spy(*args, _real=getattr(os, name), _name=name, **kwargs):
+            path = args[0] if args else kwargs.get("path", os.curdir)
+            if isinstance(path, (str, bytes, os.PathLike)):
+                calls.append((_name, os.path.join(os.getcwd(), os.fsdecode(path))))
+            return _real(*args, **kwargs)
+        patch.setattr(os, name, spy)
+    return calls
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="/.vol is macOS's volfs")
+@pytest.mark.parametrize("route", INODE_ROUTES)
+@pytest.mark.parametrize("spelling", INODE_OVERRIDES)
+def test_an_override_by_inode_is_refused(spelling, route, tmp_path, sealed, monkeypatch):
+    """C-20.6 (D-ST3, review r2's P3-2): a path under `/.vol/` names a file by its inode, which no name
+    can judge, so a test process refuses it, by any spelling, before any call on it.
+
+    At `c45c2e0ec` `client.state_root()` returned `/.vol/<device>/<inode>` of a
+    stand-in account's `.subfleet`, which is that store (checked here first).
+    """
+    account = stand_in_account(tmp_path, monkeypatch)
+    overrides = inode_overrides(tmp_path, account)
+    assert os.path.samefile(overrides["by-inode"], account / STORES[0])
+    variable, read = INODE_ROUTES[route]
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(variable, overrides[spelling])
+    calls = recorded_calls(monkeypatch)
+    with pytest.raises(home_paths.PersonalPathRefused, match=variable):
+        read()
+    stores = [spelled for store in STORES for spelled in _spellings(str(account / store))]
+    assert [call for call in calls if any(final == "/.vol" or final.startswith("/.vol/")
+                                          for final in _spellings(call[1]))] == []
+    assert [call for call in calls if any(_within(final, stores) for final in _spellings(call[1]))] == []
+    assert sealed.touched == []
+
+
+def test_a_hard_link_to_a_live_file_is_judged_by_its_name(tmp_path, monkeypatch):
+    """C-20.6 (D-ST3, review r2's P3-2): the limit C-20.6 states. The check judges names, not inodes,
+    so a hard link to a live file, another name for it, is out of scope and passes as the
+    test's own selection; the file's own name is refused.
+
+    A stand-in account's `.claude.json`, linked under tmp_path and named in
+    `SUBFLEET_DESKTOP_LOGIN`, is returned, as review r2 found at `c45c2e0ec`.
+    """
+    account = stand_in_account(tmp_path, monkeypatch)
+    login = tmp_path / "login.json"
+    os.link(account / STORES[3], login)
+    assert os.path.samefile(login, account / STORES[3]) and login.stat().st_nlink == 2
+    monkeypatch.setenv("SUBFLEET_DESKTOP_LOGIN", str(login))
+    assert home_paths.desktop_login_path() == login
+    monkeypatch.setenv("SUBFLEET_DESKTOP_LOGIN", str(account / STORES[3]))
+    with pytest.raises(home_paths.PersonalPathRefused, match="SUBFLEET_DESKTOP_LOGIN"):
+        home_paths.desktop_login_path()
+
+
 @pytest.mark.parametrize("chosen", ["st3-not-a-store", "st3-not-a-store/.subfleet-like", ".subfleet-like"])
 def test_an_override_beside_the_live_roots_is_the_tests(chosen, tmp_path, monkeypatch):
     """C-20.6 (D-ST3): a path under the account's home that is no live root is the test's own selection.
@@ -632,13 +764,47 @@ def test_an_override_beside_the_live_roots_is_the_tests(chosen, tmp_path, monkey
 
 
 def test_an_empty_override_names_the_working_directory(tmp_path, monkeypatch):
-    """C-20.6 (D-ST3): `accept_empty` callers keep `""`, the working directory, as release does."""
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("SUBFLEET_HOME", "")
-    assert home_paths.home_path("SUBFLEET_HOME", lambda: pytest.fail("default"), accept_empty=True) == ""
-    assert preflight._state_root() == ""
-    with pytest.raises(RuntimeError, match="SUBFLEET_HOME"):
-        home_paths.home_path("SUBFLEET_HOME", lambda: pytest.fail("default"))
+    """C-20.6 (D-ST3): `accept_empty` callers keep `""`, the working directory, as release does,
+    where that directory is no live root: a temporary one, or this process's own checkout,
+    wherever it sits. A raw read keeps it too."""
+    for cwd in (tmp_path, REPO):
+        monkeypatch.chdir(cwd)
+        monkeypatch.setenv("SUBFLEET_HOME", "")
+        assert home_paths.home_path("SUBFLEET_HOME", lambda: pytest.fail("default"), accept_empty=True) == ""
+        assert preflight._state_root() == ""
+        with pytest.raises(RuntimeError, match="SUBFLEET_HOME"):
+            home_paths.home_path("SUBFLEET_HOME", lambda: pytest.fail("default"))
+        monkeypatch.setenv("CODEX_HOME", "")
+        assert preflight._lane_home(None) == ""
+
+
+@pytest.mark.parametrize("route", ["home-path", "raw-read"])
+@pytest.mark.parametrize("where", [STORES[0], f"{STORES[2]}/sessions"])
+def test_an_empty_override_inside_a_live_root_is_refused(route, where, tmp_path, sealed, monkeypatch):
+    """C-20.6 (D-ST3, review r2's P3-3): in a test process `""` is judged as `.`, the working directory
+    it names, so one inside a live root is refused, as `.` already was.
+
+    At `c45c2e0ec`, with the working directory inside a stand-in account's
+    `.subfleet`, `home_path(..., accept_empty=True)` and `preflight._state_root()`
+    returned `""`, which names that store, and a raw read returned it too.
+    """
+    from subfleet import daemon
+    account = stand_in_account(tmp_path, monkeypatch)
+    inside = account / where
+    inside.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(inside)
+    monkeypatch.setattr(daemon, "Daemon", lambda *a, **k: pytest.fail("a daemon was built"))
+    reads = ({"SUBFLEET_HOME": [
+        lambda: home_paths.home_path("SUBFLEET_HOME", lambda: pytest.fail("default"), accept_empty=True),
+        preflight._state_root, lambda: daemon.main([])]} if route == "home-path" else
+        {"CODEX_HOME": [lambda: preflight._lane_home(None)]})
+    for variable, calls in reads.items():
+        for value in ("", "."):
+            monkeypatch.setenv(variable, value)
+            for call in calls:
+                with pytest.raises(home_paths.PersonalPathRefused, match=variable):
+                    call()
+    assert sealed.touched == []
 
 
 def test_this_process_s_own_code_is_its_own_inside_a_live_root(tmp_path, monkeypatch):

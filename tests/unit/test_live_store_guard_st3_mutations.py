@@ -1,7 +1,7 @@
 """C-20.6 (D-ST3): each source mutation must fail a named test of test_live_store_guard_st3.py.
 
 A fresh Python child imports the D-ST3 tests from a shadow copy of the source
-and calls the named test on each case, first unmutated (the control), then
+(with `pyproject.toml`, for the console script's mutant) and calls the named test on each case, first unmutated (the control), then
 with the exact mutation. The child loads pytest, because the tests import it,
 but is not a pytest session: it inherits this session's live markers, and each
 named test replaces os.environ itself under the same spies, so a mutant's
@@ -28,6 +28,7 @@ PRUNE = "subfleet/prune_decisions.py"
 MCP = "subfleet/adapters/claude_mcp.py"
 DOCTOR = "subfleet/doctor.py"
 PREFLIGHT = "subfleet/guard/preflight.py"
+PYPROJECT = "pyproject.toml"
 EMPTY = [{"environ": {}}, {"environ": {"PATH": "/usr/bin:/bin"}}]
 SCRATCH = "{scratch}"  # A fresh directory per case, for a test's tmp_path.
 
@@ -102,7 +103,27 @@ MUTANTS = {
         PRUNE, 'args.state_root = home_path("SUBFLEET_HOME", lambda: "~/.subfleet")',
         'args.state_root = os.environ.get("SUBFLEET_HOME") or "~/.subfleet"',
         "test_prune_decisions_state_root_default_is_refused", EMPTY),
+    # Review r2's P3-1: the console script bypassed `run_program`, as at `c45c2e0ec`.
+    "subfleetd-console-main": (
+        PYPROJECT, 'subfleetd = "subfleet.daemon:run_program"', 'subfleetd = "subfleet.daemon:main"',
+        "test_the_subfleetd_console_script_is_the_program_entry", [{}]),
+    # Review r2's P3-2: a path under `/.vol/` judged by name, as at `c45c2e0ec`.
+    "volfs-accepted": (
+        HOMES, '    return folded == _BY_INODE or folded.startswith(_BY_INODE + "/")', "    return False",
+        "test_an_override_by_inode_is_refused",
+        [{"spelling": "by-inode", "route": route, "tmp_path": SCRATCH} for route in ("home-path", "raw-read")]),
+    # Review r2's P3-3: `""` left unjudged, through `home_path` and through a raw read.
+    "empty-not-judged": (
+        HOMES, "    checked = os.curdir if isinstance(value, (str, bytes)) and not value else value",
+        "    checked = value", "test_an_empty_override_inside_a_live_root_is_refused",
+        [{"route": "home-path", "where": ".subfleet", "tmp_path": SCRATCH}]),
+    "empty-raw-read-skipped": (
+        HOMES, "    if value is not None and under_pytest():", "    if value and under_pytest():",
+        "test_an_empty_override_inside_a_live_root_is_refused",
+        [{"route": "raw-read", "where": ".subfleet", "tmp_path": SCRATCH}]),
 }
+# Mutants whose named test needs macOS (`/.vol` is its volfs).
+DARWIN_ONLY = frozenset({"volfs-accepted"})
 
 PROBE = '''
 import inspect, json, sys
@@ -139,9 +160,11 @@ print("named test passed:", name, len(cases), "cases")
 @pytest.mark.parametrize("mutant", MUTANTS)
 def test_st3_mutant_fails_its_named_test(tmp_path, shadow, mutant):
     """C-20.6 (D-ST3): the control passes the named test and the mutant fails it."""
+    if mutant in DARWIN_ONLY and sys.platform != "darwin":
+        pytest.skip("the named test needs macOS's /.vol")
     relative, original, replacement, name, cases = MUTANTS[mutant]
     (shadow / "tests" / "unit").mkdir(exist_ok=True)
-    for test_file in (ST3, GUARD):
+    for test_file in (ST3, GUARD, PYPROJECT):
         shutil.copyfile(REPO / test_file, shadow / test_file)
     source = shadow / relative
     saved = source.read_text()
