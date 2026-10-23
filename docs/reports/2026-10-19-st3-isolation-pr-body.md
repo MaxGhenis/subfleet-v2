@@ -1,47 +1,79 @@
-A pytest process keeps refusing personal store defaults even if a test replaces
-os.environ with an empty dictionary. This round also closes explicit-override
-escapes: MCP's raw CLAUDE_CONFIG_DIR, literal/link/tilde live roots, tilde-spelled
-HOME, the v1 PATH fallback, and each searched PYTHONPATH entry in doctor.
+A pytest process never resolves the account's live roots (`~/.subfleet`,
+`~/.claude`, `~/.codex`, `~/.claude.json`), whatever `os.environ` holds (D-ST3),
+even when a test replaces it with an empty dictionary. Tests use stand-in
+accounts and temporary folders, never a live root.
 
-The shared guard checks 41 call sites covering 27 distinct override names.
-Relative cache overrides are judged against their documented state-root base;
-the other readers retain cwd semantics. A test may select an isolated path or an
-explicit function argument; an override naming the account home or a live root
-is refused. The process's own code/environment remains its own. Empty overrides
-accepted by accept_empty retain release's working-directory meaning.
+**The rule.** For this process, every refusal takes a process rule (pytest's
+own modules are loaded) as well as the environment rule. No module under
+`subfleet/` imports pytest, so a production process cannot trip it into
+loosening; a false positive only refuses. A child given an environment keeps the
+environment rule alone. Tests of production behaviour waive the process rule
+only through the `production_process` fixture, and only while HOME is neither the
+account's home nor inside a live root, read again at every call.
 
-The property's set iteration is replaced with ordered draws from a fixed name
-tuple. All seeds 0–7 pass in both the lane and minimal environments: 16 tests,
-150 passing examples each. The final code also passes all focused regressions
-and 17 mutation controls. Fresh children confirm that plain production resolves
-as release (221 comparisons), imports no pytest, and that only test processes
-get the one-line daemon refusal (exit 7).
+**What is refused in a test process, before any access:**
+- A missing override.
+- A HOME that is the account's home (by any spelling, `~<name>` included) or
+  inside a live root or under `/.vol/`.
+- An override beginning `~` or `~<name>` that expands to such a home.
+- An override that names the account's home, a live root or a path inside one,
+  by any spelling of its name: after `~` expansion, lexically normalized against
+  the consumer's base, and followed through links.
+- Any override under `/.vol/`, macOS's path by inode, which no name can judge
+  (review r2).
+- An empty override whose working directory is inside a live root: `""` is
+  judged as `.` (review r2). Elsewhere `""` is returned, as release returns it.
 
-Release/217 at `4f5983f4c` (#223, including #232/#238) is merged. The contract keeps
-both parents' complete change-log histories and clause IDs, release's amended
-bodies, and ST3's C-20.6 amendments.
+The shared check covers 41 call sites for 27 override names: `home_path` and the
+raw reads routed through `checked_override`. This process's own code is its own,
+even in a checkout under `~/.subfleet/worktrees`. The check judges names, not
+inodes: a hard link to a live file is out of scope, as C-20.6 states, and a
+`documented_limitation` test pins that.
 
-**Validation is incomplete.** Current-head unique outcomes:
+**The daemon's entry points.** `python -m subfleet.daemon` and the `subfleetd`
+console script both run `daemon.run_program` (review r2: the script had run
+`daemon.main`, so a marked child printed a traceback). A test process's refusal
+is exit 7 and one line, written through `daemon_log.write_scrubbed`, as C-25.7
+asks of the daemon's stderr. Production is unchanged.
 
-| Directory | Files | Collected | Passed | Failed | Skipped | Unrun | Complete / partial / unstarted files |
-|---|---:|---:|---:|---:|---:|---:|---|
-| tests/unit | 332 | 13,652 | 10,071 | 4 | 7 | 3,570 | 100 / 3 / 229 |
-| tests/fake | 112 | 2,130 | 865 | 0 | 0 | 1,265 | 12 / 1 / 99 |
+**Release.** `origin/release/217` at `c2e080e44` (#243, #247, #249, #245, #233) is
+merged. The contract keeps both change logs, minus a stale pre-D-WALL1 entry
+that the previous merge had restored beside release's revision: release's 215
+entries appear as release has them, plus this branch's 8. All 257 clause IDs
+survive, and only C-20.6 differs from release. #233's stream lint refused
+`run_program`'s `print`, so the refusal now goes through `daemon_log`.
 
-The 4 failures are one unresolved 0.5-second fake-version startup/report timing
-case and three importer cases requiring process inspection denied by this
-sandbox. Seven cases skipped for unavailable native ps/sysctl inspection.
-H4 stopped inside its 20-minute bound; the continuation hold was interrupted
-during collection after the cutoff and contributed no outcomes. There are
-4,835 unrun cases in 332 partial/unstarted files. This is not a green full-suite
-result.
+**Validation at head (`ff7ec9913`; the contract-reading files again at
+`e570bd37f`):**
 
-The five invariants are covered by named tests: no personal live-root resolution
-under pytest (with the caller-input and own-code boundaries above), exact plain
-production behavior, a HOME-bounded waiver re-read on every call, unchanged
-child-environment detection, and repeatable draws. Computed imports, aliased
-import_module and exec on unexecuted paths remain static-analysis limitations.
+| Directory | Files | Cases | Passed | Failed | Skipped | Xfailed | Unrun |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `tests/unit` | 344 | 14,284 | 14,279 | 0 | 5 | 0 | 0 |
+| `tests/fake` | 112 | 2,130 | 2,128 | 0 | 0 | 2 | 0 |
+| `tests/e2e` | 18 | 109 | 93 | 0 | 16 | 0 | 0 |
 
-The report contains each finding's cause/fix, every resolver and its treatment,
-every seed's counts, all hold outcomes, and the per-file ledger:
-[Round-1 report](docs/reports/2026-10-19-st3-isolation.md).
+- **Skips:** 4 retention cases need sortedcontainers in uv's offline index,
+  which this host's cache lacks and the job could not fetch. One is an opt-in
+  benchmark. The 16 e2e skips are person-only cases that cannot run inside a
+  Subfleet job (CI runs them).
+- **Xfails:** the two are pre-existing and documented.
+- **Not run:** `tests/frontend`, `tests/process` and `tests/live`.
+- **Regressions:** each of review r2's inputs failed at `c45c2e0ec`
+  (31 failed, 5 passed, in an archive).
+- **Mutations:** all 21 kill their named tests with passing controls, review
+  r2's four new ones included (console script back to `main`, `/.vol/`
+  accepted, `""` unjudged by either route).
+
+**Invariants, each held by named tests:**
+1. No guarded resolver offers or touches a live root under pytest.
+2. Plain production resolves exactly as release does: 238 comparisons in a
+   fresh child, including empty overrides from a working directory inside a
+   stand-in store.
+3. The waiver never holds for a personal HOME.
+4. Children keep the environment rule.
+5. The property's draws repeat across processes.
+
+Report, with each finding's cause and fix, every resolver, every hold and the
+per-file ledger: [the D-ST3 report](docs/reports/2026-10-19-st3-isolation.md).
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
