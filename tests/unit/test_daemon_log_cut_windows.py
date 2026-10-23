@@ -96,7 +96,17 @@ def _backslash_runs(size: int) -> str:
     return run + plain * ((size - 2 * len(run)) // len(plain)) + run
 
 
-REVIEW_R5_SHAPES = {"backslash-runs": _backslash_runs}
+def _four_byte_margin_lines(size: int) -> str:
+    """Review r5's four-byte margin shape (P3-1): spaced margin-only lines in a text Python
+    stores four bytes a character (an emoji, `r>` and the three characters `_REMINDER_FOLDS`
+    reads, on its first line). Review r6 (P3-B) asked whether its cost is linear: round 7's
+    table gave 58.6 ms at 4 MiB and 409.9 at 16. Counted, it is: the same regex reads at 1
+    and 16 MiB, and four passes of `str` scans (`tools/measure_cut_scaling.py`)."""
+    wide = "\U0001F600 r> İ ı ſ\n"
+    return wide + "  | \n" * ((size - len(wide)) // 5)
+
+
+REVIEW_R5_SHAPES = {"backslash-runs": _backslash_runs, "four-byte-margin-lines": _four_byte_margin_lines}
 SHAPES = {**REVIEW_R3_SHAPES, **{f"round2-{name}": shape for name, shape in handler_tests.COST_SHAPES.items()},
           **REVIEW_R4_SHAPES, **REVIEW_R5_SHAPES}
 
