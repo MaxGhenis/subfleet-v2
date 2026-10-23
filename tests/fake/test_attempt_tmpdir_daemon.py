@@ -358,3 +358,18 @@ def test_unknown_folder_is_aged_by_the_store_and_a_named_one_never_is(routing_st
     assert not orphan.exists() and known.is_dir()
     removed = service.store.query("SELECT data_json FROM events WHERE kind='tmpdir.unknown_removed' AND data_json<>'{}'")
     assert [json.loads(row["data_json"])["path"] for row in removed] == [str(orphan)]
+
+
+def test_tmpdir_cleanup_and_sweep_never_raise_into_their_callers(routing_state, monkeypatch, caplog):
+    """C-12.10: removal failures never fail finalization. Found at hold h6:
+    `tests/unit/test_daemon_settle.py` builds a daemon without `__init__`,
+    and its finalization raised from the cleanup's per-holder lock."""
+    service, _ = routing_state
+    attempt, folder = terminal_leftover(routing_state)
+    for name in ("_tmpdir_guard", "_tmpdir_sweeping"):
+        monkeypatch.delattr(service, name)
+    service._cleanup_attempt_tmpdir(attempt)
+    service._cleanup_probe_tmpdir({"holder": "probe:dummy", "tmpdir": {"path": str(folder)}})
+    service._sweep_attempt_tmpdirs()
+    assert folder.is_dir()
+    assert caplog.text.count("TMPDIR") >= 3
