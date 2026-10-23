@@ -148,6 +148,10 @@ C_SHELLS = frozenset({"csh", "tcsh"})
 #: Runners the fallback finds among a command's words, each the start of a command the direct path judges
 #: (not among gh's own arguments: `gh run watch`).
 NESTED_RUNNERS = SHELLS | {"env", "xargs"}
+#: Programs that only print, find or inspect the words they are given, never run them: among their words
+#: a shell's name (`which bash`, `ls /bin/sh`) starts no command.
+INSPECTORS = frozenset({"echo", "printf", "print", "which", "type", "whence", "where", "whereis", "file", "ls",
+                        "stat", "man", "readlink", "realpath", "basename", "dirname", "cat", "head", "tail", "wc"})
 #: Builtins that run a file's text in the current shell.
 SOURCES = frozenset({"source", "."})
 #: The files a shell or `source` reads its standard input through.
@@ -1042,11 +1046,13 @@ def _fallback(words: list[str], command: str, depth: int, names_gh: bool, *, fed
     is settled or its arguments come from xargs (`fed`, r4 P2-1), as does a
     word naming git (`git_publishes`); a word naming a shell, `env` or `xargs`
     starts a command `_judge` judges (`arch -arm64 bash -ec '…'`, `… | arch
-    -arm64 tcsh`, r4 P2-2), unless this is such a command already (`nested`)
-    or gh's own argument; assignment values and the values of `-c`, `-e` and
+    -arm64 tcsh`, r4 P2-2), unless this is such a command already (`nested`),
+    gh's own argument or an inspector's (`which bash`, `INSPECTORS`);
+    assignment values and the values of `-c`, `-e` and
     `--exec` are read as shell text. The text tools' arguments
     (`NOT_SHELL_VALUES`) get none of r4's additions, so `grep gh "$f"` passes."""
     shell_values = command not in NOT_SHELL_VALUES and not command.startswith("python")
+    runs_words = shell_values and not nested and command not in INSPECTORS and command != "gh"
     feeds: set[str] = set()
     for at, word in enumerate(words):
         bare = word.lstrip("!").lstrip("=").lower()
@@ -1059,7 +1065,7 @@ def _fallback(words: list[str], command: str, depth: int, names_gh: bool, *, fed
             # `arch -arm64 $(command -v gh) pr comment 7`: a run-time word behind
             # a runner the rule doesn't know, judged as a run-time command word.
             found = _runtime(word, words[at + 1:], False, fed=fed, may_be_gh=shell_values)
-        elif shell_values and not nested and at and command != "gh" and _name(word) in NESTED_RUNNERS:
+        elif runs_words and at and _name(word) in NESTED_RUNNERS:
             found, inner = _judge(words[at:], depth + 1, names_gh, fed=fed, nested=True)
             feeds |= inner
         assignment = ASSIGNMENT.fullmatch(word)
