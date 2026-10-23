@@ -9,17 +9,17 @@ before them and the second does not, and the file kept only the cut's marker for
 (600 admission lines, `  | member line`, then `<system-reminder>note</system-reminder>`).
 
 They are now compared with their trailing line breaks stripped (`daemon_log._alike`), except
-where the margin-free reading of what is left ends in a data URI's body short enough for
-those breaks to count. Only `_DATA_URI_RE` reads such a break: its body is 32 or more of
+where the margin-free reading of what is left ends in a data URI's body that those breaks
+bring to 32 characters. Only `_DATA_URI_RE` reads such a break: its body is 32 or more of
 `[A-Za-z0-9+/=\\s]`, line breaks included. With the breaks stripped alone (review r6's fix
 direction), a body of 31 characters before a reminder that ends the file was hidden by the
 whole-text scrub, which counts the break before the reminder, and shown by the tail, whose
 block form strips it: `SECRET7dataend9` at `daemon logs -n 2`. That file keeps the marker.
 
 What is held: no tail shows a secret the whole-text scrub hides; a margin file ending in a
-reminder is refused only where the quoted pass's masks differ, a data URI's body reaches the
-break, or, in a CRLF text, a last member line that is only a margin's mark reads as a margin
-once its `\r` goes with the trailing breaks; never for a trailing break alone.
+reminder is refused only where the quoted pass's masks differ, the breaks complete a data
+URI's body, or, in a CRLF text, a last member line that is only a margin's mark reads as a
+margin once its `\\r` goes with the trailing breaks; never for a trailing break alone.
 """
 from __future__ import annotations
 
@@ -134,14 +134,17 @@ def test_a_data_uri_body_the_trailing_break_completes_keeps_the_marker_rule(endi
     assert tail == [handoff.cut_marker(len(text))] and not tags(tail)
 
 
-def test_a_data_uri_body_too_long_for_the_break_to_count_is_still_resolved():
-    """Only a body the break could complete is refused: one of 40 characters matches with
-    and without it, and the file keeps its last lines, the body hidden."""
-    text = admissions(600) + MEMBER + "  | data:image/png;base64,SECRET7longbody9QUJDREVGQUJDREVGQUJDREVGQU\n" \
-        "<system-reminder>r</system-reminder>\n"
+@pytest.mark.parametrize("body,hidden", [("SECRET7longbody9QUJDREVGQUJDREVGQUJDREVGQU", True),
+                                         ("SECRET7shortbody9QUJD", False)], ids=["40", "21"])
+def test_a_data_uri_body_the_break_cannot_complete_is_still_resolved(body, hidden):
+    """Only a body the break completes is refused. One of 40 characters matches with and
+    without it, hidden either way; one of 21 matches neither way, a run no rule hides. The
+    file keeps its last lines, showing no secret the whole-text scrub hides."""
+    text = admissions(600) + MEMBER + f"  | data:image/png;base64,{body}\n<system-reminder>r</system-reminder>\n"
     assert daemon_log._reminders_resolved(text) == WHOLE_REMINDER.sub("", text)
     tail = daemon_log.scrubbed_tail(text, 3)
-    assert len(tail) == 3 and not secrets("\n".join(tail)) and reference(text) == set()
+    assert len(tail) == 3 and tail[-2] == "  | member line" and not tags(tail)
+    assert secrets("\n".join(tail)) <= reference(text) and (reference(text) == set()) is hidden
 
 
 @pytest.mark.parametrize("left,kept,alike", [
@@ -150,20 +153,27 @@ def test_a_data_uri_body_too_long_for_the_break_to_count_is_still_resolved():
     ("a\nmember line\n", "a\nmember line\n", True),
     ("a\nmember line\n", "a\nmember lin", False),
     ("a\n\nmember line", "a\nmember line", False),
-    ("x data:a/b;base64,QUJD\n", "x data:a/b;base64,QUJD", False),
-    ("x data:a/b;BASE64,QUJD\nQUJD\n", "x data:a/b;BASE64,QUJD\nQUJD", False),
+    ("x data:a/b;base64,QUJD\n", "x data:a/b;base64,QUJD", True),
     ("x data:a/b;base64," + "Q" * 31 + "\n", "x data:a/b;base64," + "Q" * 31, False),
+    ("x data:a/b;base64," + "Q" * 30 + "\n", "x data:a/b;base64," + "Q" * 30, True),
+    ("x data:a/b;base64," + "Q" * 30 + "\r\n", "x data:a/b;base64," + "Q" * 30, False),
+    ("x data:a/b;BASE64," + "Q" * 20 + "\n" + "Q" * 9 + "\n\n", "x data:a/b;BASE64," + "Q" * 20 + "\n" + "Q" * 9, False),
+    ("x data:a/b;baſe64," + "Q" * 31 + "\n", "x data:a/b;baſe64," + "Q" * 31, False),
+    ("x data:a/b;base64," + "Q" * 31 + "\n\n", "x data:a/b;base64," + "Q" * 31 + "\n", True),
     ("x data:a/b;base64," + "Q" * 32 + "\n", "x data:a/b;base64," + "Q" * 32, True),
-    ("x data:a/b;base64,QUJD!\n", "x data:a/b;base64,QUJD!", True),
+    ("x data:a/b;base64," + "Q" * 31 + "!\n", "x data:a/b;base64," + "Q" * 31 + "!", True),
+    ("x ;base64," + "Q" * 31 + "\n", "x ;base64," + "Q" * 31, False),
     ("x data:a/b;base64,QUJD", "x data:a/b;base64,QUJD", True),
 ])
-def test_alike_strips_trailing_breaks_unless_a_data_uri_body_could_count_them(left, kept, alike):
-    """`_alike`: equal, or equal but for trailing line breaks where no data URI body within
-    31 characters of the end could count them."""
+def test_alike_strips_trailing_breaks_unless_they_complete_a_data_uri_body(left, kept, alike):
+    """`_alike`: equal, or equal but for trailing line breaks that bring no data URI body at
+    the end to the 32 characters `_DATA_URI_RE` needs where `kept`'s own leave it short (a
+    body already 32 long matches either way; the prefix is not read, so a bare `;base64,`
+    counts too, conservatively)."""
     assert daemon_log._alike(left, kept) is alike
 
 
-# --- the property: refused only where the masks differ or a body reaches the break --------
+# --- the property: refused only where the masks differ or the breaks complete a body -----
 
 #: Lines of an exception group's member, as a margin file holds them: values a quoted pass
 #: masks or leaves, keys the margins part (a value only the margin-free reading opens, which a
@@ -217,21 +227,26 @@ BODY_CHAR = re.compile(r"(?i)[A-Za-z0-9+/=\s]")
 BASE64_MARK = re.compile(r"(?i);base64,")
 
 
-def body_reaches_the_end(text: str) -> bool:
-    """Whether `text` ends in `;base64,` and at most 31 body characters, read back a
-    character at a time: a body the line breaks after it could bring to 32."""
+def the_breaks_complete_a_body(left: str, read: str) -> bool:
+    """Whether `left`'s trailing line breaks bring a data URI body at the end of `read`
+    (stripped of its own) to 32 characters where `read`'s leave it short: `;base64,` then
+    body characters to the end, read back a character at a time."""
+    end = read.rstrip("\r\n")
     run = 0
-    while run < len(text) and run < 32 and BODY_CHAR.fullmatch(text[len(text) - run - 1]):
+    while run < len(end) and run < 32 and BODY_CHAR.fullmatch(end[len(end) - run - 1]):
         run += 1
-    return run < 32 and BASE64_MARK.fullmatch(text, max(0, len(text) - run - 8), len(text) - run) is not None
+    if run >= 32 or BASE64_MARK.fullmatch(end, max(0, len(end) - run - 8), len(end) - run) is None:
+        return False
+    return run + len(read) - len(end) < 32 <= run + len(left) - len(end)
 
 
 def refusal_reasons(text: str) -> set[str]:
     """Why `text`, a margin file, would keep only the marker, read from the guard's parts:
     `masks`, where the quoted pass over what is left (as it is, or read without margins)
     replaces other than what it replaces in the file outside the reminders, or the two
-    readings take out other reminders (`_taken_out`); `data-uri`, where the margin-free
-    reading of what is left ends in a body the trailing breaks could complete; `texts`,
+    readings take out other reminders (`_taken_out`); `data-uri`, where the trailing breaks
+    of the margin-free reading with its reminders taken out complete a data URI body that
+    the margin-free reading of what is left ends in; `texts`,
     where the two readings of what is left differ by more than trailing line breaks; and
     `tag`, where taking reminders out makes one."""
     tags = handoff.reminder_tags(text)
@@ -246,7 +261,7 @@ def refusal_reasons(text: str) -> set[str]:
     reasons = set()
     if left.rstrip("\r\n") != read.rstrip("\r\n"):
         reasons.add("texts")
-    elif left != read and body_reaches_the_end(read.rstrip("\r\n")):
+    elif left != read and the_breaks_complete_a_body(left, read):
         reasons.add("data-uri")
     if len(handoff.reminder_tags(kept)) != len(tags) - sum(closing - opening + 1 for opening, closing in pairs):
         reasons.add("tag")
@@ -257,8 +272,8 @@ def refusal_reasons(text: str) -> set[str]:
 @given(text=margin_reminder_logs, count=st.sampled_from([1, 3, 8]))
 def test_a_margin_file_ending_in_a_reminder_is_refused_only_where_the_masks_differ(text, count):
     """Over margin files that end in a reminder on its own line: the resolution is refused
-    exactly where the quoted pass's masks differ or a data URI's body reaches the trailing
-    break, never for a trailing line break alone (at c2e080e44, also for that). Taking out
+    exactly where the quoted pass's masks differ or the trailing break completes a data URI
+    body, never for a trailing line break alone (at c2e080e44, also for that). Taking out
     a reminder that ends the file changes neither reading but at its end, and makes no tag;
     in a CRLF text only, it may change whether a last member line that is a bare margin's
     mark is read as a margin (`test_a_crlf_margin_file_..._documented_limitation`). Whatever
@@ -301,18 +316,24 @@ def test_the_margin_files_resolve_and_fall_back_for_each_reason():
 def test_a_crlf_margin_file_whose_last_member_line_is_a_bare_margin_keeps_the_marker_documented_limitation(
         root, capsys):
     """A conservative fallback this follow-up keeps. In a CRLF text, a member line that is only
-    a margin's mark (`  |\r\n`) right before a reminder that ends the file is no margin to
-    the file's margin-free reading (its `\r` follows the mark) and is one to that of what is
-    left, whose trailing `\r\n` goes before its lines are read. The readings then differ by
+    a margin's mark (`  |\\r\\n`) right before a reminder that ends the file is no margin to
+    the file's margin-free reading (its `\\r` follows the mark) and is one to that of what is
+    left, whose trailing `\\r\\n` goes before its lines are read. The readings then differ by
     more than trailing line breaks, so `scrubbed_tail` keeps the marker. `daemon logs` reads
     daemon.log with universal newlines, so it meets the LF text, and prints the last lines."""
     text = (admissions(600) + MEMBER + "  |\n" + ENDINGS["one-line"]).replace("\n", "\r\n")
     assert daemon_log._reminders_resolved(text) is None
     assert daemon_log.scrubbed_tail(text, 3) == [handoff.cut_marker(len(text))]
+    lf = text.replace("\r\n", "\n")
+    assert daemon_log._reminders_resolved(lf) == WHOLE_REMINDER.sub("", lf)
     (root / "daemon.log").write_text(text, newline="")
     assert cli.main(["daemon", "logs", "-n", "3"]) == 0
-    assert capsys.readouterr().out.splitlines() == ["2026-10-20 admission: placed job 599 on lane codex-0",
-                                                    "  | member line", "  |"]
+    printed = capsys.readouterr().out.splitlines()
+    # The last member line is a bare margin, so the block form's two readings hold a line
+    # apiece too few to pair, and it writes the margin-free reading whole (`_group_block`).
+    assert printed == daemon_log.scrubbed_tail(lf, 3) == ["2026-10-20 admission: placed job 598 on lane codex-0",
+                                                           "2026-10-20 admission: placed job 599 on lane codex-0",
+                                                           "member line"]
 
 
 def test_no_tag_is_left_in_what_is_resolved():

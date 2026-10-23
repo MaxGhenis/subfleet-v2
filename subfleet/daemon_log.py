@@ -465,11 +465,11 @@ def _reminders_resolved(text: str) -> str | None:
     read and no rule but a data URI's body counts (`_alike`, review r6 of #233, P3-A).
 
     None (the marker rule: the cut keeps only its marker) where either does not hold, where
-    those line breaks follow a data URI body short enough for them to count, or where
-    taking reminders out makes a tag where none was. Its cost, besides finding the
-    tags in C scans: with orphans only, a marked copy; with reminders to take out, two
-    passes of the quoted-value rule over the text (four, with a group's margins), and
-    copies."""
+    those line breaks bring a data URI body that ends there to the 32 characters its rule
+    needs, or where taking reminders out makes a tag where none was. Its cost, besides
+    finding the tags in C scans: with orphans only, a marked copy; with reminders to take
+    out, two passes of the quoted-value rule over the text (four, with a group's margins),
+    and copies."""
     tags = reminder_tags(text)
     if not tags:
         return text
@@ -500,13 +500,14 @@ def _margin_free(text: str) -> str:
                      for line in text.rstrip("\r\n").split("\n"))
 
 
-#: A data URI's body that runs to a text's end, as `handoff._DATA_URI_RE` reads one (the
-#: same class and flags): its `;base64,`, then body characters, line breaks among them.
+#: The fewest body characters `handoff._DATA_URI_RE` takes for a data URI's body.
+_BODY_MIN = 32
+#: A data URI's body that runs to a text's end, as `_DATA_URI_RE` reads one (the same class
+#: and flags): its `;base64,`, then body characters, line breaks among them.
 _BODY_AT_END = re.compile(r"(?i);base64,[A-Za-z0-9+/=\s]*\Z")
-#: How far from a text's end `_BODY_AT_END` is looked for: `;base64,` and 31 body
-#: characters, the most a body can hold and still need a line break after it for the 32
-#: `_DATA_URI_RE` asks.
-_BODY_REACH = len(";base64,") + 31
+#: How far from a text's end `_BODY_AT_END` is looked for: `;base64,` and the most body
+#: characters that are still short of `_BODY_MIN`.
+_BODY_REACH = len(";base64,") + _BODY_MIN - 1
 
 
 def _alike(left: str, kept: str) -> bool:
@@ -515,16 +516,23 @@ def _alike(left: str, kept: str) -> bool:
     text the block form reads (review r6 of #233, P3-A). `_margin_free` strips a text's
     trailing line breaks, as `_group_block` does, so where reminders end the file, `left`
     keeps the line break before them and `kept` does not. One scrub rule reads such a
-    break: `_DATA_URI_RE` counts it among a body's 32 characters. So the two are alike
-    when equal, or when equal but for trailing line breaks and `kept` does not end in a
-    data URI body short enough for them to count (`;base64,` and at most 31 body
-    characters to its end). With the breaks stripped alone, a body of 31 characters
-    before a reminder that ends the file was hidden by the whole-text scrub and shown by
-    the tail."""
+    break: `_DATA_URI_RE` counts it among the 32 characters a body needs. So the two are
+    alike when equal, or when equal but for trailing line breaks and no data URI body
+    ends there that `left`'s breaks bring to 32 characters and `kept`'s leave short (a
+    `;base64,` within `_BODY_REACH` characters of the end, body characters after it; its
+    prefix is not read, so a `;base64,` with none counts too). With the breaks stripped
+    alone, a body of 31 characters before a reminder that ends the file was hidden by the
+    whole-text scrub and shown by the tail."""
     if left == kept:
         return True
     end = kept.rstrip("\r\n")
-    return left.rstrip("\r\n") == end and _BODY_AT_END.search(end, max(0, len(end) - _BODY_REACH)) is None
+    if left.rstrip("\r\n") != end:
+        return False
+    body = _BODY_AT_END.search(end, max(0, len(end) - _BODY_REACH))
+    if body is None:
+        return True
+    run = len(end) - body.start() - len(";base64,")
+    return not run + len(kept) - len(end) < _BODY_MIN <= run + len(left) - len(end)
 
 
 def _taken_out(text: str, tags: list[tuple[int, int, bool]]) -> tuple[str, list[tuple[int, int]]] | None:
