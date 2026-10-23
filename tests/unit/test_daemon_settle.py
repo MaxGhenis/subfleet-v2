@@ -846,7 +846,8 @@ def test_c4_2_start_grace_reads_the_receipts_again_after_its_census(daemon, monk
                          [(EMPTY, "failed", "starting-no-receipt"), (GUARDIAN_ONLY, "quarantined", None)],
                          ids=["empty", "guardian-alive"])
 def test_c4_2_start_grace_without_a_receipt_still_decides_from_its_census(daemon, monkeypatch, census, state, detail):
-    """C-4.2 no receipt after the census: an empty census releases and retries, anything else quarantines."""
+    """C-4.2 no receipt after the census: an empty census releases and retries; anything else is contained
+    first (D-KILL4), and a census that never empties quarantines with start grace's reason."""
     with_launch(daemon, monkeypatch)
     daemon.store.update_attempt(ATTEMPT, state="starting")
     daemon.start_grace_s, daemon._starting_deadlines[ATTEMPT] = 10, 0.0
@@ -906,10 +907,13 @@ def test_c4_2_start_grace_takes_only_a_receipt_the_tick_would_take(daemon, monke
     daemon._contain = contain
     daemon._process_attempt(ATTEMPT)
     a = attempt(daemon)
-    assert censuses == [1]
     if census is EMPTY:
+        assert censuses == [1]
         assert a["state"] == "failed" and a["outcome_detail"] == "starting-no-receipt"
     else:
+        # D-KILL4: the first census decides at once, to contain: the kill protocol's own
+        # censuses follow it in the same pass, not on later ticks.
+        assert censuses[0] == 1 and "attempt.kill_started" in [row["kind"] for row in daemon.store.list_events(JOB)]
         assert a["state"] == "quarantined"
         assert json.loads(a["quarantine_reason"])["reason"] == "start grace expired without a receipt"
 
