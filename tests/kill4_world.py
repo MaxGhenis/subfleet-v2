@@ -109,8 +109,8 @@ class World:
         markers = [f"SUBFLEET_ATTEMPT={self.attempt_id}", f"SUBFLEET_ROOT={self.root}"]
         live = self.live()
         return FakeKernel({pid: procargs(["proc"], markers if proc.marked and not proc.hidden else [])
-                           for pid, proc in live.items()},
-                          others=[pid for pid, proc in live.items() if proc.uid != UID],   # EPERM
+                           for pid, proc in live.items() if proc.uid == UID},
+                          others=[pid for pid, proc in live.items() if proc.uid != UID],   # EPERM: unreadable
                           starts={pid: proc.start for pid, proc in live.items()},
                           uids={pid: proc.uid for pid, proc in live.items()},
                           cwds={pid: proc.cwd for pid, proc in live.items() if proc.cwd})

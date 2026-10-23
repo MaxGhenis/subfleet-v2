@@ -13,6 +13,7 @@ its parent loop 78382 never in the census).
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import signal
 import subprocess
@@ -251,14 +252,22 @@ def test_another_attempts_guardian_and_the_daemon_are_never_signalled(daemon, wo
     assert attempt(daemon)["state"] == "quarantined"
 
 
-def test_an_unverifiable_census_signals_no_member_the_walk_or_responsibility_alone_found(daemon):
-    found = {pid: procs.ProcessIdentity(pid, "boot", STARTED) for pid in (4600, 4601, 4602)}
-    census = procs.Containment(frozenset(), frozenset({4600, 4601}), frozenset({4601}), True, found,
-                               ("recorded identity unavailable for pid 4599",), responsible_pids=frozenset({4602}))
+def test_uncertain_attribution_never_becomes_a_signal_target(daemon):
+    """An unverifiable census may keep a seed it could not compare or a responsibility
+    stranger (C-5.5): there only the group's, marked and parent-chain members are
+    targets. What such a census first recorded stays no target later, and so does
+    anything below it in a census's shapes."""
+    found = {pid: procs.ProcessIdentity(pid, "boot", STARTED) for pid in (4600, 4601, 4602, 4603)}
+    shapes = {4600: {"ppid": 1}, 4601: {"ppid": 1}, 4602: {"ppid": 1}, 4603: {"ppid": 4600}}
+    census = procs.Containment(frozenset(), frozenset({4600, 4601, 4603}), frozenset({4601}), True, found,
+                               ("recorded identity unavailable for pid 4599",), shapes,
+                               responsible_pids=frozenset({4602}))
     assert set(daemon._signal_targets(attempt(daemon), census)) == {4601}
-    verified = procs.Containment(frozenset(), frozenset({4600, 4601}), frozenset({4601}), False, found,
-                                 responsible_pids=frozenset({4602}))
-    assert set(daemon._signal_targets(attempt(daemon), verified)) == {4600, 4601, 4602}
+    verified = dataclasses.replace(census, unverifiable=False, errors=())
+    assert set(daemon._signal_targets(attempt(daemon), verified)) == {4600, 4601, 4602, 4603}
+    daemon.store.update_attempt(ATTEMPT, evidence_json=json.dumps({"unverified_identities": {
+        "4600": {"pid": 4600, "boot_id": "boot", "proc_start": STARTED}}}))
+    assert set(daemon._signal_targets(attempt(daemon), verified)) == {4601, 4602}
     daemon.store.update_attempt(ATTEMPT, evidence_json=json.dumps({"counted_identities": {
         "4600": {"pid": 4600, "boot_id": "boot", "proc_start": STARTED}}}))
     assert set(daemon._signal_targets(attempt(daemon), census)) == {4600, 4601}

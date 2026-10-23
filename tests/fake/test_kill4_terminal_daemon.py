@@ -20,6 +20,7 @@ each loop ends by itself within 90 s and each child within a second.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import signal
 import sys
@@ -31,6 +32,7 @@ from subfleet import procs
 from tests.fake.test_census_escapers_daemon import escaper_identity, executable, held, settled, stop
 
 pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="C-5.5's census reads macOS process state")
+SHELLS = {"sh", "bash", "zsh", "dash"}
 
 
 def submit_driver(daemon, marker: Path, scenario: str, **overrides) -> str:
@@ -41,7 +43,8 @@ def submit_driver(daemon, marker: Path, scenario: str, **overrides) -> str:
 
 def driver_running(daemon, marker: Path) -> procs.ProcessIdentity:
     driver = escaper_identity(daemon, marker)
-    daemon.until(lambda: executable(driver.pid) == "/bin/sh", timeout=30)
+    # /bin/sh runs the shell /private/var/select/sh names (bash here).
+    daemon.until(lambda: os.path.basename(executable(driver.pid) or "") in SHELLS, timeout=30)
     # Its child is running and shows the markers the loop hides.
     daemon.until(lambda: any(row[0] == driver.pid for pid, row in procs.snapshot().rows.items()), timeout=30)
     return driver
