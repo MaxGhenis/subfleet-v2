@@ -36,6 +36,15 @@ def failed_keep_dir(test_name: str) -> Path:
     return ROOT / str(os.getpid()) / re.sub(r"[^A-Za-z0-9_.-]", "_", test_name)
 
 
+def setup_or_call_failed(node) -> bool:
+    """Whether a test's setup or its call failed, by the reports the harnesses' `pytest_runtest_makereport` hooks
+    leave on its item (`rep_setup`, `rep_call`). Both count (#247 review r1, P3-2): a fixture built on a harness
+    that raises, such as `conv`'s daemon start when its wait times out, fails the setup, and the call never runs.
+    A skip is not a failure."""
+    reports = [getattr(node, "rep_" + when, None) for when in ("setup", "call")]
+    return any(report is not None and report.failed for report in reports)
+
+
 def prune(root: Path | None = None, *, now_ns: int | None = None, kill=os.kill) -> list[Path]:
     """Remove the kept roots of test processes that are gone, and return the folders removed.
 
