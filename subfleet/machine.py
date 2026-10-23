@@ -108,6 +108,7 @@ class _Storage:
             (self.io.IOServiceMatching, [ctypes.c_char_p], pointer),
             (self.io.IOServiceGetMatchingServices, [uint, pointer, ctypes.POINTER(uint)], ctypes.c_int),
             (self.io.IOIteratorNext, [uint], uint),
+            (self.io.IORegistryEntryIDMatching, [ctypes.c_uint64], pointer),
             (self.io.IOBSDNameMatching, [uint, uint, ctypes.c_char_p], pointer),
             (self.io.IOServiceGetMatchingService, [uint, pointer], uint),
             (self.io.IORegistryEntryGetParentEntry, [uint, ctypes.c_char_p, ctypes.POINTER(uint)], ctypes.c_int),
@@ -160,7 +161,7 @@ class _Storage:
             if device:
                 io.IOObjectRelease(device)
 
-    def read(self) -> DiskCounters | None:
+    def read(self, device_id: int | None = None) -> DiskCounters | None:
         io, cf = self.io, self.cf
         keys = []
         iterator = ctypes.c_uint32()
@@ -171,21 +172,34 @@ class _Storage:
                 if not key:
                     return None
                 keys.append(key)
-            matching = io.IOServiceMatching(b"IOBlockStorageDriver")
-            if not matching:
-                return None
-            # IOServiceGetMatchingServices consumes matching, including on failure.
-            if io.IOServiceGetMatchingServices(0, matching, ctypes.byref(iterator)):
-                return None
+            selected = 0
+            if device_id is None:  # bounded diagnostic enumeration
+                matching = io.IOServiceMatching(b"IOBlockStorageDriver")
+                if not matching:
+                    return None
+                # IOServiceGetMatchingServices consumes matching, including on failure.
+                if io.IOServiceGetMatchingServices(0, matching, ctypes.byref(iterator)):
+                    return None
+            else:
+                # The sampler already knows its driver. No iterator or neighbor
+                # statistics on the steady path; matching is consumed here too.
+                matching = io.IORegistryEntryIDMatching(device_id)
+                if not matching:
+                    return None
+                selected = io.IOServiceGetMatchingService(0, matching)
+                if not selected:
+                    return None
             result = {}
-            for _ in range(DEVICE_LIMIT):  # exactly 1,024 entries, including the last
-                device = io.IOIteratorNext(iterator.value)
+            for _ in range(DEVICE_LIMIT if device_id is None else 1):
+                device = selected if device_id is not None else io.IOIteratorNext(iterator.value)
                 if not device:
                     return result or None
                 stats = None
                 try:
                     identity = ctypes.c_uint64()
                     if io.IORegistryEntryGetRegistryEntryID(device, ctypes.byref(identity)):
+                        continue
+                    if device_id is not None and identity.value != device_id:
                         continue
                     stats = io.IORegistryEntryCreateCFProperty(device, keys[0], None, 0)
                     if not stats or cf.CFGetTypeID(stats) != cf.CFDictionaryGetTypeID():
@@ -215,15 +229,20 @@ class _Storage:
                 cf.CFRelease(key)
 
 
-def _disk_counters() -> DiskCounters | None:
+def _disk_counters(device_id: int | None = None) -> DiskCounters | None:
     global _iokit
     try:
         if _iokit is None:
             _iokit = _Storage()
-        return _iokit.read()
+        return _iokit.read(device_id)
     except Exception:
         return None
 
+
+
+def _root_device_id(root: Path) -> int:
+    """Cheap per-sample identity check; registry ancestry is resolved on change."""
+    return os.stat(root).st_dev
 
 
 def _state_device_id(root: Path) -> int | None:
@@ -284,6 +303,7 @@ class Sampler:
         self.root = Path(root or Path.cwd())
         self._clock = clock
         self.device_id: int | None = None
+        self._root_device: int | None = None
         self._polled: float | None = None
         self._cpu_at: float | None = None
         self._disk_at: float | None = None
@@ -297,13 +317,32 @@ class Sampler:
 
     @property
     def baseline_ms(self) -> float | None:
-        cutoff = time.time() - HISTORY_WINDOW_S
-        values = sorted(row['disk_service_ms_raw'] for row in self._history
-                        if row.get('observed_at', 0) >= cutoff
-                        and (self.device_id is None or row.get('disk_device_id') == self.device_id)
-                        and isinstance(row.get('disk_service_ms_raw'), (int, float))
-                        and row['disk_service_ms_raw'] > 0 and math.isfinite(row['disk_service_ms_raw']))
-        return values[int((len(values)-1)*.1)] if values else None
+        return self._baseline(time.time())[0]
+
+    def _baseline(self, now: float) -> tuple[float | None, float | None]:
+        eligible = [row for row in self._history
+                    if self._baseline_eligible(row, now - HISTORY_WINDOW_S)]
+        values = sorted(row['disk_service_ms_raw'] for row in eligible)
+        return (values[int((len(values)-1)*.1)] if values else None,
+                max((row['observed_at'] for row in eligible), default=None))
+
+    def _baseline_eligible(self, row: dict[str, Any], cutoff: float) -> bool:
+        value = row.get('disk_service_ms_raw')
+        return (self.device_id is not None and row.get('disk_device_id') == self.device_id
+                and row.get('observed_at', 0) >= cutoff
+                and isinstance(value, (int, float)) and value > 0 and math.isfinite(value))
+
+    def _select_device(self, identity: int | None, root_changed: bool = False) -> None:
+        if root_changed or identity != self.device_id:
+            # Even a reused registry ID cannot carry counters or smoothing from
+            # another root device. Discard its calibration if reuse is observed.
+            if root_changed and identity is not None and identity == self.device_id:
+                self._history = [r for r in self._history if r.get('disk_device_id') != identity]
+            self._disk = self._disk_at = self._disk_id = None
+            self._disk_ewma = _EWMA(DISK_EWMA_S)
+            for key in ('disk_busy', 'disk_in_flight', 'disk_baseline_ms'):
+                self._latest.pop(key, None)
+        self.device_id = identity
 
     def record(self, row: dict[str, Any]) -> None:
         self._history = (self._history + [dict(row)])[-HISTORY_LIMIT:]
@@ -321,7 +360,6 @@ class Sampler:
         started = time.perf_counter()
         self._polled = now
         ticks = _source(_cpu_ticks)
-        disks = _source(_disk_counters)
         idle = disk = raw_disk = in_flight = None
         if ticks:
             if self._ticks and len(ticks) == len(self._ticks):
@@ -337,9 +375,21 @@ class Sampler:
                     self._ticks, self._cpu_at = ticks, now
             else:
                 self._ticks, self._cpu_at = ticks, now
-        if self.device_id is None:
-            self.device_id = _source(_state_device_id, self.root)
+        root_device = _source(_root_device_id, self.root)
+        root_changed = root_device != self._root_device
+        self._root_device = root_device
+        resolved = root_changed or self.device_id is None
+        if resolved:
+            identity = _source(_state_device_id, self.root) if root_device is not None else None
+            self._select_device(identity, root_changed)
+        disks = _source(_disk_counters, self.device_id) if self.device_id is not None else None
         current = (disks or {}).get(self.device_id)
+        if current is None and not resolved:
+            previous = self.device_id
+            self._select_device(_source(_state_device_id, self.root))
+            if self.device_id is not None and self.device_id != previous:
+                disks = _source(_disk_counters, self.device_id)
+                current = (disks or {}).get(self.device_id)
         if current is not None:
             if self._disk is not None and self._disk_id == self.device_id:
                 changes = tuple(c-p for c,p in zip(current,self._disk))
@@ -352,6 +402,7 @@ class Sampler:
                         in_flight = sum(changes[:2]) / (elapsed * 1e9)
                     self._disk, self._disk_at = current, now
                 elif any(d < 0 for d in changes):
+                    self._disk_ewma = _EWMA(DISK_EWMA_S)
                     self._disk, self._disk_at = current, now
             else:
                 self._disk, self._disk_at, self._disk_id = current, now, self.device_id
@@ -367,20 +418,18 @@ class Sampler:
         return dict(row)
 
     def status(self) -> dict[str, Any]:
+        now = time.time()
         units = {'cpu_idle':'fraction','disk_busy':'ms/op','disk_in_flight':'requests',
                  'disk_baseline_ms':'ms/op','read_cost_s':'seconds'}
         result = {key: {'value':self._latest.get(key,(None,None))[0],
-                        'age_s':max(0,time.time()-self._latest[key][1]) if key in self._latest else None,
+                        'age_s':max(0,now-self._latest[key][1]) if key in self._latest else None,
                         'unit':unit, 'readable':self._snapshot.get(key) is not None}
                   for key,unit in units.items()}
-        baseline = self.baseline_ms
-        # Its age belongs to the newest usable calibration observation, not to
-        # a new daemon merely recomputing a percentile from yesterday's rows.
-        calibrated = [r['observed_at'] for r in self._history
-                      if r.get('disk_service_ms_raw') is not None
-                      and (self.device_id is None or r.get('disk_device_id') == self.device_id)]
+        # Value and age use one eligible set at one instant, including at the
+        # 24-hour boundary. Recomputing a percentile never refreshes its age.
+        baseline, calibrated_at = self._baseline(now)
         result['disk_baseline_ms'].update(value=baseline, readable=baseline is not None,
-            age_s=max(0,time.time()-max(calibrated)) if baseline is not None and calibrated else None)
+            age_s=max(0, now-calibrated_at) if calibrated_at is not None else None)
         result.update(sample_interval_s=SAMPLE_INTERVAL_S, disk_device_id=self.device_id,
                       baseline_samples=len(self._history))
         return result

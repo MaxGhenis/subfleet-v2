@@ -68,6 +68,7 @@ def test_status_and_store_expose_aged_samples_and_survive_restart(state_daemon,m
     assert view['disk_busy']['unit']=='ms/op'
     saved=json.loads(rows[0]['data_json'])
     restored=real(daemon.root,history=[saved])
+    restored.read()  # resolve this root before accepting its persisted calibration
     assert restored.baseline_ms==pytest.approx(2)
 
 
