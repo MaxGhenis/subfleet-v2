@@ -24,6 +24,7 @@ gh is always the recording stand-in; no test makes a network call.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import shlex
 import shutil
@@ -332,8 +333,9 @@ def test_the_rule_judges_the_script_wherever_each_real_shell_runs_it(tmp_path, s
         marker = tmp_path / 'ran'
         marker.unlink(missing_ok=True)
         script = f'touch {shlex.quote(str(marker))}'
+        # The session's PATH keeps its recording `security` ahead of the system directories (the keychain guard).
         subprocess.run([shutil.which(shell), *shlex.split(cluster), script], stdin=subprocess.DEVNULL, cwd=tmp_path,
-                       env={'PATH': '/usr/bin:/bin', 'HOME': str(tmp_path)}, capture_output=True, timeout=60)
+                       env={'PATH': os.environ['PATH'], 'HOME': str(tmp_path)}, capture_output=True, timeout=60)
         if marker.exists():
             ran.append(cluster)
             command = f'{shell} {cluster} {shlex.quote("gh pr comment 7 -b x")}'
@@ -365,7 +367,7 @@ def test_each_row_is_denied_by_the_real_hooks_and_reaches_gh_past_them(tmp_path,
     launch = protected(tmp_path, provider=provider)
     env, log, _snapshot = zsh_environment(tmp_path, launch)
     brew = tmp_path / 'homebrew' / 'bin'
-    env['PATH'] = f'{brew}:/usr/bin:/bin:/usr/sbin:/sbin'
+    env['PATH'] = f'{brew}:{env["PATH"]}'       # zsh -f reads no startup file to put it first
     rows = SHELL_ROWS if outer == 'zsh -f' else [row for row in SHELL_ROWS if row in CSH_SYNTAX]
     for template in rows:
         command = template.replace('{brew}', str(brew))
