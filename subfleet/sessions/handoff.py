@@ -39,6 +39,7 @@ Ported from v1 `subfleet/handoff.py`; the regexes and the section order are its.
 
 from __future__ import annotations
 
+import bisect
 import json
 import os
 import re
@@ -359,9 +360,24 @@ def _escaped_quote_ends(text: str, *, multiline: bool = False) -> dict[int, int]
     return ends
 
 
+def _flag_start(key: str) -> int:
+    """Where the credential flag in `key`, one identifier as `_IDENTIFIER_RE` reads it,
+    starts (its last `--`) when the flags rule masks the value after it, else -1:
+    `--password`, `--db-token`, `x--client-secret`. The cut's break rule asks the same
+    (`_flag_ends_at`), so a flag the rule masks is one no cut parts from its value."""
+    flag_start = key.rfind("--")
+    if flag_start < 0 or not _SENSITIVE_SUFFIX_RE.search(key[-17:]) \
+            or not _SENSITIVE_FLAG_RE.fullmatch(key[flag_start + 2:]):
+        return -1
+    return flag_start
+
+
 def _scrub_named_values(text: str, replace: Callable[[str, str], str],
-                       *, quoted: bool = False, flags: bool = False, multiline: bool = False) -> str:
-    """Replace assignment/flag values in linear scans, preserving rule order."""
+                       *, quoted: bool = False, flags: bool = False, multiline: bool = False,
+                       spans: list[tuple[int, int, str]] | None = None) -> str:
+    """Replace assignment/flag values in linear scans, preserving rule order. With
+    `spans`, the quoted pass only records what it would replace (`quoted_value_spans`)
+    and returns `text` as it is."""
     parts: list[str] = []
     cursor = 0
     quote_ends: dict[int, int] | None = None
@@ -386,8 +402,8 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
             continue
         start = token.start()
         if flags:
-            flag_start = key.rfind("--")
-            if flag_start < 0 or not _SENSITIVE_FLAG_RE.fullmatch(key[flag_start + 2:]):
+            flag_start = _flag_start(key)
+            if flag_start < 0:
                 continue
             start += flag_start
             if start < cursor:
@@ -499,6 +515,9 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
         else:
             parts.extend((text[cursor:start], replace(text[start:end], out)))
             cursor = end
+    if spans is not None:
+        spans.extend(ranges)
+        return text
     for start, end, out in ranges:
         parts.extend((text[cursor:start], replace(text[start:end], out)))
         cursor = end
@@ -566,18 +585,53 @@ def _identifier_char(char: str) -> bool:
     return _IDENTIFIER_RE.fullmatch(char) is not None
 
 
+#: Every character `str.isspace` holds, which `\s` in these patterns matches and
+#: `str.strip` strips (a test checks the list against both).
+_SPACES = ("\t\n\x0b\x0c\r\x1c\x1d\x1e\x1f \x85\xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005"
+           "\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000")
+#: How far `_run_start` and `_run_end` read in growing steps before one scan of the rest.
+_STEPS_MAX = 8192
+
+
+def _run_start(text: str, end: int, chars: str | None = None) -> int:
+    """Where the run of `chars` (whitespace when None) that ends at `end` starts: C
+    scans of 64, 128, ... characters back, then at most one of the rest before `end`;
+    nine scans in all, whatever the run's length."""
+    step = 64
+    while step <= _STEPS_MAX:
+        near = max(0, end - step)
+        kept = len(text[near:end].rstrip(chars))
+        if kept or not near:
+            return near + kept
+        end, step = near, step * 2
+    return len(text[:end].rstrip(chars))
+
+
+def _run_end(text: str, start: int, chars: str | None = None) -> int:
+    """Where the run of `chars` (whitespace when None) that starts at `start` ends: as
+    `_run_start`, forward. `_WHITESPACE_RUN_RE.match(text, start).end()`, in C scans."""
+    step = 64
+    while step <= _STEPS_MAX:
+        near = min(len(text), start + step)
+        dropped = (near - start) - len(text[start:near].lstrip(chars))
+        if start + dropped < near or near == len(text):
+            return start + dropped
+        start, step = near, step * 2
+    return len(text) - len(text[start:].lstrip(chars))
+
+
 def _last_visible(text: str, end: int) -> int:
     """The position of the last non-whitespace character before `end`, or -1."""
-    at = end - 1
-    while at >= 0 and text[at].isspace():   # `\s` in these patterns is `str.isspace`
-        at -= 1
-    return at
+    return _run_start(text, end) - 1
 
 
-def _neutral_break(text: str, visible: int, after: int) -> bool:
+def _neutral_break(text: str, visible: int, after: int,
+                   before: Callable[[int], int] | None = None) -> bool:
     """Whether a line break can be a cut: no rule could continue a match past
     it. `visible` is the last visible character before it (-1: none), `after`
-    the first after it (`len(text)`: none). Only these continue past a break,
+    the first after it (`len(text)`: none); `before` finds the last visible
+    character before a position (`_last_visible` when None; `cut_whole` reads a
+    group's margins as spaces, `_Reading.before`). Only these continue past a break,
     through whitespace that may include it:
     - a `:` or `=` after a key, its quote and whitespace, to the value;
     - a key (an identifier with a sensitive ending, which `Authorization`,
@@ -603,10 +657,11 @@ def _neutral_break(text: str, visible: int, after: int) -> bool:
     following = text[after:after + 1]
     last = text[visible]
     if last in ":=":
-        before = _last_visible(text, visible)   # the separator may follow blank lines
-        if before >= 0 and text[before] in "\"'":
-            return not _key_ends_at(text, before, quoted=True)
-        return not _key_ends_at(text, before)
+        # The separator may follow blank lines.
+        key = before(visible) if before is not None else _last_visible(text, visible)
+        if key >= 0 and text[key] in "\"'":
+            return not _key_ends_at(text, key, quoted=True)
+        return not _key_ends_at(text, key)
     separator = following in (":", "=")
     if last in "\"'":
         return not (separator and _key_ends_at(text, visible, quoted=True))
@@ -667,6 +722,754 @@ def _tail_cut(text: str) -> int:
             return at + 1
         at = text.find("\n", after)
     return len(text)
+
+
+#: A data URI's prefix, as `_DATA_URI_RE` reads it; its body is the run of
+#: `_DATA_BODY_RE` after it, line breaks included.
+_DATA_URI_PREFIX_RE = re.compile(r"(?i)data:[a-z0-9.+/-]+(?:;[a-z0-9=.+/-]+)*;base64,")
+_DATA_BODY_RE = re.compile(r"[A-Za-z0-9+/=\s]+")
+#: A quote and the run of backslashes right before it. `_quoted_ends` pairs a quote
+#: after an even run (none included) with the next such quote of its kind;
+#: `_escaped_quote_ends`, one after a run of one or more with the next after a run
+#: of the same length. A match starts only where a run starts (the lookbehind): without
+#: it, `finditer` read a run no quote follows again from each of its backslashes, so a
+#: run of 8,000 cost the cut 0.7 s (review r5 of #233, P3-1). Each character is then
+#: read a fixed number of times, and a run is matched whole, as before.
+_QUOTE_RUN_RE = re.compile(r"(?<!\\)(\\*)([\"'])")
+#: Either reminder tag (`_REMINDER_START_RE`, `_REMINDER_END_RE`). `cut_whole` runs it
+#: only where C scans found a tag (`_holds_reminder_tag`), never over the whole text.
+_REMINDER_TAG_RE = re.compile(r"</?system-reminder>", re.IGNORECASE)
+#: The characters other than ASCII letters' cases that `_REMINDER_TAG_RE`, which ignores
+#: case, takes for one of the tag's letters. With these replaced, `str.lower` keeps every
+#: position and lowers a text to the tag exactly where the regex matches one (a test
+#: checks every code point).
+_REMINDER_FOLDS = (("İ", "i"), ("ı", "i"), ("ſ", "s"))
+#: The characters of a header's name, as `_HEADER_RE` reads one (`_HEADER_NAME`, which
+#: ignores case, so `ſ`, `ı`, `İ` and the Kelvin sign are among them; a test checks every
+#: code point): `_leads_with_header` finds the name's end by a C scan of these, then
+#: matches its word (`_HEADER_WORD_RE`) in at most 13 characters before that end.
+_HEADER_NAME_CHARS = "-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz\u0130\u0131\u017f\u212a"
+#: A private key's first and last lines as `_PEM_RE` reads them once the text is
+#: folded to one line: each of their spaces may be any run of whitespace, line
+#: breaks included (`-----BEGIN RSA\nPRIVATE KEY-----`). A test checks them against
+#: `_PEM_START_RE` and `_PEM_END_RE` on folded text.
+_PEM_START_FOLDED_RE = re.compile(r"-----BEGIN(?:\s+[A-Z0-9]+)*\s+PRIVATE\s+KEY(?:\s+BLOCK)?-----")
+_PEM_END_FOLDED_RE = re.compile(r"-----END(?:\s+[A-Z0-9]+)*\s+PRIVATE\s+KEY(?:\s+BLOCK)?-----")
+#: What may still become a private key's first line (`_PEM_START_FOLDED_RE`) when more is
+#: written: `-----BEGIN` and uppercase words, with whitespace (line breaks too) between and
+#: after them. `settled_end` reads it from a text's last `-----BEGIN` to the text's end.
+_PEM_START_PREFIX_RE = re.compile(r"-----BEGIN(?:\s++[A-Z0-9]++)*+\s*+")
+#: The margin Python's traceback writes before each line of an exception group and
+#: its members (`daemon_log._GROUP_MARGIN`): two spaces a level, then `|` or `+`, then
+#: a space or the line's end. The daemon's block form also reads a group's text with
+#: the margins removed, so the cut reads each margin's `|` or `+` as a space.
+_MARGIN_MARK_RE = re.compile(r"(?m)^((?:  )+)[|+](?= |$)")
+#: C-25.7: the most distinct escaped quote kinds (a quote and the length of the run of
+#: backslashes before it) one side of `cut_whole` reads. A side whose window holds
+#: more keeps only the marker: each kind open at a candidate cut costs a look past
+#: the window, and this is what bounds them.
+CUT_KINDS_MAX = 8
+#: How many quotes of its character (for an escaped kind, runs at least its length)
+#: `_event_from` and `_event_before` read past a window, and how long a run of
+#: backslashes they count, before they call what lies there unknown. No cut crosses
+#: what is unknown.
+_LOOK = 64
+#: The longest identifier `_flag_ends_at` reads back to find a flag's `--`.
+_WORD_LOOK = 256
+
+
+def cut_marker(omitted: int) -> str:
+    """The line `cut_whole` puts where it left `omitted` characters out."""
+    return f"… [{omitted:,} characters omitted] …"
+
+
+def cut_whole(text: str, limit: int) -> str:
+    """`text` cut to whole lines from its head and its tail, each at most `limit // 2`
+    characters, joined by a line saying how many characters were left out, for a
+    caller that scrubs the result whole (`scrub_secrets(..., whole=True)`), folded
+    and not, and bounds that work (C-25.7: the daemon's handler, a record at a time).
+
+    No cut falls inside a match the whole-text scrub of `text` could make, folded
+    to one line or not, so the cut text, scrubbed either way, shows nothing of its
+    head or tail that `text` scrubbed the same way hides. A cut is at a line break:
+    - that `_neutral_break` allows, as `scrub_bounded`'s are: no key, `Bearer` or
+      separator before it whose match continues after it;
+    - that folding would not join into a match no line break allows (`_folds_to_value`):
+      a credential flag before it, as the flags rule reads one (`_flag_start`), and
+      the start of a value after it, as its `_FLAG_VALUE_RE` reads one: folded,
+      `--password\\nSECRET` is `--password SECRET`;
+    - outside any quoted value, which a whole-text scrub masks across lines to the
+      next quote of its kind (`_quoted_ends` and `_escaped_quote_ends` with
+      `multiline`). Read loosely: a quote after a `:` or `=` may open one;
+    - outside any private key, which the head never starts and the tail never
+      ends, its first and last lines read as folding lets `_PEM_RE` read them,
+      and outside any data URI's body;
+    - with each exception group's margin read as spaces (`_Reading`), as the block
+      form's margin-free reading of a group reads it;
+    - and a text holding a reminder tag is not cut at all: stripping a reminder
+      joins what was on either side of it, which can make a quote open a value. (A
+      record keeps this rule; what a person reads of daemon.log is read with its
+      reminders resolved before it is cut where that leaves the scrub's first pass as
+      it was, `daemon_log.scrubbed_tail`.)
+      Nor is one that opens with a header when the head would keep none of it:
+      folded to one line, as the line form folds it, all of it is the header's.
+    `scrub_bounded` needs only the first: it resolves the blocks over the whole
+    text first and scrubs its excerpts within lines, where no quoted value
+    crosses a line break, and it never folds.
+
+    The work is bounded whatever the text's length (reviews r2 and r3 of #233).
+    Every regex runs within the two windows (`limit // 2` characters each, and the
+    lines that hold their edges) or at a fixed position; counted by what each call
+    reads, they read at most 16 times the bound in all (review r5: `_QUOTE_RUN_RE`
+    starts only where a run of backslashes starts). Past the windows the cut
+    reads only in C scans of `str` and `bytes`, each linear in what it reads: a
+    fixed number of scans of the text, among them, where a look past a window meets
+    a group's margins, a few scans of each run of lines that hold only whitespace and
+    margins, each run read once (`_Reading`); plus at most one needle look for each
+    quote kind open at a candidate cut (`_event_from`, `_event_before`; two plain
+    kinds and at most `CUT_KINDS_MAX` escaped ones a side, so at most 20), each at
+    most `_LOOK` finds of its quote, which together read the text at most once
+    (review r4 of #233). A side whose window holds more escaped kinds, or with no
+    such break in reach, keeps nothing: one long line keeps only the line saying so."""
+    if len(text) <= limit:
+        return text
+    if _holds_reminder_tag(text):
+        return f"{cut_marker(len(text))}\n"
+    half = limit // 2
+    newline = text.find("\n", len(text) - half - 1)
+    reading = _Reading(text, half + 1, len(text) if newline < 0 else newline + 1)
+    head = _whole_head_cut(reading, half)
+    tail = max(head, _whole_tail_cut(reading, len(text) - half))
+    if reading.after(0) >= head and _leads_with_header(reading):
+        # Folded to one line, a text that opens with a header is all that header's
+        # value (`_HEADER_RE`): a tail without the header before it keeps nothing.
+        head, tail = 0, len(text)
+    return f"{text[:head]}{cut_marker(tail - head)}\n{text[tail:]}"
+
+
+def _holds_reminder_tag(text: str) -> bool:
+    """Whether `_REMINDER_TAG_RE` matches anywhere in `text`, in C scans: every tag
+    ends `r>` in some case; lowered after `_REMINDER_FOLDS`, which keeps every
+    position, the text holds the tag in lower case exactly where the regex matches,
+    and the regex confirms the first one found, within its length."""
+    if "r>" not in text and "R>" not in text:
+        return False
+    folded = text
+    for odd, plain in _REMINDER_FOLDS:
+        if odd in folded:
+            folded = folded.replace(odd, plain)
+    folded = folded.lower()
+    for tag in ("<system-reminder>", "</system-reminder>"):
+        at = folded.find(tag)
+        if at >= 0:
+            # Never false where the folds are complete, which a test checks; the
+            # whole-text search keeps the answer exact if they were not.
+            return (_REMINDER_TAG_RE.match(text, at, at + len(tag)) is not None
+                    or _REMINDER_TAG_RE.search(text) is not None)
+    return False
+
+
+def reminder_tags(text: str) -> list[tuple[int, int, bool]]:
+    """Every reminder tag `_REMINDER_TAG_RE` matches in `text`, in order, as `(start, end,
+    opens)`: found as `_holds_reminder_tag` finds the first, by C scans of the text lowered
+    after `_REMINDER_FOLDS`, and each confirmed by the regex within its length (C-25.7: what
+    a person reads of daemon.log never shows a tag, `daemon_log.neutralised`)."""
+    if "r>" not in text and "R>" not in text:
+        return []
+    folded = text
+    for odd, plain in _REMINDER_FOLDS:
+        if odd in folded:
+            folded = folded.replace(odd, plain)
+    folded = folded.lower()
+    found = []
+    for tag, opens in (("<system-reminder>", True), ("</system-reminder>", False)):
+        at = folded.find(tag)
+        while at >= 0:
+            found.append((at, at + len(tag), opens))
+            at = folded.find(tag, at + len(tag))
+    found.sort()
+    if all(_REMINDER_TAG_RE.match(text, start, end) is not None for start, end, _ in found):
+        return found
+    # Never where the folds are complete, which a test checks; the regex keeps the answer exact.
+    return [(match.start(), match.end(), match.group()[1] != "/") for match in _REMINDER_TAG_RE.finditer(text)]
+
+
+def quoted_value_spans(text: str) -> list[tuple[int, int, str]]:
+    """What the first pass of `scrub_secrets(..., whole=True)` replaces in `text`, in order:
+    `(start, end, out)`, `text[start:end]` replaced by `out`. That pass masks quoted values
+    across lines (`_scrub_named_values(..., quoted=True, multiline=True)`) before reminders
+    are stripped, so a tag inside one is no tag to that strip (review r4 of #233), and what
+    it replaces is the same whatever the rest of the text holds only if these are (review
+    r5, P2-1: `daemon_log._reminders_resolved`). One pass of that rule over `text`."""
+    spans: list[tuple[int, int, str]] = []
+    _scrub_named_values(text, lambda _matched, out: out, quoted=True, multiline=True, spans=spans)
+    return spans
+
+
+def _leads_with_header(reading: "_Reading") -> bool:
+    """Whether the text's first visible word is a header's name with a `:` as the
+    next visible character, as `(?i)\\s*[A-Za-z0-9_-]*(?:authorization|cookie)\\s*:`
+    (`_HEADER_RE`'s name, C-23.14) matches the text with its margins read as spaces:
+    the name's characters from the first visible one, read by a C scan
+    (`_HEADER_NAME_CHARS`), its word matched within its last 13, and a look past it,
+    where the regex's `\\s*` would have backtracked over every leading space."""
+    text = reading.text
+    start = reading.after(0)
+    end = _run_end(text, start, _HEADER_NAME_CHARS)
+    if _HEADER_WORD_RE.search(text, max(start, end - len("authorization")), end) is None:
+        return False
+    colon = reading.after(end)
+    return text[colon:colon + 1] == ":"
+
+
+def _blanked(text: str, start: int, end: int) -> str | None:
+    """`text[start:end]`, `start` a line start, with each margin's mark read as a
+    space (`_MARGIN_MARK_RE`), or None when it holds no margin. The regex runs on
+    the slice and the one character after it, which a mark's lookahead reads."""
+    part = text[start:end + 1]
+    if "  |" not in part and "  +" not in part:
+        return None
+    return _MARGIN_MARK_RE.sub(r"\1 ", part)[:end - start]
+
+
+def _is_margin_mark(text: str, at: int) -> bool:
+    """Whether the `|` or `+` at `at` is a margin's, as `_MARGIN_MARK_RE` reads one:
+    after an even run of two or more spaces that starts its line, and before a
+    space, a line break or the end of the text."""
+    if text[at] not in "|+" or text[at + 1:at + 2] not in ("", " ", "\n"):
+        return False
+    start = _run_start(text, at, " ")
+    return at - start >= 2 and (at - start) % 2 == 0 and (start == 0 or text[start - 1] == "\n")
+
+
+def _class_table(*, body: bool) -> bytes:
+    """`_char_classes`' table: a space, a line break and `|` stand for themselves,
+    any other whitespace is `w`. `+` is `|` too, a margin's other mark, unless `body`,
+    where it is `o` with the rest of a data URI's body characters (`_DATA_BODY_RE`).
+    Every other character is `x`."""
+    table = bytearray(b"x" * 256)
+    for char in _SPACES:
+        if char < "\x80":
+            table[ord(char)] = ord("w")
+    for char in " \n|":
+        table[ord(char)] = ord(char)
+    if body:
+        for char in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=":
+            table[ord(char)] = ord("o")
+    else:
+        table[ord("+")] = ord("|")
+    return bytes(table)
+
+
+_MARGIN_CLASSES = _class_table(body=False)
+_BODY_CLASSES = _class_table(body=True)
+#: `|` as a tab, for `bytes.expandtabs`, which counts each one's column.
+_BAR_TABS = bytes.maketrans(b"|", b"\t")
+
+
+def _char_classes(text: str, start: int, end: int, table: bytes) -> bytes | None:
+    """`text[start:end]` as one class byte a character (`_class_table`), in C scans;
+    None if it holds a character outside ASCII that is not whitespace, which neither
+    reading allows."""
+    part = text[start:end]
+    if not part.isascii():
+        for char in _SPACES:
+            if char >= "\x80" and char in part:
+                part = part.replace(char, "\t")
+        if not part.isascii():
+            return None
+    return part.encode("ascii").translate(table)
+
+
+def _bars_are_marks(classes: bytes) -> bool:
+    """Whether every `|` of `classes` (`_char_classes` of whole lines, ending in a line
+    break) is a margin's mark: the first visible character of its line after an even
+    run of two or more spaces, then a space or the line's end. C scans only: with each
+    line's spaces removed, each bar must follow a line break; with each bar a tab,
+    `expandtabs(2)` adds one character for each at an even column."""
+    bars = classes.count(b"|")
+    if not bars:
+        return True
+    if b"||" in classes or b"|w" in classes or b"|o" in classes or b"|x" in classes \
+            or b"\n|" in classes or classes.startswith(b"|"):
+        return False
+    bare = classes.translate(None, b" ")
+    if bare.count(b"|") != bare.count(b"\n|") + bare.startswith(b"|"):
+        return False
+    columns = classes.translate(_BAR_TABS)
+    return len(columns.expandtabs(2)) - len(columns) == bars
+
+
+def _margin_lines(text: str, start: int, end: int) -> bool:
+    """Whether the whole lines `text[start:end]` (`start` a line start, `end` just past
+    a line break) hold only whitespace and margins' marks: all whitespace with the
+    marks read as spaces. C scans only."""
+    classes = _char_classes(text, start, end, _MARGIN_CLASSES)
+    return classes is not None and b"x" not in classes and _bars_are_marks(classes)
+
+
+def _body_between(text: str, start: int, end: int) -> bool:
+    """Whether `text[start:end]` (`end` a line start) is all a data URI's body
+    characters (`_DATA_BODY_RE`) with the margins' marks read as spaces: no other
+    character, and each `|` a mark (a `+` is a body character either way). C scans
+    only; on a first line `start` cuts, only its first bar can be a mark."""
+    if start >= end:
+        return True
+    classes = _char_classes(text, start, end, _BODY_CLASSES)
+    if classes is None or b"x" in classes:
+        return False
+    if start and text[start - 1] != "\n":
+        line = classes.find(b"\n") + 1     # `end` is a line start: the line ends before it
+        bars = classes.count(b"|", 0, line)
+        if bars > 1 or (bars and not _is_margin_mark(text, start + classes.index(b"|"))):
+            return False
+        classes = classes[line:]
+    return _bars_are_marks(classes)
+
+
+class _Reading:
+    """`text` as `cut_whole` reads it: each exception group's margin read as spaces (its
+    `|` or `+`, as `_MARGIN_MARK_RE` finds them), as the daemon's block form also reads a
+    group's text without its margins.
+
+    `read` is that reading in the two windows the cut reads, blanked there by the regex
+    (`_blanked`): the head's first `head_end` characters and the tail from `tail_start`, a
+    line start. Between them it is `text`. A look past a window (`before`, `after`) knows
+    a margin where it meets one (`_is_margin_mark`), and passes the run of whole lines
+    after it that hold only whitespace and margins in C scans (`_margin_lines`) of growing
+    then shrinking spans, so their cost is linear in the run, however many lines it
+    holds; each run found is kept (`spans`), so no later look reads it again."""
+
+    def __init__(self, text: str, head_end: int, tail_start: int):
+        self.text = text
+        self.spans: list[tuple[int, int]] = []
+        head, tail = _blanked(text, 0, head_end), _blanked(text, tail_start, len(text))
+        self.read = text if head is None and tail is None else "".join((
+            text[:head_end] if head is None else head, text[head_end:tail_start],
+            text[tail_start:] if tail is None else tail))
+
+    def before(self, end: int) -> int:
+        """The last visible character before `end` (-1: none), as `_last_visible`
+        finds it in the text with its margins read as spaces."""
+        read, text = self.read, self.text
+        while True:
+            at = _run_start(read, end) - 1
+            if at < 0 or read[at] not in "|+" or not _is_margin_mark(text, at):
+                return at
+            end = self._back(text.rfind("\n", 0, at) + 1)
+
+    def after(self, start: int) -> int:
+        """The first visible character at or after `start` (`len(text)`: none), as
+        `_run_end` finds it in the text with its margins read as spaces."""
+        read, text = self.read, self.text
+        while True:
+            at = _run_end(read, start)
+            if at >= len(read) or read[at] not in "|+" or not _is_margin_mark(text, at):
+                return at
+            ahead = _run_end(read, at + 1)
+            newline = text.find("\n", at, ahead)
+            if newline < 0:
+                return ahead                # on the mark's line: a bar there is no margin's
+            start = self._forward(newline + 1)
+
+    def _back(self, end: int) -> int:
+        """The first line start from which every line up to `end`, a line start, holds
+        only whitespace and margins."""
+        text, good = self.text, self._known(end, back=True)
+        step, growing = 64, True
+        while good > 0 and step:
+            reach = max(0, good - step)
+            newline = text.find("\n", reach - 1, good - 1) if reach else -1
+            start = 0 if not reach else (good if newline < 0 else newline + 1)
+            if start < good and _margin_lines(text, start, good):
+                good, step = start, step * 2 if growing else step // 2
+            elif growing and start == good and reach:
+                step *= 2                   # the line before is longer than the step
+            else:
+                growing, step = False, step // 2
+        if good < end:
+            self.spans.append((good, end))
+        return good
+
+    def _forward(self, start: int) -> int:
+        """The last line start up to which every line from `start`, a line start, holds
+        only whitespace and margins."""
+        text, good = self.text, self._known(start, back=False)
+        step, growing = 64, True
+        while good < len(text) and step:
+            reach = min(len(text), good + step)
+            newline = text.rfind("\n", good, reach)
+            end = good if newline < 0 else newline + 1
+            if end > good and _margin_lines(text, good, end):
+                good, step = end, step * 2 if growing else step // 2
+            elif growing and end == good and reach < len(text):
+                step *= 2                   # the line is longer than the step
+            else:
+                growing, step = False, step // 2
+        if good > start:
+            self.spans.append((start, good))
+        return good
+
+    def _known(self, at: int, *, back: bool) -> int:
+        """`at` moved past the runs of margin lines already found that it is inside."""
+        moved = True
+        while moved:
+            moved = False
+            for begin, end in self.spans:
+                if back and begin < at <= end:
+                    at, moved = begin, True
+                elif not back and begin <= at < end:
+                    at, moved = end, True
+        return at
+
+
+def _newlines(text: str, start: int, end: int):
+    """The positions of the line breaks in [start, end)."""
+    at = text.find("\n", max(0, start), end)
+    while at >= 0:
+        yield at
+        at = text.find("\n", at + 1, end)
+
+
+def _around(reading: _Reading, starts: list[int]) -> tuple[list[int], list[int]]:
+    """For each of `starts`, line starts in ascending order within one window: the last
+    visible character before it and the first at or after it (`len(text)`: none), as
+    `_neutral_break` takes them, margins read as spaces. One pass over the lines between
+    them, and one look past each end: the starts in one run of blank lines share both,
+    and are not read again each."""
+    read = reading.read
+    visible, seen = [], reading.before(starts[0])
+    for index, at in enumerate(starts):
+        if index:
+            previous = starts[index - 1]
+            kept = len(read[previous:at].rstrip())
+            if kept:
+                seen = previous + kept - 1
+        visible.append(seen)
+    after, ahead = [0] * len(starts), reading.after(starts[-1])
+    for index in range(len(starts) - 1, -1, -1):
+        if index < len(starts) - 1:
+            at, following = starts[index], starts[index + 1]
+            lead = (following - at) - len(read[at:following].lstrip())
+            if at + lead < following:
+                ahead = at + lead
+        after[index] = ahead
+    return visible, after
+
+
+def _whole_break(reading: _Reading, visible: int, after: int, verdicts: dict) -> bool:
+    """Whether a line break between `visible` and `after` can be `cut_whole`'s cut.
+    Breaks between the same two visible characters (a run of blank lines) share one
+    verdict, kept in `verdicts`."""
+    verdict = verdicts.get((visible, after))
+    if verdict is None:
+        text = reading.text
+        verdict = verdicts[visible, after] = (_neutral_break(text, visible, after, reading.before)
+                                              and not _folds_to_value(text, visible, after))
+    return verdict
+
+
+def _folds_to_value(text: str, visible: int, after: int) -> bool:
+    """Whether folding the text to one line, as both of the daemon's forms do before
+    they scrub again, would join what ends at `visible` and what starts at `after`
+    into a match no line break allows. The rules decide, not a list: a rule whose key
+    and value a line break may part is `_neutral_break`'s; folding puts one space in
+    the break, and only the flags rule then matches where it did not, a credential
+    flag (`_flag_start`) followed by `[ \\t]+` and its value (`_FLAG_VALUE_RE`). (A
+    private key's split first and last lines are the other join folding makes; the
+    cut reads those lines folded. A test finds every rule's.)"""
+    return (after < len(text) and _FLAG_VALUE_RE.match(" " + text[after]) is not None
+            and _flag_ends_at(text, visible))
+
+
+def _flag_ends_at(text: str, end: int) -> bool:
+    """Whether an identifier the flags rule reads as a credential flag ends at `end`.
+    Its last `--` is read back at most `_WORD_LOOK` characters; one longer than that
+    without a `--` in reach reads as a flag when its ending is a sensitive word."""
+    if end < 0 or not _identifier_char(text[end]):
+        return False
+    start = end
+    while start > 0 and end - start < _WORD_LOOK and _identifier_char(text[start - 1]):
+        start -= 1
+    word = text[start:end + 1]
+    if start == 0 or not _identifier_char(text[start - 1]) or "--" in word:
+        return _flag_start(word) >= 0
+    return bool(_SENSITIVE_SUFFIX_RE.search(word[-17:]))
+
+
+def _quote_events(reading: _Reading, start: int, end: int):
+    """Each quote in [start, end) (`start` a line start, so each run is whole):
+    `(position, kinds, opens)`. `kinds` are the kinds it pairs as, `("plain",
+    quote)` and `("escaped", run, quote)`; `opens` is the kind it may open a value
+    of, when a `:` or `=` precedes it (a key is not read: any may be one)."""
+    text = reading.text
+    for match in _QUOTE_RUN_RE.finditer(text, start, end):
+        run, quote = len(match.group(1)), match.group(2)
+        kinds = ((("plain", quote),) if run % 2 == 0 else ()) + ((("escaped", run, quote),) if run else ())
+        before = reading.before(match.start())
+        opens = (("plain", quote) if run == 0 else ("escaped", run, quote)) \
+            if before >= 0 and text[before] in ":=" else None
+        yield match.start(2), kinds, opens
+
+
+def _too_many_kinds(events: list) -> bool:
+    """Whether a window's quotes are of more than `CUT_KINDS_MAX` escaped kinds."""
+    return len({kind for _, kinds, _ in events for kind in kinds if kind[0] == "escaped"}) > CUT_KINDS_MAX
+
+
+def _needle(kind: tuple) -> str:
+    """What every quote of `kind` ends: its quote, after a run of at least its length."""
+    return kind[-1] if kind[0] == "plain" else "\\" * kind[1] + kind[-1]
+
+
+def _run_before(text: str, quote: int) -> int | None:
+    """The run of backslashes right before the quote at `quote`; None past `_LOOK`."""
+    run = 0
+    while run <= _LOOK and quote - run > 0 and text[quote - run - 1] == "\\":
+        run += 1
+    return None if run > _LOOK else run
+
+
+def _of_kind(kind: tuple, run: int) -> bool:
+    return run % 2 == 0 if kind[0] == "plain" else run == kind[1]
+
+
+def _event_from(text: str, kind: tuple, start: int) -> bool | None:
+    """Whether a quote of `kind` lies at or after the line start `start`: None when
+    the first `_LOOK` quotes of its character there (runs at least its length) do
+    not tell. At most `_LOOK` C scans, whatever the text's length."""
+    needle, at = _needle(kind), start
+    for _ in range(_LOOK):
+        found = text.find(needle, at)
+        if found < 0:
+            return False
+        run = _run_before(text, found + len(needle) - 1)
+        if run is None:
+            return None
+        if _of_kind(kind, run):
+            return True
+        at = found + 1
+    return None
+
+
+def _event_before(reading: _Reading, kind: tuple, end: int) -> bool | None:
+    """Whether the last quote of `kind` before `end` may open a value of it: None when
+    it is too far back to tell (`_LOOK` quotes of its character, runs at least its
+    length, or a run of backslashes longer), False when there is none. At most
+    `_LOOK` C scans, whatever the text's length, and a look past each margin it meets."""
+    text = reading.text
+    needle, at = _needle(kind), end
+    for _ in range(_LOOK):
+        found = text.rfind(needle, 0, at)
+        if found < 0:
+            return False
+        quote = found + len(needle) - 1
+        run = _run_before(text, quote)
+        if run is None:
+            return None
+        if _of_kind(kind, run):
+            before = reading.before(quote - run)
+            return before >= 0 and text[before] in ":=" and (kind[0] == "escaped" or run == 0)
+        at = quote
+    return None
+
+
+def _within_spans(starts: list[int], spans) -> set[int]:
+    """The starts that fall strictly inside any of `spans` (`(begin, finish)`)."""
+    inside = set()
+    for begin, finish in spans:
+        inside.update(starts[bisect.bisect_right(starts, begin):bisect.bisect_left(starts, finish)])
+    return inside
+
+
+def _whole_head_cut(reading: _Reading, end: int) -> int:
+    """The end of the head: the last line start within `end` no whole-text match
+    crosses, folded or not (0 if none). Its regexes read `reading.read` within the
+    head's window, the first `end + 1` characters."""
+    text, read = reading.text, reading.read
+    starts = [0, *(at + 1 for at in _newlines(text, 0, end))]
+    last = starts[-1]
+    key = _PEM_START_FOLDED_RE.search(read, 0, last)
+    if key is not None:                     # a private key starts in reach: the head ends before it
+        starts = [at for at in starts if at <= text.rfind("\n", 0, key.start()) + 1]
+    if len(starts) == 1:
+        return 0
+    bodies = []
+    for prefix in _DATA_URI_PREFIX_RE.finditer(read, 0, last):
+        body = _DATA_BODY_RE.match(read, prefix.end(), last + 1)       # whether it passes `last` is enough
+        bodies.append((prefix.start(), body.end() if body else prefix.end()))
+    blocked = _within_spans(starts, bodies)
+    # Which kinds of quote are open at each line start: the last quote of the kind
+    # before it may open a value, which an event of the kind after it would close.
+    events = list(_quote_events(reading, 0, last))
+    if _too_many_kinds(events):
+        return 0
+    final = {}
+    for position, kinds, _ in events:
+        for kind in kinds:
+            final[kind] = position
+    open_at, opened, index = {}, {}, 0
+    for at in starts:
+        while index < len(events) and events[index][0] < at:
+            position, kinds, opens = events[index]
+            for kind in kinds:
+                opened[kind] = opens == kind
+            index += 1
+        open_at[at] = [kind for kind, opens in opened.items() if opens]
+    visible, after = _around(reading, starts)
+    beyond: dict[tuple, bool | None] = {}   # each kind's event past the window, computed once
+    verdicts: dict[tuple[int, int], bool] = {}
+    for at, seen, ahead in zip(reversed(starts), reversed(visible), reversed(after)):
+        if at == 0:
+            return 0
+        if at in blocked or not _whole_break(reading, seen, ahead, verdicts):
+            continue
+        closed = True
+        for kind in open_at[at]:
+            if final[kind] >= at:
+                closed = False
+                break
+            if kind not in beyond:
+                beyond[kind] = _event_from(text, kind, last)
+            if beyond[kind] is not False:
+                closed = False
+                break
+        if closed:
+            return at
+    return 0
+
+
+#: The end of a data URI's prefix.
+_BASE64_MARK_RE = re.compile(r"(?i);base64,")
+
+
+def _whole_tail_cut(reading: _Reading, start: int) -> int:
+    """The start of the tail: the first line start at or after `start` no whole-text
+    match crosses, folded or not (the end of the text if none). Its regexes read
+    `reading.read` within the tail's window, from that first line start."""
+    text, read = reading.text, reading.read
+    starts = [at + 1 for at in _newlines(text, start - 1, len(text))]
+    if not starts:
+        return len(text)
+    first = starts[0]
+    ends = [match.end() for match in _PEM_END_FOLDED_RE.finditer(read, first)]
+    if ends:                                # a private key ends in reach: the tail starts after it
+        stop = text.find("\n", ends[-1])
+        starts = [at for at in starts if 0 <= stop < at]
+        if not starts:
+            return len(text)
+    # A data URI's body: the run after its prefix. The run at `first` began before
+    # it, right after the last character no body holds: it is a body when that is
+    # the `,` of a `;base64,`, so the last `,` before `first` (a C scan) and nothing
+    # but body characters after it (C scans, only then: `_body_between`).
+    bodies = []
+    for run in _DATA_BODY_RE.finditer(read, first):
+        if run.start() == first:
+            comma = text.rfind(",", 0, first)
+            body = (comma >= 7 and _BASE64_MARK_RE.fullmatch(text, comma - 7, comma + 1) is not None
+                    and _body_between(text, comma + 1, first))
+        else:
+            body = run.start() >= 8 and _BASE64_MARK_RE.fullmatch(text, run.start() - 8, run.start()) is not None
+        if body:
+            bodies.append((run.start(), run.end()))
+    blocked = _within_spans(starts, ((begin - 1, finish) for begin, finish in bodies))
+    # A quoted value may run into the tail across a line start when a quote of a
+    # kind follows it and the last before it may open a value of that kind.
+    events = list(_quote_events(reading, first, len(text)))
+    if _too_many_kinds(events):
+        return len(text)
+    final = {}
+    for position, kinds, _ in events:
+        for kind in kinds:
+            final[kind] = position
+    visible, after = _around(reading, starts)
+    before: dict[tuple, bool | None] = {}   # each kind's state before the window, computed once
+    opened: dict[tuple, bool] = {}
+    verdicts: dict[tuple[int, int], bool] = {}
+    index = 0
+    for at, seen, ahead in zip(starts, visible, after):
+        while index < len(events) and events[index][0] < at:
+            position, kinds, opens = events[index]
+            for kind in kinds:
+                opened[kind] = opens == kind
+            index += 1
+        if at in blocked or not _whole_break(reading, seen, ahead, verdicts):
+            continue
+        crossed = False
+        for kind, position in final.items():
+            if position < at:
+                continue
+            if kind in opened:
+                state = opened[kind]
+            else:
+                if kind not in before:
+                    before[kind] = _event_before(reading, kind, first)
+                state = before[kind]
+            if state is not False:
+                crossed = True
+                break
+        if not crossed:
+            return at
+    return len(text)
+
+
+def settled_end(text: str, start: int) -> int:
+    """For a text still being written, whole lines so far (`daemon logs --follow`,
+    C-25.7): the last line start after `start` (itself a line start) at which no match
+    of the whole-text scrub, folded or not, could cross a cut, whatever text comes
+    next; `start` if none. `cut_whole`'s rules, its margins read as spaces, with
+    nothing known past the text and no window: a break whose next visible character
+    is not yet written is judged for each character that could come (`:` and a token
+    character, `_neutral_break`'s and `_folds_to_value`'s two kinds); a value a quote
+    may open stays open until its kind's next quote; a private key until its last
+    line, and a first line still being written (`-----BEGIN RSA`, then a line break,
+    `PRIVATE KEY-----` not yet: review r4 of #233) until it can no longer become one;
+    a data URI until a character its body cannot hold; and nothing after a reminder
+    tag settles."""
+    reading = _Reading(text, len(text), len(text))
+    read = reading.read
+    starts = [at + 1 for at in _newlines(text, start, len(text))]
+    tag = _REMINDER_TAG_RE.search(text) if _holds_reminder_tag(text) else None
+    if tag is not None:
+        starts = [at for at in starts if at <= text.rfind("\n", 0, tag.start()) + 1]
+    spans = []                              # what a later text could still continue, or does
+    begins = list(_PEM_START_FOLDED_RE.finditer(read))
+    for key in begins:
+        end = _PEM_END_FOLDED_RE.search(read, key.end())
+        spans.append((key.start(), len(text) + 1 if end is None else end.end()))
+    # Only the last `-----BEGIN` can still start a first line: an earlier one has the last
+    # one's `-` after it, which no word of a first line holds.
+    first_line = read.rfind("-----BEGIN")
+    if first_line >= 0 and _PEM_START_PREFIX_RE.fullmatch(read, first_line) is not None:
+        spans.append((first_line, len(text) + 1))
+    for prefix in _DATA_URI_PREFIX_RE.finditer(read):
+        body = _DATA_BODY_RE.match(read, prefix.end())
+        finish = prefix.end() if body is None else body.end()
+        spans.append((prefix.start(), len(text) + 1 if finish == len(text) else finish))
+    blocked = _within_spans(starts, spans)
+    events = list(_quote_events(reading, 0, len(text)))
+    opened, index, verdicts = {}, 0, {}
+    settled = start
+    if not starts:
+        return settled
+    visible, after = _around(reading, starts)
+    for at, seen, ahead in zip(starts, visible, after):
+        while index < len(events) and events[index][0] < at:
+            position, kinds, opens = events[index]
+            for kind in kinds:
+                opened[kind] = opens == kind
+            index += 1
+        if at in blocked or any(opened.values()):
+            continue
+        if ahead < len(text):
+            safe = _whole_break(reading, seen, ahead, verdicts)
+        elif (safe := verdicts.get((seen, None))) is None:     # what follows is not written yet
+            safe = verdicts[seen, None] = all(
+                _neutral_break(text + following, seen, ahead, reading.before)
+                and not _folds_to_value(text + following, seen, ahead) for following in ":A")
+        if safe:
+            settled = at
+    return settled
 
 
 class _Tally:
@@ -959,6 +1762,22 @@ def _inline_value_end(text: str, opening: int, value_start: int, line_end: int,
     return line_end
 
 
+#: The rules after reminders that can match across lines (`_resolve_blocks`).
+_BLOCK_RULES = ((_PEM_RE, "[PRIVATE KEY REDACTED]"), (_DATA_URI_RE, "[BASE64 DATA OMITTED]"))
+#: The token rules `_scrub` applies after the blocks and the quoted values, in order,
+#: each over the whole text before the next. The inline header rule
+#: (`_scrub_inline_headers`) reads the text before them and again right after the
+#: line-start header rule (`_HEADER_RE`).
+_TOKEN_RULES = (
+    (_JWT_RE, REDACTED),
+    (_PREFIXED_TOKEN_RE, REDACTED),
+    (_BEARER_RE, _bearer_value),
+    (_LONG_BASE64_RE, "[BASE64 OMITTED]"),
+    (_HEADER_RE, _header_value),
+    (_URL_PASSWORD_RE, lambda match: match.group(1) + REDACTED + match.group(3)),
+)
+
+
 def _resolve_blocks(text: str, strip_reminders: bool, tally: _Tally) -> str:
     """The scrub's first rules, which can match across lines: reminders, private
     keys, data URIs (wrapped base64). Each is a scan whose work is linear in the
@@ -967,8 +1786,7 @@ def _resolve_blocks(text: str, strip_reminders: bool, tally: _Tally) -> str:
     again to what they leave, they change nothing."""
     if strip_reminders:
         text = _linear_sub(_SYSTEM_REMINDER_RE, "", text)
-    return _apply_rules(text, ((_PEM_RE, "[PRIVATE KEY REDACTED]"),
-                               (_DATA_URI_RE, "[BASE64 DATA OMITTED]")), tally)
+    return _apply_rules(text, _BLOCK_RULES, tally)
 
 
 def _scrub(text: str, strip_reminders: bool, *, multiline: bool = False) -> tuple[str, int]:
@@ -988,27 +1806,22 @@ def _scrub(text: str, strip_reminders: bool, *, multiline: bool = False) -> tupl
     # an inline value is then one the text already held, never a JWT or prefixed
     # token this scrub just replaced with the rest of the value still to hide.
     text = _scrub_inline_headers(text, tally)
-    text = _apply_rules(text, (
-        (_JWT_RE, REDACTED),
-        (_PREFIXED_TOKEN_RE, REDACTED),
-        (_BEARER_RE, _bearer_value),
-        (_LONG_BASE64_RE, "[BASE64 OMITTED]"),
-    ), tally)
-    text = _apply_rules(text, ((_HEADER_RE, _header_value),), tally)
-    # The inline rule's second scan, which reads names that start their line too. It
-    # reads a header the first scan could not: a key a line-start header keeps that
-    # is a header's name (`Cookie:` and `Set-Cookie:` on the next line), a line-start
-    # header's value that is only such a name (`X-Authorization:` and `Authorization:`
-    # on the next line), which `_HEADER_RE` leaves whole, and a header a token rule
-    # made (`Bearer` joining a value's line to its token's line, or cutting a token
-    # before `Authorization:`). Each takes a header's value, as it would on its own
-    # and as a second scrub would give it; a value that now starts with `[REDACTED]`
-    # is left as the first scan leaves one, whichever rule put it there. It always
-    # runs, so whether a line is read again never depends on the rest of the text,
-    # and an excerpt scrubs as the whole does.
-    text = _scrub_inline_headers(text, tally, line_start=True)
-    text = _apply_rules(text, ((_URL_PASSWORD_RE, lambda match: match.group(1) + REDACTED + match.group(3)),),
-                        tally)
+    for rule in _TOKEN_RULES:
+        text = _apply_rules(text, (rule,), tally)
+        if rule[0] is _HEADER_RE:
+            # The inline rule's second scan, which reads names that start their line
+            # too. It reads a header the first scan could not: a key a line-start
+            # header keeps that is a header's name (`Cookie:` and `Set-Cookie:` on the
+            # next line), a line-start header's value that is only such a name
+            # (`X-Authorization:` and `Authorization:` on the next line), which
+            # `_HEADER_RE` leaves whole, and a header a token rule made (`Bearer`
+            # joining a value's line to its token's line, or cutting a token before
+            # `Authorization:`). Each takes a header's value, as it would on its own
+            # and as a second scrub would give it; a value that now starts with
+            # `[REDACTED]` is left as the first scan leaves one, whichever rule put it
+            # there. It always runs, so whether a line is read again never depends on
+            # the rest of the text, and an excerpt scrubs as the whole does.
+            text = _scrub_inline_headers(text, tally, line_start=True)
     text = _scrub_named_values(text, tally, quoted=True, multiline=multiline)
     text = _scrub_named_values(text, tally)
     text = _scrub_named_values(text, tally, flags=True)
