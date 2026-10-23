@@ -229,8 +229,8 @@ def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
 #: attempt, the next pilot (C-6.14); null waits for the pilot however long. Five
 #: minutes: the incident's refusals took 78 to 181 s to arrive under its load.
 MACHINE_GUARD_PROPOSAL: dict[str, dict[str, Any]] = {
-    "background": {"load_per_cpu": 6.0, "memory_pressure": "warn"},
-    "session": {"load_per_cpu": 10.0, "memory_pressure": "critical"},
+    "background": {"cpu_idle_min": .15, "memory_pressure": "warn"},
+    "session": {"cpu_idle_min": .05, "memory_pressure": "critical"},
 }
 #: C-6.17: disk admission is opt-in. GB is decimal (1e9 bytes). A detached
 #: placement needs room for its reserve above the floor; a low refusal latches
@@ -336,7 +336,7 @@ def _name(value: Any) -> bool:
 
 def _fraction(value: Any, maximum: float = 1) -> bool:
     return (isinstance(value, (int, float)) and not isinstance(value, bool)
-            and math.isfinite(value) and 0 <= value <= maximum)
+            and 0 <= value <= maximum and math.isfinite(value))
 
 
 #: D-ENV1: how a lane whose variable every launch inherits is put right. The
@@ -662,17 +662,24 @@ def load_policy(path: str | Path) -> dict[str, Any]:
             if limits is None:
                 continue
             if not isinstance(limits, dict) or not limits:
-                fail(where, "must be an object with load_per_cpu, memory_pressure, or both")
+                fail(where, "must be an object with cpu_idle_min, disk_busy_max, load_per_cpu, or memory_pressure")
             for key, item in limits.items():
-                if key == "load_per_cpu":
-                    if (not isinstance(item, (int, float)) or isinstance(item, bool) or not math.isfinite(item)
-                            or item <= 0):
-                        fail(f"{where}.load_per_cpu", "must be a positive finite number")
+                if key in ("load_per_cpu", "disk_busy_max"):
+                    try:
+                        valid = isinstance(item, (int, float)) and not isinstance(item, bool) and item > 0 and math.isfinite(item)
+                    except OverflowError:
+                        valid = False
+                    if not valid:
+                        fail(f"{where}.{key}", "must be a positive finite number" + (" of ms/op" if key == "disk_busy_max" else ""))
                 elif key == "memory_pressure":
                     if item not in ("warn", "critical"):
                         fail(f"{where}.memory_pressure", "must be \"warn\" or \"critical\"")
+                elif key == "cpu_idle_min":
+                    if not _fraction(item):
+                        fail(f"{where}.{key}", "must be a finite fraction between 0 and 1")
                 else:
-                    fail(f"{where}.{key}", "is not a guard threshold (load_per_cpu, memory_pressure)")
+                    fail(f"{where}.{key}", "is not a guard threshold "
+                         "(cpu_idle_min, disk_busy_max, load_per_cpu, memory_pressure)")
     grace = settings["pin_grace_s"]
     if grace is not None and (not isinstance(grace, (int, float)) or isinstance(grace, bool)
                               or not math.isfinite(grace) or grace < 0):

@@ -163,4 +163,4 @@ def test_the_app_core_drives_a_development_daemon(core_probe, tmp_path, dev_daem
     assert {"capabilities", "models.list", "conversation.create", "message.submit", "conversation.open",
             "conversation.events", "conversation.watch", "message.status", "turn.interrupt", "approval.list",
             "approval.get", "approval.respond", "message.cancel", "attachment.add", "conversation.history",
-            "conversation.list", "catalog.refresh"} <= set(seen)
+            "conversation.list", "conversation.status", "catalog.refresh"} <= set(seen)

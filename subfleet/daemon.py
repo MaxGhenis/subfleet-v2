@@ -835,6 +835,7 @@ class Daemon:
                                                          references=self._withheld_references)
         # C-3.7: reads outside a transaction take a read connection, not the store lock.
         self.store = Store(self.root / "state.sqlite3", readers=READ_CONNECTIONS)
+        self._start_machine_sampler()  # C-6.13: prime before detached admission can run
         self._disk = disk.DiskAdmission(self.root, recheck_latch=True)
         self._disk.settings = disk_settings(self.policy)
         if self._disk.settings["enabled"]:
@@ -1022,6 +1023,9 @@ class Daemon:
         # what both write: the holds, `_admission` and the route counts.
         self._pass_locks = {"turn": threading.Lock(), "detached": threading.Lock()}
         self._admission_lock = threading.Lock()
+        self._machine_guard = scheduler.MachineGuard()
+        self._machine_sampler: machine.Sampler | None = None
+        self._last_machine_sample_wall = 0.0
         # One pass at a time records what admission left (`_note_admission`),
         # with the placements every pass made since, counted as each is made, so
         # a long detached pass that is placing never reads as idle to the turn
@@ -3510,6 +3514,8 @@ class Daemon:
                     "claude_cards": self.timers.cards_view(),  # C-9.10
                     "active_attempts": self.store.one("SELECT count(*) n FROM attempts WHERE state IN ('reserved','starting','running','finalizing')")["n"],
                     "admission": self._admission_status(view),
+                    "machine_guard": ({"enabled": True, **self._machine_sampler.status()}
+                                      if self._machine_sampler else {"enabled": False}),
                     "priority_callers": self._priority_callers_status(),
                     # C-17.8: names only; the lanes' own variables listed apart.
                     "environment": environment_report(references=self._lane_credential_references()),
@@ -3517,6 +3523,53 @@ class Daemon:
                     "read_pool": self.store.read_pool(),             # C-3.7
                     "wait_hub": self.wait_hub.status()}              # C-15.5
         raise protocol.request_error("unknown-op")
+
+    def _machine_signals_enabled(self) -> bool:
+        guard = scheduler.admission_settings(self.policy).get("machine_guard") or {}
+        return any(isinstance(limits, dict) and any(key in limits for key in ("cpu_idle_min", "disk_busy_max"))
+                   for klass, limits in guard.items() if klass in ("background", "session"))
+
+    def _start_machine_sampler(self) -> None:
+        if not self._machine_signals_enabled():
+            self._machine_sampler = None
+            return
+        rows = self.store.query("SELECT data_json FROM events WHERE kind='machine.sample' "
+                                "ORDER BY event_id DESC LIMIT ?", (machine.HISTORY_LIMIT,))
+        history = []
+        for row in reversed(rows):
+            try:
+                sample = json.loads(row["data_json"])
+                if isinstance(sample, dict) and isinstance(sample.get("observed_at"), (int, float)):
+                    history.append(sample)
+            except (ValueError, TypeError):
+                continue
+        self._last_machine_sample_wall = max((r.get("recorded_at", r["observed_at"]) for r in history), default=0.0)
+        self._machine_sampler = machine.Sampler(self.root, history=history)
+        self._machine_sampler.prime()
+
+    def _machine_reading(self) -> dict:
+        if not self._machine_signals_enabled():
+            self._machine_sampler = None
+            return machine.read()  # exact old fields, no new native reads
+        if self._machine_sampler is None:  # an explicit policy edit enabled it
+            self._start_machine_sampler()
+        reading = self._machine_sampler.read()
+        now = time.time()
+        if now - self._last_machine_sample_wall >= 60.0:
+            sample = {key: value for key, value in reading.items() if key != "sampled_at"}
+            sample["recorded_at"] = now
+            # One sample and its normal C-3.2 audit row per minute; both kinds
+            # retain at most 1,440 rows. Restart restores the minute gate too.
+            with self.store.transaction("machine.sample.retention") as tx:
+                for kind in ("machine.sample", "machine.sample.retention"):
+                    tx.execute("DELETE FROM events WHERE kind=? AND event_id NOT IN "
+                               "(SELECT event_id FROM events WHERE kind=? ORDER BY event_id DESC LIMIT ?)",
+                               (kind, kind, machine.HISTORY_LIMIT-1))
+                tx.execute("INSERT INTO events(ts,kind,data_json) VALUES(?, 'machine.sample', ?)",
+                           (utcnow(), json.dumps(sample, allow_nan=False)))
+            self._last_machine_sample_wall = now
+            self._machine_sampler.record(sample)
+        return reading
 
     def _disk_rows(self) -> list[dict]:
         # C-3.7: only live attempts and the tiny budget, never their full evidence.
@@ -5988,7 +6041,9 @@ class Daemon:
         # never held by the guard, so the turn pass reads neither and stays cheap.
         liveness = self._liveness(queued) if kind == "detached" else None
         priority_jobs = self._priority_jobs(queued) if kind == "detached" else {}
-        reading = machine.read() if kind == "detached" else None
+        reading = self._machine_reading() if kind == "detached" else None
+        if kind == "detached":
+            reading = self._machine_guard.advance(self.policy, reading)
         # C-6.9: FIFO within a tier holds among jobs that compete for a model. An
         # older job that cannot be placed holds back the later jobs that could run
         # where it could, and nothing else: on 2026-09-20 an Opus review with no

@@ -29,6 +29,11 @@ import Foundation
                 turn.state = state
                 acknowledgments[state] = turn.showsMessageAcknowledgment
             }
+            // A durable binding moves a waiting turn's status to the bottom strip.
+            // An unbound wait still explains why the queued send can be withdrawn.
+            turn.state = "waiting"
+            turn.hasBoundJob = true
+            acknowledgments["waiting-bound"] = turn.showsMessageAcknowledgment
             let chip = ServedChip(account: "max@example.com", model: "claude-opus-5-5", effort: "medium", warnings: [])
             let group = WorkGroup(id: "work", items: [], completed: true, duration: "3m 12s")
             print(String(data: try JSONSerialization.data(withJSONObject: [
