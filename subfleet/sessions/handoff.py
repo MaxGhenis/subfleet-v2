@@ -425,6 +425,17 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
             start += flag_start
             if start < cursor:
                 continue                        # the flag is inside the previous flag's value
+            if _value_runs(key[flag_start + 2:]):
+                # A flag whose name reads as a secret (`--SECRET7…_token`) is one: it
+                # goes itself, with the value daemon.log's folded line gives it, on a
+                # later line too (#239 review r2: fail closed).
+                end, fold = token.end(), _fold_value(text, token.end())
+                parts.extend((text[cursor:start], replace(text[start:end], REDACTED)))
+                cursor = end
+                if fold is not None:
+                    parts.extend((text[cursor:fold[0]], replace(text[fold[0]:fold[1]], REDACTED)))
+                    cursor = fold[1]
+                continue
             value = _FLAG_VALUE_RE.match(text, token.end())
             if value is None:
                 continue
@@ -1539,8 +1550,28 @@ def _apply_rules(text: str, rules, tally: _Tally) -> str:
             out = replacement(match) if callable(replacement) else match.expand(replacement)
             return tally(matched, out, header=pattern is _HEADER_RE)
 
-        text = _bearer_sub(text, replace, tally) if pattern is _BEARER_RE else _linear_sub(pattern, replace, text)
+        if pattern is _BEARER_RE:
+            text = _bearer_sub(text, replace, tally)
+        elif pattern is _HEADER_RE:
+            text = _header_sub(text, tally)
+        else:
+            text = _linear_sub(pattern, replace, text)
     return text
+
+
+def _header_sub(text: str, tally: _Tally) -> str:
+    """`_HEADER_RE.sub(_header_value, text)`, where a header's redaction may reach past
+    its line (`_header_redaction`'s `reach`: a secret-named flag's folded value, a lone
+    flag's, a refused `Bearer`'s next line). Each search starts where the last
+    replacement ended, as `re.sub`'s do."""
+    parts: list[str] = []
+    cursor = 0
+    while (match := _HEADER_RE.search(text, cursor)) is not None:
+        out, stop = _header_redaction(text, match.start(), match.end(1), match.end(), reach=True)
+        parts.extend((text[cursor:match.start()], tally(text[match.start():stop], out, header=True)))
+        cursor = stop
+    parts.append(text[cursor:])
+    return "".join(parts)
 
 
 def _bearer_sub(text: str, replace: Callable[[re.Match], str], tally: _Tally) -> str:
@@ -1570,7 +1601,7 @@ def _header_value(match: re.Match) -> str:
 
 
 def _header_redaction(text: str, start: int, value_start: int, end: int, *,
-                      rescan: bool = False) -> tuple[str, int]:
+                      rescan: bool = False, reach: bool = False) -> tuple[str, int]:
     """A header's replacement for `text[start:end]`, whose value is
     `text[value_start:end]`: the value redacted whole. A credential key, flag or
     `Bearer` that ends the value and owns a value past it (`Authorization:
@@ -1615,10 +1646,11 @@ def _header_redaction(text: str, start: int, value_start: int, end: int, *,
             # A secret-named flag that ends the value is the header's, with the value
             # daemon.log's folded line gives it (`_secret_flag`); so is the line after
             # a `Bearer` ending it whose run there is a key (`_refused_bearer`), which
-            # release/217 took by joining the two lines (#239 review r2). Only the
-            # inline rule reaches past the line: the line-start rule leaves the header
-            # whole, and the inline rule's second scan reads it (`_scrub`).
-            if not rescan:
+            # release/217 took by joining the two lines (#239 review r2). Only a rule
+            # that can reach past the line takes them: the inline rule (`rescan`) and
+            # the line-start rule as `_header_sub` applies it (`reach`); applied by
+            # `re.sub`, the line-start rule leaves the header whole.
+            if not (rescan or reach):
                 return text[start:end], end
             # The value's own redaction takes the whitespace before its line's end, as
             # it always did, so the result scrubs to itself.
