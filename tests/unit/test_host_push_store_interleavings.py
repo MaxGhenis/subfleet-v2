@@ -332,7 +332,10 @@ def test_permanent_ownership_failure_fails_only_its_job_with_one_notice(worlds, 
         assert (core._job(job)["state"], core._job(job)["rc"]) == ("failed", 1)
         assert placed(core, plain)
         assert not (core.root / "worktrees" / job).exists()
-        assert str(error) in " ".join(notices(core, job))
+        # C-25.7 (#233 review r1, `98f2ef0c1`): a job's notice names the class, never sqlite's words.
+        said = " ".join(notices(core, job))
+        assert f"workspace completion could not be recorded: {type(error).__name__}" in said
+        assert str(error) not in said
         core._admit_kind("detached")
         assert len(notices(core, job)) == 1
         assert core._push_workspace_store_errors == {}
@@ -420,7 +423,8 @@ def test_permanent_ownership_error_survives_a_busy_failure_notice(worlds):
         assert notices(core, job) == []
         core._admit_kind("detached")
         assert core._job(job)["state"] == "failed"
-        assert str(permanent) in " ".join(notices(core, job))
+        said = " ".join(notices(core, job))
+        assert "workspace completion could not be recorded: IntegrityError" in said and str(permanent) not in said
         assert len(notices(core, job)) == 1
         core.pushes.submit(lambda: None).result(timeout=180)
         assert not (core.root / "worktrees" / job).exists()

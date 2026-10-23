@@ -8,11 +8,15 @@ call adapter methods on fixture directories directly.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import pwd
 import secrets
 import shutil
+import sys
 import tempfile
+import threading
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -76,6 +80,17 @@ def pytest_configure(config):
     recorder = StandIn(base / "keychain-bin")
     config._subfleet_keychain_standin = recorder
     os.environ["PATH"] = recorder.search_path(os.environ.get("PATH", os.defpath))
+
+
+def pytest_sessionstart(session):
+    """Before any test runs, remove the kept state roots of test processes that are gone and in
+    which nothing has been kept for 24 hours (tests/failed_keep.py's `prune`, D-KR1)."""
+    from tests.failed_keep import ROOT, prune
+    removed = prune()
+    reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+    if removed and reporter is not None:
+        reporter.write_line(f"pruned {len(removed)} kept state roots of finished test processes under {ROOT}: "
+                            + " ".join(sorted(path.name for path in removed)))
 
 
 def pytest_unconfigure(config):
@@ -221,6 +236,19 @@ def make_launch(attempt_dir: Path, *, session_id: str, model_id: str,
 def exit_info(rc: int, *, wall_s: float = 4.2, spawn_error: str | None = None) -> ExitInfo:
     return ExitInfo(rc=rc, signal=None, wall_s=wall_s, child_pid=4242,
                     spawn_error=spawn_error)
+
+
+@pytest.fixture(autouse=True)
+def process_hooks_restored():
+    """`daemon.main` installs the daemon's scrubbing process hooks for the life of its
+    process (C-25.7), as a real daemon must. Run in-process (`test_daemon_accept`,
+    `test_stop_watchdog`), it replaced pytest's own thread and unraisable-exception
+    collectors for the rest of the session, so pytest stopped reporting either
+    (review r1 of #233, P3). Each test ends with the hooks it started with."""
+    saved = (sys.excepthook, threading.excepthook, sys.unraisablehook, warnings.showwarning, logging.lastResort)
+    yield
+    (sys.excepthook, threading.excepthook, sys.unraisablehook, warnings.showwarning,
+     logging.lastResort) = saved
 
 
 @pytest.fixture(autouse=True)

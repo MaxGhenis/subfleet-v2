@@ -10,11 +10,13 @@ app's entry point.
 from __future__ import annotations
 
 from pathlib import Path
+import contextlib
 import hashlib
 import os
 import platform
 import shutil
 import subprocess
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCES = ROOT / "app" / "Sources"
@@ -52,5 +54,15 @@ def compile_probe(binary: Path, probe: Path | list[Path], flag: str, *, timeout:
     compiled = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
     assert compiled.returncode == 0, compiled.stderr[-20000:]
     cached.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(binary, cached)
+    # Another hold in this checkout may read the cache at any moment, and a copy in progress is
+    # already a file (#238 review r1 saw is_file() true at 0 bytes). Fill it under a name of its own in
+    # the same folder, then rename it into place: the final name only ever holds a whole probe.
+    descriptor, partial = tempfile.mkstemp(dir=cached.parent, prefix=f".{cached.name}.", suffix=".partial")
+    os.close(descriptor)
+    try:
+        shutil.copy2(binary, partial)
+        os.replace(partial, cached)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(partial)
     return binary
