@@ -445,13 +445,18 @@ def spelled_home() -> Path:
     spelled. D-ST3 judges those spellings (`_home_kind`, `personal_home`), so
     they must reach the judge on every interpreter, not fail before it on some.
     Only a HOME of `~` itself, which names no directory, is refused, as 3.14
-    refuses it. Only the pytest judgement reads it: production defaults keep
-    `Path.home()`, so they resolve exactly as release/217 does on each Python.
+    refuses it. `Path.home()` is asked first, so a test that replaces it still
+    decides the home; only its refusal falls back to HOME as spelled. Only the
+    pytest judgement reads it: production defaults keep `Path.home()`, so they
+    resolve exactly as release/217 does on each Python.
     """
-    home = os.path.expanduser("~")
-    if home == "~":
-        raise RuntimeError("Could not determine home directory.")
-    return Path(home)
+    try:
+        return Path.home()
+    except RuntimeError:
+        home = os.path.expanduser("~")
+        if home == "~":
+            raise
+        return Path(home)
 
 
 def _tilde_home(spelled: str) -> str | None:

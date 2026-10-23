@@ -47,7 +47,7 @@ MUTANTS = {
         'raise PermissionError(_REFUSAL)', 'code'),
     'm13-home-root': (HOMES, 'return (home / ".subfleet").resolve()',
         'return (provider_home() / ".subfleet").resolve()', 'home-root'),
-    'm14-account-refusal': (HOMES, 'if under_pytest() and personal_home(home):', 'if False:', 'account'),
+    'm14-account-refusal': (HOMES, 'if testing and personal_home(home):', 'if False:', 'account'),
     'm15-account-identity': (HOMES,
         'return _same_directory(home, personal) or _same_directory(Path(os.path.realpath(home)), personal)',
         'return False', 'account-alias'),
