@@ -12,27 +12,36 @@ entry beside the never-rules guard, whose trust the guard preflight verifies.
 Where it can name the command, it judges `gh` fail closed: a call that is not
 a known read is refused (unknown verbs, aliases and extensions included), and
 so is `gh api` unless its method is GET, judged as gh's own flag parser reads
-the flags. It refuses `git push` (a second layer behind the launch's git
-configuration). It looks through wrappers (`env`, `env -S`, `command`,
-`xargs`, `sudo`, `timeout`, zsh's `-` and `repeat`, ...), `sh|bash|zsh -c`,
+the flags. gh's command and subcommand must be spelled literally: a word only
+known at run time before gh's verb is settled (`gh $v comment`, `gh -R "$r" pr
+view`), or arguments that come from `xargs` or GNU `parallel`, make a call no
+read (#221 review r4, P2-1). It refuses `git push` (a second layer behind the
+launch's git configuration). It looks through wrappers (`env` with its option
+clusters and `-S`, `command`, `xargs`, `sudo`, `timeout`, zsh's `-` and
+`repeat`, ...), every shell in `SHELLS` given `-c` in any option cluster,
 `eval`, command and process substitution, shell input (a pipe, a heredoc, a
 here-string, a process substitution given to a shell, `source` or `.`),
 `find -exec`, `parallel`, `watch`, leading redirections, and a command word
 that is only known at run time (`$g pr comment`, `$(command -v gh) -R o/r pr
 comment`, a glob or brace word). Text given to `eval` or a shell that is only
 a parameter (`eval "$c"`, `sh -c "$c"`, `${=c}`) is refused when the command
-text names gh anywhere.
+text names gh anywhere. An `env -S` value with a backslash or `${` is refused:
+env applies its own escapes and environment there (#221 review r4, P2-2).
 
 Where it cannot name the command (a runner it doesn't know, a shell function,
 a value git runs), a fallback judges every word equal to `gh` or ending in
 `/gh` (after quote removal, without a leading `!`) as the start of a gh call,
 and every word equal to `git` the same way, as do assignment values and the
-values of `-c`, `-e` and `--exec`. Once such a call, or one after a run-time
-word, reaches a gh command as gh's own parser finds it (aliases included, and
-whatever flags come before the command or its verb), it gets the direct
-path's judgment: refused unless `gh_read` accepts it, so one predicate decides
-gh everywhere (#221 review r3c, P2). A first word gh doesn't know as a command
-is not judged there, so `grep gh file` and `echo gh` pass.
+values of `-c`, `-e` and `--exec`; a word naming a shell, `env` or `xargs`
+starts a command judged as the direct path judges it.
+Once such a call, or one after a run-time word, reaches a gh command as gh's
+own parser finds it (aliases included, and whatever flags come before the
+command or its verb), it gets the direct path's judgment: refused unless
+`gh_read` accepts it, so one predicate decides gh everywhere (#221 review r3c,
+P2). So does a gh call whose command is known only at run time or whose
+arguments come from `xargs`, unless its program is a text tool
+(`NOT_SHELL_VALUES`), so `grep gh "$f"` passes. A first word gh doesn't know
+as a command is not judged there, so `grep gh file` and `echo gh` pass.
 
 It also refuses copying gh under another name (`ln`, `cp`, `install`, `mv`,
 `rsync`, `ditto`, a `cat` or `dd` into a file), and calls that would print the
@@ -49,6 +58,8 @@ hook starts fast.
 """
 from __future__ import annotations
 
+import contextvars
+import fnmatch
 import json
 from pathlib import PurePosixPath
 import re
@@ -131,7 +142,12 @@ GIT_PUBLISH = frozenset({"push", "send-pack", "http-push"})
 GIT_VALUE_OPTIONS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace",
                                "--super-prefix", "--config-env", "--exec-path"})
 
-SHELLS = frozenset({"sh", "bash", "zsh", "dash", "ksh", "mksh", "fish"})
+SHELLS = frozenset({"sh", "bash", "zsh", "dash", "ksh", "mksh", "fish", "csh", "tcsh"})
+#: The C shells: they have no `-o`, and their `-b` ends the options (#221 review r4, P2-2).
+C_SHELLS = frozenset({"csh", "tcsh"})
+#: Runners the fallback finds among a command's words, each the start of a command the direct path judges
+#: (not among gh's own arguments: `gh run watch`).
+NESTED_RUNNERS = SHELLS | {"env", "xargs"}
 #: Builtins that run a file's text in the current shell.
 SOURCES = frozenset({"source", "."})
 #: The files a shell or `source` reads its standard input through.
@@ -159,8 +175,11 @@ WRAPPERS: dict[str, frozenset[str]] = {
 BARE_WRAPPERS = frozenset({"-", "noglob", "nocorrect"})
 #: Wrappers whose first operand is not the command (a duration, zsh's `repeat` count).
 POSITIONAL_FIRST = frozenset({"timeout", "gtimeout", "repeat"})
-#: `env`'s options that take a value; `-S`/`--split-string` splits its value into words.
-ENV_VALUES = frozenset({"-u", "--unset", "-S", "--split-string", "-C", "--chdir", "-P"})
+#: `env`'s option letters that take a value, as the rest of their word or the next word (macOS `env`:
+#: `[-0iv] [-C workdir] [-P utilpath] [-S string] [-u name]`; GNU env's `-a`), and GNU env's long options
+#: that do. `-S`/`--split-string` splits its value into words.
+ENV_SHORT_VALUES = frozenset("CPSua")
+ENV_LONG_VALUES = ("--argv0", "--chdir", "--split-string", "--unset")
 #: GNU parallel's options that take a value, and the words that start its arguments.
 PARALLEL_VALUES = frozenset({"-j", "-S", "--jobs", "--sshlogin", "-a", "--arg-file", "--colsep", "-d",
                              "--delimiter", "-E", "-I", "--joblog", "--results", "--tmpdir", "-X"})
@@ -194,9 +213,23 @@ GLOB = re.compile(r"[*?\[]|\{[^{}]*[,.][^{}]*\}")
 #: `gh` as a word, wherever it is and in any case: `/gh`, `-gh}`, `[gh]` and `GH` count; `ghost`,
 #: `gh-dash`, `test_gh` and `GH_TOKEN` do not.
 GH_WORD = re.compile(r"(?<![\w.])gh(?![\w.-])", re.IGNORECASE)
+#: A variable the command text sets (`g=gh`, `export g="$(command -v gh)"`), with its value, and a `for`
+#: loop's variable with its list: a parameter word reading one whose value names gh may be gh (#221 review r4).
+SETS_VARIABLE = re.compile(r"(?<![\w$])([A-Za-z_][A-Za-z0-9_]*)\+?="
+                           r"('[^']*'|\"(?:[^\"\\]|\\.)*\"|\$\([^)]*\)|`[^`]*`|[^\s;&|()<>]*)")
+FOR_VARIABLE = re.compile(r"\bfor\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\s+([^;\n]*)")
+#: The variable names a word reads (`$g`, `${g}`, `${=g}`, `${g:-x}`).
+READS_VARIABLE = re.compile(r"\$\{?[=#!^~+]*([A-Za-z_][A-Za-z0-9_]*)")
+#: A command substitution whose command is gh (`$(gh pr list -q …)`): it prints gh's output, not gh.
+GH_CALL = re.compile(r"\$\(\s*(?:[^\s;&|()]*/)?gh(?=[\s)])[^)]*\)|`\s*(?:[^\s;&|`]*/)?gh(?=[\s`])[^`]*`",
+                     re.IGNORECASE)
 #: Bound on nested `sh -c`, `eval` and substitutions; deeper text is judged by
 #: `_mentions_publish` alone.
 MAX_DEPTH = 6
+#: The variables the command being judged sets to a value naming gh (`SETS_VARIABLE`), set by the
+#: outermost `command_refusal` for the calls under it.
+_GH_VARIABLES: contextvars.ContextVar[frozenset[str]] = contextvars.ContextVar("gh_variables",
+                                                                              default=frozenset())
 
 
 class Refusal(str):
@@ -305,12 +338,50 @@ def gh_credential(args: Sequence[str]) -> bool:
     return path == ["auth", "status"] and not _auth_status_reads(rest)
 
 
+def _runtime_word(word: str) -> bool:
+    """A word the shell expands at run time (`_dynamic`), or the file a process substitution names."""
+    return _dynamic(word) or word == PROCESS_FILE
+
+
+def _gh_unsettled(args: Sequence[str]) -> bool:
+    """Whether a word known only at run time comes before gh's verb is settled
+    (#221 review r4, P2-1): the command, the subcommand of a command that has
+    them, or a flag or a flag's value before either, as `_gh_path` finds them.
+    Such a word can be, or split into, the command itself (`gh $v comment`, `gh
+    ${=a}`, `gh -R ${=a} pr view`). After a command without subcommands, one gh
+    doesn't know, or the subcommand, the verb is settled: `gh pr view "$n"` and
+    `gh api "repos/$r/pulls"` are judged as written."""
+    rest = list(args)
+    for level, switches in enumerate(GH_SWITCHES):
+        index = 0
+        while index < len(rest) and rest[index] != "--":
+            arg = rest[index]
+            if _runtime_word(arg):
+                return True
+            if arg.startswith("-"):
+                takes_value = "=" not in arg and arg not in switches and (arg.startswith("--") or len(arg) == 2)
+                if takes_value and index + 1 < len(rest) and _runtime_word(rest[index + 1]):
+                    return True
+                index += 2 if takes_value else 1
+            elif arg:
+                if level or not GH_SUBCOMMANDS.get(rest.pop(index)):
+                    return False
+                break
+            else:
+                index += 1
+        else:
+            return False
+    return False
+
+
 def gh_read(args: Sequence[str]) -> bool:
     """Whether `gh <args>` only reads. Fails closed on everything else, a call
     that would print the credential included. gh's `-R`/`--repo`/`--hostname`
     may come before the command and before its subcommand: gh reads `gh pr -R
-    o/r view 7` as `pr view` (#221 review r3c, P3)."""
-    if gh_credential(args):
+    o/r view 7` as `pr view` (#221 review r3c, P3). The command, the
+    subcommand and every word before them must be literal (`_gh_unsettled`,
+    #221 review r4, P2-1)."""
+    if gh_credential(args) or _gh_unsettled(args):
         return False
     rest, only_globals = _without_globals(args)
     if not only_globals:
@@ -390,33 +461,50 @@ def _api_read(args: Sequence[str]) -> bool:
     return method.upper() == "GET"
 
 
-def gh_writes(args: Sequence[str]) -> Refusal | None:
-    """The judgment of `gh <args>` where the rule could not see `gh` as the
-    command (the fallback, a run-time word; #221 review r3c, P2).
-
-    Once gh's command parser would reach one of gh's commands (`_gh_path`;
-    `GH_SUBCOMMANDS`, aliases included), or the call would print the
-    credential, it is the direct path's judgment, `_gh_verdict`: so one
-    predicate, `gh_read`, decides gh everywhere, and an alias, a hidden verb or
-    a flag before the verb is refused as it is there. A first word gh does not
-    know as a command is not judged: gh would refuse it, or run an alias or
-    extension from its own config (C-12.4's stated limit), so `grep gh file`
-    and `echo gh` pass.
-    """
+def _gh_reaches(args: Sequence[str]) -> bool:
+    """Whether gh's command parser would reach one of gh's commands (`_gh_path`;
+    `GH_SUBCOMMANDS`, aliases included), or the call would print the credential."""
     path, _ = _gh_path(args)
-    if (path and path[0] in GH_SUBCOMMANDS) or gh_credential(args):
-        return _gh_verdict(args)
+    return bool(path and path[0] in GH_SUBCOMMANDS) or gh_credential(args)
+
+
+def gh_writes(args: Sequence[str], *, fed: bool = False, unsettled: bool = True) -> Refusal | None:
+    """The judgment of `gh <args>` where the rule could not see `gh` as the
+    command (the fallback; #221 review r3c, P2).
+
+    Once gh's command parser would reach one of gh's commands, or the call
+    would print the credential, it is the direct path's judgment, `_gh_verdict`:
+    so one predicate, `gh_read`, decides gh everywhere, and an alias, a hidden
+    verb or a flag before the verb is refused as it is there. So is a call
+    whose arguments come from `xargs` (`fed`), or one with a word known only
+    at run time before its verb is settled (`_gh_unsettled`, #221 review r4,
+    P2-1); `unsettled=False` leaves that out, for gh named as a text tool's
+    argument (`grep gh "$f"`). A first word gh does not know as a command is
+    not judged: gh would refuse it, or run an alias or extension from its own
+    config (C-12.4's stated limit), so `grep gh file` and `echo gh` pass.
+    """
+    if fed or (unsettled and _gh_unsettled(args)) or _gh_reaches(args):
+        return _gh_verdict(args, fed)
     return None
 
 
-def _gh_verdict(args: Sequence[str]) -> Refusal | None:
+def _gh_verdict(args: Sequence[str], fed: bool = False) -> Refusal | None:
     """`gh <args>`, wherever the rule finds the call: refused unless a known
     read (fail closed), with the credential wording when it would print the
-    token. The refusal names the command and subcommand gh would run."""
-    if gh_read(args):
+    token. A call whose arguments come from `xargs` or `parallel` (`fed`) is no
+    read: its words are not in the text (#221 review r4, P2-1). The refusal
+    names the command and subcommand gh would run."""
+    if not fed and gh_read(args):
         return None
     path, _ = _gh_path(args)
-    return _refusal(" ".join(["gh", *(path or args[:2])]), "credential" if gh_credential(args) else "publish")
+    words = " ".join(["gh", *(path or args[:2])])
+    if gh_credential(args):
+        return _refusal(words, "credential")
+    if fed:
+        return _refusal(f"{words}, its arguments from xargs")
+    if _gh_unsettled(args):
+        return _refusal(f"{words}, its command known only at run time")
+    return _refusal(words)
 
 
 def git_publishes(args: Sequence[str]) -> bool:
@@ -465,8 +553,58 @@ def _names_gh_binary(word: str) -> bool:
 
 
 def _names_gh(text: str) -> bool:
-    """Whether the text names gh anywhere, quotes and backslashes removed."""
-    return bool(GH_WORD.search(re.sub(r"[\\'\"]", "", text)))
+    """Whether the text names gh anywhere, quotes and backslashes removed, and
+    env's `\\_` read as the word break it is in an `env -S` value."""
+    return bool(GH_WORD.search(re.sub(r"[\\'\"]", "", text.replace("\\_", " "))))
+
+
+def _names_gh_value(text: str) -> bool:
+    """Whether text the shell expands may produce the word gh: it names gh
+    other than as the command of a substitution (`$(command -v gh)` and `echo
+    gh` may; `$(gh pr list -q …)` prints gh's output, not gh)."""
+    return _names_gh(GH_CALL.sub("", text))
+
+
+def _gh_variables(text: str) -> frozenset[str]:
+    """The variables the command text sets to a value naming gh, or loops over a list naming gh."""
+    return frozenset({name for name, value in SETS_VARIABLE.findall(text) if _names_gh_value(value)}
+                     | {name for name, items in FOR_VARIABLE.findall(text) if _names_gh_value(items)})
+
+
+def _braces(word: str, limit: int = 64) -> list[str]:
+    """`word` with its brace expansions expanded, innermost first; a range (`{a..z}`) stands for any text."""
+    found = re.search(r"\{([^{}]*)\}", word)
+    if not found or limit <= 1:
+        return [word]
+    if "," in found[1]:
+        options = found[1].split(",")
+    elif ".." in found[1]:
+        options = ["*"]
+    else:
+        return [word]
+    expanded: list[str] = []
+    for option in options:
+        expanded += _braces(word[:found.start()] + option + word[found.end():], limit // len(options))
+    return expanded
+
+
+def _could_be_gh(word: str) -> bool:
+    """Whether a run-time word may expand to gh (#221 review r4, P2-1): it names
+    gh itself (`"$GH"`, `${GH:-gh}`, `$dir/gh`, a substitution whose text names
+    gh), it reads a variable the command text sets to gh (`g=gh; … $g`), or it
+    is a glob or brace word whose last part matches gh and spells g or h
+    (`g?`, `{g,}h`, `/opt/homebrew/bin/g[h]`), in any case."""
+    if word == SUBSTITUTED_GH or _names_gh(word):
+        return True
+    if _GH_VARIABLES.get().intersection(READS_VARIABLE.findall(word)):
+        return True
+    if word in TEST_WORDS or not GLOB.search(word):
+        return False
+    for expansion in _braces(word):
+        last = expansion.rstrip("/").rpartition("/")[2].lower()
+        if ("g" in last or "h" in last) and fnmatch.fnmatchcase("gh", last):
+            return True
+    return False
 
 
 def _dynamic(word: str) -> bool:
@@ -503,8 +641,11 @@ def _strip_heredocs(command: str) -> tuple[str, list[tuple[str, bool]], bool]:
 
 
 #: What a command or process substitution leaves in its place: a word only the
-#: shell can expand (`_dynamic`), or the file a process substitution names.
+#: shell can expand (`_dynamic`; `SUBSTITUTED_GH` when its text names gh, so
+#: `$(command -v gh)` may be gh, `_could_be_gh`), or the file a process
+#: substitution names.
 SUBSTITUTED = "$__subfleet_substitution__"
+SUBSTITUTED_GH = "$__subfleet_gh_substitution__"
 PROCESS_FILE = "/dev/fd/63"
 
 
@@ -570,8 +711,10 @@ def _substitutions(text: str, *, literal_quotes: bool = False) -> tuple[str, lis
             end = _close(text, index + 2)
             if end < 0:
                 return None
-            (processes if process else commands).append(text[index + 2:end])
-            out.append(PROCESS_FILE if process else SUBSTITUTED)
+            body = text[index + 2:end]
+            (processes if process else commands).append(body)
+            out.append(PROCESS_FILE if process else
+                       SUBSTITUTED_GH if _names_gh_value(f"$({body})") else SUBSTITUTED)
             index = end + 1
             continue
         if char == "`":
@@ -580,8 +723,9 @@ def _substitutions(text: str, *, literal_quotes: bool = False) -> tuple[str, lis
                 end += 2 if text[end] == "\\" else 1
             if end >= len(text):
                 return None
-            commands.append(text[index + 1:end])
-            out.append(SUBSTITUTED)
+            body = text[index + 1:end]
+            commands.append(body)
+            out.append(SUBSTITUTED_GH if _names_gh_value(f"$({body})") else SUBSTITUTED)
             index = end + 1
             continue
         out.append(char)
@@ -678,57 +822,125 @@ def _split(value: str) -> list[str]:
         return value.split()
 
 
-def _env(words: list[str], index: int) -> tuple[list[str], int]:
+def _env(words: list[str], index: int) -> tuple[list[str], int, Refusal | None]:
     """`env`'s words from `index`: the command's index, with any `-S` value
-    split into words in its place (`env -S 'gh pr comment 7'`)."""
+    split into words in its place (`env -S 'gh pr comment 7'`), and a refusal
+    for an `-S` value the rule can't split.
+
+    The options are read as env's getopt reads them (#221 review r4, P2-2): a
+    cluster of letters, where a value letter (`ENV_SHORT_VALUES`) takes the
+    rest of its word or the next word, so `-vS 'gh …'`, `-iS'gh …'` and
+    `-uVAR` count, and GNU env's long options by any unambiguous prefix. The
+    words an `-S` value splits into are env's own arguments again, options
+    included. An `-S` value holding a backslash or `${` is refused: there env
+    applies its own escapes (macOS env: `\\_` separates words, `\\c` ends the
+    string) and substitutes `${NAME}` from its own environment, which this
+    rule does not model.
+    """
     while index < len(words):
         word = words[index]
         if word == "--":
-            return words, index + 1
-        name, equals, value = word.partition("=")
-        split = None
-        if word in ("-S", "--split-string") and index + 1 < len(words):
-            split, after = words[index + 1], index + 2
-        elif word.startswith("-S") and len(word) > 2:
-            split, after = word[2:], index + 1
-        elif name == "--split-string" and equals:
-            split, after = value, index + 1
-        if split is not None:
-            words = words[:index] + _split(split) + words[after:]
-            continue
-        if ASSIGNMENT.fullmatch(word) or (word.startswith("-") and len(word) > 1 and word not in ENV_VALUES):
+            return words, index + 1, None
+        if ASSIGNMENT.fullmatch(word):
             index += 1
-        elif word in ENV_VALUES:
-            index += 2
+            continue
+        split = None
+        after = index + 1
+        if word.startswith("--"):
+            name, equals, value = word.partition("=")
+            options = [option for option in ENV_LONG_VALUES if len(name) > 2 and option.startswith(name)]
+            if len(options) == 1:
+                if not equals:
+                    value, after = (words[index + 1] if index + 1 < len(words) else ""), index + 2
+                if options[0] == "--split-string":
+                    split = value
+        elif word.startswith("-") and len(word) > 1:
+            for at, letter in enumerate(word[1:], 1):
+                if letter in ENV_SHORT_VALUES:
+                    value = word[at + 1:]
+                    if not value:
+                        value, after = (words[index + 1] if index + 1 < len(words) else ""), index + 2
+                    if letter == "S":
+                        split = value
+                    break
         else:
             break
-    return words, index
+        if split is None:
+            index = after
+            continue
+        if "\\" in split or "${" in split:
+            return words, index, _refusal("env -S with an escape or ${…}")
+        words = words[:index] + _split(split) + words[after:]
+    return words, index, None
 
 
-def _shell_script(args: list[str]) -> tuple[str | None, bool, str | None]:
-    """(`-c` script, reads stdin as its script, script operand) for `sh|bash|zsh <args>`."""
-    command_string = stdin_flag = False
-    index = 0
-    while index < len(args):
-        arg = args[index]
-        if arg == "--":
-            index += 1
+def _shell_script(args: list[str], shell: str = "") -> tuple[list[str], bool, list[str]]:
+    """(the `-c` scripts, whether it may read standard input as its script, the
+    script operands) for `<shell> <args>`, over every reading of its options.
+
+    `c` counts anywhere in a cluster (`-ec`, `-fc`, `-cf`), and so does `s`.
+    A cluster's `o` or `O` takes the next word as its value in bash and sh
+    (`-euo pipefail -c …`), but this host's ksh ran `ksh -oc 'cmd'` and zsh's
+    `-O` takes none, so both readings are judged (#221 review r4, P2-2). The C
+    shells have no `o`, and their `-b` ends the options. fish isn't on this
+    host: any of its option words holding `c` or `C` is read as carrying a
+    script, in the rest of the word or the next word, as is a long option's
+    value.
+    """
+    scripts: list[str] = []
+    operands: list[str] = []
+    reads_stdin = False
+
+    def walk(index: int, command_string: bool, stdin_flag: bool, branches: int) -> None:
+        nonlocal reads_stdin
+        while index < len(args):
+            arg = args[index]
+            if arg == "--":
+                index += 1
+                break
+            if shell == "fish" and arg.startswith("-") and len(arg) > 1:
+                name, equals, value = arg.partition("=")
+                if arg.startswith("--"):
+                    if equals:
+                        scripts.append(value)
+                    elif index + 1 < len(args):
+                        scripts.append(args[index + 1])
+                    index += 1
+                    continue
+                letter = next((at for at, char in enumerate(arg[1:], 1) if char in "cC"), None)
+                if letter is not None:
+                    scripts.extend(text for text in (arg[letter + 1:], *args[index + 1:index + 2]) if text)
+                    command_string = command_string or "c" in arg[1:]
+                index += 1
+                continue
+            if arg in ("--rcfile", "--init-file", "--emulate"):
+                index += 2
+                continue
+            if arg.startswith(("-", "+")) and len(arg) > 1 and not any(char.isspace() for char in arg):
+                letters = "" if arg.startswith("--") else arg[1:]
+                command_string = command_string or "c" in letters
+                stdin_flag = stdin_flag or (arg.startswith("-") and "s" in letters)
+                if shell in C_SHELLS and "b" in letters:
+                    index += 1
+                    break
+                values = 0 if shell in C_SHELLS else sum(letter in "oO" for letter in letters)
+                if values and branches < 4:
+                    walk(index + 1, command_string, stdin_flag, branches + 1)
+                index += 1 + values
+                continue
             break
-        if arg in ("-o", "+o", "-O", "+O", "--rcfile", "--init-file"):
-            index += 2
-            continue
-        if arg.startswith(("-", "+")) and len(arg) > 1 and not any(char.isspace() for char in arg):
-            short = not arg.startswith("--")
-            command_string = command_string or (short and "c" in arg[1:])
-            stdin_flag = stdin_flag or (short and arg.startswith("-") and "s" in arg[1:])
-            index += 1
-            continue
-        break
-    operands = args[index:]
-    if command_string:
-        return (operands[0] if operands else ""), False, None
-    operand = operands[0] if operands else None
-    return None, stdin_flag or operand is None or operand in STDIN_FILES, None if stdin_flag else operand
+        rest = args[index:]
+        if command_string:
+            if shell != "fish":
+                scripts.append(rest[0] if rest else "")
+            return
+        operand = rest[0] if rest else None
+        reads_stdin = reads_stdin or stdin_flag or operand is None or operand in STDIN_FILES
+        if operand is not None and not stdin_flag:
+            operands.append(operand)
+
+    walk(0, False, False, 0)
+    return scripts, reads_stdin, operands
 
 
 def _value_refusal(value: str, depth: int, names_gh: bool) -> Refusal | None:
@@ -780,30 +992,38 @@ def _parallel(args: list[str], depth: int, names_gh: bool) -> tuple[Refusal | No
     words = args[index:]
     cut = next((at for at, word in enumerate(words) if word in PARALLEL_ARGUMENTS), None)
     template = words if cut is None else words[:cut]
+    reads_stdin = not template and cut is None
     texts = [" ".join(template)] if template else []
     texts += [word for word in (words[cut + 1:] if cut is not None else []) if word not in PARALLEL_ARGUMENTS]
-    for text in texts:
-        found = command_refusal(text, depth + 1, names_gh)
+    for at, text in enumerate(texts):
+        # The template's arguments come from its `:::` lists, or from standard input (#221 review r4).
+        found = command_refusal(text, depth + 1, names_gh, fed=at == 0 and bool(template))
         if found:
             return found, False
-    return None, not template and cut is None
+    return None, reads_stdin
 
 
-def _runtime(word: str, rest: list[str], names_gh: bool) -> Refusal | None:
+def _runtime(word: str, rest: list[str], names_gh: bool, *, fed: bool = False,
+             may_be_gh: bool = True) -> Refusal | None:
     """A command word only known at run time (#221 review r2, P2).
 
     Followed by a gh read, or by words that reach a gh command whatever flags
     come first (`$(command -v gh) -R o/r pr comment`, `{g,}h pr new`), it is
     judged as gh would be (`gh_writes`, #221 review r3c); followed by a push,
-    as git. A word that is only parameters (`$c`, `${=c}`, `"$@"`) may carry
-    the whole command, so it is refused when the command text names gh
-    anywhere.
+    as git. A word that may be gh (`_could_be_gh`, or only parameters while
+    the text names gh) is judged as gh is when gh is spelled: refused with a
+    word known only at run time before gh's verb is settled (`{g,}h $v
+    comment`), or with arguments from xargs (#221 review r4, P2-1);
+    `may_be_gh=False` leaves that out, for a text tool's arguments. A word that
+    is only parameters (`$c`, `${=c}`, `"$@"`) may carry the whole command, so
+    it is refused when the command text names gh anywhere.
     """
-    if gh_read(rest):
+    gh = may_be_gh and (_could_be_gh(word) or (names_gh and bool(PARAMETERS.fullmatch(word))))
+    fed = fed and gh
+    if not fed and gh_read(rest):
         return None
-    found = gh_writes(rest)
-    if found:
-        return found
+    if fed or (gh and _gh_unsettled(rest)) or _gh_reaches(rest):
+        return _gh_verdict(rest, fed)
     if rest and git_publishes(rest):
         return _refusal("git push")
     if names_gh and PARAMETERS.fullmatch(word):
@@ -811,24 +1031,35 @@ def _runtime(word: str, rest: list[str], names_gh: bool) -> Refusal | None:
     return None
 
 
-def _fallback(words: list[str], command: str, depth: int, names_gh: bool) -> Refusal | None:
+def _fallback(words: list[str], command: str, depth: int, names_gh: bool, *, fed: bool = False,
+              nested: bool = False) -> tuple[Refusal | None, set[str]]:
     """The words of a command the rule could not otherwise judge (#221 review
-    r2, P2 item 2): every word naming gh starts a gh call, judged as the direct
-    path judges gh once it reaches a gh command (`gh_writes`, r3c), as does a
-    word naming git (`git_publishes`); assignment values and the values of
-    `-c`, `-e` and `--exec` are read as shell text."""
+    r2, P2 item 2), and what they read as a script: every word naming gh
+    starts a gh call, judged as the direct path judges gh once it reaches a gh
+    command (`gh_writes`, r3c), or once a run-time word comes before its verb
+    is settled or its arguments come from xargs (`fed`, r4 P2-1), as does a
+    word naming git (`git_publishes`); a word naming a shell, `env` or `xargs`
+    starts a command `_judge` judges (`arch -arm64 bash -ec '…'`, `… | arch
+    -arm64 tcsh`, r4 P2-2), unless this is such a command already (`nested`)
+    or gh's own argument; assignment values and the values of `-c`, `-e` and
+    `--exec` are read as shell text. The text tools' arguments
+    (`NOT_SHELL_VALUES`) get none of r4's additions, so `grep gh "$f"` passes."""
     shell_values = command not in NOT_SHELL_VALUES and not command.startswith("python")
+    feeds: set[str] = set()
     for at, word in enumerate(words):
         bare = word.lstrip("!").lstrip("=").lower()
         found = None
         if bare == "gh" or bare.endswith("/gh"):
-            found = gh_writes(words[at + 1:])
+            found = gh_writes(words[at + 1:], fed=fed and shell_values, unsettled=shell_values)
         elif (bare == "git" or bare.endswith("/git")) and git_publishes(words[at + 1:]):
             found = _refusal("git push")
         elif _dynamic(word):
             # `arch -arm64 $(command -v gh) pr comment 7`: a run-time word behind
             # a runner the rule doesn't know, judged as a run-time command word.
-            found = _runtime(word, words[at + 1:], False)
+            found = _runtime(word, words[at + 1:], False, fed=fed, may_be_gh=shell_values)
+        elif shell_values and not nested and at and command != "gh" and _name(word) in NESTED_RUNNERS:
+            found, inner = _judge(words[at:], depth + 1, names_gh, fed=fed, nested=True)
+            feeds |= inner
         assignment = ASSIGNMENT.fullmatch(word)
         if found is None and assignment:
             found = _value_refusal(assignment[2], depth, names_gh)
@@ -838,15 +1069,17 @@ def _fallback(words: list[str], command: str, depth: int, names_gh: bool) -> Ref
             elif word.startswith("--exec="):
                 found = _value_refusal(word[len("--exec="):], depth, names_gh)
         if found:
-            return found
-    return None
+            return found, feeds
+    return None, feeds
 
 
-def _judge(words: list[str], depth: int, names_gh: bool = False) -> tuple[Refusal | None, set[str]]:
-    """(refusal, what this command reads as a script: `stdin`, `process`) for one simple command."""
+def _judge(words: list[str], depth: int, names_gh: bool = False, *, fed: bool = False,
+           nested: bool = False) -> tuple[Refusal | None, set[str]]:
+    """(refusal, what this command reads as a script: `stdin`, `process`) for
+    one simple command. `fed`: its arguments come from xargs or parallel."""
     words, herestrings, stdin_process, writes_file = _redirections(words)
     index = 0
-    via_xargs = False
+    via_xargs = fed
     while index < len(words):
         word = words[index]
         name = _name(word)
@@ -855,14 +1088,16 @@ def _judge(words: list[str], depth: int, names_gh: bool = False) -> tuple[Refusa
         elif name == "command" and index + 1 < len(words) and words[index + 1] in ("-v", "-V"):
             return None, set()          # a lookup, not a run
         elif name == "env":
-            words, index = _env(words, index + 1)
+            words, index, refused = _env(words, index + 1)
+            if refused:
+                return refused, set()
         elif name in WRAPPERS:
             via_xargs = via_xargs or name == "xargs"
             index = _skip_wrapper(name, words, index + 1)
         else:
             break
     if index >= len(words):
-        return _fallback(words, "", depth, names_gh), set()
+        return _fallback(words, "", depth, names_gh, fed=via_xargs, nested=nested)
     word, rest = words[index], words[index + 1:]
     name = _name(word)
     reason: Refusal | None = None
@@ -870,22 +1105,18 @@ def _judge(words: list[str], depth: int, names_gh: bool = False) -> tuple[Refusa
     if via_xargs and (name in SHELLS or name == "eval"):
         feeds.add("stdin")              # `xargs -I{} sh -c '{}'`: the input becomes the script
     if name in SHELLS or name in SOURCES:
-        script, reads_stdin, operand = (_shell_script(rest) if name in SHELLS else
-                                        (None, bool(rest) and rest[0] in STDIN_FILES, rest[0] if rest else None))
-        if script is not None:
-            reason = command_refusal(script, depth + 1, names_gh)
-        if operand == PROCESS_FILE:
+        scripts, reads_stdin, operands = (_shell_script(rest, name) if name in SHELLS else
+                                          ([], bool(rest) and rest[0] in STDIN_FILES, rest[:1]))
+        for script in scripts:          # run by xargs, its words may come from xargs too (`"$@"`)
+            reason = reason or command_refusal(script, depth + 1, names_gh, fed=via_xargs)
+        if PROCESS_FILE in operands:
             feeds.add("process")        # `bash <(echo …)`, `source <(…)`
-        if reads_stdin and script is None:
+        if reads_stdin:
             feeds.add("stdin")
-            if stdin_process:
-                feeds.add("process")    # `bash < <(echo …)`
-            for text in herestrings:    # `bash <<< '…'`
-                reason = reason or command_refusal(text, depth + 1, names_gh)
     elif name == "eval":
-        reason = command_refusal(" ".join(rest), depth + 1, names_gh)
+        reason = command_refusal(" ".join(rest), depth + 1, names_gh, fed=via_xargs)
     elif name == "gh":
-        reason = _gh_verdict(rest)
+        reason = _gh_verdict(rest, via_xargs)
     elif name == "git":
         reason = _git_refusal(rest, depth, names_gh)
     elif name == "find":
@@ -916,8 +1147,16 @@ def _judge(words: list[str], depth: int, names_gh: bool = False) -> tuple[Refusa
         if any(_names_gh_binary(arg) for arg in rest if not arg.startswith("-")):
             reason = _refusal("gh under another name")
     elif _dynamic(word):
-        reason = _runtime(word, rest, names_gh)
-    return reason or _fallback(words, name, depth, names_gh), feeds
+        reason = _runtime(word, rest, names_gh, fed=via_xargs)
+    found, inner = _fallback(words, name, depth, names_gh, fed=via_xargs, nested=nested)
+    reason = reason or found
+    feeds |= inner
+    if "stdin" in feeds:
+        if stdin_process:
+            feeds.add("process")        # `bash < <(echo …)`
+        for text in herestrings:        # `bash <<< '…'`
+            reason = reason or command_refusal(text, depth + 1, names_gh)
+    return reason, feeds
 
 
 def _data_refusal(segments: list[list[str]], depth: int, names_gh: bool) -> Refusal | None:
@@ -932,16 +1171,23 @@ def _data_refusal(segments: list[list[str]], depth: int, names_gh: bool) -> Refu
 
 
 def command_refusal(command: str | Sequence[str], depth: int = 0,
-                    names_gh: bool | None = None) -> Refusal | None:
+                    names_gh: bool | None = None, *, fed: bool = False) -> Refusal | None:
     """What a shell command would publish (`gh pr comment`, `git push`), or None.
 
     A list is an argument vector, run with no shell; a string is shell text.
-    `names_gh` is whether the whole command, as first given, names gh.
+    `names_gh` is whether the whole command, as first given, names gh; the
+    outermost call also notes the variables the text sets to gh
+    (`_GH_VARIABLES`). `fed`: GNU parallel gives the command arguments.
     """
     if names_gh is None:
-        names_gh = _names_gh(command if isinstance(command, str) else " ".join(map(str, command)))
+        text = command if isinstance(command, str) else " ".join(map(str, command))
+        token = _GH_VARIABLES.set(_gh_variables(text))
+        try:
+            return command_refusal(command, depth, _names_gh(text), fed=fed)
+        finally:
+            _GH_VARIABLES.reset(token)
     if not isinstance(command, str):
-        reason, _ = _judge([str(word) for word in command], depth, names_gh)
+        reason, _ = _judge([str(word) for word in command], depth, names_gh, fed=fed)
         return reason
     if depth > MAX_DEPTH:
         return _refusal("nested command") if _mentions_publish(command) else None
@@ -964,7 +1210,7 @@ def command_refusal(command: str | Sequence[str], depth: int = 0,
             return reason
     process_shell = False
     for words in segments:
-        reason, feeds = _judge(words, depth, names_gh)
+        reason, feeds = _judge(words, depth, names_gh, fed=fed)
         if reason:
             return reason
         stdin_shell = stdin_shell or "stdin" in feeds
