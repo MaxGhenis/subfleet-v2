@@ -147,8 +147,9 @@ def test_each_spelling_is_refused_in_each_providers_real_shell(tmp_path, provide
             continue
         # The harness reproduces the finding: past the hooks, this shell runs gh.
         before = len(recorded(log))
+        # 180 s (#221 review r6, P3-1): a login zsh's `uv run` took over 60 s at load ~124.
         subprocess.run(SHELLS[shell](command, snapshot), cwd=launch.cwd, env=env, capture_output=True,
-                       text=True, timeout=60)
+                       text=True, timeout=180)
         assert len(recorded(log)) > before, (shell, name)
 
 
