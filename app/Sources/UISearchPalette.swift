@@ -735,6 +735,11 @@ struct SearchRevealer: View {
                     guard let reveal = palette.reveal, reveal.conversationID == conversationID,
                           revealIDs?.contains(reveal.itemID) ?? true else { return }
                     guard layout.map({ $0.reveal == reveal && $0.itemIDs.contains(reveal.itemID) }) ?? true else { return }
+                    #if SUBFLEET_VIEW_TEST
+                    // Observe starts, including cancelled starts that emitted no scroll.
+                    NotificationCenter.default.post(name: .init("subfleet.test.searchRevealStarted"),
+                                                    object: conversationID)
+                    #endif
                     following = Task { await follow(reveal) }
                 }
                 .onDisappear { following?.cancel() }

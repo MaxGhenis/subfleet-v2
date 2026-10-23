@@ -410,6 +410,10 @@ func steerRefusalWords(_ failure: OutboxFailure) -> String {
 }
 
 struct Timeline: Equatable {
+    #if SUBFLEET_MODEL_TEST
+    /// Behavioral probe counter; absent from the shipped application.
+    private(set) var sortCount = 0
+    #endif
     /// Events whose message id is null are kept under this key.
     static let conversationKey = "(conversation)"
 
@@ -568,6 +572,9 @@ struct Timeline: Equatable {
     }
 
     private mutating func sortOrder() {
+        #if SUBFLEET_MODEL_TEST
+        sortCount += 1
+        #endif
         order.sort { a, b in
             let sa = turns[a]?.seq ?? Int.max, sb = turns[b]?.seq ?? Int.max
             if sa != sb { return sa < sb }
