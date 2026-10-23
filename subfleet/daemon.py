@@ -10317,7 +10317,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def run_program(argv: list[str] | None = None) -> int:
-    """`python -m subfleet.daemon`: `main`, with a test process's refusal in one line.
+    """`python -m subfleet.daemon` and the `subfleetd` console script: `main`, with a
+    test process's refusal in one line.
 
     A test process (pytest loaded, or a test marker in its environment) that
     names no state root, or no other path it would otherwise take from the

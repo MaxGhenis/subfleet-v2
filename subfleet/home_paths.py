@@ -65,7 +65,8 @@ class PersonalPathRefused(RuntimeError):
     """A test process refused a personal path (D-ST1, D-ST3).
 
     A RuntimeError, as every such refusal always was, so existing handlers
-    still catch it; `daemon.main` reports it in one line instead of a traceback.
+    still catch it; `daemon.run_program`, which `python -m subfleet.daemon` and
+    `subfleetd` run, reports it in one line instead of a traceback.
     """
 
 
