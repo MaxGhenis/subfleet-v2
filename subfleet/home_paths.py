@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Callable, Mapping, MutableMapping
+from collections.abc import Callable, Iterator, Mapping, MutableMapping
 from pathlib import Path
 
 PYTEST_MARKER = "SUBFLEET_UNDER_PYTEST"
@@ -19,11 +19,12 @@ PYTEST_SENTINEL = ".pytest-session"
 # a test that means a development build names its own.
 SAFE_ENV_REMOVALS = ("CLAUDE_LANE_AGENT_SECRET", "SUBFLEET_DEV_APP_EXECUTABLE")
 # D-PRR1: a test session removes every inherited variable whose name looks like a
-# credential's, and puts each back at unconfigure, so no test, child or report
-# can print one. pytest's long traceback prints each entry's arguments, which
-# put `subprocess.run`'s `kwargs`, and a copied environment, in a report on
-# 2026-10-21; `-l` with `-vv` prints whole locals. Case is ignored. The session's
-# own markers are never removed. A test that needs such a variable sets a dummy.
+# credential's, and puts each back at unconfigure, so none is in the environment
+# a test, a child or a report sees. pytest's long traceback prints each entry's
+# arguments, which put `subprocess.run`'s `kwargs`, and a copied environment, in
+# a report on 2026-10-21; `-l` with `-vv` prints whole locals. Case is ignored.
+# The session's own markers are never removed. A test that needs such a variable
+# sets a dummy.
 CREDENTIAL_ENV_PATTERN = re.compile(
     r"(?:_TOKEN|_KEY|_SECRET|_PASSWORD|_COOKIE)\Z|CREDENTIAL|_AUTH", re.IGNORECASE | re.ASCII)
 
@@ -68,15 +69,53 @@ def credential_shaped(name: str) -> bool:
             and CREDENTIAL_ENV_PATTERN.search(name) is not None)
 
 
-def remove_credentials(environ: MutableMapping[str, str]) -> dict[str, str]:
+class RemovedCredentials:
+    """The variables `remove_credentials` took, kept to put back (D-PRR1).
+
+    Its text shows the names and never a value: `repr` and `str`, and so
+    pytest's traceback arguments, `-l` locals and assertion operands, and
+    Hypothesis's report, print the names only when a failing test holds it
+    (#244 review r1). It is not a `collections.abc.Mapping`, because pytest 9
+    diffs a failing comparison of two mappings item by item, values included.
+    A value is read by its name, as `dict()` and `os.environ.update` read one.
+    """
+
+    __slots__ = ("_values",)
+
+    def __init__(self, values: Mapping[str, str]) -> None:
+        self._values = dict(values)
+
+    def keys(self) -> tuple[str, ...]:
+        return tuple(self._values)
+
+    def __getitem__(self, name: str) -> str:
+        return self._values[name]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def __contains__(self, name: object) -> bool:
+        return name in self._values
+
+    def __repr__(self) -> str:
+        return f"<RemovedCredentials names={sorted(self._values)!r}, values withheld>"
+
+    __str__ = __repr__
+
+
+def remove_credentials(environ: MutableMapping[str, str]) -> RemovedCredentials:
     """Remove every credential-shaped variable from `environ`; return them."""
-    removed = {name: value for name, value in environ.items() if credential_shaped(name)}
+    removed = RemovedCredentials(
+        {name: value for name, value in environ.items() if credential_shaped(name)})
     for name in removed:
         del environ[name]
     return removed
 
 
-def restore_credentials(environ: MutableMapping[str, str], removed: Mapping[str, str]) -> None:
+def restore_credentials(environ: MutableMapping[str, str], removed: RemovedCredentials) -> None:
     """Put back each variable `remove_credentials` took, with its value then."""
     environ.update(removed)
 

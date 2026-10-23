@@ -20,7 +20,8 @@ import pytest
 
 from subfleet.home_paths import (
     PYTEST_MARKER, PYTEST_SENTINEL, PYTEST_SESSION, PYTEST_SESSION_ID,
-    SAFE_ENV_REMOVALS, SAFE_HOME_PATHS, remove_credentials, restore_credentials,
+    SAFE_ENV_REMOVALS, SAFE_HOME_PATHS, credential_shaped, remove_credentials,
+    restore_credentials,
 )
 from subfleet.contracts import (
     Credential, ExitInfo, JobSpec, Lane, LaneOwner, Launch, Sandbox,
@@ -40,14 +41,17 @@ def pytest_configure(config):
     to the real desktop store. Keep the safe baseline through teardown, even
     when individual tests undo their patches; restore it only at unconfigure.
     """
+    # A credential-shaped name (`CLAUDE_LANE_AGENT_SECRET`, `SUBFLEET_AGENT_SECRET`)
+    # is snapshotted as absent: its value is kept only in the store below, which
+    # shows names, and which puts it back after this snapshot's restore (D-PRR1).
     config._subfleet_original_home_env = {
-        name: os.environ.get(name)
+        name: None if credential_shaped(name) else os.environ.get(name)
         for name in ("HOME", "PATH", "UV_CACHE_DIR", PYTEST_MARKER, PYTEST_SESSION, PYTEST_SESSION_ID,
                      *SAFE_HOME_PATHS, *SAFE_ENV_REMOVALS)
     }
-    # D-PRR1: no test, child or report can print a credential the session
-    # inherited, whatever a failing frame holds. Taken after the snapshot
-    # above, so both restore the same values at unconfigure.
+    # D-PRR1: the credentials the session inherited leave its environment, and
+    # every child's that inherits it, until unconfigure; the store that keeps
+    # them prints their names only.
     config._subfleet_removed_credentials = remove_credentials(os.environ)
     base = Path(tempfile.mkdtemp(prefix="sf-test-homes-"))
     token = secrets.token_hex(32)

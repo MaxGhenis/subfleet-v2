@@ -118,8 +118,9 @@ def test_c20_6_removal_takes_exactly_the_credentials_and_restore_puts_each_back(
 
 def test_c20_6_this_session_holds_no_inherited_credential(request):
     """C-20.6, D-PRR1: configure kept what it removed to put back, and only the
-    session's own safe paths are credential-shaped now."""
-    removed = request.config._subfleet_removed_credentials
+    session's own safe paths are credential-shaped now. It binds the removed
+    names only, so a failing check prints no value (#244 review r1)."""
+    removed = set(request.config._subfleet_removed_credentials)
     assert all(home_paths.credential_shaped(name) for name in removed)
     present = {name for name in os.environ if home_paths.credential_shaped(name)}
     assert present <= set(SAFE_HOME_PATHS)
