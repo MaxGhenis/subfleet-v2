@@ -215,12 +215,12 @@ def test_e_recycled_root_never_becomes_a_new_kill_target(monkeypatch, generated,
     # D-KILL4: the census is the kill protocol's authority, so the walk below a
     # matching root or recorded survivor is signalled too; a recycled root and its
     # stranger's group and children never are.
-    roots = {survivor} | (set() if leader else {guardian})
+    group = {pid for pid, row in rows.items() if row[1] == guardian} if not leader else set()
+    roots = {survivor} | group | (set() if leader else {guardian})    # owned group members seed too
     reach = set(roots)
     while grown := {pid for pid, row in rows.items() if row[0] in reach} - reach:
         reach |= grown
-    allowed = {pid for pid in reach if not rows[pid][2].startswith("Z")} | (
-        {pid for pid, row in rows.items() if row[1] == guardian} if not leader else set())
+    allowed = {pid for pid in reach if not rows[pid][2].startswith("Z")} | group
     assert {identity.pid for identity in signalled} <= allowed
     assert all(identity.boot_id == BOOT_A and identity.proc_start == rows[identity.pid][3]
                for identity in signalled)

@@ -268,9 +268,10 @@ def test_uncertain_attribution_never_becomes_a_signal_target(daemon):
     daemon.store.update_attempt(ATTEMPT, evidence_json=json.dumps({"unverified_identities": {
         "4600": {"pid": 4600, "boot_id": "boot", "proc_start": STARTED}}}))
     assert set(daemon._signal_targets(attempt(daemon), verified)) == {4601, 4602}
+    # A recorded identity no longer vouches for a member of an unverifiable census.
     daemon.store.update_attempt(ATTEMPT, evidence_json=json.dumps({"counted_identities": {
         "4600": {"pid": 4600, "boot_id": "boot", "proc_start": STARTED}}}))
-    assert set(daemon._signal_targets(attempt(daemon), census)) == {4600, 4601}
+    assert set(daemon._signal_targets(attempt(daemon), census)) == {4601}
 
 
 # 8. Re-containing a finished job (decision 4).

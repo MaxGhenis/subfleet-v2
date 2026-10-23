@@ -35,6 +35,18 @@ pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="C-5.5's census
 SHELLS = {"sh", "bash", "zsh", "dash"}
 
 
+def start(daemon, *options: str, **kwargs):
+    """`Harness.start` with a 60 s readiness wait: its 5 s wait times out at the host
+    loads these holds run under (load 75 to 82 on 2026-10-23), before any of this
+    file's behaviour runs. Only this file's starts wait longer; the harness is unchanged."""
+    until = daemon.until
+    daemon.until = lambda predicate, timeout=5: until(predicate, timeout=max(timeout, 60))
+    try:
+        return daemon.start(*options, **kwargs)
+    finally:
+        daemon.until = until
+
+
 def submit_driver(daemon, marker: Path, scenario: str, **overrides) -> str:
     args = daemon.submit_args(max_attempts=1, **overrides)
     Path(args["prompt_path"]).write_text(json.dumps({"scenario": scenario, "marker": str(marker)}))
@@ -71,7 +83,7 @@ def test_a_counted_loop_driver_is_contained_with_its_children(daemon, ending):
     attempt ends from its own outcome (or `interrupted` by the wall) with none alive.
     Before D-KILL4 both quarantined, the loop alive and never signalled."""
     marker = daemon.root / f"driver-{uuid.uuid4().hex[:8]}.pid"
-    daemon.start("--hide-environment-of", str(marker), "--inspection-witness", str(marker), isolated_group=True)
+    start(daemon, "--hide-environment-of", str(marker), "--inspection-witness", str(marker), isolated_group=True)
     driver = None
     try:
         job = submit_driver(daemon, marker, "loop-driver",
@@ -108,7 +120,7 @@ def test_an_uncounted_detached_loop_in_an_in_place_workdir_is_held_and_quarantin
     Before D-KILL4 the census named only whichever child was alive (or nothing,
     between two children, and the attempt ended with the loop running)."""
     marker = daemon.root / f"driver-{uuid.uuid4().hex[:8]}.pid"
-    daemon.start("--hide-environment-of", str(marker), isolated_group=True)
+    start(daemon, "--hide-environment-of", str(marker), isolated_group=True)
     driver = None
     try:
         job = submit_driver(daemon, marker, "loop-driver-detached",
@@ -147,7 +159,7 @@ def test_a_guardian_alive_past_start_grace_is_killed_before_any_retry(daemon, st
     for the stopped one, then KILL); the attempt is lost, and the read-only job's
     retry is reserved only once that guardian is dead. Before D-KILL4 it was
     quarantined alive, and it would have started its provider 30 s later."""
-    daemon.start("--start-delay", "30", isolated_group=True)
+    start(daemon, "--start-delay", "30", isolated_group=True)
     job = daemon.submit("ok", max_attempts=2)
     first = daemon.until(lambda: next((a for a in daemon.attempts(job) if a["seq"] == 1 and a["guardian_pid"]), None))
     guardian = procs.ProcessIdentity(first["guardian_pid"], first["boot_id"], first["proc_start"])

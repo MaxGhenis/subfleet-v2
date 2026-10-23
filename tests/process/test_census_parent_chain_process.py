@@ -54,7 +54,7 @@ def census_of(tmp_path, loop, worktree, monkeypatch):
     until = time.monotonic() + 10
     while True:
         found = procs.containment(None, None, None, ATTEMPT, root=str(tmp_path / "state"), parent_chain=rule)
-        if found.marker_pids or time.monotonic() > until:
+        if found.chain_pids or found.held_pids or time.monotonic() > until:
             return found
         time.sleep(.05)                     # between two children
 
