@@ -42,8 +42,7 @@ MUTATIONS = {
 }
 
 
-@pytest.mark.parametrize("mutation", list(MUTATIONS))
-def test_mutation_fails_its_named_regression(mutation, tmp_path):
+def compile_mutation(mutation, tmp_path):
     filename, edits = MUTATIONS[mutation]
     sources = []
     for source in app_sources():
@@ -66,23 +65,16 @@ def test_mutation_fails_its_named_regression(mutation, tmp_path):
         command[2:2] = ["-Xfrontend", "-disable-sandbox"]
     compiled = subprocess.run(command, capture_output=True, text=True, timeout=900)
     assert compiled.returncode == 0, compiled.stderr[-20000:]
-    if mutation in {"uimodel_drops_known_receipts", "settling_stops_follow_at_end"}:
-        mode = "fix9-reopen" if mutation == "uimodel_drops_known_receipts" else "fix9-catchup"
+    return binary, view
+
+
+@pytest.mark.parametrize("mutation", [name for name in MUTATIONS if name != "settling_stops_follow_at_end"])
+def test_mutation_fails_its_named_regression(mutation, tmp_path):
+    binary, view = compile_mutation(mutation, tmp_path)
+    if mutation == "uimodel_drops_known_receipts":
+        mode = "fix9-reopen"
         result = run_probe(binary, tmp_path, mode, timeout=600)
-        if mutation == "uimodel_drops_known_receipts":
-            regression, args = uimodel_regression, (result,)
-        else:
-            # Kill this mutant on its final position, after confirming both fixtures' setup.
-            for name in ("open_live_250", "open_live_100"):
-                run = result[name]
-                assert run["held_before_reveal"], run
-                assert run["before_catchup"]["from_end"] <= END, run
-                assert run["after_initial_reveal"]["from_end"] <= END, run
-                assert run["caught_up"] and run["reveal_consumed"] and run["notices"] == 2, run
-                print(f"{mutation} {name}: {run['after_open']['from_end']} pt from end")
-            regression, args = catchup_regression, (result, "open_live_250")
-            with pytest.raises(AssertionError):
-                catchup_regression(result, "open_live_100")
+        regression, args = uimodel_regression, (result,)
     elif view:
         result = run_probe(binary, tmp_path, timeout=600)
         regression = follow_regression if mutation == "notice_sets_at_bottom_false" else reveal_regression
@@ -94,3 +86,32 @@ def test_mutation_fails_its_named_regression(mutation, tmp_path):
     with pytest.raises(AssertionError):
         regression(*args)
     print(f"{mutation} killed by {regression.__name__}")
+
+
+@pytest.fixture(scope="module")
+def settling_mutant(tmp_path_factory):
+    root = tmp_path_factory.mktemp("settling-mutant")
+    binary, _ = compile_mutation("settling_stops_follow_at_end", root)
+    return run_probe(binary, root, "fix9-catchup", timeout=600)
+
+
+@pytest.mark.parametrize("name", ["open_live_250", "open_live_100"])
+def test_settling_mutation_fails_each_named_regression(settling_mutant, name):
+    # Each schedule is a separate pytest item: a surviving mutant on one must
+    # never prevent the other from being evaluated. Setup failures are outside
+    # raises, so they cannot masquerade as a rejected behavioral mutation.
+    run = settling_mutant[name]
+    assert run["held_before_reveal"], run
+    assert run["before_catchup"]["from_end"] <= END, run
+    assert run["after_initial_reveal"]["from_end"] <= END, run
+    assert run["caught_up"] and run["reveal_consumed"] and run["notices"] == 2, run
+    control = run["settling_control"]
+    assert control["reveals"] == 2 and control["consumed"], control
+    assert control["before_page"]["from_end"] <= END, control
+    assert control["changed_key"] and control["settling"], control
+    assert control["suspended"] and control["at_bottom"], control
+    assert control["after_page"]["from_end"] > 600, control
+    print(f"settling mutant {name}: {control['after_page']['from_end']} pt from end")
+    with pytest.raises(AssertionError):
+        catchup_regression(settling_mutant, name)
+    print(f"settling mutant {name} killed by {catchup_regression.__name__}")
