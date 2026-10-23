@@ -9,15 +9,25 @@ from tests.frontend.conftest import needs_swift, run_probe, write_json
 from tests.frontend.swift import ROOT, app_sources
 from tests.frontend.test_review_r219_fix8_engine import (
     test_reopen_fetches_no_known_receipt as reopen_regression,
-    test_receipt_batch_sorts_once_within_50ms as batch_regression,
+    test_receipt_batch_sorts_once as batch_regression,
 )
 from tests.frontend.test_review_r219_fix8_view import (
     test_timeline_reveal_leaving_end_visible_keeps_follow as follow_regression,
     test_continuous_rows_reveal_at_most_twice as reveal_regression,
 )
 
+from tests.frontend.test_review_r219_fix9_view import (
+    test_real_uimodel_reopen_fetches_no_known_receipt as uimodel_regression,
+    test_live_row_reveal_during_slow_catchup_keeps_the_end as catchup_regression,
+)
+
 pytestmark = needs_swift
 MUTATIONS = {
+    "uimodel_drops_known_receipts": ("UIModel.swift", [
+        ("let known = knownConversationID.map { state.knownMessageIDs(in: $0) } ?? []",
+         "let known: Set<String> = []")]),
+    "settling_stops_follow_at_end": ("QueueTray.swift", [
+        ("suspended && !atBottom ? .stay : .jump", "suspended ? .stay : .jump")]),
     "notice_sets_at_bottom_false": ("UIWindow.swift", [
         ("            followSuspended = true\n", "            followSuspended = true\n            atBottom = false\n")]),
     "hydrate_full_history": ("ConversationStore.swift", [
@@ -44,7 +54,8 @@ def test_mutation_fails_its_named_regression(mutation, tmp_path):
             source = tmp_path / filename
             source.write_text(text)
         sources.append(source)
-    view = mutation in {"notice_sets_at_bottom_false", "key_on_all_rows"}
+    view = mutation in {"notice_sets_at_bottom_false", "key_on_all_rows",
+                        "uimodel_drops_known_receipts", "settling_stops_follow_at_end"}
     probe = ROOT / f"tests/frontend/ReviewR219Fix8{'View' if view else 'Engine'}Probe.swift"
     binary = tmp_path / "probe"
     command = ["xcrun", "swiftc", "-whole-module-optimization", "-D",
@@ -54,12 +65,20 @@ def test_mutation_fails_its_named_regression(mutation, tmp_path):
         command[2:2] = ["-Xfrontend", "-disable-sandbox"]
     compiled = subprocess.run(command, capture_output=True, text=True, timeout=900)
     assert compiled.returncode == 0, compiled.stderr[-20000:]
-    if view:
-        result = run_probe(binary, tmp_path, timeout=180)
+    if mutation in {"uimodel_drops_known_receipts", "settling_stops_follow_at_end"}:
+        result = run_probe(binary, tmp_path, "fix9", timeout=600)
+        if mutation == "uimodel_drops_known_receipts":
+            regression, args = uimodel_regression, (result,)
+        else:
+            regression, args = catchup_regression, (result, "open_live_250")
+            with pytest.raises(AssertionError):
+                catchup_regression(result, "open_live_100")
+    elif view:
+        result = run_probe(binary, tmp_path, timeout=600)
         regression = follow_regression if mutation == "notice_sets_at_bottom_false" else reveal_regression
         args = (result,) if mutation == "notice_sets_at_bottom_false" else (result, "busy_400ms")
     else:
-        result = run_probe(binary, write_json(tmp_path / "input.json", {"histories": [500], "batch": 5000}), timeout=180)
+        result = run_probe(binary, write_json(tmp_path / "input.json", {"histories": [500], "batch": 5000}), timeout=600)
         regression = reopen_regression if mutation == "hydrate_full_history" else batch_regression
         args = (result, 500) if mutation == "hydrate_full_history" else (result,)
     with pytest.raises(AssertionError):

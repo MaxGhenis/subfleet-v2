@@ -186,7 +186,11 @@ func ms(_ start: DispatchTime) -> Double { Double(DispatchTime.now().uptimeNanos
         var timeline = Timeline(conversationID: "batch")
         let batchStart = DispatchTime.now()
         timeline.apply(receipts: receipts.reversed())
-        results["batch"] = ["apply_ms": ms(batchStart), "order": timeline.order,
+        let applyMS = ms(batchStart)
+        let sorts = timeline.sortCount
+        timeline.apply(receipts: receipts)
+        results["batch"] = ["apply_ms": applyMS, "sorts": sorts,
+                            "unchanged_sorts": timeline.sortCount - sorts, "order": timeline.order,
                             "expected": receipts.map(\.message_id)]
         results["cost"] = cost
         print(String(decoding: try JSONSerialization.data(withJSONObject: results, options: [.sortedKeys]), as: UTF8.self))

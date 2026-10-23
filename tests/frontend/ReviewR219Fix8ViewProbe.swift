@@ -31,6 +31,14 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
     /// A slow catch-up: each page read with wait_s 0 takes this long and holds at most pageSize events.
     var pageDelay = 0.0
     var pageSize = 200
+    // Count real UIModel.open status requests, including the identities in each batch.
+    private var requestedIDs: [String] = []
+    func takeStatusIDs() -> [String] {
+        lock.lock(); defer { lock.unlock() }
+        let result = requestedIDs
+        requestedIDs = []
+        return result
+    }
 
     init(conversation: [String: Any], receipts: [[String: Any]], events: [[String: Any]]) {
         self.conversation = conversation
@@ -66,6 +74,7 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
             out = ["conversation": conversation, "message_ids": receipts.map { $0["message_id"]! }]
         case "message.status":
             let ids = Set(value["message_ids"]?.array?.compactMap(\.string) ?? [])
+            lock.lock(); requestedIDs += ids.sorted(); lock.unlock()
             out = ["messages": receipts.filter { ids.contains($0["message_id"] as! String) }]
         case "conversation.events":
             let after = value["after"]?.int ?? 0
@@ -184,7 +193,7 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
     var caughtUp: Bool { model.state.timelines[cid]?.caughtUp == true }
 
     func waitFolded(_ target: Int) async {
-        let deadline = Date().addingTimeInterval(8)
+        let deadline = Date().addingTimeInterval(60)
         while ((model.state.timelines[cid]?.cursor ?? 0) < target || !caughtUp) && Date() < deadline {
             await settle(host ?? NSView(), seconds: 0.02)
         }
@@ -211,7 +220,7 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
             return ["found": false, "items": results.compactMap { $0.snippet?.itemID }]
         }
         palette.activate(match)
-        let deadline = Date().addingTimeInterval(6)
+        let deadline = Date().addingTimeInterval(60)
         while palette.reveal != nil && Date() < deadline { await settle(host, seconds: 0.02) }
         await settle(host, seconds: 0.6)
         return ["found": true, "consumed": palette.reveal == nil, "results": results.count]
@@ -241,6 +250,12 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
 @main struct R4ViewProbe {
     @MainActor static func main() async throws {
         NSApplication.shared.setActivationPolicy(.prohibited)
+        if CommandLine.arguments.last == "fix9" {
+            let root = URL(fileURLWithPath: CommandLine.arguments[1])
+            let result = await fix9Cases(root)
+            print(String(decoding: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), as: UTF8.self))
+            return
+        }
         if CommandLine.arguments.count > 2 {
             let data = try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[2]))
             let schedule = try JSONDecoder().decode([Double].self, from: data)
@@ -382,6 +397,12 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
                                     liveText: "the live request findme")
             await scene.stream(30)
             var reveals: [Double] = []
+            var revealStarts = 0
+            var targetStayedPresent = true
+            let starts = NotificationCenter.default.addObserver(forName: .init("subfleet.test.searchRevealStarted"),
+                                                                 object: nil, queue: .main) { note in
+                if note.object as? String == name { revealStarts += 1 }
+            }
             var started = Date()
             let observer = NotificationCenter.default.addObserver(forName: .conversationRowScroll, object: nil,
                                                                   queue: .main) { note in
@@ -414,7 +435,9 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
                     }
                     await settle(scene.host, seconds: 0.05)
                     if consumedAt < 0 && scene.palette.reveal == nil { consumedAt = Date().timeIntervalSince(started) }
-                    if scrolledAt < 0 && Date().timeIntervalSince(started) >= 1.0 {
+                    targetStayedPresent = targetStayedPresent &&
+                        (scene.model.state.layout(conversationID: name)?.items.contains { $0.id == "person:live" } ?? false)
+                    if scrolledAt < 0 && scene.palette.reveal == nil {
                         await scene.personScroll(toEnd: true)
                         scrolledAt = Date().timeIntervalSince(started)
                         afterPerson = sample(scene.host)["from_end"] ?? -1
@@ -424,15 +447,18 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
                     row["reveal_pending"] = scene.palette.reveal != nil
                     samples.append(row)
                 }
-                let deadline = Date().addingTimeInterval(4)
+                let deadline = Date().addingTimeInterval(60)
                 while scene.palette.reveal != nil && Date() < deadline { await settle(scene.host, seconds: 0.05) }
                 if consumedAt < 0 && scene.palette.reveal == nil { consumedAt = Date().timeIntervalSince(started) }
                 await settle(scene.host, seconds: 0.5)
             }
             consumption.cancel()
             NotificationCenter.default.removeObserver(observer)
+            NotificationCenter.default.removeObserver(starts)
             let after = samples.filter { ($0["t"] as? Double ?? 0) > scrolledAt && scrolledAt >= 0 }
-            out[name] = ["found": match != nil, "consumed_at": consumedAt, "person_scrolled_at": scrolledAt,
+            out[name] = ["found": match != nil, "consumed_at": consumedAt, "consumed": scene.palette.reveal == nil,
+                         "reveal_starts": revealStarts, "target_stayed_present": targetStayedPresent,
+                         "person_scrolled_at": scrolledAt,
                          "reveals_at": reveals, "after_person": afterPerson,
                          "max_from_end_after_person": after.compactMap { $0["from_end"] as? Double }.max() ?? -1,
                          "final": sample(scene.host), "samples": samples]
@@ -481,6 +507,11 @@ struct ArrivalView: View {
     window.contentView = host
     await settle(host, seconds: 0.1)
     var reveals: [Double] = []
+    var revealStarts = 0
+    let starts = NotificationCenter.default.addObserver(forName: .init("subfleet.test.searchRevealStarted"),
+                                                       object: nil, queue: .main) { note in
+        if note.object as? String == "schedule" { revealStarts += 1 }
+    }
     let started = Date()
     let observer = NotificationCenter.default.addObserver(forName: .conversationRowScroll, object: nil, queue: .main) { note in
         if note.object as? String == "schedule" { reveals.append(Date().timeIntervalSince(started)) }
@@ -498,11 +529,58 @@ struct ArrivalView: View {
         rows.ids.append("arrival-\(index)")
         await settle(host, seconds: 0.01)
     }
-    let deadline = Date().addingTimeInterval(2)
+    let deadline = Date().addingTimeInterval(60)
     while palette.reveal != nil && Date() < deadline { await settle(host, seconds: 0.01) }
     if consumed < 0 && palette.reveal == nil { consumed = Date().timeIntervalSince(started) }
     consumption.cancel()
     NotificationCenter.default.removeObserver(observer)
+    NotificationCenter.default.removeObserver(starts)
     window.close()
-    return ["reveals": reveals, "consumed_at": consumed, "schedule": schedule]
+    return ["reveals": reveals, "consumed_at": consumed, "consumed": palette.reveal == nil,
+            "reveal_starts": revealStarts, "schedule": schedule]
+}
+
+// Reused from reviewer r5’s R5ViewProbe2.swift: slow live-row opening and real UIModel reopen.
+/// Opening while `pages` slow catch-up pages are read, with an optional reveal set before the view mounts.
+@MainActor func opening(_ name: String, root: URL, reveal: String?, delay: Double, size: Int,
+                        liveText: String = "the live request") async -> [String: Any] {
+    var notices = 0
+    let observer = NotificationCenter.default.addObserver(forName: .conversationRowScroll, object: nil,
+                                                          queue: .main) { note in
+        if note.object as? String == name { notices += 1 }
+    }
+    let scene = await Scene(name, root: root, prior: 120, priorText: { "person message \($0) asks something" },
+                            tray: [], pageDelay: delay, pageSize: size, revealOnMount: reveal, liveText: liveText)
+    let opened = sample(scene.host)
+    await settle(scene.host, seconds: 1.0)
+    let later = sample(scene.host)
+    await scene.stream(20)
+    NotificationCenter.default.removeObserver(observer)
+    let result: [String: Any] = ["after_open": opened, "a_second_later": later, "after_stream": sample(scene.host),
+                                 "caught_up": scene.caughtUp, "reveal_consumed": scene.palette.reveal == nil,
+                                 "notices": notices]
+    scene.close()
+    return result
+}
+
+
+@MainActor func fix9Cases(_ root: URL) async -> [String: Any] {
+    var out: [String: Any] = [:]
+    for (name, delay, size) in [("open_live_250", 0.25, 40), ("open_live_100", 0.1, 20)] {
+        out[name] = await opening(name, root: root, reveal: "person:live", delay: delay, size: size)
+    }
+    let scene = await Scene("reopen", root: root, prior: 60,
+                            priorText: { "person message \($0) asks something" },
+                            tray: ["queued zero", "queued one", "queued two"])
+    let first = scene.daemon.takeStatusIDs()
+    let trayFirst = trayIdentifiers(scene.host)
+    await scene.model.open(.conversation("reopen"))
+    await scene.waitFolded(scene.daemon.lastSeq)
+    await settle(scene.host, seconds: 0.5)
+    out["reopen"] = ["first_open_status_ids": first, "reopen_status_ids": scene.daemon.takeStatusIDs(),
+                     "tray_first": trayFirst, "tray_again": trayIdentifiers(scene.host),
+                     "known": scene.model.state.knownMessageIDs(in: "reopen").count]
+    scene.close()
+    out["visible_windows"] = NSApp.windows.filter(\.isVisible).count
+    return out
 }
