@@ -13,8 +13,9 @@ prints, on that shape and on plain text:
 - what the cut reads, counted (`test_daemon_log_cut_windows.Meter`): every regex call by
   the characters it reads, and the `str` scans over the text, as passes (characters read
   over the text's length), which a quadratic step would make grow with the size;
-- the process's peak resident memory so far. A size is skipped when twice the peak so far
-  would pass `--memory-mb` (each size about doubles it).
+- the peak resident memory of the process that measured that size: each size runs in a
+  child of its own, and a size is skipped when the last child's peak, scaled by the sizes'
+  ratio, would pass `--memory-mb`.
 
 Run it under the suite lock, never beside a pytest:
     .venv/bin/python tools/measure_cut_scaling.py --sizes 1,4,8,16,32 --runs 7
@@ -24,6 +25,7 @@ from __future__ import annotations
 import argparse
 import gc
 import resource
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -93,38 +95,59 @@ def width(text: str) -> int:
     return round((sys.getsizeof(text) - sys.getsizeof("")) / max(1, len(text)))
 
 
+HEAD = ["shape", "MiB", "bytes a char", "cut ms", "ms per MiB", "cut / plain", "tag scan", "reading", "head cut",
+        "tail cut", "lower()", "replace", "copy", "regex reads", "str passes", "looks", "peak MB"]
+
+
+def one_size(mib: int, runs: int) -> None:
+    """Both shapes' rows at `mib` MiB, then this process's peak on a line of its own."""
+    results = {}
+    for name, build in SHAPES.items():
+        text = build(mib * MIB)
+        results[name] = (width(text), steps(text, runs), counted(text))
+        del text
+        gc.collect()
+    plain_cut = results["plain"][1]["cut"]
+    for name, (wide, out, (regex, passes, looks)) in results.items():
+        cells = [name, str(mib), str(wide), f"{out['cut']:.1f}", f"{out['cut'] / mib:.1f}",
+                 f"{out['cut'] / plain_cut:.2f}"]
+        cells += [f"{out[key]:.1f}" for key in ("tag scan", "reading", "head cut", "tail cut", "lower()", "replace",
+                                                  "copy")]
+        cells += [f"{regex:,}", f"{passes:.2f}", str(looks), f"{peak_mb():.0f}"]
+        print("| " + " | ".join(cells) + " |", flush=True)
+    print(f"peak {peak_mb():.0f}")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--sizes", default="1,4,8,16,32", help="MiB of characters, comma-separated")
     parser.add_argument("--runs", type=int, default=7)
-    parser.add_argument("--memory-mb", type=float, default=1900, help="skip a size twice the peak so far would pass")
+    parser.add_argument("--memory-mb", type=float, default=1900,
+                        help="skip a size whose peak, scaled from the last size's, would pass this")
+    parser.add_argument("--one", type=int, default=None, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if args.one is not None:
+        one_size(args.one, args.runs)
+        return 0
     started = time.monotonic()
     print(f"Python {sys.version.split()[0]}, GIL {'on' if getattr(sys, '_is_gil_enabled', lambda: True)() else 'off'}; "
-          f"best of {args.runs} CPU times (time.process_time), limit {LIMIT:,}")
-    head = ["shape", "MiB", "bytes a char", "cut ms", "ms per MiB", "cut / plain", "tag scan", "reading", "head cut",
-            "tail cut", "lower()", "replace", "copy", "regex reads", "str passes", "looks", "peak MB"]
-    print("| " + " | ".join(head) + " |")
-    print("|" + "---|" * len(head))
-    skipped = []
+          f"best of {args.runs} CPU times (time.process_time), limit {LIMIT:,}; each size in a process of its own")
+    print("| " + " | ".join(HEAD) + " |")
+    print("|" + "---|" * len(HEAD))
+    skipped, last = [], None
     for mib in (int(part) for part in args.sizes.split(",")):
-        if 2 * peak_mb() > args.memory_mb:
-            skipped.append(f"{mib} MiB (peak so far {peak_mb():.0f} MB)")
+        if last is not None and last[1] * mib / last[0] > args.memory_mb:
+            skipped.append(f"{mib} MiB ({last[1]:.0f} MB at {last[0]} MiB)")
             continue
-        results = {}
-        for name, build in SHAPES.items():
-            text = build(mib * MIB)
-            results[name] = (width(text), steps(text, args.runs), counted(text))
-            del text
-            gc.collect()
-        plain_cut = results["plain"][1]["cut"]
-        for name, (wide, out, (regex, passes, looks)) in results.items():
-            cells = [name, str(mib), str(wide), f"{out['cut']:.1f}", f"{out['cut'] / mib:.1f}",
-                     f"{out['cut'] / plain_cut:.2f}"]
-            cells += [f"{out[key]:.1f}" for key in ("tag scan", "reading", "head cut", "tail cut", "lower()", "replace",
-                                                      "copy")]
-            cells += [f"{regex:,}", f"{passes:.2f}", str(looks), f"{peak_mb():.0f}"]
-            print("| " + " | ".join(cells) + " |", flush=True)
+        child = subprocess.run([sys.executable, __file__, "--one", str(mib), "--runs", str(args.runs)],
+                               capture_output=True, text=True, check=False)
+        rows = child.stdout.splitlines()
+        print("\n".join(row for row in rows if row.startswith("|")), flush=True)
+        peak = next((float(row.split()[1]) for row in rows if row.startswith("peak ")), None)
+        if child.returncode or peak is None:
+            print(f"{mib} MiB: the child exited {child.returncode}: {child.stderr.strip()[-300:]}")
+            return 1
+        last = (mib, peak)
     print(f"\n{time.monotonic() - started:.0f} s; skipped for memory: {', '.join(skipped) or 'none'}")
     return 0
 
