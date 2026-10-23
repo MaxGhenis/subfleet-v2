@@ -125,9 +125,13 @@ def test_text_tools_reads_and_other_run_time_words_still_pass(command):
     assert command_refusal(command) is None, command
 
 
-def test_the_text_tools_are_the_ones_named():
+#: The shells the rule must name, listed here so a shell dropped from the rule stays in the tests' draws.
+LISTED_SHELLS = ['sh', 'bash', 'zsh', 'dash', 'ksh', 'mksh', 'fish', 'csh', 'tcsh']
+
+
+def test_the_text_tools_and_the_shells_are_the_ones_named():
     assert {'grep', 'rg', 'sed', 'awk', 'jq', 'git'} <= NOT_SHELL_VALUES
-    assert {'csh', 'tcsh'} <= RULE_SHELLS and C_SHELLS <= RULE_SHELLS
+    assert set(LISTED_SHELLS) == RULE_SHELLS and C_SHELLS == {'csh', 'tcsh'}
 
 
 # Invariants 1 and 2 with run-time words where gh reads its command or subcommand.
@@ -289,11 +293,11 @@ POSIX_LETTERS = 'efvxuain'
 @st.composite
 def shell_calls(draw):
     """Each shell in SHELLS given the write by `-c` in a cluster, or as its input."""
-    shell = draw(st.sampled_from(sorted(RULE_SHELLS)))
+    shell = draw(st.sampled_from(LISTED_SHELLS))
     write = draw(st.sampled_from(WRITES))
     letters = list(draw(st.lists(st.sampled_from(SHELL_LETTERS.get(shell, POSIX_LETTERS)), max_size=3, unique=True)))
     values = []
-    if shell not in C_SHELLS and shell != 'fish' and draw(st.booleans()):
+    if shell not in ('csh', 'tcsh', 'fish') and draw(st.booleans()):
         letters.insert(draw(st.integers(0, len(letters))), draw(st.sampled_from('oO')))
         values = [draw(st.sampled_from(['pipefail', 'errexit', 'extglob']))]
     path = draw(st.sampled_from(['', '/bin/', '/usr/bin/']))
@@ -326,7 +330,7 @@ CLUSTERS = ['-c', '-ec', '-xc', '-fc', '-ce', '-cx', '-cf', '-sc', '-eo pipefail
             '-o errexit -c', '+o errexit -c', '-oc', '-eO extglob -c', '-Oc']
 
 
-@pytest.mark.parametrize('shell', sorted(name for name in RULE_SHELLS if shutil.which(name)))
+@pytest.mark.parametrize('shell', [name for name in LISTED_SHELLS if shutil.which(name)])
 def test_the_rule_judges_the_script_wherever_each_real_shell_runs_it(tmp_path, shell):
     ran = []
     for cluster in CLUSTERS:
