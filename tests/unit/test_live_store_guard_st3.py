@@ -733,7 +733,8 @@ def test_an_override_by_inode_is_refused(spelling, route, tmp_path, sealed, monk
     assert sealed.touched == []
 
 
-def test_a_hard_link_to_a_live_file_is_judged_by_its_name(tmp_path, monkeypatch):
+@pytest.mark.documented_limitation
+def test_a_hard_link_to_a_live_file_is_judged_by_its_name_documented_limitation(tmp_path, monkeypatch):
     """C-20.6 (D-ST3, review r2's P3-2): the limit C-20.6 states. The check judges names, not inodes,
     so a hard link to a live file, another name for it, is out of scope and passes as the
     test's own selection; the file's own name is refused.
