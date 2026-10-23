@@ -2653,3 +2653,216 @@ The earlier round-7 series remains: `74072c7c7` (release merge), `ba250915b`
 - `7048fcf96` test: stack processes declare inspection prerequisite; record bounded suite hold
 
 This final report/ledger commit follows those steps. Each carries the requested co-author trailer.
+
+## Follow-ups after merge (review r6's P3-A and P3-B)
+
+#233 merged into `release/217` as `c2e080e44`. Review r6 approved it with two P3s; the hub decided both (brief `brief-p3-build.md`). This build's commits descend from `c2e080e44`, for `fix/daemon-log-scrub-p3-217`. Every run used dummy `SECRET7…` values, the scratch venv (GIL Python 3.14.7) and the hub's suite-hold wrapper.
+
+### P3-A: a margin file ending in a reminder kept only the marker
+
+**The cause.** `_reminders_resolved` reads a file that holds a group's margin twice: as it is, and without its margins (`_margin_free`), as the block form also reads it. It used what is left only where `bare_resolved[0]`, the margin-free reading with its reminders taken out, was exactly `_margin_free(kept)`. `_margin_free` strips a text's trailing `\r\n`, as `_group_block` (`daemon_log.py:181`) reads text. Where reminders end the file, `_margin_free(text)` strips only the breaks after them, so taking them out leaves the break before them; `_margin_free(kept)` strips that break too. The texts differed only there, and the file fell back.
+
+Executed at `c2e080e44` (probe 1, under the wrapper), 600 admission lines, `  | member line\n`, then each ending:
+
+| Ending | `c2e080e44` | `scrubbed_tail(text, 3)` at `c2e080e44` | This branch |
+|---|---|---|---|
+| `<system-reminder>\nnote\n</system-reminder>\n` | None | `['… [31,748 characters omitted] …']` | resolved, last 3 lines |
+| `<system-reminder>note</system-reminder>\n` | None | marker only | resolved, last 3 lines |
+| the same, then a blank line | None | marker only | resolved, last 3 lines |
+| the same, no break after | None | marker only | resolved, last 3 lines |
+| the same, CRLF | None | marker only | resolved, last 3 lines |
+| control: no margin line | resolved | last 3 lines | unchanged |
+| control: `after\n` appended | resolved | last 3 lines | unchanged |
+
+**The hub's direction alone shows a secret.** Stripping trailing line breaks from both sides, and nothing else, resolves all five. But one scrub rule reads a trailing break: `_DATA_URI_RE` (`data:…;base64,[A-Za-z0-9+/=\s]{32,}`) counts whitespace, line breaks included, among the 32 characters a body needs. Take a data URI body of 31 characters read without margins (20 on one member line, the break, 10 on the next) and a reminder that ends the file:
+- the whole-text scrub's margin-free reading strips the reminder after its first pass and keeps the break before it: 32 characters, hidden;
+- the tail's block form reads what is left with its trailing breaks stripped (`_group_block`): 31, shown; the reading with margins shows it too, because the next member line's `|` ends the body there.
+
+Probe 1 executed this at `c2e080e44` with the direction patched in. On four of five shapes (LF, no break after the reminder, two reminders, CRLF) the whole-text scrub showed no secret and the tail at `-n 2`, `3` and `8` showed `SECRET7dataend9`; the resolved text scrubbed whole showed it as well. The fifth, a 32-character body on one line, matches either way and showed nothing. At `c2e080e44` all five fell back, so this is not a leak in the merged code: its strict comparison was what refused these files.
+
+**Why only that rule.** Read in the scrub's code this round. Every other rule reads a trailing line break as it reads the text's end:
+- the first quoted pass masks an unterminated value to `[\r\n]|\Z`, the same place either way, and a break adds no quote;
+- `Bearer\s+`, the separator's `\s*` and the header rule's `\s*:\s*` may cross a trailing break, but then need a token or value character, and none follows;
+- the flags rule's `[ \t]+` does not cross a break;
+- the token rules' lookarounds (`(?![A-Za-z0-9_-])` and the like) and `\b` treat a break as the end;
+- the folded rescrub (`" ".join(clean.split())`) drops trailing whitespace.
+
+The census and the property below test this claim; neither found a counterexample.
+
+**The fix.** `_alike(left, kept)` replaces the exact comparison:
+- equal: alike, as before. Every file `c2e080e44` resolved resolves the same way.
+- equal once trailing `\r\n` is stripped from both: alike, unless a data URI body ends there that `left`'s trailing breaks bring to 32 characters and `kept`'s leave short. It looks for `;base64,` and body characters to the end (`_BODY_AT_END`, the data URI rule's class and flags) in the last 39 characters only, since a longer body matches either way. It does not read the prefix, so a bare `;base64,` counts too, conservatively.
+- otherwise: not alike.
+
+Nothing else in the guard changes. The first version refused any `;base64,` and at most 31 body characters there. Hold 4 counted 3,156 such refusals in 20,000 margin files, of which 171 would have leaked with the breaks stripped alone. The final version (`1fb3eea4f`) refuses only those where the breaks complete the body.
+
+**A refusal that stays: CRLF and a bare margin.** In a CRLF text, a member line that is only a margin's mark (`  |\r\n`) right before a reminder that ends the file is not a margin to the file's margin-free reading, because its `\r` follows the mark. It is one to the reading of what is left, whose trailing `\r\n` goes before its lines are read. The readings then differ by more than trailing breaks, and the guard, unchanged there, keeps the marker. `daemon logs` and `daemon start`'s tail read daemon.log with universal newlines, so they meet LF text and print the last lines. `test_a_crlf_margin_file_whose_last_member_line_is_a_bare_margin_keeps_the_marker_documented_limitation` holds both. Hold 3 found it: the property's companion test failed on one of 400 drawn files.
+
+**Secrecy, fuzzed** (hold 5, this branch's head; the c2e080e44 column is `_alike` patched back to exact equality, the mutation tool's `asymmetric-margin-free-comparison`):
+
+| Corpus | Texts | Tagged | `c2e080e44` falls back | This branch falls back | Round 6 leaks (control) | `c2e080e44` leaks | This branch leaks | This branch's tails that leak |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Review r5's grammar, seeds 0 to 19,999 | 20,000 | 18,618 | 13,888 | 13,812 | 2,008 | 0 | 0 | 0 of 55,854 (18,444 cut) |
+| Margin files ending in a reminder, seeds 0 to 19,999 | 20,000 | 20,000 | 16,589 | 1,236 | 171 | 0 | 0 | 0 of 60,000 (12,235 cut) |
+| Edge generator, 1,500 from seed 6000 | 1,500 | 1,272 cut | 51 | 0 | 0 | 0 | 0 | not run |
+| `fuzz_text` | 1,500 | 117 cut | 3 | 0 | 0 | 0 | 0 | not run |
+| `fuzz_text` with #231's headers | 1,500 | 115 cut | 5 | 0 | 0 | 0 | 0 | not run |
+| `fuzz_text` with tags | 1,500 | 1,149 cut | 19 | 0 | 0 | 0 | 0 | not run |
+
+Notes on the table:
+- **What a leak is:** a resolved text that, scrubbed whole, shows a `SECRET7` run the original's whole-text scrub hides; or a tail (bound 120, counts 1, 8 and 40) that shows one.
+- **The margin files** are `margin_reminder_text`, new in `test_daemon_log_trailing_reminders.py`: member lines with quoted, unterminated and margin-parted values, orphan closing tags and a data URI body of 20 to 40 characters (half the time, usually last), then a reminder on its own line in seven forms, and six trailing endings, CRLF a fifth of the time.
+- **The round-6 corpora** check resolutions only; the PR's differential over the same corpora, tails included, ran in pytest (`test_the_tail_is_round_5_s_without_a_tag_and_hides_what_the_whole_scrub_hides_with_one`, `test_the_tail_on_review_r4_s_window_edges`), green at the final head.
+- **Totals:** 46,000 texts, 0 leaks from this branch's resolutions, and 0 of 115,854 tails. Fallbacks fell from 30,555 at `c2e080e44` to 15,048.
+- **The first version** (`545dcbb21`, conservative data URI check, hold 2): 13,815 and 4,060 fallbacks on the first two rows, 0 leaks.
+
+**Why the 1,236 margin files still keep the marker** (`reasons.py` in scratch, hold 5, the same 20,000 texts):
+- **The masks differ:** 822. A quote in the final reminder closes a value only one reading opens (`  | token\n  | ='…`, whose key the margins part).
+- **The breaks complete a data URI body:** 332. Review r6's direction alone would have shown a secret in 171 of these. The check does not ask whether the tail would show anything, so it refuses the other 161 as well.
+- **A CRLF bare margin:** 82.
+
+**Monotone:** 15,353 files `c2e080e44` refused now resolve. None it resolved is refused, and none resolves to a different text.
+
+**Mutations** (hold 5; `tools/daemon_log_cut_mutations.py`, 40 named tests, 7 of them new):
+
+| Mutation | Named tests failed (of 40) | Harness errors | Which |
+|---|---:|---:|---|
+| `baseline` | 0 | 0 | |
+| `asymmetric-margin-free-comparison` (`c2e080e44`'s exact comparison) | 4 | 0 | the three review endings at `-n 3`, and `daemon logs -n 3` / `_log_tail` |
+| `trailing-breaks-stripped-alone` (review r6's direction alone) | 2 | 0 | the data URI regressions, LF and CRLF |
+
+Hold 2 ran the same sweep on the first version, with the same counts. The rows of round 7's 17 mutants were not rerun: their mutations replace functions this build does not change, apart from `unconditional-take-out` and `no-margin-free-check`, which replace `_reminders_resolved` whole.
+
+### P3-B: C-25.7's cost sentences
+
+**The four-byte margin shape is linear.** Measured with `tools/measure_cut_scaling.py` (each size in a process of its own, best of 5 CPU times), with the cut's work counted by the count test's meter:
+
+Hold 5, at load 7 to 10, final code:
+
+| MiB | four-byte cut ms | ms a MiB | plain cut ms | cut / plain | tag scan | head cut | tail cut | `lower()` | regex reads | `str` passes | peak MB |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 13.4 | 13.4 | 2.5 | 5.28 | 3.3 | 7.3 | 10.0 | 1.8 | 108,159 | 4.06 | 107 |
+| 4 | 46.0 | 11.5 | 11.0 | 4.17 | 12.2 | 28.1 | 45.3 | 11.6 | 108,159 | 4.01 | 236 |
+| 8 | 89.1 | 11.1 | 13.4 | 6.64 | 23.3 | 68.7 | 89.0 | 15.8 | 108,159 | 4.01 | 398 |
+| 16 | 178.8 | 11.2 | 23.6 | 7.57 | 53.0 | 118.4 | 157.7 | 26.8 | 108,159 | 4.00 | 813 |
+| 32 | 345.0 | 10.8 | 42.9 | 8.03 | 97.0 | 229.7 | 312.9 | 51.2 | 108,159 | 4.00 | 1,603 |
+
+32 MiB peaked at 1,603 MB, under 2 GB. The cut's code is the same at every commit here, so each run below measured the same cut.
+
+| Four-byte cut ms | 1 MiB | 4 MiB | 8 MiB | 16 MiB | 32 MiB | Host load |
+|---|---:|---:|---:|---:|---:|---|
+| Round 7's table | 15.1 | 58.6 | | 409.9 | | not readable then |
+| Probe 1, at `c2e080e44` | 25.2 | 88.4 | 172.1 | 391.8 | 803.1 | 42 to 58 |
+| Hold 4 | 17.0 | 67.0 | 149.3 | 297.1 | skipped, see below | about 24 |
+| Hold 5 | 13.4 | 46.0 | 89.1 | 178.8 | 345.0 | 7 to 10 |
+
+Hold 4 skipped 32 MiB because the one process's peak after 16 MiB had doubled past its 1,900 MB guard; `8ee49100b` measures each size in a process of its own.
+
+- **Counted, the work is linear.** Regex reads are 108,159 at every size, all within the windows. The `str` scans come to 4.06 passes at 1 MiB and 4.00 from 4 MiB up. Plain text reads 82,436 and about 3 passes.
+- **Timed, the cut runs at 10.8 to 13.4 ms a MiB at every size.** Round 7's table went from 58.6 ms to 409.9 between 4 and 16 MiB (7.0×). This build measured 3.9× between 4 and 16, 2.0× between 8 and 16, and 1.9× between 16 and 32 (probe 1: 4.4×, 2.3× and 2.0×).
+- **No later run reproduced round 7's 7×.** Three runs gave 3.9× to 4.4× between 4 and 16 MiB. The timings move between runs, and between sizes, about as much as one C pass over the same text does: `text.lower()` took 14.3, 32.8, 58.5 and 150.3 ms at 4, 8, 16 and 32 MiB in probe 1, 2.6× from 16 to 32. The counts show no step that grows faster than the text.
+- **Nothing to fix,** so no change to the cut. To make "linear" a tested invariant rather than a timing, the shape joins the count test as `test_at_16_mib_no_regex_reads_past_the_cut_s_windows[four-byte-margin-lines]`: the same regex reads at 1 and 16 MiB, at most 8 passes of `str` scans. The windowed cut's differential against `cce8f1af7` now covers it too.
+
+**The stronger check's cost**, re-measured (hold 4, `tools/measure_cut_cost.py --logs --runs 3`, best of three CPU times). The narrowing commit after hold 4 does not touch this path: the realistic log's reminder is followed by lines, so its readings are equal and `_alike` returns at its first comparison.
+
+| file MiB | lines | whole range ms | ms per MiB | `-n 40` ms | orphan tag on line 1, ms | whole reminder on line 1, ms | round 7's run, whole reminder, ms |
+|---|---|---|---|---|---|---|---|
+| 1 | 15,370 | 2,281 | 2,281 | 61.8 | 49.9 | 465.3 | 405.3 |
+| 4 | 61,361 | 7,644 | 1,911 | 65.8 | 73.2 | 1,685.0 | 1,899.5 |
+| 16 | 245,732 | 34,517 | 2,157 | 143.6 | 86.0 | 6,625.7 | 6,360.5 |
+
+The whole reminder costs 465, 421 and 414 ms a MiB: linear in the file. That is about twice round 6's single check (review r5: 213, 774 and 3,283 ms), as two passes of the quoted-value rule (four with margins) against one predicts.
+
+**C-25.7, amended:**
+- the four-byte sentence gives this tree's measurements: round 7's run (3.4, 8.1 and 15.7 times plain text at 1, 4 and 16 MiB) and this build's at 1 to 32 MiB, with the count test behind "linear";
+- the other review-r5 ratios in the same sentences, also measured on round 6's code, give round 7's table's measurements of this tree, so the clause quotes one tree:
+  - margins among plain lines: 0.62, 0.84 and 1.22;
+  - the backslash shape: 2.1, 12.3 and 33.4 ms;
+  - Python's formatting against the cut: 3.7 and 3.5 on the run of `<`, 3.2 on the data URI body, 1.1 on the quote kinds;
+- the stronger check states its measured cost; the realistic-log sentence gives this tree's range and `-n 40` costs in place of review r5's;
+- P3-A: the margin-free comparison, and the list of when a file keeps only the marker, say what `_alike` does;
+- a change-log entry.
+
+### Invariants, follow-ups
+
+29. **No new leak** (invariant 25, restated for P3-A): for every margin file ending in a reminder, no tail shows a secret the whole-text scrub hides. Tests: `test_a_margin_file_ending_in_a_reminder_is_refused_only_where_the_masks_differ` (bounded Hypothesis, 150 examples at the real bound), the data URI regressions, and the census above.
+30. **No refusal for a trailing break alone:** a margin file ending in a reminder keeps only the marker exactly where the quoted pass's masks differ, the trailing breaks complete a data URI body, or (CRLF only) a bare margin becomes the last line. Tests: the property, `test_the_margin_files_resolve_and_fall_back_for_each_reason`, the `_alike` table, the five endings through `scrubbed_tail`, `daemon logs -n 3` and `cli._log_tail`.
+31. **Monotone relaxation:** every file `c2e080e44` resolved still resolves, to the same text. This is deduced from the code: `_alike` returns at once on equal texts, and nothing else in the guard changed. Counted on the 20,000 margin files: none flipped.
+32. **Linear cost on the four-byte shape:** the count test's bounds hold at 1 and 16 MiB.
+
+### Tests per file, follow-ups
+
+Final code head `1d3627968`. The briefed groups, one pytest a hold, through the wrapper, `-p no:cacheprovider`, bounded Hypothesis.
+
+| File | Hold 3, `e05dec779` | Hold 5, `8ee49100b` | Hold 7, `1d3627968` |
+|---|---:|---:|---:|
+| `tests/unit/test_daemon_log_handler.py` | 127 passed | 127 passed | 127 passed |
+| `tests/unit/test_daemon_log_sites.py` | 82 passed | 82 passed | 82 passed |
+| `tests/unit/test_daemon_log_scrubbing.py` | 86 passed | 86 passed | 86 passed |
+| `tests/unit/test_daemon_log_cut_windows.py` | 176 passed | 176 passed | 176 passed |
+| `tests/unit/test_daemon_log_tail.py` | 16 passed | 16 passed | 16 passed |
+| `tests/unit/test_daemon_log_reminders.py` | 101 passed | 101 passed | 101 passed |
+| `tests/unit/test_daemon_log_trailing_reminders.py` (new) | 48 passed, 1 failed | 55 passed, 1 failed | 56 passed |
+| `tests/unit/test_daemon_log_first_pass.py` | 25 passed | 25 passed | 25 passed |
+| `tests/unit/test_daemon_log_mutation_tool.py` | 4 passed | 4 passed | 4 passed |
+| **Total** | 665 passed, 1 failed | 672 passed, 1 failed | **673 passed** |
+
+| File | Hold 4, `faa143038` | Hold 6, `1d3627968` |
+|---|---:|---:|
+| `tests/unit/test_cli.py` | 248 passed | 248 passed |
+| `tests/unit/test_daemon_verbs.py` | 20 passed | 20 passed |
+| `tests/fake/test_state_contract.py` | 37 passed | 37 passed |
+| `tests/unit/test_test_module_names.py` | 1 passed | 1 passed |
+| `tests/unit/test_invariants_index.py` (reads the contract) | 25 passed | 25 passed |
+| `tests/unit/test_desktop_ledger.py` (reads the contract) | 4 passed | 4 passed |
+| `tests/unit/test_retention_turn_contract.py` (reads the contract) | 2 passed | 2 passed |
+| `tests/unit/test_daemon_log_trailing_reminders.py` (new) | 49 passed, 1 failed | 56 passed |
+| **Total** | 386 passed, 1 failed | **393 passed** |
+
+**The three failures, each fixed and rerun green:**
+- **Hold 3:** the companion test found the CRLF bare margin (`0b663d59d`).
+- **Hold 4:** the CRLF test's expected `daemon logs` lines were wrong; the block form writes the margin-free reading whole there.
+- **Hold 5:** the companion test's floor of 10 data URI refusals in 400 files was above the narrowed check's 8 (`8120d909a`).
+
+`test_daemon_log_sites.py` ran all 82 this time: process inspection was available, so its two real-daemon tests did not skip. `test_daemon_log_cut_windows.py` holds 7 more cases than at round 7: the four-byte shape in the count test and in the differential's six sizes and limits.
+
+### Not run, follow-ups
+
+- **Not run here:** `tests/e2e`, Python 3.12, CI, and the rest of `tests/unit` and `tests/fake`. That includes the 76 merge-relevant files review r6 listed, and the runner and conversation files review r7 said CI must cover. This build changes no code they import except `daemon_log._reminders_resolved`'s last comparison.
+- **Measurement rows not run:** `tools/measure_cut_cost.py`'s full table was not rerun. Only `--logs` ran, and the four-byte shape ran through `measure_cut_scaling.py`; the other shapes' numbers in C-25.7 are round 7's run.
+- **Review r4's sweeps** (flags, headers, the real `Daemon`) were not reached by review r6 and were not run here.
+- **The mutation sweep's other 17 mutants** were not rerun (see above).
+
+### Where this build departed from the brief
+
+- **The fix is not exactly the one decided.** The hub decided to compare with trailing line breaks stripped from both sides and to change nothing else in the guard. Executed, that direction showed `SECRET7dataend9`, which the whole-text scrub hides (probe 1). So `_alike` adds one condition: breaks that complete a data URI body still refuse. That condition is stated in the code, the contract and here; nothing else in the guard changed.
+- **The property's wording.** The property allows three reasons, not one. The brief's phrase "refused only when the quoted pass's masks differ" became: the masks differ, the breaks complete a data URI body, or (CRLF only) a bare margin becomes the last line. The last is a refusal the guard already made; the test documents it.
+- **Beyond P3-B's letter:**
+  - the four-byte shape joins the count test, though the brief asked for a test only if the cost were not linear;
+  - C-25.7's other review-r5 ratios are replaced too, not only 11.6, 8.9 and 6.9.
+- **Pytest ran as `venv/bin/python -c '…pytest.main(…)'`**, an in-process `SIGALRM` cap under each hold's 20 minutes, not `uv run pytest`. The venv was built once by `uv sync --locked --group dev` through the setup wrapper, and reused. `uv run` under the suite lock can wait out the uv cache's lock and fail (seen 2026-10-13).
+- **Holds mixed one pytest with sequential tools.** Hold 4: group 2, the scaling, the realistic logs and the reasons. Hold 5: group 1, the mutation sweep, the census, the corpora, the reasons and the scaling. Each step had its own cap, and each hold finished in under 9 minutes. Probe 1 and hold 2 held tools only.
+- **The groups ran more files than briefed:**
+  - group 1 also ran `test_daemon_log_first_pass.py` (round 7's guard tests) and `test_daemon_log_mutation_tool.py` (the tool this build extends);
+  - group 2 also ran the three files that read the contract, and the new file;
+  - hold 7 reran group 1 at the final code head.
+- **Static checks outside the wrapper:** `python3 -m py_compile`, with its cache in scratch, on changed files before each commit. No code ran outside a hold.
+- **Detached commits.** The commits are on this job's detached checkout, not on `fix/daemon-log-scrub-p3-217`. That branch is checked out in the caller's worktree, so Git refuses a second checkout of it, and moving the ref from here would move the caller's checkout under its files. The commits descend from `c2e080e44` in a line, so the branch can fast-forward to the last one. The shared index took the commits; no workspace-local metadata was needed.
+- **Probe 1 ran on a `git archive` of `c2e080e44`** in scratch, so its "at base" results did not depend on edits made while it queued.
+
+### Commits, follow-ups
+
+Each carries the requested co-author trailer:
+
+- `e4f4f3e05` test: a margin file ending in a reminder keeps its last lines, unless a data URI body reaches the break
+- `545dcbb21` fix: compare the margin-free readings up to trailing line breaks, except where a data URI body could count them
+- `6f1e797c0` tools: review r6's mutants and the census's before-and-after counts
+- `211a6a4e2` test, tools: the four-byte margin shape in the count test, and its cost by size
+- `e05dec779` test: the margin files also draw a value only the margin-free reading opens
+- `0b663d59d` test: a CRLF margin file whose last member line is a bare margin keeps the marker, documented
+- `faa143038` docs: C-25.7 compares the margin-free readings up to trailing line breaks, but for a data URI body
+- `1fb3eea4f` fix: refuse a trailing break only where it completes a data URI body
+- `8ee49100b` tools: measure each size of the cut's scaling in a process of its own
+- `8120d909a` test: the margin files' data URI refusals are rarer once only completed bodies count
+- `1d3627968` docs: C-25.7's cost sentences give this tree's measurements, and the stronger check's cost
+- this report section and the PR body (`docs/reports/2026-10-17-daemon-log-scrub-followups-pr-body.md`)
