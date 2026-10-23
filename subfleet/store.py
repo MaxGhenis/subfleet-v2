@@ -106,6 +106,14 @@ def _json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
+def cancel_info(at: str, data_json: str) -> dict[str, Any]:
+    """D-KILL1: display attribution without implying a client stated session is verified."""
+    data = {"at": at, **json.loads(data_json)}
+    if data.get("by") == "client":
+        data.update(session_id_source="client-stated", pid_source="socket-peer-audit-token")
+    return data
+
+
 def _pin_notice_key(data_json: str | None) -> tuple | None:
     """C-11.8: (id, session, creation time) of the service notice a `job.pin_noticed` event names."""
     try:

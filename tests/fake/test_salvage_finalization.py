@@ -9,6 +9,7 @@ ref and the worktree is kept.
 """
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 import os
 
@@ -871,6 +872,10 @@ def test_c13_1_a_retry_whose_own_salvage_failed_says_where_its_work_is(state_dae
     workdir, job_id = a2_ran_and_its_salvage_failed(daemon, harness, monkeypatch)
     a2_ref, a3_ref = (f"refs/subfleet-salvage/{job_id}-a{seq}-baseline" for seq in (2, 3))
     if held:
+        # Two transient attempts excluded codex-1. Keep a candidate so this
+        # case reaches snapshot preparation and waits only for the fleet cap.
+        daemon.store.put_lane(replace(daemon.store.get_lane("codex-1"),
+                                      lane_id="codex-2", account_key="codex:retry-spare"))
         with monkeypatch.context() as full:
             full.setitem(daemon.policy["caps"], "max_active_attempts", 0)
             daemon._admit()
