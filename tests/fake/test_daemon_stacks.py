@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.fake.conftest import REPO
+from tests.fake.conftest import REPO, process_inspection_available  # noqa: F401 - fixture
 
 #: A process that records its identity in daemon.lock exactly as a daemon does
 #: (C-5.3), with SIGUSR1 at its default action, as every daemon before the flag.
@@ -158,7 +158,8 @@ def test_a_lock_that_changes_between_the_two_reads_is_not_signalled(
         stopping.wait(10)
 
 
-def test_a_daemon_writes_the_flag_after_the_handler_and_drops_it_before(tmp_path, monkeypatch):
+def test_a_daemon_writes_the_flag_after_the_handler_and_drops_it_before(
+        tmp_path, monkeypatch, process_inspection_available):
     """The order that makes the flag true whenever it is read (C-3.6)."""
     from subfleet import daemon as daemon_module
     # This unit checks handler/flag ordering, independent of host identity access.
