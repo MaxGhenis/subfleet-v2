@@ -567,12 +567,16 @@ def install_keychain_exec_guard() -> bool:
     the PATH, SHELL and directory the outer one leaves, up to 8 listed wrappers
     deep. A `~` entry, an env -S string using `$`, `\\` or `#`, a deeper chain,
     an option a wrapper does not have, and any other launch whose check cannot
-    finish are refused. Outside C-20.6 (D-ST1): other PATH-searching programs,
-    such as find -exec and interpreters; the arguments xargs reads from its
-    input; a wrapper run under another name; path aliases, such as a symlink to
-    /usr/bin or to the reader; PATH changes made inside the shell, by a shell
-    string or a login shell's profile; and deliberate absolute reader paths
-    inside shell strings. Production readers use argv.
+    finish are refused. Outside C-20.6 (D-ST1), requiring isolated inputs:
+    other PATH-searching programs (`find -exec`, which nothing in this
+    repository launches; `sudo`, `sandbox-exec`, `xcrun`, interpreters); the
+    arguments xargs reads from its input; a shell's script operand; a wrapper
+    run under another name; path aliases (a symlink to `/usr/bin`, or a
+    symlink to the reader that a wrapper's bare command finds through PATH);
+    PATH changes made inside the shell (a shell string, a login shell's
+    profile, `BASH_ENV`, `ENV` or `ZDOTDIR`); deliberate shell strings naming
+    the reader's absolute path; `DirEntry.stat`; and native file access
+    through `sqlite3`. Production readers use argv.
 
     No runner identity can tell a stub from a wrapper around the real
     `subprocess.run`, so this judges the file each launch would start: through
