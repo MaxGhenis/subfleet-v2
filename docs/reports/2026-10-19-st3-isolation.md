@@ -1594,7 +1594,8 @@ file, `test_daemon_verbs.py` (`daemon start`, `_daemond_argv`),
 Every file in the three directories has an outcome for every collected case:
 U1, U2, F1 and E1 recorded their collected test ids, and each id has an
 outcome. The holds ran at `ff7ec9913`, and C1 at `e570bd37f`, whose only
-change is the contract. None failed:
+change is the contract. None failed. "Unrun" counts collected cases with no
+outcome; a skipped case has an outcome but did not run (the 21 below):
 
 | Directory | Files | Cases | Passed | Failed | Skipped | Xfailed | Unrun |
 |---|---:|---:|---:|---:|---:|---:|---:|
