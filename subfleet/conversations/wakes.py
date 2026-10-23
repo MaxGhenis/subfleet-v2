@@ -15,6 +15,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 
+from .. import refusals
 from ..launch_env import build_environment, helper_policy
 from .store import ConversationError, canonical_native, utcnow
 from .turn import TERMINAL_STATES
@@ -26,6 +27,9 @@ MIN_TIMER_S = 300
 MAX_TARGETS = 16
 EVALUATION_INTERVAL_S = 1.0
 PR = re.compile(r"([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)#([1-9][0-9]*)\Z")
+#: The refusals whose words a `wake-refused` event shows a client (C-25.7): this
+#: module raises each with a literal message, never one built from a value.
+TIMELINE_REFUSALS = ("bad-wake", "wake-id-conflict")
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS wake_requests (
  conversation_id TEXT NOT NULL, request_id TEXT NOT NULL, kind TEXT NOT NULL,
@@ -232,7 +236,7 @@ class WakeEngine:
             try:
                 self._poll_future.result()
             except Exception as exc:
-                self.service.log.warning("PR wake worker failed: %s", exc)
+                self.service.log.warning("PR wake worker failed: %s", refusals.scrubbed_words(exc))
             self._poll_future = None
         if self._poll_future is None and self.now() >= self._next_poll:
             now = self.now()
@@ -257,7 +261,9 @@ class WakeEngine:
 
     def register(self, cid: str, request_id: str, spec: dict, *, event_since: float | None = None) -> dict:
         conversation = self.store.conversation(cid)
-        for job_id in spec.get("runs", {}).get("targets", []):
+        targets = spec.get("runs", {}).get("targets", [])
+        count = len(targets)
+        for position, job_id in enumerate(targets, 1):
             if self.store.one("SELECT 1 FROM wake_requests WHERE conversation_id=? AND request_id=? AND kind='runs'",
                               (cid, request_id)):
                 break  # a completed request remains retryable after job retention
@@ -267,7 +273,9 @@ class WakeEngine:
             owned = parent and parent["name"] == f"turn-{cid}"
             if not job or not (owned or (conversation["native_session_id"] and job["caller_session"] and
                     canonical_native(job["caller_session"]) == canonical_native(conversation["native_session_id"]))):
-                raise ConversationError("bad-wake", f"run {job_id} is not this conversation's")
+                # The agent wrote the id: a refusal its timeline shows names none, only
+                # the target's position among at most 16 (C-25.7).
+                raise ConversationError("bad-wake", f"run target {position} of {count} is not this conversation's")
         with self.store.transaction() as tx:
             existing = {r["kind"]: json.loads(r["payload_json"]) for r in tx.execute(
                 "SELECT kind,payload_json FROM wake_requests WHERE conversation_id=? AND request_id=?", (cid, request_id))}
@@ -371,11 +379,14 @@ class WakeEngine:
                     raise ConversationError("bad-wake", "at is already past at settlement")
                 self.register(cid, request_id, spec, event_since=validation_time)
             except (ConversationError, ValueError) as exc:
-                self.service.log.warning("wake request in final text of %s refused: %s", mid, exc)
+                self.service.log.warning("wake request in final text of %s refused: %s", mid, refusals.scrubbed_words(exc))
                 if message:
+                    # A client shows the detail: our fixed words, or the class (C-25.7).
+                    said = (str(exc) if isinstance(exc, ConversationError) and exc.reason in TIMELINE_REFUSALS
+                            else refusals.fixed_error(exc))
                     self.store.append_events(conversation_id=cid, message_id=mid, attempt_id=f"wake:{mid}",
                         events=[("command", f"wake-refused:{request_id}", 0, "status",
-                                 {"phase": "wake-refused", "detail": f"Wake request refused: {exc}"})],
+                                 {"phase": "wake-refused", "detail": f"Wake request refused: {said}"})],
                         stdout_offset=0, stdin_seq=0)
         # Stable request ids make replay safe if only some lines committed, or a
         # crash happened after registration but before this acknowledgement.
@@ -431,7 +442,7 @@ class WakeEngine:
         try:
             snapshots = query_prs(targets)
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
-            self.service.log.warning("batched PR wake poll failed: %s", exc)
+            self.service.log.warning("batched PR wake poll failed: %s", refusals.scrubbed_words(exc))
             return
         for r in requests:
             before = json.loads(r["observed_json"] or "{}")
@@ -473,7 +484,7 @@ class WakeEngine:
         try:
             self.service._replay_final_wakes()
         except Exception as exc:
-            self.service.log.warning("final wake replay deferred: %s: %s", type(exc).__name__, exc)
+            self.service.log.warning("final wake replay deferred: %s", refusals.scrubbed_words(exc))
         pending = self.store.query("SELECT * FROM wake_requests WHERE state='pending'") if scan_requests else []
         if poll:
             self._poll_prs(pending)
