@@ -82,7 +82,7 @@ The session check binding the store itself (no `dict`) is an intended survivor: 
 - Group 1: `test_session_credential_env.py` 35, `test_prune_restore.py` 20, `test_prune_decisions.py` 48, `test_prune_decision_backup_verification.py` 23, `test_prune_decision_fingerprints.py` 15, `test_prune_217.py` 9: all passed. One channel check of the new test was too specific under `-l` alone and was corrected in `e2ded7d12`; its leak check had passed.
 - Group 2: the 14 `test_live_store_guard*.py` files (850) and 8 `test_launch_env*.py` files (329): all passed.
 - Group 3: `test_state_contract.py` 37 and `test_test_module_names.py` 1: passed.
-- Review r1's 95 unrun files: `test_suggestion_secret_properties.py` 7 passed, `test_record_secrecy.py` 42 passed before the hold's alarm, and the rest left to CI; the report has the list.
+- Review r1's 95 unrun files, secrecy and environment-copying files first: 13 ran whole (373 tests, all passed), `test_retention_case_alias.py` in part (55 passed), and 81 are left to CI; the report lists them.
 
 The build's whole-suite inventory (8,630 passed in `tests/unit` and 452 in `tests/fake`, with three sandbox-only failures) and review r1's further 3,267 cases stand as reported. The report lists which of review r1's 95 unrun files this round ran.
 
@@ -91,3 +91,5 @@ The build's whole-suite inventory (8,630 passed in `tests/unit` and 452 in `test
 `release/217` at `e345f0803` (#212, #223, #232, #238 and #243) is merged in `973857899`. The one conflict was the contract's change log, where both sides added entries; all are kept, newest first. Release changed neither C-11.5 nor C-20.6, nor any file this PR changes.
 
 Nothing was pushed by the build or by round 1.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)

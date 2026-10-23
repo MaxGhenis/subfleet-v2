@@ -838,7 +838,7 @@ M1 to M5 fail the same tests as in the build. M4's session check fails because e
 ### How the holds ran
 
 - **Environment.** One venv, built once through the hub's setup wrapper, on Python 3.14.7 (GIL) with pytest 9.1.1 and Hypothesis 6.168.1. Holds ran `<venv>/bin/python` directly, as `uv run` would, without its sync check. Each pytest ran in-process under a 1,140-second alarm, with `-q -p no:cacheprovider`, `HYPOTHESIS_PROFILE=ci`, and `TMPDIR` and Hypothesis's storage in scratch.
-- **Credentials.** Every hold started with the job's inherited credential-shaped variables unset (`env -u`, five names: `SSH_AUTH_SOCK` and four integration tokens), and with one dummy set, `PRR1_HOLD_TOKEN=SECRET7…`, for the session to remove. No hold's log holds any part of that dummy, or of any `SECRET7` value.
+- **Credentials.** Every hold started with the job's inherited credential-shaped variables unset (`env -u`, five names: `SSH_AUTH_SOCK` and four integration tokens), and with one dummy set, `PRR1_HOLD_TOKEN=SECRET7…`, for the session to remove. No log of any hold or mutant holds any part of that dummy. The only `SECRET7` text in any log is two tests' own dummies, which mutants M3 and M5 printed on failing: `test_run_recipe_gives_the_shell_only_the_variables_it_needs`'s source line setting its canary, and the unconfigure test's assertion diff showing its own `PRR1_RESTORE_TOKEN`.
 - **Holds, serially, each through the suite wrapper.** The lock was contended: the first three holds waited 29, 75 and 86 minutes for a slot.
 
 | Hold | Tree | What ran | Result | Pytest time |
@@ -846,7 +846,7 @@ M1 to M5 fail the same tests as in the build. M4's session check fails because e
 | `base-r1` | `5cf14fffc` (tests first) | `test_session_credential_env.py` | 29 passed, 6 failed (the regressions) | 163 s |
 | `g1-prune` | `2415e397d` (the fix) | group 1: `test_session_credential_env.py`, `test_prune_restore.py`, `test_prune_decision*.py`, `test_prune_217.py` | 149 passed, 1 failed (below) | 122 s |
 | `mutants` | `e2ded7d12`, then the worktree at `4748c6211` | M0 to M9 as above; then groups 3 and 2, merged, and the first wider files, one pytest | mutants as above; 1,266 passed, 0 failed, stopped by the alarm | 1,133 s in all |
-| `wider2` | `4748c6211` | the rest of review r1's 95 unrun files | queued at 06:14:30 UTC; see below | — |
+| `wider2` | `4748c6211` | the rest of review r1's 95 unrun files, from `test_record_secrecy.py` on | 421 passed, 0 failed, stopped by the alarm | 1,145 s |
 
 - **`g1-prune`'s one failure** was the new store-holding test's own channel check, under `-l` alone: it looked for `assert <RemovedCredentials names=[`, but below `-vv` pytest cuts an assertion's operand to 30 characters (`assertrepr_compare`), so the report read `<RemovedCrede...es withheld>`. Its leak check, which runs first, had passed under both options. `e2ded7d12` loosens the check to `assert (not )?<RemovedCred`; M0 then passed both options.
 - **Groups 2 and 3 ran as one pytest,** with the first wider files after them, inside the mutation hold. Each later hold waited over an hour for a slot, and the brief's last start was 06:33 UTC.
@@ -889,11 +889,107 @@ The latest outcome per test, on the final test code. Every briefed file ran whol
 | `tests/fake/test_state_contract.py` | 37 | 0 | 0 | complete |
 | `tests/unit/test_test_module_names.py` | 1 | 0 | 0 | complete |
 | `tests/unit/test_suggestion_secret_properties.py` | 7 | 0 | 0 | complete (wider) |
-| `tests/fake/test_record_secrecy.py` | 42 | 0 | 0 | partial: the alarm stopped the hold inside it (wider) |
+| `tests/fake/test_record_secrecy.py` | 44 | 0 | 0 | complete (wider) |
+| `tests/unit/test_salvage_unindexable.py` | 86 | 0 | 0 | complete (wider) |
+| `tests/unit/test_salvage.py` | 31 | 0 | 0 | complete (wider) |
+| `tests/unit/test_stop_alarm.py` | 2 | 0 | 0 | complete (wider) |
+| `tests/unit/test_soak_tools.py` | 49 | 0 | 0 | complete (wider) |
+| `tests/fake/test_gate_end_to_end.py` | 11 | 0 | 0 | complete (wider) |
+| `tests/fake/test_launch_gates_above_stdio.py` | 9 | 0 | 0 | complete (wider) |
+| `tests/fake/test_daemon_stacks.py` | 6 | 0 | 0 | complete (wider) |
+| `tests/fake/test_resume_cli.py` | 1 | 0 | 0 | complete (wider) |
+| `tests/fake/test_routing_end_to_end.py` | 16 | 0 | 0 | complete (wider) |
+| `tests/unit/test_retention_archive.py` | 109 | 0 | 0 | complete (wider) |
+| `tests/unit/test_retention_archive_properties.py` | 2 | 0 | 0 | complete (wider) |
+| `tests/unit/test_retention_case_alias.py` | 55 | 0 | 0 | partial: the hold's alarm stopped it (wider) |
 
 Briefed files: 30 files, 1,367 tests, all passed. `test_live_store_guard*`, which runs nested `pytest_configure` and `pytest_unconfigure` calls, passed whole with the snapshot change, and `_round8`, `_round9` and `_round10`'s checks of C-20.6's text passed on the rewritten clause.
 
-**Review r1's 95 unrun files (3,151 cases).** Ordered with the files that hand a copied environment to a child, or test secrecy, first. One ran whole, one in part, and 93 have no result yet in this round: the `wider2` hold, submitted before the cutoff, was still waiting for a slot. CI covers every file.
+**Review r1's 95 unrun files (3,151 cases).** Ordered with the files that test secrecy, or hand a copied environment to a child, first. 13 ran whole (373 tests, all passed), among them `test_retention_archive.py`, which review r1 left at 31 of 109; `test_retention_case_alias.py` ran in part (55 passed) when the last hold's alarm stopped it. No test failed and none was skipped. These 81 files have no result in this round, and CI covers them:
+
+```text
+tests/unit/test_retention_ordinary_trees.py
+tests/unit/test_retention_regenerable.py
+tests/unit/test_retention_regenerable_properties.py
+tests/unit/test_retention_shared_folders.py
+tests/unit/test_retention_sweep_race.py
+tests/unit/test_retention_worktrees.py
+tests/unit/test_review_pr127_service.py
+tests/unit/test_review_r2_repro.py
+tests/unit/test_round10_refusal_context.py
+tests/unit/test_route_check.py
+tests/unit/test_scheduler.py
+tests/unit/test_scheduler_weekly.py
+tests/unit/test_sessions_cli.py
+tests/unit/test_sessions_handoff.py
+tests/unit/test_sessions_handoff_excerpts.py
+tests/unit/test_sessions_mirror_fifo.py
+tests/unit/test_sessions_mirror_hot_regressions.py
+tests/unit/test_sessions_mirror_load_gap.py
+tests/unit/test_sessions_mirror_safety.py
+tests/unit/test_sessions_mirror_write_churn.py
+tests/unit/test_sessions_nudge.py
+tests/unit/test_sessions_revive.py
+tests/unit/test_status_json.py
+tests/unit/test_stop_watchdog.py
+tests/unit/test_store_contention_queries.py
+tests/unit/test_suggestions_r1b_adversarial.py
+tests/unit/test_timers_alerts.py
+tests/unit/test_timers_busy_read.py
+tests/unit/test_timers_probe.py
+tests/unit/test_timers_reset_credits.py
+tests/unit/test_weekly_rank_vs_base.py
+tests/fake/test_admission_priority.py
+tests/fake/test_admission_ramp_retention.py
+tests/fake/test_canonical_identity_fix5.py
+tests/fake/test_capacity_wait_backoff.py
+tests/fake/test_census_escapers_daemon.py
+tests/fake/test_census_recycled_pid_daemon.py
+tests/fake/test_codex_turn_completed_fake.py
+tests/fake/test_crash_matrix.py
+tests/fake/test_daemon_contract.py
+tests/fake/test_daemon_descriptors.py
+tests/fake/test_descriptor_exhaustion.py
+tests/fake/test_detached_cwd_pins.py
+tests/fake/test_detached_retention_fence.py
+tests/fake/test_folder_spelling.py
+tests/fake/test_frozen_stream_nonregular.py
+tests/fake/test_identity_rollback.py
+tests/fake/test_idle_cost.py
+tests/fake/test_interactive_claude_titles.py
+tests/fake/test_interactive_steer.py
+tests/fake/test_lane_fault.py
+tests/fake/test_lane_pilot.py
+tests/fake/test_lost_acknowledgement.py
+tests/fake/test_native_maintenance_startup.py
+tests/fake/test_notice_delivery.py
+tests/fake/test_picker_native.py
+tests/fake/test_probe_cancel.py
+tests/fake/test_probe_turn.py
+tests/fake/test_provider_active_cap_fake.py
+tests/fake/test_provider_qos.py
+tests/fake/test_reset_credit_incident.py
+tests/fake/test_review130_ab.py
+tests/fake/test_review_r185_adversarial.py
+tests/fake/test_route_view.py
+tests/fake/test_salvage_adversarial.py
+tests/fake/test_salvage_finalization.py
+tests/fake/test_sessions_end_to_end.py
+tests/fake/test_status_payload.py
+tests/fake/test_suggestions_fake.py
+tests/fake/test_tier_hold_by_demand.py
+tests/fake/test_timers_busy_admission.py
+tests/fake/test_timers_end_to_end.py
+tests/fake/test_turn_retention_cwd_properties.py
+tests/fake/test_turn_retention_job_properties.py
+tests/fake/test_turn_trees.py
+tests/fake/test_turn_wait_reasons.py
+tests/fake/test_unadmittable_pin_admission.py
+tests/fake/test_workspace_transient.py
+tests/fake/test_writable_fanout.py
+tests/fake/test_writer_retention_fence.py
+tests/unit/test_suggestion_structural_errors.py
+```
 
 ### Commits in this round
 
