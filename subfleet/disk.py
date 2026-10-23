@@ -262,10 +262,11 @@ class DiskAdmission:
         self.snapshot = self._snapshot()
 
     def evidence(self) -> dict[str, float]:
-        # D-TMP1: one placement budget covers all new bytes, worktree and
-        # private TMPDIR together. statvfs already sees both on this volume;
-        # a second reservation for the same bytes would double-count them.
-        # The budget remains provisional, never a per-directory quota.
+        # D-TMP1 (C-12.10): one provisional amount per placed attempt stands
+        # for the growth of its worktree and TMPDIR together until their bytes
+        # are in the measured free space; a second reservation for the same
+        # bytes would count them twice. It is an estimate, not a quota:
+        # measured scratch can exceed it.
         return {"bytes": self._bytes("placement_reserve_gb"),
                 "ttl_s": self.settings["reserve_ttl_s"]}
 
