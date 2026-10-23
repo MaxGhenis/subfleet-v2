@@ -421,10 +421,14 @@ class Sampler:
         now = time.time()
         units = {'cpu_idle':'fraction','disk_busy':'ms/op','disk_in_flight':'requests',
                  'disk_baseline_ms':'ms/op','read_cost_s':'seconds'}
-        result = {key: {'value':self._latest.get(key,(None,None))[0],
-                        'age_s':max(0,now-self._latest[key][1]) if key in self._latest else None,
-                        'unit':unit, 'readable':self._snapshot.get(key) is not None}
-                  for key,unit in units.items()}
+        result = {}
+        for key, unit in units.items():
+            # Admission can evict an old device's entry while status is read.
+            # Fetch its value and timestamp together, with no later key lookup.
+            value, observed_at = self._latest.get(key, (None, None))
+            result[key] = {'value': value,
+                           'age_s': max(0, now-observed_at) if observed_at is not None else None,
+                           'unit': unit, 'readable': self._snapshot.get(key) is not None}
         # Value and age use one eligible set at one instant, including at the
         # 24-hour boundary. Recomputing a percentile never refreshes its age.
         baseline, calibrated_at = self._baseline(now)
