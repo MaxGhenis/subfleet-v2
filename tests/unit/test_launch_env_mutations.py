@@ -46,6 +46,14 @@ from tests.unit.test_launch_env_round5 import (
 from tests.unit.test_launch_env_round6 import (
     test_daemon_start_check_lists_each_inheriting_env_row_and_reads_only_lanes_json as install_check_oracle,
 )
+from tests.fake.test_launch_env_ignored_hook import (
+    test_review_r1_an_ignored_rows_harness_hook_reaches_no_launch as ignored_hook_oracle,
+)
+from tests.unit.test_launch_env_round7 import (
+    repair_root,
+    test_daemon_start_check_scrubs_a_token_shaped_lane_id as check_scrub_oracle,
+    test_review_r1_a_transfer_repairs_the_lanes_refused_row as transfer_repair_oracle,
+)
 
 
 def mutated(function, *, assignment=None, keyword_index=None, return_value=False, spawn_environment=False):
@@ -286,3 +294,58 @@ def test_named_install_check_regression_kills_reading_a_value(tmp_path, monkeypa
     monkeypatch.setattr(cli, "lanes_json_refusals", reading)
     with pytest.raises(AssertionError, match="read a lane variable's value"):
         install_check_oracle(tmp_path, monkeypatch, capsys, "SUBFLEET_FAKE_LANE_NINE")
+
+
+# --- review r1 of #248 (D-ENV2, fix round 1): each P3's named regression kills its mutant ---
+
+
+def test_named_ignored_hook_regression_kills_dropping_the_ignored_hooks(tmp_path, monkeypatch):
+    """P3-1: the daemon remembers no ignored row's hook, so neither withheld set
+    names it, and the hook reaches codex-1's launch and claude-9's own again."""
+    monkeypatch.setattr(daemon_module, "ignored_hooks", lambda found: frozenset())
+    with pytest.raises(AssertionError, match="a withheld set misses the hook"):
+        ignored_hook_oracle(tmp_path, monkeypatch, "ignored-row")
+
+
+def test_named_ignored_hook_regression_kills_the_timers_withholding_the_store_alone(tmp_path, monkeypatch):
+    """P3-1, the second set: the timers' own launches withhold the stored lanes'
+    names alone again, as before the fix, while the daemon's set is right."""
+    from subfleet import timers
+    from subfleet.credentials import withheld_references
+    monkeypatch.setattr(timers.Timers, "_provider_environment", lambda self: ProviderEnvironment(
+        self.policy, references=lambda: withheld_references(self.store.list_lanes())))
+    with pytest.raises(AssertionError, match="a withheld set misses the hook"):
+        ignored_hook_oracle(tmp_path, monkeypatch, "ignored-row")
+
+
+class JsonRowsUnscrubbed(ast.NodeTransformer):
+    """P3-2's mutant: `daemon start --check --json` lists lanes.json's rows as read,
+    unscrubbed; the text listing still scrubs."""
+    found = False
+
+    def visit_Call(self, node):
+        self.generic_visit(node)
+        if isinstance(node.func, ast.Name) and node.func.id == "emit":
+            for inner in ast.walk(node):
+                if isinstance(inner, ast.comprehension) and isinstance(inner.iter, ast.Name) and inner.iter.id == "rows":
+                    inner.iter = ast.Name("found", ast.Load())
+                    self.found = True
+        return node
+
+
+@pytest.mark.parametrize("variable", ["HOME", "SUBFLEET_FAKE_LANE_EIGHT"])
+def test_named_check_scrub_regression_kills_an_unscrubbed_json_listing(tmp_path, monkeypatch, capsys, variable):
+    """P3-2: the install check's `--json` names a token-shaped lane id raw."""
+    monkeypatch.setattr(cli, "_daemon_start_check", rewritten(cli._daemon_start_check, JsonRowsUnscrubbed()))
+    with pytest.raises(AssertionError, match="printed the lane id unscrubbed"):
+        check_scrub_oracle(tmp_path, monkeypatch, capsys, "json", variable)
+
+
+@pytest.mark.parametrize("dry_run", [True, False], ids=["dry-run", "apply"])
+def test_named_transfer_repair_regression_kills_writing_only_owner(tmp_path, monkeypatch, dry_run):
+    """P3-3: a transfer that sets only `owner` on the lane's existing row, as
+    before the fix, leaves the refused row a rebuilt store would refuse."""
+    from subfleet import lanes_transfer
+    monkeypatch.setattr(lanes_transfer, "_repair_refused_row", lambda row, lane, home: None)
+    with repair_root(tmp_path) as world, pytest.raises(AssertionError):
+        transfer_repair_oracle(world, "v1", dry_run)
