@@ -30,8 +30,9 @@ MUTANTS = {
          'self._quarantine(a, census, "writers remain after exit receipt"); census = None')])],
     # Release a lost-at-start attempt to its retry before its census is empty.
     "retry-first": [(Daemon, "_process_attempt", [
-        ('self._kill_attempt(a, lost=True, reason="start grace expired without a receipt")',
-         'self._unlaunched(a, "starting-no-receipt", census=census)')])],
+        ('self._kill_attempt(a, lost=True, reason="start grace expired without a receipt",',
+         'self._unlaunched(a, "starting-no-receipt", census=census); (lambda *a, **k: None)('
+         'a, lost=True, reason="start grace expired without a receipt",')])],
     # Drop the parent-chain rule.
     "no-parent-chain": [(Daemon, "_contain", [
         ('**({"parent_chain": chain} if chain is not None else {})', '**{}')])],

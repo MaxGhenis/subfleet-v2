@@ -283,6 +283,8 @@ CWD_SETTLE_S = 30.0
 #: that keep reappearing quarantine it, and the rounds its evidence keeps.
 TERMINAL_CONTAINMENT_ROUNDS = 3
 TERMINAL_CONTAINMENT_KEPT = 4
+#: D-KILL4 fix 1: the signals one protocol run keeps in its evidence, each with its reason.
+TERMINAL_SIGNALS_KEPT = 256
 #: D-KILL4: how long a guardian whose launch gate closed unopened may take to exit.
 GATED_REAP_S = 2.0
 #: C-6.8: how an attempt ends whose launch-time main/master re-check git gave no answer
@@ -4340,11 +4342,22 @@ class Daemon:
 
     @staticmethod
     def _census_words(census: procs.Containment) -> str:
+        def named(pids):
+            pids = sorted(pids)
+            return ", ".join(f"pid {pid}" for pid in pids[:12]) + (", ..." if len(pids) > 12 else "")
+        # Fix 1 (P3-2): a held parent holds the attempt too, and is never signalled:
+        # the operator ends it, or uses --force-release.
+        held = sorted(census.held_pids)
+        held_words = (f"{len(held)} held parent{'s' if len(held) != 1 else ''}, never signalled ("
+                      + named(held) + ")") if held else ""
         if census.unverifiable and not census.live_pids:
-            return "a census that cannot be verified (" + "; ".join(census.errors[:3]) + ")"
+            return ("a census that cannot be verified (" + "; ".join(census.errors[:3]) + ")"
+                    + (f"; {held_words}" if held_words else ""))
+        if not census.live_pids and held_words:
+            return held_words
         pids = sorted(census.live_pids)
-        return (f"{len(pids)} live census process{'es' if len(pids) != 1 else ''} ("
-                + ", ".join(f"pid {pid}" for pid in pids[:12]) + (", ..." if len(pids) > 12 else "") + ")"
+        return (f"{len(pids)} live census process{'es' if len(pids) != 1 else ''} (" + named(pids) + ")"
+                + (f"; {held_words}" if held_words else "")
                 + ("; unverifiable" if census.unverifiable else ""))
 
     def _recontain(self, a: dict, census: procs.Containment) -> None:
@@ -8254,7 +8267,11 @@ class Daemon:
                 # the kill protocol, then a loss on verified empty (which a
                 # read-only job retries, C-4.5), else quarantine. No retry is
                 # reserved while this attempt's census is non-empty.
-                self._kill_attempt(a, lost=True, reason="start grace expired without a receipt")
+                # Fix 1 (P2): with no start.json the guardian has launched nothing, and
+                # its TERM is a no-op by design: its group is KILLed at once, and it is
+                # never continued, which would only resume its launch.
+                self._kill_attempt(a, lost=True, reason="start grace expired without a receipt",
+                                   census=census, unlaunched=True)
             return
         return None if inspected else DEFERRED if retry else None
 
@@ -8408,9 +8425,25 @@ class Daemon:
             except (OSError, ValueError):
                 worktree_error = True
         held = dict(a.get("held_parents") or evidence.get("held_parents") or {})
+        # Fix 1 (P3-2): a held parent is held again by its birth only while the last
+        # census saw a marked process name it (`held_marked`; an attempt recorded
+        # before that key holds what it held). The kill protocol's censuses count
+        # as one census: while it runs, what it started from stays held
+        # (`_held_scope`), as each TERMed child of a respawning driver opens a gap.
+        marked = dict(evidence["held_marked"] if "held_marked" in evidence else held)
+        scope = self.__dict__.get("_held_scope", {}).get(a.get("attempt_id") or "")
+        if scope is not None:
+            marked = {**marked, **scope["carry"], **scope["fresh"]}
+        # Fix 1 (P3-3): an ancestor the chain rule added is kept by its birth, with
+        # the reason it was added; it is never a walk seed.
+        reasons = evidence.get("chain_reasons") or {}
+        recorded_chain = {int(pid): (procs.ProcessIdentity(**value),
+                                     reasons.get(pid, f"pid {pid}: recorded ancestor of a marked process"))
+                          for pid, value in (evidence.get("chain_identities") or {}).items()}
         chain = (procs.ParentChain(str(worktree) if worktree is not None else None,
                                    Daemon._never_signalled(self, a), os.geteuid(),
-                                   {int(pid): procs.ProcessIdentity(**value) for pid, value in held.items()})
+                                   {int(pid): procs.ProcessIdentity(**value) for pid, value in marked.items()},
+                                   recorded_chain)
                  if a.get("attempt_id") else None)
         census = procs.containment(a.get("pgid") or start.get("pgid"), guardian,
                                    a.get("child_pid") or receipt.get("child_pid"),
@@ -8428,8 +8461,13 @@ class Daemon:
                  and named.get(str(pid)) != dataclasses.asdict(census.identities[pid])}
         # D-KILL2: the other members, by whichever source counted them. A group
         # member may already be owned; only an identity not yet kept is written.
+        # Fix 1: never a member only a leaderless group names (P1: it may be a
+        # stranger's, and a counted identity would make it a seed), and never a
+        # parent-chain ancestor (P3-3: kept as such below, never a seed).
+        unattributed = (census.group_pids - census.descendant_pids - census.marker_pids
+                        if not census.leader_verified else frozenset())
         sighted = {str(pid): dataclasses.asdict(census.identities[pid])
-                   for pid in sorted(census.live_pids - census.responsible_pids)
+                   for pid in sorted(census.live_pids - census.responsible_pids - census.chain_pids - unattributed)
                    if pid != guardian and pid in census.identities
                    and all(kept.get(str(pid)) != dataclasses.asdict(census.identities[pid])
                            for kept in (owned, named, counted))}
@@ -8438,16 +8476,29 @@ class Daemon:
         # D-KILL4: a held parent is remembered by its birth, never as a seed.
         parents = {str(pid): dataclasses.asdict(ident) for pid, ident in sorted(census.held_identities.items())
                    if held.get(str(pid)) != dataclasses.asdict(ident)}
+        # Fix 1 (P3-3, P3-4): each ancestor the chain rule added, with its reason,
+        # from whichever census added it, on every path.
+        kept_chain = evidence.get("chain_identities") or {}
+        added = {str(pid): dataclasses.asdict(census.identities[pid]) for pid in sorted(census.chain_pids)
+                 if pid in census.identities and kept_chain.get(str(pid)) != dataclasses.asdict(census.identities[pid])}
         for key, kind, kept, found in (("responsible_identities", "attempt.responsible_recorded", named, fresh),
                                        ("counted_identities", "attempt.counted_recorded", counted, sighted),
-                                       ("held_parents", "attempt.parents_held", held, parents)):
+                                       ("held_parents", "attempt.parents_held", held, parents),
+                                       ("chain_identities", "attempt.chain_recorded", kept_chain, added)):
             if found and a.get("attempt_id") and "evidence_json" in a:
                 with self.store.transaction(kind, job_id=a["job_id"], attempt_id=a["attempt_id"],
-                                            data={"pids": sorted(map(int, found))}) as tx:
+                                            data={"pids": sorted(map(int, found)),
+                                                  **({"reasons": [census.chain_reasons[int(pid)] for pid in found
+                                                                  if int(pid) in census.chain_reasons]}
+                                                     if key == "chain_identities" else {})}) as tx:
                     actual = self.store.get_attempt(a["attempt_id"]) or a
                     current = json.loads(actual.get("evidence_json") or "{}")
                     current[key] = {**current.get(key, {}), **found}
-                    if census.unverifiable and key != "held_parents":
+                    if key == "chain_identities":
+                        current["chain_reasons"] = {**current.get("chain_reasons", {}),
+                                                    **{pid: census.chain_reasons[int(pid)] for pid in found
+                                                       if int(pid) in census.chain_reasons}}
+                    if census.unverifiable and key not in ("held_parents", "chain_identities"):
                         # D-KILL4: what an unverifiable census first recorded is
                         # evidence only, never a signal target (`_signal_targets`).
                         # Kept only while a seed key still holds that birth.
@@ -8474,6 +8525,35 @@ class Daemon:
                     a["evidence_json"] = json.dumps(current)
                     tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
                                (a["evidence_json"], a["attempt_id"]))
+        if a.get("attempt_id") and "evidence_json" in a:
+            # Fix 1 (P3-2): the held parents the next census may hold again by birth,
+            # those a marked process names now. Inside the kill protocol they are
+            # gathered in memory and written when it ends (`_kill_protocol`).
+            now_marked = {str(pid): dataclasses.asdict(census.held_identities[pid])
+                          for pid in sorted(census.held_fresh) if pid in census.held_identities}
+            if scope is not None:
+                scope["fresh"].update(now_marked)
+            else:
+                Daemon._write_held_marked(self, a, now_marked)
+            # Fix 1 (P3-5): taint is kept by identity. A seed below an identity an
+            # unverifiable census first recorded stays no target after that
+            # ancestor exits and the parent link that tainted it is gone.
+            current = json.loads(a.get("evidence_json") or "{}")
+            seeds = {**current.get("responsible_identities", {}), **current.get("counted_identities", {})}
+            known = current.get("unverified_identities") or {}
+            tainted = {str(pid): dataclasses.asdict(census.identities[pid])
+                       for pid in sorted(Daemon._tainted(current, census)) if pid in census.identities}
+            tainted = {pid: value for pid, value in tainted.items()
+                       if seeds.get(pid) == value and known.get(pid) != value}
+            if tainted:
+                with self.store.transaction("attempt.taint_recorded", job_id=a["job_id"], attempt_id=a["attempt_id"],
+                                            data={"pids": sorted(map(int, tainted))}) as tx:
+                    actual = self.store.get_attempt(a["attempt_id"]) or a
+                    current = json.loads(actual.get("evidence_json") or "{}")
+                    current["unverified_identities"] = {**current.get("unverified_identities", {}), **tainted}
+                    a["evidence_json"] = json.dumps(current)
+                    tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
+                               (a["evidence_json"], a["attempt_id"]))
         # D-KILL3: cwd is a hold, never attribution. Do not persist an observer
         # in counted/owned identities: leaving the worktree must release its hold.
         try:
@@ -8496,6 +8576,39 @@ class Daemon:
             "AND state IN ('starting','running','finalizing','quarantined')",
             (a.get("attempt_id") or "",)) if query else ()
         return frozenset({0, 1, os.getpid(), os.getppid(), *(int(row["guardian_pid"]) for row in others)})
+
+    def _write_held_marked(self, a: dict, marked: dict[str, dict]) -> None:
+        """Fix 1 (P3-2): record which held parents a marked process named in the last
+        census (`held_marked`); only those are held again by their birth."""
+        evidence = json.loads(a.get("evidence_json") or "{}")
+        prior = evidence["held_marked"] if "held_marked" in evidence else (evidence.get("held_parents") or {})
+        if prior == marked:
+            return
+        with self.store.transaction("attempt.parents_marked", job_id=a["job_id"], attempt_id=a["attempt_id"],
+                                    data={"pids": sorted(map(int, marked))}) as tx:
+            actual = self.store.get_attempt(a["attempt_id"]) or a
+            current = json.loads(actual.get("evidence_json") or "{}")
+            current["held_marked"] = marked
+            a["evidence_json"] = json.dumps(current)
+            tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
+                       (a["evidence_json"], a["attempt_id"]))
+
+    @staticmethod
+    def _tainted(evidence: dict, census: procs.Containment) -> set[int]:
+        """D-KILL4: the census members first recorded by an unverifiable census
+        (`unverified_identities`, by identity) and every member below one of them
+        by this census's parent links."""
+        unverified = {(int(pid), value.get("proc_start"))
+                      for pid, value in (evidence.get("unverified_identities") or {}).items()}
+        tainted = {pid for pid, ident in census.identities.items() if (pid, ident.proc_start) in unverified}
+        grown = True
+        while grown:
+            grown = False
+            for pid in census.live_pids - tainted:
+                if (census.shapes.get(pid) or {}).get("ppid") in tainted:
+                    tainted.add(pid)
+                    grown = True
+        return tainted
 
     @staticmethod
     def _new_group_identities(pgid: int | None, recorded: dict) -> dict[str, dict]:
@@ -8763,18 +8876,21 @@ class Daemon:
                                  family=True, exited=exited)
 
     def _kill_attempt(self, a: dict, *, lost: bool = False,
-                      reason: str = "termination could not verify containment") -> None:
+                      reason: str = "termination could not verify containment",
+                      census: procs.Containment | None = None, unlaunched: bool = False) -> None:
         """C-5.6 for a cancel, a wall stop, a dead guardian (`lost`) and an expired
         start grace (`lost`, D-KILL4): the kill protocol against the full census,
         then `finalizing` on verified empty, `_lost` for a loss without a
-        receipt, and `quarantined` with `reason` for anything else."""
+        receipt, and `quarantined` with `reason` for anything else. `census` is a
+        deciding census its caller has just taken; `unlaunched` (start grace, no
+        start.json) KILLs the group at once (fix 1, P2)."""
         # Fresh request attribution matters for descendants and clients that
         # replaced the wall after the worker read its attempt row.
         a = self.store.get_attempt(a["attempt_id"])
         request = self._cancel_info(a["job_id"]) or {}
         killed_by = "recovery" if lost else ("max_wall_s" if request.get("by") == "daemon"
                                              and request.get("reason") == "max_wall_s" else "operator")
-        census = self._contain(a)
+        census = census if census is not None else self._contain(a)
         adir = attempt_dir(self.root, a["job_id"], a["seq"])
         if a.get("killed_by") == "max_wall_s":
             # A receipt can land after the wall's last check, including while
@@ -8834,7 +8950,7 @@ class Daemon:
 
         if not a.get("pgid"):
             send_signal(lambda stamp: False)
-        ended = Daemon._kill_protocol(self, a, census, send_signal)
+        ended = Daemon._kill_protocol(self, a, census, send_signal, unlaunched=unlaunched)
         if ended is None:
             return                                     # the daemon is stopping
         census, escalated = ended
@@ -8853,131 +8969,209 @@ class Daemon:
         self._begin_finalizing(a, receipt)
 
     def _signal_targets(self, a: dict, census: procs.Containment) -> dict[int, procs.ProcessIdentity]:
-        """D-KILL4, C-5.4, C-5.6: the census members the kill protocol may signal one by one.
+        """The census members the kill protocol may signal one by one (`_signal_reasons`)."""
+        return {pid: ident for pid, (ident, _) in Daemon._signal_reasons(self, a, census).items()}
 
-        Every live member a source counts (the group, the walk with its recorded
-        seeds, the marker, responsibility, and the parent-chain rule), with the
-        identity the census captured, which `procs.signal_process` checks afresh
-        just before its syscall (C-5.3). Never a cwd holder (the census keeps them
-        apart), never a held parent, never a member with no captured identity,
-        never `_never_signalled`. The group's members, marked members and
-        parent-chain members are attributed by this census itself. A member only
-        the walk or responsibility found is attributed through recorded seeds or
-        the root, so it is a target only in a verifiable census, and only when
-        neither it nor a census ancestor was first recorded by an unverifiable
-        census (`unverified_identities`): such a census may keep a seed whose
-        birth it could not compare, or responsibility strangers it could not
-        bound (C-5.5). Those hold the attempt instead."""
+    def _signal_reasons(self, a: dict, census: procs.Containment
+                        ) -> dict[int, tuple[procs.ProcessIdentity, str]]:
+        """D-KILL4, C-5.4, C-5.6: the census members the kill protocol may signal one
+        by one, each with the identity the census captured (which
+        `procs.signal_process` checks afresh just before its syscall, C-5.3) and
+        why it is the attempt's, for the evidence.
+
+        Never a cwd holder (the census keeps them apart), never a held parent,
+        never a member with no captured identity, never `_never_signalled`.
+        Attributed by this census itself, in any census: a parent-chain member, a
+        marked member, and a member of the recorded group when this census
+        verified its leader alive with its recorded birth (fix 1, P1). An owned
+        identity, recorded while the guardian led its group (`_record_owned`), is
+        attributed by that record. A member only the walk or responsibility found
+        is attributed through recorded seeds or the root, so it is a target only in
+        a verifiable census, and only when neither it nor a census ancestor was
+        first recorded by an unverifiable census, or is kept as tainted by one
+        (`unverified_identities`, `_tainted`): such a census may keep a seed whose
+        birth it could not compare, or responsibility strangers it could not bound
+        (C-5.5). Those hold the attempt instead, and so does a member only a
+        leaderless group at the recorded pgid names: it may be a stranger's."""
         never = Daemon._never_signalled(self, a)
         evidence = json.loads(a.get("evidence_json") or "{}")
-        unverified = {(int(pid), value.get("proc_start"))
-                      for pid, value in (evidence.get("unverified_identities") or {}).items()}
-        tainted = {pid for pid, ident in census.identities.items() if (pid, ident.proc_start) in unverified}
-        grown = True
-        while grown:
-            grown = False
-            for pid in census.live_pids - tainted:
-                if (census.shapes.get(pid) or {}).get("ppid") in tainted:
-                    tainted.add(pid)
-                    grown = True
-        strong = census.group_pids | census.marker_pids | census.chain_pids
-        targets = {}
+        tainted = Daemon._tainted(evidence, census)
+        owned = evidence.get("owned_identities") or {}
+        found: dict[int, tuple[procs.ProcessIdentity, str]] = {}
         for pid in sorted(census.live_pids):
             ident = census.identities.get(pid)
             if pid in never or ident is None:
                 continue
-            if pid not in strong and (census.unverifiable or pid in tainted):
+            if pid in census.chain_pids:
+                why = census.chain_reasons.get(pid) or f"pid {pid}: ancestor of a marked process"
+            elif pid in census.marker_pids:
+                why = f"pid {pid}: carries this attempt's markers"
+            elif pid in census.group_pids and census.leader_verified:
+                why = f"pid {pid}: member of the recorded group, its leader verified"
+            elif owned.get(str(pid)) == dataclasses.asdict(ident):
+                why = f"pid {pid}: owned, recorded while the guardian led its group"
+            elif census.unverifiable or pid in tainted:
                 continue
-            targets[pid] = ident
-        return targets
+            elif pid in census.descendant_pids:
+                why = f"pid {pid}: walk from the attempt's recorded processes"
+            elif pid in census.responsible_pids:
+                why = f"pid {pid}: names the attempt's responsibility root"
+            else:
+                continue                       # only a leaderless group names it
+            found[pid] = (ident, why)
+        return found
 
-    def _kill_protocol(self, a: dict, census: procs.Containment, send_signal: Callable
-                       ) -> tuple[procs.Containment, bool] | None:
+    def _kill_protocol(self, a: dict, census: procs.Containment, send_signal: Callable, *,
+                       unlaunched: bool = False) -> tuple[procs.Containment, bool] | None:
         """C-5.6 against the full census (D-KILL4); None when the daemon stops.
 
         TERM the recorded group, after its leader's identity (C-5.4), and every
-        other target one by one; continue each stopped target right after its
-        TERM, so that it can act on it (a TERM sent to a stopped process stays
-        pending until it is continued, and Fleet ops' governor and the clamshell
-        guard both stop processes); re-take the census through `term_grace_s`,
-        signalling any member found since; then KILL the group, re-take the
-        census and KILL every surviving target one by one (KILL needs no
-        continue), and re-take it through `kill_settle_s`, killing members found
-        since, until it is verified empty. `send_signal` takes a signalling call
-        and returns whether it was delivered; it records each signal durably.
-        Nothing outside the census is signalled or continued."""
+        other target one by one; continue each stopped target right after a TERM
+        that reached it, so that it can act on it (a TERM sent to a stopped
+        process that handles TERM stays pending until it is continued, and Fleet
+        ops' governor and the clamshell guard both stop processes); re-take the
+        census through `term_grace_s`, signalling any member found since; then
+        KILL the group, re-take the census and KILL every surviving target one by
+        one (KILL needs no continue), and re-take it through `kill_settle_s`,
+        killing members found since, until it is verified empty. `send_signal`
+        takes a signalling call and returns whether it was delivered; it records
+        each signal durably.
+
+        Fix 1 (P2, P3-1): the group's TERM is credited only to the members, by
+        identity, of the census taken before it, still in the group; a member
+        found since gets a TERM of its own before any continue. The guardian is
+        never continued: it ignores TERM by design, so a continue only resumes its
+        launch. An `unlaunched` attempt (start grace, no start.json) has its group
+        KILLed at once, so its guardian never starts the provider. Nothing outside
+        the census is signalled, and nothing is continued that was not sent a TERM.
+        The parent-chain additions and held parents of every census taken here,
+        and each signal with its reason, are recorded (`_record_containment`)."""
         sent: dict[tuple[int, int], procs.ProcessIdentity] = {}
         group: dict[int, bool] = {}
+        reached_by: dict[int, set[tuple[int, str]]] = {signal.SIGTERM: set(), signal.SIGKILL: set()}
+        signals: list[dict] = []
+        chain: dict[int, str] = {}
+        held: dict[int, str] = {}
         first = census
+        guardian = a.get("guardian_pid")
+        aid = a.get("attempt_id") or ""
+        scopes = self.__dict__.setdefault("_held_scope", {})
+        if aid:
+            # Fix 1 (P3-2): the protocol's censuses count as one; what its first held stays held.
+            scopes[aid] = {"carry": {str(pid): dataclasses.asdict(ident)
+                                     for pid, ident in census.held_identities.items()},
+                           "fresh": {str(pid): dataclasses.asdict(census.held_identities[pid])
+                                     for pid in census.held_fresh if pid in census.held_identities}}
+
+        def note(found: procs.Containment) -> procs.Containment:
+            chain.update(found.chain_reasons)
+            held.update(found.held_reasons)
+            return found
+
+        def take() -> procs.Containment:
+            return note(self._contain(a))
 
         def stopped(found: procs.Containment, pid: int) -> bool:
             return str((found.shapes.get(pid) or {}).get("stat") or "").startswith("T")
 
-        def to_group(sig: signal.Signals) -> None:
+        def record(found: procs.Containment, pid: int, sig: int, why: str) -> None:
+            # The census sources that counted it then, and its parent: pids and
+            # names only, never a command (C-5.5).
+            sources = [name for name, pids in (("group", found.group_pids), ("walk", found.descendant_pids),
+                                               ("marker", found.marker_pids),
+                                               ("responsibility", found.responsible_pids),
+                                               ("chain", found.chain_pids)) if pid in pids]
+            signals.append({"pid": pid, "signal": int(sig), "why": why, "sources": sources,
+                            "ppid": (found.shapes.get(pid) or {}).get("ppid")})
+
+        def to_group(sig: signal.Signals, before: procs.Containment) -> None:
             if sig not in group and a.get("pgid"):
                 group[sig] = send_signal(lambda stamp: procs.signal_group(
                     a["pgid"], sig, boot_id=a["boot_id"], proc_start=a["proc_start"], before_signal=stamp))
+                if group[sig]:
+                    reached_by[sig] |= {(pid, before.identities[pid].proc_start)
+                                        for pid in before.group_pids if pid in before.identities}
 
         def one_by_one(found: procs.Containment, sig: signal.Signals) -> None:
-            for pid, ident in Daemon._signal_targets(self, a, found).items():
-                # A group TERM already reached its members; KILL goes to each survivor.
-                reached = ((sig == signal.SIGTERM and group.get(sig) and pid in found.group_pids)
+            for pid, (ident, why) in Daemon._signal_reasons(self, a, found).items():
+                mine, in_group = (pid, ident.proc_start), pid in found.group_pids
+                if in_group and mine in reached_by[signal.SIGKILL]:
+                    continue                           # the group's KILL reached it
+                reached = ((sig == signal.SIGTERM and in_group and mine in reached_by[signal.SIGTERM])
                            or sent.get((pid, sig)) == ident)
                 if not reached:
                     reached = send_signal(lambda stamp, ident=ident: procs.signal_process(
                         ident, sig, before_signal=stamp))
                     if reached:
                         sent[(pid, sig)] = ident
-                if (sig == signal.SIGTERM and reached and stopped(found, pid)
+                        record(found, pid, sig, why)
+                if (sig == signal.SIGTERM and reached and stopped(found, pid) and pid != guardian
                         and sent.get((pid, signal.SIGCONT)) != ident):
                     if send_signal(lambda stamp, ident=ident: procs.signal_process(
                             ident, signal.SIGCONT, before_signal=stamp)):
                         sent[(pid, signal.SIGCONT)] = ident
+                        record(found, pid, signal.SIGCONT, why)
 
-        to_group(signal.SIGTERM)
-        one_by_one(census, signal.SIGTERM)
-        deadline = time.monotonic() + self.term_grace_s
-        while not census.containment_empty and time.monotonic() < deadline:
-            if self.stopping.wait(min(.1, max(0, deadline - time.monotonic()))):
-                return None
-            census = self._contain(a)
-            one_by_one(census, signal.SIGTERM)  # members found since: respawned, newly counted
-        escalated = not census.containment_empty
-        if escalated:
-            to_group(signal.SIGKILL)
-        census = self._contain(a)
-        if not census.containment_empty:
-            one_by_one(census, signal.SIGKILL)
-        # Signalled processes leave the process table only when the kernel has
-        # finished tearing them down, and under load that takes longer than one
-        # read. Re-enumerate for a bounded settle window (C-5.6, kill_settle_s).
-        # The loop ends early only on a verified-empty census; the last census,
-        # never a guess about a pid, decides. No SQLite transaction is open.
-        settle_until = time.monotonic() + self.kill_settle_s
-        while True:
-            if self.stopping.wait(.05):
-                return None
-            census = self._contain(a)
-            if census.containment_empty or time.monotonic() >= settle_until:
-                break
-            one_by_one(census, signal.SIGKILL)  # members found since: respawned, newly counted
-        Daemon._record_containment(self, a, first, census, sorted({pid for pid, _ in sent}),
-                                   sorted(int(sig) for sig, delivered in group.items() if delivered))
-        return census, escalated
+        try:
+            note(census)
+            to_group(signal.SIGKILL if unlaunched else signal.SIGTERM, census)
+            one_by_one(census, signal.SIGTERM)
+            deadline = time.monotonic() + self.term_grace_s
+            while not census.containment_empty and time.monotonic() < deadline:
+                if self.stopping.wait(min(.1, max(0, deadline - time.monotonic()))):
+                    return None
+                census = take()
+                one_by_one(census, signal.SIGTERM)  # members found since: respawned, newly counted
+            escalated = not census.containment_empty
+            if escalated:
+                to_group(signal.SIGKILL, census)
+            census = take()
+            if not census.containment_empty:
+                one_by_one(census, signal.SIGKILL)
+            # Signalled processes leave the process table only when the kernel has
+            # finished tearing them down, and under load that takes longer than one
+            # read. Re-enumerate for a bounded settle window (C-5.6, kill_settle_s).
+            # The loop ends early only on a verified-empty census; the last census,
+            # never a guess about a pid, decides. No SQLite transaction is open.
+            settle_until = time.monotonic() + self.kill_settle_s
+            while True:
+                if self.stopping.wait(.05):
+                    return None
+                census = take()
+                if census.containment_empty or time.monotonic() >= settle_until:
+                    break
+                one_by_one(census, signal.SIGKILL)  # members found since: respawned, newly counted
+            Daemon._record_containment(self, a, first, census, {
+                "group_signals": sorted(int(sig) for sig, delivered in group.items() if delivered),
+                "signalled": sorted({pid for pid, _ in sent}),
+                "signals": signals, "chain": chain, "held": held})
+            return census, escalated
+        finally:
+            scope = scopes.pop(aid, None) if aid else None
+            if scope is not None and a.get("attempt_id") and "evidence_json" in a:
+                Daemon._write_held_marked(self, a, scope["fresh"])
 
     def _record_containment(self, a: dict, first: procs.Containment, census: procs.Containment,
-                            signalled: list[int], group: list[int]) -> None:
-        """D-KILL4: what the protocol signalled (the group's signals, the pids it
-        signalled one by one) and why any pid was added by the parent-chain rule,
-        as pids and reasons, never commands. The event also keeps the census the
-        protocol started from, as C-5.5 records it."""
+                            done: dict) -> None:
+        """D-KILL4: what the protocol signalled (the group's signals, and each signal
+        it sent one by one with the reason the pid is the attempt's) and why any pid
+        was added by the parent-chain rule or held, from every census it took, as
+        pids and reasons, never commands (fix 1, P3-4). The event also keeps the
+        census the protocol started from, as C-5.5 records it, and the one it ended on."""
         if not a.get("attempt_id"):
             return
-        chain = [*first.to_dict().get("chain", []), *census.to_dict().get("chain", [])]
-        summary = {"group_signals": group, "signalled": signalled, "contained": census.containment_empty,
-                   **({"chain": list(dict.fromkeys(chain))} if chain else {})}
+        signals = done["signals"]
+        summary = {"group_signals": done["group_signals"], "signalled": done["signalled"],
+                   "contained": census.containment_empty,
+                   **({"group": {"pgid": a.get("pgid"), "why": "the recorded group, its leader verified (C-5.4)"}}
+                      if done["group_signals"] else {}),
+                   **({"signals": signals[:TERMINAL_SIGNALS_KEPT]} if signals else {}),
+                   **({"signals_dropped": len(signals) - TERMINAL_SIGNALS_KEPT}
+                      if len(signals) > TERMINAL_SIGNALS_KEPT else {}),
+                   **({"chain": [done["chain"][pid] for pid in sorted(done["chain"])]} if done["chain"] else {}),
+                   **({"held": [done["held"][pid] for pid in sorted(done["held"])]} if done["held"] else {})}
         with self.store.transaction("attempt.containment", job_id=a["job_id"], attempt_id=a["attempt_id"],
-                                    data={**summary, "census": first.to_dict()}) as tx:
+                                    data={**summary, "census": first.to_dict(), "final": census.to_dict()}) as tx:
             actual = self.store.get_attempt(a["attempt_id"]) or a
             current = json.loads(actual.get("evidence_json") or "{}")
             rounds = [*current.get("terminal_containment", []), {"at": utcnow_ms(), **summary}]

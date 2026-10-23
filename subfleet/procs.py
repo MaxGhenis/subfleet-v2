@@ -374,6 +374,14 @@ class Containment:
     held_pids: frozenset[int] = frozenset()
     held_reasons: dict[int, str] = field(default_factory=dict)
     held_identities: dict[int, ProcessIdentity] = field(default_factory=dict)
+    #: D-KILL4 fix 1: the held parents a marked process names in this census (the
+    #: rest were held by record only, and release unless one is seen again).
+    held_fresh: frozenset[int] = frozenset()
+    #: D-KILL4 fix 1 (C-5.4): this census verified the recorded group leader alive
+    #: with its recorded birth and boot. Only then are the group's members signal
+    #: targets as such; otherwise they hold the attempt unless another source,
+    #: or an owned identity, attributes them.
+    leader_verified: bool = False
 
     @property
     def live_pids(self) -> frozenset[int]:
@@ -408,6 +416,8 @@ class Containment:
             **({"held_pids": sorted(self.held_pids),
                 "held": [self.held_reasons[pid] for pid in sorted(self.held_pids) if pid in self.held_reasons]}
                if self.held_pids else {}),
+            **({"group_leader": "verified" if self.leader_verified else "not verified"}
+               if self.group_pids else {}),
         }
 
 
@@ -496,8 +506,12 @@ class ParentChain:
     worktree: str | None
     exclude: frozenset[int]
     uid: int
-    #: Parents held by earlier censuses (`Containment.held_pids`), by recorded birth.
+    #: Parents held by earlier censuses (`Containment.held_pids`), by recorded birth:
+    #: only those the last census saw a marked process name (fix 1, P3-2).
     held: dict[int, "ProcessIdentity"] = field(default_factory=dict)
+    #: Ancestors an earlier census added, by recorded birth, with the reason it gave
+    #: (fix 1, P3-3): members while they live, never walk seeds.
+    recorded: dict[int, tuple["ProcessIdentity", str]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -918,6 +932,22 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             recycled[pid]["also_recorded"] = [asdict(known) for known in choices[1:]]
         return True
 
+    def leader_boot(pid: int) -> bool | None:
+        """Does the recorded group leader's boot match this table's? None: unknown."""
+        known = recorded_identities.get(pid)
+        if known is None or not known.boot_id:
+            return None
+        try:
+            match = boot_identity.matches(str(known.boot_id), seen.boot(), seen.legacy_seconds)
+            if match is False:
+                # C-5.12: a cached UUID mismatch needs a fresh read before it proves another boot.
+                forget_boot_id()
+                match = boot_identity.matches(str(known.boot_id), boot_id(), seen.legacy_seconds)
+        except InspectionError:
+            return None
+        return match
+
+    leader_verified = False
     if seen is not None:
         # XNU forkproc rejects PIDs reserved by a process group or session:
         # https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.1.9/bsd/kern/kern_fork.c#L970-L972
@@ -926,6 +956,27 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         groups = set(seen.group(pgid))
         if pgid and groups and is_recycled(pgid):
             groups.clear()
+        if pgid and groups and pgid in recorded_identities:
+            # D-KILL4 fix 1 (P1, C-5.4, C-5.5): the group is a signal source only when
+            # it is provably the attempt's. A leader this table shows alive with its
+            # recorded birth and boot verifies it (killpg reaches it anyway). An absent
+            # leader leaves its members in the census, holding the attempt, but they
+            # are signal targets only when another source or an owned identity
+            # attributes them: the leader may have exited long ago and its pgid been
+            # taken by a stranger's leaderless group. A recorded boot that is not this
+            # one drops the group source (no process outlives its boot), and one that
+            # cannot be compared drops it too and makes the census unverifiable.
+            match = leader_boot(pgid)
+            known = recorded_identities[pgid]
+            if match is None:
+                errors.append(f"boot identity unavailable for group {pgid}")
+                groups.clear()
+            elif match is False:
+                recycled.setdefault(pgid, {"recorded": asdict(known), "now": {"pid": pgid},
+                                           "reason": "group of another boot"})
+                groups.clear()
+            else:
+                leader_verified = bool(live(pgid) and known.proc_start and table[pgid][3] == known.proc_start)
         # There is no recorded group before setsid. The other sources
         # still enumerate the guardian and any inherited marker.
         # The snapshot is not atomic: an absent/zombie parent may still have
@@ -1057,9 +1108,10 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             markers.discard(pid)
     chain: dict[int, str] = {}
     held: dict[int, str] = {}
+    fresh: set[int] = set()
     if parent_chain is not None and seen is not None:
-        chain, held = _parent_chain(seen, markers, groups | descendants | markers | responsible,
-                                    parent_chain, errors)
+        chain, held, fresh = _parent_chain(seen, markers, groups | descendants | markers | responsible,
+                                           parent_chain, errors)
     identities: dict[int, ProcessIdentity] = {}
     for pid in groups | descendants | markers | responsible | chain.keys():
         try:
@@ -1109,13 +1161,16 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     return Containment(frozenset(groups), frozenset(descendants), frozenset(markers),
                        bool(errors), identities, tuple(errors), shapes, recycled,
                        frozenset(responsible), chain_pids=frozenset(chain), chain_reasons=chain,
-                       held_pids=frozenset(held), held_reasons=held, held_identities=held_identities)
+                       held_pids=frozenset(held), held_reasons=held, held_identities=held_identities,
+                       held_fresh=frozenset(fresh & held.keys()),
+                       leader_verified=leader_verified and pgid in groups)
 
 
 def _parent_chain(seen: ProcessTable, markers: set[int], members: set[int], rule: ParentChain,
-                  errors: list[str]) -> tuple[dict[int, str], dict[int, str]]:
-    """C-5.5's parent-chain rule (D-KILL4): (pid -> why added, pid -> why held) for
-    the ancestors of marked members that the census lacks.
+                  errors: list[str]) -> tuple[dict[int, str], dict[int, str], set[int]]:
+    """C-5.5's parent-chain rule (D-KILL4): (pid -> why added, pid -> why held, the
+    held pids a marked member names in this census) for the ancestors of marked
+    members that the census lacks.
 
     A shell driver's markers are invisible on macOS 26 (an Apple platform binary
     running with the hardened runtime), so a loop that respawns marked children
@@ -1126,23 +1181,36 @@ def _parent_chain(seen: ProcessTable, markers: set[int], members: set[int], rule
     lacks, follow the parent links of the census's own snapshot. Add each
     ancestor that is live, below launchd (pid > 1), outside `rule.exclude`, of
     the daemon's uid by its kernel record, and whose canonical cwd is the job's
-    own worktree or inside it. (An ancestor this attempt counted is a walk seed,
-    so already a member, and the chain stops there.) The first ancestor of the
-    daemon's uid that is none of those is held, never added: it keeps the census
-    from being empty while it lives, and is remembered by its birth for later
-    censuses (`rule.held`), but it seeds no walk and is never signalled. So an
-    operator's shell outside the worktree, which was never counted, is never
-    signalled, and nothing above it is looked at. A cwd holder that is no
-    ancestor of a marked member is neither added nor held. A failed read of an
-    ancestor makes the census unverifiable, as a failed source does."""
+    own worktree or inside it. An added ancestor is a member and a signal target,
+    and later censuses keep it by its recorded birth (`rule.recorded`, with the
+    reason it was added), but it is never a walk seed: its other descendants
+    are members only if another source attributes them (fix 1, P3-3). The first
+    ancestor of the daemon's uid that is none of those is held, never added: it
+    keeps the census from being empty while it lives, but it seeds no walk and
+    is never signalled. A held parent is held again by its birth (`rule.held`)
+    only while the last census saw a marked process name it, so one whose marked
+    processes are gone releases (fix 1, P3-2). So an operator's shell outside the
+    worktree, which was never counted, is never signalled, and nothing above it
+    is looked at. A cwd holder that is no ancestor of a marked member is neither
+    added nor held. A failed read of an ancestor makes the census unverifiable,
+    as a failed source does."""
     from .folders import canonical
     target = canonical(rule.worktree) if rule.worktree is not None else None
     prefix = target.rstrip(os.sep) + os.sep if target is not None else None
     found: dict[int, str] = {}
     held: dict[int, str] = {}
+    fresh: set[int] = set()
     for pid, known in sorted(rule.held.items()):
         if pid not in members and seen.live(pid) and known.proc_start and seen.rows[pid][3] == known.proc_start:
             held[pid] = f"pid {pid}: recorded parent of a marked process, outside the census; held, never signalled"
+    for pid, (known, why) in sorted(rule.recorded.items()):
+        if pid in members or pid in held or pid in rule.exclude:
+            continue
+        try:
+            if seen.is_process(pid, known.boot_id, known.proc_start, legacy=True):
+                found[pid] = why
+        except InspectionError:
+            errors.append(f"parent chain identity inspection unavailable for pid {pid}")
     for start in sorted(markers):
         if start in seen.rows:
             parent = seen.rows[start][0]
@@ -1157,7 +1225,10 @@ def _parent_chain(seen: ProcessTable, markers: set[int], members: set[int], rule
             if record is None or not record.ppid:
                 continue
             parent = record.ppid
-        while parent > 1 and parent not in members and parent not in found and parent not in held:
+        while parent > 1 and parent not in members and parent not in found:
+            if parent in held:
+                fresh.add(parent)         # a marked process names it in this census
+                break
             if parent in rule.exclude or not seen.live(parent):
                 break
             try:
@@ -1180,10 +1251,11 @@ def _parent_chain(seen: ProcessTable, markers: set[int], members: set[int], rule
             if not inside:
                 held[parent] = (f"pid {parent}: parent of marked pid {start}, outside the census and "
                                 "the worktree; held, never signalled")
+                fresh.add(parent)
                 break
             found[parent] = f"pid {parent}: ancestor of marked pid {start}, cwd in worktree"
             parent = seen.rows[parent][0]
-    return found, held
+    return found, held, fresh
 
 
 def worktree_cwd_pids(worktree: str | os.PathLike) -> frozenset[int]:
