@@ -63,6 +63,8 @@ import threading
 import unicodedata
 from typing import Any, Callable, Iterable
 
+from . import refusals
+
 EXCLUSIVE = "worktree:"
 TURN = "worktree-turn:"
 READER = "worktree-read:"
@@ -86,7 +88,8 @@ def identity_fallback(path: str, error: OSError) -> str:
         first = path not in _identity_warned
         _identity_warned.add(path)
     if first:
-        logging.getLogger(__name__).warning("resource identity unavailable for %s: %s; using exact string", path, error)
+        logging.getLogger(__name__).warning("resource identity unavailable for %s: %s; using exact string", path,
+                                            refusals.scrubbed_words(error))
     return path
 
 

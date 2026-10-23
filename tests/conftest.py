@@ -8,11 +8,15 @@ call adapter methods on fixture directories directly.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import pwd
 import secrets
 import shutil
+import sys
 import tempfile
+import threading
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -255,6 +259,19 @@ def private_attempt_temp_root(request, tmp_path_factory, monkeypatch):
     root = tmp_path_factory.mktemp("attempt-user-temp")
     monkeypatch.setattr(attempt_tmp, "user_temp_root", lambda: root)
     return original
+
+
+@pytest.fixture(autouse=True)
+def process_hooks_restored():
+    """`daemon.main` installs the daemon's scrubbing process hooks for the life of its
+    process (C-25.7), as a real daemon must. Run in-process (`test_daemon_accept`,
+    `test_stop_watchdog`), it replaced pytest's own thread and unraisable-exception
+    collectors for the rest of the session, so pytest stopped reporting either
+    (review r1 of #233, P3). Each test ends with the hooks it started with."""
+    saved = (sys.excepthook, threading.excepthook, sys.unraisablehook, warnings.showwarning, logging.lastResort)
+    yield
+    (sys.excepthook, threading.excepthook, sys.unraisablehook, warnings.showwarning,
+     logging.lastResort) = saved
 
 
 @pytest.fixture(autouse=True)
