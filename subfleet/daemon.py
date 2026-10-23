@@ -5221,9 +5221,15 @@ class Daemon:
                     self._tmpdir_busy.discard(holder)
 
     def _sweep_attempt_tmpdirs(self) -> None:
-        """C-12.10: release the leftovers the store records, then age the folders it does not."""
-        if not self._tmpdir_sweeping.acquire(blocking=False):
-            return                          # a sweep is running; it covers this one
+        """C-12.10: release the leftovers the store records, then age the folders it does not.
+
+        Never raises: a sweep that cannot run is logged and tried again later."""
+        try:
+            if not self._tmpdir_sweeping.acquire(blocking=False):
+                return                      # a sweep is running; it covers this one
+        except Exception as exc:
+            self.log.warning("TMPDIR sweep deferred: %s", type(exc).__name__)
+            return
         try:
             # Every path an allocation record names, released or not: such a
             # folder follows its record, and is never aged as unknown.
@@ -5316,12 +5322,13 @@ class Daemon:
         return fields
 
     def _cleanup_attempt_tmpdir(self, a: dict, census=None) -> None:
-        """C-12.10: release an attempt's TMPDIR once nothing can use it."""
+        """C-12.10: release an attempt's TMPDIR once nothing can use it. Never
+        raises: a cleanup that fails is logged, and the sweep tries again."""
         holder = a["attempt_id"]
-        with self._tmpdir_turn(holder) as mine:
-            if not mine:
-                return
-            try:
+        try:
+            with self._tmpdir_turn(holder) as mine:
+                if not mine:
+                    return
                 actual = self.store.get_attempt(holder)
                 record = _evidence_key(actual["evidence_json"], "tmpdir") if actual else None
                 if not isinstance(record, dict) or not isinstance(record.get("path"), str) or record.get("removed_at"):
@@ -5340,20 +5347,21 @@ class Daemon:
                         return
                     current.update(fields)
                     tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?", (json.dumps(evidence), holder))
-            except Exception as exc:
-                self.log.warning("TMPDIR cleanup deferred for %s: %s", holder, type(exc).__name__)
+        except Exception as exc:
+            self.log.warning("TMPDIR cleanup deferred for %s: %s", holder, type(exc).__name__)
 
     def _cleanup_probe_tmpdir(self, record: dict, census=None) -> None:
         """C-12.10 for a probe or enrollment: its record changes only when its
-        TMPDIR is released or cleared, never on a look that changes nothing."""
+        TMPDIR is released or cleared, never on a look that changes nothing.
+        Never raises."""
         holder = record.get("holder")
         scratch = record.get("tmpdir")
         if not isinstance(scratch, dict) or not isinstance(scratch.get("path"), str) or scratch.get("removed_at"):
             return
-        with self._tmpdir_turn(holder) as mine:
-            if not mine:
-                return
-            try:
+        try:
+            with self._tmpdir_turn(holder) as mine:
+                if not mine:
+                    return
                 if census is None and _contained_empty(record):
                     census = procs.Containment()    # its containment census was verified empty
                 fields = self._release_tmpdir(holder, record, scratch, census, lambda: self._probe_census(record))
@@ -5368,8 +5376,8 @@ class Daemon:
                     current.update(fields)
                     self._save_probe(latest)
                 scratch.update(fields)
-            except Exception as exc:
-                self.log.warning("TMPDIR cleanup deferred for %s: %s", holder, type(exc).__name__)
+        except Exception as exc:
+            self.log.warning("TMPDIR cleanup deferred for %s: %s", holder, type(exc).__name__)
 
     def _probe_census(self, record: dict):
         return self._contain(record)
