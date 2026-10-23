@@ -7,14 +7,6 @@
 import AppKit
 import SwiftUI
 
-/// A message to scroll to once its conversation shows.
-struct SearchReveal: Equatable {
-    var conversationID: String
-    var itemID: String
-    /// Choosing the same message again scrolls again.
-    var token = UUID()
-}
-
 /// Tells a search running off the main thread that a newer one replaced it.
 final class SearchCancellation: @unchecked Sendable {
     private let lock = NSLock()
@@ -684,9 +676,16 @@ struct PaletteSearchField: NSViewRepresentable {
 extension View {
     /// The conversation's column: its widest grows with the text (C-29.13), and
     /// it scrolls to the message a search result matched (C-29.12).
-    func conversationColumn(_ conversationID: String, proxy: ScrollViewProxy) -> some View {
-        readingColumn().background(SearchRevealer(conversationID: conversationID, proxy: proxy))
+    func conversationColumn(_ conversationID: String, proxy: ScrollViewProxy, revealIDs: Set<String>? = nil) -> some View {
+        readingColumn().background(SearchRevealer(conversationID: conversationID, proxy: proxy,
+            revealIDs: revealIDs))
     }
+}
+
+/// A row set laid out for this exact reveal, including its repeat-selection token.
+struct SearchRevealLayout: Equatable {
+    var reveal: SearchReveal?
+    var itemIDs: Set<String>
 }
 
 /// Scrolls the conversation to the message a search result matched. It is the
@@ -695,10 +694,14 @@ struct SearchRevealer: View {
     @Environment(\.searchPalette) private var palette
     let conversationID: String
     let proxy: ScrollViewProxy
+    /// Only consume a reveal once its row exists in this scroll container.
+    /// The tray supplies ids delivered after layout by its row preference.
+    var revealIDs: Set<String>? = nil
+    var layout: SearchRevealLayout? = nil
 
     var body: some View {
         if let palette {
-            Follower(palette: palette, conversationID: conversationID, proxy: proxy)
+            Follower(palette: palette, conversationID: conversationID, proxy: proxy, revealIDs: revealIDs, layout: layout)
         }
     }
 
@@ -706,26 +709,54 @@ struct SearchRevealer: View {
         @ObservedObject var palette: SearchPaletteModel
         let conversationID: String
         let proxy: ScrollViewProxy
+        let revealIDs: Set<String>?
+        let layout: SearchRevealLayout?
+        @State private var following: Task<Void, Never>?
 
         struct Key: Equatable {
             var reveal: SearchReveal?
             var conversationID: String
+            var targetPresent: Bool
+        }
+
+        private var key: Key {
+            let reveal = palette.reveal
+            let present = reveal.map { target in
+                (revealIDs?.contains(target.itemID) ?? true)
+                    && (layout.map { $0.reveal == target && $0.itemIDs.contains(target.itemID) } ?? true)
+            } ?? false
+            return Key(reveal: reveal, conversationID: conversationID, targetPresent: present)
         }
 
         var body: some View {
             Theme.clear.accessibilityHidden(true)
-                .task(id: Key(reveal: palette.reveal, conversationID: conversationID)) {
-                    guard let reveal = palette.reveal, reveal.conversationID == conversationID else { return }
-                    // After the switch's own scroll to the end, and again once the
-                    // history page that opening reads may have moved the rows.
-                    for delay: UInt64 in [250_000_000, 550_000_000] {
-                        try? await Task.sleep(nanoseconds: delay)
-                        // Gone, or another conversation shown: this reveal is done with.
-                        if Task.isCancelled { break }
-                        withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(reveal.itemID, anchor: .center) }
-                    }
-                    if palette.reveal == reveal { palette.reveal = nil }
+                .onChange(of: key, initial: true) { _, _ in
+                    following?.cancel()
+                    guard let reveal = palette.reveal, reveal.conversationID == conversationID,
+                          revealIDs?.contains(reveal.itemID) ?? true else { return }
+                    guard layout.map({ $0.reveal == reveal && $0.itemIDs.contains(reveal.itemID) }) ?? true else { return }
+                    #if SUBFLEET_VIEW_TEST
+                    // Observe starts, including cancelled starts that emitted no scroll.
+                    NotificationCenter.default.post(name: .init("subfleet.test.searchRevealStarted"),
+                                                    object: conversationID)
+                    #endif
+                    following = Task { await follow(reveal) }
                 }
+                .onDisappear { following?.cancel() }
+        }
+
+        @MainActor private func follow(_ reveal: SearchReveal) async {
+            // After the switch's own scroll to the end, and again once the
+            // history page that opening reads may have moved the rows.
+            for delay: UInt64 in [250_000_000, 550_000_000] {
+                try? await Task.sleep(nanoseconds: delay)
+                // Gone, or another conversation shown: this reveal is done with.
+                if Task.isCancelled || palette.reveal != reveal { return }
+                // The tray scrolls its own container; it does not move the timeline.
+                if layout == nil { ConversationOpeningPin.revealRow(in: conversationID) }
+                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(reveal.itemID, anchor: .center) }
+            }
+            if palette.reveal == reveal { palette.reveal = nil }
         }
     }
 }
