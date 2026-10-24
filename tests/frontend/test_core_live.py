@@ -78,8 +78,8 @@ def dev_daemon(request, core_probe, tmp_path):
             # passed and deleted a failed run's root. The phase reports (conftest.py's
             # hook) say whether it failed, and a failed run's root is kept under
             # /tmp/sf-failed, as the e2e and fake harnesses keep theirs, for CI to upload.
-            reports = [getattr(request.node, "rep_" + when, None) for when in ("setup", "call")]
-            if not (started and closed) or any(report is not None and report.failed for report in reports):
+            from tests.failed_keep import setup_or_call_failed
+            if not (started and closed) or setup_or_call_failed(request.node):
                 keep_failed_root(request.node.name, root, tmp_path)
             else:
                 shutil.rmtree(root, ignore_errors=True)
