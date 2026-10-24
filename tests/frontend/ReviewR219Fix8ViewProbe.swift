@@ -361,6 +361,12 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
         NSApplication.shared.setActivationPolicy(.prohibited)
         NSApp.finishLaunching()
         NSApp.setActivationPolicy(.accessory)
+        if let mode = CommandLine.arguments.last, mode.hasPrefix("fix11-") {
+            let root = URL(fileURLWithPath: CommandLine.arguments[1])
+            let result = await settlingReveal(root, mode: String(mode.dropFirst("fix11-".count)))
+            print(String(decoding: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), as: UTF8.self))
+            return
+        }
         if let mode = CommandLine.arguments.last, mode.hasPrefix("fix10-streaming") {
             let root = URL(fileURLWithPath: CommandLine.arguments[1])
             let only = mode == "fix10-streaming" ? nil : String(mode.dropFirst("fix10-streaming-".count))
@@ -939,6 +945,48 @@ struct SettlingPageView: View {
     await scene.stream(20)
     return ["after_open": opened, "after_stream": sample(scene.host), "caught_up": scene.caughtUp,
             "reveal_consumed": scene.palette.reveal == nil, "notices": notices]
+}
+
+// Review r3's settling replay: reveal while catch-up is held, then resume the
+// actual paginated model with only marker-disappearance publication delayed.
+@MainActor func settlingReveal(_ root: URL, mode: String) async -> [String: Any] {
+    let hooked = mode == "stale"
+    let reveal: String? = mode == "plain" ? nil : mode == "near" ? "person:live" : "person:m000040"
+    let started = Date()
+    var timeline: [[String: Any]] = []
+    ConversationFollowTest.disappearanceDelay = hooked ? 3 : 0
+    ConversationFollowTest.record = { cid, entry in
+        guard cid == mode else { return }
+        var entry = entry
+        entry["at"] = Date().timeIntervalSince(started)
+        if let host = NSApp.windows.compactMap(\.contentView).first(where: { timelineScroll($0) != nil }) {
+            entry["position"] = sample(host)
+        }
+        timeline.append(entry)
+    }
+    defer {
+        ConversationFollowTest.record = nil
+        ConversationFollowTest.disappearanceDelay = 0
+    }
+    let scene = await Scene(mode, root: root, prior: 120,
+                            priorText: { "person message \($0) asks something" }, tray: [],
+                            pageDelay: 0.1, pageSize: 20, revealOnMount: reveal, pauseCatchup: true)
+    defer { scene.close() }
+    let opened = sample(scene.host)
+    let watch = PositionWatch(scene.host, baseline: opened)
+    await scene.stream(20)
+    let afterStream = sample(scene.host)
+    // Observe beyond the delayed marker publication as well as later output.
+    await settle(scene.host, seconds: 3.2)
+    watch.stop()
+    let horizon = sample(scene.host)
+    scene.close()
+    return ["mode": mode, "hooked": hooked, "held_before_reveal": scene.heldBeforeReveal,
+            "before_catchup": scene.beforeCatchup, "after_initial_reveal": scene.afterInitialReveal,
+            "after_open": opened, "after_stream": afterStream, "horizon": horizon,
+            "max_drift": watch.maxDrift, "caught_up": scene.caughtUp,
+            "reveal_consumed": scene.palette.reveal == nil, "timeline": timeline,
+            "visible_windows": NSApp.windows.filter(\.isVisible).count]
 }
 
 @MainActor func fix10Cases(_ root: URL, only: String? = nil) async -> [String: Any] {

@@ -37,7 +37,7 @@ import tempfile
 import uuid
 
 import pytest
-from hypothesis import HealthCheck, event, example, given, seed, settings, strategies as st
+from hypothesis import HealthCheck, Phase, event, example, given, seed, settings, strategies as st
 from functools import lru_cache
 
 from tests.frontend.conftest import needs_swift, run_probe, write_json
@@ -1376,11 +1376,38 @@ def test_property_suspended_ordinary_follow_always_stays(core_probe, pairs):
     assert queue_words(core_probe, moves=pairs)["moves"] == ["stay"] * len(pairs)
 
 
-@pytest.mark.parametrize("at_bottom,expected", [(False, "stay"), (True, "jump")])
-def test_suspended_catchup_still_follows_a_visible_end(core_probe, at_bottom, expected):
-    pair = {"old": EMPTY_KEY, "new": {**EMPTY_KEY, "has_history": True},
+@pytest.mark.parametrize("at_bottom", [False, True])
+@pytest.mark.parametrize("settling", [(True, True), (True, False), (False, True)])
+def test_suspended_catchup_preserves_reveal_despite_marker_state(core_probe, at_bottom, settling):
+    pair = {"old": {**EMPTY_KEY, "settling": settling[0]},
+            "new": {**EMPTY_KEY, "settling": settling[1], "has_history": True},
             "at_bottom": at_bottom, "suspended": True}
-    assert queue_words(core_probe, moves=[pair])["moves"] == [expected]
+    assert queue_words(core_probe, moves=[pair])["moves"] == ["stay"]
+
+
+@st.composite
+def suspended_settling_pairs(draw):
+    pair = draw(suspended_ordinary_pairs())
+    old_settling, new_settling = draw(st.sampled_from([(True, True), (True, False), (False, True)]))
+    pair["old"]["settling"] = old_settling
+    pair["new"]["settling"] = new_settling
+    return pair
+
+
+@settings(max_examples=30, deadline=None, derandomize=True, phases=(Phase.generate,))
+@given(pairs=st.lists(suspended_settling_pairs(), min_size=1, max_size=20))
+def test_property_suspended_settling_never_moves_a_reveal(core_probe, pairs):
+    """Any settling transition outside the own-send exception stays while a
+    reveal is suspended, regardless of stale marker visibility or history."""
+    assert queue_words(core_probe, moves=pairs)["moves"] == ["stay"] * len(pairs)
+
+
+def test_confirmed_end_releases_catchup_on_next_key(core_probe):
+    old = {**EMPTY_KEY, "followed_length": 1}
+    new = {**old, "followed_length": 2}
+    pairs = [{"old": old, "new": new, "at_bottom": True, "suspended": value}
+             for value in (True, False)]
+    assert queue_words(core_probe, moves=pairs)["moves"] == ["stay", "jump"]
 
 
 @st.composite
