@@ -39,6 +39,7 @@ from .policy import DEFAULT_POLICY_PATH, PolicyError, load_policy
 from .protocol import ProtocolError
 from .provider_env import ProviderEnvironment
 from .launch_env import build_environment
+from .home_paths import checked_override
 
 PASS, FAIL, UNKNOWN = "pass", "fail", "unknown"
 #: Something to act on that is not subfleet failing: it prints a fix line and,
@@ -193,6 +194,7 @@ def check_pythonpath() -> dict[str, Any]:
     if not entries:
         return row("PYTHONPATH does not shadow subfleet", PASS, "PYTHONPATH is unset",
                    "keep it that way; the runtime is standard library only")
+    entries = [checked_override("PYTHONPATH", item) for item in entries]
     shadows = [item for item in entries
                if (Path(item).expanduser() / "subfleet" / "__init__.py").exists()]
     if not shadows:
