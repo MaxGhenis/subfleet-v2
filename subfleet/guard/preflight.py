@@ -185,10 +185,12 @@ def guard_paths(state_root: str | Path | None = None, *,
     There is deliberately no bundled or test-fixture fallback. The legacy
     TRUST override remains supported; an explicit argument takes precedence.
     """
+    from ..home_paths import checked_override
     directory = Path(state_root if state_root is not None else _state_root()).expanduser() / "guard"
     return (Path(hook_path) if hook_path is not None else directory / "never-rules-hook.sh",
             Path(trust_path if trust_path is not None else
-                 os.environ.get("SUBFLEET_GUARD_TRUST") or directory / "TRUST"))
+                 checked_override("SUBFLEET_GUARD_TRUST", os.environ.get("SUBFLEET_GUARD_TRUST"))
+                 or directory / "TRUST"))
 
 
 def load_guard(state_root: str | Path | None = None, *,
@@ -301,8 +303,9 @@ def cache_dir(state_root: str | Path | None = None) -> Path:
     (C-2.1). ``state_root`` is the daemon's root when it has one; otherwise
     ``$SUBFLEET_HOME``.
     """
+    from ..home_paths import checked_override
     root = Path(state_root) if state_root is not None else Path(_state_root())
-    override = os.environ.get(CACHE_ENV)
+    override = checked_override(CACHE_ENV, os.environ.get(CACHE_ENV), relative_to=root)
     if override:
         path = Path(os.path.expanduser(override))
         if path.is_absolute():
@@ -610,7 +613,7 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
             raise _Refusal(ENVIRONMENT, f"preflight workdir is missing: {exc}", _ENVIRONMENT_FIX) from None
         if not cwd.is_dir():
             raise _Refusal(ENVIRONMENT, "preflight workdir must be an existing directory", _ENVIRONMENT_FIX)
-        lane_home = home if home is not None else os.environ.get("CODEX_HOME")
+        lane_home = _lane_home(home)
         try:
             source_home = Path(lane_home).resolve(strict=True) if lane_home is not None else None
         except OSError as exc:
@@ -719,6 +722,13 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
                                transcript=tuple(diagnostics.get("transcript", ())),
                                first_byte_s=diagnostics.get("first_byte_s"),
                                exit_status=diagnostics.get("exit_status"))
+
+
+def _lane_home(home: str | Path | None) -> str | Path | None:
+    """The lane's Codex home: `home`, else `CODEX_HOME`, whose value takes the
+    override refusals in a test process (D-ST3)."""
+    from ..home_paths import checked_override
+    return home if home is not None else checked_override("CODEX_HOME", os.environ.get("CODEX_HOME"))
 
 
 def _state_root() -> str:

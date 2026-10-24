@@ -2600,7 +2600,8 @@ def cmd_notices(args: argparse.Namespace) -> int:
 
 def _daemond_argv(root: Path) -> list[str]:
     """How to start `subfleetd`, honouring an explicit override for tests."""
-    override = (os.environ.get("SUBFLEET_DAEMON_BIN") or "").strip()
+    from .home_paths import checked_override
+    override = checked_override("SUBFLEET_DAEMON_BIN", (os.environ.get("SUBFLEET_DAEMON_BIN") or "").strip())
     if override:
         return [override, "--state-root", str(root)]
     # `-E -P`: the daemon must import this package whatever PYTHON* variables the

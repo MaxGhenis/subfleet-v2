@@ -20,6 +20,7 @@ from subfleet.policy import PolicyError
 from subfleet.provider_env import ProviderEnvironment
 from subfleet.store import Store
 from tests.claude_code import claude_code_active
+from tests.conftest import isolated_paths
 from tests.fake.conftest import Harness
 from tests.fake.test_probe_recovery import reserved_probe
 from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401
@@ -29,7 +30,9 @@ from tests.unit.test_launch_env_allowlist import ALLOWED, POLICY, POLLUTION
 
 def daemon_spawn_environment(routing_state, monkeypatch, mode, *, pythonpath=None, extra=None):
     service, harness = routing_state
-    parent = {"PATH": "/usr/bin:/bin", **POLLUTION, **(extra or {})}
+    # D-ST3: admission reads the Claude session registry; at release a parent
+    # without the test's own SUBFLEET_CLAUDE_DIR read the person's ~/.claude.
+    parent = {"PATH": "/usr/bin:/bin", **POLLUTION, **(extra or {}), **isolated_paths("SUBFLEET_CLAUDE_DIR")}
     if pythonpath is not None:
         parent["PYTHONPATH"] = pythonpath
     monkeypatch.setattr(os, "environ", parent)
@@ -89,7 +92,7 @@ def test_actual_daemon_spawn_rejects_pollution(routing_state, monkeypatch, mode)
 def test_daemon_status_and_doctor_expose_only_extra_names(routing_state, monkeypatch):
     from subfleet import doctor
     service, _ = routing_state
-    monkeypatch.setattr(os, "environ", {"PATH": "/usr/bin:/bin", **POLLUTION})
+    monkeypatch.setattr(os, "environ", {"PATH": "/usr/bin:/bin", **POLLUTION, **isolated_paths("SUBFLEET_CLAUDE_DIR")})
     status = service.dispatch("daemon.status", {})
     # Round 4 (review r3, P3-2): the lanes' own variables are listed apart; this
     # roster has no env-kind lane.
@@ -292,7 +295,7 @@ def test_daemon_status_lists_a_lane_variable_apart(tmp_path, monkeypatch):
     service = daemon_module.Daemon(root)
     try:
         monkeypatch.setattr(os, "environ", {"PATH": "/usr/bin:/bin", "SUBFLEET_TEST_OAUTH": "dummy-oauth",
-                                           "GH_TOKEN": "dummy-gh"})
+                                           "GH_TOKEN": "dummy-gh", **isolated_paths("SUBFLEET_CLAUDE_DIR")})
         status = service.dispatch("daemon.status", {})["environment"]
     finally:
         service.close()
