@@ -705,6 +705,8 @@ struct ArrivalView: View {
 @MainActor final class SettlingPage: ObservableObject {
     @Published var loaded = false
     var suspended = false
+    var request: UUID?
+    var confirmations = 0
     var atBottom = false
     var transition: [String: Bool] = [:]
 
@@ -727,6 +729,11 @@ struct SettlingPageView: View {
                     if page.loaded { Text("One catch-up page").frame(height: 4000) }
                     Color.clear.frame(height: 1).id("bottom")
                 }
+                .background(ConversationOpeningPin(conversationID: conversationID, onRevealEndVisible: { request in
+                    guard page.request == request else { return }
+                    page.suspended = false
+                    page.confirmations += 1
+                }))
                 .conversationColumn(conversationID, proxy: proxy, revealIDs: ["person:live"])
             }
             .onChange(of: page.key) { old, new in
@@ -757,7 +764,11 @@ struct SettlingPageView: View {
     var reveals = 0
     let observer = NotificationCenter.default.addObserver(forName: .conversationRowScroll, object: nil,
                                                           queue: .main) { note in
-        if note.object as? String == cid { reveals += 1; page.suspended = true }
+        if note.object as? String == cid {
+            reveals += 1
+            page.suspended = true
+            page.request = note.userInfo?["request"] as? UUID
+        }
     }
     defer { NotificationCenter.default.removeObserver(observer); window.close() }
     await settle(host, seconds: 0.1)
@@ -787,6 +798,7 @@ struct SettlingPageView: View {
     result["before_page"] = before
     result["after_page"] = sample(host)
     result["reveals"] = reveals
+    result["confirmations"] = page.confirmations
     result["consumed"] = palette.reveal == nil
     return result
 }

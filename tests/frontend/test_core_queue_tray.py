@@ -1405,9 +1405,10 @@ def test_property_suspended_settling_never_moves_a_reveal(core_probe, pairs):
 def test_confirmed_end_releases_catchup_on_next_key(core_probe):
     old = {**EMPTY_KEY, "followed_length": 1}
     new = {**old, "followed_length": 2}
-    pairs = [{"old": old, "new": new, "at_bottom": True, "suspended": value}
-             for value in (True, False)]
-    assert queue_words(core_probe, moves=pairs)["moves"] == ["stay", "jump"]
+    pairs = [{"old": old, "new": new, "at_bottom": True, "suspended": True},
+             {"old": old, "new": old, "at_bottom": True, "suspended": False},
+             {"old": old, "new": new, "at_bottom": True, "suspended": False}]
+    assert queue_words(core_probe, moves=pairs)["moves"] == ["stay", "stay", "jump"]
 
 
 @st.composite

@@ -126,12 +126,13 @@ struct FollowKey: Equatable {
     /// marker's disappearance is pending. The marker resumes following when it
     /// appears again, or its presented geometry confirms that a completed reveal
     /// left it visible.
-    /// Catch-up still jumps when the end is visible; an own send still glides.
+    /// Catch-up resumes after that confirmation releases suspension; an own
+    /// send still glides during ordinary following.
     /// A message queued or withdrawn while the person reads further up moves
     /// nothing; the tray shows it.
     static func move(from old: FollowKey, to new: FollowKey, atBottom: Bool, suspended: Bool = false) -> Move {
         guard old != new else { return .stay }
-        if old.settling || new.settling { return suspended && !atBottom ? .stay : .jump }
+        if old.settling || new.settling { return suspended ? .stay : .jump }
         if new.last != old.last && new.lastIsOwnSend,
            new.localSend == nil || new.localSend != old.localSend { return .glide }
         guard !suspended else { return .stay }

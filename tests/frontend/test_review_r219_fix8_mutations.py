@@ -28,7 +28,7 @@ MUTATIONS = {
         ("let known = knownConversationID.map { state.knownMessageIDs(in: $0) } ?? []",
          "let known: Set<String> = []")]),
     "settling_stops_follow_at_end": ("QueueTray.swift", [
-        ("suspended && !atBottom ? .stay : .jump", "suspended ? .stay : .jump")]),
+        ("suspended ? .stay : .jump", ".stay")]),
     "notice_sets_at_bottom_false": ("UIWindow.swift", [
         ("            followSuspended = true\n", "            followSuspended = true\n            atBottom = false\n")]),
     "hydrate_full_history": ("ConversationStore.swift", [
@@ -111,7 +111,7 @@ def test_settling_mutation_fails_each_named_regression(settling_mutant, name):
     assert control["reveals"] == 2 and control["consumed"], control
     assert control["before_page"]["from_end"] <= END, control
     assert control["changed_key"] and control["settling"], control
-    assert control["suspended"] and control["at_bottom"], control
+    assert control["confirmations"] >= 1 and not control["suspended"] and control["at_bottom"], control
     assert control["after_page"]["from_end"] > 600, control
     print(f"settling mutant {name}: {control['after_page']['from_end']} pt from end")
     with pytest.raises(AssertionError):
