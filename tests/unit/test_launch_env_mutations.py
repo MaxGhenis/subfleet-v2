@@ -131,11 +131,11 @@ def test_named_isolated_inspection_regression_kills_ambient_mutant(tmp_path, mon
         lane_oracle("codex", "isolated", tmp_path, monkeypatch)
 
 
-def test_named_transcript_regression_kills_ambient_mutant(tmp_path, monkeypatch):
+def test_named_transcript_regression_kills_ambient_mutant(tmp_path, monkeypatch, production_process):
     monkeypatch.setattr(claude.ClaudeAdapter, "_config_projects_dir",
                         mutated(claude.ClaudeAdapter._config_projects_dir, assignment="env"))
     with pytest.raises(AssertionError):
-        transcript_oracle(tmp_path, monkeypatch, "default")
+        transcript_oracle(tmp_path, monkeypatch, "default", production_process)
 
 
 @pytest.mark.parametrize("relay", [False, True], ids=["stdin", "relay"])

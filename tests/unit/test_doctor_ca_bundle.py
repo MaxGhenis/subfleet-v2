@@ -27,7 +27,10 @@ def ca_values(env):
 
 
 @pytest.mark.parametrize("provider", ["codex", "claude"])
-def test_doctor_version_check_uses_root_policy_environment(tmp_path, bundle, monkeypatch, provider):
+def test_doctor_version_check_uses_root_policy_environment(tmp_path, bundle, monkeypatch, provider,
+                                                          production_process):
+    """D-ST3: doctor in a production environment under this test's own HOME, so the
+    process rule is waived (its launchd row reads HOME's default plist)."""
     from subfleet import doctor
     baseline = {"HOME": str(tmp_path / "home"), "PATH": "/usr/bin:/bin", "LANG": "C",
                 "SUBFLEET_FAKE_REPORT": str(tmp_path / "report")}

@@ -12,6 +12,7 @@ import pytest
 from subfleet import cli
 from subfleet.contracts import Decision
 from subfleet.gate.service import GateService, dispatch
+from tests.conftest import isolated_paths
 from tests.fake.test_gate_end_to_end import arguments, finish, wire
 from tests.unit.test_gate_admission import core, lane
 from tests.unit.test_gate_merge import BASE, HEAD, LANDING, OTHER, FakeGh
@@ -20,7 +21,9 @@ from tests.unit.test_gate_merge import BASE, HEAD, LANDING, OTHER, FakeGh
 @pytest.mark.parametrize("dry_run", [False, True])
 def test_gate_and_merge_helpers_receive_exact_policy(core, tmp_path, monkeypatch, dry_run):
     import os
-    monkeypatch.setattr(os, "environ", {"GH_TOKEN": "dummy", "OTHER_TOKEN": "dummy"})
+    # D-ST3: the gate's admission reads the Claude session registry under the test's own path.
+    monkeypatch.setattr(os, "environ", {"GH_TOKEN": "dummy", "OTHER_TOKEN": "dummy",
+                                        **isolated_paths("SUBFLEET_CLAUDE_DIR")})
     core.policy["env"] = {"pass": ["GH_TOKEN"]}
     fake = FakeGh()
     seen = []

@@ -16,7 +16,7 @@ from .launch_env import (
 from .adapters.base import AdapterError
 from .contracts import Credential, Lane
 from .home_paths import (
-    PYTEST_MARKER, PYTEST_SESSION, PYTEST_SESSION_ID, home_path, session_alive, under_pytest,
+    PYTEST_MARKER, PYTEST_SESSION, PYTEST_SESSION_ID, checked_override, home_path, session_alive, under_pytest,
 )
 
 
@@ -595,7 +595,7 @@ def keychain_command(reference: str, security_bin: str = "security", *,
     # Provider-owned desktop/home OAuth blobs stay in their native keychain.
     # Only the explicit per-lane setup-token namespace belongs to agent-secret.
     if reference.startswith("claude-quota-"):
-        helper = os.environ.get("CLAUDE_LANE_AGENT_SECRET")
+        helper = checked_override("CLAUDE_LANE_AGENT_SECRET", os.environ.get("CLAUDE_LANE_AGENT_SECRET"))
         if not helper:
             default = Path(home_path("SUBFLEET_AGENT_SECRET",
                                      lambda: Path.home() / "bin" / "agent-secret",
