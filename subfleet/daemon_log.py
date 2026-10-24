@@ -462,7 +462,9 @@ def _reminders_resolved(text: str) -> str | None:
     margins, as the block form also reads it, when it holds one: its reminders are the same,
     and taking them out leaves the margin-free reading of what is left, but for the line
     breaks that reminders ending the file leave before them, which the block form does not
-    read and no rule but a data URI's body counts (`_alike`, review r6 of #233, P3-A).
+    read and no rule but a data URI's body counts as hiding more (`_alike`, review r6 of
+    #233, P3-A; the header rule masks a trailing `\\r` itself, which reveals nothing,
+    review r1 of #251, P3-1).
 
     None (the marker rule: the cut keeps only its marker) where either does not hold, where
     those line breaks bring a data URI body that ends there to the 32 characters its rule
@@ -516,7 +518,9 @@ def _alike(left: str, kept: str) -> bool:
     text the block form reads (review r6 of #233, P3-A). `_margin_free` strips a text's
     trailing line breaks, as `_group_block` does, so where reminders end the file, `left`
     keeps the line break before them and `kept` does not. One scrub rule reads such a
-    break: `_DATA_URI_RE` counts it among the 32 characters a body needs. So the two are
+    break to hide more: `_DATA_URI_RE` counts it among the 32 characters a body needs.
+    (`_HEADER_RE` masks a trailing `\\r` as a header's value, but that mask covers only the
+    `\\r`, and the CLI reads with universal newlines; review r1 of #251, P3-1.) So the two are
     alike when equal, or when equal but for trailing line breaks and no data URI body
     ends there that `left`'s breaks bring to 32 characters and `kept`'s leave short (a
     `;base64,` within `_BODY_REACH` characters of the end, body characters after it; its

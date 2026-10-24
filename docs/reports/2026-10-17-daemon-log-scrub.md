@@ -2680,9 +2680,10 @@ Executed at `c2e080e44` (probe 1, under the wrapper), 600 admission lines, `  | 
 
 Probe 1 executed this at `c2e080e44` with the direction patched in. On four of five shapes (LF, no break after the reminder, two reminders, CRLF) the whole-text scrub showed no secret and the tail at `-n 2`, `3` and `8` showed `SECRET7dataend9`; the resolved text scrubbed whole showed it as well. The fifth, a 32-character body on one line, matches either way and showed nothing. At `c2e080e44` all five fell back, so this is not a leak in the merged code: its strict comparison was what refused these files.
 
-**Why only that rule.** Read in the scrub's code this round. Every other rule reads a trailing line break as it reads the text's end:
+**Why only that rule.** Read in the scrub's code this round. Every other rule reads a trailing line break as it reads the text's end, but for one `\r` case below:
 - the first quoted pass masks an unterminated value to `[\r\n]|\Z`, the same place either way, and a break adds no quote;
-- `Bearer\s+`, the separator's `\s*` and the header rule's `\s*:\s*` may cross a trailing break, but then need a token or value character, and none follows;
+- `Bearer\s+` and the separator's `\s*` may cross a trailing break, but then need a token or value character, and none follows;
+- the header rule's `\s*:\s*` takes a trailing `\r` as its value: `x\nCookie:\r\n` scrubs to `x\nCookie:[REDACTED]\n`, while `x\nCookie:\n` and `x\nCookie:` are left alone (review r1 of #251, P3-1). The mask covers only the `\r`, since the match spans the header's name, its whitespace and the colon, so it reveals nothing. Both CLI readers read daemon.log with universal newlines, so no `\r` reaches the scrub from them;
 - the flags rule's `[ \t]+` does not cross a break;
 - the token rules' lookarounds (`(?![A-Za-z0-9_-])` and the like) and `\b` treat a break as the end;
 - the folded rescrub (`" ".join(clean.split())`) drops trailing whitespace.

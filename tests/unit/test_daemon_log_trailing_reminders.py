@@ -10,8 +10,9 @@ before them and the second does not, and the file kept only the cut's marker for
 
 They are now compared with their trailing line breaks stripped (`daemon_log._alike`), except
 where the margin-free reading of what is left ends in a data URI's body that those breaks
-bring to 32 characters. Only `_DATA_URI_RE` reads such a break: its body is 32 or more of
-`[A-Za-z0-9+/=\\s]`, line breaks included. With the breaks stripped alone (review r6's fix
+bring to 32 characters. Only `_DATA_URI_RE` reads such a break to hide more: its body is
+32 or more of `[A-Za-z0-9+/=\\s]`, line breaks included. (`_HEADER_RE` masks a trailing `\\r`
+as a header's value, which reveals nothing; #251 review r1, P3-1.) With the breaks stripped alone (review r6's fix
 direction), a body of 31 characters before a reminder that ends the file was hidden by the
 whole-text scrub, which counts the break before the reminder, and shown by the tail, whose
 block form strips it: `SECRET7dataend9` at `daemon logs -n 2`. That file keeps the marker.

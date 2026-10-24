@@ -19,7 +19,7 @@
     - The shape now joins the count test, so "linear" is tested.
   - **The stronger check's cost:** `daemon logs -n 40` with a whole reminder on line 1 took 465, 1,685 and 6,626 ms at 1, 4 and 16 MiB. Round 7's run measured 405, 1,900 and 6,360. Both are linear, about twice round 6's single check.
   - **The clause:**
-    - The four-byte ratios replace review r5's 11.6, 8.9 and 6.9: round 7's 3.4, 8.1 and 15.7, and this build's 5.3 to 8.0.
+    - The four-byte ratios replace review r5's 11.6, 8.9 and 6.9: round 7's 3.4, 8.1 and 15.7, and this build's 4.2 to 8.0.
     - The clause's other review-r5 numbers become round 7's measurements of this tree.
     - The realistic-log costs are this tree's.
     - A change-log entry covers P3-A and P3-B.
