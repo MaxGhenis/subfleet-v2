@@ -23,6 +23,7 @@ final class UIModel: ObservableObject {
     @Published private(set) var state = ConversationStoreState()
     /// The last thing that went wrong, shown in the window's status line.
     @Published var problem: String?
+    @Published private(set) var withdrawingMessages: Set<String> = []
     @Published private(set) var accountSnapshot: Snapshot?
     /// A listed session that cannot continue here, shown in place of a conversation.
     @Published var lockedEntry: SidebarEntry?
@@ -279,15 +280,22 @@ final class UIModel: ObservableObject {
         Thread.detachNewThread { [weak self] in
             WatchLoop(engine: engine,
                       cursor: { DispatchQueue.main.sync(execute: { self?.state.watchCursor }) },
-                      deliver: { page in DispatchQueue.main.async { self?.fold(watch: page) } },
+                      deliver: { update in DispatchQueue.main.sync { self?.fold(watch: update) } },
                       lost: { error in DispatchQueue.main.async { self?.lostDaemon(error) } },
-                      regained: { DispatchQueue.main.async { self?.regainedDaemon() } }).run()
+                      regained: { DispatchQueue.main.async { self?.regainedDaemon() } },
+                      focusedConversationID: { DispatchQueue.main.sync { self?.state.focusedConversationID } },
+                      knownMessageIDs: { id in DispatchQueue.main.sync { self?.state.knownMessageIDs(in: id) ?? [] } }).run()
         }
     }
 
-    private func fold(watch page: WatchPage) {
+    private func fold(watch update: WatchUpdate) {
+        let page = update.page
         let known = Set(state.conversations.map(\.conversation_id))
-        state.apply(watch: page)
+        // One publication: a settled host must never expose the tray projection
+        // with a block from the previous list refresh.
+        var next = state
+        next.apply(update: update)
+        state = next
         for intent in state.drainNotifications() { post(intent) }
         updateBadge()
         refreshApprovalsIfStale()
@@ -347,10 +355,16 @@ final class UIModel: ObservableObject {
                 guard let cursor else { return }
                 do {
                     let page = try engine.events(conversationID: conversationID, after: cursor, wait: catchingUp ? 0 : nil)
+                    let known = DispatchQueue.main.sync { self?.state.knownMessageIDs(in: conversationID) ?? [] }
+                    let receipts = try engine.unknownReceipts(in: page, knownMessageIDs: known)
                     failures = 0
                     let result: Timeline.PageResult? = DispatchQueue.main.sync {
                         guard let self, self.eventsGeneration == generation else { return nil }
-                        return self.state.apply(events: page, conversationID: conversationID)
+                        var next = self.state
+                        next.apply(receipts: receipts, conversationID: conversationID)
+                        let result = next.apply(events: page, conversationID: conversationID)
+                        self.state = next
+                        return result
                     }
                     switch result {
                     case nil, .superseded?: return
@@ -419,8 +433,20 @@ final class UIModel: ObservableObject {
         busy = true
         defer { busy = false }
         do {
+            // Capture the app's receipt identities on the main actor before
+            // opening on the outbox queue. Settled history already held here
+            // must not be fetched and folded on each conversation switch.
+            let knownConversationID: String?
+            switch target {
+            case .conversation(let id): knownConversationID = id
+            case .native(let native):
+                knownConversationID = state.conversations.first {
+                    $0.provider == native.provider && $0.native_session_id == native.session_id
+                }?.conversation_id
+            }
+            let known = knownConversationID.map { state.knownMessageIDs(in: $0) } ?? []
             let (result, steers) = try await onOutbox { () throws -> (ConversationOpenResult, [OutboxSteer]) in
-                let open = try engine.open(target)
+                let open = try engine.open(target, knownMessageIDs: known)
                 return (open, engine.outbox.steers(in: open.conversation.conversation_id))
             }
             // The daemon's state is kept either way; the screen moves only if the
@@ -1006,7 +1032,37 @@ final class UIModel: ObservableObject {
         }
     }
 
+    /// A tray withdrawal always names its own message and conversation. Pending
+    /// clicks share one busy state, so a row cannot send a second action meanwhile.
+    func withdrawQueued(_ row: QueuedMessage, conversationID: String) {
+        guard row.canWithdraw, let engine, withdrawingMessages.insert(row.id).inserted else { return }
+        Task {
+            defer { withdrawingMessages.remove(row.id) }
+            do {
+                if case .withdraw = row.withdraw {
+                    let result = try await onOutbox { try engine.withdrawSend(row.id) }
+                    switch result {
+                    case .withdrawn(let receipt):
+                        if let receipt { state.apply(receipt: receipt) }
+                        else { state.withdrawLocal(conversationID: conversationID, messageID: row.id) }
+                    case .stopped(let receipt):
+                        if let receipt { state.apply(receipt: receipt) }
+                    case .inFlight: break
+                    }
+                } else if let receipt = try await onOutbox({ try engine.stop(row.withdraw) }) {
+                    state.apply(receipt: receipt)
+                }
+            } catch { report(error) }
+        }
+    }
+
     func stop(_ action: StopAction) {
+        if case .withdraw(let id) = action,
+           let (conversationID, timeline) = state.timelines.first(where: { $0.value.turn(id) != nil }),
+           let turn = timeline.turn(id) {
+            withdrawQueued(QueuedMessage(turn: turn), conversationID: conversationID)
+            return
+        }
         guard let engine else { return }
         Task {
             do {
@@ -1021,9 +1077,17 @@ final class UIModel: ObservableObject {
         guard let engine else { return }
         Task {
             do {
-                let (conversation, receipt) = try await onOutbox { try engine.perform(choice.action, conversationID: conversationID) }
-                if let conversation { state.upsert(conversation) }
-                if let receipt { state.apply(receipt: receipt) }
+                let known = state.knownMessageIDs(in: conversationID)
+                let (conversation, receipt, refresh) = try await onOutbox {
+                    let (conversation, receipt) = try engine.perform(choice.action, conversationID: conversationID)
+                    let refresh = try engine.refreshConversation(conversationID, knownMessageIDs: known)
+                    return (conversation, receipt, refresh)
+                }
+                var next = state
+                if let conversation { next.upsert(conversation) }
+                if let receipt { next.apply(receipt: receipt) }
+                next.apply(refresh: refresh)
+                state = next
             } catch {
                 report(error)
             }
