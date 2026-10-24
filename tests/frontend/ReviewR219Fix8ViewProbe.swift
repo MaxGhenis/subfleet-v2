@@ -143,7 +143,7 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
                     // scenes must not add an unrelated 30 ms polling delay.
                     lock.lock()
                     if !log.contains(where: { ($0["seq"] as! Int) > after }) {
-                        _ = lock.wait(until: Date().addingTimeInterval(0.03))
+                        _ = lock.wait(until: Date().addingTimeInterval(15))
                     }
                     lock.unlock()
                 } else { Thread.sleep(forTimeInterval: 0.03) }
@@ -1065,6 +1065,17 @@ final class RevealArrivals: @unchecked Sendable {
     started = Date()
     if let match { scene.palette.activate(match) }
     let deadline = Date().addingTimeInterval(60)
+    if interval == 0 && boundary == nil {
+        // The early-input scenes need UIModel's two main-queue round trips to
+        // fold the page before the first notice. Repeated forced AppKit layout
+        // here can monopolize that queue for longer than the reveal's sleep.
+        // Pump delivery without forcing presentation until the input folds;
+        // the real reveal task and both of its timers continue running.
+        while folds.count < count && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.001))
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
+    }
     while scene.palette.reveal != nil && Date() < deadline { await settle(scene.host, seconds: 0.02) }
     // Do not require distance inside the wait: a bad landing must be reported
     // promptly and rejected by Python, rather than hidden behind a timeout.
