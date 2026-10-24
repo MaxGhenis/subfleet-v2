@@ -13,7 +13,7 @@ publish. After every step every file's flag and
 the merge base must equal the model's. `test_mirror_flags_model.py` checks
 the model's invariants over every reachable state, so this ties the
 implementation to them; the same model is `docs/formal/MirrorFlags.tla`, which
-TLC has not been run on.
+TLC first checked on 2026-10-10 (the 2026-10-10 report).
 """
 
 from __future__ import annotations
