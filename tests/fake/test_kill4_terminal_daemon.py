@@ -167,7 +167,7 @@ def test_an_uncounted_detached_loop_in_an_in_place_workdir_is_held_and_quarantin
         Path(str(marker) + ".release").touch()
 
 
-@pytest.mark.parametrize("stopped,delay,grace", [(False, 30, None), (True, 30, None), (True, 2, 4)],
+@pytest.mark.parametrize("stopped,delay,grace", [(False, 30, None), (True, 30, 3), (True, 2, 4)],
                          ids=["sleeping", "stopped", "stopped-short-delay"])
 def test_a_guardian_alive_past_start_grace_is_killed_before_any_retry(daemon, stopped, delay, grace):
     """The guardian is alive past start grace without a start.json: sleeping before it
@@ -187,7 +187,9 @@ def test_a_guardian_alive_past_start_grace_is_killed_before_any_retry(daemon, st
     if stopped:
         # Stopped once it leads its group (its first act), as the 2026-10-20 guardian was:
         # before its setsid, killpg cannot reach it (the unit regression covers that shape).
-        daemon.until(lambda: os.getpgid(guardian.pid) == guardian.pid, timeout=30)
+        # A start grace of 3 s or more leaves the test time to see the setsid and stop it
+        # (with the harness's 0.65 s the daemon could KILL it first, under load).
+        daemon.until(lambda: os.getpgid(guardian.pid) == guardian.pid, timeout=2)
         procs.signal_process(guardian, signal.SIGSTOP)
         if (daemon.root / "jobs" / job / "a1" / "start.json").exists():
             pytest.skip("setup race: the guardian wrote start.json before the test could stop it")
