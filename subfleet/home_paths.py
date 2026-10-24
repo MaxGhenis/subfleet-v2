@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import os
+import re
 import stat
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping, MutableMapping
 from pathlib import Path
+from typing import NoReturn, SupportsIndex
 
 PYTEST_MARKER = "SUBFLEET_UNDER_PYTEST"
 # Session descendants keep isolation only while this exact sentinel lives.
@@ -19,6 +21,15 @@ PYTEST_SENTINEL = ".pytest-session"
 # every test service, and make each one ask where the person's state root is;
 # a test that means a development build names its own.
 SAFE_ENV_REMOVALS = ("CLAUDE_LANE_AGENT_SECRET", "SUBFLEET_DEV_APP_EXECUTABLE")
+# D-PRR1: a test session removes every inherited variable whose name looks like a
+# credential's, and puts each back at unconfigure, so none is in the environment
+# a test, a child or a report sees. pytest's long traceback prints each entry's
+# arguments, which put `subprocess.run`'s `kwargs`, and a copied environment, in
+# a report on 2026-10-21; `-l` with `-vv` prints whole locals. Case is ignored.
+# The session's own markers are never removed. A test that needs such a variable
+# sets a dummy.
+CREDENTIAL_ENV_PATTERN = re.compile(
+    r"(?:_TOKEN|_KEY|_SECRET|_PASSWORD|_COOKIE)\Z|CREDENTIAL|_AUTH", re.IGNORECASE | re.ASCII)
 
 # One registry for the session fixture and every subprocess harness. Values are
 # relative to a temporary base, and must never name the operator's home stores.
@@ -79,6 +90,73 @@ KEYCHAIN_READERS = {
     "subfleet.adapters.claude.ClaudeAdapter._plan_from_keychain",
     "subfleet.credentials.resolve_credential",
 }
+
+
+def credential_shaped(name: str) -> bool:
+    """Whether a test session removes `name` from its environment (D-PRR1)."""
+    return (name not in (PYTEST_MARKER, PYTEST_SESSION, PYTEST_SESSION_ID)
+            and CREDENTIAL_ENV_PATTERN.search(name) is not None)
+
+
+class RemovedCredentials:
+    """The variables `remove_credentials` took, kept to put back (D-PRR1).
+
+    Its text shows the names and never a value: `repr` and `str`, and so
+    pytest's traceback arguments, `-l` locals and assertion operands, and
+    Hypothesis's report, print the names only when a failing test holds it
+    (#244 review r1). It is not a `collections.abc.Mapping`, because pytest 9
+    diffs a failing comparison of two mappings item by item, values included.
+    A value is read by its name, as `dict()` and `os.environ.update` read one.
+    Pickling and copying raise: a pickle printed the values under `-vv`, and
+    `__reduce_ex__` and `copy` handed them on (#244 review r2).
+    """
+
+    __slots__ = ("_values",)
+    _NOT_CARRIED = ("RemovedCredentials cannot be pickled or copied: it would carry "
+                    "the removed values (D-PRR1)")
+
+    def __init__(self, values: Mapping[str, str]) -> None:
+        self._values = dict(values)
+
+    def keys(self) -> tuple[str, ...]:
+        return tuple(self._values)
+
+    def __getitem__(self, name: str) -> str:
+        return self._values[name]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def __contains__(self, name: object) -> bool:
+        return name in self._values
+
+    def __repr__(self) -> str:
+        return f"<RemovedCredentials names={sorted(self._values)!r}, values withheld>"
+
+    __str__ = __repr__
+
+    def __reduce__(self) -> NoReturn:
+        raise TypeError(self._NOT_CARRIED)
+
+    def __reduce_ex__(self, protocol: SupportsIndex) -> NoReturn:
+        raise TypeError(self._NOT_CARRIED)
+
+
+def remove_credentials(environ: MutableMapping[str, str]) -> RemovedCredentials:
+    """Remove every credential-shaped variable from `environ`; return them."""
+    removed = RemovedCredentials(
+        {name: value for name, value in environ.items() if credential_shaped(name)})
+    for name in removed:
+        del environ[name]
+    return removed
+
+
+def restore_credentials(environ: MutableMapping[str, str], removed: RemovedCredentials) -> None:
+    """Put back each variable `remove_credentials` took, with its value then."""
+    environ.update(removed)
 
 
 def under_pytest(environ: Mapping[str, str] | None = None) -> bool:

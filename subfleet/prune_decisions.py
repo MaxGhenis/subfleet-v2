@@ -88,6 +88,7 @@ import gzip
 import hashlib
 import json
 import os
+import re
 import shlex
 import shutil
 import sqlite3
@@ -106,10 +107,26 @@ STORE_NAME = "state.sqlite3"
 LOCK_NAME = "daemon.lock"
 BACKUPS_NAME = "backups"
 
+#: The shell block of the operator recipe below, before the copy's quoted path
+#: is put in it. Invariants: all old database files stay together, no old WAL
+#: reaches the restored copy, and neither the backup nor its rows change during
+#: restoration.
+RESTORE_SCRIPT = """(
+    set -eu
+    backup={copy_path}
+    aside=$(mktemp -d "$state_root/state-before-restore.XXXXXX")
+    for file in state.sqlite3 state.sqlite3-wal state.sqlite3-shm; do
+        if [ -e "$state_root/$file" ]; then
+            mv "$state_root/$file" "$aside/$file"
+        fi
+    done
+    cp "$backup" "$state_root/state.sqlite3"
+    sqlite3 "$state_root/state.sqlite3" 'PRAGMA integrity_check'
+)"""
+
 #: The operator recipe, also embedded verbatim in docs/migration.md and
-#: executed against disposable stores by test_prune_restore.py. Invariants:
-#: all old database files stay together, no old WAL reaches the restored copy,
-#: and neither the backup nor its rows change during restoration.
+#: executed against disposable stores by test_prune_restore.py. `_restore_fix`
+#: fills in the fence and the script.
 RESTORE_RECIPE = """Stop the daemon with `subfleet daemon stop`. If its launchd job is
 installed, unload it with
 `launchctl unload ~/Library/LaunchAgents/com.subfleet.daemon.plist` so KeepAlive
@@ -122,20 +139,9 @@ Move `state.sqlite3`, `state.sqlite3-wal` and `state.sqlite3-shm` aside together
 before copying the backup. Run this block in the same shell with `state_root`
 set; replace the backup placeholder with the copy named in the pass report:
 
-```sh
-(
-    set -eu
-    backup={copy_path}
-    aside=$(mktemp -d "$state_root/state-before-restore.XXXXXX")
-    for file in state.sqlite3 state.sqlite3-wal state.sqlite3-shm; do
-        if [ -e "$state_root/$file" ]; then
-            mv "$state_root/$file" "$aside/$file"
-        fi
-    done
-    cp "$backup" "$state_root/state.sqlite3"
-    sqlite3 "$state_root/state.sqlite3" 'PRAGMA integrity_check'
-)
-```
+{fence}sh
+{script}
+{fence}
 
 Require `integrity_check` to return exactly `ok`. Compare each table's
 `SELECT COUNT(*) FROM "<table>"` with the pre-prune counts in this pass's JSON
@@ -372,7 +378,23 @@ def _restore_fix(copy_path: str | None) -> str:
     """
     if not copy_path:
         return "nothing was deleted and no copy was taken; the store is as it was"
-    return RESTORE_RECIPE.format(copy_path=shlex.quote(copy_path))
+    script = RESTORE_SCRIPT.format(copy_path=shlex.quote(copy_path))
+    return RESTORE_RECIPE.format(fence=code_fence(script), script=script)
+
+
+def code_fence(body: str) -> str:
+    """A backtick fence that nothing in `body` can close (D-PRR1).
+
+    A CommonMark fenced block ends at the first line of only backticks at least
+    as long as its opening fence. A backup path is the operator's to name: one
+    holding a newline and a run of three backticks ended a fixed three-backtick
+    block early, and a reader looking for the next triple backtick stops inside
+    any path that holds one. A run longer than every run in the body, and never
+    shorter than three, cannot occur inside it. The migration guide's copy holds
+    no backtick, so it keeps three.
+    """
+    longest = max((len(run) for run in re.findall("`+", body)), default=0)
+    return "`" * max(3, longest + 1)
 
 
 def _require_schema_tables(database: Path) -> None:
