@@ -956,6 +956,30 @@ def test_a_tilde_home_is_judged_literally_against_the_working_directory(spelling
     assert sealed.touched == []
 
 
+@pytest.mark.parametrize("spelling, cause", [
+    ("~/st3-not-a-store", "working directory is unreadable"),
+    ("~st3-no-such-user-r5/st3-not-a-store", "working directory is unreadable"),
+    ("~/" + STORES[2], "HOME names one of the account's live stores")])
+def test_a_tilde_home_under_an_unreadable_working_directory_is_refused(spelling, cause, tmp_path, sealed,
+                                                                        monkeypatch):
+    """C-20.6 (D-ST3, #242 review r5's P3s): with no working directory, a HOME spelled with `~` has a literal
+    reading that cannot be judged, so both guards refuse it, and `protected_provider_homes` names that cause; a pwd
+    reading in a live root still names the store. Without the rule, `production_state_root` raised
+    FileNotFoundError and `protected_provider_homes` returned `HOME/.claude` and `HOME/.codex`."""
+    gone = tmp_path / "gone"
+    gone.mkdir()
+    monkeypatch.chdir(gone)
+    gone.rmdir()
+    with pytest.raises(OSError):
+        os.getcwd()
+    monkeypatch.setenv("HOME", spelling)
+    with pytest.raises(RuntimeError, match="~/.subfleet"):
+        home_paths.production_state_root()
+    with pytest.raises(RuntimeError, match=cause):
+        home_paths.protected_provider_homes()
+    assert sealed.touched == []
+
+
 def test_a_home_of_bare_tilde_names_no_directory(monkeypatch):
     """`spelled_home` refuses HOME `~` itself, as 3.14's `Path.home()` does."""
     monkeypatch.setenv("HOME", "~")
