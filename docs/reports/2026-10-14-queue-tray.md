@@ -2935,3 +2935,717 @@ venv/cache/probes and the generated `build/` directory are removed at delivery.
 The workspace-local Git metadata is retained. No logs, JSON evidence or bundles
 are staged. No installed app, live store or live daemon was touched. Nothing
 was fetched or pushed.
+
+## D-QT-FLAKE1: stale end-marker following can override a search reveal
+
+### Classification and evidence
+
+**Classification: product race reproduced.** CI reproduced the tail landing
+in the background streaming scene at `c621dfeca`. Round 3 deterministically
+replays an arrival folding after a reveal while the end marker still reports
+`atBottom=true`: ordinary follow ignores suspension and jumps to the tail.
+The executed trace and controls are recorded under Round 3 below; CI's original
+per-event timeline was truncated and cannot be reconstructed from its log.
+
+The product now honors suspension for ordinary following, preserves own sends
+and catch-up, and confirms a visible end after the matching scroll completes
+so a nearby reveal resumes following. Controlled stale-marker streaming,
+native bounded properties, coordinated post-consumption delivery, complete
+JSON failure capture, and the retained horizon cover the race and both reviews.
+Current test and mutation results are under Round 3. Historical measurements
+and step records below are retained as evidence of the earlier rounds.
+
+### Historical round-1/round-2 evidence
+
+Review r1 reproduced no product
+position race in **57 controlled offscreen scenes**, with **zero subsequent
+measured offset drift**. Its native-animation offscreen variants never
+established a distant landing, so those variants cannot explain CI's
+*distant-then-tail* failure. Presentation timing is a probe precondition, but
+"presentation timing only" is not a supported causal classification.
+
+Review r1's executed results are recorded in
+`/Users/maxghenis/reviews/subfleet-hub/qt-flake1/out-review-r1.md` (REQUEST_CHANGES).
+Its early text arrivals at nominal **0/16/50/120 ms** actually arrived at
+**0.026/41.666/103.127/141.765 ms** and folded at
+**132.836/158.916/230.867/247.283 ms**, all before the first notice. Their
+before/after offsets were **2259/2239/2192/2251 pt**, respectively, unchanged
+within each scene. Corresponding tool cases also retained position. A
+**50-event text stream at nominal 50 ms** spanned **0.031–2504.012 ms** and
+retained offset **1583 pt**; a **17-event tool stream at nominal 150 ms** spanned
+**0.031–2404.145 ms** and retained offset **2112 pt**. These streams crossed both
+notices and continued after consumption. Bursts at each notice and consumption
+also retained position. These are review measurements, not fresh round-2 runs.
+
+Both test shapes are necessary. The gate establishes a distant, stable landing
+before releasing output. Separate streaming tests preserve reachable arrivals
+during the reveal's asynchronous sleeps, including both notice boundaries and
+consumption. Both shapes now observe through at least **6.3 seconds** after
+activation, retaining the original observation horizon. Early stable samples
+alone do not rule out a late jump: r1's **2.3-second** mutant passed the former
+shortened schedule, then reached offset **8954 pt**, **24 pt** from the end, at
+**6.302 seconds**. The original schedule rejected that same mutant.
+
+The baseline is release/217 at `3b13b36b7e335db21bc8f966bb039df9c14aa308`,
+including #219. Read `review-r7.md`, `brief-fix10.md`, `out-fix10.md`, and
+the fix-10 report before investigating. No fetch or push occurred. #253's
+machine-only change is not involved.
+
+The original probe activates search and immediately pushes its first chunk,
+then spaces subsequent chunks by the nominal 50 ms interval. The real reveal
+issues two scrolls after asynchronous delays. Thus the test name does not mean
+that a reveal has landed 50 ms before output. Its final 0.8-second presentation
+drive also does not establish a stable viewport. Reveal consumption establishes
+that the scroll requests completed, not that AppKit finished presenting their
+position.
+
+For the baseline experiment, copied the exact committed probe to job scratch
+and selected only `far_text_50ms`; the `farReveal` body was verified
+byte-for-byte identical to the committed body. Ran **30 fresh native processes
+under load**, with two CPU-bound PBKDF2 threads inside the single foreground
+pytest process. Both threads were stopped and joined at teardown. All 30
+original regressions passed, each with **0 pt** offset drift. Quiet distances
+were **4,744–5,162 pt** from the end. The second scroll notification occurred
+**0.893–1.744 seconds** after activation, illustrating variation in the nominal
+reveal schedule. The CI jump was not reproduced in this experiment.
+
+Ran the permanent controlled 50 ms regression in **30 additional fresh native
+processes under the same two-thread CPU load**. All 30 passed consecutively.
+Every run established a consumed reveal, two scroll notifications, three
+unchanged viewport samples away from the end, 50 arrivals in one released page,
+and final folded cursor **144/144**. Every run retained the same offset from
+landing through that page and a subsequent 20-line update: **0 pt** drift.
+Quiet distances were **4,733–5,360 pt**. The unchanged product therefore retained
+the revealed row in every measured post-landing trial. These round-1 trials
+cover post-landing output and do not establish what caused the CI failure.
+
+These are offscreen, synchronous-transaction geometry probes, as in fix 10;
+visible production-window animations were not measured. These two historical
+loaded experiments support the gate as a test precondition; they do not support
+a presentation-only explanation of the CI failure.
+
+### Round-1 fix and step commits
+
+No shipping app source changed. The shared test probe now waits for reveal
+consumption and repeated stable offset/viewport measurements more than 600 pt
+from the end. Only then does the requested interval begin. It releases the
+original finite arrivals as one page (50/21 text events or 17/7 row events),
+waits for folding, and samples stable positions before and after further text.
+The quiet control releases no arrival page. Document height is not part of the
+stability predicate: LazyVStack revised its offscreen height estimates even when
+the measured viewport position stayed fixed. No scroll is forced by this
+barrier.
+
+Python assertions require the barrier's measured state, exact arrival/page
+counts, completed cursor, and retention across both output updates. A focused
+probe mode permits fresh-process repetitions without six unrelated scenes.
+The original five distant cases and two catch-up cases remain, plus the focused
+regression, for eight checks in the fix-10 file.
+
+Preserved the earlier workspace-local step commits and continued their history,
+oldest first:
+
+| Commit | Step |
+| --- | --- |
+| `344cc8bf8` | Tests first: require the focused 50 ms probe. |
+| `bdc18c1b8` | Select the 50 ms case without changing its original sequence. |
+| `312afe38e` | Tests first: require measured landing before output. |
+| `c06d75d82` | Gate output on the consumed reveal and settled position. |
+| `d58acea52` | Measure viewport stability independently of lazy height estimates. |
+| `5649bd37d` | Strengthen the release assertion and name exact finite arrival counts. |
+
+Every commit carries the requested co-author trailer. This report is a separate
+commit. Shared Git metadata is read-only and the assigned branch is checked out
+in the caller's worktree; commits remain on `fix/qt-distant-reveal-flake-217`
+in this workspace's preserved `.git-local`. Inspect with
+`GIT_DIR="$PWD/.git-local" GIT_WORK_TREE="$PWD" git log`.
+The supplied `.git` pointer and caller's checkout were not changed.
+
+### Round-1 repetition offsets (historical)
+
+All entries are points. Runs are independent fresh native processes, not
+repeated assertions on one cached result. In every controlled run the
+pre-output landing offset also equals both recorded offsets below.
+
+| Run | Original quiet | Original after_more | Controlled quiet | Controlled after_more |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 2311 | 2311 | 2356 | 2356 |
+| 2 | 2296 | 2296 | 2265 | 2265 |
+| 3 | 2430 | 2430 | 2243 | 2243 |
+| 4 | 2392 | 2392 | 2299 | 2299 |
+| 5 | 2334 | 2334 | 2329 | 2329 |
+| 6 | 2719 | 2719 | 2254 | 2254 |
+| 7 | 2362 | 2362 | 2386 | 2386 |
+| 8 | 2418 | 2418 | 2390 | 2390 |
+| 9 | 2395 | 2395 | 2307 | 2307 |
+| 10 | 2334 | 2334 | 2276 | 2276 |
+| 11 | 2311 | 2311 | 2307 | 2307 |
+| 12 | 2761 | 2761 | 2262 | 2262 |
+| 13 | 2611 | 2611 | 2386 | 2386 |
+| 14 | 2384 | 2384 | 2273 | 2273 |
+| 15 | 2719 | 2719 | 2278 | 2278 |
+| 16 | 2366 | 2366 | 2419 | 2419 |
+| 17 | 2403 | 2403 | 2386 | 2386 |
+| 18 | 2297 | 2297 | 2371 | 2371 |
+| 19 | 2439 | 2439 | 2246 | 2246 |
+| 20 | 2393 | 2393 | 2419 | 2419 |
+| 21 | 2311 | 2311 | 2221 | 2221 |
+| 22 | 2383 | 2383 | 2396 | 2396 |
+| 23 | 2938 | 2938 | 2402 | 2402 |
+| 24 | 2376 | 2376 | 2393 | 2393 |
+| 25 | 2354 | 2354 | 2194 | 2194 |
+| 26 | 2366 | 2366 | 2161 | 2161 |
+| 27 | 2695 | 2695 | 2262 | 2262 |
+| 28 | 2323 | 2323 | 2261 | 2261 |
+| 29 | 2276 | 2276 | 2288 | 2288 |
+| 30 | 2303 | 2303 | 2303 | 2303 |
+
+### Round-1 validation counts and holds (historical)
+
+Counts below are from round 1; no undocumented earlier run is
+counted. Each hold ran one pytest process, one file, with at most two additional
+CPU load threads for the repetition experiments. All holds completed below
+20 minutes. Python was locked GIL CPython 3.14.7. Environment setup ran once
+through `uv_sync_hold.sh`; every test ran through `suite_hold.sh`, reusing
+that venv and the scratch uv cache. Property checks explicitly selected the
+bounded CI profile; no deep profile ran.
+
+| Requested file | Passed | Failed | Skipped | Unrun |
+| --- | ---: | ---: | ---: | ---: |
+| `tests/frontend/test_review_r219_fix10_view.py` | 8 | 0 | 0 | 0 |
+| `tests/frontend/test_review_r219_fix9_view.py` | 3 | 0 | 0 | 0 |
+| `tests/frontend/test_review_r219_fix8_view.py` | 6 | 0 | 0 | 0 |
+| `tests/frontend/test_review_r219_fix8_mutations.py` | 7 | 0 | 0 | 0 |
+| `tests/frontend/test_core_queue_tray.py` | 51 | 0 | 0 | 0 |
+| `tests/frontend/test_queue_tray_view.py` | 15 | 0 | 0 | 0 |
+| `tests/unit/test_test_module_names.py` | 1 | 0 | 0 | 0 |
+| **Total** | **91** | **0** | **0** | **0** |
+
+| Hold | Passed | Recorded pytest duration |
+| --- | ---: | ---: |
+| Original 50 ms sequence under CPU load | 30 | 11m 41.20s |
+| Controlled 50 ms sequence under CPU load | 30 | 9m 39.80s |
+| Fix-10 view | 8 | 1m 29.26s |
+| Fix-9 view | 3 | 38.76s |
+| Fix-8 view | 6 | 2m 15.93s |
+| Mutations: history hydration / receipt sorting | 2 | 2m 8.80s |
+| Mutations: known receipts / follow state | 2 | 6m 16.92s |
+| Mutations: row-set key / both settling schedules | 3 | 9m 50.29s |
+| Core queue tray | 51 | 5m 37.62s |
+| Queue tray view | 15 | 39.15s |
+| Test-module names | 1 | 1.15s |
+
+The requested files plus the two repetition experiments total **151 passes**.
+The mutation file was partitioned into three disjoint holds; deselected items
+are covered by the other holds, not counted as skips or passes.
+
+Two diagnostic holds are separate from those counts. The first baseline
+compilation could not start Swift's macro helper inside the nested compiler
+sandbox, producing 30 fixture setup errors from one failed compilation and
+**zero native trials**, in 6m 12.05s. Retried with the repository's supported
+`SUBFLEET_SWIFT_NESTED_SANDBOX=off` setting; all native runs above then
+completed. A 13.45-second red check replayed a real baseline capture through the
+strengthened sequence assertion and failed as expected because the old probe
+does not establish/report the output-release barrier. This is a test contract
+check, not a reproduced product failure.
+
+### Round-1 delivery and cleanup (historical)
+
+Before writing this section, ran the required
+`pgrep -fl 'suite_hold.sh|pytest|lockf'`. Process enumeration was denied
+(`sysmond service not found`). A fallback `lsof` check of every job log
+returned no open descriptors (exit 1, empty stdout and stderr). All managed
+foreground commands returned and both CPU worker threads joined. No foreign
+process was signalled.
+
+Job scratch, its venv/cache/probes/evidence, and generated `build/` are removed
+at delivery; no workspace `.hypothesis` folder exists. Workspace-local commit
+metadata is retained. Only named source/test/report files are staged; no logs,
+JSON evidence or bundles are committed. No installed app, live store, live
+daemon or caller checkout was modified.
+
+### Round-2 regressions and step commits
+
+Round 2 starts at `d79946699`, against the same **43** shipping Swift files.
+No shipping source changed. Step commits are `b42d9e633` (tests first),
+`4b15b074e` (horizon and 16 overlap scenes), `f329df370` (classification and
+initial executed evidence), and `770c3e776` (early delivery/presentation drive).
+Commits remain on `fix/qt-distant-reveal-flake-217` in workspace-local
+`.git-local` metadata because shared Git metadata is read-only. The supplied
+`.git` pointer and caller checkout are unchanged. Nothing was fetched or pushed.
+
+The gated cases retain reveal consumption, two notices, three stable viewport
+samples more than **600 pt** from the end, exact event construction counts
+**0/50/21/17/7**, released-page counts **0/1**, and cursor completion. They
+assert both settled positions and a horizon at least **6.3 s** after activation
+and **2.5 s** after the last arrival. A passive **25 ms** sampler records maximum
+post-landing displacement through folding, further output and the horizon.
+It does not scroll or gate output.
+
+Three new parametrized functions assert **16** streaming scenes: eight early
+text/tool arrivals at nominal **0/16/50/120 ms**, two background streams
+(**50** text events at nominal **50 ms**, **17** tool events at nominal **150 ms**),
+and six **10-event** bursts (text/tool at the first notice, second notice and
+consumption). Early arrivals must fold before the first notice. Background
+arrivals must cross both notices and continue after consumption, with folding
+also continuing afterward. Burst pushes run synchronously from the actual
+notification/subscription callback. Counts are fixed by construction;
+`arrival_pages` counts daemon push calls, and fold timestamps measure UIModel's
+actual consumption. All 16 cases require a distant stable landing, completed
+cursor, exact offset equality through quiet/further output/horizon, and **zero**
+maximum sampled later drift. Detached producers deliver independent pages
+while the real reveal task and its asynchronous sleeps run.
+
+`test_distant_search_reveal_during_catchup_keeps_position` covers the
+**settling-follow branch**. Its stream starts after catch-up, reveal consumption
+and presentation settling; it does **not** cover these ordinary overlaps.
+
+The scripted daemon's new scenes wake a real pending long poll on output and
+use a **15 s** idle bound instead of repeatedly returning empty pages every
+**30 ms**. Early scenes pump the run loop and model delivery until folding,
+without repeatedly forcing AppKit layout in that interval. Reveal tasks and
+timers continue throughout; the temporal assertions are unchanged. Older
+probe modes keep their previous delivery behavior.
+
+
+### Round-2 fixture diagnostics
+
+Initial development: `early_tool_120ms` arrived at **120.310 ms** and folded at **328.870 ms**, after the first notice at **320.382 ms**. Its offset stayed fixed, with **0 pt** maximum sampled drift. This was a missed fixture precondition, not a reproduced distant-then-tail product failure.
+
+Third earlier loaded hold: `early_text_120ms` arrived at **124.228 ms** and folded at **433.654 ms**, after the first notice at **421.379 ms**. Its offset stayed fixed, with **0 pt** maximum sampled drift. This was a missed fixture precondition, not a reproduced distant-then-tail product failure.
+
+Two earlier loaded holds passed before that third hold failed. All their CPU
+workers were stopped by PID and reaped. The final fixture adjustment is
+`770c3e776`; all requested suites, all five mutants, and five fresh consecutive
+loaded holds were rerun against it. No assertion was weakened and no retry
+selects a passing scene. These fixture changes do not identify CI's cause.
+
+
+### Round-2 final scene measurements
+
+The final combined view hold saved `hold-18313/pytest-of-maxghenis/pytest-0/fix10-streaming0/result.json`. Times
+are milliseconds and offsets are points. In every row, landing, quiet,
+after-more and horizon offsets are equal, with **0 pt** maximum sampled drift.
+
+| Early scene | Arrival | Fold | First notice | Retained offset |
+| --- | ---: | ---: | ---: | ---: |
+| `early_text_0ms` | 31.427 | 39.425 | 289.460 | 2362 |
+| `early_text_16ms` | 28.975 | 38.442 | 290.063 | 2240 |
+| `early_text_50ms` | 50.314 | 52.124 | 277.964 | 2240 |
+| `early_text_120ms` | 124.067 | 127.643 | 314.113 | 2240 |
+| `early_tool_0ms` | 20.781 | 28.044 | 278.973 | 2119 |
+| `early_tool_16ms` | 35.295 | 44.557 | 310.192 | 2119 |
+| `early_tool_50ms` | 50.179 | 57.538 | 283.717 | 2119 |
+| `early_tool_120ms` | 121.314 | 121.910 | 274.990 | 2119 |
+
+| Background scene | Arrival span | Notices | Consumption | Retained offset |
+| --- | ---: | ---: | ---: | ---: |
+| `background_text` | 17.635–2466.975 | 284.484 / 841.935 | 842.119 | 2467 |
+| `background_tool` | 22.158–2413.394 | 287.747 / 860.748 | 861.149 | 2242 |
+
+| Burst scene | Boundary arrival | Retained offset |
+| --- | ---: | ---: |
+| `burst_text_first_notice` | 276.974 | 2194 |
+| `burst_text_second_notice` | 925.666 | 2194 |
+| `burst_text_consumption` | 819.333 | 2194 |
+| `burst_tool_first_notice` | 292.489 | 2194 |
+| `burst_tool_second_notice` | 937.467 | 2194 |
+| `burst_tool_consumption` | 866.868 | 2194 |
+
+### Round-2 final executed mutants
+
+Each build uses all **43** shipping Swift files, replacing only the mutated
+file with a scratch copy. The probe is unchanged between control and mutant.
+The four follow-update mutations enter at `UIWindow.swift:375`; small helper
+methods avoid expanding the SwiftUI body. A latch limits each to one task.
+The overlap-only mutant requires a text-length change while a reveal is pending
+and schedules its tail jump **1.3 s** after that update. The short landing
+replaces the search scroll at `UISearchPalette.swift:757` and positions the
+real clip view **25 pt** from the end. No product mutation is committed.
+Compilation (**240 s** bound), execution (**120 s** bound) and scene checks are
+outside the expected behavioral-assertion catch. Two holds partition the five
+mutants into **3/2** checks, keeping even their timeout bounds below 20 minutes.
+
+| Mutant | Landing → quiet → after more → horizon offset (pt) | Detecting assertion in `test_review_r219_fix10_view.py` |
+| --- | --- | --- |
+| Tail jump after 250 ms | 2240 → 8377 → 8757 → 8757 | Line 36: `abs(run["quiet"]["offset"] - before["position"]["offset"]) <= 2` |
+| Drift, 0.5 pt per nominal 25 ms tick | 2255 → 2257 → 2265.5 → 2287.5 | Line 38: `abs(run["after_more"]["offset"] - run["quiet"]["offset"]) <= 2` |
+| Tail jump after 2.3 s | 2278 → 2278 → 2278 → 8733 | Line 41: `run["horizon"]["from_end"] > 600` |
+| Landing stops 25 pt from end | 6431 → 6431 → 6431 → 6431 | Line 28: `run.get("output_released")` |
+| Tail loss only after an arrival overlaps reveal | 2298 → 7829 → 8209 → 8209 | Line 85: `run[key]["from_end"] > 600` |
+
+At the horizon, the **2.3 s** jump reached **8733 pt**, **24 pt** from the end, at **6.329 s**. The recorded assertion rejects it. The short-landing mutant withholds all arrival pages (`output_released=false`) and is rejected by that gate assertion.
+
+The overlap-only mutant's arrival/fold/first-notice times were **52.156/52.706/354.650 ms**. The new early-text **50 ms** regression rejects its loss. The gated regression **passes on the same mutated binary**, including its horizon and maximum-drift assertions. This executed pair demonstrates why both test shapes are retained.
+
+
+### Round-2 environment and final hold counts
+
+The single `uv_sync_hold.sh` invocation created the scratch venv with GIL
+**CPython 3.14.7**, with `UV_OFFLINE=1` and no downloads. The copied wheel cache
+was insufficient for uv's locked URL lookup of `hypothesis==6.168.1`, so setup
+stopped. Recovered that already-created venv by copying the eight exact locked
+dev distributions and dist-info from the existing local wheel cache, then
+verified the GIL flag and pytest/Hypothesis versions. No second setup invocation
+ran. Subsequent runs use `UV_NO_SYNC=1` and that same venv/cache.
+
+Every pytest ran in the foreground through `suite_hold.sh`, one at a time,
+without xdist. TMPDIR, Hypothesis storage, uv cache, binaries and Swift module
+caches are in `$(getconf DARWIN_USER_TEMP_DIR)sf-qtflake2`; the repository probe
+cache entry points into scratch. Both `CLANG_MODULE_CACHE_PATH` and
+`SWIFT_MODULECACHE_PATH` select scratch; the supported macro setting is
+`SUBFLEET_SWIFT_NESTED_SANDBOX=off`. Property searches retain bounded repository
+settings with `HYPOTHESIS_PROFILE=ci`. Every hold stayed below **20 minutes**.
+All mounted native windows were offscreen and successful captures report zero
+remaining visible windows. Counts below are pytest items.
+
+| Final hold / scratch log | UTC start | Passed | Failed | Pytest duration | Note |
+| --- | --- | ---: | ---: | ---: | --- |
+| Fix10 / fix9 / fix8 / mutations, `final-views.log` | 06:37:21 | 40 | 0 | 780.18 s |  |
+| Core tray / tray view / module names, `final-core.log` | 07:15:15 | 67 | 0 | 144.21 s |  |
+| Product mutants: 250 ms / drift / 2.3 s, `final-mutants-a.log` | 07:11:10 | 3 | 0 | 109.95 s |  |
+| Product mutants: short landing / overlap, `final-mutants-b.log` | 07:13:00 | 2 | 0 | 134.39 s |  |
+| Loaded fix10 1, `loaded-1.log` | 06:51:32 | 24 | 0 | 237.87 s | 4 workers stopped by PID and reaped |
+| Loaded fix10 2, `loaded-2.log` | 06:55:33 | 24 | 0 | 236.82 s | 4 workers stopped by PID and reaped |
+| Loaded fix10 3, `loaded-3.log` | 06:59:35 | 24 | 0 | 222.31 s | 4 workers stopped by PID and reaped |
+| Loaded fix10 4, `loaded-4.log` | 07:03:18 | 24 | 0 | 230.62 s | 4 workers stopped by PID and reaped |
+| Loaded fix10 5, `loaded-5.log` | 07:07:10 | 24 | 0 | 238.58 s | 4 workers stopped by PID and reaped |
+
+The final requested files contribute **107 passes**: fix10 **24**, fix9 **3**,
+fix8 view **6**, existing mutations **7**, core tray **51**, tray view **15** and
+module names **1**. Five fresh loaded holds add **120 passes**. Five distinct
+scratch product mutants add **5 passes**, for **232** final validation checks,
+all passing. No requested check remains unrun.
+
+| Loaded hold | Streaming capture under scratch | Streaming / gated maximum drift (pt) | Horizon range (s) | Worker PIDs, all -15 and reaped |
+| --- | --- | ---: | ---: | --- |
+| 1 | `hold-50765/pytest-of-maxghenis/pytest-0/fix10-streaming0/result.json` | 0 / 0 | 6.312–6.378 | 50852, 50853, 50855, 50857 |
+| 2 | `hold-86481/pytest-of-maxghenis/pytest-0/fix10-streaming0/result.json` | 0 / 0 | 6.306–6.457 | 86969, 86970, 86971, 86972 |
+| 3 | `hold-25152/pytest-of-maxghenis/pytest-0/fix10-streaming0/result.json` | 0 / 0 | 6.303–6.396 | 25181, 25183, 25186, 25191 |
+| 4 | `hold-64757/pytest-of-maxghenis/pytest-0/fix10-streaming0/result.json` | 0 / 0 | 6.302–6.418 | 64824, 64825, 64826, 64827 |
+| 5 | `hold-3963/pytest-of-maxghenis/pytest-0/fix10-streaming0/result.json` | 0 / 0 | 6.306–6.404 | 4011, 4013, 4014, 4016 |
+
+Each loaded hold starts four independent CPU loops after taking the lock,
+with a **900 s** monotonic deadline. A `finally` block sends SIGTERM to each
+owned worker PID after pytest and waits for all four. The recorded **-15**
+statuses confirm cleanup. All **80** final loaded streaming scenes retained
+the exact landing offset with **0 pt** maximum sampled drift. Together with
+the final combined hold, **96** new overlap scenes pass the temporal, count,
+folding and retention assertions.
+
+
+### Round-2 earlier development holds
+
+These earlier holds are recorded separately and are not included in the
+232 final checks. The inline mutation hold was interrupted during the next
+compilation after two completed behavioral checks; its process group and log
+descriptors were checked empty afterward. Final mutation builds use helper
+methods from the same product hook. The three earlier loaded holds also logged
+four stopped/reaped workers each. Fixture-precondition failures kept position;
+none reproduced CI's distant-then-tail failure.
+
+| Earlier hold / scratch log | UTC start | Passed | Failed | Pytest duration | Note |
+| --- | --- | ---: | ---: | ---: | --- |
+| Red horizon contract, `red.log` | 05:44:42 | 0 | 1 | 82.77 s | Expected missing horizon |
+| Initial development, `development.log` | 05:46:21 | 23 | 1 | 253.99 s | Tool fold missed first notice |
+| First successful fix10, `development2.log` | 05:51:11 | 24 | 0 | 277.92 s |  |
+| Inline product mutants, `product-mutants.log` | 05:56:16 | 2 | 0 | — (partitioned) | Next compilation interrupted |
+| Helper drift / late jump, `product-mutants2.log` | 06:01:06 | 2 | 0 | 98.31 s |  |
+| Short landing / overlap, `product-mutants3.log` | 06:02:53 | 2 | 0 | 178.73 s |  |
+| Fix9 / fix8, `fix9-fix8.log` | 06:07:00 | 9 | 0 | 121.53 s |  |
+| Existing mutations, `fix8-mutations.log` | 06:09:31 | 7 | 0 | 292.95 s |  |
+| Core tray / view / names, `core-tray.log` | 06:15:18 | 67 | 0 | 152.65 s |  |
+| Earlier loaded 1, `pre-pump-loaded-1.log` | 06:18:38 | 24 | 0 | 240.90 s | 4 workers stopped/reaped |
+| Earlier loaded 2, `pre-pump-loaded-2.log` | 06:22:42 | 24 | 0 | 239.76 s | 4 workers stopped/reaped |
+| Earlier loaded 3, `pre-pump-loaded-3.log` | 06:26:43 | 23 | 1 | 232.85 s | Text fold missed first notice; workers reaped |
+| Delivery-pump validation, `development3.log` | 06:32:19 | 24 | 0 | 282.87 s |  |
+
+### Round-2 cleanup and delivery
+
+All foreground commands returned. The four CPU workers in every loaded hold
+were stopped by their own PIDs and reaped; no foreign process was signalled.
+An `lsof` check of all **22** task hold logs found no open descriptors. The
+process-listing check could not enumerate processes in this sandbox, so owned
+worker handles, command completion and log descriptors provide the cleanup
+evidence. The interrupted early mutation group was separately checked empty.
+
+The job scratch, venv, uv/Swift caches, probe binaries and JSON/log evidence
+were removed with `shutil.rmtree` guarded by `/sf-` and the exact task-root
+name. The workspace probe-cache symlink and empty `build/` were removed; no
+workspace `.hypothesis` folder remains. Workspace-local `.git-local` metadata
+is retained on the assigned branch. Only the named probe, Python test and
+report files were staged; no logs, JSON evidence or bundles were committed.
+The caller checkout, installed app, live daemon and live store were untouched.
+No fetch, push or PR comment occurred.
+
+### Round-3 product race, fix and validation
+
+#### Executed mechanism
+
+**Product race reproduced.** #254's macOS CI at `c621dfeca` (run
+40073908120, job 120813067585, Python 3.12, shard 1/5) reproduced the
+background-text scene landing **24 pt** from the end, after its reveal/count/
+folding/stability preconditions passed. Its gated counterpart passed. The CI
+capture lacks the full timeline. Round 3 establishes a mechanism with executed
+controlled ordering; it does not reconstruct the missing CI event timeline.
+
+The `SUBFLEET_VIEW_TEST` hook delays only publication of the end marker's
+`atBottom = false` by **3 s**. Appearance cancels an obsolete delayed callback.
+It neither changes `FollowKey.move` nor scrolls. The normal callback remains
+immediate in shipping builds. The probe records every arrival and fold (with
+sequence identities), every follow decision, marker disappearance/appearance/
+state publication, and changing viewport samples. Assertions and captured
+stdout use complete JSON strings, so pytest cannot truncate a dict repr.
+
+`mechanism-red-final.log` ran the original follow behavior with and without
+that callback delay. Both hooked scenes failed distant landing; both unhooked
+background controls passed. The text scene's decisive sequence, in seconds
+after activation, is:
+
+| Time | Executed event |
+| ---: | --- |
+| 0.942667 | Second reveal notice. |
+| 0.958031 | Marker disappearance requested while `atBottom=true`, suspension true; view **10,324 pt** from the end. |
+| 1.001037 | Background events fold after the second reveal. |
+| 1.043779 | `move=jump`, `settling=false`, suspension true, stale `atBottom=true`; view **9,389 pt** from the end. |
+| 1.116808 | Marker appears again and clears suspension. |
+| 1.192947 | A later follow decision observes the tail, **24 pt** from the end. |
+| 1.219409 | Passive viewport sample confirms **24 pt** from the end. |
+
+The first reveal was also overridden by a suspended stale-marker jump at
+**0.423857 s**. After the second override, ordinary arrivals keep the view at
+the tail. This executes the proposed stale-marker/follow ordering on the
+original decision function. Earlier reviews' successful offscreen streams did
+not exercise forced callback staleness; their success does not disprove it.
+
+Offsets below are points. Controls/red captures are from
+`mechanism-red-final/`; fixed captures are from `final-views/`, at `3f5ca2f4b`.
+All use the same deterministic background event construction.
+
+| Product / scene | Landing offset | After-more offset | Horizon offset | Landing / horizon distance from end |
+| --- | ---: | ---: | ---: | --- |
+| Original, unhooked text | 1960 | 1960 | 1960 | 5867 / 5363 |
+| Original, hooked text | 14860 | 15240 | 15240 | 24 / 24 |
+| Original, unhooked tool | 3009 | 3009 | 3009 | 6009 / 5658 |
+| Original, hooked tool | 10119 | 10119 | 10119 | 24 / 713 |
+| Fixed, hooked text | 2710 | 2710 | 2710 | 5467 / 5162 |
+| Fixed, hooked tool | 2512 | 2512 | 2512 | 5450 / 5297 |
+
+Both fixed hooked scenes have **0 pt** maximum sampled post-landing drift.
+The original tool scene already fails at its **24 pt** landing; after the hook
+expires, the later output can extend below that wrong position.
+
+#### Product rule and design choice
+
+Honor suspension for ordinary non-settling follow updates, after the own-send
+exception. The pure invariant is: for every old/new key pair with neither key
+settling, `suspended=true`, and no new own send, the move is `.stay`, including
+when `atBottom=true`. Own sends still `.glide`; the existing catch-up branch
+still jumps when the end is visible. `CoreProbeQueue` now accepts suspension
+so the native function is tested directly, including arbitrary key pairs,
+old own-send receipts, row/tray/growth/history/live/held changes, own sends,
+and both suspended catch-up positions. Hypothesis is bounded to **30** examples
+of at most **20** pairs for the new invariant.
+
+Candidate A alone is insufficient: `candidate-a.log` passed the distant race
+checks but failed the existing near-end reveal regression. After a reveal at
+**0 pt** from the end, its two streams left the viewport **856 / 1645 pt** away.
+A marker that stayed mounted produced no appearance callback to release
+suspension. An attempted identity-based marker recheck also failed that
+regression (`candidate-complete.log`, **849 / 1635 pt**).
+
+The chosen rule adds a completion confirmation to A. Each explicit timeline
+reveal carries a request UUID. Once its actual scroll transaction completes,
+the existing `OpeningPinView` checks the presented clip/document geometry for
+the end marker, including column padding and the marker's height. A matching
+completion may release suspension if the end stayed visible. An older
+completion cannot release a newer reveal. Marker callbacks continue to own
+`atBottom`; the fix neither synthesizes a false visibility state nor forces
+another scroll. Both animated reveals and nonanimated opening approvals use
+transaction completion. Tray-only reveals keep their existing behavior.
+
+In `final-views/` the near-end regression ends **0 / 24 / 24 pt** from the end
+at reveal / first stream / second stream. The distant hooked scenes stay put.
+This preserves design §12 and C-27.5/C-29.7/C-29.12, including the person's own
+send and the existing catch-up behavior. Candidate B (setting `atBottom=false`
+on a reveal) remains rejected by the existing near-end mutation regression.
+
+#### Streaming construction and failure capture
+
+Every previous gated, early, background, boundary, catch-up, horizon and passive
+maximum-drift assertion remains. The fix10 file adds separate delayed-marker
+text/tool regressions and a deliberately late-consumption regression. The
+full observation horizon remains at least **6.3 s**, including protection
+against the previously surviving **2.3 s** tail-jump mutant.
+
+For r2's P2, background producers keep independent absolute deadlines for
+all earlier events and reserve the final event for actual reveal consumption.
+They then honor its nominal deadline if it is still in the future. Counts
+remain exactly **50** text or **17** tool events/pages. Consequently at least
+the reserved arrival and its fold occur after consumption, even when the
+independent prefix has already ended.
+
+The new slow-consumption tool scene pauses the second-notice presentation
+turn for **3 s**, while the detached prefix keeps delivering. In `final-views/`,
+its penultimate arrival is **2.256478 s**, consumption **3.996622 s**, reserved
+arrival **3.996700 s**, and final fold **4.162782 s**. All **17** events arrive
+and fold, across **17** push calls; landing, quiet, after-more and horizon offsets
+are **2242 pt**, with **0 pt** maximum sampled drift. This executes the r2
+ordering rather than depending on load to delay consumption.
+
+Failure diagnostics use complete JSON message strings or captured fixture
+stdout, including fixture-level checks. Timeline evidence includes all constructed arrival
+sequence numbers, not just the final cursor. The red captures demonstrate that
+a bad landing is reported immediately rather than hidden by the stable-away
+barrier. These are offscreen synchronous-transaction probes; visible production
+window animations were not measured.
+
+#### Executed counterfactuals
+
+Each mutant replaces shipping source files only in scratch and compiles them
+with the unchanged current probe. The timed mutants enter `followChanged` in
+`UIWindow.swift`, with a single scheduled task after a followed-text growth;
+the overlap-only trigger additionally requires an outstanding reveal. The
+short landing changes the search scroll body in `UISearchPalette.swift` to
+place the real clip **25 pt** from the end. The full revert copies all product
+fix files from the red-test commit. Compilation, probe health and scene setup
+failures cannot count as behavioral kills; native failures in the pure
+property runner are raised separately from expected assertion failures.
+
+| Scratch product mutant | Detecting regression / assertion |
+| --- | --- |
+| Tail jump after 250 ms | Gated quiet/landing displacement ≤2 pt. |
+| Drift of 0.5 pt per nominal 25 ms tick | Gated after-more/quiet displacement ≤2 pt. |
+| Tail jump after 2.3 s | Horizon distance >600 pt. Quiet and after-more remained at **2115 pt**, then horizon reached **8553 pt / 24 pt** from end, at **6.378992 s**. |
+| Landing 25 pt from end | `output_released` must be true. Actual release is false. |
+| Loss only when output overlaps a pending reveal | Streaming after-more distance >600 pt. Actual offsets **2298 → 2298 → 8128 → 8128**; after-more distance **134 pt**. The same binary passes the gated scene at offset **2194 pt** throughout. |
+| Full product fix reverted | Hooked streaming landing distance >600 pt; the bounded pure suspension invariant also fails. |
+| Own send blocked while suspended | Native own-send move must equal `.glide`. |
+| Plain A: suspend ordinary following with no near-end confirmation | Existing near-end stream distance ≤30 pt. |
+| B: set `atBottom=false` on reveal | Existing `notice_sets_at_bottom_false` mutation, near-end stream distance ≤30 pt, in `final-views`. |
+| Marker identity remount in place of visibility confirmation | Existing near-end stream distance ≤30 pt. |
+
+The five fix-2 mutants therefore still fail named regressions, including the
+previously missed late jump. The overlap-only/gated pair demonstrates why the
+independent streaming scenes remain necessary. No product mutant is committed.
+
+#### Environment and discovered follow/reveal suites
+
+Setup ran once through `uv_sync_hold.sh`, offline. It created the venv but
+stopped because uv's locked URL lookup lacked cached metadata for `pygments`.
+Recovered the already-created venv from eight exact locked local archive
+packages, including a CPython-compatible Hypothesis extension; no second setup
+invocation or download occurred. Verification reports **CPython 3.14.7**, GIL
+enabled (`Py_GIL_DISABLED=0`), **pytest 9.1.1**, **Hypothesis 6.168.1**.
+
+Every pytest uses `suite_hold.sh` in the foreground, one at a time, without
+xdist, via `uv run --no-sync python -m pytest -q -p no:cacheprovider`.
+`UV_PROJECT_ENVIRONMENT`, `UV_CACHE_DIR`, TMPDIR, Hypothesis storage, both
+`CLANG_MODULE_CACHE_PATH` and `SWIFT_MODULECACHE_PATH`, and all binaries are
+under `$(getconf DARWIN_USER_TEMP_DIR)sf-qtflake3`. The repository probe cache is
+a symlink into scratch. Nested compiler sandboxing uses the supported
+`SUBFLEET_SWIFT_NESTED_SANDBOX=off` setting. `HYPOTHESIS_PROFILE=ci` and finite
+per-test settings keep all searches bounded. Native windows remain offscreen.
+
+Discovery included the requested `followSuspended|FollowKey|conversationRowScroll|searchReveal`
+search and inspection of other frontend follow/reveal/scroll references. The
+additional holds, all under `tests/frontend/`, are:
+
+- `extra-follow-views`: `test_review_r219_fix4.py`, `test_review_r219_fix6.py`,
+  `test_review_r219_probes.py`, `test_reading_view.py`.
+- `extra-follow-core`: `test_core_queue_engine.py`, `test_core_approval_reach.py`,
+  `test_core_approval_notification.py`, `test_core_search.py`,
+  `test_core_timeline.py`, `test_review_r219_fix8_engine.py`.
+- `extra-follow-mutations`: `test_queue_tray_fix4_mutations.py`.
+
+#### Final validation holds
+
+Each row names its scratch log. Counts are pytest items; all final holds have
+zero failures, errors or skips. The required view/mutation hold is `final-views`;
+the required core/tray/module-name hold is `final-core`. The four new mutant
+holds contain **10** checks; the existing candidate-B check is already included
+in `final-views`, and is not counted twice.
+
+| Hold / log | UTC start | Passed | Failed | Pytest seconds |
+| --- | --- | ---: | ---: | ---: |
+| `final-views.log` | 08:43:57Z | 43 | 0 | 863.18 |
+| `final-core.log` | 08:58:58Z | 79 | 0 | 223.16 |
+| `extra-follow-views.log` | 09:21:09Z | 74 | 0 | 241.19 |
+| `extra-follow-core.log` | 09:25:58Z | 177 | 0 | 89.17 |
+| `extra-follow-mutations.log` | 09:28:47Z | 4 | 0 | 92.19 |
+| `mutants-a.log` | 09:04:01Z | 3 | 0 | 183.32 |
+| `mutants-b.log` | 09:09:02Z | 2 | 0 | 242.32 |
+| `mutants-c.log` | 09:14:41Z | 3 | 0 | 90.00 |
+| `mutants-d.log` | 09:16:46Z | 2 | 0 | 202.81 |
+| `loaded-1.log` | 09:31:18Z | 27 | 0 | 320.72 |
+| `loaded-2.log` | 09:36:56Z | 27 | 0 | 307.59 |
+| `loaded-3.log` | 09:42:06Z | 27 | 0 | 334.30 |
+| `loaded-4.log` | 09:47:43Z | 27 | 0 | 328.21 |
+| `loaded-5.log` | 09:53:22Z | 27 | 0 | 301.30 |
+
+The final validation total is **522 passes**. Five loaded
+holds contribute **135** passes. Each starts four CPU loops only after taking
+the lock; each loop has a **900 s** deadline. After pytest, the runner terminates
+and waits for every owned PID. All **20** workers were reaped. Across the five
+loaded holds, all **95** streaming scenes retain their landing offset with
+**0 pt** maximum sampled later drift. Including `final-views`, **114** current
+product streaming scenes pass. The loaded gated samples also have **0 pt**
+maximum drift; both catch-up cases pass in every loaded hold.
+
+| Loaded hold | Owned worker PIDs | Reaped status | Maximum sampled drift, pt | Sampled horizon range, s |
+| --- | --- | --- | ---: | --- |
+| 1 | 5859, 5860, 5861, 5862 | 4 × -15 | 0 | 6.307–7.494 |
+| 2 | 30873, 30875, 30876, 30877 | 4 × -15 | 0 | 6.304–7.365 |
+| 3 | 51314, 51317, 51318, 51319 | 4 × -15 | 0 | 6.304–7.375 |
+| 4 | 39400, 39403, 39407, 39410 | 4 × -15 | 0 | 6.301–7.535 |
+| 5 | 4474, 4477, 4478, 4480 | 4 × -15 | 0 | 6.301–9.060 |
+
+No requested check remains unrun. All holds ran sequentially and completed
+below **20 minutes**. No loaded run was retried and no source changed during
+the five-run sequence.
+
+#### Earlier round-3 diagnostic holds
+
+These are separate from the final validation total. Expected red position and
+pure-invariant failures establish the pre-fix fault; setup failures do not.
+The initial archive recovery selected an incompatible native Hypothesis
+extension, then selected the correct CPython ABI. During `red-ready`, I edited
+a probe while its compiler was reading it; Swift rejected that compilation.
+The eight pure behavior failures in that hold are valid, while its four view
+setup errors are not native trials. No later compiler input was edited during a build.
+
+| Diagnostic log | Passed | Failed | Setup errors | Pytest seconds | Meaning |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `red.log` | 0 | 0 | 2 | — | Incomplete native-extension recovery; collection only. |
+| `red-ready.log` | 3 | 8 | 4 | 137.98 | Native pure tests red; view compilation invalidated by an edit. |
+| `mechanism-red.log` | 2 | 2 | 0 | 119.74 | Both hooked landings fail; both unhooked controls pass. |
+| `mechanism-red-final.log` | 2 | 2 | 0 | 109.14 | Same result with obsolete delayed callbacks cancelled. |
+| `candidate-a.log` | 13 | 1 | 0 | 193.36 | Plain suspension guard fails near-end following. |
+| `candidate-complete.log` | 13 | 1 | 0 | 175.33 | Identity-based visibility recheck fails near-end following. |
+| `candidate-geometry.log` | 16 | 0 | 0 | 254.80 | Geometry confirmation passes all focused checks. |
+
+#### Round-3 commits and cleanup
+
+Step commits are `d4c8ca63a` (red tests, controlled staleness, delivery and
+failure capture) and `3f5ca2f4b` (product fix, near-end confirmation, late
+consumption regression and design contract). This report is the final step.
+Every commit carries `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+Shared Git metadata is outside the writable roots, so the assigned branch
+`fix/qt-distant-reveal-flake-217` is preserved in workspace-local `.git-local`.
+Inspect it with `GIT_DIR="$PWD/.git-local" GIT_WORK_TREE="$PWD" git log`.
+The supplied `.git` pointer and caller checkout remain unchanged.
+
+All managed foreground commands returned, and the worker table above records
+every owned CPU process reaped. The required process-list check was attempted;
+this sandbox denied enumeration (`sysmond service not found`). `lsof` on all
+**21** task hold logs returned no descriptors (exit 1, empty stdout/stderr).
+No foreign process was signalled.
+
+Removed the exact `sf-qtflake3` scratch root, including its venv, uv/Swift
+caches, probe/mutant binaries, logs and JSON captures, using `shutil.rmtree`
+guarded by `/sf-` and the exact root name. Removed the probe-cache symlink and
+empty workspace `build/`. No workspace `.hypothesis` directory remains.
+Workspace-local Git metadata is retained. Only named source, test, design and
+report files are staged; no logs, evidence or bundles are committed. No
+sub-agents were used. The installed app, live daemon and live state were not
+touched. Nothing was fetched, pushed, or posted to the PR.

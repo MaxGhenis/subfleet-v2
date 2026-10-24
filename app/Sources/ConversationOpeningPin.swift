@@ -7,18 +7,29 @@ import SwiftUI
 
 struct ConversationOpeningPin: NSViewRepresentable {
     var conversationID: String? = nil
+    var onRevealEndVisible: (UUID) -> Void = { _ in }
     func makeNSView(context: Context) -> OpeningPinView {
         let view = OpeningPinView()
         view.conversationID = conversationID
+        view.onRevealEndVisible = onRevealEndVisible
         return view
     }
     func updateNSView(_ view: OpeningPinView, context: Context) {
         view.conversationID = conversationID
+        view.onRevealEndVisible = onRevealEndVisible
         view.attach()
     }
 
-    static func revealRow(in conversationID: String) {
-        NotificationCenter.default.post(name: .conversationRowScroll, object: conversationID)
+    @discardableResult static func revealRow(in conversationID: String) -> UUID {
+        let request = UUID()
+        NotificationCenter.default.post(name: .conversationRowScroll, object: conversationID,
+                                        userInfo: ["request": request])
+        return request
+    }
+
+    static func didRevealRow(in conversationID: String, request: UUID) {
+        NotificationCenter.default.post(name: .conversationRowScrollCompleted, object: conversationID,
+                                        userInfo: ["request": request])
     }
 
     static func dismantleNSView(_ view: OpeningPinView, coordinator: ()) { view.detach() }
@@ -26,10 +37,12 @@ struct ConversationOpeningPin: NSViewRepresentable {
 
 extension Notification.Name {
     static let conversationRowScroll = Notification.Name("SubfleetConversationRowScroll")
+    static let conversationRowScrollCompleted = Notification.Name("SubfleetConversationRowScrollCompleted")
 }
 
 final class OpeningPinView: NSView {
     var conversationID: String?
+    var onRevealEndVisible: (UUID) -> Void = { _ in }
     private weak var scroll: NSScrollView?
     private var observers: [NSObjectProtocol] = []
     private var inputMonitor: Any?
@@ -57,6 +70,18 @@ final class OpeningPinView: NSView {
         observers.append(center.addObserver(forName: .conversationRowScroll, object: nil, queue: .main) { [weak self] note in
             guard let self, note.object as? String == self.conversationID else { return }
             self.personScrolled = true
+        })
+        observers.append(center.addObserver(forName: .conversationRowScrollCompleted, object: nil,
+                                             queue: .main) { [weak self] note in
+            guard let self, note.object as? String == self.conversationID,
+                  let request = note.userInfo?["request"] as? UUID,
+                  let scroll = self.scroll, let document = scroll.documentView else { return }
+            // A nearby reveal can leave the marker mounted, so no new onAppear
+            // would release suspension. Confirm its visibility from the presented
+            // clip after the scroll completes, independent of lazy callbacks.
+            let clip = scroll.contentView.bounds
+            let distance = document.isFlipped ? document.bounds.maxY - clip.maxY : clip.minY - document.bounds.minY
+            if distance <= Theme.space.column + 1 { self.onRevealEndVisible(request) }
         })
         observers.append(center.addObserver(forName: NSView.frameDidChangeNotification, object: document,
                                              queue: .main) { [weak self] _ in self?.schedulePin() })

@@ -1140,7 +1140,12 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   While Timeline.startReading's log read settles,
   changes jump to the end without animation. The person's own new send glides;
   other changes follow only with the end on screen. Remote event-only turns do
-  not count as the person's own send. Approval positioning on opening also has
+  not count as the person's own send. Explicit row reveals suspend ordinary
+  following before scrolling, including while a lazy end-marker disappearance
+  is pending. Following resumes on the marker's appearance, or when the matching
+  reveal's completed scroll confirms from presented geometry that the marker
+  stayed visible. The person's own send still glides while suspended.
+  Approval positioning on opening also has
   no animation; subsequent newly pending cards retain their explicit reveal.
 - A listed session that cannot continue here (a Codex-app thread) opens as a
   page saying why, instead of a failed `conversation.open`.

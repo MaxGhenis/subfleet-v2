@@ -1339,6 +1339,50 @@ follow_keys = st.fixed_dictionaries({
     "live": st.booleans(), "held": st.booleans()})
 
 
+@pytest.mark.parametrize("change", [{"last": "remote"}, {"followed": "tool"},
+                                  {"followed_length": 99}, {"tray": ["queued"]},
+                                  {"has_history": True}, {"live": True}, {"held": True}])
+def test_reveal_suspends_ordinary_follow_even_with_stale_end_marker(core_probe, change):
+    old = {**EMPTY_KEY, "settling": False}
+    pair = {"old": old, "new": {**old, **change}, "at_bottom": True, "suspended": True}
+    assert queue_words(core_probe, moves=[pair])["moves"] == ["stay"]
+
+
+@pytest.mark.parametrize("at_bottom", [False, True])
+def test_own_send_glides_while_reveal_suspends_follow(core_probe, at_bottom):
+    old = {**EMPTY_KEY, "settling": False, "last": "old", "local_send": "old"}
+    new = {**old, "last": "mine", "last_is_own_send": True, "local_send": "mine"}
+    assert queue_words(core_probe, moves=[{"old": old, "new": new, "at_bottom": at_bottom,
+                                          "suspended": True}])["moves"] == ["glide"]
+
+
+@st.composite
+def suspended_ordinary_pairs(draw):
+    old = {**draw(follow_keys), "settling": False}
+    # Exclude just the own-send exception, including its local-send identity
+    # check. A last row still tagged as an own send may be an old receipt.
+    new = draw(follow_keys.filter(lambda key: not (
+        key["last"] != old["last"] and key["last_is_own_send"]
+        and (key["local_send"] is None or key["local_send"] != old["local_send"]))))
+    return {"old": old, "new": {**new, "settling": False},
+            "at_bottom": draw(st.booleans()), "suspended": True}
+
+
+@settings(max_examples=30, deadline=None, derandomize=True)
+@given(pairs=st.lists(suspended_ordinary_pairs(), min_size=1, max_size=20))
+def test_property_suspended_ordinary_follow_always_stays(core_probe, pairs):
+    """Every non-settling pair outside the own-send exception stays while
+    suspended, even when lazy presentation still reports the end visible."""
+    assert queue_words(core_probe, moves=pairs)["moves"] == ["stay"] * len(pairs)
+
+
+@pytest.mark.parametrize("at_bottom,expected", [(False, "stay"), (True, "jump")])
+def test_suspended_catchup_still_follows_a_visible_end(core_probe, at_bottom, expected):
+    pair = {"old": EMPTY_KEY, "new": {**EMPTY_KEY, "has_history": True},
+            "at_bottom": at_bottom, "suspended": True}
+    assert queue_words(core_probe, moves=[pair])["moves"] == [expected]
+
+
 @st.composite
 def key_pairs(draw):
     """Two follow keys; often the second is the first with one field changed."""

@@ -314,6 +314,15 @@ extension View {
     }
 }
 
+#if SUBFLEET_VIEW_TEST
+// Stretch only the marker's presentation callback, without changing the follow
+// decision or scrolling. The probe can replay a slow lazy-stack disappearance.
+@MainActor enum ConversationFollowTest {
+    static var disappearanceDelay: Double = 0
+    static var record: ((String, [String: Any]) -> Void)?
+}
+#endif
+
 struct ConversationView: View {
     @ObservedObject var model: UIModel
     let conversation: Conversation
@@ -322,6 +331,10 @@ struct ConversationView: View {
     /// only then, so reading further up is not interrupted.
     @State private var atBottom = true
     @State private var followSuspended = false
+    @State private var rowReveal: UUID?
+    #if SUBFLEET_VIEW_TEST
+    @State private var markerDisappearance: Task<Void, Never>?
+    #endif
     @State private var renaming = false
     @State private var renamedTitle = ""
     /// The waiting cards already brought into view, so each is scrolled to once.
@@ -362,23 +375,19 @@ struct ConversationView: View {
                             }
                         }
                         Theme.clear.frame(height: 1).id("bottom")
-                            .onAppear { atBottom = true; followSuspended = false }
-                            .onDisappear { atBottom = false }
+                            .onAppear { endAppeared() }
+                            .onDisappear { endDisappeared() }
                     }
                     .padding(Theme.space.column)
-                    .background(ConversationOpeningPin(conversationID: conversation.conversation_id))
+                    .background(ConversationOpeningPin(conversationID: conversation.conversation_id,
+                                                       onRevealEndVisible: resumeFollow))
                     .conversationColumn(conversation.conversation_id, proxy: proxy,
                                         revealIDs: Set(layout?.items.map(\.id) ?? []))
                     .frame(maxWidth: .infinity)
                 }
                 .initialConversationScrollAnchor()
                 .onChange(of: follow) { old, new in
-                    switch FollowKey.move(from: old, to: new, atBottom: atBottom, suspended: followSuspended) {
-                    case .stay: break
-                    case .jump: jumpToBottom(proxy)
-                    case .glide:
-                        withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("bottom", anchor: .bottom) }
-                    }
+                    followChanged(from: old, to: new, proxy: proxy)
                 }
                 .onChange(of: approvalKey(timeline, pendingRows)) { _, _ in followApprovals(proxy) }
                 .onChange(of: model.approvalReveal) { _, _ in followApprovals(proxy) }
@@ -455,6 +464,8 @@ struct ConversationView: View {
             guard note.object as? String == conversation.conversation_id else { return }
             // Only the end marker owns atBottom. A reveal may leave it visible.
             followSuspended = true
+            rowReveal = note.userInfo?["request"] as? UUID
+            traceFollow("reveal")
         }
         .onChange(of: timeline?.liveMessageID) { _, _ in
             // A turn started or ended: an open pane compares again.
@@ -462,6 +473,62 @@ struct ConversationView: View {
                 Task { await model.loadChanges(scope) }
             }
         }
+    }
+
+    private func endAppeared() {
+        #if SUBFLEET_VIEW_TEST
+        markerDisappearance?.cancel()
+        #endif
+        atBottom = true; followSuspended = false
+        traceFollow("marker_appeared")
+    }
+
+    private func resumeFollow(_ request: UUID) {
+        // An older animation must not release a newer reveal's suspension.
+        guard rowReveal == request else { return }
+        followSuspended = false
+        traceFollow("reveal_end_visible")
+    }
+
+    private func endDisappeared() {
+        #if SUBFLEET_VIEW_TEST
+        traceFollow("marker_disappearing")
+        if ConversationFollowTest.disappearanceDelay > 0 {
+            let delay = ConversationFollowTest.disappearanceDelay
+            markerDisappearance?.cancel()
+            markerDisappearance = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1e9))
+                guard !Task.isCancelled else { return }
+                atBottom = false
+                traceFollow("marker_false")
+            }
+            return
+        }
+        #endif
+        atBottom = false
+        traceFollow("marker_false")
+    }
+
+    private func followChanged(from old: FollowKey, to new: FollowKey, proxy: ScrollViewProxy) {
+        let move = FollowKey.move(from: old, to: new, atBottom: atBottom, suspended: followSuspended)
+        #if SUBFLEET_VIEW_TEST
+        traceFollow("move", extra: ["move": String(describing: move),
+                    "old_length": old.followedLength, "new_length": new.followedLength,
+                    "settling": old.settling || new.settling])
+        #endif
+        switch move {
+        case .stay: break
+        case .jump: jumpToBottom(proxy)
+        case .glide:
+            withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("bottom", anchor: .bottom) }
+        }
+    }
+
+    private func traceFollow(_ event: String, extra: [String: Any] = [:]) {
+        #if SUBFLEET_VIEW_TEST
+        ConversationFollowTest.record?(conversation.conversation_id,
+            extra.merging(["event": event, "at_bottom": atBottom, "suspended": followSuspended]) { _, new in new })
+        #endif
     }
 
     private func jumpToBottom(_ proxy: ScrollViewProxy) {
@@ -510,16 +577,26 @@ struct ConversationView: View {
         let target = approvals.target(in: timeline, reveal: &reveal)
         if !reveal { model.revealed(id) }
         guard let target else { return }
-        ConversationOpeningPin.revealRow(in: id)
+        let request = ConversationOpeningPin.revealRow(in: id)
         // After this update's own scrolling (to the end, for a row that just
         // arrived), so the view settles on the card.
         DispatchQueue.main.async {
             if opening {
                 var transaction = Transaction(animation: nil)
                 transaction.disablesAnimations = true
-                withTransaction(transaction) { proxy.scrollTo(target, anchor: .center) }
+                withTransaction(transaction) {
+                    withAnimation(nil, completionCriteria: .removed) {
+                        proxy.scrollTo(target, anchor: .center)
+                    } completion: {
+                        ConversationOpeningPin.didRevealRow(in: id, request: request)
+                    }
+                }
             } else {
-                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(target, anchor: .center) }
+                withAnimation(.easeOut(duration: 0.2), completionCriteria: .removed) {
+                    proxy.scrollTo(target, anchor: .center)
+                } completion: {
+                    ConversationOpeningPin.didRevealRow(in: id, request: request)
+                }
             }
         }
     }

@@ -16,6 +16,16 @@ func withAnimation<Value>(_ animation: Animation? = .default, _ body: () -> Valu
     return SwiftUI.withTransaction(transaction, body)
 }
 
+func withAnimation<Value>(_ animation: Animation?, completionCriteria: AnimationCompletionCriteria,
+                          _ body: () -> Value, completion: @escaping () -> Void) -> Value {
+    ProbePresentation.animationCalls += 1
+    var transaction = Transaction(animation: nil)
+    transaction.disablesAnimations = true
+    return SwiftUI.withTransaction(transaction) {
+        SwiftUI.withAnimation(nil, completionCriteria: completionCriteria, body, completion: completion)
+    }
+}
+
 @MainActor func mountOffscreen(_ window: NSWindow) {
     let screens = NSScreen.screens.map(\.frame)
     let left = (screens.map(\.minX).min() ?? 0) - 10000
@@ -53,7 +63,8 @@ func event(_ seq: Int, _ mid: String, _ kind: String, _ data: [String: Any]) -> 
 }
 
 final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
-    private let lock = NSLock()
+    private let lock = NSCondition()
+    private let immediateDelivery: Bool
     private var log: [[String: Any]]
     private let catchupGate = NSCondition()
     private var catchupReleased = true
@@ -82,7 +93,8 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
         return result
     }
 
-    init(conversation: [String: Any], receipts: [[String: Any]], events: [[String: Any]]) {
+    init(conversation: [String: Any], receipts: [[String: Any]], events: [[String: Any]], immediateDelivery: Bool = false) {
+        self.immediateDelivery = immediateDelivery
         self.conversation = conversation
         self.receipts = receipts
         self.log = events
@@ -94,7 +106,7 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
     }
 
     func push(_ events: [[String: Any]]) {
-        lock.lock(); log += events; lock.unlock()
+        lock.lock(); log += events; lock.broadcast(); lock.unlock()
     }
 
     private func page(after: Int) -> [[String: Any]] {
@@ -136,7 +148,15 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
             }
             var events = page(after: after)
             if events.isEmpty, (value["wait_s"]?.double ?? 0) > 0 {
-                Thread.sleep(forTimeInterval: 0.03)
+                if immediateDelivery {
+                    // A real long poll wakes when output arrives. The streaming
+                    // scenes must not add an unrelated 30 ms polling delay.
+                    lock.lock()
+                    if !log.contains(where: { ($0["seq"] as! Int) > after }) {
+                        _ = lock.wait(until: Date().addingTimeInterval(15))
+                    }
+                    lock.unlock()
+                } else { Thread.sleep(forTimeInterval: 0.03) }
                 events = page(after: after)
             }
             out = ["events": events, "next": (events.last?["seq"] as? Int) ?? after, "reset": false]
@@ -199,7 +219,8 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
 
     init(_ cid: String, root: URL, prior: Int, priorText: (Int) -> String, tray: [String],
          pageDelay: Double = 0, pageSize: Int = 200, revealOnMount: String? = nil,
-         liveText: String = "the live request", pauseCatchup: Bool = false) async {
+         liveText: String = "the live request", pauseCatchup: Bool = false,
+         immediateDelivery: Bool = false) async {
         self.cid = cid
         var events: [[String: Any]] = []
         var receipts: [[String: Any]] = []
@@ -227,7 +248,8 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
             "workspace_kind": "in-place", "allow_main": false, "settings": ["model": "claude-opus-5-5", "fast": false, "permission": "ask", "auto_continue": true],
             "origin": "person", "created_at": "2026-10-20T00:00:00Z", "updated_at": "2026-10-20T00:00:00Z",
             "pending_approvals": 0, "active": true]
-        daemon = R4ViewDaemon(conversation: conversation, receipts: receipts, events: events)
+        daemon = R4ViewDaemon(conversation: conversation, receipts: receipts, events: events,
+                              immediateDelivery: immediateDelivery)
         daemon.pageDelay = pageDelay
         daemon.pageSize = pageSize
         if pauseCatchup { daemon.pauseCatchup() }
@@ -339,9 +361,17 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
         NSApplication.shared.setActivationPolicy(.prohibited)
         NSApp.finishLaunching()
         NSApp.setActivationPolicy(.accessory)
-        if CommandLine.arguments.last == "fix10" {
+        if let mode = CommandLine.arguments.last, mode.hasPrefix("fix10-streaming") {
             let root = URL(fileURLWithPath: CommandLine.arguments[1])
-            let result = await fix10Cases(root)
+            let only = mode == "fix10-streaming" ? nil : String(mode.dropFirst("fix10-streaming-".count))
+            let result = await streamingCases(root, only: only)
+            print(String(decoding: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), as: UTF8.self))
+            return
+        }
+        if let mode = CommandLine.arguments.last,
+           mode == "fix10" || mode == "fix10-far-text-50ms" {
+            let root = URL(fileURLWithPath: CommandLine.arguments[1])
+            let result = await fix10Cases(root, only: mode == "fix10" ? nil : "far_text_50ms")
             print(String(decoding: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), as: UTF8.self))
             return
         }
@@ -782,8 +812,32 @@ struct SettlingPageView: View {
 }
 
 
-// Reviewer r5's five distant targets, using the same real model, search
-// activation and reveal code. Arrival counts are finite; completion is state based.
+// Drive presentation until successive layout samples agree. Deadlines guard a
+// hung probe; neither a timestamp nor a fixed post-reveal sleep proves landing.
+@MainActor func stablePosition(_ host: NSView, awayFromEnd: Bool = false) async
+    -> (position: [String: Double], samples: Int) {
+    let deadline = Date().addingTimeInterval(60)
+    var previous: [String: Double] = [:]
+    var stable = 0
+    while Date() < deadline {
+        await settle(host, seconds: 0.02)
+        let current = sample(host)
+        let eligible = current["offset"] != nil && (!awayFromEnd || (current["from_end"] ?? 0) > 600)
+        // LazyVStack can revise its offscreen height estimate while the visible
+        // position stays fixed. Track the viewport geometry for this barrier.
+        let unchanged = ["offset", "viewport"].allSatisfy {
+            guard let old = previous[$0], let new = current[$0] else { return false }
+            return abs(old - new) <= 0.5
+        }
+        stable = eligible && unchanged ? stable + 1 : 0
+        if stable >= 3 { return (current, stable) }
+        previous = current
+    }
+    return (sample(host), stable)
+}
+
+// Reviewer r5's five distant targets, using the real model, search activation
+// and reveal code. No output is released until the actual reveal has landed.
 @MainActor func farReveal(_ name: String, root: URL, interval: Double, kind: String) async -> [String: Any] {
     let word = "zebraneedle"
     let scene = await Scene(name, root: root, prior: 30,
@@ -810,31 +864,65 @@ struct SettlingPageView: View {
     let results = SearchIndex(scene.model.state.searchCandidates()).search(word)?.results ?? []
     let match = results.first { $0.snippet?.itemID == "person:m000010" }
     var pushed = 0
+    var arrivalPages = 0
+    var landed = (position: start, samples: 0)
     if let match {
         scene.palette.activate(match)
+        let deadline = Date().addingTimeInterval(60)
+        while scene.palette.reveal != nil && Date() < deadline { await settle(scene.host, seconds: 0.02) }
+        landed = await stablePosition(scene.host, awayFromEnd: true)
+    }
+    let beforeOutput: [String: Any] = ["position": landed.position, "stable_samples": landed.samples,
+                                      "consumed": scene.palette.reveal == nil, "notices": notices.count]
+    let ready = match != nil && scene.palette.reveal == nil && notices.count == 2
+        && landed.samples >= 3 && (landed.position["from_end"] ?? 0) > 600
+    let watch = PositionWatch(scene.host, baseline: landed.position)
+    defer { watch.stop() }
+    var lastArrivalAt = 0.0
+    if ready {
         let count = interval > 0 ? Int((2.5 / interval).rounded(.up)) : 0
+        // The interval is now a stimulus after measured landing. Release one
+        // atomic page with the same finite arrivals, rather than let early
+        // chunks race the two-scroll reveal or depend on timer scheduling.
+        if count > 0 { await settle(scene.host, seconds: interval) }
+        var page: [[String: Any]] = []
         for _ in 0..<count {
             pushed += 1
             scene.seq += 1
             if kind == "text" {
-                scene.daemon.push([event(scene.seq, "live", "text.delta",
-                                         ["block": "live", "text": "chunk \(pushed) of streamed words\n"])])
+                page.append(event(scene.seq, "live", "text.delta",
+                                  ["block": "live", "text": "chunk \(pushed) of streamed words\n"]))
             } else {
-                scene.daemon.push([event(scene.seq, "live", "tool.started",
-                                         ["id": "t\(pushed)", "name": "Read", "summary": "file \(pushed)"])])
+                page.append(event(scene.seq, "live", "tool.started",
+                                  ["id": "t\(pushed)", "name": "Read", "summary": "file \(pushed)"]))
             }
-            await settle(scene.host, seconds: interval)
+        }
+        if !page.isEmpty {
+            lastArrivalAt = Date().timeIntervalSince(started)
+            scene.daemon.push(page)
+            arrivalPages += 1
         }
     }
-    let deadline = Date().addingTimeInterval(60)
-    while scene.palette.reveal != nil && Date() < deadline { await settle(scene.host, seconds: 0.02) }
     await scene.waitFolded(scene.seq)
-    await settle(scene.host, seconds: 0.8)
-    let quiet = sample(scene.host)
-    await scene.stream(20)
+    let quiet = await stablePosition(scene.host)
+    if ready {
+        lastArrivalAt = Date().timeIntervalSince(started)
+        await scene.stream(20)
+    }
+    let afterMore = await stablePosition(scene.host)
+    // Retain the original schedule's observation horizon as well as the gates.
+    // A stable early sample cannot rule out a delayed follow-to-tail task.
+    let horizon = started.addingTimeInterval(max(6.3, lastArrivalAt + 2.5))
+    while Date() < horizon { await settle(scene.host, seconds: 0.02) }
     return ["found": match != nil, "start": start, "notices_at": notices, "reveal_starts": starts,
             "reveal_consumed": scene.palette.reveal == nil, "caught_up": scene.caughtUp,
-            "pushed": pushed, "quiet": quiet, "after_more": sample(scene.host)]
+            "before_output": beforeOutput, "output_released": ready,
+            "folded_seq": scene.model.state.timelines[name]?.cursor ?? 0, "target_seq": scene.seq,
+            "pushed": pushed, "arrival_pages": arrivalPages,
+            "quiet": quiet.position, "quiet_stable_samples": quiet.samples,
+            "after_more": afterMore.position, "after_more_stable_samples": afterMore.samples,
+            "horizon": sample(scene.host), "horizon_at": Date().timeIntervalSince(started),
+            "last_arrival_at": lastArrivalAt, "horizon_max_drift": watch.maxDrift]
 }
 
 @MainActor func farOpening(_ name: String, root: URL, delay: Double, size: Int) async -> [String: Any] {
@@ -853,15 +941,240 @@ struct SettlingPageView: View {
             "reveal_consumed": scene.palette.reveal == nil, "notices": notices]
 }
 
-@MainActor func fix10Cases(_ root: URL) async -> [String: Any] {
+@MainActor func fix10Cases(_ root: URL, only: String? = nil) async -> [String: Any] {
     var out: [String: Any] = [:]
     for (name, interval, kind) in [("far_quiet", 0.0, "text"), ("far_text_50ms", 0.05, "text"),
                                    ("far_text_120ms", 0.12, "text"), ("far_rows_150ms", 0.15, "tool"),
-                                   ("far_rows_400ms", 0.4, "tool")] {
+                                   ("far_rows_400ms", 0.4, "tool")] where only == nil || only == name {
         out[name] = await farReveal(name, root: root, interval: interval, kind: kind)
     }
-    for (name, delay, size) in [("open_reveal_250", 0.25, 40), ("open_reveal_100", 0.1, 20)] {
+    for (name, delay, size) in [("open_reveal_250", 0.25, 40), ("open_reveal_100", 0.1, 20)] where only == nil || only == name {
         out[name] = await farOpening(name, root: root, delay: delay, size: size)
+    }
+    out["visible_windows"] = NSApp.windows.filter(\.isVisible).count
+    out["mounted_windows"] = ProbePresentation.mountedWindows
+    out["animation_calls"] = ProbePresentation.animationCalls
+    return out
+}
+// Passive samples cover the whole post-landing period, including waits for
+// folding and further output. Stability gates alone can accept slow drift.
+@MainActor final class PositionWatch {
+    var maxDrift = 0.0
+    private var timer: Timer?
+    init(_ host: NSView, baseline: [String: Double]) {
+        timer = Timer(timeInterval: 0.025, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let current = sample(host)
+                self.maxDrift = max(self.maxDrift, abs((current["offset"] ?? 0) - (baseline["offset"] ?? 0)))
+            }
+        }
+        RunLoop.main.add(timer!, forMode: .common)
+    }
+    func stop() { timer?.invalidate() }
+}
+
+// Daemon pushes run independently of the main actor's presentation work.
+final class RevealArrivals: @unchecked Sendable {
+    private let lock = NSLock()
+    private var times: [Double] = []
+    private var pages = 0
+    func push(_ events: [[String: Any]], to daemon: R4ViewDaemon, at: Double) {
+        lock.lock()
+        times += Array(repeating: at, count: events.count)
+        pages += 1
+        daemon.push(events)
+        lock.unlock()
+    }
+    var snapshot: (times: [Double], pages: Int) {
+        lock.lock(); defer { lock.unlock() }
+        return (times, pages)
+    }
+}
+
+@MainActor func streamingReveal(_ name: String, root: URL, kind: String,
+                                delay: Double = 0, interval: Double = 0,
+                                boundary: String? = nil, staleMarker: Bool = false,
+                                consumptionPause: Double = 0) async -> [String: Any] {
+    let word = "zebraneedle"
+    let scene = await Scene(name, root: root, prior: 30,
+                            priorText: { $0 == 10 ? "person message \($0) \(word) here" : "person message \($0) asks something" },
+                            tray: [], immediateDelivery: true)
+    await scene.stream(30)
+    // Construction counts, never runtime-dependent timer counts.
+    let count = boundary != nil ? 10 : interval > 0 ? Int((2.5 / interval).rounded(.up)) : 1
+    var events: [[String: Any]] = []
+    for index in 1...count {
+        scene.seq += 1
+        events.append(event(scene.seq, "live", kind == "text" ? "text.delta" : "tool.started",
+                            kind == "text" ? ["block": "live", "text": "overlap chunk \(index)\n"]
+                            : ["id": "overlap\(index)", "name": "Read", "summary": "file \(index)"]))
+    }
+    let sequences = events.map { $0["seq"] as! Int }
+    let arrivals = RevealArrivals()
+    var folds: [Int: Double] = [:]
+    var notices: [Double] = []
+    var starts = 0
+    var consumed = -1.0
+    var boundaryArrival = -1.0
+    var started = Date()
+    var producer: Task<Void, Never>?
+    let consumptionGate = DispatchSemaphore(value: 0)
+    var timeline: [[String: Any]] = []
+    ConversationFollowTest.disappearanceDelay = staleMarker ? 3 : 0
+    ConversationFollowTest.record = { cid, entry in
+        guard cid == name else { return }
+        timeline.append(entry.merging(["at": Date().timeIntervalSince(started), "position": sample(scene.host)]) { _, new in new })
+    }
+    var previousPosition: [String: Double] = [:]
+    let positionTimer = Timer(timeInterval: 0.025, repeats: true) { _ in
+        MainActor.assumeIsolated {
+            let position = sample(scene.host)
+            if position != previousPosition {
+                timeline.append(["event": "position", "at": Date().timeIntervalSince(started), "position": position])
+                previousPosition = position
+            }
+        }
+    }
+    RunLoop.main.add(positionTimer, forMode: .common)
+    let folded = scene.model.$state.sink { state in
+        let cursor = state.timelines[name]?.cursor ?? 0
+        for seq in sequences where seq <= cursor && folds[seq] == nil {
+            folds[seq] = Date().timeIntervalSince(started)
+        }
+    }
+    func burst(at time: Double) {
+        guard boundaryArrival < 0 else { return }
+        boundaryArrival = time
+        arrivals.push(events, to: scene.daemon, at: time)
+    }
+    let observer = NotificationCenter.default.addObserver(forName: .conversationRowScroll, object: nil,
+                                                          queue: .main) { note in
+        guard note.object as? String == name else { return }
+        let at = Date().timeIntervalSince(started)
+        notices.append(at)
+        if (boundary == "first_notice" && notices.count == 1)
+            || (boundary == "second_notice" && notices.count == 2) { burst(at: at) }
+        // Model a slow presentation turn after the second notice. Detached
+        // producers keep delivering; only the reserved trailing event waits
+        // for consumption, even after the nominal finite stream would end.
+        if notices.count == 2 && consumptionPause > 0 { Thread.sleep(forTimeInterval: consumptionPause) }
+    }
+    let startObserver = NotificationCenter.default.addObserver(forName: .init("subfleet.test.searchRevealStarted"),
+                                                               object: nil, queue: .main) { note in
+        guard note.object as? String == name else { return }
+        starts += 1
+        guard boundary == nil && producer == nil else { return }
+        let daemon = scene.daemon
+        let epoch = started
+        let page = events
+        producer = Task.detached {
+            // Absolute deadlines avoid accumulating main-actor or timer delay.
+            for (index, event) in page.enumerated() {
+                // Reserve the final event for actual consumption. Earlier
+                // arrivals retain their independent absolute schedule.
+                if interval > 0 && index == page.count - 1 {
+                    guard consumptionGate.wait(timeout: .now() + 60) == .success else { return }
+                }
+                let deadline = epoch.addingTimeInterval(delay + Double(index) * interval)
+                let wait = deadline.timeIntervalSinceNow
+                if wait > 0 { try? await Task.sleep(nanoseconds: UInt64(wait * 1e9)) }
+                if Task.isCancelled { return }
+                arrivals.push([event], to: daemon, at: Date().timeIntervalSince(epoch))
+            }
+        }
+    }
+    let consumption = scene.palette.$reveal.dropFirst().sink { value in
+        if value == nil && consumed < 0 {
+            consumed = Date().timeIntervalSince(started)
+            consumptionGate.signal()
+            if boundary == "consumption" { burst(at: consumed) }
+        }
+    }
+    defer {
+        producer?.cancel()
+        consumptionGate.signal()
+        positionTimer.invalidate()
+        ConversationFollowTest.record = nil
+        ConversationFollowTest.disappearanceDelay = 0
+        folded.cancel()
+        consumption.cancel()
+        NotificationCenter.default.removeObserver(observer)
+        NotificationCenter.default.removeObserver(startObserver)
+        scene.close()
+    }
+    let results = SearchIndex(scene.model.state.searchCandidates()).search(word)?.results ?? []
+    let match = results.first { $0.snippet?.itemID == "person:m000010" }
+    started = Date()
+    if let match { scene.palette.activate(match) }
+    let deadline = Date().addingTimeInterval(60)
+    if interval == 0 && boundary == nil {
+        // The early-input scenes need UIModel's two main-queue round trips to
+        // fold the page before the first notice. Repeated forced AppKit layout
+        // here can monopolize that queue for longer than the reveal's sleep.
+        // Pump delivery without forcing presentation until the input folds;
+        // the real reveal task and both of its timers continue running.
+        while folds.count < count && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.001))
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
+    }
+    while scene.palette.reveal != nil && Date() < deadline { await settle(scene.host, seconds: 0.02) }
+    // Do not require distance inside the wait: a bad landing must be reported
+    // promptly and rejected by Python, rather than hidden behind a timeout.
+    let landed = await stablePosition(scene.host)
+    let watch = PositionWatch(scene.host, baseline: landed.position)
+    defer { watch.stop() }
+    if match != nil { await scene.waitFolded(scene.seq) }
+    await producer?.value
+    let quiet = await stablePosition(scene.host)
+    let lastArrival = Date().timeIntervalSince(started)
+    await scene.stream(20)
+    let afterMore = await stablePosition(scene.host)
+    let horizon = started.addingTimeInterval(max(6.3, lastArrival + 2.5))
+    while Date() < horizon { await settle(scene.host, seconds: 0.02) }
+    let final = sample(scene.host)
+    let delivered = arrivals.snapshot
+    return ["found": match != nil, "caught_up": scene.caughtUp, "reveal_consumed": scene.palette.reveal == nil,
+            "notices_at": notices, "reveal_starts": starts, "consumed_at": consumed,
+            "stale_marker": staleMarker, "consumption_pause": consumptionPause, "timeline": timeline,
+            "pushed": delivered.times.count, "arrival_pages": delivered.pages,
+            "arrival_sequences": sequences, "arrivals_at": delivered.times, "folds_at": sequences.compactMap { folds[$0] },
+            "boundary_arrival_at": boundaryArrival,
+            "folded_seq": scene.model.state.timelines[name]?.cursor ?? 0, "target_seq": scene.seq,
+            "landed": landed.position, "landed_stable_samples": landed.samples,
+            "quiet": quiet.position, "after_more": afterMore.position, "horizon": final,
+            "horizon_at": Date().timeIntervalSince(started), "horizon_max_drift": watch.maxDrift]
+}
+
+@MainActor func streamingCases(_ root: URL, only: String? = nil) async -> [String: Any] {
+    var out: [String: Any] = [:]
+    for kind in ["text", "tool"] {
+        for delay in [0, 16, 50, 120] {
+            let name = "early_\(kind)_\(delay)ms"
+            if only == nil || only == name {
+                out[name] = await streamingReveal(name, root: root, kind: kind, delay: Double(delay) / 1000)
+            }
+        }
+        let name = "background_\(kind)"
+        if only == nil || only == name {
+            out[name] = await streamingReveal(name, root: root, kind: kind, interval: kind == "text" ? 0.05 : 0.15)
+        }
+        let staleName = "stale_\(kind)"
+        if only == staleName {
+            out[staleName] = await streamingReveal(staleName, root: root, kind: kind,
+                interval: kind == "text" ? 0.05 : 0.15, staleMarker: true)
+        }
+        for boundary in ["first_notice", "second_notice", "consumption"] {
+            let name = "burst_\(kind)_\(boundary)"
+            if only == nil || only == name {
+                out[name] = await streamingReveal(name, root: root, kind: kind, boundary: boundary)
+            }
+        }
+    }
+    if only == nil || only == "late_consumption_tool" {
+        out["late_consumption_tool"] = await streamingReveal("late_consumption_tool", root: root,
+            kind: "tool", interval: 0.15, consumptionPause: 3)
     }
     out["visible_windows"] = NSApp.windows.filter(\.isVisible).count
     out["mounted_windows"] = ProbePresentation.mountedWindows
