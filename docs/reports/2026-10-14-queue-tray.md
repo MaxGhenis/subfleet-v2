@@ -2936,11 +2936,28 @@ The workspace-local Git metadata is retained. No logs, JSON evidence or bundles
 are staged. No installed app, live store or live daemon was touched. Nothing
 was fetched or pushed.
 
-## D-QT-FLAKE1: distant-reveal sequencing and streaming coverage
+## D-QT-FLAKE1: stale end-marker following can override a search reveal
 
 ### Classification and evidence
 
-**Classification: CI cause unresolved.** Review r1 reproduced no product
+**Classification: product race reproduced.** CI reproduced the tail landing
+in the background streaming scene at `c621dfeca`. Round 3 deterministically
+replays an arrival folding after a reveal while the end marker still reports
+`atBottom=true`: ordinary follow ignores suspension and jumps to the tail.
+The executed trace and controls are recorded under Round 3 below; CI's original
+per-event timeline was truncated and cannot be reconstructed from its log.
+
+The product now honors suspension for ordinary following, preserves own sends
+and catch-up, and confirms a visible end after the matching scroll completes
+so a nearby reveal resumes following. Controlled stale-marker streaming,
+native bounded properties, coordinated post-consumption delivery, complete
+JSON failure capture, and the retained horizon cover the race and both reviews.
+Current test and mutation results are under Round 3. Historical measurements
+and step records below are retained as evidence of the earlier rounds.
+
+### Historical round-1/round-2 evidence
+
+Review r1 reproduced no product
 position race in **57 controlled offscreen scenes**, with **zero subsequent
 measured offset drift**. Its native-animation offscreen variants never
 established a distant landing, so those variants cannot explain CI's
@@ -3360,3 +3377,275 @@ is retained on the assigned branch. Only the named probe, Python test and
 report files were staged; no logs, JSON evidence or bundles were committed.
 The caller checkout, installed app, live daemon and live store were untouched.
 No fetch, push or PR comment occurred.
+
+### Round-3 product race, fix and validation
+
+#### Executed mechanism
+
+**Product race reproduced.** #254's macOS CI at `c621dfeca` (run
+40073908120, job 120813067585, Python 3.12, shard 1/5) reproduced the
+background-text scene landing **24 pt** from the end, after its reveal/count/
+folding/stability preconditions passed. Its gated counterpart passed. The CI
+capture lacks the full timeline. Round 3 establishes a mechanism with executed
+controlled ordering; it does not reconstruct the missing CI event timeline.
+
+The `SUBFLEET_VIEW_TEST` hook delays only publication of the end marker's
+`atBottom = false` by **3 s**. Appearance cancels an obsolete delayed callback.
+It neither changes `FollowKey.move` nor scrolls. The normal callback remains
+immediate in shipping builds. The probe records every arrival and fold (with
+sequence identities), every follow decision, marker disappearance/appearance/
+state publication, and changing viewport samples. Assertions and captured
+stdout use complete JSON strings, so pytest cannot truncate a dict repr.
+
+`mechanism-red-final.log` ran the original follow behavior with and without
+that callback delay. Both hooked scenes failed distant landing; both unhooked
+background controls passed. The text scene's decisive sequence, in seconds
+after activation, is:
+
+| Time | Executed event |
+| ---: | --- |
+| 0.942667 | Second reveal notice. |
+| 0.958031 | Marker disappearance requested while `atBottom=true`, suspension true; view **10,324 pt** from the end. |
+| 1.001037 | Background events fold after the second reveal. |
+| 1.043779 | `move=jump`, `settling=false`, suspension true, stale `atBottom=true`; view **9,389 pt** from the end. |
+| 1.116808 | Marker appears again and clears suspension. |
+| 1.192947 | A later follow decision observes the tail, **24 pt** from the end. |
+| 1.219409 | Passive viewport sample confirms **24 pt** from the end. |
+
+The first reveal was also overridden by a suspended stale-marker jump at
+**0.423857 s**. After the second override, ordinary arrivals keep the view at
+the tail. This executes the proposed stale-marker/follow ordering on the
+original decision function. Earlier reviews' successful offscreen streams did
+not exercise forced callback staleness; their success does not disprove it.
+
+Offsets below are points. Controls/red captures are from
+`mechanism-red-final/`; fixed captures are from `final-views/`, at `3f5ca2f4b`.
+All use the same deterministic background event construction.
+
+| Product / scene | Landing offset | After-more offset | Horizon offset | Landing / horizon distance from end |
+| --- | ---: | ---: | ---: | --- |
+| Original, unhooked text | 1960 | 1960 | 1960 | 5867 / 5363 |
+| Original, hooked text | 14860 | 15240 | 15240 | 24 / 24 |
+| Original, unhooked tool | 3009 | 3009 | 3009 | 6009 / 5658 |
+| Original, hooked tool | 10119 | 10119 | 10119 | 24 / 713 |
+| Fixed, hooked text | 2710 | 2710 | 2710 | 5467 / 5162 |
+| Fixed, hooked tool | 2512 | 2512 | 2512 | 5450 / 5297 |
+
+Both fixed hooked scenes have **0 pt** maximum sampled post-landing drift.
+The original tool scene already fails at its **24 pt** landing; after the hook
+expires, the later output can extend below that wrong position.
+
+#### Product rule and design choice
+
+Honor suspension for ordinary non-settling follow updates, after the own-send
+exception. The pure invariant is: for every old/new key pair with neither key
+settling, `suspended=true`, and no new own send, the move is `.stay`, including
+when `atBottom=true`. Own sends still `.glide`; the existing catch-up branch
+still jumps when the end is visible. `CoreProbeQueue` now accepts suspension
+so the native function is tested directly, including arbitrary key pairs,
+old own-send receipts, row/tray/growth/history/live/held changes, own sends,
+and both suspended catch-up positions. Hypothesis is bounded to **30** examples
+of at most **20** pairs for the new invariant.
+
+Candidate A alone is insufficient: `candidate-a.log` passed the distant race
+checks but failed the existing near-end reveal regression. After a reveal at
+**0 pt** from the end, its two streams left the viewport **856 / 1645 pt** away.
+A marker that stayed mounted produced no appearance callback to release
+suspension. An attempted identity-based marker recheck also failed that
+regression (`candidate-complete.log`, **849 / 1635 pt**).
+
+The chosen rule adds a completion confirmation to A. Each explicit timeline
+reveal carries a request UUID. Once its actual scroll transaction completes,
+the existing `OpeningPinView` checks the presented clip/document geometry for
+the end marker, including column padding and the marker's height. A matching
+completion may release suspension if the end stayed visible. An older
+completion cannot release a newer reveal. Marker callbacks continue to own
+`atBottom`; the fix neither synthesizes a false visibility state nor forces
+another scroll. Both animated reveals and nonanimated opening approvals use
+transaction completion. Tray-only reveals keep their existing behavior.
+
+In `final-views/` the near-end regression ends **0 / 24 / 24 pt** from the end
+at reveal / first stream / second stream. The distant hooked scenes stay put.
+This preserves design §12 and C-27.5/C-29.7/C-29.12, including the person's own
+send and the existing catch-up behavior. Candidate B (setting `atBottom=false`
+on a reveal) remains rejected by the existing near-end mutation regression.
+
+#### Streaming construction and failure capture
+
+Every previous gated, early, background, boundary, catch-up, horizon and passive
+maximum-drift assertion remains. The fix10 file adds separate delayed-marker
+text/tool regressions and a deliberately late-consumption regression. The
+full observation horizon remains at least **6.3 s**, including protection
+against the previously surviving **2.3 s** tail-jump mutant.
+
+For r2's P2, background producers keep independent absolute deadlines for
+all earlier events and reserve the final event for actual reveal consumption.
+They then honor its nominal deadline if it is still in the future. Counts
+remain exactly **50** text or **17** tool events/pages. Consequently at least
+the reserved arrival and its fold occur after consumption, even when the
+independent prefix has already ended.
+
+The new slow-consumption tool scene pauses the second-notice presentation
+turn for **3 s**, while the detached prefix keeps delivering. In `final-views/`,
+its penultimate arrival is **2.256478 s**, consumption **3.996622 s**, reserved
+arrival **3.996700 s**, and final fold **4.162782 s**. All **17** events arrive
+and fold, across **17** push calls; landing, quiet, after-more and horizon offsets
+are **2242 pt**, with **0 pt** maximum sampled drift. This executes the r2
+ordering rather than depending on load to delay consumption.
+
+Failure diagnostics use complete JSON message strings or captured fixture
+stdout, including fixture-level checks. Timeline evidence includes all constructed arrival
+sequence numbers, not just the final cursor. The red captures demonstrate that
+a bad landing is reported immediately rather than hidden by the stable-away
+barrier. These are offscreen synchronous-transaction probes; visible production
+window animations were not measured.
+
+#### Executed counterfactuals
+
+Each mutant replaces shipping source files only in scratch and compiles them
+with the unchanged current probe. The timed mutants enter `followChanged` in
+`UIWindow.swift`, with a single scheduled task after a followed-text growth;
+the overlap-only trigger additionally requires an outstanding reveal. The
+short landing changes the search scroll body in `UISearchPalette.swift` to
+place the real clip **25 pt** from the end. The full revert copies all product
+fix files from the red-test commit. Compilation, probe health and scene setup
+failures cannot count as behavioral kills; native failures in the pure
+property runner are raised separately from expected assertion failures.
+
+| Scratch product mutant | Detecting regression / assertion |
+| --- | --- |
+| Tail jump after 250 ms | Gated quiet/landing displacement ≤2 pt. |
+| Drift of 0.5 pt per nominal 25 ms tick | Gated after-more/quiet displacement ≤2 pt. |
+| Tail jump after 2.3 s | Horizon distance >600 pt. Quiet and after-more remained at **2115 pt**, then horizon reached **8553 pt / 24 pt** from end, at **6.378992 s**. |
+| Landing 25 pt from end | `output_released` must be true. Actual release is false. |
+| Loss only when output overlaps a pending reveal | Streaming after-more distance >600 pt. Actual offsets **2298 → 2298 → 8128 → 8128**; after-more distance **134 pt**. The same binary passes the gated scene at offset **2194 pt** throughout. |
+| Full product fix reverted | Hooked streaming landing distance >600 pt; the bounded pure suspension invariant also fails. |
+| Own send blocked while suspended | Native own-send move must equal `.glide`. |
+| Plain A: suspend ordinary following with no near-end confirmation | Existing near-end stream distance ≤30 pt. |
+| B: set `atBottom=false` on reveal | Existing `notice_sets_at_bottom_false` mutation, near-end stream distance ≤30 pt, in `final-views`. |
+| Marker identity remount in place of visibility confirmation | Existing near-end stream distance ≤30 pt. |
+
+The five fix-2 mutants therefore still fail named regressions, including the
+previously missed late jump. The overlap-only/gated pair demonstrates why the
+independent streaming scenes remain necessary. No product mutant is committed.
+
+#### Environment and discovered follow/reveal suites
+
+Setup ran once through `uv_sync_hold.sh`, offline. It created the venv but
+stopped because uv's locked URL lookup lacked cached metadata for `pygments`.
+Recovered the already-created venv from eight exact locked local archive
+packages, including a CPython-compatible Hypothesis extension; no second setup
+invocation or download occurred. Verification reports **CPython 3.14.7**, GIL
+enabled (`Py_GIL_DISABLED=0`), **pytest 9.1.1**, **Hypothesis 6.168.1**.
+
+Every pytest uses `suite_hold.sh` in the foreground, one at a time, without
+xdist, via `uv run --no-sync python -m pytest -q -p no:cacheprovider`.
+`UV_PROJECT_ENVIRONMENT`, `UV_CACHE_DIR`, TMPDIR, Hypothesis storage, both
+`CLANG_MODULE_CACHE_PATH` and `SWIFT_MODULECACHE_PATH`, and all binaries are
+under `$(getconf DARWIN_USER_TEMP_DIR)sf-qtflake3`. The repository probe cache is
+a symlink into scratch. Nested compiler sandboxing uses the supported
+`SUBFLEET_SWIFT_NESTED_SANDBOX=off` setting. `HYPOTHESIS_PROFILE=ci` and finite
+per-test settings keep all searches bounded. Native windows remain offscreen.
+
+Discovery included the requested `followSuspended|FollowKey|conversationRowScroll|searchReveal`
+search and inspection of other frontend follow/reveal/scroll references. The
+additional holds, all under `tests/frontend/`, are:
+
+- `extra-follow-views`: `test_review_r219_fix4.py`, `test_review_r219_fix6.py`,
+  `test_review_r219_probes.py`, `test_reading_view.py`.
+- `extra-follow-core`: `test_core_queue_engine.py`, `test_core_approval_reach.py`,
+  `test_core_approval_notification.py`, `test_core_search.py`,
+  `test_core_timeline.py`, `test_review_r219_fix8_engine.py`.
+- `extra-follow-mutations`: `test_queue_tray_fix4_mutations.py`.
+
+#### Final validation holds
+
+Each row names its scratch log. Counts are pytest items; all final holds have
+zero failures, errors or skips. The required view/mutation hold is `final-views`;
+the required core/tray/module-name hold is `final-core`. The four new mutant
+holds contain **10** checks; the existing candidate-B check is already included
+in `final-views`, and is not counted twice.
+
+| Hold / log | UTC start | Passed | Failed | Pytest seconds |
+| --- | --- | ---: | ---: | ---: |
+| `final-views.log` | 08:43:57Z | 43 | 0 | 863.18 |
+| `final-core.log` | 08:58:58Z | 79 | 0 | 223.16 |
+| `extra-follow-views.log` | 09:21:09Z | 74 | 0 | 241.19 |
+| `extra-follow-core.log` | 09:25:58Z | 177 | 0 | 89.17 |
+| `extra-follow-mutations.log` | 09:28:47Z | 4 | 0 | 92.19 |
+| `mutants-a.log` | 09:04:01Z | 3 | 0 | 183.32 |
+| `mutants-b.log` | 09:09:02Z | 2 | 0 | 242.32 |
+| `mutants-c.log` | 09:14:41Z | 3 | 0 | 90.00 |
+| `mutants-d.log` | 09:16:46Z | 2 | 0 | 202.81 |
+| `loaded-1.log` | 09:31:18Z | 27 | 0 | 320.72 |
+| `loaded-2.log` | 09:36:56Z | 27 | 0 | 307.59 |
+| `loaded-3.log` | 09:42:06Z | 27 | 0 | 334.30 |
+| `loaded-4.log` | 09:47:43Z | 27 | 0 | 328.21 |
+| `loaded-5.log` | 09:53:22Z | 27 | 0 | 301.30 |
+
+The final validation total is **522 passes**. Five loaded
+holds contribute **135** passes. Each starts four CPU loops only after taking
+the lock; each loop has a **900 s** deadline. After pytest, the runner terminates
+and waits for every owned PID. All **20** workers were reaped. Across the five
+loaded holds, all **95** streaming scenes retain their landing offset with
+**0 pt** maximum sampled later drift. Including `final-views`, **114** current
+product streaming scenes pass. The loaded gated samples also have **0 pt**
+maximum drift; both catch-up cases pass in every loaded hold.
+
+| Loaded hold | Owned worker PIDs | Reaped status | Maximum sampled drift, pt | Sampled horizon range, s |
+| --- | --- | --- | ---: | --- |
+| 1 | 5859, 5860, 5861, 5862 | 4 × -15 | 0 | 6.307–7.494 |
+| 2 | 30873, 30875, 30876, 30877 | 4 × -15 | 0 | 6.304–7.365 |
+| 3 | 51314, 51317, 51318, 51319 | 4 × -15 | 0 | 6.304–7.375 |
+| 4 | 39400, 39403, 39407, 39410 | 4 × -15 | 0 | 6.301–7.535 |
+| 5 | 4474, 4477, 4478, 4480 | 4 × -15 | 0 | 6.301–9.060 |
+
+No requested check remains unrun. All holds ran sequentially and completed
+below **20 minutes**. No loaded run was retried and no source changed during
+the five-run sequence.
+
+#### Earlier round-3 diagnostic holds
+
+These are separate from the final validation total. Expected red position and
+pure-invariant failures establish the pre-fix fault; setup failures do not.
+The initial archive recovery selected an incompatible native Hypothesis
+extension, then selected the correct CPython ABI. During `red-ready`, I edited
+a probe while its compiler was reading it; Swift rejected that compilation.
+The eight pure behavior failures in that hold are valid, while its four view
+setup errors are not native trials. No later compiler input was edited during a build.
+
+| Diagnostic log | Passed | Failed | Setup errors | Pytest seconds | Meaning |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `red.log` | 0 | 0 | 2 | — | Incomplete native-extension recovery; collection only. |
+| `red-ready.log` | 3 | 8 | 4 | 137.98 | Native pure tests red; view compilation invalidated by an edit. |
+| `mechanism-red.log` | 2 | 2 | 0 | 119.74 | Both hooked landings fail; both unhooked controls pass. |
+| `mechanism-red-final.log` | 2 | 2 | 0 | 109.14 | Same result with obsolete delayed callbacks cancelled. |
+| `candidate-a.log` | 13 | 1 | 0 | 193.36 | Plain suspension guard fails near-end following. |
+| `candidate-complete.log` | 13 | 1 | 0 | 175.33 | Identity-based visibility recheck fails near-end following. |
+| `candidate-geometry.log` | 16 | 0 | 0 | 254.80 | Geometry confirmation passes all focused checks. |
+
+#### Round-3 commits and cleanup
+
+Step commits are `d4c8ca63a` (red tests, controlled staleness, delivery and
+failure capture) and `3f5ca2f4b` (product fix, near-end confirmation, late
+consumption regression and design contract). This report is the final step.
+Every commit carries `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+Shared Git metadata is outside the writable roots, so the assigned branch
+`fix/qt-distant-reveal-flake-217` is preserved in workspace-local `.git-local`.
+Inspect it with `GIT_DIR="$PWD/.git-local" GIT_WORK_TREE="$PWD" git log`.
+The supplied `.git` pointer and caller checkout remain unchanged.
+
+All managed foreground commands returned, and the worker table above records
+every owned CPU process reaped. The required process-list check was attempted;
+this sandbox denied enumeration (`sysmond service not found`). `lsof` on all
+**21** task hold logs returned no descriptors (exit 1, empty stdout/stderr).
+No foreign process was signalled.
+
+Removed the exact `sf-qtflake3` scratch root, including its venv, uv/Swift
+caches, probe/mutant binaries, logs and JSON captures, using `shutil.rmtree`
+guarded by `/sf-` and the exact root name. Removed the probe-cache symlink and
+empty workspace `build/`. No workspace `.hypothesis` directory remains.
+Workspace-local Git metadata is retained. Only named source, test, design and
+report files are staged; no logs, evidence or bundles are committed. No
+sub-agents were used. The installed app, live daemon and live state were not
+touched. Nothing was fetched, pushed, or posted to the PR.
