@@ -2,9 +2,10 @@
 
 The hold exists so that retention never removes a folder under a live cwd
 (C-5.5, C-13.4). Kept as the job's exclusive `worktree:` key, it also refused
-`subfleet resume` of the job, and any writable turn into its worktree, for as
-long as someone had a shell there (`reason='worktree-lease'`, with nothing to
-resolve). It is now `worktree-read:<folder>:<job id>` held by `cwd:<job id>`
+`subfleet resume` of the job at submit (`reason='worktree-lease'`, with nothing
+to resolve), and held any writable turn into its worktree at admission
+(`lease-held` on that key, observed at 9b423bd26), for as long as someone had a
+shell there. It is now `worktree-read:<folder>:<job id>` held by `cwd:<job id>`
 (`folders.CWD`): it excludes no writer, retention honours it as it honours any
 reader row, and only the cwd worker releases it.
 
@@ -91,7 +92,7 @@ def test_r3_resume_is_admitted_while_a_finished_sources_observer_lives(observed)
 
 
 def test_r3_a_writable_turn_into_the_kept_worktree_is_admitted(observed):
-    """Writable turns submit as in-place writers (C-24.5); the reader row holds none back."""
+    """Held `lease-held` on the kept key at 9b423bd26; the reader row holds no turn back (C-24.5)."""
     daemon, harness, cwd = observed
     source_id, worktree = finished_writer(daemon, harness)
     _, _, turn = message_in(daemon, harness, "Inspecting the kept tree", workspace=worktree)
@@ -124,20 +125,25 @@ def test_r3_retention_keeps_the_folder_while_the_reader_row_lives_and_takes_it_a
 
 def test_r3_a_second_writer_is_still_refused_while_the_resume_holds_its_key(observed):
     """Invariant 3: exclusivity among live writers is C-6.5's, unchanged. A detached
-    in-place writer is refused at submit; a writable turn is never submitted."""
+    in-place writer is refused at submit; a writable turn is held at admission on the
+    resume's key (as 9b423bd26 held one on the source's kept key: not refused)."""
     daemon, harness, cwd = observed
     source_id, worktree = finished_writer(daemon, harness)
     resumed = resume_job(daemon, harness, source_id)
     daemon._admit()
     assert daemon.store.get_job(resumed)["state"] == "running"
+    writer_key = folders.exclusive_key(folders.canonical(worktree))
     with pytest.raises(AdapterError) as refused:
         daemon.submit(protocol.SubmitArgs(**harness.submit_args(
             workdir=worktree, sandbox="workspace-write", in_place=True)))
     assert refused.value.code == 7 and refused.value.reason == "worktree-lease"
-    with pytest.raises(AssertionError):         # `message_in`: the message has no job
-        message_in(daemon, harness, "Writing beside the resume", workspace=worktree)
+    _, _, turn = message_in(daemon, harness, "Writing beside the resume", workspace=worktree)
+    daemon._admit_turns()
+    assert not _live(daemon, turn)
+    hold = daemon._holds[turn]
+    assert hold["reason"] == "lease-held" and writer_key in hold["leases"], hold
     assert [key for key in leases(daemon) if key.startswith(folders.TURN)] == []
-    assert leases(daemon)[folders.exclusive_key(folders.canonical(worktree))] == resumed
+    assert leases(daemon)[writer_key] == resumed
 
 
 @pytest.mark.parametrize("resume", ["running", "finished"])
