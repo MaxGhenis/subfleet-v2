@@ -1626,10 +1626,16 @@ def _header_redaction(text: str, start: int, value_start: int, end: int, *,
     second scan reads it there, at a line start too (`_scrub`)."""
     last = _last_visible(text, end) + 1
     key = _key_past_line(text, value_start, end)
-    if key is None and (end == len(text) or text[end] == "\n"):
-        # A quote that closes the value ends a flag's, and a `Bearer`'s: their
-        # values may be past the line only when the value ends there.
-        key = _owned_item(text, value_start, last)
+    # A credential flag or `Bearer` that ends the value owns a value past it when the
+    # value ends at its line's end. When a closing quote ends it instead (the inline
+    # rule's, `_inline_value_end`), only a flag that whitespace parts from the quote
+    # does: it owns the quoted value after the quote, as with no header around it
+    # (`-H 'Cookie: a=1 --password 'SECRET7…'`, #239 review r3, P3-C). A `Bearer` there
+    # owns nothing, since its rule reads no token that starts with a quote, and nor
+    # does a flag glued to the quote (`_owns_past`).
+    quoted = end < len(text) and text[end] != "\n"
+    if key is None and (end == len(text) or text[end] == "\n" or quoted):
+        key = _owning_flag(text, value_start, last) if quoted else _owned_item(text, value_start, last)
         if key is None:
             joined = _secret_flag(text, value_start, last)
         elif not text.startswith("--", key):
@@ -1665,7 +1671,9 @@ def _header_redaction(text: str, start: int, value_start: int, end: int, *,
     parted = text[before:key] if before < key else " "
     if rescan and _header_name_at(text, key):
         return text[start:value_start] + REDACTED + parted, key
-    return text[start:value_start] + REDACTED + parted + text[key:last], end
+    # Before a closing quote, the whitespace that parts a kept flag from the quote stays:
+    # it is what lets the flag own the quoted value after it.
+    return text[start:value_start] + REDACTED + parted + text[key:end if quoted else last], end
 
 
 def _header_name_at(text: str, key: int) -> bool:
@@ -1770,23 +1778,36 @@ def _fold_value(text: str, end: int) -> tuple[int, int] | None:
     """The value the flag rule reads for a flag ending at `end` once daemon.log's
     folded line joins what follows it (`_FLAG_VALUE_RE` on the folded text): the next
     run of visible characters past any whitespace, line breaks and blank lines
-    included, unless it starts with `-`; None if there is none. A credential key,
-    flag or `Bearer` that ends the run and owns a value past it (`_key_past_line`,
-    `_owned_item`) is left to its own rule, as an enclosing rule leaves one: the span
-    ends before it, and is None when that leaves nothing."""
+    included, unless it starts with `-`; None if there is none. A run that starts at a
+    header's name (`_header_name_at`: `Cookie:x …` on the next line) is that header's
+    whole line, to its last visible character: the run would take the name and leave
+    the rest of the line to no rule, and with no run taken a name that holds a secret
+    would show (#239 review r3, P2-B). A credential key, flag or `Bearer` that ends the
+    span and owns a value past it (`_kept_span`) is left to its own rule, as an
+    enclosing rule leaves one: the span ends before it, and is None when that leaves
+    nothing."""
     value = _run_end(text, end)
     if value == end or value >= len(text) or text[value] == "-":
         return None
+    if _header_name_at(text, value):
+        stop = text.find("\n", value)
+        return _kept_span(text, value, _last_visible(text, len(text) if stop < 0 else stop) + 1)
     return _kept_span(text, value, _VISIBLE_RUN_RE.match(text, value).end())
 
 
 def _kept_span(text: str, start: int, stop: int) -> tuple[int, int] | None:
     """`(start, stop)`, ended before a credential key, flag or `Bearer` that ends it and
     owns a value past it (`_key_past_line`, `_owned_item`), which is left to its own
-    rule as an enclosing rule leaves one; None when that leaves nothing."""
+    rule as an enclosing rule leaves one, and before any credential flag that ends it
+    and may own a value past it (`_ending_flag`), a flag whose name reads as a secret
+    included: the flag rule takes that flag with the value daemon.log's folded line
+    gives it, which a span that took only the flag would leave to no rule (#239 review
+    r3, P2-A). None when that leaves nothing."""
     item = _key_past_line(text, start, stop)
     if item is None:
         item = _owned_item(text, start, stop)
+    if item is None:
+        item = _ending_flag(text, start, stop)
     if item is not None:
         stop = _last_visible(text, item) + 1
     return (start, stop) if stop > start else None
@@ -1904,6 +1925,7 @@ def _scrub_inline_headers(text: str, tally: "_Tally", *, line_start: bool = Fals
     hits = [(size - hit.end(), size - hit.start()) for hit in _INLINE_HEADER_REVERSED_RE.finditer(reverse)]
     for start, hit_end in reversed(hits):
         gap, scanned = scanned, hit_end
+        word = start
         if start > cursor and _identifier_char(text[start - 1]):
             start = max(cursor, start - (_IDENTIFIER_RE.match(reverse, size - start).end() - (size - start)))
         # A name that starts its line, after whitespace only, is the line-start rule's
@@ -1915,24 +1937,37 @@ def _scrub_inline_headers(text: str, tally: "_Tally", *, line_start: bool = Fals
                 continue
         if start < cursor:
             continue                            # inside the value just taken
+        # The rule keeps a header's name, but a name whose part before its header word
+        # reads as a secret (`_value_runs`: `SECRET7…Authorization:`) loses that part,
+        # whatever becomes of its value (#239 review r3, P3-B). The second scan reads
+        # names at a line start too, so a line-start header's loses it there.
+        named = word > start and bool(_value_runs(text[start:word]))
         value_start = _WHITESPACE_RUN_RE.match(text, hit_end).end()
-        if value_start == len(text) or text.startswith(REDACTED, value_start):
+        # A value at the text's end or already redacted is left alone, and so is one
+        # that starts at the next line's own header (#239 review r2, P2-3), or one that
+        # a closing quote leaves empty.
+        skip = (value_start == len(text) or text.startswith(REDACTED, value_start)
+                or ("\n" in text[hit_end:value_start] and _header_name_at(text, value_start)))
+        if not skip:
+            if line_end < value_start:
+                line_end = text.find("\n", value_start)
+                if line_end < 0:
+                    line_end = len(text)
+            end = line_end
+            if start and text[start - 1] in "\"'":
+                if escapes is None:
+                    escapes = {run.end(): len(run.group()) for run in _BACKSLASH_RUN_RE.finditer(text)
+                               if text[run.end():run.end() + 1] in ("'", '"')}
+                end = _inline_value_end(text, start - 1, value_start, line_end, escapes)
+            skip = end <= value_start
+        if skip:
+            if named:
+                parts.extend((text[cursor:start], tally(text[start:word], REDACTED)))
+                cursor = word
             continue
-        if "\n" in text[hit_end:value_start] and _header_name_at(text, value_start):
-            continue                            # that line's header is its own (#239 review r2, P2-3)
-        if line_end < value_start:
-            line_end = text.find("\n", value_start)
-            if line_end < 0:
-                line_end = len(text)
-        end = line_end
-        if start and text[start - 1] in "\"'":
-            if escapes is None:
-                escapes = {run.end(): len(run.group()) for run in _BACKSLASH_RUN_RE.finditer(text)
-                           if text[run.end():run.end() + 1] in ("'", '"')}
-            end = _inline_value_end(text, start - 1, value_start, line_end, escapes)
-        if end <= value_start:
-            continue                            # the value is the closing quote's: empty
         out, stop = _header_redaction(text, start, value_start, end, rescan=True)
+        if named:
+            out = REDACTED + out[word - start:]
         parts.extend((text[cursor:start], tally(text[start:stop], out, header=True)))
         cursor = stop
     parts.append(text[cursor:])
