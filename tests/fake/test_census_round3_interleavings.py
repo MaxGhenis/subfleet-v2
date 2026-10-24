@@ -21,7 +21,7 @@ import contextlib
 import os
 from pathlib import Path
 
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, example, given, settings, strategies as st
 import pytest
 
 from subfleet import daemon as daemon_module, folders, procs, retention
@@ -209,6 +209,11 @@ def world(root: Path):
 
 @BOUNDED
 @given(steps=st.lists(STEPS, min_size=1, max_size=8))
+# The review's shape, and the orders this round's rule is about, whatever is drawn:
+@example(steps=["end-observed", "resume", "observer-leaves", "worker", "retention", "finish-resume", "retention"])
+@example(steps=["end-observed", "turn", "restart", "worker", "observer-leaves", "worker", "retention"])
+@example(steps=["end-observed", "resume", "turn", "finish-resume", "turn", "observer-leaves", "worker"])
+@example(steps=["end-quiet", "observer-enters", "retention", "resume", "restart", "worker", "retention"])
 def test_r3_interleavings_keep_folders_retained_holds_open_and_writers_exclusive(tmp_path_factory, steps):
     root = tmp_path_factory.mktemp("r3-world") / "state"
     root.mkdir()
