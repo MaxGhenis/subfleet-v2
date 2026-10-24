@@ -1339,6 +1339,34 @@ follow_keys = st.fixed_dictionaries({
     "live": st.booleans(), "held": st.booleans()})
 
 
+@pytest.mark.parametrize("change", [{"last": "remote"}, {"followed": "tool"},
+                                  {"followed_length": 99}, {"tray": ["queued"]},
+                                  {"has_history": True}, {"live": True}, {"held": True}])
+def test_reveal_suspends_ordinary_follow_even_with_stale_end_marker(core_probe, change):
+    old = {**EMPTY_KEY, "settling": False}
+    pair = {"old": old, "new": {**old, **change}, "at_bottom": True, "suspended": True}
+    assert queue_words(core_probe, moves=[pair])["moves"] == ["stay"]
+
+
+@pytest.mark.parametrize("at_bottom", [False, True])
+def test_own_send_glides_while_reveal_suspends_follow(core_probe, at_bottom):
+    old = {**EMPTY_KEY, "settling": False, "last": "old", "local_send": "old"}
+    new = {**old, "last": "mine", "last_is_own_send": True, "local_send": "mine"}
+    assert queue_words(core_probe, moves=[{"old": old, "new": new, "at_bottom": at_bottom,
+                                          "suspended": True}])["moves"] == ["glide"]
+
+
+@settings(max_examples=30, deadline=None, derandomize=True)
+@given(keys=st.lists(st.tuples(follow_keys, follow_keys, st.booleans()), min_size=1, max_size=20))
+def test_property_suspended_ordinary_follow_always_stays(core_probe, keys):
+    """Any non-settling pair that is not an own send stays while suspended,
+    including when lazy presentation still reports the end visible."""
+    pairs = [{"old": {**old, "settling": False},
+              "new": {**new, "settling": False, "last_is_own_send": False},
+              "at_bottom": bottom, "suspended": True} for old, new, bottom in keys]
+    assert queue_words(core_probe, moves=pairs)["moves"] == ["stay"] * len(pairs)
+
+
 @st.composite
 def key_pairs(draw):
     """Two follow keys; often the second is the first with one field changed."""

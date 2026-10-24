@@ -984,7 +984,7 @@ final class RevealArrivals: @unchecked Sendable {
 
 @MainActor func streamingReveal(_ name: String, root: URL, kind: String,
                                 delay: Double = 0, interval: Double = 0,
-                                boundary: String? = nil) async -> [String: Any] {
+                                boundary: String? = nil, staleMarker: Bool = false) async -> [String: Any] {
     let word = "zebraneedle"
     let scene = await Scene(name, root: root, prior: 30,
                             priorText: { $0 == 10 ? "person message \($0) \(word) here" : "person message \($0) asks something" },
@@ -1008,6 +1008,24 @@ final class RevealArrivals: @unchecked Sendable {
     var boundaryArrival = -1.0
     var started = Date()
     var producer: Task<Void, Never>?
+    let consumptionGate = DispatchSemaphore(value: 0)
+    var timeline: [[String: Any]] = []
+    ConversationFollowTest.disappearanceDelay = staleMarker ? 3 : 0
+    ConversationFollowTest.record = { cid, entry in
+        guard cid == name else { return }
+        timeline.append(entry.merging(["at": Date().timeIntervalSince(started), "position": sample(scene.host)]) { _, new in new })
+    }
+    var previousPosition: [String: Double] = [:]
+    let positionTimer = Timer(timeInterval: 0.025, repeats: true) { _ in
+        MainActor.assumeIsolated {
+            let position = sample(scene.host)
+            if position != previousPosition {
+                timeline.append(["event": "position", "at": Date().timeIntervalSince(started), "position": position])
+                previousPosition = position
+            }
+        }
+    }
+    RunLoop.main.add(positionTimer, forMode: .common)
     let folded = scene.model.$state.sink { state in
         let cursor = state.timelines[name]?.cursor ?? 0
         for seq in sequences where seq <= cursor && folds[seq] == nil {
@@ -1038,6 +1056,11 @@ final class RevealArrivals: @unchecked Sendable {
         producer = Task.detached {
             // Absolute deadlines avoid accumulating main-actor or timer delay.
             for (index, event) in page.enumerated() {
+                // Reserve the final event for actual consumption. Earlier
+                // arrivals retain their independent absolute schedule.
+                if interval > 0 && index == page.count - 1 {
+                    guard consumptionGate.wait(timeout: .now() + 60) == .success else { return }
+                }
                 let deadline = epoch.addingTimeInterval(delay + Double(index) * interval)
                 let wait = deadline.timeIntervalSinceNow
                 if wait > 0 { try? await Task.sleep(nanoseconds: UInt64(wait * 1e9)) }
@@ -1049,11 +1072,16 @@ final class RevealArrivals: @unchecked Sendable {
     let consumption = scene.palette.$reveal.dropFirst().sink { value in
         if value == nil && consumed < 0 {
             consumed = Date().timeIntervalSince(started)
+            consumptionGate.signal()
             if boundary == "consumption" { burst(at: consumed) }
         }
     }
     defer {
         producer?.cancel()
+        consumptionGate.signal()
+        positionTimer.invalidate()
+        ConversationFollowTest.record = nil
+        ConversationFollowTest.disappearanceDelay = 0
         folded.cancel()
         consumption.cancel()
         NotificationCenter.default.removeObserver(observer)
@@ -1094,8 +1122,9 @@ final class RevealArrivals: @unchecked Sendable {
     let delivered = arrivals.snapshot
     return ["found": match != nil, "caught_up": scene.caughtUp, "reveal_consumed": scene.palette.reveal == nil,
             "notices_at": notices, "reveal_starts": starts, "consumed_at": consumed,
+            "stale_marker": staleMarker, "timeline": timeline,
             "pushed": delivered.times.count, "arrival_pages": delivered.pages,
-            "arrivals_at": delivered.times, "folds_at": sequences.compactMap { folds[$0] },
+            "arrival_sequences": sequences, "arrivals_at": delivered.times, "folds_at": sequences.compactMap { folds[$0] },
             "boundary_arrival_at": boundaryArrival,
             "folded_seq": scene.model.state.timelines[name]?.cursor ?? 0, "target_seq": scene.seq,
             "landed": landed.position, "landed_stable_samples": landed.samples,
@@ -1115,6 +1144,11 @@ final class RevealArrivals: @unchecked Sendable {
         let name = "background_\(kind)"
         if only == nil || only == name {
             out[name] = await streamingReveal(name, root: root, kind: kind, interval: kind == "text" ? 0.05 : 0.15)
+        }
+        let staleName = "stale_\(kind)"
+        if only == staleName {
+            out[staleName] = await streamingReveal(staleName, root: root, kind: kind,
+                interval: kind == "text" ? 0.05 : 0.15, staleMarker: true)
         }
         for boundary in ["first_notice", "second_notice", "consumption"] {
             let name = "burst_\(kind)_\(boundary)"
