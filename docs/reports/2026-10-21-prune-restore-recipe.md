@@ -1001,3 +1001,120 @@ tests/unit/test_suggestion_structural_errors.py
 - the report and PR body commits that add this section and its results
 
 Every commit was made on this job's detached checkout of the shared repository, through the shared Git metadata, with the requested co-author trailer. Nothing was pushed.
+
+## Fix round 2: review r2's three P3s (#244 review r2)
+
+Fix round on head `63d40ae42`, begun 2026-10-23 at 19:51 UTC. Review r2 requested changes at `783886d46`. Its P1 was the duplicated C-20.6 that the release merge left; the hub fixed it at `63d40ae42`, keeping one line with both sides' edits. This round confirms that fix and answers the three P3s. Nothing is pushed.
+
+### The P1, confirmed at the head
+
+- **One C-20.6.** `grep -o '^- \*\*C-[0-9]*\.[0-9]*\*\*' docs/acceptance-contract.md | sort | uniq -d` prints nothing, at `63d40ae42` and at every commit of this round.
+- **Release's test passes.** `test_live_store_guard_round10.py::test_r2_p3_docstring_and_contract_list_the_same_out_of_scope_items` passed at `63d40ae42` (hold 0, 1 passed), and again in hold 2 on this round's last code commit.
+
+### P3-1: the limit names reads out of the store, and pickling or copying raises
+
+- **The limit.** C-20.6 said the whole limit was a test that copies a value into a local by hand, plus variables set after configure. Review r2 printed inherited dummies through reads that bind no local: `dict(store)`, `store[name]`, `store._values`, `gc.get_referents(store)`, `pickle.dumps(store)` under `-vv`, and `store.__reduce_ex__(4)`. The clause now reads: "a test that reads a value out of the store (by name, `dict()`, `_values` or `__getstate__`) or copies one by hand can still print it, as can a test that prints a variable set after configure". This report's limit and the PR body say the same.
+- **The hardening.** `RemovedCredentials` defines `__reduce__` and `__reduce_ex__`, and both raise `TypeError("RemovedCredentials cannot be pickled or copied: it would carry the removed values (D-PRR1)")`. The message holds no name and no value.
+  - `test_c20_6_the_store_cannot_be_pickled_or_copied` executes it for eleven carriers: `pickle.dumps` at each protocol from 0 to 5, `copy.copy`, `copy.deepcopy`, `copy.deepcopy` of a dict holding the store, and direct calls to `__reduce__` and `__reduce_ex__`. Each raises that `TypeError`, and its message holds no part of either dummy.
+  - **Why `__getstate__` replaces "pickling" in the reviewer's wording.** With the hardening, pickling raises. But `object.__getstate__`, which the class does not override, still returns `(None, {"_values": …})` for a slotted instance, so a test that calls `store.__getstate__()` holds the values. `test_c20_6_a_value_read_out_of_the_store_by_hand_is_the_value_documented_limitation` executes the four reads the limit names (by name, `dict()`, `_values`, `__getstate__`) and asserts that each gives the value. It is marked `documented_limitation`, so closing one of them is a deliberate change to the test and the clause.
+- **No legitimate path breaks.** A search of `subfleet/`, `tests/`, `tools/`, `bin/` and `app/` for `deepcopy`, `copy.copy`, `copy.replace`, `pickle`, `__reduce`, `__getstate__`, `copyreg` and `multiprocessing` finds none applied to the store or to a config that holds it. The only users of `RemovedCredentials` are `remove_credentials`, `restore_credentials`, `tests/conftest.py` and `test_session_credential_env.py`. The seven `test_live_store_guard*` modules that run a nested `pytest_configure` and `pytest_unconfigure` passed whole in hold 2.
+
+### P3-2: the kernel's copy of the start-up environment
+
+C-20.6's limit gains one sentence: "The kernel also keeps the environment the process started with, which `KERN_PROCARGS2` returns, so after the removal `ps -E`, and `peers.process_chain` on the test process itself, still read every inherited value." No code changed.
+
+The probe (`probe_kern.py`, scratch only, run in hold 0) started a child Python whose whole environment was `PATH`, `HOME=/var/empty`, `LC_ALL=C` and one dummy, `PRR1F2_PROBE_TOKEN=SECRET7prr1f2probe…`. The child removed it with this tree's `home_paths.remove_credentials(os.environ)` and printed only booleans:
+
+| Read, after the removal | Holds the dummy |
+| --- | --- |
+| `os.environ` (and the store holds the name) | no |
+| libc `getenv` | no (`NULL`) |
+| `sysctl` `KERN_PROCARGS2` for its own pid | **yes** (the name too) |
+| `ps -wwE -p <own pid>` | **yes** |
+| `peers.process_chain(os.getpid())`, with the process table limited to the child itself, so no ancestor's environment was read | **yes**, in the one `Proc`'s `command` |
+| control: `KERN_PROCARGS2` of a process the child started after the removal | no |
+
+After the probe, `restore_credentials` put the dummy back. The probe's report held no part of the dummy.
+
+### P3-3: M9 is caught under `-l` alone
+
+- **The change.** `tests/credential_store_child.py` gains `test_compares_the_baseline_snapshot`: `assert pytestconfig._subfleet_original_home_env == {}`. It is a test of its own, beside `test_binds_the_baseline_snapshot` at line 26, because that test's `assert not snapshot` fails first, so an assertion after it would never run.
+- **Why it catches M9 without `-vv`.** pytest 9.1.1 explains a failing `==` between two dicts by listing the left's extra items, sorted by name, and below `-vv` it cuts the explanation after the first few. At the head the child's diff showed `'CLAUDE_CONFIG_DIR': None`, `'CLAUDE_LANE_AGENT_SECRET': None`, `'HOME': …`, `'PATH': …` and `'SUBFLEET_AGENT_SECRET': None` under `-l --tb=long`, then "Full output truncated (22 lines hidden)". With M9, the two credential entries print with their inherited values.
+- **The regression's checks.** `test_c20_6_a_test_holding_the_store_prints_no_part_of_a_dummy` now expects 7 failures, and checks that the diff printed (`Left contains N more items:`, `'CLAUDE_LANE_AGENT_SECRET': None,` and `'SUBFLEET_AGENT_SECRET': None,`), so the channel was searched.
+- **Executed in hold 0,** on scratch copies, with ten inherited dummies: at the head, both option sets printed no part of any dummy. With M9, `-l --tb=long` printed `CLAUDE_LANE_AGENT_SECRET`'s and `SUBFLEET_AGENT_SECRET`'s values, both inside `test_compares_the_baseline_snapshot`'s diff, and `-q -l --tb=long -vvv` printed them too.
+- **Executed in the final hold,** as mutants M9 and M9-before below: with M9, both options of the store-holding regression fail. On `63d40ae42`'s two test files, which lack the comparison, M9 fails the `review-r1` option only and the `showlocals` option passes, as review r2 found.
+
+### Regressions and mutations
+
+- **Regressions this round:**
+  - `test_c20_6_the_store_cannot_be_pickled_or_copied`, eleven cases (P3-1). With the hardening removed (M13) all eleven fail. Three fail on the message alone: pickle protocols 0 and 1 and a direct `__reduce__()` already raised Python's own `TypeError` ("a class that defines `__slots__` without defining `__getstate__` cannot be pickled"). The other eight did not raise at all: protocols 2 to 5, `copy`, both `deepcopy` cases and `__reduce_ex__`.
+  - `test_c20_6_a_test_holding_the_store_prints_no_part_of_a_dummy`, both options, through the new `test_compares_the_baseline_snapshot` (P3-3): M9 now fails both.
+- **The limit, executed:** `test_c20_6_a_value_read_out_of_the_store_by_hand_is_the_value_documented_limitation` passes at the head and under M13.
+- **Mutants,** on a scratch copy of `1ee08d4d4`, each run as one pytest of `test_session_credential_env.py` with the `-k` selection shown, one at a time, in the final hold. Each restored its files afterwards.
+
+| Mutant | Selection (`-k`) | Failed | Passed |
+| --- | --- | --- | ---: |
+| M0: none (the head) | `holding_the_store or pickled or by_hand or session_check_failing or shows_names_only` | — | 17 |
+| M9: the snapshot keeps values | `holding_the_store` | both options, `showlocals` and `review-r1` | 0 |
+| M9-before: M9 on `63d40ae42`'s `test_session_credential_env.py` and `credential_store_child.py` | `holding_the_store` | `review-r1` only | 1: `showlocals`, as review r2 found |
+| M6: the session check binds `dict(store)` | `session_check_failing` | both options of `test_c20_6_the_session_check_failing_prints_no_part_of_a_dummy` | 0 |
+| M7: the store's `__repr__` shows its values | `shows_names_only or holding_the_store` | the invariant 2 property and both store-holding options | 0 |
+| M8: the store is a `collections.abc.Mapping` | `shows_names_only or holding_the_store` | both store-holding options | 1: the property, which renders but does not compare, as in round 1 |
+| M13 (new): `__reduce__` and `__reduce_ex__` removed | `pickled or by_hand` | all eleven `test_c20_6_the_store_cannot_be_pickled_or_copied` cases | 1: the documented limitation, by design |
+
+M6, M7 and M8 fail the same tests as in round 1 and review r2.
+
+### How the holds ran
+
+- **Environment.** One venv, built once through the hub's setup wrapper: Python 3.14.7 (GIL), pytest 9.1.1, Hypothesis 6.168.1. Every pytest ran `<venv>/bin/python -m pytest -q -p no:cacheprovider` under a 1,140-second alarm, with `TMPDIR` and Hypothesis's storage in scratch.
+- **Credentials.** Every hold started with the job's five inherited credential-shaped variables unset (`env -u`: `SSH_AUTH_SOCK` and four integration tokens). One dummy, `PRR1_HOLD_TOKEN=SECRET7holdf2…`, was set for each session to remove. No log holds any part of it.
+- **Prune root.** A job-only plugin in the private venv (`-p sfr244f2_root`) pointed `tests/failed_keep.ROOT` at scratch for this job's own sessions, and for the exploration's child sessions, so they neither kept nor pruned anything under `/tmp/sf-failed`. The regressions' own child sessions run with a minimal environment and without the plugin, so they ran the session-start prune, as every session does (#247).
+- **Holds, serially, each through the suite wrapper.** The lock was heavily contended.
+
+| Hold | Tree | What ran | Wait for a slot | Result | Run time |
+| --- | --- | --- | ---: | --- | ---: |
+| 0 | `63d40ae42`; scratch copies of `9c751a3f2` plus the new child test, with and without M9 | step 0's test; the P3-3 exploration (four child pytests); the P3-2 probe | 58 min | 1 passed; as above | 17 s; 70 s; under 1 s |
+| 1, withdrawn | the worktree | hold 1's selection, submitted at 21:47:25 UTC and withdrawn at 23:30:49 UTC while still waiting, before any test ran | 103 min | — | — |
+| final | the worktree at `1ee08d4d4`; a scratch copy of it for the mutants | hold 1's pytest, then hold 2's pytest, then the mutants, one process at a time | 26 min | 162 passed; 899 passed; mutants as above | 174 s; 339 s; 352 s |
+
+- **How this differs from the brief.** The brief asked for one pytest per hold. Each of review r2's two selections did run as one pytest of its own, unsplit, but hold 1's ran in the same slot as hold 2's and the mutants, one after another. Hold 0 had waited 58 minutes and hold 1 103 minutes without a slot; two more waits like these would have passed the 4 h 30 m cutoff (00:21 UTC) with hold 2 and the mutants unrun. The slot was held for 14 min 34 s, under the 20-minute bound.
+
+### Test counts
+
+Every briefed selection ran whole: 1,061 tests, all passed, none skipped.
+
+| File | Passed | Failed | Skipped |
+| --- | ---: | ---: | ---: |
+| `tests/unit/test_session_credential_env.py` | 47 | 0 | 0 |
+| `tests/unit/test_prune_restore.py` | 20 | 0 | 0 |
+| `tests/unit/test_prune_decisions.py` | 48 | 0 | 0 |
+| `tests/unit/test_prune_decision_backup_verification.py` | 23 | 0 | 0 |
+| `tests/unit/test_prune_decision_fingerprints.py` | 15 | 0 | 0 |
+| `tests/unit/test_prune_217.py` | 9 | 0 | 0 |
+| `tests/unit/test_live_store_guard.py` | 324 | 0 | 0 |
+| `tests/unit/test_live_store_guard_round3.py` | 22 | 0 | 0 |
+| `tests/unit/test_live_store_guard_round4.py` | 8 | 0 | 0 |
+| `tests/unit/test_live_store_guard_round5.py` | 11 | 0 | 0 |
+| `tests/unit/test_live_store_guard_round6.py` | 112 | 0 | 0 |
+| `tests/unit/test_live_store_guard_round7.py` | 50 | 0 | 0 |
+| `tests/unit/test_live_store_guard_round7_mutations.py` | 23 | 0 | 0 |
+| `tests/unit/test_live_store_guard_round8.py` | 100 | 0 | 0 |
+| `tests/unit/test_live_store_guard_round8_mutations.py` | 4 | 0 | 0 |
+| `tests/unit/test_live_store_guard_round9.py` | 89 | 0 | 0 |
+| `tests/unit/test_live_store_guard_round9_mutations.py` | 12 | 0 | 0 |
+| `tests/unit/test_live_store_guard_round10.py` and `_round10_mutations.py`, together | 84 | 0 | 0 |
+| `tests/unit/test_live_store_guard_state_root.py` | 22 | 0 | 0 |
+| `tests/fake/test_state_contract.py` | 37 | 0 | 0 |
+| `tests/unit/test_test_module_names.py` | 1 | 0 | 0 |
+
+- **How the per-file counts were found.** The holds ran with `-q`, which prints totals only: 162 for hold 1 and 899 for hold 2. `test_session_credential_env.py` has round 1's 35 tests plus this round's twelve. Every other file in these selections is unchanged since round 1's `7323d6d1d` except the two `round10` files, which release's #245 changed; round 1's per-file counts give exactly 162 for hold 1. For hold 2 they give 815 for the other fourteen files, leaving 84 for the two `round10` files together (round 1: 60 and 13). Hold 2's 899 matches review r2's 898 passed and 1 failed.
+- **Not run this round:** review r1's 81 files left to CI in round 1, and the rest of the suite. This round changed `subfleet/home_paths.py`, two test files and the docs; the only code that uses `RemovedCredentials` is `home_paths` itself, `tests/conftest.py`, which every session runs, and `test_session_credential_env.py`, which ran whole.
+
+### Commits in this round
+
+- `9c751a3f2`: fix: the store cannot be pickled or copied, and C-20.6's limit names reads out of it (D-PRR1 r2)
+- `33a3661d0`: docs: C-20.6's limit names the kernel's copy of the start-up environment (D-PRR1 r2)
+- `1ee08d4d4`: test: comparing the baseline snapshot with a dict catches M9 under -l alone (D-PRR1 r2)
+- the commit that adds this section and updates the PR body
+
+Every commit was made on this job's detached checkout of the shared repository, through the shared Git metadata, with the requested co-author trailer. Nothing was pushed.

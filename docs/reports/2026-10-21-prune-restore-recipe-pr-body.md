@@ -1,6 +1,6 @@
 ## The restore recipe's fence survives any path, and a test session keeps inherited credentials out of its reports (D-PRR1)
 
-Full report: `docs/reports/2026-10-21-prune-restore-recipe.md`. Fix round 1 answers review r1's P1 and merges `release/217` at `e345f0803`; its section is at the end of the report. The PR's title still says no test failure can print a credential, which round 1 shows is too strong; this heading is the suggested replacement.
+Full report: `docs/reports/2026-10-21-prune-restore-recipe.md`. Fix round 1 answers review r1's P1 and merges `release/217` at `e345f0803`. Fix round 2 answers review r2's three P3s, on the hub's merge of the two C-20.6 lines at `63d40ae42`. Each round's section is at the end of the report. The PR's title still says no test failure can print a credential, which round 1 shows is too strong; this heading is the suggested replacement.
 
 ### Cause
 
@@ -86,10 +86,19 @@ The session check binding the store itself (no `dict`) is an intended survivor: 
 
 The build's whole-suite inventory (8,630 passed in `tests/unit` and 452 in `tests/fake`, with three sandbox-only failures) and review r1's further 3,267 cases stand as reported. The report lists which of review r1's 95 unrun files this round ran.
 
+### Round 2 (review r2's P3s)
+
+- **P3-1.** C-20.6's limit now says a test that reads a value out of the store (by name, `dict()`, `_values` or `__getstate__`) or copies one by hand can still print it. `RemovedCredentials` raises `TypeError` from `__reduce__` and `__reduce_ex__`, so pickle and copy carry no value. Nothing in the repository pickles or copies the store.
+- **P3-2.** The limit names the kernel's copy: after the removal, `KERN_PROCARGS2`, `ps -E` and `peers.process_chain` on the test process still read each inherited value. A probe with one dummy executed each read. No code changed.
+- **P3-3.** `tests/credential_store_child.py` compares the baseline snapshot with `{}`. pytest's dict diff lists its entries sorted, so mutant M9 (the snapshot keeps values) is now caught under `-l --tb=long` alone as well as under `-q -l --tb=long -vvv`.
+- **Tests.** `test_c20_6_the_store_cannot_be_pickled_or_copied` covers eleven pickle and copy paths, and all eleven fail without the hardening. A `documented_limitation` test executes the four reads out of the store that the limit names.
+  - Review r2's hold 1 passed 162 tests and its hold 2 passed 899, each as one pytest.
+  - Mutants M9, M6, M7, M8 and the new M13 each fail their named tests.
+
 ### Merge
 
 `release/217` at `e345f0803` (#212, #223, #232, #238 and #243) is merged in `973857899`. The one conflict was the contract's change log, where both sides added entries; all are kept, newest first. Release changed neither C-11.5 nor C-20.6, nor any file this PR changes.
 
-Nothing was pushed by the build or by round 1.
+Nothing was pushed by the build, round 1 or round 2.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
