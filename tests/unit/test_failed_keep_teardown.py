@@ -8,6 +8,9 @@ fails or passes with a `close()` that raises or returns:
 - a `close()` that raised keeps the root too, as the live app test's `dev_daemon` does;
 - close()'s own error is still the teardown's error;
 - a passing test whose `close()` returned keeps nothing.
+A test whose setup fails keeps its root as well (#247 review r1, P3-2): a fixture built on the harness that raises,
+as `conv`'s daemon start does when its 10 s wait times out under load, ends the test before its call, so a keep
+decided by the call report alone kept nothing. A setup that skips keeps nothing unless `close()` raised.
 The kept roots go to a scratch folder, never the real one CI uploads.
 """
 from __future__ import annotations
@@ -43,7 +46,7 @@ def dev_app():
 ''',
 }
 
-SCRATCH = '''
+HELPERS = '''
 import subprocess
 import pytest
 
@@ -60,7 +63,9 @@ def closing(harness, raises):
             raise subprocess.TimeoutExpired(["python", "-m", "tests.fake.run_daemon"], 2)
     harness.close = close
     (harness.root / "evidence.txt").write_text("written by the test")
+'''
 
+SCRATCH = HELPERS + '''
 
 @CASES
 def test_fails(HARNESS, raises):
@@ -122,3 +127,59 @@ def test_a_copy_that_fails_never_replaces_close_s_error(pytester, monkeypatch, t
         assert report.longrepr.reprcrash.message.startswith("subprocess.TimeoutExpired"), report.longrepr.reprcrash
         assert "could not keep the state root" in report.capstderr
     assert (tmp_path / "kept").read_text() == "a file where the kept-roots folder should be\n"
+
+
+#: Fixtures built on the harness that end its setup, as `conv`, `hooked` and `dispatching` in
+#: tests/e2e/test_conversations.py can: each starts the daemon during setup, so a start whose wait times out
+#: under load fails the test's setup, and its call never runs.
+SETUP_SCRATCH = HELPERS + '''
+
+@pytest.fixture
+def started(HARNESS, raises):
+    closing(HARNESS, raises)
+    HARNESS.until(lambda: False, timeout=0)      # the harness's own wait, timing out as a slow daemon start's does
+
+
+@pytest.fixture
+def skipped(HARNESS, raises):
+    closing(HARNESS, raises)
+    pytest.skip("deliberate skip")
+
+
+@CASES
+def test_setup_fails(started, raises):
+    pass
+
+
+@CASES
+def test_setup_skips(skipped, raises):
+    pass
+'''
+
+
+@pytest.mark.parametrize("harness", sorted(CONFTESTS))
+def test_a_test_whose_setup_fails_keeps_its_root(pytester, monkeypatch, tmp_path, harness):
+    monkeypatch.setattr(failed_keep, "ROOT", tmp_path / "kept")
+    pytester.makeconftest(CONFTESTS[harness])
+    pytester.makepyfile(test_scratch_setup=SETUP_SCRATCH.replace("HARNESS", harness))
+    run = pytester.inline_run("-p", "no:cacheprovider", "-q")
+    reports = {(report.nodeid.split("::")[-1], report.when): report
+               for report in run.getreports("pytest_runtest_logreport")}
+    tests = [f"test_setup_{end}[close_{close}]" for end in ("fails", "skips") for close in ("raises", "returns")]
+    assert sorted(reports) == sorted((test, when) for test in tests for when in ("setup", "teardown")), \
+        "every test ends in setup: none has a call report"
+    for test in tests:
+        assert reports[(test, "setup")].outcome == ("failed" if "fails" in test else "skipped")
+        assert reports[(test, "teardown")].outcome == ("failed" if "close_raises" in test else "passed")
+    for test in ("test_setup_fails[close_raises]", "test_setup_fails[close_returns]"):
+        assert "condition timed out" in str(reports[(test, "setup")].longrepr)
+
+    # A failed setup keeps the root whether or not close() raised; a skipped one only when close() raised.
+    kept_tests = ("test_setup_fails[close_raises]", "test_setup_fails[close_returns]", "test_setup_skips[close_raises]")
+    for name in kept_tests:
+        keep = failed_keep.failed_keep_dir(name)
+        assert (keep / "evidence.txt").is_file(), f"{name} kept nothing"
+        assert (keep / "evidence.txt").read_text() == "written by the test"
+        assert (keep / "closed.txt").is_file(), f"{name}'s root was copied before close() ran"
+    kept = {path.name for path in (tmp_path / "kept").glob("*/*")}
+    assert kept == {failed_keep.failed_keep_dir(name).name for name in kept_tests}
