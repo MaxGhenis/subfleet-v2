@@ -61,7 +61,8 @@ from .contracts import (
     AttestationResult, ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
     Reading, ReadingLabel, Sandbox, attempt_dir,
 )
-from .credentials import env_references, reference_repair, resolve_credential, startup_lanes, withheld_references
+from .credentials import (env_references, ignored_hooks, reference_repair, resolve_credential, startup_lanes,
+                          withheld_references)
 from .provider_env import ProviderEnvironment
 from .launch_env import environment_report, guardian_pass_args, helper_policy
 from .guardian import atomic_publish, stream_digest
@@ -69,7 +70,7 @@ from .frozen_stream import InvalidFrozenStream, freeze_stream, read_freeze_recei
 from .lockwatch import LockWatch
 from .waits import WaitHub
 from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as policy_cap, check_lane_credentials,
-                     disk_settings, flatten_chain, held_lane_message, load_policy, policy_hash, ramp_settings,
+                     disk_settings, flatten_chain, load_policy, policy_hash, ramp_settings, startup_notes,
                      resolve_model, turn_cap)
 from .retention import RetentionState, maintenance
 from .retention_git import discard_registration
@@ -662,6 +663,9 @@ class Daemon:
     #: C-6.17: the last latch written to the store (`_save_disk_latch`).
     _disk_saved_hold = False
     _disk_saved_source = "policy"
+    #: D-ENV2 (review r1 of #248, P3-1): the harness hooks of the lanes.json rows
+    #: startup ignored, withheld from every launch (`_open_lanes`); none before it.
+    _ignored_hooks: frozenset[str] = frozenset()
 
     @property
     def _disk(self) -> disk.DiskAdmission:
@@ -917,7 +921,8 @@ class Daemon:
         self._control_thread: threading.Thread | None = None
         from .timers import Timers
         self.timers = Timers(self.store, self.root, self.policy, turn=self._timer_turn, adapter_factory=self._adapter,
-                             deliver=self._timer_notice, demand=self._reset_demand)
+                             deliver=self._timer_notice, demand=self._reset_demand,
+                             references=self._withheld_references)
         # C-23.16 (f): the policy is read once, here; say what it means for resets.
         resets = self.timers.actions.describe()
         self.log.info("reset credits: automatic redemption %s; no-reset marker %s",
@@ -1381,12 +1386,17 @@ class Daemon:
         the daemon: it is held (the scheduler's `credential-refused`, and the
         resolve guard's `credential-env-inherited` behind it), and daemon.log
         names it with the fix. Seeding repairs it from a fixed lanes.json row.
+        A refused row for a lane already stored does not stop it either: seeding
+        never stores that row, so it is ignored, said in the lane's one warning
+        (review r5, P3-1). An ignored row's harness hook is remembered here and
+        withheld from every launch, as a held lane's is (review r1 of #248, P3-1).
         """
         roster = self._roster()
-        held = check_lane_credentials(self.policy, policy_path, startup_lanes(roster, self.store.list_lanes()))
+        found = check_lane_credentials(self.policy, policy_path, startup_lanes(roster, self.store.list_lanes()))
         self._seed_lanes(roster)
-        for lane_id, name in held:
-            self.log.warning("%s", held_lane_message(lane_id, name))
+        self._ignored_hooks = ignored_hooks(found)
+        for text in startup_notes(found):
+            self.log.warning("%s", text)
 
     def _seed_lanes(self, roster: list) -> None:
         for row in roster:
@@ -3245,8 +3255,9 @@ class Daemon:
         return env_references(self.store.list_lanes())
 
     def _withheld_references(self) -> frozenset[str]:
-        """D-ENV1: the names every launch withholds for the lanes (`credentials.withheld_references`)."""
-        return withheld_references(self.store.list_lanes())
+        """D-ENV1: the names every launch withholds for the lanes (`credentials.withheld_references`),
+        and the hooks of the lanes.json rows startup ignored (`credentials.ignored_hooks`)."""
+        return withheld_references(self.store.list_lanes()) | self._ignored_hooks
 
     def _credential_environment(self, lane: Lane) -> dict[str, str]:
         return self._provider_environment.additions(lane.provider, resolve_credential(lane.credential))

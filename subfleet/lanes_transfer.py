@@ -66,6 +66,7 @@ from typing import Any
 
 from .contracts import Exit
 from .home_paths import home_path
+from .launch_env import lane_reference, refused_reference
 from .sessions.transcripts import NotRegularFile, read_regular
 from .store import Store, utc_now
 
@@ -87,6 +88,9 @@ V1_STATE_DIR = Path("~/chief-of-staff/state/subfleet").expanduser()
 #: home moves here on `--to v2` so v1's directory glob cannot find it anywhere.
 LANE_HOMES_DIR = "lanes"
 V2_LIVE_STATES = ("reserved", "starting", "running", "finalizing", "quarantined")
+#: D-ENV2: a held lane (C-10.5) is repaired before it moves.
+HELD_LANE_FIX = ("point the lane at a daemon variable no launch inherits in lanes.json (same lane id, "
+                 "provider and account), restart the daemon, then transfer it")
 
 
 class TransferError(Exception):
@@ -311,12 +315,37 @@ def v1_codex_scope(home: Path, roster_dir: Path,
 
 # --- the v2 roster ------------------------------------------------------------
 
+def _repair_refused_row(row: dict[str, Any], lane: dict[str, Any], home: str | None) -> None:
+    """D-ENV2 (review r1 of #248, P3-3): a lanes.json row for the transferred
+    lane whose env-kind variable is refused (`launch_env.refused_reference`) takes
+    the store's own credential, which `plan_transfer` has already accepted: a held
+    lane is refused before this (`transfer-held`).
+
+    Startup ignores such a row while the store holds the lane (C-10.5), but a
+    store rebuilt from the file would refuse it, so a transfer, which writes the
+    file for exactly that rebuild, never leaves one behind. The credential is
+    written in the row's own shape: a `credential` object, or the flat fields.
+    """
+    found = lane_reference(row)
+    if not found or not refused_reference(found[1]):
+        return
+    credential = {"kind": lane["credential_kind"], "ref": home if home is not None else lane["credential_ref"],
+                  "epoch": lane["credential_epoch"]}
+    if isinstance(row.get("credential"), dict):
+        row["credential"] = {**row["credential"], **credential}
+    else:
+        row.update({f"credential_{key}": value for key, value in credential.items()})
+
+
 def _v2_roster_edit(state_root: Path, lane: dict[str, Any], to_owner: str,
                     home: str | None = None) -> RosterEdit:
     """`<state root>/lanes.json` is the daemon's seed file (`daemon._seed_lanes`).
 
     A store rebuilt from it must come back with the ownership the transfer set,
-    so the lane's row is added when the file does not name it yet.
+    so the lane's row is added when the file does not name it yet. Each of its
+    rows that names a refused variable is repaired to the store's credential
+    (`_repair_refused_row`), so no transfer leaves a row that would refuse that
+    rebuild.
     """
     path = state_root / V2_ROSTER
     before = _read_text(path)
@@ -330,12 +359,14 @@ def _v2_roster_edit(state_root: Path, lane: dict[str, Any], to_owner: str,
     if not isinstance(rows, list):
         raise TransferError(f"{path} does not hold a lane list", Exit.OPERATIONAL, reason="transfer-roster")
     rows = [dict(row) for row in rows if isinstance(row, dict)]
-    for row in rows:
-        if row.get("lane_id") == lane["lane_id"]:
-            row["owner"] = to_owner
-            if home is not None:
-                row["home"] = row["credential_ref"] = home
-            break
+    own = [row for row in rows if row.get("lane_id") == lane["lane_id"]]
+    for row in own:
+        _repair_refused_row(row, lane, home)
+    if own:
+        row = own[0]
+        row["owner"] = to_owner
+        if home is not None:
+            row["home"] = row["credential_ref"] = home
     else:
         rows.append({
             "lane_id": lane["lane_id"], "provider": lane["provider"],
@@ -524,6 +555,14 @@ def plan_transfer(store: Store, state_root: Path, lane_id: str, to_owner: str, *
         raise TransferError(f"unknown lane {lane_id}", Exit.INVALID_INPUT,
                             "subfleet lanes list", reason="unknown-lane",
                             details={"action": "transfer", "lane_id": lane_id})
+    if (held := lane_reference(row)) and refused_reference(held[1]):
+        # D-ENV2 (review r5, P3-1): a held lane holds no credential either owner
+        # could use, and its row would put a refused variable into lanes.json
+        # (or, left out, lose the transfer from a rebuilt store). Repair it first.
+        raise TransferError(f"lanes transfer: lane {lane_id} is held (credential-refused="
+                            f"{held[1]}): it holds no credential to move",
+                            Exit.REFUSED, HELD_LANE_FIX, reason="transfer-held",
+                            details={"lane_id": lane_id, "lane_variable": held[1]})
     roster_dir = (Path(roster_dir) if roster_dir else
                   Path(home_path("SUBFLEET_V1_ROSTER_DIR", lambda: V1_ROSTER_DIR, test_only=True)))
     from .home_paths import provider_home

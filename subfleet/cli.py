@@ -69,9 +69,9 @@ from .contracts import (GIT_LOCATION_ENV, GIT_PATHSPEC_ENV, JOB_KINDS, REQUEST_I
 from .offline import (KNOWN_SCHEMA_VERSION, Offline, OfflineUnavailable,
                       SchemaTooNew, age_adjusted_label)
 from .protocol import ProtocolError
-from .credentials import startup_lanes
+from .credentials import refused_rows, startup_lanes
 from .launch_env import build_environment, refused_reference
-from .policy import PolicyError, check_lane_credentials, held_lane_message, load_policy
+from .policy import LANE_REFERENCE_FIX, PolicyError, check_lane_credentials, load_policy, startup_notes
 from .store import notice_fingerprint
 from .home_paths import home_path
 
@@ -2648,20 +2648,83 @@ def daemon_env(root: Path, *, notes: list[str] | None = None) -> dict[str, str]:
     """The started daemon's environment, after the checks daemon startup runs too.
 
     A refused policy or lanes.json row raises `PolicyError`. A stored lane the
-    check refuses is held, not fatal (review r4, P2-1): it is added to `notes`.
+    check refuses is held, not fatal (review r4, P2-1), and a refused row for a
+    lane already stored is ignored (review r5, P3-1): each such lane's one
+    warning is added to `notes`.
     """
     policy_path = root / "policy.json"
     policy = load_policy(policy_path) if policy_path.exists() else {}
     lanes = _startup_lanes(root)
-    held = check_lane_credentials(policy, policy_path, lanes)
+    found = check_lane_credentials(policy, policy_path, lanes)
     if notes is not None:
-        notes.extend(held_lane_message(lane_id, name) for lane_id, name in held)
+        notes.extend(startup_notes(found))
     # The daemon holds each env-kind lane credential so it can resolve it; every
     # launch withholds them, and each lane receives only its own (D-ENV1). A held
     # lane's variable is no credential, so it is not passed by name.
     references = {name for _, name, _ in lanes if not refused_reference(name)}
     return build_environment({"SUBFLEET_HOME": str(root)},
                              pass_names=(*policy.get("env", {}).get("pass", ()), *sorted(references)))
+
+
+def lanes_json_refusals(root: Path) -> list[tuple[Any, str]]:
+    """D-ENV2 (review r5 of #222): the install check's rows, from `lanes.json` alone.
+
+    Each env-kind row whose variable some launch inherits or the session probe
+    reads (`credentials.refused_rows`), as (lane id, variable). Nothing else is
+    read: not the store, the policy, the daemon's socket or any variable's
+    value, so it can run against a live install before an upgrade. A missing
+    file lists nothing; anything at its name that is not a regular file of
+    JSON raises `OSError` or `ValueError`.
+    """
+    from .sessions.transcripts import read_regular
+    try:
+        data = read_regular(root / "lanes.json")
+    except FileNotFoundError:
+        return []
+    roster = json.loads(data)
+    if isinstance(roster, dict):
+        roster = roster.get("lanes", [])
+    if not isinstance(roster, list):
+        raise ValueError("lanes.json holds no list of lane rows")
+    return refused_rows(roster)
+
+
+def _daemon_start_check(args: argparse.Namespace, root: Path) -> int:
+    """`daemon start --check` (D-ENV2): list each env-kind lanes.json row whose
+    variable some launch inherits, by lane and variable only, and start nothing.
+
+    Exit 2 when it lists any, as startup would for such a row naming a new lane;
+    for a lane the store already holds, startup ignores the row instead. The
+    check cannot tell which, since it never reads the store.
+
+    A row's lane id and variable are lanes.json's own text, so each is printed
+    as `daemon start` prints its refusal of the same row, scrubbed (C-25.7;
+    review r1 of #248, P3-2), in text and in `--json` alike.
+    """
+    from . import daemon_log
+    path = root / "lanes.json"
+    try:
+        found = lanes_json_refusals(root)
+    except (OSError, ValueError) as exc:
+        return fail(Exit.INVALID_INPUT, f"daemon start --check: cannot read {path} ({exc.__class__.__name__})",
+                    "repair lanes.json, or remove it")
+    rows = [(daemon_log.scrubbed(str(lane_id)), daemon_log.scrubbed(name)) for lane_id, name in found]
+    if getattr(args, "json", False):
+        emit({"lanes_json": str(path), "refused": [{"lane_id": lane_id, "variable": name}
+                                                    for lane_id, name in rows]})
+    else:
+        for lane_id, name in rows:
+            out(f"{lane_id} {name}")
+    if not found:
+        note(f"{PROG} daemon start --check: no env-kind row of {path} names a variable some launch inherits")
+        return int(Exit.OK)
+    note(f"{PROG} daemon start --check: {len(found)} env-kind row{'s' * (len(found) > 1)} of {path} "
+         f"name{'s' * (len(found) == 1)} a variable some launch inherits or the session probe reads, which "
+         "cannot hold one lane's credential. At startup such a row stops the daemon (exit 2) when the store "
+         "has no lane by its id; when it has one, the row is ignored, and that lane is held if its own "
+         "variable is refused too")
+    note(f"  fix: {LANE_REFERENCE_FIX}")
+    return int(Exit.INVALID_INPUT)
 
 
 def _log_tail(path: Path, lines: int = 20) -> str:
@@ -2692,6 +2755,8 @@ def _daemon_alive(client: Client, *, timeout: float = 3.0) -> bool:
 
 def cmd_daemon_start(args: argparse.Namespace) -> int:
     root = _root(args)
+    if getattr(args, "check", False):
+        return _daemon_start_check(args, root)      # D-ENV2: reads lanes.json and nothing else
     client = Client(root)
     stopped = client.stopped_holder()
     if stopped is not None:
@@ -3560,7 +3625,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_daemon.set_defaults(handler=cmd_daemon, daemon_command=None)
     _add_json(p_daemon)
     daemon_sub = p_daemon.add_subparsers(dest="daemon_command")
-    daemon_sub.add_parser("start")
+    d_start = daemon_sub.add_parser("start")
+    d_start.add_argument("--check", action="store_true",
+                         help="list each env-kind lanes.json row whose variable some launch inherits, "
+                              "reading lanes.json alone, and start nothing")
+    _add_json(d_start, nested=True)
     daemon_sub.add_parser("stop")
     d_status = daemon_sub.add_parser("status")
     _add_json(d_status, nested=True)
