@@ -294,8 +294,8 @@ _PIN_REFUSALS = {
     "auth-dead": "{lane}'s provider rejected its credential; a new login or re-enrolment is needed",
     "identity-mismatch": "{lane}'s credential proved to hold another account (C-10.6)",
     "credential-refused": "{lane} names {credential_ref}, a variable every launch inherits, so it holds no "
-                          "credential of its own (D-ENV1); point it at a daemon variable off the launch "
-                          "allowlist in lanes.json, same lane id, provider and account, and restart the daemon",
+                          "credential of its own (D-ENV1); point it at a daemon variable no launch inherits "
+                          "in lanes.json, same lane id, provider and account, and restart the daemon",
     "credential-latched": "{lane}'s last probe found its credential {probe_status}, which only a new login "
                           "or a re-enrolment ends",
     "credential-latched:expired-token": "{lane}'s token expired and the one heal the timers allow a Codex "

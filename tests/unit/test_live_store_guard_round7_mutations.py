@@ -47,8 +47,10 @@ MUTANTS = {
         'raise PermissionError(_REFUSAL)', 'code'),
     'm13-home-root': (HOMES, 'return (home / ".subfleet").resolve()',
         'return (provider_home() / ".subfleet").resolve()', 'home-root'),
-    'm14-account-refusal': (HOMES, 'if under_pytest() and is_account_home(home):', 'if False:', 'account'),
-    'm15-account-identity': (HOMES, 'return home.samefile(personal)', 'return False', 'account-alias'),
+    'm14-account-refusal': (HOMES, 'if testing and personal_home(home):', 'if False:', 'account'),
+    'm15-account-identity': (HOMES,
+        'return _same_directory(home, personal) or _same_directory(Path(os.path.realpath(home)), personal)',
+        'return False', 'account-alias'),
     'm16-dev-env-removal': (HOMES,
         'SAFE_ENV_REMOVALS = ("CLAUDE_LANE_AGENT_SECRET", "SUBFLEET_DEV_APP_EXECUTABLE")',
         'SAFE_ENV_REMOVALS = ("CLAUDE_LANE_AGENT_SECRET",)', 'dev-env'),
@@ -103,6 +105,10 @@ elif kind == 'identity':
 elif kind == 'pin':
     for name in ('SUBFLEET_UNDER_PYTEST', 'PYTEST_CURRENT_TEST', 'SUBFLEET_PYTEST_SESSION', 'SUBFLEET_PYTEST_SESSION_ID'):
         os.environ.pop(name, None)
+    # D-ST3: this child imported pytest, so the process rule would refuse by
+    # itself; waive it so the pin is what refuses.
+    from tests.conftest import waive_process_rule
+    waive_process_rule(pytest.MonkeyPatch())
     refuse('subprocess.Popen', 'security')
 elif kind == 'cwd':
     refuse('subprocess.Popen', './security', cwd='/usr/bin')
@@ -149,6 +155,8 @@ elif kind in ('account', 'account-alias'):
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(pwd, 'getpwuid', lambda uid: SimpleNamespace(pw_dir=str(account)))
         patch.setenv('HOME', str(alias if kind == 'account-alias' else account))
+        # D-ST3's link walk also follows the alias, so ask the identity check itself.
+        assert home_paths.is_account_home(Path(os.environ['HOME']))
         with untouchable(patch, account / '.subfleet'):
             try:
                 home_paths.production_state_root()

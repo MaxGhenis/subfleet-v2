@@ -1,5 +1,6 @@
 """Only tests/failed_keep.py names the folder a failed test's state root is kept in, every harness
-that keeps roots asks it for theirs, and CI uploads that folder (D-KR1, #238 review r1 finding 5).
+that keeps roots asks it for theirs and decides with its `setup_or_call_failed`, and CI uploads that
+folder (D-KR1, #238 review r1 finding 5; #247 review r1, P3-2).
 
 The scan reads code, not prose: docstrings and comments may name the folder. This file holds no
 copy of it either; it searches for `failed_keep.ROOT`'s own name.
@@ -71,13 +72,25 @@ def test_only_the_helper_names_the_kept_roots_folder():
     assert sources()[helper].literals, "the scan found no literal even in the helper; it is not reading code"
 
 
+def keepers() -> set[str]:
+    """A harness that keeps roots decides from a test's phase reports, reading them itself or through
+    tests.failed_keep.setup_or_call_failed, and copies a tree."""
+    return {name for name, source in sources().items()
+            if (source.reads_report or "setup_or_call_failed" in source.calls) and "copytree" in source.calls}
+
+
 def test_every_harness_that_keeps_roots_asks_the_helper_for_the_path():
-    # A harness that keeps roots reads a test's phase report and copies a tree.
-    keepers = {name for name, source in sources().items() if source.reads_report and "copytree" in source.calls}
-    assert HARNESSES <= keepers, f"discovery lost a known harness: {sorted(HARNESSES - keepers)}"
-    missing = sorted(name for name in keepers
+    assert HARNESSES <= keepers(), f"discovery lost a known harness: {sorted(HARNESSES - keepers())}"
+    missing = sorted(name for name in keepers()
                      if "failed_keep_dir" not in sources()[name].calls or not sources()[name].imports_helper)
     assert missing == [], f"these keep a failed test's root without tests.failed_keep.failed_keep_dir: {missing}"
+
+
+def test_every_harness_that_keeps_roots_keeps_a_failed_setup():
+    """#247 review r1, P3-2: the fake and end-to-end harnesses read only the call report, so a test whose setup
+    failed kept nothing. Every keeper decides with the one helper, which reads both."""
+    own = sorted(name for name in keepers() if "setup_or_call_failed" not in sources()[name].calls)
+    assert own == [], f"these decide from their own reading of the phase reports: {own}"
 
 
 def upload_steps(text: str) -> list[dict]:
