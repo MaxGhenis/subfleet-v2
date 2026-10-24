@@ -65,21 +65,25 @@ def test_cwd_only_preserves_outcome_and_holds_only_worktree(core, monkeypatch, e
         if ending != "start-grace":
             assert job["rc"] == 0 and job["accepted_attempt_id"] == ATTEMPT
             assert (attempt_dir(core.root, JOB, 1) / "deliverable.md").read_bytes() == b"done\n"
-        held = core.store.one("SELECT 1 FROM leases WHERE lease_key=?", (key,))
+        # Round 3 (C-5.5): the ended job keeps no writer key; its worktree is a reader row.
+        kept = folders.turn_key(str(worktree), JOB, writable=False)
+        assert not core.store.one("SELECT 1 FROM leases WHERE lease_key=?", (key,))
+        held = core.store.one("SELECT holder FROM leases WHERE lease_key=?", (kept,))
         assert bool(held) is (ending != "leaves-within-window")
         if ending != "leaves-within-window":
+            assert held["holder"] == folders.cwd_holder(JOB)
             assert json.loads(row["evidence_json"])["cwd_holders"] == [f"pid {child.pid}: cwd in worktree"]
             notices = core.store.query("SELECT text FROM notices WHERE job_id=?", (JOB,))
             assert any(f"pid {child.pid}: cwd in worktree" in n["text"] for n in notices)
             assert JOB in core._pending_worktree_holds()
             core._release_worktree_hold(JOB)
-            assert core.store.one("SELECT 1 FROM leases WHERE lease_key=?", (key,))
+            assert core.store.one("SELECT 1 FROM leases WHERE lease_key=?", (kept,))
             child.terminate()
             child.wait(timeout=10)
             monkeypatch.setattr(procs.kernel, "pids", lambda: frozenset())
             now[0] += core.inspect_interval_s
             core._release_worktree_hold(JOB)
-            assert not core.store.one("SELECT 1 FROM leases WHERE lease_key=?", (key,))
+            assert not core.store.one("SELECT 1 FROM leases WHERE lease_key=?", (kept,))
         assert not json.loads(row["evidence_json"]).get("counted_identities")
     finally:
         if child.poll() is None:
@@ -99,6 +103,8 @@ def test_real_daemon_rc_zero_after_eight_seconds_keeps_deliverable_with_observer
     job_id = daemon.submit(delay_s=8, sandbox="workspace-write", max_attempts=1)
     daemon.until(lambda: daemon.job(job_id).get("worktree"), timeout=30)
     worktree = Path(daemon.job(job_id)["worktree"])
+    # Round 3 (C-5.5): kept as a reader row, so a resume is not refused meanwhile.
+    kept = folders.turn_key(str(worktree), job_id, writable=False)
     child = subprocess.Popen(["/bin/sleep", "120"], cwd=worktree, start_new_session=True)
     try:
         daemon.until(lambda: daemon.job(job_id)["state"] in {"succeeded", "failed", "lost"}, timeout=100)
@@ -106,12 +112,13 @@ def test_real_daemon_rc_zero_after_eight_seconds_keeps_deliverable_with_observer
         assert job["state"] == "succeeded" and job["rc"] == 0
         assert job["accepted_attempt_id"] == row["attempt_id"]
         assert (attempt_dir(daemon.root, job_id, 1) / "deliverable.md").read_bytes().strip()
-        assert daemon.rows("SELECT 1 FROM leases WHERE lease_key=?", (folders.exclusive_key(worktree),))
+        daemon.until(lambda: daemon.rows("SELECT holder FROM leases WHERE lease_key=?", (kept,))
+                     == [{"holder": folders.cwd_holder(job_id)}], timeout=30)
+        assert not daemon.rows("SELECT 1 FROM leases WHERE lease_key=?", (folders.exclusive_key(worktree),))
     finally:
         child.terminate()
         child.wait(timeout=10)
-    daemon.until(lambda: not daemon.rows("SELECT 1 FROM leases WHERE lease_key=?",
-                                         (folders.exclusive_key(worktree),)), timeout=30)
+    daemon.until(lambda: not daemon.rows("SELECT 1 FROM leases WHERE lease_key=?", (kept,)), timeout=30)
 
 
 def test_counted_and_cwd_evidence_never_authorize_signals_or_release_quarantine(core, monkeypatch):
@@ -133,9 +140,11 @@ def test_counted_and_cwd_evidence_never_authorize_signals_or_release_quarantine(
 
 def test_unreadable_cwd_recheck_keeps_terminal_worktree_lease(core, monkeypatch):
     core.store.update_job(JOB, state="succeeded")
-    core.store.acquire_lease("worktree:/scratch/owned", JOB)
+    kept = folders.turn_key("/scratch/owned", JOB, writable=False)     # round 3's kept row (C-5.5)
+    core.store.acquire_lease(kept, folders.cwd_holder(JOB))
     def failed(job):
         raise procs.InspectionError("unreadable")
     core._worktree_observers = failed
+    assert JOB in core._pending_worktree_holds()
     core._release_worktree_hold(JOB)
-    assert core.store.one("SELECT 1 FROM leases WHERE lease_key='worktree:/scratch/owned'")
+    assert core.store.one("SELECT 1 FROM leases WHERE lease_key=?", (kept,))

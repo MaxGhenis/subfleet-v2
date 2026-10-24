@@ -1,19 +1,28 @@
-"""C-5.9: terminal cwd holds do not turn into twenty kernel scans a second."""
+"""C-5.9: terminal cwd holds do not turn into twenty kernel scans a second.
+
+Since round 3 the hold a finished job keeps is a reader row held by `cwd:<job id>`
+(C-5.5), whichever of the job or its attempt held the worktree lease it replaced.
+"""
 
 from types import SimpleNamespace
 
 import pytest
 
-from subfleet import daemon as daemon_module, procs
+from subfleet import daemon as daemon_module, folders, procs
 from tests.unit.test_daemon_settle import daemon, JOB, ATTEMPT  # noqa: F401
+
+KEPT = folders.turn_key("/scratch/owned", JOB, writable=False)
+
+
+def kept(core):
+    core.store.update_job(JOB, state="succeeded")
+    core.store.update_attempt(ATTEMPT, state="succeeded")
+    core.store.acquire_lease(KEPT, folders.cwd_holder(JOB))
 
 
 @pytest.mark.parametrize("unreadable", [False, True])
-@pytest.mark.parametrize("holder", [JOB, ATTEMPT], ids=["job-lease", "attempt-lease"])
-def test_terminal_cwd_scans_follow_the_inspection_interval(daemon, monkeypatch, unreadable, holder):
-    daemon.store.update_job(JOB, state="succeeded")
-    daemon.store.update_attempt(ATTEMPT, state="succeeded")
-    daemon.store.acquire_lease("worktree:/scratch/owned", holder)
+def test_terminal_cwd_scans_follow_the_inspection_interval(daemon, monkeypatch, unreadable):
+    kept(daemon)
     now, scans, live = [0.0], [], [True]
     monkeypatch.setattr(daemon_module, "time", SimpleNamespace(monotonic=lambda: now[0]))
     def observers(job):
@@ -39,9 +48,7 @@ def test_terminal_cwd_scans_follow_the_inspection_interval(daemon, monkeypatch, 
 
 
 def test_recovered_terminal_lease_is_rechecked_without_the_old_clock(daemon, monkeypatch):
-    daemon.store.update_job(JOB, state="succeeded")
-    daemon.store.update_attempt(ATTEMPT, state="succeeded")
-    daemon.store.acquire_lease("worktree:/scratch/owned", ATTEMPT)
+    kept(daemon)
     now, live, scans = [0.0], [True], []
     monkeypatch.setattr(daemon_module, "time", SimpleNamespace(monotonic=lambda: now[0]))
     def observers(job):
@@ -50,7 +57,7 @@ def test_recovered_terminal_lease_is_rechecked_without_the_old_clock(daemon, mon
     daemon._worktree_observers = observers
     daemon._release_worktree_hold(JOB)
     assert daemon._pending_worktree_holds() == []
-    # Restart discards only the in-memory clock; the stored attempt lease is
+    # Restart discards only the in-memory clock; the stored kept row is
     # sufficient to rediscover the worktree without scanning retained jobs.
     daemon._cwd_recheck_next = {}
     live[0] = False
@@ -62,10 +69,9 @@ def test_recovered_terminal_lease_is_rechecked_without_the_old_clock(daemon, mon
 
 
 def test_released_worktree_clocks_are_forgotten(daemon, monkeypatch):
-    daemon.store.update_job(JOB, state="succeeded")
-    daemon.store.acquire_lease("worktree:/scratch/owned", JOB)
+    kept(daemon)
     daemon._worktree_observers = lambda job: frozenset({5500})
     daemon._release_worktree_hold(JOB)
-    daemon.store.release_leases(JOB)  # an explicit release need not call the cwd worker
+    daemon.store.release_leases(folders.cwd_holder(JOB))  # an explicit release need not call the cwd worker
     assert daemon._pending_worktree_holds() == []
     assert not daemon.__dict__.get("_cwd_recheck_next")
