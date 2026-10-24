@@ -264,9 +264,12 @@ def test_c14_2_refused_preflight_is_recorded_in_the_attempt_directory_and_daemon
     assert [{key: value for key, value in call.items() if key not in {"env", "env_pass"}} for call in seen] == [
         {"binary": "fixture-codex", "home": str(harness.root / "home"),
          "workdir": str(harness.workdir), "state_root": daemon.root}]
-    assert set(seen[0]["env_pass"]) == {"CODEX_HOME"} | {
+    # C-12.10: the attempt's own TMPDIR reaches guard preflight too (review r1 P2-1).
+    assert set(seen[0]["env_pass"]) == {"CODEX_HOME", "TMPDIR"} | {
         name for name in ("SSL_CERT_FILE", "SSL_CERT_DIR") if name in seen[0]["env"]}
     assert seen[0]["env"]["CODEX_HOME"] == str(harness.root / "home")
+    tmpdir = json.loads(daemon.store.get_attempt(a["attempt_id"])["evidence_json"])["tmpdir"]["path"]
+    assert seen[0]["env"]["TMPDIR"] == tmpdir + "/"
     adir = daemon.root / "jobs" / a["job_id"] / "a1"
     record = json.loads((adir / "guard-preflight.json").read_text())
     assert record["ok"] is False and record["kind"] == "timeout" and record["code"] == 7
