@@ -2935,3 +2935,191 @@ venv/cache/probes and the generated `build/` directory are removed at delivery.
 The workspace-local Git metadata is retained. No logs, JSON evidence or bundles
 are staged. No installed app, live store or live daemon was touched. Nothing
 was fetched or pushed.
+
+## D-QT-FLAKE1: distant-reveal presentation sequencing
+
+### Classification and evidence
+
+**Classification (b): probe presentation timing.** This corresponds to r7's
+earlier classification (c), which used different choices. The evidence supports
+controlling the test sequence; no product race was reproduced. The exact
+interleaving behind CI run 40003885189 remains unobserved, so this is not a claim
+that its 25-point end position was reproduced and traced to a particular host
+event.
+
+The baseline is release/217 at `3b13b36b7e335db21bc8f966bb039df9c14aa308`,
+including #219. Read `review-r7.md`, `brief-fix10.md`, `out-fix10.md`, and
+the fix-10 report before investigating. No fetch or push occurred. #253's
+machine-only change is not involved.
+
+The original probe activates search and immediately pushes its first chunk,
+then spaces subsequent chunks by the nominal 50 ms interval. The real reveal
+issues two scrolls after asynchronous delays. Thus the test name does not mean
+that a reveal has landed 50 ms before output. Its final 0.8-second presentation
+drive also does not establish a stable viewport. Reveal consumption establishes
+that the scroll requests completed, not that AppKit finished presenting their
+position.
+
+For the baseline experiment, copied the exact committed probe to job scratch
+and selected only `far_text_50ms`; the `farReveal` body was verified
+byte-for-byte identical to the committed body. Ran **30 fresh native processes
+under load**, with two CPU-bound PBKDF2 threads inside the single foreground
+pytest process. Both threads were stopped and joined at teardown. All 30
+original regressions passed, each with **0 pt** offset drift. Quiet distances
+were **4,744–5,162 pt** from the end. The second scroll notification occurred
+**0.893–1.744 seconds** after activation, illustrating variation in the nominal
+reveal schedule. The CI jump was not reproduced in this experiment.
+
+Ran the permanent controlled 50 ms regression in **30 additional fresh native
+processes under the same two-thread CPU load**. All 30 passed consecutively.
+Every run established a consumed reveal, two scroll notifications, three
+unchanged viewport samples away from the end, 50 arrivals in one released page,
+and final folded cursor **144/144**. Every run retained the same offset from
+landing through that page and a subsequent 20-line update: **0 pt** drift.
+Quiet distances were **4,733–5,360 pt**. The unchanged product therefore retained
+the revealed row in every measured post-landing trial.
+
+These are offscreen, synchronous-transaction geometry probes, as in fix 10;
+visible production-window animations were not measured. The classification is
+an inference from the test's missing presentation precondition, r7's established
+environment sensitivity, and these two complete loaded experiments.
+
+### Fix and step commits
+
+No shipping app source changed. The shared test probe now waits for reveal
+consumption and repeated stable offset/viewport measurements more than 600 pt
+from the end. Only then does the requested interval begin. It releases the
+original finite arrivals as one page (50/21 text events or 17/7 row events),
+waits for folding, and samples stable positions before and after further text.
+The quiet control releases no arrival page. Document height is not part of the
+stability predicate: LazyVStack revised its offscreen height estimates even when
+the measured viewport position stayed fixed. No scroll is forced by this
+barrier.
+
+Python assertions require the barrier's measured state, exact arrival/page
+counts, completed cursor, and retention across both output updates. A focused
+probe mode permits fresh-process repetitions without six unrelated scenes.
+The original five distant cases and two catch-up cases remain, plus the focused
+regression, for eight checks in the fix-10 file.
+
+Preserved the earlier workspace-local step commits and continued their history,
+oldest first:
+
+| Commit | Step |
+| --- | --- |
+| `344cc8bf8` | Tests first: require the focused 50 ms probe. |
+| `bdc18c1b8` | Select the 50 ms case without changing its original sequence. |
+| `312afe38e` | Tests first: require measured landing before output. |
+| `c06d75d82` | Gate output on the consumed reveal and settled position. |
+| `d58acea52` | Measure viewport stability independently of lazy height estimates. |
+| `5649bd37d` | Strengthen the release assertion and name exact finite arrival counts. |
+
+Every commit carries the requested co-author trailer. This report is a separate
+commit. Shared Git metadata is read-only and the assigned branch is checked out
+in the caller's worktree; commits remain on `fix/qt-distant-reveal-flake-217`
+in this workspace's preserved `.git-local`. Inspect with
+`GIT_DIR="$PWD/.git-local" GIT_WORK_TREE="$PWD" git log`.
+The supplied `.git` pointer and caller's checkout were not changed.
+
+### Every repetition's offsets
+
+All entries are points. Runs are independent fresh native processes, not
+repeated assertions on one cached result. In every controlled run the
+pre-output landing offset also equals both recorded offsets below.
+
+| Run | Original quiet | Original after_more | Controlled quiet | Controlled after_more |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 2311 | 2311 | 2356 | 2356 |
+| 2 | 2296 | 2296 | 2265 | 2265 |
+| 3 | 2430 | 2430 | 2243 | 2243 |
+| 4 | 2392 | 2392 | 2299 | 2299 |
+| 5 | 2334 | 2334 | 2329 | 2329 |
+| 6 | 2719 | 2719 | 2254 | 2254 |
+| 7 | 2362 | 2362 | 2386 | 2386 |
+| 8 | 2418 | 2418 | 2390 | 2390 |
+| 9 | 2395 | 2395 | 2307 | 2307 |
+| 10 | 2334 | 2334 | 2276 | 2276 |
+| 11 | 2311 | 2311 | 2307 | 2307 |
+| 12 | 2761 | 2761 | 2262 | 2262 |
+| 13 | 2611 | 2611 | 2386 | 2386 |
+| 14 | 2384 | 2384 | 2273 | 2273 |
+| 15 | 2719 | 2719 | 2278 | 2278 |
+| 16 | 2366 | 2366 | 2419 | 2419 |
+| 17 | 2403 | 2403 | 2386 | 2386 |
+| 18 | 2297 | 2297 | 2371 | 2371 |
+| 19 | 2439 | 2439 | 2246 | 2246 |
+| 20 | 2393 | 2393 | 2419 | 2419 |
+| 21 | 2311 | 2311 | 2221 | 2221 |
+| 22 | 2383 | 2383 | 2396 | 2396 |
+| 23 | 2938 | 2938 | 2402 | 2402 |
+| 24 | 2376 | 2376 | 2393 | 2393 |
+| 25 | 2354 | 2354 | 2194 | 2194 |
+| 26 | 2366 | 2366 | 2161 | 2161 |
+| 27 | 2695 | 2695 | 2262 | 2262 |
+| 28 | 2323 | 2323 | 2261 | 2261 |
+| 29 | 2276 | 2276 | 2288 | 2288 |
+| 30 | 2303 | 2303 | 2303 | 2303 |
+
+### Fresh validation counts and holds
+
+Counts below are from this resumed validation; no undocumented earlier run is
+counted. Each hold ran one pytest process, one file, with at most two additional
+CPU load threads for the repetition experiments. All holds completed below
+20 minutes. Python was locked GIL CPython 3.14.7. Environment setup ran once
+through `uv_sync_hold.sh`; every test ran through `suite_hold.sh`, reusing
+that venv and the scratch uv cache. Property checks explicitly selected the
+bounded CI profile; no deep profile ran.
+
+| Requested file | Passed | Failed | Skipped | Unrun |
+| --- | ---: | ---: | ---: | ---: |
+| `tests/frontend/test_review_r219_fix10_view.py` | 8 | 0 | 0 | 0 |
+| `tests/frontend/test_review_r219_fix9_view.py` | 3 | 0 | 0 | 0 |
+| `tests/frontend/test_review_r219_fix8_view.py` | 6 | 0 | 0 | 0 |
+| `tests/frontend/test_review_r219_fix8_mutations.py` | 7 | 0 | 0 | 0 |
+| `tests/frontend/test_core_queue_tray.py` | 51 | 0 | 0 | 0 |
+| `tests/frontend/test_queue_tray_view.py` | 15 | 0 | 0 | 0 |
+| `tests/unit/test_test_module_names.py` | 1 | 0 | 0 | 0 |
+| **Total** | **91** | **0** | **0** | **0** |
+
+| Hold | Passed | Recorded pytest duration |
+| --- | ---: | ---: |
+| Original 50 ms sequence under CPU load | 30 | 11m 41.20s |
+| Controlled 50 ms sequence under CPU load | 30 | 9m 39.80s |
+| Fix-10 view | 8 | 1m 29.26s |
+| Fix-9 view | 3 | 38.76s |
+| Fix-8 view | 6 | 2m 15.93s |
+| Mutations: history hydration / receipt sorting | 2 | 2m 8.80s |
+| Mutations: known receipts / follow state | 2 | 6m 16.92s |
+| Mutations: row-set key / both settling schedules | 3 | 9m 50.29s |
+| Core queue tray | 51 | 5m 37.62s |
+| Queue tray view | 15 | 39.15s |
+| Test-module names | 1 | 1.15s |
+
+The requested files plus the two repetition experiments total **151 passes**.
+The mutation file was partitioned into three disjoint holds; deselected items
+are covered by the other holds, not counted as skips or passes.
+
+Two diagnostic holds are separate from those counts. The first baseline
+compilation could not start Swift's macro helper inside the nested compiler
+sandbox, producing 30 fixture setup errors from one failed compilation and
+**zero native trials**, in 6m 12.05s. Retried with the repository's supported
+`SUBFLEET_SWIFT_NESTED_SANDBOX=off` setting; all native runs above then
+completed. A 13.45-second red check replayed a real baseline capture through the
+strengthened sequence assertion and failed as expected because the old probe
+does not establish/report the output-release barrier. This is a test contract
+check, not a reproduced product failure.
+
+### Delivery and cleanup
+
+Before writing this section, ran the required
+`pgrep -fl 'suite_hold.sh|pytest|lockf'`. Process enumeration was denied
+(`sysmond service not found`). A fallback `lsof` check of every job log
+returned no open descriptors (exit 1, empty stdout and stderr). All managed
+foreground commands returned and both CPU worker threads joined. No foreign
+process was signalled.
+
+Job scratch, its venv/cache/probes/evidence, and generated `build/` are removed
+at delivery; no workspace `.hypothesis` folder exists. Workspace-local commit
+metadata is retained. Only named source/test/report files are staged; no logs,
+JSON evidence or bundles are committed. No installed app, live store, live
+daemon or caller checkout was modified.
