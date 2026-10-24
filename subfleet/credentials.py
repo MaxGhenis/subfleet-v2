@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .launch_env import (
-    ROSTER, STORE, build_environment, harness_name, inherited_name, lane_reference, refused_reference,
+    IGNORED, ROSTER, STORE, build_environment, harness_name, lane_reference, refused_reference,
 )
 from .adapters.base import AdapterError
 from .contracts import Credential, Lane
@@ -40,9 +40,25 @@ def withheld_references(lanes: Iterable[Lane | Mapping[str, Any]]) -> frozenset[
     never reads one, so withholding it costs nothing and keeps whatever was put
     there from every other lane. A held lane's listed or session name is not
     withheld: every launch needs HOME or PATH, and a test's child its session.
+    The daemon adds the hooks of the lanes.json rows startup ignored
+    (`ignored_hooks`).
     """
     variables = [found[1] for found in map(lane_reference, lanes) if found]
     return frozenset(ref for ref in variables if not refused_reference(ref) or harness_name(ref))
+
+
+def ignored_hooks(found: Iterable[tuple[Any, str, str]]) -> frozenset[str]:
+    """D-ENV2 (review r1 of #248, P3-1): the harness hooks named by lanes.json
+    rows that startup ignored, from `policy.check_lane_credentials`'s (lane id,
+    variable, source) list.
+
+    Such a row is no lane's credential: the store keeps its lane on the lane's
+    own. So its hook is withheld from every launch, that lane's own included,
+    exactly as a held lane's is (`withheld_references`); a listed or session
+    name is not, for the same reason. The daemon reads them once, at startup,
+    since lanes.json is read only then.
+    """
+    return frozenset(name for _, name, source in found if source == IGNORED and harness_name(name))
 
 
 def reference_repair(stored: Lane | Mapping[str, Any], row: Mapping[str, Any]) -> str | None:
@@ -67,14 +83,37 @@ def reference_repair(stored: Lane | Mapping[str, Any], row: Mapping[str, Any]) -
 def startup_lanes(roster: Iterable[Mapping[str, Any]],
                   stored: Iterable[Lane | Mapping[str, Any]]) -> list[tuple[Any, str, str]]:
     """D-ENV1: each env-kind lane's (lane id, variable, source) as startup will
-    hold them: every lanes.json row, then each stored lane a row does not repair."""
+    hold them: every lanes.json row, then each stored lane a row does not repair.
+
+    A row whose variable is refused, for a lane id the store already holds, is
+    `IGNORED` rather than `ROSTER` (review r5, P3-1): seeding never stores it,
+    so it cannot stop startup, and the stored lane's own rule decides, held or
+    repaired by a fixed row. Only a refused row for a new lane is refused.
+    """
     roster = [row for row in roster if isinstance(row, Mapping)]
-    lanes = [(*found, ROSTER) for found in map(lane_reference, roster) if found]
+    stored = list(stored)
+    known = {lane.get("lane_id") if isinstance(lane, Mapping) else lane.lane_id for lane in stored}
+    lanes = [(lane_id, name, IGNORED if lane_id in known and refused_reference(name) else ROSTER)
+             for lane_id, name in filter(None, map(lane_reference, roster))]
     for lane in stored:
         found = lane_reference(lane)
         if found and not any(reference_repair(lane, row) for row in roster):
             lanes.append((*found, STORE))
     return lanes
+
+
+def refused_rows(roster: Iterable[Mapping[str, Any]]) -> list[tuple[Any, str]]:
+    """D-ENV2: the (lane id, variable) of each env-kind lanes.json row whose
+    variable is refused (`launch_env.refused_reference`), in file order.
+
+    The install check (`daemon start --check`) lists these. Startup refuses
+    such a row for a new lane and ignores it for a stored one, so either way
+    the row needs editing. Only the rows and the allowlist are read: never the
+    store, a policy or any variable's value.
+    """
+    return [(lane_id, name) for lane_id, name in
+            filter(None, map(lane_reference, (row for row in roster if isinstance(row, Mapping))))
+            if refused_reference(name)]
 
 
 _NATIVE_RUNNER = subprocess.run
@@ -619,8 +658,10 @@ def resolve_credential(credential: Credential, *, runner=None) -> dict[str, str]
         key = "CODEX_HOME" if credential.provider == "codex" else "CLAUDE_CONFIG_DIR"
         return {key: str(Path(credential.ref).expanduser().resolve())}
     if credential.kind == "env" and credential.provider == "claude":
-        if inherited_name(credential.ref):
-            # D-ENV1: every launch inherits an allowlisted name, so it cannot be one lane's.
+        if refused_reference(credential.ref):
+            # D-ENV1: some launch inherits it, or selection reads it to find a test
+            # session (review r5, P3-3), so it cannot be one lane's. Checked before
+            # its value is read.
             raise AdapterError("lane environment credential names a variable every launch inherits", code=7,
                                fix=f"store the lane OAuth token under a daemon variable other than {credential.ref}",
                                reason="credential-env-inherited")
