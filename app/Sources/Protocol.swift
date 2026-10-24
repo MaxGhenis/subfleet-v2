@@ -12,6 +12,7 @@ import Foundation
 let subfleetProtocolVersion = 1
 let subfleetConversationSchema = 1
 let requiredDaemonCapability = "conversations.v1"
+let conversationStatusCapability = "conversation.status.v1"
 
 // MARK: - Envelope
 
@@ -91,9 +92,21 @@ protocol LongPollArgs {
     var wait_s: Double? { get }
 }
 
+/// Visit the typed operation registry without losing its argument/result types.
+/// Names and protocol probes use this same list (C-25.2).
+protocol DaemonOperationVisitor {
+    associatedtype Value
+    func visit<A: Codable, R: Codable>(_ op: DaemonOperation<A, R>) -> Value
+}
+
+private struct OperationNameVisitor: DaemonOperationVisitor {
+    func visit<A: Codable, R: Codable>(_ op: DaemonOperation<A, R>) -> String { op.name }
+}
+
 enum Ops {
     static let capabilities = DaemonOperation<NoArgs, Capabilities>(name: "capabilities")
     static let conversationList = DaemonOperation<ConversationListArgs, ConversationListResult>(name: "conversation.list")
+    static let conversationStatus = DaemonOperation<ConversationStatusArgs, ConversationStatusResult>(name: "conversation.status")
     static let conversationOpen = DaemonOperation<ConversationOpenArgs, ConversationOpenResult>(name: "conversation.open")
     static let conversationCreate = DaemonOperation<ConversationCreateArgs, ConversationCreateResult>(name: "conversation.create")
     static let conversationSettings = DaemonOperation<ConversationSettingsArgs, ConversationResult>(name: "conversation.settings")
@@ -126,17 +139,24 @@ enum Ops {
     static let conversationWake = DaemonOperation<ConversationWakeArgs, ConversationWakeResult>(name: "conversation.wake")
 
     /// Every op in `subfleet/protocol.py` `CONVERSATION_OPS`, in its order.
-    static let names = [
-        capabilities.name, conversationList.name, conversationOpen.name, conversationCreate.name,
-        conversationSettings.name, conversationRename.name, conversationUnblock.name, conversationHistory.name,
-        conversationEvents.name, conversationWatch.name, messageSubmit.name, messageStatus.name, messageCancel.name,
-        messageSteer.name, turnInterrupt.name, messageResolve.name, approvalList.name, approvalGet.name,
-        approvalRespond.name, attachmentAdd.name,
-        catalogRefresh.name, modelsList.name, conversationRuns.name, turnDiff.name, conversationDiff.name,
-        conversationHandoff.name, workspaceCheck.name, conversationWake.name,
-        suggestionCreate.name, suggestionList.name, suggestionStart.name, suggestionDismiss.name,
-        suggestionWithdraw.name,
-    ]
+    static let names = all(OperationNameVisitor())
+
+    static func all<V: DaemonOperationVisitor>(_ visitor: V) -> [V.Value] {
+        [
+            visitor.visit(capabilities), visitor.visit(conversationList), visitor.visit(conversationStatus),
+            visitor.visit(conversationOpen), visitor.visit(conversationCreate), visitor.visit(conversationSettings),
+            visitor.visit(conversationRename), visitor.visit(conversationUnblock), visitor.visit(conversationHistory),
+            visitor.visit(conversationEvents), visitor.visit(conversationWatch), visitor.visit(messageSubmit),
+            visitor.visit(messageStatus), visitor.visit(messageCancel), visitor.visit(messageSteer),
+            visitor.visit(turnInterrupt), visitor.visit(messageResolve), visitor.visit(approvalList),
+            visitor.visit(approvalGet), visitor.visit(approvalRespond), visitor.visit(attachmentAdd),
+            visitor.visit(catalogRefresh), visitor.visit(modelsList), visitor.visit(conversationRuns),
+            visitor.visit(turnDiff), visitor.visit(conversationDiff), visitor.visit(conversationHandoff),
+            visitor.visit(workspaceCheck), visitor.visit(conversationWake), visitor.visit(suggestionCreate),
+            visitor.visit(suggestionList), visitor.visit(suggestionStart), visitor.visit(suggestionDismiss),
+            visitor.visit(suggestionWithdraw),
+        ]
+    }
 
     /// Person-only ops (D-8, C-25.6); settings that widen are person-only too.
     static let personOnly: Set<String> = [
@@ -282,6 +302,8 @@ struct Conversation: Codable, Equatable, Identifiable {
     /// A Claude session another live process (the Claude app, a terminal) holds;
     /// its turns and Subfleet's share one transcript (from the catalog run).
     var live_elsewhere: Bool?
+    /// The legacy import owns this hold independently of `blocked_by` (C-30.4).
+    var legacy_hold: String? = nil
 
     var id: String { conversation_id }
 
@@ -319,6 +341,8 @@ struct Receipt: Codable, Equatable {
     /// C-24.9: the running turn's message this one was steered into, or null.
     var steered_into: String?
     var created_at: String? = nil
+    /// A durable job binding; a dispatch claim has none.
+    var job_id: String? = nil
 
     var messageState: MessageState? { MessageState(rawValue: state) }
     /// A tombstone left by withdrawing a message the daemon never received.
@@ -496,9 +520,18 @@ struct ConversationOpenArgs: Codable, Equatable {
     }
 }
 
+struct ConversationStatusArgs: Codable, Equatable {
+    var conversation_id: String
+}
+
+struct ConversationStatusResult: Codable, Equatable {
+    var conversation: Conversation
+    var message_ids: [String]
+}
+
 struct ConversationOpenResult: Codable, Equatable {
     var conversation: Conversation
-    /// The latest 50 receipts, oldest first.
+    /// The wire supplies the latest 50 receipts, oldest first; the engine hydrates older identities before publishing an open.
     var messages: [Receipt]
     var events_cursor: Int
     var pending_approvals: [ApprovalView]

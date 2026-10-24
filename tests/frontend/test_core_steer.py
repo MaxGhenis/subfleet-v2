@@ -488,7 +488,7 @@ def test_c24_9_a_steer_that_missed_is_drawn_in_its_own_place_and_runs_next(core_
     for snapshot in (queued, ran):
         assert person_ids(snapshot["items"]) == [f"person:{host}", f"person:{steered}"]
         assert snapshot["placed_steers"] == []
-    assert queued["turns"][steered]["status_text"] == MISSED
+    assert queued["turns"][steered]["status_text"] == "Queued for the next turn"
     ids = [i["id"] for i in ran["items"]]
     assert ids[ids.index(f"person:{steered}") + 1:] and ran["items"][-1]["text"] == "The lexer is fine."
     assert ran["turns"][steered]["status_text"] == "Completed"
@@ -977,6 +977,11 @@ def test_c24_9_journaled_steers_restore_after_a_restart(core_probe, tmp_path, ha
     ])
     assert out["statuses"][pending] == UNREAD
     assert out["statuses"][refused] == REFUSED_WORDS["not-next"]
+    # Restoring a steer preserves its sent bubble, including a refused steer.
+    rows = {row["id"]: row for row in out["layouts"][cid]["tray"]}
+    for mid in (pending, refused):
+        assert mid not in rows
+        assert out["items"][cid].count(f"person:{mid}") == 1
     assert out["steer_offers"][pending] is False                    # already on its way
     # A journaled steer of a message that runs by now (the daemon dispatched it
     # first) does not make it read as unread: it is past steering.
@@ -1105,7 +1110,7 @@ def test_c24_9_a_missed_steer_steered_again_reads_unread_in_its_new_turn(core_pr
         {"page": {"events": [], "next": 0, "reset": True}}, {"page": page(harness, cid), "snapshot": True},
     ])
     words = [snapshot["turns"][steered]["status_text"] for snapshot in out["snapshots"]]
-    assert words == [MISSED, MISSED, UNREAD, UNREAD]
+    assert words == [MISSED, "Queued for the next turn", UNREAD, UNREAD]
 
 
 def test_c24_9_words_esc_takes_back_are_kept_in_the_draft(core_probe, tmp_path):
