@@ -56,6 +56,10 @@ def main() -> int:
     parser.add_argument("--connection-idle-s", type=float)
     parser.add_argument("--inspection-witness", type=Path)
     parser.add_argument("--inspect-interval-s", type=float, default=1.0)
+    # D-KILL4 fix 1: a start grace longer than a short --start-delay, and a TERM grace
+    # long enough to observe a TERM-ignoring escaper between the TERM and the KILL.
+    parser.add_argument("--start-grace-s", type=float, default=.65)
+    parser.add_argument("--term-grace-s", type=float, default=.08)
     parser.add_argument("--hide-environment-of", type=Path, action="append", default=[],
                         help="a file a test's process writes its pid to; the census reads that "
                              "pid's argument buffer without its environment (D-KILL2)")
@@ -121,7 +125,7 @@ def main() -> int:
         ("max_connections", args.max_connections),
         ("connection_idle_s", args.connection_idle_s)) if value is not None}
     try:
-        daemon = Daemon(root, tick_s=.02, start_grace_s=.65, term_grace_s=.08,
+        daemon = Daemon(root, tick_s=.02, start_grace_s=args.start_grace_s, term_grace_s=args.term_grace_s,
                         kill_settle_s=1.0, exit_settle_s=1.0,
                         guardian_start_delay_s=args.start_delay, crash_hook=hook,
                         inspect_interval_s=args.inspect_interval_s,

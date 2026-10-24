@@ -81,6 +81,10 @@ def test_cwd_only_preserves_outcome_and_holds_only_worktree(core, monkeypatch, e
             core._release_worktree_hold(JOB)
             assert not core.store.one("SELECT 1 FROM leases WHERE lease_key=?", (key,))
         assert not json.loads(row["evidence_json"]).get("counted_identities")
+        # D-KILL4: a cwd-only census starts no kill protocol either (cwd grants no
+        # containment, C-5.5), so neither the verdict nor its timing depends on one.
+        kinds = {event["kind"] for event in core.store.list_events(JOB)}
+        assert not kinds & {"attempt.containment_started", "attempt.kill_started", "attempt.containment"}, kinds
     finally:
         if child.poll() is None:
             child.kill()
@@ -114,18 +118,20 @@ def test_real_daemon_rc_zero_after_eight_seconds_keeps_deliverable_with_observer
                                          (folders.exclusive_key(worktree),)), timeout=30)
 
 
-def test_counted_and_cwd_evidence_never_authorize_signals_or_release_quarantine(core, monkeypatch):
+def test_cwd_evidence_never_authorizes_signals_or_releases_quarantine(core, monkeypatch):
+    """D-KILL4: a counted member is signalled as a census member; a cwd holder never is."""
     core.term_grace_s = core.kill_settle_s = 0
     core.store.acquire_lease("worktree:/scratch/owned", JOB)
     census = procs.Containment(descendant_pids=frozenset({4401}), cwd_pids=frozenset({4500}),
                                identities={4401: procs.ProcessIdentity(4401, "boot", "start")})
     core._contain = lambda a: census
-    signals = []
+    signals, individual = [], []
     monkeypatch.setattr(procs, "signal_group", lambda pgid, sig, **kw: signals.append((pgid, sig)))
-    monkeypatch.setattr(procs, "signal_process", lambda *a, **k: pytest.fail("evidence is not authority"))
+    monkeypatch.setattr(procs, "signal_process", lambda ident, sig, **k: individual.append(ident.pid))
     core._kill_attempt(attempt(core))
     assert attempt(core)["state"] == "quarantined"
     assert all(pid == 4242 for pid, _ in signals)
+    assert set(individual) == {4401} and 4500 not in individual
     assert JOB not in core._pending_worktree_holds()
     core._release_worktree_hold(JOB)
     assert core.store.one("SELECT 1 FROM leases WHERE lease_key='worktree:/scratch/owned'")

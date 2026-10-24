@@ -84,7 +84,10 @@ class Harness:
             except (OSError, ValueError):
                 return False
 
-        self.until(ready, timeout=5)
+        # Readiness ends as soon as the daemon answers; the limit only bounds a hung
+        # start. 5 s timed out before any test behaviour ran in every real-daemon
+        # case of a hold at load 105-118 (2026-10-23, 21 of 21 failures).
+        self.until(ready, timeout=60)
         return self
 
     def log_text(self) -> str:
