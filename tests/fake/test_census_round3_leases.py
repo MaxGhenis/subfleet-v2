@@ -136,7 +136,9 @@ def test_r3_a_second_writer_is_still_refused_while_the_resume_holds_its_key(obse
     with pytest.raises(AdapterError) as refused:
         daemon.submit(protocol.SubmitArgs(**harness.submit_args(
             workdir=worktree, sandbox="workspace-write", in_place=True)))
-    assert refused.value.code == 7 and refused.value.reason == "worktree-lease"
+    # Submit's live-writer check names the resume before any lease is read (C-6.5).
+    assert refused.value.code == 7 and refused.value.reason == "worktree-writer"
+    assert refused.value.details["job_id"] == resumed
     _, _, turn = message_in(daemon, harness, "Writing beside the resume", workspace=worktree)
     daemon._admit_turns()
     assert not _live(daemon, turn)
