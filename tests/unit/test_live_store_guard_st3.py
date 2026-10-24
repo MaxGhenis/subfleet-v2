@@ -98,7 +98,9 @@ def reaches_live(path, dir_fd=None, api=None) -> bool:
         return False
     if dir_fd is not None and not os.path.isabs(spelled):
         return False                     # relative to a descriptor this test opened
-    absolute = os.path.join(os.getcwd(), spelled)
+    # An absolute spelling needs no working directory, so a call made after a test removed
+    # its own (a reporting hook's, before teardown) is still judged.
+    absolute = spelled if os.path.isabs(spelled) else os.path.join(os.getcwd(), spelled)
     finals = _spellings(absolute)
     if any(_within(final, OWN) for final in finals):
         return False
@@ -954,6 +956,54 @@ def test_a_tilde_home_is_judged_literally_against_the_working_directory(spelling
         homes = home_paths.protected_provider_homes()
         assert Path(spelling) / ".claude" not in homes and Path(spelling) / ".codex" not in homes
     assert sealed.touched == []
+
+
+@pytest.mark.parametrize("spelling, cause", [
+    ("~/st3-not-a-store", "working directory is unreadable"),
+    ("~st3-no-such-user-r5/st3-not-a-store", "working directory is unreadable"),
+    ("~/" + STORES[2], "HOME names one of the account's live stores")])
+def test_a_tilde_home_under_an_unreadable_working_directory_is_refused(spelling, cause, tmp_path, sealed,
+                                                                        monkeypatch):
+    """C-20.6 (D-ST3, #242 review r5's P3s): with no working directory, a HOME spelled with `~` has a literal
+    reading that cannot be judged, so both guards refuse it, and `protected_provider_homes` names that cause; a pwd
+    reading in a live root still names the store. Without the rule, `production_state_root` raised
+    FileNotFoundError and `protected_provider_homes` returned `HOME/.claude` and `HOME/.codex`."""
+    gone = tmp_path / "gone"
+    gone.mkdir()
+    back = os.open(tmp_path, os.O_RDONLY)
+    monkeypatch.chdir(gone)
+    gone.rmdir()
+    try:
+        with pytest.raises(OSError):
+            os.getcwd()
+        monkeypatch.setenv("HOME", spelling)
+        with pytest.raises(RuntimeError, match="~/.subfleet"):
+            home_paths.production_state_root()
+        with pytest.raises(RuntimeError, match=cause):
+            home_paths.protected_provider_homes()
+        assert sealed.touched == []
+    finally:
+        # Back to a real directory before the test returns: pytest's reporting hooks (CI's
+        # outcomes recorder) run before teardown, with the spies still installed.
+        os.fchdir(back)
+        os.close(back)
+
+
+def test_the_spy_judges_an_absolute_call_with_no_working_directory(tmp_path, monkeypatch):
+    """The spy itself: an absolute call made once a test has removed its working directory is still judged,
+    the test's own as allowed and a live root's as refused. CI's outcomes recorder opens its file in a
+    reporting hook, before teardown, and the spy once raised FileNotFoundError on that open."""
+    gone = tmp_path / "gone"
+    gone.mkdir()
+    back = os.open(tmp_path, os.O_RDONLY)
+    monkeypatch.chdir(gone)
+    gone.rmdir()
+    try:
+        assert not reaches_live(str(tmp_path / "outcomes.jsonl"))
+        assert reaches_live(str(LIVE_STORES[0] / "state.db"))
+    finally:
+        os.fchdir(back)
+        os.close(back)
 
 
 def test_a_home_of_bare_tilde_names_no_directory(monkeypatch):

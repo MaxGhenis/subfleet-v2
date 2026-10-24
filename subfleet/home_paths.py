@@ -557,6 +557,8 @@ def personal_home(home: Path) -> bool:
     root or a path inside one. A HOME spelled with a leading `~` or `~name` is
     judged as the home it names through pwd and, literally, against the working
     directory (`_home_kind`); one naming no user has only the literal reading.
+    With no readable working directory such a HOME counts too: its literal
+    reading cannot be judged.
     """
     return _home_kind(home) is not None
 
@@ -566,11 +568,15 @@ def _home_kind(home: Path) -> str | None:
     through HOME itself; the stat-free store check comes before any stat.
 
     A HOME spelled with a leading `~` has two readings, and both are judged
-    (#242 review r4): the home pwd names, which a consumer's
-    `os.path.expanduser` reaches, and the literal path joined to the working
-    directory, which `Path(HOME) / ... .resolve()` reaches (`~/../..` from a
-    folder two levels inside the account's home is that home). A `~name` that
-    names no user keeps its literal reading. "store" outranks "home"."""
+    (#242 review r4): the home pwd names, which `os.path.expanduser` reaches
+    for `~name` (for `~/` it substitutes HOME itself, so judging pwd's reading
+    only refuses more), and the literal path joined to the working directory,
+    which `Path(HOME) / ... .resolve()` reaches (`~/../..` from a folder two
+    levels inside the account's home is that home). A `~name` that names no
+    user keeps its literal reading. With no readable working directory the
+    literal reading cannot be judged, so such a HOME is "cwd", a refusal like
+    "store" that names its cause (#242 review r5); a pwd reading in a live root
+    is still "store". "store" outranks "home"."""
     spelled = os.fspath(home)
     readings = [spelled]
     if spelled.startswith("~"):
@@ -578,7 +584,7 @@ def _home_kind(home: Path) -> str | None:
         try:
             literal = os.path.join(os.getcwd(), spelled)
         except OSError:
-            return "store"                      # no working directory: no literal reading can be judged
+            return "store" if named is not None and _live_kind(named) == "store" else "cwd"
         readings = ([named] if named is not None else []) + [literal]
     found = None
     for text in readings:
@@ -617,6 +623,10 @@ def protected_provider_homes() -> list[Path]:
         # D-ST3: HOME/.claude would be a path inside the account's live root.
         raise PersonalPathRefused("Refusing provider homes under pytest; HOME names one of the account's "
                                   "live stores; set HOME to an isolated test home")
+    if kind == "cwd":
+        raise PersonalPathRefused("Refusing provider homes under pytest; HOME begins with ~ and the working "
+                                  "directory is unreadable, so HOME's literal reading cannot be judged; "
+                                  "set HOME to an isolated test home")
     return [home / ".claude", home / ".codex", *isolated]
 
 

@@ -84,6 +84,21 @@ MUTANTS = {
         HOMES, '    if kind == "store":\n        # D-ST3: HOME/.claude', '    if False:\n        # D-ST3: HOME/.claude',
         "test_a_home_inside_a_live_root_is_refused",
         [{"spelling": "~/.codex"}]),
+    # #242 review r5's P3-1 (its M2): an unreadable working directory left a tilde HOME unjudged.
+    "unreadable-cwd-allowed": (
+        HOMES, '            return "store" if named is not None and _live_kind(named) == "store" else "cwd"\n',
+        "            return None\n", "test_a_tilde_home_under_an_unreadable_working_directory_is_refused",
+        [{"spelling": spelling, "cause": "working directory is unreadable", "tmp_path": SCRATCH}
+         for spelling in ("~/st3-not-a-store", "~st3-no-such-user-r5/st3-not-a-store")]),
+    # Its P3-2: the refusal named a live store, not the working directory.
+    "unreadable-cwd-as-store": (
+        HOMES, '            return "store" if named is not None and _live_kind(named) == "store" else "cwd"\n',
+        '            return "store"\n', "test_a_tilde_home_under_an_unreadable_working_directory_is_refused",
+        [{"spelling": "~/st3-not-a-store", "cause": "working directory is unreadable", "tmp_path": SCRATCH}]),
+    "unreadable-cwd-home-allowed": (
+        HOMES, '    if kind == "cwd":\n', "    if False:\n",
+        "test_a_tilde_home_under_an_unreadable_working_directory_is_refused",
+        [{"spelling": "~/st3-not-a-store", "cause": "working directory is unreadable", "tmp_path": SCRATCH}]),
     "v1-path-fallback": (
         COMPAT, "    if under_pytest():\n        # D-ST3: PATH's", "    if False:\n        # D-ST3: PATH's",
         "test_the_v1_path_fallback_is_refused", [{"tmp_path": SCRATCH}]),
