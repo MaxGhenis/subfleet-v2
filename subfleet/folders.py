@@ -14,6 +14,18 @@ release site frees a turn's row with the job's other leases.
   on that canonical cwd, preserving the Git hold's exact-folder writer rules.
   Detached jobs also hold a reader row on their resolved reservation cwd for
   the job lease's lifetime, including retries and quarantined attempts.
+- `worktree-read:<folder>:<job id>` held by `cwd:<job id>` (`CWD`): a finished
+  job's worktree kept for the processes whose cwd is in it (C-5.5, C-5.9). Like
+  any reader row it excludes no writer, so a resume of the job, or a turn into
+  its worktree, is neither refused nor held for it (review r3 of #240, P2); it
+  only keeps retention from removing the folder while they are there. Where the
+  job ends, its `worktree:` key becomes this row in the transaction that
+  releases its other leases (`Daemon._keep_for_cwd`). The key is the job's own
+  reader key on that folder, which its lifetime row on its run folder also is
+  when the two folders are one; the holder tells them apart. That row is gone
+  with the job's other leases before this one is written, and only the cwd
+  worker releases this one, once the job and its attempts hold nothing else and
+  no process has its cwd there: neither release can drop the other's row.
 - `worktree:<folder>` held by `retention:<job id>`: a retirement's fence on a
   job's tree. No turn, writable or read-only, and no detached job starts on
   that folder or on one inside it while it is held (`retiring`, C-8.4): not a
@@ -70,6 +82,7 @@ TURN = "worktree-turn:"
 READER = "worktree-read:"
 SHARED = (TURN, READER)
 RETENTION = "retention:"                    # the holder of a retirement's fence: `retention:<job id>`
+CWD = "cwd:"                                # the holder of a finished job's kept worktree: `cwd:<job id>`
 
 # Unicode Default_Ignorable_Code_Point, DerivedCoreProperties 17.0.0.
 # HFS+ ignores a subset; ignoring the superset on every insensitive volume
@@ -266,6 +279,13 @@ def _kernel_path(path: str) -> str:
 
 def exclusive_key(folder: str) -> str:
     return f"{EXCLUSIVE}{folder}"
+
+
+def cwd_holder(job_id: str) -> str:
+    """The holder of a finished job's worktree row kept for cwd observers (C-5.5)."""
+    if ":" in job_id:
+        raise ValueError(f"a job id never contains ':' (C-1.1): {job_id!r}")
+    return f"{CWD}{job_id}"
 
 
 def turn_key(folder: str, job_id: str, *, writable: bool) -> str:
