@@ -2936,16 +2936,38 @@ The workspace-local Git metadata is retained. No logs, JSON evidence or bundles
 are staged. No installed app, live store or live daemon was touched. Nothing
 was fetched or pushed.
 
-## D-QT-FLAKE1: distant-reveal presentation sequencing
+## D-QT-FLAKE1: distant-reveal sequencing and streaming coverage
 
 ### Classification and evidence
 
-**Classification (b): probe presentation timing.** This corresponds to r7's
-earlier classification (c), which used different choices. The evidence supports
-controlling the test sequence; no product race was reproduced. The exact
-interleaving behind CI run 40003885189 remains unobserved, so this is not a claim
-that its 25-point end position was reproduced and traced to a particular host
-event.
+**Classification: CI cause unresolved.** Review r1 reproduced no product
+position race in **57 controlled offscreen scenes**, with **zero subsequent
+measured offset drift**. Its native-animation offscreen variants never
+established a distant landing, so those variants cannot explain CI's
+*distant-then-tail* failure. Presentation timing is a probe precondition, but
+"presentation timing only" is not a supported causal classification.
+
+Review r1's executed results are recorded in
+`/Users/maxghenis/reviews/subfleet-hub/qt-flake1/out-review-r1.md` (REQUEST_CHANGES).
+Its early text arrivals at nominal **0/16/50/120 ms** actually arrived at
+**0.026/41.666/103.127/141.765 ms** and folded at
+**132.836/158.916/230.867/247.283 ms**, all before the first notice. Their
+before/after offsets were **2259/2239/2192/2251 pt**, respectively, unchanged
+within each scene. Corresponding tool cases also retained position. A
+**50-event text stream at nominal 50 ms** spanned **0.031–2504.012 ms** and
+retained offset **1583 pt**; a **17-event tool stream at nominal 150 ms** spanned
+**0.031–2404.145 ms** and retained offset **2112 pt**. These streams crossed both
+notices and continued after consumption. Bursts at each notice and consumption
+also retained position. These are review measurements, not fresh round-2 runs.
+
+Both test shapes are necessary. The gate establishes a distant, stable landing
+before releasing output. Separate streaming tests preserve reachable arrivals
+during the reveal's asynchronous sleeps, including both notice boundaries and
+consumption. Both shapes now observe through at least **6.3 seconds** after
+activation, retaining the original observation horizon. Early stable samples
+alone do not rule out a late jump: r1's **2.3-second** mutant passed the former
+shortened schedule, then reached offset **8954 pt**, **24 pt** from the end, at
+**6.302 seconds**. The original schedule rejected that same mutant.
 
 The baseline is release/217 at `3b13b36b7e335db21bc8f966bb039df9c14aa308`,
 including #219. Read `review-r7.md`, `brief-fix10.md`, `out-fix10.md`, and
@@ -2977,14 +2999,15 @@ unchanged viewport samples away from the end, 50 arrivals in one released page,
 and final folded cursor **144/144**. Every run retained the same offset from
 landing through that page and a subsequent 20-line update: **0 pt** drift.
 Quiet distances were **4,733–5,360 pt**. The unchanged product therefore retained
-the revealed row in every measured post-landing trial.
+the revealed row in every measured post-landing trial. These round-1 trials
+cover post-landing output and do not establish what caused the CI failure.
 
 These are offscreen, synchronous-transaction geometry probes, as in fix 10;
-visible production-window animations were not measured. The classification is
-an inference from the test's missing presentation precondition, r7's established
-environment sensitivity, and these two complete loaded experiments.
+visible production-window animations were not measured. These two historical
+loaded experiments support the gate as a test precondition; they do not support
+a presentation-only explanation of the CI failure.
 
-### Fix and step commits
+### Round-1 fix and step commits
 
 No shipping app source changed. The shared test probe now waits for reveal
 consumption and repeated stable offset/viewport measurements more than 600 pt
@@ -3021,7 +3044,7 @@ in this workspace's preserved `.git-local`. Inspect with
 `GIT_DIR="$PWD/.git-local" GIT_WORK_TREE="$PWD" git log`.
 The supplied `.git` pointer and caller's checkout were not changed.
 
-### Every repetition's offsets
+### Round-1 repetition offsets (historical)
 
 All entries are points. Runs are independent fresh native processes, not
 repeated assertions on one cached result. In every controlled run the
@@ -3060,9 +3083,9 @@ pre-output landing offset also equals both recorded offsets below.
 | 29 | 2276 | 2276 | 2288 | 2288 |
 | 30 | 2303 | 2303 | 2303 | 2303 |
 
-### Fresh validation counts and holds
+### Round-1 validation counts and holds (historical)
 
-Counts below are from this resumed validation; no undocumented earlier run is
+Counts below are from round 1; no undocumented earlier run is
 counted. Each hold ran one pytest process, one file, with at most two additional
 CPU load threads for the repetition experiments. All holds completed below
 20 minutes. Python was locked GIL CPython 3.14.7. Environment setup ran once
@@ -3109,7 +3132,7 @@ strengthened sequence assertion and failed as expected because the old probe
 does not establish/report the output-release barrier. This is a test contract
 check, not a reproduced product failure.
 
-### Delivery and cleanup
+### Round-1 delivery and cleanup (historical)
 
 Before writing this section, ran the required
 `pgrep -fl 'suite_hold.sh|pytest|lockf'`. Process enumeration was denied
@@ -3123,3 +3146,118 @@ at delivery; no workspace `.hypothesis` folder exists. Workspace-local commit
 metadata is retained. Only named source/test/report files are staged; no logs,
 JSON evidence or bundles are committed. No installed app, live store, live
 daemon or caller checkout was modified.
+
+
+### Round-2 regressions
+
+Round 2 starts at `d79946699`, against the same **43** shipping Swift sources.
+Shipping sources remain unchanged. The tests-first commit is `b42d9e633`;
+`4b15b074e` implements the horizon, passive drift samples, and overlapping scenes.
+Commits use workspace-local `.git-local` metadata on
+`fix/qt-distant-reveal-flake-217`; the supplied `.git` pointer and the caller's
+checkout are unchanged.
+
+The five gated scenes retain consumption, two notices, three stable viewport
+samples, exact construction/page counts **0/50/21/17/7** and **0/1**, and a
+completed folding cursor. They check the settled position, the subsequent
+20-line update, and the final position at least **6.3 s** after activation and
+**2.5 s** after the last arrival. A passive **25 ms** sampler records maximum
+post-landing displacement; it does not scroll or gate product arrivals.
+
+Three new parametrized test functions provide **16** independently asserted
+streaming scenes: eight early-arrival scenes (text/tool at **0/16/50/120 ms**),
+two background streams (**50** text events at nominal **50 ms**, **17** tool
+events at nominal **150 ms**), and six **10-event** bursts (text/tool at the
+first notice, second notice, and consumption). Arrival/fold timestamps must
+prove the early cases folded before the first notice and the background streams
+crossed both notices and continued after consumption. Boundary bursts are pushed
+synchronously from their actual notification/subscription callback. Each scene
+checks construction/page counts, cursor completion, a distant stable landing,
+and exact offset equality through quiet, further output, and the horizon, with
+**zero** sampled subsequent drift. A detached producer supplies independent
+background pages while the reveal and presentation run on the main actor.
+
+The scripted daemon uses condition-based wake-on-arrival delivery in these new
+scenes. The first development hold exposed its former **30 ms** polling delay:
+the **120 ms** tool case folded at **328.870 ms**, after the first notice at
+**320.382 ms**, while retaining its offset. That hold had **23 passes and one
+precondition failure**. Wake-on-arrival removes this extra fake transport delay;
+it changes no shipping code and leaves older probes' delivery mode intact.
+
+`test_distant_search_reveal_during_catchup_keeps_position` still covers the
+**settling-follow branch**. Its stream starts after catch-up, reveal consumption,
+and presentation settling. It does **not** substitute for the 16 new scenes.
+
+### Round-2 executed scene measurements
+
+The successful fix10 hold saved `hold-43334/pytest-of-maxghenis/pytest-0/fix10-streaming0/result.json`. The following
+values are from that run (milliseconds for times, points for offsets). Every
+row had equal landing/quiet/after-more/horizon offsets and maximum sampled
+drift **0 pt**. All 16 scenes passed their temporal and count assertions.
+
+| Early scene | Arrival | Fold | First notice | Retained offset |
+| --- | ---: | ---: | ---: | ---: |
+| `early_text_0ms` | 18.873 | 38.738 | 299.446 | 2336 |
+| `early_text_16ms` | 26.057 | 30.797 | 365.392 | 2249 |
+| `early_text_50ms` | 51.929 | 52.443 | 275.870 | 2230 |
+| `early_text_120ms` | 122.670 | 123.215 | 268.557 | 2269 |
+| `early_tool_0ms` | 26.686 | 31.823 | 292.966 | 2260 |
+| `early_tool_16ms` | 40.371 | 47.019 | 373.390 | 2136 |
+| `early_tool_50ms` | 50.145 | 158.658 | 290.001 | 2248 |
+| `early_tool_120ms` | 142.959 | 143.745 | 287.688 | 2248 |
+
+| Background scene | Arrival span | Notices | Consumption | Retained offset |
+| --- | ---: | ---: | ---: | ---: |
+| `background_text` | 27.356–2451.089 | 304.859 / 873.572 | 873.916 | 1560 |
+| `background_tool` | 18.520–2409.409 | 303.917 / 857.752 | 858.125 | 2266 |
+
+| Burst scene | Boundary arrival | Retained offset |
+| --- | ---: | ---: |
+| `burst_text_first_notice` | 337.817 | 2111 |
+| `burst_text_second_notice` | 838.862 | 2128 |
+| `burst_text_consumption` | 934.612 | 2164 |
+| `burst_tool_first_notice` | 288.056 | 2239 |
+| `burst_tool_second_notice` | 915.495 | 2109 |
+| `burst_tool_consumption` | 865.410 | 2238 |
+
+### Round-2 executed product mutations
+
+Each build used all **43** shipping Swift files, replacing only the mutated
+file with a scratch copy. The shared test probe was unchanged. Mutations at
+`UIWindow.swift:375` run from the follow-key `onChange` hook after the first
+qualifying text-length update. A latch limits each mutation to one scheduled
+loss/drift task. The overlap-only version additionally requires a pending
+search reveal and schedules its tail jump **1.3 s** after that update. The
+short-landing mutation replaces the search scroll at `UISearchPalette.swift:757`
+and positions the real clip view **25 pt** from the end. No shipping mutation
+is committed.
+
+The initial inline injection made SwiftUI compilation slow. The **250 ms**
+and drift mutants completed and were rejected, then that hold was interrupted
+during the next compilation. Its process group had no remaining processes or
+open log descriptors. Further injections use small product helper methods
+from the same hook, with **300 s** compile and **150 s** probe bounds. Two
+further holds completed four checks (including a repeat of drift). Compilation,
+execution and fixture checks remain outside the expected assertion catch. All
+five distinct behavioral mutations were rejected.
+
+| Mutant | Landing → quiet → after more → horizon offset (pt) | Detecting assertion in `test_review_r219_fix10_view.py` |
+| --- | --- | --- |
+| Tail jump after 250 ms | 2263 → 8330 → 8710 → 8710 | Line 36: `abs(run["quiet"]["offset"] - before["position"]["offset"]) <= 2` |
+| Drift, 0.5 pt per nominal 25 ms tick | 2276 → 2277.5 → 2285 → 2308.5 | Line 38: `abs(run["after_more"]["offset"] - run["quiet"]["offset"]) <= 2` |
+| Tail jump after 2.3 s | 2263 → 2263 → 2263 → 8695 | Line 41: `run["horizon"]["from_end"] > 600` |
+| Landing stops 25 pt from end | 6431 → 6431 → 6431 → 6431 | Line 28: `run.get("output_released")` |
+| Tail loss only after an arrival overlaps reveal | 2261 → 7535 → 7915 → 7915 | Line 85: `run[key]["from_end"] > 600` |
+
+The **2.3 s** mutant passed every settled/after-more position assertion, then
+reached **8695 pt**, **25 pt** from the end, at **6.778 s**. The restored
+horizon assertion is what rejects it. The short-landing run withheld all arrivals
+(`output_released=false`, **0** arrival pages), with observed distance **25 pt**.
+
+The overlap-only mutant's arrival/fold/first-notice times were
+**56.739/149.008/303.531 ms**. The new early-text **50 ms** scene rejected its
+quiet tail position (**7535 pt**, **24 pt** from the end). The unchanged gated
+regression **passed on that same mutated binary**, including the horizon and
+maximum-drift checks. This executed pair demonstrates why both test shapes
+are retained.
+
