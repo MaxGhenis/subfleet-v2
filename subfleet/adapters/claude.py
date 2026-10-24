@@ -1238,15 +1238,15 @@ class ClaudeAdapter(Adapter):
     @staticmethod
     def permission_args(
         sandbox: Sandbox | str, *, isolated: bool = False, review_root: str | None = None,
-        mcp_config: str = EMPTY_MCP_CONFIG,
+        mcp_config: str = EMPTY_MCP_CONFIG, tmpdir: str | None = None,
     ) -> tuple[str, ...]:
-        """`PERM_ARGS` as v1 `bin/subfleet-claude` builds them, in v1's order, with
-        one documented change.
+        """Provider permission flags, with fixed MCP and private scratch policy.
 
         `workspace-write` takes the bypass flag and, unlike v1 (C-12.9, d714),
         `--strict-mcp-config --mcp-config <mcp_config>`: no MCP server from any
         settings file, only the ones `mcp_config` names, and it names none unless
-        the job did. `read-only` fails closed even when the operator's own settings
+        the job did. D-TMP1's `tmpdir`, when supplied, is an explicit additional
+        directory. `read-only` fails closed even when the operator's own settings
         default to `bypassPermissions`: plan mode plus a named tool surface, with
         settings sources, Chrome, MCP and slash commands all removed so nothing
         settings-driven can reintroduce a writing tool; `mcp_config` is never read
@@ -1254,7 +1254,8 @@ class ClaudeAdapter(Adapter):
         """
         value = sandbox.value if isinstance(sandbox, Sandbox) else str(sandbox)
         if value == Sandbox.WORKSPACE_WRITE.value:
-            return ("--dangerously-skip-permissions", "--strict-mcp-config", "--mcp-config", mcp_config)
+            return ("--dangerously-skip-permissions", "--strict-mcp-config", "--mcp-config", mcp_config,
+                    *(("--add-dir", tmpdir) if tmpdir else ()))
         tools = READ_ONLY_TOOLS_BASE if isolated else READ_ONLY_TOOLS_WEB
         args = [
             "--permission-mode", "plan",
@@ -1402,7 +1403,8 @@ class ClaudeAdapter(Adapter):
             validate_isolated_review(sandbox, job.review_root, os.environ.keys() | credential_env.keys())
         argv += list(self.permission_args(sandbox, isolated=job.isolated_review,
                                          review_root=job.review_root,
-                                         mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir)))
+                                         mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir),
+                                         tmpdir=credential_env.get("TMPDIR")))
         argv += claude_settings_args(job, sandbox, attempt_dir)          # C-12.4: publish hook
         from .isolation import claude_env_remove
         env_remove = (*ENV_REMOVE, *claude_env_remove(os.environ.keys() | credential_env.keys())) if sandbox == "read-only" else ENV_REMOVE
@@ -1451,7 +1453,8 @@ class ClaudeAdapter(Adapter):
             raise AdapterError("isolated review cannot resume a contextual Claude session",
                                fix="submit a fresh isolated review job", reason="isolation-resume-claude")
         argv += list(self.permission_args(
-            sandbox, mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir)))
+            sandbox, mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir),
+            tmpdir=credential_env.get("TMPDIR")))
         argv += claude_settings_args(job, sandbox, attempt_dir)          # C-12.4: publish hook
         from .isolation import claude_env_remove
         env_remove = (*ENV_REMOVE, *claude_env_remove(os.environ.keys() | credential_env.keys())) if sandbox == "read-only" else ENV_REMOVE

@@ -363,8 +363,8 @@ _PIN_REFUSALS = {
     "auth-dead": "{lane}'s provider rejected its credential; a new login or re-enrolment is needed",
     "identity-mismatch": "{lane}'s credential proved to hold another account (C-10.6)",
     "credential-refused": "{lane} names {credential_ref}, a variable every launch inherits, so it holds no "
-                          "credential of its own (D-ENV1); point it at a daemon variable off the launch "
-                          "allowlist in lanes.json, same lane id, provider and account, and restart the daemon",
+                          "credential of its own (D-ENV1); point it at a daemon variable no launch inherits "
+                          "in lanes.json, same lane id, provider and account, and restart the daemon",
     "credential-latched": "{lane}'s last probe found its credential {probe_status}, which only a new login "
                           "or a re-enrolment ends",
     "credential-latched:expired-token": "{lane}'s token expired and the one heal the timers allow a Codex "
@@ -444,6 +444,16 @@ def _machine(hold: Mapping[str, Any]) -> str:
              if hold.get("load_per_cpu") is not None else "",
              f"memory pressure {hold['memory_pressure']}, threshold {hold['memory_threshold']}"
              if hold.get("memory_pressure") is not None else ""]
+    if hold.get("cpu_idle") is not None:
+        parts.append(f"CPU idle {hold['cpu_idle']:.1%}, minimum {hold['cpu_idle_min']:.1%}")
+    if hold.get("disk_busy") is not None:
+        parts.append(f"disk service {hold['disk_busy']:.3f} ms/op, maximum {hold['disk_busy_max']:.3f}")
+    for signal, label, direction in (("cpu_idle", "CPU idle", "at least"), ("disk_busy", "disk busy", "at most")):
+        if f"{signal}_resume" in hold:
+            resume = hold[f"{signal}_resume"]
+            target = f"{resume:.1%}" if signal == "cpu_idle" else f"{resume:.3f} ms/op"
+            parts.append(f"{label} release needs {direction} {target} "
+                         f"for {hold[f'{signal}_release_s']:g} seconds ({hold[f'{signal}_clear_s']:.1f} s clear)")
     return "; ".join(part for part in parts if part) or "busy"
 
 
