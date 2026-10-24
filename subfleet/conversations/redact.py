@@ -131,20 +131,28 @@ def mask_approval(request: Any) -> tuple[Any, list[dict]]:
     Each masked span is reported so the app can show it and offer a reveal.
     """
     import hashlib
-    from ..sessions.handoff import _BEARER_RE, _JWT_RE, _PEM_RE, _PREFIXED_TOKEN_RE, _URL_PASSWORD_RE, _linear_sub
+    from ..sessions.handoff import (
+        _BEARER_RE, _JWT_RE, _PEM_RE, _PREFIXED_TOKEN_RE, _URL_PASSWORD_RE, _bearer_refusal, _linear_sub,
+    )
     spans: list[dict] = []
 
     def mask_text(text: str, path: str) -> str:
         for rule, pattern in (("pem", _PEM_RE), ("jwt", _JWT_RE), ("token", _PREFIXED_TOKEN_RE),
                               ("bearer", _BEARER_RE), ("url-password", _URL_PASSWORD_RE)):
             def repl(match):
-                value = match.group(0) if rule != "url-password" else match.group(2)
+                value, rest = (match.group(0) if rule != "url-password" else match.group(2)), ""
+                if rule == "bearer" and (cut := _bearer_refusal(match)) is not None:
+                    # A credential key, as the scrubber reads one (C-23.14): masked
+                    # only for the token before its credential word, if any.
+                    if cut == match.start(1):
+                        return match.group(0)
+                    value, rest = match.string[match.start():cut], match.string[cut:match.end()]
                 if any(meta in value for meta in _SHELL_META):
                     return match.group(0)
                 spans.append({"path": path, "rule": rule, "length": len(value),
                               "sha256": hashlib.sha256(value.encode()).hexdigest()})
                 hidden = f"[masked {rule}, {len(value)} chars]"
-                return hidden if rule != "url-password" else match.group(1) + hidden + match.group(3)
+                return hidden + rest if rule != "url-password" else match.group(1) + hidden + match.group(3)
             text = _linear_sub(pattern, repl, text)
         return text
 

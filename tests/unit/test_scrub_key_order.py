@@ -134,7 +134,9 @@ BEARER_TAKES_A_KEY = {
     "escaped-closing-quote": ('token_type: Bearer\naccess_token\\": SECRET7bearaa7',
                               'token_type: Bearer\naccess_token\\": [REDACTED]'),
     "flag": ("auth=bearer --client-secret SECRET7bearaa8", "auth=bearer --client-secret [REDACTED]"),
-    "flag-after-path": ("Bearer x/--api-key SECRET7bearaa9", "Bearer x/--api-key [REDACTED]"),
+    # Since #239 round 2 the run before a refused flag goes too, token or not (the flag
+    # form of the refused-`Bearer` converse, `Bearer SECRET7--secret x`).
+    "flag-after-path": ("Bearer x/--api-key SECRET7bearaa9", "Bearer [REDACTED]/--api-key [REDACTED]"),
     "prefixed-key": ("Bearer okPASSWORD=SECRET7bearab1", "Bearer okPASSWORD=[REDACTED]"),
 }
 
@@ -148,27 +150,29 @@ def test_bearer_never_takes_a_credential_key(text, scrubbed):
     assert any(secret in release217.scrub_secrets(text)[0] for secret in SECRET.findall(text))
 
 
-#: A `Bearer` token where it is one: in a header, inline (the plain rules would read
-#: `Authorization` as a key and `Bearer` as its value), in a dict, and padded.
+#: A `Bearer` token where it is one: in a header, inline, in a dict, and padded. Inline
+#: headers (`curl`, `inline-header`) are D-SCR2's: their value is redacted whole, where
+#: release/217's plain rule read `Authorization` as a key and `Bearer` as its value.
 INLINE_BEARER = {
     "header": ("Authorization: Bearer SECRET7tokenabc124", "Authorization: [REDACTED]"),
-    "curl": ("curl -H 'Authorization: Bearer SECRET7tokenabc123' https://x",
-             "curl -H 'Authorization: [REDACTED] [REDACTED]' https://x"),
-    "inline-header": ("sent Authorization: Bearer SECRET7tokenabc125 upstream",
-                      "sent Authorization: [REDACTED] [REDACTED] upstream"),
+    "curl": ("curl -H 'Authorization: Bearer SECRET7tokenabc123' https://x", "curl -H 'Authorization: [REDACTED]' https://x"),
+    "inline-header": ("sent Authorization: Bearer SECRET7tokenabc125 upstream", "sent Authorization: [REDACTED]"),
     "headers-dict": ("headers={'Authorization': 'Bearer SECRET7hdrdict9'}", "headers={'Authorization': '[REDACTED]'}"),
     "padded": ("auth: Bearer SECRET7padded0abc== then", "auth: Bearer [REDACTED] then"),
     "token-before-a-colon": ("Bearer SECRET7tokenabc126: unauthorized", "Bearer [REDACTED]: unauthorized"),
 }
+INLINE_HEADER_CASES = ("curl", "inline-header")
 
 
 @pytest.mark.parametrize("text,scrubbed", INLINE_BEARER.values(), ids=INLINE_BEARER.keys())
 def test_a_bearer_token_stays_redacted(text, scrubbed):
-    """What release/217 redacted it still does, exactly: the lookahead refuses only a
-    key, and the named-value rules still run after the token rules."""
+    """What release/217 redacted it still does, exactly, outside an inline header:
+    `Bearer` refuses only a key, and the named-value rules still run after the token
+    rules."""
     found = _assert_kept_out(text)
     assert found["whole"] == found["excerpt"] == scrubbed
-    assert release217.scrub_secrets(text) == scrub_secrets(text)
+    if not any(text == INLINE_BEARER[case][0] for case in INLINE_HEADER_CASES):
+        assert release217.scrub_secrets(text) == scrub_secrets(text)
 
 
 # --- headers -----------------------------------------------------------------------
@@ -217,15 +221,19 @@ def test_a_header_never_takes_a_key_whose_value_is_past_its_line(text):
 
 def test_a_header_redacts_what_precedes_the_key_and_counts_each_value():
     """C-23.14 and the count rule (`_Tally`): the header still hides and counts its
-    other values; the key and its value go to the named-value rules."""
+    other values; the key's credential word and its value go to the named-value rules.
+    Only the word is kept (D-SCR2, #231 review P3-1), so a secret glued to it stays
+    hidden; a compound key's own name before its word (`session_`) is redacted with
+    the rest, and one that is itself a word (`client_secret`) is kept whole."""
     assert scrub_secrets("Cookie: a=SECRET7cookaa1; session_token=\nSECRET7cookaa2") == (
-        "Cookie: [REDACTED] session_token=\n[REDACTED]", 2)
+        "Cookie: [REDACTED] token=\n[REDACTED]", 2)
     assert scrub_secrets("Authorization: Basic SECRET7cookaa3 client_secret\n= SECRET7cookaa4") == (
         "Authorization: [REDACTED] client_secret\n= [REDACTED]", 2)
     # A header holding only the key is left to those rules whole: its own name is a
     # key, whose value is the key here, and the line's trailing whitespace goes.
     assert scrub_secrets("Cookie: token:   \nSECRET7cookaa5") == ("Cookie: [REDACTED]\n[REDACTED]", 2)
-    for text in ("Cookie: [REDACTED] session_token=\n[REDACTED]", "Cookie: [REDACTED]\n[REDACTED]"):
+    for text in ("Cookie: [REDACTED] token=\n[REDACTED]", "Authorization: [REDACTED] client_secret\n= [REDACTED]",
+                 "Cookie: [REDACTED]\n[REDACTED]"):
         assert scrub_secrets(text) == (text, 0)
 
 
@@ -244,19 +252,17 @@ def test_a_kept_key_is_parted_from_the_redaction_before_it(text, scrubbed):
     assert scrub_secrets(scrubbed) == (scrubbed, 0)
 
 
-@pytest.mark.documented_limitation
 @pytest.mark.parametrize("text", ["curl -H 'Authorization: Basic SECRET7inlineaa7' https://x",
                                   "sent Cookie: a=1 SECRET7inlineaa8 upstream"])
-def test_a_header_that_does_not_start_a_line_keeps_its_second_word_documented_limitation(text):
-    """Outside D-SCR1, at release/217 as here: the header rule reads a header only where
-    it starts a line (C-23.14). Inline, the header's name is only a key, whose plain
-    value is its first word, so `Basic` goes and the credential after it stays; so does
-    a header first in a refusal's words once `refusals.detail_line` prefixes them. A
-    follow-up must change this deliberately (it decides where an inline value ends)."""
+def test_a_header_that_does_not_start_a_line_loses_its_value(text):
+    """D-SCR2 (C-23.14's inline rule): what was D-SCR1's documented limitation. Inline,
+    release/217 read the header's name as a key whose plain value is its first word,
+    so `Basic` went and the credential after it stayed; so did a header first in a
+    refusal's words once `refusals.detail_line` prefixed them."""
     secret = SECRET.search(text).group()
     for out in (scrub_secrets(text)[0], scrub_secrets(text, whole=True)[0], refusals.scrubbed_line(text),
                 refusals.detail_line("submit", ValueError(text.partition(" ")[2]))):
-        assert secret in out
+        assert secret not in out
     assert secret in release217.scrub_secrets(text)[0]
 
 
@@ -306,7 +312,11 @@ FLAG_KEYS = st.builds(lambda key, case: case(key), st.one_of(st.sampled_from(WOR
     lambda prefix, word: prefix + word, st.sampled_from(("db_", "service-")),
     st.sampled_from(("api_key", "token", "secret", "password", "passwd", "private_key", "signing-key")))),
     st.sampled_from(CASES))
-SECRETS = st.text(alphabet=ALNUM, min_size=4, max_size=10).map(lambda tail: "SECRET7" + tail)
+#: Secrets, some ending in a credential word (#231 review r1's P3-1: #231 read those
+#: as keys when a separator followed them).
+CREDENTIAL_ENDINGS = ("", "", "", "token", "_token", "secret", "password", "-key", "cookie", "Credentials")
+SECRETS = st.builds(lambda tail, ending: "SECRET7" + tail + ending, st.text(alphabet=ALNUM, min_size=4, max_size=10),
+                    st.sampled_from(CREDENTIAL_ENDINGS))
 SEPARATORS = (":", "=", " : ", " = ", ":\n", "=\n", ":\n  ", "=\n  ", "\n: ", "\n= ")
 KEY_QUOTES = ("{}", "'{}'", '"{}"', '\\"{}\\"')
 VALUE_QUOTES = ("{}", "'{}'", '"{}"')
@@ -321,20 +331,45 @@ HEADER_VALUES_DRAWN = st.one_of(
     KEYS, ASSIGNMENTS, SECRETS, st.builds(lambda scheme, value: f"{scheme} {value}", st.sampled_from(
         ("Bearer", "Basic")), SECRETS), st.sampled_from(("ok", "see the log", "no value here")),
     st.builds(lambda value, then: f"a={value}; {then}", SECRETS, ASSIGNMENTS))
-#: A header always starts its line: elsewhere `Cookie:` is only a key (C-23.14's header rule).
-HEADER_PARTS = st.builds(lambda name, colon, value: "\n" + name + colon + value,
-                         st.sampled_from(("Authorization", "Cookie", "Set-Cookie")),
+HEADER_NAMES = st.sampled_from(("Authorization", "Cookie", "Set-Cookie", "Proxy-Authorization", "X-Authorization"))
+#: A header that starts its line (C-23.14's line-start rule).
+HEADER_PARTS = st.builds(lambda name, colon, value: "\n" + name + colon + value, HEADER_NAMES,
                          st.sampled_from((": ", ":", ":\n", " : ")), HEADER_VALUES_DRAWN)
-#: An inline header carries a `Bearer` token: inline, a header's other values are the
-#: documented limitation below, and the name is a key whose plain value is `Bearer`.
-INLINE_HEADERS = st.builds(lambda quote, word, value: f"curl -H {quote}Authorization: {word} {value}{quote} https://x",
-                           st.sampled_from(("'", '"')), BEARER_WORDS, SECRETS)
+#: An inline header (D-SCR2), in every quoting form: unquoted in prose, `-H '…'`,
+#: `-H "…"`, `--header='…'`, JSON's `\"…\"`, a repr's `\'…\'` and JSON encoded twice.
+INLINE_QUOTES = (("sent ", ""), ("curl -H '", "' https://x"), ('curl -H "', '" -v'), ("wget --header='", "' x"),
+                 ('{"cmd": "curl -H \\"', '\\" x"}'), ("'curl -H \\'", "\\' x'"), ('"-H \\\\\\"', '\\\\\\" x"'))
+INLINE_HEADERS = st.builds(lambda quotes, name, colon, value: quotes[0] + name + colon + value + quotes[1],
+                           st.sampled_from(INLINE_QUOTES), HEADER_NAMES, st.sampled_from((": ", ":", ":\n  ", "\t: ")),
+                           HEADER_VALUES_DRAWN)
+#: Lines that start with a separator after a secret that ends in a credential word
+#: (P3-1): a Markdown underline and an HTTP/2 pseudo-header.
 FILLER = st.sampled_from(("ok", "see the log", "x=1", "auth:", "  scheme: bearer", "token_type: Bearer",
-                          "path/to/file.py:12", "a.b", "Bearer", "upstream said:", "# note"))
+                          "path/to/file.py:12", "a.b", "Bearer", "upstream said:", "# note", "====",
+                          ":authority: example.com", "= next"))
 PARTS = st.one_of(ASSIGNMENTS, FLAGS, BEARERS, HEADER_PARTS, INLINE_HEADERS, FILLER)
 TEXTS = st.builds(lambda parts, joins: "".join(join + part for join, part in zip(joins, parts)).lstrip("\n"),
                   st.lists(PARTS, min_size=1, max_size=6), st.lists(st.sampled_from((" ", "\n", "\n  ")),
                                                                      min_size=6, max_size=6))
+
+
+_MARKS = re.compile("|".join(re.escape(mark) for mark in handoff._PLACEHOLDERS) + r"|\s+")
+
+
+def _revealed(first: str, second: str) -> str:
+    """What a second scrub shows that the first hid (invariant 2, monotone): with every
+    marker and all whitespace taken out of both, the second's characters must be a
+    subsequence of the first's, case aside (the `Bearer` rule writes its own scheme
+    word), since a scrub only takes text out and puts markers in.
+    Returns the first character of `second` past that subsequence ("" when none)."""
+    kept, again = _MARKS.sub("", first).lower(), _MARKS.sub("", second).lower()
+    at = 0
+    for index, char in enumerate(again):
+        at = kept.find(char, at)
+        if at < 0:
+            return again[index:index + 40]
+        at += 1
+    return ""
 
 
 def _neutral_breaks(text: str) -> list[int]:
@@ -346,18 +381,19 @@ def _neutral_breaks(text: str) -> list[int]:
 @CI
 @given(text=TEXTS)
 def test_no_credential_value_survives_and_excerpts_agree_with_the_whole(text):
-    """Over keys, separators, `Bearer`, headers, flags, quoted and unquoted values and
-    filler: no `SECRET7` value survives in any mode; scrubbing a scrubbed text changes
-    nothing; and an excerpt is the whole text's scrub of the same lines, both where a
-    cut is allowed and as `scrub_bounded` keeps it."""
+    """Over keys, separators, `Bearer`, line-start and inline headers (every quoting
+    form, `Proxy-Authorization` included), flags, quoted and unquoted values, secrets
+    that end in a credential word and filler: no `SECRET7` value survives in any mode,
+    `detail_line` included; scrubbing a scrubbed text shows nothing it hid; and an excerpt
+    is the whole text's scrub of the same lines, both where a cut is allowed and as
+    `scrub_bounded` keeps it."""
     if not SECRET.search(text):
         return
-    # A header that starts the text is inline once `detail_line` prefixes it: the
-    # documented limitation above, not this rule.
-    found = _assert_kept_out(text, excerpt=len(text) + 1, detail=not handoff._HEADER_RE.match(text))
-    assert scrub_secrets(found["excerpt"])[0] == found["excerpt"]
-    assert scrub_secrets(found["whole"], whole=True)[0] == found["whole"]
-    assert refusals.scrubbed_line(found["daemon.log line"]) == found["daemon.log line"]
+    found = _assert_kept_out(text, excerpt=len(text) + 1)
+    # A second scrub shows nothing the first hid; it may remove more (#239 review r2, P3-3).
+    assert _revealed(found["excerpt"], scrub_secrets(found["excerpt"])[0]) == ""
+    assert _revealed(found["whole"], scrub_secrets(found["whole"], whole=True)[0]) == ""
+    assert _revealed(found["daemon.log line"], refusals.scrubbed_line(found["daemon.log line"])) == ""
     whole = handoff._scrub(text, False)[0]
     for cut in _neutral_breaks(text):
         assert handoff._scrub(text[:cut], False)[0] + handoff._scrub(text[cut:], False)[0] == whole, cut
@@ -386,27 +422,47 @@ FUZZ_SEPARATORS = ("=", ": ", " = ", " : ", ":", "=\n", ":\n", ":\n  ", "=\n  ",
 FUZZ_VALUES = ("{}", "'{}'", '"{}"', "\\'{}\\'", '\\"{}\\"', '\\\\\\"{}\\\\\\"', "'{}", '"{}', "\\'{}",
                "{},", "{};", "{})", "{} tail", "{}\n", "'{}' tail", "({})")
 #: Mixed filler, with the extended fuzz's `Cookie:`, `Bearer`, `--token`,
-#: `Authorization:`, reminder and backslash fillers.
+#: `Authorization:`, reminder and backslash fillers, and lines that start with a
+#: separator (a Markdown underline, an HTTP/2 pseudo-header).
 FUZZ_FILLER = ("ok", "see logs", "error:", "x=1", "upstream said:", "token_type: Bearer", "Bearer", "bearer",
                "BEARER", "Cookie:", "Authorization:", "Set-Cookie:", "--token", "--verbose", "auth:",
                "  scheme: bearer", "token_type=bearer", "<system-reminder>r</system-reminder>", "\\\\", "\\",
-               "headers={", "}", "curl -H", "# note", "path/to/file.py:12", "a.b")
+               "headers={", "}", "curl -H", "# note", "path/to/file.py:12", "a.b", "====", ":authority: example.com",
+               "Proxy-Authorization:")
 FUZZ_JOINS = (" ", "\n", "\n  ", "", " \n")
+#: What a fifth of the secrets end in (#231 review r1's generator did the same): the
+#: credential words #231 read as a key when a separator followed.
+FUZZ_ENDINGS = ("token", "_token", "secret", "password", "Passwd", "api_key", "cookie", "credentials")
+#: Inline headers (D-SCR2) in each quoting form, the value a secret after a scheme
+#: word, a cookie or nothing.
+FUZZ_INLINE = (("curl -H '", "' https://x"), ('curl -H "', '" https://x'), ("wget --header='", "'"), ("sent ", ""),
+               ('{"cmd": "curl -H \\"', '\\" x"}'), ("'-H \\'", "\\' x'"), ("got ", " and failed"))
+FUZZ_HEADER_NAMES = ("Authorization", "Cookie", "Set-Cookie", "Proxy-Authorization", "X-Authorization", "cookie")
+FUZZ_HEADER_VALUES = ("Basic {}", "Token {}", "Bearer {}", "sid={}", "a=1; sid={}", "{}")
+
+
+def _fuzz_secret(rng: random.Random, index: int) -> str:
+    secret = "SECRET7" + "".join(rng.choice(ALNUM) for _ in range(rng.randint(4, 10))) + str(index)
+    return secret + rng.choice(FUZZ_ENDINGS) if rng.random() < 0.2 else secret
 
 
 def _fuzz_text(rng: random.Random) -> tuple[str, list[str]]:
-    """One to five parts, each an assignment (a `SECRET7` value) or a filler."""
+    """One to five parts, each an assignment (a `SECRET7` value), an inline header (a
+    `SECRET7` value in it) or a filler."""
     parts, secrets = [], []
     for _ in range(rng.randint(1, 5)):
-        if rng.random() < 0.55:
-            key = rng.choice(CASES)(rng.choice(FUZZ_KEYS))
-            while True:
-                secret = "SECRET7" + "".join(rng.choice(ALNUM) for _ in range(rng.randint(4, 10))) + str(len(secrets))
-                if not handoff._SENSITIVE_SUFFIX_RE.search(secret):
-                    break
+        draw = rng.random()
+        if draw < 0.45:
+            secret = _fuzz_secret(rng, len(secrets))
             secrets.append(secret)
-            parts.append(rng.choice(FUZZ_KEY_QUOTES).format(key) + rng.choice(FUZZ_SEPARATORS)
-                         + rng.choice(FUZZ_VALUES).format(secret))
+            parts.append(rng.choice(FUZZ_KEY_QUOTES).format(rng.choice(CASES)(rng.choice(FUZZ_KEYS)))
+                         + rng.choice(FUZZ_SEPARATORS) + rng.choice(FUZZ_VALUES).format(secret))
+        elif draw < 0.6:
+            secret = _fuzz_secret(rng, len(secrets))
+            secrets.append(secret)
+            opening, closing = rng.choice(FUZZ_INLINE)
+            parts.append(opening + rng.choice(FUZZ_HEADER_NAMES) + rng.choice((": ", ":", " : ", ":\n  "))
+                         + rng.choice(FUZZ_HEADER_VALUES).format(secret) + closing)
         else:
             parts.append(rng.choice(FUZZ_FILLER))
     return parts[0] + "".join(rng.choice(FUZZ_JOINS) + part for part in parts[1:]), secrets
@@ -425,21 +481,34 @@ def _leaks(scrubber, scrubbed_line) -> tuple[set, dict]:
 
 
 def _kind(text: str, secret: str) -> str:
-    """`bearer` or `header` when one precedes the secret in its text (generously)."""
-    before = text[:text.index(secret)].lower()
-    if "bearer" in before:
+    """What precedes the secret in its text (generously): `credential-word` for a secret
+    that ends in one, `inline-header` for a header name and colon that do not start
+    their line, then `bearer`, `header` (one that starts its line), or `other`."""
+    if handoff._SENSITIVE_SUFFIX_RE.search(secret):
+        return "credential-word"
+    before = text[:text.index(secret)]
+    line = before[before.rfind("\n") + 1:]
+    if re.search(r"(?i)\S.*?(?:authorization|cookie)[ \t]*:", line) or re.search(
+            r"(?i)\S[^\n]*?(?:authorization|cookie)[ \t]*:\s*\Z", before):
+        return "inline-header"
+    if "bearer" in before.lower():
         return "bearer"
-    return "header" if re.search(r"(?:authorization|cookie)\s*:", before) else "other"
+    return "header" if re.search(r"(?i)(?:authorization|cookie)\s*:", before) else "other"
 
 
-def test_the_head_leaks_nothing_release_217_keeps_out_and_no_bearer_or_header_value():
+KINDS = ("credential-word", "inline-header", "bearer", "header", "other")
+
+
+def test_the_head_leaks_nothing_release_217_keeps_out_and_no_bearer_header_or_credential_word_value():
     """The differential (C-23.14): over the seeded fuzz, every triple the head leaves
-    release/217 left too, and none follows a `Bearer` or a header."""
+    release/217 left too, and none follows a `Bearer`, a line-start or inline header,
+    or is a secret ending in a credential word (D-SCR2: #231 showed those)."""
     head, texts = _leaks(handoff, refusals.scrubbed_line)
     base, _ = _leaks(release217, release217.scrubbed_line)
-    kinds = {kind: len([1 for index, _, secret in base if _kind(texts[index][0], secret) == kind])
-             for kind in ("bearer", "header", "other")}
-    assert kinds["bearer"] > 50 and kinds["header"] > 20, kinds      # the fuzz exercises both
+    kinds = {kind: len([1 for index, _, secret in base if _kind(texts[index][0], secret) == kind]) for kind in KINDS}
+    # The fuzz exercises each: release/217 leaks after `Bearer`, after a header, and
+    # in an inline header.
+    assert kinds["bearer"] > 50 and kinds["header"] > 20 and kinds["inline-header"] > 50, kinds
     assert head - base == set()
     assert [triple for triple in head if _kind(texts[triple[0]][0], triple[2]) != "other"] == []
 
@@ -447,9 +516,9 @@ def test_the_head_leaks_nothing_release_217_keeps_out_and_no_bearer_or_header_va
 # --- the lookahead's work ------------------------------------------------------------
 
 @pytest.mark.parametrize("token", ["a_", "token", "secret_", "--a", "x."])
-def test_the_bearer_lookahead_keeps_scrubbing_linear(token):
-    """C-23.14 / C-25.5: the lazy lookahead reads a token once per position; four times
-    the input must not take quadratic CPU (`_SENSITIVE_KEY` there would)."""
+def test_the_bearer_rule_keeps_scrubbing_linear(token):
+    """C-23.14 / C-25.5: `_bearer_refusal` reads a run's end once; four times the input
+    must not take quadratic CPU (D-SCR1's `_SENSITIVE_KEY` lookahead would have)."""
     measured = _scrubber_probe(f"token = {token!r}\n" + '''
 import json, time
 samples = {}

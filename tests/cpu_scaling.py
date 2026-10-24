@@ -56,3 +56,34 @@ def best_cpu_samples(make_call: Callable[[int], Callable[[], None]],
     large = best(calls[sizes[1]], batch)
     return {str(sizes[0]): small / batch, str(sizes[1]): large / batch,
             "batch": batch, "base_batch_cpu_s": small, "ratio": large / small}
+
+
+def best_cpu_ratio(call: Callable[[], None], reference: Callable[[], None], *,
+                   rounds: int = 5) -> dict:
+    """`call`'s CPU over `reference`'s, each the best of `rounds` equal batches,
+    taken in turn so that load drifts over both alike; the reference's batch costs
+    at least 20 ms.
+
+    Scope: unlike `best_cpu_samples`, this does see a constant factor, but only
+    against a reference measured alongside it in the same process on the same
+    input (release/217's own rule, say), so machine speed cancels and no absolute
+    budget is set (D-TM1). It catches a rule that does many times the reference's
+    work at one size, such as #231's `Bearer` lookahead at the work bound.
+    """
+    batch = 1
+
+    def timed(function: Callable[[], None]) -> float:
+        start = time.thread_time()
+        for _ in range(batch):
+            function()
+        return time.thread_time() - start
+
+    while (calibration := timed(reference)) < 0.02:
+        batch *= max(2, math.ceil(0.02 / max(calibration, 1e-9)))
+    samples: dict[str, list[float]] = {"call": [], "reference": []}
+    for _ in range(rounds):
+        samples["call"].append(timed(call))
+        samples["reference"].append(timed(reference))
+    best = {name: min(values) for name, values in samples.items()}
+    return {"call_s": best["call"] / batch, "reference_s": best["reference"] / batch, "batch": batch,
+            "ratio": best["call"] / best["reference"]}
