@@ -16,6 +16,16 @@ func withAnimation<Value>(_ animation: Animation? = .default, _ body: () -> Valu
     return SwiftUI.withTransaction(transaction, body)
 }
 
+func withAnimation<Value>(_ animation: Animation?, completionCriteria: AnimationCompletionCriteria,
+                          _ body: () -> Value, completion: @escaping () -> Void) -> Value {
+    ProbePresentation.animationCalls += 1
+    var transaction = Transaction(animation: nil)
+    transaction.disablesAnimations = true
+    return SwiftUI.withTransaction(transaction) {
+        SwiftUI.withAnimation(nil, completionCriteria: completionCriteria, body, completion: completion)
+    }
+}
+
 @MainActor func mountOffscreen(_ window: NSWindow) {
     let screens = NSScreen.screens.map(\.frame)
     let left = (screens.map(\.minX).min() ?? 0) - 10000
@@ -984,7 +994,8 @@ final class RevealArrivals: @unchecked Sendable {
 
 @MainActor func streamingReveal(_ name: String, root: URL, kind: String,
                                 delay: Double = 0, interval: Double = 0,
-                                boundary: String? = nil, staleMarker: Bool = false) async -> [String: Any] {
+                                boundary: String? = nil, staleMarker: Bool = false,
+                                consumptionPause: Double = 0) async -> [String: Any] {
     let word = "zebraneedle"
     let scene = await Scene(name, root: root, prior: 30,
                             priorText: { $0 == 10 ? "person message \($0) \(word) here" : "person message \($0) asks something" },
@@ -1044,6 +1055,10 @@ final class RevealArrivals: @unchecked Sendable {
         notices.append(at)
         if (boundary == "first_notice" && notices.count == 1)
             || (boundary == "second_notice" && notices.count == 2) { burst(at: at) }
+        // Model a slow presentation turn after the second notice. Detached
+        // producers keep delivering; only the reserved trailing event waits
+        // for consumption, even after the nominal finite stream would end.
+        if notices.count == 2 && consumptionPause > 0 { Thread.sleep(forTimeInterval: consumptionPause) }
     }
     let startObserver = NotificationCenter.default.addObserver(forName: .init("subfleet.test.searchRevealStarted"),
                                                                object: nil, queue: .main) { note in
@@ -1122,7 +1137,7 @@ final class RevealArrivals: @unchecked Sendable {
     let delivered = arrivals.snapshot
     return ["found": match != nil, "caught_up": scene.caughtUp, "reveal_consumed": scene.palette.reveal == nil,
             "notices_at": notices, "reveal_starts": starts, "consumed_at": consumed,
-            "stale_marker": staleMarker, "timeline": timeline,
+            "stale_marker": staleMarker, "consumption_pause": consumptionPause, "timeline": timeline,
             "pushed": delivered.times.count, "arrival_pages": delivered.pages,
             "arrival_sequences": sequences, "arrivals_at": delivered.times, "folds_at": sequences.compactMap { folds[$0] },
             "boundary_arrival_at": boundaryArrival,
@@ -1156,6 +1171,10 @@ final class RevealArrivals: @unchecked Sendable {
                 out[name] = await streamingReveal(name, root: root, kind: kind, boundary: boundary)
             }
         }
+    }
+    if only == nil || only == "late_consumption_tool" {
+        out["late_consumption_tool"] = await streamingReveal("late_consumption_tool", root: root,
+            kind: "tool", interval: 0.15, consumptionPause: 3)
     }
     out["visible_windows"] = NSApp.windows.filter(\.isVisible).count
     out["mounted_windows"] = ProbePresentation.mountedWindows

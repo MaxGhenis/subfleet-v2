@@ -73,7 +73,7 @@ def streaming_reveals(fix8_view_binary, tmp_path_factory):
     write_json(root / "result.json", result)
     print("streaming reveal positions: " + json.dumps(result, sort_keys=True))
     assert result["visible_windows"] == 0
-    assert result["mounted_windows"] == 16 and result["animation_calls"] > 0
+    assert result["mounted_windows"] == 17 and result["animation_calls"] > 0
     return result
 
 
@@ -110,6 +110,16 @@ def test_background_stream_crosses_both_notices_and_consumption(streaming_reveal
     first, second = run["notices_at"]
     assert run["arrivals_at"][0] < first < second <= run["consumed_at"] < run["arrivals_at"][-1], diagnostic
     assert any(first < at < second for at in run["arrivals_at"]), diagnostic
+    assert run["folds_at"][-1] > run["consumed_at"], diagnostic
+
+
+def test_trailing_stream_waits_for_late_reveal_consumption(streaming_reveals):
+    """The finite independent prefix may finish before a slow reveal does."""
+    run = streaming_reveals["late_consumption_tool"]
+    diagnostic = json.dumps(run, sort_keys=True)
+    assert_stream_retains_position(run, events=17, pages=17)
+    assert run["consumption_pause"] == 3 and run["consumed_at"] > 2.5, diagnostic
+    assert run["arrivals_at"][-2] < run["consumed_at"] < run["arrivals_at"][-1], diagnostic
     assert run["folds_at"][-1] > run["consumed_at"], diagnostic
 
 

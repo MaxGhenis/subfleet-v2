@@ -331,6 +331,7 @@ struct ConversationView: View {
     /// only then, so reading further up is not interrupted.
     @State private var atBottom = true
     @State private var followSuspended = false
+    @State private var rowReveal: UUID?
     #if SUBFLEET_VIEW_TEST
     @State private var markerDisappearance: Task<Void, Never>?
     #endif
@@ -378,7 +379,8 @@ struct ConversationView: View {
                             .onDisappear { endDisappeared() }
                     }
                     .padding(Theme.space.column)
-                    .background(ConversationOpeningPin(conversationID: conversation.conversation_id))
+                    .background(ConversationOpeningPin(conversationID: conversation.conversation_id,
+                                                       onRevealEndVisible: resumeFollow))
                     .conversationColumn(conversation.conversation_id, proxy: proxy,
                                         revealIDs: Set(layout?.items.map(\.id) ?? []))
                     .frame(maxWidth: .infinity)
@@ -462,6 +464,7 @@ struct ConversationView: View {
             guard note.object as? String == conversation.conversation_id else { return }
             // Only the end marker owns atBottom. A reveal may leave it visible.
             followSuspended = true
+            rowReveal = note.userInfo?["request"] as? UUID
             traceFollow("reveal")
         }
         .onChange(of: timeline?.liveMessageID) { _, _ in
@@ -478,6 +481,13 @@ struct ConversationView: View {
         #endif
         atBottom = true; followSuspended = false
         traceFollow("marker_appeared")
+    }
+
+    private func resumeFollow(_ request: UUID) {
+        // An older animation must not release a newer reveal's suspension.
+        guard rowReveal == request else { return }
+        followSuspended = false
+        traceFollow("reveal_end_visible")
     }
 
     private func endDisappeared() {
@@ -501,9 +511,11 @@ struct ConversationView: View {
 
     private func followChanged(from old: FollowKey, to new: FollowKey, proxy: ScrollViewProxy) {
         let move = FollowKey.move(from: old, to: new, atBottom: atBottom, suspended: followSuspended)
+        #if SUBFLEET_VIEW_TEST
         traceFollow("move", extra: ["move": String(describing: move),
                     "old_length": old.followedLength, "new_length": new.followedLength,
                     "settling": old.settling || new.settling])
+        #endif
         switch move {
         case .stay: break
         case .jump: jumpToBottom(proxy)
@@ -565,16 +577,26 @@ struct ConversationView: View {
         let target = approvals.target(in: timeline, reveal: &reveal)
         if !reveal { model.revealed(id) }
         guard let target else { return }
-        ConversationOpeningPin.revealRow(in: id)
+        let request = ConversationOpeningPin.revealRow(in: id)
         // After this update's own scrolling (to the end, for a row that just
         // arrived), so the view settles on the card.
         DispatchQueue.main.async {
             if opening {
                 var transaction = Transaction(animation: nil)
                 transaction.disablesAnimations = true
-                withTransaction(transaction) { proxy.scrollTo(target, anchor: .center) }
+                withTransaction(transaction) {
+                    withAnimation(nil, completionCriteria: .removed) {
+                        proxy.scrollTo(target, anchor: .center)
+                    } completion: {
+                        ConversationOpeningPin.didRevealRow(in: id, request: request)
+                    }
+                }
             } else {
-                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(target, anchor: .center) }
+                withAnimation(.easeOut(duration: 0.2), completionCriteria: .removed) {
+                    proxy.scrollTo(target, anchor: .center)
+                } completion: {
+                    ConversationOpeningPin.didRevealRow(in: id, request: request)
+                }
             }
         }
     }
