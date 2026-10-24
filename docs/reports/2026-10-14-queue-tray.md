@@ -3440,8 +3440,9 @@ expires, the later output can extend below that wrong position.
 Honor suspension for ordinary non-settling follow updates, after the own-send
 exception. The pure invariant is: for every old/new key pair with neither key
 settling, `suspended=true`, and no new own send, the move is `.stay`, including
-when `atBottom=true`. Own sends still `.glide`; the existing catch-up branch
-still jumps when the end is visible. `CoreProbeQueue` now accepts suspension
+when `atBottom=true`. Own sends still `.glide`. Round 3 retained the catch-up
+condition `suspended && !atBottom`; review r3 later executed its stale-marker
+bypass. Round 4 below corrects that branch and verifies confirmed-end catch-up. `CoreProbeQueue` now accepts suspension
 so the native function is tested directly, including arbitrary key pairs,
 old own-send receipts, row/tray/growth/history/live/held changes, own sends,
 and both suspended catch-up positions. Hypothesis is bounded to **30** examples
@@ -3466,8 +3467,9 @@ transaction completion. Tray-only reveals keep their existing behavior.
 
 In `final-views/` the near-end regression ends **0 / 24 / 24 pt** from the end
 at reveal / first stream / second stream. The distant hooked scenes stay put.
-This preserves design §12 and C-27.5/C-29.7/C-29.12, including the person's own
-send and the existing catch-up behavior. Candidate B (setting `atBottom=false`
+These round-3 checks establish near-end resumption and the person's own send.
+They did not establish C-27.5 preservation for suspended settling with stale
+visibility; review r3 disproved that claim. See the round-4 correction below. Candidate B (setting `atBottom=false`
 on a reveal) remains rejected by the existing near-end mutation regression.
 
 #### Streaming construction and failure capture
@@ -3649,3 +3651,352 @@ Workspace-local Git metadata is retained. Only named source, test, design and
 report files are staged; no logs, evidence or bundles are committed. No
 sub-agents were used. The installed app, live daemon and live state were not
 touched. Nothing was fetched, pushed, or posted to the PR.
+
+### Round-4 settling-branch race
+
+#### Executed mechanism
+
+Review r3 found a second path through the stale-marker race: settling returned
+`suspended && !atBottom ? .stay : .jump` before reaching the ordinary-follow
+suspension guard. The marker could still report true after a distant reveal.
+The product at `64945906e`, with the red tests committed in `2c82353b1`,
+reproduces that bypass.
+
+The replay constructs 120 prior turns, 20-event pages with a 100 ms page delay,
+`revealOnMount: "person:m000040"`, and paused catch-up. It consumes the opening
+reveal before resuming catch-up. The hooked variant delays only publication of
+marker disappearance by 3 seconds; its unhooked control uses the same scene.
+The existing hook, UUID protocol and geometry confirmation are unchanged.
+
+In `red-final`, at **4.898438 s**, the view was **6,106 pt** from the end.
+The recorded decision was `settling=true`, `suspended=true`,
+`at_bottom=true`, `move=jump`. Catch-up finished **24 pt** from the end,
+and later output stayed at that wrong end position. The unhooked control
+passed. The earlier `red-view` replay independently recorded the same
+**6,106 → 24 pt** failure, with its decisive jump at **3.431792 s**.
+
+The final red hold passed **4** checks and failed **5**: the hooked view, all
+three stale-visible settling transitions, and the generated native invariant
+failed; the unhooked view and the three marker-false native controls passed.
+The ordinary-follow fix from round 3 remains intact.
+
+The following positions come from `red-final` and the fixed `candidate`
+capture. Distances are points from the end. Drift is sampled only after
+catch-up, including later output and the quiet observation.
+
+| Product / marker callback | Before catch-up | After catch-up | After output | Quiet horizon | Maximum sampled drift |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Original, unhooked | 6106 | 19187 | 19559 | 20400 | 0 |
+| Original, delayed | 6106 | 24 | 24 | 24 | 380 |
+| Fixed, unhooked | 6106 | 19187 | 19643 | 20457 | 0 |
+| Fixed, delayed | 6106 | 19380 | 19803 | 20616 | 0 |
+
+Catch-up measures unloaded rows above the reveal. In the unhooked red
+control, its absolute offset changed **2655 → 3585 pt** during that layout,
+while every suspended settling decision stayed. The new regression therefore
+requires a distant position throughout catch-up, then an unchanged offset
+after catch-up. Its later output and quiet samples remain **3585 pt**.
+The initial draft incorrectly compared the offset across that remeasurement;
+it was corrected and rerun before the red-test commit. Existing fix8/fix9/fix10
+position, horizon and drift assertions remain.
+
+#### Fix and design decision
+
+Choose the hub's candidate: while suspended, settling returns `.stay`
+regardless of marker state. The only product decision change is the settling
+ternary in `FollowKey.move`. Opening without a reveal still jumps. An actual
+marker appearance, or the existing matching completed reveal's presented
+geometry, releases suspension. The ordinary own-send exception is unchanged.
+
+The fixed hooked replay records `move=stay` at **3.585654 s**, with
+settling, suspension and stale marker visibility all true and the same
+**6,106 pt** gap. Its post-catch-up offset stays **3585 pt**, including
+the later output and quiet horizon.
+
+For a near-end opening reveal, the fixed candidate records completion
+confirmations at **3.497701 s** and **4.075999 s**, both at a **0 pt** gap.
+The next settling key change at **4.791417 s** sees suspension false and
+jumps. After catch-up, output and the horizon are each **25 pt** from the end.
+The no-reveal control also jumps during settling and follows subsequent
+output. These are the real animation-disabled opening-pin scenes.
+
+Confirmation itself releases state without scrolling. The next changed key
+does the catch-up jump; an unchanged key still stays. This preserves the
+already-visible reveal until content changes require following. It avoids
+using the stale boolean as evidence that a pending reveal can be overridden.
+
+The sequence-controlled fix9 fixture now uses the real
+`ConversationOpeningPin` completion callback, matched by request UUID.
+Both its 250 ms and 100 ms schedules record **2** confirmations and suspension
+false before their changed-key page. Their document grows **941 → 4941 pt**;
+the offset follows **181 → 4181 pt**, retaining a **0 pt** end gap.
+The old fixture held suspension manually forever, which no longer represented
+a confirmed visible end. Its mutation now makes settling stay unconditionally,
+so it still rejects a real failure to follow after confirmation.
+
+#### What the new tests guard
+
+- `test_settling_cannot_undo_distant_opening_reveal` runs the delayed and
+  unhooked scenes. The hooked case must observe suspended settling with stale
+  true visibility, remain more than **600 pt** away, and retain its settled
+  offset through later output and the quiet observation, within **2 pt**.
+- `test_confirmed_visible_end_follows_catchup` checks opening with no reveal
+  and a near-end reveal. The latter must execute a geometry confirmation;
+  both must execute an unsuspended settling jump and stay within **30 pt**
+  of the end.
+- The native examples cover all three old/new settling combinations and both
+  marker states, with history landing above. The generated invariant allows
+  **30** examples of at most **20** pairs, excludes the own-send exception,
+  and requires suspended settling to stay for either visibility value.
+  Generation is bounded and shrinking is disabled for this new property.
+- `test_confirmed_end_releases_catchup_on_next_key` requires stay for a
+  suspended change, stay for an unchanged released key, and jump for the next
+  released settling change.
+
+The fixed focused hold passes **16** checks, including both existing fix9
+catch-up schedules, own sends, all four new native view controls and the
+new native invariants.
+
+#### Updated C-27.5 claim
+
+The round-3 statement that the retained settling branch preserved C-27.5 was
+too broad; review r3's executed race disproved it. C-27.5 now explicitly
+requires suspension to cover settling despite stale marker visibility.
+Confirmed visible ends release suspension through the existing marker or
+matching completion protocol, and catch-up resumes on a changed key.
+The acceptance-contract entry is moved above October 22 and records this
+rule and the absence of a scroll at confirmation.
+
+#### Round-4 environment and diagnostic holds
+
+Setup was invoked once through `uv_sync_hold.sh`, with offline mode and the
+uv cache in `sf-qtflake4`. The empty scratch cache lacked the locked
+Hypothesis wheel. The already-created venv was recovered from eight exact
+locked local archives, including the CPython 3.14 arm64 Hypothesis extension;
+no download or second setup invocation occurred. Verification reports
+**CPython 3.14.7**, **Py_GIL_DISABLED=0**, **pytest 9.1.1** and
+**Hypothesis 6.168.1**.
+
+Each pytest runs through `suite_hold.sh`, in the foreground, without xdist.
+Holds were intended to run sequentially; the loaded/broad overlap recorded
+below is an exception to that requirement. The venv, uv cache, TMPDIR, Hypothesis storage, Swift/Clang module
+caches, probe cache and all binaries are in the task scratch root. The
+repository probe-cache entry is a symlink into scratch. Native validation is
+on **macOS 26.6.2**, using **Swift 6.4**, with probe targets
+`arm64-apple-macos14.0`; windows are mounted outside every screen.
+This does not add macOS 14/15 runtime or native animated distant-reveal
+validation.
+
+The first combined cold build allowed both compiler timeouts in one hold,
+exceeding the requested 20-minute bound. It produced setup errors, not
+behavioral results. Subsequent commands have an overall **19-minute**
+deadline and clean up their owned process group. That deadline includes
+queueing for the shared lock. The view hold completed **46** test calls and
+teardowns before its deadline stopped the final near-end control; the core
+hold then passed that remaining case alongside the **85** required
+core/tray/module-name checks. All **47** required view/mutation cases and
+all **85** required core/tray/module-name cases have therefore passed.
+
+The first compiler's cross-command termination attempt was denied by the
+sandbox; it subsequently exited. No foreign process was signalled.
+Completed-item journals distinguish an interrupted hold from failed
+assertions. Scratch captures remain separate from committed documentation.
+
+| Diagnostic hold | Passed | Failed | Setup errors | Pytest seconds | Result |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `red` | 0 | 0 | — | — | Started before local archive recovery finished; pytest unavailable. |
+| `red-ready` | 0 | 0 | 9 | 1536.71 | Cold view/core compiler timeouts; no native trial. |
+| `red-core` | 3 | 4 | 0 | 714.42 | All stale-visible settling cases and the native property fail. |
+| `red-view` | 0 | 3 | 0 | 160.14 | Hooked race and property fail; the control exposes an overly strict draft offset comparison. |
+| `red-final` | 4 | 5 | 0 | 41.20 | Corrected control passes; hooked position and native invariants fail. |
+| `candidate` | 16 | 0 | 0 | 204.37 | Fixed focused checks, including near-end confirmation and own sends. |
+| `mutants` | 0 | 3 | 0 | — | Scratch compilation failures; interrupted before further variants. |
+| `mutant-build` | 0 | 1 | 0 | 208.06 | Fail-fast reproduction of the scratch helper's AppKit property-name collision. |
+
+The scratch geometry subclass initially named its stored switch `flipped`,
+which conflicts with AppKit's inherited property. Renaming it to
+`testFlipped` repairs the helper. None of these four compilation failures
+counts as a behavioral mutant kill.
+
+
+#### Round-4 counterfactual validation
+
+Counterfactuals are built from scratch copies of the product, with compilation
+success and probe-health checks outside the expected assertion failures. A
+single scratch binary selects one independent change per process for most
+variants. The full round-3 revert instead restores all four product files from
+`d4c8ca63a`; its original object was completed during an interrupted build and
+then linked and executed inside the later hold. Its unhooked text and tool
+controls pass, while both delayed-marker variants fail the position assertion.
+No mutant is committed.
+
+| Counterfactual | Catching assertion observed in round 4 |
+| --- | --- |
+| Round-4 settling change reverted | `assert_distant_settling_holds`: after-catch-up distance **>600**; actual **24 pt**. |
+| Settling ignores suspension | Same after-catch-up distance assertion; actual **24 pt**. |
+| Settling releases suspension | Same after-catch-up distance assertion; actual **24 pt**. |
+| Full round-3 product fix reverted | `assert_stream_retains_position`: landed distance **>600**. Both hooked text/tool fail; both unhooked controls pass. |
+| Own send blocked | Move must equal `.glide`; actual `.stay`. |
+| Plain suspension guard, without geometry confirmation | `test_timeline_reveal_leaving_end_visible_keeps_follow`: stream distance **≤30**; second-stream gap **1633 pt**. |
+| Reveal sets `atBottom=false` | Same near-end assertion; second-stream gap **1633 pt**. |
+| Tail jump after 250 ms | Quiet offset versus before-output offset **≤2 pt**. |
+| Drift of 0.5 pt per nominal 25 ms | After-more offset versus quiet offset **≤2 pt**. |
+| Tail jump after 2.3 s | After-more offset versus quiet offset **≤2 pt** fires first in this run; the horizon is also at **24 pt**, violating **>600**. |
+| Landing 25 pt from end | `output_released` must be true; the mutant never releases gated output. |
+| Overlap-only loss | **Not confirmed.** The first weak injection survives; the repaired build does not finish before the required cutoff. |
+| Completion releases any request | Older-request release count must equal **0**; actual **1** (matching completion total **2**). |
+| Threshold omits column padding | At the measured **24 pt** gap, geometry release count must equal **1**; actual **0** in both coordinate orientations. |
+| Suspension released on disappear | `assert_stream_retains_position`: landed distance **>600**. |
+
+The first overlap-only injection was repaired by the second reveal and survived;
+that scratch construction does not count as a kill. The replacement schedules
+only when a key grows while a search request is pending, waits for that request
+to be consumed, then jumps. Its gated control and overlapping-stream behavior
+are checked separately. The fixture records the trigger so an unexecuted
+injection cannot count as success.
+
+| Additional diagnostic hold | Completed passes | Failures | Result |
+| --- | ---: | ---: | --- |
+| `mutants-final` | 3 | 0 | All new settling variants caught; deadline while building the literal round-3 revert. |
+| `mutants-rest` | 0 | 0 | Deadline during the cold literal build. |
+| `mutants-rest2` | 6 | 1 | Six round-3 variants caught; the first overlap construction survives and is replaced. |
+| `mutants-native` | 2 | 0 | Both near-end variants caught; deadline before the completion control finishes. |
+
+Completed passes in interrupted holds include their call and teardown journals;
+partial work is not reported as a whole-suite pass.
+
+
+#### Follow/reveal discovery and required-suite coverage
+
+The requested recursive symbol search finds these probe/test files:
+`ReviewR219Fix6ViewProbe.swift`, `ReviewR219Fix8ViewProbe.swift`,
+`ReviewR219ScrollProbe.swift`, `CoreProbeQueueEngine.swift`,
+`CoreProbeQueue.swift`, `test_core_queue_tray.py`, and
+`test_review_r219_fix8_mutations.py`, all under `tests/frontend`.
+Their owning pytest suites include the required fix8/fix9/fix10/fix11 files,
+core queue tray, queue tray view and module names, plus:
+
+- `test_review_r219_fix4.py`, `test_review_r219_fix6.py`,
+  `test_review_r219_probes.py`, and `test_reading_view.py`;
+- `test_core_queue_engine.py`, `test_core_approval_reach.py`,
+  `test_core_approval_notification.py`, `test_core_search.py`, and
+  `test_core_timeline.py`;
+- `test_review_r219_fix8_engine.py` and
+  `test_queue_tray_fix4_mutations.py`.
+
+The required native core checks include history landing above while suspended,
+ordinary suspended following, own sends, opening and first-history behavior.
+The new generated settling invariant covers history landing without allowing
+it to override a suspended reveal. The complete required view/mutation set
+passes in the `views` and `core` holds described above.
+
+
+The initial loaded pipeline and the broader hold overlapped: the shared wrapper
+admitted `loaded-1` in slot A at **15:57:00 UTC** and `extra-follow` in slot B
+at **16:08:43 UTC**. Queuing the second command was a mistake: the inherited
+brief requires one of this job's holds at a time, even though the wrapper
+permits two fleet slots. At **16:13 UTC**, the loaded pipeline was interrupted.
+The sandbox denied a cross-command signal to its own pytest process; its
+existing bounded owner must finish cleanup. No foreign process was signalled.
+This run is not represented as a completed load repetition.
+
+
+The partial loaded run also exposes a schedule failure in the existing
+`test_background_stream_crosses_both_notices_and_consumption[text-50]`.
+Its first/second notices occur at **7.403615 / 8.235982 s**. The independent
+prefix's last arrival is **2.426774 s**; the trailing arrival is
+**8.243915 s**, after consumption at **8.236527 s**. Thus no arrival lies
+strictly between the notices, and that coverage assertion fails. All of this
+scene's position assertions pass: landed/quiet offset **3573 pt**, horizon
+offset **3573 pt**, and sampled drift **0 pt**. This is recorded as a failed
+schedule assertion, not a passing loaded regression or a product-position
+failure. Neither the assertion nor the product is changed to hide it.
+
+
+The loaded pytest eventually completes with **30 passed / 1 failed** in
+**1385.82 s**. All four new fix11 cases pass. The outer pipeline interruption
+left its bounded child command running, so the intended 19-minute owner did
+not terminate it; this hold also exceeds the inherited 20-minute rule. Its
+four workers (**50826, 50828, 50986, 51005**) reach their own **900 s** bound
+and are reaped with status **0**. Therefore this is a full pytest result but
+only a partial-duration load run, and it does not satisfy a clean full-file
+loaded repetition. Unexecuted worker changes do not count as stress validation. The sequencing, interruption, duration and worker-lifetime
+problems in this first attempt are validation shortcomings, not product fixes.
+
+
+The first broad `extra-follow` hold completes **23** older fix4 checks, with
+no failed call, before its overall **1140.18 s** deadline interrupts the next
+cold fixture build. Its completed checks are deselected in `extra-resume`;
+completion controls run first there, then core suites, then remaining view
+fixtures and the repaired overlap build. These holds use separate scratch
+basetemps and the same scratch module/probe caches.
+
+
+The final native healthy completion control passes all three checks. The
+measured gap is **24 pt** with **1** geometry release in each flipped and
+unflipped document. An older request causes **0** releases; the matching
+request causes **1**. The real opening-approval scene catches up with **1**
+pending card and **1** reveal, at offset **5945 pt**. Its end gap grows
+**12729 → 12853 pt** under later output, with **0 pt** sampled drift; folded
+and target sequence both equal **363**. It closes every mounted window.
+
+
+`extra-resume` also catches the remaining UUID, padding and own-send variants.
+The UUID mutation releases on the older completion (**1** release), then on
+the matching one (**2** total). The padding mutation produces **0** releases
+at a measured **24 pt** gap in both coordinate orientations; the healthy
+control produces **1** in each. The own-send mutation returns `.stay` instead
+of `.glide`. Together with the earlier holds, **14** distinct counterfactuals
+are caught at this checkpoint; the repaired overlap-only variant remains to
+be executed. The three healthy completion controls pass.
+
+
+#### Completed-check ledger and remaining validation
+
+The normal required view/mutation set has **47** passes, and the required
+core/tray/module-name set has **85** passes, distributed between `views` and
+`core` so the interrupted last view case is rerun explicitly. The broader
+resume completes **148** checks without an assertion failure: **6** scratch
+native controls/mutants, **75** queue-engine checks, **41** approval-reach
+checks, **10** approval-notification checks and **16** search checks. With
+the first broad hold's **23** fix4 checks, **165** additional existing
+follow/reveal checks complete successfully.
+
+| Post-fix hold | Completed passes | Failed calls | Completion |
+| --- | ---: | ---: | --- |
+| `candidate` | 16 | 0 | Focused candidate checks complete. |
+| `views` | 46 | 0 | Deadline before final near-end case. |
+| `core` | 86 | 0 | Includes that remaining view case and all required core/tray/module names. |
+| `mutants-final` | 3 | 0 | New settling mutants caught; later build interrupted. |
+| `mutants-rest` | 0 | 0 | Cold literal build interrupted. |
+| `mutants-rest2` | 6 | 1 | Six kills; weak overlap injection survives. |
+| `mutants-native` | 2 | 0 | Near-end kills; later control interrupted. |
+| `loaded-1` | 30 | 1 | Full pytest ends after 1385.82 s; invalid as a clean full-duration loaded repetition. |
+| `extra-follow` | 23 | 0 | Cold next fixture interrupted. |
+| `extra-resume` | 148 | 0 | Overall 1142.07 s, including lock wait and cleanup; search property interrupted. |
+
+Remaining existing coverage is the rest of `test_core_search.py`,
+`test_core_timeline.py`, `test_review_r219_fix8_engine.py`,
+`test_queue_tray_fix4_mutations.py`, `test_review_r219_fix6.py`,
+`test_review_r219_probes.py`, and `test_reading_view.py`. Those files are
+not reported as fully green. The five requested clean fix10/fix11 load
+repetitions also remain unfulfilled; the completed attempt's failure and
+worker-lifetime problem are recorded above. The task's required cutoff for
+starting holds is **16:59:24 UTC**, measured from **12:29:24 UTC**.
+
+
+The final `mutant-overlap-final` hold completes **0** test calls and has
+**0** recorded assertion failures: it waits from **16:45:21** until
+**16:50:54 UTC** for the lock, then its cold repaired build is interrupted
+at **16:57:24 UTC**. Overall duration is **722.76 s**. This is not a mutant
+kill. The final result is **14** distinct counterfactuals caught, with the
+repaired overlap-only counterfactual unconfirmed. No further holds are
+started. The missing existing coverage and five clean loaded repetitions
+listed above remain unrun at the mandatory stop.
+
+
+Final cleanup was attempted but could not confirm the scratch root was idle;
+it is retained rather than deleting files still in use. Workspace-local
+`.git-local` metadata is retained because the shared index is read-only.
+Only named documentation files are staged; no evidence or logs are committed.
+Nothing was fetched, pushed, or posted to the PR, and no sub-agents were used.
