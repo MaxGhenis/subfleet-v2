@@ -309,8 +309,20 @@ def test_c16_6_daemon_install_writes_the_open_file_limit_into_the_plist(tmp_path
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="kern.maxfilesperproc is macOS")
 def test_c16_6_the_kernel_ceiling_is_read_on_macos():
+    import subprocess
+
+    try:
+        probe = subprocess.run(["/usr/sbin/sysctl", "-n", "kern.maxfilesperproc"],
+                               capture_output=True, text=True, timeout=5)
+    except PermissionError:
+        pytest.skip("kernel descriptor ceiling requires permitted sysctl inspection")
+    if probe.returncode and any(reason in probe.stderr.lower()
+                                for reason in ("not permitted", "permission denied")):
+        pytest.skip("kernel descriptor ceiling requires permitted sysctl inspection")
+    assert probe.returncode == 0, probe.stderr
     ceiling = descriptors.kernel_open_files_ceiling()
     assert isinstance(ceiling, int) and ceiling > 0
+    assert ceiling == int(probe.stdout.strip())
 
 
 def test_c16_6_open_descriptors_counts_this_process():
