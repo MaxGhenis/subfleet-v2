@@ -14,13 +14,21 @@
 #     extract_blocks.sh); never edit only one side.
 #     tests/test_guard_never_rules.py::DriftTests pins the per-rule byte
 #     identity, the prefilter literal, and the hf-dest literals.
-#   - The unscoped-search rule is ONE SHARED REGION between the marker lines
+#   - The unscoped-search rule is the region between the marker lines
 #         (# >>> unscoped-search: shared region begin … >>>)
 #         (# <<< unscoped-search: shared region end <<<)
-#     intended byte-identical to the same region of the Claude hook. The
-#     Claude half of that 2026-08-19 port-back (guard-portback) is not yet
-#     installed; tests/test_guard.py::DriftTests compares the regions
-#     and is skip-gated until it lands. NEVER edit the region in this file.
+#     once intended byte-identical to the same region of the Claude hook.
+#     That 2026-08-19 port-back (guard-portback) never landed, and the Claude
+#     hook no longer carries the region: its 2026-10-20 rewrite moved the
+#     rule to ~/.claude/hooks/unscoped_search.py (BROAD_RE, HOME_SUBDIRS), so
+#     tests/test_guard.py::DriftTests stays skip-gated and the begin marker's
+#     "byte-identical … edit the Claude hook first" note is historical. The
+#     region is edited in THIS file, and only on a hub decision: D-LANE-SCOPE1
+#     (2026-10-24) added ~/.subfleet and each direct child of it to the broad
+#     roots after one lane's `rg --files -g AGENTS.md ~/.subfleet` walked
+#     14,121 job folders and 1,765 job worktrees for 4 minutes at load
+#     190-220. Change a root on both sides in one reviewed step: here, and in
+#     unscoped_search.py's BROAD_RE and HOME_SUBDIRS.
 #
 # Rules (one line each; details in docs/guard.md):
 #   tg-getupdates    Telegram getUpdates polling steals the OpenClaw gateway's updates
@@ -30,7 +38,7 @@
 #   corpus-push      pushing axiom-corpus main directly (.github#39 rule 6)
 #   stash-shared     git stash in a repo with >1 worktree (stash stack is repo-global)
 #   local-main       branching from local main when origin/main exists
-#   unscoped-search  whole-tree find/rg/grep -r over broad roots (8/8 and 8/18 incidents)
+#   unscoped-search  whole-tree find/rg/grep -r over broad roots (8/8, 8/18 and 10/24 incidents)
 #   hf-dest          editing HF upload destinations in policyengine-uk-data (adapted:
 #                    Codex edits arrive as apply_patch payloads or shell heredocs)
 #
@@ -378,7 +386,10 @@ fi
 #   roots      `/`, `/*`, `/Users`, `/Users/<user>`, `~`, `$HOME` (`${HOME}`
 #              is read as `$HOME`), their TheAxiomFoundation / RulesFoundation
 #              / PolicyEngine / Library/Caches / .cache / .local children,
-#              `/tmp`, `/private/tmp` — each with or without a trailing slash.
+#              their .subfleet child and each one path component directly
+#              under it (`~/.subfleet/jobs`; `~/.subfleet/jobs/<id>` is
+#              scoped), `/tmp`, `/private/tmp` — each with or without a
+#              trailing slash.
 #   judged     backslash-newline continuations are joined first (as the shell
 #              does) and `${HOME}` is spelled `$HOME`; then collapse_quotes
 #              turns every quoted string into the placeholder Q, except a
@@ -449,7 +460,7 @@ elif printf '%s' "$command" | grep -qE '(^|[[:space:];&|(])grep[[:space:]]' \
   && printf '%s' "$command" | grep -qE '(^|[[:space:]])(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive|--dereference-recursive)([[:space:]]|$)'; then searcher="recursive grep"
 fi
 if [ -n "$searcher" ] && ! printf '%s' "$command" | grep -qE -- '--?max-?depth'; then
-  broad_re="(/Users/[^/[:space:]'\"]+|~|\\\$HOME)(/(TheAxiomFoundation|RulesFoundation|PolicyEngine|Library/Caches|\.cache|\.local))?|(/private)?/tmp"
+  broad_re="(/Users/[^/[:space:]'\"]+|~|\\\$HOME)(/(TheAxiomFoundation|RulesFoundation|PolicyEngine|Library/Caches|\.cache|\.local|\.subfleet(/[^/[:space:]'\"]+)?))?|(/private)?/tmp"
   # Every root spelling: bare `/`, `/*` (the shell expands it to every
   # top-level directory), `/Users`, `/Users/`, and broad_re with an optional
   # trailing slash. A root is a whole word: preceded by whitespace (or the
@@ -621,7 +632,7 @@ if [ -n "$searcher" ] && ! printf '%s' "$command" | grep -qE -- '--?max-?depth';
   fi
   if [ -n "$hit" ]; then
     [ -n "$matched" ] || matched="?"
-    block "[unscoped-search] Whole-tree ${searcher} over a broad root (/, /Users, ~, ~/TheAxiomFoundation, ~/PolicyEngine, /tmp, caches) — 8 of these ran in parallel on 8/8 and drove load to 47, and ~22 sol-lane finds on 8/18 held load at 57 for hours, beachballing the Mac. Scope it: exact subdirectory, -maxdepth/--max-depth, 'git ls-files' inside a repo, 'axiom-locate' (engine|release|pypkg|corpus-file) for Axiom artifacts, or the interpreter for python package paths (python -c 'import x; print(x.__file__)'). Matched broad root: '${matched}'."
+    block "[unscoped-search] Whole-tree ${searcher} over a broad root (/, /Users, ~, ~/TheAxiomFoundation, ~/PolicyEngine, ~/.subfleet, ~/.subfleet/<child>, /tmp, caches) — 8 of these ran in parallel on 8/8 and drove load to 47, and ~22 sol-lane finds on 8/18 held load at 57 for hours, beachballing the Mac. Scope it: exact subdirectory, -maxdepth/--max-depth, 'git ls-files' inside a repo, 'axiom-locate' (engine|release|pypkg|corpus-file) for Axiom artifacts, or the interpreter for python package paths (python -c 'import x; print(x.__file__)'). Matched broad root: '${matched}'."
   fi
 fi
 # <<< unscoped-search: shared region end <<<

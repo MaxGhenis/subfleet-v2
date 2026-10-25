@@ -147,11 +147,16 @@ def test_looping_overlay_symlink_is_a_refusal(tmp_path):
 
 
 def test_private_overlay_bytes_remain_the_original_reviewed_pair():
+    """The reviewed pair, byte for byte. Revised once since the 2026-09-05 copy
+    (hook a60d1c51…, TRUST 0b9d688e…, kept as the rollback): D-LANE-SCOPE1
+    (2026-10-24) added ~/.subfleet and each direct child of it to the
+    unscoped-search roots, and TRUST pins those bytes. Any other edit fails here;
+    tests/unit/test_guard_subfleet_root.py rebuilds the original from this one."""
     repo = Path(__file__).resolve().parents[2]
     directory = repo / "private/guard"
     expected = {
-        "never-rules-hook.sh": "a60d1c514d3a3bcec68c246a33c849c11fd37e1bdf60d886650cd9d6651390db",
-        "TRUST": "0b9d688e6b2ca3adefdb8ad465c0fad5e6e18dfa884bc2309ff4f506c2287bab",
+        "never-rules-hook.sh": "1a736be3c968e5c1dc6bb7d63019f540b06d1cc619913e6bb8e4e057e536f951",
+        "TRUST": "b3fcc89368e9839e16c2ca4e55d5d720993ba68ae3bcbc042fc3110f3d6e9210",
     }
     for name, digest in expected.items():
         assert hashlib.sha256((directory / name).read_bytes()).hexdigest() == digest
