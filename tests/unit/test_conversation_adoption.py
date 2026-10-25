@@ -9,7 +9,9 @@ runner registered) on a fresh service, then sends the op before any pass.
 Invariants, for every input and interleaving:
 - I1: a pending approval whose attempt the job store holds live is never refused
   `turn-ended`: it is answered, or refused `turn-not-adopted` when no runner can be
-  adopted now.
+  adopted now. (A runner whose driver has the provider's final result refuses
+  `turn-ended` with its attempt still live: that turn has ended. No runner here
+  reaches one, as none is started.)
 - I2: one started runner per attempt, the one registered, whichever of the control
   loop and an op adopts first.
 - I3: a request thread never runs the launch writer check's `ps` (C-25.3).
