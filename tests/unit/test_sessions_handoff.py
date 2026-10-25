@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from subfleet.contracts import Sandbox
+from subfleet.contracts import Exit, Sandbox
 from subfleet.sessions import handoff
 from tests import sessions_fixtures as fx
 from tests.cpu_scaling import GROWTH_RATIO_MAX
@@ -423,6 +423,39 @@ def test_the_sandbox_comes_from_the_tasks_policy_permission(policy):
     assert handoff.sandbox_for(policy, "build") == Sandbox.WORKSPACE_WRITE.value
     assert handoff.sandbox_for(policy, "review") == Sandbox.READ_ONLY.value
     assert handoff.sandbox_for(policy, "build", "read-only") == "read-only"
+
+
+@pytest.mark.parametrize("permission", ["task", "fallback"])
+@pytest.mark.parametrize("committed", [False, True])
+@pytest.mark.parametrize("override", [None, "policy", "read-only", "workspace-write"])
+def test_handoff_resolves_conditional_permissions(policy, permission, committed, override):
+    policy["permissions"] = {"review" if permission == "task" else "*": "worktree-write"}
+    expected = ("workspace-write" if committed else "read-only") if override in (None, "policy") else override
+    assert handoff.sandbox_for(policy, "review", override, git=committed) == expected
+
+
+@pytest.mark.parametrize("mode", ["committed", "unborn", "non-git"])
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_review_handoff_uses_its_actual_repository(home, repo, policy, tmp_path, mode, dry_run):
+    fx.transcript(home, SESSION, conversation())
+    target = repo
+    if mode != "committed":
+        target = tmp_path / mode
+        target.mkdir()
+        if mode == "unborn":
+            subprocess.run(["git", "-C", str(target), "init", "-q"], check=True, capture_output=True)
+    staged = tmp_path / "prompt.md"
+    daemon = fx.FakeSessions()
+    result = handoff.handoff(
+        daemon, policy, session_id=SESSION, last=False, model="opus", task="review",
+        stage_prompt=lambda text: (staged.write_text(text), staged)[1],
+        workdir=target, dry_run=dry_run)
+    expected = "workspace-write" if mode == "committed" else "read-only"
+    assert result.sandbox == expected
+    if dry_run:
+        assert daemon.submits == []
+    else:
+        assert daemon.submits[0].sandbox == expected
 
 
 def test_a_dry_run_prints_the_brief_and_dispatches_nothing(home, repo, policy):
@@ -914,3 +947,34 @@ def test_a_bounded_read_is_bounded_by_the_file_it_reads(tmp_path, monkeypatch):
     text = handoff_module._read_bounded(path, max_bytes=1_000)
     assert grew, "the file never grew: the test checked nothing"
     assert len(text) <= 1_000 + len("\n... [middle omitted] ...\n"), len(text)
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+@pytest.mark.parametrize("override", [None, "read-only", "workspace-write"])
+def test_handoff_git_probe_failure_is_actionable_and_explicit_sandboxes_need_no_probe(
+        home, repo, policy, tmp_path, monkeypatch, dry_run, override):
+    from subfleet.salvage import SalvageError
+
+    fx.transcript(home, SESSION, conversation())
+    daemon = fx.FakeSessions()
+    staged = tmp_path / "prompt.md"
+
+    def unavailable(*args, **kwargs):
+        raise SalvageError("private fixture Git output", transient=True)
+
+    monkeypatch.setattr(handoff, "git_head", unavailable)
+    args = dict(session_id=SESSION, last=False, model="opus", task="review",
+                sandbox=override, workdir=repo, dry_run=dry_run,
+                stage_prompt=lambda text: (staged.write_text(text), staged)[1])
+    if override is None:
+        with pytest.raises(handoff.HandoffError) as caught:
+            handoff.handoff(daemon, policy, **args)
+        assert caught.value.code == Exit.OPERATIONAL
+        assert str(caught.value) == "could not check the handoff workdir's Git commit"
+        assert caught.value.fix == "retry the handoff, or pass -s read-only"
+        assert daemon.submits == [] and not staged.exists()
+    else:
+        result = handoff.handoff(daemon, policy, **args)
+        assert result.sandbox == override
+        assert staged.exists() is not dry_run
+        assert len(daemon.submits) == (0 if dry_run else 1)

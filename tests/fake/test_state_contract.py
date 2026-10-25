@@ -192,7 +192,7 @@ def test_c15_3_state_notice_ack_is_session_scoped_and_show_is_read_only(state_da
     ("sandbox", "unrestricted", 2), ("allow_tmp", False, 7),
     ("prompt_path", "/a-nonexistent-subfleet-test-prompt", 2),
     ("out_path", "/a-nonexistent-subfleet-test-directory/result", 2),
-    ("pinned_model", "no-such-model", 2),
+    ("pinned_model", "no-such-model", 7),
 ])
 def test_c6_1_state_validation_rejects_before_job_rows(state_daemon, bad_field, bad_value, code):
     """C-6.1, C-6.5 validation rejects invalid inputs before creating any job or attempt rows."""
@@ -261,6 +261,20 @@ def reserve(daemon, harness, **submit_overrides):
     return job_id, attempt, adir
 
 
+def launched(daemon, attempt):
+    """Record the launch evidence `_launch` writes for an attempt that ran (C-12.4).
+
+    An exited provider was launched; a fixture that skips the launch records
+    what that launch would have got, from the attempt's lane and its job."""
+    current = daemon.store.get_attempt(attempt["attempt_id"])
+    if current.get("capability") is not None:
+        return
+    job = daemon.store.get_job(current["job_id"])
+    lane = daemon.store.get_lane(current["lane_id"])
+    daemon._record_launch(current["attempt_id"], lane.provider, job["sandbox"],
+                          job.get("task") == "review" or job["kind"] == "gate-review")
+
+
 def receipt_fixture(daemon, attempt, adir, *, rc=0, stdout=b"fixture result\n"):
     """Make already-exited-provider evidence without starting a process."""
     (adir / "stdout").write_bytes(stdout)
@@ -273,6 +287,7 @@ def receipt_fixture(daemon, attempt, adir, *, rc=0, stdout=b"fixture result\n"):
     receipt = {"rc": rc, "signal": None, "wall_s": .1, "child_pid": None,
                "finished_at": daemon_module.utcnow()}
     (adir / "exit.json").write_text(json.dumps(receipt))
+    launched(daemon, attempt)
     daemon._begin_finalizing(attempt, receipt)
     return daemon.store.get_attempt(attempt["attempt_id"])
 
@@ -388,7 +403,10 @@ def test_c7_2_state_acceptance_and_cancellation_commit_order(state_daemon, cance
     notice, = daemon.store.list_notices()
     # C-15.1: the header is the job's state and rc, not the attempt's `ok; rc=0`
     # (incident: 2026-09-24); the summary names the attempt's class and rc.
-    header, summary, *kept = notice["text"].splitlines()
+    header, summary, *kept, capability = notice["text"].splitlines()
+    assert capability == (
+        "ran read-only on codex-1 (astra): commands ran, but nothing could be written, "
+        "temp files included, so pytest could not run")
     if cancel_first:
         assert header == f"{job_id}: cancelled; rc=130; deliverable=-; out=-"
         assert kept == [f"output kept, not accepted: {adir / 'deliverable.md'}"]
@@ -396,6 +414,7 @@ def test_c7_2_state_acceptance_and_cancellation_commit_order(state_daemon, cance
         assert header == f"{job_id}: succeeded; rc=0; deliverable={adir / 'deliverable.md'}; out=-"
         assert kept == []
     assert summary.startswith("attempt a1: ok, rc=0: ")
+    assert (adir / "deliverable.md").read_bytes() == b"fixture result\n"
     if not cancel_first:
         result = daemon.dispatch("kill", {"job_id": job_id})
         assert result["status"] == "already finished"

@@ -4,7 +4,7 @@ Until #16 the admission pass recorded a whole routing decision for a job that
 was only waiting for capacity, once per re-check (`daemon.py` `_admit` called
 `add_decision` each time a routing verdict left a job waiting). The latest-row
 readers need only two rows per job, but retention archives and the store's
-history method read all rows. No foreign key in schema 7 points at `decisions`.
+history method read all rows. No foreign key in the current schema points at `decisions`.
 #16 stopped the repeats — a wait
 that reaches the verdict it reached last time adds no row (C-6.10) — and this
 module is the one-off operator pass that gives back the space the rows already
@@ -398,10 +398,12 @@ def code_fence(body: str) -> str:
 
 
 def _require_schema_tables(database: Path) -> None:
-    """Refuse missing expected tables using only a read-only source connection.
+    """Refuse missing expected tables or columns through a read-only connection.
 
-    Apply the build's schema to an in-memory database to obtain its table names,
-    never to the source. Extra tables remain covered by the content proofs.
+    Apply the build's schema to an in-memory database to obtain its tables and
+    columns, never to the source. This follows SCHEMA_VERSION's DDL without a
+    separate column list. Extra tables and columns remain covered by SELECT *
+    fingerprints and the complete VACUUM INTO backup.
     """
     expected = sqlite3.connect(":memory:")
     source = None
@@ -414,6 +416,17 @@ def _require_schema_tables(database: Path) -> None:
             raise PruneRefused(
                 f"prune decisions: schema {SCHEMA_VERSION} store is missing expected tables: "
                 + ", ".join(missing),
+                "nothing has been deleted or repaired; investigate the store before pruning")
+        missing_columns = sorted(
+            f"{table}.{column}"
+            for table in _tables(expected)
+            for column in (
+                {row['name'] for row in expected.execute(f'PRAGMA table_info("{table}")')}
+                - {row['name'] for row in source.execute(f'PRAGMA table_info("{table}")')}))
+        if missing_columns:
+            raise PruneRefused(
+                f"prune decisions: schema {SCHEMA_VERSION} store is missing expected columns: "
+                + ", ".join(missing_columns),
                 "nothing has been deleted or repaired; investigate the store before pruning")
     finally:
         if source is not None:
@@ -643,7 +656,7 @@ def plan(conn: sqlite3.Connection) -> Plan:
     per attempt), when one of `KEEP_QUERIES` selects it for its job, or when its
     job is not terminal. Everything else is omitted from future full histories
     intentionally: latest answers are preserved, not the original history
-    length. No foreign key names a decision row on schema 7.
+    length. No foreign key names a decision row on the current schema.
     """
     states = {row["job_id"]: row["state"] for row in conn.execute("SELECT job_id, state FROM jobs")}
     # `length()` over a TEXT column counts characters, and `store._json` writes
