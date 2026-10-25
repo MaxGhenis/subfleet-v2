@@ -245,6 +245,7 @@ class Registry:
     def IOServiceGetMatchingServices(self,_,matching,out): out._obj.value=9999; return 0
     def IOIteratorNext(self,_): return next(self.entries,0)
     def IOObjectRelease(self,obj): self.released.append(obj)
+    def IORegistryEntryInPlane(self,obj,plane): return True
     def IORegistryEntryGetRegistryEntryID(self,obj,out):
         out._obj.value=obj
         return int(self.bad==('id',obj))
