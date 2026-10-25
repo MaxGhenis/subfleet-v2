@@ -4400,8 +4400,9 @@ unchanged. Rejected alternatives:
 - Requiring a clip movement since the request. A near-end reveal whose row is
   already in view does not move the clip, and it must still be confirmed.
 - Deferring without the forced layout. A main-queue hop alone does not
-  guarantee that a layout pass has run, and its counterfactual is executed
-  below.
+  guarantee that a layout pass has run. Its executed counterfactual passed the
+  new regression (below), so the layout call is kept as that guarantee; no test
+  shows it necessary.
 
 Design §12 records the order (`c714fd1df`). C-27.5, C-29.7 and C-29.12 still
 state the rule, so no contract clause changed.
@@ -4434,9 +4435,11 @@ toward the end instead.
 
 The 20 unmutated runs below then came up to 559.5 pt closer, from measurement
 of rows below the destination. That is 7% under a 600 pt bound, so
-`b74ab4d17` sets the approach bound to 1,200 pt, about twice that. Every
-presented loss came at least 6,162.5 pt closer and reached the end. (b) also
-keeps "more than 600 pt from the end" and the engaged-follow check.
+`b74ab4d17` sets the approach bound to 1,200 pt, about twice that. One
+fixed-product run later came 724.5 pt closer. Every presented loss in both proof
+sets reached within 130 pt of the end. (b) also keeps "more than 600 pt from the
+end" and the engaged-follow check. (`b74ab4d17`'s message overstated the
+evidence as "at least 5,900 pt closer"; `d73cf4374` corrects its comment.)
 
 (c) Both run before any landing-based assertion; the landing's own readiness
 must show the scene caught up with the reveal consumed.
@@ -4481,3 +4484,73 @@ checks accept it. This branch rejects it in `assert_reveal_interval_holds`
 turn (to 6,524 pt from the end), and the landing read 6,270 pt. The bounds
 observer had recorded the 177 pt geometry, so the check does not depend on the
 jump persisting.
+
+**Proof, second set: the final product.** One hold (22:43:58–22:53:20Z, host
+load 25–101, four probes at a time). This branch's fixed probe, plus one scratch
+binary with every counterfactual compiled in. `SFM_MUTANT` selects one
+counterfactual per process; unset, the binary behaves as the product.
+
+| Set | Runs | Presented a loss | Rejected | Passed |
+| --- | ---: | ---: | ---: | ---: |
+| Overlap-only mutant | 10 | 7 | 7 | 3: one jump without a presented loss; two never triggered |
+| Unmutated | 10 | 0 | 0 | 10 |
+
+The seven rejections:
+
+| Mutant | Catching check | Measured |
+| --- | --- | --- |
+| 01 | `assert_reveal_reaches_destination` | final request's first presented geometry 0 pt from the end |
+| 03 | `assert_reveal_interval_holds` | approach 7,559.5 pt |
+| 05 | `assert_reveal_interval_holds` | approach 1,736 pt, reaching 0 pt |
+| 07 / 08 / 09 / 10 | `assert_reveal_interval_holds` | approach 6,300.5 / 5,782 / 5,646 / 6,851 pt |
+
+Mutants 01, 03 and 05 pass every pre-round-6 check, with landings 12,072.5,
+4,378 and 5,551 pt from the end and zero drift. In mutant 04 the jump ran, but
+no later presented geometry came within 6,837.5 pt of the end. Mutants 02 and
+06 never scheduled their jump: under load no fold arrived while the reveal was
+pending, so the mutant's trigger never occurred.
+
+The unmutated runs all passed, with destinations 4,575–8,770 pt from the end,
+an approach of at most 724.5 pt, zero confirmations and zero drift.
+
+Across both sets, 30 mutant and 30 unmutated runs: every one of the 18
+presented losses was rejected, and no healthy run failed.
+
+**Counterfactuals for this round's fix**, from the same hold:
+
+| Counterfactual | Scene | Result |
+| --- | --- | --- |
+| Fix reverted (`confirm_immediately`: read the clip inside the completion) | completion-first opening | Fails. The first early completion at 0 pt releases at 11.627 s; settling jumps follow; after open 24.5 pt from the end. |
+| This branch | completion-first opening | Passes. No release; after open 19,600 pt, offset unchanged through later output. |
+| Hop without forced layout (`no_forced_layout`) | completion-first opening | Passes (18,931 pt, no release). |
+| Fix reverted / this branch | near-end control | Both pass: two confirmations per run, then within 25 pt of the end. |
+| Settling ignores suspension | `fix11-stale` | `assert_distant_settling_holds` (fix11:27): after open 24.5 pt (> 600 required). |
+| Settling end releases suspension | `fix11-stale` | Same assertion: 24.5 pt. |
+| Geometry confirmation dropped | default suite, `timeline_end` | `test_timeline_reveal_leaving_end_visible_keeps_follow` (fix8:39): gaps 0 / 848 / 1,627 pt. |
+
+The fixed product also re-ran the deterministic replay. Its preconditions held:
+50 events, 15 between the notices, 4 after consumption, and the injected
+177 pt jump.
+
+#### Item 2: loud waits and the 83 pt reading
+
+`d867b6968`'s waits fail loudly. On expiry, the probe writes the wait's name and
+its last catch-up, cursor, reveal and position state to stderr, and exits 70.
+pytest then reports that instead of a position. The first attempt's detached
+loaded run recorded two such expiries while the host slept: `stablePosition`
+after 120 s, and `streaming.reveal_consumed` after 120 s. `pmset` records Sleep
+from 19:01:13Z, during that run. They show the mechanism reporting, not a
+product state.
+
+The 83 pt case is classified as **a test reading geometry before the scene was
+ready**. The `fix11-near-early` replay restores the old silent wait, which
+expired after 2 s while catch-up continued (0.5 s pages). In this
+continuation's fixed-product run, the opening sample read cursor 40 of 362,
+`caught_up` false, and **66 pt** from the end. After catch-up and output the
+view was 25 pt from the end, settling there by 70.97 s. That is review r5's
+signature (83 pt, recovering to 25). Before `d867b6968`, `caught_up` was read
+after the horizon and was true by then, so the early sample passed unnoticed.
+Now the expired fold wait ends the case. `settling_run` requires the
+opening's own readiness (`caught_up` false here), so it rejects the sample.
+
+No product race was found for this case.
