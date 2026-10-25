@@ -18,6 +18,8 @@ against a model of the holds kept apart from the daemon's own reading of them:
 
 Bounded: 25 examples per property (`TASK_HOLD_EXAMPLES` resizes them), derandomized,
 no example database, so a plain run is repeatable and leaves no `.hypothesis`.
+`TASK_HOLD_MUTANT=<name>` runs them against one of `tests/task_hold_mutants.py`'s mutants,
+and `HYPOTHESIS_NO_SHRINK=1` stops at the first failing example.
 """
 
 from __future__ import annotations
@@ -26,7 +28,7 @@ import os
 from collections import Counter
 
 import pytest
-from hypothesis import HealthCheck, given, note, settings, strategies as st
+from hypothesis import HealthCheck, Phase, given, note, settings, strategies as st
 
 from subfleet import task_holds
 from tests.disk_floor_model import stamp
@@ -37,6 +39,10 @@ EXAMPLES = int(os.environ.get("TASK_HOLD_EXAMPLES", "25"))
 SETTINGS = settings(max_examples=EXAMPLES, deadline=None, derandomize=True, database=None,
                     suppress_health_check=[HealthCheck.too_slow, HealthCheck.data_too_large,
                                            HealthCheck.function_scoped_fixture])
+if os.environ.get("HYPOTHESIS_NO_SHRINK"):
+    # Each example builds one or two daemons, so shrinking a failure can take minutes:
+    # this reports the first failure as found (the mutant runs in the report use it).
+    SETTINGS = settings(SETTINGS, phases=[Phase.explicit, Phase.reuse, Phase.generate])
 
 
 @pytest.fixture(autouse=True)
