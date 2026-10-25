@@ -222,10 +222,13 @@ def helper_policy(policy: Mapping, *, withheld: Callable[[], Iterable[str]] | No
     `build_environment` in the scope calls it and withholds what it returns, so
     a lane stored or held after the scope opened is covered too. A nested scope
     replaces the policy's names but keeps every outer scope's withheld names:
-    `pass` grants authority, and withholding only removes it.
+    `pass` grants authority, and withholding only removes it. A source an outer
+    scope already carries (the gate's inside `Daemon.dispatch`) is read once per
+    build, not once per scope (review r1 of #262).
     """
     token = _HELPER_PASS.set(tuple(policy.get("env", {}).get("pass", ())))
-    sources = _HELPER_WITHHELD.set(_HELPER_WITHHELD.get() + ((withheld,) if withheld is not None else ()))
+    outer = _HELPER_WITHHELD.get()
+    sources = _HELPER_WITHHELD.set(outer + ((withheld,) if withheld is not None and withheld not in outer else ()))
     try:
         yield
     finally:
