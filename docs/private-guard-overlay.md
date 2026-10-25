@@ -100,9 +100,9 @@ that analyzer in one reviewed step.
 | File | SHA-256 |
 | --- | --- |
 | `never-rules-hook.sh` | `1a736be3c968e5c1dc6bb7d63019f540b06d1cc619913e6bb8e4e057e536f951` |
-| `TRUST` | `b3fcc89368e9839e16c2ca4e55d5d720993ba68ae3bcbc042fc3110f3d6e9210` |
+| `TRUST` | `84167543b7962855c9d35afe25204f8b6f59ada6d44c9fd16b0d0ab3f483e8a9` |
 
-TRUST changes only `hook_sha256` and an appended provenance sentence; `hooks_trust_hash` and
+TRUST is the installed TRUST of 2026-09-29 (`b3193b97d712bda6a5cc0f2447907e674f7ed90911a82d7709de8298b42aaa06`: the `codex-cli 0.159.0` lane pin and the provenance of the 0.158.0 and 0.159.0 moves, which the table above predates), changing only `hook_sha256` and appending one provenance sentence; `hooks_trust_hash` and
 `override` hash the hook's identity, not its bytes, and do not move. The staging helper above
 refuses to replace a different overlay in place, so this revision is staged into a fresh state
 root and swapped in; `tests/unit/test_guard_subfleet_root.py` states and checks the rule's

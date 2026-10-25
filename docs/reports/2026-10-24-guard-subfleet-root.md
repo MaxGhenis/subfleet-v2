@@ -30,7 +30,10 @@ the byte-identical contract and its skip-gated DriftTests are historical). Nothi
 changed: `test_only_the_roots_the_header_and_the_message_changed` undoes exactly these edits
 and gets the original reviewed bytes (`a60d1c51…`) back.
 
-**TRUST** (`b3fcc893…e9210`). `hook_sha256` is recomputed for the new bytes and `provenance`
+**TRUST** (`84167543…3e8a9`). It is built on the installed TRUST of 2026-09-29 (`b3193b97…`, the
+`codex-cli 0.159.0` pin), not on the repository's copy at `abe117e67` (`0b9d688e…`, which still pinned
+`codex-cli 0.153.3`; the hub's review found that a TRUST built on it would refuse every Codex lane at
+preflight with VERSION). `hook_sha256` is recomputed for the new bytes and `provenance`
 gains a dated D-LANE-SCOPE1 sentence ending "Installed only after the hub's review and a live
 hooks/list preflight." Nothing else moved. `hooks_trust_hash` (`sha256:f97fa95f…`) and
 `override` are unchanged: `subfleet/guard/preflight.py:hooks_trust_hash` hashes the hook's
@@ -163,13 +166,13 @@ roots exactly as to the old ones. `test_known_limits_the_new_roots_share_with_th
 From a checkout of the reviewed commit, with its environment (`uv run`). Every path below is
 the default state root; substitute a custom `SUBFLEET_HOME`.
 
-0. **The installed pair must be the original pair.** If either hash differs, stop: this
-   TRUST was built on the repository's pins (`codex-cli 0.153.3`), not on the installed ones.
+0. **The installed pair must be the pair this TRUST was built on.** If either hash differs, stop:
+   the installed TRUST moved after this revision was built, and TRUST must be rebuilt on it.
 
    ```sh
    shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST
    # a60d1c514d3a3bcec68c246a33c849c11fd37e1bdf60d886650cd9d6651390db  …/never-rules-hook.sh
-   # 0b9d688e6b2ca3adefdb8ad465c0fad5e6e18dfa884bc2309ff4f506c2287bab  …/TRUST
+   # b3193b97d712bda6a5cc0f2447907e674f7ed90911a82d7709de8298b42aaa06  …/TRUST
    ```
 
 1. **Stage through the repository's staging path**, into a fresh state root on the same volume
@@ -272,11 +275,14 @@ the default state root; substitute a custom `SUBFLEET_HOME`.
    `~/.subfleet/guard-stage-d-lane-scope1/guard`), then check:
 
    ```sh
-   shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST   # a60d1c51…, 0b9d688e…
+   shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST   # a60d1c51…, b3193b97…
    ```
 
-   If that directory is gone, the old pair is `git show abe117e67:private/guard/never-rules-hook.sh`
-   and `git show abe117e67:private/guard/TRUST`, staged the same way. Verdict markers for the
+   If that directory is gone, the old hook is `git show abe117e67:private/guard/never-rules-hook.sh`,
+   and the old TRUST is this TRUST with `hook_sha256` set back to `a60d1c51…` and the D-LANE-SCOPE1
+   sentence removed (`test_trust_changed_only_the_hook_hash_and_the_appended_provenance` proves that
+   gives `b3193b97…` byte for byte), staged the same way. Never stage `abe117e67`'s TRUST:
+   it pins `codex-cli 0.153.3`. Verdict markers for the
    old pair are still valid for their 30 days.
 
 7. **The Claude half**, after its review. Test the candidate pair before installing it, as the

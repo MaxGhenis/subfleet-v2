@@ -85,7 +85,10 @@ HOOK = REPO / "private/guard/never-rules-hook.sh"
 TRUST = REPO / "private/guard/TRUST"
 #: The original reviewed pair (2026-09-05): the hook these tests compare against, and the rollback.
 OLD_HOOK_SHA256 = "a60d1c514d3a3bcec68c246a33c849c11fd37e1bdf60d886650cd9d6651390db"
-OLD_TRUST_SHA256 = "0b9d688e6b2ca3adefdb8ad465c0fad5e6e18dfa884bc2309ff4f506c2287bab"
+#: The installed TRUST this revision is built on (2026-09-29: the codex-cli 0.159.0 pin and the
+#: 0.158.0/0.159.0 provenance). The repository's copy at abe117e67 (0b9d688e…) still pinned 0.153.3;
+#: installing a TRUST built on it would have refused every Codex lane at preflight (VERSION).
+OLD_TRUST_SHA256 = "b3193b97d712bda6a5cc0f2447907e674f7ed90911a82d7709de8298b42aaa06"
 #: hooks_trust_hash of TRUST's reference path, before and after: the identity, not the bytes.
 HOOKS_TRUST_HASH = "sha256:f97fa95f2f4d43e1f8d35cd92da4d7f3f1861497abd86916680e0189e0ec34b1"
 
@@ -140,7 +143,7 @@ OLD_BROAD_RE = ("  broad_re=\"(/Users/[^/[:space:]'\\\"]+|~|\\\\\\$HOME)(/(TheAx
 OLD_TRUST_TEXT = [
     ("1a736be3c968e5c1dc6bb7d63019f540b06d1cc619913e6bb8e4e057e536f951", OLD_HOOK_SHA256),
 ]
-OLD_PROVENANCE_END = "No live preflight was run to create this pin."
+OLD_PROVENANCE_END = "Previous pin kept at TRUST.pre-0.159.0.bak."
 
 
 def undo(text: str, edits) -> str:
@@ -346,6 +349,17 @@ def test_trust_pins_the_new_hook_bytes():
     assert "D-LANE-SCOPE1" in trust["provenance"]
     assert trust["provenance"].endswith(
         "Installed only after the hub's review and a live hooks/list preflight.")
+
+
+def test_trust_keeps_the_installed_lane_pin():
+    """The hub's review of this revision: the build first derived TRUST from the
+    repository's copy at abe117e67, which still pinned codex-cli 0.153.3 while the
+    installed TRUST had pinned 0.159.0 since 2026-09-29. Installed, that TRUST would
+    have refused every Codex lane at preflight (VERSION). This TRUST keeps the
+    installed pin and its 0.158.0 and 0.159.0 provenance."""
+    trust = json.loads(TRUST.read_text())
+    assert trust["codex_version"] == "codex-cli 0.159.0"
+    assert "lane pin moved 0.158.0 -> 0.159.0" in trust["provenance"]
 
 
 def test_trust_changed_only_the_hook_hash_and_the_appended_provenance():

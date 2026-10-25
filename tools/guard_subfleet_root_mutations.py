@@ -25,9 +25,12 @@ ROOT = Path(__file__).resolve().parents[1]
 TEST = "tests/unit/test_guard_subfleet_root.py"
 HOOK = "private/guard/never-rules-hook.sh"
 TRUST = "private/guard/TRUST"
-#: The original reviewed pair's commit (release/217 at abe117e67); its TRUST is the stale one.
+#: The original reviewed pair's commit (release/217 at abe117e67). Its TRUST still pins codex-cli 0.153.3,
+#: behind the installed TRUST (0.159.0) that this revision's TRUST is built on.
 BASE = "abe117e676b042b0cc8b4208dc25da52820221e2"
 NEW_ROOTS = "|\\.subfleet(/[^/[:space:]'\\\"]+)?"
+OLD_HOOK_SHA256 = "a60d1c514d3a3bcec68c246a33c849c11fd37e1bdf60d886650cd9d6651390db"
+NEW_HOOK_SHA256 = "1a736be3c968e5c1dc6bb7d63019f540b06d1cc619913e6bb8e4e057e536f951"
 ROOT_CORE = 'root_core="/|/\\\\*|/Users/?|(${broad_re})/?"'
 
 # name -> (file, old text, new text, the named test that must kill it)
@@ -39,6 +42,8 @@ MUTATIONS = {
     # The roots moved to their own root_core alternative, without the shared `/?`.
     "trailing-slash-missed": (HOOK, None, None, "test_trailing_slash_spellings_are_denied"),
     "trust-hash-stale": (TRUST, None, None, "test_trust_pins_the_new_hook_bytes"),
+    # The hub review's finding: a TRUST built on the repository's stale copy rolls the lane pin back.
+    "trust-built-on-repo-copy": (TRUST, None, None, "test_trust_keeps_the_installed_lane_pin"),
 }
 FENCE = "test_only_the_roots_the_header_and_the_message_changed"
 
@@ -57,9 +62,18 @@ def export(destination: Path) -> None:
 def mutate(tree: Path, name: str) -> None:
     file, old, new, _ = MUTATIONS[name]
     path = tree / file
-    if name == "trust-hash-stale":
-        path.write_bytes(subprocess.run(["git", "-C", str(ROOT), "show", f"{BASE}:{TRUST}"],
-                                        check=True, capture_output=True).stdout)
+    if name == "trust-hash-stale":                 # the new TRUST, its hook_sha256 left at the old bytes'
+        text = path.read_text(encoding="utf-8")
+        assert text.count(NEW_HOOK_SHA256) == 1
+        path.write_text(text.replace(NEW_HOOK_SHA256, OLD_HOOK_SHA256), encoding="utf-8")
+        return
+    if name == "trust-built-on-repo-copy":         # the repository's copy at BASE, new hook hash, new sentence
+        base = json.loads(subprocess.run(["git", "-C", str(ROOT), "show", f"{BASE}:{TRUST}"],
+                                         check=True, capture_output=True, text=True).stdout)
+        new = json.loads(path.read_text(encoding="utf-8"))
+        base["hook_sha256"] = new["hook_sha256"]
+        base["provenance"] += new["provenance"][new["provenance"].index(" 2026-10-24, D-LANE-SCOPE1:"):]
+        path.write_text(json.dumps(base, indent=2) + "\n", encoding="utf-8")
         return
     text = path.read_text(encoding="utf-8")
     if name == "trailing-slash-missed":
