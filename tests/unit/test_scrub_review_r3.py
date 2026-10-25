@@ -32,6 +32,7 @@ from __future__ import annotations
 import itertools
 import os
 import random
+from collections.abc import Callable
 
 import pytest
 from hypothesis import given, strategies as st
@@ -351,11 +352,11 @@ def _trailer(size: int) -> str:
     return ("a" * 99 + "_") * (size // 100) + "password"
 
 
-def _counts(unit: str, monkeypatch) -> dict[str, list[dict[str, int]]]:
+def _counts(unit: str, monkeypatch, trailer: Callable[[int], str] | None = None) -> dict[str, list[dict[str, int]]]:
     """For each mode (the excerpt, whole-text and `detail_line` scrubs), the `_kept_span`
     calls and the Python-level identifier walk (`_identifier_char` calls) over `unit`
     repeated 50 times before a 2,008-character trailer, and 200 times before an
-    8,008-character one: 4x input.
+    8,008-character one: 4x input. `trailer`, if given, makes the trailer of a size.
 
     `detail_line`'s is the scrub of its prefixed text (`suggestions._scrub_line`), all of
     its work that grows with the input. Its line bound's check (`suggestions.bounded`)
@@ -381,7 +382,7 @@ def _counts(unit: str, monkeypatch) -> dict[str, list[dict[str, int]]]:
         found[name] = []
         for repeats, tail in ((50, 2000), (200, 8000)):
             counts.update(kept=0, walk=0)
-            mode(unit * repeats + _trailer(tail))
+            mode(unit * repeats + (trailer or _trailer)(tail))
             found[name].append(dict(counts))
     return found
 

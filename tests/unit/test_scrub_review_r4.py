@@ -39,7 +39,7 @@ import pytest
 
 from subfleet.sessions import handoff
 from tests.unit.test_scrub_review_r2 import _assert_hidden, _new_leaks, _outputs, _secrets, _splits, _unstable
-from tests.unit.test_scrub_review_r3 import CLEAN, HN_GAPS, HN_LEADS, _assert_linear, _counts, _failures
+from tests.unit.test_scrub_review_r3 import CLEAN, HN_GAPS, HN_LEADS, _assert_linear, _counts, _failures, _trailer
 
 # --- review r4's executed inputs -------------------------------------------------------
 
@@ -317,3 +317,27 @@ def test_the_count_test_kills_mq2(monkeypatch):
         _assert_linear(found)
     small, large = found["excerpt"]
     assert large["walk"] > 12 * small["walk"], found
+
+
+# --- P3-1's fix, made linear: folds before a line that ends in an owning flag ---------
+
+#: Lines of folds at quoted header names that end in a credential flag glued to a long
+#: identifier (`--aaa…_password`), which owns a value past the line. P3-1's fix makes each
+#: such fold take nothing; computed afresh, each walked the line's last identifier again,
+#: so the work was the folds times the identifier (found this round: 12.5 s for 80,010
+#: characters, against 19 ms at c469f44b6). A fold now reads a line it found ending in an
+#: owning item from `_ENDS_EARLY` (`handoff._fold_value`).
+ENDING_FLAG_UNITS = {"quoted-inline": "-H 'Cookie: --SECRET7a1_token 'Cookie:x ",
+                     "flags": "--SECRET7a1_token 'Cookie:x "}
+
+
+@pytest.mark.parametrize("unit", ENDING_FLAG_UNITS.values(), ids=ENDING_FLAG_UNITS.keys())
+def test_folds_before_a_line_ending_in_an_owning_flag_read_the_line_once(unit, monkeypatch):
+    """At 4x input (50 and 200 units before a 2,010- and an 8,010-character flag), the walk
+    over identifiers grows at most 4x in the excerpt, whole-text and `detail_line` modes,
+    and the line's flag keeps its own rule: no `SECRET7` value shows."""
+    found = _counts(unit, monkeypatch, trailer=lambda size: "--" + _trailer(size))
+    _assert_linear(found)
+    text = unit * 50 + "--" + _trailer(2000)
+    assert "SECRET7" not in handoff.scrub_secrets(text)[0] and _new_leaks(text) == {}
+
