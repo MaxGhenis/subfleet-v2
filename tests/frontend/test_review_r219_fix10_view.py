@@ -39,6 +39,7 @@ def test_distant_search_reveal_lands_and_keeps_position(distant_reveals, name):
     assert run.get("output_released"), diagnostic
     before = run["before_output"]
     assert before["consumed"] and before["notices"] == 2, diagnostic
+    assert before["readiness"]["caught_up"] and not before["readiness"]["reveal_pending"], diagnostic
     assert before["stable_samples"] >= 3 and before["position"]["from_end"] > 600, diagnostic
     assert run["folded_seq"] == run["target_seq"], diagnostic
     expected = FAR[name]
@@ -190,6 +191,9 @@ def assert_reveal_interval_holds(run):
 def assert_stream_retains_position(run, *, events, pages, at_least=False):
     diagnostic = json.dumps(run, sort_keys=True)
     assert run["found"] and run["caught_up"] and run["reveal_consumed"], diagnostic
+    # The landing baseline's own checkpoint: caught up, with the reveal consumed.
+    landing = run["readiness_at_landing"]
+    assert landing["caught_up"] and not landing["reveal_pending"], diagnostic
     assert len(run["notices_at"]) == 2 and run["reveal_starts"] == 1, diagnostic
     # Validate the reveal and the whole interval before trusting its landing baseline.
     assert_reveal_reaches_destination(run)

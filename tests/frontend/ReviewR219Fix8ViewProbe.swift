@@ -965,8 +965,10 @@ struct SettlingPageView: View {
         }
         landed = await stablePosition(scene.host, awayFromEnd: true)
     }
+    // Readiness is sampled with the landing it qualifies, not after the horizon.
     let beforeOutput: [String: Any] = ["position": landed.position, "stable_samples": landed.samples,
-                                      "consumed": scene.palette.reveal == nil, "notices": notices.count]
+                                      "consumed": scene.palette.reveal == nil, "notices": notices.count,
+                                      "readiness": scene.readiness()]
     let ready = match != nil && scene.palette.reveal == nil && notices.count == 2
         && landed.samples >= 3 && (landed.position["from_end"] ?? 0) > 600
     let watch = PositionWatch(scene.host, baseline: landed.position)
