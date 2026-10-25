@@ -69,10 +69,10 @@ def new_tombstone() -> str:
     return TOMBSTONE + secrets.token_hex(8)
 
 
-def _reason(exc: BaseException) -> str:
-    """A log-safe reason: the class and, for a refused tree, its stable code,
-    never a path or name a provider chose (C-25.7)."""
-    return f"{type(exc).__name__}({exc.reason})" if isinstance(exc, rfs.TreeError) else type(exc).__name__
+#: The codes removal's refusal of a tree can carry (`_empty`, `retention_fs.open_dir`):
+#: the only ones its log line names, never the refusal's detail, a name a
+#: provider chose (C-25.7).
+TREE_CODES = ("mount-point", "swapped", "too-deep")
 
 
 class AttemptTemp:
@@ -321,6 +321,17 @@ class AttemptTemp:
         check or the deletion fails, put it back and refuse. Because the name
         was recorded before the rename, a crash leaves a folder the store
         names, which `presence()` and the sweep find and finish.
+
+        Opening the folder needs owner read and search, and macOS 15 refuses to
+        rename a directory without owner write, even within one parent, where
+        macOS 26 allows it (P3-2, r2). So the folder gets owner read, write and
+        search before its rename, once its entry passes the same identity check
+        as after the rename; a crash-left tombstone, which no rename precedes,
+        gets them before it is opened. No check or mode change follows a
+        symlink. A directory swapped in between a check and its mode change can
+        at most gain owner bits, and only if it is this user's; the check after
+        the rename then refuses it. A removal refused after a mode change puts
+        the folder back under its name with owner read, write and search added.
         """
         name = Path(record["path"]).name
         tomb = self._tombstone(record)
@@ -335,6 +346,14 @@ class AttemptTemp:
             except FileNotFoundError:
                 found = None
             if found is None:
+                source = os.stat(name, dir_fd=parent, follow_symlinks=False)
+                if not self._is(record, source):
+                    self.log.warning("TMPDIR removal refused for %s: its folder was swapped", record.get("attempt_id"))
+                    return False
+                mode = stat.S_IMODE(source.st_mode)
+                if mode & 0o700 != 0o700:
+                    # r2: before the rename, which macOS 15 refuses without owner write.
+                    os.chmod(name, mode | 0o700, dir_fd=parent, follow_symlinks=False)
                 os.rename(name, tomb, src_dir_fd=parent, dst_dir_fd=parent)
                 moved = True
                 found = os.stat(tomb, dir_fd=parent, follow_symlinks=False)
@@ -348,8 +367,8 @@ class AttemptTemp:
                 return False
             mode = stat.S_IMODE(found.st_mode)
             if mode & 0o700 != 0o700:
-                # P3-2: a provider can take owner read off its own TMPDIR, and
-                # opening needs it. Checked above, never through a symlink.
+                # P3-2: a tombstone a crash left before its mode was fixed, which
+                # opening needs. Checked above, never through a symlink.
                 os.chmod(tomb, mode | 0o700, dir_fd=parent, follow_symlinks=False)
             fd = rfs.open_dir(tomb, dir_fd=parent, expect=found)
             try:
@@ -359,8 +378,17 @@ class AttemptTemp:
             os.rmdir(tomb, dir_fd=parent)
             moved = False
             return True
-        except (OSError, rfs.TreeError) as exc:
-            self.log.warning("TMPDIR removal deferred for %s: %s", record.get("attempt_id"), _reason(exc))
+        except rfs.TreeError as exc:
+            for code in TREE_CODES:          # the log names a literal of the set, never the refusal's words
+                if exc.reason == code:
+                    break
+            else:
+                code = None
+            self.log.warning("TMPDIR removal deferred for %s: %s", record.get("attempt_id"),
+                             f"{type(exc).__name__}({code})" if code else type(exc).__name__)
+            return False
+        except OSError as exc:
+            self.log.warning("TMPDIR removal deferred for %s: %s", record.get("attempt_id"), type(exc).__name__)
             return False
         finally:
             if moved:
@@ -474,11 +502,12 @@ def _empty(top: int, dev: int) -> None:
     Never follows a symlink (it is unlinked) and never leaves the device.
     Each directory inside the tree is made readable, writable and searchable
     by its owner before it is opened and emptied, and `_remove` does the same
-    for the tree itself before opening it (P3-2), so a read-only or unreadable
-    tree (Go's 0555 module cache, a 0000 TMPDIR) goes too; nothing above the
-    tree changes. A tree deeper than `retention_fs.MAX_DEPTH` is refused, as
-    `size()` refuses to measure it, so removal holds at most that many
-    descriptors (P3-5).
+    for the tree itself before renaming or opening it (P3-2, r2), so a
+    read-only or unreadable tree (Go's 0555 module cache, a 0000 TMPDIR) goes
+    too; nothing above the tree changes. Nothing inside the tree is renamed,
+    so macOS 15's rename rule never applies to it (r2). A tree deeper than
+    `retention_fs.MAX_DEPTH` is refused, as `size()` refuses to measure it, so
+    removal holds at most that many descriptors (P3-5).
     """
     def writable(fd: int) -> None:
         mode = stat.S_IMODE(os.fstat(fd).st_mode)
