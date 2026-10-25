@@ -1939,7 +1939,10 @@ def _scrub_inline_headers(text: str, tally: "_Tally", *, line_start: bool = Fals
     with `[REDACTED]`: a value already redacted is left alone, which keeps scrubbing
     idempotent and keeps the words daemon.log's folded line puts after a redacted
     header. `line_start`, for the second scan after the line-start rule (`_scrub`):
-    a name that starts its line is read too. Every scan is linear: candidates come in
+    a name that starts its line is read too, and so is one that starts its line after
+    the `[REDACTED]` the prefix rule leaves of a secret part (`[REDACTED]Cookie:`),
+    whose value goes as a line-start header's does, already redacted or not (#239
+    review r4, P3-4). Every scan is linear: candidates come in
     order from one scan of the reversed text, each name's identifier is read back once,
     each gap between two candidates is searched once for the line break and the
     visible text before a name, and each value once for its closing quote and its
@@ -1974,8 +1977,15 @@ def _scrub_inline_headers(text: str, tally: "_Tally", *, line_start: bool = Fals
         value_start = _WHITESPACE_RUN_RE.match(text, hit_end).end()
         # A value at the text's end or already redacted is left alone, and so is one
         # that starts at the next line's own header (#239 review r2, P2-3), or one that
-        # a closing quote leaves empty.
-        skip = (value_start == len(text) or text.startswith(REDACTED, value_start)
+        # a closing quote leaves empty. The second scan reads a name that the prefix
+        # rule left starting with `[REDACTED]` at a line start as the line-start rule
+        # reads a name there: its value goes, already redacted or not, so daemon.log's
+        # folded line (`[REDACTED]Cookie: [REDACTED]` and the next line's words) keeps
+        # nothing of the header's line (#239 review r4, P3-4).
+        led = (line_start and start >= len(REDACTED) and text.startswith(REDACTED, start - len(REDACTED))
+               and ((newline := text.rfind("\n", gap, start - len(REDACTED))) >= 0 or gap == 0)
+               and _VISIBLE_RE.search(text, newline + 1, start - len(REDACTED)) is None)
+        skip = (value_start == len(text) or (text.startswith(REDACTED, value_start) and not led)
                 or ("\n" in text[hit_end:value_start] and _header_name_at(text, value_start)))
         if not skip:
             if line_end < value_start:
