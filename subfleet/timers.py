@@ -460,7 +460,7 @@ class Timers:
                                             "WHERE provider='claude' ORDER BY created_at,rowid")]
 
     def _withheld(self) -> frozenset[str]:
-        """D-ENV1: what the timers' launches and helper subprocesses withhold, read at
+        """D-ENV2: what the timers' launches and helper subprocesses withhold, read at
         each: the daemon's set (`Daemon._withheld_references`), else the stored lanes'."""
         return frozenset(self.references() if self.references else withheld_references(self.store.list_lanes()))
 
