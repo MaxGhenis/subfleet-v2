@@ -22,6 +22,7 @@ from typing import Any
 from .alerts import LATCH_QUERY, active_alerts, load_latches
 from .client import same_process
 from .contracts import READING_TTL_S, Exit, JobState
+from . import task_holds
 from .quota_projection import weekly_projections
 from .store import SCHEMA_VERSION as KNOWN_SCHEMA_VERSION
 from .store import WEEKLY_HISTORY_SQL, cancel_info, notice_rows, weekly_history_params
@@ -363,6 +364,9 @@ class Offline:
             # last fired with (no cycle runs without the daemon).
             latches = (load_latches(conn.execute(LATCH_QUERY).fetchall())
                        if "events" in tables else {})
+            # C-11.10: the operator's task holds in force, read as the daemon reads them.
+            holds = (task_holds.in_force([dict(row) for row in conn.execute(
+                task_holds.ROWS_SQL, task_holds.ROWS_PARAMS)], at) if "leases" in tables else {})
         for lane in lanes:
             lane["in_flight"] = in_flight.get(lane.get("lane_id"), 0)
         for reading in readings:
@@ -386,6 +390,7 @@ class Offline:
             "turns": self.list_jobs(running=True, last=50, kind="turn"),
             "alerts": active_alerts(latches),
             "claude_cards": self._cards_view(),     # C-9.10: the last snapshot the daemon wrote
+            "task_holds": task_holds.listing(holds),
         }
 
     def _cards_view(self) -> dict[str, Any]:

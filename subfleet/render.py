@@ -148,6 +148,9 @@ def status(view: Mapping[str, Any]) -> str:
         lines.append(disk_line(view["disk"]))
     if view.get("ramp") is not None:
         lines.append(ramp_line(view["ramp"]))
+    if view.get("task_holds"):
+        # C-11.10: the operator's holds on tasks; lanes stay open to every other task.
+        lines.append("Task holds: " + "; ".join(task_hold_line(hold) for hold in view["task_holds"]))
     rows = []
     for lane in snapshot["lanes"]:
         # C-10.6: an operator looking at a lane with no readings has to be able
@@ -245,7 +248,14 @@ _HOLD_TEXT = {
                     "is not; admission.machine_guard sets the thresholds (C-6.13)",
     "pin-unadmittable": "its pinned lane {lane_id} can never admit it: {refusals}; it holds no other job back "
                         "and {ends} (C-11.8)",
+    "task-held": "the operator holds {task} jobs at admission until {until} ({note}); it starts once the hold "
+                 "ends or `subfleet tasks release {task}`, and holds no other job back (C-11.10)",
 }
+
+
+def task_hold_line(hold: Mapping[str, Any]) -> str:
+    """C-11.10: one hold in force, as both status views show it."""
+    return f"{hold.get('task')} until {hold.get('until')}: {hold.get('note')}"
 
 
 def provider_cap_text(row: Mapping[str, Any]) -> str:
@@ -457,7 +467,8 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
                 fields.update(refusals=pin_refusals(hold), ends=pin_ends(hold.get("fail_at")))
             lines.append("Held: " + template.format_map({**dict.fromkeys(
                 ("behind", "tier", "max_active_attempts", "kept_for", "live", "error_type", "error",
-                 "conversation_id", "native_session_id", "tries", "class", "lane_id", "lane", "model"), "?"),
+                 "conversation_id", "native_session_id", "tries", "class", "lane_id", "lane", "model",
+                 "task", "until", "note"), "?"),
                 **{k: v for k, v in fields.items() if v is not None}}))
             if reason == "behind-older-job" and hold.get("key", "").startswith("providers."):
                 lines.append(provider_cap_text(hold))
