@@ -4326,3 +4326,158 @@ PR-body lines:
 > suspension is active. Validation: 43 required view cases and the completed clean
 > 34-case loaded repetitions pass (**3/5**); the remaining
 > listed suites are incomplete. The prior unpaused 100 ms failure is unresolved.
+
+### Round-6 reveal checks, completion race and validation
+
+#### Continuation and audit
+
+Round 6 ran in two attempts. The first committed `12c61056e` (review r5's
+survivor replayed as a fixed schedule) and `d867b6968` (destination and
+interval checks, loud readiness waits, opening traces). Its network then
+failed between 18:36Z and 18:44Z. Its saved uncommitted diff was empty. This
+continuation read both commits in full, audited them against the brief,
+finished the round and ran the validation below. Every number here comes from
+an executed run. Runs by the first attempt's detached driver are labelled as
+such: they ran on `d867b6968` after that attempt had ended, partly while the
+host was in DarkWake, and are cited only for what they recorded.
+
+| Brief item | Salvaged state | Now |
+| --- | --- | --- |
+| 1(a) destination first | `d867b6968`: the final request's first presented geometry must be more than 600 pt from the end. The brief's "within 30 pt of the end" was replaced by the revealed row, with no executed counterexample. | Kept. Counterexample: 20 unmutated runs presented their destinations 5,696.5–9,009 pt from the end. |
+| 1(b) interval to the baseline | `d867b6968`: bounded the absolute offset change at 600 pt. Wrong for healthy scenes. | Fixed in `ded91c201` and `b74ab4d17` (below). |
+| 1(c) `landed` trusted last | `d867b6968`: (a) and (b) run before every landing-based assertion. | Kept; `2dc8bda31` adds the landing's own readiness. |
+| 1 proof | `12c61056e` replay committed; no run recorded. | 20 mutant + 20 unmutated runs and the replay, below. |
+| 2 loud waits | `d867b6968`: `waitReady` (120 s, exit 70, names the wait and its last state) replaces `waitFolded` and each sibling wait; plain `stablePosition` fails loudly. | Kept, read in full. |
+| 2 readiness at its checkpoint | `d867b6968`: openings, settling and live-turn cases. Streams and distant reveals still asserted flags read after the horizon. | Completed in `2dc8bda31`. |
+| 2 the 83 pt case | `d867b6968` added the `fix11-near-early` replay; no result. | Classified below. |
+| 3 opening trace | `d867b6968`: `opening_trace` reports releases, landing and the first unexpected scroll. | Kept. Its first captured failure was a product race: fixed in `f94b26d6c`, regression `9c1555328`. |
+
+#### Executed mechanism: a reveal confirmed before its scroll was laid out
+
+The first attempt's detached driver ran a loaded fix10/fix11 repetition on
+`d867b6968` from 18:36:40Z to 18:41:43Z. `pmset` records clamshell DarkWake
+from 18:36:03Z to 18:48:42Z, so the whole run was in DarkWake. It failed
+three cases (32 passed). Its 250 ms unpaused opening failed on two of the four
+workers, because that hold's grouping did not keep the module fixture on one
+worker. Both traces show the same order:
+
+| Time, s (gw0) | Recorded event |
+| ---: | --- |
+| 0.973 | Reveal request: suspension set, clip at the end (0 pt), offset 5,839. |
+| 1.066 | Reveal completion. Clip unchanged at 0 pt; no clip geometry was presented between the request and its completion. |
+| 1.066 | `reveal_end_visible`: the geometry confirmation releases suspension. |
+| 1.067 | Settling key change, unsuspended: `jump`. |
+| 1.612 / 1.662 | Second request and completion, both at 24 pt: released again, `jump`. |
+| opening sample | 24 pt from the end (required > 600). |
+
+Worker gw2 recorded the same sequence: request 0.948 s, completion 1.002 s,
+both at 0 pt, then release and jump at 1.003 s. The delayed-first-notice
+tool scene of the same run shows the race without catch-up. Its completion at
+3.632 s read 0 pt from the end and released suspension. An ordinary `glide` at
+the same instant kept the view at the end, and the row was never presented.
+
+Classification: **a product race in round 3's geometry confirmation.**
+`OpeningPinView` read the clip inside the reveal transaction's completion. That
+assumes the reveal's scroll has already been laid out, and these traces show a
+completion delivered before that layout. The confirmation read the pre-reveal
+end and released suspension. The next settling or follow change then
+superseded the reveal's scroll.
+
+The historical 24 pt failure (round 4's loaded 100 ms opening, unclassified in
+rounds 3–5) had no trace. It matches this one in scene and in end position,
+24 pt (the column padding). That is a match, not a recording of its cause.
+Production reaches the same path: opening approvals use an animation-disabled
+transaction with the same completion, and search reveals share the observer.
+
+#### Fix and design decision
+
+`f94b26d6c` changes only `OpeningPinView`. A completion now schedules its
+check for the next main-queue turn. That turn first lays out the window's
+pending work, which applies the reveal's scroll, and only then reads the clip.
+Request matching, the column-padding threshold and the no-scroll release are
+unchanged. Rejected alternatives:
+
+- Requiring a clip movement since the request. A near-end reveal whose row is
+  already in view does not move the clip, and it must still be confirmed.
+- Deferring without the forced layout. A main-queue hop alone does not
+  guarantee that a layout pass has run, and its counterfactual is executed
+  below.
+
+Design §12 records the order (`c714fd1df`). C-27.5, C-29.7 and C-29.12 still
+state the rule, so no contract clause changed.
+
+`9c1555328` makes the order deterministic. `completeBeforeScroll` posts each
+reveal request's completion from inside the request, before the reveal
+scrolls; it is registered once the view is mounted, after the view's own
+request observer. The new tests:
+
+- `test_completion_before_scroll_cannot_release_a_distant_opening_reveal`
+  (fix10, the 250 ms unpaused opening). The first early completion must read
+  the end. The opening must then be more than 600 pt from the end, keep its
+  offset through later output, and record no `reveal_end_visible`.
+- `test_completion_before_scroll_still_confirms_a_near_end_reveal` (fix11,
+  near-end reveal, catch-up held). The control: confirmation still happens,
+  catch-up jumps unsuspended, and the view stays within 30 pt of the end.
+
+#### Item 1: the reveal checks
+
+(a) The reveal's destination is its row. In 20 unmutated runs the
+destinations were 5,696.5–9,009 pt from the end, so "within 30 pt of the end"
+would fail every healthy run. (a) requires the final request's first presented
+geometry to be more than 600 pt from the end.
+
+(b) The salvaged interval check bounded the absolute offset change. In the
+first attempt's loaded run, the unmutated stale-marker tool scene failed it at
+1,942 pt: lazy measurement of rows above the row moved the offset while the
+view came only 360 pt closer to the end. `ded91c201` measures the approach
+toward the end instead.
+
+The 20 unmutated runs below then came up to 559.5 pt closer, from measurement
+of rows below the destination. That is 7% under a 600 pt bound, so
+`b74ab4d17` sets the approach bound to 1,200 pt, about twice that. Every
+presented loss came at least 6,162.5 pt closer and reached the end. (b) also
+keeps "more than 600 pt from the end" and the engaged-follow check.
+
+(c) Both run before any landing-based assertion; the landing's own readiness
+must show the scene caught up with the reveal consumed.
+
+**Proof, first set.** One hold (22:18–22:26Z, host load 97–125, four probes
+at a time). The binaries are the first attempt's `d867b6968` build: its probe
+source is byte-identical to `d867b6968`'s, its product is the pre-fix product,
+and the mutant differs from it only by the overlap mutation in `UIWindow.swift`.
+Every verdict uses this branch's committed checks (`b74ab4d17`).
+
+| Set | Runs | Presented a loss | Rejected | Passed |
+| --- | ---: | ---: | ---: | ---: |
+| Overlap-only mutant | 20 | 11 | 11, all by `assert_reveal_interval_holds` | 9, no loss presented |
+| Unmutated | 20 | 0 | 0 | 20 |
+
+The 11 rejections, as (approach, from the end) in points:
+- mutants 01, 05, 07, 08, 09, 13, 16 and 20: (6,162.5, 0), (8,205, 0),
+  (7,341, 0), (7,757.5, 0), (7,531, 0), (6,560, 0), (7,182.5, 0) and
+  (6,533.5, 0);
+- mutant 04: (6,679, 130);
+- mutant 11: (6,584.5, 31.5);
+- mutant 18: (6,724.5, 31).
+
+Mutants 07, 16 and 18 pass every pre-round-6 check, with landings 1,716.5,
+2,723.5 and 2,333 pt from the end and zero drift. That is review r5's survivor
+pattern, and this branch rejects them.
+
+In the nine passing mutant runs the mutant's jump executed, but no presented
+geometry after it came within 5,561 pt of the end. Their landing, horizon and
+zero drift show a retained position, so there was no loss to detect. No run
+presented a loss and passed.
+
+The unmutated runs delivered 50–279 events, including 16–98 between the
+notices and at least three after consumption. All 20 recorded zero
+confirmations and zero drift.
+
+**Deterministic replay** (`12c61056e`, executed in the same hold): 50 events,
+15 between the notices and 4 after consumption, with the jump injected at
+11.399 s from offset 1,956 to 8,576 (177 pt from the end). The pre-round-6
+checks accept it. This branch rejects it in `assert_reveal_interval_holds`
+("moved toward the end"). Under this load SwiftUI restored the clip in the same
+turn (to 6,524 pt from the end), and the landing read 6,270 pt. The bounds
+observer had recorded the 177 pt geometry, so the check does not depend on the
+jump persisting.
