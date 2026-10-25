@@ -27,8 +27,11 @@
 #     (2026-10-24) added ~/.subfleet and each direct child of it to the broad
 #     roots after one lane's `rg --files -g AGENTS.md ~/.subfleet` walked
 #     14,121 job folders and 1,765 job worktrees for 4 minutes at load
-#     190-220. Change a root on both sides in one reviewed step: here, and in
-#     unscoped_search.py's BROAD_RE and HOME_SUBDIRS.
+#     190-220. D-LANE-SCOPE1 r2 (2026-10-25) added $SUBFLEET_ROOT (set on
+#     every attempt) and $SUBFLEET_HOME (passed through to lanes), both
+#     ~/.subfleet by default, as spellings of it. Change a root on both sides
+#     in one reviewed step: here, and in unscoped_search.py (BROAD_RE,
+#     HOME_SUBDIRS, expand()).
 #
 # Rules (one line each; details in docs/guard.md):
 #   tg-getupdates    Telegram getUpdates polling steals the OpenClaw gateway's updates
@@ -388,10 +391,12 @@ fi
 #              / PolicyEngine / Library/Caches / .cache / .local children,
 #              their .subfleet child and each one path component directly
 #              under it (`~/.subfleet/jobs`; `~/.subfleet/jobs/<id>` is
-#              scoped), `/tmp`, `/private/tmp` — each with or without a
-#              trailing slash.
+#              scoped), `$SUBFLEET_ROOT` and `$SUBFLEET_HOME` as spellings of
+#              ~/.subfleet (alone or with one component under them),
+#              `/tmp`, `/private/tmp` — each with or without a trailing slash.
 #   judged     backslash-newline continuations are joined first (as the shell
-#              does) and `${HOME}` is spelled `$HOME`; then collapse_quotes
+#              does) and `${HOME}`, `${SUBFLEET_ROOT}` and `${SUBFLEET_HOME}`
+#              lose their braces; then collapse_quotes
 #              turns every quoted string into the placeholder Q, except a
 #              quoted string whose whole content IS a root (kept, unquoted:
 #              `find "$HOME"/ …`, `rg pat "/"`) and a sub-script that
@@ -460,7 +465,7 @@ elif printf '%s' "$command" | grep -qE '(^|[[:space:];&|(])grep[[:space:]]' \
   && printf '%s' "$command" | grep -qE '(^|[[:space:]])(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive|--dereference-recursive)([[:space:]]|$)'; then searcher="recursive grep"
 fi
 if [ -n "$searcher" ] && ! printf '%s' "$command" | grep -qE -- '--?max-?depth'; then
-  broad_re="(/Users/[^/[:space:]'\"]+|~|\\\$HOME)(/(TheAxiomFoundation|RulesFoundation|PolicyEngine|Library/Caches|\.cache|\.local|\.subfleet(/[^/[:space:]'\"]+)?))?|(/private)?/tmp"
+  broad_re="(/Users/[^/[:space:]'\"]+|~|\\\$HOME)(/(TheAxiomFoundation|RulesFoundation|PolicyEngine|Library/Caches|\.cache|\.local|\.subfleet(/[^/[:space:]'\"]+)?))?|\\\$SUBFLEET_(ROOT|HOME)(/[^/[:space:]'\"]+)?|(/private)?/tmp"
   # Every root spelling: bare `/`, `/*` (the shell expands it to every
   # top-level directory), `/Users`, `/Users/`, and broad_re with an optional
   # trailing slash. A root is a whole word: preceded by whitespace (or the
@@ -508,17 +513,18 @@ if [ -n "$searcher" ] && ! printf '%s' "$command" | grep -qE -- '--?max-?depth';
   subscript_rgpath_re="${subscript_cmd_re}['\"]*[[:space:]]*(rg|grep)[[:space:]]+(-[^[:space:]]*[[:space:]]+)*[^-[:space:]|;&<>][^[:space:]|;&<>]*[[:space:]]+([^|;&<>]*[[:space:]])?['\"]*${root_re}['\"]*([[:space:]|;&)]|\$)"
   loop_head_re="(^|[[:space:];&|(])for[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]+in[[:space:]]+${root_re}${root_end}"
   # judged: the command with backslash-newline continuations joined exactly as
-  # the original port-back contract specifies, then `${HOME}` spelled `$HOME`.
+  # the original port-back contract specifies, then `${HOME}` spelled `$HOME`
+  # (and `${SUBFLEET_ROOT}`/`${SUBFLEET_HOME}` without braces too).
   # The searcher detection above and the cwd rule below keep looking at the raw
   # command.
-  judged=$(printf '%s' "$command" | LC_ALL=C awk '{ if (sub(/\\$/, "")) printf "%s", $0; else print }' 2>/dev/null | LC_ALL=C sed 's/\$[{]HOME[}]/$HOME/g' 2>/dev/null) || judged=""
+  judged=$(printf '%s' "$command" | LC_ALL=C awk '{ if (sub(/\\$/, "")) printf "%s", $0; else print }' 2>/dev/null | LC_ALL=C sed 's/\$[{]HOME[}]/$HOME/g; s/\$[{]SUBFLEET_ROOT[}]/$SUBFLEET_ROOT/g; s/\$[{]SUBFLEET_HOME[}]/$SUBFLEET_HOME/g' 2>/dev/null) || judged=""
   [ -n "$judged" ] || judged=$command
   # Two trailing backslashes escape each other, so the following newline is a
   # real command separator. The mandated one-backslash join above cannot tell
   # that case apart; retain the raw newline when an even run is present so an
   # old blocked crawl on the next line cannot disappear during normalization.
   if printf '%s' "$command" | LC_ALL=C awk 'match($0, /\\+$/) && RLENGTH % 2 == 0 { even=1 } END { exit !even }' 2>/dev/null; then
-    judged=$(printf '%s' "$command" | LC_ALL=C awk '{ if (match($0, /\\+$/) && RLENGTH % 2 == 1) printf "%s", substr($0, 1, length($0) - 1); else print }' 2>/dev/null | LC_ALL=C sed 's/\$[{]HOME[}]/$HOME/g' 2>/dev/null) || judged=""
+    judged=$(printf '%s' "$command" | LC_ALL=C awk '{ if (match($0, /\\+$/) && RLENGTH % 2 == 1) printf "%s", substr($0, 1, length($0) - 1); else print }' 2>/dev/null | LC_ALL=C sed 's/\$[{]HOME[}]/$HOME/g; s/\$[{]SUBFLEET_ROOT[}]/$SUBFLEET_ROOT/g; s/\$[{]SUBFLEET_HOME[}]/$SUBFLEET_HOME/g' 2>/dev/null) || judged=""
     [ -n "$judged" ] || judged=$command
   fi
   # stripped: judged with quoted strings collapsed, a whole-root quoted string
