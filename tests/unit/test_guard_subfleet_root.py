@@ -779,7 +779,10 @@ def test_s3_other_rules_give_identical_output(hooks, repos, tmp_path):
             assert outs["new"] == outs["old"], text
             lines = {w: [line.split("\t", 1)[1] for line in p.read_text().splitlines()] for w, p in logs.items()}
             assert lines["new"] == lines["old"], text
-    assert compared >= 2 * sum(1 for _, _, expected in OTHER_RULES if expected)
+    # Every rule's own command is compared; a combination is compared when the old hook
+    # still denies it under that rule (`security dump-keychain -d; rg …` is not: the
+    # keychain rule wants a space or the end after -d, so only the new root denies it).
+    assert compared >= 2 * sum(1 for _, _, expected in OTHER_RULES if expected) - 1
 
 
 def test_s3_apply_patch_payloads_are_judged_identically(hooks, repos):
