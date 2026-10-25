@@ -45,11 +45,11 @@ import pytest
 from hypothesis import HealthCheck, Phase, given, note, settings, strategies as st
 
 from subfleet import task_holds
-from subfleet.contracts import Exit
+from subfleet.contracts import TRANSIENT_RETRY_DELAY_S, Exit
 from tests.disk_floor_model import stamp
 from tests.task_hold_mutants import MUTANTS
-from tests.task_hold_support import (configure, finalize_transient, finish, fresh_daemon, hold, release, restart,
-                                     submit, turn)
+from tests.task_hold_support import (attempts, configure, finalize_transient, finish, fresh_daemon, hold, release,
+                                     restart, submit, turn)
 
 EXAMPLES = int(os.environ.get("TASK_HOLD_EXAMPLES", "25"))
 SETTINGS = settings(max_examples=EXAMPLES, deadline=None, derandomize=True, database=None,
@@ -406,12 +406,105 @@ def test_a_hold_is_in_force_exactly_before_its_end(task, until, now):
     assert (task in task_holds.in_force([row], stamp(now))) == (now < until)
 
 
+# --- T6, one job: its clock already running, then random holds ------------------------------------
+
+CLOCK_STEP = st.one_of(
+    st.tuples(st.just("tick"), st.sampled_from((1, 5, 20, 45, 120))),
+    st.tuples(st.just("hold"), st.sampled_from((10, 30, 90, 300))),
+    st.tuples(st.just("release")),
+    st.tuples(st.just("restart")),
+)
+
+
+@SETTINGS
+@given(kind=st.sampled_from(("pinned", "all-lanes", "backoff")), grace=GRACES,
+       steps=st.lists(CLOCK_STEP, min_size=1, max_size=14))
+def test_t6_one_jobs_clock_under_random_holds(kind, grace, steps):
+    """T6 where the schedules above seldom reach: one build whose clock runs from t=0, a
+    C-11.8 grace on its disabled pinned lane (`pinned`) or with every lane disabled after a
+    `transient` end (`all-lanes`), or C-4.5's backoff after a `transient` end, due at
+    `TRANSIENT_RETRY_DELAY_S` (`backoff`). Then random holds on `build` (a hold in force is
+    replaced, later or sooner), releases, daemon restarts and clock steps, a pass after each,
+    against a model of the stretches the task was held:
+
+    - a grace runs out exactly where the held time cut out of it puts it: the job fails (rc 3,
+      C-11.8) on the first pass that finds that instant passed and no hold in force, never
+      before, and until then, whenever no hold keeps it, its episode ends there;
+    - a backoff's retry starts on the first pass at or after its deadline with no hold in
+      force, never before (the deadline is an instant: held time does not move it);
+    - nothing else ends the job (T3)."""
+    with grace_daemon(None, grace) as (service, harness, clock, signals):
+        build = submit(service, harness, "build", "build-1", **({"pinned_lane": "codex-1"} if kind == "pinned" else {}))
+        if kind == "pinned":
+            service.store.update_lane("codex-1", enabled=0)
+        else:
+            service._admit()
+            [first] = attempts(service, build)
+            finalize_transient(service, dict(first))
+            if kind == "all-lanes":
+                for lane in ("codex-1", "codex-2"):
+                    service.store.update_lane(lane, enabled=0)
+        service._admit()                            # t=0: the grace, or the backoff, runs from here
+        spans: list[list[int]] = []                 # each stretch `build` was held, [start, end]
+        until: int | None = None                    # the end of the hold in force, by the model
+        expected: int | None = None                 # the pass the job fails at, or its retry starts at
+
+        def held_at(at: int) -> bool:
+            return until is not None and until > at
+
+        def grace_end() -> int:
+            ends = grace
+            while (moved := grace + sum(max(0, min(stop, ends) - begin) for begin, stop in spans)) != ends:
+                ends = moved
+            return ends
+        for step in steps:
+            now = clock[0]
+            if step[0] == "tick":
+                clock[0] += step[1]
+            elif step[0] == "hold":
+                if held_at(now):
+                    spans[-1][1] = now + step[1]            # a replacement: one stretch, a new end
+                else:
+                    spans.append([now, now + step[1]])
+                until = now + step[1]
+                hold(service, "build", stamp(until))
+            elif step[0] == "release":
+                if held_at(now):
+                    spans[-1][1] = now
+                until = None
+                release(service, "build")
+            else:
+                service = restart(service, harness)
+            service._admit()
+            at = clock[0]
+            due = TRANSIENT_RETRY_DELAY_S if kind == "backoff" else grace_end()
+            if expected is None and at >= due and not held_at(at):
+                expected = at
+            row = service.store.get_job(build)
+            note(f"{step} at {at}: held {spans}, due {due}, row {(row['state'], row['wait_reason'], row['next_check_at'])}")
+            if kind == "backoff":
+                retried = [attempt["reserved_at"] for attempt in attempts(service, build) if attempt["seq"] > 1]
+                assert retried == ([stamp(expected)] if expected is not None else []), \
+                    ("T6 retry", at, retried, expected, spans)
+                assert row["state"] not in ("failed", "cancelled", "lost"), ("T3 ended", dict(row))
+                continue
+            if expected is not None:
+                assert (row["state"], row["rc"], row["finished_at"]) == ("failed", int(Exit.NO_LANE), stamp(expected)), \
+                    ("T6 grace: not failed when it ran out", at, expected, spans, dict(row))
+                return
+            assert row["state"] in ("queued", "waiting"), ("T6 grace: failed early", at, due, spans, dict(row))
+            episode = service._pin_episodes.get(build) or {}
+            if row["wait_reason"] != "task-held" and "paused_s" not in episode:
+                assert episode.get("fail_at") == stamp(due), ("T6 grace: the episode's end", at, episode, spans)
+
+
 # --- the properties against the mutants (opt-in) ------------------------------------------------
 
 PROPERTIES = {
     "T1/T3/T4/T6/T7": test_t1_t3_t4_t6_over_random_schedules,
     "T2": test_t2_other_tasks_are_placed_as_with_no_hold,
     "T5": test_t5_turns_and_everything_else_ignore_a_hold_with_nothing_to_hold,
+    "T6-one-job": test_t6_one_jobs_clock_under_random_holds,
     "clock": test_a_hold_is_in_force_exactly_before_its_end,
 }
 #: `TASK_HOLD_MUTANT_MATRIX=all` (or a comma list of mutant names) runs every property against
