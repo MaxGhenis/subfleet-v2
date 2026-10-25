@@ -338,8 +338,10 @@ the first three entries below into D-LANE-SCOPE2.
   `src/link-up` either, while the Claude half does); and zsh qualifiers (`*(/)`), `<1-9>` and
   extendedglob forms are not judged. Also: a relative glob is judged by its text (relative paths
   are D-LANE-SCOPE2's); a folder that holds a root is not one itself (`/private`, `~/Library`,
-  as for literal paths since the first round); a glob character inside a quoted root is judged
-  as if unquoted, which over-approximates (the shell would not glob it); and a glob in rg's
+  as for literal paths since the first round); a glob character inside quotes is judged as if
+  unquoted, as the property the hub set requires of a quoted `/*`, which over-approximates (the
+  shell would not glob it): `find . -path '/tmp/*'` is denied now, the quoted `/tmp/*` read as
+  `/tmp`, though find takes it as a pattern; and a glob in rg's
   pattern position that expands to several words puts its later matches in path position, which
   is not judged.
 - **Over-approximations shared with every root.** With xargs running a searcher, a new root
