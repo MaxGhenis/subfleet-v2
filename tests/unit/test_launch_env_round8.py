@@ -186,6 +186,31 @@ def test_i3_a_lane_held_after_the_scope_opened_is_withheld(tmp_path, monkeypatch
     assert kept_names(after, (HOOK, CONTROL)) == [CONTROL], "the lane held later is covered"
 
 
+def test_a_scope_repeating_an_outer_scopes_source_reads_it_once_per_build():
+    """Review r1 of #262: a scope whose source an enclosing scope already carries
+    (the gate's inside `Daemon.dispatch`, `dispatch` inside `_run_worker`) adds no
+    second read of it; a different source is still read, and both are withheld."""
+    reads = []
+
+    def daemon_set():
+        reads.append("daemon")
+        return {HOOK}
+
+    def other_set():
+        reads.append("other")
+        return {CONTROL}
+
+    parent = {"PATH": "/usr/bin:/bin", HOOK: "SECRET7-eight", CONTROL: "SECRET7-seven"}
+    with launch_env.helper_policy({}, withheld=daemon_set), launch_env.helper_policy({}, withheld=daemon_set):
+        assert kept_names(launch_env.build_environment(environ=parent), (HOOK, CONTROL)) == [CONTROL]
+        assert reads == ["daemon"], "the repeated source was read twice"
+        with launch_env.helper_policy({}, withheld=other_set):
+            assert kept_names(launch_env.build_environment(environ=parent), (HOOK, CONTROL)) == []
+        assert kept_names(launch_env.build_environment(environ=parent), (HOOK, CONTROL)) == [CONTROL]
+    assert reads == ["daemon", "daemon", "other", "daemon"]
+    assert launch_env._HELPER_WITHHELD.get() == ()
+
+
 class Boom(Exception):
     pass
 
@@ -355,6 +380,21 @@ def test_timers_withhold_the_stored_lanes_without_the_daemons_set(tmp_path, monk
         timer = Timers.__new__(Timers)
         timer.policy, timer.store, timer.references = {}, store, None
         assert kept_names(timer._run_worker(launch_env.build_environment), (HOOK, CONTROL)) == [CONTROL]
+
+
+def test_the_gate_under_daemon_dispatch_reads_the_lanes_once_per_build(daemon, monkeypatch):
+    """Review r1 of #262: `gate.service.dispatch` inside `Daemon.dispatch` opens its
+    scope with the same source, `Daemon._helper_withheld`, so a helper build there
+    reads the stored lanes once, not once per scope."""
+    monkeypatch.setattr(os, "environ", dict(PARENT))
+    reads, list_lanes = [], daemon.store.list_lanes
+    monkeypatch.setattr(daemon.store, "list_lanes", lambda: reads.append("list_lanes") or list_lanes())
+    built = []
+    monkeypatch.setattr(gate_service, "_dispatch",
+                        lambda service, op, args: built.append(launch_env.build_environment()) or {})
+    daemon.dispatch("gate.poll", {"gate_id": "fake"})
+    assert kept_names(built[0], (HOOK, CONTROL)) == [CONTROL]
+    assert reads == ["list_lanes"]
 
 
 # --- one test per helper family -------------------------------------------------------------------
