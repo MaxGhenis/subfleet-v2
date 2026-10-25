@@ -153,7 +153,8 @@ def test_private_overlay_bytes_remain_the_original_reviewed_pair():
     its r2 (2026-10-25) read $SUBFLEET_ROOT and $SUBFLEET_HOME as spellings of
     ~/.subfleet; TRUST pins those bytes. That TRUST is the installed one of
     2026-09-29 (b3193b97…, the codex-cli 0.159.0 pin; with hook a60d1c51… it is
-    the rollback) with the new hook hash and two appended provenance sentences.
+    the rollback) with the new hook hash and two dated provenance additions
+    appended (D-LANE-SCOPE1's three sentences and r2's one).
     The 2026-09-05 TRUST (0b9d688e…) pins codex-cli 0.153.3 and must never be
     staged. Any other edit fails here; tests/unit/test_guard_subfleet_root.py
     rebuilds the original from this one."""
