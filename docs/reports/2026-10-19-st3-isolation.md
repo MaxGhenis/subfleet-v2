@@ -2132,3 +2132,24 @@ mine. A `pgrep` for this job's scratch folder found nothing.
 **Tests:** `test_a_tilde_home_is_judged_literally_against_the_working_directory` covers four spellings from the account's home (`~/..`, `~st3-no-such-user-r4/..`, `~/../.codex`, `~st3-no-such-user-r4/../.claude/x`).
 - Every case fails with the previous `_home_kind` on Python 3.12 and 3.14 (4 failed), and passes with the fix.
 - The production readings are unchanged; the judge runs only under pytest.
+
+## Review r5's P3s: the unreadable working directory (hub, 2026-10-24, D-ST3-P3)
+
+**The findings:** review r5 approved #242 with two P3s on the branch r4's fix added, where a HOME spelled with a leading `~` meets a working directory that cannot be read.
+- **P3-1:** no test covered the branch. r5's mutant M2 (`return None`) survived; it sent `production_state_root` back to FileNotFoundError and `protected_provider_homes` back to returning `~/x/.claude` and `~/x/.codex`.
+- **P3-2:** the refusal named the wrong cause ("HOME names one of the account's live stores"), and C-20.6's body did not state the rule; only its change log did.
+
+**The fix:**
+- `_home_kind` returns a third kind, "cwd", for this case. `personal_home` still counts it, so `production_state_root` refuses as before.
+- `protected_provider_homes` refuses "cwd" with a message that names the unreadable working directory.
+- A pwd reading in a live root (`~/.codex`) is still "store", with the store message.
+- C-20.6's body now states the rule. The docstring no longer says `os.path.expanduser` reaches pwd's reading for `~/` (r5's observation): for `~/` it substitutes HOME itself, so judging pwd's reading only refuses more.
+
+**Tests:** `test_a_tilde_home_under_an_unreadable_working_directory_is_refused` deletes its working directory and judges three HOMEs: `~/st3-not-a-store`, `~st3-no-such-user-r5/st3-not-a-store` and `~/.codex`. Each must be refused by both guards, with the right cause. Three mutants in `test_live_store_guard_st3_mutations.py` each fail it, and each control passes:
+- `unreadable-cwd-allowed` (r5's M2);
+- `unreadable-cwd-as-store` (the release behaviour: the store message);
+- `unreadable-cwd-home-allowed` (the new branch in `protected_provider_homes` removed).
+
+**Runs (hub, Python 3.14.7, serially under the suite lock):**
+- `test_live_store_guard_st3.py` with its mutations: 335 passed.
+- The other live-store guard files, `test_daemon_log_sites.py`, `test_desktop_ledger.py` and `test_invariants_index.py`: 626 passed.
