@@ -545,3 +545,29 @@ def test_invalid_admission_settings_name_the_key(tmp_path, policy_data, section,
     with pytest.raises(PolicyError) as caught:
         load_policy(write_policy(tmp_path, policy_data))
     assert caught.value.key == error_key
+
+
+@pytest.mark.parametrize('requires,key', [
+    ([], 'requires'), ({'missing': ['shell']}, 'requires.missing'),
+    ({'review': 'shell'}, 'requires.review'),
+    ({'review': ['network']}, 'requires.review[0]'),
+    ({'review': [True]}, 'requires.review[0]'),
+    ({'review': ['shell', 'shell']}, 'requires.review[1]'),
+])
+def test_c11_1_requires_refuses_unknown_or_malformed_requirements(tmp_path, policy_data, requires, key):
+    policy_data['requires'] = requires
+    with pytest.raises(PolicyError) as refused:
+        load_policy(write_policy(tmp_path, policy_data))
+    assert refused.value.key == key
+
+
+def test_c11_1_requires_optional_and_reviews_do_not_require_shell_by_default(tmp_path, policy_data):
+    assert load_policy(DEFAULT_POLICY_PATH).get('requires', {}) == {}
+    policy_data.pop('requires', None)
+    assert 'requires' not in load_policy(write_policy(tmp_path, policy_data))
+
+
+def test_d_sh1_default_reviews_write_only_in_job_worktrees_and_shell_is_opt_in():
+    policy = load_policy(DEFAULT_POLICY_PATH)
+    assert policy['permissions']['review'] == 'worktree-write'
+    assert policy.get('requires', {}) == {}

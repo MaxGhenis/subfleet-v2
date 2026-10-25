@@ -1,0 +1,492 @@
+"""D-SH1 round 2: reviews can test in their worktree, but cannot publish."""
+import dataclasses
+import json
+from pathlib import Path
+import subprocess
+from types import SimpleNamespace
+
+import pytest
+
+from subfleet import cli, protocol
+from subfleet.adapters.base import AdapterError
+from subfleet.contracts import Sandbox
+from subfleet.daemon import after, utcnow
+from tests.fake.test_review_needs_shell import shell_state, review  # noqa: F401
+from tests.fake.test_state_contract import launched, receipt_fixture, state_daemon  # noqa: F401
+from tests.fake.test_workspace_contract import repository
+from tests.fake.test_daemon_launch import launch_state  # noqa: F401
+from tests.fake_adapter import FakeAdapter
+
+#: Captured before any fixture records Popen: the self-test's own process runs for real.
+REAL_POPEN = subprocess.Popen
+
+
+@pytest.mark.parametrize('model', ['sol61', 'opus'])
+def test_policy_review_own_worktree_can_run_pytest(shell_state, model, tmp_path, monkeypatch):
+    service, harness = shell_state
+    service.policy['permissions']['review'] = 'worktree-write'
+    service.policy.pop('requires', None)
+    repository(service, harness)
+    job = service.dispatch(
+        'submit', harness.submit_args(task='review', tier='hard', pinned_model=model,
+                                     sandbox=protocol.POLICY_SANDBOX))['job_id']
+    assert service.store.get_job(job)['sandbox'] == 'workspace-write'
+    assert service.store.get_job(job)['needs_shell'] is False
+    service._admit()
+    attempt, = service.store.list_attempts(job)
+    launched(service, attempt)
+    attempt, = service.store.list_attempts(job)
+    assert attempt['capability'] == 'writable'
+    worktree = Path(service.store.get_job(job)['worktree'])
+    (worktree / f'test_writes_{model}.py').write_text('def test_temp(tmp_path):\n    (tmp_path / "ok").write_text("ok")\n')
+    from tests.unit.test_review_publish_guard import protected
+    provider = service.policy['models'][model]['provider']
+    launch = protected(tmp_path, provider=provider, workdir=worktree)
+    assert launch.notes['capability'] == 'writable' and launch.notes['publish_denied']
+    for name, value in launch.env_add.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.chdir(worktree)
+    # The outer pytest owns the sole shared-lock hold: exercise pytest in-process.
+    assert pytest.main(['-q', '-p', 'no:cacheprovider', '--import-mode=importlib', str(worktree / f'test_writes_{model}.py')]) == 0
+
+
+@pytest.mark.parametrize('mode', ['non-git', 'in-place', 'isolated'])
+@pytest.mark.parametrize('model,capability,words', [
+    ('sol61', 'commands', 'temp files included, so pytest could not run'),
+    ('opus', 'none', 'could not run any command'),
+])
+def test_read_only_policy_reviews_carry_capability_without_editing_output(shell_state, mode, model, capability, words):
+    service, harness = shell_state
+    service.policy['permissions']['review'] = 'worktree-write'
+    service.policy.pop('requires', None)
+    changes = {}
+    if mode != 'non-git':
+        repo = repository(service, harness)
+        if mode == 'in-place':
+            changes['in_place'] = True
+        else:
+            changes.update(isolated_review=True, review_root=str(repo))
+    output = harness.root / 'result.md'
+    job = service.dispatch('submit', harness.submit_args(task='review', tier='hard', pinned_model=model,
+        sandbox=protocol.POLICY_SANDBOX, out_path=str(output), **changes))['job_id']
+    assert service.store.get_job(job)['sandbox'] == 'read-only'
+    service._admit()
+    attempt, = service.store.list_attempts(job)
+    launched(service, attempt)
+    attempt, = service.store.list_attempts(job)
+    assert attempt['capability'] == capability
+    adir = service.root / 'jobs' / job / 'a1'
+    adir.mkdir()
+    service._finalize(receipt_fixture(service, attempt, adir))
+    service._export(job)
+    shown = service.dispatch('show', {'job_id': job})
+    assert shown['attempts'][0]['capability'] == capability
+    assert shown['job']['needs_shell'] is False
+    assert shown['attempts'][0]['publish_denied'] is True
+    waited = service.dispatch('wait', {'job_ids': [job], 'deadline_s': 0})
+    assert waited['jobs'][0]['attempt']['publish_denied'] is True
+    notice, = [n for n in service.store.list_notices() if n['job_id'] == job]
+    header, *_, capability_line = notice['text'].splitlines()
+    assert header == (f"{job}: succeeded; rc=0; deliverable={adir / 'deliverable.md'}; "
+                      f"out={output}")
+    assert capability_line.startswith(f"ran read-only on {attempt['lane_id']} ({model})")
+    assert words in capability_line
+    assert capability_line.endswith('; publish: denied')
+    assert words in cli._wait_summary(shown)
+    assert words in cli._format_job(shown) and 'publish: denied' in cli._format_job(shown)
+    assert output.read_bytes() == (adir / 'deliverable.md').read_bytes() == b'fixture result\n'
+
+
+def test_explicit_workspace_write_outside_git_still_refused(state_daemon):
+    service, harness = state_daemon
+    with pytest.raises(AdapterError) as refused:
+        service.dispatch('submit', harness.submit_args(sandbox='workspace-write'))
+    assert '-s read-only' in refused.value.fix
+
+
+def test_resolved_sandbox_table():
+    """Every one of the 192 combinations (#221 review r1b, P3-5): sampling 80 let a
+    `resolve_sandbox` that ignores `in_place` pass."""
+    import itertools
+    from subfleet.policy import resolve_sandbox
+    policy = {'permissions': {'review': 'worktree-write', 'build': 'workspace-write', '*': 'read-only'}}
+    combinations = list(itertools.product(['review', 'build', 'research', None],
+                                          ['policy', 'read-only', 'workspace-write'],
+                                          [False, True], [False, True], [False, True], [False, True]))
+    assert len(combinations) == 192
+    for task, source, in_place, git, isolated, gate in combinations:
+        if source != 'policy':
+            expected = source
+        elif isolated or gate:
+            expected = 'read-only'
+        elif task == 'review':
+            expected = 'workspace-write' if git and not in_place else 'read-only'
+        else:
+            expected = 'workspace-write' if task == 'build' else 'read-only'
+        assert resolve_sandbox(policy, source, task=task, in_place=in_place, git=git,
+                               isolated=isolated, gate=gate) == expected, (task, source, in_place, git, isolated, gate)
+
+
+def test_status_counts_distinct_restricted_runs_last_24h(shell_state):
+    service, harness = shell_state
+    service.policy.pop('requires', None)
+    for model in ['sol61', 'opus']:
+        service.dispatch('submit', harness.submit_args(task='review', tier='hard', pinned_model=model))
+    service._admit()
+    jobs = service.store.list_jobs()
+    from subfleet.offline import Offline
+    # P3-2: reserved attempts have not launched, so they claim no capability and count for nothing.
+    assert service.dispatch('daemon.status', {})['restricted_runs_24h'] == []
+    assert Offline(service.root).status()['restricted_runs_24h'] == []
+    for job in jobs:
+        launched(service, service.store.list_attempts(job['job_id'])[0])
+    first = service.store.list_attempts(jobs[0]['job_id'])[0]
+    service.store.add_attempt(attempt_id=jobs[0]['job_id'] + '/a2', job_id=jobs[0]['job_id'], seq=2,
+        lane_id=first['lane_id'], model_requested=first['model_requested'], capability='commands')
+    assert set(Offline(service.root).status()['restricted_runs_24h']) == {j['job_id'] for j in jobs}
+    view = service.dispatch('daemon.status', {})
+    assert set(view['restricted_runs_24h']) == {j['job_id'] for j in jobs}
+    assert all(j['needs_shell'] is False for j in view['jobs'])
+    assert all(j['needs_shell'] is False for j in service.dispatch('list', {})['jobs'])
+    text = cli.format_status(view)
+    assert 'last 24h: 2 runs with no shell or no writes' in text
+    assert all(j['job_id'] in text for j in jobs)
+    with service.store.transaction('fixture.old') as tx:
+        tx.execute('UPDATE attempts SET reserved_at=?', (after(-90000),))
+    assert service.dispatch('daemon.status', {})['restricted_runs_24h'] == []
+
+
+@pytest.mark.parametrize('task,kind', [('review', 'dispatch'), ('build', 'gate-review')])
+def test_reviews_refuse_explicit_host_push_before_any_remote_validation(state_daemon, task, kind):
+    service, harness = state_daemon
+    extra = {'isolated_review': True, 'review_root': str(harness.workdir), 'round_lease': 'gate:fixture:round:1'} if kind == 'gate-review' else {}
+    with pytest.raises(AdapterError, match='reviews cannot publish'):
+        service.dispatch('submit', harness.submit_args(task=task, kind=kind, push_branch='proof', **extra))
+
+
+@pytest.mark.parametrize('task,kind', [('review', 'dispatch'), ('build', 'gate-review')])
+def test_legacy_review_host_publish_is_denied_before_intake(state_daemon, task, kind):
+    from subfleet.host_push import PushError
+    service, harness = state_daemon
+    with pytest.raises(PushError, match='publish: denied'):
+        service._publish_bundle({'task': task, 'kind': kind})
+
+
+# #221 review r1b, P2 (D-SH1 round 6): a policy review in its own worktree used to
+# review HEAD, not what its caller had in front of them. The review's probe: in a
+# committed repository, edit tracked.txt and add an untracked new_module.py.
+def dirty_checkout(service, harness):
+    from tests.fake.test_workspace_contract import git
+    repo = repository(service, harness)
+    (repo / 'tracked.txt').write_text('edited by the caller\n')
+    (repo / 'new_module.py').write_text('VALUE = 1\n')
+    (repo / '.git' / 'info' / 'exclude').write_text('ignored.log\n')
+    (repo / 'ignored.log').write_text('never copied\n')
+    status = git(repo, 'status', '--porcelain')
+    return repo, status
+
+
+def policy_review(service, harness, **changes):
+    service.policy['permissions']['review'] = 'worktree-write'
+    service.policy.pop('requires', None)
+    return service.dispatch('submit', harness.submit_args(task='review', tier='hard', pinned_model='sol61',
+                                                          sandbox=protocol.POLICY_SANDBOX, **changes))['job_id']
+
+
+def finished_notice(service, job):
+    attempt, = service.store.list_attempts(job)
+    adir = service.root / 'jobs' / job / 'a1'
+    adir.mkdir(exist_ok=True)
+    service._finalize(receipt_fixture(service, attempt, adir))
+    notice, = [n for n in service.store.list_notices() if n['job_id'] == job]
+    return notice['text'].splitlines()
+
+
+def test_policy_review_worktree_sees_the_callers_uncommitted_and_untracked_files(shell_state):
+    from tests.fake.test_workspace_contract import git
+    service, harness = shell_state
+    repo, status = dirty_checkout(service, harness)
+    job = policy_review(service, harness)
+    assert service.store.get_job(job)['sandbox'] == 'workspace-write'
+    service._admit()
+    worktree = Path(service.store.get_job(job)['worktree'])
+    assert worktree != repo and worktree.parent == service.root / 'worktrees'
+    assert (worktree / 'tracked.txt').read_text() == 'edited by the caller\n'
+    assert (worktree / 'new_module.py').read_text() == 'VALUE = 1\n'
+    assert not (worktree / 'ignored.log').exists()
+    # The caller's checkout is untouched, index included.
+    assert git(repo, 'status', '--porcelain') == status
+    record = {'files': 2, 'tracked': 1, 'untracked': 1}
+    shown = service.dispatch('show', {'job_id': job})
+    assert {key: shown['uncommitted'][key] for key in record} == record
+    from subfleet.offline import Offline
+    assert Offline(service.root).show_job(job)['uncommitted'] == shown['uncommitted']
+    words = "the worktree included the caller's uncommitted changes as of submit: 2 files (1 tracked, 1 untracked)"
+    assert words in cli._format_job(shown)
+    prepared = (service.root / 'jobs' / job / 'prompt.prepared.md').read_text()
+    assert "plus the caller's uncommitted changes and untracked files as of submit (2 files)" in prepared
+    assert 'none of the caller\'s uncommitted' not in prepared
+    lines = finished_notice(service, job)
+    assert lines[-2:] == [words, 'publish: denied']
+
+
+def test_a_worktree_cut_without_its_copy_is_cut_again(shell_state):
+    """#221 review r2, P3-1: the copy was applied only when `worktrees/<id>` did
+    not exist yet. The review cut the worktree with `git worktree add --detach`,
+    as a daemon stopped between the cut and the end of `uncommitted.apply`
+    leaves it, then ran `_admit()`, and got `baseline` and no new_module.py
+    while the record said 2 files were included. Now the copy's marker is
+    missing, so the worktree is cut again and the copy applied."""
+    from subfleet import uncommitted
+    from tests.fake.test_workspace_contract import git
+    service, harness = shell_state
+    repo, status = dirty_checkout(service, harness)
+    job = policy_review(service, harness)
+    worktree = service.root / 'worktrees' / job
+    git(repo, 'worktree', 'add', '--detach', str(worktree), service.store.get_job(job)['workdir_head'])
+    assert (worktree / 'tracked.txt').read_text() == 'baseline\n'
+    assert not uncommitted.applied(service.root / 'jobs' / job, worktree)
+    service._admit()
+    assert Path(service.store.get_job(job)['worktree']) == worktree
+    assert (worktree / 'tracked.txt').read_text() == 'edited by the caller\n'
+    assert (worktree / 'new_module.py').read_text() == 'VALUE = 1\n'
+    assert uncommitted.applied(service.root / 'jobs' / job, worktree)
+    assert git(repo, 'status', '--porcelain') == status
+    assert service.dispatch('show', {'job_id': job})['uncommitted']['files'] == 2
+
+
+def test_a_marked_worktree_is_reused_and_an_earlier_cuts_marker_is_not_trusted(shell_state, tmp_path):
+    """The marker names the worktree it was applied to, and `apply` clears it
+    first, so a marker left by an earlier cut never vouches for a new one."""
+    from subfleet import uncommitted
+    service, harness = shell_state
+    dirty_checkout(service, harness)
+    job = policy_review(service, harness)
+    jobdir = service.root / 'jobs' / job
+    (jobdir / uncommitted.DIRECTORY / uncommitted.APPLIED).write_text(str(tmp_path / 'elsewhere'))
+    assert not uncommitted.applied(jobdir, service.root / 'worktrees' / job)
+    service._admit()
+    worktree = Path(service.store.get_job(job)['worktree'])
+    assert uncommitted.applied(jobdir, worktree)
+    with pytest.raises(uncommitted.CopyRefused):
+        uncommitted.apply(jobdir, worktree)              # its files are there already
+    assert not uncommitted.applied(jobdir, worktree)    # cleared before the attempt, never left standing
+
+
+@pytest.mark.parametrize('cause', ['too-many-bytes', 'too-many-files', 'nested-repository'])
+def test_policy_review_falls_back_to_read_only_in_place_when_the_copy_fails(shell_state, monkeypatch, cause):
+    from subfleet import uncommitted
+    from tests.fake.test_workspace_contract import git
+    service, harness = shell_state
+    repo, _status = dirty_checkout(service, harness)
+    if cause == 'too-many-bytes':
+        monkeypatch.setattr(uncommitted, 'MAX_BYTES', 8)
+        reason = 'more than 8 bytes'
+    elif cause == 'too-many-files':
+        monkeypatch.setattr(uncommitted, 'MAX_FILES', 1)
+        reason = '2 files, more than 1'
+    else:
+        (repo / 'vendor').mkdir()
+        git(repo / 'vendor', 'init')        # an untracked nested repository
+        reason = 'untracked vendor/ is not a regular file or symbolic link'
+    job = policy_review(service, harness)
+    row = service.store.get_job(job)
+    assert row['sandbox'] == 'read-only' and not row['in_place']
+    service._admit()
+    row = service.store.get_job(job)
+    assert row['worktree'] is None and service._launch_dir(row, 'codex') == str(repo)
+    attempt, = service.store.list_attempts(job)
+    launched(service, attempt)
+    attempt, = service.store.list_attempts(job)
+    assert attempt['capability'] == 'commands'
+    shown = service.dispatch('show', {'job_id': job})
+    assert shown['uncommitted'] == {'fallback': reason}
+    words = ("ran read-only in the caller's checkout: its uncommitted changes could not be copied "
+             f"into a worktree ({reason})")
+    assert words in cli._format_job(shown)
+    assert words in finished_notice(service, job)
+
+
+@pytest.mark.parametrize('dirty', [True, False], ids=['with-copy', 'clean'])
+def test_the_workspace_note_says_where_an_ignored_file_may_be_read(shell_state, dirty):
+    """#221 review r2, P3-9: the note sent a review to the same relative path in
+    its worktree, where an ignored file the brief names (`.diag/...`) is not."""
+    service, harness = shell_state
+    if dirty:
+        dirty_checkout(service, harness)
+    else:
+        repository(service, harness)
+    job = policy_review(service, harness)
+    prepared = (service.root / 'jobs' / job / 'prompt.prepared.md').read_text()
+    top = str(harness.workdir.resolve()) if str(harness.workdir.resolve()) in prepared else str(harness.workdir)
+    assert (f"never write under {top}. An ignored file the task names (one under .diag/, say) is not in your "
+            "workspace: you may read it in the caller's checkout at the same relative path.") in prepared
+
+
+def test_explicit_workspace_write_review_keeps_todays_worktree(shell_state):
+    service, harness = shell_state
+    dirty_checkout(service, harness)
+    service.policy.pop('requires', None)
+    job = service.dispatch('submit', harness.submit_args(task='review', tier='hard', pinned_model='sol61',
+                                                         sandbox='workspace-write'))['job_id']
+    service._admit()
+    worktree = Path(service.store.get_job(job)['worktree'])
+    assert (worktree / 'tracked.txt').read_text() == 'baseline\n'
+    assert not (worktree / 'new_module.py').exists()
+    assert service.dispatch('show', {'job_id': job})['uncommitted'] is None
+    assert not (service.root / 'jobs' / job / 'uncommitted').exists()
+
+
+def test_clean_checkout_policy_review_copies_nothing(shell_state):
+    service, harness = shell_state
+    repository(service, harness)
+    job = policy_review(service, harness)
+    service._admit()
+    assert service.store.get_job(job)['worktree']
+    assert service.dispatch('show', {'job_id': job})['uncommitted'] is None
+    prepared = (service.root / 'jobs' / job / 'prompt.prepared.md').read_text()
+    assert "none of the caller's uncommitted, untracked or ignored files" in prepared
+
+
+# P3-8: a writable review was told "Commit each coherent step ... Leave a concise
+# report of changes and tests", the build preamble, which also implied that
+# pushing to a non-main branch was allowed.
+def test_writable_review_gets_a_review_preamble_and_a_build_keeps_its_own(shell_state):
+    from subfleet.daemon import REVIEW_PREAMBLE, WRITE_PREAMBLE
+    service, harness = shell_state
+    repository(service, harness)
+    review_job = policy_review(service, harness)
+    build_job = service.dispatch('submit', harness.submit_args(task='build', pinned_model='sol61',
+                                                               sandbox='workspace-write',
+                                                               caller_session=None))['job_id']
+    review_prompt = (service.root / 'jobs' / review_job / 'prompt.prepared.md').read_text()
+    build_prompt = (service.root / 'jobs' / build_job / 'prompt.prepared.md').read_text()
+    assert review_prompt.startswith(REVIEW_PREAMBLE) and 'Commit each coherent step' not in review_prompt
+    assert 'may run tests and write scratch files' in review_prompt and 'Do not commit, push or publish' in review_prompt
+    assert build_prompt.startswith(WRITE_PREAMBLE)
+
+
+
+# P3-4: for all three probe cases the daemon gave `"publish_denied": true` and
+# offline JSON gave `1`; offline `list` converted nothing at all.
+@pytest.mark.parametrize('model,sandbox,capability', [
+    ('opus', 'read-only', 'none'), ('sol61', 'read-only', 'commands'), ('sol61', 'workspace-write', 'writable')])
+def test_offline_json_matches_the_daemon_for_launch_flags(shell_state, model, sandbox, capability):
+    import json
+    from subfleet.offline import Offline
+    service, harness = shell_state
+    service.policy.pop('requires', None)
+    if sandbox == 'workspace-write':
+        repository(service, harness)
+    job = service.dispatch('submit', harness.submit_args(task='review', tier='hard', pinned_model=model,
+                                                         sandbox=sandbox))['job_id']
+    service._admit()
+    attempt, = service.store.list_attempts(job)
+    launched(service, attempt)
+    offline = Offline(service.root)
+    daemon_attempt = service.dispatch('show', {'job_id': job})['attempts'][0]
+    offline_attempt = offline.show_job(job)['attempts'][0]
+    assert daemon_attempt['capability'] == offline_attempt['capability'] == capability
+    for key in ('publish_denied', 'has_shell'):
+        assert json.dumps(offline_attempt[key]) == json.dumps(daemon_attempt[key]), key
+    assert daemon_attempt['publish_denied'] is True
+    daemon_job, = [row for row in service.dispatch('list', {})['jobs'] if row['job_id'] == job]
+    offline_job, = [row for row in offline.list_jobs() if row['job_id'] == job]
+    assert offline_job['needs_shell'] is daemon_job['needs_shell'] is False
+    assert offline.show_job(job)['needs_shell'] is False
+    for key in ('publish_denied', 'has_shell'):
+        if key in offline_job and key in daemon_job:
+            assert json.dumps(offline_job[key]) == json.dumps(daemon_job[key]), key
+
+
+# #221 review r2, P3-7: nothing checked at launch that the installed hook
+# actually denies; a hook that exits without JSON lets every call through.
+class HookedFake(FakeAdapter):
+    """The fake provider, with a writable Claude review's `--settings` publish
+    hook in its argv; `script` replaces the hook's bytes when set."""
+    script: bytes | None = None
+
+    def build_launch(self, job, attempt_id, attempt_dir, lane, credential_env, *args, **kwargs):
+        from subfleet.review_publish import hook_command, install_hook
+        launch = super().build_launch(job, attempt_id, attempt_dir, lane, credential_env, *args, **kwargs)
+        path = install_hook(Path(attempt_dir) / 'publish-bin')
+        if self.script is not None:
+            path.chmod(0o755)
+            path.write_bytes(self.script)
+        settings = {"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "command": hook_command(path),
+                                                         "timeout": 30}]}]}}
+        return dataclasses.replace(launch, argv=(*launch.argv, "--setting-sources", "user",
+                                                 "--settings", json.dumps(settings)))
+
+
+@pytest.fixture
+def hooked_launch(launch_state, monkeypatch):  # noqa: F811
+    from subfleet import daemon as module
+    from subfleet.adapters.registry import register
+    daemon, harness, _calls = launch_state
+    register("codex", HookedFake)
+    guardians = []
+
+    def record(command, **kwargs):
+        if list(command[1:3]) == ["-m", "subfleet.guardian"]:
+            guardians.append(command)
+            return SimpleNamespace(pid=987654321, poll=lambda: None)
+        return REAL_POPEN(command, **kwargs)
+
+    monkeypatch.setattr(module.subprocess, "Popen", record)
+    try:
+        yield daemon, harness, guardians
+    finally:
+        register("codex", FakeAdapter)
+        HookedFake.script = None
+
+
+def reserve_review(daemon, harness):
+    job_id = daemon.dispatch("submit", harness.submit_args(task="review"))["job_id"]
+    daemon._admit()
+    return daemon.store.list_attempts(job_id)[0]
+
+
+def test_the_installed_publish_hook_is_run_before_launch(hooked_launch):
+    daemon, harness, guardians = hooked_launch
+    a = reserve_review(daemon, harness)
+    daemon._launch(a)
+    assert len(guardians) == 1, "the hook denied, so the guardian started"
+    record = json.loads((daemon.root / "jobs" / a["job_id"] / "a1" / "launch.json").read_text())
+    [verdict] = record["notes"]["publish_hook_self_test"]
+    assert verdict["ok"] is True and verdict["cached"] is False and verdict["elapsed_s"] > 0
+    log = (daemon.root / "daemon.log").read_text()
+    assert f"publish hook self-test attempt={a['attempt_id']} ok=True cached=False" in log
+
+
+@pytest.mark.parametrize("script", [b"#!/bin/sh\ncat >/dev/null\nexit 0\n", b"#!/bin/sh\nexit 2\n",
+                                    b"#!/nonexistent/python3 -I\n"], ids=["silent", "exit-2", "missing-interpreter"])
+def test_a_publish_hook_that_does_not_deny_refuses_the_launch(hooked_launch, script):
+    daemon, harness, guardians = hooked_launch
+    HookedFake.script = script
+    a = reserve_review(daemon, harness)
+    daemon._launch(a)
+    assert guardians == [], "a hook that would let gh writes through starts no provider"
+    adir = daemon.root / "jobs" / a["job_id"] / "a1"
+    receipt = json.loads((adir / "exit.json").read_text())
+    assert receipt["rc"] == 7
+    assert receipt["spawn_error"].startswith("the review publish hook did not deny a gh write")
+    assert not (adir / "launch.json").exists()
+    assert "ok=False" in (daemon.root / "daemon.log").read_text()
+
+
+def test_a_launch_that_installs_no_publish_hook_runs_no_self_test(hooked_launch, monkeypatch):
+    """A build, and every fake-adapter launch elsewhere, installs none: nothing extra runs."""
+    from subfleet import review_publish
+    daemon, harness, guardians = hooked_launch
+    from subfleet.adapters.registry import register
+    register("codex", FakeAdapter)
+
+    def never(*args, **kwargs):
+        raise AssertionError("no hook to test")
+
+    monkeypatch.setattr(review_publish, "hook_self_test", never)
+    a = reserve_review(daemon, harness)
+    daemon._launch(a)
+    assert len(guardians) == 1
+
