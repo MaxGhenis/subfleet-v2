@@ -79,7 +79,8 @@ The [replay and validation report](docs/reports/2026-10-03-rank-earliest-reset.m
 explains the defaults and the simulation's limits.
 
 An operator closes a lane with `subfleet lanes hold <lane> --until <iso> --note
-<why>` (the note is optional: one line of at most 160 printable characters).
+<why>` (the note is optional: one line of at most 160 printable characters, and
+never a credential, which is refused rather than masked).
 `status`, `status.json`, the menu and the alerts call such a lane `held`, with
 its note, and keep `limited` for a provider's limit: a hold raises no per-lane
 alert, and the "no dispatchable lanes" alert counts held, provider-limited and
