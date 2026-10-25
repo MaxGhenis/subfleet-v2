@@ -317,3 +317,53 @@ def test_no_drawn_join_of_the_pieces_shows_what_a_reference_hides(text):
     """Invariants 1 to 3 over joined pieces (the suite's ci profile: 200 examples,
     derandomized)."""
     assert _failures([text]) == CLEAN, text
+
+
+# --- invariant 5: what the new folds read ------------------------------------------------
+
+#: Lines whose folds take this round's paths, each before an identifier ending in a
+#: credential word that `_kept_span` and `_key_past_line` would walk back: folds that
+#: start at a header's name on one line, from quoted keys, bare flags, quoted inline
+#: headers and `Bearer` (P2-B); headers whose lone flag folds onto a header line (P2-B);
+#: folds that end in a flag (P2-A); header names holding a secret (P3-B); and flags
+#: before a closing quote (P3-C).
+COUNTED = {"quoted-keys-at-header-names": "api_key='x token'=--SECRET7a1_token Cookie:x ",
+           "flags-at-header-names": "--SECRET7a1_token Cookie:x ",
+           "quoted-inline-at-header-names": "-H 'Cookie: --SECRET7a1_token 'Cookie:x ",
+           "bearer-at-header-names": "Bearer --SECRET7a1_token Cookie:x ",
+           "lone-flag-header-lines": "Cookie: --password\nCookie:x v ",
+           "folds-ending-in-a-flag": "--SECRET7a1_token\nKEY=--db3-password v\n",
+           "secret-header-names": "x SECRET7ab1Authorization: v ",
+           "flags-before-a-closing-quote": "-H 'Cookie: a=1 --password 'v' "}
+
+
+@pytest.mark.parametrize("unit", COUNTED.values(), ids=COUNTED.keys())
+def test_the_new_folds_read_each_line_once(unit, monkeypatch):
+    """Invariant 5's counts behind the cost (run b): at 4x input, `_kept_span` runs at
+    most 4x as often, once per fold where folds have lines of their own and once per line
+    where they share one (the quoted pass's union, and the flag and header rules'
+    cursors, stop later folds there), and the Python-level walk over identifiers grows
+    at most 4x, in the excerpt, whole-text and `detail_line` modes."""
+    from subfleet import refusals
+    counts = {"kept": 0, "walk": 0}
+    kept, walk = handoff._kept_span, handoff._identifier_char
+
+    def counted_kept(text, start, stop):
+        counts["kept"] += 1
+        return kept(text, start, stop)
+
+    def counted_walk(char):
+        counts["walk"] += 1
+        return walk(char)
+    monkeypatch.setattr(handoff, "_kept_span", counted_kept)
+    monkeypatch.setattr(handoff, "_identifier_char", counted_walk)
+    for mode in (handoff.scrub_secrets, lambda text: handoff.scrub_secrets(text, whole=True),
+                 lambda text: refusals.detail_line("submit", ValueError(text))):
+        found = []
+        for repeats, tail in ((50, 2000), (200, 8000)):
+            counts.update(kept=0, walk=0)
+            mode(unit * repeats + "a" * tail + "password")
+            found.append(dict(counts))
+        small, large = found
+        assert large["kept"] <= 4 * max(small["kept"], 1), found
+        assert large["walk"] <= 4.05 * small["walk"], found
