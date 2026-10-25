@@ -1143,7 +1143,9 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   C-29.12). Suspension starts before scrolling and preserves the revealed
   position even while the lazy end marker's disappearance is pending. It ends
   when the marker really appears, or when the matching completed reveal's
-  presented geometry confirms that the end remains visible. Confirmation
+  presented geometry confirms that the end remains visible. A completion can
+  arrive before its scroll is laid out, so the geometry is read on the next
+  turn, after the window's pending layout has applied the reveal. Confirmation
   releases suspension without scrolling; catch-up resumes on the next changed
   key. During ordinary following the person's own new send still glides while
   suspended; other changes follow only with the end on screen. Remote
