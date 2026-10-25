@@ -88,6 +88,13 @@ def pytest_configure(config):
     recorder = StandIn(base / "keychain-bin")
     config._subfleet_keychain_standin = recorder
     os.environ["PATH"] = recorder.search_path(os.environ.get("PATH", os.defpath))
+    # D-TMP1: a permanent baseline survives fixture undo and tests replacing
+    # os.environ wholesale. Nothing in this session allocates in user scratch.
+    from subfleet import attempt_tmp
+    config._subfleet_original_attempt_temp_root = attempt_tmp.user_temp_root
+    scratch_root = base / "attempt-temp"
+    scratch_root.mkdir(mode=0o700)
+    attempt_tmp.user_temp_root = lambda: scratch_root
 
 
 def pytest_sessionstart(session):
@@ -102,6 +109,10 @@ def pytest_sessionstart(session):
 
 
 def pytest_unconfigure(config):
+    original_temp_root = getattr(config, "_subfleet_original_attempt_temp_root", None)
+    if original_temp_root is not None:
+        from subfleet import attempt_tmp
+        attempt_tmp.user_temp_root = original_temp_root
     # Expire captured children even if store directories survive or are recreated.
     base = getattr(config, "_subfleet_safe_home_base", None)
     if base is not None:
@@ -120,6 +131,34 @@ def pytest_unconfigure(config):
         del config._subfleet_removed_credentials
     if base is not None:
         shutil.rmtree(base, ignore_errors=True)
+
+
+def waive_process_rule(patch):
+    """D-ST3's one seam, for a test that means production behaviour.
+
+    Whatever os.environ holds, this process refuses the person's stores,
+    because pytest is loaded in it (`home_paths.pytest_process`). A test of
+    production behaviour (`under_pytest()` returning False, a `test_only`
+    default) waives that rule on `patch`, for as long as `patch` holds. The
+    waiver holds only while HOME is not the account's own: production code
+    reads HOME again at every call, so the account's HOME, or none, keeps the
+    rule. Child processes that load no pytest never had it.
+    """
+    from subfleet import home_paths
+    patch.setattr(home_paths, "_process_rule_waived", lambda: True)
+
+
+@pytest.fixture
+def production_process(monkeypatch):
+    """D-ST3: this test means production behaviour (`waive_process_rule`)."""
+    waive_process_rule(monkeypatch)
+
+
+def isolated_paths(*names):
+    """This test's own isolated store paths for `names`, to keep in an
+    os.environ a test replaces with a plain dict (D-ST3). Without them a pytest
+    process refuses the fallback; release resolved the person's store there."""
+    return {name: os.environ[name] for name in names}
 
 #: The instant every fixture-driven assertion is pinned to. Matches `NOW_ISO` in
 #: `tests/fixtures/claude/make_fixtures.py`; all experiment-0 reset epochs are later,
@@ -248,6 +287,18 @@ def make_launch(attempt_dir: Path, *, session_id: str, model_id: str,
 def exit_info(rc: int, *, wall_s: float = 4.2, spawn_error: str | None = None) -> ExitInfo:
     return ExitInfo(rc=rc, signal=None, wall_s=wall_s, child_pid=4242,
                     spawn_error=spawn_error)
+
+
+@pytest.fixture(autouse=True)
+def private_attempt_temp_root(request, tmp_path_factory, monkeypatch):
+    """D-TMP1 allocations in fixture daemons stay in this test's own tree."""
+    from subfleet import attempt_tmp
+    original = request.config._subfleet_original_attempt_temp_root
+    # Keep this beside each test's own tmp_path: filesystem assertions in a
+    # test must not see an unrelated directory created by an autouse fixture.
+    root = tmp_path_factory.mktemp("attempt-user-temp")
+    monkeypatch.setattr(attempt_tmp, "user_temp_root", lambda: root)
+    return original
 
 
 @pytest.fixture(autouse=True)

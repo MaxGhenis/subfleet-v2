@@ -67,9 +67,8 @@ def _review_r5_shapes() -> dict:
     and the three characters `_REMINDER_FOLDS` reads, on the first line), alone and with
     plain lines between them."""
     from tests.unit import test_daemon_log_cut_windows as windows
-    wide = "\U0001F600 r> İ ı ſ\n"
     return {"backslash runs (review r5)": windows.REVIEW_R5_SHAPES["backslash-runs"],
-            "margin-only lines `  | \\n`, four-byte text": lambda size: wide + "  | \n" * ((size - len(wide)) // 5),
+            "margin-only lines `  | \\n`, four-byte text": windows.REVIEW_R5_SHAPES["four-byte-margin-lines"],
             "margin-only lines `  | \\n` among plain lines": lambda size: ("  | \n" * 8 + "plain words only\n") * (size // 57)}
 
 

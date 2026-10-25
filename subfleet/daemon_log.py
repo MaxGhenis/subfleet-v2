@@ -460,13 +460,18 @@ def _reminders_resolved(text: str) -> str | None:
     private key's or a data URI's first line). Then the whole-text scrub of what is left is,
     pass for pass, that of `text`. The same holds of the text read without a group's
     margins, as the block form also reads it, when it holds one: its reminders are the same,
-    and taking them out leaves the margin-free reading of what is left.
+    and taking them out leaves the margin-free reading of what is left, but for the line
+    breaks that reminders ending the file leave before them, which the block form does not
+    read and no rule but a data URI's body counts as hiding more (`_alike`, review r6 of
+    #233, P3-A; the header rule masks a trailing `\\r` itself, which reveals nothing,
+    review r1 of #251, P3-1).
 
-    None (the marker rule: the cut keeps only its marker) where either does not hold, or
-    where taking reminders out makes a tag where none was. Its cost, besides finding the
-    tags in C scans: with orphans only, a marked copy; with reminders to take out, two
-    passes of the quoted-value rule over the text (four, with a group's margins), and
-    copies."""
+    None (the marker rule: the cut keeps only its marker) where either does not hold, where
+    those line breaks bring a data URI body that ends there to the 32 characters its rule
+    needs, or where taking reminders out makes a tag where none was. Its cost, besides
+    finding the tags in C scans: with orphans only, a marked copy; with reminders to take
+    out, two passes of the quoted-value rule over the text (four, with a group's margins),
+    and copies."""
     tags = reminder_tags(text)
     if not tags:
         return text
@@ -483,7 +488,7 @@ def _reminders_resolved(text: str) -> str | None:
         if len(bare_tags) != len(tags):
             return None
         bare_resolved = _taken_out(bare, bare_tags)
-        if bare_resolved is None or bare_resolved[1] != pairs or bare_resolved[0] != _margin_free(kept):
+        if bare_resolved is None or bare_resolved[1] != pairs or not _alike(bare_resolved[0], _margin_free(kept)):
             return None
     kept_tags = reminder_tags(kept)
     if len(kept_tags) != len(tags) - sum(closing - opening + 1 for opening, closing in pairs):
@@ -495,6 +500,43 @@ def _margin_free(text: str) -> str:
     """`text` read without a group's margins, as `_group_block` reads it."""
     return "\n".join(line[len(match.group()):] if (match := _GROUP_MARGIN.match(line)) else line
                      for line in text.rstrip("\r\n").split("\n"))
+
+
+#: The fewest body characters `handoff._DATA_URI_RE` takes for a data URI's body.
+_BODY_MIN = 32
+#: A data URI's body that runs to a text's end, as `_DATA_URI_RE` reads one (the same class
+#: and flags): its `;base64,`, then body characters, line breaks among them.
+_BODY_AT_END = re.compile(r"(?i);base64,[A-Za-z0-9+/=\s]*\Z")
+#: How far from a text's end `_BODY_AT_END` is looked for: `;base64,` and the most body
+#: characters that are still short of `_BODY_MIN`.
+_BODY_REACH = len(";base64,") + _BODY_MIN - 1
+
+
+def _alike(left: str, kept: str) -> bool:
+    """Whether `left`, a group's text read without its margins with its reminders taken
+    out, scrubs as `kept`, the margin-free reading of what is left (`_margin_free`), the
+    text the block form reads (review r6 of #233, P3-A). `_margin_free` strips a text's
+    trailing line breaks, as `_group_block` does, so where reminders end the file, `left`
+    keeps the line break before them and `kept` does not. One scrub rule reads such a
+    break to hide more: `_DATA_URI_RE` counts it among the 32 characters a body needs.
+    (`_HEADER_RE` masks a trailing `\\r` as a header's value, but that mask covers only the
+    `\\r`, and the CLI reads with universal newlines; review r1 of #251, P3-1.) So the two are
+    alike when equal, or when equal but for trailing line breaks and no data URI body
+    ends there that `left`'s breaks bring to 32 characters and `kept`'s leave short (a
+    `;base64,` within `_BODY_REACH` characters of the end, body characters after it; its
+    prefix is not read, so a `;base64,` with none counts too). With the breaks stripped
+    alone, a body of 31 characters before a reminder that ends the file was hidden by the
+    whole-text scrub and shown by the tail."""
+    if left == kept:
+        return True
+    end = kept.rstrip("\r\n")
+    if left.rstrip("\r\n") != end:
+        return False
+    body = _BODY_AT_END.search(end, max(0, len(end) - _BODY_REACH))
+    if body is None:
+        return True
+    run = len(end) - body.start() - len(";base64,")
+    return not run + len(kept) - len(end) < _BODY_MIN <= run + len(left) - len(end)
 
 
 def _taken_out(text: str, tags: list[tuple[int, int, bool]]) -> tuple[str, list[tuple[int, int]]] | None:
