@@ -123,9 +123,9 @@ def test_trailing_stream_waits_for_late_reveal_consumption(streaming_reveals):
     diagnostic = json.dumps(run, sort_keys=True)
     assert_stream_retains_position(run, events=17, pages=17, at_least=True)
     assert run["consumption_pause"] == 3 and run["consumed_at"] > 2.5, diagnostic
-    # Restate the old prefix/one-reserved-tail check for an ongoing stream:
-    # arrivals precede consumption, and at least three cadence ticks follow it.
-    assert run["arrivals_at"][0] < run["consumed_at"], diagnostic
+    # Preserve the original 16-event independent prefix before consumption;
+    # the ongoing stream additionally supplies at least three later ticks.
+    assert run["arrivals_at"][15] < run["consumed_at"], diagnostic
     assert sum(at > run["consumed_at"] for at in run["arrivals_at"]) >= 3, diagnostic
     first, second = run["notices_at"]
     assert run["arrivals_at"][0] < first < second <= run["consumed_at"] < run["arrivals_at"][-1], diagnostic
