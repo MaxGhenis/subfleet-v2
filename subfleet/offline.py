@@ -23,6 +23,7 @@ from .alerts import LATCH_QUERY, active_alerts, load_latches
 from .client import same_process
 from .contracts import READING_TTL_S, Exit, JobState
 from .quota_projection import weekly_projections
+from .status_json import closure_row
 from .store import SCHEMA_VERSION as KNOWN_SCHEMA_VERSION
 from .store import WEEKLY_HISTORY_SQL, cancel_info, notice_rows, weekly_history_params
 
@@ -345,7 +346,8 @@ class Offline:
                                                     x.reading_id DESC
                                            LIMIT 1)
                     ORDER BY r.lane_id, r.window""")] if "readings" in tables else []
-            closures = [dict(row) for row in conn.execute(
+            # D-STATUS-SRC1: with `kind` and `note`, as `daemon.status` shows them.
+            closures = [closure_row(dict(row)) for row in conn.execute(
                 "SELECT * FROM closures WHERE released_at IS NULL"
                 " ORDER BY lane_id, until_at")] if "closures" in tables else []
             weekly_samples = [dict(row) for row in conn.execute(

@@ -364,6 +364,43 @@ class Closure:  # C-9.6
     source_event: str | None
 
 
+#: C-9.6 (D-STATUS-SRC1): an operator hold's `source_event` is `operator`, or
+#: `operator: <note>` when `lanes hold --note` gave one. The note rides in the
+#: field every closure already has, so the store's schema is unchanged; nothing
+#: compares a `source_event` with `operator`.
+HOLD_SOURCE = "operator"
+HOLD_NOTE_MAX = 160
+HOLD_NOTE_RULE = f"--note must be one line of 1 to {HOLD_NOTE_MAX} printable characters"
+
+
+def hold_note(value: Any) -> str | None:
+    """`lanes hold --note`'s text as the hold records it; None when no note was given.
+
+    The text is stripped of the whitespace around it and must then be one line
+    of printable characters (`str.isprintable`: no newline, tab, control or
+    separator character other than the space), from 1 to `HOLD_NOTE_MAX` of
+    them. Anything else raises ValueError, and the caller writes nothing."""
+    if value is None:
+        return None
+    note = value.strip() if isinstance(value, str) else ""
+    if not note or len(note) > HOLD_NOTE_MAX or not note.isprintable():
+        raise ValueError(HOLD_NOTE_RULE)
+    return note
+
+
+def hold_source(note: str | None) -> str:
+    """The `source_event` of an operator hold carrying `note` (C-9.6)."""
+    return HOLD_SOURCE if note is None else f"{HOLD_SOURCE}: {note}"
+
+
+def hold_note_of(source_event: Any) -> str | None:
+    """The note an operator hold's `source_event` carries, or None (C-9.6)."""
+    prefix = f"{HOLD_SOURCE}: "
+    if isinstance(source_event, str) and source_event.startswith(prefix):
+        return source_event[len(prefix):] or None
+    return None
+
+
 #: C-17.1, C-26.12: the kinds the job ledger holds (`jobs.kind`), as the code
 #: submits them: `dispatch` (`run`), `resume`, `revive` (`sessions revive`),
 #: `gate-review` (`gate`), `handoff` (`handoff`), and `turn`, which only the

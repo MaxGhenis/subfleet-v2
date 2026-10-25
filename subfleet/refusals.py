@@ -18,7 +18,7 @@ import string
 from typing import Any
 
 from . import ids
-from .contracts import JOB_ID_SLUG_MAX
+from .contracts import HOLD_NOTE_RULE, JOB_ID_SLUG_MAX
 from .sessions.registry import CONVERSATION_FIX
 
 # Checkout checks select these fixed diagnostics and repairs at their raise
@@ -275,6 +275,7 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     # Lanes: holds, releases and transfers (C-9.6, C-10.4).
     "unknown-lane": ("lanes {action}: unknown lane {lane_id}", "subfleet lanes list"),
     "hold-until": ("lanes hold: --until must be an ISO 8601 instant", None),
+    "hold-note": (f"lanes hold: {HOLD_NOTE_RULE}", None),
     "release-limits-note": ("lanes release --limits: --note is required", None),
     "release-limits-none": ("lanes release --limits: no open provider-limit or credits closures", None),
     "release-limits-reported": ("lanes release --limits: reported clock; provider clocks cannot be released by hand",

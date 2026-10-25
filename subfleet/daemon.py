@@ -59,8 +59,9 @@ from .contracts import (
     OWNED_CENSUS_INTERVAL_S, PROBE_RETRY_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
     WAIT_POLL_MAX_S, WAIT_RECHECK_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
     AttestationResult, ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
-    Reading, ReadingLabel, Sandbox, attempt_dir,
+    Reading, ReadingLabel, Sandbox, attempt_dir, HOLD_NOTE_RULE, hold_note, hold_source,
 )
+from .status_json import closure_row
 from .credentials import (env_references, ignored_hooks, reference_repair, resolve_credential, startup_lanes,
                           withheld_references)
 from .provider_env import ProviderEnvironment
@@ -1307,7 +1308,13 @@ class Daemon:
         timer reads it while the hold is in force (C-18.1); an attempt already
         running on it can still report a limit. The hold keeps a row of its own
         (`Store.put_closure`): no limit, reset or reset credit ends it before its
-        `until`, and its release leaves any limit on the lane in force."""
+        `until`, and its release leaves any limit on the lane in force.
+
+        D-STATUS-SRC1: `--note` gives the operator's reason. It is stored in the
+        closure's `source_event` (`operator: <note>`; `operator` with none) and in
+        the `lane.held` event, and is refused, before anything is written, unless
+        it is one line of at most 160 printable characters (`hold_note`)."""
+        note = None
         if not a.lane_id or not self.store.get_lane(a.lane_id):
             raise protocol.ProtocolError(f"lanes {a.action}: unknown lane {a.lane_id!r}",
                                          Exit.INVALID_INPUT, "subfleet lanes list", reason="unknown-lane",
@@ -1321,10 +1328,16 @@ class Daemon:
                                              Exit.INVALID_INPUT, reason="hold-until") from None
             if instant.tzinfo is None:
                 instant = instant.replace(tzinfo=timezone.utc)
+            try:
+                note = hold_note(a.note)
+            except ValueError:
+                raise protocol.ProtocolError(f"lanes hold: {HOLD_NOTE_RULE}", Exit.INVALID_INPUT,
+                                             reason="hold-note") from None
             until_utc = instant.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            with self.store.transaction("lane.held", lane_id=a.lane_id, data={"until": until_utc}):
+            data = {"until": until_utc} if note is None else {"until": until_utc, "note": note}
+            with self.store.transaction("lane.held", lane_id=a.lane_id, data=data):
                 self.store.add_closure(Closure(a.lane_id, "account", until_utc, ClosureReason.OPERATOR_HOLD,
-                                               ClockSource.REPORTED, "operator"))
+                                               ClockSource.REPORTED, hold_source(note)))
         else:
             with self.store.transaction("lane.released", lane_id=a.lane_id) as tx:
                 tx.execute("UPDATE closures SET released_at=? WHERE lane_id=? AND reason='operator-hold' "
@@ -1333,7 +1346,9 @@ class Daemon:
         view = self._capacity_view(self._desktop_identity())
         return {"held": a.lane_id if a.action == "hold" else None,
                 "released": a.lane_id if a.action == "release" else None,
-                "lanes": view["lanes"], "closures": view["closures"]}
+                # D-STATUS-SRC1: the note as recorded, so a CLI can tell it was.
+                **({"note": note} if a.action == "hold" else {}),
+                "lanes": view["lanes"], "closures": [closure_row(row) for row in view["closures"]]}
 
     def _release_lane_limits(self, a: protocol.LanesArgs) -> dict:
         """C-9.6: lift guessed clocks only, recording the operator's grounds."""
@@ -3538,6 +3553,10 @@ class Daemon:
             return self.sessions(protocol.coerce_args(protocol.SessionsArgs, args))
         if op == "daemon.status":
             view = self._capacity_view(self._desktop_identity())
+            # D-STATUS-SRC1: each closure says what it is (`kind`) and, for a hold, why (`note`).
+            view["closures"] = [closure_row(row) for row in view["closures"]]
+            for lane in view["lanes"]:
+                lane["closures"] = [closure_row(row) for row in lane.get("closures", ())]
             view["disk"] = self._disk_status()
             if ramp_settings(self.policy)["enabled"] and self._ramp.snapshot["enabled"]:
                 view["ramp"] = self._ramp.status(utcnow())
