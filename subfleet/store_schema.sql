@@ -1,4 +1,4 @@
--- subfleet v2 store schema, version 7 (host push authorization and audit).
+-- subfleet v2 store schema, version 9 (three launch capabilities and review publish denial).
 -- See docs/acceptance-contract.md section 3.
 -- Applied by subfleet/store.py with journal_mode=WAL, synchronous=FULL, foreign_keys=ON.
 -- Version 2 (C-3.1, additive and numbered) adds identity, label, and
@@ -92,6 +92,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   worktree TEXT,
   prompt_path TEXT NOT NULL,
   out_path TEXT,
+  needs_shell INTEGER NOT NULL DEFAULT 0 CHECK (needs_shell IN (0,1)),
   sandbox TEXT NOT NULL CHECK (sandbox IN ('read-only','workspace-write')),
   exclusions TEXT NOT NULL DEFAULT '[]',
   allow_desktop INTEGER NOT NULL DEFAULT 0,
@@ -162,6 +163,9 @@ CREATE TABLE IF NOT EXISTS attempts (
   seq INTEGER NOT NULL,
   lane_id TEXT NOT NULL REFERENCES lanes(lane_id),
   model_requested TEXT NOT NULL,
+  has_shell INTEGER CHECK (has_shell IN (0,1)),
+  capability TEXT CHECK (capability IN ('none','commands','writable')),
+  publish_denied INTEGER CHECK (publish_denied IN (0,1)),
   model_served TEXT,
   attestation TEXT NOT NULL DEFAULT 'unattested' CHECK (attestation IN ('attested','mismatch','unattested')),
   state TEXT NOT NULL CHECK (state IN ('reserved','starting','running','finalizing','succeeded','failed','interrupted','lost','cancelled','quarantined')),

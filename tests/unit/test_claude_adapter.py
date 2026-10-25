@@ -395,9 +395,26 @@ def test_launch_argv_equals_v1s_line_for_the_same_inputs(adapter, tmp_path, sand
     --verbose, so the rate_limit_event is readable, and strict empty MCP for a
     writable launch, C-12.9)."""
     launch = _build(adapter, tmp_path, sandbox)
-    assert launch.argv == reconstruct_v1_argv(
+    argv = without_publish_hook(launch.argv, writable_review=sandbox == Sandbox.WORKSPACE_WRITE)
+    assert argv == reconstruct_v1_argv(
         str(adapter.claude_bin), "claude-opus-5", launch.native_session_id, sandbox.value,
     )
+
+
+def without_publish_hook(argv, *, writable_review: bool) -> tuple:
+    """C-12.4: a writable review launch adds two v2 pairs right after its
+    permission flags, `--setting-sources user` (#221 r2 P3-6: the reviewed
+    tree's project settings never load) and `--settings` with the publish hook
+    (#221 r1b P1); nothing else does."""
+    argv = tuple(argv)
+    if not writable_review:
+        assert "--settings" not in argv and "user" not in argv
+        return argv
+    index = argv.index("--settings")
+    assert argv[index - 2:index] == ("--setting-sources", "user")
+    hook = json.loads(argv[index + 1])["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+    assert hook.endswith("/publish-bin/review-publish-hook")
+    return argv[:index - 2] + argv[index + 2:]
 
 
 def test_isolated_read_only_matches_v1s_isolated_permission_args(adapter):
@@ -427,7 +444,7 @@ def test_workspace_write_takes_the_bypass_flag_and_no_mcp_server(adapter, tmp_pa
     """C-12.4, C-12.9 workspace-write is v1's single bypass flag, constrained by the
     never-rules hook in `~/.claude/settings.json` (C-14.3), then strict MCP with an
     empty config (d714): no server from any settings file starts."""
-    argv = _build(adapter, tmp_path, Sandbox.WORKSPACE_WRITE).argv
+    argv = without_publish_hook(_build(adapter, tmp_path, Sandbox.WORKSPACE_WRITE).argv, writable_review=True)
     assert argv[-4:] == ("--dangerously-skip-permissions", "--strict-mcp-config",
                          "--mcp-config", '{"mcpServers":{}}')
     assert "--permission-mode" not in argv
@@ -437,7 +454,8 @@ def test_launch_carries_the_credential_only_in_env_add(adapter, tmp_path):
     """C-10.5, C-12.4, C-23.2 the credential value appears in `env_add` and nowhere else, and
     `ANTHROPIC_API_KEY` is removed from the child's environment."""
     launch = _build(adapter, tmp_path, Sandbox.READ_ONLY)
-    assert launch.env_add == {"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-REDACTED"}
+    assert launch.env_add["CLAUDE_CODE_OAUTH_TOKEN"] == "sk-ant-oat01-REDACTED"
+    assert launch.notes["publish_denied"] is True
     assert "ANTHROPIC_API_KEY" in launch.env_remove
     assert "ANTHROPIC_AUTH_TOKEN" in launch.env_remove
     assert set(ENV_REMOVE) <= set(launch.env_remove)
@@ -548,8 +566,8 @@ def test_resume_launch_uses_resume_not_session_id(adapter, tmp_path):
     assert launch is not None
     assert "--session-id" not in launch.argv
     assert launch.argv[:4] == (str(adapter.claude_bin), "-p", "--resume", "abc-123")
-    assert launch.argv[-4:] == ("--dangerously-skip-permissions", "--strict-mcp-config",
-                                "--mcp-config", '{"mcpServers":{}}')
+    assert without_publish_hook(launch.argv, writable_review=True)[-4:] == (
+        "--dangerously-skip-permissions", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}')
     assert launch.argv[launch.argv.index("--model") + 1] == "claude-opus-5"
     assert launch.native_session_id == "abc-123"
     assert launch.notes["resumed_from"] == "abc-123"
@@ -978,3 +996,11 @@ def test_an_admission_reading_with_no_recorded_model_scopes_to_the_account(tmp_p
     )
     assert [r.scope for r in readings] == ["account"]
     assert readings[0].label is ReadingLabel.ADMISSION_OBSERVED
+
+
+@pytest.mark.parametrize('sandbox,expected', [(Sandbox.READ_ONLY, False), (Sandbox.WORKSPACE_WRITE, True)])
+def test_d_sh1_launch_notes_report_actual_shell(adapter, tmp_path, sandbox, expected):
+    launch = _build(adapter, tmp_path, sandbox)
+    assert launch.notes['capability'] == ('writable' if expected else 'none')
+    if not expected:
+        assert 'Bash' not in launch.argv[launch.argv.index('--tools') + 1].split(',')

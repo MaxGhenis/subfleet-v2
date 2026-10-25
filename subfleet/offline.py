@@ -24,7 +24,7 @@ from .client import same_process
 from .contracts import READING_TTL_S, Exit, JobState
 from .quota_projection import weekly_projections
 from .store import SCHEMA_VERSION as KNOWN_SCHEMA_VERSION
-from .store import WEEKLY_HISTORY_SQL, cancel_info, notice_rows, weekly_history_params
+from .store import WEEKLY_HISTORY_SQL, cancel_info, notice_rows, shell_flags, weekly_history_params
 
 STORE_NAME = "state.sqlite3"
 RECEIPTS = ("start", "exit")            # C-5.2 receipts beside the store (C-17.5)
@@ -256,7 +256,7 @@ class Offline:
                                   "FROM events WHERE job_id=? AND kind='job.wall_cancel_superseded'),0) "
                                   "ORDER BY event_id DESC LIMIT 1", (job_id, job_id)).fetchone()
             job["cancel"] = cancel_info(cancel["ts"], cancel["data_json"]) if cancel and job["cancel_requested_at"] else None
-            job["attempts"] = [dict(item) for item in conn.execute(
+            job["attempts"] = [shell_flags(item) for item in conn.execute(
                 "SELECT * FROM attempts WHERE job_id = ? ORDER BY seq", (job_id,))]
             ids = [attempt["attempt_id"] for attempt in job["attempts"]]
             job["artifacts"] = []
@@ -273,6 +273,12 @@ class Offline:
                 key=lambda item: item.get("attempt_id") != accepted)
             job["notices"] = [dict(item) for item in conn.execute(
                 "SELECT * FROM notices WHERE job_id = ? ORDER BY notice_id", (job_id,))]
+            submitted = conn.execute("SELECT data_json FROM events WHERE job_id=? AND +kind='job.submitted' "
+                                     "ORDER BY event_id LIMIT 1", (job_id,)).fetchone()
+            try:
+                job["uncommitted"] = json.loads(submitted["data_json"] or "{}").get("uncommitted") if submitted else None
+            except (json.JSONDecodeError, TypeError, AttributeError):
+                job["uncommitted"] = None
             job["pushes"] = ([dict(item) for item in conn.execute(
                 "SELECT * FROM job_pushes WHERE job_id=?", (job_id,))]
                 if conn.execute("SELECT 1 FROM sqlite_master WHERE name='job_pushes'").fetchone() else [])
@@ -307,7 +313,9 @@ class Offline:
 
     @staticmethod
     def _job_dict(row: sqlite3.Row) -> dict[str, Any]:
-        job = {key: row[key] for key in row.keys()}
+        # The daemon's boolean launch fields (C-12.4), for `show` and `list` alike
+        # (#221 review r1b, P3-4): offline JSON gave 1 where the daemon gave true.
+        job = shell_flags({key: row[key] for key in row.keys()})
         job["duration_s"] = _duration_s(job.get("started_at"), job.get("finished_at"))
         job["model"] = job.get("model_served") or job.get("model_requested")
         job["family"] = job.get("provider")
@@ -358,6 +366,10 @@ class Offline:
                         f" WHERE state IN ({marks}) GROUP BY lane_id",
                         LIVE_ATTEMPT_STATES):
                     in_flight[row["lane_id"]] = row["n"]
+            restricted = []
+            if "attempts" in tables and "capability" in {row["name"] for row in conn.execute("PRAGMA table_info(attempts)")}:
+                from .store import RESTRICTED_RUNS_SQL, restricted_window
+                restricted = [row["job_id"] for row in conn.execute(RESTRICTED_RUNS_SQL, restricted_window(at))]
             version = self.schema_version(conn)
             # C-18.4: the alerts in force, from their latches, in the words they
             # last fired with (no cycle runs without the daemon).
@@ -377,6 +389,7 @@ class Offline:
             "now": at.isoformat().replace("+00:00", "Z"),
             "state_root": str(self.root),
             "schema_version": version,
+            "restricted_runs_24h": restricted,
             "lanes": lanes,
             "readings": readings,
             "weekly_samples": weekly_samples,
