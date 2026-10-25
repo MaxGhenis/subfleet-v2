@@ -114,7 +114,7 @@ step.
 | `TRUST` | `aa09f53d283919930070e0ef576b73191e5f7fcc37af5d1955455bf21b96a2f0` |
 
 TRUST is the installed TRUST of 2026-09-29 (`b3193b97…`), changing only `hook_sha256` and
-appending two provenance sentences (D-LANE-SCOPE1 and its r2); `hooks_trust_hash` and
+appending two dated provenance additions (D-LANE-SCOPE1's three sentences and r2's one); `hooks_trust_hash` and
 `override` hash the hook's identity, not its bytes, and do not move. The staging helper above
 refuses to replace a different overlay in place, so this revision is staged into a fresh state
 root and swapped in; `tests/unit/test_guard_subfleet_root.py` states and checks the rule's

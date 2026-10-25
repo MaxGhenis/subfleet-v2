@@ -7,8 +7,9 @@ worktree (1,765). The never-rules hook's `unscoped-search` rule refuses find/rg/
 one of them.
 
 Base: `release/217` at `abe117e67`. Round 2 (2026-10-25) merged `release/217` at `8f1c65f69`
-and answers the hub's review r1 (REQUEST_CHANGES; P2-1 to P2-4, P3-1 to P3-7). Nothing here
-touches the live guard; the hub installs it with the steps below.
+and answers the hub's review r1 (REQUEST_CHANGES; P2-1 to P2-4, P3-1 to P3-7); the hub then
+merged `release/217` at `0ab7cebaf` (contract wording only, `docs/acceptance-contract.md`).
+Nothing here touches the live guard; the hub installs it with the steps below.
 
 ## What changed
 
@@ -50,9 +51,9 @@ edits, the two `sed` edits and the `broad_re` line) and gets the original review
 `codex-cli 0.159.0` pin), not on the repository's copy at `abe117e67` (`0b9d688e…`, which still
 pins `codex-cli 0.153.3`; a TRUST built on it would refuse every Codex lane at preflight with
 VERSION, `subfleet/guard/preflight.py:649-650`). It has the same keys. `hook_sha256` is
-recomputed for the new bytes, and `provenance` gains two dated sentences: D-LANE-SCOPE1's,
-ending "Installed only after the hub's review and a live hooks/list preflight.", and r2's,
-naming the env spellings. Nothing else moved. `hooks_trust_hash` (`sha256:f97fa95f…`) and
+recomputed for the new bytes, and `provenance` gains two dated additions: D-LANE-SCOPE1's three
+sentences, ending "Installed only after the hub's review and a live hooks/list preflight.", and
+r2's one sentence, naming the env spellings. Nothing else moved. `hooks_trust_hash` (`sha256:f97fa95f…`) and
 `override` are unchanged: `subfleet/guard/preflight.py:hooks_trust_hash` hashes the hook's
 identity (event, matcher, type, command path, timeout, async flag, status message), not its
 bytes. Checked three ways: `hooks_trust_hash(reference_hook_path)` still equals the pin; the
@@ -116,14 +117,20 @@ hands those commands to the analyzer.
   `[unscoped-search]`. apply_patch payloads are judged identically.
 - **S4, the Claude half agrees.** On plain explicit-path cases (every spelling, the env ones
   included, child, deep and near-miss paths, slash and quoting) the patched analyzer and the
-  Codex hook agree outright; on the generated cases the analyzer disagrees with the Codex hook
-  on a new root only where it already disagrees on the matching existing home child, and on an
-  env-spelled twin only where it already disagrees on the twin's `$HOME/.subfleet` source (the
-  two designs differ on quoted `~` and single-quoted `$…`, a searcher right after a quote, xargs
+  Codex hook agree outright. On the generated cases the analyzer disagrees with the Codex hook
+  on a new root only where it already disagrees on the matching existing home child (the two
+  designs differ on quoted `~` and single-quoted `$…`, a searcher right after a quote, xargs
   input, cd plus a relative path, globs and the cwd list, and the new roots inherit exactly
-  those). Two or more levels under `~/.subfleet` the analyzer blocks nothing. These tests read
-  the analyzer from `SUBFLEET_CLAUDE_UNSCOPED_SEARCH` and skip without it, since it lives in the
-  operator's home.
+  those). An env-spelled twin is compared with its reference, the same draw over
+  `$HOME/.subfleet` (`${HOME}/.subfleet` for a braced twin), which the shell expands exactly as
+  it does the twin in every quoting: each half must give the twin its reference's verdict, so
+  the analyzer differs from the hook on a twin only where it does on that reference. (Round r2
+  compared a twin with its source command instead, which may spell the root `~` or
+  `/Users/<user>`; quoting changes those differently from a variable, and S4 failed on exactly
+  that at scales 1 and 2: `grep -r x '$SUBFLEET_ROOT/'`, `cd '${SUBFLEET_HOME}/jobs' && rg foo`
+  and `sh -c "rg --files \"$SUBFLEET_ROOT/jobs\""`.) Two or more levels under `~/.subfleet`
+  the analyzer blocks nothing. These tests read the analyzer from
+  `SUBFLEET_CLAUDE_UNSCOPED_SEARCH` and skip without it, since it lives in the operator's home.
 - **S5, env spellings are spellings** (r2). For every generated command over
   `<home>/.subfleet` or anything under it, swapping that prefix for `$SUBFLEET_ROOT`,
   `${SUBFLEET_ROOT}`, `$SUBFLEET_HOME` or `${SUBFLEET_HOME}` leaves the new hook's decision
@@ -168,10 +175,12 @@ the first three entries below into D-LANE-SCOPE2.
 
 - **Relative paths from a lane's own worktree** (review r1, P2-4). Job worktrees live at
   `~/.subfleet/worktrees/<id>`, so from that cwd `rg --files -g AGENTS.md ..` walks every
-  worktree and `find ../.. -name AGENTS.md` is the incident's walk; both pass. Pre-existing for
-  every root: `rg --files -g AGENTS.md ..` from `~/PolicyEngine/policyengine-us` and
-  `find ../../..` from `~/PolicyEngine/…` pass the old hook. The Claude analyzer resolves the cwd
-  and blocks all three.
+  worktree, `find ../.. -name AGENTS.md` is the incident's walk and `rg --files ../../jobs`
+  walks every job folder; all three pass. Pre-existing for every root: `rg --files -g AGENTS.md ..`
+  from `~/PolicyEngine/policyengine-us`, `find ../.. -name AGENTS.md` from
+  `~/PolicyEngine/policyengine-us/policyengine_us` and `rg --files ../../PolicyEngine` from
+  `~/PolicyEngine/policyengine-us` pass the old hook (and `find ../../..` from `~/PolicyEngine/…`).
+  The Claude analyzer resolves the cwd and blocks all three.
 - **A searcher right after a quote is not detected** (found by the first build's differential).
   The searcher regexes want a space, `;`, `&`, `|`, `(` or the line start before `find`/`rg`/
   `grep`, so a sub-script that starts with one passes: `bash -c 'find / -name x'`,
@@ -359,9 +368,10 @@ could time out).
    ```
 
    If that directory is gone, the old hook is `git show abe117e67:private/guard/never-rules-hook.sh`,
-   and the old TRUST is this TRUST with `hook_sha256` set back to `a60d1c51…` and both
-   D-LANE-SCOPE1 sentences removed (`test_trust_changed_only_the_hook_hash_and_the_appended_provenance`
-   proves that gives `b3193b97…` byte for byte), staged the same way. Never stage
+   and the old TRUST is this TRUST with `hook_sha256` set back to `a60d1c51…` and both dated
+   additions removed, D-LANE-SCOPE1's and r2's: cut the provenance after "Previous pin kept at
+   TRUST.pre-0.159.0.bak." (`test_trust_changed_only_the_hook_hash_and_the_appended_provenance`
+   proves that gives `b3193b97…` byte for byte). Stage it the same way, with the two backups. Never stage
    `abe117e67`'s TRUST (`0b9d688e…`, the table's in `docs/private-guard-overlay.md`): it pins
    `codex-cli 0.153.3`, and preflight would refuse every Codex lane with VERSION. Verdict
    markers for the old pair are still valid for their 30 days.
