@@ -36,7 +36,7 @@ from types import SimpleNamespace
 from hypothesis import HealthCheck, given, settings, strategies as st
 import pytest
 
-from subfleet import launch_env, retention_git, salvage
+from subfleet import launch_env, retention_git, salvage, uncommitted
 from subfleet.conversations import catalog, wakes
 from subfleet.conversations.service import ConversationService
 from subfleet.daemon import Daemon
@@ -272,6 +272,17 @@ def daemon(tmp_path):
         yield service
 
 
+def dispatch_entry(service, capture):
+    """`Daemon.dispatch`'s submit, the scope a policy review's uncommitted copy runs
+    in (`Daemon.submit`, then `uncommitted.plan`)."""
+    seen = []
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(service, "submit", lambda args: seen.append(capture()) or {})
+        service.dispatch("submit", {"request_id": "fake", "kind": "dispatch", "workdir": "/fake/repo",
+                                    "prompt_path": "/fake/prompt.md", "sandbox": "policy"})
+    return seen[0]
+
+
 def gate_entry(service, capture):
     """`gate.service.dispatch`, the gate's scope entry, around a helper."""
     seen = []
@@ -310,6 +321,7 @@ def timers_entry(service, capture):
 
 ENTRIES = {
     "daemon-worker": lambda service, capture: service._run_worker(capture),
+    "daemon-dispatch": dispatch_entry,
     "timers": timers_entry,
     "conversation-resume": resume_entry,
     "wakes-poll": wakes_entry,
@@ -400,6 +412,25 @@ def handoff_family(tmp_path, patch):
     return seen
 
 
+def uncommitted_family(tmp_path, patch):
+    """Review r1 of #262, P2-1: #221's uncommitted copy (`uncommitted._check_applies`),
+    whose `read-tree` and `apply --check` each get the scratch index as their one
+    addition. The index's folder is a fresh temporary one, so it is named, not compared."""
+    seen, commands, scratch = [], [], tmp_path / "uncommitted-scratch"
+
+    def git(top, *args, env=None, **kwargs):
+        index = Path(env["GIT_INDEX_FILE"])
+        assert index.name == "index" and index.parent.parent == scratch, "the copy's git lost its scratch index"
+        commands.append(args[0])
+        seen.append({**env, "GIT_INDEX_FILE": "<scratch index>"})
+        return b""
+
+    patch.setattr(uncommitted, "_git_bytes", git)
+    uncommitted._check_applies(tmp_path, "0" * 40, b"fake patch", scratch, None)
+    assert commands == ["read-tree", "apply"]
+    return seen
+
+
 # Each family, and the scope entry the daemon reaches it through. Nudge and
 # handoff are never reached from the daemon (the SessionStart hook process and
 # the sessions CLI, docs/reports/2026-10-24-env2-p3.md), so they run under the
@@ -412,6 +443,7 @@ FAMILIES = {
     "wakes": (wakes_family, "wakes-poll"),
     "nudge": (nudge_family, "daemon-worker"),
     "handoff": (handoff_family, "daemon-worker"),
+    "uncommitted-copy": (uncommitted_family, "daemon-dispatch"),
 }
 
 
@@ -531,6 +563,8 @@ CALL_SITES = {
     ("subfleet/salvage.py", "snapshot_tree"): SCOPE.format("Daemon._run_worker"),
     ("subfleet/sessions/handoff.py", "_run_git"): CLI.format("the sessions CLI; the daemon's brief passes repository=False"),
     ("subfleet/sessions/nudge.py", "spawn"): CLI.format("the SessionStart hook process"),
+    ("subfleet/uncommitted.py", "_check_applies"):
+        SCOPE.format("dispatch (a worktree-write review's submit), Daemon._run_worker"),
 }
 
 
@@ -539,4 +573,4 @@ def test_every_build_environment_call_site_is_classified():
     whether the daemon runs it inside a helper scope, or how else it is covered."""
     found = {(path, function) for path, function, _ in calls("build_environment")}
     assert found == set(CALL_SITES)
-    assert len(calls("build_environment")) == 30, "a function gained or lost a call: reclassify it"
+    assert len(calls("build_environment")) == 31, "a function gained or lost a call: reclassify it"
