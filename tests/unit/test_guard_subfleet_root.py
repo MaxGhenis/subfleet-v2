@@ -743,9 +743,9 @@ def test_s2_bounded_and_deep_searches_stay_allowed(corpus, verdicts):
 
 def test_s3_other_rules_give_identical_output(hooks, repos, tmp_path):
     compared = 0
-    for where, command, expected in OTHER_RULES:
-        for text in (command, command + "; " + NEW_ROOT_SEARCH):
-            logs = {which: tmp_path / f"{which}-{compared}.log" for which in ("old", "new")}
+    for index, (where, command, expected) in enumerate(OTHER_RULES):
+        for suffix, text in enumerate((command, command + "; " + NEW_ROOT_SEARCH)):
+            logs = {which: tmp_path / f"{which}-{index}-{suffix}.log" for which in ("old", "new")}
             outs = {which: run_hook(hooks[which], text, repos[where], log=logs[which]) for which in logs}
             if text == command:
                 assert rule(outs["old"]) == expected, (command, outs["old"])
