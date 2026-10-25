@@ -1784,16 +1784,21 @@ def _fold_value(text: str, end: int) -> tuple[int, int] | None:
     header's name (`_header_name_at`: `Cookie:x …` on the next line) is that header's
     whole line, to its last visible character: the run would take the name and leave
     the rest of the line to no rule, and with no run taken a name that holds a secret
-    would show (#239 review r3, P2-B). A credential key, flag or `Bearer` that ends the
-    span and owns a value past it (`_kept_span`) is left to its own rule, as an
-    enclosing rule leaves one: the span ends before it, and is None when that leaves
-    nothing."""
+    would show (#239 review r3, P2-B). Unless a credential key, flag or `Bearer` ends
+    that line and owns a value past it (`_kept_span` would end the span before it):
+    then the fold takes nothing, and the line is its own header's, whose rules read the
+    item as they would with no fold before it (a header's lone flag takes the value on
+    the line after; #239 review r4, P3-1). Elsewhere such an item that ends the run is
+    left to its own rule, as an enclosing rule leaves one: the span ends before it, and
+    is None when that leaves nothing."""
     value = _run_end(text, end)
     if value == end or value >= len(text) or text[value] == "-":
         return None
     if _header_name_at(text, value):
         stop = text.find("\n", value)
-        return _kept_span(text, value, _last_visible(text, len(text) if stop < 0 else stop) + 1)
+        stop = _last_visible(text, len(text) if stop < 0 else stop) + 1
+        span = _kept_span(text, value, stop)
+        return span if span == (value, stop) else None
     return _kept_span(text, value, _VISIBLE_RUN_RE.match(text, value).end())
 
 
