@@ -323,6 +323,7 @@ def test_lane_pin_provider_absent_from_valid_policy_is_key_named_invalid_input(p
     policy["chains"] = {"research": ["terra", "terra", "terra", "astra"]}
     policy["permissions"] = {"*": "read-only"}
     policy["retired"] = {"sol": "astra"}
+    policy.pop("requires", None)  # This policy has only research; no review task remains.
     path = tmp_path / "codex-only-policy.json"
     path.write_text(json.dumps(policy))
     policy = load_policy(path)
