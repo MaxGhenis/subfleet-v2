@@ -1810,9 +1810,11 @@ def _fold_value(text: str, end: int) -> tuple[int, int] | None:
     that line and owns a value past it (`_kept_span` would end the span before it):
     then the fold takes nothing, and the line is its own header's, whose rules read the
     item as they would with no fold before it (a header's lone flag takes the value on
-    the line after; #239 review r4, P3-1). Elsewhere such an item that ends the run is
-    left to its own rule, as an enclosing rule leaves one: the span ends before it, and
-    is None when that leaves nothing."""
+    the line after; #239 review r4, P3-1). A run that starts a header only the
+    line-start rule reads there (`_parts_line_start_header`: `Set-Cookie` and `: v` on
+    the next line) takes nothing too, and that rule takes the header's value whole.
+    Elsewhere such an item that ends the run is left to its own rule, as an enclosing
+    rule leaves one: the span ends before it, and is None when that leaves nothing."""
     value = _run_end(text, end)
     if value == end or value >= len(text) or text[value] == "-":
         return None
@@ -1821,7 +1823,26 @@ def _fold_value(text: str, end: int) -> tuple[int, int] | None:
         stop = _last_visible(text, len(text) if stop < 0 else stop) + 1
         span = _kept_span(text, value, stop)
         return span if span == (value, stop) else None
-    return _kept_span(text, value, _VISIBLE_RUN_RE.match(text, value).end())
+    stop = _VISIBLE_RUN_RE.match(text, value).end()
+    if _parts_line_start_header(text, end, value, stop):
+        return None
+    return _kept_span(text, value, stop)
+
+
+def _parts_line_start_header(text: str, end: int, run: int, stop: int) -> bool:
+    """Whether a span from the run at `run` to `stop`, which whitespace holding a line
+    break parts from `end`, would end before the colon of a header that the line-start
+    rule reads at the run's line start (`_HEADER_RE`): a name its colon parts by
+    whitespace other than spaces and tabs, which `_header_name_at` does not read
+    (`Set-Cookie` and `: v` on the next line; past a fold's run, a vertical tab or a
+    no-break space between them too). Taken, the span would end inside the name,
+    before its header word (`_kept_span`), or take it whole, so no header rule would
+    read the name and the plain rule would take at most the value's first word. A
+    fold, or a refused `Bearer`'s line, takes nothing there, and the line-start rule
+    takes the header's value whole, as both references do (#239 fix round 4)."""
+    gap = text.rfind("\n", end, run)
+    match = _HEADER_RE.match(text, gap + 1) if gap >= 0 else None
+    return match is not None and text.rfind(":", run, match.end(1)) >= stop
 
 
 def _kept_span(text: str, start: int, stop: int) -> tuple[int, int] | None:
@@ -1865,12 +1886,17 @@ def _refused_bearer(text: str, bearer: int) -> tuple[int, int] | None:
     before a key, flag or `Bearer` that ends it and owns a value past it (`_kept_span`:
     `Authorization: "Bearer` and `password=` on the next line, its value after that);
     None when the `Bearer` reads no run, or a token, which the `Bearer` rule takes, or
-    when nothing is left."""
+    when nothing is left, and when the span would end before the colon of a header the
+    line-start rule reads at the run's line start (`_parts_line_start_header`:
+    `Set-Cookie` and `: v` on the next line), whose value that rule takes whole."""
     match = _BEARER_RE.match(text, bearer)
     if match is None or _bearer_refusal(match) is None:
         return None
     stop = text.find("\n", match.start(1))
-    return _kept_span(text, match.start(1), _last_visible(text, len(text) if stop < 0 else stop) + 1)
+    stop = _last_visible(text, len(text) if stop < 0 else stop) + 1
+    if _parts_line_start_header(text, bearer, match.start(1), stop):
+        return None
+    return _kept_span(text, match.start(1), stop)
 
 
 def _bearer_refusal(match: re.Match) -> int | None:
@@ -1885,7 +1911,11 @@ def _bearer_refusal(match: re.Match) -> int | None:
     None: the run is a token. Otherwise the end of what the rule still takes: the
     run before the credential word, its joiners (`_TOKEN_JOINERS`) aside, when that
     reads as a token itself (`_token_like`: `Bearer SECRET7…_token: …`), or the
-    run's start (`Bearer secrets/db_password: …`), where the rule takes nothing."""
+    run's start (`Bearer secrets/db_password: …`), where the rule takes nothing. It
+    takes nothing too where the run starts a header the line-start rule reads on a
+    later line than `Bearer` (`_parts_line_start_header`: `Bearer`, then
+    `SECRET7…Set-Cookie` and `: v`), whose name and value that rule takes (#239 fix
+    round 4)."""
     text, start, end = match.string, match.start(1), match.end(1)
     word = _SENSITIVE_SUFFIX_RE.search(text, max(start, end - 17), end)
     flag = None
@@ -1897,6 +1927,8 @@ def _bearer_refusal(match: re.Match) -> int | None:
         return None
     while cut > start and text[cut - 1] in _TOKEN_JOINERS:
         cut -= 1
+    if _parts_line_start_header(text, match.start(), start, cut):
+        return start
     if flag is not None:
         return cut           # a run glued to the flag goes, token or not (`Bearer SECRET7--secret x`)
     return cut if _token_like(text[start:cut]) else start
