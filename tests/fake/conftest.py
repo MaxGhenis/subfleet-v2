@@ -258,12 +258,13 @@ def daemon(request, process_inspection_available):
             finally:
                 # Keep the state root of a failed test so daemon.log and the store can be read,
                 # and of a close() that raised (a daemon that would not stop is the run most worth
-                # keeping), as the live app test's dev_daemon does. The copy is taken after close()
-                # either way; close()'s error is raised after it, and a copy that fails never replaces it.
-                report = getattr(request.node, "rep_call", None)
-                if not closed or report is not None and report.failed:
+                # keeping), as the live app test's dev_daemon does. A failed setup counts as well as
+                # a failed call: a fixture built on this one that raises ends the test before its call.
+                # The copy is taken after close() either way; close()'s error is raised after it, and
+                # a copy that fails never replaces it.
+                from tests.failed_keep import failed_keep_dir, setup_or_call_failed
+                if not closed or setup_or_call_failed(request.node):
                     import shutil, sys
-                    from tests.failed_keep import failed_keep_dir
                     keep = failed_keep_dir(request.node.name)
                     try:
                         shutil.rmtree(keep, ignore_errors=True)

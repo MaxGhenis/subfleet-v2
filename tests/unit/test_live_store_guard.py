@@ -194,7 +194,8 @@ def test_collection_phase_is_isolated(request, variable, resolver, suffix):
     assert session_marker
     assert override == str(expected)
     assert resolved == ("value", expected / suffix)
-    assert missing[0:2] == ("exception", "RuntimeError")
+    # A refusal is `home_paths.PersonalPathRefused`, a RuntimeError (D-ST3).
+    assert missing[0:2] == ("exception", "PersonalPathRefused")
     assert variable in missing[2]
 
 

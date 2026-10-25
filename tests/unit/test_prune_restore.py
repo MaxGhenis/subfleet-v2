@@ -4,7 +4,10 @@ After the daemon and other store users stop, restoring must recover every
 table's count and content from the backup, regardless of existing WAL/SHM
 files or shell metacharacters in paths. All displaced files stay together and
 byte-identical, and the backup remains unchanged. The documentation and error
-message must publish the same executable recipe. Every database is synthetic.
+message must publish the same executable recipe. Its shell block stays whole for
+every path: the fence is longer than any backtick run the path puts inside it,
+so no Markdown reader ends the block early, and the harness reads the block as
+such a reader does (D-PRR1). Every database is synthetic.
 """
 
 from __future__ import annotations
@@ -12,6 +15,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
+import shlex
 import shutil
 import sqlite3
 import subprocess
@@ -20,9 +25,11 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import example, given, settings, strategies as st
 
+from subfleet import prune_decisions as pruning
 from subfleet.prune_decisions import _restore_fix
+from tests.markdown_fences import fenced_blocks, shell_block
 
 
 STORE_FILES = ("state.sqlite3", "state.sqlite3-wal", "state.sqlite3-shm")
@@ -47,14 +54,27 @@ def _fingerprints(database: Path) -> dict[str, tuple[int, str]]:
         connection.close()
 
 
+def _recipe_environment(state_root: Path) -> dict[str, str]:
+    """The recipe's whole environment, built from nothing (D-PRR1).
+
+    pytest prints each failing frame's arguments, `subprocess.run`'s `kwargs`
+    among them, so a copy of `os.environ` put inherited values in a report.
+    """
+    environment = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"],
+                   "TMPDIR": os.environ.get("TMPDIR") or tempfile.gettempdir(),
+                   "state_root": str(state_root)}
+    environment.update((name, os.environ[name]) for name in ("LANG", "LC_ALL")
+                       if name in os.environ)
+    return environment
+
+
 def _run_recipe(state_root: Path, backup: Path) -> subprocess.CompletedProcess[str]:
-    """Execute the shell block operators receive, with only temporary paths."""
-    recipe = _restore_fix(str(backup))
-    assert recipe.count("```sh\n") == 1
-    script = recipe.split("```sh\n", 1)[1].split("```", 1)[0]
+    """Execute the shell block operators receive, read as a Markdown reader reads it."""
+    script = shell_block(_restore_fix(str(backup)))
+    # A truncated extraction fails here, by name, not as a shell syntax error.
+    assert script == pruning.RESTORE_SCRIPT.format(copy_path=shlex.quote(str(backup))) + "\n"
     return subprocess.run(
-        ["/bin/sh", "-c", script],
-        env={**os.environ, "state_root": str(state_root)},
+        ["/bin/sh", "-c", script], env=_recipe_environment(state_root),
         cwd=state_root.parent, text=True, capture_output=True, check=True, timeout=120)
 
 
@@ -220,6 +240,12 @@ os._exit(0)
     wal=st.one_of(st.none(), st.binary(min_size=1, max_size=80)),
     shm=st.one_of(st.none(), st.binary(min_size=1, max_size=80)),
 )
+# Seed 18's shrunk failure: the old harness cut the block at this run.
+@example(rows=[], suffix="```", wal=None, shm=None)
+@example(rows=[("x", b"\x00")], suffix="````", wal=b"wal", shm=b"shm")
+@example(rows=[], suffix="a```$;'b````\"(!&", wal=None, shm=b"shm")
+# A run on a line of its own, which ends a three-backtick fence for CommonMark.
+@example(rows=[], suffix="\n```\n", wal=b"wal", shm=None)
 def test_restore_recipe_preserves_backup_and_displaced_files(rows, suffix, wal, shm):
     """Restore content and preserve evidence for every sidecar/path combination."""
     # A fresh directory per generated example avoids function-fixture state
@@ -246,3 +272,121 @@ def test_restore_recipe_preserves_backup_and_displaced_files(rows, suffix, wal, 
         assert {path.name: path.read_bytes() for path in displaced.iterdir()} == originals
         assert backup.read_bytes() == original_backup
         assert set(root.iterdir()) == {state_root, backup}
+
+
+#: Backup paths whose backticks ended the old three-backtick block for some
+#: reader: a mid-line run (seed 18's shape) ends it for a reader that stops at
+#: the next triple backtick, and a run on a line of its own ends it for CommonMark.
+FENCED_PATHS = [
+    "/backups/state ```.sqlite3",
+    "/backups/state ````.sqlite3",
+    "/backups/state\n```\necho the fence closed\n.sqlite3",
+    "/backups/state\n````\n.sqlite3",
+]
+
+
+@pytest.mark.parametrize("path", FENCED_PATHS)
+def test_restore_fix_fences_its_block_beyond_every_backtick_run_in_the_path(path):
+    """C-11.5, D-PRR1: the fence is a run longer than any inside the block, and
+    never shorter than three, so no backup path can close it early."""
+    blocks = fenced_blocks(_restore_fix(path))
+    assert [block.info for block in blocks] == ["sh"]
+    block, = blocks
+    longest = max(map(len, re.findall("`+", block.content)), default=0)
+    assert len(block.fence) >= 3 and len(block.fence) > longest
+    assert block.closing == block.fence
+    assert f"    backup={shlex.quote(path)}\n" in block.content
+    assert block.content.endswith("'PRAGMA integrity_check'\n)\n")
+
+
+@pytest.mark.parametrize("path", FENCED_PATHS)
+def test_run_recipe_hands_the_shell_the_whole_block(path, tmp_path, monkeypatch):
+    """D-PRR1: the harness runs the block a Markdown reader sees, not the text up
+    to the first triple backtick, which seed 18 cut inside the backup's path."""
+    launched = []
+    monkeypatch.setattr(subprocess, "run", lambda argv, **options: launched.append(argv))
+    _run_recipe(tmp_path / "state", Path(path))
+    script = pruning.RESTORE_SCRIPT.format(copy_path=shlex.quote(path)) + "\n"
+    assert launched == [["/bin/sh", "-c", script]]
+
+
+def test_run_recipe_gives_the_shell_only_the_variables_it_needs(tmp_path, monkeypatch):
+    """C-20.6, D-PRR1: the recipe's environment is PATH, the session's HOME,
+    TMPDIR, LANG and LC_ALL when set, and `state_root`; never a copy of
+    `os.environ`, whose values a failing run's report prints."""
+    names = tmp_path / "names.json"
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    # A stand-in `sqlite3` records the names it was given, never their values.
+    record = (f"import json, os; open({str(names)!r}, 'w').write(json.dumps(sorted(os.environ)));"
+              " print('ok')")
+    stand_in = tools / "sqlite3"
+    stand_in.write_text(f"#!/bin/sh\nexec {shlex.quote(sys.executable)} -c {shlex.quote(record)}\n")
+    stand_in.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tools}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("PRR1_CANARY", "inherited")
+    monkeypatch.setenv("PRR1_CANARY_TOKEN", "SECRET7prr1-canary")
+    monkeypatch.setenv("LC_ALL", "en_US.UTF-8")
+    monkeypatch.delenv("LANG", raising=False)
+    state_root = tmp_path / "state"
+    state_root.mkdir()
+    backup = tmp_path / "backup.sqlite3"
+    _backup(backup, [])
+
+    completed = _run_recipe(state_root, backup)
+
+    assert completed.stdout.splitlines() == ["ok"]
+    # What the shell and the interpreter set for themselves.
+    own = {"PWD", "OLDPWD", "SHLVL", "_", "__CF_USER_TEXT_ENCODING", "__PYVENV_LAUNCHER__"}
+    assert set(json.loads(names.read_text())) - own == {
+        "PATH", "HOME", "TMPDIR", "LC_ALL", "state_root"}
+
+
+#: Text a backup path can hold: backtick runs of every length to six, quotes,
+#: `$`, every CommonMark line ending, and other characters, ASCII or not.
+PATH_TEXT = st.lists(st.one_of(
+    st.integers(0, 6).map(lambda count: "`" * count),
+    st.sampled_from(["'", '"', "$", "\n", "\r", "\r\n", " ", "\t", ";", "/", "é", "日本", "🙂"]),
+    st.text(max_size=3),
+), max_size=12).map(lambda pieces: "/backups/" + "".join(pieces))
+
+
+@settings(max_examples=200, deadline=None)
+@given(path=PATH_TEXT)
+@example(path="/backups/```")
+@example(path="/backups/\n```\n")
+@example(path="/backups/\r````\r\n``````")
+def test_restore_fix_block_is_the_template_script_for_every_path(path):
+    """C-11.5, D-PRR1 invariant 1: read by CommonMark's fence rule, the recipe's
+    one block is exactly the template's script with `shlex.quote(path)` in it,
+    under a fence longer than any run inside, and the prose around it is the
+    prose every path gets."""
+    recipe = _restore_fix(path)
+    blocks = fenced_blocks(recipe)
+    assert [(block.info, block.closing) for block in blocks] == [("sh", blocks[0].fence)]
+    block, = blocks
+    assert block.content == pruning.RESTORE_SCRIPT.format(copy_path=shlex.quote(path)) + "\n"
+    assert len(block.fence) >= 3
+    assert len(block.fence) > max(map(len, re.findall("`+", block.content)), default=0)
+    plain = _restore_fix("/backups/state.sqlite3")
+    plain_block, = fenced_blocks(plain)
+    assert recipe[:block.start] == plain[:plain_block.start]
+    assert recipe[block.end:] == plain[plain_block.end:]
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    # A longer closing run closes; a shorter one is content.
+    ("````\naaa\n```\n``````\n", [("````", "``````", "aaa\n```\n")]),
+    # Up to three spaces may indent a closing fence; four make it content.
+    ("```\naaa\n   ```\n", [("```", "```", "aaa\n")]),
+    ("```\naaa\n    ```\n", [("```", None, "aaa\n    ```\n")]),
+    # A closing fence may be followed only by spaces or tabs.
+    ("```\naaa\n``` x\n", [("```", None, "aaa\n``` x\n")]),
+    # A backtick in the info string means no fence at all.
+    ("``` `x`\naaa\n", []),
+    # CR and CR LF end lines too.
+    ("```\raaa\r\n```\r", [("```", "```", "aaa\r\n")]),
+])
+def test_the_fence_reader_follows_commonmark(text, expected):
+    """D-PRR1: the harness's reader keeps CommonMark's fence rules."""
+    assert [(block.fence, block.closing, block.content) for block in fenced_blocks(text)] == expected
