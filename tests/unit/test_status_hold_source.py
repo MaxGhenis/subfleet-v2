@@ -195,6 +195,45 @@ def lanes_any(draw, identity: str = "lane-1", provider: str | None = None) -> di
     return row
 
 
+#: Review r1 of #263, P3-1: evidence as a malformed snapshot can carry it. Readings
+#: may be no list, a list holding None or another non-mapping, or mappings missing
+#: their keys; a closure row may miss its scope or reason, or not be a mapping.
+MALFORMED_READINGS = st.one_of(
+    st.none(), st.just([None]), st.lists(st.sampled_from([None, 1, "provider", ("label", "provider")]),
+                                         min_size=1, max_size=2),
+    st.lists(st.sampled_from([{}, {"scope": "account"}, {"window": "seven_day"}, {"label": "provider"}]),
+             min_size=1, max_size=3))
+
+
+@st.composite
+def closures_malformed(draw, identity: str = "lane-1"):
+    row = draw(closures(identity))
+    for key in ("scope", "reason"):
+        if draw(st.booleans()):
+            row.pop(key)
+    return row
+
+
+@st.composite
+def lanes_malformed(draw, identity: str = "lane-1") -> dict:
+    """`lanes_any`, with malformed evidence spliced in: the readings, the closures, or both."""
+    row = draw(lanes_any(identity))
+    if draw(st.booleans()):
+        row["readings"] = draw(MALFORMED_READINGS)
+    if draw(st.booleans()):
+        extra = st.one_of(closures_malformed(identity), st.sampled_from([None, 1, "account"]))
+        row["closures"] = draw(st.lists(st.one_of(closures(identity), extra), min_size=1, max_size=4))
+    return row
+
+
+def outcome(function, row: dict):
+    """What `function(row)` gives: its answer, or the class of what it raised."""
+    try:
+        return function(row)
+    except Exception as error:                              # noqa: BLE001 - compared, never hidden
+        return type(error)
+
+
 def explicit_of(lane: dict) -> str | None:
     value = lane.get("verdict") or lane.get("outcome")
     return value if isinstance(value, str) else None
@@ -228,6 +267,21 @@ def operator_hold(lane: dict) -> bool:
 def test_i1_dispatchable_equals_the_frozen_release_217_function(row):
     """I1 (D-STATUS-SRC1): a held lane stays non-dispatchable, and no lane's answer moves."""
     assert status_json.dispatchable(row) is legacy_dispatchable(row)
+
+
+ACCOUNT_HOLD = {"scope": "account", "reason": "operator-hold", "until_at": "2099-01-01T00:00:00Z"}
+
+
+@settings(max_examples=3000, deadline=None, database=None, derandomize=True)
+@given(row=lanes_malformed())
+@example(row={"lane_id": "codex-1", "provider": "codex", "readings": None, "closures": [ACCOUNT_HOLD]})
+@example(row={"lane_id": "codex-1", "provider": "codex", "readings": [None], "closures": [ACCOUNT_HOLD]})
+@example(row={"lane_id": "codex-1", "provider": "codex", "readings": None, "closures": [ACCOUNT_HOLD, None]})
+@example(row={"lane_id": "codex-1", "provider": "codex", "readings": [{}], "closures": [{"until_at": "x"}]})
+def test_i1_with_malformed_evidence_dispatchable_answers_or_raises_as_release_did(row):
+    """I1 over malformed evidence (review r1 of #263, P3-1): the same answer, or the
+    same exception class, as the frozen release/217 function."""
+    assert outcome(status_json.dispatchable, row) == outcome(legacy_dispatchable, row)
 
 
 def test_i1_a_held_lane_is_not_dispatchable_whatever_its_cycle_said():

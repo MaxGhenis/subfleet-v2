@@ -93,10 +93,15 @@ def lane_verdict(lane: Mapping[str, Any]) -> str:
 
 
 def _admission_verdict(lane: Mapping[str, Any]) -> str:
-    """The verdict `dispatchable` judges a lane by, unchanged by D-STATUS-SRC1:
-    the cycle's, else `auth-dead` from a closure, `disabled`, or the readings'.
-    Account closures are left out because `dispatchable` refuses a lane with
-    any, held or limited alike."""
+    """The verdict `dispatchable` judges a lane by, as release/217's `lane_verdict`
+    gave it: the cycle's, else `auth-dead` from a closure, `disabled`, `limited`
+    for any open account closure (held or limited alike, never shown: status
+    reads `lane_verdict`), or the readings'.
+
+    The account closure is tested before the readings are read, in release's
+    order (review r1 of #263, P3-1), so a closed lane with malformed evidence
+    (no readings list, or a row that is not a mapping) answers False as it did,
+    and every lane answers or raises exactly as release's function did."""
     explicit = _explicit_verdict(lane)
     if explicit is not None:
         return explicit
@@ -104,6 +109,8 @@ def _admission_verdict(lane: Mapping[str, Any]) -> str:
         return "auth-dead"
     if not lane.get("enabled", True):
         return "disabled"
+    if any(row.get("scope") == "account" for row in lane.get("closures", ())):
+        return "limited"
     return _readings_verdict(lane)
 
 
