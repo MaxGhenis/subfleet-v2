@@ -105,8 +105,13 @@ R3_EDITS = {
 FENCE = "test_only_the_roots_the_header_and_the_message_changed"
 
 
+#: What the named tests need of HEAD (the rest of the tree, the app and the docs, is a sixth of
+#: the export's bytes and none of its use).
+EXPORTED = ["subfleet", "tests", "tools", "private", "bin", "pyproject.toml"]
+
+
 def export(destination: Path) -> None:
-    archive = subprocess.run(["git", "-C", str(ROOT), "archive", "--format=tar", "HEAD"],
+    archive = subprocess.run(["git", "-C", str(ROOT), "archive", "--format=tar", "HEAD", *EXPORTED],
                              check=True, capture_output=True).stdout
     destination.mkdir(parents=True)
     with tempfile.TemporaryFile() as handle:
@@ -174,7 +179,9 @@ def pytest(tree: Path, tests: list[str], scratch: Path) -> dict[str, str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scratch", type=Path, required=True)
-    parser.add_argument("--only", nargs="*", default=list(MUTATIONS))
+    # r3's mutants first: a run its hold cuts short still reports the newest decisions.
+    order = [name for name in MUTATIONS if name in R3_EDITS] + [name for name in MUTATIONS if name not in R3_EDITS]
+    parser.add_argument("--only", nargs="*", default=order)
     args = parser.parse_args()
     if "/sf-" not in str(args.scratch.resolve()):
         parser.error("--scratch must be a /sf- scratch directory")
