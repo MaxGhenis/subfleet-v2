@@ -129,11 +129,14 @@ OLD_TEXT = [
 #              trailing slash.
 """, """#              `/tmp`, `/private/tmp` — each with or without a trailing slash.
 """),
-    ("|\\.local|\\.subfleet(/[^/[:space:]'\\\"]+)?))?|(/private)?/tmp\"",
-     "|\\.local))?|(/private)?/tmp\""),
     ("(/, /Users, ~, ~/TheAxiomFoundation, ~/PolicyEngine, ~/.subfleet, ~/.subfleet/<child>, /tmp, caches)",
      "(/, /Users, ~, ~/TheAxiomFoundation, ~/PolicyEngine, /tmp, caches)"),
 ]
+#: The one behavioural edit: the broad_re line, new and original.
+NEW_BROAD_RE = ("  broad_re=\"(/Users/[^/[:space:]'\\\"]+|~|\\\\\\$HOME)(/(TheAxiomFoundation|RulesFoundation|"
+                "PolicyEngine|Library/Caches|\\.cache|\\.local|\\.subfleet(/[^/[:space:]'\\\"]+)?))?|(/private)?/tmp\"")
+OLD_BROAD_RE = ("  broad_re=\"(/Users/[^/[:space:]'\\\"]+|~|\\\\\\$HOME)(/(TheAxiomFoundation|RulesFoundation|"
+                "PolicyEngine|Library/Caches|\\.cache|\\.local))?|(/private)?/tmp\"")
 OLD_TRUST_TEXT = [
     ("1a736be3c968e5c1dc6bb7d63019f540b06d1cc619913e6bb8e4e057e536f951", OLD_HOOK_SHA256),
 ]
@@ -147,10 +150,24 @@ def undo(text: str, edits) -> str:
     return text
 
 
+def rebuild_old(text: str) -> bytes:
+    """The original reviewed hook from the overlay's: the header, comment and message edits
+    undone where present and the broad_re line restored, whatever it now says (so a mutant
+    of the roots still has the true original beside it)."""
+    for new, old in OLD_TEXT:
+        if text.count(new) == 1:
+            text = text.replace(new, old)
+    lines = text.split("\n")
+    at = [i for i, line in enumerate(lines) if line.startswith('  broad_re="')]
+    assert len(at) == 1
+    lines[at[0]] = OLD_BROAD_RE
+    return "\n".join(lines).encode("utf-8")
+
+
 @pytest.fixture(scope="module")
 def hooks(tmp_path_factory) -> dict[str, Path]:
     """{"new": the overlay's hook, "old": the original reviewed hook rebuilt from it}."""
-    old_bytes = undo(HOOK.read_text(encoding="utf-8"), OLD_TEXT).encode("utf-8")
+    old_bytes = rebuild_old(HOOK.read_text(encoding="utf-8"))
     assert hashlib.sha256(old_bytes).hexdigest() == OLD_HOOK_SHA256
     old = tmp_path_factory.mktemp("old-guard") / "never-rules-hook.sh"
     old.write_bytes(old_bytes)
@@ -249,22 +266,22 @@ HOME_SPELLINGS = ["~", "$HOME", "${HOME}", "/Users/maxghenis", FAKE_HOME]
 CHILDREN = ["jobs", "worktrees", "archive", "lanes", "conversations", "guard-cache", "x_y-z.1"]
 
 
-def test_every_spelling_of_subfleet_is_a_root(hooks):
+def test_every_spelling_of_subfleet_is_a_root():
     commands = [search.format(quote.format(spelling + "/.subfleet"))
                 for spelling in HOME_SPELLINGS for quote in ("{}", '"{}"')
                 for search in ("find {} -name AGENTS.md", "rg --files {}", "rg -l foo {}", "grep -rn x {}")]
-    for command, out in judged(hooks["new"], commands).items():
+    for command, out in judged(HOOK, commands).items():
         assert rule(out) == "unscoped-search", command
 
 
-def test_each_direct_child_is_a_root(hooks):
+def test_each_direct_child_is_a_root():
     searches = ("rg -l foo {}", "find {} -type f", "grep -r x {}")
     expected = {}
     for i, child in enumerate(CHILDREN):
         for j, spelling in enumerate(HOME_SPELLINGS):
             command = searches[(i + j) % len(searches)].format(f"{spelling}/.subfleet/{child}")
             expected[command] = f"{spelling.replace('${HOME}', '$HOME')}/.subfleet/{child}"
-    for command, out in judged(hooks["new"], list(expected)).items():
+    for command, out in judged(HOOK, list(expected)).items():
         assert rule(out) == "unscoped-search", command
         assert matched_root(out) == expected[command]
 
@@ -273,10 +290,10 @@ TRAILING = ["~/.subfleet/", "$HOME/.subfleet/", "${HOME}/.subfleet/", "/Users/ma
             "~/.subfleet/jobs/", "$HOME/.subfleet/worktrees/", "/Users/maxghenis/.subfleet/archive/"]
 
 
-def test_trailing_slash_spellings_are_denied(hooks):
+def test_trailing_slash_spellings_are_denied():
     commands = [search.format(path) for path in TRAILING
                 for search in ("rg --files {}", "find {} -name x", "grep -r x {}", 'rg foo "{}"')]
-    for command, out in judged(hooks["new"], commands).items():
+    for command, out in judged(HOOK, commands).items():
         assert rule(out) == "unscoped-search", command
 
 
@@ -306,8 +323,8 @@ NEAR_MISSES = [
 ]
 
 
-def test_near_misses_patterns_prose_and_bounded_searches_stay_allowed(hooks):
-    for command, out in judged(hooks["new"], NEAR_MISSES).items():
+def test_near_misses_patterns_prose_and_bounded_searches_stay_allowed():
+    for command, out in judged(HOOK, NEAR_MISSES).items():
         assert rule(out) is None, command
 
 
@@ -356,8 +373,11 @@ def test_identity_hash_and_override_do_not_depend_on_the_hook_bytes(hooks, tmp_p
 
 
 def test_only_the_roots_the_header_and_the_message_changed():
-    """Decision 2's fence: undoing exactly OLD_TEXT gives the original reviewed bytes."""
-    old = undo(HOOK.read_text(encoding="utf-8"), OLD_TEXT).encode("utf-8")
+    """Decision 2's fence: undoing exactly OLD_TEXT and the broad_re line gives the original
+    reviewed bytes."""
+    text = HOOK.read_text(encoding="utf-8")
+    assert text.count(NEW_BROAD_RE + "\n") == 1
+    old = undo(text, OLD_TEXT).replace(NEW_BROAD_RE + "\n", OLD_BROAD_RE + "\n").encode("utf-8")
     assert hashlib.sha256(old).hexdigest() == OLD_HOOK_SHA256
 
 
