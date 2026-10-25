@@ -1565,12 +1565,23 @@ def _header_sub(text: str, tally: _Tally) -> str:
     """`_HEADER_RE.sub(_header_value, text)`, where a header's redaction may reach past
     its line (`_header_redaction`'s `reach`: a secret-named flag's folded value, a lone
     flag's, a refused `Bearer`'s next line). Each search starts where the last
-    replacement ended, as `re.sub`'s do."""
+    replacement ended, as `re.sub`'s do. The part of a header's name before its header
+    word goes when it reads as a secret (`_secret_prefix`), as the inline rule's does,
+    so a name the inline rule cannot read, parted from its colon by a line break or
+    other whitespace than spaces and tabs (`SECRET7…Cookie` and `: v` on the next line),
+    loses it too (#239 review r4, P3-4)."""
     parts: list[str] = []
     cursor = 0
     while (match := _HEADER_RE.search(text, cursor)) is not None:
-        out, stop = _header_redaction(text, match.start(), match.end(1), match.end(), reach=True)
-        parts.extend((text[cursor:match.start()], tally(text[match.start():stop], out, header=True)))
+        start = match.start()
+        out, stop = _header_redaction(text, start, match.end(1), match.end(), reach=True)
+        name = _VISIBLE_RE.search(text, start).start()
+        word = _secret_prefix(text, name, _last_visible(text, text.rfind(":", name, match.end(1))) + 1)
+        if word is None:
+            parts.extend((text[cursor:start], tally(text[start:stop], out, header=True)))
+        else:
+            parts.extend((text[cursor:name], tally(text[name:word], REDACTED),
+                          tally(text[word:stop], out[word - start:], header=True)))
         cursor = stop
     parts.append(text[cursor:])
     return "".join(parts)
@@ -1676,6 +1687,17 @@ def _header_redaction(text: str, start: int, value_start: int, end: int, *,
     # Before a closing quote, the whitespace that parts a kept flag from the quote stays:
     # it is what lets the flag own the quoted value after it.
     return text[start:value_start] + REDACTED + parted + text[key:end if quoted else last], end
+
+
+def _secret_prefix(text: str, name: int, end: int) -> int | None:
+    """Where the header word that ends the header name `text[name:end]` starts, when
+    the part of the name before that word holds a run that reads as a secret
+    (`_value_runs`: `SECRET7…Authorization`), which goes whatever becomes of the
+    header's value (#239 review r3, P3-B); None otherwise."""
+    word = _HEADER_WORD_RE.search(text, max(name, end - 13), end)
+    if word is None or word.start() <= name or not _value_runs(text[name:word.start()]):
+        return None
+    return word.start()
 
 
 def _header_name_at(text: str, key: int) -> bool:
