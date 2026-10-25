@@ -4194,5 +4194,135 @@ the Swift probe's input bytes and cached native binary are unchanged.
 
 Fresh full-file loaded repetitions and the remaining coverage stay queued
 through the same host lock, one at a time. The job began at **00:40:25 UTC**;
-the mandatory cutoff for starting work is **05:10:25 UTC**. The queue owner
+the mandatory cutoff for starting holds is **05:10:25 UTC**. The queue owner
 also stops a queued or active owned process tree at that cutoff.
+
+#### Fresh loaded repetitions and final status
+
+**3 of 5** requested clean repetitions completed before the mandatory
+cutoff. The initial `loaded-1` attempt remains excluded. Every fresh repetition
+uses both complete fix10/fix11 files, four ready bounded busy loops, and at most
+four pytest workers, in its own lock hold.
+
+| Fresh repetition | Passed / failed / setup errors | Status |
+| --- | --- | --- |
+| 1 (`loaded-clean-1`) | 34 / 0 / 0 | Clean; 194.11 s; busy loops covered pytest and were reaped. |
+| 2 (`loaded-clean-2`) | 34 / 0 / 0 | Clean; 188.26 s; busy loops covered pytest and were reaped. |
+| 3 (`loaded-clean-3`) | 34 / 0 / 0 | Clean; 220.58 s; busy loops covered pytest and were reaped. |
+| 4 (`loaded-clean-4`) | 0 / 0 / 0 | Queued but never admitted before cutoff. |
+| 5 (`loaded-clean-5`) | — | Not started. |
+
+Repetition 1's busy PIDs were **9656, 9658, 9659, 9660**, all reaped with **-15**.
+No descendant remained. All **21** native streaming scenes recorded **0 pt**
+maximum sampled drift, over horizons **6.312985–8.302868 s**. The delayed text
+scene delivered **89** events, **16** between notices and **3** after consumption;
+the delayed tool scene delivered **31**, **4** and **3** respectively. The
+late-consumption scene delivered **34**, with its original 16-event prefix
+before consumption, **7** arrivals between notices and **3** after consumption.
+The lifecycle precondition held and its position stayed at offset **2429 pt**,
+**5636 pt** from the end, with **0 pt** drift.
+
+Completed fresh repetitions, independently verified from native captures:
+
+| Repetition | Events: normal text / tool / delayed text / delayed tool / late tool | Max drift / horizon range | Busy PIDs, all reaped -15 |
+| --- | --- | --- | --- |
+| loaded-clean-1 | 50 / 17 / 89 / 31 / 34 | 0 pt / 6.312985–8.302868 s | 9656, 9658, 9659, 9660 |
+| loaded-clean-2 | 50 / 17 / 89 / 32 / 31 | 0 pt / 6.302910–7.676685 s | 36833, 36843, 36846, 36847 |
+| loaded-clean-3 | 50 / 19 / 88 / 32 / 48 | 0 pt / 6.300545–12.609227 s | 81304, 81314, 81317, 81320 |
+
+Each completed repetition records 21 streaming scenes, including the original
+late-consumption prefix, post-consumption output and the delayed-notice cases.
+Every completed lifecycle case observes suspension at injection and an actual
+new-live follow decision while suspended.
+
+The second fresh repetition queued at **04:31:31 UTC** and was admitted to slot
+B at **04:56:31 UTC**. The supplied wrapper had closed B when free disk fell
+below its **50 GB** threshold; no threshold or lock was overridden. The
+repetitions remain strictly sequential, including process cleanup. The job's
+**05:10:25 UTC** cutoff stops the owned queue or active tree and prevents any
+further hold from starting.
+
+#### Unexplained unpaused opening and uncompleted work
+
+The earlier r4 unpaused **100 ms** opening at **24 pt** remains **unclassified**.
+This round's unchanged unpaused control passed in each completed view/load
+hold below; these are after-open / after-output distances, in points:
+
+| Hold | 100 ms opening |
+| --- | --- |
+| `required-views` | 18165 / 18780 |
+| `loaded-1` | 15742 / 15945 |
+| `loaded-clean-1` | 19113 / 19536 |
+| `loaded-clean-2` | 19018 / 19457 |
+| `loaded-clean-3` | 19113 / 19457 |
+
+The controlled paused-catch-up replay with the **3 s marker-disappearance hook**
+also passed in those holds. These successes do not explain the earlier failure
+or establish that its near-end position was legitimate.
+
+A separate instrumented unpaused replay was prepared in scratch with nine
+modes: control, delayed marker disappearance, first notice, second notice,
+reveal start, combined marker/first-notice, combined marker/second-notice,
+post-consumption pause and combined marker/post-consumption. It did **not**
+execute before the cutoff. The existing unpaused control records final
+positions rather than the full causal timeline; without an executed failing
+trace, this round makes no scheduling/product classification and no speculative
+shipping-code change.
+
+Still uncompleted at the cutoff:
+
+- **2** additional clean full-file loaded repetitions.
+- `test_c29_7_property_receipts_never_flicker_a_send_out_of_the_timeline` and all
+  **15** `test_queue_tray_view.py` cases; the earlier setup errors are retained
+  in the ledger rather than counted as passes.
+- Six remaining checks in `test_review_r219_fix8_mutations.py`: notice visibility,
+  full-history hydration, per-receipt sorting, all-row reveal keys, and both
+  named settling controls. The completed known-receipt mutation and scratch
+  repaired-overlap position kill are the only round-5 kills claimed here.
+- All eleven additional files listed in the discovered follow/reveal coverage
+  inventory above, including `test_queue_tray_fix4_mutations.py`.
+- All nine instrumented unpaused-opening replay modes.
+
+#### Round-5 mutant ledger
+
+| Mutant | Catching assertion / result |
+| --- | --- |
+| Repaired overlap-only loss | Gated control passes. Background timing/count/fold checks pass, then `assert_stream_retains_position` rejects `landed.from_end > 600`; actual **24 pt**. |
+| `uimodel_drops_known_receipts` | Rejected by `test_real_uimodel_reopen_fetches_no_known_receipt`. |
+| `notice_sets_at_bottom_false`, `hydrate_full_history`, `sort_per_receipt`, `key_on_all_rows`, `settling_stops_follow_at_end` | Six required checks remain uncompleted this round; no new kill is claimed. |
+
+#### Delivery
+
+Step commits before this final ledger: `de8663452` (scheduling red), `ce4e972fd`
+(ongoing cadence and deterministic live-turn gate), `29b2703ac` (design §12),
+`8a9513170` (original late-consumption prefix bound), and `d121b4083` (mechanism
+and validation checkpoint). Only the five named test/documentation files
+changed; no shipping Swift source or acceptance-contract clause changed.
+The final ledger is committed separately. All commits carry the required
+coauthor trailer. Shared Git metadata is read-only, so commits are on
+`fix/qt-distant-reveal-flake-217` in workspace-local `.git-local`; the original
+`.git` pointer is unchanged. A delivery bundle is retained separately from
+repository history. Nothing was fetched, pushed, or posted to the PR, and no
+sub-agents were used.
+
+Final cleanup verified every tracked PID against its recorded birth time and
+found no live owned child or native compiler/probe. The cutoff cancelled queue
+PIDs **42930** and **31108**; both identities are gone. No signal was denied.
+The scratch root, its venv/caches/Hypothesis storage and the frontend-probe
+symlink were removed after that audit. No workspace `.hypothesis` remains;
+the existing `.coverage` file and original `.git` pointer were preserved.
+Only workspace-local Git metadata and the separate delivery bundle remain.
+
+PR-body lines:
+
+> Replace finite background replay input with an independent deadline-bounded
+> cadence that continues for three ticks after actual reveal consumption;
+> preserve ordering, inter-notice overlap, post-consumption folds and position.
+>
+> The same 3 s notice delay fails both old scenes and passes the replacement;
+> the repaired overlap mutant still fails on position (24 pt; required >600).
+>
+> Align design §12 with suspended settling and prove a new live turn while
+> suspension is active. Validation: 43 required view cases and the completed clean
+> 34-case loaded repetitions pass (**3/5**); the remaining
+> listed suites are incomplete. The prior unpaused 100 ms failure is unresolved.
