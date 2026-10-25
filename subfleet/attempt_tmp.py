@@ -328,9 +328,9 @@ class AttemptTemp:
         search before its rename, once its entry passes the same identity check
         as after the rename; a crash-left tombstone, which no rename precedes,
         gets them before it is opened. No check or mode change follows a
-        symlink. A directory swapped in between a check and its mode change can
-        at most gain owner bits, and only if it is this user's; the check after
-        the rename then refuses it. A removal refused after a mode change puts
+        symlink. An entry swapped in between a check and its mode change can at
+        most gain owner bits, and only if it is this user's; the check after the
+        rename then refuses it. A removal refused after a mode change puts
         the folder back under its name with owner read, write and search added.
         """
         name = Path(record["path"]).name
