@@ -172,7 +172,7 @@ def offline_count_is_the_total():
             submit(service, harness, "build", f"build-{n}")
         service._admit()
         status = Offline(service.root).status()
-        assert len(status["jobs"]) == 50
+        assert len(status["running"]) == 50                 # offline lists 50 live jobs
         assert "(51 waiting)" in cli.format_status(status), "C-17.4: the offline count stopped at the 50 jobs listed"
 
 

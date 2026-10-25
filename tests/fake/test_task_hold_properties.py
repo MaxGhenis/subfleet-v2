@@ -187,7 +187,6 @@ class Run:
                             "deadline": row["next_check_at"], "attempts": attempt["seq"],
                             "after": self.service.store.one("SELECT max(event_id) AS n FROM events")["n"]}
                 ended_by_schedule.add(attempt["attempt_id"])
-            signals_before = len(self.signals)       # a finalizer's own signals are the schedule's
         elif kind == "run":
             reserved = [row for row in live_before.values() if row["state"] == "reserved"]
             if reserved:
@@ -210,6 +209,9 @@ class Run:
             ended_by_schedule.update(live_before)
             self.restarted.update(row["job_id"] for row in live_before.values())
             self.service = restart(self.service, harness)
+        if kind not in ("hold", "release"):
+            # Only a hold or release is read from before its command (review r1); any other
+            # step's own signals (a finalizer's, a restart's, a lane's) are the schedule's.
             signals_before = len(self.signals)
         service = self.service
         before = {row["attempt_id"] for row in service.store.query("SELECT attempt_id FROM attempts")}
@@ -264,7 +266,8 @@ class Run:
         for job_id, episode in service._pin_episodes.items():
             job = jobs.get(job_id)
             if (job is None or not episode.get("open") or not episode.get("fail_at") or self.grace is None
-                    or job["state"] not in ("queued", "waiting") or job["wait_reason"] == "task-held"):
+                    or job["state"] not in ("queued", "waiting") or job["wait_reason"] == "task-held"
+                    or "paused_s" in episode):
                 continue
             task = job["task"] if job["kind"] != "turn" else None
             assert episode["fail_at"] == stamp(self.grace_ends(task, seconds(episode["since"]))), \

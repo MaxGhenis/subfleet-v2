@@ -377,7 +377,7 @@ def test_status_counts_every_held_job_past_the_jobs_it_lists(held, reader):
     assert [row["job_id"] for row in attempts(service)] == [review]
     status = service.dispatch("daemon.status", {}) if reader == "daemon" else Offline(service.root).status()
     if reader == "offline":
-        assert len(status["jobs"]) == 50                    # the listing is capped; the count is not
+        assert len(status["running"]) == 50                 # the listing is capped; the count is not
     assert [(row["task"], row["waiting"]) for row in status["task_holds"]] == [("build", 51)]
     assert "build until 2099-06-01T00:00:00Z (51 waiting)" in cli.format_status(status)
 
@@ -438,16 +438,18 @@ def test_a_reset_credit_is_never_spent_for_a_held_job(held):
 
 # --- storage: a lease row, no schema change ----------------------------------------------------
 
-def test_the_store_keeps_schema_7_and_a_hold_survives_a_restart(held):
+def test_a_hold_needs_no_schema_change_and_survives_a_restart(held):
+    """The hold is a `leases` row. It was built at schema 7; release/217, merged in at f6612e160,
+    moved the store to schema 9 with job and attempt columns only, and a hold adds nothing."""
     service, harness, clock = held
-    assert SCHEMA_VERSION == 7
     hold(service, "build", stamp(3600))
     build = submit(service, harness, "build", "build-1")
     service._admit()
     # A second connection, as a restarted daemon's or the offline reader's would be.
     reopened = Store(service.root / "state.sqlite3", read_only=True)
     try:
-        assert reopened.one("SELECT max(version) v FROM schema_version")["v"] == 7
+        assert reopened.one("SELECT max(version) v FROM schema_version")["v"] == SCHEMA_VERSION
+        assert reopened.one("SELECT 1 FROM sqlite_master WHERE name LIKE '%task_hold%'") is None
         row = reopened.one(task_holds.ROW_SQL, (task_holds.lease_key("build"),))
         assert (row["holder"], row["expires_at"]) == (f"operator: {NOTE}", stamp(3600))
         assert task_holds.in_force([row], stamp(1)) == {"build": {"task": "build", "until": stamp(3600),
