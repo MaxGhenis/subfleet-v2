@@ -912,6 +912,13 @@ TERMINAL_MODULES = frozenset({"subfleet/cli.py", "subfleet/compat.py", "subfleet
                               "subfleet/prune_decisions.py", "subfleet/gate/cli.py", "subfleet/sessions/cli.py"})
 #: The writer: what it writes to stderr itself is the formatter's output or fixed words.
 WRITER = "subfleet/daemon_log.py"
+#: Entry points that run only in a process of their own (#221 review r6, P2-1): the
+#: PreToolUse hook script and the review PATH wrappers that `review_publish` generates
+#: call them, so their stdout is a hook's reply and their stderr the review's shell, never
+#: daemon.log. A daemon loads both modules (through the adapters) but calls neither
+#: function; the guard test below keeps it so. Writes elsewhere in these modules count.
+OWN_PROCESS_ENTRY_POINTS = {"subfleet/publish_rule.py": frozenset({"hook_main"}),
+                            "subfleet/review_publish.py": frozenset({"wrapper_main"})}
 
 
 def _is_stream_write(node: ast.Call) -> bool:
@@ -930,13 +937,23 @@ def _is_raw_write(node: ast.Call) -> bool:
     return _is_stream_write(node) or ast.unparse(node.func) == "os.write"
 
 
+def _entry_point_calls(tree: ast.Module, names: frozenset[str]) -> set[int]:
+    """The ids of every call inside the module's top-level functions named in `names`."""
+    return {id(node) for function in tree.body if isinstance(function, ast.FunctionDef) and function.name in names
+            for node in ast.walk(function) if isinstance(node, ast.Call)}
+
+
 def stream_sites(source: str, path: str) -> list[str]:
     """Every write a module makes to its stdout or stderr past `daemon_log`, which are
-    daemon.log in a daemon, whatever it writes; and every write past the handler
-    (`os.write` too) that passes a caught exception raw, directly or through a
-    parameter of the module's own functions whose value reaches one."""
+    daemon.log in a daemon, whatever it writes (except inside the module's
+    OWN_PROCESS_ENTRY_POINTS); and every write past the handler (`os.write` too) that
+    passes a caught exception raw, directly or through a parameter of the module's own
+    functions whose value reaches one."""
+    tree = ast.parse(source)
+    exempt = _entry_point_calls(tree, OWN_PROCESS_ENTRY_POINTS.get(path, frozenset()))
     writes = [f"{path}:{node.lineno} writes {ast.unparse(node.func)}(…) past daemon_log"
-              for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Call) and _is_stream_write(node)]
+              for node in ast.walk(tree) if isinstance(node, ast.Call) and _is_stream_write(node)
+              and id(node) not in exempt]
     return writes + raw_log_sites(source, path, _is_raw_write, "written")
 
 
@@ -967,6 +984,33 @@ def test_the_terminal_modules_are_front_ends_a_daemon_does_not_load():
     assert "subfleet.daemon" in loaded
     names = {module[:-len(".py")].replace("/", ".") for module in TERMINAL_MODULES}
     assert loaded & names == set()
+
+
+def test_the_own_process_entry_points_run_only_from_the_generated_scripts():
+    """#221 review r6, P2-1: each exempt entry point exists and writes its streams (so
+    none is exempt for nothing); no module under subfleet/ calls or imports it; and
+    `review_publish` names each in the script it generates, which runs as its own
+    process. A write outside the named function is still a finding."""
+    every = set()
+    for module, names in OWN_PROCESS_ENTRY_POINTS.items():
+        tree = ast.parse((REPO / module).read_text(encoding="utf-8"))
+        functions = {f.name: f for f in tree.body if isinstance(f, ast.FunctionDef)}
+        for name in names:
+            assert name in functions, (module, name)
+            assert any(isinstance(n, ast.Call) and _is_stream_write(n) for n in ast.walk(functions[name])), (module, name)
+        every |= names
+    for path in sorted((REPO / "subfleet").rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        calls = [ast.unparse(n.func) for n in ast.walk(tree)
+                 if isinstance(n, ast.Call) and ast.unparse(n.func).rsplit(".", 1)[-1] in every]
+        imports = [a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) for a in n.names if a.name in every]
+        assert (calls, imports) == ([], []), str(path.relative_to(REPO))
+    generated = [n.value for n in ast.walk(ast.parse((REPO / "subfleet/review_publish.py").read_text(encoding="utf-8")))
+                 if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+    assert any("from subfleet.publish_rule import hook_main" in text for text in generated)
+    assert any("from subfleet.review_publish import wrapper_main" in text for text in generated)
+    assert stream_sites("def hook_main():\n    print('x')\ndef other():\n    print('y')\n",
+                        "subfleet/publish_rule.py") == ["subfleet/publish_rule.py:4 writes print(…) past daemon_log"]
 
 
 @pytest.mark.parametrize("source,found", [

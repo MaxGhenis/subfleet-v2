@@ -53,6 +53,13 @@ HOOK_KEY = "/<session-flags>/config.toml:pre_tool_use:0:0"
 HOOK_MATCHER = "Bash|apply_patch"
 HOOK_STATUS = "never-rules guard"
 HOOK_TIMEOUT = 60
+#: C-12.3, C-14.2: a review launch's publish hook (`subfleet.publish_rule`), the
+#: second PreToolUse group of the same override. Codex 0.159.0's hooks/list keys
+#: it `pre_tool_use:1:0` and trusts it with the same identity hash as the guard
+#: (probe, 2026-10-18). The guard's bytes, TRUST and its key are unchanged.
+PUBLISH_HOOK_KEY = "/<session-flags>/config.toml:pre_tool_use:1:0"
+PUBLISH_HOOK_MATCHER = "Bash"
+PUBLISH_HOOK_STATUS = "review publish guard"
 #: v1's variable, v1's meaning: seconds to wait for the hooks/list answer.
 TIMEOUT_ENV = "CODEX_GUARD_PREFLIGHT_TIMEOUT"
 DEFAULT_TIMEOUT_S = 60.0
@@ -77,6 +84,11 @@ _CACHE_CONFIG_FIX = (f"Set {CACHE_ENV} to an absolute path or to a relative path
 _PROBE_FIX = ("Read stderr_tail and exit_status in the attempt's guard-preflight.json (or run "
               "`subfleet doctor --live`) for the app-server's own error; trust remains unverified.")
 _ENVIRONMENT_FIX = "Put back the missing directory or binary named in the message, then rerun subfleet doctor."
+#: C-14.2 (D-SH1 round 8): the guard verified, so neither its TRUST pins nor
+#: `subfleet doctor`, which never runs the preflight with the publish hook, repair this.
+_PUBLISH_FIX = ("Read the hooks/list answer in the attempt's guard-preflight.json: it must list "
+                "<state root>/publish-guard/review-publish-hook once, enabled and trusted. subfleet doctor does "
+                "not check this hook. Until it verifies, run the review on a Claude model (for example -m opus).")
 
 # Refusal kinds (PreflightResult.kind): what the verdict rests on.
 VERIFIED = "verified"        # hooks/list answered and matched
@@ -87,6 +99,7 @@ VERSION = "version"          # installed Codex differs from the pinned version
 CONFIG = "config"            # the preflight itself was misconfigured (deadline)
 ENVIRONMENT = "environment"  # jq, the binary, the home, the workdir or the scratch root is missing
 PROBE = "probe"              # app-server died, could not be started, or answered unusably
+PUBLISH = "publish"          # the guard verified; hooks/list did not trust a review's publish hook
 
 
 @dataclass(frozen=True)
@@ -154,27 +167,52 @@ def _hook_command(hook_path: str | Path) -> str:
     return "'" + path.replace("'", "'\\''") + "'"
 
 
-def hooks_trust_hash(hook_path: str | Path, *, timeout: int = HOOK_TIMEOUT) -> str:
-    """Codex's normalized identity hash, with v1's jq -cnS byte encoding."""
+def _identity_hash(command: str, matcher: str, status: str, timeout: int) -> str:
     identity = {
         "event_name": "pre_tool_use",
-        "matcher": HOOK_MATCHER,
-        "hooks": [{"type": "command", "command": _hook_command(hook_path),
-                   "timeout": timeout, "async": False, "statusMessage": HOOK_STATUS}],
+        "matcher": matcher,
+        "hooks": [{"type": "command", "command": command,
+                   "timeout": timeout, "async": False, "statusMessage": status}],
     }
     encoded = json.dumps(identity, ensure_ascii=False, sort_keys=True,
                          separators=(",", ":")).encode("utf-8")
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
-def override_string(hook_path: str | Path) -> str:
-    """Return v1's complete ``-c`` argument, including the ``hooks=`` prefix."""
-    command = _hook_command(hook_path).replace("\\", "\\\\").replace('"', '\\"')
-    return (
-        f'hooks={{PreToolUse=[{{matcher="{HOOK_MATCHER}",hooks=[{{type="command",'
-        f'command="{command}",timeout={HOOK_TIMEOUT},statusMessage="{HOOK_STATUS}"}}]}}],'
-        f'state={{"{HOOK_KEY}"={{trusted_hash="{hooks_trust_hash(hook_path)}",enabled=true}}}}}}'
-    )
+def hooks_trust_hash(hook_path: str | Path, *, timeout: int = HOOK_TIMEOUT) -> str:
+    """Codex's normalized identity hash, with v1's jq -cnS byte encoding."""
+    return _identity_hash(_hook_command(hook_path), HOOK_MATCHER, HOOK_STATUS, timeout)
+
+
+def publish_trust_hash(command: str) -> str:
+    """The same identity hash for the publish hook's group (`PUBLISH_HOOK_KEY`)."""
+    return _identity_hash(command, PUBLISH_HOOK_MATCHER, PUBLISH_HOOK_STATUS, HOOK_TIMEOUT)
+
+
+def _toml_text(text: str) -> str:
+    return text.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def override_string(hook_path: str | Path, *, publish_command: str | None = None) -> str:
+    """Return v1's complete ``-c`` argument, including the ``hooks=`` prefix.
+
+    With ``publish_command`` (a review launch, C-12.3) the publish hook follows
+    the guard as a second group with its own trusted state; without it the
+    string is v1's, byte for byte, which TRUST pins.
+    """
+    command = _toml_text(_hook_command(hook_path))
+    groups = (f'{{matcher="{HOOK_MATCHER}",hooks=[{{type="command",'
+              f'command="{command}",timeout={HOOK_TIMEOUT},statusMessage="{HOOK_STATUS}"}}]}}')
+    state = f'"{HOOK_KEY}"={{trusted_hash="{hooks_trust_hash(hook_path)}",enabled=true}}'
+    if publish_command is not None:
+        if any(ord(char) < 32 for char in publish_command):
+            raise ValueError("publish hook command must contain no control characters")
+        groups += (f',{{matcher="{PUBLISH_HOOK_MATCHER}",hooks=[{{type="command",'
+                   f'command="{_toml_text(publish_command)}",timeout={HOOK_TIMEOUT},'
+                   f'statusMessage="{PUBLISH_HOOK_STATUS}"}}]}}')
+        state += (f',"{PUBLISH_HOOK_KEY}"={{trusted_hash="{publish_trust_hash(publish_command)}",'
+                  'enabled=true}')
+    return f'hooks={{PreToolUse=[{groups}],state={{{state}}}}}'
 
 
 def guard_paths(state_root: str | Path | None = None, *,
@@ -541,7 +579,8 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
               trust_path: str | Path | None = None, timeout_s: float | None = None,
               use_cache: bool = True, cache_directory: str | Path | None = None,
               state_root: str | Path | None = None,
-              env: Mapping[str, str] | None = None, env_pass=()) -> PreflightResult:
+              env: Mapping[str, str] | None = None, env_pass=(),
+              publish_command: str | None = None) -> PreflightResult:
     """Fail closed on file, version, override, or runtime hooks trust drift.
 
     Callers should pass the lane home and job workdir. Omitting ``home`` uses
@@ -555,6 +594,8 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
     ``state_root`` (the daemon's root) places the scratch home and the markers;
     it defaults to ``$SUBFLEET_HOME``. Every refusal has code 7, a ``kind`` and an
     actionable fix. No provider work is run.
+    ``publish_command`` (a review launch, C-12.3) adds the publish hook to the
+    override, and hooks/list must then list it enabled and trusted too.
     ``env`` is the daemon's provider launch environment (C-10.8); an omitted
     environment reads the selected state root's policy (or uses defaults when
     there is no policy yet) and keeps operator overrides.
@@ -620,7 +661,7 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
             raise _Refusal(ENVIRONMENT, f"preflight Codex home is missing: {exc}", _ENVIRONMENT_FIX) from None
         if source_home is not None and not source_home.is_dir():
             raise _Refusal(ENVIRONMENT, "preflight Codex home must be an existing directory", _ENVIRONMENT_FIX)
-        override = override_string(hook)
+        override = override_string(hook, publish_command=publish_command)
         hooks_hash = hooks_trust_hash(hook)
         try:
             markers = Path(cache_directory) if cache_directory is not None else cache_dir(state_root)
@@ -679,6 +720,14 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
         if (entry.get("enabled") is not True or entry.get("trustStatus") != "trusted"
                 or entry.get("currentHash") != hooks_hash):
             raise _Refusal(TRUST, "Codex hooks/list guard is disabled, untrusted, or has a mismatched hash")
+        if publish_command is not None:
+            published = [item for item in data[0].get("hooks", [])
+                         if isinstance(item, dict) and item.get("key") == PUBLISH_HOOK_KEY]
+            if (len(published) != 1 or published[0].get("enabled") is not True
+                    or published[0].get("trustStatus") != "trusted"
+                    or published[0].get("currentHash") != publish_trust_hash(publish_command)):
+                raise _Refusal(PUBLISH, "Codex hooks/list did not list the review publish hook "
+                                        "exactly once, enabled and trusted with its hash", _PUBLISH_FIX)
         if data[0].get("errors"):
             raise _Refusal(TRUST, "Codex hooks/list reported errors")
         warnings = tuple(str(warning) for warning in data[0].get("warnings", []))

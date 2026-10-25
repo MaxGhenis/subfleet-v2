@@ -63,7 +63,8 @@
   "fallback": "upward-only",
   "permissions": {
     "build": "workspace-write",
-    "*": "read-only"
+    "*": "read-only",
+    "review": "worktree-write"
   },
   "network": {
     "codex_workspace_write": true
@@ -98,6 +99,14 @@
     "terra": {
       "provider": "codex",
       "id": "gpt-5.6-terra"
+    },
+    "luna": {
+      "provider": "codex",
+      "id": "gpt-6-luna"
+    },
+    "sol61": {
+      "provider": "codex",
+      "id": "gpt-6.1-sol"
     }
   },
   "retired": {
@@ -172,7 +181,7 @@
   "admission": {
     "lane_spread": 2,
     "weekly_reserve": 0.02,
-    "five_hour_reserve": 0.10,
+    "five_hour_reserve": 0.1,
     "desktop_recent_s": 1800,
     "machine_guard": null,
     "disk": {
