@@ -1797,6 +1797,14 @@ def _secret_flag(text: str, start: int, end: int) -> tuple[int, int] | None:
 #: A run of visible characters: a flag's value once folding puts a space before it.
 _VISIBLE_RUN_RE = re.compile(r"\S+")
 
+#: The last line on which a fold at a header's name found an item that owns a value past
+#: the line (`_fold_value`): the text, that line's start, and where the fold's span would
+#: have ended before the item. Every fold at a header's name on that line before that
+#: point takes nothing, so later ones read it here instead of walking the line's last
+#: identifier again, which made a line of such folds quadratic (#239 fix round 4). Only
+#: that answer is kept; `_scrub` clears it, so no text outlives its scrub here.
+_ENDS_EARLY: tuple[str, int, int] | None = None
+
 
 def _fold_value(text: str, end: int) -> tuple[int, int] | None:
     """The value the flag rule reads for a flag ending at `end` once daemon.log's
@@ -1810,7 +1818,8 @@ def _fold_value(text: str, end: int) -> tuple[int, int] | None:
     that line and owns a value past it (`_kept_span` would end the span before it):
     then the fold takes nothing, and the line is its own header's, whose rules read the
     item as they would with no fold before it (a header's lone flag takes the value on
-    the line after; #239 review r4, P3-1). A run that starts a header only the
+    the line after; #239 review r4, P3-1). It is decided once per line
+    (`_ENDS_EARLY`), as one line fold did before. A run that starts a header only the
     line-start rule reads there (`_parts_line_start_header`: `Set-Cookie` and `: v` on
     the next line) takes nothing too, and that rule takes the header's value whole.
     Elsewhere such an item that ends the run is left to its own rule, as an enclosing
@@ -1819,10 +1828,17 @@ def _fold_value(text: str, end: int) -> tuple[int, int] | None:
     if value == end or value >= len(text) or text[value] == "-":
         return None
     if _header_name_at(text, value):
+        global _ENDS_EARLY
+        early = _ENDS_EARLY
+        if early is not None and early[0] is text and early[1] <= value < early[2]:
+            return None
         stop = text.find("\n", value)
         stop = _last_visible(text, len(text) if stop < 0 else stop) + 1
         span = _kept_span(text, value, stop)
-        return span if span == (value, stop) else None
+        if span == (value, stop):
+            return span
+        _ENDS_EARLY = (text, text.rfind("\n", 0, value) + 1, value + 1 if span is None else span[1])
+        return None
     stop = _VISIBLE_RUN_RE.match(text, value).end()
     if _parts_line_start_header(text, end, value, stop):
         return None
@@ -2124,6 +2140,8 @@ def _scrub(text: str, strip_reminders: bool, *, multiline: bool = False) -> tupl
     text = _scrub_named_values(text, tally, quoted=True, multiline=multiline)
     text = _scrub_named_values(text, tally)
     text = _scrub_named_values(text, tally, flags=True)
+    global _ENDS_EARLY
+    _ENDS_EARLY = None
     return text, tally.total
 
 
