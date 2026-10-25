@@ -134,7 +134,9 @@ hands those commands to the analyzer.
 - **S5, env spellings are spellings** (r2). For every generated command over
   `<home>/.subfleet` or anything under it, swapping that prefix for `$SUBFLEET_ROOT`,
   `${SUBFLEET_ROOT}`, `$SUBFLEET_HOME` or `${SUBFLEET_HOME}` leaves the new hook's decision
-  unchanged; for the near-miss names `.subfleetx` and `.subfleet-old` the braced spellings
+  unchanged: the twin gets the decision of the same command over `$HOME/.subfleet`
+  (`${HOME}/.subfleet` for a braced twin) and of its source, whatever home spelling the source
+  used; for the near-miss names `.subfleetx` and `.subfleet-old` the braced spellings
   (the ones the shell reads as that path) do the same. The twin shares its source's context,
   searcher, quoting, slash and depth bound. Scale 1 swaps in every env spelling; scale N ≥ 2
   one per command, cycling with the home spelling, so every (root, context) cell meets all four.
