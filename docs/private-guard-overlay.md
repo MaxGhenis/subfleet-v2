@@ -85,7 +85,7 @@ are unchanged. The test fixture in `tests/fake/guard.py` is deliberately synthet
 and must never be staged as operator security policy. It is absent from both
 prepared distributions, and the runtime has no test-fixture fallback.
 
-## Policy revision: ~/.subfleet roots (D-LANE-SCOPE1, 2026-10-24; r2 2026-10-25)
+## Policy revision: ~/.subfleet roots (D-LANE-SCOPE1, 2026-10-24; r2 and r3 2026-10-25)
 
 The table above is the original pair of 2026-09-05. It is not the rollback: its TRUST
 (`0b9d688e…`) pins `codex-cli 0.153.3`, and staging it would make preflight refuse every
@@ -108,13 +108,31 @@ is edited in this overlay itself now: the Claude hook no longer carries it (its 
 `unscoped_search.py` on 2026-10-20), and the same roots go into that analyzer in one reviewed
 step.
 
+Its r3 (2026-10-25) judges path words on disk before the text rules: a root by name that names
+an existing non-directory (a file, or a link to one) is not broad, so `grep -rn x
+~/.subfleet/policy.json` passes; a root followed by a trailing `/*` (or a trailing run of `*` /
+`.*`, or a `**/`) is that root, for old roots and new (`rg foo ~/.subfleet/jobs/*`, `rg foo
+~/*`); and a glob whose literal folder can hold a root by name (`/`, `/Users`, `/private`, a
+home, its `Library` or `.subfleet`) is expanded by bash and judged by what it matches
+(`rg foo ~/Pol*` is denied, `grep -rn x ~/.subfleet/*.json` over files and a glob that matches
+nothing pass). Every direct child of `~/.subfleet` stays a root.
+
+**Against the Claude half** (`~/.claude/hooks/unscoped_search.py`, session 7f214082's): r3's
+decisions 1 and 3 now match it, a file is never a broad root and a glob that can match a root
+is judged by its matches (its snapshot-4, in verification on 2026-10-25), and its bare-`/*` rule
+is decision 2. Snapshot-4's two intended limits are this overlay's too: a glob in a folder that
+cannot hold a root by name is not listed, so a link inside it to a root is not followed
+(`rg x src/link-u*`), and zsh qualifiers (`*(/)`), `<1-9>` and extendedglob forms are not
+judged. The report's known limits list the rest; the trailing-`/*` entry left that list in r3.
+
 | File | SHA-256 |
 | --- | --- |
-| `never-rules-hook.sh` | `dbe21e1d9a2ed3f57a7675fd09d3f8cacb2f73a6bfec7fd22e800da3691a041c` |
-| `TRUST` | `aa09f53d283919930070e0ef576b73191e5f7fcc37af5d1955455bf21b96a2f0` |
+| `never-rules-hook.sh` | `2c3fbc1a6d563ee28e47d172343508d0613a9e7bb75567ec82a60e702980d7cf` |
+| `TRUST` | `12b5f31ae63c036f56f08d2fe9ab83154eab84bb1f6884d5d8b220a98ac758a2` |
 
 TRUST is the installed TRUST of 2026-09-29 (`b3193b97…`), changing only `hook_sha256` and
-appending two dated provenance additions (D-LANE-SCOPE1's three sentences and r2's one); `hooks_trust_hash` and
+appending three dated provenance additions (D-LANE-SCOPE1's three sentences, r2's one and r3's
+one); `hooks_trust_hash` and
 `override` hash the hook's identity, not its bytes, and do not move. The staging helper above
 refuses to replace a different overlay in place, so this revision is staged into a fresh state
 root and swapped in; `tests/unit/test_guard_subfleet_root.py` states and checks the rule's
