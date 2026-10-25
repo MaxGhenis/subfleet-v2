@@ -4,8 +4,9 @@ inspection receives no name the daemon withholds.
 r2 ran the real `CodexAdapter._launch` for codex-1 with the daemon's own
 credential additions and environment, and a fake `codex` that recorded names:
 the main launch withheld the hook, but the inspection (`isolation.inspect_codex`,
-an `app-server` read and an `mcp list`) received it, both for a lane held on the
-hook and for an ignored lanes.json row's hook. The inspection is covered twice
+an `app-server` read and an `mcp list`) received it, for each of its four inputs:
+a lane held on the hook, with and without its lanes.json row, and an ignored
+lanes.json row's hook, alone or after a good row. The inspection is covered twice
 now: the adapter passes its withheld names into the `build_environment` the
 inspection selects from, and the daemon's helper scope withholds them too.
 
@@ -60,19 +61,30 @@ def fake_codex(directory):
     return binary, record
 
 
+#: Review r2's four inputs, each a store and a lanes.json (review r1 of #262, P3-2).
+CASES = ["held-lane", "held-with-row", "ignored-row", "good-then-hook"]
+
+
 def hook_root(tmp_path, monkeypatch, case):
-    """Review r2's two stores. `held-lane`: claude-9 stored on the hook, with no
-    lanes.json row (held). `ignored-row`: claude-9 stored on its own variable, its
-    lanes.json row naming the hook (ignored at startup)."""
+    """Review r2's four stores. `held-lane`: claude-9 stored on the hook, with no
+    lanes.json row (held). `held-with-row`: the same store, its row still naming
+    the hook. `ignored-row`: claude-9 stored on its own variable, its lanes.json
+    row naming the hook (ignored at startup). `good-then-hook`: the same store,
+    with claude-9's good row and then a second row naming the hook."""
     root, _ = nine_root(tmp_path, monkeypatch, TOKEN)
-    if case == "held-lane":
-        write_roster(root, [nine_row(EIGHT) if row["lane_id"] == "claude-9" else row for row in roster(root)])
+    rows = roster(root)
+    if case in ("held-lane", "held-with-row"):
+        write_roster(root, [nine_row(EIGHT) if row["lane_id"] == "claude-9" else row for row in rows])
         store_as_round_four_left_it(root)
-        write_roster(root, [row for row in roster(root) if row["lane_id"] != "claude-9"])
+        if case == "held-lane":
+            write_roster(root, [row for row in roster(root) if row["lane_id"] != "claude-9"])
         assert stored(root)["claude-9"] == (EIGHT, 1)
     else:
         store_as_round_four_left_it(root)
-        write_roster(root, [nine_row(EIGHT) if row["lane_id"] == "claude-9" else row for row in roster(root)])
+        if case == "ignored-row":
+            write_roster(root, [nine_row(EIGHT) if row["lane_id"] == "claude-9" else row for row in rows])
+        else:
+            write_roster(root, [*rows, nine_row(EIGHT)])
         assert stored(root)["claude-9"] == (TOKEN, 1)
     monkeypatch.setenv(EIGHT, "SECRET7-eight")
     monkeypatch.setenv(SEVEN, "SECRET7-seven")
@@ -120,7 +132,7 @@ def inspection_runs(tmp_path, monkeypatch, case, scope):
 
 
 @pytest.mark.parametrize("scope", ["worker", "no-scope"])
-@pytest.mark.parametrize("case", ["held-lane", "ignored-row"])
+@pytest.mark.parametrize("case", CASES)
 def test_review_r2_the_isolated_inspection_receives_no_withheld_hook(tmp_path, monkeypatch, case, scope):
     """Review r2, P3-2: both inspection runs (`app-server`, `mcp list`) lack the
     hook the daemon withholds, inside the daemon's worker scope and outside every
