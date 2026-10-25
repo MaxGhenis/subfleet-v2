@@ -23,7 +23,10 @@ daemon's own reading of them:
 - T6 (clock neutrality): a job's pin grace ends where it would with the held
   intervals cut out of time: its episode's end is the model's, a job fails for its
   pin no earlier than that, and a retry a hold kept never starts before its backoff
-  ends and is due again at that end, not later.
+  ends and is due again at that end, not later;
+- T7 (no demand while held): no job a hold in force covers is reset-credit demand
+  (`_reset_demand`), read right after each step's command, before the pass has looked
+  at any job again (review r1's P2-3 window), and again after the pass.
 
 Bounded: 25 examples per property (`TASK_HOLD_EXAMPLES` resizes them), derandomized,
 no example database, so a plain run is repeatable and leaves no `.hypothesis`.
@@ -99,7 +102,7 @@ def grace_daemon(caps, grace):
 
 
 class Run:
-    """One schedule on one daemon, recording what each pass placed and checking T1, T3, T4 and T6."""
+    """One schedule on one daemon, recording what each pass placed and checking T1, T3, T4, T6 and T7."""
 
     def __init__(self, service, harness, clock, signals, *, grace: int | None = None):
         self.service, self.harness, self.clock, self.signals = service, harness, clock, signals
@@ -126,6 +129,14 @@ class Run:
         while (moved := since + self.grace + self.held_between(task, since, ends)) != ends:
             ends = moved
         return ends
+
+    def held_demand(self) -> list[tuple[str, str]]:
+        """T7: the reset-credit demand (`_reset_demand`, the timer's own read) that a hold in
+        force by the model covers: (request, task) for each such job. Empty when T7 holds."""
+        held, jobs = self.in_force(), self.jobs()
+        return [(self.by_request.get(item["job_id"], item["job_id"]), job["task"])
+                for item in self.service._reset_demand()
+                if (job := jobs.get(item["job_id"])) and job["kind"] != "turn" and job["task"] in held]
 
     def jobs(self) -> dict[str, dict]:
         return {row["job_id"]: dict(row) for row in self.service.store.query("SELECT * FROM jobs")}
@@ -213,9 +224,12 @@ class Run:
             # Only a hold or release is read from before its command (review r1); any other
             # step's own signals (a finalizer's, a restart's, a lane's) are the schedule's.
             signals_before = len(self.signals)
+        # T7: read in both runs of a differential alike (it writes nothing), checked below.
+        demand_before = self.held_demand()
         service = self.service
         before = {row["attempt_id"] for row in service.store.query("SELECT attempt_id FROM attempts")}
         service._admit()
+        demand_after = self.held_demand()
         made = [dict(row) for row in service.store.query("SELECT a.*, j.kind, j.task FROM attempts a "
                                                           "JOIN jobs j USING(job_id) ORDER BY a.rowid")
                 if row["attempt_id"] not in before]
@@ -233,6 +247,9 @@ class Run:
         # T1: nothing of a held task starts; turns are never held.
         for row in made:
             assert not (row["kind"] != "turn" and row["task"] in held), ("T1", row)
+        # T7: a held job is no reset-credit demand, before the pass looked at it again and after.
+        assert demand_before == [], ("T7 before the pass", step, demand_before)
+        assert demand_after == [], ("T7 after the pass", step, demand_after)
         # T4: an attempt live before the step is exactly as it was, unless the schedule itself moved it.
         live_after = {row["attempt_id"]: row for row in self.live()}
         for attempt_id, row in live_before.items():
@@ -392,7 +409,7 @@ def test_a_hold_is_in_force_exactly_before_its_end(task, until, now):
 # --- the properties against the mutants (opt-in) ------------------------------------------------
 
 PROPERTIES = {
-    "T1/T3/T4/T6": test_t1_t3_t4_t6_over_random_schedules,
+    "T1/T3/T4/T6/T7": test_t1_t3_t4_t6_over_random_schedules,
     "T2": test_t2_other_tasks_are_placed_as_with_no_hold,
     "T5": test_t5_turns_and_everything_else_ignore_a_hold_with_nothing_to_hold,
     "clock": test_a_hold_is_in_force_exactly_before_its_end,
