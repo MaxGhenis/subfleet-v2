@@ -16,6 +16,11 @@ from subfleet.contracts import Outcome, OutcomeClass
 from tests.disk_floor_model import stamp
 from tests.fake.test_admission_latency import submit_turn
 from tests.fake_adapter import FakeAdapter
+# Loaded here, as the test modules are collected, not first inside a Hypothesis example
+# (`fresh_daemon` uses its clock): it imports `tests.unit.test_disk_admission`, which
+# applies `@given` as it loads, and Hypothesis refuses that inside a running example
+# (`nested_given`), so a property file run alone failed its first example.
+import tests.fake.test_admission_ramp  # noqa: E402,F401
 
 NOTE = "uk-data batch release: no new builds"
 
