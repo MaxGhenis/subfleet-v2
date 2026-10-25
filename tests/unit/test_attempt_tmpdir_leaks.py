@@ -468,17 +468,23 @@ def test_t1_a_crash_in_remove_leaves_nothing_a_sweep_cannot_remove(tmp_path, kin
 
 # --- T2: release only on absence ---------------------------------------------------------------
 
-OPERATIONS = ["start", "finalize", "sweep", "vanish", "unmark", "lock", "crash", "swap", "advance"]
+OPERATIONS = ["finalize", "sweep", "vanish", "unmark", "lock", "crash", "swap", "advance"]
 
 
 @BOUNDED
-@given(st.lists(st.tuples(st.sampled_from(OPERATIONS), st.integers(0, 3), st.booleans()), min_size=1, max_size=30))
-def test_t2_a_record_is_released_absent_or_removed_only_when_nothing_of_it_is_left(steps):
+@given(st.lists(st.tuples(st.sampled_from(OPERATIONS), st.integers(0, 3), st.booleans()), min_size=1, max_size=24))
+def test_t2_a_record_is_released_absent_or_removed_only_when_nothing_of_it_is_left(middle):
     """A model of the daemon's sweeps over known allocations that a provider may
     delete, unmark or lock, whose path may be swapped, and whose removal may
     crash after its rename. After each step, an `absent` or `removed` receipt
     has its folder at neither its path nor its tombstone (T2). At the end, a
-    folder of this store's is a record's unless its path was swapped away (T1)."""
+    folder of this store's is a record's unless its path was swapped away (T1).
+
+    Every example starts four allocations and ends with sweeps a day apart, so
+    each one is released or held at the end: derandomized examples are small,
+    and without that frame only one in thirty reached a release."""
+    steps = [("start", index, False) for index in range(4)] + middle + [
+        ("sweep", 0, False), ("advance", 3, False), ("sweep", 0, False)]
     with tempfile.TemporaryDirectory(prefix="attempt-t2-") as directory:
         scratch = manager(Path(directory))
         store, clock = Sightings(), 1_000_000.0
@@ -511,9 +517,10 @@ def test_t2_a_record_is_released_absent_or_removed_only_when_nothing_of_it_is_le
                     (path / attempt_tmp.MARKER).unlink(missing_ok=True)
                 elif known and operation == "lock" and holds(path, key):
                     os.chmod(path, 0o000 if flag else 0o500)
-                elif (known and operation == "crash" and holds(path, key) and states[key] == "succeeded"
-                      and empties[key]):
-                    # A removal the gate allowed began, and the daemon died after its rename.
+                elif known and operation == "crash" and holds(path, key):
+                    # It ended with a verified-empty census, its removal began, and
+                    # the daemon died after the rename.
+                    states[key], empties[key] = "succeeded", True
                     os.rename(path, tombstone_of(scratch, records[key]))
                 elif known and operation == "swap" and holds(path, key):
                     path.rename(scratch.root / f"aside-{index}-{len(steps)}-{clock}")

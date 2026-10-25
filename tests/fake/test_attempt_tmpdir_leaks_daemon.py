@@ -80,8 +80,7 @@ def test_p3_1_a_tombstone_a_crash_left_is_finished_after_restart(routing_state, 
     clock = [1_000_000.0]
     monkeypatch.setattr(daemon_module.attempt_tmp.time, "time", lambda: clock[0])
     try:
-        sizes = dict(retention.job_tmpdirs(restarted.store, restarted.root, job_id=attempt["job_id"]))
-        assert Path(sizes[attempt["job_id"]]["path"]).name == tomb, "its bytes still count, at the tombstone"
+        counted = dict(retention.job_tmpdirs(restarted.store, restarted.root, job_id=attempt["job_id"]))
         if marker:
             restarted._sweep_attempt_tmpdirs()
             assert leftovers(restarted) == [tomb] and "removed_at" not in tmpdir_of(restarted, attempt)
@@ -91,9 +90,11 @@ def test_p3_1_a_tombstone_a_crash_left_is_finished_after_restart(routing_state, 
             restarted._sweep_attempt_tmpdirs()
             clock[0] += DAY
         record = tmpdir_of(restarted, attempt)
-        assert record["outcome"] == "removed" and record["removed_at"], record
+        assert record.get("outcome") == "removed" and record["removed_at"], record
         assert record["bytes_at_cleanup"] >= 65536
         assert leftovers(restarted) == [] and events(restarted, "tmpdir.unknown_seen") == []
+        found = counted.get(attempt["job_id"])
+        assert found and Path(found["path"]).name == tomb, "while there, its bytes counted at the tombstone"
     finally:
         restarted.close()
 
@@ -137,7 +138,7 @@ def test_p3_2_an_unreadable_top_folder_is_removed_by_the_sweep(routing_state, mo
     try:
         service._sweep_attempt_tmpdirs()
         record = tmpdir_of(service, attempt)
-        assert record["outcome"] == "removed" and record["cleared_at"] and record["removed_at"]
+        assert record.get("outcome") == "removed" and record["cleared_at"] and record["removed_at"], record
         assert leftovers(service) == []
     finally:
         if folder.exists():
