@@ -17,10 +17,10 @@ Review r4's executed inputs are regressions, each failing at c469f44b6:
   it `[REDACTED]Cookie:`, kept the words the fold put after its redacted value.
 
 One class found this round beyond review r4, which shows a value both references hide at
-c469f44b6 and 902cfe90a, is a regression too: a fold whose run starts a line-start header
-whose name its colon parts by whitespace other than spaces and tabs, which only the
-line-start rule reads, took the start of that name and left the header's value to the
-plain rule.
+c469f44b6 and 902cfe90a, is a regression too: a fold, or a refused `Bearer`'s line, whose
+run starts a line-start header whose name its colon parts by whitespace other than spaces
+and tabs, which only the line-start rule reads, took the start of that name (or all of
+it) and left the header's value to the plain rule.
 
 P3-3's mutant MQ2 is committed here as a mutant the count test kills. P3-2's kinds of
 over-redaction are pinned at their exact output. Invariant 6 (a header whose whole value
@@ -185,6 +185,7 @@ def test_no_cell_of_p3_1_s_class_shows_what_a_reference_hides():
 
 
 # --- P3-4's edge in the folds: a line-start header that only `_HEADER_RE` reads -------
+# (a fold, or the line a header's refused `Bearer` takes)
 
 #: A fold whose run starts a line-start header whose name its colon parts by whitespace
 #: other than spaces and tabs (`Set-Cookie` and `: v` on the next line): `_header_name_at`
@@ -194,11 +195,22 @@ def test_no_cell_of_p3_1_s_class_shows_what_a_reference_hides():
 #: run or was the rule that folded, never read that header, and the plain rule took only
 #: the value's first word. Found this round beyond review r4 (it shows at c469f44b6 and
 #: 902cfe90a; 473fe2941 and c2e080e44 hide it), with the fourth input, which P3-1's fix
-#: routed into it.
+#: routed into it. The line a header's refused `Bearer` takes (`_refused_bearer`) ended
+#: the same way, a value the plain rule does not read (`;v …`) lost the whole name, and
+#: the `Bearer` rule took the part of the name before its credential word when that read
+#: as a token (`SECRET7…Set-Cookie`).
 FOLD_AT_LINE_START = {
     "lone-flag": ("Cookie: --password\nSet-Cookie\n: v SECRET7v2", "Cookie: [REDACTED]\nSet-Cookie\n: [REDACTED]"),
     "secret-flag": ("Cookie: x --SECRET7a1_token\nSet-Cookie \n: v SECRET7v2", "Cookie: [REDACTED]\nSet-Cookie \n: [REDACTED]"),
     "bearer": ("Bearer --SECRET7a1_token\nSet-Cookie\n: v SECRET7v2", "Bearer [REDACTED]\nSet-Cookie\n: [REDACTED]"),
+    "vertical-tab": ("Cookie: --password\nSet-Cookie\x0b: v SECRET7v2", "Cookie: [REDACTED]\nSet-Cookie\x0b: [REDACTED]"),
+    "unread-value": ("Cookie: --password\nSet-Cookie\n: ;v SECRET7v2", "Cookie: [REDACTED]\nSet-Cookie\n: [REDACTED]"),
+    "refused-bearer": ("Authorization: Bearer\nSet-Cookie\n: v SECRET7v2", "Authorization: [REDACTED]\nSet-Cookie\n: [REDACTED]"),
+    "inline-refused-bearer": ("x Cookie: Bearer\nSet-Cookie\n: v SECRET7v2", "x Cookie: [REDACTED]\nSet-Cookie\n: [REDACTED]"),
+    "bearer-token-like-name": ("Authorization: Bearer\nSECRET7ab1Set-Cookie\n: v SECRET7v2",
+                               "Authorization: [REDACTED]\n[REDACTED]Cookie\n: [REDACTED]"),
+    "bearer-token-like-name-same-line": ("Authorization: Bearer\nSECRET7ab1Set-Cookie\x0b: v SECRET7v2",
+                                         "Authorization: [REDACTED]\n[REDACTED]"),
 }
 ROUTED = ("api_key='xyz --SECRET7a1_token\n  Proxy-Authorization:Basic SECRET7c3'\xa0--SECRET7a1_token\n"
           "SECRET7ab1Set-Cookie \n: v SECRET7v2\n\nSECRET7c3")
@@ -206,8 +218,8 @@ ROUTED = ("api_key='xyz --SECRET7a1_token\n  Proxy-Authorization:Basic SECRET7c3
 
 @pytest.mark.parametrize("text,scrubbed", FOLD_AT_LINE_START.values(), ids=FOLD_AT_LINE_START.keys())
 def test_a_fold_leaves_a_line_start_header_to_the_line_start_rule(text, scrubbed):
-    """The fold takes nothing there, so the line-start rule takes the header's value whole,
-    in every mode, as both references do."""
+    """The fold, or the refused `Bearer`'s line, takes nothing there, so the line-start rule
+    takes the header's value whole, in every mode, as both references do."""
     _assert_hidden(text)
     assert _new_leaks(text) == {} and _splits(text) == [] and _unstable(text) == {}
     assert handoff.scrub_secrets(text)[0] == handoff.scrub_secrets(text, whole=True)[0] == scrubbed
@@ -222,23 +234,33 @@ def test_the_join_p3_1_s_fix_routed_into_that_class_hides_its_value():
 
 
 LINE_START_NAMES = ("Set-Cookie", "Authorization", "SECRET7ab1Set-Cookie")
+#: Headers whose value a `Bearer` ends, before a run that `Bearer` refuses as a key.
+REFUSED_BEARER_LEADS = ("Authorization: Bearer", "x Cookie: Bearer", "secret:'Cookie: Bearer")
+#: A value the plain rule reads, and one it does not (`;`), which a span took the whole
+#: name before.
+LINE_START_VALUES = ("v SECRET7v2", "Basic SECRET7v2", ";v SECRET7v2")
 #: Whitespace other than spaces and tabs between the name and its colon, which only
 #: `_HEADER_RE` reads (`\s*:`).
 LINE_START_SEPS = ("\n: ", "\x0b: ", "\x0c: ", "\xa0: ", "\r: ", " \n: ", "\n\n: ", "\u2028: ")
 
 
 def fold_at_line_start_matrix() -> list[str]:
-    """13 folding leads x 5 gaps x 3 names x 8 separators x 2 values: 3,120 cells."""
+    """16 leads (13 folding, 3 refused `Bearer`s) x 5 gaps x 3 names x 8 separators x 3
+    values: 5,760 cells."""
     return [lead + gap + name + sep + value for lead, gap, name, sep, value in itertools.product(
-        P3_1_CLASS_LEADS, HN_GAPS, LINE_START_NAMES, LINE_START_SEPS, ("v SECRET7v2", "Basic SECRET7v2"))]
+        (*P3_1_CLASS_LEADS, *REFUSED_BEARER_LEADS), HN_GAPS, LINE_START_NAMES, LINE_START_SEPS, LINE_START_VALUES)]
 
 
 def test_no_fold_hides_a_line_start_header_from_its_rule():
-    """All 3,120 cells: no mode shows the header's value (c469f44b6: 1,440 cells showed it,
-    720 of them where both references hide it), and none shows what a reference hides, cuts
-    an excerpt that disagrees with the whole text, or reveals on a second scrub."""
+    """All 5,760 cells: no mode shows the header's value (c469f44b6: 2,925 cells showed
+    it, 1,560 of them where both references hide it), and none shows what a reference
+    hides, cuts an excerpt that disagrees with the whole text, or reveals on a second
+    scrub. 285 of them, each a refused `Bearer` before a name that holds a secret part,
+    showed the value at c469f44b6 and in both references, and 75 of those where 3fbc4b7c5
+    hides it: the `Bearer` rule took that part (`[REDACTED]Cookie`) before any header rule
+    read the line."""
     cells = fold_at_line_start_matrix()
-    assert len(cells) == len(set(cells)) == 3120
+    assert len(cells) == len(set(cells)) == 5760
     assert [cell for cell in cells if any("SECRET7v2" in out for out in _outputs(handoff, cell).values())] == []
     assert _failures(cells) == CLEAN
 
