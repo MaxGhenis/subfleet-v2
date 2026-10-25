@@ -12,9 +12,10 @@ Review r3's executed inputs are regressions, each failing at 902cfe90a: five whe
 a fold that started at a header's name ate the name and left the rest of its line (P2-B),
 a header name holding a secret glued to a closing quote (P3-B), and a quoted inline
 header ending at the quote that opens a flag's quoted value (P3-C). The narrow P2-B fix
-the review measured (the fold returning None at a header's name) would show the secret in
-a header's name; its input is pinned too, as are the two over-redactions the fail-closed
-ruling accepts.
+the review measured (the fold returning None at a header's name) showed a secret held in a
+header's name; P3-B now takes that secret from the name, so the line fold and P3-B each
+hide that input, which is pinned as a guard on both. The two over-redactions the
+fail-closed ruling accepts are pinned too.
 
 The review's two generators were not kept; they are rebuilt here from what it states of
 them, at its sizes: the rules matrix (16 leads x 4 secret-named flags x 8 gaps x 20
@@ -69,9 +70,12 @@ P3_B = ('secret:"x"SECRET7abcAuthorization: B', 'secret:"[REDACTED]"[REDACTED]Au
 #: P3-C: a quoted inline header whose value ends at the quote that opens a flag's
 #: quoted value; the header took the flag and left its value.
 P3_C = ("curl -H 'Cookie: a=1 --password 'SECRET7c3'", "curl -H 'Cookie: [REDACTED] --password [REDACTED]")
-#: The leak the narrow P2-B fix opens (the fold returning None at a header's name): the
-#: name holds a secret, which the line forms then show (review r3: 3 of 4,500 joined
-#: texts). It is hidden at 902cfe90a too; it guards the fold's form.
+#: The leak the review found with the narrow P2-B fix (the fold returning None at a
+#: header's name) before P3-B: the name holds a secret, which daemon.log's line and
+#: `detail_line` show (review r3: 3 of 4,500 joined texts). The line fold takes the whole
+#: line, and P3-B takes the secret from the name, so either hides it; with both dropped it
+#: shows. It is hidden at 902cfe90a too, whose fold took the name's run. The pin is the
+#: output P3-B gives, the name's secret gone and its header word kept.
 NARROW = ("deploy --SECRET7abc1_token\nSECRET7nxt9Authorization: Basic x", "deploy [REDACTED]\n[REDACTED]Authorization: [REDACTED]")
 #: Fail closed (the hub's ruling, round 2, decision 2): a flag whose name holds a digit
 #: reads as secret-named, so it goes with the value the fold gives it. Stated
@@ -98,8 +102,9 @@ def test_review_r3_s_inputs_are_hidden_in_every_mode(text, scrubbed):
 
 
 def test_the_narrow_p2_b_fix_s_leak_stays_hidden():
-    """A fold that returned None at a header's name would leave `SECRET7nxt9` in the name
-    for the inline rule to keep; the fold takes that header's line instead."""
+    """A fold that returned None at a header's name, with no P3-B, left `SECRET7nxt9` in
+    the name for the line forms to show. P3-B takes it from the name first, and the fold
+    would take the line: either hides it."""
     text, scrubbed = NARROW
     _assert_hidden(text)
     assert _new_leaks(text) == {} and _splits(text) == []
