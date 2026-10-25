@@ -4000,3 +4000,199 @@ it is retained rather than deleting files still in use. Workspace-local
 `.git-local` metadata is retained because the shared index is read-only.
 Only named documentation files are staged; no evidence or logs are committed.
 Nothing was fetched, pushed, or posted to the PR, and no sub-agents were used.
+
+### Round-5 background schedule, canonical design and validation
+
+#### Deterministic scheduling red and replacement
+
+Review r4's P2 is a test-scheduling defect. The finite independent prefix can
+finish before either reveal notice, although the view retains its position.
+`de8663452` adds a **3 s** first-notice presentation pause in the probe only;
+the detached producer continues running. `red-notice` fails both new cases at
+`any(first < at < second for at in arrivals_at)`, after every position assertion
+passes. This uses a deliberate ordering rather than host load.
+
+| Old scene | First / second notice, s | Last independent prefix / reserved arrival, s | Offset throughout, pt | Inter-notice arrivals / maximum drift |
+| --- | --- | --- | ---: | --- |
+| Text, 50 events | 3.511808 / 4.077648 | 2.411032 / 4.077978 | 2604 | 0 / 0 pt |
+| Tool, 17 events | 3.438849 / 4.000804 | 2.266516 / 4.003480 | 2381 | 0 / 0 pt |
+
+`ce4e972fd` replaces the finite background schedule, including the stale-marker
+text/tool variants and `late_consumption_tool`. A detached task uses absolute
+50 ms text or 150 ms tool deadlines. Neither notice releases an arrival, and
+consumption does not release a reserved event. Consumption is a lock-protected
+termination observation: continue until the original minimum count (**50** or
+**17**) and at least **three** cadence ticks after consumption. A **60 s** total
+deadline sets `producer_deadline_exceeded`, which the regression rejects with
+complete diagnostics. This bounds a missing-consumption failure without
+turning the reveal into the producer's clock.
+
+The stream therefore outlasts a delayed reveal instead of guessing its duration.
+All actual sequence identities, arrival times, fold times and page counts are
+reported. Exact count assertions for background scenes are restated as **at
+least N**, with one page per actual event and equal arrival/fold counts. The
+order `arrivals[0] < first < second <= consumed < arrivals[-1]`, a strictly
+inter-notice arrival, post-consumption folds, distant landing, exact later
+offsets, the 6.3 s horizon and zero sampled drift retain their meaning. Early
+single arrivals and boundary bursts retain exact counts.
+
+The late-consumption scene shares the finite-prefix weakness. Its old
+penultimate-before/last-after check preserves the original **16-event prefix**
+before consumption and requires at least three cadence arrivals after it; it now also checks the full
+notice order and strict inter-notice overlap. It still pauses the second
+notice's presentation turn for **3 s**. This verifies ongoing output through
+that pause, rather than a specially released final event.
+
+`green-notice` passes both scenes with the **same first-notice pause** and the
+late-consumption scene. Its shared streaming fixture additionally executes all
+17 ordinary streaming scenes; those executions are not counted as extra pytest
+items.
+
+| Replacement scene | Actual events / inter-notice arrivals / arrivals after consumption | First / second notice, s | Consumption / last arrival, s | Landing offset / maximum drift, pt |
+| --- | --- | --- | --- | --- |
+| Delayed text | 85 / 11 / 3 | 3.510485 / 4.065261 | 4.065577 / 4.204545 | 1957 / 0 |
+| Delayed tool | 30 / 4 / 3 | 3.369778 / 3.940869 | 3.9412 / 4.3516 | 2380 / 0 |
+| Late-consumption tool | 30 / 4 / 3 | 0.3346 / 0.9009 | 3.9405 / 4.3503 | 2725 / 0 |
+
+#### Repaired overlap mutant and suspended live-turn lifecycle
+
+The scratch overlap mutant reproduces the repaired r4 construction in
+`UIWindow.followChanged`: schedule only when followed text grows with an
+outstanding search request; wait for that request's consumption, then jump to
+the end. Both scheduling and execution are recorded in the existing probe
+trace. Product sources are copied into scratch; no mutant is committed.
+
+`overlap-lifecycle` passes the unchanged gated 50 ms control, then verifies the
+background scene's full notice ordering, inter-notice arrival, post-consumption
+fold, complete event/page counts and final cursor before expecting a position
+failure. All **50** background events arrive and fold. The named catching
+assertion is **`assert_stream_retains_position`: `landed.from_end > 600`**;
+actual distance is **24 pt**. The test inspects the assertion's traceback, so a
+scheduling rejection cannot count as this mutant's kill.
+
+The new fix11 lifecycle case uses an explicit gate in the existing follow-test
+recorder: inject a provider/event-only turn at the second recorded reveal,
+when suspension has just been set. It also delays marker disappearance by
+**3 s**. Injection must observe suspension, and a real follow decision with
+`live_message=next-live`, `suspended=true`, `move=stay` must subsequently occur.
+No failed precondition is skipped or counted as lifecycle coverage.
+
+The first executed case records new-live decisions at **0.9702 / 1.3440 s**,
+both with stale `atBottom=true`, suspension true and `.stay`. Its landing and
+later output remain at offset **2174 pt**, **4916 pt** from the end, with **0 pt**
+maximum drift after the delayed marker publication. It passes alongside the
+gated control and mutant check in `overlap-lifecycle`, and is included in
+required and loaded fix11 runs.
+
+#### Canonical design
+
+Design §12 now states the round-3/4 decision explicitly: timeline approval/search
+reveals suspend settling and ordinary following even while the lazy end marker
+is stale. Actual marker appearance, or the matching completed reveal's
+presented geometry confirming that the end remains visible, releases suspension
+without scrolling. Catch-up resumes on the next changed key. The ordinary
+own-send exception remains. This matches C-27.5, C-29.7 and C-29.12; the
+acceptance contract's 255 clauses are unchanged.
+
+#### Validation method and discovered coverage
+
+Environment setup ran **once**, through `uv_sync_hold.sh`, offline, with
+`UV_CACHE_DIR` in `sf-qtflake5`. The created venv lacked wheel URL metadata for
+Pygments; recovery copied **eight exact locked packages** from local uv archive
+entries, including Hypothesis's CPython 3.14 Darwin extension. No download or
+second setup invocation occurred. Later, two small cached packages,
+**pytest-xdist 3.8.0** and **execnet 2.1.2**, were copied into the isolated venv
+for the permitted parallel holds, without another uv setup or download.
+Imports verified **CPython 3.14.7**, GIL
+build (`Py_GIL_DISABLED=0`), **pytest 9.1.1** and **Hypothesis 6.168.1**.
+
+Before the first timed hold, a scratch Swift program imported Foundation,
+AppKit, SwiftUI and Combine to warm the scratch module cache. All Swift and
+Clang module caches, probe binaries, exact-source probe cache, pytest basetemps,
+Hypothesis storage, logs and venv are beneath
+`$(getconf DARWIN_USER_TEMP_DIR)sf-qtflake5`. The repository's frontend-probe
+cache is only a symlink into that root. Existing finite Hypothesis settings
+remain in force; no workspace `.hypothesis` storage is used.
+
+The first warm used the host's default target. After the cold mutation hold,
+a second bounded warm compiled every application SDK import for the probes'
+**macOS 14 target**, successfully. Subsequent test owners explicitly pass
+`-module-cache-path` into the same scratch cache as well as setting both cache
+environment variables. This is an environment correction, not a change to
+application sources or assertions.
+
+Every pytest invocation runs once in a foreground Python owner admitted by
+`suite_hold.sh`, using the venv's GIL interpreter. Initial holds are serial;
+resumed core coverage uses at most four workers, grouping the tray view cases
+to avoid duplicate cold builds. The first loaded attempt used two workers grouped by file. Subsequent loaded
+attempts use four workers, grouping the 17-item streaming fixture and seven-item
+gated/opening fixture separately; independent cases share the remaining
+workers. Shared scene fixtures are not replicated across workers. The owner
+records call/setup/teardown outcomes and checks cleanup before returning.
+Initial owners have a **1,140 s** deadline; subsequent owners use **1,080 s** to
+leave additional cleanup time. A separate owner watchdog stops a hold after
+1,110 s if pytest's interrupt handling has not finished. Cold compiler waits
+are allowed up to 900 s within that hold bound; probe execution timeouts and
+all behavioral assertions remain unchanged. Worker-side process tracking records PID and
+birth time; cleanup checks both before signalling a surviving descendant.
+Holds are strictly sequential, including cleanup; the next hold is never
+queued while one of this job's earlier holds is active. Native windows remain
+offscreen.
+
+The requested recursive symbol search finds `ReviewR219Fix6ViewProbe.swift`,
+`ReviewR219Fix8ViewProbe.swift`, `ReviewR219ScrollProbe.swift`,
+`CoreProbeQueueEngine.swift`, `CoreProbeQueue.swift`, `test_core_queue_tray.py`
+and `test_review_r219_fix8_mutations.py`. In addition to the required files,
+their owning follow/reveal coverage includes:
+
+- `test_review_r219_fix4.py`, `test_review_r219_fix6.py`,
+  `test_review_r219_probes.py`, `test_reading_view.py`;
+- `test_core_queue_engine.py`, `test_core_approval_reach.py`,
+  `test_core_approval_notification.py`, `test_core_search.py`,
+  `test_core_timeline.py`, `test_review_r219_fix8_engine.py`;
+- `test_queue_tray_fix4_mutations.py`.
+
+These files are all under `tests/frontend/`. The required view list is split
+into a normal view hold and a mutation hold to stay within the hold deadline.
+
+#### Validation checkpoint before the fresh repetitions
+
+The following ledger is an in-progress checkpoint. Counts are pytest items,
+not native sub-scenes or Hypothesis examples. An interrupted hold is not a
+whole-suite pass.
+
+| Hold | Passed / failed / setup errors | Qualification |
+| --- | --- | --- |
+| `red-notice` | 0 / 2 / 0 | Expected scheduling failures on the old finite scene. |
+| `green-notice` | 3 / 0 / 0 | Same injected delay passes; late consumption also passes. |
+| `overlap-lifecycle` | 3 / 0 / 0 | Gated mutant control, position kill and suspended live turn. |
+| `required-views` | 43 / 0 / 0 | Complete fix11/fix10/fix9/fix8 view files. |
+| `required-mut` | 1 / 0 / 0 | Deadline during the second cold mutation compile. |
+| `required-core` | 42 / 0 / 0 | Deadline during core coverage. |
+| `required-core-rest` | 27 / 0 / 15 | Tray compile deadline; one core property unfinished. |
+| `loaded-1` | 33 / 0 / 0 | Deadline before the last delayed-tool case; not clean. |
+
+The two core holds complete **68** queue-core checks and the module-name check.
+The unfinished core property is
+`test_c29_7_property_receipts_never_flicker_a_send_out_of_the_timeline`.
+All **15** tray-view errors share the compiler timeout; none is a position
+assertion. The first mutation, `uimodel_drops_known_receipts`, is rejected by
+`test_real_uimodel_reopen_fetches_no_known_receipt`.
+
+The initial loaded attempt executes under owned workers **23738, 23745, 23748,
+23750**, all reaped with **-15**. All five fix11 cases pass, including the
+suspended-live-turn precondition. Its first/second unpaused distant opening
+controls pass too. No behavioral assertion fails, but its final delayed-tool
+case does not complete, so it contributes **zero** clean repetitions.
+
+The late-consumption prefix assertion was checked during this checkpoint:
+restoring `arrivals_at[15] < consumed_at` preserves all 16 original independent
+prefix arrivals before consumption, rather than merely one early arrival.
+All **three** completed native captures already meet that stronger original
+precondition. Commit `8a9513170` restores it before the fresh repetitions begin;
+the Swift probe's input bytes and cached native binary are unchanged.
+
+Fresh full-file loaded repetitions and the remaining coverage stay queued
+through the same host lock, one at a time. The job began at **00:40:25 UTC**;
+the mandatory cutoff for starting work is **05:10:25 UTC**. The queue owner
+also stops a queued or active owned process tree at that cutoff.
