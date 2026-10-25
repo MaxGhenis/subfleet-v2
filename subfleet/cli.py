@@ -64,7 +64,7 @@ from .client import (
     same_process,
     state_root,
 )
-from .contracts import (GIT_LOCATION_ENV, GIT_PATHSPEC_ENV, HOLD_NOTE_MAX, HOLD_NOTE_RULE, JOB_KINDS,
+from .contracts import (GIT_LOCATION_ENV, GIT_PATHSPEC_ENV, HOLD_NOTE_MAX, JOB_KINDS,
                         REQUEST_ID_MAX, STOP_BACKSTOP_S, STOP_GRACE_S, JobState, Sandbox, WAIT_POLL_MAX_S, Exit,
                         hold_note)
 from .offline import (KNOWN_SCHEMA_VERSION, Offline, OfflineUnavailable,
@@ -2305,8 +2305,8 @@ def cmd_lanes(args: argparse.Namespace) -> int:
         # daemon applies the same rule to every hold it writes.
         try:
             note = hold_note(note)
-        except ValueError:
-            return fail(Exit.INVALID_INPUT, f"lanes hold: {HOLD_NOTE_RULE}")
+        except ValueError as refused:           # the rule broken, never the note (review r1 of #263)
+            return fail(Exit.INVALID_INPUT, f"lanes hold: {refused}")
     elif limits and not (note or "").strip():
         return fail(Exit.INVALID_INPUT, "lanes release --limits: --note is required")
     elif note is not None and not limits:

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .capacity import desktop_excluded, identity_blocked
-from .contracts import hold_note_of
+from .contracts import hold_note_of, hold_source_shown
 from .guardian import atomic_publish
 from .quota_projection import weekly_projections
 
@@ -134,8 +134,15 @@ def closure_note(row: Mapping[str, Any]) -> str | None:
 
 
 def closure_row(row: Mapping[str, Any]) -> dict[str, Any]:
-    """D-STATUS-SRC1: a closure as `status --json` shows it: every field it had, with `kind` and `note`."""
-    return {**row, "kind": closure_kind(row), "note": closure_note(row)}
+    """D-STATUS-SRC1: a closure as `status --json` shows it: every field it had, with `kind` and `note`.
+
+    A hold whose stored note is withheld (`hold_note_of`) shows its
+    `source_event` withheld too, so the stored text reaches no reader."""
+    kind = closure_kind(row)
+    shown = {**row, "kind": kind, "note": closure_note(row)}
+    if kind == "hold" and "source_event" in row:
+        shown["source_event"] = hold_source_shown(row["source_event"])
+    return shown
 
 
 def _windows(lane: Mapping[str, Any]) -> dict[str, dict[str, Any]]:

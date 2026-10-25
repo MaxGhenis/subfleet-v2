@@ -62,7 +62,7 @@ from .contracts import (
     OWNED_CENSUS_INTERVAL_S, PROBE_RETRY_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
     WAIT_POLL_MAX_S, WAIT_RECHECK_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
     AttestationResult, ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
-    Reading, ReadingLabel, Sandbox, attempt_dir, HOLD_NOTE_RULE, hold_note, hold_source,
+    Reading, ReadingLabel, Sandbox, attempt_dir, hold_note, hold_source,
 )
 from .status_json import closure_row
 from .credentials import (env_references, ignored_hooks, reference_repair, resolve_credential, startup_lanes,
@@ -1362,9 +1362,12 @@ class Daemon:
                 instant = instant.replace(tzinfo=timezone.utc)
             try:
                 note = hold_note(a.note)
-            except ValueError:
-                raise protocol.ProtocolError(f"lanes hold: {HOLD_NOTE_RULE}", Exit.INVALID_INPUT,
-                                             reason="hold-note") from None
+            except ValueError as refused:
+                # The rule broken (`HOLD_NOTE_RULE` or `HOLD_NOTE_CREDENTIAL_RULE`),
+                # never the note: the wire, the log and the store never see it.
+                rule = str(refused)
+                raise protocol.ProtocolError(f"lanes hold: {rule}", Exit.INVALID_INPUT, reason="hold-note",
+                                             details={"hold_rule": rule}) from None
             until_utc = instant.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             data = {"until": until_utc} if note is None else {"until": until_utc, "note": note}
             with self.store.transaction("lane.held", lane_id=a.lane_id, data=data):

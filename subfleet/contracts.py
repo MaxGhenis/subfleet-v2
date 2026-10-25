@@ -388,6 +388,12 @@ class Closure:  # C-9.6
 HOLD_SOURCE = "operator"
 HOLD_NOTE_MAX = 160
 HOLD_NOTE_RULE = f"--note must be one line of 1 to {HOLD_NOTE_MAX} printable characters"
+#: C-9.6 (review r1 of #263): a note the C-23.14 scrubber would change is refused,
+#: not masked, as C-1.5 refuses such a request id and C-25.7 such a correlation id.
+#: Masking would change what the operator wrote, and the refusal never echoes it.
+HOLD_NOTE_CREDENTIAL_RULE = "--note must not carry a credential (the C-23.14 scrubber would change it)"
+#: What every reader shows for a stored note no writer here accepts (`hold_note_of`).
+HOLD_NOTE_WITHHELD = "[note withheld: it would carry a credential]"
 
 
 def hold_note(value: Any) -> str | None:
@@ -396,12 +402,18 @@ def hold_note(value: Any) -> str | None:
     The text is stripped of the whitespace around it and must then be one line
     of printable characters (`str.isprintable`: no newline, tab, control or
     separator character other than the space), from 1 to `HOLD_NOTE_MAX` of
-    them. Anything else raises ValueError, and the caller writes nothing."""
+    them, that the C-23.14 scrubber leaves whole, read from its start or from
+    just after any `-` or `_` (`ids.holds_credential`). Anything else raises
+    ValueError naming the rule it breaks, never the text, and the caller writes
+    nothing."""
     if value is None:
         return None
     note = value.strip() if isinstance(value, str) else ""
     if not note or len(note) > HOLD_NOTE_MAX or not note.isprintable():
         raise ValueError(HOLD_NOTE_RULE)
+    from .ids import holds_credential       # ids imports this module
+    if holds_credential(note):
+        raise ValueError(HOLD_NOTE_CREDENTIAL_RULE)
     return note
 
 
@@ -411,11 +423,29 @@ def hold_source(note: str | None) -> str:
 
 
 def hold_note_of(source_event: Any) -> str | None:
-    """The note an operator hold's `source_event` carries, or None (C-9.6)."""
+    """The note an operator hold's `source_event` carries, or None (C-9.6).
+
+    A stored note `hold_note` would refuse as a credential reads as
+    `HOLD_NOTE_WITHHELD`, so no reader (status, its JSON, the alerts, a session
+    notice) passes one on. Such a row comes only from a writer outside `lanes
+    hold`. So does a note longer than `HOLD_NOTE_MAX`, which is withheld
+    unread: reading it whole and from each joiner is work that grows with the
+    square of its length (a 2,000-character note takes seconds)."""
     prefix = f"{HOLD_SOURCE}: "
     if isinstance(source_event, str) and source_event.startswith(prefix):
-        return source_event[len(prefix):] or None
+        note = source_event[len(prefix):]
+        if not note:
+            return None
+        from .ids import holds_credential
+        return HOLD_NOTE_WITHHELD if len(note) > HOLD_NOTE_MAX or holds_credential(note) else note
     return None
+
+
+def hold_source_shown(source_event: Any) -> Any:
+    """A hold's `source_event` as a reader shows it: as stored, unless its note is
+    withheld (`hold_note_of`), when the stored text is replaced too."""
+    note = hold_note_of(source_event)
+    return hold_source(note) if note == HOLD_NOTE_WITHHELD else source_event
 
 
 #: C-17.1, C-26.12: the kinds the job ledger holds (`jobs.kind`), as the code
