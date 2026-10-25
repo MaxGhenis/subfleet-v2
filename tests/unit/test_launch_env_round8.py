@@ -549,15 +549,74 @@ SCOPES_WITHOUT_THE_DAEMONS_SET = {
 }
 
 
+def references(name, package=None):
+    """(path, enclosing function) of each use of `name` in the package that is
+    neither a direct call (`name(...)`, `module.name(...)`) nor an import under its
+    own name: an `import ... as`, an assignment, an argument, an attribute read."""
+    package = PACKAGE if package is None else package
+    found = set()
+    for path in sorted(package.rglob("*.py")):
+        tree, stack, where = ast.parse(path.read_text()), [], path.relative_to(package.parent).as_posix()
+
+        class Visitor(ast.NodeVisitor):
+            def visit_FunctionDef(self, node):
+                stack.append(node.name)
+                self.generic_visit(node)
+                stack.pop()
+
+            visit_AsyncFunctionDef = visit_ClassDef = visit_FunctionDef
+
+            def visit_Call(self, node):
+                # The called name itself is a direct call; what it is looked up on,
+                # and every argument, are still uses.
+                if isinstance(node.func, ast.Attribute):
+                    self.visit(node.func.value)
+                elif not isinstance(node.func, ast.Name):
+                    self.visit(node.func)
+                for child in (*node.args, *node.keywords):
+                    self.visit(child)
+
+            def visit_Name(self, node):
+                if node.id == name:
+                    found.add((where, ".".join(stack)))
+
+            def visit_Attribute(self, node):
+                if node.attr == name:
+                    found.add((where, ".".join(stack)))
+                self.generic_visit(node)
+
+            def visit_alias(self, node):
+                if node.name.rpartition(".")[2] == name and node.asname not in (None, name):
+                    found.add((where, ".".join(stack)))
+
+        Visitor().visit(tree)
+    return found
+
+
+def opts_out(call):
+    """Whether a `helper_policy(...)` call can open its scope without the daemon's
+    set: it has no `withheld=`, a constant one (`withheld=None`), or `**` keywords,
+    whose contents the lint cannot read."""
+    withheld = [keyword.value for keyword in call.keywords if keyword.arg == "withheld"]
+    return (not withheld or isinstance(withheld[0], ast.Constant)
+            or any(keyword.arg is None for keyword in call.keywords))
+
+
 def scopes_without_the_daemons_set(package=None):
-    """(path, function) of each `helper_policy` use in the package that opens a
-    scope without the daemon's withheld names."""
-    return {(path, function) for path, function, node in calls("helper_policy", package)
-            if not any(keyword.arg == "withheld" for keyword in node.keywords)}
+    """(path, function) of each `helper_policy` use in the package that opens, or
+    can open, a scope without the daemon's withheld names (review r1 of #262, P3-1).
+
+    The rule: every use of `helper_policy` is a direct call whose `withheld=` is
+    not a constant and which has no `**` keywords. Any other use is refused where
+    it is written, since the lint cannot follow the calls made through it; an
+    import under its own name is the one exception."""
+    return ({(path, function) for path, function, node in calls("helper_policy", package) if opts_out(node)}
+            | references("helper_policy", package))
 
 
 def test_every_helper_scope_passes_the_daemons_withheld_names():
-    """Source lint: every `helper_policy(` call passes `withheld=`, or is listed
+    """Source lint: every `helper_policy(` call passes a `withheld=` that is not a
+    constant and no `**` keywords, and is reached by its own name, or is listed
     with its reason; a listed one that starts passing it must leave the list."""
     assert scopes_without_the_daemons_set() == set(SCOPES_WITHOUT_THE_DAEMONS_SET)
 
