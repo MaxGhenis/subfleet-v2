@@ -252,7 +252,8 @@ def test_a_refused_hold_or_release_writes_nothing(held, args, reason):
 
 def test_a_note_at_the_limit_is_kept_whole(held):
     service, harness, clock = held
-    note = "n" * task_holds.NOTE_MAX
+    note = ("uk-data " * 20)[:task_holds.NOTE_MAX - 1] + "!"      # prose: a run of 100 letters reads as a token
+    assert len(note) == task_holds.NOTE_MAX
     assert hold(service, "build", stamp(60), note=f"  {note}  ")["task_hold"]["note"] == note
 
 

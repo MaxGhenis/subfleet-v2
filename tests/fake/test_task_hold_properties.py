@@ -109,7 +109,9 @@ class Run:
             detached = [row for row in live_before.values() if row["kind"] != "turn"]
             if detached:
                 attempt = detached[step[1] % len(detached)]
-                finish(service, attempt, retry=step[2])
+                # A transient end only below the job's last attempt: a job out of attempts fails
+                # for its own reason, which is no hold's, and T3 would read it as one.
+                finish(service, attempt, retry=step[2] and attempt["seq"] < 2)
                 ended_by_schedule.add(attempt["attempt_id"])
         elif kind == "run":
             reserved = [row for row in live_before.values() if row["state"] == "reserved"]
