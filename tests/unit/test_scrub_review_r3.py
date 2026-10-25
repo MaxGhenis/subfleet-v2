@@ -326,7 +326,11 @@ def test_no_drawn_join_of_the_pieces_shows_what_a_reference_hides(text):
 #: start at a header's name on one line, from quoted keys, bare flags, quoted inline
 #: headers and `Bearer` (P2-B); headers whose lone flag folds onto a header line (P2-B);
 #: folds that end in a flag (P2-A); header names holding a secret (P3-B); and flags
-#: before a closing quote (P3-C).
+#: before a closing quote (P3-C). And several flag-rule folds on one line, each at a
+#: quoted header's name (#239 review r4, P3-3): the inline header rule takes an
+#: unquoted header's rest of line first, so only a quoted one leaves the flag rule a
+#: fold per flag there, which a flag rule whose cursor stopped at the flag (MQ2) would
+#: compute again for every later flag on the line.
 COUNTED = {"quoted-keys-at-header-names": "api_key='x token'=--SECRET7a1_token Cookie:x ",
            "flags-at-header-names": "--SECRET7a1_token Cookie:x ",
            "quoted-inline-at-header-names": "-H 'Cookie: --SECRET7a1_token 'Cookie:x ",
@@ -334,17 +338,31 @@ COUNTED = {"quoted-keys-at-header-names": "api_key='x token'=--SECRET7a1_token C
            "lone-flag-header-lines": "Cookie: --password\nCookie:x v ",
            "folds-ending-in-a-flag": "--SECRET7a1_token\nKEY=--db3-password v\n",
            "secret-header-names": "x SECRET7ab1Authorization: v ",
-           "flags-before-a-closing-quote": "-H 'Cookie: a=1 --password 'v' "}
+           "flags-before-a-closing-quote": "-H 'Cookie: a=1 --password 'v' ",
+           "flag-folds-sharing-a-line": "--SECRET7a1_token 'Cookie:x' "}
 
 
-@pytest.mark.parametrize("unit", COUNTED.values(), ids=COUNTED.keys())
-def test_the_new_folds_read_each_line_once(unit, monkeypatch):
-    """Invariant 5's counts behind the cost (run b): at 4x input, `_kept_span` runs at
-    most 4x as often, once per fold where folds have lines of their own and once per line
-    where they share one (the quoted pass's union, and the flag and header rules'
-    cursors, stop later folds there), and the Python-level walk over identifiers grows
-    at most 4x, in the excerpt, whole-text and `detail_line` modes."""
-    from subfleet import refusals
+def _trailer(size: int) -> str:
+    """An identifier of about `size` characters ending in a credential word, which a fold
+    whose span ends at it walks back whole (`_key_past_line`). No token rule takes it:
+    its runs of `a` are 99 long, under `_LONG_BASE64_RE`'s 160, so it reaches the header,
+    plain and flag passes as written (review r4, P3-3: `"a" * size` was one base64 run,
+    which `[BASE64 OMITTED]` replaced before any fold could walk it)."""
+    return ("a" * 99 + "_") * (size // 100) + "password"
+
+
+def _counts(unit: str, monkeypatch) -> dict[str, list[dict[str, int]]]:
+    """For each mode (the excerpt, whole-text and `detail_line` scrubs), the `_kept_span`
+    calls and the Python-level identifier walk (`_identifier_char` calls) over `unit`
+    repeated 50 times before a 2,008-character trailer, and 200 times before an
+    8,008-character one: 4x input.
+
+    `detail_line`'s is the scrub of its prefixed text (`suggestions._scrub_line`), all of
+    its work that grows with the input. Its line bound's check (`suggestions.bounded`)
+    scrubs at most the 2,000 characters the line keeps, once the line is longer: a step,
+    not growth (434 walk calls on the lone-flag header lines, which round 4's P3-1 fix
+    first puts past the bound between 100 and 150 units, whatever the length after)."""
+    from subfleet.conversations import suggestions
     counts = {"kept": 0, "walk": 0}
     kept, walk = handoff._kept_span, handoff._identifier_char
 
@@ -357,13 +375,30 @@ def test_the_new_folds_read_each_line_once(unit, monkeypatch):
         return walk(char)
     monkeypatch.setattr(handoff, "_kept_span", counted_kept)
     monkeypatch.setattr(handoff, "_identifier_char", counted_walk)
-    for mode in (handoff.scrub_secrets, lambda text: handoff.scrub_secrets(text, whole=True),
-                 lambda text: refusals.detail_line("submit", ValueError(text))):
-        found = []
+    found = {}
+    for name, mode in (("excerpt", handoff.scrub_secrets), ("whole", lambda text: handoff.scrub_secrets(text, whole=True)),
+                       ("detail_line", lambda text: suggestions._scrub_line("request submit refused (ValueError): " + text))):
+        found[name] = []
         for repeats, tail in ((50, 2000), (200, 8000)):
             counts.update(kept=0, walk=0)
-            mode(unit * repeats + "a" * tail + "password")
-            found.append(dict(counts))
-        small, large = found
+            mode(unit * repeats + _trailer(tail))
+            found[name].append(dict(counts))
+    return found
+
+
+def _assert_linear(found: dict[str, list[dict[str, int]]]) -> None:
+    for small, large in found.values():
         assert large["kept"] <= 4 * max(small["kept"], 1), found
         assert large["walk"] <= 4.05 * small["walk"], found
+
+
+@pytest.mark.parametrize("unit", COUNTED.values(), ids=COUNTED.keys())
+def test_the_new_folds_read_each_line_once(unit, monkeypatch):
+    """Invariant 5's counts behind the cost (run b): at 4x input, `_kept_span` runs at
+    most 4x as often, once per fold where folds have lines of their own and once per line
+    where they share one (the quoted pass's union, and the flag and header rules'
+    cursors, stop later folds there), and the Python-level walk over identifiers grows
+    at most 4x, in the excerpt, whole-text and `detail_line` modes. Each trailer is walked
+    whole, so a fold computed again for each later flag on a line grows the walk about
+    16x (MQ2, `test_scrub_review_r4`)."""
+    _assert_linear(_counts(unit, monkeypatch))
