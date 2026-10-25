@@ -427,9 +427,11 @@ let readinessDeadline = 120.0
             return
         }
         if let mode = CommandLine.arguments.last,
-           mode == "fix10" || mode == "fix10-far-text-50ms" {
+           mode == "fix10" || mode == "fix10-far-text-50ms" || mode == "fix10-completion-first" {
             let root = URL(fileURLWithPath: CommandLine.arguments[1])
-            let result = await fix10Cases(root, only: mode == "fix10" ? nil : "far_text_50ms")
+            let result = await fix10Cases(root, only: mode == "fix10" ? nil
+                                          : mode == "fix10-completion-first" ? "open_reveal_completion_first"
+                                          : "far_text_50ms")
             print(String(decoding: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), as: UTF8.self))
             return
         }
@@ -1016,14 +1018,32 @@ struct SettlingPageView: View {
             "last_arrival_at": lastArrivalAt, "horizon_max_drift": watch.maxDrift]
 }
 
+// Round 6: deliver each reveal request's completion before its scroll is
+// presented, the order a loaded opening recorded (both completions arrived with
+// the clip still at the old end). Registered once the view is mounted, after the
+// view's own request observer, so the completion matches the current request.
+@MainActor func completeBeforeScroll(_ cid: String, started: Date, host: @escaping () -> NSView?,
+                                     record: @escaping ([String: Any]) -> Void) -> NSObjectProtocol {
+    NotificationCenter.default.addObserver(forName: .conversationRowScroll, object: nil, queue: nil) { note in
+        guard note.object as? String == cid, let request = note.userInfo?["request"] as? UUID else { return }
+        MainActor.assumeIsolated {
+            record(["at": Date().timeIntervalSince(started), "position": host().map { sample($0) } ?? [:]])
+            ConversationOpeningPin.didRevealRow(in: cid, request: request)
+        }
+    }
+}
+
 // The unpaused opening reveal also records a failure trace (round 6): every
 // reveal request and completion, each follow decision and suspension change,
 // every presented clip geometry, and catch-up state at the opening sample.
 // Python reports the suspension release and the first unexpected scroll.
-@MainActor func farOpening(_ name: String, root: URL, delay: Double, size: Int) async -> [String: Any] {
+@MainActor func farOpening(_ name: String, root: URL, delay: Double, size: Int,
+                            completionFirst: Bool = false) async -> [String: Any] {
     var notices = 0
     let started = Date()
     var host: NSView?
+    var early: [[String: Any]] = []
+    var earlyObserver: NSObjectProtocol?
     var trace: [[String: Any]] = []
     var geometry: [[String: Any]] = []
     var requests: [[String: Any]] = []
@@ -1056,12 +1076,16 @@ struct SettlingPageView: View {
         NotificationCenter.default.removeObserver(requestObserver)
         NotificationCenter.default.removeObserver(completionObserver)
         if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
+        if let earlyObserver { NotificationCenter.default.removeObserver(earlyObserver) }
     }
     let scene = await Scene(name, root: root, prior: 120,
                             priorText: { "person message \($0) asks something" }, tray: [],
                             pageDelay: delay, pageSize: size, revealOnMount: "person:m000040",
                             onMount: { mounted in
         host = mounted
+        if completionFirst {
+            earlyObserver = completeBeforeScroll(name, started: started, host: { host }) { early.append($0) }
+        }
         let clip = timelineScroll(mounted)?.contentView
         clip?.postsBoundsChangedNotifications = true
         boundsObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
@@ -1079,7 +1103,8 @@ struct SettlingPageView: View {
             "reveal_consumed": !(openedReadiness["reveal_pending"] as? Bool ?? true), "notices": notices,
             "opened_at": openedAt, "readiness_at_open": openedReadiness,
             "readiness_at_fold": scene.foldedReadiness, "trace": trace, "geometry": geometry,
-            "requests": requests, "completions": completions]
+            "requests": requests, "completions": completions, "completion_first": completionFirst,
+            "early_completions": early]
 }
 
 // Review r3's settling replay: reveal while catch-up is held, then resume the
@@ -1087,9 +1112,13 @@ struct SettlingPageView: View {
 @MainActor func settlingReveal(_ root: URL, mode: String) async -> [String: Any] {
     let hooked = mode == "stale"
     let early = mode == "near-early"
-    let reveal: String? = mode == "plain" ? nil : mode == "near" || early ? "person:live" : "person:m000040"
+    let completionFirst = mode == "near-completion-first"
+    let reveal: String? = mode == "plain" ? nil
+        : mode == "near" || early || completionFirst ? "person:live" : "person:m000040"
     let started = Date()
     var timeline: [[String: Any]] = []
+    var earlyCompletions: [[String: Any]] = []
+    var earlyObserver: NSObjectProtocol?
     ConversationFollowTest.disappearanceDelay = hooked ? 3 : 0
     ConversationFollowTest.record = { cid, entry in
         guard cid == mode else { return }
@@ -1103,11 +1132,20 @@ struct SettlingPageView: View {
     defer {
         ConversationFollowTest.record = nil
         ConversationFollowTest.disappearanceDelay = 0
+        if let earlyObserver { NotificationCenter.default.removeObserver(earlyObserver) }
     }
+    var mountedHost: NSView?
     let scene = await Scene(mode, root: root, prior: 120,
                             priorText: { "person message \($0) asks something" }, tray: [],
                             pageDelay: early ? 0.5 : 0.1, pageSize: 20, revealOnMount: reveal, pauseCatchup: true,
-                            silentFoldDeadline: early ? 2 : nil)
+                            onMount: { mounted in
+        mountedHost = mounted
+        if completionFirst {
+            earlyObserver = completeBeforeScroll(mode, started: started, host: { mountedHost }) {
+                earlyCompletions.append($0)
+            }
+        }
+    }, silentFoldDeadline: early ? 2 : nil)
     defer { scene.close() }
     // Readiness flags are sampled with the position they describe (review r5:
     // a later caught_up could not show whether after_open read a ready scene).
@@ -1138,7 +1176,7 @@ struct SettlingPageView: View {
             "reveal_consumed": !(openedReadiness["reveal_pending"] as? Bool ?? true),
             "opened_at": openedAt, "readiness_at_open": openedReadiness,
             "readiness_at_fold": scene.foldedReadiness, "caught_up_at_end": scene.caughtUp,
-            "readiness_waits": ProbeWaits.log, "timeline": timeline,
+            "readiness_waits": ProbeWaits.log, "timeline": timeline, "early_completions": earlyCompletions,
             "visible_windows": NSApp.windows.filter(\.isVisible).count]
 }
 
@@ -1214,6 +1252,10 @@ struct SettlingPageView: View {
     }
     for (name, delay, size) in [("open_reveal_250", 0.25, 40), ("open_reveal_100", 0.1, 20)] where only == nil || only == name {
         out[name] = await farOpening(name, root: root, delay: delay, size: size)
+    }
+    if only == "open_reveal_completion_first" {
+        out["open_reveal_completion_first"] = await farOpening("open_reveal_completion_first", root: root,
+                                                               delay: 0.25, size: 40, completionFirst: true)
     }
     out["visible_windows"] = NSApp.windows.filter(\.isVisible).count
     out["mounted_windows"] = ProbePresentation.mountedWindows

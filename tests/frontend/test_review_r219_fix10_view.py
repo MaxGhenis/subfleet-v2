@@ -97,6 +97,28 @@ def test_distant_search_reveal_during_catchup_keeps_position(distant_reveals, de
     assert abs(run["after_stream"]["offset"] - run["after_open"]["offset"]) <= 2, diagnostic
 
 
+def test_completion_before_scroll_cannot_release_a_distant_opening_reveal(fix8_view_binary, tmp_path):
+    """Round 6: a loaded 250 ms opening recorded both reveal completions while the clip still
+    showed the old end. The geometry confirmation released suspension on that geometry, and
+    catch-up's next settling jump undid the reveal (24 pt from the end). This replays that
+    order: every request's completion is delivered before its scroll is presented."""
+    result = run_probe(fix8_view_binary, tmp_path, "fix10-completion-first", timeout=240)
+    write_json(tmp_path / "result.json", result)
+    run = result["open_reveal_completion_first"]
+    diagnostic = json.dumps({"failure_trace": opening_trace(run), "run": run}, sort_keys=True)
+    print("completion before scroll: " + diagnostic)
+    assert result["visible_windows"] == 0, diagnostic
+    # The order under test: the first completion arrives with the clip still at the end.
+    early = run["early_completions"]
+    assert run["completion_first"] and len(early) == 2, diagnostic
+    assert early[0]["position"]["from_end"] <= END, diagnostic
+    assert run["caught_up"] and run["reveal_consumed"] and run["notices"] == 2, diagnostic
+    assert run["after_open"]["from_end"] > 600, diagnostic
+    assert abs(run["after_stream"]["offset"] - run["after_open"]["offset"]) <= 2, diagnostic
+    # A distant reveal is never confirmed as leaving the end visible.
+    assert not any(e["event"] == "reveal_end_visible" for e in run["trace"]), diagnostic
+
+
 def test_focused_50ms_probe_lands_and_keeps_position(fix8_view_binary, tmp_path):
     """Allow fresh-process repetitions without rerunning six unrelated scenes."""
     result = run_probe(fix8_view_binary, tmp_path, "fix10-far-text-50ms", timeout=240)

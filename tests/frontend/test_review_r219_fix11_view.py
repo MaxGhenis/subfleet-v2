@@ -4,7 +4,7 @@ import json
 import pytest
 
 from tests.frontend.conftest import needs_swift, run_probe, write_json
-from tests.frontend.test_review_r219_fix8_view import fix8_view_binary
+from tests.frontend.test_review_r219_fix8_view import END, fix8_view_binary
 
 pytestmark = needs_swift
 
@@ -55,6 +55,20 @@ def test_confirmed_visible_end_follows_catchup(fix8_view_binary, tmp_path, mode)
                and e["move"] == "jump" for e in run["timeline"]), diagnostic
     for key in ("after_initial_reveal", "after_open", "after_stream", "horizon"):
         assert run[key]["from_end"] <= 30, diagnostic
+
+
+def test_completion_before_scroll_still_confirms_a_near_end_reveal(fix8_view_binary, tmp_path):
+    """Round 6's control: with each completion delivered before its scroll is presented, a
+    reveal that leaves the end visible is still confirmed, and catch-up follows the end."""
+    run = settling_run(fix8_view_binary, tmp_path, "near-completion-first")
+    diagnostic = json.dumps(run, sort_keys=True)
+    early = run["early_completions"]
+    assert len(early) == 2 and early[0]["position"]["from_end"] <= END, diagnostic
+    assert any(e["event"] == "reveal_end_visible" for e in run["timeline"]), diagnostic
+    assert any(e["event"] == "move" and e["settling"] and not e["suspended"]
+               and e["move"] == "jump" for e in run["timeline"]), diagnostic
+    for key in ("after_initial_reveal", "after_open", "after_stream", "horizon"):
+        assert run[key]["from_end"] <= END, diagnostic
 
 
 def test_new_live_turn_while_reveal_is_suspended_holds_position(fix8_view_binary, tmp_path):
