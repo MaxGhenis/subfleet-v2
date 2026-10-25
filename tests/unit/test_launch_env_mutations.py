@@ -482,3 +482,86 @@ def test_named_scope_regression_kills_never_resetting_the_names(monkeypatch):
     with pytest.raises(AssertionError, match="outlived it"):
         contextvars.copy_context().run(oracle)
     assert launch_env._HELPER_WITHHELD.get() == ()
+
+
+# --- review r1 of #262: opt-outs the helper-scope lint refuses, and the reviewer's M5 and M7 ------
+
+WAKES_ENTRY = 'helper_policy(getattr(daemon, "policy", {}), withheld=getattr(daemon, "_helper_withheld", None))'
+
+#: Source mutants of the wakes scope entry (`WakeEngine._poll_prs`), each an edit
+#: of the real `wakes.py`: review r1's M6 (the keyword dropped) and C2
+#: (`withheld=None`), then one per rule P3-1 added. `**` keywords cannot opt out
+#: beside `withheld=` today (a second `withheld` raises), but the lint cannot read
+#: them, so it refuses them. Each maps to its edits and the site the lint names.
+WAKES_OPT_OUTS = {
+    "M6-no-keyword": ([(WAKES_ENTRY, 'helper_policy(getattr(daemon, "policy", {}))')], "WakeEngine._poll_prs"),
+    "C2-withheld-none": ([(WAKES_ENTRY, 'helper_policy(getattr(daemon, "policy", {}), withheld=None)')],
+                         "WakeEngine._poll_prs"),
+    "double-star": ([(WAKES_ENTRY, WAKES_ENTRY[:-1] + ', **getattr(daemon, "scope_options", {}))')],
+                    "WakeEngine._poll_prs"),
+    "import-as": ([("import build_environment, helper_policy\n", "import build_environment, helper_policy as scope\n"),
+                   (WAKES_ENTRY, 'scope(getattr(daemon, "policy", {}))')], ""),
+}
+
+
+@pytest.mark.parametrize("mutant", sorted(WAKES_OPT_OUTS))
+def test_named_scope_lint_regression_kills_an_opted_out_wakes_entry(tmp_path, mutant):
+    """Review r1 of #262, P3-1: the lint itself refuses each opt-out at the wakes
+    entry. It reads each module on its own and unites what it refuses, so a
+    package of the real `wakes.py` alone stands for the whole one: the control,
+    unedited, is refused nowhere, and the mutant is refused where it is written,
+    which is exactly when `test_every_helper_scope_passes_the_daemons_withheld_names`
+    fails on the package."""
+    from tests.unit import test_launch_env_round8 as round8
+    package = tmp_path / "subfleet"
+    wakes = package / "conversations" / "wakes.py"
+    wakes.parent.mkdir(parents=True)
+    source = (round8.PACKAGE / "conversations" / "wakes.py").read_text()
+    wakes.write_text(source)
+    assert round8.scopes_without_the_daemons_set(package) == set()
+    edits, function = WAKES_OPT_OUTS[mutant]
+    for old, new in edits:
+        assert source.count(old) == 1, "mutation did not find its site"
+        source = source.replace(old, new)
+    wakes.write_text(source)
+    assert round8.scopes_without_the_daemons_set(package) == {("subfleet/conversations/wakes.py", function)}
+
+
+class InnerScopeReplacesOuter(ast.NodeTransformer):
+    """Review r1 of #262's M5: an inner scope's withheld names replace the outer ones."""
+    found = False
+
+    def visit_BinOp(self, node):
+        self.generic_visit(node)
+        if isinstance(node.left, ast.Name) and node.left.id == "outer":
+            self.found = True
+            return node.right
+        return node
+
+
+def test_named_scope_regression_kills_an_inner_scope_replacing_the_outer_names(monkeypatch):
+    """I4 (review r1's M5): the gate's scope inside `Daemon.dispatch`, or `preview`
+    inside the gate's, would drop the names of the scope around it."""
+    from tests.unit.test_launch_env_round8 import test_i4_an_exception_inside_a_scope_leaks_no_names as oracle
+    oracle()
+    monkeypatch.setattr(inspect.unwrap(launch_env.helper_policy), "__code__",
+                        mutant_code(launch_env.helper_policy, InnerScopeReplacesOuter()))
+    with pytest.raises(AssertionError):
+        oracle()
+    assert launch_env._HELPER_WITHHELD.get() == ()
+
+
+@pytest.mark.parametrize("entry", ["conversation-resume", "daemon-dispatch", "daemon-worker", "gate-dispatch",
+                                   "wakes-poll"])
+def test_named_scope_entry_regression_kills_an_empty_daemon_set(tmp_path, monkeypatch, entry):
+    """Review r1 of #262's M7: `Daemon._helper_withheld` returns nothing, so each
+    daemon scope entry passes the held lane's hook. The timers entry is not here:
+    it reads `Timers._withheld`, which the mutant leaves alone."""
+    from tests.unit.test_launch_env_round8 import (
+        held_hook_daemon, test_each_daemon_scope_entry_withholds_the_daemons_names as entry_oracle,
+    )
+    with held_hook_daemon(tmp_path) as service:
+        entry_oracle(service, monkeypatch, entry)
+        monkeypatch.setattr(Daemon, "_helper_withheld", lambda self: frozenset())
+        with pytest.raises(AssertionError):
+            entry_oracle(service, monkeypatch, entry)
