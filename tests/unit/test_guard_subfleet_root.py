@@ -1723,7 +1723,9 @@ def run_glob_harness(body: str, prelude: str = "") -> subprocess.CompletedProces
     seam, its home, and a root regex for the home and its PolicyEngine child."""
     script = (r3_block() + f"pw_home={FAKE_HOME}\npw_root_re='^(~|~/PolicyEngine|~/\\.subfleet(/[^/]+)?)$'\n"
               + prelude + "\n" + body + "\n")
-    env = {"PATH": "/usr/bin:/bin", "HOME": FAKE_HOME, FS_SEAM: str(_FS["root"])}
+    # The session's PATH, as run_hook passes it (the test session's keychain guard refuses a
+    # shell whose PATH starts at a system folder).
+    env = {"PATH": os.environ["PATH"], "HOME": FAKE_HOME, FS_SEAM: str(_FS["root"])}
     return subprocess.run(["/bin/bash", "-c", script], capture_output=True, text=True, env=env, timeout=120)
 
 
@@ -1739,7 +1741,7 @@ def test_r3_glob_expansion_restores_every_setting(state):
     """pw_glob turns globbing on, sets nullglob, clears dotglob, nocaseglob, extglob, failglob
     and GLOBIGNORE and empties IFS for the one expansion, then puts every one back as it was;
     its answers never depend on the caller's settings."""
-    probe = ("st() { printf '%s|%s|%s|' \"$-\" \"${IFS-unset}\" \"${GLOBIGNORE-unset}\"; "
+    probe = ("st() { printf '%s|%q|%q|' \"$-\" \"${IFS-unset}\" \"${GLOBIGNORE-unset}\"; "
              "shopt -p nullglob dotglob nocaseglob extglob failglob | tr '\\n' ' '; }\n"
              "before=$(st)\n"
              "a=1; pw_glob " + FAKE_HOME + " 'P*' && a=0\n"
@@ -1848,7 +1850,7 @@ def shell_matches(shell: str, word: str, home: str) -> list[str]:
     fixture: the home is the seam's, $SUBFLEET_* are its .subfleet, / is the seam folder."""
     fs = str(_FS["root"])
     text = fs + word if word.startswith("/") else word
-    env = {"PATH": "/usr/bin:/bin", "HOME": fs + home, "SUBFLEET_ROOT": fs + home + "/.subfleet",
+    env = {"PATH": os.environ["PATH"], "HOME": fs + home, "SUBFLEET_ROOT": fs + home + "/.subfleet",
            "SUBFLEET_HOME": fs + home + "/.subfleet"}
     if shell == "bash":
         argv = ["/bin/bash", "--noprofile", "--norc", "-c",
