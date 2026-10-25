@@ -40,7 +40,26 @@ from typing import Any
 from .contracts import Closure, Credential, Decision, IdentityStatus, Lane, LaneOwner, Reading
 from .lockwatch import WatchedLock, thread_name
 
-SCHEMA_VERSION = 7
+SHELL_REQUIREMENT_MIGRATION = 8
+LAUNCH_CAPABILITY_MIGRATION = 9
+SCHEMA_VERSION = LAUNCH_CAPABILITY_MIGRATION
+#: C-12.4: jobs whose attempts in the last 24 h had no shell or no writes. A
+#: range on `reserved_at`, which `attempts_reserved` indexes, in the stored
+#: spelling (`restricted_window`): `julianday(reserved_at)` could use no index and
+#: scanned every attempt (#221 review r1b, P3-9).
+RESTRICTED_RUNS_SQL = (
+    "SELECT DISTINCT job_id FROM attempts WHERE reserved_at >= ? AND reserved_at <= ? "
+    "AND capability IN ('none','commands') ORDER BY job_id"
+)
+
+
+def restricted_window(now: datetime | str) -> tuple[str, str]:
+    """`RESTRICTED_RUNS_SQL`'s bounds: 24 h back from `now`, spelled as the daemon
+    stores `reserved_at` (`2026-10-18T21:00:00Z`)."""
+    at = (datetime.fromisoformat(now.replace("Z", "+00:00")) if isinstance(now, str) else now)
+    at = at.astimezone(timezone.utc)
+    spell = lambda moment: moment.isoformat(timespec="seconds").replace("+00:00", "Z")  # noqa: E731
+    return spell(at - timedelta(days=1)), spell(at)
 #: C-9.6: closure reasons that each keep a row of their own (`Store.put_closure`).
 HOLD_REASONS = ("operator-hold", "auth-dead")
 Row = dict[str, Any]
@@ -95,7 +114,24 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
     6: ("ALTER TABLE jobs ADD COLUMN mcp_servers TEXT NOT NULL DEFAULT '[]'",),
     7: tuple(f"ALTER TABLE jobs ADD COLUMN {column} TEXT" for column in
              ("push_branch", "push_remote", "push_default_branch", "push_sha", "push_error")),
+    SHELL_REQUIREMENT_MIGRATION: (
+        "ALTER TABLE jobs ADD COLUMN needs_shell INTEGER NOT NULL DEFAULT 0 CHECK (needs_shell IN (0,1))",
+        "ALTER TABLE attempts ADD COLUMN has_shell INTEGER CHECK (has_shell IN (0,1))",
+    ),
+    LAUNCH_CAPABILITY_MIGRATION: (
+        "ALTER TABLE attempts ADD COLUMN capability TEXT CHECK (capability IN ('none','commands','writable'))",
+        "ALTER TABLE attempts ADD COLUMN publish_denied INTEGER CHECK (publish_denied IN (0,1))",
+    ),
 }
+
+
+def shell_flags(row: Mapping[str, Any]) -> Row:
+    """Boolean launch fields for domain records, never arbitrary SQL results."""
+    value = dict(row)
+    for key in ("needs_shell", "has_shell", "publish_denied"):
+        if key in value and value[key] is not None:
+            value[key] = bool(value[key])
+    return value
 
 
 def utc_now() -> str:
@@ -332,9 +368,16 @@ class Store:
                     _alter, _table_kw, table, _add, _column_kw, column, *_rest = statement.split()
                     present = {row[1] for row in
                                self.connection.execute(f'PRAGMA table_info("{table}")')}
-                    if column in present:
+                    # The schema file creates any table absent from an old store.
+                    if not present or column in present:
                         continue
                 self.connection.execute(statement)
+            if step == LAUNCH_CAPABILITY_MIGRATION and self.connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='attempts'").fetchone():
+                self.connection.execute(
+                    "UPDATE attempts SET capability=CASE WHEN has_shell=0 THEN 'none' "
+                    "WHEN has_shell=1 AND (SELECT sandbox FROM jobs WHERE jobs.job_id=attempts.job_id)="
+                    "'workspace-write' THEN 'writable' WHEN has_shell=1 THEN 'commands' ELSE NULL END")
             self.connection.execute("INSERT INTO schema_version VALUES (?,?)", (step, utc_now()))
             self.connection.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
                                     (utc_now(), "schema.migrated", _json({"version": step})))
@@ -753,10 +796,12 @@ class Store:
         return data["job_id"]
 
     def get_job(self, job_id: str) -> Row | None:
-        return self.one("SELECT * FROM jobs WHERE job_id=?", (job_id,))
+        row = self.one("SELECT * FROM jobs WHERE job_id=?", (job_id,))
+        return shell_flags(row) if row is not None else None
 
     def get_job_by_request(self, request_id: str) -> Row | None:
-        return self.one("SELECT * FROM jobs WHERE request_id=?", (request_id,))
+        row = self.one("SELECT * FROM jobs WHERE request_id=?", (request_id,))
+        return shell_flags(row) if row is not None else None
 
     def list_jobs(self, *, state: str | None = None, session_id: str | None = None, limit: int | None = None) -> list[Row]:
         clauses, values = [], []
@@ -768,7 +813,7 @@ class Store:
         if limit is not None:
             sql += " LIMIT ?"
             values.append(limit)
-        return self.query(sql, values)
+        return [shell_flags(row) for row in self.query(sql, values)]
 
     def update_job(self, job_id: str, **values: Any) -> None:
         self._update("jobs", "job_id", job_id, values)
@@ -779,10 +824,13 @@ class Store:
         return data["attempt_id"]
 
     def get_attempt(self, attempt_id: str) -> Row | None:
-        return self.one("SELECT * FROM attempts WHERE attempt_id=?", (attempt_id,))
+        row = self.one("SELECT * FROM attempts WHERE attempt_id=?", (attempt_id,))
+        return shell_flags(row) if row is not None else None
 
     def list_attempts(self, job_id: str | None = None) -> list[Row]:
-        return self.query("SELECT * FROM attempts" + (" WHERE job_id=?" if job_id else "") + " ORDER BY reserved_at,seq", (job_id,) if job_id else ())
+        return [shell_flags(row) for row in self.query(
+            "SELECT * FROM attempts" + (" WHERE job_id=?" if job_id else "") + " ORDER BY reserved_at,seq",
+            (job_id,) if job_id else ())]
 
     def update_attempt(self, attempt_id: str, **values: Any) -> None:
         if set(values) & {"attempt_id", "job_id", "seq", "lane_id", "model_requested"}:
