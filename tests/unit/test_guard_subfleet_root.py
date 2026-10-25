@@ -60,7 +60,9 @@ S4 (the Claude half agrees) The patched Claude analyzer (``unscoped_search.py``;
    two designs differ in known ways (quoted ``~``, a searcher right after a
    quote in sh -c / eval, xargs input, cd plus a relative path, globs, the cwd
    list) and the new roots inherit exactly those. The env-spelled twins (S5)
-   meet the same rule against their ``$HOME/.subfleet`` source command.
+   meet the same rule against the same command over ``$HOME/.subfleet``
+   (``${HOME}`` for a braced twin), which the shell expands as it does the
+   twin in every quoting, and each half gives a twin that command's verdict.
 S5 (env spellings are spellings) For every generated command over
    ``<home>/.subfleet`` or anything under it, swapping that prefix for an env
    spelling (``$SUBFLEET_ROOT``, ``${SUBFLEET_ROOT}``, ``$SUBFLEET_HOME``,
@@ -811,7 +813,9 @@ def generate(scale: int) -> list[dict]:
     spread over the spellings; scale N >= 2: the full pool, every (root, spelling,
     context) cell, N - 1 seeded draws each (searcher, quoting, slash, depth bound).
     Each command over <home>/.subfleet[/…] gets env-spelled twins (``twin_of``, S5) that
-    share its draw; S1-S4 judge the twins like any other case."""
+    share its draw; S1-S4 judge the twins like any other case. A twin's ``home_ref`` is the
+    same draw over ``$HOME/.subfleet`` (``${HOME}`` for a braced twin), which the shell
+    expands exactly as the twin in every quoting; S4 compares twins with it."""
     rng = random.Random(SEED)
     pool = [(suffix, kind, True) for suffix, kind in HOME_ROOTS]
     pool += [(suffix, kind, False) for suffix, kind in ABS_ROOTS]
@@ -840,7 +844,8 @@ def generate(scale: int) -> list[dict]:
                     if homed:
                         for env in twin_spellings(suffix, s_index, scale):
                             cases.append(dict(case, command=case["command_as"](env), spelling=env,
-                                              twin_of=case["command"]))
+                                              twin_of=case["command"],
+                                              home_ref=case["command_as"](ENV_HOME[env])))
     for case in cases:
         case.pop("command_for", None)
         case.pop("command_as", None)
@@ -1068,6 +1073,7 @@ R2_LIMITS = [
     # P2-4: relative paths from a lane's own worktree (job worktrees are ~/.subfleet/worktrees/<id>)
     ((LANE_WORKTREE, "rg --files -g AGENTS.md .."), (PE_REPO, "rg --files -g AGENTS.md ..")),
     ((LANE_WORKTREE, "find ../.. -name AGENTS.md"), (PE_REPO + "/policyengine_us", "find ../.. -name AGENTS.md")),
+    ((LANE_WORKTREE, "rg --files ../../jobs"), (PE_REPO, "rg --files ../../PolicyEngine")),
     # P3-3: a find that ends the command is not seen as a searcher
     ((S_, "printf '%s\\n' ~/.subfleet/ | xargs -n1 find"), (S_, "printf '%s\\n' ~/ | xargs -n1 find")),
     # P3-3: spellings the rule does not normalize
@@ -1186,7 +1192,7 @@ def test_s4_the_claude_half_agrees_on_plain_new_root_searches(hooks):
         assert claude_blocks(command) == (rule(out) is not None), command
 
 
-def test_s4_the_claude_half_differs_on_new_roots_only_where_it_differs_on_home_children(corpus, verdicts):
+def test_s4_the_claude_half_differs_on_new_roots_only_where_it_differs_on_home_children(hooks, corpus, verdicts):
     new = verdicts["new"]
     by_command = {case["command"]: case for case in corpus["generated"]}
     counts = {"pairs": 0, "analog_agree": 0, "new_agree": 0, "both_differ": 0}
@@ -1203,22 +1209,35 @@ def test_s4_the_claude_half_differs_on_new_roots_only_where_it_differs_on_home_c
         counts["both_differ"] += not analog_agree and not target_agree
         if analog_agree and not target_agree:
             regressions.append(target["command"])
-    # r2: an env-spelled twin, against its <home>/.subfleet source command
-    counts.update(twins=0, twin_agree=0)
-    for case in corpus["generated"]:
-        if "twin_of" not in case:
-            continue
-        source_agree = claude_blocks(case["twin_of"]) == (rule(new[(case["twin_of"], case["cwd"])]) is not None)
-        twin_agree = claude_blocks(case["command"]) == (rule(new[(case["command"], case["cwd"])]) is not None)
-        counts["twins"] += 1
-        counts["twin_agree"] += twin_agree
-        if source_agree and not twin_agree:
+    # r2: an env-spelled twin, against the same draw over $HOME/.subfleet (``home_ref``). Not
+    # against its source (``twin_of``): that may spell the root ~ or /Users/<user>, and quoting
+    # changes those differently from a variable. A quoted ~ is a literal folder to the analyzer
+    # while "$SUBFLEET_ROOT" is expanded, and a single-quoted '/Users/<user>/.subfleet' is a path
+    # while '$SUBFLEET_ROOT' is literal; the Codex hook judges the text and gives every spelling
+    # one verdict (S5). (Round r2 compared with the source and failed on exactly those, at scales 1 and 2:
+    # `grep -r x '$SUBFLEET_ROOT/'`, `cd '${SUBFLEET_HOME}/jobs' && rg foo`,
+    # `sh -c "rg --files \"$SUBFLEET_ROOT/jobs\""`.) Each half must give a twin its reference's
+    # verdict, so the analyzer differs from the hook on a twin only where it does on that reference.
+    twins = [case for case in corpus["generated"] if "twin_of" in case]
+    refs = judge_all(hooks["new"], [(case["home_ref"], case["cwd"]) for case in twins])
+    counts.update(twins=len(twins), twin_agree=0, ref_agree=0)
+    asymmetric = []
+    for case in twins:
+        codex_twin = rule(new[(case["command"], case["cwd"])]) is not None
+        codex_ref = rule(refs[(case["home_ref"], case["cwd"])]) is not None
+        claude_twin, claude_ref = claude_blocks(case["command"]), claude_blocks(case["home_ref"])
+        if (codex_twin, claude_twin) != (codex_ref, claude_ref):
+            asymmetric.append((case["command"], case["home_ref"], (codex_twin, claude_twin), (codex_ref, claude_ref)))
+        counts["twin_agree"] += claude_twin == codex_twin
+        counts["ref_agree"] += claude_ref == codex_ref
+        if claude_ref == codex_ref and claude_twin != codex_twin:
             regressions.append(case["command"])
     deep = [c for c in corpus["generated"] if c["kind"] == "deep" and not c["bounded"]]
     deep_blocked = [c["command"] for c in deep if claude_blocks(c["command"])]
     counts["deep_cases"] = len(deep)
     counts["deep_blocked_by_claude"] = len(deep_blocked)
     report("S4", counts)
+    assert not asymmetric, asymmetric[:10]
     assert not regressions, regressions[:10]
     assert not deep_blocked, deep_blocked[:10]
     assert counts["pairs"] > 0
