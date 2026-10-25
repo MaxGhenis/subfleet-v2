@@ -1,5 +1,8 @@
 """D-TMP1-P3 at daemon level: review r2's daemon inputs for P3-1, P3-2 and P3-3,
-and the daemon's part in finishing what a crash left (C-12.10)."""
+and the daemon's part in finishing what a crash left (C-12.10).
+
+The daemon runs in this process, so the P3-2 sweep runs under each directory
+rename rule (`tests/rename_rules.py`), its id naming the rule (r2)."""
 
 import errno
 import json
@@ -10,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from subfleet import attempt_tmp, daemon as daemon_module, procs, retention
+from tests import rename_rules
 from tests.fake.test_attempt_tmpdir_daemon import terminal_leftover
 from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401
 
@@ -129,12 +133,16 @@ def test_p3_1_an_unknown_folders_tombstone_is_finished_after_restart(routing_sta
         restarted.close()
 
 
-def test_p3_2_an_unreadable_top_folder_is_removed_by_the_sweep(routing_state, monkeypatch):
-    """Review r2 P3-2: `chmod 000` on an allocation; its removal failed on every sweep."""
+@pytest.mark.parametrize("rule", rename_rules.RULES)
+def test_p3_2_an_unreadable_top_folder_is_removed_by_the_sweep(routing_state, monkeypatch, rule):
+    """Review r2 P3-2: `chmod 000` on an allocation; its removal failed on every sweep,
+    and on macOS 15 still did at #258's first build, which renamed before fixing
+    the mode (r2)."""
     service, _ = routing_state
     attempt, folder = terminal_leftover(routing_state)
     os.chmod(folder, 0o000)
     monkeypatch.setattr(service, "_contain", lambda a: procs.Containment())
+    rename_rules.install(rule, monkeypatch)
     try:
         service._sweep_attempt_tmpdirs()
         record = tmpdir_of(service, attempt)

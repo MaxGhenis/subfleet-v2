@@ -1,4 +1,8 @@
-"""D-TMP1 mutation witnesses reuse the lifecycle and leak suites' named assertions."""
+"""D-TMP1 mutation witnesses reuse the lifecycle and leak suites' named assertions.
+
+An oracle that renames a folder whose mode it set runs once per directory rename
+rule (`tests/rename_rules.py`), and its id names the rule (D-TMP1-P3 r2).
+"""
 
 import os
 from pathlib import Path
@@ -7,6 +11,7 @@ from types import ModuleType
 import pytest
 
 from subfleet import attempt_tmp
+from tests.rename_rules import HOST, MACOS15, RULES
 from tests.unit import test_attempt_tmpdir_leaks as leaks
 from tests.unit import test_attempt_tmpdir_lifecycle as lifecycle
 
@@ -47,15 +52,21 @@ MUTATIONS = {
     # D-TMP1-P3: each of its four decisions, dropped one at a time.
     "no-tombstone-record": [("        name = record.get(\"tombstone\")\n        if name is None:",
                              "        name = None\n        if True:\n            return new_tombstone()")],
+    # The mode change of a crash-left tombstone, which no rename precedes.
     "no-top-chmod": [("                os.chmod(tomb, mode | 0o700, dir_fd=parent, follow_symlinks=False)",
                       "                pass")],
+    # D-TMP1-P3 r2: the mode fixed before the rename, and the check before that.
+    "no-pre-rename-chmod": [("                    os.chmod(name, mode | 0o700, dir_fd=parent, follow_symlinks=False)",
+                             "                    pass")],
+    "no-pre-rename-identity-check": [("                if not self._is(record, source):\n",
+                                      "                if False:\n")],
     "no-rmdir": [("                os.rmdir(path)\n            except OSError as exc:",
                   "                pass\n            except OSError as exc:")],
     "no-depth-check": [("            if len(stack) >= rfs.MAX_DEPTH:\n                raise rfs.TreeError(\"too-deep\", name)\n",
                         "")],
     # The four removal guards #246 had (C-12.10): the identity check of what the
-    # rename moved, symlinks inside never followed, no other device entered, and
-    # a put-back never over a name that reappeared.
+    # rename moved (r2's post-rename re-check), symlinks inside never followed, no
+    # other device entered, and a put-back never over a name that reappeared.
     "no-identity-check": [("            if not self._is(record, found):\n"
                            "                self.log.warning(\"TMPDIR removal refused for %s: its folder was swapped\"",
                            "            if False:\n"
@@ -71,28 +82,48 @@ MUTATIONS = {
                        "        raise FileNotFoundError(name)\n")],
 }
 
+def _ruled(mutation, test, args, rules=RULES):
+    """One oracle row per rename rule, the rule last among its arguments and in its id."""
+    return [(f"{mutation}-{rule}", mutation, test, (*args, rule)) for rule in rules]
+
+
+#: The swap after removal's last look at the allocation's name: only the check of
+#: what the rename moved can refuse it (r2: the check before the rename refuses
+#: the lifecycle suite's swap, which comes earlier).
+LAST_LOOK = "leaks:test_a_directory_swapped_in_after_removals_last_look_is_refused_and_put_back"
+
 ORACLES = [
-    ("reuse", "lifecycle:test_attempt_names_are_unique_even_after_path_sanitizing", ()),
-    ("no-census", "lifecycle:test_cleanup_requires_terminal_empty_attempt", ("succeeded", False)),
-    ("no-prefix", "lifecycle:test_sweep_requires_prefix_even_with_valid_creation_record", ()),
-    ("follow-symlink", "lifecycle:test_sweep_never_follows_symlink", ()),
-    ("salvage-hold", "lifecycle:test_salvage_evidence_never_holds_scratch", ("salvage_skipped",)),
-    ("absent-no-receipt", "lifecycle:test_absent_folder_is_released_whatever_holds_it", ("quarantined", False)),
-    ("no-rename-verify", "lifecycle:test_directory_renamed_in_after_the_check_is_refused_and_put_back",
-     ("monkeypatch",)),
-    ("age-from-marker", "lifecycle:test_unknown_folder_ages_from_the_store_never_its_marker_or_birth_time", ()),
-    ("age-from-birth-time", "lifecycle:test_unknown_folder_ages_from_the_store_never_its_marker_or_birth_time", ()),
-    ("no-tombstone-record", "leaks:test_p3_1_tombstone_a_crash_left_is_finished_never_released_as_absent",
-     ("monkeypatch",)),
-    ("no-top-chmod", "leaks:test_p3_2_owner_unreadable_top_folder_is_removed", ("caplog",)),
-    ("no-rmdir", "leaks:test_p3_3_failed_marker_publish_leaves_no_folder", ("monkeypatch",)),
-    ("no-depth-check", "leaks:test_t4_a_chain_past_max_depth_is_refused_in_bounded_descriptors",
+    ("reuse", "reuse", "lifecycle:test_attempt_names_are_unique_even_after_path_sanitizing", ()),
+    ("no-census", "no-census", "lifecycle:test_cleanup_requires_terminal_empty_attempt", ("succeeded", False)),
+    ("no-prefix", "no-prefix", "lifecycle:test_sweep_requires_prefix_even_with_valid_creation_record", ()),
+    ("follow-symlink", "follow-symlink", "lifecycle:test_sweep_never_follows_symlink", ()),
+    ("salvage-hold", "salvage-hold", "lifecycle:test_salvage_evidence_never_holds_scratch", ("salvage_skipped",)),
+    ("absent-no-receipt", "absent-no-receipt", "lifecycle:test_absent_folder_is_released_whatever_holds_it",
+     ("quarantined", False)),
+    *_ruled("no-rename-verify", LAST_LOOK, ("monkeypatch", "caplog")),
+    ("age-from-marker", "age-from-marker",
+     "lifecycle:test_unknown_folder_ages_from_the_store_never_its_marker_or_birth_time", ()),
+    ("age-from-birth-time", "age-from-birth-time",
+     "lifecycle:test_unknown_folder_ages_from_the_store_never_its_marker_or_birth_time", ()),
+    ("no-tombstone-record", "no-tombstone-record",
+     "leaks:test_p3_1_tombstone_a_crash_left_is_finished_never_released_as_absent", ("monkeypatch",)),
+    *_ruled("no-top-chmod", "leaks:test_p3_2_a_locked_tombstone_a_crash_left_is_finished", ("monkeypatch", "caplog")),
+    # Caught under macOS 15's rule only: on this host's, the tombstone's mode change
+    # covers for it (`test_the_pre_rename_chmod_mutant_is_caught_by_this_hosts_rule_only_if_it_refuses`).
+    *_ruled("no-pre-rename-chmod", "leaks:test_p3_2_owner_unreadable_top_folder_is_removed",
+            ("monkeypatch", "caplog"), rules=(MACOS15,)),
+    *_ruled("no-pre-rename-identity-check",
+            "leaks:test_a_locked_directory_swapped_in_before_removal_is_neither_changed_nor_moved",
+            ("monkeypatch", "caplog")),
+    ("no-rmdir", "no-rmdir", "leaks:test_p3_3_failed_marker_publish_leaves_no_folder", ("monkeypatch",)),
+    ("no-depth-check", "no-depth-check", "leaks:test_t4_a_chain_past_max_depth_is_refused_in_bounded_descriptors",
      ("monkeypatch", "caplog")),
-    ("no-identity-check", "lifecycle:test_directory_renamed_in_after_the_check_is_refused_and_put_back",
-     ("monkeypatch",)),
-    ("follow-inner-symlink", "lifecycle:test_cleanup_does_not_follow_nested_symlinks_or_count_their_targets", ()),
-    ("cross-device", "leaks:test_removal_never_enters_another_device", ("monkeypatch", "caplog")),
-    ("put-back-over", "leaks:test_put_back_never_replaces_a_name_that_reappeared", ("monkeypatch", "caplog")),
+    *_ruled("no-identity-check", LAST_LOOK, ("monkeypatch", "caplog")),
+    ("follow-inner-symlink", "follow-inner-symlink",
+     "lifecycle:test_cleanup_does_not_follow_nested_symlinks_or_count_their_targets", ()),
+    ("cross-device", "cross-device", "leaks:test_removal_never_enters_another_device", ("monkeypatch", "caplog")),
+    ("put-back-over", "put-back-over", "leaks:test_put_back_never_replaces_a_name_that_reappeared",
+     ("monkeypatch", "caplog")),
 ]
 
 SUITES = {"lifecycle": lifecycle, "leaks": leaks}
@@ -107,8 +138,7 @@ def _arguments(args, monkeypatch, caplog):
     return [monkeypatch if arg == "monkeypatch" else caplog if arg == "caplog" else arg for arg in args]
 
 
-@pytest.mark.parametrize("mutation,test,args", ORACLES, ids=[row[0] for row in ORACLES])
-def test_named_lifecycle_assertion_kills_mutation(tmp_path, monkeypatch, caplog, mutation, test, args):
+def _mutant(mutation):
     source = Path(attempt_tmp.__file__).read_text()
     for old, new in MUTATIONS[mutation]:
         assert source.count(old) >= 1, "mutation must still hit its production decision"
@@ -117,7 +147,12 @@ def test_named_lifecycle_assertion_kills_mutation(tmp_path, monkeypatch, caplog,
     mutant.__package__ = "subfleet"
     mutant.__dict__["_follow_open"] = _follow_open
     exec(compile(source, attempt_tmp.__file__, "exec"), mutant.__dict__)
-    monkeypatch.setattr(attempt_tmp, "AttemptTemp", mutant.AttemptTemp)
+    return mutant
+
+
+@pytest.mark.parametrize("mutation,test,args", [row[1:] for row in ORACLES], ids=[row[0] for row in ORACLES])
+def test_named_lifecycle_assertion_kills_mutation(tmp_path, monkeypatch, caplog, mutation, test, args):
+    monkeypatch.setattr(attempt_tmp, "AttemptTemp", _mutant(mutation).AttemptTemp)
     try:
         with pytest.raises(AssertionError):
             _oracle(test)(tmp_path, *_arguments(args, monkeypatch, caplog))
@@ -125,7 +160,42 @@ def test_named_lifecycle_assertion_kills_mutation(tmp_path, monkeypatch, caplog,
         leaks.unlock(tmp_path)
 
 
-@pytest.mark.parametrize("mutation,test,args", ORACLES, ids=[row[0] for row in ORACLES])
+@pytest.mark.parametrize("mutation,test,args", [row[1:] for row in ORACLES], ids=[row[0] for row in ORACLES])
 def test_named_lifecycle_assertion_passes_on_production(tmp_path, monkeypatch, caplog, mutation, test, args):
     """Each oracle passes unmutated, so a kill above is the mutation's doing."""
     _oracle(test)(tmp_path, *_arguments(args, monkeypatch, caplog))
+
+
+def _host_renames_a_locked_directory(folder: Path) -> bool:
+    probe = folder / "probe"
+    probe.mkdir(0o700)
+    os.chmod(probe, 0o500)
+    try:
+        os.rename(probe, folder / "probe-moved")
+    except PermissionError:
+        os.chmod(probe, 0o700)
+        probe.rmdir()
+        return False
+    os.chmod(folder / "probe-moved", 0o700)
+    (folder / "probe-moved").rmdir()
+    return True
+
+
+def test_the_pre_rename_chmod_mutant_is_caught_by_this_hosts_rule_only_if_it_refuses(tmp_path, monkeypatch, caplog):
+    """Why the macOS 15 rule exists. With the mode change before the rename dropped,
+    a host that renames a locked directory (macOS 26) still removes it, because
+    the tombstone's mode change runs after; only a host that refuses (macOS 15),
+    or its emulation, shows the defect. So this host's rule kills the mutant
+    exactly when this host refuses such a rename."""
+    (tmp_path / "probe-root").mkdir()
+    refuses = not _host_renames_a_locked_directory(tmp_path / "probe-root")
+    monkeypatch.setattr(attempt_tmp, "AttemptTemp", _mutant("no-pre-rename-chmod").AttemptTemp)
+    oracle = _oracle("leaks:test_p3_2_owner_unreadable_top_folder_is_removed")
+    try:
+        if refuses:
+            with pytest.raises(AssertionError):
+                oracle(tmp_path, monkeypatch, caplog, HOST)
+        else:
+            oracle(tmp_path, monkeypatch, caplog, HOST)
+    finally:
+        leaks.unlock(tmp_path)

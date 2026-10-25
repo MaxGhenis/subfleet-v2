@@ -12,6 +12,14 @@ it, and the invariants the fix keeps:
   descriptors, and refuses (deferred, logged, kept) what `size()` refuses.
 - T5, no widening: removal touches nothing outside the allocation and its
   tombstone, wherever symlinks point.
+- T6, rule-independence (r2): for every mode combination T3 draws, removal ends
+  the same way under this host's directory rename rule and macOS 15's.
+
+macOS 15 refuses to rename a directory that lacks owner write, even within one
+parent; macOS 26, this host, allows it (#258's CI, r2). Every test that renames
+a folder whose mode it set runs under both rules (`tests/rename_rules.py`), and
+its id names the rule: `host-rename` or `macos15-rename`. A child process gets
+its parent's rule.
 
 In the T1 tests a crash is a real one: the child process kills itself with
 SIGKILL at the named point, so no `except` or `finally` of the code under test
@@ -41,6 +49,8 @@ import pytest
 
 from subfleet import attempt_tmp
 from subfleet import retention_fs as rfs
+from tests import rename_rules
+from tests.rename_rules import HOST, MACOS15, RULES
 
 REPO = Path(__file__).resolve().parents[2]
 DAY = 86_400
@@ -184,16 +194,41 @@ def test_p3_1_tombstone_a_crash_left_is_finished_never_released_as_absent(tmp_pa
     assert leftovers(scratch) == [], "the tombstone is finished, not left for ever"
 
 
-def test_p3_2_owner_unreadable_top_folder_is_removed(tmp_path, caplog):
+@pytest.mark.parametrize("rule", RULES)
+def test_p3_2_owner_unreadable_top_folder_is_removed(tmp_path, monkeypatch, caplog, rule):
     """Review r2 P3-2: after `chmod 000` on an allocation, `remove(…, verified_empty=True)`
-    returned None, logged a PermissionError, and the folder stayed."""
+    returned None, logged a PermissionError, and the folder stayed. #258's first
+    build fixed the mode after the rename, which macOS 15 refuses for this folder,
+    so there it still did (r2)."""
     scratch = manager(tmp_path)
     record = allocation_with_payload(scratch, top_mode=0o000)
+    rename_rules.install(rule, monkeypatch)
     caplog.set_level(logging.WARNING)
     try:
         assert scratch.remove(record, subject(), verified_empty=True) == "removed"
         assert leftovers(scratch) == []
         assert "PermissionError" not in caplog.text
+    finally:
+        unlock(scratch.root)
+
+
+@pytest.mark.parametrize("rule", RULES)
+def test_p3_2_a_locked_tombstone_a_crash_left_is_finished(tmp_path, monkeypatch, caplog, rule):
+    """A tombstone whose mode was never fixed: what #258's first build left on macOS
+    26 when it died between its rename and its mode change. No rename happens
+    here, so only the mode change of a crash-left tombstone lets removal open it."""
+    scratch = manager(tmp_path)
+    record = allocation_with_payload(scratch)
+    tomb = tombstone_of(scratch, record)
+    rename_rules.move_dir(record["path"], tomb)
+    os.chmod(tomb, 0o000)
+    rename_rules.install(rule, monkeypatch)
+    caplog.set_level(logging.WARNING)
+    try:
+        assert scratch.presence(record) == "tombstoned"
+        assert scratch.remove(record, subject(), verified_empty=True) == "removed"
+        assert leftovers(scratch) == []
+        assert "TMPDIR removal deferred" not in caplog.text
     finally:
         unlock(scratch.root)
 
@@ -346,8 +381,10 @@ CHILD = r'''
 import inspect, json, os, signal, sys
 from pathlib import Path
 from subfleet import attempt_tmp
+from tests import rename_rules
 
 spec = json.loads(sys.argv[1])
+rename_rules.install(spec["rule"])             # the parent's directory rename rule, before anything renames
 T, P, M = attempt_tmp.TOMBSTONE, attempt_tmp.PREFIX, attempt_tmp.MARKER
 
 
@@ -363,7 +400,8 @@ POINTS = {
     "create:marked": ("rename", "after", lambda s, d, *a, **k: base(d) == M),
     "remove:renaming": ("rename", "before", lambda s, d, *a, **k: base(d).startswith(T)),
     "remove:renamed": ("rename", "after", lambda s, d, *a, **k: base(d).startswith(T)),
-    "remove:top-chmodded": ("chmod", "after", lambda p, *a, **k: base(p).startswith(T)),
+    # The allocation's mode fixed before its rename (r2), or a crash-left tombstone's.
+    "remove:top-chmodded": ("chmod", "after", lambda p, *a, **k: base(p).startswith(P)),
     "remove:emptying": ("unlink", "after", lambda p, *a, **k: True),
     "remove:emptied": ("rmdir", "before", lambda p, *a, **k: base(p).startswith(T)),
     "remove:removed": ("rmdir", "after", lambda p, *a, **k: base(p).startswith(T)),
@@ -425,38 +463,45 @@ def run_child(scratch, **spec):
     return run_python(CHILD, {"root": str(scratch.root), "store": scratch.store_root, **spec})
 
 
+@pytest.mark.parametrize("rule", RULES)
 @pytest.mark.parametrize("point", CREATE_POINTS)
-def test_t1_a_crash_in_create_leaves_nothing_a_sweep_cannot_remove(tmp_path, point):
+def test_t1_a_crash_in_create_leaves_nothing_a_sweep_cannot_remove(tmp_path, monkeypatch, point, rule):
     """At `create:made`, `create:chmodded` and `create:marker-written` the folder has
     no marker and no record: only the store's journal says it is this store's."""
     scratch = manager(tmp_path)
-    result = run_child(scratch, action="create", point=point)
+    rename_rules.install(rule, monkeypatch)
+    result = run_child(scratch, action="create", point=point, rule=rule)
     assert result.returncode == -signal.SIGKILL, (point, result.stdout, result.stderr)
     later_sweeps(scratch, Sightings(), {}, start=1_000_000)
     assert leftovers(scratch) == [], f"{point}: an orphan no sweep removes"
     assert journal(scratch) == []
 
 
+@pytest.mark.parametrize("rule", RULES)
 @pytest.mark.parametrize("point", REMOVE_POINTS)
 @pytest.mark.parametrize("kind", ["recorded", "legacy", "unknown"])
-def test_t1_a_crash_in_remove_leaves_nothing_a_sweep_cannot_remove(tmp_path, kind, point):
+def test_t1_a_crash_in_remove_leaves_nothing_a_sweep_cannot_remove(tmp_path, monkeypatch, kind, point, rule):
     """`recorded`: a known allocation whose marker the provider removed. `legacy`:
     one recorded before D-TMP1-P3, with no tombstone of its own. `unknown`: the
-    sweep's removal of a marked folder no record names."""
+    sweep's removal of a marked folder no record names. At `remove:top-chmodded`
+    the folder lacks owner write, which macOS 15 will not rename."""
     scratch = manager(tmp_path)
     pinned = point in ("remove:putting-back", "remove:put-back")
     top_mode = 0o500 if point == "remove:top-chmodded" else 0o700
     record = allocation_with_payload(scratch, top_mode=top_mode, unmark=kind != "unknown", pinned=pinned)
     if kind == "legacy":
         record.pop("tombstone", None)
+    rename_rules.install(rule, monkeypatch)
     store, records = Sightings(), {}
     if kind == "unknown":
         store.sweep(scratch, now=0)
         assert [row["path"] for row in store.notes] == [record["path"]]
-        result = run_child(scratch, action="sweep", point=point, sightings=store.rows, now=DAY + 1, pinned=pinned)
+        result = run_child(scratch, action="sweep", point=point, sightings=store.rows, now=DAY + 1, pinned=pinned,
+                           rule=rule)
     else:
         records["a1"] = record
-        result = run_child(scratch, action="remove", point=point, record=record, subject=subject(), pinned=pinned)
+        result = run_child(scratch, action="remove", point=point, record=record, subject=subject(), pinned=pinned,
+                           rule=rule)
     assert result.returncode == -signal.SIGKILL, (point, result.stdout, result.stderr)
     receipts = later_sweeps(scratch, store, records, start=2 * DAY)
     assert leftovers(scratch) == [], f"{kind} {point}: an orphan no sweep removes"
@@ -471,9 +516,10 @@ def test_t1_a_crash_in_remove_leaves_nothing_a_sweep_cannot_remove(tmp_path, kin
 OPERATIONS = ["finalize", "sweep", "vanish", "unmark", "lock", "crash", "swap", "advance"]
 
 
+@pytest.mark.parametrize("rule", RULES)
 @BOUNDED
 @given(st.lists(st.tuples(st.sampled_from(OPERATIONS), st.integers(0, 3), st.booleans()), min_size=1, max_size=24))
-def test_t2_a_record_is_released_absent_or_removed_only_when_nothing_of_it_is_left(middle):
+def test_t2_a_record_is_released_absent_or_removed_only_when_nothing_of_it_is_left(rule, middle):
     """A model of the daemon's sweeps over known allocations that a provider may
     delete, unmark or lock, whose path may be swapped, and whose removal may
     crash after its rename. After each step, an `absent` or `removed` receipt
@@ -482,10 +528,15 @@ def test_t2_a_record_is_released_absent_or_removed_only_when_nothing_of_it_is_le
 
     Every example starts four allocations and ends with sweeps a day apart, so
     each one is released or held at the end: derandomized examples are small,
-    and without that frame only one in thirty reached a release."""
+    and without that frame only one in thirty reached a release.
+
+    A crash is the daemon's own (removal killed right after its rename), or with
+    `flag` false a tombstone an earlier build left with the folder's mode as the
+    provider set it. The model's own renames (that one, and a swap) work under
+    either rename rule, as a provider's must (r2)."""
     steps = [("start", index, False) for index in range(4)] + middle + [
         ("sweep", 0, False), ("advance", 3, False), ("sweep", 0, False)]
-    with tempfile.TemporaryDirectory(prefix="attempt-t2-") as directory:
+    with tempfile.TemporaryDirectory(prefix="attempt-t2-") as directory, rename_rules.applied(rule):
         scratch = manager(Path(directory))
         store, clock = Sightings(), 1_000_000.0
         records, states, empties, receipts, identity = {}, {}, {}, {}, {}
@@ -521,9 +572,19 @@ def test_t2_a_record_is_released_absent_or_removed_only_when_nothing_of_it_is_le
                     # It ended with a verified-empty census, its removal began, and
                     # the daemon died after the rename.
                     states[key], empties[key] = "succeeded", True
-                    os.rename(path, tombstone_of(scratch, records[key]))
+                    if flag:
+                        with pytest.MonkeyPatch.context() as patch:
+                            crash_after_tombstone_rename(patch)
+                            try:
+                                outcome = scratch.remove(records[key], subject(key), verified_empty=True)
+                            except Crash:
+                                outcome = None
+                        if outcome:
+                            receipts[key] = outcome
+                    else:
+                        rename_rules.move_dir(path, tombstone_of(scratch, records[key]))
                 elif known and operation == "swap" and holds(path, key):
-                    path.rename(scratch.root / f"aside-{index}-{len(steps)}-{clock}")
+                    rename_rules.move_dir(path, scratch.root / f"aside-{index}-{len(steps)}-{clock}")
                     path.mkdir()
                     (path / "unrelated").write_text("dummy")
                 elif operation == "advance":
@@ -575,10 +636,11 @@ def build(parent: Path, node, counter):
     return modes + [(path, node[1])]
 
 
+@pytest.mark.parametrize("rule", RULES)
 @BOUNDED
 @given(st.lists(TREES, max_size=4), MODES)
-def test_t3_any_modes_the_owner_can_set_still_remove_the_tree(children, top_mode):
-    with tempfile.TemporaryDirectory(prefix="attempt-t3-") as directory:
+def test_t3_any_modes_the_owner_can_set_still_remove_the_tree(rule, children, top_mode):
+    with tempfile.TemporaryDirectory(prefix="attempt-t3-") as directory, rename_rules.applied(rule):
         scratch = manager(Path(directory))
         outside = Path(directory) / "outside"
         outside.mkdir()
@@ -599,11 +661,15 @@ def test_t3_any_modes_the_owner_can_set_still_remove_the_tree(children, top_mode
             unlock(Path(directory))
 
 
-def test_t3_a_deletion_no_mode_change_fixes_defers_logs_and_keeps_the_record(tmp_path, monkeypatch, caplog):
+@pytest.mark.parametrize("rule", RULES)
+def test_t3_a_deletion_no_mode_change_fixes_defers_logs_and_keeps_the_record(tmp_path, monkeypatch, caplog, rule):
     """What no mode change can fix (`chflags uchg`, here EPERM from unlink) defers
-    removal, logs why, and leaves the folder at its recorded path."""
+    removal, logs why, and leaves the folder at its recorded path, with owner
+    read, write and search added (C-12.10): the next removal needs no rename of
+    a folder macOS 15 would refuse."""
     scratch = manager(tmp_path)
     record = allocation_with_payload(scratch, top_mode=0o000)
+    rename_rules.install(rule, monkeypatch)
     real = os.unlink
 
     def pinned(path, *args, **kwargs):
@@ -617,7 +683,88 @@ def test_t3_a_deletion_no_mode_change_fixes_defers_logs_and_keeps_the_record(tmp
         assert scratch.remove(record, subject(), verified_empty=True) is None
     assert "TMPDIR removal deferred for job/a1: PermissionError" in caplog.text
     assert scratch.presence(record) == "present", "put back under its recorded path"
+    assert stat.S_IMODE(Path(record["path"]).lstat().st_mode) == 0o700, "with owner rwx added"
     assert scratch.remove(record, subject(), verified_empty=True) == "removed"
+
+
+# --- T6: the same ending under either rename rule (r2) -------------------------------------------
+
+class Lines(logging.Handler):
+    def __init__(self):
+        super().__init__(logging.WARNING)
+        self.lines = []
+
+    def emit(self, record):
+        self.lines.append(record.getMessage())
+
+
+def removal_under(rule, children, top_mode, pin):
+    """Build the tree T3 draws, with the file `pin` picks (if any) undeletable as
+    `chflags uchg` makes it, remove it under `rule`, and say how that ended: the
+    outcome, the lines logged, where the record's folder is, the mode of each
+    entry the tree had (or why it cannot be looked at), and the root's entries,
+    with this run's random names as placeholders."""
+    with tempfile.TemporaryDirectory(prefix="attempt-t6-") as directory:
+        base = Path(directory)
+        (base / "user-temp").mkdir()
+        lines, log = Lines(), logging.getLogger("tests.attempt-t6")
+        log.addHandler(lines)
+        log.propagate = False
+        scratch = attempt_tmp.AttemptTemp(base / "store", root=base / "user-temp", log=log)
+        record = scratch.create("job/a1")
+        folder, counter, modes = Path(record["path"]), [0], []
+        for child in children:
+            modes += build(folder, child, counter)
+        files = [path.name for path, _ in modes if path.is_file()]
+        pinned = files[pin % len(files)] if pin is not None and files else None
+        for path, mode in modes:
+            os.chmod(path, mode)
+        os.chmod(folder, top_mode)
+        real_unlink = os.unlink
+
+        def unlink(path, *args, **kwargs):
+            if os.path.basename(os.fspath(path)) == pinned:
+                raise PermissionError(errno.EPERM, "dummy uchg")
+            return real_unlink(path, *args, **kwargs)
+
+        try:
+            with rename_rules.applied(rule), pytest.MonkeyPatch.context() as patch:
+                patch.setattr(os, "unlink", unlink)
+                outcome = scratch.remove(record, subject(), verified_empty=True)
+                where = scratch.presence(record)
+            tree = []
+            for path in [folder, *(path for path, _ in modes)]:
+                try:
+                    tree.append((path.relative_to(folder).as_posix(), oct(stat.S_IMODE(path.lstat().st_mode))))
+                except OSError as exc:
+                    tree.append((path.relative_to(folder).as_posix(), type(exc).__name__))
+            names = {folder.name: "<allocation>", Path(tombstone_of(scratch, record)).name: "<tombstone>"}
+            said = []
+            for line in lines.lines:
+                for name, placeholder in names.items():
+                    line = line.replace(name, placeholder)
+                said.append(line)
+            left = sorted(names.get(entry.name, entry.name) for entry in scratch.root.iterdir())
+            return outcome, said, where, tree, left, pinned is not None
+        finally:
+            log.removeHandler(lines)
+            unlock(base)
+
+
+@BOUNDED
+@given(st.lists(TREES, max_size=4), MODES, st.none() | st.integers(0, 7))
+def test_t6_removal_ends_the_same_way_under_either_rename_rule(children, top_mode, pin):
+    """T6, rule-independence: for every mode combination T3 draws, with or without
+    an undeletable file somewhere in the tree, removal ends the same way under
+    this host's rename rule and macOS 15's. Removed under both; or deferred under
+    both, with the same lines logged, the folder back at its recorded path and
+    every entry with the same mode."""
+    ended = {rule: removal_under(rule, children, top_mode, pin) for rule in RULES}
+    assert ended[HOST] == ended[MACOS15], (oct(top_mode), pin, ended)
+    outcome, said, where, _, _, pinned = ended[HOST]
+    assert (outcome, where) == (("removed", "absent") if not pinned else (None, "present")), ended[HOST]
+    if outcome is None:
+        assert said == ["TMPDIR removal deferred for job/a1: PermissionError"], said
 
 
 # --- T4: bounded descriptors, and the same depth bound as size() ----------------------------------
@@ -820,3 +967,151 @@ def test_put_back_never_replaces_a_name_that_reappeared(tmp_path, monkeypatch, c
     assert scratch.remove(record, subject(), verified_empty=True) == "removed"
     assert path.is_dir() and list(path.iterdir()) == [], "and still untouched once the tombstone is finished"
     assert leftovers(scratch) == [path.name]
+
+
+# --- r2: removal checks the folder before it changes its mode or renames it ----------------------
+
+@pytest.mark.parametrize("rule", RULES)
+def test_a_locked_directory_swapped_in_before_removal_is_neither_changed_nor_moved(tmp_path, monkeypatch, caplog,
+                                                                                     rule):
+    """A directory of this user's, without owner write, renamed into the
+    allocation's place after `presence()` looked. Removal refuses it before it
+    changes any mode or renames anything: the check before the mode change (r2)."""
+    scratch = manager(tmp_path)
+    record = scratch.create("job/a1")
+    path = Path(record["path"])
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    (victim / "keep").write_text("dummy")
+    rename_rules.install(rule, monkeypatch)
+    checked = scratch.presence
+
+    def swap_after_check(value):
+        where = checked(value)
+        if where == "present":
+            os.rename(path, scratch.root / "moved-away")
+            os.rename(victim, path)
+            os.chmod(path, 0o500)
+        return where
+
+    real_rename, moved = os.rename, []
+
+    def recording(src, dst, *args, **kwargs):
+        real_rename(src, dst, *args, **kwargs)
+        if os.path.basename(os.fspath(dst)).startswith(attempt_tmp.TOMBSTONE):
+            moved.append(os.fspath(src))
+
+    monkeypatch.setattr(scratch, "presence", swap_after_check)
+    caplog.set_level(logging.WARNING)
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(os, "rename", recording)
+            assert scratch.remove(record, subject(), verified_empty=True) is None
+        assert moved == [], "refused before any rename"
+        assert stat.S_IMODE(path.lstat().st_mode) == 0o500, "and before any mode change"
+        assert (path / "keep").read_text() == "dummy"
+        assert "TMPDIR removal refused for job/a1: its folder was swapped" in caplog.messages
+    finally:
+        unlock(tmp_path)
+
+
+@pytest.mark.parametrize("rule", RULES)
+def test_a_directory_swapped_in_after_removals_last_look_is_refused_and_put_back(tmp_path, monkeypatch, caplog,
+                                                                                   rule):
+    """The swap comes right after removal last looks at the allocation by its name
+    (or, in a build that never looks, at the rename itself), so only the check of
+    what the rename moved can refuse it. The swapped-in directory goes back to
+    its name untouched, and the allocation stays where the swap put it."""
+    scratch = manager(tmp_path)
+    record = scratch.create("job/a1")
+    path = Path(record["path"])
+    (path / "payload").write_text("dummy")
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    (victim / "keep").write_text("dummy")
+    rename_rules.install(rule, monkeypatch)
+    real_stat, real_rename, swapped = os.stat, os.rename, []
+
+    def swap():
+        if not swapped:
+            swapped.append(True)
+            real_rename(path, scratch.root / "moved-away")
+            real_rename(victim, path)
+
+    def stat_(target, *args, **kwargs):
+        found = real_stat(target, *args, **kwargs)
+        if kwargs.get("dir_fd") is not None and os.fspath(target) == path.name:
+            swap()
+        return found
+
+    def rename_(src, dst, *args, **kwargs):
+        if os.fspath(src) == path.name and os.path.basename(os.fspath(dst)).startswith(attempt_tmp.TOMBSTONE):
+            swap()
+        return real_rename(src, dst, *args, **kwargs)
+
+    caplog.set_level(logging.WARNING)
+    with monkeypatch.context() as patch:
+        patch.setattr(os, "stat", stat_)
+        patch.setattr(os, "rename", rename_)
+        assert scratch.remove(record, subject(), verified_empty=True) is None
+    assert swapped, "the swap ran"
+    assert (path / "keep").read_text() == "dummy", "the swapped-in directory is back at its name, untouched"
+    assert (scratch.root / "moved-away" / "payload").read_text() == "dummy"
+    assert not [name for name in leftovers(scratch) if name.startswith(attempt_tmp.TOMBSTONE)]
+    assert "TMPDIR removal refused for job/a1: its folder was swapped" in caplog.messages
+
+
+@pytest.mark.parametrize("code,logged", [
+    ("too-deep", "TreeError(too-deep)"), ("mount-point", "TreeError(mount-point)"),
+    ("swapped", "TreeError(swapped)"), ("SECRET7code9", "TreeError")])
+def test_a_refused_trees_log_line_carries_a_code_of_the_closed_set_never_a_name(tmp_path, monkeypatch, caplog,
+                                                                                   code, logged):
+    """C-25.7: a refused tree is logged as its class and its code, a literal of the
+    codes removal can raise, never the name its detail carries; any other code is
+    logged as the class alone. The site passes the log-site lint as it stands (r2)."""
+    scratch = manager(tmp_path)
+    record = scratch.create("job/a1")
+    refusal = rfs.TreeError(code, "SECRET7name9/" + "chosen-by-the-provider")
+    monkeypatch.setattr(attempt_tmp, "_empty", lambda *args, **kwargs: (_ for _ in ()).throw(refusal))
+    caplog.set_level(logging.WARNING)
+    assert scratch.remove(record, subject(), verified_empty=True) is None
+    assert f"TMPDIR removal deferred for job/a1: {logged}" in caplog.messages
+    assert "SECRET7" not in caplog.text
+    assert scratch.presence(record) == "present"
+
+
+def test_the_macos15_rule_refuses_to_rename_exactly_a_directory_without_owner_write(tmp_path, monkeypatch):
+    """The emulation itself (`tests/rename_rules.py`): a directory without owner
+    write is refused with EACCES, by path, relative to a descriptor, by
+    `os.replace` and by `Path.rename`; a directory with owner rwx, a read-only
+    file and a symlink to a locked directory are renamed. Only modes whose
+    outcome CI's macOS 15 showed (0o500 and 0o000 refused) or all macOS allow
+    (owner rwx) are asserted, so it holds on a real macOS 15 too."""
+    rename_rules.install(MACOS15, monkeypatch)
+    parent = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for n, mode in enumerate((0o500, 0o000, 0o555)):
+            locked = tmp_path / f"locked-{n}"
+            locked.mkdir()
+            os.chmod(locked, mode)
+            for move in (lambda: os.rename(locked, tmp_path / "x"), lambda: os.replace(locked, tmp_path / "x"),
+                         lambda: locked.rename(tmp_path / "x"),
+                         lambda: os.rename(locked.name, "x", src_dir_fd=parent, dst_dir_fd=parent)):
+                with pytest.raises(PermissionError) as refused:
+                    move()
+                assert refused.value.errno == errno.EACCES, oct(mode)
+            assert locked.is_dir() and not (tmp_path / "x").exists()
+        for n, mode in enumerate((0o700, 0o755)):
+            (tmp_path / f"open-{n}").mkdir(mode)
+            os.chmod(tmp_path / f"open-{n}", mode)
+            os.rename(f"open-{n}", f"moved-{n}", src_dir_fd=parent, dst_dir_fd=parent)
+        (tmp_path / "file").write_text("dummy")
+        os.chmod(tmp_path / "file", 0o400)
+        os.rename(tmp_path / "file", tmp_path / "file-moved")
+        (tmp_path / "link").symlink_to(tmp_path / "locked-0", target_is_directory=True)
+        os.rename(tmp_path / "link", tmp_path / "link-moved")
+        assert sorted(entry.name for entry in tmp_path.iterdir()) == [
+            "file-moved", "link-moved", "locked-0", "locked-1", "locked-2", "moved-0", "moved-1"]
+    finally:
+        os.close(parent)
+        unlock(tmp_path)
