@@ -749,9 +749,11 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     included) and not the recorded group counts a process of this boot, and each seed
     the table shows, or whose pid parents a row, and the group's leader are recorded
     under `recycled`, for the reason a birth gives or else the attempt's boot. The
-    marker source is unchanged: it matches the attempt's environment, not a pid. An
-    unknown boot (none recorded, legacy seconds, or one that cannot be read) keeps the
-    conservative answer.
+    responsibility root is the guardian, so no check of its identity holds the attempt
+    either (one recorded without a unique id, or the final holder read). The marker
+    source is unchanged: it matches the attempt's environment, not a pid. An unknown boot
+    (none recorded, legacy seconds, or one that cannot be read) keeps the conservative
+    answer.
     """
     groups: set[int] = set()
     descendants: set[int] = set()
@@ -865,7 +867,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
 
     def attempt_boot_over() -> bool:
         """D-QUAR-REUSE1: is the attempt's recorded boot provably not this one? Read once,
-        and only when a seed depends on it; a cached mismatch is read afresh (C-5.12)."""
+        and only when a seed or a failed check of the root depends on it; a cached mismatch
+        is read afresh (C-5.12)."""
         if not over:
             match = None
             if attempt_uuid and seen is not None:
@@ -980,6 +983,15 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         return (order[0] is None or responsible_root.unique_id is None or process.unique_id is None
                 or process.unique_id >= responsible_root.unique_id)
 
+    def root_ended() -> bool:
+        """D-QUAR-REUSE1: the root is the attempt's guardian (`Daemon._contain`), recorded on the
+        attempt's boot. When that boot is over no process of this one names it, so a check of its
+        identity guards nothing: asked only where such a check fails, so no other census reads
+        the boot for it (C-5.12)."""
+        return (responsible_root is not None and attempt_uuid is not None
+                and boot_identity.session_uuid(str(responsible_root.boot_id or "")) == attempt_uuid
+                and attempt_boot_over())
+
     # The table's start/boot comparison is stronger than unique-id ordering, and
     # also protects legacy roots whose unique id was unavailable at launch.
     source_root = responsible_root
@@ -998,7 +1010,10 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         except InspectionError:
             root_matches = False
         if not root_matches:
-            errors.append(f"responsibility root identity unavailable for pid {source_root.pid}")
+            # D-QUAR-REUSE1: once the attempt's boot is over its guardian's pid is free or a
+            # stranger's for good, and the source has nothing to read.
+            if not root_ended():
+                errors.append(f"responsibility root identity unavailable for pid {source_root.pid}")
             source_root = None
     if wanted is not None or source_root is not None:
         listed = True
@@ -1038,9 +1053,11 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 # only holds the attempt. It never grants signal authority.
                 # A known root already gone with no provisional observations
                 # is still a valid empty source; do not make it sticky.
+                # A root whose boot is over needs no final holder check (no member names it,
+                # D-QUAR-REUSE1), whether or not a member's read asked `ours` first.
                 if (source_root.unique_id is None or holder_failed
                         or (holder is None and found_responsible)
-                        or (holder is not None and holder.unique_id is None)):
+                        or (holder is not None and holder.unique_id is None)) and not root_ended():
                     failed.append(f"responsibility root identity unavailable for pid {source_root.pid}")
         markers |= found_marked
         responsible.update(found_responsible)
