@@ -5,12 +5,14 @@ back out of the code, and is paired with the tests whose assertions must catch
 it. The unmutated tree runs every named test first and must pass; then each
 mutant runs its own tests and must fail at least one of them with a `FAILED`
 line (an import or collection error does not count as killing it). Run from the
-repository root, with the mutated files clean:
+repository root, with the mutated files clean, or from a `git archive` export of
+the tree (review r1 of #263 ran it so, never in a worktree):
 
     .venv/bin/python tools/status_hold_source_mutations.py
 
 It rewrites the files in place, one mutant at a time, and restores them whatever
-happens. It exits 1 if the baseline fails, or a mutant survives or no longer
+happens. M1 to M7 are the build's; M8 to M14 are review r1's (M14 in two
+halves, the daemon's refusal and the CLI's). It exits 1 if the baseline fails, or a mutant survives or no longer
 applies. It is a development check, not part of the suite.
 """
 from __future__ import annotations
@@ -20,12 +22,21 @@ import subprocess
 import sys
 
 STATUS, ALERTS, DAEMON = Path("subfleet/status_json.py"), Path("subfleet/alerts.py"), Path("subfleet/daemon.py")
+CONTRACTS, CLI = Path("subfleet/contracts.py"), Path("subfleet/cli.py")
 TESTS = "tests/unit/test_status_hold_source.py"
+GUARD = Path(TESTS)
 SIX_HELD = f"{TESTS}::test_all_six_codex_lanes_held_by_an_operator_read_held_not_limited"
 I1 = f"{TESTS}::test_i1_dispatchable_equals_the_frozen_release_217_function"
 I2 = f"{TESTS}::test_i2_limited_iff_an_account_limit_and_held_iff_only_a_hold"
 I3 = f"{TESTS}::test_i3_fleet_empty_counts_sum_and_limited_words_need_a_limited_lane"
 I4 = f"{TESTS}::test_i4_a_note_round_trips_or_is_refused_with_the_store_unchanged"
+I5 = f"{TESTS}::test_i5_no_credential_reaches_the_store_status_alerts_or_a_notice_through_a_hold"
+DAEMON_REFUSAL = f"{TESTS}::test_r1_p2_the_daemon_refuses_a_credential_note_and_names_it_nowhere"
+CLI_REFUSAL = f"{TESTS}::test_r1_p2_lanes_hold_refuses_a_credential_note_without_naming_it"
+#: The source guard as it was before review r1 of #263: lines filtered, then matched.
+OLD_GUARD = ('''for number, text in enumerate(path.read_text().splitlines(), start=1)
+            if "source_event" in text and re.search(r"""source_event\\W{0,3}\\s*(==|!=)|['"]operator['"]|'''
+             '''source_event\\s*(=|IN)\\s*\\(?'operator""", text, re.IGNORECASE)]''')
 
 HELD_PART = '        parts.append(f"{len(held)} held by operator"'
 LIMITED_PART = '        parts.append(f"{len(limited)} provider-limited"'
@@ -62,6 +73,44 @@ MUTANTS = {
         [(ALERTS, '            add(key, "warn" if held_only or provider != "codex" else "critical",\n',
           '            add(key, "critical" if provider == "codex" else "warn",\n')],
         [SIX_HELD, I3]),
+    # Review r1 of #263.
+    "M8 I3's rendered count: `1 disabled` said `disabled`": (
+        [(ALERTS, OTHER_PART, OTHER_PART.replace('{words}")', '{words}".replace("1 disabled", "disabled"))'))],
+        [I3, f"{TESTS}::test_r1_p3_4_i3_catches_a_rendered_count_dropped",
+         f"{TESTS}::test_a_disabled_lane_reads_disabled_and_the_fleet_is_not_all_held"]),
+    "M9 hold_note without the credential check": (
+        [(CONTRACTS, "    if holds_credential(note):\n        raise ValueError(HOLD_NOTE_CREDENTIAL_RULE)\n", "")],
+        [I4, I5, DAEMON_REFUSAL, CLI_REFUSAL, f"{TESTS}::test_r1_p2_the_credential_rule_is_a_contract_text_of_its_own",
+         f"{TESTS}::test_r1_p2_a_credential_note_reaches_no_status_alert_or_notice",
+         f"{TESTS}::test_hold_note_accepts_exactly_the_spec_and_round_trips_through_source_event"]),
+    "M10 the reader backstop dropped": (
+        [(CONTRACTS, "        return HOLD_NOTE_WITHHELD if len(note) > HOLD_NOTE_MAX or holds_credential(note) else note\n",
+          "        return note\n")],
+        [f"{TESTS}::test_r1_p2_a_stored_credential_note_is_withheld_by_every_reader"]),
+    "M11 dispatchable reads the evidence before the account-closure test": (
+        [(STATUS, '    if any(row.get("scope") == "account" for row in lane.get("closures", ())):\n'
+                  '        return "limited"\n    return _readings_verdict(lane)\n',
+          "    return _readings_verdict(lane)\n")],
+        [f"{TESTS}::test_r1_p3_1_a_closed_lane_keeps_the_release_answer_whatever_its_readings",
+         f"{TESTS}::test_i1_with_malformed_evidence_dispatchable_answers_or_raises_as_release_did"]),
+    "M12 the hold answer's nested closure rows left raw": (
+        [(DAEMON, "        view = closure_rows(self._capacity_view(self._desktop_identity()))\n"
+                  "        return {\"held\": a.lane_id",
+          "        view = self._capacity_view(self._desktop_identity())\n"
+          "        view = {**view, \"closures\": closure_rows({\"closures\": view[\"closures\"], \"lanes\": []})[\"closures\"]}\n"
+          "        return {\"held\": a.lane_id")],
+        [f"{TESTS}::test_r1_p3_2_the_hold_answer_enriches_nested_closure_rows"]),
+    "M13 the source guard filters lines before matching": (
+        [(GUARD, "for number in _comparisons(path.read_text(), str(path))]", OLD_GUARD)],
+        [f"{TESTS}::test_r1_p3_3_the_source_guard_catches_each_comparison"]),
+    "M14a the daemon's refusal echoes the note": (
+        [(DAEMON, 'raise protocol.ProtocolError(f"lanes hold: {rule}", Exit.INVALID_INPUT, reason="hold-note",',
+          'raise protocol.ProtocolError(f"lanes hold: {rule}: {a.note}", Exit.INVALID_INPUT, reason="hold-note",')],
+        [DAEMON_REFUSAL]),
+    "M14b the CLI's refusal echoes the note": (
+        [(CLI, 'return fail(Exit.INVALID_INPUT, f"lanes hold: {refused}")',
+          'return fail(Exit.INVALID_INPUT, f"lanes hold: {refused} ({note!r})")')],
+        [CLI_REFUSAL]),
 }
 
 
@@ -74,7 +123,9 @@ def run(nodes: list[str]) -> tuple[int, list[str]]:
 
 def main() -> int:
     files = sorted({path for edits, _ in MUTANTS.values() for path, _, _ in edits})
-    if subprocess.run(["git", "diff", "--quiet", "--", *map(str, files)]).returncode:
+    # A `git archive` export (no checkout) has no uncommitted work to protect.
+    checkout = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], capture_output=True).returncode == 0
+    if checkout and subprocess.run(["git", "diff", "--quiet", "--", *map(str, files)]).returncode:
         print(f"{', '.join(map(str, files))}: uncommitted changes; commit them first", file=sys.stderr)
         return 2
     named = [node for _, nodes in MUTANTS.values() for node in nodes]
