@@ -56,6 +56,22 @@ def test_d_salv_missing1_a_release_whose_worktree_is_gone_reports_nothing_to_sal
     assert not [row for row in daemon.store.list_artifacts(attempt["attempt_id"]) if row["role"] == "salvage"]
 
 
+def test_d_salv_missing1_salvage_asks_git_nothing_about_a_worktree_already_gone(state_daemon, monkeypatch):
+    """Gone before salvage: neither the snapshot nor its HEAD read runs on the path (release/217
+    ran `git rev-parse` there). The check after a failed salvage alone would report the same
+    receipt, so only this tells the two apart."""
+    daemon, harness = state_daemon
+    workdir, job_id, attempt, adir = quarantined(daemon, harness)
+    shutil.rmtree(workdir)
+    monkeypatch.setattr(daemon, "_contain", lambda attempt: Containment())
+    asked = []
+    monkeypatch.setattr(daemon_module, "salvage", lambda *args, **kwargs: asked.append("salvage"))
+    monkeypatch.setattr(daemon_module, "git_head", lambda *args, **kwargs: asked.append("git_head"))
+    daemon._resolve_quarantine(attempt, protocol.KillArgs(job_id, confirm_dead=True))
+    assert asked == []
+    assert json.loads((adir / "salvage.json").read_text()) == GONE_RECEIPT
+
+
 def test_d_salv_missing1_a_finalization_whose_worktree_is_gone_is_no_failure(state_daemon):
     """The same at finalization: the job succeeds, its notice says nothing was there to salvage,
     and the evidence carries no `salvage_error` (which would make admission try to hold a
