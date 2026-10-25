@@ -4,7 +4,7 @@ Base: `c0759bd658d6b55a656117badf3ccfa8271eab43`. Work began at 2026-10-22 07:41
 
 ## D-TMP1-P3 (#246 review r2's P3s and review r3's wording, 2026-10-24)
 
-Review r2 approved #246 with five P3s, all executed. P3-4 was fixed in `8ae931aa6`; this round builds the hub's decisions for P3-1, P3-2, P3-3 and P3-5, and review r3's two wording points. Base: `abe117e67`, release/217 with #246. Work began at 2026-10-25 01:06 UTC in a detached checkout. The assigned branch, `fix/attempt-tmpdir-p3-217`, is checked out in the caller's lane checkout, so the commits are on this workspace's detached HEAD (Subfleet keeps them as a salvage ref) and the branch ref was not moved. Nothing was pushed. Where this section and the earlier ones disagree (a fresh tombstone name, "a crash leaves a tombstone, an unknown folder the sweep ages"), this section wins, and so does C-12.10.
+Review r2 approved #246 with five P3s, all executed. P3-4 was fixed in `8ae931aa6`; this round builds the hub's decisions for P3-1, P3-2, P3-3 and P3-5, and review r3's two wording points. Base: `abe117e67`, release/217 with #246. Work began at 2026-10-25 01:06 UTC in a detached checkout. The assigned branch, `fix/attempt-tmpdir-p3-217`, is checked out in the caller's lane checkout, so the commits are on this workspace's detached HEAD (Subfleet keeps them as a salvage ref) and the branch ref was not moved. Nothing was pushed. Where this section and the earlier ones disagree (a fresh tombstone name, "a crash leaves a tombstone, an unknown folder the sweep ages"), this section wins, and so does C-12.10. Its last subsection, r2, covers #258's failures on macOS 15; where r2 and the text above it disagree (removal now fixes the folder's mode before its rename, not after), r2 wins.
 
 Commits, oldest first:
 - `def9165ae`: test (the regressions, the invariants and the mutation witnesses, written to fail before the fix).
@@ -182,6 +182,144 @@ Base counts for the files #246 already had come from review r3's holds at `8ae93
 - **Ignored folders in the worktree.** h1 and my in-process smoke checks left `__pycache__` folders, and two plain-script checks run from the worktree left a `.hypothesis` folder. All were made after this job started, and I removed only those. `git status --ignored` is empty.
 - **The GitHub PR body** needs the same one-sentence change as its file; I had no network.
 - **No real credentials, no network, nothing live** (`~/.subfleet`, the store, the daemon). Every test daemon used its pytest session's scratch.
+
+### r2: macOS 15 refuses the rename (#258's CI, 2026-10-25)
+
+CI run 40166524067 ran #258 at `4576d180c` on `macos-15` runners with Python 3.12 and 3.14, and nine of its ten shards failed; only 3.14's shard 5/5 passed. Every failing test had passed on this host, which runs macOS 26 (Darwin 25.6) with Homebrew Python 3.14.7. This round merged release/217 at `8f1c65f69` first (clean), then built the hub's fix round r2 on the merge. Work began at 2026-10-25 08:00 UTC, in a detached checkout as before; the commits are on its HEAD for the hub to push, and nothing was pushed.
+
+Commits, oldest first:
+- `f6d31ee77`: merge release/217 (`8f1c65f69`).
+- `35778b2bd`: test (the emulated rule, every rename-sensitive test under both rules, T6, the new regressions and mutants, written to fail before the fix).
+- `a0397b6dc`: fix.
+- `5635db328`: test (T4 and T5 under both rules too, so all of T1 to T5 run under both).
+- `f02900d6d`: docs (the C-12.10 amendment and its change-log entry; `_remove`'s docstring says "entry" for the swap exposure).
+- A last docs commit adds this subsection.
+
+#### Cause
+
+- **macOS 15 refuses to rename a directory without owner write,** even within one parent; macOS 26 allows it. #258's first build renamed the allocation to its tombstone first and added owner `rwx` after (P3-2), so on macOS 15 the rename of a locked folder failed with `EACCES`, removal logged `TMPDIR removal deferred for job/a1: PermissionError`, and the folder stayed for ever.
+- **Which bit.** T1's `remove:top-chmodded` cases set the top folder to 0500 (owner read and search, no write) and failed on CI, so read and search are not enough; owner write is missing in every failing input. Whether macOS 15 also refuses a folder that has owner write but lacks read or search is not observable here. The fix adds all three owner bits whenever any is missing, so it holds under either reading, and the emulation models the one CI showed.
+- **T2's failure was the test's own.** Its traceback names full paths (`…/user-temp/subfleet-attempt-job-0-a1-are46vtl -> …/user-temp/subfleet-attempt-removing-…`). `_remove` renames relative to a directory descriptor, so its errors carry bare names, and it catches `OSError` rather than raising it. The rename was T2's own `crash` step, `os.rename(path, tombstone)`, run on a folder an earlier `lock` step had set to 0000 or 0500. Its `swap` step could fail the same way.
+
+#### Fix (the hub's decision 1)
+
+- **Before the rename,** `_remove` looks at the entry under the allocation's name with `os.stat(name, dir_fd=parent, follow_symlinks=False)` and checks it against the record with `_is`, the same identity check as after the rename. A different entry refuses removal (`TMPDIR removal refused for <attempt>: its folder was swapped`) before any mode change or rename. When the mode lacks any of `0o700`, it calls `os.chmod(name, mode | 0o700, dir_fd=parent, follow_symlinks=False)`. Then it renames, and checks the tombstone with `_is` as before.
+- **The tombstone's own mode change stays,** for a tombstone a crash left, where no rename happens: what #258's first build leaves on macOS 26 when it dies between its rename and its mode change. In the rename branch it no longer fires, since the folder already has owner `rwx`.
+- **The swap window.** An entry swapped in between the check and the mode change can at most gain owner bits, and only if it is this user's (a symlink's own, never its target's): the exposure the tombstone's mode change already accepts. The check after the rename then refuses it and puts it back. That is in `_remove`'s docstring and in C-12.10; nothing more was built.
+- **A refusal after the mode change** (the post-rename check, `_empty`, the `rmdir`) puts the folder back under its name with owner `rwx` added. The T3 deferral test now asserts it: 0000 comes back as 0700.
+- **The other sites the brief named.**
+  - `:466`, `_put_back`'s rename of the tombstone back to its name, is a rename and applies in principle, but needs no change. Its source then holds owner `rwx`: the mode change before the rename gave it to the allocation, and the tombstone branch's mode change to a crash-left tombstone, before any refusal that puts the folder back. The one entry put back without that is a directory swapped in after the check, whose mode removal must never change. On macOS 15 that directory got through the rename only because it had owner write, so it goes back, unless its mode changes in between; then it stays at the tombstone name and `_put_back` logs it, as it already did for any failed put-back.
+  - `:486` (`writable`: `fchmod` of an open descriptor) and `:511` (`chmod` of a nested directory before it is opened) change modes; they rename nothing. Nothing inside a tree is ever renamed: nested directories are emptied and `rmdir`ed through their parent's descriptor, which needs the parent's write, not their own. So macOS 15's rule never applies there, and neither changed.
+- **A cleaner order, considered and rejected:** open the folder with `O_NOFOLLOW`, check `fstat`, and `fchmod` the descriptor, which leaves no window. Opening needs owner read, the bit a 0000 folder lacks, and Darwin has no `O_PATH`. A descriptor path only for folders that already have read and search would be a second code path beside the `stat` path the rest still need. So I built the hub's order.
+
+#### The log sites (the hub's decision 3)
+
+- **Inlined, and the lint unchanged.** An `OSError` logs `type(exc).__name__`. A refused tree logs `type(exc).__name__` and its code, chosen from `TREE_CODES = ("mount-point", "swapped", "too-deep")`, the closed set `_empty` and `retention_fs.open_dir` can raise during removal, by a loop over that tuple. So the logged word is always one of the module's literals, never the exception's text. Any expression that reads `exc.reason` is raw to the lint, and the scrubbers it accepts all carry the refusal's detail too (a name the provider chose), so the code is chosen, not copied. A code outside the set, which nothing in removal raises today, logs the class alone; `_reason` copied any code verbatim. `_reason` is gone.
+- **Every other log site in the module** already passed: each logs `type(exc).__name__` (the failed allocation, the journal entry kept, presence's deferral, the sweep's deferral, and `_put_back`'s kept tombstone). `raw_log_sites` on the fixed module returns nothing, and `test_no_daemon_module_logs_a_caught_exception_raw` passes (below).
+- **The test:** `test_a_refused_trees_log_line_carries_a_code_of_the_closed_set_never_a_name` makes `_empty` raise each of the three codes and one outside the set, each with a `SECRET7…` detail, and checks the exact line and that no `SECRET7` reaches the log.
+
+#### The emulated rule (the hub's decision 2)
+
+- **`tests/rename_rules.py`** wraps `os.rename` and `os.replace`, which `Path.rename`, `Path.replace` and `shutil.move` call too, to raise `PermissionError(EACCES)` when the source is a directory (never through a symlink) whose mode lacks owner write. `HOST` leaves this host's rule as it is and is the default. The module renames only through `os.rename` (removal and the put-back) and `atomic_publish`, whose source is a file. `test_the_macos15_rule_refuses_to_rename_exactly_a_directory_without_owner_write` checks the wrapper by path, by descriptor, through `os.replace` and through `Path.rename`, and that owner-`rwx` directories, a read-only file and a symlink to a locked directory still rename. It asserts only modes whose outcome is known on every macOS, so it holds on a real macOS 15 too.
+- **Under both rules, the rule in each id** (`host-rename`, `macos15-rename`): P3-2's regression and the new locked-tombstone one, T1 (both tests; the child installs its parent's rule before anything renames), T2, T3 (both tests), T4 (both) and T5, the new swap tests, the daemon-level P3-2 sweep (the fake daemon runs in the test's process, so the wrapper reaches it), and the mutation rows for `no-top-chmod`, `no-rename-verify`, `no-identity-check`, `no-pre-rename-identity-check` and `no-depth-check`.
+- **T2's own renames** (its crash, and a swap) now work under either rule, as a provider renaming its own locked folder must on macOS 15: `rename_rules.move_dir` adds owner write, renames, and puts the mode back. Its crash is now either the daemon's own (removal killed right after its rename, through the production code) or, with the step's flag false, a tombstone an earlier build left with the folder's mode as the provider set it.
+- **T1's `remove:top-chmodded` point** now matches a `chmod` of any `subfleet-attempt-` name, so it fires at the mode change before the rename, which leaves the folder at its own name with owner `rwx`, and at a crash-left tombstone's.
+
+#### Invariants, under both rename rules
+
+T1 to T5 are as stated above, and now each holds under this host's rule and macOS 15's. T3 (mode-proof) is the one this round restores: under macOS 15's rule, a top folder without owner write was deferred for ever.
+- **T1, no orphan:** both T1 tests run under both rules, 60 cases.
+- **T2, release only on absence:** the model runs under both rules, its crash through the production code or as a tombstone an earlier build left.
+- **T3, mode-proof:** both T3 tests run under both rules.
+- **T4, bounded,** and **T5, no widening:** both T4 tests and T5's property run under both rules (`5635db328`). No rename in them depends on a mode they set, so the rule changes nothing there, as it should. P3-5's 2,000-level child stays on this host's rule; it takes about 45 s.
+- **T6, rule-independence (new):** for every tree T3 draws (up to 8 leaves, every mode from 0000 to 0777 on each entry and on the top folder), with no undeletable file or with one at a drawn place (EPERM from `unlink`, as `chflags uchg` gives), removal ends the same way under both rules. Removed under both; or deferred under both, with the same lines logged, the folder back at its recorded path, and the same mode on every entry. `test_t6_removal_ends_the_same_way_under_either_rename_rule` builds each drawn tree twice and compares, and also requires that only an undeletable file defers.
+
+#### Mutants
+
+Each runs as before: the production module with one decision changed, executed in memory, must fail a named test, and every oracle also passes on the real module. r2 adds two mutants and gives three existing ones new oracles, because the check before the rename now refuses the earlier swap, and the mode change before the rename covers P3-2's own input. Rows marked "both" run once per rename rule, and each id names its rule.
+
+| Mutant | What changes | Test that fails | Rules |
+| --- | --- | --- | --- |
+| no-pre-rename-chmod (new) | the mode change before the rename dropped | `test_p3_2_owner_unreadable_top_folder_is_removed[macos15-rename]` | macOS 15's only, which is the point: on this host's rule the tombstone's mode change covers for it |
+| no-pre-rename-identity-check (new) | the check before the mode change dropped | `test_a_locked_directory_swapped_in_before_removal_is_neither_changed_nor_moved` | both |
+| no-identity-check (the post-rename re-check) | what the rename moved is not checked | `test_a_directory_swapped_in_after_removals_last_look_is_refused_and_put_back` (new oracle) | both |
+| no-rename-verify | delete in place, with no rename and no check after it | the same test (new oracle) | both |
+| no-top-chmod | a crash-left tombstone's mode change dropped | `test_p3_2_a_locked_tombstone_a_crash_left_is_finished` (new oracle) | both |
+| no-depth-check | `_empty` descends past `MAX_DEPTH` | `test_t4_a_chain_past_max_depth_is_refused_in_bounded_descriptors` | both |
+
+The other thirteen mutants are unchanged and still killed by their oracles: reuse, no-census, no-prefix, follow-symlink, salvage-hold, absent-no-receipt, age-from-marker, age-from-birth-time, no-tombstone-record, no-rmdir, follow-inner-symlink, cross-device and put-back-over. `test_the_pre_rename_chmod_mutant_is_caught_by_this_hosts_rule_only_if_it_refuses` pins the first row's point: it probes whether this host renames a 0500 directory, and requires the mutant to survive this host's rule exactly when it does, so it holds on CI's macOS 15 as well, where the host's rule kills it.
+
+#### The e2e failure (the hub's decision 4)
+
+`tests/e2e/test_conversations.py::test_a_daemon_restart_with_a_steer_in_flight_replays_without_resending` failed once, in one of the two Pythons. I had no network, so I didn't read its traceback; this classification rests on the test and the code it drives.
+- **#258's code runs in it.** Every conversation turn is an attempt, so `_launch` calls `_prepare_attempt_tmpdir`, which calls `AttemptTemp.create` (#258's journal and exclusive `mkdir`), and the restart's startup sweep runs `_sweep_attempt_tmpdirs` with #258's tombstone and journal handling.
+- **Nothing it asserts depends on that.** It asserts that the host turn completes after the restart and its approval, that the steer is delivered once, and their states. The host turn's TMPDIR was made and recorded before the crash; a steer joins the running turn without a job or attempt of its own (C-24.9), so no allocation is in flight at the crash and no journal entry can be pending. The sweep releases only allocations of terminal or quarantined holders and never ages a recorded path, so the live turn's folder is untouched.
+- **The other Python passed it at the same commit,** so it is not deterministic at #258's head.
+- **Classification:** #258's code is reachable from this test, but I found no path from it to the assertions, so I changed nothing and class it, provisionally, as a timing flake not caused by #258. I can't call it pre-existing: I have no failing run from before #258. The traceback would settle it (`gh run view 40166524067 --log-failed`, the hub's to run): a TMPDIR path, a `tmpdir.*` event or `attempt TMPDIR could not be allocated` in it would make it #258's.
+
+#### Red first
+
+- **CI at `4576d180c` on macOS 15** is the first red run: the P3-2 regression, T1's three `remove:top-chmodded` cases, T2, T3's any-modes case (`('0o0', [])`) and its deferral case, the `no-top-chmod` production pass and the daemon-level P3-2 sweep, in both Pythons, and the lint.
+- **Hold h2, step 2,** ran this round's tests (`35778b2bd`) on `4576d180c`'s `attempt_tmp.py` (the merge left it unchanged). The hold's deadline stopped it after 29 tests, of which exactly the two expected at that point failed: `test_p3_2_owner_unreadable_top_folder_is_removed[macos15-rename]`, and T1's `recorded`, `remove:top-chmodded` case under `macos15-rename`. The other 27 it reached passed, the two failures' `host-rename` twins among them. So the emulation fails, on #258's code, the first two of the tests CI failed, and this host's rule passes them.
+- **The lint at `4576d180c`:** `raw_log_sites` on the merged base's `attempt_tmp.py` returns `subfleet/attempt_tmp.py:363 passes exc raw`, the finding CI reported; on the fix it returns nothing.
+- **A plain-Python probe** (not the test suite: a one-off script, about a second of work, since removed with the scratch) ran the same removals with `4576d180c`'s `attempt_tmp.py` and with the fix's, under both rules:
+
+| Case | `4576d180c`, this host's rule | `4576d180c`, macOS 15's rule | fix, either rule |
+| --- | --- | --- | --- |
+| top folder 0000 | removed | deferred, `PermissionError`, folder kept | removed |
+| top folder 0500 | removed | deferred, `PermissionError`, folder kept | removed |
+| top folder 0300 | removed | removed (the emulation refuses only without owner write) | removed |
+| locked crash-left tombstone | removed | removed | removed |
+| a pinned file, top folder 0000 | deferred, put back at 0700, then removed | deferred, kept at 0000, then deferred again | deferred, put back at 0700, then removed |
+| a refused tree outside the closed set | logs `TreeError(SECRET7code9)` | (rule-free) | logs `TreeError` |
+
+  The base's two rows that differ by rule are what T6 compares, so T6 fails there; its own red run was not reached in a hold (below).
+
+#### Holds
+
+Every pytest ran under `suite_hold.sh`, single-process, with `TMPDIR` and Hypothesis storage in this job's scratch (`sf-tmp1p3r2`) and `env -u SUBFLEET_RETENTION_DORMANT`, from `git archive` copies of the named commits, so a hold never saw the worktree change. A hold ran its pytest steps one after another under one 19-minute deadline (`holdplan.py`), each step one pytest invocation. The second slot was closed all day (free disk under 50 GB, at times load over 120), and about ten holds waited on slot A.
+
+| Hold | Queued, started (UTC) | Steps | Result |
+| --- | --- | --- | --- |
+| red-only | 08:39, never | r2's tests on the base, from the worktree | withdrawn unstarted at 08:52, to run from copies instead and free the worktree |
+| red-only | 08:54, never | the same from a copy, plus `4576d180c`'s test files | withdrawn unstarted at 09:10, folded into h1 |
+| h1 | 09:15, never | red, the proof, the green core | withdrawn unstarted at 09:51, folded into h2 with the rest of the hold list |
+| h2 | 09:51, 11:40 (A) | 1. green core at `f02900d6d`; 2. red at `35778b2bd`; 3. the proof at `4576d180c`; 4–5. the rest of the hold list at `f02900d6d` | 1: 170 passed in 913 s (load 55–110). 2: stopped at the deadline after 29 tests (2 failed, as intended). 3–5: not reached |
+| h3 | 12:03, never | steps 3–5, then step 2 again | withdrawn unstarted at 12:30, the 4 h 30 m cutoff |
+
+The T1 children took about six seconds each at that load, so step 1 alone used 16 of h2's 19 minutes.
+
+#### Counts
+
+"Before" is #258 at `4576d180c` on this host, as out-p3 and the hub ran it (these files passed there); "now" is h2 at `f02900d6d`.
+
+| File | Before (`4576d180c`) | Now: rule-free / `host-rename` / `macos15-rename` |
+| --- | --- | --- |
+| unit `test_attempt_tmpdir_leaks.py` | 44 passed | 93 passed: 13 / 40 / 40 |
+| unit `test_attempt_tmpdir_mutations.py` | 34 passed | 49 passed: 27 / 10 / 12 |
+| fake `test_attempt_tmpdir_leaks_daemon.py` | 7 passed | 8 passed: 6 / 1 / 1 |
+| unit `test_daemon_log_sites.py::test_no_daemon_module_logs_a_caught_exception_raw` | failed on CI (`attempt_tmp.py:363`) | 1 passed |
+| unit `test_daemon_log_sites.py::test_the_site_lint_tells_raw_from_scrubbed` | 19 passed | 19 passed |
+
+Every mutant was killed by its named test under each rule its row names, and every oracle passed on the real module.
+
+#### Not run
+
+- **The proof at `4576d180c`.** `4576d180c`'s three test files, copied unchanged except for their basenames and the mutation file's import of its leak suite, were to run under the emulated rule, T1's children included (a scratch plugin installed the rule only for those copies). h2 didn't reach that step and h3 never started. What stands in for it: CI itself on a real macOS 15; h2's partial red run, where the emulation failed the first two of CI's tests on #258's code and this host's rule passed them; and the probe.
+- **The rest of the red run:** T6's failure at base, and r2's other tests there (h2's step 2 stopped after 29 of 146).
+- **The rest of the hold list at the fix:** unit `test_attempt_tmpdir_lifecycle.py`, `_guardian.py`, `_retention.py` and `_sandboxes.py`; fake `test_attempt_tmpdir_daemon.py`; the rest of `test_daemon_log_sites.py`; `test_daemon_settle.py`; fake `test_daemon_launch.py`; unit `test_daemon_accept.py`; and the contract tests (`test_invariants_index.py`, `test_protocol_registry.py`, `test_retention_turn_contract.py`, fake `test_state_contract.py`, `test_test_module_names.py`). Of what this round changed, those files reach only `_remove` (the lifecycle suite's removal tests, including its swap test, which the new check now refuses earlier) and C-12.10's text. CI runs them all.
+- **macOS 15 itself:** nothing here runs it. CI's `macos-15` shards are the proof, as the hub planned.
+- **The e2e test,** and the rest of `tests/unit`, `tests/fake` and `tests/e2e`.
+
+#### Deviations and housekeeping
+
+- **The red run is partial** and the proof didn't run (above): the queue for the one open slot ran 1 h 49 min for h2, and h3 waited 27 minutes before the cutoff.
+- **Several pytest steps in one hold.** To cut the waits, each hold ran its pytest steps one after another in one slot, under one 19-minute deadline; each step was one pytest invocation, single-process.
+- **Commit order.** The brief's order is merge, tests, fix, docs. A second test commit (`5635db328`, T4 and T5 under both rules) came after the fix, and the docs came in two commits: the contract first, so the last hold could run the contract tests, and this report last.
+- **The lint is unchanged.** The log sites pass it by an accepted form (decision 3's first choice), so `_reason` wasn't taught to it.
+- **`test_directory_renamed_in_after_the_check_is_refused_and_put_back`** (lifecycle): the check before the rename now refuses its swap before anything moves, so nothing is put back there. By reading, every assertion it makes still holds, but the lifecycle file ran in no hold this round. It no longer kills `no-identity-check` or `no-rename-verify`, whose new oracle swaps later.
+- **Commits on the detached HEAD,** as before: the branch is checked out in the caller's lane checkout, so its ref was not moved. Nothing was pushed.
+- **Nothing of mine outside the workspace and the scratch folder,** beyond the hold wrappers' own logs; no network, no real credentials, nothing live. The scratch folder is removed, and `git status --ignored` is clean.
 
 ## Round-1 fix (#246 review r1, 2026-10-23)
 
