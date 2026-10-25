@@ -372,8 +372,9 @@ def job_summary(job: dict[str, Any], root: Path) -> str:
     and it is named only when the file is there (a job imported from v1 keeps
     its deliverable in the v1 run directory).
     """
-    return (render.notice_header(job, Path(root).resolve(), require_file=True) + "\n"
-            f"no notice row for this job — subfleet runs show {job.get('job_id')}")
+    return render.notice_text(job, Path(root).resolve(),
+                              f"no notice row for this job — subfleet runs show {job.get('job_id')}",
+                              require_file=True)
 
 
 # --- talking to the daemon ----------------------------------------------------
@@ -754,7 +755,19 @@ def attached_runner(command: str) -> str | None:
     return None
 
 
-def pre_tool_use(payload: dict[str, Any], *, stdout=None) -> int:
+def pre_tool_use(payload: dict[str, Any], *, stdout=None, env: Any = None) -> int:
+    """Deny attached runner launches; in a review launch, deny publishing too.
+
+    The publish rule (C-12.4) applies only where the launch marker is set: the
+    hook runs with the provider's environment, which the job cannot change.
+    """
+    from .publish_rule import PUBLISH_MARKER, denial, payload_refusal
+    values = os.environ if env is None else env
+    if values.get(PUBLISH_MARKER) == '1':
+        refused = payload_refusal(payload)
+        if refused:
+            print(json.dumps(denial(refused)), file=stdout or sys.stdout)
+            return 0
     if payload.get('tool_name', 'Bash') != 'Bash':
         return 0
     offender = attached_runner(tool_command(payload))

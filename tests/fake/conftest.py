@@ -31,6 +31,9 @@ class Harness:
         # cases describe mechanics the rule sits on top of, so the policy starts with it off.
         policy = json.loads((REPO / "subfleet/default_policy.json").read_text())
         policy.setdefault("reserve", {})["models"] = []
+        # D-SH1: shell-aware routing has its own regressions; these fixtures
+        # keep the no-requirement routing their existing cases describe.
+        policy.pop("requires", None)
         # C-6.14, likewise: every lane here starts never having answered, so the
         # pilot hold would let one attempt at a time onto it until one answered.
         # tests/fake/test_lane_pilot.py covers the hold with it on; these cases
@@ -256,12 +259,13 @@ def daemon(request, process_inspection_available):
             finally:
                 # Keep the state root of a failed test so daemon.log and the store can be read,
                 # and of a close() that raised (a daemon that would not stop is the run most worth
-                # keeping), as the live app test's dev_daemon does. The copy is taken after close()
-                # either way; close()'s error is raised after it, and a copy that fails never replaces it.
-                report = getattr(request.node, "rep_call", None)
-                if not closed or report is not None and report.failed:
+                # keeping), as the live app test's dev_daemon does. A failed setup counts as well as
+                # a failed call: a fixture built on this one that raises ends the test before its call.
+                # The copy is taken after close() either way; close()'s error is raised after it, and
+                # a copy that fails never replaces it.
+                from tests.failed_keep import failed_keep_dir, setup_or_call_failed
+                if not closed or setup_or_call_failed(request.node):
                     import shutil, sys
-                    from tests.failed_keep import failed_keep_dir
                     keep = failed_keep_dir(request.node.name)
                     try:
                         shutil.rmtree(keep, ignore_errors=True)

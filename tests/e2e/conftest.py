@@ -141,10 +141,15 @@ class E2E:
         for name in (PYTEST_SESSION, PYTEST_SESSION_ID):
             if name in os.environ:
                 self.env[name] = os.environ[name]
+        # D-ST1 (C-20.6): a shell the daemon starts, such as a review launch's
+        # publish hook self-test (C-12.4), meets this session's keychain
+        # recorder before any system directory, or the exec guard refuses it.
+        recorder = ((str(Path(os.environ[PYTEST_SESSION]) / "keychain-bin"),)
+                    if PYTEST_SESSION in os.environ else ())
         self.env.update({
             PYTEST_MARKER: "1",
             "HOME": str(user_home), "SUBFLEET_HOME": str(self.root),
-            "PATH": os.pathsep.join((str(binary_dir), "/usr/sbin", "/sbin", "/bin",
+            "PATH": os.pathsep.join((str(binary_dir), *recorder, "/usr/sbin", "/sbin", "/bin",
                                      os.environ.get("PATH", "/usr/bin"))),
             "PYTHONPATH": os.pathsep.join((str(observer_dir), str(REPO))),
             "CLAUDE_CODE_SESSION_ID": "e2e-caller", "CLAUDECODE": "1",
@@ -383,13 +388,14 @@ def e2e(request, e2e_process_inspection, dev_app):
             finally:
                 # Keep the state root of a failed test so daemon logs, receipts and the
                 # store (with any quarantine census) can be read afterwards, and of a close()
-                # that raised, as the live app test's dev_daemon does. The copy is taken after
-                # close() either way; close()'s error is raised after it, and a copy that
-                # fails never replaces it.
-                report = getattr(request.node, "rep_call", None)
-                if not closed or report is not None and report.failed:
+                # that raised, as the live app test's dev_daemon does. A failed setup counts as
+                # well as a failed call: a fixture built on this one that starts the daemon
+                # (conv, hooked, dispatching) fails the setup when the start's wait times out.
+                # The copy is taken after close() either way; close()'s error is raised after
+                # it, and a copy that fails never replaces it.
+                from tests.failed_keep import failed_keep_dir, setup_or_call_failed
+                if not closed or setup_or_call_failed(request.node):
                     import shutil, sys
-                    from tests.failed_keep import failed_keep_dir
                     keep = failed_keep_dir(request.node.name)
                     try:
                         shutil.rmtree(keep, ignore_errors=True)

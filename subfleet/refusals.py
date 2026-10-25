@@ -18,7 +18,7 @@ import string
 from typing import Any
 
 from . import ids
-from .contracts import JOB_ID_SLUG_MAX
+from .contracts import JOB_ID_SLUG_MAX, Sandbox
 from .sessions.registry import CONVERSATION_FIX
 
 # Checkout checks select these fixed diagnostics and repairs at their raise
@@ -69,6 +69,9 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     "turn-submit": ("conversation turns are created by the daemon, not submitted",
                     "send a message with message.submit"),
     "turn-block": ("a turn job needs its conversation's turn block", None),
+    "unknown-pinned-model": ("unknown pinned model {model}", "pin a model from the live policy"),
+    "needs-shell": ("needs a shell: {model} runs {sandbox} jobs without one",
+                    "pass -s workspace-write, or pin a Codex model"),
     "list-kind": ("kind must name a job kind", None),
     "list-include-turns": ("include_turns must be true or false", None),
     "list-last": ("last must be a nonnegative integer", None),
@@ -86,7 +89,8 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
                        "commit a baseline or run it from a repository, or pass -s read-only "
                        "to run it here without writing"),
     "writable-repository": ("writable jobs require a committed git repository",
-                            "initialize a feature branch and commit a baseline"),
+                            "initialize a feature branch and commit a baseline, or pass -s read-only"),
+    "review-publish": ("reviews cannot publish", "omit --push-branch"),
     "writable-branch": ("writable job refused on {branch}",
                         "Check out a task branch before submitting a writable job."),
     "inspect-workdir": ("could not inspect the workdir",
@@ -104,6 +108,10 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
                             "worktree (without --in-place)"),
     "workspace-prepare": ("could not allocate the worktree; daemon.log has git's output",
                           "check repository and state-root permissions"),
+    # D-SH1 round 6 (C-6.6): a policy review's copy of its caller's uncommitted work.
+    "uncommitted-copy": ("the caller's uncommitted files changed while they were copied", "submit again"),
+    "uncommitted-apply": ("the caller's uncommitted changes could not be copied into the worktree",
+                          "submit again, or pass -s read-only to review the checkout in place"),
     # One session's writers (C-6.4, C-6.5, C-23.54).
     "revive-writer": ("session has a live writable job ({job_id}) and a revive is a second instance of it",
                       "wait for {job_id}, or kill it before reviving or dispatching"),
@@ -203,8 +211,22 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
                               "Read stderr_tail and exit_status in the attempt's guard-preflight.json (or run "
                               "`subfleet doctor --live`) for the app-server's own error; trust remains "
                               "unverified."),
+    # C-14.2 (D-SH1 round 8): any review on Codex, read-only included; the fix is
+    # `guard.preflight._PUBLISH_FIX`, word for word.
+    "guard-preflight-publish": ("Codex guard preflight refused the review: the never-rules guard verified, but "
+                                "Codex did not trust the review's publish hook",
+                                "Read the hooks/list answer in the attempt's guard-preflight.json: it must list "
+                                "<state root>/publish-guard/review-publish-hook once, enabled and trusted. subfleet "
+                                "doctor does not check this hook. Until it verifies, run the review on a Claude "
+                                "model (for example -m opus)."),
     "codex-guard-required": ("Writable Codex jobs require the never-rules guard",
                              "Run the guard trust preflight and supply its hooks override."),
+    "codex-publish-hook-required": ("Writable Codex reviews require the review publish hook",
+                                    "Run the guard trust preflight with the publish hook and supply its hooks override."),
+    # C-12.4, #221 review r2 P3-7: the installed hook is run once before launch.
+    "publish-hook-self-test": ("the review publish hook did not deny a gh write when it was tested before launch",
+                               "check that the hook's interpreter and the subfleet package it imports are in place "
+                               "(daemon.log names the failure), then submit again"),
     "codex-home-mismatch": ("Codex credential home does not match the lane",
                             "Resolve CODEX_HOME from this lane's original home."),
     "codex-thread-id": ("Codex resume requires a thread id", "Use the original attempt's native_session_id and lane."),
@@ -283,6 +305,10 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     "transfer-owner": ("lanes transfer: --to must be v1 or v2", None),
     "transfer-blocked": ("lanes transfer: the lane cannot move yet; the dry run's blocker says why",
                          "subfleet lanes transfer <lane> --to v2 --dry-run shows the plan"),
+    "transfer-held": ("lanes transfer: lane {lane_id} is held (credential-refused={lane_variable}): "
+                      "it holds no credential to move",
+                      "point the lane at a daemon variable no launch inherits in lanes.json (same lane id, "
+                      "provider and account), restart the daemon, then transfer it"),
     "transfer-live": ("lanes transfer: the lane has live work",
                       "wait for its work or containment to finish, then run this again"),
     "transfer-v1-edit": ("lanes transfer: this transfer edits a v1 roster file",
@@ -336,6 +362,8 @@ LESS_SPECIFIC: dict[str, tuple[tuple[str, str | None], ...]] = {
     "guard-preflight": (("Codex guard preflight refused the writable job", "rerun subfleet doctor"),),
     "unknown-job": (("unknown job", None),),
     "different-payload": (("request id already used with a different payload", None),),
+    "unknown-pinned-model": (("unknown pinned model", HANDLER_MESSAGES["unknown-pinned-model"][1]),),
+    "needs-shell": (("needs a shell: the pinned launch runs without one", HANDLER_MESSAGES["needs-shell"][1]),),
     "policy-workdir": (("these jobs write by policy, and {repository}", HANDLER_MESSAGES["policy-workdir"][1]),
                        ("these jobs write by policy, outside a committed repository",
                         HANDLER_MESSAGES["policy-workdir"][1])),
@@ -369,6 +397,10 @@ LESS_SPECIFIC: dict[str, tuple[tuple[str, str | None], ...]] = {
     "enroll-bound": (("lanes enroll: the credential is already bound to a lane", "subfleet lanes list"),),
     "unknown-lane": (("lanes {action}: unknown lane", "subfleet lanes list"),
                      ("lanes: unknown lane", "subfleet lanes list")),
+    "transfer-held": (("lanes transfer: lane {lane_id} is held: its credential variable is one no lane "
+                       "may name, so it holds no credential to move", HANDLER_MESSAGES["transfer-held"][1]),
+                      ("lanes transfer: the lane is held: its credential variable is one no lane may name, "
+                       "so it holds no credential to move", HANDLER_MESSAGES["transfer-held"][1])),
     "unknown-provider-lane": (("unknown {provider} lane", "subfleet lanes list"),
                               ("unknown lane", "subfleet lanes list")),
     "sessions-id": (("sessions: session_id is required", None),),
@@ -385,6 +417,7 @@ _SHAPES = {
     "lane_id": re.compile(r"(?:codex|claude)-[1-9][0-9]{0,8}\Z"),
     # A policy task name; the policy file is the operator's, the value still has a shape.
     "task": re.compile(r"[a-z][a-z0-9-]{0,39}\Z"),
+    "model": re.compile(r"[a-z][a-z0-9._-]{0,79}\Z"),
 }
 
 
@@ -400,6 +433,7 @@ GUARD_REPAIRS = {
 
 def _choices() -> dict[str, tuple[str, ...]]:
     from .adapters.isolation import CODEX_LAYERS, MANAGED_ENV
+    from .launch_env import ALLOWED_NAMES, SESSION_PROBE_NAMES, TEST_SESSION_NAMES, refused_reference
     return {
         # `lanes` actions, then `sessions` actions: the daemon names them, never the caller.
         "action": ("hold", "release", "release --limits", "transfer", "retire", "unretire", "revived", "nudged"),
@@ -408,11 +442,17 @@ def _choices() -> dict[str, tuple[str, ...]]:
         "layer": CODEX_LAYERS,
         "branch": ("main", "master"),
         "provider": ("claude", "codex"),
+        "sandbox": tuple(sandbox.value for sandbox in Sandbox),
         "session_verb": ("resume", "revive"),
         "guard_kind": tuple(GUARD_REPAIRS),
         "checkout_problem": tuple(message for message, _ in CHECKOUT_REFUSALS.values()),
         "checkout_fix": tuple(fix for _, fix in CHECKOUT_REFUSALS.values()),
         "errno_name": tuple(errno.errorcode.values()),
+        # D-ENV2: a held lane's variable, a name and never a value: each listed,
+        # session or probe name that is refused. A harness hook is not listed, so
+        # its refusal takes the next form, which names none.
+        "lane_variable": tuple(sorted(name for name in (*ALLOWED_NAMES, *TEST_SESSION_NAMES, *SESSION_PROBE_NAMES)
+                                      if refused_reference(name))),
     }
 
 

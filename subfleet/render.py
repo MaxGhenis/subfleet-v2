@@ -81,6 +81,36 @@ def closure_text(value: Any) -> str:
     return result + ")"
 
 
+def attempt_shell_text(job: Mapping[str, Any]) -> str:
+    """C-12.4: capability of the recorded attempt, unknown for older records.
+
+    A sentence only for `none` and `commands` (design-r2 section 2): a writable
+    review says `publish: denied` alone, and a writable job that may publish (a
+    build) says nothing (#221 review r1b, P3-3).
+    """
+    if isinstance(job.get("job"), Mapping):
+        job = {**job, **job["job"]}
+    attempts = job.get("attempts") or ()
+    attempt = job.get("attempt") or (attempts[-1] if attempts else job)
+    capability = attempt.get("capability")
+    denied = "; publish: denied" if attempt.get("publish_denied") else ""
+    if capability is None or capability == "writable":
+        return denied.removeprefix("; ")
+    try:
+        evidence = json.loads(attempt.get("evidence_json") or "{}")
+    except (TypeError, ValueError):
+        evidence = {}
+    model = evidence.get("model_short") or attempt.get("model_requested") or job.get("model") or "unknown"
+    sandbox = job.get("sandbox") or attempt.get("sandbox") or "unknown"
+    lane = attempt.get("lane_id") or job.get("lane_id") or "unknown"
+    text = f"ran {sandbox} on {lane} ({model})"
+    if capability == "none":
+        text += " with no shell: it could not run any command"
+    else:
+        text += ": commands ran, but nothing could be written, temp files included, so pytest could not run"
+    return text + denied
+
+
 def notice_header(job: Mapping[str, Any], state_root: str | Path, *,
                   require_file: bool = False) -> str:
     """C-15.1: the first line of a job's notice, from the job row alone.
@@ -124,12 +154,49 @@ def notice_header(job: Mapping[str, Any], state_root: str | Path, *,
             f"deliverable={deliverable}; out={out}")
 
 
+def uncommitted_text(record: Mapping[str, Any] | None) -> str:
+    """D-SH1 round 6: what a policy review's worktree holds of its caller's
+    uncommitted work, or why it read the checkout in place instead."""
+    if not isinstance(record, Mapping) or not record:
+        return ""
+    if record.get("fallback"):
+        return ("ran read-only in the caller's checkout: its uncommitted changes could not be "
+                f"copied into a worktree ({record['fallback']})")
+    return (f"the worktree included the caller's uncommitted changes as of submit: {record.get('files')} files "
+            f"({record.get('tracked')} tracked, {record.get('untracked')} untracked)")
+
+
+def notice_text(job: Mapping[str, Any], state_root: str | Path, summary: str, *,
+                require_file: bool = False) -> str:
+    """C-15.1: preserve every existing line; launch evidence is the final line.
+
+    A policy review's workspace line (`uncommitted_text`) comes just before it.
+    """
+    text = notice_header(job, state_root, require_file=require_file) + "\n" + summary
+    workspace = uncommitted_text(job.get("uncommitted"))
+    capability = attempt_shell_text(job)
+    return text + (f"\n{workspace}" if workspace else "") + (f"\n{capability}" if capability else "")
+
+
+def append_notice_detail(text: str, detail: str) -> str:
+    """Add a later export/push result before recorded launch evidence, if any."""
+    body, separator, last = text.rpartition("\n")
+    if separator and (last.startswith(("ran read-only on ", "ran workspace-write on "))
+                      or last == "publish: denied"):
+        return body + "\n" + detail + "\n" + last
+    return text + "\n" + detail
+
+
 def _table(headers: list[str], rows: list[list[str]]) -> str:
     widths = [max(len(header), *(len(row[index]) for row in rows)) if rows else len(header)
               for index, header in enumerate(headers)]
     def line(row: list[str]) -> str:
         return "  ".join(value.ljust(width) for value, width in zip(row, widths)).rstrip()
     return "\n".join([line(headers), line(["-" * width for width in widths]), *(line(row) for row in rows)])
+
+
+def restricted_runs_text(ids: list[str]) -> str:
+    return f"last 24h: {len(ids)} runs with no shell or no writes; ids: {', '.join(ids) or '-'}"
 
 
 def status(view: Mapping[str, Any]) -> str:
@@ -144,6 +211,8 @@ def status(view: Mapping[str, Any]) -> str:
                           weekly_samples=view.get("weekly_samples"))
     lines = [f"Capacity at {snapshot['now']}", "Codex order: weekly reset ascending, then lane id; unmeasured last."]
     lines.extend(provider_cap_text(row) for row in view.get("provider_caps", ()))
+    if "restricted_runs_24h" in view:
+        lines.append(restricted_runs_text(view["restricted_runs_24h"]))
     if view.get("disk") is not None:
         lines.append(disk_line(view["disk"]))
     if view.get("ramp") is not None:
@@ -294,8 +363,8 @@ _PIN_REFUSALS = {
     "auth-dead": "{lane}'s provider rejected its credential; a new login or re-enrolment is needed",
     "identity-mismatch": "{lane}'s credential proved to hold another account (C-10.6)",
     "credential-refused": "{lane} names {credential_ref}, a variable every launch inherits, so it holds no "
-                          "credential of its own (D-ENV1); point it at a daemon variable off the launch "
-                          "allowlist in lanes.json, same lane id, provider and account, and restart the daemon",
+                          "credential of its own (D-ENV1); point it at a daemon variable no launch inherits "
+                          "in lanes.json, same lane id, provider and account, and restart the daemon",
     "credential-latched": "{lane}'s last probe found its credential {probe_status}, which only a new login "
                           "or a re-enrolment ends",
     "credential-latched:expired-token": "{lane}'s token expired and the one heal the timers allow a Codex "

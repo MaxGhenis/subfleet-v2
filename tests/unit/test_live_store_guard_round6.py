@@ -219,8 +219,12 @@ def test_daemon_reenrolment_with_default_adapter_cannot_reach_keychain(standin, 
 
 @pytest.mark.parametrize("runner", ["native", "delegating"])
 @pytest.mark.parametrize("strip", ["markers", "session-identity"])
-def test_stripped_markers_keep_the_session_refusal(standin, monkeypatch, runner, strip):
-    """The guard pins the live session; this process's environment cannot end it."""
+def test_stripped_markers_keep_the_session_refusal(standin, monkeypatch, runner, strip, production_process):
+    """The guard pins the live session; this process's environment cannot end it.
+
+    D-ST3: the process rule would refuse here by itself, so this test waives
+    it to show the pin alone still refuses.
+    """
     treat_as_keychain_binary(monkeypatch, standin)
     if runner == "delegating":
         monkeypatch.setattr(subprocess, "run", lambda *a, **k: REAL_RUN(*a, **k))
@@ -421,6 +425,11 @@ def test_python_child_of_the_session_is_guarded_from_import(standin):
         except credentials.KeychainExecRefused as exc:
             out["real"] = str(exc)
         os.environ.pop(home_paths.PYTEST_MARKER)
+        # D-ST3: the safety net loaded pytest into this child, so the process
+        # rule would refuse by itself. Waive it to show the pin alone refuses.
+        import pytest
+        from tests.conftest import waive_process_rule
+        waive_process_rule(pytest.MonkeyPatch())
         out["under_pytest_after_strip"] = home_paths.under_pytest()
         out["stripped"] = attempt()
         print(json.dumps(out))

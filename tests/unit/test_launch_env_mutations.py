@@ -7,6 +7,7 @@ pytest process, source rewrite, provider, credential lookup or live daemon.
 import ast
 import __future__
 import inspect
+import os
 import textwrap
 from types import FunctionType
 
@@ -26,6 +27,7 @@ from tests.fake.test_launch_env_daemon import test_actual_daemon_spawn_rejects_p
 from tests.fake.test_launch_env_daemon import (
     test_review_r4_a_refused_first_start_stores_nothing as first_start_oracle,
     test_review_r4_a_removed_lane_is_held_and_never_blocks_startup as removed_lane_oracle,
+    test_review_r5_a_refused_row_for_a_stored_lane_is_ignored as ignored_row_oracle,
 )
 from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401
 from tests.unit.test_launch_env_allowlist import (
@@ -40,6 +42,17 @@ from tests.unit.test_launch_env_round5 import (
     test_a_name_popped_between_iterating_and_reading_is_skipped as vanishing_oracle,
     test_provider_environment_never_reads_a_withheld_value as withheld_oracle,
     test_session_names_need_the_marker_and_a_live_session as shape_oracle,
+)
+from tests.unit.test_launch_env_round6 import (
+    test_daemon_start_check_lists_each_inheriting_env_row_and_reads_only_lanes_json as install_check_oracle,
+)
+from tests.fake.test_launch_env_ignored_hook import (
+    test_review_r1_an_ignored_rows_harness_hook_reaches_no_launch as ignored_hook_oracle,
+)
+from tests.unit.test_launch_env_round7 import (
+    repair_root,
+    test_daemon_start_check_scrubs_a_token_shaped_lane_id as check_scrub_oracle,
+    test_review_r1_a_transfer_repairs_the_lanes_refused_row as transfer_repair_oracle,
 )
 
 
@@ -131,11 +144,11 @@ def test_named_isolated_inspection_regression_kills_ambient_mutant(tmp_path, mon
         lane_oracle("codex", "isolated", tmp_path, monkeypatch)
 
 
-def test_named_transcript_regression_kills_ambient_mutant(tmp_path, monkeypatch):
+def test_named_transcript_regression_kills_ambient_mutant(tmp_path, monkeypatch, production_process):
     monkeypatch.setattr(claude.ClaudeAdapter, "_config_projects_dir",
                         mutated(claude.ClaudeAdapter._config_projects_dir, assignment="env"))
     with pytest.raises(AssertionError):
-        transcript_oracle(tmp_path, monkeypatch, "default")
+        transcript_oracle(tmp_path, monkeypatch, "default", production_process)
 
 
 @pytest.mark.parametrize("relay", [False, True], ids=["stdin", "relay"])
@@ -194,7 +207,12 @@ class SessionOnBareCurrentTest(ast.NodeTransformer):
 
 
 def test_named_first_start_regression_kills_seed_before_check(tmp_path, monkeypatch):
-    """P2-1: seeding lanes.json before the check stores the refused row."""
+    """P2-1: seeding lanes.json before the check stores the refused row.
+
+    Since review r5 (P3-1) the check then finds that lane stored and ignores
+    its row, so the mutant's daemon serves, holding a lane it should never have
+    stored, where it used to exit 2 having stored it. The oracle fails either way.
+    """
     checked = daemon_module.Daemon._open_lanes
 
     def seeded_first(self, policy_path):
@@ -202,7 +220,8 @@ def test_named_first_start_regression_kills_seed_before_check(tmp_path, monkeypa
         return checked(self, policy_path)
 
     monkeypatch.setattr(daemon_module.Daemon, "_open_lanes", seeded_first)
-    with pytest.raises(AssertionError, match="before lanes.json is seeded"):
+    with pytest.raises((AssertionError, pytest.fail.Exception),
+                       match="before lanes.json is seeded|a refused roster served"):
         first_start_oracle(tmp_path, monkeypatch, "SUBFLEET_FAKE_LANE_NINE")
 
 
@@ -243,3 +262,90 @@ def test_named_shape_regression_kills_selecting_on_bare_pytest_current_test(tmp_
     monkeypatch.setattr(launch_env, "_selected", rewritten(launch_env._selected, SessionOnBareCurrentTest()))
     with pytest.raises(AssertionError):
         shape_oracle(tmp_path, shape)
+
+
+@pytest.mark.parametrize("caller", ["daemon start", "daemon startup"])
+def test_named_ignored_row_regression_kills_refusing_a_stored_lanes_row(tmp_path, monkeypatch, caller):
+    """Review r5, P3-1: a refused lanes.json row for a lane the store holds stops
+    startup again, at either caller, when it is checked as a new lane's row."""
+    from subfleet import credentials
+    original = credentials.startup_lanes
+
+    def refusing(roster, stored):
+        return [(lane_id, name, launch_env.ROSTER if source == launch_env.IGNORED else source)
+                for lane_id, name, source in original(roster, stored)]
+
+    monkeypatch.setattr(cli if caller == "daemon start" else daemon_module, "startup_lanes", refusing)
+    with pytest.raises(AssertionError):
+        ignored_row_oracle(tmp_path, monkeypatch, "HOME")
+
+
+def test_named_install_check_regression_kills_reading_a_value(tmp_path, monkeypatch, capsys):
+    """D-ENV2: an install check that reads each listed variable's value, here to
+    say whether it is set, fails the check's own test."""
+    original = cli.lanes_json_refusals
+
+    def reading(root):
+        found = original(root)
+        for _, name in found:
+            os.environ.get(name)
+        return found
+
+    monkeypatch.setattr(cli, "lanes_json_refusals", reading)
+    with pytest.raises(AssertionError, match="read a lane variable's value"):
+        install_check_oracle(tmp_path, monkeypatch, capsys, "SUBFLEET_FAKE_LANE_NINE")
+
+
+# --- review r1 of #248 (D-ENV2, fix round 1): each P3's named regression kills its mutant ---
+
+
+def test_named_ignored_hook_regression_kills_dropping_the_ignored_hooks(tmp_path, monkeypatch):
+    """P3-1: the daemon remembers no ignored row's hook, so neither withheld set
+    names it, and the hook reaches codex-1's launch and claude-9's own again."""
+    monkeypatch.setattr(daemon_module, "ignored_hooks", lambda found: frozenset())
+    with pytest.raises(AssertionError, match="a withheld set misses the hook"):
+        ignored_hook_oracle(tmp_path, monkeypatch, "ignored-row")
+
+
+def test_named_ignored_hook_regression_kills_the_timers_withholding_the_store_alone(tmp_path, monkeypatch):
+    """P3-1, the second set: the timers' own launches withhold the stored lanes'
+    names alone again, as before the fix, while the daemon's set is right."""
+    from subfleet import timers
+    from subfleet.credentials import withheld_references
+    monkeypatch.setattr(timers.Timers, "_provider_environment", lambda self: ProviderEnvironment(
+        self.policy, references=lambda: withheld_references(self.store.list_lanes())))
+    with pytest.raises(AssertionError, match="a withheld set misses the hook"):
+        ignored_hook_oracle(tmp_path, monkeypatch, "ignored-row")
+
+
+class JsonRowsUnscrubbed(ast.NodeTransformer):
+    """P3-2's mutant: `daemon start --check --json` lists lanes.json's rows as read,
+    unscrubbed; the text listing still scrubs."""
+    found = False
+
+    def visit_Call(self, node):
+        self.generic_visit(node)
+        if isinstance(node.func, ast.Name) and node.func.id == "emit":
+            for inner in ast.walk(node):
+                if isinstance(inner, ast.comprehension) and isinstance(inner.iter, ast.Name) and inner.iter.id == "rows":
+                    inner.iter = ast.Name("found", ast.Load())
+                    self.found = True
+        return node
+
+
+@pytest.mark.parametrize("variable", ["HOME", "SUBFLEET_FAKE_LANE_EIGHT"])
+def test_named_check_scrub_regression_kills_an_unscrubbed_json_listing(tmp_path, monkeypatch, capsys, variable):
+    """P3-2: the install check's `--json` names a token-shaped lane id raw."""
+    monkeypatch.setattr(cli, "_daemon_start_check", rewritten(cli._daemon_start_check, JsonRowsUnscrubbed()))
+    with pytest.raises(AssertionError, match="printed the lane id unscrubbed"):
+        check_scrub_oracle(tmp_path, monkeypatch, capsys, "json", variable)
+
+
+@pytest.mark.parametrize("dry_run", [True, False], ids=["dry-run", "apply"])
+def test_named_transfer_repair_regression_kills_writing_only_owner(tmp_path, monkeypatch, dry_run):
+    """P3-3: a transfer that sets only `owner` on the lane's existing row, as
+    before the fix, leaves the refused row a rebuilt store would refuse."""
+    from subfleet import lanes_transfer
+    monkeypatch.setattr(lanes_transfer, "_repair_refused_row", lambda row, lane, home: None)
+    with repair_root(tmp_path) as world, pytest.raises(AssertionError):
+        transfer_repair_oracle(world, "v1", dry_run)

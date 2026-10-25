@@ -30,7 +30,7 @@ def test_c14_2_daemon_consumes_guard_preflight_and_passes_override(tmp_path, mon
     """C-14.2, C-14.3 daemon preflight supplies the exact reviewed adapter override."""
     guard = ModuleType("subfleet.guard")
     preflight = ModuleType("subfleet.guard.preflight")
-    preflight.TIMEOUT, preflight.PROBE = "timeout", "probe"
+    preflight.TIMEOUT, preflight.PROBE, preflight.PUBLISH = "timeout", "probe", "publish"
     calls = []
     def check(binary, **kwargs):
         calls.append((binary, kwargs))
@@ -46,6 +46,13 @@ def test_c14_2_daemon_consumes_guard_preflight_and_passes_override(tmp_path, mon
     with pytest.raises(AdapterError, match="trust hash mismatch") as error:
         Daemon._guard_override(adapter, lane(tmp_path), str(tmp_path))
     assert error.value.code == 7 and error.value.fix == "restore TRUST"
+    assert error.value.reason == "guard-preflight"
+    # C-14.2: the guard verified, and only a review's publish hook went untrusted.
+    preflight.preflight = lambda *args, **kwargs: SimpleNamespace(ok=False, override=None,
+        message="publish hook untrusted", fix="see guard-preflight.json", kind="publish")
+    with pytest.raises(AdapterError, match="publish hook untrusted") as error:
+        Daemon._guard_override(adapter, lane(tmp_path), str(tmp_path))
+    assert error.value.reason == "guard-preflight-publish"
 
 
 def test_c6_5_api_key_home_is_refused_without_exposing_its_value(tmp_path):

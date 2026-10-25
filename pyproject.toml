@@ -13,7 +13,9 @@ dependencies = []
 # v1 workers are retired; no command delegates back to v1.
 subfleet = "subfleet.compat:dispatch"
 subfleet-gate = "subfleet.gate.cli:main"
-subfleetd = "subfleet.daemon:main"
+# The entry `python -m subfleet.daemon` runs, so a test process's refusal is one
+# line and exit 7 from either (C-20.6); `daemon start` launches this script.
+subfleetd = "subfleet.daemon:run_program"
 subfleet-guardian = "subfleet.guardian:main"
 # The sessions kit is a second entry point in the same repo (plan B decision 3):
 # `subfleet sessions` and `subfleet handoff` dispatch to it, and it can also be

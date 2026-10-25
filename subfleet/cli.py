@@ -69,9 +69,9 @@ from .contracts import (GIT_LOCATION_ENV, GIT_PATHSPEC_ENV, JOB_KINDS, REQUEST_I
 from .offline import (KNOWN_SCHEMA_VERSION, Offline, OfflineUnavailable,
                       SchemaTooNew, age_adjusted_label)
 from .protocol import ProtocolError
-from .credentials import startup_lanes
+from .credentials import refused_rows, startup_lanes
 from .launch_env import build_environment, refused_reference
-from .policy import PolicyError, check_lane_credentials, held_lane_message, load_policy
+from .policy import LANE_REFERENCE_FIX, PolicyError, check_lane_credentials, load_policy, startup_notes
 from .store import notice_fingerprint
 from .home_paths import home_path
 
@@ -87,7 +87,7 @@ RETIRED_MODELS = {"sol": "astra"}
 LEGACY_TASK_CLASSES = {"review": "review", "build": "build", "sweep": "sweep"}
 LEGACY_MODEL_CLASSES = {"fable": "fable"}
 
-MODEL_CHOICES = ("fable", "opus", "sonnet", "haiku", "astra", "terra", "sol")
+MODEL_CHOICES = ("fable", "opus", "sonnet", "haiku", "astra", "terra", "luna", "sol61", "sol")
 TASK_CHOICES = ("lookup", "research", "sweep", "review", "build",
                 "authored-prose", "strategy", "adjudication")
 TIER_CHOICES = ("trivial", "easy", "standard", "hard")
@@ -464,6 +464,8 @@ def format_alerts(alerts: Any) -> list[str]:
 def format_status(data: dict[str, Any]) -> str:
     """Alerts in force, lanes with their newest readings, live closures, and running jobs."""
     lines: list[str] = format_alerts(data.get("alerts"))
+    if "restricted_runs_24h" in data:
+        lines.append(render.restricted_runs_text(data["restricted_runs_24h"]))
     lines.extend(render.provider_cap_text(row) for row in rows_of(data.get("provider_caps")))
     lanes = [dict(lane) for lane in rows_of(data.get("lanes"))]
     readings = [dict(row) for row in rows_of(data.get("readings"))]
@@ -895,6 +897,7 @@ def _prepare_submit(args: argparse.Namespace,
         workdir=workdir,
         prompt_path=prompt_path,
         sandbox=sandbox,
+        needs_shell=getattr(args, "needs_shell", None),
         task=args.task,
         tier=args.tier,
         pinned_model=args.m,
@@ -1097,8 +1100,9 @@ BATCH_KEYS: dict[str, tuple[str, str]] = {
     "allow_unmeasured_reserve": ("unmeasured_reserve_reason", "str"),
     "mcp": ("mcp", "list"),
     "push_branch": ("push_branch", "str"),
+    "needs_shell": ("needs_shell", "bool"),
 }
-BATCH_CHOICES = {"task": TASK_CHOICES, "tier": TIER_CHOICES, "model": MODEL_CHOICES,
+BATCH_CHOICES = {"task": TASK_CHOICES, "tier": TIER_CHOICES,
                  "sandbox": SANDBOX_CHOICES}
 BATCH_MAX = 256
 
@@ -1426,9 +1430,11 @@ def _wait_summary(job: dict[str, Any]) -> str:
               if row["state"] == JobState.SUCCEEDED.value else "-")
     attempt = job.get("attempt") or {}
     detail = job.get("outcome_detail") or attempt.get("outcome_detail")
+    capability = render.attempt_shell_text(job)
     return (f"{PROG} wait: {row['id']} {label} · {row['model'] or '-'} · "
             f"lane={row['lane'] or '-'} · {duration} · out={target}"
-            + (f" · {detail}" if state == "FAILED" and detail else ""))
+            + (f" · {detail}" if state == "FAILED" and detail else "")
+            + (f" · {capability}" if capability else ""))
 
 
 def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
@@ -1807,6 +1813,9 @@ def _format_job(job: dict[str, Any]) -> str:
         value = job.get(key)
         if value not in (None, ""):
             lines.append(f"{label:<8} {value}")
+    copy = render.uncommitted_text(job.get("uncommitted") or (job.get("job") or {}).get("uncommitted"))
+    if copy:
+        lines.append(f"{'worktree':<8} {copy}")
     attempts = rows_of(job.get("attempts"))
     if attempts:
         lines.append("attempts")
@@ -1822,11 +1831,15 @@ def _format_job(job: dict[str, Any]) -> str:
                 f"  a{attempt.get('seq')} {attempt.get('state')} "
                 f"lane={attempt.get('lane_id')} model={attempt.get('model_requested')}"
                 + receipt
+                + f" capability={attempt.get('capability') or 'unknown'}"
                 + (f" rc={attempt.get('rc')}" if attempt.get("rc") is not None else "")
                 + (f" class={attempt.get('outcome_class')}"
                    if attempt.get("outcome_class") else "")
                 + (f" quarantine={attempt.get('quarantine_reason')}"
                    if attempt.get("quarantine_reason") else ""))
+            capability = render.attempt_shell_text({**job, "attempt": attempt})
+            if capability:
+                lines.append("    " + capability)
     artifacts = rows_of(job.get("artifacts"))
     if artifacts:
         lines.append("artifacts")
@@ -2600,7 +2613,8 @@ def cmd_notices(args: argparse.Namespace) -> int:
 
 def _daemond_argv(root: Path) -> list[str]:
     """How to start `subfleetd`, honouring an explicit override for tests."""
-    override = (os.environ.get("SUBFLEET_DAEMON_BIN") or "").strip()
+    from .home_paths import checked_override
+    override = checked_override("SUBFLEET_DAEMON_BIN", (os.environ.get("SUBFLEET_DAEMON_BIN") or "").strip())
     if override:
         return [override, "--state-root", str(root)]
     # `-E -P`: the daemon must import this package whatever PYTHON* variables the
@@ -2647,20 +2661,83 @@ def daemon_env(root: Path, *, notes: list[str] | None = None) -> dict[str, str]:
     """The started daemon's environment, after the checks daemon startup runs too.
 
     A refused policy or lanes.json row raises `PolicyError`. A stored lane the
-    check refuses is held, not fatal (review r4, P2-1): it is added to `notes`.
+    check refuses is held, not fatal (review r4, P2-1), and a refused row for a
+    lane already stored is ignored (review r5, P3-1): each such lane's one
+    warning is added to `notes`.
     """
     policy_path = root / "policy.json"
     policy = load_policy(policy_path) if policy_path.exists() else {}
     lanes = _startup_lanes(root)
-    held = check_lane_credentials(policy, policy_path, lanes)
+    found = check_lane_credentials(policy, policy_path, lanes)
     if notes is not None:
-        notes.extend(held_lane_message(lane_id, name) for lane_id, name in held)
+        notes.extend(startup_notes(found))
     # The daemon holds each env-kind lane credential so it can resolve it; every
     # launch withholds them, and each lane receives only its own (D-ENV1). A held
     # lane's variable is no credential, so it is not passed by name.
     references = {name for _, name, _ in lanes if not refused_reference(name)}
     return build_environment({"SUBFLEET_HOME": str(root)},
                              pass_names=(*policy.get("env", {}).get("pass", ()), *sorted(references)))
+
+
+def lanes_json_refusals(root: Path) -> list[tuple[Any, str]]:
+    """D-ENV2 (review r5 of #222): the install check's rows, from `lanes.json` alone.
+
+    Each env-kind row whose variable some launch inherits or the session probe
+    reads (`credentials.refused_rows`), as (lane id, variable). Nothing else is
+    read: not the store, the policy, the daemon's socket or any variable's
+    value, so it can run against a live install before an upgrade. A missing
+    file lists nothing; anything at its name that is not a regular file of
+    JSON raises `OSError` or `ValueError`.
+    """
+    from .sessions.transcripts import read_regular
+    try:
+        data = read_regular(root / "lanes.json")
+    except FileNotFoundError:
+        return []
+    roster = json.loads(data)
+    if isinstance(roster, dict):
+        roster = roster.get("lanes", [])
+    if not isinstance(roster, list):
+        raise ValueError("lanes.json holds no list of lane rows")
+    return refused_rows(roster)
+
+
+def _daemon_start_check(args: argparse.Namespace, root: Path) -> int:
+    """`daemon start --check` (D-ENV2): list each env-kind lanes.json row whose
+    variable some launch inherits, by lane and variable only, and start nothing.
+
+    Exit 2 when it lists any, as startup would for such a row naming a new lane;
+    for a lane the store already holds, startup ignores the row instead. The
+    check cannot tell which, since it never reads the store.
+
+    A row's lane id and variable are lanes.json's own text, so each is printed
+    as `daemon start` prints its refusal of the same row, scrubbed (C-25.7;
+    review r1 of #248, P3-2), in text and in `--json` alike.
+    """
+    from . import daemon_log
+    path = root / "lanes.json"
+    try:
+        found = lanes_json_refusals(root)
+    except (OSError, ValueError) as exc:
+        return fail(Exit.INVALID_INPUT, f"daemon start --check: cannot read {path} ({exc.__class__.__name__})",
+                    "repair lanes.json, or remove it")
+    rows = [(daemon_log.scrubbed(str(lane_id)), daemon_log.scrubbed(name)) for lane_id, name in found]
+    if getattr(args, "json", False):
+        emit({"lanes_json": str(path), "refused": [{"lane_id": lane_id, "variable": name}
+                                                    for lane_id, name in rows]})
+    else:
+        for lane_id, name in rows:
+            out(f"{lane_id} {name}")
+    if not found:
+        note(f"{PROG} daemon start --check: no env-kind row of {path} names a variable some launch inherits")
+        return int(Exit.OK)
+    note(f"{PROG} daemon start --check: {len(found)} env-kind row{'s' * (len(found) > 1)} of {path} "
+         f"name{'s' * (len(found) == 1)} a variable some launch inherits or the session probe reads, which "
+         "cannot hold one lane's credential. At startup such a row stops the daemon (exit 2) when the store "
+         "has no lane by its id; when it has one, the row is ignored, and that lane is held if its own "
+         "variable is refused too")
+    note(f"  fix: {LANE_REFERENCE_FIX}")
+    return int(Exit.INVALID_INPUT)
 
 
 def _log_tail(path: Path, lines: int = 20) -> str:
@@ -2691,6 +2768,8 @@ def _daemon_alive(client: Client, *, timeout: float = 3.0) -> bool:
 
 def cmd_daemon_start(args: argparse.Namespace) -> int:
     root = _root(args)
+    if getattr(args, "check", False):
+        return _daemon_start_check(args, root)      # D-ENV2: reads lanes.json and nothing else
     client = Client(root)
     stopped = client.stopped_holder()
     if stopped is not None:
@@ -3359,8 +3438,8 @@ def build_parser() -> argparse.ArgumentParser:
                       help=argparse.SUPPRESS)          # deprecated (C-17.2)
     p_run.add_argument("--tier", choices=TIER_CHOICES,
                        help="minimum capability for --task")
-    p_run.add_argument("-m", dest="m", choices=MODEL_CHOICES,
-                       help="pin one model; never falls back (sol is retired → astra)")
+    p_run.add_argument("-m", dest="m", metavar="MODEL",
+                       help="pin a live policy model (" + ", ".join(MODEL_CHOICES) + "); never falls back (sol is retired → astra)")
     pins = p_run.add_mutually_exclusive_group()
     pins.add_argument("-a", dest="a", metavar="EMAIL", help="pin a Claude lane account")
     pins.add_argument("-H", dest="H", metavar="CODEX_HOME", help="pin a Codex lane home")
@@ -3379,7 +3458,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("-n", "--name", dest="name", metavar="NAME",
                        help="short label for the job id")
     p_run.add_argument("-s", dest="s", choices=SANDBOX_CHOICES,
-                       help="sandbox (default: the policy's permissions for --task; build writes, the rest read)")
+                       help="sandbox (default: policy permissions for --task; reviews write in their own git worktree)")
+    shell = p_run.add_mutually_exclusive_group()
+    shell.add_argument("--needs-shell", dest="needs_shell", action="store_true", default=None,
+                       help="commands only, no writes; for tests use -s workspace-write (default: policy requires for --task)")
+    shell.add_argument("--no-needs-shell", dest="needs_shell", action="store_false",
+                       help="allow launches without command execution")
     p_run.add_argument("-x", "--exclude", action="append", default=[], metavar="EMAIL",
                        help="never pick this account (repeatable)")
     p_run.add_argument("--allow-desktop", action="store_true",
@@ -3549,7 +3633,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_why.add_argument("id", nargs="?")
     p_why.add_argument("--task", choices=TASK_CHOICES)
     p_why.add_argument("--tier", choices=TIER_CHOICES)
-    p_why.add_argument("-m", dest="m", choices=MODEL_CHOICES)
+    p_why.add_argument("-m", dest="m", metavar="MODEL")
     p_why.add_argument("-x", "--exclude", action="append", default=[], metavar="EMAIL")
     p_why.add_argument("--allow-desktop", action="store_true")
     _add_json(p_why)
@@ -3559,7 +3643,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_daemon.set_defaults(handler=cmd_daemon, daemon_command=None)
     _add_json(p_daemon)
     daemon_sub = p_daemon.add_subparsers(dest="daemon_command")
-    daemon_sub.add_parser("start")
+    d_start = daemon_sub.add_parser("start")
+    d_start.add_argument("--check", action="store_true",
+                         help="list each env-kind lanes.json row whose variable some launch inherits, "
+                              "reading lanes.json alone, and start nothing")
+    _add_json(d_start, nested=True)
     daemon_sub.add_parser("stop")
     d_status = daemon_sub.add_parser("status")
     _add_json(d_status, nested=True)
