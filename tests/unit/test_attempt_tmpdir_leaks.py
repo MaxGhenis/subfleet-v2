@@ -16,10 +16,10 @@ it, and the invariants the fix keeps:
   the same way under this host's directory rename rule and macOS 15's.
 
 macOS 15 refuses to rename a directory that lacks owner write, even within one
-parent; macOS 26, this host, allows it (#258's CI, r2). Every test that renames
-a folder whose mode it set runs under both rules (`tests/rename_rules.py`), and
-its id names the rule: `host-rename` or `macos15-rename`. A child process gets
-its parent's rule.
+parent; macOS 26, this host, allows it (#258's CI, r2). T1 to T5, and every
+test that removes a folder whose mode it set, run under both rules
+(`tests/rename_rules.py`), and each id names the rule: `host-rename` or
+`macos15-rename`. A child process gets its parent's rule.
 
 In the T1 tests a crash is a real one: the child process kills itself with
 SIGKILL at the named point, so no `except` or `finally` of the code under test
@@ -804,8 +804,10 @@ def remove_counting_descriptors(scratch, record, monkeypatch):
     return outcome, peak[0], live
 
 
-def test_t4_a_chain_past_max_depth_is_refused_in_bounded_descriptors(tmp_path, monkeypatch, caplog):
+@pytest.mark.parametrize("rule", RULES)
+def test_t4_a_chain_past_max_depth_is_refused_in_bounded_descriptors(tmp_path, monkeypatch, caplog, rule):
     scratch = manager(tmp_path)
+    rename_rules.install(rule, monkeypatch)
     monkeypatch.setattr(rfs, "MAX_DEPTH", 4)
     shallow, deep = scratch.create("job/a1"), scratch.create("job/a1")
     chain(Path(shallow["path"]), 3)
@@ -818,10 +820,12 @@ def test_t4_a_chain_past_max_depth_is_refused_in_bounded_descriptors(tmp_path, m
     assert peak <= 4 + 2 and not live, (peak, live)
 
 
+@pytest.mark.parametrize("rule", RULES)
 @BOUNDED
 @given(st.integers(0, 24), st.integers(2, 12))
-def test_t4_removal_is_bounded_by_max_depth_and_refuses_what_size_refuses(depth, max_depth):
+def test_t4_removal_is_bounded_by_max_depth_and_refuses_what_size_refuses(rule, depth, max_depth):
     with tempfile.TemporaryDirectory(prefix="attempt-t4-") as directory, pytest.MonkeyPatch.context() as patch:
+        rename_rules.install(rule, patch)
         scratch = manager(Path(directory))
         record = scratch.create("job/a1")
         chain(Path(record["path"]), depth)
@@ -846,12 +850,13 @@ PLACES = st.lists(st.tuples(st.sampled_from(["top", "nested", "deep"]),
                   max_size=6)
 
 
+@pytest.mark.parametrize("rule", RULES)
 @BOUNDED
 @given(PLACES, st.booleans())
-def test_t5_removal_touches_nothing_outside_its_tree_wherever_links_point(links, squat):
+def test_t5_removal_touches_nothing_outside_its_tree_wherever_links_point(rule, links, squat):
     """`squat`: before the removal, a symlink to a folder outside has the recorded
     tombstone's name. Removal refuses, and nothing moves."""
-    with tempfile.TemporaryDirectory(prefix="attempt-t5-") as directory:
+    with tempfile.TemporaryDirectory(prefix="attempt-t5-") as directory, rename_rules.applied(rule):
         base = Path(directory)
         scratch = manager(base)
         record = scratch.create("job/a1")
