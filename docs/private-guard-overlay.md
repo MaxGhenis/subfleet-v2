@@ -85,6 +85,30 @@ are unchanged. The test fixture in `tests/fake/guard.py` is deliberately synthet
 and must never be staged as operator security policy. It is absent from both
 prepared distributions, and the runtime has no test-fixture fallback.
 
+## Policy revision: ~/.subfleet roots (D-LANE-SCOPE1, 2026-10-24)
+
+The table above is the original pair, now the rollback. On the hub's decision D-LANE-SCOPE1,
+after a lane's `rg --files -g AGENTS.md ~/.subfleet` walked 14,121 job folders and 1,765 job
+worktrees, the `unscoped-search` rule treats `~/.subfleet` and any one path component directly
+under it (`~/.subfleet/jobs`, `~/.subfleet/worktrees`, …) as broad roots, spelled `~`, `$HOME`,
+`${HOME}` or `/Users/<user>`, with or without a trailing slash. One job's folder
+(`~/.subfleet/jobs/<id>`) and anything deeper stays scoped; `-maxdepth`/`--max-depth` still
+disarms the rule. The region is edited in this overlay itself now: the Claude hook no longer
+carries it (its rule moved to `unscoped_search.py` on 2026-10-20), and the same roots go into
+that analyzer in one reviewed step.
+
+| File | SHA-256 |
+| --- | --- |
+| `never-rules-hook.sh` | `1a736be3c968e5c1dc6bb7d63019f540b06d1cc619913e6bb8e4e057e536f951` |
+| `TRUST` | `b3fcc89368e9839e16c2ca4e55d5d720993ba68ae3bcbc042fc3110f3d6e9210` |
+
+TRUST changes only `hook_sha256` and an appended provenance sentence; `hooks_trust_hash` and
+`override` hash the hook's identity, not its bytes, and do not move. The staging helper above
+refuses to replace a different overlay in place, so this revision is staged into a fresh state
+root and swapped in; `tests/unit/test_guard_subfleet_root.py` states and checks the rule's
+invariants against the original hook, and `docs/reports/2026-10-24-guard-subfleet-root.md`
+holds the install steps, the live checks, the known limits and the rollback.
+
 ## Verification
 
 Run the full fake-provider suite, build both distributions with `uv build`, and
@@ -92,7 +116,7 @@ inspect their members and bytes before installing. Overlay regressions cover
 missing and malformed pins, mismatch, executability, explicit/root resolution,
 doctor/preflight agreement, same-path cache invalidation, exact idempotent staging,
 refusal to overwrite different policy, and preservation of an old launch path.
-Private source tests pin both original files, including TRUST provenance. Package
+Private source tests pin both files of the reviewed pair, including TRUST provenance. Package
 inspection must show no `private/`, `tests/`, bundled hook, or TRUST member and
 no original private hook/TRUST payload. No provider or installed-state changes
 are needed for this verification.

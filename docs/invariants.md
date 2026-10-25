@@ -433,6 +433,13 @@ from v1 and pinned by SHA-256 in `subfleet/guard/TRUST` (C-14.1). One file canno
 itself, so the shared-region contract collapses into the file hash. What survives from v1 is the
 prohibition on editing the copy: the pinned hash fails the moment anyone does.
 
+*2026-10-24, D-LANE-SCOPE1.* The Claude hook's 2026-10-20 rewrite moved its rule into
+`unscoped_search.py`, so there is no Claude region left to copy from. The hub decided to edit the
+region in the overlay (`private/guard/never-rules-hook.sh`) to add the `~/.subfleet` roots, with
+the same roots in the Claude analyzer, and TRUST pins the new bytes. The hash pin still fails any
+unreviewed edit; `tests/unit/test_guard_subfleet_root.py` rebuilds the original reviewed hook from
+the overlay and checks that only the roots, the header and the block message's root list changed.
+
 #### 58 — the seven byte-identical rule blocks
 
 > Copy the seven Claude rule blocks byte-for-byte and pin the drift with tests; edit the Claude hook
