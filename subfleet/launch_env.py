@@ -101,6 +101,10 @@ LAUNCH_NAMES = frozenset({
     "SUBFLEET_LANE_ID", "SUBFLEET_PROBE", "SUBFLEET_PUSH_BUNDLE", "SUBFLEET_ROOT",
     "SUBFLEET_RUN_DETACH", "SUBFLEET_SESSION_ID", "SUBFLEET_TURN_JOB",
     "SUBFLEET_EXIT_SETTLE_S",  # guardian-only lifetime setting
+    # C-12.4: a publish-denied (review) launch's marker, which `subfleet hook
+    # PreToolUse` reads; `review_publish.pinned_environment` adds it with the
+    # git denial, so a parent's value never reaches any launch.
+    "SUBFLEET_PUBLISH_DENIED",
 })
 _HELPER_PASS: ContextVar[tuple[str, ...]] = ContextVar("subfleet_helper_env_pass", default=())
 

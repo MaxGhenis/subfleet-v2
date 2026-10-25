@@ -16,6 +16,7 @@ from __future__ import annotations
 import ast
 import builtins
 import contextlib
+import errno
 import importlib
 import io
 import json
@@ -958,6 +959,27 @@ def test_a_tilde_home_is_judged_literally_against_the_working_directory(spelling
     assert sealed.touched == []
 
 
+@contextlib.contextmanager
+def without_working_directory(tmp_path, monkeypatch):
+    """Run the body with the working directory removed, and return to tmp_path before the test does.
+
+    pytest's reporting hooks (CI's outcomes recorder) run before teardown, with the spies still
+    installed, so the test itself must be back in a real directory by then. The descriptor is
+    closed on every path, a failed setup or a failed return included (#255 review r2's P3)."""
+    gone = tmp_path / "gone"
+    gone.mkdir()
+    back = os.open(tmp_path, os.O_RDONLY)
+    try:
+        monkeypatch.chdir(gone)
+        gone.rmdir()
+        yield
+    finally:
+        try:
+            os.fchdir(back)
+        finally:
+            os.close(back)
+
+
 @pytest.mark.parametrize("spelling, cause", [
     ("~/st3-not-a-store", "working directory is unreadable"),
     ("~st3-no-such-user-r5/st3-not-a-store", "working directory is unreadable"),
@@ -968,12 +990,7 @@ def test_a_tilde_home_under_an_unreadable_working_directory_is_refused(spelling,
     reading that cannot be judged, so both guards refuse it, and `protected_provider_homes` names that cause; a pwd
     reading in a live root still names the store. Without the rule, `production_state_root` raised
     FileNotFoundError and `protected_provider_homes` returned `HOME/.claude` and `HOME/.codex`."""
-    gone = tmp_path / "gone"
-    gone.mkdir()
-    back = os.open(tmp_path, os.O_RDONLY)
-    monkeypatch.chdir(gone)
-    gone.rmdir()
-    try:
+    with without_working_directory(tmp_path, monkeypatch):
         with pytest.raises(OSError):
             os.getcwd()
         monkeypatch.setenv("HOME", spelling)
@@ -982,28 +999,43 @@ def test_a_tilde_home_under_an_unreadable_working_directory_is_refused(spelling,
         with pytest.raises(RuntimeError, match=cause):
             home_paths.protected_provider_homes()
         assert sealed.touched == []
-    finally:
-        # Back to a real directory before the test returns: pytest's reporting hooks (CI's
-        # outcomes recorder) run before teardown, with the spies still installed.
-        os.fchdir(back)
-        os.close(back)
 
 
 def test_the_spy_judges_an_absolute_call_with_no_working_directory(tmp_path, monkeypatch):
     """The spy itself: an absolute call made once a test has removed its working directory is still judged,
     the test's own as allowed and a live root's as refused. CI's outcomes recorder opens its file in a
     reporting hook, before teardown, and the spy once raised FileNotFoundError on that open."""
-    gone = tmp_path / "gone"
-    gone.mkdir()
-    back = os.open(tmp_path, os.O_RDONLY)
-    monkeypatch.chdir(gone)
-    gone.rmdir()
-    try:
+    with without_working_directory(tmp_path, monkeypatch):
         assert not reaches_live(str(tmp_path / "outcomes.jsonl"))
         assert reaches_live(str(LIVE_STORES[0] / "state.db"))
+
+
+@pytest.mark.parametrize("failing", ["rmdir", "fchdir"])
+def test_the_working_directory_helper_closes_its_descriptor_on_every_path(failing, tmp_path, monkeypatch):
+    """#255 review r2's P3: a setup failure (`rmdir`, ENOTEMPTY) or a failed return (`fchdir`) still closes
+    the descriptor `without_working_directory` opened on tmp_path, and the failure itself propagates."""
+    opened = []
+    real_open = os.open
+
+    def recording_open(path, flags, *args, **kwargs):
+        opened.append(real_open(path, flags, *args, **kwargs))
+        return opened[-1]
+
+    def refuse(*args, **kwargs):
+        raise OSError(errno.ENOTEMPTY if failing == "rmdir" else errno.EACCES, f"injected {failing} failure")
+
+    monkeypatch.setattr(os, "open", recording_open)
+    monkeypatch.setattr(*((Path, "rmdir") if failing == "rmdir" else (os, "fchdir")), refuse)
+    try:
+        with pytest.raises(OSError, match=f"injected {failing} failure"):
+            with without_working_directory(tmp_path, monkeypatch):
+                pass
     finally:
-        os.fchdir(back)
-        os.close(back)
+        os.chdir(tmp_path)               # a real directory for the reporting hooks, whichever step failed
+    assert len(opened) == 1
+    with pytest.raises(OSError) as closed:
+        os.fstat(opened[0])
+    assert closed.value.errno == errno.EBADF
 
 
 def test_a_home_of_bare_tilde_names_no_directory(monkeypatch):
