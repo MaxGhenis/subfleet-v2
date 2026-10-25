@@ -524,6 +524,26 @@ def test_i3_fleet_empty_counts_sum_and_limited_words_need_a_limited_lane(rows):
     check_fleet_empty(rows)
 
 
+#: C-18.4: what the fleet-empty body calls each cause, in the order it names them.
+CAUSE_WORDS = {"held": "held by operator", "limited": "provider-limited", "credential": "credential-blocked",
+               "disabled": "disabled", "other": "otherwise unavailable"}
+RENDERED_CAUSE = re.compile(r"([0-9]+) (" + "|".join(map(re.escape, CAUSE_WORDS.values())) + r")(?: \(([^()]*)\))?\Z")
+
+
+def rendered_causes(body: str, provider: str, notes: list[str]) -> list[tuple[str, int]]:
+    """Each cause the fleet-empty body names, with the count it renders, in its order.
+    The operators' notes (and a withheld one's text) are masked first, so a note
+    that reads like a cause or holds a comma is no part of its own."""
+    prefix, suffix = f"No {provider} lane is dispatchable: ", ". Run: subfleet status"
+    assert body.startswith(prefix) and body.endswith(suffix), body
+    middle = body[len(prefix):len(body) - len(suffix)]
+    for note in sorted({*notes, WITHHELD}, key=len, reverse=True):
+        middle = middle.replace(note, "\x00")
+    parts = [RENDERED_CAUSE.match(part) for part in middle.split(", ")]
+    assert all(parts), (body, middle)
+    return [(part[2], int(part[1])) for part in parts]
+
+
 def check_fleet_empty(rows: list[dict]) -> None:
     """I3 over one fleet with nothing dispatchable, through the real alert builder."""
     provider = rows[0]["provider"]
@@ -536,6 +556,10 @@ def check_fleet_empty(rows: list[dict]) -> None:
     assert (causes["limited"], causes["held"]) == (limited, held)
     body = empty["body"]
     assert empty["subject"] == f"{provider}: no dispatchable lanes"
+    # Review r1 of #263, P3-4: every count the body renders is the condition's count
+    # for that cause, and a cause with no lane is not named at all.
+    assert rendered_causes(body, provider, notes_of(rows)) == [
+        (words, causes[cause]) for cause, words in CAUSE_WORDS.items() if causes[cause]]
     words = body
     for note in sorted(set(notes_of(rows)), key=len, reverse=True):
         words = words.replace(note, "\x00")
