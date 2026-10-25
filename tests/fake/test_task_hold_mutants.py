@@ -135,7 +135,8 @@ def pin_grace_survives_a_hold():
         release(service, "build")
         service._admit()
         row = job(service, build)
-        assert (row["state"], service._pin_episodes[build]["fail_at"]) == ("waiting", stamp(550)), \
+        fail_at = service._pin_episodes.get(build, {}).get("fail_at")
+        assert (row["state"], fail_at) == ("waiting", stamp(550)), \
             "T6-grace: the hold's time ran the job's pin grace"
 
 
