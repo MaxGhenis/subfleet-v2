@@ -636,6 +636,8 @@ The review's three rows, re-measured in one timing hold under the wrapper. The h
 
 ### Invariants
 
+*Correction (fix round 3, 2026-10-24):* #239 review r3 executed counterexamples to invariant 1 at `902cfe90a`. P2-A and P2-B, both from this round, and P3-B and P3-C, older, showed values that 473fe2941 and `c2e080e44` hide: 5,046 of the review's 61,440 rules cells and 900 of its 1,760 header-name cells. "After both: 0 leaks" above held for this round's own generators only. The text below is kept as written; round 3's five invariants, under "Fix round 3", replace these.
+
 Each holds for every input, with the stated exception, and is executed by the tests named.
 
 1. **No new leak:** in no mode does the head show a `SECRET7` value that 473fe2941 or `c2e080e44` hides. The modes are the excerpt and whole-text scrubs, `clean`, daemon.log's line alone and as a refusal's detail (`detail_line`), and excerpts cut at each allowed break (invariant 3).
@@ -729,3 +731,212 @@ Under the wrapper, at the end of hold A2 (load 105 to 111), each tree measured i
 - **Follow-ups for the hub:** unchanged, with these additions:
   - **The stated converse** (the key form) is still the one value a reference (`3fbc4b7c5` only) hides that this scrubber shows.
   - **Over-redaction to watch:** a header whose whole value is a credential flag, a secret-named flag anywhere, and a header that a refused `Bearer` ends now each take a value on a later line, in every mode; `Bearer x/--api-key …` loses `x`. Each is the hub's fail-closed ruling or needed by the merge; none has shown up in daemon.log yet.
+
+## Fix round 3 (#239 review r3, 2026-10-24)
+
+**Brief:** `~/reviews/subfleet-hub/scrub-inline-2026-10-18/brief-fix3.md`. **Review:** that folder's `review-r3.md`, REQUEST_CHANGES with two P2s and three P3s, each executed, and a seven-line prototype the review measured. This round implemented the prototype as the review shows it (P2-A, P2-B), fixed P3-B and P3-C as it proposes, merged release/217 at `63c64d6b3`, and corrected C-23.14 and this report (P3-A). The work stayed in the job's worktrees: no Git remote operations, no sub-agents, nothing pushed. All test values are dummy `SECRET7…` strings.
+
+**Two runs.** The first run (job `20261024-105448-pr239-fix3`, 15:13 to 17:46Z on 2026-10-24) made the merge (`89e4cca16`), the tests (`4b5c6efdb`) and the fix (`85cf2af35`). Then the host lost its network and the run stopped, with its holds and probes unfinished; none of its results is used here. The second run (b, job `20261024-193042-pr239-fix3b`, from 01:19Z on 2026-10-25) kept those three commits unchanged after re-running every check they rest on. It corrected two docstrings in the new test file (`9b05f00db`), amended C-23.14 (`78591f4c4`), added invariant 5's count test (`ca17ca12e`), wrote this section, and ran every hold, probe, mutation and cost run below.
+
+**Names in this section.**
+- **release/217** is `63c64d6b3` (#244, D-PRR1). Its scrubber is `c2e080e44`'s: #244 changes nothing under `subfleet/sessions/` (`git diff c2e080e44 63c64d6b3 -- subfleet/sessions/` is empty).
+- **The references.** On all 65,360 texts of this round's four matrices, the real `473fe2941` and `c2e080e44` trees and the frozen `scrub_473fe2941` give the same output in all five modes (run b's dumps, compared hash by hash; both trees match `git show` file for file). So the tests use `scrub_473fe2941` for both, as round 2's do. `3fbc4b7c5` (`scrub_release217`, the scrubber before #231) is still checked.
+- **`902cfe90a`** is this branch's head before this round.
+
+### The merge
+
+`origin/release/217` at `63c64d6b3` (#244), as the hub last fetched it, merged in `89e4cca16`. Run b checked it again:
+- **`docs/acceptance-contract.md`, the one conflict:** `merge_contract.py 902cfe90a 63c64d6b3`, re-run, exits 0 ("merged against 3b13b36b7: 254 clauses, none duplicated") and writes exactly the committed file. `grep -o '^- \*\*C-[0-9]*\.[0-9]*\*\*' … | sort | uniq -d` prints nothing, after the merge and after this round's amendment.
+- **Every other file the merge changes** is `63c64d6b3`'s version: #244's report and PR body, `home_paths.py`, `prune_decisions.py`, `tests/conftest.py`, three test helpers and four test files.
+- **The scrubber:** nothing under `subfleet/sessions/` differs between `902cfe90a` and the merge, or between `c2e080e44` and `63c64d6b3`.
+
+### Findings: cause and fix
+
+**P2-A: a span `_kept_span` bounds took a secret-named flag's name and left its value.**
+- **Cause:** `_kept_span` ended a span only before an item `_owned_item` returns. That goes through `_owning_flag`, which since round 2's P4 returns None for a flag whose name reads as a secret. So a fold (`_fold_value`, used by the flag rule and by the header, `Bearer`, plain and quoted folds) or a refused `Bearer`'s line (`_refused_bearer`) that ended in such a flag swallowed the flag, but not the value daemon.log's fold gives it. The flag pass, whose cursor was then past the flag, never read it.
+- **Fix (the prototype's first line):** `_kept_span` also ends before any credential flag that ends the span and may own a value past it (`_ending_flag`), a secret-named one included. The flag rule then takes that flag with its own fold.
+- **Result:** the review's five inputs, in every mode: `[REDACTED]\n[REDACTED][REDACTED] [REDACTED]` for `--SECRET7a1_token\nKEY=--db3-password SECRET7c3`, and the same shape for the digit-named pair; `Authorization: [REDACTED]\n[REDACTED][REDACTED] [REDACTED]`; `x cookie: [REDACTED]\n[REDACTED] [REDACTED]\n[REDACTED]`; and `Cookie:[REDACTED]\n[REDACTED]\t[REDACTED]\n[REDACTED]` for the `detail_line` input.
+
+**P2-B: a fold that started at a header's name ate the name, and the rest of that line showed.**
+- **Cause:** when the next line is a line-start header whose value is glued to the colon (`Cookie:x …`), `_fold_value`'s run is `Cookie:x`. `_key_past_line` reads only a key that ends the run, so the whole run went. `_header_sub`'s cursor, or the `Bearer` and inline rules before it, were then past the name, and nothing read the rest of the line as a header.
+- **Fix (the prototype's second part):** when the run starts at a header's name (`_header_name_at`), the fold takes that header's line to its last visible character, through `_kept_span`.
+- **Result:** `Cookie: [REDACTED]\n[REDACTED]`, `Bearer [REDACTED]\n[REDACTED]` and `x\nAuthorization: [REDACTED]\n[REDACTED]` for the review's three inputs, in every mode.
+- **The narrow form, measured again.** Decision 1 kept the line fold over the narrow form (the fold returning None at a header's name) for the leak the review measured: a secret held in a header's name. With P3-B in place, that leak is gone either way:
+  - Over the header-name matrix, the P3-B matrix, the rules slice and 4,500 joined texts (13,124 texts), the narrow form shows nothing either reference hides.
+  - It differs from the line fold only by keeping the next line's header name (`Cookie:[REDACTED]` where the fold gives `[REDACTED]`), in 1,760, 890 and 13 of those excerpts.
+  - The review's leak needs both changes gone. With the narrow form and P3-B dropped, `deploy --SECRET7abc1_token\nSECRET7nxt9Authorization: Basic x` shows `SECRET7nxt9Authorization` in daemon.log's line and `detail_line`, against both references. Either change alone hides it, and its regression pins the output P3-B gives.
+  - The line fold stays, as decided. That it over-redacts the next header's name where the narrow form would not is a follow-up below.
+
+**P3-B: a header name holding a secret, glued to a closing quote, showed.**
+- **Cause:** the quoted pass's header-name clause keeps the name out of the union and leaves it to the inline rule, which keeps names whole.
+- **Fix:** where the part of a header's name before its header word holds a run that reads as a secret (`_value_runs`), the inline rule redacts that part, whatever becomes of the value: a value it redacts, or one it skips (at the text's end, already redacted, empty at a closing quote, or the next line's own header). Its second scan reads names at a line start too, so a line-start header loses it there as well.
+- **Result:** `secret:"[REDACTED]"[REDACTED]Authorization: [REDACTED]` in every mode; `x\nSECRET7ab1Authorization: v` gives `x\n[REDACTED]Authorization: [REDACTED]`, and `SECRET7ab1Cookie:` gives `[REDACTED]Cookie:`.
+
+**P3-C: a quoted inline header that ended at the quote opening a flag's quoted value took the flag and left its value.**
+- **Cause:** `_header_redaction` checked for an owning item only when the value ended at a line break or the text's end, never at the closing quote the inline rule ends a quoted value at.
+- **Fix:** when a closing quote ends the value, it also looks for a credential flag that ends it (`_owning_flag`). A flag that whitespace parts from the quote is kept with that whitespace, so the flag rule takes the quoted value after the quote, as with no header around it. A `Bearer` there still owns nothing (its rule reads no token that starts with a quote), and nor does a flag glued to the quote.
+- **Result:** `curl -H 'Cookie: [REDACTED] --password [REDACTED]` in every mode, as its bare twin `--password 'SECRET7c3'` gives `--password [REDACTED]`. The review's 72 rules-matrix cells of this class are among the 0 below.
+
+**P3-A: C-23.14 and this report overstated.** Corrected in C-23.14 (change-log entry of 2026-10-24), and by a dated note under round 2's invariants:
+- **"the one value a reference hides that this scrubber shows"** now reads "is known to show: on every text of the generators the tests run, … no other shows". This section names those generators and counts them (invariant 1).
+- **"either also takes the value daemon.log's folded line would give it"** now says what that value is: the next run, or, at a header's name, that header's whole line. It ends before any credential flag that ends it, which the flag rule takes with its own value. That is what makes the sentence true for a flag inside another fold or a refused `Bearer`'s line (P2-A).
+- **"ended before a key, flag or `Bearer` that owns a value past it"** now names the header-line case (P2-B) and the ending flag (P2-A). The refused `Bearer`'s line "ends as a folded value is".
+- **New sentences** state P3-B (a header name's secret part goes) and P3-C (a flag before a closing quote owns the quoted value after it).
+
+**Decision 4, fail closed, unchanged.** An ordinary flag name that holds a digit among six or more word characters or `-` reads as secret-named, so it goes with the value its fold gives it:
+- `deploy --k8s-token\necho done` becomes `deploy [REDACTED]\n[REDACTED] done`;
+- `kubectl --oauth2-token abc --verbose` becomes `kubectl [REDACTED] [REDACTED] --verbose`.
+
+Both are pinned in the excerpt and whole-text scrubs (`test_a_digit_in_a_flag_s_name_over_redacts_as_stated`); run b saw the same redactions in all five modes. C-23.14 now states them as the cost of failing closed.
+
+### Invariants
+
+Each is stated for every input, with its stated exception and scope, and is executed by the tests named. They replace round 2's.
+
+1. **No new leak:** in no mode does the head show a `SECRET7` value that 473fe2941 or `c2e080e44` hides. The modes are the excerpt and whole-text scrubs, `clean`, daemon.log's line alone and as a refusal's detail (`detail_line`), and excerpts cut at each allowed break (invariant 3).
+   - **The one stated converse:** the refused-`Bearer` key form (`invalid Bearer SECRET7_token: expired` keeps `SECRET7_token`). It shows at 473fe2941 and `c2e080e44` too, so against them it is no leak; only `3fbc4b7c5` hid it, and against `3fbc4b7c5` it is the only one.
+   - **Scope: what it holds over.** It is checked over these generators, at this head, against both references, and 0 show anything else:
+     - **This round:** the rules matrix (61,440 cells, run whole once in run b's probe and once under pytest; a seeded 6,144-cell slice in the unit tier), the header-name matrix (1,760), the P3-B matrix (720), the P3-C matrix (720 texts, each against its twin), and 200 drawn joins of their pieces (Hypothesis, ci profile).
+     - **Round 2:** the flag (768), union (630) and next-line (4,032) matrices, the ownership matrix (360 pairs), 400 joined cells and 400 cut records.
+     - **Round 1:** the builder's fuzz (4,000 texts), the rebuilt review-r1 generator (6,000), and its drawn property (200).
+     - **Every executed input** of reviews r1, r2 and r3, each a regression.
+   - **Beyond these generators** the invariant is a claim, not a measurement. The review's own corpora (19,100 texts, one P3-B text left under its prototype) were not kept, so they were not re-run.
+   - **Tested by:** `test_scrub_review_r3.py`, `test_scrub_review_r2.py`, `test_scrub_no_new_leak.py` and the cut tests.
+2. **Monotone:** a second scrub never shows a character the first hid (`_revealed`). Exact idempotence still does not hold, as round 2 states.
+   - **Tested by:** `_unstable` over every cell of every matrix above (0 reveals over the 61,440 rules cells too), the round-1 sweeps and property, and the key-order property.
+3. **Excerpts agree with the whole:** at every line break `_neutral_break` allows, the two excerpts' scrubs joined equal the whole text's. The header-line fold stops at its line's last visible character and crosses no further break.
+   - **Tested by:** `_splits` over every matrix cell (0 over the whole rules matrix) and every review input.
+4. **Ownership:** a value in quotes, or a flag's value, is redacted as its bare twin is, mode by mode, within C-23.14's stated limits (round 2's, unchanged).
+   - **P3-C's class** is now in it: a flag's quoted value after a quoted inline header's closing quote, 720 cells against their twins (`test_a_flag_s_quoted_value_after_a_quoted_header_is_hidden_as_its_twin_s`).
+   - **Tested by:** that matrix, round 2's 360-cell ownership matrix, and round 1's 100-cell and 72-cell matrices.
+5. **Cost:** every unit's work grows at most about 4× at 4× input, and review r3's cost rows stay within 1.3× of `c2e080e44` (table below).
+   - **The rows** hold in both runs.
+   - **The counts** behind the new paths grow at most 4× (`test_the_new_folds_read_each_line_once`). The fold at a header's name and the P3-B check run once per header or fold. The quoted pass keeps no cursor, but its union takes the rest of a line once a key's fold has, so later keys on that line add no fold. A call count over 200 and 800 such folds on one line, before an 8,000- and a 32,000-character identifier, found one `_kept_span` call per scrub and one walk of the identifier.
+   - **Timed growth** at 4× ranged past 4 for both trees alike under this host's load, so the timings confirm no more than the counts do.
+
+### The rebuilt generators
+
+The review kept none of its generators. The first run rebuilt them in `test_scrub_review_r3.py` from what the review says of them, at its sizes. Their cells are this file's own, so their counts at `902cfe90a` differ from the review's.
+
+| Matrix | Built from | Cells | `902cfe90a`: show a value both references hide | Review r3's count at `902cfe90a` | This head |
+|---|---|---|---|---|---|
+| Rules | 16 leads × 4 secret-named flags × 8 gaps × 20 runs × 6 tails | 61,440 | 11,520 (7,536 in all five modes), and 300 more against `3fbc4b7c5` only | 5,046 | 0 / 0 |
+| Rules, unit-tier slice | seed 2393 | 6,144 | 1,091 | – | 0 / 0 |
+| Header-name | 11 folding leads × 5 gaps × 8 header lines × 4 tails | 1,760 | 560 (380 in all five modes) | 900 | 0 / 0 |
+| P3-B | 6 leads × 4 names × 10 values × 3 tails | 720 | fails | 1 input | 0 / 0 |
+| P3-C | 4 openers × 4 headers × 5 flags × 3 gaps × 3 tails, each against its twin | 720 | fails | 72 cells of the rules matrix | 0 |
+| Drawn joins | 1 to 3 pieces of the four, joined (Hypothesis, ci profile) | 200 | fails | – | 0 |
+
+- **"0 / 0"** is against 473fe2941 (= `c2e080e44`) and against `3fbc4b7c5`.
+- **No cell at this head** has a split disagreement or a second scrub that reveals anything: 0 of each over the whole rules matrix, which run b ran in four probe shards (155 s of CPU) and again under pytest at `ca17ca12e` (190 s). It stays out of the default run behind `SF_SCRUB_FULL_MATRIX=1`: the repository has no `slow` marker, and `test_host_push_build`'s benchmark is opted in the same way.
+- **Round 2's generators stay green at this head:** the 768-cell flag, 630-cell union and 4,032-cell next-line matrices, the ownership matrix and the joined cells (hold 1a below).
+
+### Mutations
+
+Each change was taken out on its own from an export of `85cf2af35`, and the test modules run against it as plain scripts.
+- **The round-3 changes** run `test_scrub_review_r3.py`'s inputs, pins and matrices, but not its 6,144-cell slice or the drawn joins (18 cases).
+- **Round 2's changes** run all of `test_scrub_review_r2.py` (75 cases) and round 3's inputs and pins (13).
+
+| Removed | Named tests that fail |
+|---|---|
+| P2-A, `_kept_span`'s `_ending_flag` line | the five P2-A inputs (5) |
+| P2-B, the header-line fold (the fold reads the visible run, as at `902cfe90a`) | the three P2-B inputs, the header-name matrix (4) |
+| P2-B as the narrow return-None form | the three P2-B inputs, by their pinned output (3). No input of them shows a secret: see P2-B above |
+| The narrow form and P3-B both (run b) | the three P2-B pins, the P3-B input, the narrow-fix input (now showing `SECRET7nxt9Authorization`), the P3-B matrix (6) |
+| P3-B, a header name's secret part | the P3-B input, the narrow-fix input's pin, the P3-B matrix (3) |
+| P3-C, the closing-quote check (`quoted = False`) | the P3-C input, the P3-C twin matrix (2) |
+| Round 2's P1 | 9 of round 2's, as round 2 counted: the three P2-2 inputs, the P3-2 input and twin, the ownership and union matrices, the joined cells, one combined-found input |
+| Round 2's P2 | 5 of round 2's: the two P2-3 inputs, the next-line matrix, the P2-3 pin, the joined cells |
+| Round 2's P3 | 2 of round 2's: the growth test (10.17) and `test_owned_before_reads_each_line_end_once` |
+| Round 2's P4 | 2 of round 2's: one pin and the bare-CR combined-found input |
+| Round 2's fold redaction (decision 2) | 28 of round 2's, and 2 of round 3's inputs (P2-A's header with a lone flag, P2-B's `Bearer`) |
+| All of this round (`902cfe90a`'s `handoff.py`) | 15 of round 3's 20: the ten inputs, the four matrices and the drawn joins. The narrow-fix input and the two over-redactions hold there, as they should |
+
+### Cost
+
+Two runs under the wrapper, each tree measured in the same process, the trees taken in turn, CPU time:
+- **Run 1 (hold p3, 03:27 to 03:38Z):** the rows best of five (three for the 1 MiB row), and seven units on ten shapes at 65,536 and 262,144 characters. Run b's plain probes were still running for its first three minutes.
+- **Run 2 (hold p5, 03:57 to 04:06Z):** nothing else of run b's running. The rows best of seven (five for the 1 MiB row), the excerpt on every shape (best of seven), `detail_line` from 256 KiB to 1 MiB, and a best-of-nine re-measure, at two size pairs, of every unit run 1 put past 4.5×.
+
+The ten shapes are cost.py's three earlier ones (P3-1's adversary, a line of header names a quoted match swallows, a block of secret-named flag folds), one for each of this round's paths (a fold ending in a flag, folds at a header's name, one long header line, secret header names, flags before a closing quote), and two adversaries run b added for the header-line fold. Those two put many folds that start at a header's name on one line, from quoted keys or from `Bearer`, before an identifier half the text long that ends in a credential word.
+
+| Row | This head | `c2e080e44` | Head / `c2e080e44` | Review r3 (head; prototype) |
+|---|---|---|---|---|
+| Excerpt scrub, 262,144 characters of P3-1's adversary | 9.81; 17.85 ms | 9.85; 15.08 ms | 0.996; 1.184 | 0.76–1.24; 1.01–1.07 |
+| 1 MiB refusal through `detail_line` | 37.0; 47.7 ms | 39.5; 44.9 ms | 0.938; 1.062 | 0.81–1.26; 0.95–1.28 |
+| Excerpt growth at 4× input, nine shapes (run 2; the tenth below) | 1.99–7.48 | 3.60–6.78 | – | 2.84–4.36 for head, 2.97–4.57 for `c2e080e44` |
+| `detail_line`, 256 KiB to 1 MiB, four shapes (run 2) | 2.44–5.09 | 3.50–5.14 | – | 3.72–4.10 |
+
+- **The rows** are within 1.3× of `c2e080e44` in both runs (0.996 and 1.184; 0.938 and 1.062), so no fix is past the brief's bound.
+- **Growth at 4× is noisy on this host,** for both trees alike:
+  - Run 1 put head's units at 2.29–6.94 and `c2e080e44`'s at 2.01–7.69, leaving out the rows under 1 ms at 65,536 characters.
+  - The best-of-nine re-measure put head at 2.64–7.78 and `c2e080e44` at 1.90–6.24.
+  - Of the 26 head units it re-measured, two are above 4.6 at both size pairs:
+    - the flag pass on round 2's secret-named flag folds: 5.49 and 4.75, against 3.90 and 5.12 for `c2e080e44`;
+    - the whole-text scrub on run b's `Bearer` folds at header names: 4.61 and 4.82, against 4.94 and 5.47 for `c2e080e44`.
+  - One more shape is no growth at all: the excerpt of one long header line falls to 0.16× (0.14× for `c2e080e44`), because at 262,144 characters a line longer than an excerpt keeps nothing.
+- **The counts behind invariant 5** are exact where the timings are not (`test_the_new_folds_read_each_line_once`, eight lines, one per new path). From 1× to 4× input, `_kept_span` runs at most 4× as often, and the Python-level identifier walk grows 3.91× to 4.00×, in the excerpt, whole-text and `detail_line` modes. A run b probe at 200 and 800 folds per line, before an 8,000- and a 32,000-character identifier, found one `_kept_span` call per scrub on the one-line shapes.
+- **Absolute cost at 262,144 characters:** head's excerpt is 0.31× to 1.91× of `c2e080e44`'s across the ten shapes (run 2). It costs more only where it redacts what `c2e080e44` leaves: 1.91× for flags before a closing quote, 1.76× for folds ending in a flag and for folds at a header's name, 1.47× for round 2's secret-named flag folds. That is a constant factor, not growth.
+- **Not done:** a third hold timing every unit at 16× input (16,384 to 262,144 characters) was queued at 04:07Z. Run b stopped it unrun at 04:20Z to leave the one slot the host offered to holds 2 and 3.
+
+### Tests
+
+**Holds.** Each pytest ran alone through `suite_hold.sh`, from a `git archive` export of the commit named.
+- **The run:** the venv's Python 3.14.7 called `pytest.main` in process (`hold.py`, which an alarm stops at 19 minutes), under `env -u PYTHONPATH -u SUBFLEET_RETENTION_DORMANT -u SUBFLEET_JOB -u SUBFLEET_ATTEMPT`, with the brief's `TMPDIR` and Hypothesis folder. The venv has no xdist.
+- **Slots:** slot B was shut for most of the night (free disk 37 to 49 GB, under its 50 GB floor), so holds queued for slot A, from under a minute to 60 minutes each.
+- **The driver:** after hold 1a, `holds.py` ran each group with `-v` and deselected every test an earlier hold had reported, so a hold the alarm stopped would leave its rest to the next.
+
+| Hold | Commit, slot, start | Files (tests) | Result |
+|---|---|---|---|
+| 1a | `85cf2af35`, B, 01:52Z | `test_scrub_review_r3` 21, `test_scrub_review_r2` 75, `test_scrub_no_new_leak` 4, `test_conversation_redact` 9 | 97 passed and 1 skipped (the opt-in whole matrix). Under load about 100 to 130, the alarm stopped it at 19 m 3 s, with two `no_new_leak` tests and all of `conversation_redact` left |
+| 1a's rest and 1c | `85cf2af35`, A, 02:39Z | those two, `test_conversation_redact` 9, `test_scrub_key_order` 70, `test_sessions_handoff` 117 | 198 passed, 8 m 25 s |
+| 1b | `85cf2af35`, A, 03:14Z | `test_scrub_inline_headers` 273 | 273 passed, 12 m 46 s |
+| 2 | `85cf2af35`, A, 04:26Z | the eight `test_daemon_log*.py` files (612) | 607 passed, 5 skipped, 2 m 51 s |
+| 3 | `85cf2af35`, A, 04:30Z | `test_sessions_handoff_excerpts` 153, `test_handler_refusals` 317, `test_protocol_secrecy` 325, `fake/test_record_secrecy` 44, `fake/test_state_contract` 37, `test_test_module_names` 1 | 877 passed, 3 m 11 s |
+| Round 3's file | `ca17ca12e`, B, 04:52Z | `test_scrub_review_r3` 29, the whole matrix opted in (`SF_SCRUB_FULL_MATRIX=1`) | 29 passed, 4 m 0 s; the whole matrix took 190 s |
+| 4 | `85cf2af35`, B, 05:24Z | review r3's hold 4 (`test_conversation_wakes` 28, `test_host_push_storage_retry_budget` 61, `test_host_push_store_interleavings` 26, `test_turn_runner` 83, `fake/test_daemon_stacks` 6, `test_cpu_scaling` 3, `test_round10_refusal_context` 59), and #244's four (`test_session_credential_env` 47, `test_prune_restore` 20, `test_prune_217` 9, `test_live_store_guard_round3` 22) | 363 passed, **1 failed**, 13 m 15 s, under load 94 to 103 |
+
+- **The five skips** (hold 2) are `test_daemon_log_sites.py`'s real-daemon tests. `_subfleetd` skips them because the venv's `subfleet` is the worktree's, not the export's, as in round 2's hold M1. Two of them run the daemon under launchd, so run b did not run them against this desktop some other way.
+- **The failure** (hold 4) is `tests/fake/test_daemon_stacks.py::test_daemon_stacks_prints_every_thread_of_the_live_daemon`. The fake daemon did not answer `daemon.status` within the harness's 5-second start window (`Harness.start`). Its kept state root held a `daemon.log` with only the start-up line ("open-file limit 1048576 …"), and the hold ran at load 94 to 103.
+  - **Its cause is not established.** This round's diff changes only function bodies in `handoff.py` and adds no import-time work, and review r3 reports the same file passing in its hold 4 at `902cfe90a`.
+  - **A re-run of the file** was queued at 05:40Z. It had not got the lock by the 05:49Z mark, so run b stopped it unrun; the test stays unconfirmed either way.
+  - **The kept root** (`/tmp/sf-failed/25264`) was this hold's, and run b removed it after reading it.
+- **No code changed after `85cf2af35`,** the commit the holds ran at. `9b05f00db` changes docstrings, `78591f4c4` and `c6d9630e1` the contract, `ca17ca12e` adds the count test (run at its own commit, above), and the last commit adds this section.
+
+**Per file** (the outcomes the holds' `-v` lines report, at `85cf2af35` but where named): `test_conversation_redact.py` 9; `test_conversation_wakes.py` 28; `test_cpu_scaling.py` 3; `test_daemon_log_cut_windows.py` 170; `test_daemon_log_first_pass.py` 25; `test_daemon_log_handler.py` 128; `test_daemon_log_mutation_tool.py` 4; `test_daemon_log_reminders.py` 101; `test_daemon_log_scrubbing.py` 86; `test_daemon_log_sites.py` 77, 5 skipped; `test_daemon_log_tail.py` 16; `test_handler_refusals.py` 317; `test_host_push_storage_retry_budget.py` 61; `test_host_push_store_interleavings.py` 26; `test_live_store_guard_round3.py` 22; `test_protocol_secrecy.py` 325; `test_prune_217.py` 9; `test_prune_restore.py` 20; `test_round10_refusal_context.py` 59; `test_scrub_inline_headers.py` 273; `test_scrub_key_order.py` 70; `test_scrub_no_new_leak.py` 4; `test_scrub_review_r2.py` 75; `test_scrub_review_r3.py` 20 and 1 skipped at `85cf2af35` (hold 1a), 29 at `ca17ca12e`; `test_session_credential_env.py` 47; `test_sessions_handoff.py` 117; `test_sessions_handoff_excerpts.py` 153; `test_test_module_names.py` 1; `test_turn_runner.py` 83; `fake/test_daemon_stacks.py` 5 and **1 failed**; `fake/test_record_secrecy.py` 44; `fake/test_state_contract.py` 37.
+
+**Per directory** (16,611 tests collected):
+- **`tests/unit`:** 29 of 351 files ran whole. 2,329 passed and 6 skipped (the five real-daemon tests and the opt-in whole matrix, which then passed at `ca17ca12e`), of 14,474 tests. The other 322 files (12,139 tests) did not run.
+- **`tests/fake`:** 3 of 113 files ran whole. 86 passed and 1 failed, of 2,137 tests. The other 110 files (2,050 tests) did not run.
+
+**Plain scripts outside the lock,** as round 2's probes ran, with at most four workers. Slot A was most of the night's only slot, and the brief puts only pytest and timing runs under the wrapper. They ran:
+- the mutations and the `902cfe90a` baseline;
+- the whole matrices at head and at `902cfe90a`;
+- the reference dumps;
+- the narrow-form differential;
+- the call counts.
+
+One race: at 03:27Z the probe chain's in-lock hold p1, finding its work already done, removed the probe's variant folder while the fold-redaction mutant ran. That run's 41 failures were discarded, and the mutant re-ran clean (28).
+
+### Status
+
+- **Done:**
+  - the merge of release/217 at `63c64d6b3`, re-checked in run b;
+  - P2-A and P2-B as the review's prototype shows them, and P3-B and P3-C as it proposes;
+  - decision 4, stated and pinned;
+  - P3-A, in C-23.14 (with its change-log entry) and here, with a dated note under round 2's invariants;
+  - review r3's ten executed inputs as regressions, each failing at `902cfe90a`, and the narrow-fix input and the two over-redactions pinned (they hold at `902cfe90a` too, as they should);
+  - the two rebuilt generators, the P3-B and P3-C matrices and the drawn joins as tests, and the whole rules matrix run, in a probe and again under pytest (0 of 61,440 cells each time);
+  - invariant 5's count test, the mutations, and the cost rows, twice.
+- **Failed:** one fake test in hold 4, `test_daemon_stacks_prints_every_thread_of_the_live_daemon`: the fake daemon missed its 5-second start window under load 94 to 103. Its cause is not established, and it was not re-run (Tests, above).
+- **Not run:**
+  - 322 of `tests/unit`'s 351 files (12,139 tests) and 110 of `tests/fake`'s 113 (2,050 tests). Run b's hold driver had them next, in the order of its plan: 41 files whose names touch scrubbing, handoffs, refusals or conversations first (1,094 tests), then the rest. Its first hold of those was queued at 05:38Z and stopped unrun at 05:40Z for the failed test's re-run;
+  - the five real-daemon tests of `test_daemon_log_sites.py` (above);
+  - the 16× timing hold (Cost, above);
+  - the review's own corpora, which were not kept;
+  - Python 3.12;
+  - CI (no network, nothing pushed).
+- **Follow-ups for the hub:** round 2's, with these:
+  - **The header-line fold over-redacts a header's name.** `Cookie: --password` with `Cookie:x SECRET7…` on the next line becomes `Cookie: [REDACTED]` and `[REDACTED]`. The narrow form, with P3-B, gives `Cookie:[REDACTED]` on that line, and it hid the same secrets on the 13,124 texts run b compared it on (P2-B, above). Decision 1 holds; a switch is the hub's call.
+  - **Fail closed's digit names** (decision 4) over-redact ordinary flags such as `--k8s-token` and `--oauth2-token`, with the value their fold takes. This is stated in C-23.14; whether it shows up in daemon.log is for the hub to watch.
+  - **The stated converse** (the key form) is still the one value a reference (`3fbc4b7c5` only) hides that this scrubber is known to show.
