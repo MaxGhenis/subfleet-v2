@@ -74,14 +74,13 @@ final class OpeningPinView: NSView {
         observers.append(center.addObserver(forName: .conversationRowScrollCompleted, object: nil,
                                              queue: .main) { [weak self] note in
             guard let self, note.object as? String == self.conversationID,
-                  let request = note.userInfo?["request"] as? UUID,
-                  let scroll = self.scroll, let document = scroll.documentView else { return }
+                  let request = note.userInfo?["request"] as? UUID else { return }
             // A nearby reveal can leave the marker mounted, so no new onAppear
             // would release suspension. Confirm its visibility from the presented
-            // clip after the scroll completes, independent of lazy callbacks.
-            let clip = scroll.contentView.bounds
-            let distance = document.isFlipped ? document.bounds.maxY - clip.maxY : clip.minY - document.bounds.minY
-            if distance <= Theme.space.column + 1 { self.onRevealEndVisible(request) }
+            // clip, independent of lazy callbacks. A completion can arrive before
+            // its scroll is laid out (a loaded opening's clip still showed the old
+            // end), so measure on the next turn, after the pending layout.
+            DispatchQueue.main.async { [weak self] in self?.confirmEndVisible(request) }
         })
         observers.append(center.addObserver(forName: NSView.frameDidChangeNotification, object: document,
                                              queue: .main) { [weak self] _ in self?.schedulePin() })
@@ -105,6 +104,16 @@ final class OpeningPinView: NSView {
         if let inputMonitor { NSEvent.removeMonitor(inputMonitor) }
         inputMonitor = nil
         scroll = nil
+    }
+
+    private func confirmEndVisible(_ request: UUID) {
+        guard let scroll, let document = scroll.documentView else { return }
+        // Apply the reveal's pending scroll before reading the clip; reading
+        // first can confirm the end the reveal is about to leave.
+        (scroll.window?.contentView ?? scroll).layoutSubtreeIfNeeded()
+        let clip = scroll.contentView.bounds
+        let distance = document.isFlipped ? document.bounds.maxY - clip.maxY : clip.minY - document.bounds.minY
+        if distance <= Theme.space.column + 1 { onRevealEndVisible(request) }
     }
 
     private func noteScrollInput(_ event: NSEvent) {
