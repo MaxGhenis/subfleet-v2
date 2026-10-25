@@ -145,6 +145,16 @@ def closure_row(row: Mapping[str, Any]) -> dict[str, Any]:
     return shown
 
 
+def closure_rows(view: dict[str, Any]) -> dict[str, Any]:
+    """D-STATUS-SRC1: a capacity view's closure rows, the fleet's and each lane's, as
+    `closure_row` shows them. `daemon.status` and the `lanes hold` answer both show
+    theirs through this one helper (review r1 of #263, P3-2)."""
+    view["closures"] = [closure_row(row) for row in view["closures"]]
+    for lane in view["lanes"]:
+        lane["closures"] = [closure_row(row) for row in lane.get("closures", ())]
+    return view
+
+
 def _windows(lane: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     """C-9.1: utilization from any other evidence label is discarded."""
     windows: dict[str, dict[str, Any]] = {}

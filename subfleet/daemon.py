@@ -64,7 +64,7 @@ from .contracts import (
     AttestationResult, ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
     Reading, ReadingLabel, Sandbox, attempt_dir, hold_note, hold_source,
 )
-from .status_json import closure_row
+from .status_json import closure_rows
 from .credentials import (env_references, ignored_hooks, reference_repair, resolve_credential, startup_lanes,
                           withheld_references)
 from .provider_env import ProviderEnvironment
@@ -1378,12 +1378,13 @@ class Daemon:
                 tx.execute("UPDATE closures SET released_at=? WHERE lane_id=? AND reason='operator-hold' "
                            "AND released_at IS NULL", (utcnow(), a.lane_id))
         self._notify()
-        view = self._capacity_view(self._desktop_identity())
+        # D-STATUS-SRC1: closure rows, the fleet's and each lane's, as `daemon.status` shows them.
+        view = closure_rows(self._capacity_view(self._desktop_identity()))
         return {"held": a.lane_id if a.action == "hold" else None,
                 "released": a.lane_id if a.action == "release" else None,
                 # D-STATUS-SRC1: the note as recorded, so a CLI can tell it was.
                 **({"note": note} if a.action == "hold" else {}),
-                "lanes": view["lanes"], "closures": [closure_row(row) for row in view["closures"]]}
+                "lanes": view["lanes"], "closures": view["closures"]}
 
     def _release_lane_limits(self, a: protocol.LanesArgs) -> dict:
         """C-9.6: lift guessed clocks only, recording the operator's grounds."""
@@ -3694,11 +3695,8 @@ class Daemon:
         if op == "sessions":
             return self.sessions(protocol.coerce_args(protocol.SessionsArgs, args))
         if op == "daemon.status":
-            view = self._capacity_view(self._desktop_identity())
             # D-STATUS-SRC1: each closure says what it is (`kind`) and, for a hold, why (`note`).
-            view["closures"] = [closure_row(row) for row in view["closures"]]
-            for lane in view["lanes"]:
-                lane["closures"] = [closure_row(row) for row in lane.get("closures", ())]
+            view = closure_rows(self._capacity_view(self._desktop_identity()))
             view["disk"] = self._disk_status()
             from .store import RESTRICTED_RUNS_SQL, restricted_window
             view["restricted_runs_24h"] = [row["job_id"] for row in self.store.query(
