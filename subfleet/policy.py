@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .launch_env import ROSTER, refused_reference, valid_name
+from .launch_env import IGNORED, ROSTER, STORE, refused_phrase, refused_reference, valid_name
 from .contracts import (
     CLAUDE_CARDS_DEFAULTS, DEFAULT_CAPS, HEADROOM_FLOOR, PROVIDERS, READING_TTL_S, RETENTION_MAX_BYTES, RETENTION_MAX_JOBS, SCRUB_MAX_CHARS,
     TURN_RETENTION_KEEP_DAYS, TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
@@ -339,33 +339,75 @@ def _fraction(value: Any, maximum: float = 1) -> bool:
             and 0 <= value <= maximum and math.isfinite(value))
 
 
-#: D-ENV1: how a lane whose variable every launch inherits is put right.
-LANE_REFERENCE_FIX = ("store the lane's OAuth token under a daemon variable off the launch allowlist, point "
+#: D-ENV1: how a lane whose variable every launch inherits is put right. The
+#: variable must be one no launch inherits; being off the allowlist is not
+#: enough, since a test session's names are off it (review r5, C-1.3).
+LANE_REFERENCE_FIX = ("store the lane's OAuth token under a daemon variable no launch inherits, point "
                       "the lane at it in lanes.json (same lane id, provider and account) and restart the daemon")
+#: D-ENV2 (review r5, P3-1): how an ignored row beside a healthy stored lane is put right.
+IGNORED_ROW_FIX = "make the row match the stored lane, or remove it; the store keeps the lane either way"
 
 
-def held_lane_message(lane_id: Any, name: str) -> str:
-    """D-ENV1 (review r4, P2-1): why a stored lane is held, and the fix. Names only."""
-    return (f"lane {lane_id} in the store names {name}, a variable every launch inherits, so it cannot hold "
-            f"one lane's credential; the lane is held and nothing launches on it; fix: {LANE_REFERENCE_FIX}")
+def held_lane_message(lane_id: Any, name: str, ignored: Iterable[str] = ()) -> str:
+    """D-ENV1 (review r4, P2-1): why a stored lane is held, and the fix. Names only.
+
+    `ignored` are the refused variables its own lanes.json rows name, which
+    startup ignores (review r5, P3-1); they are said in the same warning.
+    """
+    rows = list(dict.fromkeys(ignored))
+    also = ("" if not rows else f"; its lanes.json row names {name} too, so the row is ignored" if rows == [name]
+            else f"; its lanes.json row names {', '.join(rows)}, which cannot hold one either, so the row is ignored")
+    return (f"lane {lane_id} in the store names {name}, {refused_phrase(name)}, so it cannot hold one lane's "
+            f"credential; the lane is held and nothing launches on it{also}; fix: {LANE_REFERENCE_FIX}")
+
+
+def ignored_row_message(lane_id: Any, names: Iterable[str]) -> str:
+    """D-ENV2 (review r5, P3-1): a refused lanes.json row for a lane the store
+    holds, and not held, is ignored: seeding never stores it. Names only."""
+    rows = list(dict.fromkeys(names))
+    return (f"lanes.json gives lane {lane_id} {', '.join(rows)}, {refused_phrase(rows[0])}, which cannot hold "
+            f"one lane's credential; the store already holds lane {lane_id} with its own credential, so the "
+            f"row is ignored; fix: {IGNORED_ROW_FIX}")
+
+
+def startup_notes(found: Iterable[tuple[Any, str, str]]) -> list[str]:
+    """D-ENV2: one warning per lane `check_lane_credentials` returned, in order.
+
+    A held stored lane and its ignored rows are one lane, so one warning
+    (review r5, P3-1).
+    """
+    lanes: dict[Any, dict[str, list[str]]] = {}
+    for lane_id, name, source in found:
+        lanes.setdefault(lane_id, {}).setdefault(source, []).append(name)
+    notes = []
+    for lane_id, sources in lanes.items():
+        if sources.get(STORE):
+            notes.append(held_lane_message(lane_id, sources[STORE][0], sources.get(IGNORED, ())))
+        else:
+            notes.append(ignored_row_message(lane_id, sources[IGNORED]))
+    return notes
 
 
 def check_lane_credentials(policy: Mapping[str, Any], path: str | Path,
-                           lanes: Iterable[tuple[Any, str, str]]) -> list[tuple[Any, str]]:
+                           lanes: Iterable[tuple[Any, str, str]]) -> list[tuple[Any, str, str]]:
     """D-ENV1: refuse a policy or lanes.json row the lanes make invalid, and say
-    which stored lanes are held. `daemon start` and daemon startup both call it,
-    before lanes.json is seeded, with `credentials.startup_lanes`: each env-kind
-    lane's (id, variable, source), the source `lanes.json` or `the store`.
+    which stored lanes are held and which rows are ignored. `daemon start` and
+    daemon startup both call it, before lanes.json is seeded, with
+    `credentials.startup_lanes`: each env-kind lane's (id, variable, source), the
+    source `lanes.json`, `the store` or an ignored lanes.json row.
 
     `env.pass` is for noncredential names. An env-kind lane's credential variable
     is the daemon's alone and reaches only its own lane, resolved into its
     credential, so a policy naming one is refused, naming the entry, the
     variable and each lane. A variable some launch inherits without policy (the
-    default allowlist, a harness hook or a test session's name) would reach every
-    helper, so it is no lane's credential: a lanes.json row naming one is refused
-    before anything is stored. A stored lane naming one is returned as (id,
-    variable) and held, never fatal (review r4, P2-1): the store has no other
-    way out without a running daemon.
+    default allowlist, a harness hook or a test session's name), or that
+    selection reads to find a test session, is no lane's credential: a
+    lanes.json row naming one for a new lane is refused before anything is
+    stored. A stored lane naming one is held, never fatal (review r4, P2-1): the
+    store has no other way out without a running daemon. So is a row naming one
+    for a lane the store already holds ignored, never fatal (review r5, P3-1):
+    seeding never stores it. Both are returned as (id, variable, source), for
+    `startup_notes` to say.
     """
     lanes = list(lanes)
     credentials: dict[str, list[str]] = {}
@@ -383,10 +425,10 @@ def check_lane_credentials(policy: Mapping[str, Any], path: str | Path,
                if source == ROSTER and refused_reference(name)]
     if refused:
         raise PolicyError(Path(path).parent / ROSTER, "credential_ref", "; ".join(
-            f"lane {lane_id} names {name}, a variable every launch inherits, which cannot hold one lane's credential"
+            f"lane {lane_id} names {name}, {refused_phrase(name)}, which cannot hold one lane's credential"
             for lane_id, name in dict.fromkeys(refused)) + f"; {LANE_REFERENCE_FIX}")
-    return list(dict.fromkeys((lane_id, name) for lane_id, name, source in lanes
-                              if source != ROSTER and refused_reference(name)))
+    return list(dict.fromkeys((lane_id, name, source) for lane_id, name, source in lanes
+                              if source in (STORE, IGNORED) and refused_reference(name)))
 
 
 def load_policy(path: str | Path) -> dict[str, Any]:

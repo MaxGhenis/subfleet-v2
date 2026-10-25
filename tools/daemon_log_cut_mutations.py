@@ -37,7 +37,15 @@ and round 7's (review r5):
 - `no-margin-free-check`: the margin-free reading no longer checked (P2-1);
 - `unanchored-quote-regex`: `_QUOTE_RUN_RE` without its lookbehind, `(\\*)(["'])` (P3-1);
 - `follow-start-held`: `daemon logs -f` printing first only what the follower settled,
-  the lines before the first tag (P3-2).
+  the lines before the first tag (P3-2);
+
+and the follow-up's (review r6):
+- `asymmetric-margin-free-comparison`: c2e080e44's comparison, the margin-free reading with
+  its reminders taken out against `_margin_free` of what is left exactly, so a reminder that
+  ends a margin file leaves a line break on one side only (P3-A);
+- `trailing-breaks-stripped-alone`: review r6's fix direction alone, the trailing line breaks
+  stripped from both sides with no data URI check: a body the break before a reminder that
+  ends the file brings to 32 characters is hidden by the whole-text scrub and shown.
 """
 from __future__ import annotations
 
@@ -65,6 +73,7 @@ from tests.unit import test_daemon_log_cut_windows as windows  # noqa: E402
 from tests.unit import test_daemon_log_first_pass as first_pass  # noqa: E402
 from tests.unit import test_daemon_log_reminders as reminders  # noqa: E402
 from tests.unit import test_daemon_log_tail as tail  # noqa: E402
+from tests.unit import test_daemon_log_trailing_reminders as trailing  # noqa: E402
 
 
 class Captured:
@@ -321,6 +330,14 @@ def _follow_start_held(patch):
     patch.setattr(cli, "cmd_daemon_logs", held)
 
 
+def _asymmetric_margin_free_comparison(patch):
+    patch.setattr(daemon_log, "_alike", lambda left, kept: left == kept)
+
+
+def _trailing_breaks_stripped_alone(patch):
+    patch.setattr(daemon_log, "_alike", lambda left, kept: left.rstrip("\r\n") == kept.rstrip("\r\n"))
+
+
 MUTATIONS = {"baseline": lambda patch: None, "whole-margins": _whole_margins,
              "backtracking-header": _backtracking_header, "whole-reminder-search": _whole_reminder_search,
              "folded-tail": _folded_tail, "raw-logs": _raw_logs,
@@ -329,7 +346,9 @@ MUTATIONS = {"baseline": lambda patch: None, "whole-margins": _whole_margins,
              "pem-prefix-not-held": _pem_prefix_not_held, "tail-unmarked-after-scrub": _tail_unmarked_after_scrub,
              "follow-not-neutralised": _follow_not_neutralised, "unmasked-strip": _unmasked_strip,
              "unconditional-take-out": _unconditional_take_out, "no-margin-free-check": _no_margin_free_check,
-             "unanchored-quote-regex": _unanchored_quote_regex, "follow-start-held": _follow_start_held}
+             "unanchored-quote-regex": _unanchored_quote_regex, "follow-start-held": _follow_start_held,
+             "asymmetric-margin-free-comparison": _asymmetric_margin_free_comparison,
+             "trailing-breaks-stripped-alone": _trailing_breaks_stripped_alone}
 
 #: The named tests, each with its arguments beyond its fixtures.
 TESTS = [
@@ -395,6 +414,17 @@ TESTS = [
      first_pass.test_following_a_tagged_log_starts_with_its_last_lines, {}),
     ("test_following_starts_with_the_tag_s_line_marked[40]",
      first_pass.test_following_starts_with_the_tag_s_line_marked, {"count": 40}),
+    # the follow-up (review r6)
+    *((f"test_a_margin_file_ending_in_a_reminder_keeps_its_last_lines[3-{ending}]",
+       trailing.test_a_margin_file_ending_in_a_reminder_keeps_its_last_lines, {"ending": ending, "count": 3})
+      for ending in ("multi-line", "one-line", "one-line-blank-line")),
+    ("test_daemon_logs_and_daemon_start_s_tail_print_the_last_lines[one-line]",
+     trailing.test_daemon_logs_and_daemon_start_s_tail_print_the_last_lines, {"ending": "one-line"}),
+    *((f"test_a_data_uri_body_the_trailing_break_completes_keeps_the_marker_rule[2-{ending}]",
+       trailing.test_a_data_uri_body_the_trailing_break_completes_keeps_the_marker_rule, {"ending": ending, "count": 2})
+      for ending in ("lf", "crlf")),
+    ("test_the_shapes_round_7_resolved_still_resolve[after]",
+     trailing.test_the_shapes_round_7_resolved_still_resolve, {"text": trailing.margin_log(trailing.ENDINGS["one-line"]) + "after\n"}),
 ]
 
 

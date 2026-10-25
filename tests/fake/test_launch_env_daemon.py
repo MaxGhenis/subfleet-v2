@@ -12,14 +12,15 @@ from types import SimpleNamespace
 from hypothesis import HealthCheck, given, settings, strategies as st
 import pytest
 
-from subfleet import cli, daemon as daemon_module, scheduler
+from subfleet import cli, daemon as daemon_module, doctor, protocol, scheduler
 from subfleet.adapters import registry
 from subfleet.adapters.base import AdapterError
-from subfleet.contracts import Credential, Lane, LaneOwner
+from subfleet.contracts import Credential, Exit, Lane, LaneOwner
 from subfleet.policy import PolicyError
 from subfleet.provider_env import ProviderEnvironment
 from subfleet.store import Store
 from tests.claude_code import claude_code_active
+from tests.conftest import isolated_paths
 from tests.fake.conftest import Harness
 from tests.fake.test_probe_recovery import reserved_probe
 from tests.fake.test_routing_end_to_end import routing_state  # noqa: F401
@@ -29,7 +30,9 @@ from tests.unit.test_launch_env_allowlist import ALLOWED, POLICY, POLLUTION
 
 def daemon_spawn_environment(routing_state, monkeypatch, mode, *, pythonpath=None, extra=None):
     service, harness = routing_state
-    parent = {"PATH": "/usr/bin:/bin", **POLLUTION, **(extra or {})}
+    # D-ST3: admission reads the Claude session registry; at release a parent
+    # without the test's own SUBFLEET_CLAUDE_DIR read the person's ~/.claude.
+    parent = {"PATH": "/usr/bin:/bin", **POLLUTION, **(extra or {}), **isolated_paths("SUBFLEET_CLAUDE_DIR")}
     if pythonpath is not None:
         parent["PYTHONPATH"] = pythonpath
     monkeypatch.setattr(os, "environ", parent)
@@ -89,7 +92,7 @@ def test_actual_daemon_spawn_rejects_pollution(routing_state, monkeypatch, mode)
 def test_daemon_status_and_doctor_expose_only_extra_names(routing_state, monkeypatch):
     from subfleet import doctor
     service, _ = routing_state
-    monkeypatch.setattr(os, "environ", {"PATH": "/usr/bin:/bin", **POLLUTION})
+    monkeypatch.setattr(os, "environ", {"PATH": "/usr/bin:/bin", **POLLUTION, **isolated_paths("SUBFLEET_CLAUDE_DIR")})
     status = service.dispatch("daemon.status", {})
     # Round 4 (review r3, P3-2): the lanes' own variables are listed apart; this
     # roster has no env-kind lane.
@@ -292,7 +295,7 @@ def test_daemon_status_lists_a_lane_variable_apart(tmp_path, monkeypatch):
     service = daemon_module.Daemon(root)
     try:
         monkeypatch.setattr(os, "environ", {"PATH": "/usr/bin:/bin", "SUBFLEET_TEST_OAUTH": "dummy-oauth",
-                                           "GH_TOKEN": "dummy-gh"})
+                                           "GH_TOKEN": "dummy-gh", **isolated_paths("SUBFLEET_CLAUDE_DIR")})
         status = service.dispatch("daemon.status", {})["environment"]
     finally:
         service.close()
@@ -556,6 +559,104 @@ def test_review_r4_a_removed_lane_is_held_and_never_blocks_startup(tmp_path, mon
     assert stored(root)["claude-9"] == (reference, 1)
 
 
+# --- review r5, P3-1: a refused row for a stored lane is ignored -----------------------------
+
+
+def naming(text, lane_id="claude-9"):
+    """The lines of `text` that name the lane."""
+    return [line for line in text.splitlines() if lane_id in line]
+
+
+@pytest.mark.parametrize("reference", STEP_REFERENCES)
+def test_review_r5_a_refused_row_for_a_stored_lane_is_ignored(tmp_path, monkeypatch, reference):
+    """Review r5, P3-1, input 1: the store round 4 left, with lanes.json unchanged.
+    Both starts exited 2 and the lane was never held. Now both succeed and name
+    claude-9 once, with its variable and never a value; claude-9 stays held at
+    every start, `lanes transfer` refuses it, doctor names it with its fix, and
+    codex-1 launches."""
+    root, harness = nine_root(tmp_path, monkeypatch, reference)
+    store_as_round_four_left_it(root)
+    assert stored(root)["claude-9"] == (reference, 1) and nine_row(reference) in roster(root)
+    code, err, seen = cli_start(root, monkeypatch)
+    assert code == 0 and len(seen) == 1, err
+    [line] = naming(err)
+    assert all(text in line for text in (reference, "the store", "the lane is held", "the row is ignored")), line
+    assert "dummy-nine" not in err
+
+    def check(service):
+        [line] = naming((root / "daemon.log").read_text())
+        assert all(text in line for text in (reference, "the lane is held", "the row is ignored")), line
+        lane = service.store.get_lane("claude-9")
+        assert lane.credential.ref == reference, "the ignored row repairs nothing"
+        job_id, spawns = launch(service, harness, monkeypatch, pinned_model="haiku", pinned_lane="claude-9")
+        assert spawns == [] and service.store.list_attempts(job_id) == []
+        held = service.store.query("SELECT data_json FROM events WHERE kind='job.pin_unadmittable' "
+                                   "AND job_id=? AND data_json != '{}'", (job_id,))
+        assert [json.loads(row["data_json"])["reasons"] for row in held] == [["credential-refused"]]
+        with pytest.raises(AdapterError) as refused:
+            service._credential_environment(lane)
+        assert refused.value.reason == "credential-env-inherited"
+        other_lane_launches(service, harness, monkeypatch, reference, held=True)
+        # Input 3: the daemon's `lanes transfer` op refuses the held lane, writing nothing.
+        before = (root / "lanes.json").read_bytes()
+        with pytest.raises(protocol.ProtocolError) as transfer:
+            service.dispatch("lanes", {"action": "transfer", "lane_id": "claude-9", "owner": "v1",
+                                       "confirm_v1_edit": True})
+        assert transfer.value.reason == "transfer-held" and int(transfer.value.code) == int(Exit.REFUSED)
+        assert (root / "lanes.json").read_bytes() == before
+        # P3-2: doctor's lane-variable row warns, naming the lane and its lanes.json edit.
+        status = service.dispatch("daemon.status", {})
+        with monkeypatch.context() as patch:
+            patch.setattr(doctor.Client, "call", lambda *args, **kwargs: status)
+            row = doctor.check_daemon_lane_credentials(service.root)
+        assert row["status"] == doctor.WARN
+        assert f"claude-9 (credential-refused={reference})" in row["detail"]
+        assert '"lane_id": "claude-9"' in row["fix"] and '"account_key": "claude:lane-9"' in row["fix"]
+        assert "dummy" not in json.dumps(row)
+        return "served"
+
+    code, err, served = launchd_start(root, monkeypatch, check)
+    assert (code, served) == (0, ["served"]), err
+    assert "dummy-nine" not in (root / "daemon.log").read_text()
+    # launchd's KeepAlive restart starts again, the lane still held and the row still ignored.
+    size = len((root / "daemon.log").read_text())
+    code, err, served = launchd_start(root, monkeypatch)
+    assert (code, served) == (0, ["served"]), err
+    assert len(naming((root / "daemon.log").read_text()[size:])) == 1
+    assert stored(root)["claude-9"] == (reference, 1) and nine_row(reference) in roster(root)
+
+
+def test_review_r5_a_refused_row_never_displaces_a_healthy_stored_lane(tmp_path, monkeypatch):
+    """Review r5, P3-1, input 2: claude-9 stored and healthy on its own variable,
+    its lanes.json row changed to HOME. Both starts exited 2, though seeding
+    never stores that row. Now both succeed with one warning that the row is
+    ignored, and claude-9 launches with its own token."""
+    root, harness = nine_root(tmp_path, monkeypatch, TOKEN)
+    store_as_round_four_left_it(root)
+    assert stored(root)["claude-9"] == (TOKEN, 1)
+    write_roster(root, [nine_row("HOME") if row["lane_id"] == "claude-9" else row for row in roster(root)])
+    code, err, seen = cli_start(root, monkeypatch)
+    assert code == 0, err
+    [line] = naming(err)
+    assert "HOME" in line and "the row is ignored" in line and "the lane is held" not in line
+    assert seen[0][TOKEN] == "dummy-nine", "the daemon still holds the stored lane's variable"
+    assert "dummy-nine" not in err
+
+    def check(service):
+        [line] = naming((root / "daemon.log").read_text())
+        assert "HOME" in line and "the row is ignored" in line and "the lane is held" not in line
+        own = lane_launch_environment(service, harness, "claude-9")
+        assert own["CLAUDE_CODE_OAUTH_TOKEN"] == "dummy-nine" and TOKEN not in own
+        view = {"lanes": service.store.lane_rows(), "closures": [], "now": "2026-10-20T12:00:00Z"}
+        stuck = scheduler.pin_unadmittable(service.policy, view, {"pinned_lane": "claude-9", "pinned_model": "haiku"})
+        assert "credential-refused" not in ((stuck or {}).get("reasons") or ())
+        return "served"
+
+    code, err, served = launchd_start(root, monkeypatch, check)
+    assert (code, served) == (0, ["served"]), err
+    assert stored(root)["claude-9"] == (TOKEN, 1)
+
+
 # --- invariant: stored lanes never refuse startup --------------------------------------
 
 REFUSED = ("HOME", "SUBFLEET_FAKE_LANE_NINE", "SUBFLEET_HOST_HOME")
@@ -570,9 +671,11 @@ def expected_startup(roster_lanes, store_lanes, passed):
     """The model, from the rule as review r4's decision states it, not from the code.
 
     A lanes.json row is checked before anything is stored, and refuses startup if
-    its variable is refused. A stored lane whose variable is refused takes a
-    lanes.json row's variable for the same lane and account when that one is not
-    refused; otherwise it is held. `env.pass` may name no lane's credential.
+    its variable is refused and the store has no lane by its id; for a stored
+    lane the row is ignored (review r5, P3-1). A stored lane whose variable is
+    refused takes a lanes.json row's variable for the same lane and account when
+    that one is not refused; otherwise it is held. `env.pass` may name no lane's
+    credential.
     """
     refused = set(REFUSED).__contains__
     before = {lane_id: (ref, account) for lane_id, ref, account in store_lanes}
@@ -582,7 +685,8 @@ def expected_startup(roster_lanes, store_lanes, passed):
     effective = {lane_id: repaired.get(lane_id, ref) for lane_id, (ref, _) in before.items()}
     credentials = ({ref for _, ref, _ in roster_lanes if not refused(ref)}
                    | {ref for ref in effective.values() if not refused(ref)})
-    refuses = any(refused(ref) for _, ref, _ in roster_lanes) or bool(set(passed) & credentials)
+    refuses = (any(refused(ref) and lane_id not in before for lane_id, ref, _ in roster_lanes)
+               or bool(set(passed) & credentials))
     return refuses, repaired, effective
 
 

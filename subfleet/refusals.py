@@ -283,6 +283,10 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
     "transfer-owner": ("lanes transfer: --to must be v1 or v2", None),
     "transfer-blocked": ("lanes transfer: the lane cannot move yet; the dry run's blocker says why",
                          "subfleet lanes transfer <lane> --to v2 --dry-run shows the plan"),
+    "transfer-held": ("lanes transfer: lane {lane_id} is held (credential-refused={lane_variable}): "
+                      "it holds no credential to move",
+                      "point the lane at a daemon variable no launch inherits in lanes.json (same lane id, "
+                      "provider and account), restart the daemon, then transfer it"),
     "transfer-live": ("lanes transfer: the lane has live work",
                       "wait for its work or containment to finish, then run this again"),
     "transfer-v1-edit": ("lanes transfer: this transfer edits a v1 roster file",
@@ -369,6 +373,10 @@ LESS_SPECIFIC: dict[str, tuple[tuple[str, str | None], ...]] = {
     "enroll-bound": (("lanes enroll: the credential is already bound to a lane", "subfleet lanes list"),),
     "unknown-lane": (("lanes {action}: unknown lane", "subfleet lanes list"),
                      ("lanes: unknown lane", "subfleet lanes list")),
+    "transfer-held": (("lanes transfer: lane {lane_id} is held: its credential variable is one no lane "
+                       "may name, so it holds no credential to move", HANDLER_MESSAGES["transfer-held"][1]),
+                      ("lanes transfer: the lane is held: its credential variable is one no lane may name, "
+                       "so it holds no credential to move", HANDLER_MESSAGES["transfer-held"][1])),
     "unknown-provider-lane": (("unknown {provider} lane", "subfleet lanes list"),
                               ("unknown lane", "subfleet lanes list")),
     "sessions-id": (("sessions: session_id is required", None),),
@@ -400,6 +408,7 @@ GUARD_REPAIRS = {
 
 def _choices() -> dict[str, tuple[str, ...]]:
     from .adapters.isolation import CODEX_LAYERS, MANAGED_ENV
+    from .launch_env import ALLOWED_NAMES, SESSION_PROBE_NAMES, TEST_SESSION_NAMES, refused_reference
     return {
         # `lanes` actions, then `sessions` actions: the daemon names them, never the caller.
         "action": ("hold", "release", "release --limits", "transfer", "retire", "unretire", "revived", "nudged"),
@@ -413,6 +422,11 @@ def _choices() -> dict[str, tuple[str, ...]]:
         "checkout_problem": tuple(message for message, _ in CHECKOUT_REFUSALS.values()),
         "checkout_fix": tuple(fix for _, fix in CHECKOUT_REFUSALS.values()),
         "errno_name": tuple(errno.errorcode.values()),
+        # D-ENV2: a held lane's variable, a name and never a value: each listed,
+        # session or probe name that is refused. A harness hook is not listed, so
+        # its refusal takes the next form, which names none.
+        "lane_variable": tuple(sorted(name for name in (*ALLOWED_NAMES, *TEST_SESSION_NAMES, *SESSION_PROBE_NAMES)
+                                      if refused_reference(name))),
     }
 
 
