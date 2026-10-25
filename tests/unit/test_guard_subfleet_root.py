@@ -66,7 +66,9 @@ S4 (the Claude half agrees) The patched Claude analyzer (``unscoped_search.py``;
 S5 (env spellings are spellings) For every generated command over
    ``<home>/.subfleet`` or anything under it, swapping that prefix for an env
    spelling (``$SUBFLEET_ROOT``, ``${SUBFLEET_ROOT}``, ``$SUBFLEET_HOME``,
-   ``${SUBFLEET_HOME}``) leaves the new hook's decision unchanged; for the
+   ``${SUBFLEET_HOME}``) leaves the new hook's decision unchanged: the twin gets
+   the decision of the same command over ``$HOME/.subfleet`` (``${HOME}`` for a
+   braced twin) and of its source in the source's home spelling. For the
    near-miss names ``.subfleetx`` and ``.subfleet-old`` the braced spellings
    (the ones the shell reads as that path) do the same. Scale 1 swaps in every
    env spelling; scale N >= 2 one per command, cycling over the home spellings,
@@ -1131,20 +1133,25 @@ def test_known_limits_r2_lists_are_pre_existing_for_every_root(hooks):
 # ---------------------------------------------------------------- S5
 
 def test_s5_env_spellings_decide_as_their_home_expansions(hooks, corpus):
-    """S5 over the generator: each env-spelled twin gets exactly its source command's decision
-    (the source spells the same root <home>/.subfleet[/…]; the twin shares its context, searcher,
-    quoting, slash and depth bound)."""
+    """S5 over the generator: each env-spelled twin gets exactly the decision of its
+    ``$HOME/.subfleet`` expansion (``home_ref``: the same draw over ``$HOME/.subfleet``, or
+    ``${HOME}/.subfleet`` for a braced twin) and of its source command (the same draw over
+    <home>/.subfleet[/…] in the source's home spelling); the twin shares its context, searcher,
+    quoting, slash and depth bound."""
     twins = [case for case in corpus["generated"] if "twin_of" in case]
     outs = judge_all(hooks["new"], [(c["command"], c["cwd"]) for c in twins]
+                     + [(c["home_ref"], c["cwd"]) for c in twins]
                      + [(c["twin_of"], c["cwd"]) for c in twins])
     differ = []
-    counts = {"twins": len(twins), "sources": len({c["twin_of"] for c in twins}), "denied": 0, "allowed": 0,
+    counts = {"twins": len(twins), "home_refs": len({c["home_ref"] for c in twins}),
+              "sources": len({c["twin_of"] for c in twins}), "denied": 0, "allowed": 0,
               "by_spelling": dict.fromkeys(ENV_SPELLINGS, 0), "scale": scale()}
     for case in twins:
         twin = rule(outs[(case["command"], case["cwd"])])
+        ref = rule(outs[(case["home_ref"], case["cwd"])])
         source = rule(outs[(case["twin_of"], case["cwd"])])
-        if twin != source:
-            differ.append((case["command"], twin, case["twin_of"], source))
+        if not twin == ref == source:
+            differ.append((case["command"], twin, case["home_ref"], ref, case["twin_of"], source))
         counts["denied" if twin else "allowed"] += 1
         counts["by_spelling"][case["spelling"]] += 1
     report("S5", counts)
