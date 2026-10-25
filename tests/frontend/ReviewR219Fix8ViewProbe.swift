@@ -1055,7 +1055,7 @@ final class RevealArrivals: @unchecked Sendable {
 @MainActor func streamingReveal(_ name: String, root: URL, kind: String,
                                 delay: Double = 0, interval: Double = 0,
                                 boundary: String? = nil, staleMarker: Bool = false,
-                                consumptionPause: Double = 0) async -> [String: Any] {
+                                consumptionPause: Double = 0, firstNoticePause: Double = 0) async -> [String: Any] {
     let word = "zebraneedle"
     let scene = await Scene(name, root: root, prior: 30,
                             priorText: { $0 == 10 ? "person message \($0) \(word) here" : "person message \($0) asks something" },
@@ -1111,6 +1111,8 @@ final class RevealArrivals: @unchecked Sendable {
     let observer = NotificationCenter.default.addObserver(forName: .conversationRowScroll, object: nil,
                                                           queue: .main) { note in
         guard note.object as? String == name else { return }
+        // Inject presentation scheduling delay, leaving the detached producer free.
+        if notices.isEmpty && firstNoticePause > 0 { Thread.sleep(forTimeInterval: firstNoticePause) }
         let at = Date().timeIntervalSince(started)
         notices.append(at)
         if (boundary == "first_notice" && notices.count == 1)
@@ -1197,7 +1199,8 @@ final class RevealArrivals: @unchecked Sendable {
     let delivered = arrivals.snapshot
     return ["found": match != nil, "caught_up": scene.caughtUp, "reveal_consumed": scene.palette.reveal == nil,
             "notices_at": notices, "reveal_starts": starts, "consumed_at": consumed,
-            "stale_marker": staleMarker, "consumption_pause": consumptionPause, "timeline": timeline,
+            "stale_marker": staleMarker, "consumption_pause": consumptionPause,
+            "first_notice_pause": firstNoticePause, "timeline": timeline,
             "pushed": delivered.times.count, "arrival_pages": delivered.pages,
             "arrival_sequences": sequences, "arrivals_at": delivered.times, "folds_at": sequences.compactMap { folds[$0] },
             "boundary_arrival_at": boundaryArrival,
@@ -1219,6 +1222,11 @@ final class RevealArrivals: @unchecked Sendable {
         let name = "background_\(kind)"
         if only == nil || only == name {
             out[name] = await streamingReveal(name, root: root, kind: kind, interval: kind == "text" ? 0.05 : 0.15)
+        }
+        let delayedName = "delayed_background_\(kind)"
+        if only == delayedName {
+            out[delayedName] = await streamingReveal(delayedName, root: root, kind: kind,
+                interval: kind == "text" ? 0.05 : 0.15, firstNoticePause: 3)
         }
         let staleName = "stale_\(kind)"
         if only == staleName {

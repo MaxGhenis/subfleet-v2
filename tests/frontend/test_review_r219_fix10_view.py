@@ -144,3 +144,21 @@ def test_stale_end_marker_cannot_undo_search_reveal(fix8_view_binary, tmp_path, 
     assert any(entry["event"] == "move" and entry["at_bottom"] and entry["suspended"]
                and not entry["settling"] for entry in run["timeline"]), diagnostic
     assert_stream_retains_position(run, events=events, pages=events)
+
+
+@pytest.mark.parametrize("kind,events", [("text", 50), ("tool", 17)])
+def test_background_stream_survives_delayed_first_notice(fix8_view_binary, tmp_path, kind, events):
+    """A paused presentation must not exhaust the independent background input."""
+    name = f"delayed_background_{kind}"
+    result = run_probe(fix8_view_binary, tmp_path, f"fix10-streaming-{name}", timeout=240)
+    write_json(tmp_path / "result.json", result)
+    run = result[name]
+    print("delayed background: " + json.dumps(run, sort_keys=True))
+    diagnostic = json.dumps(run, sort_keys=True)
+    assert result["visible_windows"] == 0, diagnostic
+    assert run["first_notice_pause"] == 3, diagnostic
+    assert_stream_retains_position(run, events=events, pages=events)
+    first, second = run["notices_at"]
+    assert run["arrivals_at"][0] < first < second <= run["consumed_at"] < run["arrivals_at"][-1], diagnostic
+    assert any(first < at < second for at in run["arrivals_at"]), diagnostic
+    assert run["folds_at"][-1] > run["consumed_at"], diagnostic
