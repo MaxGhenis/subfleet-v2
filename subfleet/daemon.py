@@ -45,6 +45,8 @@ from . import __version__
 from . import capacity, descriptors, disk, folders, host_push, ids, lanes_transfer, machine, procs, protocol, ramp, render, route_check, scheduler
 from . import daemon_log, refusals, resource_leases
 from .actions import demand_verdict
+from . import attempt_tmp
+from .attempt_tmp import AttemptTemp, env_value, probe_tmpdir_rows
 from .conversations.store import canonical_native, native_any_case
 from .conversations.peers import peer_token
 from .adapters import claude_mcp
@@ -59,7 +61,8 @@ from .contracts import (
     AttestationResult, ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
     Reading, ReadingLabel, Sandbox, attempt_dir,
 )
-from .credentials import env_references, reference_repair, resolve_credential, startup_lanes, withheld_references
+from .credentials import (env_references, ignored_hooks, reference_repair, resolve_credential, startup_lanes,
+                          withheld_references)
 from .provider_env import ProviderEnvironment
 from .launch_env import environment_report, guardian_pass_args, helper_policy
 from .guardian import atomic_publish, stream_digest
@@ -67,7 +70,7 @@ from .frozen_stream import InvalidFrozenStream, freeze_stream, read_freeze_recei
 from .lockwatch import LockWatch
 from .waits import WaitHub
 from .policy import (RETENTION_DEFAULTS, PolicyError, admission_settings, cap as policy_cap, check_lane_credentials,
-                     disk_settings, flatten_chain, held_lane_message, load_policy, policy_hash, ramp_settings,
+                     disk_settings, flatten_chain, load_policy, policy_hash, ramp_settings, startup_notes,
                      resolve_model, turn_cap)
 from .retention import RetentionState, maintenance
 from .retention_git import discard_registration
@@ -170,22 +173,20 @@ PROVIDER_QUARANTINES = (
     "FROM attempts WHERE state='quarantined' ORDER BY reserved_at,seq")
 PENDING_EXPORTS = ("SELECT job_id FROM jobs WHERE accepted_attempt_id IS NOT NULL "
                    "AND job_id IN (SELECT holder FROM leases WHERE lease_key NOT LIKE 'worktree:%') ORDER BY rowid")
-# C-5.9: only a settled, allocated worktree hold belongs to the cwd worker.
-# Start from active leases; use this same predicate again inside the release
-# transaction, since publication or another lease can change after an offer.
+# C-5.5, C-5.9: a finished job's worktree kept for cwd observers is a reader
+# row held by `cwd:<job id>` (`folders.CWD`, `Daemon._keep_for_cwd`), and those
+# rows are all the cwd worker releases: never a `worktree:` key, so never a lease
+# a live part of a job needs (round 2), and never another job's row. Start from
+# the reader rows' key range, not the retained jobs. Offer a job once it has
+# ended and neither it nor its attempts hold anything else, so the row's release
+# waits for the job's own leases as well as for its observers; use this same
+# predicate again inside the release transaction.
 CWD_WORKTREE_HOLDS = (
-    "WITH held(job_id) AS (SELECT holder FROM leases WHERE lease_key LIKE 'worktree:%' "
-    "UNION SELECT a.job_id FROM leases l CROSS JOIN attempts a ON a.attempt_id=l.holder "
-    "WHERE l.lease_key LIKE 'worktree:%') "
-    "SELECT jobs.job_id FROM held CROSS JOIN jobs ON jobs.job_id=held.job_id "
-    "WHERE jobs.state IN ('succeeded','failed','cancelled','lost') AND jobs.in_place=0 "
-    "AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.job_id=jobs.job_id AND a.state='quarantined') "
-    "AND NOT EXISTS (SELECT 1 FROM leases l WHERE l.lease_key NOT LIKE 'worktree:%' "
-    "AND (l.holder=jobs.job_id OR l.holder IN (SELECT a.attempt_id FROM attempts a WHERE a.job_id=jobs.job_id))) "
-    "AND (jobs.accepted_attempt_id IS NULL OR jobs.out_path IS NULL OR jobs.export_error IS NOT NULL "
-    "OR EXISTS (SELECT 1 FROM artifacts WHERE attempt_id=jobs.accepted_attempt_id AND role='export')) "
-    "AND (jobs.accepted_attempt_id IS NULL OR jobs.push_branch IS NULL "
-    "OR EXISTS (SELECT 1 FROM job_pushes WHERE job_id=jobs.job_id AND result<>'pending')) ")
+    "SELECT DISTINCT jobs.job_id FROM leases l CROSS JOIN jobs ON jobs.job_id=substr(l.holder,5) "
+    "WHERE l.lease_key>='worktree-read:' AND l.lease_key<'worktree-read;' AND substr(l.holder,1,4)='cwd:' "
+    "AND jobs.state IN ('succeeded','failed','cancelled','lost') "
+    "AND NOT EXISTS (SELECT 1 FROM leases o WHERE o.holder=jobs.job_id "
+    "OR o.holder IN (SELECT a.attempt_id FROM attempts a WHERE a.job_id=jobs.job_id)) ")
 #: C-3.7: a holder's newest probe record, newest first: the newest JSON payload
 #: naming it (`hit`, one step of `events_probe_holder`), and every probe.state
 #: payload SQLite does not read as JSON (`events_not_json`, normally none),
@@ -348,6 +349,24 @@ def _evidence_key(evidence_json: str | None, key: str) -> Any:
     except (TypeError, ValueError):
         return None
     return evidence.get(key) if isinstance(evidence, dict) else None
+
+
+#: C-12.10: every path an allocation record names, released or not: each
+#: attempt's evidence and each probe's newest record.
+TMPDIR_PATHS = (
+    "SELECT json_extract(evidence_json,'$.tmpdir.path') AS path FROM attempts "
+    "WHERE json_valid(evidence_json) AND json_type(evidence_json,'$.tmpdir')='object' "
+    "UNION SELECT json_extract(data_json,'$.tmpdir.path') FROM events WHERE event_id IN ("
+    "SELECT MAX(event_id) FROM events WHERE kind='probe.state' AND json_valid(data_json) "
+    "GROUP BY json_extract(data_json,'$.holder')) AND json_type(data_json,'$.tmpdir')='object'")
+
+
+def _contained_empty(record: dict) -> bool:
+    """A probe whose containment census was verified empty: nothing of it can
+    still be running, and nothing starts again under its holder."""
+    containment = record.get("containment")
+    return (isinstance(containment, dict) and containment.get("live_pids") == []
+            and containment.get("unverifiable") is False)
 
 
 def _epoch(stamp: str | None) -> float | None:
@@ -668,6 +687,9 @@ class Daemon:
     #: C-6.17: the last latch written to the store (`_save_disk_latch`).
     _disk_saved_hold = False
     _disk_saved_source = "policy"
+    #: D-ENV2 (review r1 of #248, P3-1): the harness hooks of the lanes.json rows
+    #: startup ignored, withheld from every launch (`_open_lanes`); none before it.
+    _ignored_hooks: frozenset[str] = frozenset()
 
     @property
     def _disk(self) -> disk.DiskAdmission:
@@ -860,6 +882,13 @@ class Daemon:
                                                          references=self._withheld_references)
         # C-3.7: reads outside a transaction take a read connection, not the store lock.
         self.store = Store(self.root / "state.sqlite3", readers=READ_CONNECTIONS)
+        self._attempt_temp = AttemptTemp(self.root, log=self.log)
+        # C-12.10: holders whose census found members, with the state it was
+        # taken in. No census is taken again until that state changes.
+        self._tmpdir_held: dict[str, str] = {}
+        self._tmpdir_busy: set[str] = set()
+        self._tmpdir_guard = threading.Lock()
+        self._tmpdir_sweeping = threading.Lock()
         self._start_machine_sampler()  # C-6.13: prime before detached admission can run
         self._disk = disk.DiskAdmission(self.root, recheck_latch=True)
         self._disk.settings = disk_settings(self.policy)
@@ -919,7 +948,8 @@ class Daemon:
         self._control_thread: threading.Thread | None = None
         from .timers import Timers
         self.timers = Timers(self.store, self.root, self.policy, turn=self._timer_turn, adapter_factory=self._adapter,
-                             deliver=self._timer_notice, demand=self._reset_demand)
+                             deliver=self._timer_notice, demand=self._reset_demand,
+                             references=self._withheld_references)
         # C-23.16 (f): the policy is read once, here; say what it means for resets.
         resets = self.timers.actions.describe()
         self.log.info("reset credits: automatic redemption %s; no-reset marker %s",
@@ -1237,6 +1267,9 @@ class Daemon:
                 if not record or record['state'] in ('contained', 'completed', 'reserved'):
                     self.store.release_leases(enrollment_holder)
                     if record:
+                        record['state'] = 'completed'
+                        self._save_probe(record)
+                        self._cleanup_probe_tmpdir(record)
                         shutil.rmtree(record['directory'], ignore_errors=True)
 
     def _enrollment_turn(self, lane_id, holder, argv, *, cwd, env, timeout, **_):
@@ -1253,9 +1286,11 @@ class Daemon:
                   'timer_kind': 'enroll', 'model_id': 'enrollment',
                   'directory': str(directory), 'state': 'reserved', 'created_at': utcnow(),
                   'owned_identities': {}, 'deadline_at': after(timeout)}
+        record['tmpdir'] = self._attempt_temp.create(holder)
         self._save_probe(record)
         package_root = str(Path(__file__).resolve().parent.parent)
         env = self._provider_environment.assemble(env)
+        env['TMPDIR'] = env_value(record['tmpdir']['path'])
         env.update(SUBFLEET_ATTEMPT=holder, SUBFLEET_ROOT=str(self.root), SUBFLEET_PROBE='1')
         provider_env_args = guardian_pass_args(env)
         read_fd, write_fd = procs.pipe_above_stdio()
@@ -1378,12 +1413,17 @@ class Daemon:
         the daemon: it is held (the scheduler's `credential-refused`, and the
         resolve guard's `credential-env-inherited` behind it), and daemon.log
         names it with the fix. Seeding repairs it from a fixed lanes.json row.
+        A refused row for a lane already stored does not stop it either: seeding
+        never stores that row, so it is ignored, said in the lane's one warning
+        (review r5, P3-1). An ignored row's harness hook is remembered here and
+        withheld from every launch, as a held lane's is (review r1 of #248, P3-1).
         """
         roster = self._roster()
-        held = check_lane_credentials(self.policy, policy_path, startup_lanes(roster, self.store.list_lanes()))
+        found = check_lane_credentials(self.policy, policy_path, startup_lanes(roster, self.store.list_lanes()))
         self._seed_lanes(roster)
-        for lane_id, name in held:
-            self.log.warning("%s", held_lane_message(lane_id, name))
+        self._ignored_hooks = ignored_hooks(found)
+        for text in startup_notes(found):
+            self.log.warning("%s", text)
 
     def _seed_lanes(self, roster: list) -> None:
         for row in roster:
@@ -3242,8 +3282,9 @@ class Daemon:
         return env_references(self.store.list_lanes())
 
     def _withheld_references(self) -> frozenset[str]:
-        """D-ENV1: the names every launch withholds for the lanes (`credentials.withheld_references`)."""
-        return withheld_references(self.store.list_lanes())
+        """D-ENV1: the names every launch withholds for the lanes (`credentials.withheld_references`),
+        and the hooks of the lanes.json rows startup ignored (`credentials.ignored_hooks`)."""
+        return withheld_references(self.store.list_lanes()) | self._ignored_hooks
 
     def _credential_environment(self, lane: Lane) -> dict[str, str]:
         return self._provider_environment.additions(lane.provider, resolve_credential(lane.credential))
@@ -4072,9 +4113,10 @@ class Daemon:
                 return False
             if alive != "alive":
                 if alive == "dead" and a["state"] == "running":
+                    began = time.monotonic()
                     census = self._contain(a)
                     if census.containment_empty:
-                        self._lost(a)
+                        self._lost(a, census=census, began=began)    # one census (C-5.9)
                     else:
                         self._kill_attempt(a, lost=True)
                 return False
@@ -4493,7 +4535,7 @@ class Daemon:
         return [row["job_id"] for row in self.store.query(PENDING_EXPORTS)]
 
     def _pending_worktree_holds(self) -> list[str]:
-        """Terminal jobs whose worktree lease still needs a cwd recheck, on restart too."""
+        """Finished jobs whose kept worktree row (C-5.5) still needs a cwd recheck, on restart too."""
         # Drive this per-tick look from active leases, never the retained jobs.
         held = {row['job_id'] for row in self.store.query(CWD_WORKTREE_HOLDS)}
         clocks = self.__dict__.get('_cwd_recheck_next', {})
@@ -4530,10 +4572,37 @@ class Daemon:
         with self.store.transaction('job.worktree_released', job_id=job_id) as tx:
             if not tx.execute(eligible, (job_id,)).fetchone():
                 return
-            tx.execute("DELETE FROM leases WHERE lease_key LIKE 'worktree:%' AND (holder=? "
-                       "OR holder IN (SELECT attempt_id FROM attempts WHERE job_id=?))", (job_id, job_id))
+            # The kept rows alone: no writer's key, and no other job's row on the
+            # folder (a resume's, a turn's), whoever holds the folder now.
+            tx.execute("DELETE FROM leases WHERE holder=?", (folders.cwd_holder(job_id),))
         clocks.pop(job_id, None)
         self._notify()
+
+    def _keep_for_cwd(self, tx, job_id: str, attempt_id: str | None) -> None:
+        """C-5.5, C-5.9: keep a finished job's worktree for its cwd observers as reader rows.
+
+        Called where a writable job ends with a process's cwd in its worktree, in
+        the transaction that has just released the job's other leases. Each
+        `worktree:` key the job or the attempt holds becomes `worktree-read:<that
+        folder>:<job id>` held by `cwd:<job id>` (`folders.CWD`), in this one
+        transaction, so the folder is never without a row. A reader row excludes
+        no writer: a resume of the job, or a turn into its worktree, is neither
+        refused at submit nor held at admission (C-6.5, C-24.5; review r3 of #240,
+        P2, where the kept exclusive key refused them with nothing to resolve).
+        Retention keeps a folder under one as under any reader row (C-8.4,
+        C-13.4). The key is the job's own reader key on that folder, which its
+        lifetime row on its run folder also is when the two folders are one; that
+        row went with the job's other leases just before, so the replace takes
+        nothing a live part of the job holds. Only the cwd worker releases the
+        kept row (`_release_worktree_hold`), once the job and its attempts hold
+        nothing else and no process has its cwd there."""
+        holders = (job_id, attempt_id or job_id)
+        for row in tx.execute("SELECT lease_key FROM leases WHERE lease_key LIKE 'worktree:%' "
+                              "AND holder IN (?,?)", holders).fetchall():
+            tx.execute("INSERT OR REPLACE INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
+                       (folders.turn_key(row[0][len(folders.EXCLUSIVE):], job_id, writable=False),
+                        folders.cwd_holder(job_id), utcnow()))
+        tx.execute("DELETE FROM leases WHERE lease_key LIKE 'worktree:%' AND holder IN (?,?)", holders)
 
     def _cwd_wait(self, a: dict, census: procs.Containment, *, began: float) -> bool:
         timers = self.__dict__.setdefault('_cwd_settle', {})
@@ -4783,6 +4852,7 @@ class Daemon:
         # oldest first, and says when more is waiting, so a backlog is worked
         # off in catch-up passes seconds apart instead of timing out hourly.
         # Once per retention call (one bounded batch), including interruptions.
+        self._sweep_attempt_tmpdirs()
         try:
             self._prune_service_notices()
         except Exception as exc:
@@ -4886,6 +4956,9 @@ class Daemon:
         self._recover_capacity_waits()
         self.timers.start()
         self._recovery_complete.set()
+        # C-12.10: the startup sweep runs once the daemon is serving, on its own
+        # worker, never in the constructor or ahead of admission.
+        self._schedule("tmpdir-sweep", self._sweep_attempt_tmpdirs)
 
     def _canonicalize_pins(self) -> None:
         """C-11.2: an unfinished job's pin is the lane id its name resolved to.
@@ -5410,6 +5483,179 @@ class Daemon:
     def _save_probe(self, record: dict) -> None:
         self.store.add_event("probe.state", job_id=record["job_id"], lane_id=record["lane_id"], data=record)
 
+    @contextlib.contextmanager
+    def _tmpdir_turn(self, holder: str):
+        """One cleanup of a holder's TMPDIR at a time: finalization and a sweep
+        never both remove it. A second caller is told no and skips it."""
+        with self._tmpdir_guard:
+            mine = holder not in self._tmpdir_busy
+            self._tmpdir_busy.add(holder)
+        try:
+            yield mine
+        finally:
+            if mine:
+                with self._tmpdir_guard:
+                    self._tmpdir_busy.discard(holder)
+
+    def _sweep_attempt_tmpdirs(self) -> None:
+        """C-12.10: release the leftovers the store records, then age the folders it does not.
+
+        Never raises: a sweep that cannot run is logged and tried again later."""
+        try:
+            if not self._tmpdir_sweeping.acquire(blocking=False):
+                return                      # a sweep is running; it covers this one
+        except Exception as exc:
+            self.log.warning("TMPDIR sweep deferred: %s", type(exc).__name__)
+            return
+        try:
+            # Every path an allocation record names, released or not: such a
+            # folder follows its record, and is never aged as unknown.
+            named = {row["path"] for row in self.store.query(TMPDIR_PATHS) if isinstance(row["path"], str)}
+            for a in self.store.query(
+                    "SELECT * FROM attempts WHERE state IN ('succeeded','failed','interrupted','lost','cancelled','quarantined') "
+                    "AND json_valid(evidence_json) AND json_type(evidence_json,'$.tmpdir')='object' "
+                    "AND json_extract(evidence_json,'$.tmpdir.removed_at') IS NULL"):
+                self._cleanup_attempt_tmpdir(a)
+            for row in probe_tmpdir_rows(self.store):
+                probe = self._probe_record(row["holder"])
+                if probe:
+                    self._cleanup_probe_tmpdir(probe)
+            self._attempt_temp.sweep_unknown(named.__contains__, self._tmpdir_first_seen,
+                                             self._tmpdir_seen, self._tmpdir_unknown_removed)
+        except Exception as exc:
+            self.log.warning("TMPDIR sweep deferred: %s", type(exc).__name__)
+        finally:
+            self._tmpdir_sweeping.release()
+
+    def _tmpdir_first_seen(self, path: str) -> dict | None:
+        """The store's first sighting of an unknown folder, or None (C-12.10, P3-4)."""
+        row = self.store.one(
+            "SELECT kind,data_json FROM events WHERE kind IN ('tmpdir.unknown_seen','tmpdir.unknown_removed') "
+            "AND json_valid(data_json) AND json_extract(data_json,'$.path')=? ORDER BY event_id DESC LIMIT 1", (path,))
+        return json.loads(row["data_json"]) if row and row["kind"] == "tmpdir.unknown_seen" else None
+
+    def _tmpdir_seen(self, record: dict) -> None:
+        self.store.add_event("tmpdir.unknown_seen", data=record)
+
+    def _tmpdir_unknown_removed(self, record: dict) -> None:
+        self.store.add_event("tmpdir.unknown_removed", data={**record, "removed_at": utcnow()})
+
+    def _reusable_tmpdir(self, record) -> bool:
+        """An allocation a later launch try of the same holder takes again (P3-5)."""
+        return (isinstance(record, dict) and isinstance(record.get("path"), str)
+                and not record.get("removed_at") and not record.get("cleared_at")
+                and self._attempt_temp.owns(record))
+
+    def _prepare_attempt_tmpdir(self, a: dict) -> str:
+        """The attempt's one TMPDIR (C-12.10): every launch try uses the folder
+        its evidence names, so the evidence names the folder the provider had."""
+        current = _evidence_key(self.store.get_attempt(a["attempt_id"])["evidence_json"], "tmpdir")
+        if self._reusable_tmpdir(current):
+            return current["path"]
+        record = self._attempt_temp.create(a["attempt_id"])
+        with self.store.transaction("attempt.tmpdir", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
+            actual = self.store.get_attempt(a["attempt_id"])
+            evidence = json.loads(actual["evidence_json"] or "{}")
+            evidence["tmpdir"] = record
+            a["evidence_json"] = json.dumps(evidence)
+            tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?", (a["evidence_json"], a["attempt_id"]))
+        return record["path"]
+
+    def _release_tmpdir(self, holder: str, subject: dict, record: dict, census, contain: Callable[[], Any]) -> dict:
+        """What to record for an allocation not yet released; {} when nothing changes.
+
+        Absent: released whatever holds it. Live or quarantined: kept, with no
+        census and nothing measured. A terminal holder whose census found
+        members keeps it, and gets no new census until its state changes (or
+        the daemon restarts); an uncertain census is asked again next pass.
+        A verified-empty census clears it (`cleared_at`), so it pins nothing
+        even if its removal fails and is retried.
+        """
+        state = subject.get("state")
+        outcome = self._attempt_temp.remove(record, subject, verified_empty=False)
+        if outcome:
+            self._tmpdir_held.pop(holder, None)
+            return {"removed_at": utcnow(), "outcome": outcome}
+        if state not in attempt_tmp.TERMINAL:
+            return {}
+        if not record.get("cleared_at"):
+            if census is None:
+                if self._tmpdir_held.get(holder) == state:
+                    return {}
+                census = contain()
+            if census.live_pids:
+                self._tmpdir_held[holder] = state
+                return {}
+            if not census.verified_empty:
+                return {}
+        self._tmpdir_held.pop(holder, None)
+        measured = self._attempt_temp.size(record)
+        outcome = self._attempt_temp.remove(record, subject, verified_empty=True)
+        fields = {} if record.get("cleared_at") else {"cleared_at": utcnow()}
+        if outcome:
+            fields.update(removed_at=utcnow(), outcome=outcome)
+            if outcome == "removed" and measured is not None:
+                fields["bytes_at_cleanup"] = measured
+        return fields
+
+    def _cleanup_attempt_tmpdir(self, a: dict, census=None) -> None:
+        """C-12.10: release an attempt's TMPDIR once nothing can use it. Never
+        raises: a cleanup that fails is logged, and the sweep tries again."""
+        holder = a["attempt_id"]
+        try:
+            with self._tmpdir_turn(holder) as mine:
+                if not mine:
+                    return
+                actual = self.store.get_attempt(holder)
+                record = _evidence_key(actual["evidence_json"], "tmpdir") if actual else None
+                if not isinstance(record, dict) or not isinstance(record.get("path"), str) or record.get("removed_at"):
+                    return
+                fields = self._release_tmpdir(holder, actual, record, census, lambda: self._contain(actual))
+                if not fields:
+                    return
+                kind = "attempt.tmpdir_removed" if "removed_at" in fields else "attempt.tmpdir_cleared"
+                with self.store.transaction(kind, job_id=actual["job_id"], attempt_id=holder) as tx:
+                    # The census can commit new identities: merge only these
+                    # fields into the latest evidence, for the same allocation.
+                    actual = self.store.get_attempt(holder)
+                    evidence = json.loads(actual["evidence_json"] or "{}")
+                    current = evidence.get("tmpdir") or {}
+                    if current.get("removed_at") or any(current.get(key) != record.get(key) for key in ("path", "dev", "ino")):
+                        return
+                    current.update(fields)
+                    tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?", (json.dumps(evidence), holder))
+        except Exception as exc:
+            self.log.warning("TMPDIR cleanup deferred for %s: %s", holder, type(exc).__name__)
+
+    def _cleanup_probe_tmpdir(self, record: dict, census=None) -> None:
+        """C-12.10 for a probe or enrollment: its record changes only when its
+        TMPDIR is released or cleared, never on a look that changes nothing.
+        Never raises."""
+        holder = record.get("holder")
+        scratch = record.get("tmpdir")
+        if not isinstance(scratch, dict) or not isinstance(scratch.get("path"), str) or scratch.get("removed_at"):
+            return
+        try:
+            with self._tmpdir_turn(holder) as mine:
+                if not mine:
+                    return
+                if census is None and _contained_empty(record):
+                    census = procs.Containment()    # its containment census was verified empty
+                fields = self._release_tmpdir(holder, record, scratch, census, lambda: self._probe_census(record))
+                if not fields:
+                    return
+                with self.store.transaction("probe.tmpdir", job_id=record.get("job_id"), lane_id=record.get("lane_id")):
+                    # Merge into the newest record, never over a state saved since.
+                    latest = self._probe_record(holder) or record
+                    current = latest.get("tmpdir") or {}
+                    if current.get("removed_at") or any(current.get(key) != scratch.get(key) for key in ("path", "dev", "ino")):
+                        return
+                    current.update(fields)
+                    self._save_probe(latest)
+                scratch.update(fields)
+        except Exception as exc:
+            self.log.warning("TMPDIR cleanup deferred for %s: %s", holder, type(exc).__name__)
+
     def _probe_census(self, record: dict):
         return self._contain(record)
 
@@ -5516,9 +5762,12 @@ class Daemon:
         """
         record = self._probe_record(holder)
         directory = Path(record["directory"])
+        if not self._reusable_tmpdir(record.get("tmpdir")):
+            record["tmpdir"] = self._attempt_temp.create(holder)
+            self._save_probe(record)
         adapter = self._adapter(lane.provider)
         self._validate_home(lane)
-        credential_env = self._credential_environment(lane)
+        credential_env = {**self._credential_environment(lane), "TMPDIR": env_value(record["tmpdir"]["path"])}
         prompt = directory / "prompt.md"
         self._publish("probe-prompt", prompt, b"Reply with exactly OK. Do not use tools.\n")
         spec = self._spec(job, kind="probe", workdir=str(directory), prompt_path=str(prompt),
@@ -5533,6 +5782,7 @@ class Daemon:
         safe_launch.pop("env_add")
         self._publish("probe-launch", directory / "launch.json", json_bytes(safe_launch))
         env = self._launch_environment(lane, launch)
+        env["TMPDIR"] = env_value(record["tmpdir"]["path"])
         env.update(SUBFLEET_JOB=job["job_id"], SUBFLEET_ATTEMPT=holder, SUBFLEET_ROOT=str(self.root), SUBFLEET_PROBE="1")  # C-5.1, C-11.4
         provider_env_args = guardian_pass_args(env)
         package_root = str(Path(__file__).resolve().parent.parent)
@@ -5607,6 +5857,7 @@ class Daemon:
                                               ReadingLabel.ADMISSION_OBSERVED, "keepalive", sent))
             record.update(state="completed")
             self._save_probe(record)
+            self._cleanup_probe_tmpdir(record)
             self.store.release_leases(record["holder"])
             shutil.rmtree(record["directory"], ignore_errors=True)
             if outcome.cls == OutcomeClass.OK:
@@ -5633,6 +5884,7 @@ class Daemon:
             tx.execute("DELETE FROM leases WHERE holder=?", (record["holder"],))
             tx.execute("UPDATE jobs SET wait_reason='capacity',next_check_at=? WHERE job_id=? AND state='waiting' AND wait_reason='uncertain'",
                        (utcnow(), record["job_id"]))
+        self._cleanup_probe_tmpdir(record)
         shutil.rmtree(record["directory"], ignore_errors=True)
         if outcome.cls == OutcomeClass.OK:
             self._record_answer(record["lane_id"], "probe")        # C-6.14: C-11.4's probe is a model turn
@@ -7978,6 +8230,15 @@ class Daemon:
                     validate_writable_workdir(job.get("worktree") or job["workdir"], timeout_s=self.policy["caps"]["workspace_git_timeout_s"])
             self._validate_home(lane)
             credential_env = self._credential_environment(lane)
+            try:
+                tmpdir = env_value(self._prepare_attempt_tmpdir(a))
+            except OSError as exc:
+                # C-12.10: no scratch, no launch. ENOSPC or EACCES ends the attempt
+                # with its reason instead of leaving it reserved under backoff.
+                self.log.error("attempt %s TMPDIR allocation failed: %s", a["attempt_id"], refusals.scrubbed_words(exc))
+                self._launch_failure(a, f"attempt TMPDIR could not be allocated: {refusals.fixed_error(exc)}")
+                return
+            credential_env = {**credential_env, "TMPDIR": tmpdir}
             spec = self._spec(job, workdir=self._launch_dir(job, lane.provider), prompt_path=str(prompt_path))
             guard_override = None if spec.isolated_review or job["kind"] == "turn" else self._guard_override(
                 adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir), self.root,
@@ -8043,6 +8304,7 @@ class Daemon:
         self._publish("launch", adir / "launch.json", json_bytes(safe_launch))
         self._publish("lane-log", adir / "lane.log", b"")
         env = self._launch_environment(lane, launch)
+        env["TMPDIR"] = tmpdir
         env.update(SUBFLEET_JOB=a["job_id"], SUBFLEET_ATTEMPT=a["attempt_id"], SUBFLEET_ROOT=str(self.root))  # C-5.1 markers
         env.update(self._push_environment(job))
         # The guardian starts in package_root, so `-m` finds Subfleet without
@@ -8336,11 +8598,19 @@ class Daemon:
             return True
         if a["state"] == "starting":
             return False  # The start grace, below inspection, still owns an absent launch.
+        # C-5.9: a loss whose census finds only cwd holders waits for them as
+        # finalization does, at one census per due inspection. Both the census
+        # and `_lost` wait for the attempt's cwd clock, and `_finalize` decides
+        # from this census instead of taking a second (review r3 of #240, P3: two
+        # censuses a pass, and an `attempt.lost_end` on each). The clock runs from
+        # when this inspection fell due, so the next one finds the census due.
+        if not self._cwd_census_due(a):
+            return True
         census = self._contain(a)
         if not census.containment_empty:
             self._kill_attempt(a, lost=True)
         else:
-            self._lost(a)
+            self._lost(a, census=census, began=due)
         return True
 
     def _spawn_guardian(self, command: list[str], env: dict[str, str], read_fd: int, package_root: str):
@@ -8825,6 +9095,10 @@ class Daemon:
                 tx.execute('UPDATE attempts SET evidence_json=? WHERE attempt_id=?',
                            (json.dumps(evidence), a['attempt_id']))
             retry = not cancel and self._attempts_left(tx, job, a)
+            if keep and not retry:
+                # It ends: its kept worktree excludes no writer (C-5.5). Queued
+                # again, the job is still the writer there and keeps its own key.
+                self._keep_for_cwd(tx, job["job_id"], a["attempt_id"])
             state = "queued" if retry else "cancelled" if cancel else "failed"
             rc = None if retry else 130 if cancel else 1
             tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=?,wait_reason=NULL,next_check_at=NULL WHERE job_id=?", (state, rc, None if retry else utcnow(), job["job_id"]))
@@ -8835,6 +9109,7 @@ class Daemon:
                 earlier = self._earlier_attempt(tx, job, before=a["seq"])
                 self._notice(tx, job, (f"attempt a{a['seq']}: " if earlier else "") + detail + earlier
                              + (self._cwd_notice(census) if census else ''))
+        self._cleanup_attempt_tmpdir(a)
         self._notify()
 
     def _defer_after_launch(self, tx, job: dict, exc: SalvageError) -> None:
@@ -9258,6 +9533,8 @@ class Daemon:
             tx.execute("DELETE FROM leases WHERE holder IN (?,?)" +
                        (" AND lease_key NOT LIKE 'worktree:%'" if census.cwd_pids else ''),
                        (a["job_id"], a["attempt_id"]))
+            if census.cwd_pids:
+                self._keep_for_cwd(tx, a["job_id"], a["attempt_id"])        # C-5.5
             actual = self.store.get_attempt(a["attempt_id"])
             if (salvage_evidence or census.cwd_pids) and actual["state"] == "quarantined":
                 # C-13.1: `kill --confirm-dead` answered before this ran, and the
@@ -9272,22 +9549,28 @@ class Daemon:
                              + self._cwd_notice(census), again=True)
             tx.execute("UPDATE attempts SET state=? WHERE attempt_id=?", ("interrupted" if self._job(a["job_id"])["cancel_requested_at"] else "lost", a["attempt_id"]))
             self._cascade_final_wall(a, wall_exited)
+        self._cleanup_attempt_tmpdir(a, census)
         self._notify()
 
-    def _lost(self, a: dict) -> None:
+    def _lost(self, a: dict, *, census: procs.Containment | None = None, began: float | None = None) -> None:
         # A receipt-less loss establishes no execution during an observation gap.
         # The last confirmed liveness belongs to the attempt's recorded boot; it
         # cannot include host downtime or time on a later boot. Legacy attempts
         # have only their launch as that lower bound. A late receipt still wins.
+        # The end is recorded once: a loss that waits for cwd holders (C-5.9)
+        # comes back here at each due census, and COALESCE kept the first end
+        # anyway (review r3 of #240, P3: an `attempt.lost_end` on every pass).
+        # `census` is one the caller took for this decision (`_finalize`).
         actual = self.store.get_attempt(a["attempt_id"])
-        evidence = json.loads(actual["evidence_json"] or "{}")
-        end = evidence.get("last_observed_alive_at") or actual["started_at"] or utcnow_ms()
-        if age(end) < 0:
-            end = utcnow_ms()
-        with self.store.transaction("attempt.lost_end", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
-            tx.execute("UPDATE attempts SET finished_at=COALESCE(finished_at,?) WHERE attempt_id=?",
-                       (end, a["attempt_id"]))
-        self._finalize(self.store.get_attempt(a["attempt_id"]), lost=True)
+        if not actual["finished_at"]:
+            evidence = json.loads(actual["evidence_json"] or "{}")
+            end = evidence.get("last_observed_alive_at") or actual["started_at"] or utcnow_ms()
+            if age(end) < 0:
+                end = utcnow_ms()
+            with self.store.transaction("attempt.lost_end", job_id=a["job_id"], attempt_id=a["attempt_id"]) as tx:
+                tx.execute("UPDATE attempts SET finished_at=COALESCE(finished_at,?) WHERE attempt_id=?",
+                           (end, a["attempt_id"]))
+        self._finalize(self.store.get_attempt(a["attempt_id"]), lost=True, census=census, began=began)
 
     def _relaunch_env(self, lane_id: str) -> dict[str, str]:
         """C-10.5, C-10.6: the credential a launch rebuilt after a restart needs.
@@ -9552,19 +9835,23 @@ class Daemon:
         """C-4.3/C-9.2: copy once; replay the recorded daemon-owned inode."""
         return freeze_stream(adir, launch, self._publish, self.publish_hook, open_stream)
 
-    def _finalize(self, a: dict, *, lost: bool = False) -> None:
+    def _finalize(self, a: dict, *, lost: bool = False, census: procs.Containment | None = None,
+                  began: float | None = None) -> None:
         job = self._job(a["job_id"])
         actual = self.store.get_attempt(a["attempt_id"])
         current = self.store.one("SELECT MAX(seq) n FROM attempts WHERE job_id=?", (a["job_id"],))["n"]
         if job["state"] in TERMINAL or job["accepted_attempt_id"] or current != a["seq"] or actual["state"] not in ("starting", "running", "finalizing"):
             return
-        if not self._cwd_census_due(a):
+        if census is None and not self._cwd_census_due(a):
             return
         adir = attempt_dir(self.root, a["job_id"], a["seq"])
         adir.mkdir(mode=0o700, exist_ok=True)
-        began = time.monotonic()
-        census = self._contain(a)
-        waiting_cwd = self._cwd_wait(a, census, began=began)
+        if census is None:
+            began = time.monotonic()
+            census = self._contain(a)
+        # A loss hands over the census it was decided on, taken on its own cwd
+        # clock (`_lost`): one census per due inspection (C-5.9).
+        waiting_cwd = self._cwd_wait(a, census, began=time.monotonic() if began is None else began)
         if not census.containment_empty:
             # The guardian writes the receipt just before it exits, and processes
             # it already reaped can still be leaving the process table under
@@ -9924,6 +10211,8 @@ class Daemon:
                     tx.execute("DELETE FROM leases WHERE holder IN (?,?)" +
                                (" AND lease_key NOT LIKE 'worktree:%'" if census.cwd_pids else ''),
                                (job["job_id"], a["attempt_id"]))
+                    if census.cwd_pids:
+                        self._keep_for_cwd(tx, job["job_id"], a["attempt_id"])     # C-5.5
                 uncertainty = f"; {attest_status}" if attest_status != "attested" else ""
                 # C-15.1: the header is the job's (see `_notice`); the summary is
                 # the final attempt's evidence, and says what became of an output
@@ -9945,6 +10234,7 @@ class Daemon:
                     # no notice).
                     summary += self._earlier_attempt(tx, job, before=a["seq"])
                 self._notice(tx, job, summary)
+        self._cleanup_attempt_tmpdir(a, census)
         if stream_failure:
             self.log.warning("attempt %s stream capture failed (%s): %s", a["attempt_id"],
                              stream_failure["error_type"], stream_failure["error"])
@@ -10099,6 +10389,8 @@ class Daemon:
                 self._export_error(tx, job_id, export_error)
             tx.execute("DELETE FROM leases WHERE holder IN (?,?)" +
                        (" AND lease_key NOT LIKE 'worktree:%'" if keep_worktree else ''), (job_id, aid))
+            if keep_worktree:
+                self._keep_for_cwd(tx, job_id, aid)                                  # C-5.5
         self._notify()
 
     @staticmethod
@@ -11086,5 +11378,25 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def run_program(argv: list[str] | None = None) -> int:
+    """`python -m subfleet.daemon` and the `subfleetd` console script: `main`, with a
+    test process's refusal in one line.
+
+    A test process (pytest loaded, or a test marker in its environment) that
+    names no state root, or no other path it would otherwise take from the
+    person's home, is refused (D-ST1, D-ST3). As a program it says so in one
+    line and exits 7, not with a traceback; `main` itself still raises, for a
+    caller in the test process. Production never raises the refusal.
+    """
+    from .home_paths import PersonalPathRefused
+    try:
+        return main(argv)
+    except PersonalPathRefused as refused:
+        # Written as `main`'s own refusals are (C-25.7): this stderr is daemon.log
+        # under `daemon start`. The refusal names a variable, never a value.
+        daemon_log.write_scrubbed(f"subfleet daemon: {refused}")
+        return int(Exit.REFUSED)
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(run_program())

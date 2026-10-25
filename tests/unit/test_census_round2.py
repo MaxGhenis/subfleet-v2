@@ -5,20 +5,33 @@ from types import SimpleNamespace
 
 import pytest
 
-from subfleet import daemon as daemon_module, procs, protocol
+from subfleet import daemon as daemon_module, folders, procs, protocol
+from subfleet.daemon import Daemon
 from tests.unit.test_daemon_settle import (
     ATTEMPT, JOB, attempt, daemon, publish_receipt, with_launch,
 )  # noqa: F401
 
 
 KEY = "worktree:/scratch/owned"
+#: Round 3: what a finished job keeps for cwd observers, a reader row (C-5.5).
+KEPT = "worktree-read:/scratch/owned:" + JOB
 CWD = procs.Containment(cwd_pids=frozenset({4500}))
 
 
 def terminal(core, holder=JOB):
+    """A finished job still holding its writer key, as round 1 kept it. Since round 3
+    no path leaves one so; the worker must still never take it."""
     core.store.update_job(JOB, state="succeeded", in_place=False)
     core.store.update_attempt(ATTEMPT, state="succeeded")
     core.store.acquire_lease(KEY, holder)
+    core._worktree_observers = lambda job: frozenset()
+
+
+def kept(core):
+    """A finished job whose worktree is kept for cwd observers, as round 3 keeps it."""
+    core.store.update_job(JOB, state="succeeded", in_place=False)
+    core.store.update_attempt(ATTEMPT, state="succeeded")
+    core.store.acquire_lease(KEPT, folders.cwd_holder(JOB))
     core._worktree_observers = lambda job: frozenset()
 
 
@@ -52,23 +65,29 @@ def test_unsettled_publication_blocks_even_a_worktree_only_hold(daemon, pending)
 
 
 def test_settled_export_failure_allows_its_worktree_only_hold_to_clear(daemon):
+    # Round 3: the settled export itself keeps the worktree, as a reader row.
     terminal(daemon)
     daemon.store.update_job(JOB, accepted_attempt_id=ATTEMPT, out_path="/scratch/result",
                             export_error="export failed: scratch refusal")
+    daemon._worktree_observers = lambda job: frozenset({4500})
+    Daemon._export_locked(daemon, JOB)
+    assert {row["lease_key"]: row["holder"] for row in daemon.store.list_leases()} == {
+        KEPT: folders.cwd_holder(JOB)}
+    daemon._worktree_observers = lambda job: frozenset()
     assert daemon._pending_worktree_holds() == [JOB]
     daemon._release_worktree_hold(JOB)
     assert daemon.store.list_leases() == []
 
 
 def test_cwd_worker_revalidates_after_the_observer_scan(daemon):
-    terminal(daemon)
+    kept(daemon)
     def observers(job):
         daemon.store.acquire_lease("out:/scratch/result", JOB)
         return frozenset()
     daemon._worktree_observers = observers
     assert daemon._pending_worktree_holds() == [JOB]
     daemon._release_worktree_hold(JOB)
-    assert {row["lease_key"] for row in daemon.store.list_leases()} == {KEY, "out:/scratch/result"}
+    assert {row["lease_key"] for row in daemon.store.list_leases()} == {KEPT, "out:/scratch/result"}
 
 
 @pytest.mark.parametrize("force", [False, True], ids=["confirm-dead", "force-release"])
@@ -85,12 +104,14 @@ def test_quarantine_resolution_salvages_with_cwd_only_and_preserves_its_hold(dae
                                                                force_release=force, operator_note="scratch"))
     assert attempt(daemon)["state"] == "lost"
     assert salvaged == [ATTEMPT]
-    assert {row["lease_key"] for row in daemon.store.list_leases()} == {KEY}
+    # Round 3: the hold is a reader row now, which excludes no writer (C-5.5).
+    assert {row["lease_key"]: row["holder"] for row in daemon.store.list_leases()} == {
+        KEPT: folders.cwd_holder(JOB)}
     assert json.loads(attempt(daemon)["evidence_json"])["cwd_holders"] == ["pid 4500: cwd in worktree"]
     assert daemon._pending_worktree_holds() == [JOB]
     daemon._worktree_observers = lambda job: frozenset({4500})
     daemon._release_worktree_hold(JOB)
-    assert daemon.store.list_leases(JOB)
+    assert daemon.store.list_leases(folders.cwd_holder(JOB))
     daemon._cwd_recheck_next = {}
     daemon._worktree_observers = lambda job: frozenset()
     daemon._release_worktree_hold(JOB)
@@ -105,9 +126,9 @@ def test_wall_dead_guardian_with_cwd_only_records_loss_without_a_kill(daemon, mo
     with_launch(daemon, monkeypatch)
     lost = []
     original = daemon._lost
-    def record_loss(a):
+    def record_loss(a, **census):      # round 3: the wall hands `_lost` its census
         lost.append(a["attempt_id"])
-        original(a)
+        original(a, **census)
     daemon._lost = record_loss
     monkeypatch.setattr(procs, "signal_group", lambda *a, **kw: pytest.fail("no writer to signal"))
     monkeypatch.setattr(procs, "signal_process", lambda *a, **kw: pytest.fail("no writer to signal"))

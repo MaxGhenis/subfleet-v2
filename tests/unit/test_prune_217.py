@@ -22,6 +22,7 @@ from subfleet.contracts import Credential, Lane, LaneOwner
 from subfleet.daemon import Daemon, DaemonUnavailable
 from subfleet.offline import Offline
 from subfleet.store import SCHEMA_VERSION, Store
+from tests.markdown_fences import shell_block
 
 STATES = ('queued', 'waiting', 'running', 'succeeded', 'failed', 'cancelled', 'lost')
 TABLES = {
@@ -162,7 +163,7 @@ def test_partition_unfinished_jobs_readers_and_backup_restore(specs, vacuum):
         assert recovered == [all_rows[key] for key in planned.delete]
 
         # Execute the published restore, not just a read of the backup.
-        script = pruning._restore_fix(report.backups['copy']['path']).split('```sh\n', 1)[1].split('```', 1)[0]
+        script = shell_block(pruning._restore_fix(report.backups['copy']['path']))
         restored = subprocess.run(['/bin/sh', '-c', script], check=True, capture_output=True,
                                   text=True, env={**os.environ, 'state_root': str(root)}, timeout=120)
         assert restored.stdout.splitlines() == ['ok']
