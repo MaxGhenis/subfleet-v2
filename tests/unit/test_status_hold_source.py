@@ -625,9 +625,10 @@ def test_lanes_hold_refuses_an_invalid_note_before_asking_the_daemon(daemon, cap
     assert server.ops() == []
 
 
-def test_lanes_hold_with_a_note_refuses_an_older_daemon_that_dropped_it(daemon, capsys):
+@pytest.mark.parametrize("json_flag", ([], ["--json"]))
+def test_lanes_hold_with_a_note_refuses_an_older_daemon_that_dropped_it(daemon, capsys, json_flag):
     daemon({"lanes": lambda request: {"held": "codex-1", "released": None, "lanes": [], "closures": []}})
-    assert cli.main(["lanes", "hold", "codex-1", "--until", "2026-10-25T03:51:22Z", "--note", NOTE]) == 69
+    assert cli.main(["lanes", "hold", "codex-1", "--until", "2026-10-25T03:51:22Z", "--note", NOTE, *json_flag]) == 69
     assert "without its note" in capsys.readouterr().err
 
 
