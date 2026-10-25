@@ -846,12 +846,14 @@ def files_holding(root: Path, text: str) -> list[str]:
 
 def test_r1_p2_a_credential_note_reaches_no_status_alert_or_notice(core):
     """Review r1 P2, as executed: the shared scrubber masks this dummy, and status, the
-    alert and the session notice must not carry it."""
+    alert and the session notice must not carry it. A plain hold first keeps the lane
+    held whether or not the later one is refused, so the alert exists either way."""
     clean, count = scrub_secrets(DUMMY_NOTE, strip_reminders=True)
     assert count and clean != DUMMY_NOTE
     core.policy.setdefault("alerts", {})["operator_session"] = "review-session"
-    with contextlib.suppress(protocol.ProtocolError):
-        core.dispatch("lanes", {"action": "hold", "lane_id": "codex-1", "until": future(), "note": DUMMY_NOTE})
+    core.dispatch("lanes", {"action": "hold", "lane_id": "codex-1", "until": future(10), "note": "load 140"})
+    with contextlib.suppress(protocol.ProtocolError):     # a later hold would give the row its note
+        core.dispatch("lanes", {"action": "hold", "lane_id": "codex-1", "until": future(20), "note": DUMMY_NOTE})
     status = core.dispatch("daemon.status", {})
     alert = next(row for row in alerts.evaluate_conditions(core.timers.snapshot()) if row["key"] == "codex-fleet-empty")
     assert core._timer_notice(alert)
