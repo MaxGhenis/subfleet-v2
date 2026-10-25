@@ -30,8 +30,11 @@ Invariants, for every input (Hypothesis), beside the examples:
 
 from __future__ import annotations
 
+import ast
+import contextlib
 import json
 import re
+import string
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -40,9 +43,13 @@ from hypothesis import HealthCheck, example, given, settings, strategies as st
 
 from subfleet import alerts, cli, contracts, protocol, status_json
 from subfleet import daemon as daemon_module
+from subfleet import refusals as refusals_module
+from subfleet import render as render_module
 from subfleet.contracts import Credential, Exit, Lane, LaneOwner
 from subfleet.daemon import Daemon
+from subfleet.ids import holds_credential
 from subfleet.offline import Offline
+from subfleet.sessions.handoff import scrub_secrets
 
 NOW = datetime(2026, 10, 24, 22, tzinfo=timezone.utc)
 NOTE = "codex-open: disk brake"
@@ -460,6 +467,11 @@ def notes_of(rows: list[dict]) -> list[str]:
 @settings(max_examples=1500, deadline=None, database=None, derandomize=True)
 @given(rows=fleets())
 def test_i3_fleet_empty_counts_sum_and_limited_words_need_a_limited_lane(rows):
+    check_fleet_empty(rows)
+
+
+def check_fleet_empty(rows: list[dict]) -> None:
+    """I3 over one fleet with nothing dispatchable, through the real alert builder."""
     provider = rows[0]["provider"]
     key = "codex-fleet-empty" if provider == "codex" else "claude-lanes-empty"
     empty = conditions(*rows)[key]
@@ -510,10 +522,26 @@ def store_counts(service) -> tuple[int, int]:
             service.store.one("SELECT count(*) n FROM events")["n"])
 
 
-def valid_note(text: str) -> bool:
-    """The spec: after stripping, one line of 1 to 160 printable characters."""
+#: The spec's texts (review r1, decision 1): the credential refusal, and what a reader shows instead
+#: of a stored note that would carry one.
+CREDENTIAL_RULE = "--note must not carry a credential (the C-23.14 scrubber would change it)"
+WITHHELD = "[note withheld: it would carry a credential]"
+#: A 160-character note an operator might write: the longest the rule accepts.
+LONGEST = ("codex-open: disk brake; load 140 > 120; " * 4)[:159] + "!"
+
+
+def note_rule(text: str) -> str | None:
+    """The spec: the rule `text` breaks, or None when it is a note. After stripping it
+    must be one line of 1 to 160 printable characters, and the C-23.14 scrubber must
+    leave it whole, read from its start or from just after any `-` or `_` in it."""
     stripped = text.strip()
-    return 0 < len(stripped) <= 160 and stripped.isprintable()
+    if not (0 < len(stripped) <= 160 and stripped.isprintable()):
+        return "--note must be one line of 1 to 160 printable characters"
+    return CREDENTIAL_RULE if holds_credential(stripped) else None
+
+
+def valid_note(text: str) -> bool:
+    return note_rule(text) is None
 
 
 NOTES = st.one_of(
@@ -522,7 +550,7 @@ NOTES = st.one_of(
     st.builds(lambda head, cut, tail: head + cut + tail, st.text(max_size=20),
               st.sampled_from(["\n", "\r", "\t", "\x00", "\x07", "\x1b", "\x7f", "\x85", " ", "​", "\xa0"]),
               st.text(max_size=20)),
-    st.sampled_from([NOTE, " " + NOTE + " \n", "x" * 160, "x" * 161, "   ", ""]))
+    st.sampled_from([NOTE, " " + NOTE + " \n", LONGEST, "x" * 160, "x" * 161, "   ", ""]))
 
 
 @settings(max_examples=60, deadline=None, database=None, derandomize=True, suppress_health_check=FIXTURE_HEALTH)
@@ -531,7 +559,9 @@ NOTES = st.one_of(
 @example(note="disk\nbrake")
 @example(note="disk\x07brake")
 @example(note="x" * 161)
-@example(note="x" * 160)
+@example(note=LONGEST)
+@example(note="x" * 160)                                  # a 160-character base64 run to the scrubber,
+@example(note="api_key=r1_dummy_01234567890123456789")     # and a named value: each refused, never masked
 def test_i4_a_note_round_trips_or_is_refused_with_the_store_unchanged(core, note):
     until = future()
     before = store_counts(core)
@@ -539,9 +569,11 @@ def test_i4_a_note_round_trips_or_is_refused_with_the_store_unchanged(core, note
         with pytest.raises(protocol.ProtocolError) as refused:
             core.dispatch("lanes", {"action": "hold", "lane_id": "codex-1", "until": until, "note": note})
         assert refused.value.code == Exit.INVALID_INPUT and refused.value.reason == "hold-note"
+        assert protocol.refusal_text(refused.value) == (f"lanes hold: {note_rule(note)}", None)
         assert store_counts(core) == before                  # no closure, no event
         return
     expected = note.strip()
+    core.policy.setdefault("alerts", {})["operator_session"] = "r1-session"
     held = core.dispatch("lanes", {"action": "hold", "lane_id": "codex-1", "until": until, "note": note})
     try:
         assert held["held"] == "codex-1" and held["note"] == expected
@@ -558,8 +590,11 @@ def test_i4_a_note_round_trips_or_is_refused_with_the_store_unchanged(core, note
         offline = [item for item in Offline(core.root).status()["closures"] if item["reason"] == "operator-hold"]
         assert [(item["kind"], item["note"]) for item in offline] == [("hold", expected)]
         assert f"  codex-1 held by operator until {until}: {expected}" in cli.format_status(status).splitlines()
-        body = conditions(*core.timers.snapshot()["lanes"])["codex-fleet-empty"]["body"]
-        assert body.startswith(f"No codex lane is dispatchable: 1 held by operator ({expected}; earliest end ")
+        alert = conditions(*core.timers.snapshot()["lanes"])["codex-fleet-empty"]
+        assert alert["body"].startswith(f"No codex lane is dispatchable: 1 held by operator ({expected}; earliest end ")
+        assert core._timer_notice(alert)                     # the session notice the alert becomes
+        notice = core.store.one("SELECT text FROM service_notices ORDER BY notice_id DESC LIMIT 1")["text"]
+        assert notice == f"codex: no dispatchable lanes\n{alert['body']}"
     finally:
         core.dispatch("lanes", {"action": "release", "lane_id": "codex-1"})
 
@@ -590,16 +625,22 @@ def test_i4_a_later_hold_takes_the_row_and_its_note_a_shorter_one_leaves_both(co
     assert notes == ["load 140", NOTE, "running cap 6"]
 
 
-def test_nothing_reads_a_closure_source_for_equality_with_operator():
-    """D-STATUS-SRC1: the note rides in `source_event`, so no reader may compare it with `operator`."""
-    repository = Path(__file__).resolve().parents[2]
+REPOSITORY = Path(__file__).resolve().parents[2]
+
+
+def operator_comparisons(*roots: Path) -> list[str]:
+    """`path:line` for each place under `roots` that compares a closure's `source_event` with `operator`."""
     pattern = re.compile(r"""source_event\W{0,3}\s*(==|!=)|['"]operator['"]|source_event\s*(=|IN)\s*\(?'operator""",
                          re.IGNORECASE)
-    found = [f"{path.relative_to(repository)}:{number}"
-             for path in sorted([*(repository / "subfleet").rglob("*.py"), *(repository / "tools").rglob("*.py")])
-             for number, text in enumerate(path.read_text().splitlines(), start=1)
-             if "source_event" in text and pattern.search(text)]
-    assert found == []
+    return [f"{path}:{number}"
+            for path in sorted(path for root in roots for path in root.rglob("*.py"))
+            for number, text in enumerate(path.read_text().splitlines(), start=1)
+            if "source_event" in text and pattern.search(text)]
+
+
+def test_nothing_reads_a_closure_source_for_equality_with_operator():
+    """D-STATUS-SRC1: the note rides in `source_event`, so no reader may compare it with `operator`."""
+    assert operator_comparisons(REPOSITORY / "subfleet", REPOSITORY / "tools") == []
 
 
 # --- the CLI ----------------------------------------------------------------------
@@ -650,6 +691,9 @@ def test_lanes_hold_help_names_the_note(capsys):
 
 @settings(max_examples=2000, deadline=None, database=None, derandomize=True)
 @given(text=NOTES)
+@example(text="x" * 160)
+@example(text=LONGEST)
+@example(text="run-sk-r1dummy0123456789abcdef")
 def test_hold_note_accepts_exactly_the_spec_and_round_trips_through_source_event(text):
     if valid_note(text):
         note = contracts.hold_note(text)
@@ -657,7 +701,270 @@ def test_hold_note_accepts_exactly_the_spec_and_round_trips_through_source_event
         assert contracts.hold_source(note) == f"operator: {note}"
         assert contracts.hold_note_of(contracts.hold_source(note)) == note
     else:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError) as refused:
             contracts.hold_note(text)
+        assert str(refused.value) == note_rule(text)          # each refusal names its own rule
     assert contracts.hold_note(None) is None and contracts.hold_source(None) == "operator"
     assert contracts.hold_note_of("operator") is None and contracts.hold_note_of("wham") is None
+
+
+# --- review r1 (P2, P3-1 to P3-4) ---------------------------------------------------
+#
+# P2: a note the C-23.14 scrubber would change is refused, never masked, as a
+# request id (C-1.5) and a correlation id (C-25.7) are, and no refusal names it.
+# Every credential below is a dummy made up for these tests.
+
+DUMMY_NOTE = "api_key=review_dummy_01234567890123456789"
+DUMMY_NOTES = [DUMMY_NOTE, "sk-r1dummyABCDEFGHIJ0123456789", "run-sk-r1dummyABCDEFGHIJ0123456789",
+               "codex-open: Bearer r1dummyabcdefghij0123", "x_glpat-r1dummyABCDEFGHIJ012345"]
+
+
+def store_text(service) -> str:
+    """Every value of every row the store holds, as one text."""
+    tables = [row["name"] for row in service.store.query("SELECT name FROM sqlite_master WHERE type='table'")]
+    return "\n".join(repr(tuple(row)) for table in tables for row in service.store.query(f'SELECT * FROM "{table}"'))
+
+
+def files_holding(root: Path, text: str) -> list[str]:
+    """The files under `root` (the store, its WAL, the daemon's log) whose bytes hold `text`."""
+    return sorted(str(path.relative_to(root)) for path in root.rglob("*")
+                  if path.is_file() and text.encode() in path.read_bytes())
+
+
+def test_r1_p2_a_credential_note_reaches_no_status_alert_or_notice(core):
+    """Review r1 P2, as executed: the shared scrubber masks this dummy, and status, the
+    alert and the session notice must not carry it."""
+    clean, count = scrub_secrets(DUMMY_NOTE, strip_reminders=True)
+    assert count and clean != DUMMY_NOTE
+    core.policy.setdefault("alerts", {})["operator_session"] = "review-session"
+    with contextlib.suppress(protocol.ProtocolError):
+        core.dispatch("lanes", {"action": "hold", "lane_id": "codex-1", "until": future(), "note": DUMMY_NOTE})
+    status = core.dispatch("daemon.status", {})
+    alert = next(row for row in alerts.evaluate_conditions(core.timers.snapshot()) if row["key"] == "codex-fleet-empty")
+    assert core._timer_notice(alert)
+    text = core.store.one("SELECT text FROM service_notices")["text"]
+    assert all(DUMMY_NOTE not in value for value in (cli.format_status(status), str(status), alert["body"], text))
+
+
+def test_r1_p2_the_credential_rule_is_a_contract_text_of_its_own():
+    assert contracts.HOLD_NOTE_CREDENTIAL_RULE == CREDENTIAL_RULE != contracts.HOLD_NOTE_RULE
+    assert contracts.HOLD_NOTE_WITHHELD == WITHHELD
+    for note in DUMMY_NOTES:
+        with pytest.raises(ValueError) as refused:
+            contracts.hold_note(f"  {note} ")
+        assert str(refused.value) == CREDENTIAL_RULE and refused.value.args == (CREDENTIAL_RULE,)
+
+
+@pytest.mark.parametrize("note", DUMMY_NOTES)
+def test_r1_p2_the_daemon_refuses_a_credential_note_and_names_it_nowhere(core, note):
+    """Exit 2, reason `hold-note`, its own rule on the wire; the note in no error,
+    log line, row or file of the store."""
+    before = store_counts(core)
+    with pytest.raises(protocol.ProtocolError) as refused:
+        core.dispatch("lanes", {"action": "hold", "lane_id": "codex-1", "until": future(), "note": note})
+    error = refused.value
+    assert (error.code, error.reason) == (Exit.INVALID_INPUT, "hold-note")
+    reply = protocol.encode(protocol.refuse("r1-request", error)).decode()
+    assert json.loads(reply)["error"] == {"code": 2, "message": f"lanes hold: {CREDENTIAL_RULE}", "fix": None}
+    line = refusals_module.detail_line("lanes", error)
+    refusals_module.log_detail(core.log, "lanes", error)
+    for handler in core.log.handlers:
+        handler.flush()
+    dummy = note.rsplit(" ", 1)[-1].split("=")[-1]          # the value alone, whatever its shape
+    for shown in (str(error), repr(error.args), repr(error.details), str(error.fix), reply, str(line)):
+        assert note not in shown and dummy not in shown
+    assert store_counts(core) == before                      # no closure, no event
+    assert dummy not in store_text(core)
+    assert files_holding(core.root, dummy) == []
+
+
+@pytest.mark.parametrize("note", DUMMY_NOTES)
+def test_r1_p2_lanes_hold_refuses_a_credential_note_without_naming_it(daemon, capsys, note):
+    server = daemon({"lanes": held_answer})
+    assert cli.main(["lanes", "hold", "codex-1", "--until", "2026-10-25T03:51:22Z", "--note", note]) == 2
+    out, err = capsys.readouterr()
+    assert (out, err) == ("", f"subfleet: lanes hold: {CREDENTIAL_RULE}\n")
+    dummy = note.rsplit(" ", 1)[-1].split("=")[-1]
+    assert dummy not in out and dummy not in err
+    assert server.ops() == []                                # refused before the daemon is asked
+
+
+def test_r1_p2_a_stored_credential_note_is_withheld_by_every_reader(core):
+    """The reader's backstop: a hold row no writer here would make (written to the
+    store directly) never shows its note in status, JSON, the alert or the notice."""
+    core.policy.setdefault("alerts", {})["operator_session"] = "review-session"
+    until = future()
+    core.store.add_closure(contracts.Closure("codex-1", "account", until, contracts.ClosureReason.OPERATOR_HOLD,
+                                             contracts.ClockSource.REPORTED, f"operator: {DUMMY_NOTE}"))
+    dummy = DUMMY_NOTE.split("=")[-1]
+    status = core.dispatch("daemon.status", {})
+    rows = [*status["closures"], *status["lanes"][0]["closures"]]
+    assert [(row["kind"], row["note"], row["source_event"]) for row in rows] == [
+        ("hold", WITHHELD, f"operator: {WITHHELD}")] * 2
+    assert f"  codex-1 held by operator until {until}: {WITHHELD}" in cli.format_status(status).splitlines()
+    offline = Offline(core.root).status()
+    assert [(row["note"], row["source_event"]) for row in offline["closures"]] == [(WITHHELD, f"operator: {WITHHELD}")]
+    alert = conditions(*core.timers.snapshot()["lanes"])["codex-fleet-empty"]
+    assert f"1 held by operator ({WITHHELD}; earliest end " in alert["body"]
+    assert core._timer_notice(alert)
+    notice = core.store.one("SELECT text FROM service_notices")["text"]
+    for shown in (cli.format_status(status), str(status), str(offline["closures"]), cli.format_status(offline),
+                  alert["body"], notice, render_module.closure_text(core.store.list_closures()[0])):
+        assert dummy not in shown
+    assert contracts.hold_note_of(f"operator: {DUMMY_NOTE}") == WITHHELD
+    assert contracts.hold_note_of(f"operator: {NOTE}") == NOTE
+
+
+# P3-1: an account closure refuses the lane before its evidence is read, as release/217 did.
+
+@pytest.mark.parametrize("readings", [None, [None]])
+def test_r1_p3_1_a_closed_lane_keeps_the_release_answer_whatever_its_readings(readings):
+    row = {"lane_id": "codex-1", "provider": "codex", "enabled": True, "owner": "v2", "readings": readings,
+           "closures": [{"scope": "account", "reason": "operator-hold", "until_at": "2099-01-01T00:00:00Z"}]}
+    assert legacy_dispatchable(row) is False
+    assert status_json.dispatchable(row) is False
+
+
+# P3-2: the hold answer's nested closure rows carry `kind` and `note`, as `daemon.status`'s do.
+
+def test_r1_p3_2_the_hold_answer_enriches_nested_closure_rows(core):
+    answer = core.dispatch("lanes", {"action": "hold", "lane_id": "codex-1", "until": future(), "note": "operator"})
+    assert (answer["closures"][0]["kind"], answer["closures"][0]["note"]) == ("hold", "operator")
+    nested = answer["lanes"][0]["closures"][0]
+    assert (nested.get("kind"), nested.get("note")) == ("hold", "operator")
+    status = core.dispatch("daemon.status", {})
+    assert answer["closures"] == status["closures"] and nested == status["lanes"][0]["closures"][0]
+
+
+# P3-3: the source guard reads each module's syntax tree, so a comparison split over
+# lines is caught. Each case is a module under pytest's temporary folder.
+
+GUARD_CASES = {
+    "one line": 'def compares(row):\n    return row["source_event"] == "operator"\n',
+    "two lines": 'def compares(row):\n    return (row["source_event"]\n            == "operator")\n',
+    "get, not equal": 'def compares(row):\n    return row.get("source_event") != "operator"\n',
+    "in a tuple": 'def compares(row):\n    return row["source_event"] in ("operator",)\n',
+    "attribute, set": 'def compares(closure):\n    return closure.source_event not in {"wham", "operator"}\n',
+    "operator first": 'def compares(row):\n    return "operator" == row.get("source_event")\n',
+}
+
+
+@pytest.mark.parametrize("case", sorted(GUARD_CASES))
+def test_r1_p3_3_the_source_guard_catches_each_comparison(tmp_path, case):
+    module = tmp_path / "scratch_pkg" / "compares.py"
+    module.parent.mkdir()
+    module.write_text(GUARD_CASES[case])
+    assert operator_comparisons(module.parent) == [f"{module}:2"]
+
+
+def test_r1_p3_3_the_source_guard_passes_prefix_reads(tmp_path):
+    module = tmp_path / "scratch_pkg" / "reads.py"
+    module.parent.mkdir()
+    module.write_text('PREFIX = "operator: "\n'
+                      'def note(row):\n'
+                      '    source = row.get("source_event")\n'
+                      '    held = isinstance(source, str) and source.startswith("operator")\n'
+                      '    return source[len(PREFIX):] if held and row["source_event"].startswith(PREFIX) else None\n'
+                      'def other(row):\n'
+                      '    return row["reason"] == "operator-hold" and row["source_event"] != "wham"\n')
+    assert operator_comparisons(module.parent) == []
+
+
+# P3-4: I3 checks every count the fleet-empty body renders.
+
+def test_r1_p3_4_i3_catches_a_rendered_count_dropped(monkeypatch):
+    original = alerts.fleet_empty_body
+    monkeypatch.setattr(alerts, "fleet_empty_body",
+                        lambda provider, causes: original(provider, causes).replace("1 disabled", "disabled"))
+    rows = [lane("codex-1", enabled=False, dispatchable=False)]
+    assert alerts.evaluate_conditions({"lanes": rows})[0]["causes"]["disabled"] == 1
+    with pytest.raises(AssertionError):
+        check_fleet_empty(rows)
+    monkeypatch.setattr(alerts, "fleet_empty_body", original)
+    check_fleet_empty(rows)
+
+
+# I5: no text the C-23.14 scrubber would change reaches the store, status, the alerts
+# or a notice through a hold. Notes are printable text with a dummy credential spliced
+# in, in the shapes the scrubber's own tests use, alone or after a `-` or `_` joiner.
+
+DUMMY_VALUES = st.text(string.ascii_letters + string.digits, min_size=20, max_size=28)
+CREDENTIAL_SHAPES = ("api_key={}", "sk-{}", "glpat-{}", "xoxb-{}", "Bearer {}")
+CREDENTIALS = st.builds(lambda shape, value: (shape.format(value), value), st.sampled_from(CREDENTIAL_SHAPES),
+                        DUMMY_VALUES)
+JOINED = st.one_of(CREDENTIALS, st.builds(lambda word, joiner, credential: (word + joiner + credential[0], credential[1]),
+                                          st.text(string.ascii_letters, min_size=1, max_size=8),
+                                          st.sampled_from("-_"), CREDENTIALS))
+PRINTABLE = st.text(st.characters(codec="utf-8", categories=("L", "N", "P", "S", "Zs")).filter(str.isprintable),
+                    max_size=30)
+SPLICED = st.builds(lambda head, joined, tail: (head + joined[0] + tail, joined[1]), PRINTABLE, JOINED, PRINTABLE)
+
+
+def scrubbed_alike(text: str) -> bool:
+    """Whether the C-23.14 scrubber leaves `text` as it is, read whole and from each joiner."""
+    return scrub_secrets(text, strip_reminders=True, whole=True) == (text, 0) and not holds_credential(text)
+
+
+@settings(max_examples=150, deadline=None, database=None, derandomize=True, suppress_health_check=FIXTURE_HEALTH)
+@given(spliced=SPLICED)
+@example(spliced=(DUMMY_NOTE, "review_dummy_01234567890123456789"))
+@example(spliced=("xsk-r1dummyABCDEFGHIJ0123456789 done", "r1dummyABCDEFGHIJ0123456789"))
+@example(spliced=("hold: run-sk-r1dummyABCDEFGHIJ0123456789", "r1dummyABCDEFGHIJ0123456789"))
+def test_i5_no_credential_reaches_the_store_status_alerts_or_a_notice_through_a_hold(core, spliced):
+    note, value = spliced
+    core.policy.setdefault("alerts", {})["operator_session"] = "r1-session"
+    before = store_counts(core)
+    until = future()
+    try:
+        held = core.dispatch("lanes", {"action": "hold", "lane_id": "codex-1", "until": until, "note": note})
+    except protocol.ProtocolError as refused:
+        assert (refused.code, refused.reason) == (Exit.INVALID_INPUT, "hold-note")
+        assert store_counts(core) == before and value not in store_text(core)
+        return
+    try:
+        accepted = held["note"]
+        assert accepted == note.strip() and not holds_credential(accepted)
+        status = core.dispatch("daemon.status", {})
+        shown = [row for row in (*status["closures"], *status["lanes"][0]["closures"]) if row["kind"] == "hold"]
+        line = next(text for text in cli.format_status(status).splitlines() if " held by operator " in text)
+        alert = conditions(*core.timers.snapshot()["lanes"])["codex-fleet-empty"]
+        assert core._timer_notice(alert)
+        notice = core.store.one("SELECT text FROM service_notices ORDER BY notice_id DESC LIMIT 1")["text"]
+        event = json.loads(core.store.one("SELECT data_json FROM events WHERE kind='lane.held' "
+                                          "ORDER BY event_id DESC LIMIT 1")["data_json"])
+        texts = [event["note"], line, alert["body"], notice,
+                 *(row[key] for row in shown for key in ("note", "source_event"))]
+        assert all(scrubbed_alike(text) for text in texts)
+    finally:
+        core.dispatch("lanes", {"action": "release", "lane_id": "codex-1"})
+
+
+#: An ordinary note: words of 1 to 18 characters of letters, digits and `:;,./()-`,
+#: joined by spaces. 18 is under the shortest token shape the scrubber reads (`sk-`
+#: and 16 characters), and no word spells a key word it reads (`api_key`, `token`,
+#: `passwd`, `cookie`, `Bearer`, `base64` in a data URI, and the rest).
+KEY_STEMS = ("key", "token", "secret", "pass", "cookie", "authoriz", "credential", "bearer", "base64")
+WORDS = st.text(string.ascii_letters + string.digits + ":;,./()-", min_size=1, max_size=18).filter(
+    lambda word: not any(stem in word.lower() for stem in KEY_STEMS))
+ORDINARY = st.lists(WORDS, min_size=1, max_size=40).map(" ".join).filter(lambda text: len(text) <= 160)
+
+
+@settings(max_examples=400, deadline=None, database=None, derandomize=True)
+@given(note=ORDINARY)
+@example(note=NOTE)
+@example(note="load 140 > 120")
+@example(note=LONGEST)
+def test_i5_an_ordinary_note_is_always_accepted(note):
+    assert contracts.hold_note(note) == note
+    assert contracts.hold_note_of(contracts.hold_source(note)) == note
+
+
+@pytest.mark.parametrize("note", ["x" * 160, "abc/" * 40, "sk-" + "a" * 16, "token: x", "cookie: x",
+                                  "Bearer abcdefgh", "--token abc", "AKIA" + "A" * 16, "passwd:x",
+                                  "eyJabcdefgh.abcdefgh.abcdefgh"])
+def test_i5_the_plain_alphabet_can_spell_a_credential_shape_and_that_is_refused(note):
+    """Why the ordinary-note property bounds its words: over letters, digits, spaces and
+    `:;,./()-` alone, these are each a shape the scrubber masks."""
+    assert holds_credential(note)
+    with pytest.raises(ValueError, match=re.escape(CREDENTIAL_RULE)):
+        contracts.hold_note(note)
