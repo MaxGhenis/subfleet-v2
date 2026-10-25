@@ -1089,7 +1089,29 @@ Each change was taken out on its own, in a copy of the worktree's `subfleet` at 
 
 ### Tests
 
-Pending: the holds were queued through `suite_hold.sh` from 21:59Z.
+**Holds: none ran.** A driver in this job's process tree queued them one pytest at a time through `suite_hold.sh`, each from a `git archive` export (`hold.py`: `pytest.main` in process with `-v` and an alarm at 19 minutes, under `env -u PYTHONPATH -u SUBFLEET_RETENTION_DORMANT -u SUBFLEET_JOB -u SUBFLEET_ATTEMPT`, with the brief's `TMPDIR` and Hypothesis folder), in the brief's order: round 4's and round 3's files; `test_daemon_log_sites.py` and the three contract guards; round 2's file, `test_scrub_no_new_leak.py` and `test_scrub_key_order.py`; `test_scrub_inline_headers.py`; then the files that import `subfleet.sessions` or the scrubber, in four more holds.
+- **The first queue,** at `f100b523e` from 21:59Z, had no slot in 69 minutes. It was stopped at 23:07Z, when P3-1's cost fix changed the code.
+- **The second,** at `ce77f5d77` (the contract hold at `a493c30dc`, the same code) from 23:08Z, had no slot by the 4-hour mark either. About eight other holds were waiting throughout, slot A's holders ran for 27 to 51 minutes each, and slot B was shut whenever load passed 120 and taken by others when it opened.
+- **The cost hold,** queued at 22:10Z and again at 23:08Z, had no slot either (Cost, above).
+
+**Plain calls instead, outside the lock** (one process, the way the probes and mutations ran, with a runner that expands `parametrize` and `pytest.param` and gives `monkeypatch` and `tmp_path`; not a substitute for the holds):
+
+| File | At `ce77f5d77` (the final code) | At `f3179a865` (outputs identical) |
+|---|---|---|
+| `test_scrub_review_r4.py` | 36 passed | 34 passed (the two cost cases came after) |
+| `test_scrub_review_r3.py` | 29 passed, 1 skipped (the opt-in whole matrix, run as a probe: 0 of 61,440) | 29 passed, 1 skipped |
+| `test_scrub_review_r2.py` | – | 75 passed |
+| `test_scrub_no_new_leak.py` | 4 passed | – |
+| `test_scrub_key_order.py` | 70 passed | – |
+| `test_scrub_inline_headers.py` | 273 passed | – |
+| `test_conversation_redact.py` | 9 passed | – |
+| `test_sessions_handoff.py` | 50 passed; its other 95 cases need its `home`, `repo` and `policy` fixtures, which the runner does not give, so they did not run | – |
+| `test_test_module_names.py` | – | 1 passed |
+
+**Per directory:**
+- **`tests/unit`:** 8 whole (every file above but `test_sessions_handoff.py`) and 50 of `test_sessions_handoff.py`'s 145 cases of its 370 files ran, as plain calls; none ran under pytest. The other files, and the five real-daemon tests of `test_daemon_log_sites.py`, did not run.
+- **`tests/fake`:** none of its 117 files ran, the contract guard `test_state_contract.py` among them.
+- **Also not run:** the whole suite's collection (this round's totals are not counted), Python 3.12, and CI.
 
 ### Status
 
@@ -1099,7 +1121,13 @@ Pending: the holds were queued through `suite_hold.sh` from 21:59Z.
   - invariant 6 as a 2,700-cell property, and invariants 1 to 5 re-run over round 3's generators and this round's classes;
   - every regression failing at `c469f44b6`, every pin, the mutations, the real-tree differential and the whole rules matrix;
   - C-23.14's amendments with their change-log entry, and this report's correction under round 3's Cost.
-- **Pending:** the holds, and the cost rows under the wrapper (Cost, above).
+- **Found and fixed beyond the brief:** P3-1's cost, quadratic in the folds on a line that ends in an owning flag, decided once per line now (decision 1's smallest change, Findings above).
+- **Not run:**
+  - every hold: none got a slot in the five hours this round's two queues waited between them; the plain calls in Tests stand in, outside the lock;
+  - the cost rows under the wrapper (they ran as plain probes, within the bar);
+  - 362 of `tests/unit`'s 370 files whole, 95 cases of `test_sessions_handoff.py`, and all 117 files of `tests/fake`, `test_state_contract.py` and `test_invariants_index.py` among them;
+  - the five real-daemon tests of `test_daemon_log_sites.py`, Python 3.12, and CI (no network, nothing pushed);
+  - review r4's own corpora, which were not kept; the rebuild above stands in.
 - **Follow-ups for the hub:** round 3's, with these:
   - **Three `detail_line` values `c469f44b6` hid show again** (the differential, above). Both references show them, and C-23.14 states why: an inline value that already starts with `[REDACTED]` is left alone in daemon.log's folded line. They were hidden only because the fold this round fixed left a header's lone flag unredacted for that line to take.
   - **A refused `Bearer`'s line still ends a header's lone flag early, as P3-1's fold did.** `Authorization: Bearer`, `Set-Cookie: --api-key` and `SECRET7c3` on three lines shows `SECRET7c3` in the excerpt, whole and `clean` modes, as at `902cfe90a`, at `c469f44b6` and in both references, so it is no leak and no regression. C-23.14's lone-flag sentence claims the fold case only. Taking P3-1's rule to `_refused_bearer` too would close it; that is the hub's call.
