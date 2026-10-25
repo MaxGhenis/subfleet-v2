@@ -96,13 +96,14 @@ def _cpu_ticks() -> Ticks | None:
 
 
 class _Storage:
-    """Cached ctypes bindings; each reading owns and releases its CF/IO objects."""
+    """Cached bindings and one owned driver handle; CF snapshots stay per-read."""
 
     def __init__(self) -> None:
         if sys.platform != "darwin":
             raise OSError("IOKit signals require macOS")
         self.io = ctypes.CDLL("/System/Library/Frameworks/IOKit.framework/IOKit")
         self.cf = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+        self._selected: tuple[int, int] | None = None
         pointer, uint = ctypes.c_void_p, ctypes.c_uint32
         signatures = [
             (self.io.IOServiceMatching, [ctypes.c_char_p], pointer),
@@ -115,6 +116,7 @@ class _Storage:
             (self.io.IOObjectConformsTo, [uint, ctypes.c_char_p], ctypes.c_bool),
             (self.io.IOObjectRelease, [uint], ctypes.c_int),
             (self.io.IORegistryEntryGetRegistryEntryID, [uint, ctypes.POINTER(ctypes.c_uint64)], ctypes.c_int),
+            (self.io.IORegistryEntryInPlane, [uint, ctypes.c_char_p], ctypes.c_bool),
             (self.io.IORegistryEntryCreateCFProperty, [uint, pointer, pointer, uint], pointer),
             (self.cf.CFStringCreateWithCString, [pointer, ctypes.c_char_p, uint], pointer),
             (self.cf.CFDictionaryGetValue, [pointer, pointer], pointer),
@@ -126,6 +128,18 @@ class _Storage:
         ]
         for function, args, result in signatures:
             function.argtypes, function.restype = args, result
+
+    def close(self) -> None:
+        selected = getattr(self, '_selected', None)
+        self._selected = None
+        if selected is not None:
+            self.io.IOObjectRelease(selected[1])
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass  # also safe after partial initialization or interpreter shutdown
 
     def device_id(self, root: Path) -> int | None:
         """Walk the state volume's IOService ancestry to its storage driver.
@@ -149,6 +163,9 @@ class _Storage:
                 if io.IOObjectConformsTo(device, b"IOBlockStorageDriver"):
                     identity = ctypes.c_uint64()
                     if not io.IORegistryEntryGetRegistryEntryID(device, ctypes.byref(identity)):
+                        self.close()
+                        self._selected = identity.value, device
+                        device = 0  # transfer the owned send right to the cache
                         return identity.value
                     return None
                 parent = ctypes.c_uint32()
@@ -165,6 +182,8 @@ class _Storage:
         io, cf = self.io, self.cf
         keys = []
         iterator = ctypes.c_uint32()
+        selected = 0
+        selected_readable = False
         try:
             for name in (b"Statistics", b"Total Time (Read)", b"Total Time (Write)",
                          b"Operations (Read)", b"Operations (Write)"):
@@ -172,7 +191,6 @@ class _Storage:
                 if not key:
                     return None
                 keys.append(key)
-            selected = 0
             if device_id is None:  # bounded diagnostic enumeration
                 matching = io.IOServiceMatching(b"IOBlockStorageDriver")
                 if not matching:
@@ -181,13 +199,23 @@ class _Storage:
                 if io.IOServiceGetMatchingServices(0, matching, ctypes.byref(iterator)):
                     return None
             else:
-                # The sampler already knows its driver. No iterator or neighbor
-                # statistics on the steady path; matching is consumed here too.
-                matching = io.IORegistryEntryIDMatching(device_id)
-                if not matching:
-                    return None
-                selected = io.IOServiceGetMatchingService(0, matching)
-                if not selected:
+                cached = getattr(self, '_selected', None)
+                if cached is not None and cached[0] != device_id:
+                    self.close()
+                    cached = None
+                if cached is None:
+                    matching = io.IORegistryEntryIDMatching(device_id)
+                    if not matching:
+                        return None
+                    selected = io.IOServiceGetMatchingService(0, matching)
+                    if not selected:
+                        return None
+                    self._selected = device_id, selected
+                else:
+                    selected = cached[1]
+                # A retained registry object can outlive attachment and still
+                # expose stale properties. Never use those as a fresh sample.
+                if not io.IORegistryEntryInPlane(selected, b"IOService"):
                     return None
             result = {}
             for _ in range(DEVICE_LIMIT if device_id is None else 1):
@@ -212,17 +240,24 @@ class _Storage:
                                 or not cf.CFNumberGetValue(number, 4, ctypes.byref(value)) or value.value < 0):
                             break
                         counters.append(value.value)
-                    if len(counters) == 4:
+                    if len(counters) == 4 and (device_id is None or
+                            io.IORegistryEntryInPlane(device, b"IOService")):
                         result[identity.value] = tuple(counters)
+                        selected_readable = True
                 except Exception:
                     # A disappearing or unreadable neighbor cannot hide this SSD.
                     continue
                 finally:
                     if stats:
                         cf.CFRelease(stats)
-                    io.IOObjectRelease(device)
+                    if device_id is None:
+                        io.IOObjectRelease(device)
             return result or None
         finally:
+            # A failed selected read is unknown. Drop only its native handle;
+            # the sampler keeps counters/EWMA and retries by ID next sample.
+            if selected and not selected_readable:
+                self.close()
             if iterator.value:
                 io.IOObjectRelease(iterator.value)
             for key in keys:
@@ -320,19 +355,23 @@ class Sampler:
         return self._baseline(time.time())[0]
 
     def _baseline(self, now: float) -> tuple[float | None, float | None]:
+        identity = self.device_id
         eligible = [row for row in self._history
-                    if self._baseline_eligible(row, now - HISTORY_WINDOW_S)]
+                    if self._baseline_eligible(row, now - HISTORY_WINDOW_S, identity)]
         values = sorted(row['disk_service_ms_raw'] for row in eligible)
         return (values[int((len(values)-1)*.1)] if values else None,
                 max((row['observed_at'] for row in eligible), default=None))
 
-    def _baseline_eligible(self, row: dict[str, Any], cutoff: float) -> bool:
+    @staticmethod
+    def _baseline_eligible(row: dict[str, Any], cutoff: float, identity: int | None) -> bool:
         value = row.get('disk_service_ms_raw')
-        return (self.device_id is not None and row.get('disk_device_id') == self.device_id
+        return (identity is not None and row.get('disk_device_id') == identity
                 and row.get('observed_at', 0) >= cutoff
                 and isinstance(value, (int, float)) and value > 0 and math.isfinite(value))
 
     def _select_device(self, identity: int | None, root_changed: bool = False) -> None:
+        if identity is None:
+            return  # unknown is not evidence of a device transition
         if root_changed or identity != self.device_id:
             # Even a reused registry ID cannot carry counters or smoothing from
             # another root device. Discard its calibration if reuse is observed.
@@ -376,20 +415,25 @@ class Sampler:
             else:
                 self._ticks, self._cpu_at = ticks, now
         root_device = _source(_root_device_id, self.root)
-        root_changed = root_device != self._root_device
-        self._root_device = root_device
-        resolved = root_changed or self.device_id is None
-        if resolved:
-            identity = _source(_state_device_id, self.root) if root_device is not None else None
-            self._select_device(identity, root_changed)
-        disks = _source(_disk_counters, self.device_id) if self.device_id is not None else None
-        current = (disks or {}).get(self.device_id)
-        if current is None and not resolved:
-            previous = self.device_id
-            self._select_device(_source(_state_device_id, self.root))
-            if self.device_id is not None and self.device_id != previous:
-                disks = _source(_disk_counters, self.device_id)
-                current = (disks or {}).get(self.device_id)
+        current = None
+        if root_device is not None:
+            root_changed = self._root_device is not None and root_device != self._root_device
+            resolved = root_device != self._root_device or self.device_id is None
+            identity = _source(_state_device_id, self.root) if resolved else self.device_id
+            if identity is not None:
+                self._select_device(identity, root_changed)
+                # Commit this key only after successful resolution. A failed
+                # lookup on a changed root must be retried without reading the
+                # old root's still-readable driver in the meantime.
+                self._root_device = root_device
+                disks = _source(_disk_counters, identity)
+                current = (disks or {}).get(identity)
+                if current is None and not resolved:
+                    replacement = _source(_state_device_id, self.root)
+                    self._select_device(replacement)
+                    if replacement is not None and replacement != identity:
+                        disks = _source(_disk_counters, replacement)
+                        current = (disks or {}).get(replacement)
         if current is not None:
             if self._disk is not None and self._disk_id == self.device_id:
                 changes = tuple(c-p for c,p in zip(current,self._disk))
