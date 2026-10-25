@@ -28,6 +28,9 @@ would be a lie about capacity.
 
 from __future__ import annotations
 
+from ..contracts import launch_capability
+from ..review_publish import claude_settings_args, protect_launch
+
 import hashlib
 import json
 import math
@@ -1360,6 +1363,7 @@ class ClaudeAdapter(Adapter):
             "session_id": session_id,
             "workdir": workdir,
             "sandbox": sandbox,
+            "capability": launch_capability("claude", sandbox).value,
             "transcript_path": str(transcript),
             "transcript_offset": offset,
             "projects_dir": str(transcript.parent.parent),
@@ -1377,7 +1381,8 @@ class ClaudeAdapter(Adapter):
 
         `guard_override` is accepted and unused: a Claude launch relies on the global
         never-rules hook in `~/.claude/settings.json`, and `doctor` reports when that
-        hook is missing (C-14.3). There is no per-launch hook injection to make.
+        hook is missing (C-14.3). The one per-launch hook is a writable review's
+        publish rule, given with `--settings` (C-12.4, `claude_settings_args`).
         """
         attempt_dir = Path(attempt_dir)
         attempt_dir.mkdir(parents=True, exist_ok=True)
@@ -1400,12 +1405,13 @@ class ClaudeAdapter(Adapter):
                                          review_root=job.review_root,
                                          mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir),
                                          tmpdir=credential_env.get("TMPDIR")))
+        argv += claude_settings_args(job, sandbox, attempt_dir)          # C-12.4: publish hook
         from .isolation import claude_env_remove
         env_remove = (*ENV_REMOVE, *claude_env_remove(os.environ.keys() | credential_env.keys())) if sandbox == "read-only" else ENV_REMOVE
 
         stdin_path = self._write_prompt_sent(attempt_dir, Path(prompt_path))
         transcript = self.expected_transcript_path(job.workdir, session_id, credential_env)
-        return Launch(
+        return protect_launch(job, Launch(
             argv=tuple(argv),
             env_add=dict(credential_env),
             env_remove=env_remove,
@@ -1420,7 +1426,7 @@ class ClaudeAdapter(Adapter):
                 session_id=session_id, workdir=str(job.workdir), transcript=transcript,
                 sandbox=sandbox,
             ),
-        )
+        ), attempt_dir)
 
     def resume_launch(
         self, job: JobSpec, attempt_id: str, attempt_dir: Path, lane: Lane,
@@ -1449,6 +1455,7 @@ class ClaudeAdapter(Adapter):
         argv += list(self.permission_args(
             sandbox, mcp_config=self.mcp_config_arg(job, sandbox, attempt_dir),
             tmpdir=credential_env.get("TMPDIR")))
+        argv += claude_settings_args(job, sandbox, attempt_dir)          # C-12.4: publish hook
         from .isolation import claude_env_remove
         env_remove = (*ENV_REMOVE, *claude_env_remove(os.environ.keys() | credential_env.keys())) if sandbox == "read-only" else ENV_REMOVE
 
@@ -1456,7 +1463,7 @@ class ClaudeAdapter(Adapter):
         transcript = self.expected_transcript_path(
             job.workdir, native_session_id, credential_env
         )
-        return Launch(
+        return protect_launch(job, Launch(
             argv=tuple(argv),
             env_add=dict(credential_env),
             env_remove=env_remove,
@@ -1471,7 +1478,7 @@ class ClaudeAdapter(Adapter):
                 session_id=native_session_id, workdir=str(job.workdir),
                 transcript=transcript, sandbox=sandbox, resumed_from=native_session_id,
             ),
-        )
+        ), attempt_dir)
 
     # --- reading an attempt's artifacts --------------------------------------
 

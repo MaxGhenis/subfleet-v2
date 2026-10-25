@@ -14,12 +14,12 @@ from subfleet.policy import (
 from subfleet.ramp import PlacementRamp
 
 
-def test_shipped_policy_preserves_pre_ramp_raw_hash_and_disabled_defaults():
+def test_shipped_policy_preserves_raw_hash_and_disabled_ramp_defaults():
     # A daemon without policy.json copies these bytes, whose hash enters every
     # admission decision even when the ramp is absent or disabled (C-6.18 R6).
-    # release/217's bytes after #190 added `providers.codex.ca_bundle` and #179 turned
-    # `reset_credits` off; this PR leaves them unchanged.
-    before = "29e76475f03eb5f27b7ca83a0a321e1d296c4701a6fd33733b104d5d7844d2a2"
+    # D-SH1 intentionally changes the shipped review permission and removes
+    # the default shell requirement; loading ramp defaults still changes no bytes.
+    before = "88c94b0da72780f1e2b663d9d9955c439469146c9fc1290363ae0c6b394c9c75"
     assert "ramp" not in json.loads(DEFAULT_POLICY_PATH.read_bytes())["admission"]
     assert policy_hash(DEFAULT_POLICY_PATH) == before
     loaded = load_policy(DEFAULT_POLICY_PATH)

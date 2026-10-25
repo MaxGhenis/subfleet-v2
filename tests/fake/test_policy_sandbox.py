@@ -22,7 +22,7 @@ def sandbox_of(daemon, job_id):
 def test_d261_the_task_names_the_sandbox_and_an_explicit_one_wins(state_daemon):
     daemon, harness = state_daemon
     repository(daemon, harness)
-    assert daemon.policy["permissions"] == {"build": "workspace-write", "*": "read-only"}
+    assert daemon.policy["permissions"] == {"build": "workspace-write", "*": "read-only", "review": "worktree-write"}
     policy = protocol.POLICY_SANDBOX
     build = daemon.dispatch("submit", harness.submit_args(sandbox=policy, task="build", tier="standard"))["job_id"]
     research = daemon.dispatch("submit", harness.submit_args(sandbox=policy, task="research", tier="standard"))["job_id"]
