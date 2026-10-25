@@ -150,6 +150,10 @@ CATALOG_STOP_WAIT_S = 2.0
 RUNNER_STOP_WAIT_S = 5.0
 # Attempt states that have ended; `quarantined` has not (its processes may live).
 ATTEMPT_ENDED = ("succeeded", "failed", "interrupted", "lost", "cancelled")
+# The turn attempts a runner may own: the control loop adopts each (`_adopt_runners`),
+# and an op that needs one's runner first adopts it itself (`_adopt_now`).
+LIVE_TURN_ATTEMPTS = ("SELECT a.*, j.kind, j.sandbox AS job_sandbox FROM attempts a JOIN jobs j USING(job_id) "
+                      "WHERE j.kind='turn' AND a.state IN ('starting','running','finalizing')")
 # The dispatcher's claim on a queued message while it creates the message's turn job
 # (C-24.7, IR-2, IR-28): a claimed message is `waiting` with this reason and no job yet.
 CLAIMED = "dispatching"
@@ -1324,6 +1328,11 @@ class ConversationService:
         into = args.get("into")
         if into is not None and (not isinstance(into, str) or canonical_uuid(into) != into):
             raise ConversationError("bad-message-id", "into must be a canonical lowercase UUID")
+        found = self.store.find_message(mid)
+        if found is not None:
+            # A host the daemon has not taken back since a restart is adopted first,
+            # outside the locks below, as the control loop would have (`_adopt_now`).
+            self._adopt_message_turn(self._live_host(found["conversation_id"]))
         with self._stop_lock(mid), self._handover(mid), self._lock:
             message = self.store.message(mid)
             if message["state"] in (STEERING, STEERED):
@@ -1339,9 +1348,7 @@ class ConversationService:
                 # for the turn to end, as in Claude Code; the app never offers it.
                 raise ConversationError("not-steerable", "a slash command or shell input waits for the turn to end",
                                         code=7)
-            host = self.store.one("SELECT message_id FROM messages WHERE conversation_id=? "
-                                  "AND state IN ('running','approval-needed') ORDER BY seq DESC LIMIT 1",
-                                  (message["conversation_id"],))
+            host = self._live_host(message["conversation_id"])
             if into is not None and (host is None or host["message_id"] != into):
                 raise ConversationError("no-live-turn", "the turn it was steered into has ended", code=7)
             if host is None:
@@ -1360,6 +1367,12 @@ class ConversationService:
             runner.steer(mid)
             return self._receipt(self.store.message(mid))
 
+    def _live_host(self, conversation_id: str) -> dict | None:
+        """The conversation's live turn a steer joins: its newest running or asking message."""
+        return self.store.one("SELECT message_id, job_id FROM messages WHERE conversation_id=? "
+                              "AND state IN ('running','approval-needed') ORDER BY seq DESC LIMIT 1",
+                              (conversation_id,))
+
     @staticmethod
     def _client_cancel(args, peer, reason: str) -> dict:
         return {"by": "client", "session_id": args.get("session_id"),
@@ -1372,6 +1385,7 @@ class ConversationService:
         if message is None:                     # never received (a store that refuses fails the op)
             return self._tombstone(message_id, args.get("conversation_id"))
         if message["state"] == STEERING:
+            self._adopt_message_turn(self.store.find_message(message["steered_into"]))
             with self._handover(message_id):
                 runner = self._runner_for_message(message["steered_into"])
                 # An absent runner may be about to replay a durable relay intent.
@@ -1487,6 +1501,9 @@ class ConversationService:
             # message sees it first, or has already handed the message over (C-24.7).
             self.store.request_stop(message_id, stop_at=utcnow(), requester=self._client_cancel(
                 args, peer, "message-cancelled" if message["state"] == WAITING else "stopped"))
+        # A turn not taken back since a restart is stopped through its runner too (D-13),
+        # which reads the stop just recorded when it starts.
+        self._adopt_message_turn(message)
         runner = self._runner_for_message(message_id)
         if runner is not None:
             # Save the socket requester before escalation can synchronously reach
@@ -1632,7 +1649,13 @@ class ConversationService:
             # `approval.resolved` written, C-27.3): the card would read answered while
             # the provider still waited on it (C-27.2).
             raise ConversationError("bad-answer", "an answer needs the chosen answers")
+        self._adopt_now(approval["attempt_id"])    # after a restart, before the control loop took it back
         runner = self.runners.get(approval["attempt_id"])
+        if runner is None and self._live_turn_attempt(approval["attempt_id"]):
+            # C-27.3: the turn runs on, so its approval is still answerable; only no
+            # runner can take the answer now (one that could not be adopted yet).
+            raise ConversationError("turn-not-adopted", "the daemon has not taken back the turn that asked yet",
+                                    code=7, fix="answer it again in a moment")
         if runner is None or runner.driver.outcome is not None:
             raise ConversationError("turn-ended", "the turn that asked has ended")
         record = {"decision": decision, "message": args.get("message"), "answers": args.get("answers"),
@@ -2844,14 +2867,44 @@ class ConversationService:
         return dict(daemon.store.one("SELECT * FROM jobs WHERE job_id=?", (result["job_id"],)))
 
     def _adopt_runners(self) -> None:
-        rows = self.daemon.store.query(
-            "SELECT a.*, j.kind, j.sandbox AS job_sandbox FROM attempts a JOIN jobs j USING(job_id) WHERE j.kind='turn' "
-            "AND a.state IN ('starting','running','finalizing')")
-        for attempt in rows:
+        for attempt in self.daemon.store.query(LIVE_TURN_ATTEMPTS):
             if attempt["attempt_id"] in self.runners:
                 continue
             if not self._adopt(attempt):
                 return                      # close() overtook
+
+    def _adopt_now(self, attempt_id: str) -> None:
+        """Adopt a live turn attempt that no runner has yet, as the control loop's pass
+        would (D-ADOPT-RACE1). After a restart the daemon serves requests before its
+        first tick's `_adopt_runners` takes back the turns that kept running, and an op
+        that found no runner read a live turn as ended: a person's answer to a pending
+        approval was refused `turn-ended` (C-27.3), a steer stayed `not-steerable` until
+        that pass, and a stop killed the turn's job with no interrupt first (D-13).
+        One runner per attempt whichever adopts first (`_adopt`). Never looks for
+        outside writers (`ps`, C-25.3): a turn whose launch has not yet decided that is
+        left to the pass. A failure is logged, and the caller finds no runner."""
+        if self._closed or attempt_id in self.runners:
+            return
+        attempt = self.daemon.store.one(f"{LIVE_TURN_ATTEMPTS} AND a.attempt_id=?", (attempt_id,))
+        if attempt is None:
+            return
+        try:
+            self._adopt(dict(attempt), scan=False)
+        except Exception as exc:
+            if not self._closed:                # one close() overtook is no failure (C-25.3)
+                self.log.warning("turn %s not adopted on demand: %s", attempt_id, refusals.fixed_error(exc))
+
+    def _adopt_message_turn(self, message: dict | None) -> None:
+        """`_adopt_now` for the turn attempt that carries `message`, when it has one."""
+        if not message or not message.get("job_id") or self._runner_for_message(message["message_id"]) is not None:
+            return
+        attempt = self.daemon.store.one("SELECT attempt_id FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1",
+                                        (message["job_id"],))
+        if attempt is not None:
+            self._adopt_now(attempt["attempt_id"])
+
+    def _live_turn_attempt(self, attempt_id: str) -> bool:
+        return self.daemon.store.one(f"{LIVE_TURN_ATTEMPTS} AND a.attempt_id=?", (attempt_id,)) is not None
 
     def _replay_final_wakes(self) -> None:
         """Apply recorded re-arms in message order before evaluating wakes."""
@@ -2909,9 +2962,11 @@ class ConversationService:
             if not adopted:
                 return                      # close() overtook
 
-    def _adopt(self, attempt: dict, *, ended: bool = False) -> bool:
+    def _adopt(self, attempt: dict, *, ended: bool = False, scan: bool = True) -> bool:
         """Build, register and start the runner for a turn attempt; False when
-        close() overtook. `ended`: a replay of an attempt the job store has ended."""
+        close() overtook. `ended`: a replay of an attempt the job store has ended.
+        `scan` False: an op's adoption (`_adopt_now`), which leaves an attempt whose
+        writer check would run `ps` (C-25.3) to the control loop."""
         aid = attempt["attempt_id"]
         adir = self.root / "jobs" / attempt["job_id"] / f"a{attempt['seq']}"
         start = _read_json(adir / "start.json")
@@ -2921,6 +2976,8 @@ class ConversationService:
         turn = manifest.get(TURN_MANIFEST_KEY)
         launch = _read_json(adir / "launch.json") or {}
         if not turn:
+            return True
+        if not scan and self._writer_unchecked(turn, adir):
             return True
         notes = launch.get("notes") or {}
         lane = self.daemon.store.get_lane(attempt["lane_id"])
@@ -2952,6 +3009,10 @@ class ConversationService:
         with self._lock:
             if self._closed:
                 return False                # nothing would stop a runner started now
+            if aid in self.runners:
+                # The control loop and an op adopted it at once (`_adopt_now`): the
+                # first registered owns the attempt, and this one is never started.
+                return True
             self.runners[aid] = runner
             try:
                 self.store.set_state(turn["message_id"], STARTING, expect=(WAITING,), job_id=attempt["job_id"])
@@ -2980,13 +3041,18 @@ class ConversationService:
         recorded = _read_json(path)
         if isinstance(recorded, dict):
             return [int(pid) for pid in recorded.get("pids") or []]
-        if turn.get("provider") != "claude" or not turn.get("native_session_id") or (adir / "stdin.jsonl").exists():
+        if not _looks_for_writers(turn, adir):
             return []
         from . import catalog
         pids = catalog.external_writers(turn["native_session_id"])
         from ..guardian import atomic_publish          # a new file of its own, never a FIFO's open()
         atomic_publish(path, (json.dumps({"pids": pids, "at": utcnow()}) + "\n").encode())
         return pids
+
+    @staticmethod
+    def _writer_unchecked(turn: dict, adir: Path) -> bool:
+        """Whether `_writer_check` would still look for outside writers (`ps`)."""
+        return not isinstance(_read_json(adir / "held_by.json"), dict) and _looks_for_writers(turn, adir)
 
     def _settle_unstarted(self) -> None:
         """A waiting message whose job ended with no provider start was never delivered."""
@@ -3054,6 +3120,7 @@ class ConversationService:
     def stop(self, attempt: dict, job: dict, reason: str) -> bool:
         """Called by the daemon where it would kill a turn attempt (wall limit, a
         kill request). True while the D-13 escalation owns the stop."""
+        self._adopt_now(attempt["attempt_id"])     # a pass before the conversations' first tick
         runner = self.runners.get(attempt["attempt_id"])
         if runner is None or runner.contained or runner.finished.is_set():
             return False
@@ -3351,6 +3418,13 @@ def _evidence(attempt: dict) -> dict:
 def _later(a: str, b: str) -> bool:
     """Whether instant `a` is after `b`, whichever store's stamp either is in."""
     return _instant(a) > _instant(b)
+
+
+def _looks_for_writers(turn: dict, adir: Path) -> bool:
+    """A launch's writer check has to look (C-26.3): a Claude turn on a native session
+    whose attempt has written nothing to it yet."""
+    return turn.get("provider") == "claude" and bool(turn.get("native_session_id")) \
+        and not (adir / "stdin.jsonl").exists()
 
 
 def _read_json(path: Path) -> dict | None:

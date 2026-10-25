@@ -863,6 +863,74 @@ def test_a_daemon_restart_with_a_steer_in_flight_replays_without_resending(conv)
     assert len(delivered) == 1 and delivered[0]["message_id"] == host
 
 
+# D-ADOPT-RACE1: the restarted daemon's control loop never adopts a turn; an op that
+# needs the turn's runner is all that can. Appended after the first daemon started,
+# so only the restarted one loads it.
+HELD_ADOPTION = '''
+if Path(sys.argv[0]).name == "subfleetd":
+    from subfleet.conversations.service import ConversationService
+    def held_adoption(self):
+        (root / "adoption-held").touch()
+    ConversationService._adopt_runners = held_adoption
+'''
+
+
+def restart_before_adoption(conv):
+    """A daemon restart whose control loop, though it ticks, adopts none of the turns
+    that kept running: the window between serving and the first tick's
+    `_adopt_runners`, held open (CI run 40166524067 met it by chance)."""
+    with (conv.e2e.root / "observers" / "sitecustomize.py").open("a") as stream:
+        stream.write(HELD_ADOPTION)
+    conv.e2e.crash()
+    conv.e2e.start()
+    conv.e2e.until(lambda: (conv.e2e.root / "adoption-held").exists(), timeout=30)
+
+
+def test_an_approval_answered_before_the_restarted_daemon_adopts_its_turn_reaches_the_provider(conv):
+    """C-27.3, D-ADOPT-RACE1: a pending approval stays answerable across a restart.
+    The answer came before the control loop's first pass adopted the turn, and was
+    refused `turn-ended` though the turn ran on; the op now adopts it."""
+    cid = conv.create()
+    mid = conv.submit(cid, "run something [fake:approval]")
+    conv.until_state(mid, "approval-needed")
+    approval = pending_approval(conv, cid)
+    restart_before_adoption(conv)
+    detail = conv.as_person("approval.get", approval_id=approval["approval_id"])
+    assert detail["ok"], detail
+    answer = conv.as_person("approval.respond", approval_id=approval["approval_id"], decision="allow",
+                            nonce=detail["result"]["nonce"], request_sha256=detail["result"]["request_sha256"])
+    assert answer["ok"], answer
+    assert conv.until_state(mid, "complete", "failed", timeout=40)["state"] == "complete"
+    responses = [row for row in conv.stdin_rows() if row.get("type") == "control_response"]
+    assert len(responses) == 1 and responses[0]["response"]["response"]["behavior"] == "allow"
+
+
+def test_a_steer_sent_before_the_restarted_daemon_adopts_its_host_joins_the_host(conv):
+    """C-24.9, C-29.7, D-ADOPT-RACE1: `not-steerable` while the host's runner catches up
+    is asked again; it no longer lasts until the control loop's first pass."""
+    cid = conv.create()
+    host = conv.submit(cid, "keep working [fake:slow]")
+    conv.until_state(host, "running")
+    restart_before_adoption(conv)
+    mid = conv.submit(cid, "remember this correction", after_message_id=host)
+    steer_as_person(conv, mid)
+    conv.e2e.until(lambda: steer_frames(conv, mid), timeout=20)
+    conv.call("turn.interrupt", message_id=host)
+    assert conv.until_state(host, "interrupted", "failed", timeout=40)["state"] == "interrupted"
+
+
+def test_a_stop_before_the_restarted_daemon_adopts_its_turn_interrupts_the_provider(conv):
+    """D-13, IR-4, D-ADOPT-RACE1: a person's stop asks the provider to stop first. With
+    no runner adopted yet, the job was killed outright instead."""
+    cid = conv.create()
+    host = conv.submit(cid, "keep working [fake:slow]")
+    conv.until_state(host, "running")
+    restart_before_adoption(conv)
+    conv.call("turn.interrupt", message_id=host)
+    assert conv.until_state(host, "interrupted", "failed", timeout=40)["state"] == "interrupted"
+    assert [r for r in conv.stdin_rows() if (r.get("request") or {}).get("subtype") == "interrupt"]
+
+
 def test_a_worktree_conversation_runs_its_turns_in_its_own_worktree(conv):
     """D-16, D-25, C-24.1, C-26.12: `conversation.create` with a worktree cuts one on its
     own branch, records and returns its path and branch, and every turn runs there; the
