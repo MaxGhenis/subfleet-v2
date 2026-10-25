@@ -8,10 +8,12 @@ from tests.frontend.test_review_r219_fix8_view import END, fix8_view_binary
 
 pytestmark = needs_swift
 DISTANT = 600
-# A distant reveal's destination is its row, not the end. Lazy row measurement
-# re-centres that row after the final scroll: an unmutated loaded run moved 358 pt
-# with no follow decision (round 6). The interval bound is therefore the scenes'
-# own distant margin; review r5's surviving jump moved 7,774 pt.
+# A distant reveal's destination is its row, not the end. After the final scroll,
+# lazy measurement of rows above it moves the offset without moving the view: an
+# unmutated loaded stale-marker run moved 1,942 pt in offset while coming only
+# 360 pt closer to the end (round 6). The interval is therefore measured by
+# distance from the end, with the scenes' own distant margin as its bound;
+# review r5's surviving jump came about 5,800 pt closer, to 177 pt from the end.
 REVEAL_HOLD = 600
 FAR = {"far_quiet": 0, "far_text_50ms": 50, "far_text_120ms": 21,
        "far_rows_150ms": 17, "far_rows_400ms": 7}
@@ -166,21 +168,22 @@ def assert_reveal_reaches_destination(run):
 
 
 def assert_reveal_interval_holds(run):
-    """(b) Every presented geometry from the destination to the landing baseline stays
-    within REVEAL_HOLD of it and distant from the end. While the follow is engaged
-    (not suspended, end visible), the view stays within END of the end."""
+    """(b) Every presented geometry from the destination to the landing baseline stays more
+    than DISTANT from the end and comes at most REVEAL_HOLD closer to it than the destination
+    did. While the follow is engaged (not suspended, end visible), the view stays within END
+    of the end."""
     diagnostic = json.dumps(run, sort_keys=True)
     destination = reveal_destination(run)
     follow = sorted((e for e in run["timeline"] if "suspended" in e), key=lambda e: e["at"])
     for sample in presented_geometry(run):
         if not destination["at"] <= sample["at"] <= run["landed_at"]:
             continue
-        moved = abs(sample["position"]["offset"] - destination["position"]["offset"])
-        detail = json.dumps({"destination": destination, "sample": sample, "moved": moved}) + ": " + diagnostic
+        approach = destination["position"]["from_end"] - sample["position"]["from_end"]
+        detail = json.dumps({"destination": destination, "sample": sample, "approach": approach}) + ": " + diagnostic
         state = [e for e in follow if e["at"] <= sample["at"]]
         if state and not state[-1]["suspended"] and state[-1]["at_bottom"]:
             assert sample["position"]["from_end"] <= END, "an engaged follow left the end: " + detail
-        assert moved <= REVEAL_HOLD, "the view left the reveal's destination: " + detail
+        assert approach <= REVEAL_HOLD, "the view moved toward the end before landing: " + detail
         assert sample["position"]["from_end"] > DISTANT, "the view reached the end before landing: " + detail
 
 
