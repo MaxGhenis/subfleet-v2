@@ -14,9 +14,9 @@ DISTANT = 600
 # 360 pt closer to the end (round 6). The interval is therefore measured by
 # distance from the end. Measurement below the row also brings the end closer:
 # 20 unmutated loaded background runs came up to 559.5 pt closer, too near the
-# 600 pt margin, so the bound is 1,200 pt. Every presented overlap loss in the
-# round-6 mutant runs came at least 5,900 pt closer and reached the end, as did
-# review r5's survivor (about 5,800 pt, to 177 pt from the end).
+# 600 pt margin, so the bound is 1,200 pt (a later loaded run came 724.5 pt
+# closer). Every presented overlap loss in the round-6 mutant runs reached
+# within 130 pt of the end, as did review r5's survivor (177 pt).
 REVEAL_HOLD = 1200
 FAR = {"far_quiet": 0, "far_text_50ms": 50, "far_text_120ms": 21,
        "far_rows_150ms": 17, "far_rows_400ms": 7}
