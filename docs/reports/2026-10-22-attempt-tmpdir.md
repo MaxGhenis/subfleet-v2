@@ -2,6 +2,187 @@
 
 Base: `c0759bd658d6b55a656117badf3ccfa8271eab43`. Work began at 2026-10-22 07:41 UTC. All changes are confined to the assigned worktree. Shared Git metadata is unwritable, and the assigned branch is already checked out by the caller, so commits use workspace-local `.git-tmp1` metadata on `fix/attempt-tmpdir-217`. No history was rewritten and nothing was pushed.
 
+## D-TMP1-P3 (#246 review r2's P3s and review r3's wording, 2026-10-24)
+
+Review r2 approved #246 with five P3s, all executed. P3-4 was fixed in `8ae931aa6`; this round builds the hub's decisions for P3-1, P3-2, P3-3 and P3-5, and review r3's two wording points. Base: `abe117e67`, release/217 with #246. Work began at 2026-10-25 01:06 UTC in a detached checkout. The assigned branch, `fix/attempt-tmpdir-p3-217`, is checked out in the caller's lane checkout, so the commits are on this workspace's detached HEAD (Subfleet keeps them as a salvage ref) and the branch ref was not moved. Nothing was pushed. Where this section and the earlier ones disagree (a fresh tombstone name, "a crash leaves a tombstone, an unknown folder the sweep ages"), this section wins, and so does C-12.10.
+
+Commits, oldest first:
+- `def9165ae`: test (the regressions, the invariants and the mutation witnesses, written to fail before the fix).
+- `1bc437ed3`: fix.
+- `dd978919a`: docs (C-12.10 and its change log; review r3's two wording points).
+- `029649fba`: test (T2 frames every example; the daemon P3-1 and P3-2 regressions check the outcome first).
+- A last docs commit adds this section.
+
+### Causes and fixes
+
+**P3-1, a tombstone outliving its record.**
+- *Cause:* `_remove` renamed the allocation to a fresh `subfleet-attempt-removing-<hex>` that no record named. A crash after the rename left the folder there. `presence()` then found nothing at the recorded path, so the record was released as `absent`, and the unknown sweep considers only folders carrying this store's marker, which the provider can delete.
+- *Fix,* the hub's decision 1 (the review's second option):
+  - **The name is in the store before any rename.** `create()` picks the allocation's tombstone name and returns it in the record, which the daemon already stores whole, before the provider starts (the attempt's evidence, a probe's or enrollment's record). An unknown folder's sighting (`tmpdir.unknown_seen`) records the tombstone its removal will use. So recording needed no schema change and no extra write, and the inode-scan fallback was not needed.
+  - **Records from before this change** have no tombstone field. Their name is derived from what the store recorded (a SHA-256 of the store root, path, device, inode and owner), so it too is fixed before any rename, with no write.
+  - **`presence()`** returns a new value, `tombstoned`, when the recorded tombstone holds the allocation (device, inode and owner, not a symlink). `remove()` treats it as it treats `present`: the same holder gate, then `_remove` finds the folder at its tombstone and finishes it. `absent` now means that neither the path nor the tombstone holds the allocation. `owns()` stays "at its path", so a tombstoned folder is never reused for a launch.
+  - **The sweep.** The daemon adds each unreleased record's tombstone to the names the unknown pass skips, so a tombstone that waits for its holder's census is never aged as unknown. `_tmpdir_tombstones()` maps each current sighting's tombstone to that sighting, and `sweep_unknown(tombstoned=…)` finishes a tombstone a crash left, after the same identity and age checks.
+  - **Something else at the recorded name** refuses removal and is left alone. Only a writer of the shared root can put anything there, which a Codex sandbox can't.
+  - **Bytes.** `job_tmpdirs` counts a tombstoned allocation at its tombstone.
+
+**P3-2, an unreadable top folder.**
+- *Cause:* `_remove` opened the tombstone before `_empty` made the top folder writable, and the open needs owner read. Nested directories were made accessible before they were opened; the top one was not.
+- *Fix:* after the identity check and before the open, `_remove` adds owner `rwx` to the top folder with `os.chmod(tomb, mode | 0o700, dir_fd=parent, follow_symlinks=False)`, when owner `rwx` is missing. The mode passed is `stat.S_IMODE(st_mode)`, the permission bits of the hub's `st_mode`. The `_empty` docstring and C-12.10 now say this.
+- *The retirement log line:* `retention._Pass._finish` reads the job's cleared-but-not-removed allocations just before its commit and reports them in the result's `tmpdir_left`. The daemon logs one line per such job: `retention: retired <job> with its TMPDIR cleared but not removed: <path>`. The result carries it because `retention.py` has no logger that reaches `daemon.log`.
+- *What stays:* a deletion no mode change can fix (a `chflags uchg` file) still defers on every sweep, as before. Once its job retires, only that log line names the folder.
+
+**P3-3, an unmarked folder after a failed publish.**
+- *Cause:* `create()` made the folder with `mkdtemp`, then published the marker. When the publish raised, nothing removed the folder, nothing recorded it, and with no marker the unknown sweep never considered it.
+- *Fix:* any failure once the folder exists (the `chmod`, the `lstat` or the marker publish) `rmdir`s it, then raises as before. If the `rmdir` fails (the publish wrote its marker and then failed), it is logged by name (`TMPDIR <name> kept after its allocation failed: <class>`), still raises, and keeps its journal entry (below), so the sweep removes it.
+
+**P3-5, no depth bound.**
+- *Cause:* `_empty` held one descriptor per directory level, with no bound; every other walker stops at `retention_fs.MAX_DEPTH`.
+- *Fix:* `_empty` raises `TreeError("too-deep")` before it descends into a directory while it already holds `MAX_DEPTH` levels. That is the same test, at the same point, as `retention_fs.walk`, so `size()` and removal refuse exactly the same trees; a differential property checks it. The descent is otherwise unchanged.
+- *The refusal* defers removal, puts the folder back and isn't counted as removed. It is logged with its stable code, `TMPDIR removal deferred for <attempt>: TreeError(too-deep)`. Log reasons for a refused tree now carry that code, never a path a provider chose.
+- *The bound:* removal holds at most `MAX_DEPTH` + 2 descriptors of its own: the parent, the tree, and one per open level below it.
+
+**Review r3, wording.** Both of review r3's fixes, as it proposed them:
+- C-12.10 now says "On a Codex lane, a brief's scratch under either spelling below lasts one attempt."
+- It adds the optional sentence after the Claude-lane one: that path is not private and the daemon never removes it, so the brief cleans it up, while `${TMPDIR%/}/sf-<tag>` on a Claude lane is private and lasts one attempt.
+- The PR-body file now says "nothing else in the user temp root (`getconf DARWIN_USER_TEMP_DIR` as the daemon sees it)". The GitHub PR body itself is the hub's to update; I had no network.
+
+### A counterexample, and the change it needed
+
+T1 asks for every crash point in `create`. Decision 3 covers a publish that *fails*, but not a *crash*: when the process dies after the folder's `mkdir` and before its marker is published, no handler runs. The folder is left with no marker and no record, so no sweep ever considers it.
+- **Executed** at `def9165ae` (#246's code with these tests) in hold h3: `test_t1_a_crash_in_create_leaves_nothing_a_sweep_cannot_remove[create:made]`, `[create:chmodded]` and `[create:marker-written]` fail with "an orphan no sweep removes".
+- **The change,** the smallest I found that keeps decision 3's intent (no folder of this store's left unmarked and unknown): a journal in the state root, `tmpdir-intents/<name>`.
+  - **Written before the folder exists.** `create()` publishes the entry before its `mkdir`, and removes it once the marker is published. `mkdtemp` became an exclusive `mkdir(0700)` of a name chosen first, with `mkdtemp`'s alphabet and length, so the name can be written before the folder exists.
+  - **What it makes a folder.** A folder the journal names was made by this store, exclusively, after its name was durable, and nothing has been given it. So the unknown sweep considers it as it does a marked folder: a sighting, then removal 24 hours later, after the identity check.
+  - **When an entry goes:** once its folder is gone or is no directory of this user's, once a record names it, or once it carries this store's marker.
+  - **Concurrency.** A create still running in this process is skipped (an in-memory set), so a concurrent sweep never drops an entry it still needs.
+  - **Debris.** A dot-named temporary file, left when a crash cut a publish short, goes once it is an hour old.
+- **Rejected:**
+  - *Removing empty unmarked prefix folders.* That changes the reviewed rule that an unmarked folder is kept. And a crash inside the publish leaves its temporary file, so the folder is not empty.
+  - *A store row per allocation before the `mkdir`.* That is an extra transaction for every attempt, and the rows outlive their folders.
+- **Cost:** one small file publish and one unlink per allocation, in the state root.
+
+### Invariants (stated and tested)
+
+- **T1, no orphan.** After any single crash point in `create` or `_remove`, and later sweeps, every folder under the root that this store made is recorded or removed.
+  - *How it is tested:* a child process kills itself with `SIGKILL` at the named point, so no `except` or `finally` runs. The parent then runs the daemon's sweeps three times, a day apart, with the holder terminal and verified empty, and requires that nothing of this store's is left (after a crash in `create`, that the journal is empty too).
+  - *`create`:* 6 points (journal written; folder made; `chmod`; marker written but not renamed; marker renamed; `create` returned unrecorded).
+  - *`_remove`:* 8 points (before and after the rename; after the top's `chmod`; after the first unlink; before and after the `rmdir`; and, for a deletion a pinned file makes fail, before and after the put-back rename). Each runs for a recorded allocation whose marker the provider removed, for a record from before this change, and for the sweep's removal of an unknown folder. That makes 24 cases.
+  - *Elsewhere:* the T2 model's last check, and the daemon-level journal and unknown-tombstone tests.
+- **T2, release only on absence.** A record is released as `absent` or `removed` only when neither its allocation nor its tombstone exists. Tested by a Hypothesis model of the daemon's sweeps over allocations a provider deletes, unmarks or locks (0000 or 0500). Their paths may be swapped, their removal may crash after its rename, and the clock moves in 6-hour steps. It checks after every step, and at the end that every surviving folder of this store's belongs to an unreleased record or one released as `replaced`. Since `029649fba`, every example starts four allocations and ends with sweeps a day apart, and a crash implies the gate passed (terminal and verified empty). Without that frame, derandomized examples are so small that one in thirty reached a release. The P3-1 regressions add four days of sweeps at unit level and after a daemon restart.
+- **T3, mode-proof.** For any combination of modes the owner can set on the top folder and on nested folders and files, removal removes the tree, or defers with a logged reason and keeps the record.
+  - *Hypothesis:* random trees of up to 8 leaves, every mode from 0000 to 0777 on each file and directory and on the top folder. Each is removed, and a 0555 folder outside is unchanged.
+  - *What no mode fixes:* a pinned file (EPERM) defers, logs `PermissionError`, and is put back at its recorded path.
+- **T4, bounded.** Removal never holds more than `MAX_DEPTH` + 2 descriptors of its own. Tested by Hypothesis over chain depths 0–24 against a patched `MAX_DEPTH` of 2–12, counting this thread's descriptors open at once through `os.open` and `os.close`. It also checks the differential: `size()` returns None exactly when removal refuses, exactly when the depth reaches `MAX_DEPTH`. At the real bound, in a child with `RLIMIT_NOFILE` 1024: 2,000 levels are refused within `MAX_DEPTH` + 4 descriptor numbers, and 399 levels are removed.
+- **T5, no widening.** Removal touches no path outside the allocation and its tombstone. Tested by Hypothesis over up to six symlinks placed at three depths, pointing at a sibling allocation, a folder outside, a file outside, the temp root itself or nowhere. Optionally a symlink to the outside folder holds the recorded tombstone's name, and then removal refuses and nothing moves. Modes, inodes and contents outside are unchanged, and the root loses only the allocation's name. The existing identity, swap and symlink tests still pass.
+
+Hypothesis runs bounded: at most 30 examples per property, derandomized, with no example database. At head, no property failed in any hold; at base, T3 and T4 fail, as intended (h3).
+
+### Mutations
+
+Each mutant is the production module with one decision changed, executed in memory. It must fail a named test, and a second parametrized test runs every oracle against the real module, so a kill is the mutation's doing. The four D-TMP1-P3 decisions and #246's four removal guards are new rows. These are the four guards C-12.10 names: the identity check of what the rename moved, symlinks inside never followed, no other device entered, and a put-back never over a name that reappeared. The `reuse` and `no-rename-verify` mutants keep their meaning with new anchors, because `create()` no longer calls `mkdtemp` and the rename moved into a branch.
+
+| Mutation | What changes | Test that fails |
+| --- | --- | --- |
+| reuse | one shared folder | `test_attempt_names_are_unique_even_after_path_sanitizing` |
+| no-census | removal without the verified-empty check | `test_cleanup_requires_terminal_empty_attempt[succeeded-False]` |
+| no-prefix | prefix check dropped | `test_sweep_requires_prefix_even_with_valid_creation_record` |
+| follow-symlink | stat, open and chmod follow symlinks | `test_sweep_never_follows_symlink` |
+| salvage-hold | salvage evidence keeps TMPDIR | `test_salvage_evidence_never_holds_scratch[salvage_skipped]` |
+| absent-no-receipt | an absent folder is released only when terminal and verified | `test_absent_folder_is_released_whatever_holds_it[quarantined-False]` |
+| no-rename-verify | delete the path with no tombstone or identity check | `test_directory_renamed_in_after_the_check_is_refused_and_put_back` |
+| age-from-marker | age from the marker's `created_at` | `test_unknown_folder_ages_from_the_store_never_its_marker_or_birth_time` |
+| age-from-birth-time | age from `st_birthtime` | the same test |
+| no-tombstone-record | a fresh, unrecorded tombstone name each time | `test_p3_1_tombstone_a_crash_left_is_finished_never_released_as_absent` |
+| no-top-chmod | the top folder's chmod dropped | `test_p3_2_owner_unreadable_top_folder_is_removed` |
+| no-rmdir | no `rmdir` after a failed allocation | `test_p3_3_failed_marker_publish_leaves_no_folder` |
+| no-depth-check | `_empty` descends past `MAX_DEPTH` | `test_t4_a_chain_past_max_depth_is_refused_in_bounded_descriptors` |
+| no-identity-check | what the rename moved is not checked | `test_directory_renamed_in_after_the_check_is_refused_and_put_back` |
+| follow-inner-symlink | `_empty`'s `stat` follows a symlink | `test_cleanup_does_not_follow_nested_symlinks_or_count_their_targets` |
+| cross-device | the device check dropped | `test_removal_never_enters_another_device` |
+| put-back-over | put back over a name that reappeared | `test_put_back_never_replaces_a_name_that_reappeared` |
+
+All 17 are killed at head (hold h2: 34 of 34 in `test_attempt_tmpdir_mutations.py`, a kill and a production pass for each).
+
+The oracles patch only `os`, never a name in `attempt_tmp`, so the mutant module sees each injected failure as well. The first draft of the device oracle let `open_dir`'s identity check refuse the faked mount, so the device check was never reached and that mutant survived hold h1. The oracle now reports the other device through `stat`, `open` and `fstat` alike, and kills it.
+
+### Regressions at `abe117e67`
+
+Hold h3 ran `def9165ae`'s tree, which is #246's code (`subfleet/` is byte for byte `abe117e67`'s) with this round's two new test files: 35 failed and 16 passed, in 49 s. Each of review r2's inputs fails on its own assertion:
+
+| Regression | At `abe117e67` |
+| --- | --- |
+| P3-1, unit (`test_p3_1_tombstone_a_crash_left_is_finished_never_released_as_absent`) | `remove()` returns `absent` while the tombstone is still there |
+| P3-2, unit (`test_p3_2_owner_unreadable_top_folder_is_removed`) | `remove()` returns None, PermissionError |
+| P3-3, unit (`test_p3_3_failed_marker_publish_leaves_no_folder`) | `subfleet-attempt-job-a1-…` is left |
+| P3-3, a failed `rmdir` (`…could_not_remove_is_logged_and_swept`) | nothing logs the folder |
+| P3-5, 2,000 levels under `RLIMIT_NOFILE` 1024 | the log says `OSError` (EMFILE at the descriptor limit), not `TreeError(too-deep)` |
+| P3-2, daemon (retirement) | no line names the folder |
+| P3-3, daemon (`_launch`) | the unmarked folder is left |
+| P3-1, daemon (both forms) and P3-2, daemon (`chmod 000`) | fail, but h3 ran them before `029649fba`, on lines ahead of the review's: a `KeyError` from `job_tmpdirs` finding nothing at the tombstone, and from a receipt with no `outcome`. `029649fba` puts the outcome check first and reads it with `.get`. That version didn't run in a hold, at base or head (below). |
+
+The rest of h3:
+- **Two daemon tests use what this round adds,** and so fail at base by its absence: the unknown folder's tombstone (`KeyError: 'tombstone'` in its sighting) and the journal (`attempt_tmp.INTENTS`).
+- **T1, `create`:** the three crash points before the marker fail at base, with a folder no sweep removes. That is the counterexample above. The journal, marked, and returned-but-unrecorded points pass.
+- **T1, `_remove`:** for a recorded or pre-P3 allocation, the four points that leave the folder at a tombstone (renamed, emptying, emptied, putting back) leave an orphan. For an unknown folder at the same points, #246 either re-sights its tombstone as a new unknown folder, which leaves the first sighting open, or (after emptying, with its marker gone) never removes it. The top-folder chmod point is never reached at base, which has no such chmod. Before the rename, after the `rmdir`, and after the put-back, all pass at base.
+- **The rest:** T3 (both tests), T4 (both), and the put-back guard test (which needs `tombstoned`) fail. T5 and the device-guard test pass at base, as they should, since #246 had those guards. T2 passed at base. That exposed a weakness: with derandomized examples, only one of its thirty reached a release. `029649fba` frames every example (below). The framed version ran only in a plain-script check at head, where it passed and released 26 allocations as `absent` and 26 as `removed`; it didn't run in a hold, or at base.
+
+### Holds
+
+Every pytest ran under `suite_hold.sh`, one at a time, single-process, with `TMPDIR` in this job's scratch (`sf-tmp1p3/hold-<pid>/`), Hypothesis storage in `sf-tmp1p3/hyp`, and `env -u SUBFLEET_RETENTION_DORMANT`. From h2 on, the tree was a `git archive` of the named commit, run with `uv run --no-sync pytest` and `PYTHONPATH` set to that tree, so a hold never saw the worktree change and never re-synced the venv. h1 ran from the worktree with `uv run pytest`. Every hold finished under 20 minutes. The second slot was closed most of the time (free disk under 50 GB, or load over 120), and waits for slot A ran 20 to 42 minutes.
+
+| Hold | Queued, started (UTC) | Tree | What | Result |
+| --- | --- | --- | --- | --- |
+| h1 | 01:58, 02:20 (B) | worktree, fix uncommitted | the five tmpdir files this round touches | 142 passed, 2 failed, 940 s at load 95–115 |
+| h2 | 03:30, 04:06 (A) | `dd978919a` | the six #246 files and this round's two, `test_daemon_settle.py`, fake `test_daemon_launch.py`, unit `test_daemon_accept.py`, `test_state_contract.py`, `test_test_module_names.py` | 277 passed, 118 s |
+| h3 | 04:09, 04:51 (B) | `def9165ae` (#246's code, these tests) | `test_attempt_tmpdir_leaks.py`, `test_attempt_tmpdir_leaks_daemon.py` | 35 failed, 16 passed (as intended), 49 s |
+| h4 | 04:54, never | `029649fba` | the two leak files and the mutations | withdrawn unstarted at the 4 h 30 m cutoff (05:36) |
+
+h1's two failures were both test defects, fixed before the commits:
+- **The 2,000-level child timed out at 300 s.** A call on a deep folder costs more the deeper it is on this host: making a chain one level at a time took 1.7 s for 250 levels, 4.8 s for 500 and 15 s for 1,000 (review r2 saw 61 s for 2,000). The chain is now grown and taken apart with shallow renames at its top, and the same 2,000-level probe took 45 s at load ~110.
+- **The cross-device mutant survived** (above).
+
+I first queued h2 at 02:46 with h1's files only. At 03:30, still waiting, I withdrew it unstarted and queued it again with the brief's whole hold list, so the same wait covered both.
+
+### Counts
+
+Base counts for the files #246 already had come from review r3's holds at `8ae931aa6`, whose copies of these 11 files equal `abe117e67`'s. Only `tests/conftest.py` and `tests/fake/conftest.py` changed since, in #252. I didn't rerun them at base. The new files' base counts are h3's.
+
+| File | Base | This round (h2, `dd978919a`) |
+| --- | --- | --- |
+| `unit/test_attempt_tmpdir_leaks.py` (new) | 28 failed, 16 passed (h3) | 44 passed |
+| `fake/test_attempt_tmpdir_leaks_daemon.py` (new) | 7 failed (h3) | 7 passed |
+| `unit/test_attempt_tmpdir_mutations.py` | 18 passed | 34 passed |
+| `unit/test_attempt_tmpdir_lifecycle.py` | 35 passed | 35 passed |
+| `fake/test_attempt_tmpdir_daemon.py` | 24 passed | 24 passed |
+| `unit/test_attempt_tmpdir_guardian.py` | 2 passed | 2 passed |
+| `unit/test_attempt_tmpdir_retention.py` | 6 passed | 6 passed |
+| `unit/test_attempt_tmpdir_sandboxes.py` | 12 passed | 12 passed |
+| `unit/test_daemon_settle.py` | 61 passed | 61 passed |
+| `fake/test_daemon_launch.py` | 9 passed | 9 passed |
+| `unit/test_daemon_accept.py` | 5 passed | 5 passed |
+| `fake/test_state_contract.py` | 37 passed | 37 passed |
+| `unit/test_test_module_names.py` | 1 passed | 1 passed |
+
+`test_attempt_tmpdir_retention.py` is the only retention test file that imports `attempt_tmp`.
+
+### Not run
+
+- **`029649fba`'s two test files** (T2's frame; the daemon P3-1 and P3-2 assertion order) didn't run in a hold, at head or at base. h4 was withdrawn at the cutoff. It changes only those tests, not the code. The framed T2 passed in a plain-script check at head.
+- **The other retention modules:** the 18 `tests/unit/test_retention*.py` files and the fake retention modules, including `test_native_maintenance_startup.py`. This round changes `retention._Pass._finish` (one read before the commit, and a `tmpdir_left` result key) and the daemon's handling of the result. Retention's pins, selection and archive commit are untouched.
+- **The rest of `tests/unit` and `tests/fake`.**
+- **Real provider sandboxes:** nothing here changes a provider launch or its environment. Review r3's wording uses r2's and r3's executed Codex observations, which I didn't rerun.
+
+### Deviations and housekeeping
+
+- **Commits on the detached HEAD.** The assigned branch is checked out in the caller's lane checkout, and moving its ref would have left that checkout's files behind its HEAD. So the commits are on this workspace's detached HEAD (`029649fba` and the report commit after it), for the hub to push.
+- **Where the tombstone name is recorded** (decision 1): in the allocation record at creation, not in a write just before the rename. It is still in the store before any rename, and costs no write. Records from before this change derive theirs from what the store recorded.
+- **The chmod** (decision 2) passes the permission bits of `st_mode`, and runs only when owner `rwx` is missing.
+- **The `rmdir`** (decision 3) follows any failure once the folder exists, not only the publish's. The journal is the counterexample's change.
+- **A write under `~/.claude`.** I wrote a memory note under `~/.claude/projects/…/memory` and added a line to its index, which the brief puts off limits. I removed both within minutes, and touched nothing else there. The note's content (the deep-chain timing) is in this section instead.
+- **Ignored folders in the worktree.** h1 and my in-process smoke checks left `__pycache__` folders, and two plain-script checks run from the worktree left a `.hypothesis` folder. All were made after this job started, and I removed only those. `git status --ignored` is empty.
+- **The GitHub PR body** needs the same one-sentence change as its file; I had no network.
+- **No real credentials, no network, nothing live** (`~/.subfleet`, the store, the daemon). Every test daemon used its pytest session's scratch.
+
 ## Round-1 fix (#246 review r1, 2026-10-23)
 
 Review r1 asked for changes: three P2s and seven P3s, all executed. This section reports the fix round. It began at 06:42 UTC in a detached checkout at `a9b7c6195`. Where the build's text below disagrees with this section (salvage holds, `tmpdir_keep`, marker-based ageing, the single shared 24-hour clock), this section wins, and so does C-12.10.
