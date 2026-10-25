@@ -682,14 +682,49 @@ def test_i4_a_later_hold_takes_the_row_and_its_note_a_shorter_one_leaves_both(co
 REPOSITORY = Path(__file__).resolve().parents[2]
 
 
+#: SQL that compares the column with `operator` (`source_event='operator'`, `IN ('operator')`).
+SQL_COMPARISON = re.compile(r"source_event\s*(?:==?|!=|<>|\bIN\b|\bIS\b|\bLIKE\b)\s*\(?\s*'operator'", re.IGNORECASE)
+
+
+def _is_source(node: ast.expr) -> bool:
+    """`x["source_event"]`, `x.source_event` or `x.get("source_event")`."""
+    if isinstance(node, ast.Subscript):
+        return isinstance(node.slice, ast.Constant) and node.slice.value == "source_event"
+    if isinstance(node, ast.Attribute):
+        return node.attr == "source_event"
+    return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "get"
+            and bool(node.args) and isinstance(node.args[0], ast.Constant) and node.args[0].value == "source_event")
+
+
+def _is_operator(node: ast.expr) -> bool:
+    """The constant `"operator"`, or a tuple, list or set holding it."""
+    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+        return any(_is_operator(item) for item in node.elts)
+    return isinstance(node, ast.Constant) and node.value == "operator"
+
+
+def _comparisons(text: str, filename: str) -> list[int]:
+    """The lines of `text` that compare a `source_event` with `"operator"`: each
+    `==`, `!=`, `in` or `not in` between the two, however the comparison is laid
+    out over lines, and SQL in a string constant that does the same. A prefix test
+    (`startswith`, `hold_note_of`) is no comparison."""
+    lines = []
+    for node in ast.walk(ast.parse(text, filename=filename)):
+        if isinstance(node, ast.Compare):
+            operands = [node.left, *node.comparators]
+            lines += [node.lineno for op, left, right in zip(node.ops, operands, operands[1:])
+                      if isinstance(op, (ast.Eq, ast.NotEq, ast.In, ast.NotIn))
+                      and (_is_source(left) and _is_operator(right) or _is_operator(left) and _is_source(right))]
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and SQL_COMPARISON.search(node.value):
+            lines.append(node.lineno)
+    return sorted(set(lines))
+
+
 def operator_comparisons(*roots: Path) -> list[str]:
     """`path:line` for each place under `roots` that compares a closure's `source_event` with `operator`."""
-    pattern = re.compile(r"""source_event\W{0,3}\s*(==|!=)|['"]operator['"]|source_event\s*(=|IN)\s*\(?'operator""",
-                         re.IGNORECASE)
     return [f"{path}:{number}"
             for path in sorted(path for root in roots for path in root.rglob("*.py"))
-            for number, text in enumerate(path.read_text().splitlines(), start=1)
-            if "source_event" in text and pattern.search(text)]
+            for number in _comparisons(path.read_text(), str(path))]
 
 
 def test_nothing_reads_a_closure_source_for_equality_with_operator():
@@ -894,6 +929,7 @@ def test_r1_p3_2_the_hold_answer_enriches_nested_closure_rows(core):
 # lines is caught. Each case is a module under pytest's temporary folder.
 
 GUARD_CASES = {
+    "sql": 'def compares(conn):\n    return conn.execute("SELECT 1 FROM closures WHERE source_event = \'operator\'")\n',
     "one line": 'def compares(row):\n    return row["source_event"] == "operator"\n',
     "two lines": 'def compares(row):\n    return (row["source_event"]\n            == "operator")\n',
     "get, not equal": 'def compares(row):\n    return row.get("source_event") != "operator"\n',
