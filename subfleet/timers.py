@@ -41,11 +41,16 @@ def iso(value):
 
 class Timers:
     def __init__(self, store, root, policy, *, turn=None, adapter_factory=get_adapter,
-                 deliver=None, now=None, cards_sensor=None, demand=None):
+                 deliver=None, now=None, cards_sensor=None, demand=None, references=None):
         from .actions import ResetCredits, inhibit_path
         from .alerts import Alerts
         self.store, self.root, self.policy = store, Path(root), policy
         self.turn, self.adapter_factory = turn, adapter_factory
+        # D-ENV1: the names this kit's own launches withhold. The daemon supplies
+        # its own (`Daemon._withheld_references`), which add the hooks of the
+        # lanes.json rows startup ignored (review r1 of #248, P3-1); without it,
+        # the stored lanes' (`credentials.withheld_references`).
+        self.references = references
         # C-23.16 (a): the daemon's admission view of the jobs waiting on capacity
         # (`Daemon._reset_demand`). Without one no credit is ever spent, by the
         # timer or for an operator's `reset codex <lane>`.
@@ -456,7 +461,8 @@ class Timers:
 
     def _provider_environment(self) -> ProviderEnvironment:
         """The daemon's launch selection: no lane's credential reference (D-ENV1)."""
-        return ProviderEnvironment(self.policy, references=lambda: withheld_references(self.store.list_lanes()))
+        return ProviderEnvironment(self.policy, references=self.references or (
+            lambda: withheld_references(self.store.list_lanes())))
 
     def _card_sensor(self):
         if self._cards_sensor is None:
