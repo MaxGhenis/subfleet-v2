@@ -87,6 +87,9 @@ def test_daemon_log_s_line_for_a_header_name_holding_a_secret_keeps_none_of_its_
 #: Each kind review r4 found beyond the two round 3 pinned (`test_scrub_review_r3`'s
 #: `OVER_REDACTED`): stated in C-23.14 as the cost of failing closed, not narrowed.
 OVER_REDACTED = {
+    # A fold that starts at a header's name takes the name with its line (round 3's line
+    # fold, a follow-up since; daemon.log's line is the line-start header's whole).
+    "Cookie: --password\nCookie:x ok": "Cookie: [REDACTED]\n[REDACTED]",
     # The line fold at a quoted header's name takes the rest of the line past the name's
     # closing quote: a digit-named flag's fold, and a secret-named flag's, which takes the
     # name of the `--password` flag after the quote with it.
@@ -102,6 +105,11 @@ OVER_REDACTED = {
 }
 
 
+#: daemon.log's line where it is not the excerpt's folded: the folded line starts with the
+#: header, whose value is the rest of it.
+LINES = {"Cookie: --password\nCookie:x ok": "Cookie: [REDACTED]"}
+
+
 @pytest.mark.parametrize("text,scrubbed", OVER_REDACTED.items())
 def test_failing_closed_over_redacts_as_stated(text, scrubbed):
     """The stated cost (C-23.14), pinned in the excerpt and whole-text scrubs and, folded,
@@ -110,7 +118,7 @@ def test_failing_closed_over_redacts_as_stated(text, scrubbed):
         assert handoff.scrub_secrets(text, whole=whole)[0] == scrubbed
     outputs = _outputs(handoff, text)
     folded = " ".join(scrubbed.split())
-    assert outputs["daemon.log line"] == folded
+    assert outputs["daemon.log line"] == LINES.get(text, folded)
     assert outputs["detail_line"].endswith("): " + folded)
     assert _new_leaks(text) == {}
 
