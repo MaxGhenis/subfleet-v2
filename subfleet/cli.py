@@ -549,8 +549,12 @@ def format_status(data: dict[str, Any]) -> str:
         lines.append("")
         lines.append("task holds")
         for hold in holds:
-            waiting = sum(1 for row in live if row.get("wait_reason") == "task-held"
-                          and row.get("task") == hold.get("task"))
+            # The hold's own count, over every job (C-17.4); a daemon older than the count
+            # lists every nonterminal job, so counting its rows is the whole count too.
+            waiting = hold.get("waiting")
+            if not isinstance(waiting, int) or isinstance(waiting, bool):
+                waiting = sum(1 for row in live if row.get("wait_reason") == "task-held"
+                              and row.get("task") == hold.get("task"))
             lines.append(f"  {hold.get('task')} until {hold.get('until')} ({waiting} waiting): {hold.get('note')}")
     lines.append("")
     callers = rows_of(data.get("priority_callers"))
@@ -2370,10 +2374,10 @@ def cmd_tasks(args: argparse.Namespace) -> int:
             task_holds.instant(until.strip())
         except (ValueError, OverflowError):
             return fail(Exit.INVALID_INPUT, "tasks hold: --until must be an ISO 8601 instant")
-        if not (note_text or "").strip():
+        if not isinstance(note_text, str) or not note_text.strip(" "):
             return fail(Exit.INVALID_INPUT, "tasks hold: --note is required")
         try:
-            task_holds.note_text(note_text)
+            task_holds.note_text(note_text)     # the daemon's own rule: controls anywhere, then spaces
         except ValueError:
             return fail(Exit.INVALID_INPUT, "tasks hold: --note must be one line of printable characters, "
                                             f"at most {task_holds.NOTE_MAX}, with no credential")

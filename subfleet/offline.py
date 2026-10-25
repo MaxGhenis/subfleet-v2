@@ -379,6 +379,10 @@ class Offline:
             # C-11.10: the operator's task holds in force, read as the daemon reads them.
             holds = (task_holds.in_force([dict(row) for row in conn.execute(
                 task_holds.ROWS_SQL, task_holds.ROWS_PARAMS)], at) if "leases" in tables else {})
+            # Each hold's count of the jobs it keeps waiting, over every row: the job list
+            # below shows 50, and a count read from it would stop there (C-17.4).
+            held_jobs = (task_holds.waiting_counts(conn.execute(task_holds.WAITING_SQL).fetchall())
+                         if holds and "jobs" in tables else {})
         for lane in lanes:
             lane["in_flight"] = in_flight.get(lane.get("lane_id"), 0)
         for reading in readings:
@@ -403,7 +407,7 @@ class Offline:
             "turns": self.list_jobs(running=True, last=50, kind="turn"),
             "alerts": active_alerts(latches),
             "claude_cards": self._cards_view(),     # C-9.10: the last snapshot the daemon wrote
-            "task_holds": task_holds.listing(holds),
+            "task_holds": task_holds.listing(holds, waiting=held_jobs),
         }
 
     def _cards_view(self) -> dict[str, Any]:

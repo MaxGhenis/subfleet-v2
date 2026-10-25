@@ -9,6 +9,7 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
 
+from . import task_holds
 from .capacity import ACTIVE_ATTEMPT_STATES, build_view
 from .contracts import READING_TTL_S, attempt_dir
 from .launch_env import refused_reference
@@ -318,7 +319,7 @@ _HOLD_TEXT = {
     "pin-unadmittable": "its pinned lane {lane_id} can never admit it: {refusals}; it holds no other job back "
                         "and {ends} (C-11.8)",
     "task-held": "the operator holds {task} jobs at admission until {until} ({note}); it starts once the hold "
-                 "ends or `subfleet tasks release {task}`, and holds no other job back (C-11.10)",
+                 "ends or `{release}`, and holds no other job back (C-11.10)",
 }
 
 
@@ -534,6 +535,9 @@ def why_queue(standing: Mapping[str, Any]) -> list[str]:
                 fields["free_gb"] = "unknown"
             if reason in ("pin-unadmittable", "lanes-unadmittable"):
                 fields.update(refusals=pin_refusals(hold), ends=pin_ends(hold.get("fail_at")))
+            if reason == "task-held":
+                # C-11.10: a command a shell reads as given, the task one argument after `--`.
+                fields["release"] = task_holds.release_command(hold.get("task") or "?")
             lines.append("Held: " + template.format_map({**dict.fromkeys(
                 ("behind", "tier", "max_active_attempts", "kept_for", "live", "error_type", "error",
                  "conversation_id", "native_session_id", "tries", "class", "lane_id", "lane", "model",

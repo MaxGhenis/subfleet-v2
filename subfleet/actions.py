@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
+from . import task_holds
 from .adapters.codex import CodexAdapter
 from .capacity import _iso, _time, build_view, fresh_provider, identity_blocked
 from .contracts import HEADROOM_FLOOR, READING_TTL_S
@@ -740,6 +741,11 @@ class ResetCredits:
                                            (job_id,)).fetchone()
                 if waiting_row is None or waiting_row[0] != "waiting" or waiting_row[1] != "capacity" or waiting_row[2]:
                     return {**result, "status": "demand-gone", "job_id": job_id}
+                # C-11.10: a task hold committed since demand was read keeps the job, and a
+                # held job is no demand, though admission has not looked at it again yet.
+                held = task_holds.job_held(conn, job_id, moment)
+                if held is not None:
+                    return {**result, "status": "demand-gone", "job_id": job_id, "task_held": held["task"]}
                 if conn.execute("SELECT 1 FROM actions WHERE op_key IN (?,?)",
                                 reset_credit_op_keys(lane.account_key, credit["id"])).fetchone():
                     return {**result, "status": "already-attempted"}

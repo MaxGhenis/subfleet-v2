@@ -19,6 +19,7 @@ reads which holds are in force from rows the caller read.
 
 from __future__ import annotations
 
+import shlex
 from collections.abc import Iterable, Mapping
 from datetime import datetime, timezone
 from typing import Any
@@ -48,16 +49,25 @@ def lease_key(task: str) -> str:
     return KEY + task
 
 
-def note_text(value: Any) -> str:
-    """The note as a hold keeps it, or ValueError.
+#: What no note may hold anywhere, its edges included: the C0 controls (newline and
+#: tab among them), DEL, the C1 controls, and the Unicode line and paragraph separators.
+CONTROLS = frozenset([*map(chr, range(0x20)), *map(chr, range(0x7f, 0xa0)), "\u2028", "\u2029"])
 
-    Required: one line of printable characters, at most `NOTE_MAX` of them, with
-    surrounding spaces dropped. A note shaped like a credential is refused too:
-    the store never holds a secret (C-10.1), and the note is shown by `status`.
+
+def note_text(value: Any) -> str:
+    """The note as a hold keeps it, or ValueError. The CLI and the daemon both ask this.
+
+    Required: one line of printable characters, at most `NOTE_MAX` of them. A
+    control character (`CONTROLS`) is refused wherever it is, before anything is
+    trimmed, so `"\\nbooking\\n"` is refused, not kept as `booking`; then only
+    surrounding ASCII spaces are dropped. A note shaped like a credential is
+    refused too: the store never holds a secret (C-10.1), and `status` shows the note.
     """
     if not isinstance(value, str):
         raise ValueError("the note is required")
-    note = value.strip()
+    if any(char in CONTROLS for char in value):
+        raise ValueError("the note must be one line of printable characters")
+    note = value.strip(" ")
     if not note:
         raise ValueError("the note is required")
     if len(note) > NOTE_MAX:
@@ -134,10 +144,44 @@ def in_force(rows: Iterable[Mapping[str, Any]], now: str | datetime) -> dict[str
     return holds
 
 
-def listing(holds: Mapping[str, Mapping[str, Any]]) -> list[dict[str, Any]]:
-    """The holds in force as `status --json` lists them (`task_holds`): by task, never absent."""
-    return [{"task": task, "until": hold["until"], "note": hold["note"], "since": hold.get("since")}
+def listing(holds: Mapping[str, Mapping[str, Any]],
+            waiting: Mapping[str, int] | None = None) -> list[dict[str, Any]]:
+    """The holds in force as `status --json` lists them (`task_holds`): by task, never absent.
+
+    With `waiting` (task -> the jobs a hold keeps waiting, `WAITING_SQL` over the
+    whole store, never a page of listed rows), each hold carries its count too."""
+    return [{"task": task, "until": hold["until"], "note": hold["note"], "since": hold.get("since"),
+             **({"waiting": int(waiting.get(task, 0))} if waiting is not None else {})}
             for task, hold in sorted(holds.items())]
+
+
+#: Task -> how many jobs wait `task-held`, counted over every row (C-17.4), so a
+#: listing capped for display (offline status lists 50 jobs) never caps the count.
+WAITING_SQL = ("SELECT task, count(*) AS n FROM jobs WHERE state='waiting' AND wait_reason='task-held' "
+               "AND kind!='turn' GROUP BY task")
+
+
+def waiting_counts(rows: Iterable[Mapping[str, Any]]) -> dict[str, int]:
+    """`WAITING_SQL`'s rows as task -> count."""
+    return {row["task"]: int(row["n"]) for row in rows if row["task"]}
+
+
+def release_command(task: str) -> str:
+    """The command that ends `task`'s hold, as a shell reads it: `--` and then the task as
+    one argument, quoted when it must be, so `shlex.split` gives the task back whole."""
+    return shlex.join(["subfleet", "tasks", "release", "--", str(task)])
+
+
+def job_held(conn: Any, job_id: str, now: str | datetime) -> dict[str, Any] | None:
+    """C-11.10: the hold in force at `now` on `job_id`'s task, read on `conn` (the caller's
+    own transaction, so it judges the rows it commits beside), or None. A conversation
+    turn and a job with no task are never held."""
+    row = conn.execute("SELECT kind, task FROM jobs WHERE job_id=?", (job_id,)).fetchone()
+    if row is None or row[0] == "turn" or not row[1]:
+        return None
+    lease = conn.execute(ROW_SQL, (lease_key(row[1]),)).fetchone()
+    hold = hold_of(dict(zip(("lease_key", "holder", "acquired_at", "expires_at"), lease))) if lease else None
+    return hold if in_force_now(hold, now) else None
 
 
 def wait_hold(hold: Mapping[str, Any]) -> dict[str, Any]:
