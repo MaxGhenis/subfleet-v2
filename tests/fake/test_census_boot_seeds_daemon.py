@@ -26,12 +26,14 @@ SHELL_START = "Sat Oct 24 15:01:02 2026"
 REASON = "different boot identity (attempt's boot)"
 
 
-def trackb(daemon, harness, monkeypatch, *, now=BOOT_B, extra_rows="", marked=(), quarantined=True, **evidence):
+def trackb(daemon, harness, monkeypatch, *, now=BOOT_B, extra_rows="", marked=(), quarantined=True,
+           root_unique=9000, **evidence):
     """An attempt recorded on boot A, its receipt naming 83026, and boot `now`'s table, in which
-    the `marked` pids carry its marker pair; quarantined as release/217 left it, by default."""
+    the `marked` pids carry its marker pair; quarantined as release/217 left it, by default. Its
+    guardian is a responsibility root with kernel unique id `root_unique` (None: unrecorded)."""
     job_id, attempt, adir = reserve(daemon, harness)
     recorded = {**json.loads(attempt["evidence_json"] or "{}"), **evidence,
-                "responsible_root": {"pid": GUARDIAN, "unique_id": 9000}}
+                "responsible_root": {"pid": GUARDIAN, "unique_id": root_unique}}
     daemon.store.update_attempt(attempt["attempt_id"], state="running", guardian_pid=GUARDIAN, pgid=GUARDIAN,
                                 child_pid=None, boot_id=BOOT_A, proc_start=GUARDIAN_START,
                                 started_at="2026-10-14T12:05:49Z", evidence_json=json.dumps(recorded))
@@ -98,6 +100,19 @@ def test_trackb_as_release_217_left_it_is_repaired(state_daemon, monkeypatch):
     containment = confirmed(daemon)["containment"]
     assert containment["live_pids"] == [] and containment["other_boot"] == {str(CHILD): [adopted]}
     assert json.loads(after["evidence_json"])["counted_identities"] == {str(CHILD): adopted}
+
+
+def test_trackb_with_a_root_recorded_without_a_unique_id_is_released(state_daemon, monkeypatch):
+    """The same shape when the guardian's responsibility metadata could not be read at launch: the
+    root's identity check (`responsibility root identity unavailable for pid 76526`) held it at
+    993a28ef3 for as long as pid 76526 stayed free. On a later boot nothing names the root."""
+    daemon, harness = state_daemon
+    job_id, attempt = trackb(daemon, harness, monkeypatch, root_unique=None)
+    daemon._resolve_quarantine(attempt, protocol.KillArgs(job_id, confirm_dead=True))
+    assert daemon.store.get_attempt(attempt["attempt_id"])["state"] == "lost"
+    containment = confirmed(daemon)["containment"]
+    assert containment["live_pids"] == [] and containment["errors"] == []
+    assert containment["recycled"][str(CHILD)]["reason"] == REASON
 
 
 def test_trackb_on_its_own_boot_is_still_held(state_daemon, monkeypatch):

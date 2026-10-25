@@ -21,6 +21,8 @@ no process now alive can be the child or descend from it:
 2. `_contain` never keeps an identity whose boot differs from the attempt's recorded boot.
 3. A stored identity recorded on another boot than the attempt's is not the attempt's:
    never a seed, never counted, and named in the census evidence (`other_boot`).
+4. The attempt's responsibility root is its guardian, so a check of the root's identity (one
+   recorded without a kernel unique id, or the final holder read) cannot hold it either.
 
 An unknown attempt boot (none recorded, legacy `kern.boottime` seconds, or a current boot
 that cannot be read) keeps release/217's conservative answer, and on the attempt's own
@@ -272,6 +274,56 @@ def test_a_seed_with_a_full_birth_keeps_its_own_reason(monkeypatch):
     assert result.recycled[CHILD]["reason"] == REASON
 
 
+ROOT_ERROR = f"responsibility root identity unavailable for pid {GUARDIAN}"
+ROOT_SHAPES = ["unique-id-unrecorded", "final-holder-unreadable"]
+
+
+def root_shape(patch, row: dict, shape: str) -> dict:
+    """The guardian as a responsibility root whose own identity check fails once its pid is gone:
+    recorded without a kernel unique id (the launch's metadata read failed, `_spawn_guardian`), or
+    with one, its final holder read failing."""
+    if shape == "unique-id-unrecorded":
+        evidence = json.loads(row["evidence_json"])
+        evidence["responsible_root"] = {"pid": GUARDIAN, "unique_id": None}
+        row["evidence_json"] = json.dumps(evidence)
+    else:
+        procs.kernel.fail.add(("process", GUARDIAN))
+    return row
+
+
+@pytest.mark.parametrize("shape", ROOT_SHAPES)
+def test_the_attempts_responsibility_root_never_holds_it_on_a_later_boot(monkeypatch, shape):
+    """The root is the guardian, a recorded pid of the attempt's boot, and no process of a later
+    boot names it: a root recorded without a unique id needs no live matching start there, and a
+    known one no final holder read ("a proven other boot needs no final holder check", C-5.5).
+    At 993a28ef3 and at 15bd8c172 each held trackb's shape with `responsibility root identity
+    unavailable for pid 76526`; the first for as long as pid 76526 stayed free."""
+    row = trackb_row()
+    install(monkeypatch, stranger_table())
+    root_shape(monkeypatch, row, shape)
+    calls = recording(monkeypatch)
+    result = Daemon._contain(trackb_core(row), dict(row))
+    assert result.verified_empty, result.to_dict()
+    assert result.errors == () and result.recycled[CHILD]["reason"] == REASON
+    assert ROOT_ERROR in at_base(calls[-1]).errors
+
+
+@pytest.mark.parametrize("attempt_boot,session", [(BOOT_A, BOOT_A), (None, BOOT_B), (LEGACY, BOOT_B)],
+                         ids=["own-boot", "unrecorded", "legacy-seconds"])
+@pytest.mark.parametrize("shape", ROOT_SHAPES)
+def test_the_roots_identity_checks_are_unchanged_without_a_boot_known_over(monkeypatch, shape,
+                                                                         attempt_boot, session):
+    """On the attempt's own boot, or with its boot unknown, the root's failed identity check still
+    prevents verification, exactly as at 15bd8c172. (Guard: passes at the base by design.)"""
+    row = trackb_row(boot=attempt_boot)
+    install(monkeypatch, stranger_table(), session=session)
+    root_shape(monkeypatch, row, shape)
+    calls = recording(monkeypatch)
+    result = Daemon._contain(trackb_core(row, receipt_child=None, start_boot=attempt_boot), dict(row))
+    assert ROOT_ERROR in result.errors and result.unverifiable
+    assert result.to_dict() == at_base(calls[-1]).to_dict()
+
+
 def test_c5_12_the_attempts_boot_is_read_only_when_a_seed_depends_on_it(monkeypatch):
     """No seed in the table, no parent row and no group: the census reads no boot identity,
     as at 15bd8c172 (C-5.12). One that matters is one read, and a mismatch is read afresh."""
@@ -331,7 +383,9 @@ def worlds(draw, *, attempt_boots=(BOOT_A, None, LEGACY), sessions=(BOOT_A, BOOT
         "guardian_start": draw(st.sampled_from([OLD_START, *NOW_STARTS])),
         "owned": draw(stored), "named": draw(stored), "counted": draw(stored),
         "marked": draw(st.sets(st.sampled_from(sorted(rows)), max_size=3)),
-        "rooted": draw(st.booleans()),
+        # A responsibility root: none, one with a kernel unique id, or one recorded without.
+        "rooted": draw(st.sampled_from([False, 9000, None])),
+        "holder_fails": draw(st.booleans()),     # the kernel read of the guardian's pid fails
     }
     return world
 
@@ -341,8 +395,8 @@ def world_row(world: dict) -> dict:
         return {str(pid): {"pid": pid, "boot_id": boot, "proc_start": start} for pid, (boot, start) in entries.items()}
     evidence = {"owned_identities": kept(world["owned"]), "responsible_identities": kept(world["named"]),
                 "counted_identities": kept(world["counted"])}
-    if world["rooted"]:
-        evidence["responsible_root"] = {"pid": world["guardian"], "unique_id": 9000}
+    if world["rooted"] is not False:
+        evidence["responsible_root"] = {"pid": world["guardian"], "unique_id": world["rooted"]}
     return {"attempt_id": ATTEMPT, "job_id": JOB, "seq": 1, "guardian_pid": world["guardian"],
             "pgid": world["guardian"], "child_pid": world["child"], "boot_id": world["attempt_boot"],
             "proc_start": world["guardian_start"] if world["attempt_boot"] else None,
@@ -357,6 +411,8 @@ def run_world(patch, world: dict):
             session=None if session == "fail" else session, fail="sysctl" if session == "fail" else None,
             markers="".join(f"{pid} fake SUBFLEET_ATTEMPT={ATTEMPT} SUBFLEET_ROOT={ROOT}\n"
                             for pid in sorted(world["marked"])))
+    if world["holder_fails"]:
+        procs.kernel.fail.add(("process", world["guardian"]))
     row = world_row(world)
     core = SimpleNamespace(root=Path(ROOT), store=Store(row), _read_json=lambda path: None)
     calls = recording(patch)
@@ -389,13 +445,15 @@ def stores_another_boot(world: dict) -> bool:
 def test_invariant_1_cross_boot_no_current_process_is_counted_seeded_or_kept(monkeypatch, world):
     """For an attempt whose recorded boot is known and over, no process on the current boot is
     counted through a recorded pid (a seed, the walk, the recorded group, the root's members),
-    no seed comparison holds it, and `_contain` keeps none of their identities. The marker source
-    counts only processes carrying the attempt's exact marker pair, and those are not kept either."""
+    no seed comparison or check of the root's identity holds it, and `_contain` keeps none of their
+    identities. The marker source counts only processes carrying the attempt's exact marker pair,
+    and those are not kept either."""
     with monkeypatch.context() as patch:
         result, _, row = run_world(patch, world)
     assert result.group_pids == result.descendant_pids == result.responsible_pids == frozenset()
     assert result.live_pids == result.marker_pids
     assert not [error for error in result.errors if SEED_ERRORS.match(error)]
+    assert f"responsibility root identity unavailable for pid {world['guardian']}" not in result.errors
     seeds = {world["guardian"], *([world["child"]] if world["child"] else []), *world["owned"],
              *world["named"], *world["counted"]}
     present = {pid for pid in seeds if pid in world["rows"]}
