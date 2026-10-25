@@ -363,7 +363,8 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
         NSApp.setActivationPolicy(.accessory)
         if let mode = CommandLine.arguments.last, mode.hasPrefix("fix11-") {
             let root = URL(fileURLWithPath: CommandLine.arguments[1])
-            let result = await settlingReveal(root, mode: String(mode.dropFirst("fix11-".count)))
+            let result = mode == "fix11-live-turn" ? await suspendedLiveTurn(root)
+                : await settlingReveal(root, mode: String(mode.dropFirst("fix11-".count)))
             print(String(decoding: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), as: UTF8.self))
             return
         }
@@ -1001,6 +1002,66 @@ struct SettlingPageView: View {
             "visible_windows": NSApp.windows.filter(\.isVisible).count]
 }
 
+// Gate a remote turn's arrival on the second reveal's recorded suspension,
+// rather than hoping suspension remains active after an arbitrary sleep.
+@MainActor func suspendedLiveTurn(_ root: URL) async -> [String: Any] {
+    let name = "suspended-live-turn"
+    let scene = await Scene(name, root: root, prior: 30,
+        priorText: { "person message \($0) asks something" }, tray: [], immediateDelivery: true)
+    await scene.stream(30)
+    let started = Date()
+    var timeline: [[String: Any]] = []
+    var reveals = 0
+    var injected = false
+    var injectionSuspended = false
+    ConversationFollowTest.disappearanceDelay = 3
+    ConversationFollowTest.record = { cid, entry in
+        guard cid == name else { return }
+        let live = scene.model.state.timelines[name]?.liveMessageID ?? ""
+        timeline.append(entry.merging(["at": Date().timeIntervalSince(started),
+            "live_message": live, "position": sample(scene.host)]) { _, new in new })
+        if entry["event"] as? String == "reveal" {
+            reveals += 1
+            if reveals == 2 && !injected {
+                injected = true
+                injectionSuspended = entry["suspended"] as? Bool == true
+                // A provider/event-only turn, not the person's own-send exception.
+                let page = [event(scene.seq + 1, "live", "turn.completed", ["state": "complete"]),
+                    event(scene.seq + 2, "next-live", "accepted", [:]),
+                    event(scene.seq + 3, "next-live", "text.delta", ["block": "next", "text": "new live turn\n"])]
+                scene.seq += page.count
+                scene.daemon.push(page)
+            }
+        }
+    }
+    defer {
+        ConversationFollowTest.record = nil
+        ConversationFollowTest.disappearanceDelay = 0
+        scene.close()
+    }
+    scene.palette.reveal = SearchReveal(conversationID: name, itemID: "person:m000010")
+    let deadline = Date().addingTimeInterval(60)
+    while scene.palette.reveal != nil && Date() < deadline { await settle(scene.host, seconds: 0.02) }
+    await scene.waitFolded(scene.seq)
+    let landed = await stablePosition(scene.host)
+    let watch = PositionWatch(scene.host, baseline: landed.position)
+    await scene.push { seq in
+        seq += 1
+        return [event(seq, "next-live", "text.delta", ["block": "next", "text": "later new-turn output\n"])]
+    }
+    await settle(scene.host, seconds: 3.2)
+    watch.stop()
+    let after = sample(scene.host)
+    let live = scene.model.state.timelines[name]?.liveMessageID ?? ""
+    scene.close()
+    return ["injected": injected, "injection_suspended": injectionSuspended,
+        "reveals": reveals, "reveal_consumed": scene.palette.reveal == nil,
+        "caught_up": scene.caughtUp, "live_message": live,
+        "landed": landed.position, "landed_stable_samples": landed.samples,
+        "after_stream": after, "max_drift": watch.maxDrift, "timeline": timeline,
+        "visible_windows": NSApp.windows.filter(\.isVisible).count]
+}
+
 @MainActor func fix10Cases(_ root: URL, only: String? = nil) async -> [String: Any] {
     var out: [String: Any] = [:]
     for (name, interval, kind) in [("far_quiet", 0.0, "text"), ("far_text_50ms", 0.05, "text"),
@@ -1039,16 +1100,23 @@ final class RevealArrivals: @unchecked Sendable {
     private let lock = NSLock()
     private var times: [Double] = []
     private var pages = 0
+    private var consumed = false
+    private var expired = false
+    private var sequences: [Int] = []
+    func recordConsumption() { lock.lock(); consumed = true; lock.unlock() }
+    var isConsumed: Bool { lock.lock(); defer { lock.unlock() }; return consumed }
+    func deadlineExpired() { lock.lock(); expired = true; lock.unlock() }
     func push(_ events: [[String: Any]], to daemon: R4ViewDaemon, at: Double) {
         lock.lock()
         times += Array(repeating: at, count: events.count)
+        sequences += events.map { $0["seq"] as! Int }
         pages += 1
         daemon.push(events)
         lock.unlock()
     }
-    var snapshot: (times: [Double], pages: Int) {
+    var snapshot: (times: [Double], pages: Int, sequences: [Int], expired: Bool) {
         lock.lock(); defer { lock.unlock() }
-        return (times, pages)
+        return (times, pages, sequences, expired)
     }
 }
 
@@ -1061,7 +1129,8 @@ final class RevealArrivals: @unchecked Sendable {
                             priorText: { $0 == 10 ? "person message \($0) \(word) here" : "person message \($0) asks something" },
                             tray: [], immediateDelivery: true)
     await scene.stream(30)
-    // Construction counts, never runtime-dependent timer counts.
+    // Exact counts for early/boundary scenes; minimum counts for ongoing streams.
+    let firstSequence = scene.seq + 1
     let count = boundary != nil ? 10 : interval > 0 ? Int((2.5 / interval).rounded(.up)) : 1
     var events: [[String: Any]] = []
     for index in 1...count {
@@ -1070,7 +1139,6 @@ final class RevealArrivals: @unchecked Sendable {
                             kind == "text" ? ["block": "live", "text": "overlap chunk \(index)\n"]
                             : ["id": "overlap\(index)", "name": "Read", "summary": "file \(index)"]))
     }
-    let sequences = events.map { $0["seq"] as! Int }
     let arrivals = RevealArrivals()
     var folds: [Int: Double] = [:]
     var notices: [Double] = []
@@ -1079,7 +1147,6 @@ final class RevealArrivals: @unchecked Sendable {
     var boundaryArrival = -1.0
     var started = Date()
     var producer: Task<Void, Never>?
-    let consumptionGate = DispatchSemaphore(value: 0)
     var timeline: [[String: Any]] = []
     ConversationFollowTest.disappearanceDelay = staleMarker ? 3 : 0
     ConversationFollowTest.record = { cid, entry in
@@ -1099,8 +1166,10 @@ final class RevealArrivals: @unchecked Sendable {
     RunLoop.main.add(positionTimer, forMode: .common)
     let folded = scene.model.$state.sink { state in
         let cursor = state.timelines[name]?.cursor ?? 0
-        for seq in sequences where seq <= cursor && folds[seq] == nil {
-            folds[seq] = Date().timeIntervalSince(started)
+        if cursor >= firstSequence {
+            for seq in firstSequence...cursor where folds[seq] == nil {
+                folds[seq] = Date().timeIntervalSince(started)
+            }
         }
     }
     func burst(at time: Double) {
@@ -1117,9 +1186,8 @@ final class RevealArrivals: @unchecked Sendable {
         notices.append(at)
         if (boundary == "first_notice" && notices.count == 1)
             || (boundary == "second_notice" && notices.count == 2) { burst(at: at) }
-        // Model a slow presentation turn after the second notice. Detached
-        // producers keep delivering; only the reserved trailing event waits
-        // for consumption, even after the nominal finite stream would end.
+        // Model a slow presentation turn after the second notice. The detached
+        // producer keeps its cadence throughout this pause and after consumption.
         if notices.count == 2 && consumptionPause > 0 { Thread.sleep(forTimeInterval: consumptionPause) }
     }
     let startObserver = NotificationCenter.default.addObserver(forName: .init("subfleet.test.searchRevealStarted"),
@@ -1131,31 +1199,42 @@ final class RevealArrivals: @unchecked Sendable {
         let epoch = started
         let page = events
         producer = Task.detached {
-            // Absolute deadlines avoid accumulating main-actor or timer delay.
-            for (index, event) in page.enumerated() {
-                // Reserve the final event for actual consumption. Earlier
-                // arrivals retain their independent absolute schedule.
-                if interval > 0 && index == page.count - 1 {
-                    guard consumptionGate.wait(timeout: .now() + 60) == .success else { return }
-                }
+            // Each arrival has an absolute cadence deadline. Neither notice nor
+            // consumption releases an event: consumption only bounds termination.
+            // Keep the original minimum and at least three independent ticks after
+            // consumption. A missing consumption expires loudly after 60 seconds.
+            var index = 0
+            var afterConsumption = 0
+            while index < page.count || (interval > 0 && afterConsumption < 3) {
                 let deadline = epoch.addingTimeInterval(delay + Double(index) * interval)
                 let wait = deadline.timeIntervalSinceNow
                 if wait > 0 { try? await Task.sleep(nanoseconds: UInt64(wait * 1e9)) }
                 if Task.isCancelled { return }
-                arrivals.push([event], to: daemon, at: Date().timeIntervalSince(epoch))
+                if Date().timeIntervalSince(epoch) >= 60 { arrivals.deadlineExpired(); return }
+                let next: [String: Any]
+                if index < page.count { next = page[index] }
+                else {
+                    let seq = firstSequence + index
+                    next = event(seq, "live", kind == "text" ? "text.delta" : "tool.started",
+                        kind == "text" ? ["block": "live", "text": "overlap chunk \(index + 1)\n"]
+                        : ["id": "overlap\(index + 1)", "name": "Read", "summary": "file \(index + 1)"])
+                }
+                let consumedBeforeTick = arrivals.isConsumed
+                arrivals.push([next], to: daemon, at: Date().timeIntervalSince(epoch))
+                if consumedBeforeTick { afterConsumption += 1 }
+                index += 1
             }
         }
     }
     let consumption = scene.palette.$reveal.dropFirst().sink { value in
         if value == nil && consumed < 0 {
             consumed = Date().timeIntervalSince(started)
-            consumptionGate.signal()
+            arrivals.recordConsumption()
             if boundary == "consumption" { burst(at: consumed) }
         }
     }
     defer {
         producer?.cancel()
-        consumptionGate.signal()
         positionTimer.invalidate()
         ConversationFollowTest.record = nil
         ConversationFollowTest.disappearanceDelay = 0
@@ -1187,8 +1266,10 @@ final class RevealArrivals: @unchecked Sendable {
     let landed = await stablePosition(scene.host)
     let watch = PositionWatch(scene.host, baseline: landed.position)
     defer { watch.stop() }
-    if match != nil { await scene.waitFolded(scene.seq) }
     await producer?.value
+    let delivered = arrivals.snapshot
+    scene.seq = delivered.sequences.last ?? scene.seq
+    if match != nil { await scene.waitFolded(scene.seq) }
     let quiet = await stablePosition(scene.host)
     let lastArrival = Date().timeIntervalSince(started)
     await scene.stream(20)
@@ -1196,13 +1277,14 @@ final class RevealArrivals: @unchecked Sendable {
     let horizon = started.addingTimeInterval(max(6.3, lastArrival + 2.5))
     while Date() < horizon { await settle(scene.host, seconds: 0.02) }
     let final = sample(scene.host)
-    let delivered = arrivals.snapshot
     return ["found": match != nil, "caught_up": scene.caughtUp, "reveal_consumed": scene.palette.reveal == nil,
             "notices_at": notices, "reveal_starts": starts, "consumed_at": consumed,
             "stale_marker": staleMarker, "consumption_pause": consumptionPause,
             "first_notice_pause": firstNoticePause, "timeline": timeline,
             "pushed": delivered.times.count, "arrival_pages": delivered.pages,
-            "arrival_sequences": sequences, "arrivals_at": delivered.times, "folds_at": sequences.compactMap { folds[$0] },
+            "producer_deadline_exceeded": delivered.expired,
+            "arrival_sequences": delivered.sequences, "arrivals_at": delivered.times,
+            "folds_at": delivered.sequences.compactMap { folds[$0] },
             "boundary_arrival_at": boundaryArrival,
             "folded_seq": scene.model.state.timelines[name]?.cursor ?? 0, "target_seq": scene.seq,
             "landed": landed.position, "landed_stable_samples": landed.samples,

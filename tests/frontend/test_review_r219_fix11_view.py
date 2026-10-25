@@ -55,3 +55,20 @@ def test_confirmed_visible_end_follows_catchup(fix8_view_binary, tmp_path, mode)
                and e["move"] == "jump" for e in run["timeline"]), diagnostic
     for key in ("after_initial_reveal", "after_open", "after_stream", "horizon"):
         assert run[key]["from_end"] <= 30, diagnostic
+
+
+def test_new_live_turn_while_reveal_is_suspended_holds_position(fix8_view_binary, tmp_path):
+    run = run_probe(fix8_view_binary, tmp_path, "fix11-live-turn", timeout=240)
+    write_json(tmp_path / "result.json", run)
+    print("suspended live turn: " + json.dumps(run, sort_keys=True))
+    diagnostic = json.dumps(run, sort_keys=True)
+    assert run["visible_windows"] == 0, diagnostic
+    assert run["injected"] and run["injection_suspended"], diagnostic
+    assert run["reveal_consumed"] and run["caught_up"] and run["reveals"] == 2, diagnostic
+    assert run["live_message"] == "next-live", diagnostic
+    assert any(e["event"] == "move" and e["live_message"] == "next-live"
+               and e["suspended"] and e["move"] == "stay" for e in run["timeline"]), diagnostic
+    assert run["landed_stable_samples"] >= 3 and run["landed"]["from_end"] > 600, diagnostic
+    assert run["after_stream"]["from_end"] > 600, diagnostic
+    assert run["after_stream"]["offset"] == run["landed"]["offset"], diagnostic
+    assert run["max_drift"] == 0, diagnostic

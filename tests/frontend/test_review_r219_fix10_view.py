@@ -77,12 +77,16 @@ def streaming_reveals(fix8_view_binary, tmp_path_factory):
     return result
 
 
-def assert_stream_retains_position(run, *, events, pages):
+def assert_stream_retains_position(run, *, events, pages, at_least=False):
     diagnostic = json.dumps(run, sort_keys=True)
     assert run["found"] and run["caught_up"] and run["reveal_consumed"], diagnostic
     assert len(run["notices_at"]) == 2 and run["reveal_starts"] == 1, diagnostic
-    assert run["pushed"] == events and run["arrival_pages"] == pages, diagnostic
-    assert len(run["arrivals_at"]) == len(run["folds_at"]) == events, diagnostic
+    assert not run["producer_deadline_exceeded"], diagnostic
+    if at_least:
+        assert run["pushed"] >= events and run["arrival_pages"] == run["pushed"], diagnostic
+    else:
+        assert run["pushed"] == events and run["arrival_pages"] == pages, diagnostic
+    assert len(run["arrivals_at"]) == len(run["folds_at"]) == run["pushed"], diagnostic
     assert run["folded_seq"] == run["target_seq"], diagnostic
     assert run["landed_stable_samples"] >= 3, diagnostic
     assert run["landed"]["from_end"] > 600, diagnostic
@@ -106,7 +110,7 @@ def test_stream_arrives_before_first_reveal_notice(streaming_reveals, kind, dela
 def test_background_stream_crosses_both_notices_and_consumption(streaming_reveals, kind, events):
     run = streaming_reveals[f"background_{kind}"]
     diagnostic = json.dumps(run, sort_keys=True)
-    assert_stream_retains_position(run, events=events, pages=events)
+    assert_stream_retains_position(run, events=events, pages=events, at_least=True)
     first, second = run["notices_at"]
     assert run["arrivals_at"][0] < first < second <= run["consumed_at"] < run["arrivals_at"][-1], diagnostic
     assert any(first < at < second for at in run["arrivals_at"]), diagnostic
@@ -114,12 +118,18 @@ def test_background_stream_crosses_both_notices_and_consumption(streaming_reveal
 
 
 def test_trailing_stream_waits_for_late_reveal_consumption(streaming_reveals):
-    """The finite independent prefix may finish before a slow reveal does."""
+    """The independent cadence continues through a slow consumption turn."""
     run = streaming_reveals["late_consumption_tool"]
     diagnostic = json.dumps(run, sort_keys=True)
-    assert_stream_retains_position(run, events=17, pages=17)
+    assert_stream_retains_position(run, events=17, pages=17, at_least=True)
     assert run["consumption_pause"] == 3 and run["consumed_at"] > 2.5, diagnostic
-    assert run["arrivals_at"][-2] < run["consumed_at"] < run["arrivals_at"][-1], diagnostic
+    # Restate the old prefix/one-reserved-tail check for an ongoing stream:
+    # arrivals precede consumption, and at least three cadence ticks follow it.
+    assert run["arrivals_at"][0] < run["consumed_at"], diagnostic
+    assert sum(at > run["consumed_at"] for at in run["arrivals_at"]) >= 3, diagnostic
+    first, second = run["notices_at"]
+    assert run["arrivals_at"][0] < first < second <= run["consumed_at"] < run["arrivals_at"][-1], diagnostic
+    assert any(first < at < second for at in run["arrivals_at"]), diagnostic
     assert run["folds_at"][-1] > run["consumed_at"], diagnostic
 
 
@@ -143,7 +153,7 @@ def test_stale_end_marker_cannot_undo_search_reveal(fix8_view_binary, tmp_path, 
     assert run["stale_marker"], diagnostic
     assert any(entry["event"] == "move" and entry["at_bottom"] and entry["suspended"]
                and not entry["settling"] for entry in run["timeline"]), diagnostic
-    assert_stream_retains_position(run, events=events, pages=events)
+    assert_stream_retains_position(run, events=events, pages=events, at_least=True)
 
 
 @pytest.mark.parametrize("kind,events", [("text", 50), ("tool", 17)])
@@ -157,7 +167,7 @@ def test_background_stream_survives_delayed_first_notice(fix8_view_binary, tmp_p
     diagnostic = json.dumps(run, sort_keys=True)
     assert result["visible_windows"] == 0, diagnostic
     assert run["first_notice_pause"] == 3, diagnostic
-    assert_stream_retains_position(run, events=events, pages=events)
+    assert_stream_retains_position(run, events=events, pages=events, at_least=True)
     first, second = run["notices_at"]
     assert run["arrivals_at"][0] < first < second <= run["consumed_at"] < run["arrivals_at"][-1], diagnostic
     assert any(first < at < second for at in run["arrivals_at"]), diagnostic
