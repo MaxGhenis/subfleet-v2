@@ -184,6 +184,35 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
     }
 }
 
+// Readiness waits fail loudly (review r5: an expired waitFolded let a case
+// sample geometry from a conversation still catching up). An expired wait
+// names itself and its last state on stderr and ends the probe, so pytest
+// reports it instead of a position. Deadlines guard hung scenes only: they
+// are generous for loaded hosts, and the elapsed time of every wait is kept.
+let readinessDeadline = 120.0
+
+@MainActor enum ProbeWaits {
+    static var log: [[String: Any]] = []
+    static func since(_ mark: Int) -> [[String: Any]] { Array(log[min(mark, log.count)...]) }
+}
+
+@MainActor func readinessExpired(_ name: String, seconds: Double, state: [String: Any]) -> Never {
+    let detail = (try? JSONSerialization.data(withJSONObject: state, options: [.sortedKeys]))
+        .map { String(decoding: $0, as: UTF8.self) } ?? String(describing: state)
+    FileHandle.standardError.write(Data("readiness wait '\(name)' expired after \(seconds) s; last state: \(detail)\n".utf8))
+    exit(70)
+}
+
+@MainActor func waitReady(_ name: String, seconds: Double = readinessDeadline, view: NSView?, step: Double = 0.02,
+                          state: () -> [String: Any] = { [:] }, until ready: () -> Bool) async {
+    let started = Date()
+    while !ready() {
+        if Date().timeIntervalSince(started) >= seconds { readinessExpired(name, seconds: seconds, state: state()) }
+        await settle(view ?? NSView(), seconds: step)
+    }
+    ProbeWaits.log.append(["wait": name, "elapsed": Date().timeIntervalSince(started)])
+}
+
 @MainActor func timelineScroll(_ host: NSView) -> NSScrollView? {
     descendants(host).compactMap { $0 as? NSScrollView }
         .max { ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0) }
@@ -220,7 +249,8 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
     init(_ cid: String, root: URL, prior: Int, priorText: (Int) -> String, tray: [String],
          pageDelay: Double = 0, pageSize: Int = 200, revealOnMount: String? = nil,
          liveText: String = "the live request", pauseCatchup: Bool = false,
-         immediateDelivery: Bool = false) async {
+         immediateDelivery: Bool = false, onMount: ((NSView) -> Void)? = nil,
+         silentFoldDeadline: Double? = nil) async {
         self.cid = cid
         var events: [[String: Any]] = []
         var receipts: [[String: Any]] = []
@@ -268,43 +298,65 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
         window.contentView = host
         host.frame = window.contentView!.bounds
         mountOffscreen(window)
+        onMount?(host)
+        let mounted: NSView = host
         if pauseCatchup {
             // Establish the invariant's actual precondition, independent of host scheduling:
             // the opening pin has placed the live row/end on screen, and catch-up is pending.
-            let deadline = Date().addingTimeInterval(60)
-            while (!daemon.catchupPending || (sample(host)["from_end"] ?? 1e9) > 30) && Date() < deadline {
-                await settle(host, seconds: 0.02)
+            await waitReady("scene.catchup_held_at_end", view: mounted, state: { self.readiness() }) {
+                self.daemon.catchupPending && (sample(mounted)["from_end"] ?? 1e9) <= 30
             }
-            beforeCatchup = sample(host)
+            beforeCatchup = sample(mounted)
             heldBeforeReveal = daemon.catchupPending && !caughtUp
         }
         if let revealOnMount { palette.reveal = SearchReveal(conversationID: cid, itemID: revealOnMount) }
         if pauseCatchup {
-            let deadline = Date().addingTimeInterval(60)
-            while palette.reveal != nil && Date() < deadline { await settle(host, seconds: 0.02) }
-            await settle(host, seconds: 0.3)
-            afterInitialReveal = sample(host)
+            await waitReady("scene.reveal_consumed_before_catchup", view: mounted, state: { self.readiness() }) {
+                self.palette.reveal == nil
+            }
+            await settle(mounted, seconds: 0.3)
+            afterInitialReveal = sample(mounted)
             daemon.resumeCatchup()
         }
-        await waitFolded(daemon.lastSeq)
-        let revealDeadline = Date().addingTimeInterval(60)
-        while palette.reveal != nil && Date() < revealDeadline { await settle(host, seconds: 0.02) }
-        await settle(host, seconds: 1.2)
+        if let silentFoldDeadline {
+            // Checkpoint replay only: the pre-round-6 wait, which carried on
+            // silently at its deadline while catch-up was still running.
+            let deadline = Date().addingTimeInterval(silentFoldDeadline)
+            while ((model.state.timelines[cid]?.cursor ?? 0) < daemon.lastSeq || !caughtUp) && Date() < deadline {
+                await settle(mounted, seconds: 0.02)
+            }
+        } else {
+            await waitFolded(daemon.lastSeq, "scene.waitFolded")
+        }
+        foldedReadiness = readiness()
+        await waitReady("scene.reveal_consumed", view: mounted, state: { self.readiness() }) { self.palette.reveal == nil }
+        await settle(mounted, seconds: 1.2)
         if revealOnMount == nil {
             // Wait for the opening pin's final layout, not a fixed sampling time.
-            let endDeadline = Date().addingTimeInterval(60)
-            while (sample(host)["from_end"] ?? 1e9) > 30 && Date() < endDeadline {
-                await settle(host, seconds: 0.02)
+            await waitReady("scene.opened_at_end", view: mounted, state: { self.readiness() }) {
+                (sample(mounted)["from_end"] ?? 1e9) <= 30
             }
         }
     }
 
     var caughtUp: Bool { model.state.timelines[cid]?.caughtUp == true }
+    /// Readiness when the opening's catch-up wait completed (before its settle).
+    var foldedReadiness: [String: Any] = [:]
 
-    func waitFolded(_ target: Int) async {
-        let deadline = Date().addingTimeInterval(60)
-        while ((model.state.timelines[cid]?.cursor ?? 0) < target || !caughtUp) && Date() < deadline {
-            await settle(host ?? NSView(), seconds: 0.02)
+    /// Catch-up/cursor state for readiness checkpoints and expired-wait reports.
+    func readiness(target: Int? = nil) -> [String: Any] {
+        var state: [String: Any] = ["scene": cid, "cursor": model.state.timelines[cid]?.cursor ?? 0,
+                                    "last_seq": daemon.lastSeq, "caught_up": caughtUp,
+                                    "catchup_pending": daemon.catchupPending,
+                                    "reveal_pending": palette.reveal != nil]
+        if let target { state["target"] = target }
+        if let host { state["position"] = sample(host) }
+        return state
+    }
+
+    func waitFolded(_ target: Int, _ name: String = "waitFolded") async {
+        await waitReady(name, view: host, state: { self.readiness(target: target) }) {
+            (self.model.state.timelines[self.cid]?.cursor ?? 0) >= target && self.caughtUp
         }
     }
 
@@ -329,8 +381,7 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
             return ["found": false, "items": results.compactMap { $0.snippet?.itemID }]
         }
         palette.activate(match)
-        let deadline = Date().addingTimeInterval(60)
-        while palette.reveal != nil && Date() < deadline { await settle(host, seconds: 0.02) }
+        await waitReady("activate.reveal_consumed", view: host, state: { self.readiness() }) { self.palette.reveal == nil }
         await settle(host, seconds: 0.6)
         return ["found": true, "consumed": palette.reveal == nil, "results": results.count]
     }
@@ -579,8 +630,8 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
                     row["reveal_pending"] = scene.palette.reveal != nil
                     samples.append(row)
                 }
-                let deadline = Date().addingTimeInterval(60)
-                while scene.palette.reveal != nil && Date() < deadline { await settle(scene.host, seconds: 0.05) }
+                await waitReady("busy.reveal_consumed", view: scene.host, step: 0.05,
+                                state: { scene.readiness() }) { scene.palette.reveal == nil }
                 if consumedAt < 0 && scene.palette.reveal == nil { consumedAt = Date().timeIntervalSince(started) }
                 await settle(scene.host, seconds: 0.5)
             }
@@ -661,8 +712,8 @@ struct ArrivalView: View {
         rows.ids.append("arrival-\(index)")
         await settle(host, seconds: 0.01)
     }
-    let deadline = Date().addingTimeInterval(60)
-    while palette.reveal != nil && Date() < deadline { await settle(host, seconds: 0.01) }
+    await waitReady("schedule.reveal_consumed", view: host, step: 0.01,
+                    state: { ["schedule": schedule, "rows": rows.ids.count] }) { palette.reveal == nil }
     if consumed < 0 && palette.reveal == nil { consumed = Date().timeIntervalSince(started) }
     consumption.cancel()
     NotificationCenter.default.removeObserver(observer)
@@ -684,13 +735,17 @@ struct ArrivalView: View {
     let scene = await Scene(name, root: root, prior: 120, priorText: { "person message \($0) asks something" },
                             tray: [], pageDelay: delay, pageSize: size, revealOnMount: reveal, liveText: liveText,
                             pauseCatchup: true)
+    // Readiness flags are sampled with the position they describe.
     let opened = sample(scene.host)
+    let openedReadiness = scene.readiness()
     await settle(scene.host, seconds: 1.0)
     let later = sample(scene.host)
     await scene.stream(20)
     NotificationCenter.default.removeObserver(observer)
     let result: [String: Any] = ["after_open": opened, "a_second_later": later, "after_stream": sample(scene.host),
-                                 "caught_up": scene.caughtUp, "reveal_consumed": scene.palette.reveal == nil,
+                                 "caught_up": openedReadiness["caught_up"] as? Bool ?? false,
+                                 "reveal_consumed": !(openedReadiness["reveal_pending"] as? Bool ?? true),
+                                 "readiness_at_open": openedReadiness, "readiness_at_fold": scene.foldedReadiness,
                                  "notices": notices, "before_catchup": scene.beforeCatchup,
                                  "after_initial_reveal": scene.afterInitialReveal,
                                  "held_before_reveal": scene.heldBeforeReveal,
@@ -774,11 +829,13 @@ struct SettlingPageView: View {
     defer { NotificationCenter.default.removeObserver(observer); window.close() }
     await settle(host, seconds: 0.1)
     palette.reveal = SearchReveal(conversationID: cid, itemID: "person:live")
-    let deadline = Date().addingTimeInterval(60)
-    while palette.reveal != nil && Date() < deadline { await settle(host, seconds: 0.02) }
+    let state = { ["controlled": cid, "reveal_pending": palette.reveal != nil, "position": sample(host),
+                   "transition": page.transition] as [String: Any] }
+    await waitReady("controlled.reveal_consumed", view: host, state: state) { palette.reveal == nil }
     // Explicitly position at the end after the reveal and before releasing the
     // page. This does not generate a person-scroll/reveal or alter suspension.
-    while Date() < deadline {
+    let positioning = Date()
+    while true {
         if let scroll = timelineScroll(host), let document = scroll.documentView {
             let clip = scroll.contentView
             clip.scroll(to: NSPoint(x: 0, y: document.isFlipped ? max(0, document.frame.height - clip.bounds.height) : 0))
@@ -786,14 +843,18 @@ struct SettlingPageView: View {
         }
         await settle(host, seconds: 0.02)
         if (sample(host)["from_end"] ?? 1e9) <= 30 { break }
+        if Date().timeIntervalSince(positioning) >= readinessDeadline {
+            readinessExpired("controlled.positioned_at_end", seconds: readinessDeadline, state: state())
+        }
     }
+    ProbeWaits.log.append(["wait": "controlled.positioned_at_end", "elapsed": Date().timeIntervalSince(positioning)])
     let before = sample(host)
     page.atBottom = (before["from_end"] ?? 1e9) <= 30
     // Both original schedules are retained as stimuli, never as pass/fail bounds.
     // No page can arrive until all the above state has been established.
     await settle(host, seconds: delay)
     page.loaded = true
-    while page.transition.isEmpty && Date() < deadline { await settle(host, seconds: 0.02) }
+    await waitReady("controlled.key_transition", view: host, state: state) { !page.transition.isEmpty }
     await settle(host, seconds: 0.3)
     var result: [String: Any] = page.transition
     result["before_page"] = before
@@ -833,11 +894,17 @@ struct SettlingPageView: View {
 
 // Drive presentation until successive layout samples agree. Deadlines guard a
 // hung probe; neither a timestamp nor a fixed post-reveal sleep proves landing.
+// The away-from-end variant is a behavioral wait: its expiry is a bad landing,
+// reported with fewer than three stable samples for Python to reject. The
+// plain variant is readiness for a later baseline, so its expiry is loud.
 @MainActor func stablePosition(_ host: NSView, awayFromEnd: Bool = false) async
     -> (position: [String: Double], samples: Int) {
-    let deadline = Date().addingTimeInterval(60)
+    let started = Date()
+    let deadline = started.addingTimeInterval(awayFromEnd ? 60 : readinessDeadline)
     var previous: [String: Double] = [:]
     var stable = 0
+    defer { ProbeWaits.log.append(["wait": "stablePosition", "elapsed": Date().timeIntervalSince(started),
+                                   "away_from_end": awayFromEnd, "stable": stable]) }
     while Date() < deadline {
         await settle(host, seconds: 0.02)
         let current = sample(host)
@@ -851,6 +918,10 @@ struct SettlingPageView: View {
         stable = eligible && unchanged ? stable + 1 : 0
         if stable >= 3 { return (current, stable) }
         previous = current
+    }
+    if !awayFromEnd {
+        readinessExpired("stablePosition", seconds: readinessDeadline,
+                         state: ["position": sample(host), "previous": previous, "stable": stable])
     }
     return (sample(host), stable)
 }
@@ -887,8 +958,9 @@ struct SettlingPageView: View {
     var landed = (position: start, samples: 0)
     if let match {
         scene.palette.activate(match)
-        let deadline = Date().addingTimeInterval(60)
-        while scene.palette.reveal != nil && Date() < deadline { await settle(scene.host, seconds: 0.02) }
+        await waitReady("far.reveal_consumed", view: scene.host, state: { scene.readiness() }) {
+            scene.palette.reveal == nil
+        }
         landed = await stablePosition(scene.host, awayFromEnd: true)
     }
     let beforeOutput: [String: Any] = ["position": landed.position, "stable_samples": landed.samples,
@@ -944,27 +1016,78 @@ struct SettlingPageView: View {
             "last_arrival_at": lastArrivalAt, "horizon_max_drift": watch.maxDrift]
 }
 
+// The unpaused opening reveal also records a failure trace (round 6): every
+// reveal request and completion, each follow decision and suspension change,
+// every presented clip geometry, and catch-up state at the opening sample.
+// Python reports the suspension release and the first unexpected scroll.
 @MainActor func farOpening(_ name: String, root: URL, delay: Double, size: Int) async -> [String: Any] {
     var notices = 0
+    let started = Date()
+    var host: NSView?
+    var trace: [[String: Any]] = []
+    var geometry: [[String: Any]] = []
+    var requests: [[String: Any]] = []
+    var completions: [[String: Any]] = []
+    var boundsObserver: NSObjectProtocol?
+    func at() -> Double { Date().timeIntervalSince(started) }
+    func position() -> [String: Double] { host.map { sample($0) } ?? [:] }
     let observer = NotificationCenter.default.addObserver(forName: .conversationRowScroll, object: nil,
                                                           queue: .main) { note in
         if note.object as? String == name { notices += 1 }
     }
+    // Synchronous observers timestamp each request and completion when posted.
+    let requestObserver = NotificationCenter.default.addObserver(forName: .conversationRowScroll, object: nil,
+                                                                 queue: nil) { note in
+        guard note.object as? String == name else { return }
+        MainActor.assumeIsolated { requests.append(["at": at(), "position": position()]) }
+    }
+    let completionObserver = NotificationCenter.default.addObserver(forName: .conversationRowScrollCompleted,
+                                                                    object: nil, queue: nil) { note in
+        guard note.object as? String == name else { return }
+        MainActor.assumeIsolated { completions.append(["at": at(), "position": position()]) }
+    }
+    ConversationFollowTest.record = { cid, entry in
+        guard cid == name else { return }
+        trace.append(entry.merging(["at": at(), "position": position()]) { _, new in new })
+    }
+    defer {
+        ConversationFollowTest.record = nil
+        NotificationCenter.default.removeObserver(observer)
+        NotificationCenter.default.removeObserver(requestObserver)
+        NotificationCenter.default.removeObserver(completionObserver)
+        if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
+    }
     let scene = await Scene(name, root: root, prior: 120,
                             priorText: { "person message \($0) asks something" }, tray: [],
-                            pageDelay: delay, pageSize: size, revealOnMount: "person:m000040")
-    defer { NotificationCenter.default.removeObserver(observer); scene.close() }
+                            pageDelay: delay, pageSize: size, revealOnMount: "person:m000040",
+                            onMount: { mounted in
+        host = mounted
+        let clip = timelineScroll(mounted)?.contentView
+        clip?.postsBoundsChangedNotifications = true
+        boundsObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
+                                                                object: clip, queue: nil) { _ in
+            MainActor.assumeIsolated { geometry.append(["at": at(), "position": position()]) }
+        }
+    })
+    defer { scene.close() }
     let opened = sample(scene.host)
+    let openedReadiness = scene.readiness()
+    let openedAt = at()
     await scene.stream(20)
-    return ["after_open": opened, "after_stream": sample(scene.host), "caught_up": scene.caughtUp,
-            "reveal_consumed": scene.palette.reveal == nil, "notices": notices]
+    return ["after_open": opened, "after_stream": sample(scene.host),
+            "caught_up": openedReadiness["caught_up"] as? Bool ?? false,
+            "reveal_consumed": !(openedReadiness["reveal_pending"] as? Bool ?? true), "notices": notices,
+            "opened_at": openedAt, "readiness_at_open": openedReadiness,
+            "readiness_at_fold": scene.foldedReadiness, "trace": trace, "geometry": geometry,
+            "requests": requests, "completions": completions]
 }
 
 // Review r3's settling replay: reveal while catch-up is held, then resume the
 // actual paginated model with only marker-disappearance publication delayed.
 @MainActor func settlingReveal(_ root: URL, mode: String) async -> [String: Any] {
     let hooked = mode == "stale"
-    let reveal: String? = mode == "plain" ? nil : mode == "near" ? "person:live" : "person:m000040"
+    let early = mode == "near-early"
+    let reveal: String? = mode == "plain" ? nil : mode == "near" || early ? "person:live" : "person:m000040"
     let started = Date()
     var timeline: [[String: Any]] = []
     ConversationFollowTest.disappearanceDelay = hooked ? 3 : 0
@@ -983,9 +1106,14 @@ struct SettlingPageView: View {
     }
     let scene = await Scene(mode, root: root, prior: 120,
                             priorText: { "person message \($0) asks something" }, tray: [],
-                            pageDelay: 0.1, pageSize: 20, revealOnMount: reveal, pauseCatchup: true)
+                            pageDelay: early ? 0.5 : 0.1, pageSize: 20, revealOnMount: reveal, pauseCatchup: true,
+                            silentFoldDeadline: early ? 2 : nil)
     defer { scene.close() }
+    // Readiness flags are sampled with the position they describe (review r5:
+    // a later caught_up could not show whether after_open read a ready scene).
     let opened = sample(scene.host)
+    let openedReadiness = scene.readiness()
+    let openedAt = Date().timeIntervalSince(started)
     let watch = PositionWatch(scene.host, baseline: opened)
     await scene.stream(20)
     let afterStream = sample(scene.host)
@@ -993,12 +1121,24 @@ struct SettlingPageView: View {
     await settle(scene.host, seconds: 3.2)
     watch.stop()
     let horizon = sample(scene.host)
+    // The checkpoint replay also waits out catch-up, to show where the view
+    // settles once the scene is actually ready.
+    var whenReady: [String: Any] = [:]
+    if early {
+        await scene.waitFolded(scene.seq, "near_early.caught_up")
+        await settle(scene.host, seconds: 1.2)
+        whenReady = ["position": sample(scene.host), "readiness": scene.readiness(),
+                     "at": Date().timeIntervalSince(started)]
+    }
     scene.close()
-    return ["mode": mode, "hooked": hooked, "held_before_reveal": scene.heldBeforeReveal,
+    return ["mode": mode, "hooked": hooked, "held_before_reveal": scene.heldBeforeReveal, "when_ready": whenReady,
             "before_catchup": scene.beforeCatchup, "after_initial_reveal": scene.afterInitialReveal,
             "after_open": opened, "after_stream": afterStream, "horizon": horizon,
-            "max_drift": watch.maxDrift, "caught_up": scene.caughtUp,
-            "reveal_consumed": scene.palette.reveal == nil, "timeline": timeline,
+            "max_drift": watch.maxDrift, "caught_up": openedReadiness["caught_up"] as? Bool ?? false,
+            "reveal_consumed": !(openedReadiness["reveal_pending"] as? Bool ?? true),
+            "opened_at": openedAt, "readiness_at_open": openedReadiness,
+            "readiness_at_fold": scene.foldedReadiness, "caught_up_at_end": scene.caughtUp,
+            "readiness_waits": ProbeWaits.log, "timeline": timeline,
             "visible_windows": NSApp.windows.filter(\.isVisible).count]
 }
 
@@ -1040,10 +1180,12 @@ struct SettlingPageView: View {
         scene.close()
     }
     scene.palette.reveal = SearchReveal(conversationID: name, itemID: "person:m000010")
-    let deadline = Date().addingTimeInterval(60)
-    while scene.palette.reveal != nil && Date() < deadline { await settle(scene.host, seconds: 0.02) }
+    await waitReady("live_turn.reveal_consumed", view: scene.host, state: { scene.readiness() }) {
+        scene.palette.reveal == nil
+    }
     await scene.waitFolded(scene.seq)
     let landed = await stablePosition(scene.host)
+    let landedReadiness = scene.readiness()
     let watch = PositionWatch(scene.host, baseline: landed.position)
     await scene.push { seq in
         seq += 1
@@ -1055,8 +1197,9 @@ struct SettlingPageView: View {
     let live = scene.model.state.timelines[name]?.liveMessageID ?? ""
     scene.close()
     return ["injected": injected, "injection_suspended": injectionSuspended,
-        "reveals": reveals, "reveal_consumed": scene.palette.reveal == nil,
-        "caught_up": scene.caughtUp, "live_message": live,
+        "reveals": reveals, "reveal_consumed": !(landedReadiness["reveal_pending"] as? Bool ?? true),
+        "caught_up": landedReadiness["caught_up"] as? Bool ?? false, "readiness_at_landing": landedReadiness,
+        "live_message": live,
         "landed": landed.position, "landed_stable_samples": landed.samples,
         "after_stream": after, "max_drift": watch.maxDrift, "timeline": timeline,
         "visible_windows": NSApp.windows.filter(\.isVisible).count]
@@ -1163,6 +1306,7 @@ final class RevealArrivals: @unchecked Sendable {
     // cover each presented geometry from the first request to landing.
     var geometry: [[String: Any]] = []
     var requests: [String] = []
+    var requestedAt: [Double] = []
     var completions: [[String: Any]] = []
     var awaitingPresentation = false
     var injectedJump: [String: Any] = [:]
@@ -1202,6 +1346,13 @@ final class RevealArrivals: @unchecked Sendable {
         guard note.object as? String == name else { return }
         completions.append(["at": Date().timeIntervalSince(started), "position": sample(scene.host),
                             "request": (note.userInfo?["request"] as? UUID)?.uuidString ?? ""])
+    }
+    // The .main observers above may run a turn after the post. This one runs
+    // as the reveal posts its request, before that request's scroll.
+    let requestObserver = NotificationCenter.default.addObserver(forName: .conversationRowScroll,
+                                                                 object: nil, queue: nil) { note in
+        guard note.object as? String == name else { return }
+        MainActor.assumeIsolated { requestedAt.append(Date().timeIntervalSince(started)) }
     }
     let folded = scene.model.$state.sink { state in
         let cursor = state.timelines[name]?.cursor ?? 0
@@ -1317,31 +1468,44 @@ final class RevealArrivals: @unchecked Sendable {
         NotificationCenter.default.removeObserver(startObserver)
         NotificationCenter.default.removeObserver(boundsObserver)
         NotificationCenter.default.removeObserver(completionObserver)
+        NotificationCenter.default.removeObserver(requestObserver)
         scene.close()
     }
     let results = SearchIndex(scene.model.state.searchCandidates()).search(word)?.results ?? []
     let match = results.first { $0.snippet?.itemID == "person:m000010" }
     started = Date()
     if let match { scene.palette.activate(match) }
-    let deadline = Date().addingTimeInterval(60)
+    let deadline = Date().addingTimeInterval(readinessDeadline)
     if interval == 0 && boundary == nil && !replay {
         // The early-input scenes need UIModel's two main-queue round trips to
         // fold the page before the first notice. Repeated forced AppKit layout
         // here can monopolize that queue for longer than the reveal's sleep.
         // Pump delivery without forcing presentation until the input folds;
         // the real reveal task and both of its timers continue running.
-        while folds.count < count && Date() < deadline {
+        while folds.count < count {
+            if Date() >= deadline {
+                readinessExpired("streaming.early_input_folded", seconds: readinessDeadline,
+                                 state: scene.readiness().merging(["folds": folds.count, "count": count]) { _, new in new })
+            }
             RunLoop.main.run(until: Date().addingTimeInterval(0.001))
             try? await Task.sleep(nanoseconds: 1_000_000)
         }
     }
-    while scene.palette.reveal != nil && Date() < deadline { await settle(scene.host, seconds: 0.02) }
+    await waitReady("streaming.reveal_consumed", view: scene.host, state: { scene.readiness() }) {
+        scene.palette.reveal == nil
+    }
     // The survivor's later output folded before its landing was captured.
-    while replay && folds.count < count && Date() < deadline { await settle(scene.host, seconds: 0.02) }
+    if replay {
+        await waitReady("streaming.replay_folded", view: scene.host,
+                        state: { scene.readiness().merging(["folds": folds.count, "count": count]) { _, new in new } }) {
+            folds.count >= count
+        }
+    }
     // Do not require distance inside the wait: a bad landing must be reported
     // promptly and rejected by Python, rather than hidden behind a timeout.
     let landed = await stablePosition(scene.host)
     let landedAt = Date().timeIntervalSince(started)
+    let landedReadiness = scene.readiness()
     let watch = PositionWatch(scene.host, baseline: landed.position)
     defer { watch.stop() }
     await producer?.value
@@ -1366,7 +1530,8 @@ final class RevealArrivals: @unchecked Sendable {
             "boundary_arrival_at": boundaryArrival,
             "folded_seq": scene.model.state.timelines[name]?.cursor ?? 0, "target_seq": scene.seq,
             "landed": landed.position, "landed_stable_samples": landed.samples, "landed_at": landedAt,
-            "geometry": geometry, "requests": requests, "completions": completions,
+            "geometry": geometry, "requests": requests, "requested_at": requestedAt, "completions": completions,
+            "readiness_at_landing": landedReadiness,
             "replay": replay, "injected_jump": injectedJump,
             "quiet": quiet.position, "after_more": afterMore.position, "horizon": final,
             "horizon_at": Date().timeIntervalSince(started), "horizon_max_drift": watch.maxDrift]

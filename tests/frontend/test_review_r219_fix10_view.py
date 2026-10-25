@@ -4,9 +4,15 @@ import json
 import pytest
 
 from tests.frontend.conftest import needs_swift, run_probe, write_json
-from tests.frontend.test_review_r219_fix8_view import fix8_view_binary
+from tests.frontend.test_review_r219_fix8_view import END, fix8_view_binary
 
 pytestmark = needs_swift
+DISTANT = 600
+# A distant reveal's destination is its row, not the end. Lazy row measurement
+# re-centres that row after the final scroll: an unmutated loaded run moved 358 pt
+# with no follow decision (round 6). The interval bound is therefore the scenes'
+# own distant margin; review r5's surviving jump moved 7,774 pt.
+REVEAL_HOLD = 600
 FAR = {"far_quiet": 0, "far_text_50ms": 50, "far_text_120ms": 21,
        "far_rows_150ms": 17, "far_rows_400ms": 7}
 
@@ -46,11 +52,46 @@ def test_distant_search_reveal_lands_and_keeps_position(distant_reveals, name):
     assert run["horizon_max_drift"] <= 2, diagnostic
 
 
+def opening_trace(run):
+    """Classify a failed unpaused opening from its own capture: catch-up state at the
+    opening sample, each suspension release, the presented geometry and the first
+    scroll that brought the revealed view toward the end."""
+    trace, geometry = run.get("trace", []), run.get("geometry", [])
+    releases, suspended = [], False
+    for entry in trace:
+        if "suspended" not in entry:
+            continue
+        if suspended and not entry["suspended"]:
+            releases.append({"at": entry["at"], "trigger": entry["event"], "position": entry.get("position")})
+        suspended = entry["suspended"]
+    requests = run.get("requests", [])
+    landing = None
+    if requests:
+        landing = next((g for g in geometry if g["at"] >= requests[-1]["at"]), None)
+    unexpected = None
+    if landing:
+        later = [g for g in geometry if g["at"] > landing["at"]]
+        for previous, current in zip([landing] + later, later):
+            toward_end = previous["position"].get("from_end", 0) - current["position"].get("from_end", 0)
+            if toward_end > END or current["position"].get("from_end", 1e9) <= DISTANT:
+                decision = [e for e in trace if e["at"] <= current["at"] and e["event"] == "move"]
+                source = decision[-1] if decision and decision[-1]["move"] == "jump" else None
+                unexpected = {"at": current["at"], "from": previous["position"], "to": current["position"],
+                              "source": source or "no follow jump recorded before it"}
+                break
+    return {"readiness_at_open": run.get("readiness_at_open"), "readiness_at_fold": run.get("readiness_at_fold"),
+            "opened_at": run.get("opened_at"), "requests": requests, "completions": run.get("completions"),
+            "suspension_releases": releases, "reveal_landing": landing,
+            "first_unexpected_scroll": unexpected, "geometry": geometry}
+
+
 @pytest.mark.parametrize("delay", ["250", "100"])
 def test_distant_search_reveal_during_catchup_keeps_position(distant_reveals, delay):
     """Settling-follow coverage; the stream begins after reveal consumption."""
     run = distant_reveals[f"open_reveal_{delay}"]
-    diagnostic = json.dumps(run, sort_keys=True)
+    # A failure dumps its own classification trace (the 100 ms case's historical
+    # 24 pt landing was never captured with one).
+    diagnostic = json.dumps({"failure_trace": opening_trace(run), "run": run}, sort_keys=True)
     assert run["caught_up"] and run["reveal_consumed"] and run["notices"] == 2, diagnostic
     assert run["after_open"]["from_end"] > 600, diagnostic
     assert abs(run["after_stream"]["offset"] - run["after_open"]["offset"]) <= 2, diagnostic
@@ -77,10 +118,57 @@ def streaming_reveals(fix8_view_binary, tmp_path_factory):
     return result
 
 
+def presented_geometry(run):
+    """Every presented clip geometry: bounds changes as they happen, and the 25 ms samples."""
+    samples = [{"at": g["at"], "position": g["position"], "source": "bounds"} for g in run["geometry"]]
+    samples += [{"at": e["at"], "position": e["position"], "source": e["event"]}
+                for e in run["timeline"] if e["event"] in ("position", "presented")]
+    return sorted((s for s in samples if "offset" in s["position"]), key=lambda s: s["at"])
+
+
+def reveal_destination(run):
+    """The final reveal request's first presented geometry: its own scroll, else the next sample."""
+    requested = (run.get("requested_at") or run["notices_at"])[-1]
+    after = [s for s in presented_geometry(run) if requested <= s["at"] <= run["landed_at"]]
+    return next((s for s in after if s["source"] == "bounds"), after[0] if after else None)
+
+
+def assert_reveal_reaches_destination(run):
+    """(a) The reveal presents a distant destination before landing is trusted. The row
+    is this scene's destination; the conversation's end is not."""
+    diagnostic = json.dumps(run, sort_keys=True)
+    destination = reveal_destination(run)
+    assert destination is not None, "no presented geometry after the final request: " + diagnostic
+    assert destination["position"]["from_end"] > DISTANT, \
+        "reveal presented at " + json.dumps(destination) + ": " + diagnostic
+
+
+def assert_reveal_interval_holds(run):
+    """(b) Every presented geometry from the destination to the landing baseline stays
+    within REVEAL_HOLD of it and distant from the end. While the follow is engaged
+    (not suspended, end visible), the view stays within END of the end."""
+    diagnostic = json.dumps(run, sort_keys=True)
+    destination = reveal_destination(run)
+    follow = sorted((e for e in run["timeline"] if "suspended" in e), key=lambda e: e["at"])
+    for sample in presented_geometry(run):
+        if not destination["at"] <= sample["at"] <= run["landed_at"]:
+            continue
+        moved = abs(sample["position"]["offset"] - destination["position"]["offset"])
+        detail = json.dumps({"destination": destination, "sample": sample, "moved": moved}) + ": " + diagnostic
+        state = [e for e in follow if e["at"] <= sample["at"]]
+        if state and not state[-1]["suspended"] and state[-1]["at_bottom"]:
+            assert sample["position"]["from_end"] <= END, "an engaged follow left the end: " + detail
+        assert moved <= REVEAL_HOLD, "the view left the reveal's destination: " + detail
+        assert sample["position"]["from_end"] > DISTANT, "the view reached the end before landing: " + detail
+
+
 def assert_stream_retains_position(run, *, events, pages, at_least=False):
     diagnostic = json.dumps(run, sort_keys=True)
     assert run["found"] and run["caught_up"] and run["reveal_consumed"], diagnostic
     assert len(run["notices_at"]) == 2 and run["reveal_starts"] == 1, diagnostic
+    # Validate the reveal and the whole interval before trusting its landing baseline.
+    assert_reveal_reaches_destination(run)
+    assert_reveal_interval_holds(run)
     assert not run["producer_deadline_exceeded"], diagnostic
     if at_least:
         assert run["pushed"] >= events and run["arrival_pages"] == run["pushed"], diagnostic
