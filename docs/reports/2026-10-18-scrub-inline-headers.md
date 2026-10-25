@@ -1030,7 +1030,7 @@ Each holds for every input, with its stated exception and scope, and is executed
   - **This head:** 0 texts show anything 473fe2941, `c2e080e44` or `3fbc4b7c5` hides; 0 splits; 0 reveals. The two reference trees give the same output on every text.
   - **`c469f44b6`:** 1,992 texts show a value both references hide: the 1,560 line-start cells and 432 joins. So the class beyond review r4 is in its joins too.
   - **Against the heads before:** this head shows nothing `902cfe90a` or `c469f44b6` hid, but in three joins (`detail_line` only, each a `SECRET7c3` that both references show too). Each holds a line-start header whose name a fold cut at `c469f44b6` (the class above), which left that header's lone `--password` unredacted. In daemon.log's folded line the inline rule then read that name as a header and took the rest of the line, a later `SECRET7c3` with it. This head redacts the header and its flag in the first scrub, so the folded line's inline value starts with `[REDACTED]` and is left alone, keeping the words after it, as C-23.14 states and both references keep them. The first of the three: `Cookie: --password\nSECRET7ab1Authorization\u2028: --password\n\nSECRET7c3\n\nx\r\nxSECRET7ab1-Cookie\x1c: x\n\nSECRET7c3`, whose excerpt at this head hides the first `SECRET7c3`, which `c469f44b6` showed.
-- **The whole rules matrix** (61,440 cells): pending, its run is under way.
+- **The whole rules matrix,** 61,440 cells, run once (the brief's full run): at this head, 0 cells show anything 473fe2941, `c2e080e44` or `3fbc4b7c5` hides, 0 splits, 0 reveals, and the reference trees agree on every cell. It stays out of the default run behind `SF_SCRUB_FULL_MATRIX=1`, as round 3 left it.
 
 ### Mutations
 
@@ -1081,7 +1081,7 @@ Pending: the holds were queued through `suite_hold.sh` from 21:59Z.
   - invariant 6 as a 2,700-cell property, and invariants 1 to 5 re-run over round 3's generators and this round's classes;
   - every regression failing at `c469f44b6`, every pin, the mutations, the real-tree differential and the whole rules matrix;
   - C-23.14's amendments with their change-log entry, and this report's correction under round 3's Cost.
-- **Pending:** the holds, the cost rows and the whole rules matrix (above).
+- **Pending:** the holds and the cost rows (above).
 - **Follow-ups for the hub:** round 3's, with these:
   - **Three `detail_line` values `c469f44b6` hid show again** (the differential, above). Both references show them, and C-23.14 states why: an inline value that already starts with `[REDACTED]` is left alone in daemon.log's folded line. They were hidden only because the fold this round fixed left a header's lone flag unredacted for that line to take.
   - **A refused `Bearer`'s line still ends a header's lone flag early, as P3-1's fold did.** `Authorization: Bearer`, `Set-Cookie: --api-key` and `SECRET7c3` on three lines shows `SECRET7c3` in the excerpt, whole and `clean` modes, as at `902cfe90a`, at `c469f44b6` and in both references, so it is no leak and no regression. C-23.14's lone-flag sentence claims the fold case only. Taking P3-1's rule to `_refused_bearer` too would close it; that is the hub's call.
