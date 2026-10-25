@@ -1072,7 +1072,20 @@ Each change was taken out on its own, in a copy of the worktree's `subfleet` at 
 
 ### Cost
 
-Pending: the cost hold was queued under the wrapper at 22:10Z.
+`cost.py` loads this head and `c2e080e44` in one process and measures each in turn, in CPU time: the rows best of seven (five for the 1 MiB row), and the excerpt scrub of each unit at 65,536 and 262,144 characters, best of five. The units are P3-1's adversary (round 2's `_adversary`), the count test's nine, and four lines of this round's classes. **These ran as plain probes outside the lock,** as review r4's did, at load 30 to 90: the wrapper's hold was queued at 22:10Z and again at 23:08Z, and had not got a slot when this was written (Tests, below).
+
+| Row | This head (`ce77f5d77`) | `c2e080e44` | Head / `c2e080e44` | Before the per-line answer (`f3179a865`) | Review r4 |
+|---|---|---|---|---|---|
+| Excerpt scrub, 262,144 characters of P3-1's adversary | 8.44 ms | 8.68 ms | 0.973 | 1.032 | 1.234, 0.901, 1.264 |
+| 1 MiB refusal through `detail_line` | 27.53 ms | 27.06 ms | 1.017 | 1.001 | 0.988, 1.133, 1.031 |
+| Excerpt growth at 4× input, 16 units | 1.33–5.19, and 31.21 on one unit (below) | 2.50–5.55 | – | 2.62–4.50, and 315.59 and 69.29 on two units | 2.48–8.67 |
+
+- **The rows are within 1.3× of `c2e080e44`,** before and after the per-line answer.
+- **The two outliers before the per-line answer** were P3-1's cost (Findings, above). After it, `flag-folds-sharing-a-line` grows 4.45×.
+- **The one outlier after it, 31.21× on `quoted-inline-at-header-names`,** compares two shapes: where `cost.py` cuts the repetition, the 65,536-character line ends cleanly, so its first fold takes the line, and the 262,144-character line ends in a flag glued to the trailer. With the same ending at both sizes (whole units, then the trailer, half the text each), the two affected units grow 3.18× to 4.60× at this head and 2.31× to 5.49× at `c2e080e44`.
+- **Absolute cost, that re-measure at 262,144 characters:** this head is 0.44× to 1.17× of `c2e080e44` on three of those four shapes, and 2.66× (217 ms against 81.6 ms) on quoted inline headers at header names before a line that ends in a flag. That is a constant factor, from 4.29× growth: this head redacts each header there with its flag, where `c469f44b6`'s line fold took the line at once (40 ms) and `c2e080e44` reads each header without folds. It is not one of the review's rows.
+- **The counts** are under P3-3 above: every count unit grows at most 4×, and so do the two new ones.
+- **MQ1** was not measured again; see P3-3.
 
 ### Tests
 
@@ -1086,7 +1099,7 @@ Pending: the holds were queued through `suite_hold.sh` from 21:59Z.
   - invariant 6 as a 2,700-cell property, and invariants 1 to 5 re-run over round 3's generators and this round's classes;
   - every regression failing at `c469f44b6`, every pin, the mutations, the real-tree differential and the whole rules matrix;
   - C-23.14's amendments with their change-log entry, and this report's correction under round 3's Cost.
-- **Pending:** the holds and the cost rows (above).
+- **Pending:** the holds, and the cost rows under the wrapper (Cost, above).
 - **Follow-ups for the hub:** round 3's, with these:
   - **Three `detail_line` values `c469f44b6` hid show again** (the differential, above). Both references show them, and C-23.14 states why: an inline value that already starts with `[REDACTED]` is left alone in daemon.log's folded line. They were hidden only because the fold this round fixed left a header's lone flag unredacted for that line to take.
   - **A refused `Bearer`'s line still ends a header's lone flag early, as P3-1's fold did.** `Authorization: Bearer`, `Set-Cookie: --api-key` and `SECRET7c3` on three lines shows `SECRET7c3` in the excerpt, whole and `clean` modes, as at `902cfe90a`, at `c469f44b6` and in both references, so it is no leak and no regression. C-23.14's lone-flag sentence claims the fold case only. Taking P3-1's rule to `_refused_bearer` too would close it; that is the hub's call.
