@@ -286,3 +286,209 @@ The files: `unit/test_conversation_connections.py`,
 None of them imports `lane_verdict`, `fleet_causes`, `closure_line` or the hold
 note. They are in the set because they match "limited", "dispatchable",
 "alerts" or "status". CI on the branch's head is the full check.
+
+
+## Round r1 (review r1 of #263, 2026-10-25)
+
+Review r1 (GPT-6.1 Sol, REQUEST_CHANGES at `0ced5dde3`) found one P2 and four
+P3s. This round builds the hub's six decisions on `8b27040a2` (`0ced5dde3`
+with release/217 `4ddb47c6f` merged in), in steps: red tests, one commit per
+decision, the mutants, then the contract and this section.
+
+### The decisions, as built
+
+1. **P2: a note that carries a credential is refused, not masked.**
+   - `contracts.hold_note` keeps the line rule and then raises ValueError with
+     `HOLD_NOTE_CREDENTIAL_RULE`, `--note must not carry a credential (the
+     C-23.14 scrubber would change it)`, when `ids.holds_credential` flags the
+     stripped note. That is the test C-1.5 applies to a request id and C-25.7
+     to a correlation id: the scrubber, read whole and from just after each
+     `-` or `_`. The import is lazy, because `ids` imports `contracts`.
+   - The CLI (`cmd_lanes`) and the daemon (`_hold_lane`) print the exception's
+     message, so each refusal names its own rule. The reason stays
+     `hold-note` and the exit stays 2. The wire builds its text from the
+     refusal table, never from an exception (C-25.7), so the template is now
+     `lanes hold: {hold_rule}`, and `hold_rule` is a checked value whose only
+     choices are the two contract rules (`refusals._choices`). Its
+     less-specific form is the line rule.
+   - No refusal, log line, event or error detail holds the note. The
+     ValueError carries only the rule, the daemon raises `from None`, and its
+     details are `{"hold_rule": <rule>}`. The tests check `str`, `args`,
+     `details` and `fix` of the error, the encoded wire reply, the daemon.log
+     line (`refusals.detail_line`), every row of every table in the store, and
+     the bytes of every file under the state root, for five dummy shapes.
+   - Readers, as a backstop: `hold_note_of` returns `HOLD_NOTE_WITHHELD`,
+     `[note withheld: it would carry a credential]`, for a stored note that
+     `holds_credential` flags. `closure_row` then shows that hold's
+     `source_event` as `operator: [note withheld: …]` too
+     (`contracts.hold_source_shown`), because `status --json` carries
+     `source_event` beside `note`. Status text (`render`), `status --json`
+     (daemon and offline), the fleet-empty body (`closure_note`) and
+     `_timer_notice` (the body) all read the note through `hold_note_of`.
+   - **One addition:** a stored note longer than `HOLD_NOTE_MAX` is withheld
+     too, without being read. `holds_credential` scrubs from each joiner, so
+     its work grows with the square of the length. Measured here at load
+     about 130: 42.5 s for a 10,000-character note with 5,000 hyphens, and
+     4.35 s for 2,000 characters. No writer here stores such a note.
+2. **P3-1: the account-closure short circuit comes back, in release's
+   order.** *Deviation from the decision's placement.* The decision put the
+   account test in `dispatchable`, before `_admission_verdict`. A test proved
+   that order wrong for one malformed shape. With closures `[<account hold>,
+   None]` and any readings, release/217 raises `AttributeError`: its
+   `auth-dead` scan reaches the `None` before its account test. The
+   decision's order answers `False`. The smallest change that keeps the
+   decision's intent is release's own order: `_admission_verdict` tests for
+   an account closure after `auth-dead` and `disabled` and before the
+   readings, returning `limited` as release's `lane_verdict` did.
+   `dispatchable` is unchanged. A closed lane is refused without its
+   evidence being read, and every lane answers or raises exactly as
+   release's function did (216 hand-built malformed combinations, then the
+   property below).
+3. **P3-2: the hold answer enriches nested closure rows.**
+   `status_json.closure_rows(view)` converts a capacity view's rows, the
+   fleet's and each lane's, with `closure_row`. `daemon.status` and
+   `_hold_lane` both call it, so the two cannot drift.
+4. **P3-3: the source guard reads syntax trees.**
+   `operator_comparisons(*roots)` parses each `*.py` under `subfleet/` and
+   `tools/`. It flags an `ast.Compare` using `==`, `!=`, `in` or `not in` with
+   the constant `"operator"` (or a tuple, list or set holding it) on one side
+   and a `source_event` subscript, attribute or `.get("source_event")` call on
+   the other, in either order. It also flags SQL in a string constant that
+   compares the column with `'operator'`, which was the old guard's SQL rule.
+   `startswith("operator")` and `hold_note_of`'s prefix test pass. The fault
+   cases (one line, two lines, `.get(...) !=`, `in ("operator",)`, an
+   attribute against a set, the constant first, and SQL) are modules under
+   pytest's temporary folder. A clean module passes.
+5. **P3-4: I3 checks every rendered count.** `check_fleet_empty` parses the
+   body, with the operators' notes masked first. Every cause it names
+   carries the condition's count for that cause, in C-18.4's order, and a
+   cause with no lane is not named. The review's `1 disabled` → `disabled`
+   mutation is now a test and mutant M8.
+6. **Invariants, amended.** I4 now covers the accepted text, the session
+   notice and the credential refusal. I5 is new. See below.
+7. **Contract.** C-9.6 states the credential rule, the refusal's two texts,
+   that nothing echoes the note, the only hold writer, and the withheld
+   note. C-18.4 states that the hold answer's nested rows carry `kind` and
+   `note` too, and that a withheld note's `source_event` is the one field
+   that changes. The D-STATUS-SRC1 change-log entry is extended. C-17.1
+   names only the verb and is unchanged. The README sentence on the note
+   names the credential rule.
+
+**The ordinary-note property, bounded.** *A counterexample to the decision's
+wording.* "An ordinary note (letters, digits, spaces, `:;,./()-`) is always
+accepted" is false over that whole alphabet. These notes use only those
+characters, and the scrubber masks each one:
+- `x` × 160 and `abc/` × 40 (a 160-character base64 run);
+- `sk-` and 16 letters;
+- `AKIA` and 16 capitals;
+- the JWT shape `eyJabcdefgh.abcdefgh.abcdefgh`;
+- `token: x`, `passwd:x` and `--token abc` (a key word and its value);
+- `cookie: x` (a header);
+- `Bearer abcdefgh`.
+
+So `hold_note` refuses them all, which is decision 1 working.
+`test_i5_the_plain_alphabet_can_spell_a_credential_shape_and_that_is_refused`
+pins them. The smallest change that keeps the property's intent (the
+credential check never refuses what an operator writes) is to draw ordinary
+notes as words:
+- of 1 to 18 characters of that alphabet, which is under the shortest token
+  shape the scrubber reads (`sk-` and 16 characters);
+- none of which contains a key word the scrubber reads (`key`, `token`,
+  `secret`, `pass`, `cookie`, `authoriz`, `credential`, `bearer`, `base64`);
+- joined by spaces, up to 160 characters.
+
+Every word of the hub's own notes (`codex-open:`, `disk`, `brake`, `load`,
+`140`, `running`, `cap`) is such a word. The old I4 example `x` × 160, a
+160-character base64 run, is now refused, so the longest-accepted example is a
+160-character note of ordinary words (`LONGEST`).
+
+### Every writer of a hold (decision 1)
+
+`git grep` for `add_closure(`, `put_closure(`, `OPERATOR_HOLD`,
+`INTO closures` and `UPDATE closures` under `subfleet/` and `tools/`:
+
+| Site | What it writes | The note |
+| --- | --- | --- |
+| `daemon.py` `_hold_lane` (`lanes hold`) | the `operator-hold` closure and the `lane.held` event | through `hold_note`, before the transaction |
+| `daemon.py` re-enrollment (`lanes enroll` of a new binding) | copies each open closure but `auth-dead` of the old binding to the new lane | copies the stored `source_event` as it is; it makes no new text |
+| `daemon.py` attempt settlement (two sites), `timers.py` probe cycle | an adapter's or the probe's limit closure (`provider-limit`, `credits`, `cooldown`) | not a hold; the source is a fixed event name (`wham`, `result-text`, the rate-limit event) |
+| `importer.py` v1 cooldowns | `cooldown` closures, `source_event` `v1-cooldown` | not a hold |
+| `store.py` `put_closure`/`add_closure` | the store API every site above calls | — |
+| `daemon.py` `lanes release`, `release --limits`; `actions.py`, `timers.py` releases | `released_at` only | none |
+| `tools/measure_idle_cost.py` | a `provider-limit` closure in a measuring tool's own store | not a hold |
+
+The CLI has no store-direct path for a hold: with the daemon down, `lanes hold`
+exits with the daemon-unavailable error and writes nothing.
+
+### The `lanes release --limits --note` finding (out of scope, reported)
+
+That note is stripped and must be nonblank. Nothing else is checked: no length
+or printable rule and no credential check. It is stored only in the
+`lane.limits_released` event's data. No code in `subfleet/`, `app/` or
+`tools/` reads that event kind back: the readers of `lane.held` and
+`lane.released` (`timers.py`, `actions.py`) read only `until`, and
+`Store.list_events` has no caller. The daemon's answer carries the released
+closure ids, not the note, and the CLI prints counts only. So that note
+reaches neither status, its JSON, the alerts nor a session notice. It does sit
+in the store as written. Whether it should share the hold note's rule is the
+hub's call.
+
+### Other readers that pass a closure's `source_event` raw (out of scope, reported)
+
+These answers carry closure rows as the store holds them. With an accepted
+note that is the note `lanes hold` accepted. Only a row from a writer outside
+`lanes hold` could carry a flagged one, and these readers would then show it:
+- the `lanes` list op (`lanes[*].closures`, `subfleet lanes list --json`);
+- the `readings` op's `closures`;
+- the `lanes release --limits` answer;
+- `subfleet errors`, which prints each closure row created in its window as
+  JSON;
+- the stuck-pin and route records `why` shows.
+
+None is status, `status --json`, an alert or a notice. Routing them through
+`hold_source_shown` is a one-line change at each site, if the hub wants it.
+
+### Invariants, round r1
+
+- **I1.** `dispatchable(lane)` equals release/217's function for every lane.
+  The well-formed differential is unchanged (3,000 examples).
+  `test_i1_with_malformed_evidence_dispatchable_answers_or_raises_as_release_did`
+  adds 3,000 more over malformed evidence, plus four pinned cases:
+  - readings: None, `[None]`, non-mapping entries, and mappings missing their
+    keys;
+  - closure rows missing `scope` or `reason`, and non-mapping closure rows.
+
+  The two functions must give the same answer, or raise the same exception
+  class.
+- **I2.** Unchanged (3,000 examples).
+- **I3.** As before, and now every count the fleet-empty body renders equals
+  the condition's count for that cause, in C-18.4's order, and a cause with
+  no lane is not named (1,500 fleets).
+- **I4.** A note `hold_note` accepts round-trips exactly into each of these:
+  - the closure row;
+  - the `lane.held` event;
+  - `daemon.status` at both levels;
+  - the offline reader;
+  - the status text;
+  - the fleet-empty body;
+  - the session notice that body becomes (`_timer_notice` with
+    `alerts.operator_session` set).
+
+  A note it refuses is refused with exit 2, reason `hold-note` and the wire
+  text of the rule it broke. The store is left unchanged: no closure and no
+  event. The 60 generated examples now include a 160-character ordinary note
+  and two credential shapes, and the oracle is the spec: the line rule, then
+  `holds_credential`.
+- **I5 (new).** No text the C-23.14 scrubber would change reaches the store,
+  status, the alerts or a notice through a hold.
+  - Notes are printable text with a dummy credential spliced in:
+    `api_key=…`, `sk-…`, `glpat-…`, `xoxb-…` or `Bearer …`, alone or after a
+    word and a `-` or `_` joiner. That is 150 examples plus three pinned.
+  - A refused note leaves the store's closure and event counts unchanged,
+    and the dummy value is in no row.
+  - An accepted note has `holds_credential` false. Every surface it reaches
+    is left alone by the scrubber, read whole and from each joiner: the
+    event's note, the status line, the fleet-empty body, the notice text,
+    and each hold row's `note` and `source_event` at both levels.
+  - Paired with the ordinary-note property: every such note is accepted,
+    and round-trips through `source_event` (400 examples).
