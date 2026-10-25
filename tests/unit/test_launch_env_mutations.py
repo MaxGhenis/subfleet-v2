@@ -349,3 +349,136 @@ def test_named_transfer_repair_regression_kills_writing_only_owner(tmp_path, mon
     monkeypatch.setattr(lanes_transfer, "_repair_refused_row", lambda row, lane, home: None)
     with repair_root(tmp_path) as world, pytest.raises(AssertionError):
         transfer_repair_oracle(world, "v1", dry_run)
+
+
+# --- review r2 of #248 (D-ENV2, P3-2): each decision's named regression kills its mutant ---
+
+
+def mutant_code(function, transformer):
+    """`function`'s own code recompiled from its source after `transformer` rewrites
+    it. Swapped into the live function object (`__code__`), the mutant reaches every
+    caller, including those that imported the function by name."""
+    function = inspect.unwrap(function)
+    tree = transformer.visit(ast.parse(textwrap.dedent(inspect.getsource(function))))
+    assert transformer.found, "mutation did not find its site"
+    tree.body[0].decorator_list = []
+    ast.increment_lineno(tree, function.__code__.co_firstlineno - 1)    # tracebacks name the file's lines
+    ast.fix_missing_locations(tree)
+    namespace = dict(function.__globals__)
+    exec(compile(tree, inspect.getfile(function), "exec", flags=__future__.annotations.compiler_flag), namespace)
+    return namespace[function.__name__].__code__
+
+
+class ScopeNamesDropped(ast.NodeTransformer):
+    """Decision 2's mutant: `build_environment` withholds its argument alone, as at release."""
+    found = False
+
+    def visit_Assign(self, node):
+        if (any(isinstance(target, ast.Name) and target.id == "withheld" for target in node.targets)
+                and isinstance(node.value, ast.BinOp)):
+            node.value = node.value.left
+            self.found = True
+        return node
+
+
+class CodexWithheldDropped(ast.NodeTransformer):
+    """Decision 3's mutant: the isolated branch selects with no withheld names, as at release."""
+    found = False
+
+    def visit_Call(self, node):
+        self.generic_visit(node)
+        if (isinstance(node.func, ast.Name) and node.func.id == "build_environment"
+                and any(keyword.arg == "withheld" for keyword in node.keywords)):
+            node.keywords = [keyword for keyword in node.keywords if keyword.arg != "withheld"]
+            self.found = True
+        return node
+
+
+class NamesReadAtEntry(ast.NodeTransformer):
+    """I3's mutant: the scope reads its withheld names once, when it opens."""
+    found = False
+
+    def visit_Tuple(self, node):
+        self.generic_visit(node)
+        if len(node.elts) == 1 and isinstance(node.elts[0], ast.Name) and node.elts[0].id == "withheld":
+            node.elts = [ast.parse("lambda names=frozenset(withheld()): names", mode="eval").body]
+            self.found = True
+        return node
+
+
+class ScopeNeverReset(ast.NodeTransformer):
+    """I4's mutant: the scope's withheld names are never reset on exit."""
+    found = False
+
+    def visit_Try(self, node):
+        self.generic_visit(node)
+        kept = [statement for statement in node.finalbody if "_HELPER_WITHHELD.reset" not in ast.unparse(statement)]
+        if len(kept) < len(node.finalbody):
+            node.finalbody, self.found = kept, True
+        return node
+
+
+@pytest.mark.parametrize("family", ["salvage", "retention_git", "gate-merge", "conversation-catalog", "wakes"])
+def test_named_helper_scope_regression_kills_dropping_the_scopes_names(tmp_path, monkeypatch, family):
+    """P3-2, decision 2: `build_environment` withholds its `withheld` argument
+    alone again, so each helper family under the daemon's scope inherits the held
+    lane's hook. The control, unmutated, passes first."""
+    from tests.unit.test_launch_env_round8 import (
+        held_hook_daemon, test_each_helper_family_withholds_the_daemons_names_under_its_scope as family_oracle,
+    )
+    with held_hook_daemon(tmp_path) as service:
+        family_oracle(service, tmp_path, monkeypatch, family)
+        monkeypatch.setattr(launch_env.build_environment, "__code__",
+                            mutant_code(launch_env.build_environment, ScopeNamesDropped()))
+        with pytest.raises(AssertionError, match="withheld hook reached a helper child"):
+            family_oracle(service, tmp_path, monkeypatch, family)
+
+
+@pytest.mark.parametrize("case", ["held-lane", "ignored-row"])
+def test_named_codex_inspection_regression_kills_dropping_its_explicit_withheld(tmp_path, monkeypatch, case):
+    """P3-2, decision 3: the isolated branch selects with no withheld names again.
+    Outside every scope the inspection then receives the hook (review r2's
+    result); inside the daemon's worker scope the scope alone still covers it."""
+    from tests.fake.test_launch_env_helper_scope import (
+        test_review_r2_the_isolated_inspection_receives_no_withheld_hook as inspection_oracle,
+    )
+    for name in ("control", "scoped", "mutant"):
+        (tmp_path / name).mkdir()
+    inspection_oracle(tmp_path / "control", monkeypatch, case, "no-scope")
+    monkeypatch.setattr(CodexAdapter._launch, "__code__", mutant_code(CodexAdapter._launch, CodexWithheldDropped()))
+    inspection_oracle(tmp_path / "scoped", monkeypatch, case, "worker")
+    with pytest.raises(AssertionError, match="the inspection received the withheld hook"):
+        inspection_oracle(tmp_path / "mutant", monkeypatch, case, "no-scope")
+
+
+@pytest.mark.parametrize("oracle", ["changing-set", "lane-held-later"])
+def test_named_scope_regression_kills_reading_the_names_once_at_entry(tmp_path, monkeypatch, oracle):
+    """I3: a scope that reads its names when it opens misses a set that changes
+    in it, and a lane held after it opened."""
+    from tests.unit import test_launch_env_round8 as round8
+
+    def run(directory):
+        directory.mkdir()
+        if oracle == "changing-set":
+            round8.test_i3_the_scope_reads_its_names_at_each_call()
+        else:
+            round8.test_i3_a_lane_held_after_the_scope_opened_is_withheld(directory, monkeypatch)
+
+    run(tmp_path / "control")
+    monkeypatch.setattr(inspect.unwrap(launch_env.helper_policy), "__code__",
+                        mutant_code(launch_env.helper_policy, NamesReadAtEntry()))
+    with pytest.raises(AssertionError, match="read its names when it opened|the lane held later is covered"):
+        run(tmp_path / "mutant")
+
+
+def test_named_scope_regression_kills_never_resetting_the_names(monkeypatch):
+    """I4: a scope that never resets its names leaks them past its exit. The
+    mutant runs in a copied context, so its leak cannot reach later tests."""
+    import contextvars
+    from tests.unit.test_launch_env_round8 import test_i4_an_exception_inside_a_scope_leaks_no_names as oracle
+    oracle()
+    monkeypatch.setattr(inspect.unwrap(launch_env.helper_policy), "__code__",
+                        mutant_code(launch_env.helper_policy, ScopeNeverReset()))
+    with pytest.raises(AssertionError, match="outlived it"):
+        contextvars.copy_context().run(oracle)
+    assert launch_env._HELPER_WITHHELD.get() == ()
