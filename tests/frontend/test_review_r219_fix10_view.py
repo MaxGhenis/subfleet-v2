@@ -106,15 +106,48 @@ def test_stream_arrives_before_first_reveal_notice(streaming_reveals, kind, dela
     assert run["arrivals_at"][0] <= run["folds_at"][0] < run["notices_at"][0], diagnostic
 
 
-@pytest.mark.parametrize("kind,events", [("text", 50), ("tool", 17)])
-def test_background_stream_crosses_both_notices_and_consumption(streaming_reveals, kind, events):
-    run = streaming_reveals[f"background_{kind}"]
+def check_background_stream(run, *, events):
     diagnostic = json.dumps(run, sort_keys=True)
     assert_stream_retains_position(run, events=events, pages=events, at_least=True)
     first, second = run["notices_at"]
     assert run["arrivals_at"][0] < first < second <= run["consumed_at"] < run["arrivals_at"][-1], diagnostic
     assert any(first < at < second for at in run["arrivals_at"]), diagnostic
     assert run["folds_at"][-1] > run["consumed_at"], diagnostic
+
+
+@pytest.mark.parametrize("kind,events", [("text", 50), ("tool", 17)])
+def test_background_stream_crosses_both_notices_and_consumption(streaming_reveals, kind, events):
+    check_background_stream(streaming_reveals[f"background_{kind}"], events=events)
+
+
+# The checks that must reject a reveal which jumps away from its destination
+# before landing is captured (review r5's surviving overlap-loss replay).
+REVEAL_CHECKS = {"assert_reveal_reaches_destination", "assert_reveal_interval_holds"}
+
+
+def test_background_checks_reject_replayed_overlap_jump(fix8_view_binary, tmp_path):
+    """Review r5's survivor as a fixed schedule: 50 events, 15 between the notices
+    and four after consumption, with its 177-pt-short jump injected after consumption."""
+    result = run_probe(fix8_view_binary, tmp_path, "fix10-streaming-replayed_jump", timeout=240)
+    write_json(tmp_path / "result.json", result)
+    run = result["replayed_jump"]
+    diagnostic = json.dumps(run, sort_keys=True)
+    print("replayed overlap jump: " + diagnostic)
+    assert result["visible_windows"] == 0, diagnostic
+    first, second = run["notices_at"]
+    consumed = run["consumed_at"]
+    assert run["replay"] and run["pushed"] == 50 and run["arrival_pages"] == 50, diagnostic
+    assert sum(first < at < second for at in run["arrivals_at"]) == 15, diagnostic
+    assert sum(at > consumed for at in run["arrivals_at"]) == 4, diagnostic
+    jump = run["injected_jump"]
+    assert jump and jump["to"]["offset"] - jump["from"]["offset"] > 3000, diagnostic
+    assert jump["to"]["from_end"] <= 200 and jump["at"] > consumed, diagnostic
+    # The survivor's signature: it lands more than 600 pt from the end and then
+    # holds with zero drift, so every pre-round-6 position check accepts it.
+    assert run["landed"]["from_end"] > 600 and run["horizon_max_drift"] == 0, diagnostic
+    with pytest.raises(AssertionError) as rejected:
+        check_background_stream(run, events=50)
+    assert rejected.traceback[-1].name in REVEAL_CHECKS, rejected.getrepr(style="short")
 
 
 def test_trailing_stream_waits_for_late_reveal_consumption(streaming_reveals):

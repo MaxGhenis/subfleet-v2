@@ -1123,20 +1123,30 @@ final class RevealArrivals: @unchecked Sendable {
 @MainActor func streamingReveal(_ name: String, root: URL, kind: String,
                                 delay: Double = 0, interval: Double = 0,
                                 boundary: String? = nil, staleMarker: Bool = false,
-                                consumptionPause: Double = 0, firstNoticePause: Double = 0) async -> [String: Any] {
+                                consumptionPause: Double = 0, firstNoticePause: Double = 0,
+                                replay: Bool = false) async -> [String: Any] {
     let word = "zebraneedle"
     let scene = await Scene(name, root: root, prior: 30,
                             priorText: { $0 == 10 ? "person message \($0) \(word) here" : "person message \($0) asks something" },
                             tray: [], immediateDelivery: true)
     await scene.stream(30)
     // Exact counts for early/boundary scenes; minimum counts for ongoing streams.
+    // The replay is review r5's surviving overlap-loss schedule as fixed counts:
+    // 31 events before the first notice, 15 between the notices, 4 after consumption.
+    let replayBefore = 31, replayBetween = 15, replayAfter = 4
     let firstSequence = scene.seq + 1
-    let count = boundary != nil ? 10 : interval > 0 ? Int((2.5 / interval).rounded(.up)) : 1
+    let count = replay ? replayBefore + replayBetween + replayAfter
+        : boundary != nil ? 10 : interval > 0 ? Int((2.5 / interval).rounded(.up)) : 1
     var events: [[String: Any]] = []
     for index in 1...count {
         scene.seq += 1
+        // The survivor's later output moved it from 177 to 627 pt from the end
+        // before landing was captured; the replay's last four chunks grow as much.
+        let text = replay && index > replayBefore + replayBetween
+            ? (0..<8).map { "overlap chunk \(index) line \($0)" }.joined(separator: "\n") + "\n"
+            : "overlap chunk \(index)\n"
         events.append(event(scene.seq, "live", kind == "text" ? "text.delta" : "tool.started",
-                            kind == "text" ? ["block": "live", "text": "overlap chunk \(index)\n"]
+                            kind == "text" ? ["block": "live", "text": text]
                             : ["id": "overlap\(index)", "name": "Read", "summary": "file \(index)"]))
     }
     let arrivals = RevealArrivals()
@@ -1148,6 +1158,15 @@ final class RevealArrivals: @unchecked Sendable {
     var started = Date()
     var producer: Task<Void, Never>?
     var timeline: [[String: Any]] = []
+    // Every clip-bounds change, delivered synchronously as it happens, and each
+    // reveal request's completion. Together with the passive samples below they
+    // cover each presented geometry from the first request to landing.
+    var geometry: [[String: Any]] = []
+    var requests: [String] = []
+    var completions: [[String: Any]] = []
+    var awaitingPresentation = false
+    var injectedJump: [String: Any] = [:]
+    var replayStarted = false
     ConversationFollowTest.disappearanceDelay = staleMarker ? 3 : 0
     ConversationFollowTest.record = { cid, entry in
         guard cid == name else { return }
@@ -1157,13 +1176,33 @@ final class RevealArrivals: @unchecked Sendable {
     let positionTimer = Timer(timeInterval: 0.025, repeats: true) { _ in
         MainActor.assumeIsolated {
             let position = sample(scene.host)
-            if position != previousPosition {
-                timeline.append(["event": "position", "at": Date().timeIntervalSince(started), "position": position])
+            // The first display tick after a reveal request is recorded even if
+            // the request left the geometry unchanged.
+            if position != previousPosition || awaitingPresentation {
+                timeline.append(["event": awaitingPresentation ? "presented" : "position",
+                                 "at": Date().timeIntervalSince(started), "position": position,
+                                 "request_index": requests.count])
                 previousPosition = position
+                awaitingPresentation = false
             }
         }
     }
     RunLoop.main.add(positionTimer, forMode: .common)
+    let clip = timelineScroll(scene.host)?.contentView
+    clip?.postsBoundsChangedNotifications = true
+    let boundsObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
+                                                                object: clip, queue: nil) { _ in
+        MainActor.assumeIsolated {
+            geometry.append(["at": Date().timeIntervalSince(started), "position": sample(scene.host),
+                             "request_index": requests.count])
+        }
+    }
+    let completionObserver = NotificationCenter.default.addObserver(forName: .conversationRowScrollCompleted,
+                                                                    object: nil, queue: .main) { note in
+        guard note.object as? String == name else { return }
+        completions.append(["at": Date().timeIntervalSince(started), "position": sample(scene.host),
+                            "request": (note.userInfo?["request"] as? UUID)?.uuidString ?? ""])
+    }
     let folded = scene.model.$state.sink { state in
         let cursor = state.timelines[name]?.cursor ?? 0
         if cursor >= firstSequence {
@@ -1184,8 +1223,15 @@ final class RevealArrivals: @unchecked Sendable {
         if notices.isEmpty && firstNoticePause > 0 { Thread.sleep(forTimeInterval: firstNoticePause) }
         let at = Date().timeIntervalSince(started)
         notices.append(at)
+        requests.append((note.userInfo?["request"] as? UUID)?.uuidString ?? "")
+        awaitingPresentation = true
         if (boundary == "first_notice" && notices.count == 1)
             || (boundary == "second_notice" && notices.count == 2) { burst(at: at) }
+        if replay && notices.count == 1 {
+            for next in events[replayBefore..<(replayBefore + replayBetween)] {
+                arrivals.push([next], to: scene.daemon, at: Date().timeIntervalSince(started))
+            }
+        }
         // Model a slow presentation turn after the second notice. The detached
         // producer keeps its cadence throughout this pause and after consumption.
         if notices.count == 2 && consumptionPause > 0 { Thread.sleep(forTimeInterval: consumptionPause) }
@@ -1194,6 +1240,14 @@ final class RevealArrivals: @unchecked Sendable {
                                                                object: nil, queue: .main) { note in
         guard note.object as? String == name else { return }
         starts += 1
+        if replay {
+            guard !replayStarted else { return }
+            replayStarted = true
+            for next in events[0..<replayBefore] {
+                arrivals.push([next], to: scene.daemon, at: Date().timeIntervalSince(started))
+            }
+            return
+        }
         guard boundary == nil && producer == nil else { return }
         let daemon = scene.daemon
         let epoch = started
@@ -1231,6 +1285,25 @@ final class RevealArrivals: @unchecked Sendable {
             consumed = Date().timeIntervalSince(started)
             arrivals.recordConsumption()
             if boundary == "consumption" { burst(at: consumed) }
+            if replay {
+                // The survivor's loss, injected by the probe after consumption:
+                // a jump from the landed reveal to 177 pt short of the end (r5:
+                // offset 2,928 -> 10,702), then its four later arrivals.
+                DispatchQueue.main.async {
+                    if let scroll = timelineScroll(scene.host), let document = scroll.documentView {
+                        let clip = scroll.contentView
+                        let before = sample(scene.host)
+                        let end = max(0, document.frame.height - clip.bounds.height)
+                        clip.scroll(to: NSPoint(x: 0, y: document.isFlipped ? max(0, end - 177) : 177))
+                        scroll.reflectScrolledClipView(clip)
+                        injectedJump = ["at": Date().timeIntervalSince(started), "from": before,
+                                        "to": sample(scene.host)]
+                    }
+                    for next in events[(replayBefore + replayBetween)...] {
+                        arrivals.push([next], to: scene.daemon, at: Date().timeIntervalSince(started))
+                    }
+                }
+            }
         }
     }
     defer {
@@ -1242,6 +1315,8 @@ final class RevealArrivals: @unchecked Sendable {
         consumption.cancel()
         NotificationCenter.default.removeObserver(observer)
         NotificationCenter.default.removeObserver(startObserver)
+        NotificationCenter.default.removeObserver(boundsObserver)
+        NotificationCenter.default.removeObserver(completionObserver)
         scene.close()
     }
     let results = SearchIndex(scene.model.state.searchCandidates()).search(word)?.results ?? []
@@ -1249,7 +1324,7 @@ final class RevealArrivals: @unchecked Sendable {
     started = Date()
     if let match { scene.palette.activate(match) }
     let deadline = Date().addingTimeInterval(60)
-    if interval == 0 && boundary == nil {
+    if interval == 0 && boundary == nil && !replay {
         // The early-input scenes need UIModel's two main-queue round trips to
         // fold the page before the first notice. Repeated forced AppKit layout
         // here can monopolize that queue for longer than the reveal's sleep.
@@ -1261,9 +1336,12 @@ final class RevealArrivals: @unchecked Sendable {
         }
     }
     while scene.palette.reveal != nil && Date() < deadline { await settle(scene.host, seconds: 0.02) }
+    // The survivor's later output folded before its landing was captured.
+    while replay && folds.count < count && Date() < deadline { await settle(scene.host, seconds: 0.02) }
     // Do not require distance inside the wait: a bad landing must be reported
     // promptly and rejected by Python, rather than hidden behind a timeout.
     let landed = await stablePosition(scene.host)
+    let landedAt = Date().timeIntervalSince(started)
     let watch = PositionWatch(scene.host, baseline: landed.position)
     defer { watch.stop() }
     await producer?.value
@@ -1287,7 +1365,9 @@ final class RevealArrivals: @unchecked Sendable {
             "folds_at": delivered.sequences.compactMap { folds[$0] },
             "boundary_arrival_at": boundaryArrival,
             "folded_seq": scene.model.state.timelines[name]?.cursor ?? 0, "target_seq": scene.seq,
-            "landed": landed.position, "landed_stable_samples": landed.samples,
+            "landed": landed.position, "landed_stable_samples": landed.samples, "landed_at": landedAt,
+            "geometry": geometry, "requests": requests, "completions": completions,
+            "replay": replay, "injected_jump": injectedJump,
             "quiet": quiet.position, "after_more": afterMore.position, "horizon": final,
             "horizon_at": Date().timeIntervalSince(started), "horizon_max_drift": watch.maxDrift]
 }
@@ -1309,6 +1389,9 @@ final class RevealArrivals: @unchecked Sendable {
         if only == delayedName {
             out[delayedName] = await streamingReveal(delayedName, root: root, kind: kind,
                 interval: kind == "text" ? 0.05 : 0.15, firstNoticePause: 3)
+        }
+        if kind == "text" && only == "replayed_jump" {
+            out["replayed_jump"] = await streamingReveal("replayed_jump", root: root, kind: kind, replay: true)
         }
         let staleName = "stale_\(kind)"
         if only == staleName {
