@@ -30,6 +30,7 @@ import ast
 import contextlib
 import os
 from pathlib import Path
+import textwrap
 import threading
 from types import SimpleNamespace
 
@@ -474,10 +475,12 @@ def test_each_helper_family_withholds_the_daemons_names_under_its_scope(daemon, 
 # --- source pins: every scope passes the daemon's set; every call site is classified ---------------
 
 
-def calls(name):
-    """(path, enclosing function, call node) for each call of `name` in the package."""
+def calls(name, package=None):
+    """(path, enclosing function, call node) for each call of `name` in the package
+    (`subfleet/`, or the scratch `package` a lint test writes)."""
+    package = PACKAGE if package is None else package
     found = []
-    for path in sorted(PACKAGE.rglob("*.py")):
+    for path in sorted(package.rglob("*.py")):
         tree, stack = ast.parse(path.read_text()), []
 
         class Visitor(ast.NodeVisitor):
@@ -491,7 +494,7 @@ def calls(name):
             def visit_Call(self, node):
                 func = node.func
                 if (func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)) == name:
-                    found.append((path.relative_to(PACKAGE.parent).as_posix(), ".".join(stack), node))
+                    found.append((path.relative_to(package.parent).as_posix(), ".".join(stack), node))
                 self.generic_visit(node)
 
         Visitor().visit(tree)
@@ -506,12 +509,120 @@ SCOPES_WITHOUT_THE_DAEMONS_SET = {
 }
 
 
+def scopes_without_the_daemons_set(package=None):
+    """(path, function) of each `helper_policy` use in the package that opens a
+    scope without the daemon's withheld names."""
+    return {(path, function) for path, function, node in calls("helper_policy", package)
+            if not any(keyword.arg == "withheld" for keyword in node.keywords)}
+
+
 def test_every_helper_scope_passes_the_daemons_withheld_names():
     """Source lint: every `helper_policy(` call passes `withheld=`, or is listed
     with its reason; a listed one that starts passing it must leave the list."""
-    without = {(path, function) for path, function, node in calls("helper_policy")
-               if not any(keyword.arg == "withheld" for keyword in node.keywords)}
-    assert without == set(SCOPES_WITHOUT_THE_DAEMONS_SET)
+    assert scopes_without_the_daemons_set() == set(SCOPES_WITHOUT_THE_DAEMONS_SET)
+
+
+def scratch_package(tmp_path, source):
+    """A scratch `subfleet` package of one module, which the lint reads as it reads the real one."""
+    package = tmp_path / "subfleet"
+    package.mkdir()
+    (package / "scratch.py").write_text(textwrap.dedent(source))
+    return package
+
+
+#: The real entries' spellings, which the lint accepts. Each refusal test below
+#: puts its opt-out beside them, so a lint that refused every scope could not pass.
+ACCEPTED = '''
+    from . import launch_env
+    from .launch_env import helper_policy
+
+    def bound(self):
+        with helper_policy(getattr(self, "policy", {}), withheld=self._helper_withheld):
+            pass
+
+    def looked_up(daemon):
+        with helper_policy(daemon.policy, withheld=getattr(daemon, "_helper_withheld", None)):
+            pass
+
+    def through_the_module(timers):
+        with launch_env.helper_policy(timers.policy, withheld=timers._withheld):
+            pass
+'''
+
+
+def test_the_lint_accepts_the_daemons_own_spellings(tmp_path):
+    """The control: a `withheld=` the lint cannot evaluate, `getattr(..., None)`
+    included, is not an opt-out."""
+    assert scopes_without_the_daemons_set(scratch_package(tmp_path, ACCEPTED)) == set()
+
+
+def test_the_lint_refuses_withheld_none(tmp_path):
+    """Review r1 of #262, P3-1: `withheld=None` opens a scope without the daemon's
+    set, exactly as a missing keyword does, so the lint refuses it the same way."""
+    package = scratch_package(tmp_path, ACCEPTED + '''
+    def opted_out(policy):
+        with helper_policy(policy, withheld=None):
+            pass
+    ''')
+    assert scopes_without_the_daemons_set(package) == {("subfleet/scratch.py", "opted_out")}
+
+
+def test_the_lint_refuses_double_star_keywords(tmp_path):
+    """P3-1: a call with `**` keywords is refused, with or without `withheld=`
+    beside them, since the lint cannot read what they hold."""
+    package = scratch_package(tmp_path, ACCEPTED + '''
+    def spread(policy, options):
+        with helper_policy(policy, **options):
+            pass
+
+    def beside(daemon, options):
+        with helper_policy(daemon.policy, withheld=daemon._helper_withheld, **options):
+            pass
+    ''')
+    assert scopes_without_the_daemons_set(package) == {("subfleet/scratch.py", "spread"),
+                                                       ("subfleet/scratch.py", "beside")}
+
+
+#: Uses of `helper_policy` the lint cannot follow to their calls, and the function
+#: each is refused in ("" for a module-level import).
+ALIASED = {
+    "import-as": ("", '''
+    from .launch_env import helper_policy as scope
+
+    def aliased(policy):
+        with scope(policy):
+            pass
+    '''),
+    "assignment": ("aliased", '''
+    def aliased(policy):
+        scope = helper_policy
+        with scope(policy):
+            pass
+    '''),
+    "module-attribute": ("aliased", '''
+    def aliased(policy):
+        scope = launch_env.helper_policy
+        with scope(policy):
+            pass
+    '''),
+    "argument": ("aliased", '''
+    import functools
+
+    def aliased(policy):
+        with functools.partial(helper_policy, policy)():
+            pass
+    '''),
+}
+
+
+@pytest.mark.parametrize("alias", sorted(ALIASED))
+def test_the_lint_refuses_helper_policy_through_an_alias(tmp_path, alias):
+    """P3-1: a use of `helper_policy` other than a direct call or an import under
+    its own name (an `import ... as`, an assignment, an argument) is refused where
+    it is written, since the calls made through it cannot be followed."""
+    function, source = ALIASED[alias]
+    package = scratch_package(tmp_path, ACCEPTED + source)
+    assert scopes_without_the_daemons_set(package) == {("subfleet/scratch.py", function)}
 
 
 SCOPE = "daemon: only inside a helper scope ({})"
