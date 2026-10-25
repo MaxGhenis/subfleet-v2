@@ -150,15 +150,18 @@ def test_private_overlay_bytes_remain_the_original_reviewed_pair():
     """The reviewed pair, byte for byte. Revised once since the 2026-09-05 copy
     (hook a60d1c51…, TRUST 0b9d688e…): D-LANE-SCOPE1 (2026-10-24) added
     ~/.subfleet and each direct child of it to the unscoped-search roots, and
-    TRUST pins those bytes. That TRUST is the installed one of 2026-09-29
-    (b3193b97…, the codex-cli 0.159.0 pin, kept as the rollback) with the new
-    hook hash and one appended provenance sentence. Any other edit fails here;
-    tests/unit/test_guard_subfleet_root.py rebuilds the original from this one."""
+    its r2 (2026-10-25) read $SUBFLEET_ROOT and $SUBFLEET_HOME as spellings of
+    ~/.subfleet; TRUST pins those bytes. That TRUST is the installed one of
+    2026-09-29 (b3193b97…, the codex-cli 0.159.0 pin; with hook a60d1c51… it is
+    the rollback) with the new hook hash and two appended provenance sentences.
+    The 2026-09-05 TRUST (0b9d688e…) pins codex-cli 0.153.3 and must never be
+    staged. Any other edit fails here; tests/unit/test_guard_subfleet_root.py
+    rebuilds the original from this one."""
     repo = Path(__file__).resolve().parents[2]
     directory = repo / "private/guard"
     expected = {
-        "never-rules-hook.sh": "1a736be3c968e5c1dc6bb7d63019f540b06d1cc619913e6bb8e4e057e536f951",
-        "TRUST": "84167543b7962855c9d35afe25204f8b6f59ada6d44c9fd16b0d0ab3f483e8a9",
+        "never-rules-hook.sh": "dbe21e1d9a2ed3f57a7675fd09d3f8cacb2f73a6bfec7fd22e800da3691a041c",
+        "TRUST": "aa09f53d283919930070e0ef576b73191e5f7fcc37af5d1955455bf21b96a2f0",
     }
     for name, digest in expected.items():
         assert hashlib.sha256((directory / name).read_bytes()).hexdigest() == digest

@@ -29,8 +29,12 @@ TRUST = "private/guard/TRUST"
 #: behind the installed TRUST (0.159.0) that this revision's TRUST is built on.
 BASE = "abe117e676b042b0cc8b4208dc25da52820221e2"
 NEW_ROOTS = "|\\.subfleet(/[^/[:space:]'\\\"]+)?"
+#: r2 (the hub's review r1, P2-3): $SUBFLEET_ROOT / $SUBFLEET_HOME as spellings of ~/.subfleet, and the
+#: ${…} normalization on both `judged` lines.
+ENV_ROOTS = "|\\\\\\$SUBFLEET_(ROOT|HOME)(/[^/[:space:]'\\\"]+)?"
+ENV_SED = " s/\\$[{]SUBFLEET_ROOT[}]/$SUBFLEET_ROOT/g; s/\\$[{]SUBFLEET_HOME[}]/$SUBFLEET_HOME/g'"
 OLD_HOOK_SHA256 = "a60d1c514d3a3bcec68c246a33c849c11fd37e1bdf60d886650cd9d6651390db"
-NEW_HOOK_SHA256 = "1a736be3c968e5c1dc6bb7d63019f540b06d1cc619913e6bb8e4e057e536f951"
+NEW_HOOK_SHA256 = "dbe21e1d9a2ed3f57a7675fd09d3f8cacb2f73a6bfec7fd22e800da3691a041c"
 ROOT_CORE = 'root_core="/|/\\\\*|/Users/?|(${broad_re})/?"'
 
 # name -> (file, old text, new text, the named test that must kill it)
@@ -44,6 +48,8 @@ MUTATIONS = {
     "trust-hash-stale": (TRUST, None, None, "test_trust_pins_the_new_hook_bytes"),
     # The hub review's finding: a TRUST built on the repository's stale copy rolls the lane pin back.
     "trust-built-on-repo-copy": (TRUST, None, None, "test_trust_keeps_the_installed_lane_pin"),
+    # r2: the env spellings dropped (their broad_re alternative and their ${…} normalization).
+    "env-spellings-dropped": (HOOK, None, None, "test_env_spellings_of_subfleet_are_denied"),
 }
 FENCE = "test_only_the_roots_the_header_and_the_message_changed"
 
@@ -76,7 +82,10 @@ def mutate(tree: Path, name: str) -> None:
         path.write_text(json.dumps(base, indent=2) + "\n", encoding="utf-8")
         return
     text = path.read_text(encoding="utf-8")
-    if name == "trailing-slash-missed":
+    if name == "env-spellings-dropped":
+        assert text.count(ENV_ROOTS) == 1 and text.count(ENV_SED) == 2, (text.count(ENV_ROOTS), text.count(ENV_SED))
+        text = text.replace(ENV_ROOTS, "").replace(ENV_SED, "'").replace("/$HOME/g;'", "/$HOME/g'")
+    elif name == "trailing-slash-missed":
         assert text.count(NEW_ROOTS) == 1 and text.count(ROOT_CORE) == 1
         text = text.replace(NEW_ROOTS, "").replace(
             ROOT_CORE, ROOT_CORE[:-1] + "|(/Users/[^/[:space:]'\\\"]+|~|\\\\\\$HOME)/\\.subfleet"
