@@ -14,8 +14,8 @@ so. What the code did, read at `1c3bfc4f2`:
 
 - `status_json.lane_verdict` returned `limited` for any open account-scope
   closure, holds included, whenever the lane carried no cycle verdict (after a
-  restart, say). A held lane is never read (C-18.1), so a cycle's `limited` from
-  before the hold also stayed on it.
+  restart, say). Otherwise it kept the last cycle's verdict, from before the
+  hold, since a held lane is never read (C-18.1): `ok`, or a stale `limited`.
 - `alerts.evaluate_conditions` raised `"<provider>: <home> <scope> limited"` for
   every closure but `auth-dead`. A held Codex lane's alert was
   `codex-scoped-limit:<email>:account`, a held Claude lane's `claude-limit:<until>`.
@@ -95,6 +95,12 @@ so. What the code did, read at `1c3bfc4f2`:
    - The condition also carries `causes`, the count for each cause.
    - Severity is `warn` when every one of those lanes is held by an operator.
      Otherwise it is today's: critical for Codex, warn for Claude.
+   - Once, at upgrade: a latch an operator hold raised before (a
+     `codex-scoped-limit:…:account` or `claude-limit:<until>` key) sees its
+     condition gone on the first cycle and clears. Where no other condition is
+     in force on that home, C-23.52 sends one `recovered: <home>` notice, and
+     only when `alerts.operator_session` is set. The hold itself stays in force
+     and `status` shows it.
 
    *Interpretation.* The brief's example ended "…, 0 provider-limited". I3 says
    "limited" appears only when a lane is provider-limited, so a cause with no
@@ -110,7 +116,7 @@ so. What the code did, read at `1c3bfc4f2`:
    - Lane rows: `status.json`'s rows carry `held` where they carried `limited`.
      `subfleet status`'s text rows never showed a verdict; they now flag `held`
      or `limited` from the closures in force. With the daemon down, the store's
-     unreleased rows include ended ones, so the flag reads the end.
+     unreleased rows include ended ones, so the flag checks each row's end.
    - Closure rows in `status --json` gain `kind` (`hold`, `limit` or `auth`) and
      `note` (null when there is none). This covers the daemon's `closures` and
      each lane's `closures`, the offline reader's, and the `lanes hold` answer.
@@ -237,7 +243,7 @@ with teardown. The files it had not reached were then run in a later hold.
 | 4 (07:33) | `aa1d1bfe7` | The rest of set A: `test_operator_notices.py` and the 12 files after it | **552 passed** in 158 s |
 | 4, e2e (07:36) | `aa1d1bfe7` | `e2e/test_conversations.py`, `test_http_isolation.py`, `test_milestone2_claude.py`, `test_reserve.py`, with the lane markers set | **41 passed, 15 skipped**. The skips are the person-only tests, which skip inside a lane. |
 | 3 (07:48) | `aa1d1bfe7` | Keep-green set B: 70 fake, frontend and unit files | **395 passed**, 0 failed, over the first 18 files. It stopped at its bound in `frontend/test_core_queue_tray.py`, after `fake/test_admission_stateful.py` (17 stateful examples, each a daemon) had taken most of the hold. |
-| 5 (08:08) | `aa1d1bfe7` | The rest of set B: 53 files, from `test_core_queue_tray.py` on | RESULTS_HOLD5 |
+| 5 (08:08) | `aa1d1bfe7` | The rest of set B: 53 files, the unit files first, then the frontend ones | **914 passed, 3 failed** over the first 7 files (`test_claude_adapter`, `test_claude_cards`, `test_claude_large_stream`, `test_cli`, `test_cli_turns`, `test_codex_probe`, `test_compat`), at load 146 to 165, before it stopped at its bound. The 3 failures are wall-clock bounds in `test_cli.py`: `test_wait_backs_off_when_the_long_poll_returns_at_once` (pause order), `test_ping_open_pipe_is_bounded[partial message]` (0.751 s against 0.75 s) and `test_ping_continuous_input_has_a_total_deadline` (2.39 s against 0.75 s). Those paths are `wait` and `ping`, which this change does not touch, and all three passed in hold 1, at load 22, in the same `test_cli.py`. An A/B rerun of the three, on this tree and on `1c3bfc4f2`, was queued at 08:31. It had not got the lock by 08:44 and was withdrawn at the job's time limit. |
 
 The keep-green set is every test file that
 `git grep -lE "limited\|no dispatchable"` finds, every one that names
@@ -250,3 +256,33 @@ and only after a 900 s wait. Every test in the brief's grep
 (`git grep -l "limited\|no dispatchable" tests`) is in the set.
 `.hypothesis` was kept in the scratch directory, and the one a stray
 `strategy.example()` call left in the worktree was removed.
+
+
+## Not run
+
+Hold 5 stopped at its bound with 46 of set B's files unreached. Six of them ran
+green in hold 1: `test_handler_refusals`, `test_operator_hold_closures`,
+`test_status_hold_source`, `test_status_json`, `test_timers_alerts` and
+`frontend/test_status_model`. The other 40 did not run in this job. The host
+was at load 146 to 165, and holds waited up to 131 minutes for the suite lock (hold 1 from 05:29 to 07:41).
+The files: `unit/test_conversation_connections.py`,
+`test_conversation_handoff.py`, `test_conversation_handoff_dispatch_races.py`,
+`test_conversation_reconcile.py`, `test_conversation_titles.py`,
+`test_daemon_settle.py`, `test_daemon_verbs.py`, `test_gate_merge.py`,
+`test_importer.py`, `test_invariants_index.py`, `test_launch_env_round2.py`,
+`test_launch_env_round4.py`, `test_launch_env_round7.py`, `test_legacy_hold.py`,
+`test_limit_from_model_text.py`, `test_mirror_flags_faults.py`, `test_policy.py`,
+`test_relay.py`, `test_reset_credit_claim_timing.py`,
+`test_reset_credit_demand.py`, `test_reset_credit_review_r1.py`,
+`test_reset_credit_review_r2.py`, `test_scheduler.py`, `test_sessions_mirror.py`,
+`test_sessions_mirror_load_gap.py`, `test_soak_tools.py`,
+`test_steer_invariants.py`, `test_suggestions_r1b_adversarial.py`,
+`test_timers_busy_read.py`, `test_timers_daemon.py`, `test_timers_keepalive.py`,
+`test_timers_probe.py`, `test_timers_reset_credits.py`,
+`test_title_review_regressions.py`, and `frontend/test_core_queue_tray.py`
+(partly), `test_core_search.py`, `test_core_store.py`, `test_menu_view.py`,
+`test_queue_tray_view.py` and `test_visual_progress.py`.
+
+None of them imports `lane_verdict`, `fleet_causes`, `closure_line` or the hold
+note. They are in the set because they match "limited", "dispatchable",
+"alerts" or "status". CI on the branch's head is the full check.
