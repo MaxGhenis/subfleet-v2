@@ -94,7 +94,9 @@ def test_generated_topology_appear_disappear_replace_return_and_reused_id(monkey
         # when the reused device's counters exceed the old device's counters.
         base = int(source.now + 1) * 1000
         counters = {device: (base * 1_000_000_000, 0, base, 0)} if available else None
-        previous = (source.root_device, source.sampler.device_id)
+        # Unknown samples retain the last good root and resolved device. The
+        # former oracle incorrectly expected a reset after an unreadable stat.
+        previous = (source.sampler._root_device, source.sampler.device_id)
         row = source.read(root, device, counters)
         if not available:
             assert row['disk_busy'] is None
@@ -157,6 +159,7 @@ def test_selected_device_read_never_enumerates_neighbors():
     storage = object.__new__(machine._Storage)
     storage.io = storage.cf = registry
     assert storage.read(42) == {42: (100000, 100000, 100, 100)}
+    storage.close()
     assert registry.released == [42]
 
 
