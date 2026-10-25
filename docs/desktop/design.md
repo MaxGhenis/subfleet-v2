@@ -1137,14 +1137,17 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   initial bottom scroll anchor. An explicit app scroll to an approval or search
   row suspends that conversation’s opening pin, including any scheduled pin,
   so later measurement and history cannot undo the reveal (C-27.5, C-29.12).
-  While Timeline.startReading's log read settles,
-  changes jump to the end without animation. The person's own new send glides;
-  other changes follow only with the end on screen. Remote event-only turns do
-  not count as the person's own send. Explicit row reveals suspend ordinary
-  following before scrolling, including while a lazy end-marker disappearance
-  is pending. Following resumes on the marker's appearance, or when the matching
-  reveal's completed scroll confirms from presented geometry that the marker
-  stayed visible. The person's own send still glides while suspended.
+  While Timeline.startReading's log read settles, changes jump to the end
+  without animation unless an explicit approval or search reveal that scrolls
+  the timeline has suspended settling and ordinary following (C-27.5, C-29.7,
+  C-29.12). Suspension starts before scrolling and preserves the revealed
+  position even while the lazy end marker's disappearance is pending. It ends
+  when the marker really appears, or when the matching completed reveal's
+  presented geometry confirms that the end remains visible. Confirmation
+  releases suspension without scrolling; catch-up resumes on the next changed
+  key. During ordinary following the person's own new send still glides while
+  suspended; other changes follow only with the end on screen. Remote
+  event-only turns do not count as the person's own send.
   Approval positioning on opening also has
   no animation; subsequent newly pending cards retain their explicit reveal.
 - A listed session that cannot continue here (a Codex-app thread) opens as a
