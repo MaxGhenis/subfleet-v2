@@ -85,29 +85,42 @@ are unchanged. The test fixture in `tests/fake/guard.py` is deliberately synthet
 and must never be staged as operator security policy. It is absent from both
 prepared distributions, and the runtime has no test-fixture fallback.
 
-## Policy revision: ~/.subfleet roots (D-LANE-SCOPE1, 2026-10-24)
+## Policy revision: ~/.subfleet roots (D-LANE-SCOPE1, 2026-10-24; r2 2026-10-25)
 
-The table above is the original pair, now the rollback. On the hub's decision D-LANE-SCOPE1,
-after a lane's `rg --files -g AGENTS.md ~/.subfleet` walked 14,121 job folders and 1,765 job
-worktrees, the `unscoped-search` rule treats `~/.subfleet` and any one path component directly
-under it (`~/.subfleet/jobs`, `~/.subfleet/worktrees`, …) as broad roots, spelled `~`, `$HOME`,
-`${HOME}` or `/Users/<user>`, with or without a trailing slash. One job's folder
-(`~/.subfleet/jobs/<id>`) and anything deeper stays scoped; `-maxdepth`/`--max-depth` still
-disarms the rule. The region is edited in this overlay itself now: the Claude hook no longer
-carries it (its rule moved to `unscoped_search.py` on 2026-10-20), and the same roots go into
-that analyzer in one reviewed step.
+The table above is the original pair of 2026-09-05. It is not the rollback: its TRUST
+(`0b9d688e…`) pins `codex-cli 0.153.3`, and staging it would make preflight refuse every
+Codex lane with VERSION (`subfleet/guard/preflight.py`, the `codex_version` check). Never
+stage that TRUST. The rollback is hook `a60d1c514d3a3bcec68c246a33c849c11fd37e1bdf60d886650cd9d6651390db`
+(the table's hook) with the installed TRUST of 2026-09-29,
+`b3193b97d712bda6a5cc0f2447907e674f7ed90911a82d7709de8298b42aaa06` (the `codex-cli 0.159.0`
+pin and the provenance of the 0.158.0 and 0.159.0 moves, which the table predates).
+
+On the hub's decision D-LANE-SCOPE1, after a lane's `rg --files -g AGENTS.md ~/.subfleet`
+walked 14,121 job folders and 1,765 job worktrees, the `unscoped-search` rule treats
+`~/.subfleet` and any one path component directly under it (`~/.subfleet/jobs`,
+`~/.subfleet/worktrees`, …) as broad roots, spelled `~`, `$HOME`, `${HOME}` or
+`/Users/<user>`, with or without a trailing slash. Its r2 adds the names lanes have for that
+folder: `$SUBFLEET_ROOT` (the daemon sets it on every attempt) and `$SUBFLEET_HOME` (the
+launch allowlist passes it through), each also as `${…}`, are spellings of `$HOME/.subfleet`
+under the same depth rule. One job's folder (`~/.subfleet/jobs/<id>`, `$SUBFLEET_ROOT/jobs/<id>`)
+and anything deeper stays scoped; `-maxdepth`/`--max-depth` still disarms the rule. The region
+is edited in this overlay itself now: the Claude hook no longer carries it (its rule moved to
+`unscoped_search.py` on 2026-10-20), and the same roots go into that analyzer in one reviewed
+step.
 
 | File | SHA-256 |
 | --- | --- |
-| `never-rules-hook.sh` | `1a736be3c968e5c1dc6bb7d63019f540b06d1cc619913e6bb8e4e057e536f951` |
-| `TRUST` | `84167543b7962855c9d35afe25204f8b6f59ada6d44c9fd16b0d0ab3f483e8a9` |
+| `never-rules-hook.sh` | `dbe21e1d9a2ed3f57a7675fd09d3f8cacb2f73a6bfec7fd22e800da3691a041c` |
+| `TRUST` | `aa09f53d283919930070e0ef576b73191e5f7fcc37af5d1955455bf21b96a2f0` |
 
-TRUST is the installed TRUST of 2026-09-29 (`b3193b97d712bda6a5cc0f2447907e674f7ed90911a82d7709de8298b42aaa06`: the `codex-cli 0.159.0` lane pin and the provenance of the 0.158.0 and 0.159.0 moves, which the table above predates), changing only `hook_sha256` and appending one provenance sentence; `hooks_trust_hash` and
+TRUST is the installed TRUST of 2026-09-29 (`b3193b97…`), changing only `hook_sha256` and
+appending two provenance sentences (D-LANE-SCOPE1 and its r2); `hooks_trust_hash` and
 `override` hash the hook's identity, not its bytes, and do not move. The staging helper above
 refuses to replace a different overlay in place, so this revision is staged into a fresh state
 root and swapped in; `tests/unit/test_guard_subfleet_root.py` states and checks the rule's
 invariants against the original hook, and `docs/reports/2026-10-24-guard-subfleet-root.md`
-holds the install steps, the live checks, the known limits and the rollback.
+holds the install steps, the live checks, the known limits and the rollback, which restores
+hook `a60d1c51…` with TRUST `b3193b97…`.
 
 ## Verification
 
