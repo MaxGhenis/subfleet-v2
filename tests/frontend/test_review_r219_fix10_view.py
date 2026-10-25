@@ -12,9 +12,12 @@ DISTANT = 600
 # lazy measurement of rows above it moves the offset without moving the view: an
 # unmutated loaded stale-marker run moved 1,942 pt in offset while coming only
 # 360 pt closer to the end (round 6). The interval is therefore measured by
-# distance from the end, with the scenes' own distant margin as its bound;
-# review r5's surviving jump came about 5,800 pt closer, to 177 pt from the end.
-REVEAL_HOLD = 600
+# distance from the end. Measurement below the row also brings the end closer:
+# 20 unmutated loaded background runs came up to 559.5 pt closer, too near the
+# 600 pt margin, so the bound is 1,200 pt. Every presented overlap loss in the
+# round-6 mutant runs came at least 5,900 pt closer and reached the end, as did
+# review r5's survivor (about 5,800 pt, to 177 pt from the end).
+REVEAL_HOLD = 1200
 FAR = {"far_quiet": 0, "far_text_50ms": 50, "far_text_120ms": 21,
        "far_rows_150ms": 17, "far_rows_400ms": 7}
 
