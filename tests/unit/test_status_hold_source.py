@@ -13,19 +13,25 @@ Invariants, for every input (Hypothesis), beside the examples:
 - I1: `dispatchable(lane)` equals the function release/217 (1c3bfc4f2) shipped,
   frozen below, for every lane: closures (reasons, scopes, ends, sources),
   enabled, owner, canonical, duplicate, desktop, probe state, an explicit
-  `dispatchable`, the cycle's verdict and the readings.
+  `dispatchable`, the cycle's verdict and the readings; and, over malformed
+  evidence, it answers or raises the same exception class (review r1 of #263).
 - I2: the verdict is `limited` iff an open account-scope closure that is not a
   hold (`operator-hold`, `auth-dead`) exists, the lane is enabled and it has no
   credential fault (an `auth-dead` closure, or a cycle verdict naming a
   credential fault). It is `held` iff an open `operator-hold` exists, no such
   limit does, and the lane is enabled with no credential fault.
 - I3: the fleet-empty alert's per-cause counts sum to the provider's
-  non-dispatchable enrolled lanes, and outside the operators' own notes its
-  body says "limited" or "exhausted" only when a lane is provider-limited.
-- I4: a valid `lanes hold --note` round-trips exactly into the closure row, the
-  `lane.held` event, `status --json` (daemon and offline), the status text and
-  the fleet-empty body; an invalid one is refused (exit 2) and the store is
-  unchanged: no closure, no event.
+  non-dispatchable enrolled lanes, every count its body renders is the
+  condition's, and outside the operators' own notes its body says "limited" or
+  "exhausted" only when a lane is provider-limited.
+- I4: a note `hold_note` accepts round-trips exactly into the closure row, the
+  `lane.held` event, `status --json` (daemon and offline), the status text, the
+  fleet-empty body and the session notice it becomes; a note it refuses (exit 2,
+  the rule it broke) leaves the store unchanged: no closure, no event.
+- I5: no text the C-23.14 scrubber would change reaches the store, status, the
+  alerts or a notice through a hold: a note with a dummy credential spliced in
+  is refused with the store unchanged, or accepted only when the scrubber leaves
+  every surface it reaches alone; an ordinary note is always accepted.
 """
 
 from __future__ import annotations
