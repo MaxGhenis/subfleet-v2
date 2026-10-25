@@ -34,7 +34,7 @@ NEW_ROOTS = "|\\.subfleet(/[^/[:space:]'\\\"]+)?"
 ENV_ROOTS = "|\\\\\\$SUBFLEET_(ROOT|HOME)(/[^/[:space:]'\\\"]+)?"
 ENV_SED = " s/\\$[{]SUBFLEET_ROOT[}]/$SUBFLEET_ROOT/g; s/\\$[{]SUBFLEET_HOME[}]/$SUBFLEET_HOME/g'"
 OLD_HOOK_SHA256 = "a60d1c514d3a3bcec68c246a33c849c11fd37e1bdf60d886650cd9d6651390db"
-NEW_HOOK_SHA256 = "dbe21e1d9a2ed3f57a7675fd09d3f8cacb2f73a6bfec7fd22e800da3691a041c"
+NEW_HOOK_SHA256 = "2c3fbc1a6d563ee28e47d172343508d0613a9e7bb75567ec82a60e702980d7cf"
 ROOT_CORE = 'root_core="/|/\\\\*|/Users/?|(${broad_re})/?"'
 
 # name -> (file, old text, new text, the named test that must kill it)
@@ -50,6 +50,57 @@ MUTATIONS = {
     "trust-built-on-repo-copy": (TRUST, None, None, "test_trust_keeps_the_installed_lane_pin"),
     # r2: the env spellings dropped (their broad_re alternative and their ${…} normalization).
     "env-spellings-dropped": (HOOK, None, None, "test_env_spellings_of_subfleet_are_denied"),
+    # r3 (decisions 1-3): each as R3_EDITS rewrites it.
+    "file-exception-removed": (HOOK, None, None, "test_r3_a_file_is_never_a_broad_root"),
+    "not-dir-dropped": (HOOK, None, None, "test_r3_a_directory_a_link_to_one_and_a_name_stay_roots"),
+    "exists-dropped": (HOOK, None, None, "test_r3_a_directory_a_link_to_one_and_a_name_stay_roots"),
+    "env-value-used": (HOOK, None, None, "test_r3_env_values_are_never_read"),
+    "glob-as-single-file": (HOOK, None, None, "test_r3_selective_globs_are_judged_by_what_they_match"),
+    "dot-rule-dropped": (HOOK, None, None, "test_r3_selective_globs_are_judged_by_what_they_match"),
+    "nomatch-judged-by-text": (HOOK, None, None, "test_r3_selective_globs_are_judged_by_what_they_match"),
+    "case-insensitive": (HOOK, None, None, "test_r3_selective_globs_are_judged_by_what_they_match"),
+    "slash-star-left-as-text": (HOOK, None, None, "test_r3_a_bare_star_after_a_root_is_that_root"),
+    "state-not-restored": (HOOK, None, None, "test_r3_glob_expansion_restores_every_setting"),
+}
+#: r3's mutants: (old text, new text) pairs, each old text exactly once in the hook.
+FILE_CHECK = '*) if [ -e "$pw_fs$pw_p" ] && [ ! -d "$pw_fs$pw_p" ]; then pw_t=F; fi ;;'
+MATCH_CHECK = 'if [ -e "$m" ] && [ ! -d "$m" ]; then continue; fi'
+SHOPT = "  shopt -u dotglob nocaseglob extglob failglob\n"
+RESTORE = """  if [ -n "$ifs_set" ]; then IFS=$ifs; else unset IFS; fi
+  if [ -n "$gi_set" ]; then GLOBIGNORE=$gi; fi
+  if [ -n "$n" ]; then shopt -s nullglob; else shopt -u nullglob; fi
+  if [ -n "$d" ]; then shopt -s dotglob; else shopt -u dotglob; fi
+  if [ -n "$c" ]; then shopt -s nocaseglob; else shopt -u nocaseglob; fi
+  if [ -n "$e" ]; then shopt -s extglob; else shopt -u extglob; fi
+  if [ -n "$g" ]; then shopt -s failglob; else shopt -u failglob; fi
+  if [ -n "$f" ]; then set -f; fi
+"""
+R3_EDITS = {
+    "file-exception-removed": [(FILE_CHECK, "*) : ;;"), (MATCH_CHECK, ":")],
+    "not-dir-dropped": [(FILE_CHECK, '*) if [ -e "$pw_fs$pw_p" ]; then pw_t=F; fi ;;'),
+                        (MATCH_CHECK, 'if [ -e "$m" ]; then continue; fi')],
+    "exists-dropped": [(FILE_CHECK, '*) if [ ! -d "$pw_fs$pw_p" ]; then pw_t=F; fi ;;'),
+                       (MATCH_CHECK, 'if [ ! -d "$m" ]; then continue; fi')],
+    "env-value-used": [("""    '$SUBFLEET_ROOT'|'$SUBFLEET_HOME') pw_p="$HOME/.subfleet" ;;
+    '$SUBFLEET_ROOT/'*|'$SUBFLEET_HOME/'*) pw_p="$HOME/.subfleet/${1#*/}" ;;
+""", """    '$SUBFLEET_ROOT') pw_p=${SUBFLEET_ROOT:-$HOME/.subfleet} ;;
+    '$SUBFLEET_HOME') pw_p=${SUBFLEET_HOME:-$HOME/.subfleet} ;;
+    '$SUBFLEET_ROOT/'*) pw_p="${SUBFLEET_ROOT:-$HOME/.subfleet}/${1#*/}" ;;
+    '$SUBFLEET_HOME/'*) pw_p="${SUBFLEET_HOME:-$HOME/.subfleet}/${1#*/}" ;;
+""")],
+    "glob-as-single-file": [('      *[*?[]*) pw_word_glob "$pw_b" ;;\n', "")],
+    "dot-rule-dropped": [(SHOPT, "  shopt -s dotglob; shopt -u nocaseglob extglob failglob\n")],
+    "nomatch-judged-by-text": [
+        ('[ "${#pw_m[@]}" -gt 0 ] && [ "$pw_cap" -gt 0 ] || return 1',
+         '[ "${#pw_m[@]}" -gt 0 ] || return 2; [ "$pw_cap" -gt 0 ] || return 1'),
+        ('if pw_glob "$dir" "$rest"; then pw_sentinel "$1"; else pw_t=F; fi',
+         'pw_glob "$dir" "$rest"; case $? in 0) pw_sentinel "$1" ;; 1) pw_t=F ;; esac')],
+    "case-insensitive": [(SHOPT, "  shopt -s nocaseglob; shopt -u dotglob extglob failglob\n")],
+    "slash-star-left-as-text": [("""       while :; do
+         case "$b" in */'*'|*/'.*'|*/'**') b=${b%/*}; walk=1 ;; *) break ;; esac
+       done ;;
+""", "       ;;\n")],
+    "state-not-restored": [(RESTORE, "")],
 }
 FENCE = "test_only_the_roots_the_header_and_the_message_changed"
 
@@ -82,7 +133,11 @@ def mutate(tree: Path, name: str) -> None:
         path.write_text(json.dumps(base, indent=2) + "\n", encoding="utf-8")
         return
     text = path.read_text(encoding="utf-8")
-    if name == "env-spellings-dropped":
+    if name in R3_EDITS:
+        for old_text, new_text in R3_EDITS[name]:
+            assert text.count(old_text) == 1, (name, old_text[:60])
+            text = text.replace(old_text, new_text)
+    elif name == "env-spellings-dropped":
         assert text.count(ENV_ROOTS) == 1 and text.count(ENV_SED) == 2, (text.count(ENV_ROOTS), text.count(ENV_SED))
         text = text.replace(ENV_ROOTS, "").replace(ENV_SED, "'").replace("/$HOME/g;'", "/$HOME/g'")
     elif name == "trailing-slash-missed":
@@ -105,10 +160,14 @@ def pytest(tree: Path, tests: list[str], scratch: Path) -> dict[str, str]:
                     *[f"{TEST}::{test}" for test in tests]], cwd=tree, env=env, capture_output=True)
     import xml.etree.ElementTree as ElementTree
     outcomes = {}
+    rank = ["passed", "skipped", "error", "failed"]
     for case in ElementTree.parse(report).getroot().iter("testcase"):
         kinds = {child.tag for child in case}
-        outcomes[case.get("name")] = ("failed" if "failure" in kinds else "error" if "error" in kinds
-                                      else "skipped" if "skipped" in kinds else "passed")
+        outcome = ("failed" if "failure" in kinds else "error" if "error" in kinds
+                   else "skipped" if "skipped" in kinds else "passed")
+        # A parametrized test's cases fold into its name: failed if any failed.
+        name = case.get("name").split("[", 1)[0]
+        outcomes[name] = max(outcomes.get(name, "passed"), outcome, key=rank.index)
     return outcomes
 
 

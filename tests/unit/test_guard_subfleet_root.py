@@ -74,6 +74,23 @@ S5 (env spellings are spellings) For every generated command over
    env spelling; scale N >= 2 one per command, cycling over the home spellings,
    so each (root, context) cell still meets all four.
 
+r3 (2026-10-25, the hub's decisions 1-5) judges path words on disk before the text
+rules: a root by name that names an existing non-directory is not broad (decision 1,
+reversing r2's decision 6); a root followed by a trailing run of bare ``*`` / ``.*``
+components, or by ``**/``, is that root (decision 2); a glob word whose literal folder can
+hold a root by name (/, /Users, /private, a home, its Library or .subfleet) is broad iff
+one of its first 20,000 matches is a broad root, and allowed when nothing matches
+(decision 3); every direct child of ~/.subfleet stays a root (decision 4); a denial for
+decision 2 or 3 names the word as written plus ``(glob)`` (decision 5). Every hook run here
+judges paths in a fixture filesystem through the hook's test seam (FS_SEAM, FS_LAYOUT), so
+no test stats, globs or reads a real home. S1 counts a command holding such a word
+(``r3_labels``) as an intended difference, and S1-r3 holds each decision to its direction
+against the r2 hook (r3's base, rebuilt from this one). The property test (Hypothesis,
+PROPERTY_SEED, PROPERTY_EXAMPLES) states its oracle in its docstring: a plain word is broad
+iff its resolved path is not an existing non-directory, always with a trailing /*; a glob
+word is broad iff some real bash match is a broad root, and not when nothing matches. The
+shell differential expands every glob case in real /bin/zsh -f and /bin/bash.
+
 Also: the new hook keeps the reviews' allowed commands allowed and names the
 matched root; the old hook passed every review input (so these roots are the
 change); TRUST pins the new bytes while its identity hash and override stay put;
@@ -83,7 +100,7 @@ GUARD_DIFF_SCALE (default 1) widens the generator: 1 is a representative root
 pool crossed with every spelling and context; N >= 2 is the full pool with N - 1
 seeded draws per cell. GUARD_DIFF_REPORT names a file for the S1/S4/S5 counts.
 GUARD_DIFF_CACHE names a JSON-lines file of hook verdicts keyed by the hook's
-SHA-256, cwd and command, read before and appended during a run, so a long
+SHA-256 (with the fixture filesystem's layout), cwd and command, read before and appended during a run, so a long
 scale-N run can resume across suite holds. Only cwds that do not exist are
 cached: there the verdict depends on nothing but the hook's bytes and the
 command (HOME, the log and the environment are fixed here), while an existing
@@ -121,8 +138,10 @@ OLD_HOOK_SHA256 = "a60d1c514d3a3bcec68c246a33c849c11fd37e1bdf60d886650cd9d665139
 OLD_TRUST_SHA256 = "b3193b97d712bda6a5cc0f2447907e674f7ed90911a82d7709de8298b42aaa06"
 #: hooks_trust_hash of TRUST's reference path, before and after: the identity, not the bytes.
 HOOKS_TRUST_HASH = "sha256:f97fa95f2f4d43e1f8d35cd92da4d7f3f1861497abd86916680e0189e0ec34b1"
-#: The overlay's hook after r2 (the env spellings): TRUST's hook_sha256.
-NEW_HOOK_SHA256 = "dbe21e1d9a2ed3f57a7675fd09d3f8cacb2f73a6bfec7fd22e800da3691a041c"
+#: The overlay's hook after r2 (the env spellings), which r3 is built on.
+R2_HOOK_SHA256 = "dbe21e1d9a2ed3f57a7675fd09d3f8cacb2f73a6bfec7fd22e800da3691a041c"
+#: The overlay's hook after r3 (path words judged on disk): TRUST's hook_sha256.
+NEW_HOOK_SHA256 = "2c3fbc1a6d563ee28e47d172343508d0613a9e7bb75567ec82a60e702980d7cf"
 
 FAKE_HOME = "/Users/tester"
 SCOPED_CWD = FAKE_HOME + "/work/repo"
@@ -203,10 +222,52 @@ def undo(text: str, edits) -> str:
     return text
 
 
+#: r3 (2026-10-25, decisions 1-3): the three path-word blocks, each from its begin marker line
+#: through its end marker line, and the comments that name them, as (r3 text, r2 text).
+R3_BLOCKS = [("# >>> r3 path words: begin >>>\n", "# <<< r3 path words: end <<<\n"),
+             ("  # >>> r3 path words: judge >>>\n", "  # <<< r3 path words: judge <<<\n"),
+             ("    # >>> r3 path words: name >>>\n", "    # <<< r3 path words: name <<<\n")]
+R3_TEXT = [
+    ("""#     ~/.subfleet by default, as spellings of it. D-LANE-SCOPE1 r3
+#     (2026-10-25) judged path words on disk (the "r3 path words" blocks): a
+#     file is never a broad root, a trailing `/*` after a root is that root,
+#     and a glob word that can match a root is judged by its matches. Change
+#     a root on both sides in one reviewed step: here, and in
+#     unscoped_search.py (BROAD_RE, HOME_SUBDIRS, expand()).
+""", """#     ~/.subfleet by default, as spellings of it. Change a root on both sides
+#     in one reviewed step: here, and in unscoped_search.py (BROAD_RE,
+#     HOME_SUBDIRS, expand()).
+"""),
+    ("""#              r3: a root by name that is an existing non-directory is not
+#              broad, a root before a trailing `/*` run or a `**/` is that
+#              root, and a glob word is judged by its matches ("Path words").
+""", ""),
+    ("""#              comment, nothing in the command text lets a crawl through
+#              (r3's two test seams are names no lane's environment carries).
+""", """#              comment, nothing in the command text lets a crawl through.
+"""),
+]
+
+
+def rebuild_r2(text: str) -> str:
+    """The r2 hook from the overlay's: each r3 block removed whole, whatever it now says (so
+    a mutant inside one still has the true r2 beside it), and r3's comments undone."""
+    for begin, end in R3_BLOCKS:
+        if begin in text:
+            start = text.index(begin)
+            text = text[:start] + text[text.index(end, start) + len(end):]
+    for new, old in R3_TEXT:
+        if text.count(new) == 1:
+            text = text.replace(new, old)
+    return text
+
+
 def rebuild_old(text: str) -> bytes:
-    """The original reviewed hook from the overlay's: the header, comment and message edits
-    and the ${…} normalization undone where present and the broad_re line restored,
-    whatever it now says (so a mutant of the roots still has the true original beside it)."""
+    """The original reviewed hook from the overlay's: r3 undone (``rebuild_r2``), then the
+    header, comment and message edits and the ${…} normalization undone where present and
+    the broad_re line restored, whatever it now says (so a mutant of the roots still has the
+    true original beside it)."""
+    text = rebuild_r2(text)
     for new, old in OLD_TEXT:
         if text.count(new) == 1:
             text = text.replace(new, old)
@@ -220,13 +281,92 @@ def rebuild_old(text: str) -> bytes:
 
 @pytest.fixture(scope="module")
 def hooks(tmp_path_factory) -> dict[str, Path]:
-    """{"new": the overlay's hook, "old": the original reviewed hook rebuilt from it}."""
-    old_bytes = rebuild_old(HOOK.read_text(encoding="utf-8"))
+    """{"new": the overlay's hook, "old": the original reviewed hook rebuilt from it,
+    "r2": the r2 hook (r3's base) rebuilt from it}."""
+    text = HOOK.read_text(encoding="utf-8")
+    old_bytes = rebuild_old(text)
     assert hashlib.sha256(old_bytes).hexdigest() == OLD_HOOK_SHA256
-    old = tmp_path_factory.mktemp("old-guard") / "never-rules-hook.sh"
-    old.write_bytes(old_bytes)
-    old.chmod(0o755)
-    return {"new": HOOK, "old": old}
+    r2_bytes = rebuild_r2(text).encode("utf-8")
+    assert hashlib.sha256(r2_bytes).hexdigest() == R2_HOOK_SHA256
+    built = {}
+    for name, data in (("old", old_bytes), ("r2", r2_bytes)):
+        path = tmp_path_factory.mktemp(f"{name}-guard") / "never-rules-hook.sh"
+        path.write_bytes(data)
+        path.chmod(0o755)
+        built[name] = path
+    return {"new": HOOK, **built}
+
+
+# ---------------------------------------------------------------- r3: the fixture filesystem
+
+#: The test seams (r3). The hook makes every check on disk under CODEX_GUARD_TEST_FSROOT, a
+#: folder standing in for /, so no test stats, globs or reads a real path (the corpus names
+#: /Users/maxghenis/.subfleet); CODEX_GUARD_TEST_GLOB_CAP is the glob match cap.
+FS_SEAM = "CODEX_GUARD_TEST_FSROOT"
+CAP_SEAM = "CODEX_GUARD_TEST_GLOB_CAP"
+JOB = "20261024-115712-x"
+#: The fixture filesystem under the seam: (path under /, kind, link target). The home is
+#: FAKE_HOME; /Users/nojobs is a home whose ~/.subfleet has no jobs/; /Users/prop holds the
+#: property test's six kinds of child and the folders its globs list. Links are relative,
+#: so they resolve inside the seam.
+FS_LAYOUT = [
+    *((f"Users/tester/{d}", "dir", None) for d in (
+        "work/repo", "PolicyEngine/policyengine-us", "TheAxiomFoundation", "RulesFoundation",
+        "Library/Caches", ".cache", ".local", f".subfleet/jobs/{JOB}/a1",
+        ".subfleet/worktrees/20261024-115939-guardscope-build", ".subfleet/archive", ".subfleet/lanes",
+        ".subfleet/conversations", ".subfleet/guard-cache", ".subfleet/leases", ".subfleet/guard",
+        ".subfleet/state", ".subfleet/inbox", ".subfleet/bin", ".subfleet/docs")),
+    *((f"Users/tester/{f}", "file", None) for f in (
+        ".subfleet/policy.json", ".subfleet/daemon.log", ".subfleet/lanes.json", ".subfleet/subfleetd.log",
+        f".subfleet/jobs/{JOB}/a1/out.md", "PolicyEngine/policyengine-us/x.py", ".subfleet/$OTHER")),
+    ("Users/tester/.subfleet/policy-link.json", "link", "policy.json"),
+    ("Users/tester/.subfleet/jobs-link", "link", "jobs"),
+    ("Users/tester/.subfleet/dangling", "link", "no-such-target"),
+    ("Users/nojobs/.subfleet/worktrees", "dir", None),
+    ("Users/nojobs/.subfleet/policy.json", "file", None),
+    *((f"Users/prop/{d}", "dir", None) for d in (
+        ".subfleet/d", "PolicyEngine/policyengine-us", "Library/Caches", ".cache", "Pictures")),
+    *((f"Users/prop/{f}", "file", None) for f in (
+        ".subfleet/f.log", "notes.txt", "PolicyEngine/policyengine-us/x.py")),
+    ("Users/prop/.subfleet/lf.log", "link", "f.log"),
+    ("Users/prop/.subfleet/ld", "link", "d"),
+    ("Users/prop/.subfleet/dl.log", "link", "no-such-target"),
+    ("tmp", "dir", None), ("private/tmp", "dir", None),
+]
+#: Part of every cached verdict's key: a verdict depends on the hook's bytes and this layout.
+FS_DIGEST = hashlib.sha256(json.dumps(FS_LAYOUT).encode()).hexdigest()
+_FS: dict[str, Path] = {}
+
+
+def build_fs(root: Path) -> Path:
+    for rel, kind, target in FS_LAYOUT:
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if kind == "dir":
+            path.mkdir(parents=True, exist_ok=True)
+        elif kind == "file":
+            path.write_text("x\n")
+        else:
+            path.symlink_to(target)
+    return root
+
+
+@pytest.fixture(scope="module", autouse=True)
+def fixture_fs(tmp_path_factory) -> Path:
+    """The seam folder every hook run here judges paths in (under TMPDIR, never a real home)."""
+    _FS["root"] = build_fs(tmp_path_factory.mktemp("fsroot"))
+    yield _FS["root"]
+    _FS.pop("root", None)
+
+
+def fs_path(path: str) -> Path:
+    """Where the hook looks for the absolute ``path`` on disk."""
+    return _FS["root"] / path.lstrip("/")
+
+
+def fs_str(path: str) -> str:
+    """The same as a string, a trailing slash kept (``policy.json/`` must fail os.path.exists)."""
+    return str(_FS["root"]) + path
 
 
 @pytest.fixture(scope="module")
@@ -235,10 +375,15 @@ def log_dir(tmp_path_factory) -> Path:
 
 
 def run_hook(hook: Path, command: str, cwd: str = SCOPED_CWD, *, tool: str = "Bash",
-             log: Path | None = None, home: str = FAKE_HOME) -> str:
-    """The hook's stdout for one PreToolUse payload: empty to allow, the deny JSON otherwise."""
-    env = {k: v for k, v in os.environ.items() if not k.startswith("CARPOOL_")}
+             log: Path | None = None, home: str = FAKE_HOME, extra: dict | None = None) -> str:
+    """The hook's stdout for one PreToolUse payload: empty to allow, the deny JSON otherwise.
+    Paths are judged in the fixture filesystem (the r3 seam); the environment's SUBFLEET_ROOT
+    and SUBFLEET_HOME are dropped (the hook must never read them; one test sets them)."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("CARPOOL_")
+           and k not in ("SUBFLEET_ROOT", "SUBFLEET_HOME", FS_SEAM, CAP_SEAM)}
     env.update(HOME=home, CODEX_GUARD_LOG=str(log) if log else os.devnull)
+    env[FS_SEAM] = str(_FS["root"])
+    env.update(extra or {})
     payload = json.dumps({"tool_name": tool, "cwd": cwd, "tool_input": {"command": command}})
     out = subprocess.run(["/bin/bash", str(hook)], input=payload, capture_output=True, text=True,
                          env=env, timeout=120)
@@ -310,7 +455,7 @@ def judge_all(hook: Path, cases) -> dict[tuple[str, str], str]:
     written to GUARD_DIFF_CACHE when it is set); stdout per pair. Each verdict is kept as it
     lands, and an interrupt cancels what has not started, so a stopped run loses little."""
     wanted = list(dict.fromkeys(cases))
-    digest = hashlib.sha256(Path(hook).read_bytes()).hexdigest()
+    digest = hashlib.sha256(Path(hook).read_bytes() + FS_DIGEST.encode()).hexdigest()
     _load_cache()
     missing = []
     for case in wanted:
@@ -529,6 +674,8 @@ def test_trust_pins_the_new_hook_bytes():
     assert "D-LANE-SCOPE1" in trust["provenance"]
     assert "Installed only after the hub's review and a live hooks/list preflight. 2026-10-25, " \
            "D-LANE-SCOPE1 r2: $SUBFLEET_ROOT and $SUBFLEET_HOME" in trust["provenance"]
+    assert "live hooks/list preflight. 2026-10-25, D-LANE-SCOPE1 r3: path words are judged on " \
+           "disk" in trust["provenance"]
     assert trust["provenance"].endswith(
         "installed only after the hub's review and a live hooks/list preflight.")
 
@@ -569,9 +716,17 @@ def test_identity_hash_and_override_do_not_depend_on_the_hook_bytes(hooks, tmp_p
 
 
 def test_only_the_roots_the_header_and_the_message_changed():
-    """Decision 2's fence, with r2's normalization: undoing exactly OLD_TEXT, the two
-    NEW_SED edits and the broad_re line gives the original reviewed bytes."""
+    """Decision 2's fence, with r2's normalization and r3's blocks: undoing exactly R3_BLOCKS
+    and R3_TEXT gives the r2 bytes, and then undoing OLD_TEXT, the two NEW_SED edits and the
+    broad_re line gives the original reviewed bytes."""
     text = HOOK.read_text(encoding="utf-8")
+    for begin, end in R3_BLOCKS:
+        assert text.count(begin) == 1 and text.count(end) == 1 and text.index(begin) < text.index(end)
+    for begin, end in R3_BLOCKS:
+        start = text.index(begin)
+        text = text[:start] + text[text.index(end, start) + len(end):]
+    text = undo(text, R3_TEXT)
+    assert hashlib.sha256(text.encode("utf-8")).hexdigest() == R2_HOOK_SHA256
     assert text.count(NEW_BROAD_RE + "\n") == 1
     assert text.count(NEW_SED) == 2
     old = undo(text, OLD_TEXT).replace(NEW_SED, OLD_SED)
@@ -908,7 +1063,8 @@ def corpus(repos) -> dict:
     fixed += [(cmd + "; " + search, repos[where]) for where, cmd, _ in OTHER_RULES for search in COMBINED]
     fixed += [(c, SCOPED_CWD) for c, _ in ENV_DENIED] + [(c, SCOPED_CWD) for c in ENV_ALLOWED]
     fixed += [(cmd, cwd) for pairs in R2_LIMITS for cwd, cmd in pairs]
-    fixed += [(cmd, cwd) for cwd, cmd in R2_OVER_APPROXIMATIONS]
+    fixed += [(cmd, cwd) for cwd, cmd in R2_OVER_APPROXIMATIONS + R3_RESOLVED]
+    fixed += [(c, SCOPED_CWD) for c in R3_CORPUS]
     return {"generated": generated, "fixed": list(dict.fromkeys(fixed))}
 
 
@@ -930,13 +1086,31 @@ def report(name: str, data: dict) -> None:
 # ---------------------------------------------------------------- S1, S2, S3
 
 def test_s1_the_new_hook_is_monotone_and_moves_only_on_new_roots(corpus, verdicts):
+    """Also r3: a command holding a path word decisions 1-3 judge on disk (``r3_labels``) is an
+    intended difference, counted apart (``r3_intended``) and held to its direction by
+    ``test_s1_r3_moves_each_decision_only_its_own_way``."""
     old, new = verdicts["old"], verdicts["new"]
     loosened, stray = [], []
     counts = {"commands": 0, "old_denied": 0, "new_denied": 0, "newly_denied": 0,
-              "newly_denied_generated": 0, "newly_denied_fixed": 0}
+              "newly_denied_generated": 0, "newly_denied_fixed": 0, "r3_intended": 0,
+              "r3_intended_loosened": 0, "r3_intended_tightened": 0, "r3_labelled": 0}
+    seen = set()
+
+    def r3(key, o, n):
+        labelled = bool(r3_labels(key[0]))
+        if key not in seen:
+            seen.add(key)
+            counts["r3_labelled"] += labelled
+            if labelled and o != n:
+                counts["r3_intended"] += 1
+                counts["r3_intended_loosened" if o else "r3_intended_tightened"] += 1
+        return labelled
+
     for case in corpus["generated"]:
         key = (case["command"], case["cwd"])
         o, n = rule(old[key]), rule(new[key])
+        if r3(key, o, n):
+            continue
         if o and n != o:
             loosened.append(key)
         if o != n and not (case["kind"] == "new" and case["reads_root"] and n == "unscoped-search"):
@@ -944,6 +1118,8 @@ def test_s1_the_new_hook_is_monotone_and_moves_only_on_new_roots(corpus, verdict
         counts["newly_denied_generated"] += o is None and n is not None
     for key in corpus["fixed"]:
         o, n = rule(old[key]), rule(new[key])
+        if r3(key, o, n):
+            continue
         if o and n is None:
             loosened.append(key)
         if o != n and not (n == "unscoped-search" and mentions_new_root(key[0])):
@@ -974,11 +1150,14 @@ def test_s1_the_new_roots_get_the_existing_home_childrens_protection(corpus, ver
         if "analog_of" not in case:
             continue
         target = by_command[case["analog_of"]]
+        # r3, decision 1: a child that is a file in the fixture (subfleetd.log) is not broad.
+        if r3_labels(target["command"]) == {"d1"}:
+            continue
         if rule(old[(case["command"], case["cwd"])]) and not rule(new[(target["command"], target["cwd"])]):
             missing.append(target["command"])
     for case in corpus["generated"]:
         if (case["kind"] == "new" and case["reads_root"] and "twin_of" not in case
-                and not rule(new[(case["command"], case["cwd"])])):
+                and not r3_labels(case["command"]) and not rule(new[(case["command"], case["cwd"])])):
             allowed_new.append(case["command"])
     report("S1-protection", {"new_root_reading_cases": sum(c["kind"] == "new" and c["reads_root"]
                                                           and "twin_of" not in c for c in corpus["generated"]),
@@ -1049,18 +1228,29 @@ def test_known_limits_the_new_roots_share_with_the_old_ones(hooks):
     - A searcher right after a quote is never detected (the searcher regexes want a space,
       ;, &, |, ( or the line start before it), so a whole sh -c / eval sub-script that
       starts with it passes, for / as for ~/.subfleet.
-    - A trailing glob is text, not the parent: ``~/.subfleet/jobs/*`` passes, as ``~/*`` does.
     - The cwd list is unchanged: ``rg --files .`` sitting in ~/.subfleet passes.
-    - Intended: one path component under ~/.subfleet is a root even when it is a file
-      (``rg foo ~/.subfleet/subfleetd.log``); non-recursive grep or --max-depth reads it.
+
+    r3 flipped two pins of this list (the hub's decisions, 2026-10-25):
+    - decision 2: a trailing ``/*`` after a root is that root, so ``rg foo ~/.subfleet/jobs/*``
+      and ``rg foo ~/*`` are denied now; the old and r2 hooks pass both;
+    - decision 1 (reversing r2's decision 6): a child of ~/.subfleet that is a file
+      (``rg foo ~/.subfleet/subfleetd.log``) is not broad, so it is allowed now; r2 denied it.
     """
     allowed = ["bash -c 'find / -name x'", "bash -c 'rg --files ~/.subfleet'",
-               "eval 'grep -r x ~/.subfleet/jobs'", "rg foo ~/.subfleet/jobs/*", "rg foo ~/*"]
+               "eval 'grep -r x ~/.subfleet/jobs'"]
     for which in ("old", "new"):
         for command, out in judged(hooks[which], allowed).items():
             assert rule(out) is None, (which, command)
     assert rule(run_hook(hooks["new"], "rg --files .", FAKE_HOME + "/.subfleet")) is None
-    assert rule(run_hook(hooks["new"], "rg foo ~/.subfleet/subfleetd.log")) == "unscoped-search"
+    for command in ("rg foo ~/.subfleet/jobs/*", "rg foo ~/*"):
+        # r3 decision 2: was allowed by every hook before r3; now that root.
+        assert rule(run_hook(hooks["new"], command)) == "unscoped-search", command
+        assert rule(run_hook(hooks["r2"], command)) is None, command
+        assert rule(run_hook(hooks["old"], command)) is None, command
+    # r3 decision 1: a file is never a broad root (r2 denied it; the old hook did not know the root).
+    assert fs_path(FAKE_HOME + "/.subfleet/subfleetd.log").is_file()
+    assert rule(run_hook(hooks["new"], "rg foo ~/.subfleet/subfleetd.log")) is None
+    assert rule(run_hook(hooks["r2"], "rg foo ~/.subfleet/subfleetd.log")) == "unscoped-search"
     for command in ("grep foo ~/.subfleet/subfleetd.log", "rg --max-depth 1 foo ~/.subfleet/subfleetd.log"):
         assert rule(run_hook(hooks["new"], command)) is None, command
 
@@ -1103,9 +1293,11 @@ R2_LIMITS = [
     ((S_, "ls -R ~/.subfleet"), (S_, "ls -R ~")),
 ]
 #: Scoped searches the new hook denies because a new root sits where the rule reads one (the
-#: over-approximations every root has; P3-2 adds the find -newer case). The old hook allows them.
+#: over-approximations every root has). The old hook allows them. P3-2's find -newer case left
+#: this list in r3: ~/.subfleet/daemon.log is a file, which decision 1 never counts as broad
+#: (``R3_RESOLVED``).
+R3_RESOLVED = [(S_, "find ~/.subfleet/jobs/20261024-115712-x -newer ~/.subfleet/daemon.log")]
 R2_OVER_APPROXIMATIONS = [
-    (S_, "find ~/.subfleet/jobs/20261024-115712-x -newer ~/.subfleet/daemon.log"),
     (S_, "cd ~/.subfleet/jobs && rg -n foo 20261024-115712-x/a1/out.md"),
     (S_, "ls -t ~/.subfleet/jobs | head -5 | xargs -I{} rg -l foo ~/.subfleet/jobs/{}/a1"),
 ]
@@ -1128,6 +1320,12 @@ def test_known_limits_r2_lists_are_pre_existing_for_every_root(hooks):
     for case in over:
         assert rule(new[case]) == "unscoped-search", case
         assert rule(old[case]) is None, case
+    # r3 decision 1 flipped P3-2's find -newer case: the r2 hook denied it, the new one allows it.
+    resolved = [(cmd, cwd) for cwd, cmd in R3_RESOLVED]
+    new, r2 = judge_all(hooks["new"], resolved), judge_all(hooks["r2"], resolved)
+    for case in resolved:
+        assert rule(new[case]) is None, case
+        assert rule(r2[case]) == "unscoped-search", case
 
 
 # ---------------------------------------------------------------- S5
@@ -1248,3 +1446,543 @@ def test_s4_the_claude_half_differs_on_new_roots_only_where_it_differs_on_home_c
     assert not regressions, regressions[:10]
     assert not deep_blocked, deep_blocked[:10]
     assert counts["pairs"] > 0
+
+
+# ---------------------------------------------------------------- r3: path words judged on disk
+
+#: The hook's path words (the "r3 path words" blocks): a run of characters other than whitespace
+#: and | ; & ( ) < >, its quote marks dropped, that starts with a root spelling.
+PATH_RUN = re.compile(r"[^\s|;&()<>]+")
+SPELLED = re.compile(r"(~|\$HOME|\$SUBFLEET_(ROOT|HOME))(/|$)|/")
+#: A root by name: the broad roots the region's comment lists, spelled as the text rules read
+#: them (``${…}`` without braces), each with or without a trailing slash.
+ROOT_NAME = re.compile(r"""(/|/\*|/Users/?|((/Users/[^/\s'"]+|~|\$HOME)(/(TheAxiomFoundation|"""
+                       r"""RulesFoundation|PolicyEngine|Library/Caches|\.cache|\.local|"""
+                       r"""\.subfleet(/[^/\s'"]+)?))?|\$SUBFLEET_(ROOT|HOME)(/[^/\s'"]+)?|"""
+                       r"""(/private)?/tmp)/?)""")
+GLOB_CHAR = re.compile(r"[*?[]")
+
+
+def spelled_abs(word: str, home: str = FAKE_HOME) -> str | None:
+    """The absolute path a root spelling names (``$SUBFLEET_*`` as <home>/.subfleet), or None."""
+    for spelling, value in (("~", home), ("$HOME", home), ("$SUBFLEET_ROOT", home + "/.subfleet"),
+                            ("$SUBFLEET_HOME", home + "/.subfleet")):
+        if word == spelling or word.startswith(spelling + "/"):
+            return value + word[len(spelling):]
+    return word if word.startswith("/") else None
+
+
+def norm(path: str) -> str:
+    out: list[str] = []
+    for part in path.split("/"):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            out = out[:-1]
+        else:
+            out.append(part)
+    return "/" + "/".join(out)
+
+
+def walk_prefix(word: str) -> tuple[str, bool]:
+    """Decision 2: (the word before its first ``**/`` component or its trailing run of bare
+    ``*`` / ``.*`` (or a last ``**``) components, one trailing slash dropped first; whether one was cut)."""
+    at = word.find("/**/")
+    if at >= 0:
+        return word[:at] or "/", True
+    b = word[:-1] if word.endswith("/") and word != "/" else word
+    walk = False
+    while re.search(r"/(\*|\.\*|\*\*)$", b):
+        b, walk = b[:b.rindex("/")], True
+    return b or "/", walk
+
+
+def listed(directory: str, home: str) -> bool:
+    """Decision 3: a folder that can hold a broad root by name."""
+    if directory in ("/", "/Users", "/private", home, home + "/Library", home + "/.subfleet"):
+        return True
+    return re.fullmatch(r"/Users/[^/]+(/(Library|\.subfleet))?", directory) is not None
+
+
+def is_file(path: str) -> bool:
+    """Decision 1 on disk: an existing non-directory (links followed), as ``[ -e ] && [ ! -d ]``."""
+    real = fs_str(path)
+    return os.path.exists(real) and not os.path.isdir(real)
+
+
+def r3_word(bare: str, home: str = FAKE_HOME) -> str | None:
+    """Which r3 decision judges one path word: "d1" (a root by name naming an existing
+    non-directory), "d2" (a root before a walk), "d3" (a glob listed in a folder that can hold
+    a root), or None (the text rules', as before r3)."""
+    if not SPELLED.match(bare):
+        return None
+    if not GLOB_CHAR.search(bare):
+        if ROOT_NAME.fullmatch(bare):
+            path = spelled_abs(bare, home)
+            if path and "$" not in path and "`" not in path and is_file(path):
+                return "d1"
+        return None
+    if bare == "/*":
+        return None
+    prefix, walk = walk_prefix(bare)
+    if not GLOB_CHAR.search(prefix):
+        return "d2" if walk and ROOT_NAME.fullmatch(prefix) else None
+    path = spelled_abs(prefix, home)
+    if path is None or any(c in path for c in "$`{"):
+        return None
+    literal = GLOB_CHAR.split(path, 1)[0]
+    directory = literal[:literal.rindex("/")]
+    return "d3" if listed(norm(directory or "/"), norm(home)) else None
+
+
+def path_words(command: str) -> list[str]:
+    """The command's path words as the hook reads them (continuations joined, ``${…}`` unbraced)."""
+    text = command.replace("\\\n", "")
+    for name in ("HOME", "SUBFLEET_ROOT", "SUBFLEET_HOME"):
+        text = text.replace("${" + name + "}", "$" + name)
+    return [run.replace('"', "").replace("'", "") for line in text.split("\n") for run in PATH_RUN.findall(line)]
+
+
+def r3_labels(command: str, home: str = FAKE_HOME) -> set[str]:
+    """The r3 decisions that judge some path word of the command (S1's intended differences)."""
+    return {label for word in path_words(command) if (label := r3_word(word, home))}
+
+
+#: The brief's cases (the hub's decisions 1-5, round r3), in the fixture filesystem.
+R3_FILE_ALLOWED = [            # decision 1: each names a file (or a link to one)
+    "grep -rn -i 'retention' ~/.subfleet/policy.json",
+    "rg -n ERROR ~/.subfleet/daemon.log",
+    'grep -rn codex "$HOME/.subfleet/lanes.json"',
+    "rg x ${SUBFLEET_ROOT}/policy.json",
+    "rg x '/Users/tester/.subfleet/policy.json'",
+    "rg x ~/.subfleet/policy-link.json",
+]
+R3_NAME_DENIED = [             # decision 1: judged by name, as before (command, the root named)
+    ("rg x ~/.subfleet/jobs", "~/.subfleet/jobs"),
+    ("rg x ~/.subfleet", "~/.subfleet"),
+    ("rg x ~/.subfleet/jobs-link", "~/.subfleet/jobs-link"),           # a link to a directory
+    ("rg x ~/.subfleet/dangling", "~/.subfleet/dangling"),             # a dangling link
+    ("rg x ~/.subfleet/missing.json", "~/.subfleet/missing.json"),
+    ("rg x ~/.subfleet/policy.json/", "~/.subfleet/policy.json/"),     # -e fails with the slash
+    ("rg x ~/.subfleet/$OTHER", "~/.subfleet/$OTHER"),                 # unresolved: a file named so exists
+    ("rg x ~/.subfleet/policy.json ~/.subfleet/jobs", "~/.subfleet/jobs"),  # the other word still counts
+    # decision 4: every direct child stays a root, the small folders too
+    ("rg x ~/.subfleet/leases", "~/.subfleet/leases"),
+    ("rg x ~/.subfleet/guard", "~/.subfleet/guard"),
+]
+R3_GLOB_ALLOWED = [            # decision 3: no match is a broad root, or no match at all
+    "grep -rn x ~/.subfleet/*.json",                      # policy.json, lanes.json, a link to a file
+    f"rg foo ~/.subfleet/jobs/{JOB}/*",                    # decision 2 does not reach two levels down
+    "rg foo ~/Pol*/policyengine-us",                      # two levels down
+    "rg foo ~/pol*",                                      # case-sensitive: no match
+    "rg foo ~/*ubfleet",                                  # a leading dot only by a leading dot
+    "rg x ~/.subfleet/jobs/2026*",                        # jobs/ cannot hold a root by name: text
+    "rg x src/*.py",                                      # relative: text
+    "grep -rn x ~/.subfleet/*.nomatch",                   # no match
+    "rg x ~/.subfleet/x*",                                # no match (the text rule would deny it)
+]
+R3_STAR_DENIED = [             # decision 2: a trailing /* after a root is that root
+    ("rg foo ~/.subfleet/*", "~/.subfleet/* (glob)"),
+    ("rg foo ~/.subfleet/jobs/*", "~/.subfleet/jobs/* (glob)"),
+    ('rg foo "$SUBFLEET_HOME"/worktrees/*', "$SUBFLEET_HOME/worktrees/* (glob)"),
+    ("rg foo $SUBFLEET_ROOT/worktrees/*", "$SUBFLEET_ROOT/worktrees/* (glob)"),
+    ("rg foo ~/*", "~/* (glob)"),
+    ("rg foo ~/PolicyEngine/*", "~/PolicyEngine/* (glob)"),
+    ("rg foo ~/.cache/*", "~/.cache/* (glob)"),
+    ("rg foo /tmp/*", "/tmp/* (glob)"),
+    ("rg foo ~/.subfleet/jobs/*/*", "~/.subfleet/jobs/*/* (glob)"),
+    ("rg foo ~/.subfleet/policy.json/*", "~/.subfleet/policy.json/* (glob)"),   # always that root
+    ("cd ~/.subfleet/jobs/* && rg foo", "~/.subfleet/jobs/* (glob) (after cd)"),
+    ("for d in ~/.subfleet/jobs/*; do find $d -name x; done", "~/.subfleet/jobs/* (glob)"),
+]
+R3_GLOB_DENIED = [             # decision 3: some match is a broad root
+    ("rg foo ~/.subfleet/j*", "~/.subfleet/j* (glob)"),
+    ("rg foo ~/.sub*", "~/.sub* (glob)"),
+    ("rg foo ~/Pol*", "~/Pol* (glob)"),
+    ("rg foo ~/P?licyEngine", "~/P?licyEngine (glob)"),
+    ("rg foo ~/[P]olicyEngine", "~/[P]olicyEngine (glob)"),
+    ("rg foo ~/Lib*/Cach?s", "~/Lib*/Cach?s (glob)"),
+    ("grep -r x ~/Pol*/**/*.py", "~/Pol*/**/*.py (glob)"),
+    ("rg foo ~/.subfleet/[a-z]*", "~/.subfleet/[a-z]* (glob)"),      # daemon.log first, then jobs
+    ("find $HOME/Pol* -name x", "$HOME/Pol* (glob)"),
+]
+R3_CORPUS = (R3_FILE_ALLOWED + [c for c, _ in R3_NAME_DENIED] + R3_GLOB_ALLOWED
+             + [c for c, _ in R3_STAR_DENIED] + [c for c, _ in R3_GLOB_DENIED])
+#: Of those, the ones whose verdict r3 moves (the r2 hook gives the other verdict).
+R3_MOVED = (set(R3_FILE_ALLOWED) | {"grep -rn x ~/.subfleet/*.nomatch", "rg x ~/.subfleet/x*",
+                                     "grep -rn x ~/.subfleet/*.json"}
+            | {c for c, _ in R3_STAR_DENIED} - {"rg foo ~/.subfleet/*"}
+            | {c for c, _ in R3_GLOB_DENIED} - {"rg foo ~/.subfleet/j*", "rg foo ~/.subfleet/[a-z]*"})
+
+
+def test_r3_a_file_is_never_a_broad_root(hooks):
+    """Decision 1 (reversing r2's decision 6): a root by name that names an existing
+    non-directory, or a link to one, is not broad, in every spelling, quoted or not."""
+    for command in R3_FILE_ALLOWED:
+        assert rule(run_hook(hooks["new"], command)) is None, command
+
+
+def test_r3_a_directory_a_link_to_one_and_a_name_stay_roots(hooks):
+    """Decision 1's other side, and decision 4: a directory, a link to one, a dangling link, a
+    missing path, a file with a trailing slash and an unresolved name are judged by name."""
+    for command, root in R3_NAME_DENIED:
+        out = run_hook(hooks["new"], command)
+        assert rule(out) == "unscoped-search", command
+        assert matched_root(out) == root, command
+
+
+def test_r3_a_bare_star_after_a_root_is_that_root(hooks):
+    """Decision 2, for old roots and new: the shell hands the searcher every entry of the
+    root; the message names the word as written plus (glob) (decision 5)."""
+    for command, root in R3_STAR_DENIED:
+        out = run_hook(hooks["new"], command)
+        assert rule(out) == "unscoped-search", command
+        assert matched_root(out) == root, command
+    assert matched_root(run_hook(hooks["new"], "find /* -name x")) == "/*"     # unchanged
+
+
+def test_r3_globs_that_match_a_root_are_denied(hooks):
+    """Decision 3: a glob that can match a broad root is judged by what it matches."""
+    for command, root in R3_GLOB_DENIED:
+        out = run_hook(hooks["new"], command)
+        assert rule(out) == "unscoped-search", command
+        assert matched_root(out) == root, command
+
+
+def test_r3_selective_globs_are_judged_by_what_they_match(hooks):
+    """Decision 3's other side: files only, two levels down, case, the dot rule, folders that
+    cannot hold a root (judged by text), and no match at all."""
+    for command in R3_GLOB_ALLOWED:
+        assert rule(run_hook(hooks["new"], command)) is None, command
+
+
+def test_r3_moves_exactly_the_cases_the_decisions_name(hooks):
+    """The red evidence, kept: the r2 hook (r3's base) gives the other verdict on exactly
+    R3_MOVED, and the same verdict as r3 on the rest of the brief's cases."""
+    new, r2 = judged(hooks["new"], R3_CORPUS), judged(hooks["r2"], R3_CORPUS)
+    moved = {command for command in R3_CORPUS if rule(new[command]) != rule(r2[command])}
+    assert moved == R3_MOVED
+
+
+def test_r3_a_glob_with_nothing_to_match_is_not_judged(hooks):
+    """No match: allowed, even where the text rule would deny the word. ~/.subfleet/j* in a
+    home without jobs/ passes; ~/.subfleet/w* there still matches worktrees/."""
+    assert not fs_path("/Users/nojobs/.subfleet/jobs").exists()
+    assert rule(run_hook(hooks["new"], "rg x ~/.subfleet/j*", home="/Users/nojobs")) is None
+    assert rule(run_hook(hooks["new"], "rg x ~/.subfleet/w*", home="/Users/nojobs")) == "unscoped-search"
+    assert rule(run_hook(hooks["r2"], "rg x ~/.subfleet/j*", home="/Users/nojobs")) == "unscoped-search"
+
+
+def test_r3_the_cap_bounds_what_is_judged(hooks):
+    """The cap (a test-only seam): at 0 no match is judged, so ~/Pol* is not judged."""
+    assert rule(run_hook(hooks["new"], "rg foo ~/Pol*", extra={CAP_SEAM: "0"})) is None
+    assert rule(run_hook(hooks["new"], "rg foo ~/Pol*", extra={CAP_SEAM: "1"})) == "unscoped-search"
+    assert rule(run_hook(hooks["new"], "rg foo ~/Pol*")) == "unscoped-search"
+
+
+def test_r3_env_values_are_never_read(hooks):
+    """$SUBFLEET_ROOT and $SUBFLEET_HOME are spellings of $HOME/.subfleet whatever the
+    environment says: set to a folder without policy.json, or to a file, they change nothing."""
+    extra = {"SUBFLEET_ROOT": "/Users/nojobs/.subfleet/jobs", "SUBFLEET_HOME": FAKE_HOME + "/.subfleet/policy.json"}
+    assert rule(run_hook(hooks["new"], "rg x ${SUBFLEET_ROOT}/policy.json", extra=extra)) is None
+    assert rule(run_hook(hooks["new"], "rg --files $SUBFLEET_HOME", extra=extra)) == "unscoped-search"
+    assert rule(run_hook(hooks["new"], "rg foo $SUBFLEET_ROOT/j*", extra=extra)) == "unscoped-search"
+
+
+def test_r3_an_unresolved_spelling_is_no_root_spelling(hooks):
+    """The brief listed ``rg x $OTHER/.subfleet/policy.json`` as denied; it is not a root
+    spelling (only ~, $HOME, /Users/<user> and the two env names are), so every hook allows
+    it. Its intent, a root by name whose path still holds $ after resolving, is judged by
+    name: ``rg x ~/.subfleet/$OTHER`` (R3_NAME_DENIED) stays denied though a file named
+    ``$OTHER`` exists."""
+    assert is_file(FAKE_HOME + "/.subfleet/$OTHER")
+    for which in ("new", "r2", "old"):
+        assert rule(run_hook(hooks[which], "rg x $OTHER/.subfleet/policy.json")) is None, which
+
+
+def test_r3_a_glob_never_runs_a_substitution(hooks, tmp_path):
+    """Decision 3's expansion is bash's pathname expansion of a variable's value: a pattern
+    holding $( ) or a backtick runs nothing, through the hook and through pw_glob itself."""
+    marks = [tmp_path / name for name in ("pwned-dollar", "pwned-tick", "pwned-glob-dollar", "pwned-glob-tick")]
+    for command in (f"rg x ~/.subfleet/$(touch {marks[0]})*", f"rg x ~/.subfleet/`touch {marks[1]}`*",
+                    f"rg x ~/Pol*/$(touch {marks[0]})", f"grep -r x ~/[P]ol`touch {marks[1]}`*"):
+        run_hook(hooks["new"], command)
+    out = run_glob_harness(f'pw_glob {FAKE_HOME} "\\$(touch {marks[2]})*"; pw_glob {FAKE_HOME} "\\`touch {marks[3]}\\`*"; echo done')
+    assert out.stdout.strip() == "done", out
+    assert [m for m in marks if m.exists()] == []
+
+
+def r3_block() -> str:
+    text = HOOK.read_text(encoding="utf-8")
+    begin, end = R3_BLOCKS[0]
+    return text[text.index(begin):text.index(end) + len(end)]
+
+
+def run_glob_harness(body: str, prelude: str = "") -> subprocess.CompletedProcess:
+    """``body`` run in /bin/bash after the hook's r3 functions, with this module's fixture as the
+    seam, its home, and a root regex for the home and its PolicyEngine child."""
+    script = (r3_block() + f"pw_home={FAKE_HOME}\npw_root_re='^(~|~/PolicyEngine|~/\\.subfleet(/[^/]+)?)$'\n"
+              + prelude + "\n" + body + "\n")
+    env = {"PATH": "/usr/bin:/bin", "HOME": FAKE_HOME, FS_SEAM: str(_FS["root"])}
+    return subprocess.run(["/bin/bash", "-c", script], capture_output=True, text=True, env=env, timeout=120)
+
+
+#: Shell states a caller of pw_glob may be in: each must come back unchanged, and none may
+#: change what the expansion matches.
+SHELL_STATES = ["", "set -f", "shopt -s nullglob", "shopt -s dotglob", "shopt -s nocaseglob",
+                "shopt -s extglob", "shopt -s failglob", "IFS=:", "unset IFS", "GLOBIGNORE='*'",
+                "set -f; shopt -s nullglob dotglob nocaseglob extglob failglob; IFS=/; GLOBIGNORE=x"]
+
+
+@pytest.mark.parametrize("state", SHELL_STATES)
+def test_r3_glob_expansion_restores_every_setting(state):
+    """pw_glob turns globbing on, sets nullglob, clears dotglob, nocaseglob, extglob, failglob
+    and GLOBIGNORE and empties IFS for the one expansion, then puts every one back as it was;
+    its answers never depend on the caller's settings."""
+    probe = ("st() { printf '%s|%s|%s|' \"$-\" \"${IFS-unset}\" \"${GLOBIGNORE-unset}\"; "
+             "shopt -p nullglob dotglob nocaseglob extglob failglob | tr '\\n' ' '; }\n"
+             "before=$(st)\n"
+             "a=1; pw_glob " + FAKE_HOME + " 'P*' && a=0\n"
+             "b=1; pw_glob " + FAKE_HOME + " 'p*' && b=0\n"
+             "c=1; pw_glob " + FAKE_HOME + " '*ubfleet' && c=0\n"
+             "d=1; pw_glob " + FAKE_HOME + " '.sub*' && d=0\n"
+             "after=$(st)\n"
+             "printf '%s\\n%s\\n%s%s%s%s\\n' \"$before\" \"$after\" $a $b $c $d\n")
+    out = run_glob_harness(probe, prelude=state)
+    lines = out.stdout.splitlines()
+    assert len(lines) == 3, out
+    assert lines[0] == lines[1], (state, lines)
+    assert lines[2] == "0110", (state, lines[2])     # P* and .sub* match a root; p* and *ubfleet nothing
+
+
+def test_r3_test_seams_never_reach_a_lane():
+    """The seams are names the daemon's launch environment, an exact allowlist, never carries."""
+    from subfleet import launch_env
+    for name in (FS_SEAM, CAP_SEAM):
+        assert not launch_env.inherited_name(name), name
+        assert name not in launch_env.build_environment(environ={"PATH": "/usr/bin:/bin", name: "/x"})
+
+
+def test_s1_r3_moves_each_decision_only_its_own_way(hooks, corpus):
+    """Against the r2 hook (r3's base), on every corpus command r3 labels: a decision 1 word
+    only ever allows more (it becomes F), a decision 2 word only ever denies more (it becomes
+    a root); decision 3 may do either. Unlabelled commands get r2's verdict exactly."""
+    pairs = [(case["command"], case["cwd"]) for case in corpus["generated"]] + corpus["fixed"]
+    new, r2 = judge_all(hooks["new"], pairs), judge_all(hooks["r2"], pairs)
+    wrong, counts = [], {"labelled": 0, "moved": 0, "d1": 0, "d2": 0, "d3": 0}
+    for key in dict.fromkeys(pairs):
+        labels = r3_labels(key[0])
+        n, o = rule(new[key]), rule(r2[key])
+        for label in labels:
+            counts[label] += 1
+        counts["labelled"] += bool(labels)
+        counts["moved"] += n != o
+        if not labels and n != o:
+            wrong.append(("unlabelled", key, o, n))
+        elif labels == {"d1"} and o is None and n is not None:
+            wrong.append(("d1 denied more", key, o, n))
+        elif labels == {"d2"} and o is not None and n is None:
+            wrong.append(("d2 allowed more", key, o, n))
+    report("S1-r3", counts)
+    assert not wrong, wrong[:10]
+    assert counts["d1"] and counts["d2"] and counts["d3"], counts
+
+
+# ---------------------------------------------------------------- r3: the property and the shells
+
+PROP_HOME = "/Users/prop"
+#: The six kinds of child, each a name in the fixture's /Users/prop/.subfleet.
+KINDS = {"file": "f.log", "dir": "d", "link-to-file": "lf.log", "link-to-dir": "ld",
+         "dangling": "dl.log", "missing": "m.log"}
+#: The six spellings of ~/.subfleet (the env names in both forms).
+PROP_SPELLINGS = ["~/.subfleet", "$HOME/.subfleet", "${HOME}/.subfleet", PROP_HOME + "/.subfleet",
+                  "$SUBFLEET_ROOT", "${SUBFLEET_ROOT}", "$SUBFLEET_HOME", "${SUBFLEET_HOME}"]
+QUOTINGS = ["none", "single", "double", "partial"]
+PROP_SEARCHES = ["rg -n foo {}", "grep -rn x {}", "find {} -name x", "rg --files {}"]
+
+
+def plain_word(kind: str, spelling: str, quoting: str, slash: bool, star: bool) -> str:
+    tail = "/" + KINDS[kind] + ("/*" if star else "") + ("/" if slash else "")
+    if quoting == "single":
+        return "'" + spelling + tail + "'"
+    if quoting == "double":
+        return '"' + spelling + tail + '"'
+    if quoting == "partial":
+        return '"' + spelling + '"' + tail
+    return spelling + tail
+
+
+def plain_broad(kind: str, slash: bool, star: bool) -> bool:
+    """The rule: with a trailing /*, always broad; else broad iff the resolved path (a trailing
+    slash kept) is not an existing non-directory."""
+    if star:
+        return True
+    return not is_file(PROP_HOME + "/.subfleet/" + KINDS[kind] + ("/" if slash else ""))
+
+
+#: Glob words over /Users/prop: (literal part, pattern component, tail).
+PROP_GLOBS = [
+    *((home, comp, tail) for home in ("~", "$HOME", "${HOME}", PROP_HOME)
+      for comp in ("P*", "P?licyEngine", "[P]olicyEngine", "[!p]olicyEngine", "[^p]olicyEngine",
+                   "[[:upper:]]olicyEngine", "pol*", "*ubfleet", ".sub*", ".c*", "Pic*", "*.txt", "x*")
+      for tail in ("", "/policyengine-us", "/*", "/**/x.py")),
+    *((home, comp, tail) for home in ("~", "$HOME") for comp in ("Lib*", "L?brary")
+      for tail in ("", "/Cach?s", "/Caches", "/x*")),
+    *((sub, comp, tail) for sub in ("~/.subfleet", "$SUBFLEET_ROOT", "${SUBFLEET_HOME}")
+      for comp in ("*.log", "f*", "l?", "lf*", "ld*", "d*", "[f]*", "m*", "?.log", "[!d]*")
+      for tail in ("", "/*")),
+    *(("", comp, tail) for comp, tail in (("U*", ""), ("t*", ""), ("p*", ""), ("p*", "/tmp"),
+                                          ("U*", "/prop"), ("x*", ""))),
+    *(("/Users", comp, tail) for comp, tail in (("p*", ""), ("p*", "/Pictures"), ("pr?p", "/.subfleet"),
+                                                ("[n]*", ""), ("q*", ""))),
+    *(("~/Library", comp, "") for comp in ("C*", "Cach?s", "x*")),
+]
+
+
+def glob_word(literal: str, comp: str, tail: str) -> str:
+    return literal + "/" + comp + tail
+
+
+def shell_matches(shell: str, word: str, home: str) -> list[str]:
+    """The real expansion of ``word`` in /bin/bash or /bin/zsh -f, nothing matched -> [], in the
+    fixture: the home is the seam's, $SUBFLEET_* are its .subfleet, / is the seam folder."""
+    fs = str(_FS["root"])
+    text = fs + word if word.startswith("/") else word
+    env = {"PATH": "/usr/bin:/bin", "HOME": fs + home, "SUBFLEET_ROOT": fs + home + "/.subfleet",
+           "SUBFLEET_HOME": fs + home + "/.subfleet"}
+    if shell == "bash":
+        argv = ["/bin/bash", "--noprofile", "--norc", "-c",
+                "shopt -s nullglob; for m in " + text + "; do printf '%s\\n' \"$m\"; done"]
+    else:
+        argv = ["/bin/zsh", "-f", "-c", "setopt NULL_GLOB; for m in " + text + "; do print -r -- $m; done"]
+    out = subprocess.run(argv, capture_output=True, text=True, env=env, cwd=fs, timeout=60)
+    assert out.returncode == 0, (shell, word, out.stderr)
+    return out.stdout.splitlines()
+
+
+@functools.lru_cache(maxsize=None)
+def real_broad(shell: str, word: str, home: str = PROP_HOME) -> bool:
+    """The oracle: a glob word is broad iff some real match is a broad root, where a match is
+    taken as a written path (the seam folder off, //, . and .. resolved, the home spelled ~)
+    and decision 1 applies to it. A ``**/`` component or a trailing run of bare ``*`` /
+    ``.*`` (decision 2) makes the part before it the root: broad iff that part, written or
+    expanded, is a broad root. No match: not broad."""
+    fs = str(_FS["root"])
+    prefix, walk = walk_prefix(word)
+    if not GLOB_CHAR.search(prefix):
+        return bool(walk and ROOT_NAME.fullmatch(prefix))
+    for match in shell_matches(shell, prefix, home):
+        if not match.startswith(fs + "/"):
+            continue
+        path = norm(match[len(fs):])
+        spelled = "~" + path[len(home):] if path == home or path.startswith(home + "/") else path
+        if ROOT_NAME.fullmatch(spelled) and not (os.path.exists(match) and not os.path.isdir(match)):
+            return True
+    return False
+
+
+_PROP: dict[tuple[str, str], str] = {}
+
+
+def judge_prop(hook: Path, commands, home: str = PROP_HOME) -> dict[str, str]:
+    """The hook over commands in ``home``, four at a time, memoized, and read from and written
+    to GUARD_DIFF_CACHE like ``judge_all`` (its cwd field names the home: ``<cwd>#home=<home>``)."""
+    digest = hashlib.sha256(Path(hook).read_bytes() + FS_DIGEST.encode()).hexdigest()
+    where = f"{SCOPED_CWD}#home={home}"
+    _load_cache()
+    missing = []
+    for command in dict.fromkeys(commands):
+        if (home, command) in _PROP:
+            continue
+        if (digest, where, command) in _CACHED:
+            _PROP[(home, command)] = _CACHED[(digest, where, command)]
+        else:
+            missing.append(command)
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        futures = {pool.submit(run_hook, hook, command, home=home): command for command in missing}
+        for future in as_completed(futures):
+            command, out = futures[future], future.result()
+            _PROP[(home, command)] = out
+            _remember(digest, (command, where), out)
+    return {c: _PROP[(home, c)] for c in commands}
+
+
+def prop_command(word: str, index: int) -> str:
+    return PROP_SEARCHES[index % len(PROP_SEARCHES)].format(word)
+
+
+PLAIN_SPACE = [(k, s, q, sl, st) for k in KINDS for s in PROP_SPELLINGS for q in QUOTINGS
+               for sl in (False, True) for st in (False, True)]
+PROPERTY_SEED = 20261025
+PROPERTY_EXAMPLES = 2000
+
+
+def test_r3_property_the_verdict_is_the_rule():
+    """Hypothesis, seed PROPERTY_SEED, PROPERTY_EXAMPLES examples, over the child's kind (file,
+    directory, link to a file, link to a directory, dangling link, missing), its spelling (the
+    eight in PROP_SPELLINGS), its quoting (none, single, double, partial), a trailing slash or
+    not and a trailing /* or not, and over the glob words of PROP_GLOBS. The oracle:
+      - a plain word is broad iff its resolved path (the trailing slash kept) is not an
+        existing non-directory; with a trailing /*, always broad;
+      - a glob word is broad iff some real match is a broad root (``real_broad`` in bash,
+        which the hook's expansion is); no match, allowed.
+    The hook denies iff the word is broad. The space is finite (PLAIN_SPACE and PROP_GLOBS), so
+    the hook's verdicts are taken for all of it first, four at a time; every drawn example is
+    then checked against its verdict and the oracle."""
+    from hypothesis import given, seed, settings, strategies as st, HealthCheck
+
+    plain = [(case, prop_command(plain_word(*case), i)) for i, case in enumerate(PLAIN_SPACE)]
+    globs = [(case, prop_command(glob_word(*case), i)) for i, case in enumerate(PROP_GLOBS)]
+    verdicts = judge_prop(HOOK, [c for _, c in plain] + [c for _, c in globs])
+    seen = {"plain": set(), "glob": set(), "denied": 0, "allowed": 0}
+
+    @seed(PROPERTY_SEED)
+    @settings(max_examples=PROPERTY_EXAMPLES, deadline=None, database=None, derandomize=False,
+              suppress_health_check=list(HealthCheck))
+    @given(st.one_of(st.sampled_from(plain).map(lambda x: ("plain",) + x),
+                     st.sampled_from(globs).map(lambda x: ("glob",) + x)))
+    def check(example):
+        family, case, command = example
+        broad = plain_broad(case[0], case[3], case[4]) if family == "plain" else real_broad("bash", glob_word(*case))
+        denied = rule(verdicts[command]) == "unscoped-search"
+        assert denied == broad, (command, case, broad)
+        assert rule(verdicts[command]) in (None, "unscoped-search"), command
+        seen[family].add(case)
+        seen["denied" if denied else "allowed"] += 1
+
+    check()
+    report("property", {"seed": PROPERTY_SEED, "examples": PROPERTY_EXAMPLES, "plain_cases": len(seen["plain"]),
+                        "glob_cases": len(seen["glob"]), "plain_space": len(PLAIN_SPACE), "glob_space": len(PROP_GLOBS),
+                        "denied": seen["denied"], "allowed": seen["allowed"]})
+    assert seen["denied"] and seen["allowed"]
+
+
+def test_r3_globs_agree_with_real_zsh_and_bash():
+    """The differential: every glob case (PROP_GLOBS, and the brief's in the tester home) is
+    expanded by real /bin/zsh -f and /bin/bash in the fixture, and the hook denies iff a real
+    match is a broad root (``real_broad``), in each shell. Two forms differ between them by
+    design, and both shells still agree on the verdict: zsh walks a ``**/`` (bash 3.2 reads it as
+    ``*``), which decision 2 judges by the part before it; bash's ``.*`` matches . and .., which
+    no case here has."""
+    words = [glob_word(*case) for case in PROP_GLOBS]
+    commands = [prop_command(word, i) for i, word in enumerate(words)]
+    verdicts = judge_prop(HOOK, commands)
+    brief = {"~/.subfleet/*.json": False, "~/Pol*/policyengine-us": False, "~/pol*": False, "~/*ubfleet": False,
+             "~/.subfleet/*.nomatch": False, "~/.subfleet/x*": False, "~/.subfleet/j*": True, "~/.sub*": True,
+             "~/Pol*": True, "~/P?licyEngine": True, "~/[P]olicyEngine": True, "~/Lib*/Cach?s": True,
+             "~/Pol*/**/*.py": True, "~/.subfleet/[a-z]*": True}
+    brief_out = judge_prop(HOOK, ["rg foo " + w for w in brief], home=FAKE_HOME)
+    differ, counts = [], {"cases": len(words) + len(brief), "denied": 0, "zsh_bash_agree": 0}
+    for word, command in [*zip(words, commands), *(((w, "rg foo " + w) for w in brief))]:
+        home = PROP_HOME if command in verdicts else FAKE_HOME
+        out = verdicts.get(command) if home == PROP_HOME else brief_out[command]
+        denied = rule(out) == "unscoped-search"
+        shells = {shell: real_broad(shell, word, home) for shell in ("bash", "zsh")}
+        counts["denied"] += denied
+        counts["zsh_bash_agree"] += shells["bash"] == shells["zsh"]
+        if home == FAKE_HOME and shells["bash"] != brief[word]:
+            differ.append(("brief", word, brief[word], shells))
+        if any(denied != broad for broad in shells.values()):
+            differ.append((command, denied, shells))
+    report("shells", counts)
+    assert not differ, differ[:10]
