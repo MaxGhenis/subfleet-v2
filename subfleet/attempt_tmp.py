@@ -155,6 +155,9 @@ class AttemptTemp:
         An absent folder is released whatever holds it: there is nothing to
         keep. Anything else needs a terminal attempt (never a quarantined one)
         and a verified-empty census (C-12.10). Nothing else holds scratch.
+        `verified_empty` here is the holder's census having found none of its
+        own processes, verifiably (`Containment.containment_empty`): a cwd
+        observer in the job's worktree holds only the worktree (C-5.5).
         """
         try:
             where = self.presence(record)

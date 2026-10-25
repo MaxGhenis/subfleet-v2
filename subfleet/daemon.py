@@ -4395,15 +4395,25 @@ class Daemon:
         if exited is None:
             exited = self._wall_exited_descendants(job_id) if wall_family else set()
         changed = False
+        family_sql = ("WITH RECURSIVE family(job_id) AS (SELECT ? UNION ALL SELECT j.job_id "
+                      "FROM jobs j JOIN family f ON j.parent_job_id=f.job_id WHERE j.independent=0) "
+                      if family else "WITH family(job_id) AS (SELECT ?) ")
+        # C-5.9 (review r4 of #240, P3-1): a job this ends from the queue may still hold its
+        # worktree key, kept when start grace queued it again; its cwd scan is taken here,
+        # before the transaction, as the export takes its own. One statement finds them; a
+        # job not scanned keeps the key it holds by the transaction.
+        observers = {row["job_id"]: self._scan_observers(row["job_id"]) for row in self.store.query(
+            family_sql + "SELECT f.job_id FROM family f WHERE EXISTS (SELECT 1 FROM leases l WHERE "
+            "l.holder=f.job_id AND l.lease_key LIKE 'worktree:%') AND NOT EXISTS (SELECT 1 FROM attempts a "
+            "WHERE a.job_id=f.job_id AND a.state IN ('reserved','starting','running','finalizing','quarantined'))",
+            (job_id,))}
         with self.store.transaction("job.cancel_checked", job_id=job_id, attempt_id=attempt_id) as tx:
             job = self._job(job_id)
             if job["state"] in TERMINAL and not job["cancel_requested_at"]:
                 return False
             if without_attempt and tx.execute("SELECT 1 FROM attempts WHERE job_id=?", (job_id,)).fetchone():
                 return False
-            rows = (tx.execute("WITH RECURSIVE family(job_id) AS (SELECT ? UNION ALL SELECT j.job_id "
-                               "FROM jobs j JOIN family f ON j.parent_job_id=f.job_id WHERE j.independent=0) "
-                               "SELECT j.* FROM jobs j JOIN family f USING(job_id)", (job_id,)).fetchall()
+            rows = (tx.execute(family_sql + "SELECT j.* FROM jobs j JOIN family f USING(job_id)", (job_id,)).fetchall()
                     if family else [job])
             now = utcnow()
             for raw in rows:
@@ -4447,10 +4457,11 @@ class Daemon:
                     if not active:
                         inner.execute("UPDATE jobs SET state='cancelled',rc=130,finished_at=?,wait_reason=NULL,"
                                       "next_check_at=NULL WHERE job_id=?", (now, row["job_id"]))
-                        inner.execute("DELETE FROM leases WHERE holder=?", (row["job_id"],))
+                        retained = self._release_ending(inner, row["job_id"], None,     # C-5.5
+                                                        observers.get(row["job_id"]))
                         earlier = self._earlier_attempt(inner, row)
                         summary = "cancelled while waiting to retry" + earlier if earlier else "cancelled before launch"
-                        self._notice(inner, row, summary + ("\n" + requester if requester else ""))
+                        self._notice(inner, row, summary + retained + ("\n" + requester if requester else ""))
                     elif requester and row["caller_session"]:
                         inner.execute("INSERT INTO service_notices(session_id,text,state,created_at) "
                                       "VALUES(?,?,'pending',?)", (row["caller_session"], f"{row['job_id']}: {requester}", now))
@@ -4657,6 +4668,44 @@ class Daemon:
                         folders.cwd_holder(job_id), utcnow()))
         tx.execute("DELETE FROM leases WHERE lease_key LIKE 'worktree:%' AND holder IN (?,?)", holders)
 
+    def _ending_observers(self, job_id: str, attempt_id: str | None = None) -> frozenset[int] | None:
+        """C-5.9: the cwd scan of a job that may end while it holds a `worktree:` key,
+        taken before the transaction that ends it, as the export takes its own.
+
+        That is a job ending from the queue (cancelled while it waits, `_fail_queued`)
+        or with an unlaunched attempt and no census, after start grace queued it
+        again holding its key (review r4 of #240, P3-1). None means keep: the scan
+        could not be read, or the job held no key when asked, so none was taken
+        (one it holds by its ending transaction is kept, and the cwd worker's
+        recheck releases it). An empty set alone lets the key go."""
+        holders = (job_id, attempt_id or job_id)
+        if not self.store.one("SELECT 1 FROM leases WHERE lease_key LIKE 'worktree:%' AND holder IN (?,?)", holders):
+            return None
+        return self._scan_observers(job_id)
+
+    def _scan_observers(self, job_id: str) -> frozenset[int] | None:
+        try:
+            return self._worktree_observers(self._job(job_id))
+        except (procs.InspectionError, OSError, ValueError):
+            return None                    # an unreadable scan keeps the row, as at export
+
+    def _release_ending(self, tx, job_id: str, attempt_id: str | None, observers: frozenset[int] | None,
+                        *, convert: bool = True) -> str:
+        """Release the leases of a job (and its attempt) as it ends, in the ending transaction.
+
+        A `worktree:` key is kept unless a scan showed no observer (C-5.5, C-5.9);
+        when the job ends (`convert`) it becomes the reader row `_keep_for_cwd`
+        makes. A job queued again keeps its own key. Returns the notice's
+        `worktree retained` line, which names pids only, or ''."""
+        holders = (job_id, attempt_id or job_id)
+        keep = observers != frozenset() and bool(tx.execute(
+            "SELECT 1 FROM leases WHERE lease_key LIKE 'worktree:%' AND holder IN (?,?)", holders).fetchone())
+        tx.execute("DELETE FROM leases WHERE holder IN (?,?)" +
+                   (" AND lease_key NOT LIKE 'worktree:%'" if keep else ''), holders)
+        if keep and convert:
+            self._keep_for_cwd(tx, job_id, attempt_id)
+        return self._cwd_notice(procs.Containment(cwd_pids=observers)) if keep and convert and observers else ''
+
     def _cwd_wait(self, a: dict, census: procs.Containment, *, began: float) -> bool:
         timers = self.__dict__.setdefault('_cwd_settle', {})
         clocks = self.__dict__.setdefault('_cwd_wait_next', {})
@@ -4665,7 +4714,13 @@ class Daemon:
             clocks.pop(a['attempt_id'], None)
             return False
         now = time.monotonic()
-        clocks[a['attempt_id']] = began + self.inspect_interval_s
+        # Never sooner than an interval after the clock that allowed this census. A
+        # loss's clock runs from when its inspection fell due, which lags when it ran
+        # if the attempt is given a shared table that expires early (C-5.12) and each
+        # census is slow: 90 censuses in 30 s at 254 ms each, against Invariant 5's 61
+        # (round 4's pacing test). Finalization and start grace pass the census's own
+        # start, which is never before that clock, so this changes nothing for them.
+        clocks[a['attempt_id']] = max(began, clocks.get(a['attempt_id'], began)) + self.inspect_interval_s
         return now - timers.setdefault(a['attempt_id'], now) < CWD_SETTLE_S
 
     def _cwd_census_due(self, a: dict) -> bool:
@@ -5640,8 +5695,11 @@ class Daemon:
         census and nothing measured. A terminal holder whose census found
         members keeps it, and gets no new census until its state changes (or
         the daemon restarts); an uncertain census is asked again next pass.
-        A verified-empty census clears it (`cleared_at`), so it pins nothing
-        even if its removal fails and is retried.
+        A census that found none of the holder's own processes clears it
+        (`cleared_at`), so it pins nothing even if its removal fails and is
+        retried. That is `containment_empty`, not `verified_empty`: a cwd
+        observer is in the worktree, not the scratch, and holds only the
+        worktree (C-5.5, C-12.10; review r4 of #240, P3-2).
         """
         state = subject.get("state")
         outcome = self._attempt_temp.remove(record, subject, verified_empty=False)
@@ -5658,8 +5716,8 @@ class Daemon:
             if census.live_pids:
                 self._tmpdir_held[holder] = state
                 return {}
-            if not census.verified_empty:
-                return {}
+            if not census.containment_empty:
+                return {}                   # unverifiable: asked again next pass
         self._tmpdir_held.pop(holder, None)
         measured = self._attempt_temp.size(record)
         outcome = self._attempt_temp.remove(record, subject, verified_empty=True)
@@ -8251,6 +8309,7 @@ class Daemon:
 
     def _fail_queued(self, job: dict, detail: str, *, rc: int = 1, kind: str = "job.failed",
                      data: dict | None = None) -> None:
+        observers = self._ending_observers(job["job_id"])     # C-5.9, before the transaction
         with self.store.transaction(kind, job_id=job["job_id"], data=data) as tx:
             job = self._job(job["job_id"])
             if job["state"] in TERMINAL:
@@ -8258,10 +8317,11 @@ class Daemon:
             state, rc = ("cancelled", 130) if job["cancel_requested_at"] else ("failed", rc)
             tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=?,wait_reason=NULL,next_check_at=NULL WHERE job_id=?",
                        (state, rc, utcnow(), job["job_id"]))
-            tx.execute("DELETE FROM leases WHERE holder=?", (job["job_id"],))
+            retained = self._release_ending(tx, job["job_id"], None, observers)      # C-5.5
             # C-13.1, C-15.1: a job with an attempt behind it was preparing its retry.
             earlier = self._earlier_attempt(tx, job)
-            self._notice(tx, job, (f"{state} while preparing the retry: " if earlier else "") + detail + earlier)
+            self._notice(tx, job, (f"{state} while preparing the retry: " if earlier else "") + detail + earlier
+                         + retained)
         self._notify()
 
     def _launch(self, a: dict) -> None:
@@ -9002,7 +9062,15 @@ class Daemon:
         event, as admission's are. Queued at once, a launch-time check that kept
         getting no answer while admission's got one used up the job's attempts in
         as many passes (review of the P3-5 fix).
+
+        `census` is start grace's, which decided that nothing of the attempt's
+        remains; its cwd holders are the worktree's. Every other caller passes
+        none, and the worktree is scanned here, before the transaction, as the
+        export scans it (C-5.9; review r4 of #240, P3-1). The TMPDIR cleanup
+        reuses start grace's census rather than taking another (r4's note).
         """
+        observers = (frozenset(census.cwd_pids) if census is not None
+                     else self._ending_observers(a["job_id"], a["attempt_id"]))
         with self.store.transaction("attempt.no_launch", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"detail": detail}) as tx:
             job = self._job(a["job_id"])
             cancel = bool(job["cancel_requested_at"])
@@ -9011,20 +9079,15 @@ class Daemon:
             tx.execute("UPDATE attempts SET state=?,outcome_class='unknown',outcome_detail=?,"
                        "finished_at=COALESCE(started_at,?) WHERE attempt_id=?",
                        ("interrupted" if cancel else "failed", detail, utcnow(), a["attempt_id"]))
-            keep = bool(census and census.cwd_pids)
-            tx.execute("DELETE FROM leases WHERE holder IN (?,?)" +
-                       (" AND lease_key NOT LIKE 'worktree:%'" if keep else ''),
-                       (a["attempt_id"], job["job_id"]))
-            if keep:
+            retry = not cancel and self._attempts_left(tx, job, a)
+            # It ends: its kept worktree excludes no writer (C-5.5). Queued again,
+            # the job is still the writer there and keeps its own key.
+            retained = self._release_ending(tx, job["job_id"], a["attempt_id"], observers, convert=not retry)
+            if observers:
                 evidence = json.loads(a['evidence_json'] or '{}')
-                evidence['cwd_holders'] = census.to_dict()['cwd_holders']
+                evidence['cwd_holders'] = procs.Containment(cwd_pids=observers).to_dict()['cwd_holders']
                 tx.execute('UPDATE attempts SET evidence_json=? WHERE attempt_id=?',
                            (json.dumps(evidence), a['attempt_id']))
-            retry = not cancel and self._attempts_left(tx, job, a)
-            if keep and not retry:
-                # It ends: its kept worktree excludes no writer (C-5.5). Queued
-                # again, the job is still the writer there and keeps its own key.
-                self._keep_for_cwd(tx, job["job_id"], a["attempt_id"])
             state = "queued" if retry else "cancelled" if cancel else "failed"
             rc = None if retry else 130 if cancel else 1
             tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=?,wait_reason=NULL,next_check_at=NULL WHERE job_id=?", (state, rc, None if retry else utcnow(), job["job_id"]))
@@ -9033,9 +9096,8 @@ class Daemon:
             if not retry:
                 # C-13.1, C-15.1: a retry that never launched names the attempt before it.
                 earlier = self._earlier_attempt(tx, job, before=a["seq"])
-                self._notice(tx, job, (f"attempt a{a['seq']}: " if earlier else "") + detail + earlier
-                             + (self._cwd_notice(census) if census else ''))
-        self._cleanup_attempt_tmpdir(a)
+                self._notice(tx, job, (f"attempt a{a['seq']}: " if earlier else "") + detail + earlier + retained)
+        self._cleanup_attempt_tmpdir(a, census)
         self._notify()
 
     def _defer_after_launch(self, tx, job: dict, exc: SalvageError) -> None:
