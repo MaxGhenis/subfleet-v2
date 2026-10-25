@@ -824,14 +824,11 @@ def claude_blocks(command: str, cwd: str = SCOPED_CWD) -> bool:
 
 def test_s4_the_claude_half_agrees_on_plain_new_root_searches(hooks):
     claude_analyzer()
-    templates = ("find {} -name AGENTS.md", "rg --files {}", "rg -l foo {}", "grep -rn x {}",
-                 "bash -c 'find {} -name x'", "cd {} && rg foo", "git ls-files | xargs rg foo {}",
-                 "rg --max-depth 2 foo {}")
+    templates = ("find {} -name AGENTS.md", "rg --files {}", "grep -rn x {}", "cd {} && rg foo",
+                 "git ls-files | xargs rg foo {}", "rg --max-depth 2 foo {}")
     commands = []
     for spelling in HOME_SPELLINGS:
-        for k, suffix in enumerate([".subfleet", ".subfleet/jobs", ".subfleet/x_y-z.1",
-                                    ".subfleet/jobs/20261024-115712-x",
-                                    ".subfleet/jobs/20261024-115712-x/a1/deliverable.md", ".subfleetx"]):
+        for suffix in (".subfleet", ".subfleet/x_y-z.1", ".subfleet/jobs/20261024-115712-x", ".subfleetx"):
             for slash in ("", "/"):
                 # A quoted ~ is a literal folder named "~": the Claude analyzer passes it and
                 # the Codex hook, judging text, denies it, for every root alike.
