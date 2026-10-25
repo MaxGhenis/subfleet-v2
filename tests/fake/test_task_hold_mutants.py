@@ -2,17 +2,19 @@
 
 Every scenario passes on the daemon as built (the baseline), and each mutant in
 `tests/task_hold_mutants.py` makes the scenario paired with it fail with that
-scenario's own message, so the test that catches it is the one it names.
+scenario's own message, so the test that catches it is the one it names. The
+build's seven, review r1's four (fix round 1) and one per decision of fix round 1.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from subfleet import protocol
+from subfleet import protocol, task_holds
 from tests.disk_floor_model import stamp
 from tests.task_hold_mutants import MUTANTS
-from tests.task_hold_support import attempts, fresh_daemon, hold, job, release, submit, turn
+from tests.task_hold_support import (attempts, configure, finalize_transient, fresh_daemon, hold, job, release,
+                                     restart, submit, turn)
 
 
 def held_build_never_starts():
@@ -87,6 +89,128 @@ def unknown_task_is_refused():
         raise AssertionError("refusal: an unknown task name was accepted")
 
 
+def hold_after_the_door_stops_the_reservation():
+    with fresh_daemon() as (service, harness, clock, signals):
+        build = submit(service, harness, "build", "build-1")
+        route = service._prepare_route
+
+        def hold_then_route(job_row, *args, **kwargs):
+            if job_row["job_id"] == build:
+                epoch = service._task_hold_epoch       # only the reserving transaction can see it
+                hold(service, "build", stamp(3600))
+                service._task_hold_epoch = epoch
+            return route(job_row, *args, **kwargs)
+        service._prepare_route = hold_then_route
+        service._admit()
+        assert attempts(service, build) == [], "T1-recheck: a hold committed after the door look was not read again"
+
+
+def a_hold_frees_no_capacity():
+    with fresh_daemon() as (service, harness, clock, signals):
+        hold(service, "build", stamp(3600))
+        service._admit()
+        seen = [key for kind in ("detached", "turn") for key, _ in service._leases_seen.get(kind, frozenset())]
+        assert not any(key.startswith(task_holds.KEY) for key in seen), "C-6.10: a hold's row was counted as capacity"
+
+
+def hold_survives_a_restart():
+    with fresh_daemon() as (service, harness, clock, signals):
+        hold(service, "build", stamp(3600))
+        build = submit(service, harness, "build", "build-1")
+        service = restart(service, harness)
+        service._admit()
+        assert attempts(service, build) == [], "storage: a restart let a held build start"
+
+
+def pin_grace_survives_a_hold():
+    with fresh_daemon() as (service, harness, clock, signals):
+        configure(service, harness, lambda daemon: daemon.policy["admission"].update(pin_grace_s=60))
+        service.store.update_lane("codex-1", enabled=0)
+        build = submit(service, harness, "build", "build-1", pinned_lane="codex-1")
+        service._admit()
+        clock[0] = 10
+        hold(service, "build", stamp(1000))
+        service._admit()
+        clock[0] = 500
+        release(service, "build")
+        service._admit()
+        row = job(service, build)
+        assert (row["state"], service._pin_episodes[build]["fail_at"]) == ("waiting", stamp(550)), \
+            "T6-grace: the hold's time ran the job's pin grace"
+
+
+def retry_backoff_survives_a_hold():
+    with fresh_daemon() as (service, harness, clock, signals):
+        build = submit(service, harness, "build", "build-1")
+        service._admit()
+        finalize_transient(service, attempts(service, build)[0])
+        clock[0] = 10
+        hold(service, "build", stamp(20))
+        service._admit()
+        clock[0] = 15
+        release(service, "build")
+        service._admit()
+        assert len(attempts(service, build)) == 1, "T6-retry: a release started a retry before its backoff ended"
+
+
+def held_job_is_no_reset_demand():
+    from tests.fake.test_task_hold_reset_demand import held_job_spends_nothing
+    held_job_spends_nothing()
+
+
+def hold_after_the_demand_read_spends_nothing():
+    from tests.fake.test_task_hold_reset_demand import hold_after_demand_was_read_spends_nothing
+    hold_after_demand_was_read_spends_nothing()
+
+
+def offline_count_is_the_total():
+    from subfleet import cli
+    from subfleet.offline import Offline
+    with fresh_daemon() as (service, harness, clock, signals):
+        hold(service, "build", "2099-06-01T00:00:00Z")
+        for n in range(51):
+            submit(service, harness, "build", f"build-{n}")
+        service._admit()
+        status = Offline(service.root).status()
+        assert len(status["jobs"]) == 50
+        assert "(51 waiting)" in cli.format_status(status), "C-17.4: the offline count stopped at the 50 jobs listed"
+
+
+def edge_controls_are_refused():
+    with fresh_daemon() as (service, harness, clock, signals):
+        for note in ("\nbooking\n", "\tbooking\t"):
+            try:
+                hold(service, "build", stamp(60), note=note)
+            except protocol.ProtocolError as exc:
+                assert exc.reason == "task-hold-note", "note: the wrong refusal"
+            else:
+                raise AssertionError(f"note: {note!r} was kept")
+        assert service.store.query("SELECT * FROM leases") == [], "note: a refused hold wrote a row"
+
+
+def release_hint_is_one_argument():
+    import shlex
+    from subfleet import render
+    lines = render.why_queue({"job_id": "j", "kind": "dispatch", "state": "waiting", "wait_reason": "task-held",
+                              "hold": {"reason": "task-held", "task": "data build", "until": stamp(60), "note": "n"}})
+    command = lines[1].split("`")[1]
+    assert shlex.split(command)[-1] == "data build", f"hint: {command!r} splits the task"
+
+
+def release_notifies_the_waiters():
+    with fresh_daemon() as (service, harness, clock, signals):
+        hold(service, "build", stamp(3600))
+        submit(service, harness, "build", "build-1")
+        service._admit()
+        notified = []
+        original = service._notify
+        service._notify = lambda: (notified.append(service.store.query(
+            "SELECT state FROM jobs WHERE task='build'")), original())[1]
+        release(service, "build")
+        assert notified and notified[-1] == [{"state": "queued"}], \
+            "T3-notify: a release committed without waking the daemon's waiters"
+
+
 SCENARIOS = {
     "drop-admission-check": (held_build_never_starts, "T1"),
     "hold-every-task": (review_on_the_lane_is_placed, "T2"),
@@ -95,6 +219,18 @@ SCENARIOS = {
     "release-without-notify": (release_wakes_at_once, "T3-release"),
     "replace-running-attempts": (running_attempt_is_untouched, "T4"),
     "accept-unknown-task": (unknown_task_is_refused, "refusal"),
+    "drop-transaction-recheck": (hold_after_the_door_stops_the_reservation, "T1-recheck"),
+    "hold-counted-as-capacity": (a_hold_frees_no_capacity, "C-6.10"),
+    "strict-expiry-boundary": (hold_ends_by_the_clock, "T3-expiry"),
+    "startup-clears-leases": (hold_survives_a_restart, "storage"),
+    "grace-runs-while-held": (pin_grace_survives_a_hold, "T6-grace"),
+    "release-drops-retry-backoff": (retry_backoff_survives_a_hold, "T6-retry"),
+    "held-job-is-demand": (held_job_is_no_reset_demand, "T7"),
+    "pending-ignores-holds": (hold_after_the_demand_read_spends_nothing, "T7-pending"),
+    "offline-counts-the-display-cap": (offline_count_is_the_total, "C-17.4"),
+    "note-strips-before-checking": (edge_controls_are_refused, "note"),
+    "release-hint-unquoted": (release_hint_is_one_argument, "hint"),
+    "release-skips-notify": (release_notifies_the_waiters, "T3-notify"),
 }
 
 

@@ -8,7 +8,7 @@ assertion. `TASK_HOLD_MUTANT=<name>` applies one to the property tests too
 
 from __future__ import annotations
 
-from subfleet import task_holds
+from subfleet import daemon as daemon_module, task_holds
 from subfleet.daemon import Daemon
 
 
@@ -66,6 +66,111 @@ def accept_unknown_task(patch):
     patch.setattr(Daemon, "_known_task", lambda self, task: isinstance(task, str) and bool(task))
 
 
+# --- review r1's four (run against the properties in fix round 1) -----------------------------
+
+def drop_transaction_recheck(patch):
+    """The reserving transaction never reads the hold again: only the door's look holds a job."""
+    original = Daemon._task_holds_now
+    patch.setattr(Daemon, "_task_holds_now",
+                  lambda self, read=None: {} if read is not None else original(self))
+
+
+def hold_counted_as_capacity(patch):
+    """Admission's lease census (C-6.10) counts a hold's row as capacity in use."""
+    patch.setattr(daemon_module, "LEASE_CENSUS_SKIPS", ("", ""))
+
+
+def strict_expiry_boundary(patch):
+    """A hold is still in force at the instant of its end (`until >= now`)."""
+    def in_force_now(hold, now):
+        if not hold:
+            return False
+        current = task_holds.instant(now) if isinstance(now, str) else now
+        return task_holds.instant(hold["until"]) >= current
+    patch.setattr(task_holds, "in_force_now", in_force_now)
+
+
+def startup_clears_leases(patch):
+    """A daemon start clears every lease row, the holds among them."""
+    original = Daemon.__init__
+
+    def start(self, *args, **kwargs):
+        original(self, *args, **kwargs)
+        with self.store.transaction("test.mutant_clear_leases") as tx:
+            tx.execute("DELETE FROM leases")
+    patch.setattr(Daemon, "__init__", start)
+
+
+# --- one per decision of fix round 1 ------------------------------------------------------------
+
+def grace_runs_while_held(patch):
+    """P2-1: a hold takes a job without pausing its pin grace (as the build shipped)."""
+    original = Daemon._take_for_hold
+
+    def take(self, tx, job, hold, *, data=None):
+        episode = self._pin_episodes.pop(job["job_id"], None)
+        try:
+            return original(self, tx, job, hold, data=data)
+        finally:
+            if episode is not None:
+                self._pin_episodes[job["job_id"]] = episode
+    patch.setattr(Daemon, "_take_for_hold", take)
+
+
+def release_drops_retry_backoff(patch):
+    """P2-2: a hold keeps no clock of the job's, so its end starts a retry early."""
+    original = Daemon._take_for_hold
+
+    def take(self, tx, job, hold, *, data=None):
+        paused = original(self, tx, job, hold, data=data)
+        if data is not None and data.get("kept"):
+            data["kept"] = None
+        return paused
+    patch.setattr(Daemon, "_take_for_hold", take)
+
+
+def held_job_is_demand(patch):
+    """P2-3: `_reset_demand` counts a job a hold keeps, until admission looks at it again."""
+    patch.setattr(Daemon, "_demand_held", lambda self, job, holds: False)
+
+
+def pending_ignores_holds(patch):
+    """P2-3: the reset action's pending transaction does not read the hold again."""
+    patch.setattr(task_holds, "job_held", lambda conn, job_id, now: None)
+
+
+def offline_counts_the_display_cap(patch):
+    """P3-1: status counts a hold's waiting jobs from the jobs it lists (offline: 50)."""
+    original = task_holds.listing
+    patch.setattr(task_holds, "listing", lambda holds, waiting=None: original(holds))
+
+
+def note_strips_before_checking(patch):
+    """P3-2: a note is trimmed of every space and control before it is checked."""
+    original = task_holds.note_text
+    patch.setattr(task_holds, "note_text",
+                  lambda value: original(value.strip()) if isinstance(value, str) else original(value))
+
+
+def release_hint_unquoted(patch):
+    """P3-3: the release hint pastes the task into the command as it is."""
+    patch.setattr(task_holds, "release_command", lambda task: f"subfleet tasks release {task}")
+
+
+def release_skips_notify(patch):
+    """Release does all it should but wake the daemon's waiters: the notification alone is gone."""
+    original = Daemon._release_task
+
+    def release(self, a):
+        notify = self._notify
+        self._notify = lambda: None
+        try:
+            return original(self, a)
+        finally:
+            self._notify = notify
+    patch.setattr(Daemon, "_release_task", release)
+
+
 MUTANTS = {
     "drop-admission-check": drop_admission_check,
     "hold-every-task": hold_every_task,
@@ -74,4 +179,16 @@ MUTANTS = {
     "release-without-notify": release_without_notify,
     "replace-running-attempts": replace_running_attempts,
     "accept-unknown-task": accept_unknown_task,
+    "drop-transaction-recheck": drop_transaction_recheck,
+    "hold-counted-as-capacity": hold_counted_as_capacity,
+    "strict-expiry-boundary": strict_expiry_boundary,
+    "startup-clears-leases": startup_clears_leases,
+    "grace-runs-while-held": grace_runs_while_held,
+    "release-drops-retry-backoff": release_drops_retry_backoff,
+    "held-job-is-demand": held_job_is_demand,
+    "pending-ignores-holds": pending_ignores_holds,
+    "offline-counts-the-display-cap": offline_counts_the_display_cap,
+    "note-strips-before-checking": note_strips_before_checking,
+    "release-hint-unquoted": release_hint_unquoted,
+    "release-skips-notify": release_skips_notify,
 }

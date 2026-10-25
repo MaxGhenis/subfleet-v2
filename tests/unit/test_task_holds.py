@@ -1,8 +1,10 @@
 """C-11.10 (D-TASKHOLD1): the task hold's pure reader and validators, and its CLI.
 
-Properties, for every input drawn: a note is kept only when it is one printable
-line of at most 160 characters with no credential in it, and then kept as given
-less its surrounding spaces; an end is kept only when it is a later instant, to
+Properties, for every input drawn: a note is kept only when it holds no control
+character anywhere (edges included) and is one printable line of at most 160
+characters with no credential in it, and then kept as given less its surrounding
+ASCII spaces; the release hint gives any task back whole to a shell; an end is
+kept only when it is a later instant, to
 the whole second; a row is in force exactly while the clock is before its end;
 and `in_force` reads holds only from rows of its own key.
 """
@@ -10,6 +12,8 @@ and `in_force` reads holds only from rows of its own key.
 from __future__ import annotations
 
 import json
+import shlex
+import unicodedata
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -19,6 +23,10 @@ from subfleet import cli, protocol, refusals, render, task_holds
 from subfleet.contracts import Exit
 
 NOW = "2026-10-24T12:00:00Z"
+#: What no note may hold anywhere (review r1, P3-2): every C0 and C1 control and DEL (Unicode's
+#: `Cc`), and the line and paragraph separators. The test's own list, read from Unicode.
+CONTROLS = frozenset({chr(n) for n in range(0x110000) if unicodedata.category(chr(n)) == "Cc"}
+                     | {"\u2028", "\u2029"})
 SETTINGS = settings(max_examples=300, deadline=None, derandomize=True, database=None)
 
 
@@ -27,8 +35,9 @@ SETTINGS = settings(max_examples=300, deadline=None, derandomize=True, database=
 @SETTINGS
 @given(st.text(max_size=200))
 def test_a_note_is_kept_exactly_when_it_is_one_printable_line_within_the_limit(text):
-    stripped = text.strip()
-    ok = bool(stripped) and len(stripped) <= task_holds.NOTE_MAX and stripped.isprintable()
+    stripped = text.strip(" ")
+    ok = (not any(char in CONTROLS for char in text) and bool(stripped)
+          and len(stripped) <= task_holds.NOTE_MAX and stripped.isprintable())
     try:
         kept = task_holds.note_text(text)
     except ValueError:
@@ -37,8 +46,25 @@ def test_a_note_is_kept_exactly_when_it_is_one_printable_line_within_the_limit(t
         assert ok and kept == stripped
 
 
+@SETTINGS
+@given(st.text(max_size=40), st.sampled_from(sorted(CONTROLS)),
+       st.sampled_from(["start", "end", "both", "inside"]))
+def test_a_control_anywhere_is_refused_before_anything_is_trimmed(text, control, where):
+    """Review r1, P3-2: `"\\nbooking\\n"` was kept as `booking`, its edges stripped first."""
+    note = {"start": control + text, "end": text + control, "both": control + text + control,
+            "inside": text[:len(text) // 2] + control + text[len(text) // 2:]}[where]
+    with pytest.raises(ValueError):
+        task_holds.note_text(note)
+
+
+def test_the_controls_are_every_c0_c1_and_del_and_the_line_and_paragraph_separators():
+    assert task_holds.CONTROLS == CONTROLS
+
+
 @pytest.mark.parametrize("value", [None, 0, ["a"], "", "  ", "a\nb", "a\rb", "a\tb", "\x00", "x" * 161,
-                                   "token sk-ant-oat01-" + "Q" * 40])
+                                   "token sk-ant-oat01-" + "Q" * 40,
+                                   "\nbooking\n", "\tbooking\t", "booking\n", "\rbooking", "\x7fbooking",
+                                   "booking\x85", "\u2028booking", "booking\u2029", "\x1bbooking", "\u3000booking"])
 def test_a_note_that_is_not_one_printable_line_is_refused(value):
     with pytest.raises(ValueError):
         task_holds.note_text(value)
@@ -153,8 +179,39 @@ def test_the_why_text_names_the_note_the_end_and_the_release():
                               "hold": {"reason": "task-held", "task": "build", "until": "2026-10-24T13:00:00Z",
                                        "note": "uk-data batch", "next_check_at": "2026-10-24T13:00:00Z"}})
     assert lines[1] == ("Held: the operator holds build jobs at admission until 2026-10-24T13:00:00Z "
-                        "(uk-data batch); it starts once the hold ends or `subfleet tasks release build`, "
+                        "(uk-data batch); it starts once the hold ends or `subfleet tasks release -- build`, "
                         "and holds no other job back (C-11.10)")
+
+
+def why_command(task: str) -> str:
+    """The release command a `task-held` job's `why` line names, from between its backticks."""
+    lines = render.why_queue({"job_id": "20261024-000000-x", "kind": "dispatch", "state": "waiting",
+                              "wait_reason": "task-held", "hold": {"reason": "task-held", "task": task,
+                                                                    "until": "2026-10-24T13:00:00Z", "note": "n"}})
+    return lines[1].split("`")[1]
+
+
+@pytest.mark.parametrize("task,command", [
+    ("build", "subfleet tasks release -- build"),
+    ("data build", "subfleet tasks release -- 'data build'"),
+    ("-x", "subfleet tasks release -- -x"),
+    ("it's", "subfleet tasks release -- 'it'\"'\"'s'"),
+    ("$(touch x)", "subfleet tasks release -- '$(touch x)'"),
+])
+def test_the_release_hint_quotes_the_task_as_one_argument_after_a_double_dash(task, command):
+    """Review r1, P3-3: `data build` rendered as `subfleet tasks release data build`, two arguments."""
+    assert task_holds.release_command(task) == command
+    assert why_command(task) == command
+    argv = shlex.split(command)
+    assert argv == ["subfleet", "tasks", "release", "--", task]
+    parsed = cli.build_parser().parse_args(argv[1:])
+    assert (parsed.handler.__name__, parsed.tasks_command, parsed.task) == ("cmd_tasks", "release", task)
+
+
+@SETTINGS
+@given(st.text(min_size=1, max_size=60))
+def test_any_task_comes_back_whole_from_its_release_hint(task):
+    assert shlex.split(task_holds.release_command(task)) == ["subfleet", "tasks", "release", "--", task]
 
 
 # --- the CLI -------------------------------------------------------------------------------------
@@ -197,6 +254,10 @@ def test_tasks_hold_and_release_reach_the_tasks_op(daemon, capsys):
     (["tasks", "hold", "build", "--until", "2026-10-25T00:00:00Z"], "--note is required"),
     (["tasks", "hold", "build", "--until", "2026-10-25T00:00:00Z", "--note", "a\nb"], "one line"),
     (["tasks", "hold", "build", "--until", "2026-10-25T00:00:00Z", "--note", "x" * 161], "at most 160"),
+    (["tasks", "hold", "build", "--until", "2026-10-25T00:00:00Z", "--note", "\nbooking\n"], "one line"),
+    (["tasks", "hold", "build", "--until", "2026-10-25T00:00:00Z", "--note", "\tbooking\t"], "one line"),
+    (["tasks", "hold", "build", "--until", "2026-10-25T00:00:00Z", "--note", "booking\u2028"], "one line"),
+    (["tasks", "hold", "build", "--until", "2026-10-25T00:00:00Z", "--note", "\n"], "one line"),
     (["tasks", "hold", "build", "--until", "soon", "--note", "uk-data"], "ISO 8601"),
 ])
 def test_tasks_hold_refuses_a_bad_note_or_end_before_sending_anything(daemon, capsys, argv, words):
@@ -228,6 +289,26 @@ def test_status_text_lists_the_holds_with_their_waiting_jobs():
                                         "uk-data", "batch"]
     assert "task holds" not in cli.format_status({**data, "task_holds": []})
     assert "task holds" not in cli.format_status({k: v for k, v in data.items() if k != "task_holds"})
+
+
+def test_status_text_counts_a_holds_jobs_from_its_own_total_not_the_rows_listed():
+    """Review r1, P3-1: offline status lists 50 jobs, and 51 held builds read `(50 waiting)`."""
+    data = {"lanes": [], "readings": [], "closures": [],
+            "task_holds": [{"task": "build", "until": "2026-10-25T00:00:00Z", "note": "uk-data batch",
+                            "since": NOW, "waiting": 51}],
+            "jobs": [{"job_id": "a", "kind": "dispatch", "task": "build", "state": "waiting",
+                      "wait_reason": "task-held"}]}
+    assert "(51 waiting)" in cli.format_status(data)
+    assert "(0 waiting)" in cli.format_status({**data, "task_holds": [{**data["task_holds"][0], "waiting": 0}]})
+
+
+def test_the_listing_carries_the_count_only_when_given_one():
+    holds = {"build": {"task": "build", "until": "2026-10-25T00:00:00Z", "note": "n", "since": NOW}}
+    assert task_holds.listing(holds) == [{"task": "build", "until": "2026-10-25T00:00:00Z", "note": "n",
+                                          "since": NOW}]
+    assert task_holds.listing(holds, waiting={"build": 51, "review": 3})[0]["waiting"] == 51
+    assert task_holds.listing(holds, waiting={})[0]["waiting"] == 0
+    assert task_holds.waiting_counts([{"task": "build", "n": 51}, {"task": None, "n": 2}]) == {"build": 51}
 
 
 def test_the_protocol_names_the_op():

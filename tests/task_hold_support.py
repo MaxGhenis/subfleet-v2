@@ -11,8 +11,11 @@ from __future__ import annotations
 from typing import Any
 
 from subfleet import protocol
+from subfleet.adapters.registry import register
+from subfleet.contracts import Outcome, OutcomeClass
 from tests.disk_floor_model import stamp
 from tests.fake.test_admission_latency import submit_turn
+from tests.fake_adapter import FakeAdapter
 
 NOTE = "uk-data batch release: no new builds"
 
@@ -61,6 +64,62 @@ def finish(service, attempt: dict, *, retry: bool = False) -> None:
         tx.execute("UPDATE jobs SET state=?,wait_reason=NULL,next_check_at=NULL,finished_at=? WHERE job_id=?",
                    ("queued" if retry else "succeeded", None if retry else stamp(0), attempt["job_id"]))
         tx.execute("DELETE FROM leases WHERE holder IN (?,?)", (attempt["attempt_id"], attempt["job_id"]))
+
+
+class Disconnected(FakeAdapter):
+    """A provider that exits on a dropped stream: `transient`, retried on its own lane after
+    C-4.5's backoff (`TRANSIENT_RETRY_DELAY_S`), as the finalizer sets it."""
+
+    def classify(self, attempt_dir, launch, exit_info):
+        return Outcome(OutcomeClass.TRANSIENT, "Temporary Codex transport failure",
+                       evidence={"rc": exit_info.rc, "model_answered": True,
+                                 "admission": "stream disconnected before completion"})
+
+
+def finalize_transient(service, attempt: dict) -> dict:
+    """End `attempt` through the daemon's own finalizer (`_finalize`) as a `transient` exit:
+    the job waits on `capacity` with its retry due `TRANSIENT_RETRY_DELAY_S` after the
+    finalizer's clock. The job's row, after."""
+    from tests.fake.test_state_contract import receipt_fixture
+    adir = service.root / "jobs" / attempt["job_id"] / f"a{attempt['seq']}"
+    adir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    service._pending_launches.discard(attempt["attempt_id"])
+    register("codex", Disconnected)
+    try:
+        receipt = receipt_fixture(service, attempt, adir, rc=1, stdout=b"")
+        service._finalize(receipt)
+    finally:
+        register("codex", FakeAdapter)
+    return service.store.get_job(attempt["job_id"])
+
+
+def restart(service, harness):
+    """The daemon stops and its successor opens on the same state root, as a restart leaves
+    it: what it knew in memory it reads from the store again (`_load_pin_episodes`). Each
+    of `harness.task_hold_configure` (policy changes a test made in memory) runs on it
+    again. `fresh_daemon` and `restarts` close the successors."""
+    from subfleet.daemon import Daemon
+    service.close()
+    successor = Daemon(harness.root)
+
+    def refuse_real_launch(*args):
+        raise AssertionError("state-only fixtures must never launch a guardian")
+    successor._launch = refuse_real_launch
+    for configure in getattr(harness, "task_hold_configure", ()):
+        configure(successor)
+    harness.__dict__.setdefault("task_hold_successors", []).append(successor)
+    return successor
+
+
+def configure(service, harness, change) -> None:
+    """Make a policy change now and on every restart (`restart`)."""
+    change(service)
+    harness.__dict__.setdefault("task_hold_configure", []).append(change)
+
+
+def close_successors(harness) -> None:
+    for successor in harness.__dict__.pop("task_hold_successors", []):
+        successor.close()
 
 
 def refused(service, args: dict[str, Any]) -> protocol.ProtocolError:
@@ -130,13 +189,15 @@ def fresh_daemon(*, lanes: int = 2, caps: dict | None = None):
             patch.setattr(service, "_launch", refuse_real_launch)
             add_codex_lanes(service, *(f"codex-{n}" for n in range(2, lanes + 1)))
             if caps:
-                service.policy["caps"].update(caps)
+                configure(service, harness, lambda daemon: daemon.policy["caps"].update(caps))
             yield service, harness, clock, signals
             service.close()
+            close_successors(harness)
             service = None
             harness.check_notices()
     finally:
         if service is not None:
             service.close()
+            close_successors(harness)
         if "/sf-" in str(base):
             shutil.rmtree(base, ignore_errors=True)

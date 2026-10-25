@@ -231,6 +231,10 @@ def test_a_hold_committed_after_the_pass_read_its_holds_still_stops_the_reservat
     ({"action": "hold", "task": "build", "until": stamp(60), "note": "two\nlines"}, "task-hold-note"),
     ({"action": "hold", "task": "build", "until": stamp(60), "note": "x" * 161}, "task-hold-note"),
     ({"action": "hold", "task": "build", "until": stamp(60), "note": "tab\there"}, "task-hold-note"),
+    ({"action": "hold", "task": "build", "until": stamp(60), "note": "\nbooking\n"}, "task-hold-note"),
+    ({"action": "hold", "task": "build", "until": stamp(60), "note": "\tbooking\t"}, "task-hold-note"),
+    ({"action": "hold", "task": "build", "until": stamp(60), "note": "booking\u2028"}, "task-hold-note"),
+    ({"action": "hold", "task": "build", "until": stamp(60), "note": "\x85booking"}, "task-hold-note"),
     ({"action": "hold", "task": "build", "until": stamp(60), "note": 7}, "task-hold-note"),
     ({"action": "hold", "task": "build", "note": NOTE}, "task-hold-until"),
     ({"action": "hold", "task": "build", "until": "tomorrow", "note": NOTE}, "task-hold-until"),
@@ -320,7 +324,8 @@ def test_status_shows_the_holds_in_force_and_raises_no_alert(held):
     build = submit(service, harness, "build", "build-1")
     service._admit()
     status = service.dispatch("daemon.status", {})
-    assert status["task_holds"] == [{"task": "build", "until": stamp(3600), "note": NOTE, "since": stamp(0)}]
+    assert status["task_holds"] == [{"task": "build", "until": stamp(3600), "note": NOTE, "since": stamp(0),
+                                     "waiting": 1}]
     assert status["alerts"] == []
     text = cli.format_status(status)
     assert "task holds" in text
@@ -345,7 +350,7 @@ def test_why_names_the_note_and_the_end(held):
     lines = render.why_queue(answer["job"])
     held_line = next(line for line in lines if line.startswith("Held:"))
     assert "build" in held_line and NOTE in held_line and stamp(3600) in held_line
-    assert "subfleet tasks release build" in held_line
+    assert "`subfleet tasks release -- build`" in held_line
 
 
 def test_offline_status_lists_the_holds(held):
@@ -357,6 +362,69 @@ def test_offline_status_lists_the_holds(held):
     assert Offline(service.root).status()["task_holds"] == []
     hold(service, "build", "2099-06-01T00:00:00Z")
     assert [row["task"] for row in Offline(service.root).status()["task_holds"]] == ["build"]
+
+
+@pytest.mark.parametrize("reader", ["daemon", "offline"])
+def test_status_counts_every_held_job_past_the_jobs_it_lists(held, reader):
+    """Review r1, P3-1: 51 held builds read `(50 waiting)` offline, counted from the 50 jobs listed."""
+    from subfleet.offline import Offline
+    service, harness, clock = held
+    hold(service, "build", "2099-06-01T00:00:00Z")          # in force by the offline reader's wall clock too
+    for n in range(51):
+        submit(service, harness, "build", f"build-{n}")
+    review = submit(service, harness, "review", "review-1")
+    service._admit()
+    assert [row["job_id"] for row in attempts(service)] == [review]
+    status = service.dispatch("daemon.status", {}) if reader == "daemon" else Offline(service.root).status()
+    if reader == "offline":
+        assert len(status["jobs"]) == 50                    # the listing is capped; the count is not
+    assert [(row["task"], row["waiting"]) for row in status["task_holds"]] == [("build", 51)]
+    assert "build until 2099-06-01T00:00:00Z (51 waiting)" in cli.format_status(status)
+
+
+def test_an_unknown_task_is_refused_by_name_and_holds_nothing(held):
+    """Review r1: the unknown-task mutant survived every property, so the refusal is asserted here."""
+    service, harness, clock = held
+    before = store_image(service)
+    for task in ("builds", "Build", "build ", "task-hold:build", "data build"):
+        for args in ({"action": "hold", "task": task, "until": stamp(60), "note": NOTE},
+                     {"action": "release", "task": task}):
+            error = refused(service, args)
+            assert (error.reason, error.code) == ("unknown-task", 2), (task, args)
+            assert repr(task) in str(error)
+    assert store_image(service) == before
+    assert held_now(service) == []
+    build = submit(service, harness, "build", "build-1")
+    service._admit()
+    assert placed_jobs(service) == [build]
+
+
+def test_a_release_signals_the_daemons_waiters_after_it_commits(held):
+    """Review r1: a mutant that dropped only the release's notification survived the named
+    assertion. Here the daemon's own signals are spied on: a thread waiting on `changed` wakes,
+    and the wait hub is poked after the job is queued again in the store."""
+    import threading
+    service, harness, clock = held
+    hold(service, "build", stamp(86400))
+    build = submit(service, harness, "build", "build-1")
+    service._admit()
+    assert job(service, build)["wait_reason"] == "task-held"
+    pokes = []
+    poke = service.wait_hub.poke
+    service.wait_hub.poke = lambda: (pokes.append(job(service, build)["state"]), poke())[1]
+    ready, woke = threading.Event(), []
+
+    def waiter():
+        with service.changed:
+            ready.set()
+            woke.append(service.changed.wait(timeout=30))
+    thread = threading.Thread(target=waiter)
+    thread.start()
+    assert ready.wait(30)
+    release(service, "build")
+    thread.join(30)
+    assert woke == [True], "T3-notify: the release woke no waiter on `changed`"
+    assert pokes and pokes[0] == "queued", "T3-notify: the release poked no wait hub after its commit"
 
 
 def test_a_reset_credit_is_never_spent_for_a_held_job(held):
