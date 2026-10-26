@@ -1272,8 +1272,9 @@ struct SettlingPageView: View {
     let name = "shrink-" + mode
     let target = "person:m000040"
     // Room above the rows for any measured shrink, and so for any layout: the clip can
-    // be as far from the end as the rows are tall.
-    let inset: CGFloat = 30000
+    // be as far from the end as the rows are tall, and a landed default run shrank
+    // 16,761 pt in all.
+    let inset: CGFloat = 40000
     let started = Date()
     func at() -> Double { Date().timeIntervalSince(started) }
     var trace: [[String: Any]] = []
@@ -1421,13 +1422,18 @@ struct SettlingPageView: View {
     } else {
         // The document shrinks under the clip until it clamps to the end, and the
         // marker appears (CI 0.686-0.689 s). Rows measured after a shrink can move the
-        // end away again, so shrink again, measured the same way, until it stays in view.
-        // A lost precondition (the reveal ended, no room) fails at once, not at 20 s.
+        // end away again, so shrink again, measured the same way, until it stays in view
+        // (a landed default run clamped eight times, each undone by 293 down to 136 pt
+        // of rows, before the end stayed). A lost precondition (the reveal ended, no
+        // room, sixteen shrinks settled and the end still away) fails at once, not at 20 s.
         step("shrinking")
+        var exhausted = false
         await waitReady("shrink.clamped", seconds: 20, view: scene.host, step: 0.3, state: state, unmet: {
-            revealUnmet() ?? (shrinks.count < 8 ? nil : "the end did not stay in view after \(shrinks.count) shrinks")
+            revealUnmet() ?? (exhausted ? "the end did not stay in view after \(shrinks.count) shrinks" : nil)
         }) {
             if !shrinks.isEmpty, (sample(scene.host)["from_end"] ?? 1e9) <= 1 { return true }
+            // Each check comes after the last shrink has settled for one step.
+            if shrinks.count >= 16 { exhausted = true; return false }
             shrinkUnderClip()
             return false
         }
