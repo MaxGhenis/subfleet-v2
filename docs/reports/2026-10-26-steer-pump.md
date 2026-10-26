@@ -7,7 +7,9 @@ worktree, so the commits are on the job's HEAD and kept under `refs/subfleet-sal
 **Result: a probe race.** The live probe sent its steer without `into` and judged it after one pump.
 A running turn that cannot take a steer yet answers `not-steerable`. The outbox asks again only for
 a steer that names its turn (C-29.7), so the probe's steer was refused at once and read as `null`.
-Nothing in `app/` changed, and no contract clause changed.
+The build round changed nothing in `app/` and no contract clause. Fix round 1 (the last section)
+changed the app's "Send now" and C-29.7, after review r1 showed that "Send now" did not always name
+its turn.
 
 ## The CI failure
 
@@ -50,8 +52,16 @@ The steer carries no `into`.
   retried with or without `into` (`:441-449`).
   - The hub read C-29.7 as asking again after any `not-steerable` answer. C-29.7 says it does so
     "when it names its turn (`into`)".
-  - The app always names the turn: the composer uses `UIModel.swift:818` and "Send now" uses `:843`.
-    The probe did not.
+  - The app names the turn in both places that steer, since fix round 1:
+    - Return in the composer: `UIModel.send` reads the turn the composer steers into when Return is
+      pressed, and steers only when there is one (`UIModel.swift:820-821`).
+    - "Send now" in the queue tray: the row carries the turn it was offered for
+      (`QueuedMessage.steerInto`, `QueueTray.swift:33`), the button captures it when it is drawn
+      (`UIQueueTray.swift:220`), and `UIModel.steer` takes it as an argument (`UIModel.swift:844`).
+
+    Until fix round 1, "Send now" read the live turn when the click's callback ran (`UIModel.swift:843`
+    at `44d4c8b49`), so a click that landed after its turn ended could name none; review r1 ran it.
+    The probe named no turn either.
 - **When the daemon answers `not-steerable`.** `op_message_steer` answers it (code 7) in two cases
   (`subfleet/conversations/service.py:1349-1358`): no runner holds the live turn, or the runner's
   `steerable` is false. `TurnRunner.steerable` (`runner.py:266-271`) needs:
@@ -167,7 +177,11 @@ five tries, still fails it.
       Between pumps it sleeps until the steer's own `nextAttemptAt`. When no retry is due (the
       steer waits behind its submit) it sleeps 0.5 s, the outbox's shortest backoff. It never
       spins.
-- **The deadline, `steerSettleDeadline` (`:70`): 90 s.** The outbox ends a steer on its own:
+- **The build round's deadline, `steerSettleDeadline` (`:70`): 90 s**, counted from the steer's first
+  pump. Fix round 1 replaced it with a bound counted from the step's start (see that section): the
+  first pump also waits for the steered message's submit, and the wait checked its deadline only
+  after each pump, so review r1 ran this one to 97.5 s. The build round reasoned as follows. The
+  outbox ends a steer on its own:
   - at most `Outbox.steerAttempts` = 5 tries;
   - 0.5 + 1 + 2 + 4 = 7.5 s of backoff between them;
   - each try waits up to the client's answer timeout, 15 s (`DaemonClient.baseTimeout`), so
@@ -175,7 +189,8 @@ five tries, still fails it.
 
   That is 82.5 s at most, plus 7.5 s of margin for the pumps' journal writes, giving 90 s. A
   deadline at or above the outbox's own bound never judges a steer the outbox is still entitled to
-  ask about. A steer still open at 90 s is stuck, not slow.
+  ask about. A steer still open at 90 s is stuck, not slow. (The bound left out the submit's own
+  answer, up to 15 s, and was not checked before a pump: see fix round 1.)
 
   This costs nothing on a pass. The wait returns as soon as the pump that answered the steer
   returns, which is the first pump when the turn is ready.
@@ -211,8 +226,8 @@ five tries, still fails it.
 - So waiting for it would still race. The outbox's retry (C-29.7) is the app's own answer to all
   three cases.
 
-**Decision 4: not triggered.** The outbox behaved as C-24.9 and C-29.7 say. No `app/` code and no
-clause changed.
+**Decision 4: not triggered.** The outbox behaved as C-24.9 and C-29.7 say. The build round changed
+no `app/` code and no clause. (Fix round 1 changed both, for "Send now"; the outbox is unchanged.)
 
 ## Decision 5: the probe's other single-pump reads
 
@@ -293,3 +308,215 @@ uv run pytest -q tests/frontend/test_core_live.py                               
 
 Also not done: fetching run 40273357312's artifact to read the daemon's actual `message.steer`
 answer. There was no network.
+
+## Fix round 1: "Send now" names its turn, an honest deadline, the fixtures' roots (#265 review r1)
+
+Built in Subfleet job `20261026-042028-pr265-fix-r1` (a detached worktree; the commits are on the
+job's HEAD and kept under `refs/subfleet-salvage/`). Not pushed. Review r1 (`44d4c8b49`) asked for
+changes, with one P2 and two P3s, each executed by the reviewer and reproduced here first.
+
+### 1. "Send now" names the turn the person saw (P2)
+
+**The gap (reproduced at `44d4c8b49`).** `UIModel.steer` read `liveMessageID` when the click's
+callback ran, not when the tray offered the action. The regression runs the review's input through
+the real UI:
+- `UIModel.open`;
+- the queue tray built from the model's layout, as the conversation view builds it;
+- the tray's "Send now" button, kept and clicked later;
+- the daemon's own `message.steer` (`daemon_harness.ServiceServer`).
+
+The sequence:
+1. Host A runs. Queued message C heads the tray, and the tray offers "Send now".
+2. The model reads the conversation again (a second `conversation.open`) after A completed. It now
+   shows no live turn.
+3. Successor B starts in the daemon, and the kept button is clicked.
+
+At `44d4c8b49` the request was `{"message_id": C}`, with no `into`:
+- **B unready** (its runner still catching up): the steer was refused `not-steerable` after one
+  try. C stayed queued, with the status "Queued, not steered: the running turn could not take it".
+- **B ready:** C joined B, a turn the person never chose. The daemon showed C `steering`,
+  `steered_into` B, and B's runner wrote C's steer frame.
+
+**The fix.**
+- `QueuedMessage.steerInto` (`QueueTray.swift:33`) replaces the `canSteer` flag, which is now
+  derived from it. It holds the running turn the row's "Send now" steers into, and it is set where
+  the layout decides the offer:
+  - `ConversationStoreState.layout` (`QueueTray.swift:329-333`) uses `queuedSteerHost`
+    (`ConversationStore.swift:204`), the host `canSteer` already required;
+  - `Timeline.layout(steerOffered:)` (`QueueTray.swift:173-177`) uses `liveMessageID`. The core
+    probe's queue steps use this path.
+- The tray row's button captures `steerInto` when it is drawn and passes it
+  (`UIQueueTray.swift:220`). A row that names no turn offers no "Send now", so none is offered
+  while no turn is live.
+- `UIModel.steer(messageID:conversationID:into:)` (`UIModel.swift:844`) takes `into` as a
+  non-optional argument and no longer reads `liveMessageID`.
+- `QueueTray(model:conversationID:title:rows:)` (`UIQueueTray.swift:119`) wires the tray for the
+  conversation view (`UIWindow.swift:419`) and for the view probe, so the regression clicks the
+  tray exactly as the window wires it.
+- `UIModel.send` steers only when it can name the turn (`UIModel.swift:820-821`); with none, the
+  message queues. The composer already asks to steer only then, in the same main-actor turn, so
+  nothing changes for it. The change means no caller can journal a steer without a turn.
+- `ConversationEngine.steer`'s `into` has no default (`ConversationStore.swift:1119`), so every
+  caller states it.
+
+**Every steer call site, and where its `into` comes from.**
+
+| Call site | Calls | Its `into` |
+|---|---|---|
+| Tray row's "Send now" (`UIQueueTray.swift:220`) | `QueueTray.steer(row, into)` | `row.steerInto`, captured when the button is drawn |
+| `QueueTray(model:…)` (`UIQueueTray.swift:119-125`), used by `UIWindow.swift:419` | `UIModel.steer(…, into:)` | passed through from the button |
+| `UIModel.steer` (`UIModel.swift:844`) | `ConversationEngine.steer(…, into:)` | its non-optional argument |
+| Composer's Return (`UIComposer.swift:329-332`) | `UIModel.send(…, steer:)` | none passed; asks to steer only while `steerHost` is set |
+| `UIModel.send` (`UIModel.swift:820-821`, the build round's `:818`) | `ConversationEngine.send(…, steer:, into:)` | `state.steerHost(forComposerOf:)?.messageID` when Return is pressed; steers only if it is set |
+| `ConversationEngine.send` (`ConversationStore.swift:1107`) | `Outbox.enqueueSubmit(steer:into:)` | passed through |
+| `ConversationEngine.steer` (`ConversationStore.swift:1119`) | `Outbox.enqueueSteer(into:)` | passed through, stated by every caller |
+| `Outbox.enqueueSubmit`, for a message already journaled (`Outbox.swift:339`) | `enqueueSteer(into:)` | passed through |
+| Test: live probe step 14 (`CoreProbeLive.swift:579`) | `engine.send(steer: true, into:)` | `host.key`, the turn it submitted |
+| Test: outbox `submit` and `steer` steps (`CoreProbeScenarios.swift:164`, `:170`) | `enqueueSubmit`, `engine.steer` | the step's `into`; the no-`into` tests leave it out on purpose |
+
+**What the daemon answers for an `into` that has ended.** `op_message_steer` checks `into` before
+any runner check (`service.py:1345-1346`). An `into` that is not the conversation's live turn (another
+turn runs, or none does) is refused `no-live-turn`, code 7, "the turn it was steered into has ended".
+- The outbox treats that as final, not `not-steerable` and not transient (`Outbox.swift:441-459`).
+  So the steer is refused after one try whatever B's readiness, and the regression shows it for
+  both.
+- C is neither dropped nor failed. The daemon never claims it, so it stays `queued` there. The app
+  shows it queued, with the status "Queued, not steered: the turn it was sent to had ended".
+- There is one window where the answer is the retryable `not-steerable` first: A still recorded as
+  running while its runner has already gone (settling, `service.py:1349-1356`).
+  - The app asks again at most five times in all, 0.5 s doubling.
+  - Once A is recorded as ended, the next try gets `no-live-turn` and the steer closes.
+  - `test_a_steer_refused_for_good_fails_the_check_however_long_step_14_waits` runs that path
+    (`not-steerable`, then `no-live-turn`, C still queued).
+  - Left as it is, as the brief asked.
+
+**The regression** (`tests/frontend/test_queue_tray_view.py`, `QueueTrayViewProbe.swift`
+`send-now`), with B unready and with B ready. In both:
+- the tray offered "Send now" while A was live, with `steerInto` A;
+- at the click the model showed no live turn, and a fresh tray would not offer it;
+- every `message.steer` request was `{"message_id": C, "into": A}`;
+- the steer was refused `no-live-turn` after one try, with no receipt;
+- the daemon kept C `queued`, with no `steered_into`, and B's runner was never given C;
+- the app shows C queued, with the status line above.
+
+The control offers "Send now" while B runs: the request names B, and the daemon steers C into B.
+
+### 2. Step 14's deadline is a hard elapsed bound (P3)
+
+**The gap.** The 90 s wait started at the steer's first pump. It left out the steered message's own
+submit, which that first pump waits for, and it checked the deadline only after each pump. Run on the
+probe's clock, the review's input (a 15 s answer ahead of the steer, then five 15 s steer timeouts)
+ended at 97.5 s.
+
+**The fix** (`tests/frontend/CoreProbeLive.swift`):
+- **`steerStepDeadline` (`:78`) counts from step 14's start** (`:560`), the prerequisite and the
+  submit included. At the client's 15 s answer deadline it is 120 s:
+  - 15 s for the prerequisite: the host's submit, and its wait to run and be accepted. That takes a
+    second or two on CI; run 40273357312 reached step 14 within 15 s of the probe's start.
+  - 15 s for the steered message's own submit.
+  - 82.5 s for the steer: five tries with 7.5 s of backoff between them.
+  - 7.5 s of margin for the pumps' journal writes.
+
+  The outbox gets every try it is entitled to whenever the prerequisite takes 15 s or less. A slower
+  prerequisite leaves the steer less, and the check's detail says how many tries it had.
+- **`settleSteer` (`:117`) checks the deadline before every pump and before every wait**, and cuts
+  each wait to the time left. Nothing starts at or after the deadline.
+- **The pump takes the deadline.** `DeadlineTransport` (`:89`) sits under the live probe's client
+  (`:165`). While step 14's pumps run, each exchange waits for its answer at most the client's
+  timeout or the time left, whichever is less. An exchange that would start at or after the deadline
+  is not sent, and reads as unanswered.
+- **So the bound is hard:** step 14 judges its steer by 120 s after it began, plus only the pumps'
+  own local journal writes, which wait on no answer.
+- The check's detail adds `step_s` and `deadline_s`.
+- The outbox scenario's `settle-steer` runs the same code on the probe's clock. A scripted daemon's
+  exchanges take time on that clock: `cost` is the seconds before an answer, and `timeout` takes the
+  whole timeout the client gave. `step-start` marks where the step began.
+
+**Tests** (`tests/frontend/test_core_live_steer.py`, on the probe's clock at 15 s answers):
+
+| Case | Ends at | Pumps | Waits | Steer |
+|---|---|---|---|---|
+| The review's input (15 s submit, then five steer timeouts) | 97.5 s | 5 | 0.5, 1, 2, 4 | refused `no-answer` after all five tries |
+| Time spent in pumps (40 s prerequisite, then five timeouts) | 120 s exactly: the fifth try's exchange may wait only 12.5 s | 5 | 0.5, 1, 2, 4 | refused `no-answer` |
+| Deadline in a backoff (54 s prerequisite) | 120 s exactly; no pump at the deadline | 4 | 0.5, 1, 2, 2.5 | still queued, 4 tries |
+| Immediate success | 0 s | 1 | none | acknowledged, taken |
+
+At `44d4c8b49` the first three ended at 97.5 s, 122.5 s and 136.5 s, against 90 s.
+
+Two existing tests changed with the new semantics:
+- the deadline at the harness's 3 s answers is now 36 s (3 + 3 + 7.5 + 15 + 7.5);
+- `test_step_14_stops_at_its_deadline_and_judges_a_steer_still_waiting` now takes 2 pumps, where it
+  took 3: the build round pumped once more at the deadline itself.
+
+### 3. The steer fixtures stop leaking roots (P3)
+
+`test_core_steer.py`'s `harness` and `daemon` fixtures, and the O1-O4 property harness in
+`test_core_steer_properties.py`, made their roots with `mkdtemp` and never removed them, about 256 KiB
+each. Each now lives in a `tempfile.TemporaryDirectory`. Teardown removes it, also when the test body
+raises, and the `daemon` fixture closes its server and harness first.
+
+The root counts:
+- `test_the_steer_fixtures_leave_no_root_after_teardown` runs both fixtures in a scratch pytest
+  session, passing and raising (4 tests). Every root `mkdtemp` made meanwhile is gone afterwards,
+  the socket server's folder included.
+- `test_the_property_harness_leaves_no_root_after_each_example` runs the property test's own body
+  with its history replaced, returning and raising. Both roots are gone.
+
+At `44d4c8b49` the fixtures left 4 roots and the property harness 2.
+
+The hub folded this into the PR. The reviewer had suggested a separate one.
+
+### 4. The contract
+
+C-29.7 now says that "Send now" names the turn the tray showed when it offered the action, captured
+with the action. A click that lands after that turn ended is refused, `no-live-turn` while the message
+still waits, so the message stays queued, never joins the next turn, and its status line says why.
+
+The clause's last sentence ("a journaled steer names the turn it was sent to") did not hold for
+"Send now". It now names both sources: Return's turn when Return is pressed, and "Send now"'s offered
+turn. The change log has an entry. C-24.9 is unchanged: the daemon's behaviour is the same.
+
+### Runs (round 1)
+
+**Environment:**
+- Scratch `$(getconf DARWIN_USER_TEMP_DIR)sf-r265f1`, with a venv on Homebrew `python3.14`.
+- Every pytest ran in the foreground under `suite_hold.sh`; none ran outside the lock. xdist isn't
+  installed, so nothing used `-n`.
+- The probes were compiled outside the holds into the checkout's probe cache.
+
+| Run | Code | Files | Result |
+|---|---|---|---|
+| Red | tests at `e9c23defe` on `44d4c8b49`'s app | the 4 files below, `-k` the new tests | **red**, 7 failed, 2 passed (the two controls) |
+| Hold 1 | `6ba0b70b4` | `test_core_live_steer.py` 16, `test_core_steer.py` 44, `test_core_steer_properties.py` 3 | **green**, 63 passed |
+| Hold 2 | `c3b71ea70` | `test_queue_tray_view.py` | **green**, 18 passed (load 45) |
+| Hold 3 | `38c5e22e3` | `tests/fake/test_interactive_steer.py` | **green**, 15 passed |
+| Hold 4 | the docs commit, with this report and C-29.7 | `tests/fake/test_state_contract.py` 37, `tests/unit/test_test_module_names.py` 1, `tests/unit/test_invariants_index.py` 25 | **green**, 63 passed (load 50) |
+
+The red run failed 7 tests:
+- both "Send now" cases;
+- the three deadline cases;
+- both root counts.
+
+Two of hold 2's runs before `c3b71ea70` errored, so that commit exists:
+- They ran at load 57-65 and 41-59, with 15 errors and the 3 "Send now" tests passing.
+- The views fixture's layout probe ran past its 60 s timeout. Run alone, it took 67.9 s.
+- The red commit had made the probe's `main` async. The same layouts under the original synchronous
+  `main` took 42.4 s at the same load, so `c3b71ea70` put it back and runs "Send now" as a
+  main-actor task.
+
+**Mutants** (each applied by hand, run, and reverted):
+
+| Mutant | Killing test file | Result |
+|---|---|---|
+| `UIModel.steer` reads `liveMessageID` at call time again | `test_queue_tray_view.py` | **killed**: 2 failed (both "Send now" cases: the request has no `into`), 16 passed |
+| `settleSteer` checks the deadline only after a pump | `test_core_live_steer.py` | **killed**: 2 failed, 14 passed |
+| The `harness` fixture without cleanup (`mkdtemp`, no removal) | `test_core_steer.py -k leave_no_root` | **killed**: 1 failed (2 roots left) |
+
+The deadline mutant's two killers:
+- `test_step_14_stops_at_its_deadline_and_judges_a_steer_still_waiting` took 3 pumps, not 2;
+- the deadline-in-a-backoff case took 5 pumps, not 4.
+
+Under that mutant the transport still held the time bound, but a pump ran at the deadline.
+
+**Not run:** `tests/frontend/test_core_live.py`. A Subfleet lane's person-only check stops the probe
+at step 5, so CI runs it, step 14's new deadline included.
