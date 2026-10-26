@@ -63,9 +63,14 @@ def dev_daemon(request, core_probe, tmp_path):
                                                               "content": [{"type": "text", "text": "Here are the files."}]}},
     ]
     (project / f"{session}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    # D-STEER-PUMP1's reproduction, off unless this session's environment asks for it: the
+    # fake Claude's `slow` turns hold back `system init` that long, so step 14's turn is
+    # running and accepted but answers a steer `not-steerable` (tests/fake/interactive_claude.py).
+    late_init = os.environ.get("SUBFLEET_FAKE_LATE_INIT_S")
     started = closed = False
     try:
-        harness.start(env={"SUBFLEET_DEV_APP_EXECUTABLE": str(core_probe.resolve())})
+        harness.start(env={"SUBFLEET_DEV_APP_EXECUTABLE": str(core_probe.resolve()),
+                           **({"SUBFLEET_FAKE_LATE_INIT_S": late_init} if late_init else {})})
         started = True
         yield harness, session
     finally:

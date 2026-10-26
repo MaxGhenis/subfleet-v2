@@ -24,7 +24,8 @@ struct QueueTray: View {
     let rows: [QueuedMessage]
     var withdrawing: Set<String> = []
     let withdraw: (QueuedMessage) -> Void
-    var steer: ((QueuedMessage) -> Void)? = nil
+    /// Send now: steer the row into the running turn the row names (`steerInto`).
+    var steer: ((QueuedMessage, String) -> Void)? = nil
     var notice: ((String) -> AnyView?)? = nil
     var conversationID: String? = nil
     @Environment(\.searchPalette) private var palette
@@ -104,11 +105,22 @@ struct QueueTray: View {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(shown) { row in
                     QueueTrayRow(row: row, busy: tray.withdrawing.contains(row.id), withdraw: { tray.withdraw(row) },
-                        steer: tray.steer.map { steer in { steer(row) } }, notice: tray.notice?(row.id))
+                        steer: tray.steer.map { steer in { into in steer(row, into) } }, notice: tray.notice?(row.id))
                         .id("person:" + row.id)
                 }
             }
         }
+    }
+}
+
+extension QueueTray {
+    /// The tray as the conversation view shows it: Withdraw and Send now act through
+    /// the model, and Send now names the turn its row was offered for (C-29.7).
+    @MainActor init(model: UIModel, conversationID: String, title: String, rows: [QueuedMessage]) {
+        self.init(title: title, rows: rows, withdrawing: model.withdrawingMessages,
+                  withdraw: { model.withdrawQueued($0, conversationID: conversationID) },
+                  steer: { model.steer(messageID: $0.id, conversationID: conversationID, into: $1) },
+                  conversationID: conversationID)
     }
 }
 
@@ -183,7 +195,8 @@ struct QueueTrayRow: View {
     /// Its Withdraw is under way.
     var busy = false
     let withdraw: () -> Void
-    var steer: (() -> Void)? = nil
+    /// Send now, given the turn it steers into.
+    var steer: ((String) -> Void)? = nil
     var notice: AnyView? = nil
 
     var body: some View {
@@ -202,8 +215,10 @@ struct QueueTrayRow: View {
             if busy {
                 ProgressView().controlSize(.mini).help("Withdrawing")
             } else if row.canWithdraw {
-                if row.canSteer, let steer {
-                    Button("Send now", action: steer).buttonStyle(.link).readingFont(.caption)
+                // The turn shown now is captured with the action: a click that lands after
+                // that turn ended steers into it, and the daemon refuses it (C-24.9).
+                if let into = row.steerInto, let steer {
+                    Button("Send now") { steer(into) }.buttonStyle(.link).readingFont(.caption)
                         .help("Send it into the running turn now instead of after it")
                         .accessibilityLabel("Send now: " + row.preview)
                 }
