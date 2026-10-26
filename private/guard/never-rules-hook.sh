@@ -578,6 +578,15 @@ pw_normalize() {
   esac
   [ -n "$nc" ] || shopt -u nocasematch
 }
+# pw_stall P: P (normalized) is a mount that may stall a stat, or under one.
+pw_stall() {
+  local nc="" r=1
+  shopt -q nocasematch && nc=1
+  shopt -s nocasematch
+  case "$1" in /volumes|/volumes/*|/network|/network/*|/net|/net/*|/home|/home/*) r=0 ;; esac
+  [ -n "$nc" ] || shopt -u nocasematch
+  return $r
+}
 # pw_child S: S (a path below a home, or below /Users/<any>) is one of its
 # broad children, or a folder directly in its .subfleet. Caller has nocasematch.
 pw_child() {
@@ -610,10 +619,44 @@ pw_isbroad() {
   return $r
 }
 # --- where links lead ---
-# pw_isfile P: P (normalized) exists and is no directory.
-pw_isfile() { pw_nondir "$1"; }
-# pw_broad P: P (normalized) is a broad root by name and no file.
-pw_broad() { pw_isbroad "$1" && ! pw_isfile "$1"; }
+# pw_isfile P: P (normalized) exists and is no directory; never asked under a
+# mount that may stall.
+pw_isfile() { pw_stall "$1" && return 1; pw_nondir "$1"; }
+# pw_physical P: pw_r is P (normalized) with its symlinks resolved, as
+# realpath resolves them (a missing part is kept as written); P itself under
+# a mount that may stall, or when the links loop.
+pw_physical() {
+  local path="" rest="" name="" hops=0
+  pw_r=$1
+  pw_stall "$1" && return 0
+  rest=${1#/}
+  while [ -n "$rest" ]; do
+    case "$rest" in */*) name=${rest%%/*}; rest=${rest#*/} ;; *) name=$rest; rest="" ;; esac
+    case "$name" in ''|.) continue ;; ..) path=${path%/*}; continue ;; esac
+    if pw_islink "$path/$name"; then
+      hops=$((hops + 1))
+      [ "$hops" -le 40 ] || { pw_r=$1; return 0; }
+      pw_readlink "$path/$name"
+      if [ -z "$pw_rl" ]; then path="$path/$name"; continue; fi
+      case "$pw_rl" in /*) path="" ;; esac
+      rest="$pw_rl${rest:+/$rest}"
+    else
+      path="$path/$name"
+    fi
+  done
+  pw_normalize "${path:-/}"
+  pw_r=$pw_n
+}
+# pw_broad P: a walk of P (normalized) covers a broad root: P is one and no
+# file, or P leads through links to a different path that is.
+pw_broad() {
+  if pw_isbroad "$1"; then
+    pw_isfile "$1" && return 1
+    return 0
+  fi
+  pw_physical "$1"
+  [ "$pw_r" != "$1" ] && pw_isbroad "$pw_r" && ! pw_isfile "$pw_r"
+}
 # --- globs (r3's whole-word expansion) ---
 # pw_listed DIR: whether the normalized DIR can hold a broad root by name.
 pw_listed() {
