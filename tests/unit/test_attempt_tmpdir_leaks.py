@@ -400,8 +400,11 @@ POINTS = {
     "create:marked": ("rename", "after", lambda s, d, *a, **k: base(d) == M),
     "remove:renaming": ("rename", "before", lambda s, d, *a, **k: base(d).startswith(T)),
     "remove:renamed": ("rename", "after", lambda s, d, *a, **k: base(d).startswith(T)),
-    # The allocation's mode fixed before its rename (r2), or a crash-left tombstone's.
-    "remove:top-chmodded": ("chmod", "after", lambda p, *a, **k: base(p).startswith(P)),
+    # The allocation's mode fixed before its rename (r2), or a crash-left tombstone's:
+    # through its descriptor when an open admits it, else by name (r3). A remove
+    # child's first `fchmod` is the top folder's.
+    "remove:top-chmodded": (("chmod", "fchmod"), "after",
+                            lambda p, *a, **k: isinstance(p, int) or base(p).startswith(P)),
     "remove:emptying": ("unlink", "after", lambda p, *a, **k: True),
     "remove:emptied": ("rmdir", "before", lambda p, *a, **k: base(p).startswith(T)),
     "remove:removed": ("rmdir", "after", lambda p, *a, **k: base(p).startswith(T)),
@@ -410,8 +413,16 @@ POINTS = {
 }
 
 
+POINTS["remove:top-unreadable-chmodded"] = POINTS["remove:top-chmodded"]     # a 0000 folder: by name
+
+
 def crash_at(point):
-    attr, when, hit = POINTS[point]
+    attrs, when, hit = POINTS[point]
+    for attr in (attrs,) if isinstance(attrs, str) else attrs:
+        crash_on(attr, when, hit)
+
+
+def crash_on(attr, when, hit):
     original = getattr(os, attr)
 
     def wrapper(*args, **kwargs):
@@ -457,6 +468,12 @@ CREATE_POINTS = ["create:intended", "create:made", "create:chmodded", "create:ma
                  "create:marked", "create:returned"]
 REMOVE_POINTS = ["remove:renaming", "remove:renamed", "remove:top-chmodded", "remove:emptying",
                  "remove:emptied", "remove:removed", "remove:putting-back", "remove:put-back"]
+#: The top folder at each point: 0500 (an open admits it) or 0000 (changed by name, r3).
+TOP_MODES = {"remove:top-chmodded": 0o500, "remove:top-unreadable-chmodded": 0o000}
+#: An unknown folder its owner set to 0000 has no readable marker, so no sweep sights it.
+REMOVALS = [(kind, point) for point in [*REMOVE_POINTS, "remove:top-unreadable-chmodded"]
+            for kind in ("recorded", "legacy", "unknown")
+            if not (kind == "unknown" and point == "remove:top-unreadable-chmodded")]
 
 
 def run_child(scratch, **spec):
@@ -478,16 +495,17 @@ def test_t1_a_crash_in_create_leaves_nothing_a_sweep_cannot_remove(tmp_path, mon
 
 
 @pytest.mark.parametrize("rule", RULES)
-@pytest.mark.parametrize("point", REMOVE_POINTS)
-@pytest.mark.parametrize("kind", ["recorded", "legacy", "unknown"])
+@pytest.mark.parametrize("kind,point", REMOVALS)
 def test_t1_a_crash_in_remove_leaves_nothing_a_sweep_cannot_remove(tmp_path, monkeypatch, kind, point, rule):
     """`recorded`: a known allocation whose marker the provider removed. `legacy`:
     one recorded before D-TMP1-P3, with no tombstone of its own. `unknown`: the
     sweep's removal of a marked folder no record names. At `remove:top-chmodded`
-    the folder lacks owner write, which macOS 15 will not rename."""
+    the folder lacks owner write, which macOS 15 will not rename, and its mode
+    changes through its descriptor; at `remove:top-unreadable-chmodded` it is
+    0000, so its mode changes by name (r3)."""
     scratch = manager(tmp_path)
     pinned = point in ("remove:putting-back", "remove:put-back")
-    top_mode = 0o500 if point == "remove:top-chmodded" else 0o700
+    top_mode = TOP_MODES.get(point, 0o700)
     record = allocation_with_payload(scratch, top_mode=top_mode, unmark=kind != "unknown", pinned=pinned)
     if kind == "legacy":
         record.pop("tombstone", None)
@@ -662,13 +680,18 @@ def test_t3_any_modes_the_owner_can_set_still_remove_the_tree(rule, children, to
 
 
 @pytest.mark.parametrize("rule", RULES)
-def test_t3_a_deletion_no_mode_change_fixes_defers_logs_and_keeps_the_record(tmp_path, monkeypatch, caplog, rule):
+@pytest.mark.parametrize("mode", [0o000, 0o500, 0o077, 0o577], ids=lambda mode: f"{mode:04o}")
+def test_t3_a_deletion_no_mode_change_fixes_defers_logs_and_keeps_the_record(tmp_path, monkeypatch, caplog, mode,
+                                                                              rule):
     """What no mode change can fix (`chflags uchg`, here EPERM from unlink) defers
-    removal, logs why, and leaves the folder at its recorded path, with owner
-    read, write and search added (C-12.10): the next removal needs no rename of
-    a folder macOS 15 would refuse."""
+    removal, logs why, and leaves the folder at its recorded path at 0700
+    (C-12.10): the next removal needs no rename of a folder macOS 15 would
+    refuse. The folder and the directory holding the file both started at
+    `mode`; removal set each to exactly 0700, never `mode | 0o700` (r3)."""
     scratch = manager(tmp_path)
-    record = allocation_with_payload(scratch, top_mode=0o000)
+    record = allocation_with_payload(scratch)
+    os.chmod(Path(record["path"]) / "nested", mode)
+    os.chmod(record["path"], mode)
     rename_rules.install(rule, monkeypatch)
     real = os.unlink
 
@@ -683,7 +706,8 @@ def test_t3_a_deletion_no_mode_change_fixes_defers_logs_and_keeps_the_record(tmp
         assert scratch.remove(record, subject(), verified_empty=True) is None
     assert "TMPDIR removal deferred for job/a1: PermissionError" in caplog.text
     assert scratch.presence(record) == "present", "put back under its recorded path"
-    assert stat.S_IMODE(Path(record["path"]).lstat().st_mode) == 0o700, "with owner rwx added"
+    assert stat.S_IMODE(Path(record["path"]).lstat().st_mode) == 0o700, "at 0700"
+    assert stat.S_IMODE((Path(record["path"]) / "nested").lstat().st_mode) == 0o700, "and so is the directory inside"
     assert scratch.remove(record, subject(), verified_empty=True) == "removed"
 
 
@@ -1120,3 +1144,296 @@ def test_the_macos15_rule_refuses_to_rename_exactly_a_directory_without_owner_wr
     finally:
         os.close(parent)
         unlock(tmp_path)
+
+
+# --- r3: every mode change sets 0700, through the folder's descriptor where an open admits it ----
+
+#: Where removal changes a directory's mode: the allocation before its rename, a
+#: tombstone a crash left (which no rename precedes), and a directory inside the tree.
+SITES = ["before-rename", "crash-left-tombstone", "nested"]
+#: When the swap comes: right after removal's check of the entry by name, or right
+#: before a mode change by name (where a build changes it by name at all).
+WINDOWS = ["after-check", "at-mode-change"]
+SWAPS = [(0o000, "hard-link"), (0o500, "hard-link"), (0o077, "hard-link"), (0o577, "hard-link"),
+         (0o500, "symlink")]
+
+
+def entry_at(scratch, site, mode):
+    """An allocation whose directory at `site` has `mode`: the record, and the name
+    removal looks that directory up by (relative to its parent's descriptor)."""
+    record = scratch.create("job/a1")
+    folder = Path(record["path"])
+    (folder / "nested").mkdir()
+    (folder / "nested" / "payload").write_text("dummy")
+    if site == "nested":
+        os.chmod(folder / "nested", mode)
+        return record, "nested"
+    os.chmod(folder, mode)
+    if site == "crash-left-tombstone":
+        tomb = tombstone_of(scratch, record)
+        rename_rules.move_dir(folder, tomb)
+        return record, os.path.basename(tomb)
+    return record, folder.name
+
+
+@pytest.mark.parametrize("rule", RULES)
+@pytest.mark.parametrize("window", WINDOWS)
+@pytest.mark.parametrize("folder_mode,swapped_in", SWAPS, ids=[f"{mode:04o}-{kind}" for mode, kind in SWAPS])
+@pytest.mark.parametrize("site", SITES)
+def test_an_entry_swapped_in_before_a_mode_change_never_gains_group_or_other_bits(
+        tmp_path, monkeypatch, site, folder_mode, swapped_in, window, rule):
+    """Review r1b2 P2-1, executed. Between removal's check of a directory and its
+    mode change, a provider with write access to the user temp root moves the
+    directory aside and puts in its place a hard link to a 0600 file of this
+    user's outside the root, or a symlink to a 0500 directory outside it. #258's
+    r2 build set `mode | 0o700` by name, so the file outside took the folder's
+    group and other bits (0077 and 0577 made it 0777).
+
+    The bound C-12.10 states: such an entry can be set to 0700, only if it is this
+    user's (a symlink's own mode, never its target's); it never gains group or
+    other bits. Under either rename rule, at each site, and whichever by-name
+    call the swap precedes."""
+    scratch = manager(tmp_path)
+    record, entry = entry_at(scratch, site, folder_mode)
+    victim = tmp_path / "outside-file"
+    victim.write_text("dummy")
+    os.chmod(victim, 0o600)
+    target = tmp_path / "outside-dir"
+    target.mkdir()
+    (target / "kept").write_text("dummy")
+    os.chmod(target, 0o500)
+    real_rename, real_chmod, real_stat = os.rename, os.chmod, os.stat
+    rename_rules.install(rule, monkeypatch)
+    swapped = []
+
+    def swap(dir_fd):
+        # As a provider must on macOS 15: owner write, rename, its mode back.
+        mode = stat.S_IMODE(real_stat(entry, dir_fd=dir_fd, follow_symlinks=False).st_mode)
+        real_chmod(entry, mode | stat.S_IWUSR, dir_fd=dir_fd, follow_symlinks=False)
+        real_rename(entry, entry + "-moved-away", src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+        real_chmod(entry + "-moved-away", mode, dir_fd=dir_fd, follow_symlinks=False)
+        if swapped_in == "hard-link":
+            os.link(victim, entry, dst_dir_fd=dir_fd)
+        else:
+            os.symlink(target, entry, dir_fd=dir_fd)
+        swapped.append(True)
+
+    def by_name(path, kwargs):
+        return not swapped and os.fspath(path) == entry and kwargs.get("dir_fd") is not None
+
+    def stat_(path, *args, **kwargs):
+        found = real_stat(path, *args, **kwargs)
+        if window == "after-check" and by_name(path, kwargs):
+            swap(kwargs["dir_fd"])
+        return found
+
+    def chmod(path, mode, *args, **kwargs):
+        if window == "at-mode-change" and by_name(path, kwargs):
+            swap(kwargs["dir_fd"])
+        return real_chmod(path, mode, *args, **kwargs)
+
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(os, "stat", stat_)
+            patch.setattr(os, "chmod", chmod)
+            outcome = scratch.remove(record, subject(), verified_empty=True)
+        if window == "after-check":
+            assert swapped, "every build checks the entry by name first, so the swap ran"
+        mode = stat.S_IMODE(victim.stat().st_mode)
+        assert mode in (0o600, 0o700), f"{folder_mode:04o}: the file outside became {mode:04o}"
+        assert victim.read_text() == "dummy"
+        assert stat.S_IMODE(target.stat().st_mode) == 0o500, "a symlink's target is never changed"
+        assert (target / "kept").read_text() == "dummy"
+        assert outcome == (None if swapped else "removed"), (swapped, outcome)
+    finally:
+        unlock(tmp_path)
+
+
+def mode_changes(monkeypatch):
+    """Record, in order, each mode change (`by-name`, with the name; `descriptor`,
+    with the directory's inode) and each open refused with a `PermissionError`."""
+    calls = []
+    real_chmod, real_fchmod, real_open = os.chmod, os.fchmod, os.open
+
+    def chmod(path, mode, *args, **kwargs):
+        calls.append(("by-name", os.fspath(path), mode))
+        return real_chmod(path, mode, *args, **kwargs)
+
+    def fchmod(fd, mode):
+        calls.append(("descriptor", os.fstat(fd).st_ino, mode))
+        return real_fchmod(fd, mode)
+
+    def open_(path, *args, **kwargs):
+        try:
+            return real_open(path, *args, **kwargs)
+        except PermissionError as exc:
+            calls.append(("refused-open", os.fspath(path), exc.errno))
+            raise
+
+    monkeypatch.setattr(os, "chmod", chmod)
+    monkeypatch.setattr(os, "fchmod", fchmod)
+    monkeypatch.setattr(os, "open", open_)
+    return calls
+
+
+@pytest.mark.parametrize("rule", RULES)
+@pytest.mark.parametrize("mode", [0o500, 0o400], ids=lambda mode: f"{mode:04o}")
+@pytest.mark.parametrize("site", SITES)
+def test_a_folder_the_owner_can_read_gets_0700_through_its_descriptor_never_by_name(tmp_path, monkeypatch, site,
+                                                                                      mode, rule):
+    """P2-1's fix, the path with no window: a directory an open admits (owner
+    read) is opened without following a symlink, checked by its descriptor and
+    set to 0700 through it. No mode change by name happens at all."""
+    scratch = manager(tmp_path)
+    record, entry = entry_at(scratch, site, mode)
+    folder = Path(tombstone_of(scratch, record)) if site == "crash-left-tombstone" else Path(record["path"])
+    inode = (folder / entry if site == "nested" else folder).lstat().st_ino
+    rename_rules.install(rule, monkeypatch)
+    try:
+        with monkeypatch.context() as patch:
+            calls = mode_changes(patch)
+            assert scratch.remove(record, subject(), verified_empty=True) == "removed"
+        assert calls == [("descriptor", inode, 0o700)], calls
+        assert leftovers(scratch) == []
+    finally:
+        unlock(tmp_path)
+
+
+@pytest.mark.parametrize("rule", RULES)
+@pytest.mark.parametrize("mode", [0o000, 0o300], ids=lambda mode: f"{mode:04o}")
+@pytest.mark.parametrize("site", SITES)
+def test_a_folder_the_owner_cannot_read_gets_0700_by_name_once_its_open_is_refused(tmp_path, monkeypatch, site,
+                                                                                    mode, rule):
+    """The fallback: a directory without owner read (0000, 0300), which no open
+    admits, is set to 0700 by name, never through a symlink, and only after its
+    open was refused with EACCES."""
+    scratch = manager(tmp_path)
+    record, entry = entry_at(scratch, site, mode)
+    rename_rules.install(rule, monkeypatch)
+    try:
+        with monkeypatch.context() as patch:
+            calls = mode_changes(patch)
+            assert scratch.remove(record, subject(), verified_empty=True) == "removed"
+        assert calls == [("refused-open", entry, errno.EACCES), ("by-name", entry, 0o700)], calls
+        assert leftovers(scratch) == []
+    finally:
+        unlock(tmp_path)
+
+
+@pytest.mark.parametrize("value", ["../escape-r1b", "escape-r1b", attempt_tmp.TOMBSTONE + "x/../../escape-r1b",
+                                   attempt_tmp.TOMBSTONE + "x" * 128, 7],
+                         ids=["parent", "no-prefix", "slash", "too-long", "not-a-string"])
+def test_a_tombstone_value_that_is_not_a_tombstone_name_refuses_removal(tmp_path, caplog, value):
+    """Review r1b2 P3-1: a recorded tombstone that is not a tombstone name (one a
+    corrupt or hand-edited record carries) refuses removal before anything is
+    renamed. A build that took any string renamed the allocation to
+    `../escape-r1b`, outside the temp root, and removed it there."""
+    scratch = manager(tmp_path)
+    record = {**scratch.create("job/a1"), "tombstone": value}
+    folder = Path(record["path"])
+    (folder / "payload").write_text("dummy")
+    around = sorted(entry.name for entry in tmp_path.iterdir())
+    caplog.set_level(logging.WARNING)
+    assert scratch.remove(record, subject(), verified_empty=True) is None
+    assert "TMPDIR removal refused for job/a1: its recorded tombstone is not one" in caplog.messages
+    assert scratch.presence(record) == "present" and (folder / "payload").read_text() == "dummy"
+    assert leftovers(scratch) == [folder.name], "nothing renamed inside the root"
+    assert sorted(entry.name for entry in tmp_path.iterdir()) == around, "nor out of it"
+    assert scratch.tombstone_path(record) is None
+
+
+def test_a_successful_create_leaves_no_journal_entry(tmp_path, monkeypatch):
+    """Review r1b2 P3-2: C-12.10 says each name is in the journal from before its
+    mkdir until its marker is published. In-process, so a mutant module is
+    reached too (T1's create tests run in a child)."""
+    scratch = manager(tmp_path)
+    made, real_mkdir = [], os.mkdir
+
+    def mkdir(path, *args, **kwargs):
+        name = os.path.basename(os.fspath(path))
+        if name.startswith(attempt_tmp.PREFIX):
+            made.append((name, journal(scratch)))
+        return real_mkdir(path, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(os, "mkdir", mkdir)
+        records = [scratch.create(f"job/a{n}") for n in range(3)]
+    names = [Path(record["path"]).name for record in records]
+    assert [name for name, _ in made] == names
+    assert all(name in listed for name, listed in made), ("named in the journal before it exists", made)
+    assert journal(scratch) == [], "and no entry once its marker is published"
+    assert all(scratch.owns(record) and (Path(record["path"]) / attempt_tmp.MARKER).is_file() for record in records)
+
+
+def test_a_journal_entry_naming_a_symlink_or_a_file_is_never_recorded_or_removed(tmp_path):
+    """Review r1b2 P3-2: a journal-named entry counts only if it is a real directory
+    of this user's. A symlink to a directory outside, a file, and a hard link to
+    a file outside, each at a name the journal holds (as a crash before its mkdir
+    leaves one), are never sighted, aged or removed, and their entries go."""
+    scratch = manager(tmp_path)
+    outside = tmp_path / "outside-dir"
+    outside.mkdir()
+    (outside / "kept").write_text("dummy")
+    os.chmod(outside, 0o500)
+    victim = tmp_path / "outside-file"
+    victim.write_text("dummy")
+    os.chmod(victim, 0o600)
+    names = {kind: attempt_tmp.PREFIX + f"job-a1-{kind}" for kind in ("symlink", "file", "hard-link")}
+    (scratch.root / names["symlink"]).symlink_to(outside, target_is_directory=True)
+    (scratch.root / names["file"]).write_text("dummy")
+    os.link(victim, scratch.root / names["hard-link"])
+    intents = Path(scratch.store_root) / attempt_tmp.INTENTS
+    intents.mkdir(mode=0o700, parents=True)
+    for name in names.values():
+        (intents / name).write_text(json.dumps({"path": str(scratch.root / name)}) + "\n")
+    store = Sightings()
+    try:
+        for day in range(3):
+            store.sweep(scratch, now=1_000_000 + day * (DAY + 1))
+        assert store.notes == [] and store.removed == [], (store.notes, store.removed)
+        assert journal(scratch) == [], "the entries go: none names a directory"
+        assert leftovers(scratch) == sorted(names.values())
+        assert os.readlink(scratch.root / names["symlink"]) == str(outside)
+        assert stat.S_IMODE(outside.stat().st_mode) == 0o500 and (outside / "kept").read_text() == "dummy"
+        assert stat.S_IMODE(victim.stat().st_mode) == 0o600 and victim.read_text() == "dummy"
+        assert (scratch.root / names["file"]).read_text() == "dummy"
+    finally:
+        unlock(tmp_path)
+
+
+def test_the_journal_folders_own_entry_is_fsynced_once_when_it_is_made(tmp_path, monkeypatch):
+    """Review r1b2 check 12, the power-loss gap: when `tmpdir-intents` is first made,
+    its parent (the state root) is fsynced, so the folder's own entry is durable
+    before any name in it is relied on. Exactly once: not again for later
+    allocations, nor for another `AttemptTemp` on the same store."""
+    (tmp_path / "store").mkdir()
+    scratch = manager(tmp_path)
+    store_root = Path(scratch.store_root)
+    intents = store_root / attempt_tmp.INTENTS
+    found = store_root.stat()
+    events, real_fsync, real_mkdir, real_rename = [], os.fsync, os.mkdir, os.rename
+
+    def fsync(fd):
+        opened = os.fstat(fd)
+        if (opened.st_dev, opened.st_ino) == (found.st_dev, found.st_ino):
+            events.append(("fsync-state-root", intents.is_dir(), journal(scratch)))
+        return real_fsync(fd)
+
+    def mkdir(path, *args, **kwargs):
+        if os.path.basename(os.fspath(path)).startswith(attempt_tmp.PREFIX):
+            events.append(("mkdir-allocation",))
+        return real_mkdir(path, *args, **kwargs)
+
+    def rename(src, dst, *args, **kwargs):
+        if os.path.dirname(os.fspath(dst)) == str(intents):
+            events.append(("journal-entry",))
+        return real_rename(src, dst, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(os, "fsync", fsync)
+        patch.setattr(os, "mkdir", mkdir)
+        patch.setattr(os, "rename", rename)
+        scratch.create("job/a1")
+        scratch.create("job/a2")
+        attempt_tmp.AttemptTemp(store_root, root=scratch.root).create("job/a3")
+    assert events == [("fsync-state-root", True, []), *[("journal-entry",), ("mkdir-allocation",)] * 3], events

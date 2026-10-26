@@ -80,6 +80,14 @@ MUTATIONS = {
     "put-back-over": [("        os.stat(name, dir_fd=parent, follow_symlinks=False)\n"
                        "        log.warning(\"TMPDIR tombstone %s kept: %s reappeared\", tomb, name)\n        return\n",
                        "        raise FileNotFoundError(name)\n")],
+    # Review r1b2's P3-1 and P3-2: what C-12.10 states and no PR test pinned.
+    "any-tombstone": [("        if isinstance(name, str) and name.startswith(TOMBSTONE) and \"/\" not in name and len(name) <= 128:",
+                       "        if isinstance(name, str):")],
+    "create-skips-settle": [("                record = self._mark(name, attempt_id)\n                self._settle(name)\n",
+                             "                record = self._mark(name, attempt_id)\n")],
+    "sweep-no-ownership-check": [("                if not stat.S_ISDIR(found.st_mode) or found.st_uid != os.getuid():\n"
+                                  "                    continue                 # not this store's to judge; nothing is recorded\n",
+                                  "")],
 }
 
 def _ruled(mutation, test, args, rules=RULES):
@@ -124,6 +132,12 @@ ORACLES = [
     ("cross-device", "cross-device", "leaks:test_removal_never_enters_another_device", ("monkeypatch", "caplog")),
     ("put-back-over", "put-back-over", "leaks:test_put_back_never_replaces_a_name_that_reappeared",
      ("monkeypatch", "caplog")),
+    ("any-tombstone", "any-tombstone", "leaks:test_a_tombstone_value_that_is_not_a_tombstone_name_refuses_removal",
+     ("caplog", "../escape-r1b")),
+    ("create-skips-settle", "create-skips-settle", "leaks:test_a_successful_create_leaves_no_journal_entry",
+     ("monkeypatch",)),
+    ("sweep-no-ownership-check", "sweep-no-ownership-check",
+     "leaks:test_a_journal_entry_naming_a_symlink_or_a_file_is_never_recorded_or_removed", ()),
 ]
 
 SUITES = {"lifecycle": lifecycle, "leaks": leaks}
