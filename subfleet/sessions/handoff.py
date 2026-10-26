@@ -1566,8 +1566,8 @@ def _header_sub(text: str, tally: _Tally) -> str:
     its line (`_header_redaction`'s `reach`: a secret-named flag's folded value, a lone
     flag's, a refused `Bearer`'s next line). Each search starts where the last
     replacement ended, as `re.sub`'s do. The part of a header's name before its header
-    word goes when it reads as a secret (`_secret_prefix`), as the inline rule's does,
-    so a name the inline rule cannot read, parted from its colon by a line break or
+    word goes when it reads as a secret (`_secret_prefix`), but for its leading `-`, as
+    the inline rule's does, so a name the inline rule cannot read, parted from its colon by a line break or
     other whitespace than spaces and tabs (`SECRET7…Cookie` and `: v` on the next line),
     loses it too (#239 review r4, P3-4).
 
@@ -1584,6 +1584,8 @@ def _header_sub(text: str, tally: _Tally) -> str:
         name = _VISIBLE_RE.search(text, start).start()
         colon = text.rfind(":", name, value)
         word = _secret_prefix(text, name, _last_visible(text, colon) + 1)
+        if word is not None:
+            name = _run_end(text, name, "-")    # the name's leading `-` stays (`_scrub_inline_headers`)
         line = text.rfind("\n", colon, value) + 1
         if line and (_header_name_at(text, value) or _HEADER_RE.match(text, line) is not None):
             if word is not None:
@@ -2048,8 +2050,13 @@ def _scrub_inline_headers(text: str, tally: "_Tally", *, line_start: bool = Fals
         # The rule keeps a header's name, but a name whose part before its header word
         # reads as a secret (`_value_runs`: `SECRET7…Authorization:`) loses that part,
         # whatever becomes of its value (#239 review r3, P3-B). The second scan reads
-        # names at a line start too, so a line-start header's loses it there.
+        # names at a line start too, so a line-start header's loses it there. Its
+        # leading `-` stays (`lead`): a fold refuses a run that starts with `-`, and the
+        # flag rule's fold, the scrub's last pass, must see it as an excerpt cut before
+        # it does (`_neutral_break`), so the whole text scrubs as its excerpts do (#239
+        # review r5, P3-2).
         named = word > start and bool(_value_runs(text[start:word]))
+        lead = _run_end(text, start, "-") if named else start
         value_start = _WHITESPACE_RUN_RE.match(text, hit_end).end()
         # A value at the text's end or already redacted is left alone, and so is one
         # that starts at the next line's own header (#239 review r2, P2-3), the inline
@@ -2059,10 +2066,13 @@ def _scrub_inline_headers(text: str, tally: "_Tally", *, line_start: bool = Fals
         # rule left starting with `[REDACTED]` at a line start as the line-start rule
         # reads a name there: its value goes, already redacted or not, so daemon.log's
         # folded line (`[REDACTED]Cookie: [REDACTED]` and the next line's words) keeps
-        # nothing of the header's line (#239 review r4, P3-4).
-        led = (line_start and start >= len(REDACTED) and text.startswith(REDACTED, start - len(REDACTED))
-               and ((newline := text.rfind("\n", gap, start - len(REDACTED))) >= 0 or gap == 0)
-               and _VISIBLE_RE.search(text, newline + 1, start - len(REDACTED)) is None)
+        # nothing of the header's line (#239 review r4, P3-4); so does one the rule left
+        # its leading `-` (`-[REDACTED]Cookie:`).
+        led = line_start and start >= len(REDACTED) and text.startswith(REDACTED, start - len(REDACTED))
+        if led:
+            marker = max(gap, _run_start(text, start - len(REDACTED), "-"))
+            led = (((newline := text.rfind("\n", gap, marker)) >= 0 or gap == 0)
+                   and _VISIBLE_RE.search(text, newline + 1, marker) is None)
         skip = (value_start == len(text) or (text.startswith(REDACTED, value_start) and not led)
                 or ("\n" in text[hit_end:value_start] and (_header_name_at(text, value_start) or _HEADER_RE.match(
                     text, text.rfind("\n", 0, value_start) + 1) is not None)))
@@ -2080,12 +2090,12 @@ def _scrub_inline_headers(text: str, tally: "_Tally", *, line_start: bool = Fals
             skip = end <= value_start
         if skip:
             if named:
-                parts.extend((text[cursor:start], tally(text[start:word], REDACTED)))
+                parts.extend((text[cursor:lead], tally(text[lead:word], REDACTED)))
                 cursor = word
             continue
         out, stop = _header_redaction(text, start, value_start, end, rescan=True)
         if named:
-            out = REDACTED + out[word - start:]
+            out = text[start:lead] + REDACTED + out[word - start:]
         parts.extend((text[cursor:start], tally(text[start:stop], out, header=True)))
         cursor = stop
     parts.append(text[cursor:])
