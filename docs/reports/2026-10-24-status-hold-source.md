@@ -616,3 +616,337 @@ unrun files, `test_cli`, `test_status_json`, `test_render`,
 `test_operator_hold_closures`, `fake/test_lanes_enroll` and
 `fake/test_status_payload` import or drive these functions, so they are the
 first to run. CI on the head is the full check.
+
+## Round r2 (review r2 of #263, 2026-10-26)
+
+Review r2 asked for changes at `09ce84d32`: every r1 finding was fixed, and it
+found five new P3s, each executed. The hub's six decisions are built on
+`fix/status-hold-source-217` from `09ce84d32`, red tests first. Every
+credential in a test or a run is a dummy `SECRET7…` value.
+
+### The decisions, as built
+
+1. **P3-1: I5 holds for the JSON forms.** `contracts.hold_note` now refuses a
+   note, with `HOLD_NOTE_CREDENTIAL_RULE`, when `ids.holds_credential` flags it
+   as written or as `json.dumps` writes it (`json.dumps(note)[1:-1]`).
+   `holds_credential` is unchanged; it stays the request-id predicate.
+   - **Why:** the scrubber's URL rule opens with `\b`, and there is no word
+     boundary between `ü` and `h`. So `ühttps://u:SECRET7…@host` passes the
+     scrubber as written. `ühttps://…`, the form `status --json` and
+     `status.json` carry, is masked (its scheme reads as `u00fchttps`).
+   - **Tests:**
+     - `test_r2_p3_1_a_url_password_after_a_non_ascii_letter_is_refused` covers
+       `ü`, `é` and `中`. Its premise asserts the raw note is clean and the
+       JSON form flagged. It then checks `hold_note`'s rule, the daemon's
+       refusal (exit 2, `hold-note`, the credential rule's wire text) and the
+       store: unchanged, and the dummy in no row.
+     - `test_r2_p3_1_lanes_hold_refuses_it_before_asking_the_daemon` checks
+       the CLI: exit 2, the rule on stderr alone, and the daemon never asked.
+     - A stored `operator: ühttps://…` is withheld: the `url after ü` case of
+       decision 3's test.
+   - **I5:**
+     - Two URL shapes join the credential shapes: `https://u:{}@host` and
+       `ftp://operator:{}@example.invalid/x`.
+     - A prefix of nothing, `ü`, `é` or `中` goes just before the credential.
+     - Three URL examples are pinned.
+     - An accepted note's surfaces are now also checked as JSON writes them
+       (`scrubbed_alike(json.dumps(text)[1:-1])`).
+     - Two whole JSON documents are checked too: `status --json` (the
+       `daemon.status` answer as the CLI's `emit` writes it) and `status.json`
+       as `Timers.publish_status` writes it after `alerts.evaluate`.
+   - **The whole-document check:** the whole `status --json` text is not left
+     alone by the scrubber even with a clean note, because `daemon.status`
+     carries `"lane_credentials": []` and the scrubber masks that. So I5
+     checks that the note's JSON form is in each document and that every copy
+     of it comes through the scrubber over the whole document unchanged
+     (`survives_scrubbing`).
+   - **D-SCR-URL1, outside this PR:** `1https://u:SECRET7…@host`, a URL
+     password just after a digit, is masked by no scrubber mode, as written or
+     as JSON. So the rule accepts it.
+     `test_d_scr_url1_a_url_password_after_a_digit_is_accepted_today` pins
+     that: both forms, `whole` false and true, are unchanged and
+     `hold_note` returns the note. When D-SCR-URL1 changes the URL rule, the
+     note is refused and the test is to be turned round.
+2. **P3-2: every reader withholds a stored credential note.** The `lanes` list
+   answer, the `readings` answer and the `lanes release --limits` answer now
+   go through `closure_rows`. `operations.error_report` (`errors`, its JSON and
+   its text lines alike) goes through `closure_row`. Their rows gain `kind` and
+   `note`, as `daemon.status`'s did.
+   - **The grep found four more readers, all route decisions:**
+     - `why --task/--tier`;
+     - `why <job>`, recorded or evaluated now;
+     - the `run --dry-run` answer;
+     - the offline `runs show`.
+
+     The scheduler copies the closure rows it read into each evaluation's
+     `closures` and `stranding_closures`. They are stored in `decisions` and
+     shown as they were.
+   - **How they are routed: deviation.** These four go through
+     `status_json.decision_rows`. It applies `closure_row`'s withholding step
+     (`withheld_source`) to each hold row and adds nothing else.
+     - **Why not `closure_row`:** `why` answers with the recorded walk
+       (C-11.5), and
+       `tests/fake/test_routing_end_to_end.py::test_c11_6_…` asserts that
+       answer equals the stored `decision_json`.
+     - **So:** a decision whose holds `lanes hold` wrote reads exactly as
+       recorded. A hold row any other writer left shows
+       `operator: [note withheld: …]`.
+   - **Test:** `test_r2_p3_2_every_reader_withholds_a_stored_note`, for a
+     stored `operator: api_key=SECRET7…` row and for a stored 161-character
+     clean note. It checks each of the eight readers:
+     - each hold row's `(note, source_event)`, or the source alone in a
+       decision;
+     - neither the note nor its JSON form is in the answer as JSON or as
+       text.
+
+     The decision readers are reached through a recorded decision (a job
+     row and `Store.add_decision`). The test also checks the premise that
+     the scheduler's decision carries the stored row as stored.
+   - **The reader list** is below. With it, the change-log sentence "every
+     reader withholds one stored outside `lanes hold`" is true as written, and
+     the change log is unchanged.
+3. **P3-3: the backstop parses strictly. Deviation in placement.** The strict
+   parse is in `contracts.hold_note_of`, which `closure_row` reads through
+   `withheld_source` and `hold_source_shown`. It is not only in `closure_row`.
+   - **The rule:**
+     - exactly `operator` carries no note;
+     - exactly `operator: <note>` carries the note when `hold_note` accepts it
+       as it stands, which means length, printable, credential and JSON form,
+       and no surrounding whitespace;
+     - anything else reads as `HOLD_NOTE_WITHHELD`.
+   - **Why there:** `hold_note_of` is the one parser behind every reader:
+     `closure_row` (both `note` and `source_event`), the status text
+     (`render._held_text`) and the fleet-empty body (`alerts.closure_note`).
+     So the text and the body show the withheld text too. The decision's test
+     asks for it there.
+   - **Literal reading:**
+     - A hold whose source is None, or not a string, is "not exactly
+       `operator`", so it reads as withheld.
+     - `hold_note_of("wham")` now reads as withheld too. Every caller passes a
+       hold's row only.
+   - **No comparison with the word:** the parse is a round trip,
+     `hold_source(hold_note(rest)) == source_event`, so it compares nothing
+     with `operator`, and C-9.6's guard has nothing to except.
+   - **Cost:** a note over 160 characters is refused on its length before the
+     scrubber reads it.
+   - **Test:** `test_r2_p3_3_a_hold_source_lanes_hold_would_not_write_is_withheld`.
+     - **Inputs:** r2's three (`operator:api_key=…`, `Operator: api_key=…`,
+       `sk-…`), plus a stored `operator: ühttps://…`.
+     - **Where it checks:** `daemon.status` at both levels, the offline
+       reader, the status text and the fleet-empty body each show the
+       withheld text, and the notice is written.
+     - **What must be absent:** the dummy, from both JSON documents (the
+       daemon's and the offline reader's), both texts, the body and the
+       notice.
+   - **Strict-parse property:** `test_hold_note_accepts_exactly_the_spec_…`
+     now also checks `hold_note_of` against a spec mirror (`stored_note`) for
+     each drawn text, alone and after `operator: `. It also checks ten fixed
+     malformed sources.
+4. **P3-4: the source guard catches what syntax shows, and C-9.6 says it is
+   syntactic.**
+   - **What `_comparisons` catches:**
+     - **A comparison:** `==`, `!=`, `in`, `not in`, `is` or `is not`, with
+       one of these on either side, whatever the other side is:
+       - the literal `"operator"`;
+       - a name or attribute `HOLD_SOURCE`;
+       - a set, tuple or list holding one, or a `frozenset(…)`, `set(…)`,
+         `tuple(…)` or `list(…)` of one.
+     - **A `match` case** whose value pattern is one, `|` alternatives
+       included.
+     - **SQL** in a string constant or an f-string. The f-string is read with
+       each formatted `operator` or `HOLD_SOURCE` written in. It must compare
+       `source_event` (`=`, `==`, `!=`, `<>`, `IN`, `IS`, `LIKE`, an optional
+       `(`) with the word in either quote, or with a `?` that its call passes
+       the word for among its other arguments, keywords included.
+   - **Reading "whatever wraps the other side":** the guard needs nothing of
+     the other side. So it also catches a helper's `value == "operator"` and
+     an alias of the column. As a cost, any comparison with the word in
+     `subfleet/` or `tools/` fails it, even one on another field. No such
+     comparison exists today; a case pins the behaviour.
+   - **r2's cases:** r2 kept no scratch modules, so its 16 are rebuilt from
+     its list. Its getattr and its alias are each read both ways:
+     - on the column, `getattr(closure, "source_event") == "operator"` and
+       `source = row["source_event"]`: caught;
+     - on the constant, `== getattr(contracts, "HOLD_SOURCE")` and
+       `MARK = "operator"`: the known misses.
+   - **Tests:**
+     - `test_r2_p3_4_the_source_guard_catches_each_comparison_it_can_see` has
+       22 cases, each with the line the guard must name.
+     - `test_r2_p3_4_the_source_guard_known_misses_stay_listed` has 5 cases:
+       `operator.eq`, a dict lookup, getattr for the constant, the constant
+       aliased through a variable, and the SQL aliased through a variable
+       (that last is one more than the hub listed).
+     - `test_r2_p3_4_the_source_guard_passes_what_is_no_comparison_with_the_word`
+       covers `hold_note_of`'s round trip, a `?` whose parameter is not the
+       word, the word in other columns' SQL, and `"operator-hold"`.
+     - r1's seven cases still pass.
+     - The real tree is clean under the new guard.
+   - **The contract:** C-9.6 now states that the guard is syntactic only,
+     what it catches, and what it does not see.
+5. **P3-5: the >160 rule has a test.**
+   `test_r2_p3_5_a_stored_note_over_160_characters_is_withheld_unread` stores
+   `LONGEST + "!"`. That note is 161 characters, has no credential, and has no
+   surrounding whitespace, so nothing else could withhold it.
+   - It expects the withheld text in `daemon.status` (both levels), the status
+     text, the fleet-empty body and the notice.
+   - Neither the note nor its first 160 characters may appear in `status
+     --json`, the text, the body or the notice.
+   - A spy on `ids.holds_credential` shows the note is never read.
+   - r2's R1 is killed, both at `09ce84d32` (red, below) and as it applies at
+     the head.
+6. **The contract.** Only C-9.6 changed, in three places:
+   - the note rule now reads the JSON form too;
+   - the stored-note sentence is now the strict read, with every reader
+     named;
+   - the guard sentence says it is syntactic and names what it misses.
+
+   The change-log entry is true as written and is unchanged. So are C-17.1
+   and C-18.4.
+
+### Every reader of closure rows (decision 2)
+
+`git grep` for `closures`, `list_closures`, `source_event`, `decision_json` and
+`FROM decisions` under `subfleet/` and `tools/`, at the head. "Reader" here
+means code that shows a closure row, or a copy of one, to anyone: a daemon
+answer, CLI output, an alert, a notice or a published file.
+
+**Through `closure_row`, with `kind` and `note`, and a hold's source withheld:**
+
+| Reader | Where |
+| --- | --- |
+| `daemon.status` (`status --json`, and the status text drawn from it) | `daemon.py:3720` (`closure_rows`) |
+| the `lanes hold` and `lanes release` answer | `daemon.py:1398` |
+| the `lanes release --limits` answer (new) | `daemon.py:1433` |
+| the `lanes` list answer (`lanes list --json`; `status` falls back to it for an older daemon) (new) | `daemon.py:3611` |
+| the `readings` answer's closures, and the `status` text it renders from them (new) | `daemon.py:3614` |
+| `operations.error_report`: `errors` JSON, and its text lines (`json.dumps` per row), from the daemon and offline (new) | `operations.py:37` |
+| the offline `status` | `offline.py:359` |
+
+**Through `decision_rows` (each hold's `source_event` withheld, nothing added):**
+
+| Reader | Where |
+| --- | --- |
+| `why --task/--tier` (its `decision` and its `text`) | `daemon.py:3621` |
+| `why <job>`, recorded or evaluated now | `daemon.py:3881` |
+| `run --dry-run` (`--why` prints the decision) | `daemon.py:2598` |
+| offline `runs show` (`job.decision`) | `offline.py:294` |
+
+**Reading a hold's note through the strict `hold_note_of`, as text:**
+- `render.closure_line` and `render.closure_text` (`_held_text`). These serve
+  the `status` text, `operations.brief`, the `readings` text, and `why`'s and
+  `run --dry-run`'s text.
+- `alerts.fleet_empty_body` (`closure_note`). This serves the alert body, the
+  session notice, the alert latch's kept words, and `status.json`'s `alerts`.
+
+**Shown not to render `source_event` or a note:**
+- `alerts.evaluate_conditions`'s per-lane limit alert: it reads scope, reason
+  and end, and skips holds.
+- `scheduler.judge_lane`, `evaluate`, `pin_unadmittable` (its `closures` are
+  scope, end and reason only, so `job.pin_unadmittable`, `job.pin_refused` and
+  the `why` hold record carry no source), `_earliest_reset` and
+  `standing_refusals`.
+- `render.pin_refusals`, `pin_notice` and `pin_failure`: reason, scope and end.
+- `picker.rank` (the `pick` answer): reasons `closed:<scope>`.
+- `capacity.build_view`, `store_rows` and the horizon. `route_check` is the
+  internal C-6.3 check; its evaluations become the decisions above.
+- `actions.store_holds`, `lane_hold` and `_lanes_now` (the reset-credit pass
+  and its answers): lane ids and reasons.
+- `timers.py`'s held-lane, auth-dead and released queries: lane ids or
+  existence.
+- `status_json.build_status` (`status.json`): verdicts and alert bodies, with
+  no closure rows.
+- `daemon._open_closures` and `_pin_view`: internal route and pin views.
+- `tools/compare_decisions.py`: the chosen model and lane, and the reason.
+
+**Writers and copies, not readers:**
+- the re-enrollment copy (`daemon.py:1275`), which copies a stored source as
+  it is;
+- `importer.py`'s v1 cooldowns (`v1-cooldown`);
+- the store API;
+- the `decisions` table and the retention archive's copy of it
+  (`retention_archive.py:312`), which keep the decision as recorded. Its
+  readers are the four above.
+
+Round r1's "Other readers that pass a closure's `source_event` raw" are all
+routed now.
+
+### Invariants, round r2
+
+- **I1 to I4:** unchanged. I4's spec oracle (`note_rule`) now reads the JSON
+  form too, as `hold_note` does.
+- **I5:**
+  - **Statement:** no text the C-23.14 scrubber would change reaches the
+    store, status, the alerts or a notice through a hold. That holds as
+    written and as JSON carries it (`status --json`, `status.json`).
+  - **The notes:** 150 generated examples plus six pinned (three URL notes
+    among them).
+  - **The shapes:** seven credential shapes, two of them URLs, alone or after
+    a word and a joiner, with an optional letter outside ASCII just before
+    the credential.
+  - **Outside it:** D-SCR-URL1's digit prefix, pinned as accepted today.
+- **The strict hold source (not a numbered invariant):** for every text the
+  rule's property draws (2,000), `hold_note_of` of the text, and of
+  `operator: ` and the text, equals the spec mirror. The mirror gives None for
+  exactly `operator`, the note for exactly `operator: <note>` with an
+  accepted note, and the withheld text otherwise.
+
+### Mutants, round r2
+
+`tools/status_hold_source_mutations.py` gained R1 and M15 to M17. M9 and M10
+now follow the code they mutate, and IDs given on the command line select
+mutants. Per the Budget hold, only the four named below ran, in one hold, from a
+`git archive` export of `2fee10928`. The driver ran its own baseline first:
+the 10 named tests, all passed. "Killed" means pytest failed and a named test
+has a `FAILED` line.
+
+| Mutant | What it takes back | Named tests that failed | Result |
+| --- | --- | --- | --- |
+| R1 (r2's) | drops `len(note) > HOLD_NOTE_MAX or`. It was at `contracts.py:440` in `hold_note_of`; that check now lives only in `hold_note` | `test_r2_p3_5_…`, `test_r2_p3_2_…[161 characters]`, I4, `test_hold_note_accepts_exactly_the_spec_…`, `test_lanes_hold_refuses_an_invalid_note_…[x×161]` | killed |
+| M15 | `hold_note` without the JSON form | `test_r2_p3_1_a_url_password_…` ×3, `test_r2_p3_1_lanes_hold_refuses_it_…` ×3, I5, `test_r2_p3_3_…[url after ü]` | killed |
+| M16 | `closure_row` (`withheld_source`) shows any source opening with `operator` as stored | `test_r2_p3_3_…[no space]`, `[url after ü]`, `test_r1_p2_a_stored_credential_note_is_withheld_by_every_reader` | killed |
+| M17 | the `lanes` list answer left unrouted | `test_r2_p3_2_…[161 characters]`, `[credential]` | killed |
+
+**R1 at `09ce84d32`.** r2's R1 was applied to its own line in a `git archive`
+export of `349b81601` (the base code with the red tests), and
+`test_r2_p3_5_…` failed: the 161-character note showed. Without R1, the same
+test passes on that code (the red run). That is P3-5's red.
+
+### Runs, round r2
+
+Every pytest went through `suite_hold.sh`, one at a time; each hold was
+admitted at once.
+- **Environment:** `TMPDIR` and `HYPOTHESIS_STORAGE_DIRECTORY` were in the
+  scratch folder, `PYTHONPATH` and `SUBFLEET_RETENTION_DORMANT` were unset,
+  and `PYTHONDONTWRITEBYTECODE=1` was set.
+- **Python:** 3.14.7 (`uv sync --locked --group dev`), serial (no xdist). No
+  network.
+- **Times and loads:** UTC on 2026-10-26; loads are `vm.loadavg` (1, 5 and
+  15 minutes).
+
+| Hold | Tree | What ran | Result | Load at start → end |
+| --- | --- | --- | --- | --- |
+| red, 10:25 | `349b81601`: `09ce84d32`'s code with the red tests | the round's new and changed tests in `test_status_hold_source.py` (`-k`) | **33 failed, 12 passed** in 11 s, as intended. The 12 passes are the tests whose behaviour already held: the guard cases the old guard caught (literal `==`, SQL `LIKE`, the f-string with the literal), the five pinned misses, the pass case, the D-SCR-URL1 pin, I4, and P3-5 (the >160 rule exists at the base) | 25.7 → 29.0 |
+| R1 red, 10:30 | the same tree, R1 applied | `test_r2_p3_5_…` and three others | `test_r2_p3_5_…` **failed** with R1, against passing without it. The other three failed for their own decisions: `test_hold_note_accepts_…` on the strict read, I5 on `éhttps://…`, and P3-2 on the `lanes` list | about 29 |
+| 1, 10:35 | the head's code, uncommitted | `test_status_hold_source.py` | **115 passed** in 82 s | 15.6 → 23.0 |
+| mutants, 10:40 | export of `2fee10928` | R1, M15, M16, M17 | baseline passed (10 tests); **4 of 4 killed** | 34.99 → 30.7 |
+| A, 10:42 | `2e1f8c702` | `test_status_hold_source.py`, `frontend/test_status_model.py`, the three contract guards | **204 passed** in 199 s: 115, 26, `fake/test_state_contract` 37, `test_test_module_names` 1, `test_invariants_index` 25 | 35.1 → 35.9 |
+| B, 10:46 | `2e1f8c702` | `test_cli.py` | **256 passed** in 45 s; `test_ping_continuous_input_has_a_total_deadline` passed at load 33 | 33.5 → 23.0 |
+| C, 10:47 | `2e1f8c702` | beyond the brief's list: 11 existing tests that drive the readers this round routed (`why` against the recorded decision, the `why` walk over the socket, `run --dry-run`, `error_report`, `release --limits`, the `lanes` list with a transaction open, the hold/limit interleaving property) | **20 passed** in 27 s | 23.6 → 33.3 |
+
+**The app:** no Swift changed. **The CLI timing tests:** all passed in hold B,
+so there were no reruns.
+
+### Not run, round r2
+
+- The rest of the suite, as the brief asked; CI runs it. The files nearest
+  this round's changes are listed below. Hold C ran only the named tests
+  from `fake/test_routing_end_to_end.py`, `test_native_operations.py`,
+  `fake/test_lanes_enroll.py`, `test_store_readers.py` and
+  `test_operator_hold_closures.py`.
+  - `test_render`, `test_status_json` and `test_offline`;
+  - the rest of those five files;
+  - `fake/test_status_payload` and `test_operator_notices`.
+- **Mutants:** M1 to M14b were not rerun (the Budget hold), and neither was
+  any mutant beyond the four.
+- `tests/frontend/test_core_live.py` cannot run on a lane, and the old-release
+  Swift decoder check was not run.
