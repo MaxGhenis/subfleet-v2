@@ -374,6 +374,9 @@ def send_now(probe, *, b_ready: bool, offered_while: str) -> dict:
     with tempfile.TemporaryDirectory(prefix="sf-tray-now-", dir="/tmp") as scratch:
         root = Path(scratch)
         harness = ServiceHarness(root / "daemon")
+        # The probe exits with the model's events long poll in flight, which the daemon
+        # counts as an abandoned connection; the harness's daemon stand-in has no counter.
+        harness.daemon._count_connection = lambda kind, detail=None: 0
         server = ServiceServer(harness)
         try:
             cid = harness.create()["conversation_id"]
