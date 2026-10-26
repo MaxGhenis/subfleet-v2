@@ -1569,14 +1569,30 @@ def _header_sub(text: str, tally: _Tally) -> str:
     word goes when it reads as a secret (`_secret_prefix`), as the inline rule's does,
     so a name the inline rule cannot read, parted from its colon by a line break or
     other whitespace than spaces and tabs (`SECRET7…Cookie` and `: v` on the next line),
-    loses it too (#239 review r4, P3-4)."""
+    loses it too (#239 review r4, P3-4).
+
+    A header whose value would start on a later line than its colon, at that line's own
+    header (one the inline rule or this rule reads there), leaves that line to it, as an
+    inline header does (`_scrub_inline_headers`), and takes nothing: taken, its value
+    would end before a lone flag that ends that header's line, whose value on the line
+    after would then show (`Set-Cookie:`, `Cookie: --api-key` and `SECRET7…` on three
+    lines; #239 review r5, P3-1)."""
     parts: list[str] = []
     cursor = 0
     while (match := _HEADER_RE.search(text, cursor)) is not None:
-        start = match.start()
-        out, stop = _header_redaction(text, start, match.end(1), match.end(), reach=True)
+        start, value = match.start(), match.end(1)
         name = _VISIBLE_RE.search(text, start).start()
-        word = _secret_prefix(text, name, _last_visible(text, text.rfind(":", name, match.end(1))) + 1)
+        colon = text.rfind(":", name, value)
+        word = _secret_prefix(text, name, _last_visible(text, colon) + 1)
+        line = text.rfind("\n", colon, value) + 1
+        if line and (_header_name_at(text, value) or _HEADER_RE.match(text, line) is not None):
+            if word is not None:
+                parts.extend((text[cursor:name], tally(text[name:word], REDACTED)))
+                cursor = word
+            parts.append(text[cursor:line])
+            cursor = line
+            continue
+        out, stop = _header_redaction(text, start, value, match.end(), reach=True)
         if word is None:
             parts.extend((text[cursor:start], tally(text[start:stop], out, header=True)))
         else:
