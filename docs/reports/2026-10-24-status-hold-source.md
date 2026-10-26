@@ -814,11 +814,11 @@ answer, CLI output, an alert, a notice or a published file.
 
 | Reader | Where |
 | --- | --- |
-| `daemon.status` (`status --json`, and the status text drawn from it) | `daemon.py:3720` (`closure_rows`) |
+| `daemon.status` (`status --json`, and the status text drawn from it) | `daemon.py:3729` (`closure_rows`) |
 | the `lanes hold` and `lanes release` answer | `daemon.py:1398` |
 | the `lanes release --limits` answer (new) | `daemon.py:1433` |
-| the `lanes` list answer (`lanes list --json`; `status` falls back to it for an older daemon) (new) | `daemon.py:3611` |
-| the `readings` answer's closures, and the `status` text it renders from them (new) | `daemon.py:3614` |
+| the `lanes` list answer (`lanes list --json`; `status` falls back to it for an older daemon) (new) | `daemon.py:3620` |
+| the `readings` answer's closures, and the `status` text it renders from them (new) | `daemon.py:3623` |
 | `operations.error_report`: `errors` JSON, and its text lines (`json.dumps` per row), from the daemon and offline (new) | `operations.py:37` |
 | the offline `status` | `offline.py:359` |
 
@@ -826,8 +826,8 @@ answer, CLI output, an alert, a notice or a published file.
 
 | Reader | Where |
 | --- | --- |
-| `why --task/--tier` (its `decision` and its `text`) | `daemon.py:3621` |
-| `why <job>`, recorded or evaluated now | `daemon.py:3881` |
+| `why --task/--tier` (its `decision` and its `text`) | `daemon.py:3630` |
+| `why <job>`, recorded or evaluated now | `daemon.py:3890` |
 | `run --dry-run` (`--why` prints the decision) | `daemon.py:2598` |
 | offline `runs show` (`job.decision`) | `offline.py:294` |
 
@@ -952,3 +952,180 @@ so there were no reruns.
   any mutant beyond the four.
 - `tests/frontend/test_core_live.py` cannot run on a lane, and the old-release
   Swift decoder check was not run.
+
+## Round r3 (review r3 of #263, 2026-10-26)
+
+Review r3 asked for changes at `b11661169` for one P3. C-9.6's sentence on the
+source guard named SQL forms that the guard, executed, does not catch, and its
+list of misses was incomplete. Every r2 finding was fixed, and review r3 found
+no P1 or P2. The hub's five decisions are built on `fix/status-hold-source-217`
+from `b11661169`, red tests first. No code under `subfleet/` changed. The guard
+is a test, so this round changes only `tests/unit/test_status_hold_source.py`,
+`tools/status_hold_source_mutations.py`, the contract and this report. No test
+this round carries a credential.
+
+### The decisions, as built
+
+1. **The extended SQL check. Deviation: one `\s*` kept.**
+   `SQL_COMPARISON` (`tests/unit/test_status_hold_source.py:746`) is review
+   r3's regex with one change.
+   - **The counterexample:** review r3's regex drops the `\s*` that
+     `b11661169`'s had after the optional `(`. So, as written, it misses four
+     forms that `b11661169`'s regex catches:
+     - `source_event IN ( 'operator')`;
+     - `source_event = ( 'operator')`;
+     - `source_event LIKE ( "operator")`;
+     - `source_event IN ( ?)`, with the word as its parameter.
+   - **The smallest change:** `\(?\s*` where review r3 has `\(?`. It keeps the
+     decision's intent: every form review r3's regex catches is caught, and
+     nothing `b11661169`'s caught is lost.
+   - **The evidence (a plain-Python probe, not pytest):** every guard test
+     function was called directly under each regex, 55 checks in all.
+     - `b11661169`'s regex passes 48, and fails the 7 new forms.
+     - Review r3's, as written, passes 54, and fails only the space case
+       below.
+     - The head's passes all 55.
+   - **Newly caught.** Each form is a case of `GUARD_CASES_R3` (`:1206`), with
+     its own id, in `test_r3_p3_1_the_source_guard_catches_each_sql_form_it_reads`:
+     - `IN ('wham','operator')` (`IN, the word a later item`);
+     - `NOT IN`, `IS NOT`, `NOT LIKE` and `GLOB`;
+     - `'operator' = source_event` (`the word first`);
+     - `lower(source_event)='operator'`.
+
+     An eighth case, `source_event IN ( 'operator')` (`a space after the (,
+     caught at b11661169`), pins the deviation. It passes at `b11661169` and at
+     the head, and fails under review r3's regex as written.
+   - **Still holds:**
+     - The tree is `[]` over `subfleet/` and `tools/`, M18's two regex strings
+       in the mutation driver included.
+     - r1's 7 cases and r2's 22 name the same lines.
+     - r2's 5 misses stay missed.
+     - Both pass cases pass.
+2. **Every remaining miss is pinned.** `GUARD_MISSES` (`:1136`) gains ten
+   cases, one each, which `test_r2_p3_4_the_source_guard_known_misses_stay_listed`
+   runs:
+   - **SQL:** `COALESCE(source_event,'')='operator'`,
+     `source_event BETWEEN 'operator' AND 'operator'`,
+     `CASE source_event WHEN 'operator' THEN 1 END`, and `source_event=:s`
+     with `{"s": "operator"}`.
+   - **Python:** `== f"{HOLD_SOURCE}"`, `== "oper" + "ator"`,
+     `.__eq__("operator")`, `== hold_source(None)`,
+     `.lower() == "OPERATOR".lower()` and `in {"operator": 1}`.
+
+   With r2's five, 15 misses are pinned. `_comparisons`' docstring (`:792`)
+   names what is caught and each of the 15.
+3. **C-9.6 states the guard exactly** (`docs/acceptance-contract.md:441`).
+   - **The SQL clause** names what `SQL_COMPARISON` reads, in any letter case.
+     One form is the column first:
+     - `source_event`, with an optional `)` after it (`lower(source_event)`);
+     - then `=`, `==`, `!=`, `<>`, `IN`, `IS`, `IS NOT`, `LIKE` or `GLOB`,
+       each optionally after `NOT`;
+     - then an optional `(`, and any text without parentheses that ends in a
+       comma (a list's earlier items);
+     - then the word in either quote, or a `?` whose call has the word or
+       `HOLD_SOURCE` among its other arguments.
+
+     The other is the word first: then `=`, `==`, `!=`, `<>` or `IS`, then
+     `source_event` after nothing but letters, digits, `_` and `(`.
+   - **The Python clause, corrected too:** review r3 found that the guard also
+     catches `set(…)`, `tuple(…)` and `list(…)` of one, while the sentence
+     named only `frozenset(…)`. It now names all four, each of one argument
+     (as `_holds_operator` requires), nesting included.
+   - **"Among what it does not see, each pinned by a test case"** names all 15
+     pinned misses, r2's five included. r2's "a comparison made through
+     `getattr`" now reads "the word reached through `getattr`", because
+     `getattr` on the column is caught (r2's case 10).
+   - **Why "among":** the list is the pinned misses, not every miss; the catch
+     clause bounds the guard.
+     - **Outside the clause:** the probe found these misses, which no case
+       pins:
+       - `? = source_event`;
+       - the word first with `IN` or `LIKE`;
+       - `'operator' = lower( source_event)` (a space in the call);
+       - `'operator' = c.source_event` (a qualified column after the word).
+     - **The wording excludes each:** the `?` and the list skip come only
+       after the column, the word-first operators are five, and only
+       letters, digits, `_` and `(` may stand before the column.
+     - **The column qualified and first is caught:**
+       `c.source_event = 'operator'`.
+4. **The change log.** The D-STATUS-SRC1 entry
+   (`docs/acceptance-contract.md:12`) gains a "Review r2 of #263 (2026-10-26)"
+   clause. It covers r2's three C-9.6 changes and this round's sentence:
+   - **The JSON form:** `hold_note` refuses a note that the scrubber would
+     change as `json.dumps` writes it (round r2's decision 1).
+   - **The strict read:** `hold_note_of`, through `closure_row` and
+     `decision_rows`, withholds any hold source but `operator`, or
+     `operator: <note>` with an accepted note. That covers every reader of
+     closure rows, and the route decisions: `why` (`daemon.py:3630`, `:3890`),
+     `run --dry-run` (`:2598`) and `runs show` (`offline.py:294`).
+   - **The guard:** syntactic only and, since review r3, stated exactly.
+5. **The report.** This section, and the line numbers in round r2's reader
+   table. The merge with release/217 moved its five `daemon.py` lines by +9:
+   they now read 3620, 3623, 3630, 3729 and 3890. Each was rechecked at the
+   head:
+   - `:3620` is the `lanes` list's `closure_rows`;
+   - `:3623` is `readings`' `closure_rows`;
+   - `:3630` is `why --task/--tier`'s `decision_rows`;
+   - `:3729` is `daemon.status`'s `closure_rows`;
+   - `:3890` is `why <job>`'s `decision_rows`.
+
+   The table's other references did not move, and were rechecked too:
+   `daemon.py:1398`, `:1433` and `:2598`, `operations.py:37`, `offline.py:294`
+   and `:359`, and the writers' `daemon.py:1275` and
+   `retention_archive.py:312`.
+
+### Mutants, round r3
+
+`tools/status_hold_source_mutations.py` gains M18: `SQL_COMPARISON` as review
+r2 left it (at `b11661169`). Per the Budget hold, only M18 ran, in one hold,
+from a `git archive` export of `90099a0d3`. The driver ran its baseline first:
+the 1 named test, all 8 cases, passed.
+
+| Mutant | What it takes back | Named tests that failed | Result |
+| --- | --- | --- | --- |
+| M18 | review r3's SQL check, back to `b11661169`'s regex | `test_r3_p3_1_…` ×7: `IN, the word a later item`, `NOT IN`, `IS NOT`, `NOT LIKE`, `GLOB`, `the word first`, `lower(source_event)` | killed |
+
+The space case passes under M18, as it should, since `b11661169`'s regex
+catches it. Instead, it guards the deviation: under review r3's regex as
+written it fails (the probe above). That regex was not run as a pytest mutant,
+because the brief named M18 alone.
+
+### Runs, round r3
+
+Every pytest went through `suite_hold.sh`, one at a time.
+- **Environment:** as in round r2. `TMPDIR` and
+  `HYPOTHESIS_STORAGE_DIRECTORY` were in the scratch folder, `PYTHONPATH` and
+  `SUBFLEET_RETENTION_DORMANT` were unset, and `PYTHONDONTWRITEBYTECODE=1` was
+  set.
+- **Python:** 3.14 (`uv sync --locked --group dev`), serial. No network.
+- **Times and loads:** UTC on 2026-10-26; loads are the 1-minute
+  `vm.loadavg`.
+
+| Hold | Tree | What ran | Result | Load at start → end |
+| --- | --- | --- | --- | --- |
+| red, queued 12:35, ran 12:40 | `f354b6195`: `b11661169`'s code with the red tests | the guard's tests in `test_status_hold_source.py` (`-k`: `test_r3_p3_1`, `test_r2_p3_4`, `test_r1_p3_3`, `test_nothing_reads`) | **7 failed, 38 passed** in 11 s, as intended. The 7 are the new forms. The 38 are the space case, r1's 7 cases and pass case, r2's 22 cases, 5 misses and pass case, and the tree | not recorded → 45.4 |
+| guard check, queued 12:43, ran 12:51 | the step-2 change before it was committed as `2caefa4ad` (unchanged since) | the same `-k` | **55 passed** in 14 s | 44.3 → 41.1 |
+| 1, 12:54 | `90099a0d3` | `test_status_hold_source.py` | **133 passed** in 162 s: r2's 115, the 8 r3 cases and the 10 new misses | 59.4 → 38.9 |
+| 2, 12:57 | `90099a0d3` | the three contract guards | **63 passed** in 51 s: `fake/test_state_contract` 37, `test_test_module_names` 1, `test_invariants_index` 25 | 27.6 → 18.2 |
+| mutant, 12:59 | export of `90099a0d3` | M18 | baseline passed (1 test); **1 of 1 killed** | 15.1 → 15.8 |
+
+The head adds only this report to `90099a0d3`, and no test reads it.
+
+**Plain-Python probes (not pytest):**
+- 26 forms under `b11661169`'s regex and review r3's, and then with the `\s*`
+  kept;
+- every guard test function under the three regexes;
+- the five forms outside C-9.6's catch clause, and two inside it (the column
+  qualified and first, and another letter case);
+- M18's rule applies once and gives `b11661169`'s regex exactly.
+
+### Not run, round r3
+
+- **The rest of the suite**, as the brief asked; CI runs it. No code under
+  `subfleet/` changed this round. So the files that test it, such as
+  `frontend/test_status_model`, `test_cli`, `test_render`, `test_status_json`,
+  `test_offline` and `test_operator_notices`, were not rerun.
+- **Mutants:** M1 to M17 were not rerun (the Budget hold). Review r3's regex as
+  written was not run as a mutant; the probe covers it.
+- **Off the lane:** `tests/frontend/test_core_live.py` can't run on a lane, and
+  the old-release Swift decoder check was not run.
