@@ -379,6 +379,7 @@ class Closure:  # C-9.6
     reason: ClosureReason
     clock_source: ClockSource
     source_event: str | None
+    note: str | None = None
 
 
 #: C-17.1, C-26.12: the kinds the job ledger holds (`jobs.kind`), as the code

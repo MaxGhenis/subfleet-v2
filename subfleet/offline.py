@@ -356,6 +356,8 @@ class Offline:
             closures = [dict(row) for row in conn.execute(
                 "SELECT * FROM closures WHERE released_at IS NULL"
                 " ORDER BY lane_id, until_at")] if "closures" in tables else []
+            for closure in closures:
+                closure["note"] = closure.get("note") if closure.get("reason") == "operator-hold" else None
             weekly_samples = [dict(row) for row in conn.execute(
                 WEEKLY_HISTORY_SQL, weekly_history_params(at))] if "readings" in tables else []
             in_flight: dict[str, int] = {}

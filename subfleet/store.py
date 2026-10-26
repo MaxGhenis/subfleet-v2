@@ -42,7 +42,8 @@ from .lockwatch import WatchedLock, thread_name
 
 SHELL_REQUIREMENT_MIGRATION = 8
 LAUNCH_CAPABILITY_MIGRATION = 9
-SCHEMA_VERSION = LAUNCH_CAPABILITY_MIGRATION
+HOLD_NOTE_MIGRATION = 10
+SCHEMA_VERSION = HOLD_NOTE_MIGRATION
 #: C-12.4: jobs whose attempts in the last 24 h had no shell or no writes. A
 #: range on `reserved_at`, which `attempts_reserved` indexes, in the stored
 #: spelling (`restricted_window`): `julianday(reserved_at)` could use no index and
@@ -122,6 +123,7 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "ALTER TABLE attempts ADD COLUMN capability TEXT CHECK (capability IN ('none','commands','writable'))",
         "ALTER TABLE attempts ADD COLUMN publish_denied INTEGER CHECK (publish_denied IN (0,1))",
     ),
+    HOLD_NOTE_MIGRATION: ("ALTER TABLE closures ADD COLUMN note TEXT",),
 }
 
 
@@ -949,8 +951,13 @@ class Store:
         report, and a busy lane's usage read looks for it before it releases
         the closure. The row is rewritten as it is so that the transaction has a
         change to record.
+
+        C-9.6 (D-RAMP-HOLD-LABEL): an unchanged hold retains its note. A later
+        end replaces the row's metadata with the new call's note, or NULL.
+        Only operator holds store a note; it is never admission evidence.
         """
         reason = str(getattr(closure.reason, "value", closure.reason))
+        data = {**asdict(closure), "note": closure.note if reason == "operator-hold" else None}
         kind, values = (("reason=?", (reason,)) if reason in HOLD_REASONS else
                         (f"reason NOT IN ({','.join('?' * len(HOLD_REASONS))})", HOLD_REASONS))
         with self.transaction("closure.recorded", lane_id=closure.lane_id) as conn:
@@ -958,11 +965,11 @@ class Store:
                                 "ORDER BY until_at DESC LIMIT 1", (closure.lane_id, closure.scope, *values))
             if existing:
                 if closure.until_at > existing["until_at"]:
-                    self._update("closures", "closure_id", existing["closure_id"], asdict(closure))
+                    self._update("closures", "closure_id", existing["closure_id"], data)
                 else:
                     conn.execute("UPDATE closures SET until_at=until_at WHERE closure_id=?", (existing["closure_id"],))
                 return existing["closure_id"]
-            return self._insert("closures", {**asdict(closure), "created_at": utc_now()})
+            return self._insert("closures", {**data, "created_at": utc_now()})
 
     add_closure = put_closure
 

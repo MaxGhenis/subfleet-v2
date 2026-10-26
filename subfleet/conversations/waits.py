@@ -50,7 +50,7 @@ _LANE = {
     "excluded": ("excluded for this message", "no-lane"),
     "desktop": ("the desktop login", "no-lane"),
 }
-_ORDER = ("capacity", "closed", "usage-unknown", "no-lane")
+_ORDER = ("capacity", "closed", "held", "usage-unknown", "no-lane")
 _PROVIDERS = {"claude": "Claude", "codex": "Codex"}
 
 
@@ -63,6 +63,8 @@ def lane_label(reasons: list[str]) -> str:
 
 def lane_kind(label: str) -> tuple[str, str]:
     """`(words, kind)` for one lane's reason."""
+    if label == "operator-hold":
+        return "held by the operator", "held"
     if label.startswith("closed:"):
         return "closed", "closed"
     if label.startswith("reserve:"):
@@ -88,6 +90,7 @@ def lane_summary(decision: Any) -> dict:
     resets: list[str] = []
     provider = None
     blocks: set[str] = set()
+    holds: dict[tuple[str, str, str], dict] = {}
     for evaluation in evaluations:
         provider = provider or evaluation.get("provider")
         blocks.update(str(block) for block in evaluation.get("capacity_blocks") or ())
@@ -96,12 +99,23 @@ def lane_summary(decision: Any) -> dict:
             label = lane_label(reasons)
             key = ":".join(label.split(":")[:2]) if label.startswith("closed:") else label
             lane = str(row.get("lane_id"))
+            matching = [closure for closure in evaluation.get("closures", ())
+                        if closure.get("lane_id") == lane
+                        and label == f"closed:{closure['scope']}:{closure['until_at']}"]
+            for closure in matching:
+                if closure.get("reason") == "operator-hold":
+                    holds[(lane, closure["scope"], closure["until_at"])] = closure
+            if matching and all(closure.get("reason") == "operator-hold" for closure in matching):
+                key = "operator-hold"
             if lane not in lanes.setdefault(key, []):
                 lanes[key].append(lane)
-            if label.startswith("closed:") and label.count(":") >= 2:
+            if key != "operator-hold" and label.startswith("closed:") and label.count(":") >= 2:
                 resets.append(label.split(":", 2)[2])
-    return {"provider": provider, "lanes": lanes, "reset": min(resets) if resets else None,
-            "blocks": sorted(blocks)}
+    result = {"provider": provider, "lanes": lanes, "reset": min(resets) if resets else None,
+              "blocks": sorted(blocks)}
+    if holds:
+        result["holds"] = list(holds.values())
+    return result
 
 
 def when(value: str | None) -> str:
@@ -155,9 +169,11 @@ def lanes_reason(summary: Mapping[str, Any] | None, label: str) -> str:
     else:
         head = {"capacity": f"no {noun} has room for it yet",
                 "closed": f"every {noun} that could take it is closed until {reset} at the earliest",
+                "held": f"every {noun} that could take it is held by the operator",
                 "usage-unknown": f"no {noun} can take it until its usage is read again",
                 "no-lane": f"no {noun} can take it"}[kind]
-    return f"{kind}: {head} ({'; '.join(parts)})"
+    details = [render.closure_text(row, home=row["lane_id"]) for row in summary.get("holds", ())]
+    return f"{kind}: {head} ({'; '.join(parts + details)})"
 
 
 def hold_reason(hold: Mapping[str, Any], *, describe: Callable[[str], str],

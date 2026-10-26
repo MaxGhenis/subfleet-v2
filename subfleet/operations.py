@@ -31,8 +31,10 @@ def error_report(query, hours: float, *, now=None) -> dict:
                      "FROM attempts WHERE COALESCE(finished_at,started_at,reserved_at)>=? "
                      "AND (state IN ('failed','lost','quarantined') OR outcome_class IN ('limited','auth-dead')) "
                      "ORDER BY COALESCE(finished_at,started_at,reserved_at) DESC", (since,))
-    closures = query("SELECT lane_id,scope,reason,until_at,clock_source,source_event,created_at,released_at "
-                     "FROM closures WHERE created_at>=? ORDER BY created_at DESC", (since,))
+    closure_fields = ("lane_id", "scope", "reason", "until_at", "clock_source", "source_event", "created_at", "released_at")
+    closures = [{**{field: row[field] for field in closure_fields},
+                 "note": row.get("note") if row.get("reason") == "operator-hold" else None}
+                for row in query("SELECT * FROM closures WHERE created_at>=? ORDER BY created_at DESC", (since,))]
     probes = []
     for row in query("SELECT lane_id,ts,data_json FROM events WHERE kind='timer.verdict' AND ts>=? "
                      "AND data_json!='{}' ORDER BY event_id DESC", (since,)):

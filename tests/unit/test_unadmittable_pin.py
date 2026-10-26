@@ -403,20 +403,22 @@ def test_c11_8_the_notice_and_the_failure_say_what_and_what_to_do():
     notice = render.pin_notice("job-1", stuck, "2026-09-30T12:30:00Z")
     assert notice.startswith("job-1: waiting; its pinned lane claude-9 can never admit it: ")
     assert "Claude desktop app's login" in notice and f"until {held['until_at']}" in notice
-    assert "(operator-hold)" in notice
+    assert f"held by the operator (until {held['until_at']} at the latest)" in notice
     assert "resubmit it unpinned, or pinned to another lane" in notice and "subfleet kill job-1" in notice
     assert "fails with rc 3 at 2026-09-30T12:30:00Z" in notice
     assert "waits until that changes" in render.pin_notice("job-1", stuck, None)
     failure = render.pin_failure(stuck, "2026-09-30T12:00:00Z")
     assert failure.startswith("no lane: its pinned lane claude-9 could never admit it from 2026-09-30T12:00:00Z on")
     assert "resubmit it unpinned" in failure
-    # C-9.6: a hold and a limit keep separate rows; ending at the same instant, the refusal is said once
-    # with both reasons (review of PR #208: it read `provider-limit` twice and lost the hold).
+    # C-9.6: a hold and a limit keep separate rows, and each keeps its own wording
+    # even when the scheduler deduplicates their shared clock (D-RAMP-HOLD-LABEL).
     limit = {**closure(10 ** 9, reason="provider-limit"), "closure_id": 2}
     both = scheduler.pin_unadmittable(BASE_POLICY, one_lane(lane_row("claude-9"), closures=[held, limit]), pinned())
     assert both["reasons"] == [f"closed:account:{held['until_at']}"] * 2
     assert [row["reason"] for row in both["closures"]] == ["operator-hold", "provider-limit"]
-    assert render.pin_refusals(both) == f"claude-9 is closed for account (operator-hold, provider-limit) until {held['until_at']}"
+    assert render.pin_refusals(both) == (
+        f"claude-9: held by the operator (until {held['until_at']} at the latest); "
+        f"claude-9 is closed for account (provider-limit) until {held['until_at']}")
     spent = render.pin_refusals({"lane_id": "codex-1", "reasons": ["credential-latched"], "probe_status": "expired-token"})
     assert "one heal the timers allow a Codex login ran" in spent and "only a new login" in spent
     for reason in (*scheduler.STANDING_REFUSALS, "credential-latched", "unknown", "no-lanes"):

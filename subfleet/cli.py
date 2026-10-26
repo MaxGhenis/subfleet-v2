@@ -538,6 +538,11 @@ def format_status(data: dict[str, Any]) -> str:
         lines.append("")
         lines.append("closures")
         for closure in closures:
+            if closure.get("reason") == "operator-hold":
+                lane = next((lane for lane in lanes if lane.get("lane_id") == closure.get("lane_id")),
+                            {"lane_id": closure.get("lane_id")})
+                lines.append("  " + render.closure_text(closure, home=render.lane_home(lane)))
+                continue
             lines.append(f"  {closure.get('lane_id')} {closure.get('scope')} "
                          f"until {closure.get('until_at')} "
                          f"({closure.get('reason')}, {closure.get('clock_source')})")
@@ -2250,6 +2255,10 @@ def _format_lanes(result: dict[str, Any]) -> str:
             f"{('yes' if lane.get('enabled', True) else 'no'):<8} "
             f"{str(lane.get('identity_status') or '-'):<12.12} "     # C-10.6
             f"{lane.get('plan') or '-'}")
+        closures = result.get("closures", lane.get("closures", ()))
+        for closure in closures:
+            if closure.get("reason") == "operator-hold" and closure.get("lane_id", lane.get("lane_id")) == lane.get("lane_id"):
+                lines.append("  " + render.closure_text(closure, home=render.lane_home(lane)))
     return "\n".join(lines)
 
 
@@ -2284,7 +2293,12 @@ def cmd_lanes(args: argparse.Namespace) -> int:
     note = getattr(args, "note", None)
     if limits and not (note or "").strip():
         return fail(Exit.INVALID_INPUT, "lanes release --limits: --note is required")
-    if note is not None and not limits:
+    if action == "hold":
+        try:
+            note = protocol.hold_note(note)
+        except ProtocolError as exc:
+            return _protocol_failure(exc)
+    if note is not None and not limits and action != "hold":
         return fail(Exit.INVALID_INPUT, "lanes release: --note requires --limits")
     lanes_args = protocol.LanesArgs(
         # Older daemons ignore unknown fields. A distinct action prevents them
@@ -2335,7 +2349,15 @@ def cmd_lanes(args: argparse.Namespace) -> int:
         if not (result.get("held") or result.get("released")):
             return fail(Exit.DAEMON_UNAVAILABLE, f"the daemon did not {action} the lane; it is older than this CLI",
                         RESTART_DAEMON)
-        out(f"{action}: {result.get('held') or result.get('released')}")
+        if action == "hold":
+            lane = next((row for row in result.get("lanes", ()) if row.get("lane_id") == args.lane),
+                        {"lane_id": args.lane})
+            closure = next((row for row in result.get("closures", ())
+                            if row.get("lane_id") == args.lane and row.get("reason") == "operator-hold"),
+                           {"reason": "operator-hold", "until_at": args.until})
+            out(render.closure_text(closure, home=render.lane_home(lane)))
+        else:
+            out(f"{action}: {result.get('released')}")
         if limits:
             out(f"guessed limits released: {len(result['limits_released'])}")
             if result.get("limits_reported"):
@@ -3609,6 +3631,7 @@ def build_parser() -> argparse.ArgumentParser:
     l_hold = lanes_sub.add_parser("hold")
     l_hold.add_argument("lane")
     l_hold.add_argument("--until", required=True, help="ISO 8601 UTC instant")
+    l_hold.add_argument("--note", help="operator hold label: one printable line, at most 120 characters")
     _add_json(l_hold, nested=True)
     l_release = lanes_sub.add_parser("release", help="release operator holds or guessed limits",
                                      description="Release operator holds, or use --limits --note TEXT to "

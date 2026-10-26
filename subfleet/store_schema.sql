@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS closures (
   reason TEXT NOT NULL CHECK (reason IN ('provider-limit','credits','auth-dead','operator-hold','cooldown')),
   clock_source TEXT NOT NULL CHECK (clock_source IN ('reported','guessed')),
   source_event TEXT,
+  note TEXT,
   created_at TEXT NOT NULL,
   released_at TEXT
 );

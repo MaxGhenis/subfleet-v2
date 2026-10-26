@@ -1100,9 +1100,10 @@ def pin_unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: An
         return None
     if not found:
         return None
-    held = [{"scope": row["scope"], "until_at": row["until_at"], "reason": row.get("reason")}
+    held = [dict(row)
             for row in closures if f"closed:{row['scope']}:{row['until_at']}" in found]
     return {"lane_id": lane["lane_id"], "reasons": found, "closures": held,
+            "home": lane.get("home") or lane.get("credential_ref") or lane["lane_id"],
             **({"probe_status": lane.get("probe_status")} if "credential-latched" in found else {}),
             **({"credential_ref": lane.get("credential_ref")} if "credential-refused" in found else {})}
 

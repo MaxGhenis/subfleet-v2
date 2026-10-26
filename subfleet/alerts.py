@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from .status_json import dispatchable, instant, lane_verdict, timestamp
+from .render import closure_text
 
 
 def _home(lane: Mapping[str, Any]) -> str:
@@ -79,6 +80,10 @@ def evaluate_conditions(snapshot: Mapping[str, Any], *, now: str | datetime | No
                 continue
             scope = str(closure.get("scope", "account"))
             until = closure.get("until_at") or "unknown"
+            if closure.get("reason") == "operator-hold":
+                add(f"{provider}-operator-hold:{home}:{scope}", "warn", f"{provider}: {home} held by the operator",
+                    closure_text(closure, home=home), home=home)
+                continue
             key = (f"claude-limit:{until}" if provider == "claude" and scope == "account"
                    else f"{provider}-scoped-limit:{email}:{scope}")
             add(key, "warn" if scope == "account" else "critical", f"{provider}: {home} {scope} limited",

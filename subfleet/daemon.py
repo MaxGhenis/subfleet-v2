@@ -1276,7 +1276,7 @@ class Daemon:
                             self.store.add_closure(Closure(
                                 lane_id, closure['scope'], closure['until_at'],
                                 ClosureReason(closure['reason']), ClockSource(closure['clock_source']),
-                                closure['source_event']))
+                                closure['source_event'], closure.get('note')))
             self._append_lanes_json(lane)
             self._notify()
             return {"enrolled": self.store.one("SELECT * FROM lanes WHERE lane_id=?", (lane_id,)),
@@ -1361,6 +1361,7 @@ class Daemon:
                                          Exit.INVALID_INPUT, "subfleet lanes list", reason="unknown-lane",
                                          details={"action": a.action, "lane_id": a.lane_id})
         if a.action == "hold":
+            note = protocol.hold_note(a.note)
             until = (a.until or "").strip()
             try:
                 instant = datetime.fromisoformat(until.replace("Z", "+00:00"))
@@ -1370,9 +1371,9 @@ class Daemon:
             if instant.tzinfo is None:
                 instant = instant.replace(tzinfo=timezone.utc)
             until_utc = instant.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            with self.store.transaction("lane.held", lane_id=a.lane_id, data={"until": until_utc}):
+            with self.store.transaction("lane.held", lane_id=a.lane_id, data={"until": until_utc, "note": note}):
                 self.store.add_closure(Closure(a.lane_id, "account", until_utc, ClosureReason.OPERATOR_HOLD,
-                                               ClockSource.REPORTED, "operator"))
+                                               ClockSource.REPORTED, "operator", note))
         else:
             with self.store.transaction("lane.released", lane_id=a.lane_id) as tx:
                 tx.execute("UPDATE closures SET released_at=? WHERE lane_id=? AND reason='operator-hold' "

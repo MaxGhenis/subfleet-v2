@@ -70,9 +70,17 @@ def reading_text(value: Any) -> str:
     return result + (" [" + "; ".join(details) + "]" if details else "")
 
 
-def closure_text(value: Any) -> str:
+def lane_home(lane: Mapping[str, Any]) -> str:
+    return str(lane.get("home") or lane.get("credential_ref") or lane["lane_id"])
+
+
+def closure_text(value: Any, *, home: str | None = None) -> str:
     """C-9.6: closures show their scope, reason, source, and explicit clock."""
     closure = _row(value)
+    if _label(closure.get("reason")) == "operator-hold":
+        note = f": {closure['note']}" if closure.get("note") else ""
+        return ((f"{home}: " if home else "") + f"held by the operator{note} "
+                f"(until {closure['until_at']} at the latest)")
     result = f"{closure['scope']} until {closure['until_at']} ({_label(closure.get('reason', 'closed'))}"
     if closure.get("clock_source"):
         result += f"; {_label(closure['clock_source'])} clock"
@@ -242,7 +250,7 @@ def status(view: Mapping[str, Any]) -> str:
                          " · " + projection_text(lane["weekly_projections"][row["scope"]])
                          if row["window"] == "seven_day" and row["scope"] in lane["weekly_projections"] else "")
                          for row in lane["readings"]) or "unknown",
-                     "; ".join(closure_text(row) for row in lane["closures"]) or "none"])
+                     "; ".join(closure_text(row, home=lane_home(lane)) for row in lane["closures"]) or "none"])
     lines.append(_table(["Lane", "Provider", "Account", "Owner", "Flags", "In-flight",
                          "Weekly reset", "Readings", "Closures"], rows))
     lines.extend(projection_totals(snapshot["lanes"]))
@@ -389,6 +397,12 @@ def pin_refusals(stuck: Mapping[str, Any]) -> str:
     for reason in dict.fromkeys(stuck.get("reasons") or ()):
         rows = closures.get(reason)
         if rows:
+            for row in rows:
+                if _label(row.get("reason")) == "operator-hold":
+                    parts.append(closure_text(row, home=stuck.get("home") or stuck.get("credential_ref") or lane))
+            rows = [row for row in rows if _label(row.get("reason")) != "operator-hold"]
+            if not rows:
+                continue
             why = ", ".join(dict.fromkeys(str(getattr(row["reason"], "value", row["reason"]))
                                           for row in rows if row.get("reason")))
             parts.append(f"{lane} is closed for {rows[0]['scope']}" + (f" ({why})" if why else "")

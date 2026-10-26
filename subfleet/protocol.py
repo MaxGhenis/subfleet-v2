@@ -334,7 +334,16 @@ class LanesArgs:
     owner: str | None = None            # for transfer: "v1" | "v2"
     dry_run: bool = False               # transfer: print the diff, write nothing
     confirm_v1_edit: bool = False       # transfer: --i-understand-v1-edit
-    note: str | None = None            # release-limits: operator's reason
+    note: str | None = None            # hold label, or release-limits grounds
+
+
+def hold_note(note: str | None) -> str | None:
+    """C-9.6: an optional hold label is printable, one line, at most 120 characters."""
+    if note is not None and (not isinstance(note, str) or len(note) > 120
+                             or any(not character.isprintable() for character in note)):
+        raise ProtocolError("lanes hold: --note must be one line of printable text, at most 120 characters",
+                            reason="hold-note")
+    return note or None
 
 
 @dataclass
