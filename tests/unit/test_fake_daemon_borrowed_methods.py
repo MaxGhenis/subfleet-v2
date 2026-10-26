@@ -130,8 +130,9 @@ def test_every_name_a_borrowed_method_reads_resolves_on_its_fake(fake):
     `EXEMPT` says why the fakes' tests never reach it."""
     assert "_request_cancel" in _borrowed(fake)        # the reading below has a root
     missing = {name: by for name, by in _unresolved(fake).items() if (fake, name) not in EXEMPT}
-    assert missing == {}, (f"{fake.__module__}.{fake.__qualname__} lacks names its borrowed methods read "
-                           f"(name: the borrowed methods reading it); borrow each from the real Daemon")
+    detail = "; ".join(f"{name} (read by {', '.join(by)})" for name, by in missing.items())
+    assert missing == {}, (f"{fake.__module__}.{fake.__qualname__} lacks what its borrowed methods read: "
+                           f"{detail}. Borrow each from the real Daemon, or exempt it with its reason")
 
 
 @pytest.mark.parametrize("fake", FAKES.values(), ids=FAKES.keys())
@@ -142,7 +143,7 @@ def test_every_exemption_is_still_needed(fake):
     assert all(reason.strip() for reason in EXEMPT.values())
     reached = _unresolved(fake)
     stale = sorted(name for owner, name in EXEMPT if owner is fake and name not in reached)
-    assert stale == [], f"{fake.__module__}.{fake.__qualname__}: exemptions no longer needed"
+    assert stale == [], f"{fake.__module__}.{fake.__qualname__}: exemptions no longer needed: {', '.join(stale)}"
 
 
 @pytest.mark.parametrize("fake", FAKES.values(), ids=FAKES.keys())
@@ -154,4 +155,5 @@ def test_a_borrowed_method_keeps_its_binding(fake):
     real = _real_functions()
     wrong = sorted(name for name, value in _borrowed(fake).items()
                    if type(value) is not type(inspect.getattr_static(RealDaemon, real[_function(value)])))
-    assert wrong == [], f"{fake.__module__}.{fake.__qualname__}: borrowed with another binding than Daemon's"
+    assert wrong == [], (f"{fake.__module__}.{fake.__qualname__}: borrowed with another binding than "
+                         f"Daemon's: {', '.join(wrong)}")
