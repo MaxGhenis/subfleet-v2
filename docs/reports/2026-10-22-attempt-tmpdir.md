@@ -434,7 +434,10 @@ The P3 tests' red is the kill rows: each fails on its mutant at `2bdcb2e1f`.
 
 #### Holds
 
-Every pytest ran under `suite_hold.sh` in slot A, one pytest per hold, single-process, from this workspace, with `TMPDIR` and Hypothesis storage in this job's scratch (`sf-tmpdirp3r3`) and `env -u SUBFLEET_RETENTION_DORMANT -u PYTHONPATH`. This job's tool caps a foreground call at 10 minutes and detaching was ruled out, so a small driver ran each hold in its own process group, in the foreground, and would have killed the group at 540 s. No hold reached that deadline.
+Every pytest ran under `suite_hold.sh` in slot A, one pytest per hold, single-process, from this workspace, with `TMPDIR` and Hypothesis storage in this job's scratch (`sf-tmpdirp3r3`) and `env -u SUBFLEET_RETENTION_DORMANT -u PYTHONPATH`. This job's tool caps a foreground call at 10 minutes and detaching was ruled out, so a small driver ran each hold in its own process group, in the foreground, and killed the group at 540 or 570 s.
+- **One hold reached that deadline:** the first guards hold waited 6 minutes for slot A and was stopped after 25 tests, with no result.
+- **Withdrawals:** after that, a hold that had no slot by a set time (150 to 480 s) was withdrawn before pytest started. 22 holds were withdrawn so, between 05:31 and 08:06, while both slots stayed busy with five to seven holds queued.
+- **Nothing left running:** after each kill or withdrawal, `pgrep -g` found nothing left in the group. One withdrawal's `killpg` returned `EPERM` (on Darwin, a group with only zombies left), and no process of it remained.
 
 | Hold | Started (UTC) | Head | Selection | Result |
 | --- | --- | --- | --- | --- |
@@ -447,7 +450,10 @@ Every pytest ran under `suite_hold.sh` in slot A, one pytest per hold, single-pr
 | c2b | 05:08 | `5ea67495a` | T1's `legacy` and `unknown` removal cases | 34 passed in 79 s |
 | c3 | 05:10 | `5ea67495a` | P3-5, and the whole mutation file | 87 passed in 99 s |
 | c4 | 05:12 | `5ea67495a` | fake `test_attempt_tmpdir_leaks_daemon.py` | 8 passed in 36 s |
-| guards | after the docs commit | the docs head | the three contract guards | in the next subsection |
+| guards | 05:26 | `567232a26` | the three contract guards | stopped at the 540 s deadline after 25 tests: no result |
+| guards9 | 06:25 | `567232a26` | the two unit guards (the slot came too late for the state contract) | 26 passed in 29 s |
+| sc-a7 | 07:09 | `567232a26` | fake `test_state_contract.py`, clauses C-4, C-5 and C-7 | 15 passed in 40 s |
+| sc-b9 | 08:13 (B) | `567232a26` | the rest of `test_state_contract.py` | 22 passed in 34 s |
 
 `raw_log_sites` on the fixed module returns nothing, as on `2bdcb2e1f`. That was run as a plain call, not as a pytest.
 
@@ -460,6 +466,9 @@ Every pytest ran under `suite_hold.sh` in slot A, one pytest per hold, single-pr
 | unit `test_attempt_tmpdir_leaks.py` | 93 passed: 13 / 40 / 40 | 197 passed: 21 / 88 / 88 (c1, c2a, c2b, c3) |
 | unit `test_attempt_tmpdir_mutations.py` | 49 passed: 27 / 10 / 12 | 85 passed: 35 / 24 / 26 (c3) |
 | fake `test_attempt_tmpdir_leaks_daemon.py` | 8 passed: 6 / 1 / 1 | 8 passed: 6 / 1 / 1 (c4) |
+| fake `test_state_contract.py` | not run in r2 | 37 passed (sc-a7, sc-b9), at the docs head |
+| unit `test_invariants_index.py` | not run in r2 | 25 passed (guards9), at the docs head |
+| unit `test_test_module_names.py` | not run in r2 | 1 passed (guards9), at the docs head |
 
 The leak suite's 104 new cases:
 - 60 swap cases, 12 descriptor cases and 12 fallback cases;
@@ -480,7 +489,7 @@ The leak suite's 104 new cases:
 - **"After a refused removal, the folder put back is at 0700"** is qualified in the docs, as decision 1 above says.
 - **Inside the tree,** the descriptor is checked against the directory's lstat (device and inode), not `_is`, because no record names a directory there. That check is #246's `open_dir(expect=…)`, unchanged.
 - **The `no-pre-rename-identity-check` oracle changed,** for the counterexample above.
-- **Holds were shorter than 20 minutes,** under a 540 s deadline each, because a foreground call here is capped at 10 minutes. So the files ran in seven holds rather than two or three.
+- **Holds were shorter than 20 minutes,** under a 540 or 570 s deadline each, because a foreground call here is capped at 10 minutes. So the files ran in seven holds rather than two or three, and the contract guards in three, `test_state_contract.py` split by clause. The guards ran at `567232a26`; the last commit changes only this report.
 - **Commits on the detached HEAD,** as before. Nothing was pushed. No network, no live process, nothing of mine outside the workspace and the scratch folder beyond the hold wrappers' own logs.
 
 ## Round-1 fix (#246 review r1, 2026-10-23)
