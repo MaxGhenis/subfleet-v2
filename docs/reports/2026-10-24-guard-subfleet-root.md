@@ -446,13 +446,13 @@ directory; a kill is a failed assertion in the named test):
 
 | Mutant | Killed by |
 | --- | --- |
-| the new roots removed | `test_r3_a_directory_a_link_to_one_and_a_name_stay_roots` (r3b: its `~/.subfleet/$OTHER`, a word the text rules judge alone) |
+| the new roots removed | `test_each_direct_child_is_a_root` (r3b: its `$CHILD` cases, words the text rules judge alone) |
 | the child form dropped (`~/.subfleet` only) | `test_each_direct_child_is_a_root` (r3b: its `$CHILD` cases) |
-| a prefix match (`~/.subfleet` and everything under it) | `test_two_or_more_levels_under_subfleet_stay_scoped` (r3b: its `$ID` cases) |
+| a prefix match (`~/.subfleet` and everything under it) | `test_near_misses_patterns_prose_and_bounded_searches_stay_allowed` (r3b: its `~/.subfleet/jobs/$ID`) |
 | the trailing-slash form missed (roots in their own `root_core` branch, without the shared `/?`) | `test_trailing_slash_spellings_are_denied` (r3b: its `~/.subfleet/$CHILD/`) |
 | TRUST's hash left stale (the new TRUST with the old hook's hash) | `test_trust_pins_the_new_hook_bytes` |
 | TRUST built on the repository's stale copy (`codex-cli 0.153.3`) | `test_trust_keeps_the_installed_lane_pin` |
-| r2: the env spellings dropped (their `broad_re` alternative and their `${…}` normalization) | `test_env_spellings_of_subfleet_are_denied` |
+| r2: the env spellings dropped (their `broad_re` alternative and their `${…}` normalization) | `test_every_env_spelling_is_a_root_one_level_down_and_no_deeper` |
 | r3: the file exception removed (`pw_broad` no longer clears a file) | `test_r3_a_file_is_never_a_broad_root` |
 | r3: `! -d` dropped in `pw_nondir` (a link to a directory passes) | `test_r3_a_directory_a_link_to_one_and_a_name_stay_roots` |
 | r3: `-e` dropped in `pw_nondir` (a missing path passes) | `test_r3_a_directory_a_link_to_one_and_a_name_stay_roots` |
@@ -512,6 +512,17 @@ Through `suite_hold.sh`, one pytest or driver per hold, each bounded by its own 
 | file1, 05:47Z | `tests/unit/test_guard_subfleet_root.py` at `096b8574e`, scale 1 | 16 tests before the alarm, 1 failed: `$SUBFLEET_ROOT/subfleetd.log/` is a file now (pin flipped in `788add5fa`) |
 | mut1, 06:47Z | the 11 r3b mutants at `9e1768212` | control passed; 11 of 11 killed |
 | file2, 07:10Z | the file's corpus tests at `9e1768212`, resuming file1's verdict cache | 10 passed (S1, S1's protection, S1-r3, S2, S3 twice, the cwd list, both known-limit pins, the env spellings); S5 failed on a source spelled `/Users/maxghenis` (another home, where the fixture's file is absent), fixed in `ce6911afc`; S4 skipped (no analyzer) |
+| modules, 07:43Z | `tests/unit/test_guard_overlay.py` and the 7 other never-rules modules at `9e1768212` (a whole-tree export) | 827 passed in 672 s: overlay 22, `test_daemon_launch` 9, `test_claude_adapter` 172, `test_codex_turn` 67, `test_doctor` 47, `test_guard_trust` 105, `test_hooks` 81, `test_live_store_guard` 324 |
+| mut2, 07:54Z | r3's 10 mutants and r1's 7, from the worktree at `eb178c600` | control passed (13 named tests); r3's 10 of 10 killed; `child-form-dropped` killed; `new-roots-removed` not counted: its named test errored in the `hooks` fixture, whose r2 rebuild no longer hashes to `R2_HOOK_SHA256` after an edit outside the r3 blocks (latent since r3), so `8ba16fa4d` names it and the two other r1 root mutants by tests that read the hook directly; the hold's bound ended it there |
+
+Unrun when the round's 4-hour mark came (08:11Z): file3 (queued 07:32Z, never given a slot),
+which held `test_r3_property_the_verdict_is_the_rule`, `test_r3_globs_agree_with_real_zsh_and_bash`,
+S5 with its fix, and a rerun of the r3 and r3b example tests and the r3b property at this hook
+(they passed in the check hold, at `7589d54b2`, whose hook differs from this one only in
+`pw_word` clearing `nocaseglob` and in comments); r1's five remaining mutants (`prefix-match`,
+`trailing-slash-missed`, `trust-hash-stale`, `trust-built-on-repo-copy`, `env-spellings-dropped`)
+and `new-roots-removed` under its new name; the near-miss case `8ba16fa4d` adds; and S1-S5 at
+`GUARD_DIFF_SCALE=2` (3,718 generated commands, about three hours of hook runs at this load).
 
 S1 at scale 1: 781 commands (531 generated, 308 of them env twins, 255 fixed); the old hook
 denies 124 and the new 246; 245 carry a path word the pass may move, 39 of which move (all
