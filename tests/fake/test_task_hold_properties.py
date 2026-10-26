@@ -28,6 +28,14 @@ daemon's own reading of them:
   (`_reset_demand`), read right after each step's command, before the pass has looked
   at any job again (review r1's P2-3 window), and again after the pass.
 
+Fix round 2 (review r2 of #260, F1 and F3): a hold may land with no pass right after it
+(`hold-quiet`), as when the daemon is stopped, paced or still recovering, and the broad schedules
+start with a job of `build` whose clock runs (queued, a pin grace, a retry's backoff, or reset-credit
+demand) and a hold on `build`, so they reach held jobs. Each property asserts that its examples
+reached the held states it is there to check (`reaching`): a held job taken, a paused grace, a kept
+backoff, a job that was reset-credit demand when its hold landed, and the reset timer's pending
+transaction run after a hold landed (`test_t7_the_reset_timer_spends_nothing_for_a_held_job`).
+
 Bounded: 25 examples per property (`TASK_HOLD_EXAMPLES` resizes them), derandomized,
 no example database, so a plain run is repeatable and leaves no `.hypothesis`.
 `TASK_HOLD_MUTANT=<name>` runs them against one of `tests/task_hold_mutants.py`'s mutants,
@@ -42,7 +50,7 @@ import os
 from collections import Counter
 
 import pytest
-from hypothesis import HealthCheck, Phase, given, note, settings, strategies as st
+from hypothesis import HealthCheck, Phase, event, example, given, note, settings, strategies as st
 
 from subfleet import task_holds
 from subfleet.contracts import TRANSIENT_RETRY_DELAY_S, Exit
@@ -67,6 +75,28 @@ def mutant(monkeypatch):
     name = os.environ.get("TASK_HOLD_MUTANT")
     if name:
         MUTANTS[name](monkeypatch)
+
+
+#: How often the examples of the property running now reached each held state (`reach`).
+REACH: Counter = Counter()
+#: Whether a mutant is applied: it may change what is reached, and only an invariant kills it.
+MUTATED = [bool(os.environ.get("TASK_HOLD_MUTANT"))]
+
+
+def reach(state: str) -> None:
+    REACH[state] += 1
+    event(f"reached: {state}")
+
+
+def reaching(prop, states) -> None:
+    """Run the property `prop`, then assert that its examples reached each of `states` (F3: at r2,
+    the broad property took a held job in 2 of 25 examples and never paused a grace or kept a
+    backoff, so its T6 and T7 assertions effectively never fired)."""
+    REACH.clear()
+    prop()
+    if not MUTATED[0]:
+        missing = [state for state in states if not REACH[state]]
+        assert not missing, ("reach: no example reached", missing, dict(REACH))
 HELD_TASKS = ("build", "review")
 TASKS = ("build", "review", "sweep", None)
 LIVE = ("reserved", "starting", "running", "finalizing")
@@ -88,14 +118,19 @@ STEP = st.one_of(
     st.tuples(st.just("enable"), st.integers(1, 2), st.booleans()),
     st.tuples(st.just("transient"), st.integers(0, 7)),
     st.tuples(st.just("restart")),
+    # Fix round 2 (F1): a hold with no admission pass right after it.
+    st.tuples(st.just("hold-quiet"), st.sampled_from(HELD_TASKS), st.sampled_from((30, 120, 600, 7200))),
 )
+#: Steps after which no admission pass runs: a quiet hold, and `idle`, the no-op a differential's
+#: other run puts in a quiet hold's place so the n-th pass of each run follows the same step.
+QUIET = ("hold-quiet", "idle")
 
 
-def grace_daemon(caps, grace):
+def grace_daemon(caps, grace, *, lanes: int = 2):
     """`fresh_daemon` with C-11.8's grace at `grace` seconds, kept across restarts."""
     @contextlib.contextmanager
     def made():
-        with fresh_daemon(caps=caps) as (service, harness, clock, signals):
+        with fresh_daemon(caps=caps, lanes=lanes) as (service, harness, clock, signals):
             configure(service, harness, lambda daemon: daemon.policy["admission"].update(pin_grace_s=grace))
             yield service, harness, clock, signals
     return made()
@@ -115,6 +150,7 @@ class Run:
         self.retries: dict[str, dict] = {}       # job id -> its transient attempt's retry deadline
         self.restarted: set[str] = set()         # jobs a restart found with an attempt live
         self.turns = 0
+        self.seen_event = 0                      # the last event `reached` has read
 
     def in_force(self) -> set[str]:
         return {task for task, end in self.holds.items() if end > self.clock[0]}
@@ -141,6 +177,26 @@ class Run:
     def jobs(self) -> dict[str, dict]:
         return {row["job_id"]: dict(row) for row in self.service.store.query("SELECT * FROM jobs")}
 
+    def demand_of(self, task: str) -> set[str]:
+        """The reset-credit demand (`_reset_demand`) that is a detached job of `task`."""
+        jobs = self.jobs()
+        return {item["job_id"] for item in self.service._reset_demand()
+                if (job := jobs.get(item["job_id"])) and job["kind"] != "turn" and job["task"] == task}
+
+    def reached(self) -> None:
+        """F3: the held states this step's command and pass reached, from the events they wrote."""
+        for row in self.service.store.query("SELECT event_id, data_json FROM events WHERE kind='job.task_held' "
+                                            "AND event_id>? ORDER BY event_id", (self.seen_event,)):
+            data = json.loads(row["data_json"] or "{}")
+            if data.get("taken"):
+                reach("taken")
+                if isinstance(data.get("pin_paused_s"), (int, float)):
+                    reach("paused")
+                if data.get("kept"):
+                    reach("kept")
+        last = self.service.store.one("SELECT max(event_id) AS n FROM events")["n"]
+        self.seen_event = max(self.seen_event, last or 0)
+
     def live(self) -> list[dict]:
         marks = ",".join("?" * len(LIVE))
         return [dict(row) for row in self.service.store.query(
@@ -166,7 +222,9 @@ class Run:
         elif kind == "turn":
             self.turns += 1
             self.by_request[turn(self.service, harness, index, task=step[1])] = f"turn-{index}"
-        elif kind == "hold":
+        elif kind in ("hold", "hold-quiet"):
+            if self.demand_of(step[1]):
+                reach("demand-window")      # a job of the task is reset-credit demand as its hold lands
             hold(self.service, step[1], stamp(now + step[2]))
             if step[1] in held_before:
                 self.spans[step[1]][-1][1] = now + step[2]      # a replacement: one stretch, a new end
@@ -220,7 +278,7 @@ class Run:
             ended_by_schedule.update(live_before)
             self.restarted.update(row["job_id"] for row in live_before.values())
             self.service = restart(self.service, harness)
-        if kind not in ("hold", "release"):
+        if kind not in ("hold", "hold-quiet", "release"):
             # Only a hold or release is read from before its command (review r1); any other
             # step's own signals (a finalizer's, a restart's, a lane's) are the schedule's.
             signals_before = len(self.signals)
@@ -228,8 +286,10 @@ class Run:
         demand_before = self.held_demand()
         service = self.service
         before = {row["attempt_id"] for row in service.store.query("SELECT attempt_id FROM attempts")}
-        service._admit()
+        if kind not in QUIET:
+            service._admit()
         demand_after = self.held_demand()
+        self.reached()
         made = [dict(row) for row in service.store.query("SELECT a.*, j.kind, j.task FROM attempts a "
                                                           "JOIN jobs j USING(job_id) ORDER BY a.rowid")
                 if row["attempt_id"] not in before]
@@ -305,6 +365,26 @@ class Run:
                     and not started and stamp(now) < retry["deadline"] and job["state"] == "waiting"):
                 assert (job["wait_reason"], job["next_check_at"]) == ("capacity", retry["deadline"]), \
                     ("T6 retry: the hold's end moved its deadline", job_id, job, retry)
+            # Fix round 2 (F2): a hold keeps the retry's deadline only while it is ahead. Each end
+            # gives back that deadline if both the take and the end came before it, else no clock:
+            # never a capacity recheck's, which capacity freeing up would bring forward unheld.
+            for ended in service.store.query(
+                    "SELECT event_id, ts, data_json FROM events WHERE job_id=? AND kind='job.task_hold_ended' "
+                    "AND event_id>? ORDER BY event_id", (job_id, retry.get("ends_seen", retry["after"]))):
+                retry["ends_seen"] = ended["event_id"]
+                data = json.loads(ended["data_json"])
+                if "pin_fail_at" in data:
+                    continue
+                taken = service.store.one(
+                    "SELECT ts FROM events WHERE job_id=? AND kind='job.task_held' AND event_id>? AND event_id<? "
+                    "AND json_extract(data_json,'$.taken') ORDER BY event_id DESC LIMIT 1",
+                    (job_id, retry["after"], ended["event_id"]))
+                if taken is None:
+                    continue
+                ahead = seconds(taken["ts"]) < seconds(retry["deadline"]) and \
+                    seconds(ended["ts"]) < seconds(retry["deadline"])
+                assert data.get("next_check_at") == (retry["deadline"] if ahead else None), \
+                    ("T6 retry: the hold's end gave back a clock that is no retry deadline", job_id, data, retry)
 
     def run(self, steps, *, check: bool = True) -> None:
         for index, step in enumerate(steps):
@@ -321,11 +401,38 @@ def schedule(draw_steps):
     return st.lists(STEP, min_size=1, max_size=draw_steps)
 
 
+#: Fix round 2 (F3): how a broad schedule starts, with a job of `build` whose clock runs when
+#: the first hold on `build` lands, so the schedules reach held jobs (r2: a hold took a job in 2
+#: of 25 examples, and none paused a grace, kept a backoff, or met a job that was demand).
+PRELUDES = {
+    "queued": [("submit", "build")],
+    "pinned": [("enable", 1, False), ("pin", "build", 1)],          # C-11.8's grace runs from here
+    "backoff": [("submit", "build"), ("transient", 0)],             # C-4.5's backoff runs from here
+    "demand": [("lane", 1, True), ("lane", 2, True), ("submit", "build")],   # C-23.16's demand
+}
+FIRST_HOLD = st.tuples(st.sampled_from(("hold", "hold-quiet")), st.just("build"),
+                       st.sampled_from((30, 90, 120, 600, 7200)))
+BROAD_REACH = ("taken", "paused", "kept", "demand-window")
+
+
 @SETTINGS
-@given(steps=schedule(18), caps=CAPS, grace=GRACES)
-def test_t1_t3_t4_t6_over_random_schedules(steps, caps, grace):
+# Review r2's two steps, which kill `grace-runs-while-held` here and in the T6-one-job property.
+@example(prelude="pinned", first=("hold", "build", 90), steps=[("tick", 120)], caps=None, grace=60)
+# F1: the same hold with no pass after it, and a release no pass saw either.
+@example(prelude="pinned", first=("hold-quiet", "build", 90), steps=[("tick", 120)], caps=None, grace=60)
+@example(prelude="queued", first=("hold-quiet", "build", 120), steps=[("tick", 61), ("tick", 61)], caps=None,
+         grace=60)
+# T6's backoff and T7's demand, each met by a hold.
+@example(prelude="backoff", first=("hold", "build", 30), steps=[("tick", 61)], caps=None, grace=600)
+@example(prelude="demand", first=("hold-quiet", "build", 600), steps=[("tick", 1)], caps=None, grace=600)
+@given(prelude=st.sampled_from(sorted(PRELUDES)), first=FIRST_HOLD, steps=schedule(18), caps=CAPS, grace=GRACES)
+def broad_schedules(prelude, first, steps, caps, grace):
     with grace_daemon(caps, grace) as daemon:
-        Run(*daemon, grace=grace).run(steps)
+        Run(*daemon, grace=grace).run([*PRELUDES[prelude], first, *steps])
+
+
+def test_t1_t3_t4_t6_over_random_schedules():
+    reaching(broad_schedules, BROAD_REACH)
 
 
 def without(steps, task):
@@ -335,8 +442,8 @@ def without(steps, task):
     zero), so the n-th pass of each run follows the same step of the schedule."""
     kept = []
     for step in steps:
-        if step[0] in ("hold", "release", "submit", "pin") and step[1] == task:
-            kept.append(("tick", 0))
+        if step[0] in ("hold", "hold-quiet", "release", "submit", "pin") and step[1] == task:
+            kept.append(("idle",) if step[0] in QUIET else ("tick", 0))
         else:
             kept.append(step)
     return kept
@@ -354,7 +461,7 @@ def test_t2_other_tasks_are_placed_as_with_no_hold(steps, caps, until, grace):
     every other waiting job's state, reason and deadline, match a run in which the task
     and its hold never existed, pass for pass, until the hold ends."""
     steps = [("hold", "build", until), *[step for step in steps
-                                        if not (step[0] in ("hold", "release") and step[1] == "build")]]
+                                        if not (step[0] in ("hold", "hold-quiet", "release") and step[1] == "build")]]
     # The hold ends at its clock; compare the passes before that instant only.
     with grace_daemon(caps, grace) as daemon:
         held = Run(*daemon, grace=grace)
@@ -391,7 +498,8 @@ def test_t5_turns_and_everything_else_ignore_a_hold_with_nothing_to_hold(steps, 
         held.run(steps)
     with grace_daemon(caps, grace) as daemon:
         plain = Run(*daemon, grace=grace)
-        plain.run([("tick", 0) if step[0] in ("hold", "release") and step[1] == "build" else step
+        plain.run([(("idle",) if step[0] in QUIET else ("tick", 0))
+                   if step[0] in ("hold", "hold-quiet", "release") and step[1] == "build" else step
                    for step in steps], check=False)
     assert held.passes == plain.passes, ("T5", held.passes, plain.passes)
     assert held.waits == plain.waits, ("T5 waits", held.waits, plain.waits)
@@ -413,27 +521,52 @@ CLOCK_STEP = st.one_of(
     st.tuples(st.just("hold"), st.sampled_from((10, 30, 90, 300))),
     st.tuples(st.just("release")),
     st.tuples(st.just("restart")),
+    # Fix round 2 (F1): a hold with no pass after it, and time with no pass (the daemon stopped,
+    # paced by C-5.10, or still in startup recovery); (F2) the blocker of `backoff-blocked` ends.
+    st.tuples(st.just("hold-quiet"), st.sampled_from((10, 30, 90, 300))),
+    st.tuples(st.just("pause"), st.sampled_from((20, 100, 400))),
+    st.tuples(st.just("finish")),
 )
+#: The steps after which no pass runs.
+CLOCK_QUIET = ("hold-quiet", "pause")
+ONE_JOB_REACH = ("taken", "paused", "kept", "recheck-held")
+#: Review r2's F2 input as clock steps: the retry is due at 60 on the job's one lane, whose one
+#: slot a review holds, so the job's C-6.10 recheck backs off to 121 by t=92.
+BLOCKED_TO_92 = [("tick", 60), ("tick", 1), ("tick", 2), ("tick", 4), ("tick", 8), ("tick", 16), ("tick", 1)]
 
 
 @SETTINGS
-@given(kind=st.sampled_from(("pinned", "all-lanes", "backoff")), grace=GRACES,
+@example(kind="pinned", grace=60, steps=[("hold", 90), ("tick", 120)])                     # review r2's
+@example(kind="pinned", grace=60, steps=[("hold-quiet", 90), ("tick", 120)])               # F1: expiry
+@example(kind="pinned", grace=60, steps=[("hold-quiet", 300), ("pause", 100), ("release",)])   # F1: release
+@example(kind="all-lanes", grace=60, steps=[("hold-quiet", 90), ("pause", 100), ("restart",)])  # F1: restart
+@example(kind="backoff", grace=60, steps=[("hold", 30), ("tick", 20), ("tick", 45)])       # a kept backoff
+@example(kind="backoff-blocked", grace=60, steps=[*BLOCKED_TO_92, ("hold", 1), ("tick", 1), ("finish",)])
+@example(kind="backoff-blocked", grace=60, steps=[*BLOCKED_TO_92, ("hold", 300), ("tick", 1), ("release",),
+                                                  ("finish",)])
+@given(kind=st.sampled_from(("pinned", "all-lanes", "backoff", "backoff-blocked")), grace=GRACES,
        steps=st.lists(CLOCK_STEP, min_size=1, max_size=14))
-def test_t6_one_jobs_clock_under_random_holds(kind, grace, steps):
+def one_job_schedules(kind, grace, steps):
     """T6 where the schedules above seldom reach: one build whose clock runs from t=0, a
     C-11.8 grace on its disabled pinned lane (`pinned`) or with every lane disabled after a
     `transient` end (`all-lanes`), or C-4.5's backoff after a `transient` end, due at
-    `TRANSIENT_RETRY_DELAY_S` (`backoff`). Then random holds on `build` (a hold in force is
-    replaced, later or sooner), releases, daemon restarts and clock steps, a pass after each,
-    against a model of the stretches the task was held:
+    `TRANSIENT_RETRY_DELAY_S` (`backoff`), on the job's one lane while a review holds its one
+    slot until a `finish` step (`backoff-blocked`, review r2's F2). Then random holds on `build`
+    (a hold in force is replaced, later or sooner), releases, daemon restarts and clock steps, a
+    pass after each but a quiet hold or a pause, against a model of the stretches the task was held:
 
     - a grace runs out exactly where the held time cut out of it puts it: the job fails (rc 3,
       C-11.8) on the first pass that finds that instant passed and no hold in force, never
       before, and until then, whenever no hold keeps it, its episode ends there;
     - a backoff's retry starts on the first pass at or after its deadline with no hold in
-      force, never before (the deadline is an instant: held time does not move it);
+      force, never before (the deadline is an instant: held time does not move it); a blocked
+      one, on the first such pass once its blocker has ended too, as unheld, where a freed slot
+      brings a capacity wait forward (C-6.10): a hold keeps no capacity recheck as a deadline
+      (a restart, which forgets what freed up, is a plain pass in this kind);
     - nothing else ends the job (T3)."""
-    with grace_daemon(None, grace) as (service, harness, clock, signals):
+    blocked = kind == "backoff-blocked"
+    with grace_daemon({"max_in_flight_per_lane": 1} if blocked else None, grace, lanes=1 if blocked else 2) \
+            as (service, harness, clock, signals):
         build = submit(service, harness, "build", "build-1", **({"pinned_lane": "codex-1"} if kind == "pinned" else {}))
         if kind == "pinned":
             service.store.update_lane("codex-1", enabled=0)
@@ -444,10 +577,19 @@ def test_t6_one_jobs_clock_under_random_holds(kind, grace, steps):
             if kind == "all-lanes":
                 for lane in ("codex-1", "codex-2"):
                     service.store.update_lane(lane, enabled=0)
+        blocking = None
+        if blocked:
+            # A priority caller's review (C-6.16), so the build's own wait keeps no slot from it (C-6.9).
+            configure(service, harness, lambda daemon: daemon.policy["admission"].update(priority_callers=["blocker"]))
+            blocker = submit(service, harness, "review", "review-1", pinned_lane="codex-1", caller_session="blocker")
         service._admit()                            # t=0: the grace, or the backoff, runs from here
+        if blocked:
+            [blocking] = attempts(service, blocker)
         spans: list[list[int]] = []                 # each stretch `build` was held, [start, end]
         until: int | None = None                    # the end of the hold in force, by the model
         expected: int | None = None                 # the pass the job fails at, or its retry starts at
+        finished: int | None = None                 # when the blocker ended
+        seen = [service.store.one("SELECT max(event_id) AS n FROM events")["n"] or 0]
 
         def held_at(at: int) -> bool:
             return until is not None and until > at
@@ -457,11 +599,28 @@ def test_t6_one_jobs_clock_under_random_holds(kind, grace, steps):
             while (moved := grace + sum(max(0, min(stop, ends) - begin) for begin, stop in spans)) != ends:
                 ends = moved
             return ends
+
+        def count_reached() -> None:
+            for row in service.store.query("SELECT event_id, data_json FROM events WHERE kind='job.task_held' "
+                                           "AND event_id>? ORDER BY event_id", (seen[0],)):
+                data = json.loads(row["data_json"] or "{}")
+                if data.get("taken"):
+                    reach("taken")
+                    if isinstance(data.get("pin_paused_s"), (int, float)):
+                        reach("paused")
+                    if data.get("kept"):
+                        reach("kept")
+            seen[0] = service.store.one("SELECT max(event_id) AS n FROM events")["n"] or 0
         for step in steps:
             now = clock[0]
-            if step[0] == "tick":
+            if step[0] in ("tick", "pause"):
                 clock[0] += step[1]
-            elif step[0] == "hold":
+            elif step[0] in ("hold", "hold-quiet"):
+                row = service.store.get_job(build)
+                if (kind.startswith("backoff") and now >= TRANSIENT_RETRY_DELAY_S
+                        and (row["state"], row["wait_reason"]) == ("waiting", "capacity")
+                        and row["next_check_at"] and row["next_check_at"] > stamp(now)):
+                    reach("recheck-held")           # F2: a hold meets a capacity recheck, past the deadline
                 if held_at(now):
                     spans[-1][1] = now + step[1]            # a replacement: one stretch, a new end
                 else:
@@ -473,19 +632,32 @@ def test_t6_one_jobs_clock_under_random_holds(kind, grace, steps):
                     spans[-1][1] = now
                 until = None
                 release(service, "build")
-            else:
+            elif step[0] == "finish":
+                if blocking is not None and finished is None:
+                    finish(service, blocking)
+                    finished = now
+            elif not blocked:
                 service = restart(service, harness)
+            count_reached()
+            if step[0] in CLOCK_QUIET:
+                row = service.store.get_job(build)
+                assert row["state"] not in ("failed", "cancelled", "lost"), ("T3 ended with no pass", dict(row))
+                continue
             service._admit()
+            count_reached()
             at = clock[0]
-            due = TRANSIENT_RETRY_DELAY_S if kind == "backoff" else grace_end()
-            if expected is None and at >= due and not held_at(at):
+            if blocked:
+                due = max(TRANSIENT_RETRY_DELAY_S, finished) if finished is not None else None
+            else:
+                due = TRANSIENT_RETRY_DELAY_S if kind == "backoff" else grace_end()
+            if expected is None and due is not None and at >= due and not held_at(at):
                 expected = at
             row = service.store.get_job(build)
             note(f"{step} at {at}: held {spans}, due {due}, row {(row['state'], row['wait_reason'], row['next_check_at'])}")
-            if kind == "backoff":
+            if kind.startswith("backoff"):
                 retried = [attempt["reserved_at"] for attempt in attempts(service, build) if attempt["seq"] > 1]
                 assert retried == ([stamp(expected)] if expected is not None else []), \
-                    ("T6 retry", at, retried, expected, spans)
+                    ("T6 retry", at, retried, expected, spans, finished)
                 assert row["state"] not in ("failed", "cancelled", "lost"), ("T3 ended", dict(row))
                 continue
             if expected is not None:
@@ -498,6 +670,82 @@ def test_t6_one_jobs_clock_under_random_holds(kind, grace, steps):
                 assert episode.get("fail_at") == stamp(due), ("T6 grace: the episode's end", at, episode, spans)
 
 
+def test_t6_one_jobs_clock_under_random_holds():
+    reaching(one_job_schedules, ONE_JOB_REACH)
+
+
+# --- T7, the reset timer: its pending transaction after a hold lands ----------------------------
+
+RESET_STEP = st.sampled_from([("admit",), ("hold",), ("release",), ("cycle",), ("cycle-hold-late",)])
+RESET_REACH = ("demand-window", "pending")
+
+
+@SETTINGS
+@example(steps=[("cycle-hold-late",)])              # the hold lands between the last demand read and the spend
+@example(steps=[("hold",), ("cycle",)])             # r1's P2-3: the hold lands, the timer runs before any pass
+@given(steps=st.lists(RESET_STEP, min_size=1, max_size=8))
+def reset_schedules(steps):
+    """T7 through the reset timer itself (C-23.16), on `test_task_hold_reset_demand`'s fleet: six
+    Codex lanes at their limit with a gift banked on each, the fake reset-credit endpoints, and a
+    build waiting on capacity, which is demand. Random holds and releases of `build`, admission
+    passes, and reset cycles, some with the hold landing inside the cycle, after the timer's last
+    read of demand and before its pending transaction (`cycle-hold-late`). Whenever a hold on
+    `build` is in force, the build is no demand, and a cycle spends no credit, writes no reset
+    action and confirms no reset; `cycle-hold-late` reaches the pending transaction with a hold
+    in force. A credit spent while no hold is in force is the timer's to spend."""
+    from tests.fake.test_task_hold_reset_demand import hold_build, reset_fleet
+    with reset_fleet() as (service, http, build):
+        held = False
+        for index, step in enumerate(steps):
+            spent_before = (list(http.consumed()), len(service.store.query("SELECT * FROM actions")),
+                            len(service.store.query("SELECT * FROM events WHERE kind='reset-credit.confirmed'")))
+            result = None
+            if step[0] == "admit":
+                service._admit()
+            elif step[0] == "hold":
+                if build in {item["job_id"] for item in service._reset_demand()}:
+                    reach("demand-window")
+                hold_build(service)
+                held = True
+            elif step[0] == "release":
+                service.dispatch("tasks", {"action": "release", "task": "build"})
+                held = False
+            elif step[0] == "cycle":
+                result = service.timers.reset_credits_cycle()
+            else:
+                reader, reads = service.timers.demand, []
+
+                def demand():
+                    found = reader()
+                    reads.append(found)
+                    if len(reads) == 2:             # the timer's last read, just before its pending transaction
+                        if build in {item["job_id"] for item in found}:
+                            reach("pending")
+                        hold_build(service)
+                    return found
+                service.timers.demand = demand
+                try:
+                    result = service.timers.reset_credits_cycle()
+                finally:
+                    service.timers.demand = reader
+                if len(reads) < 2:
+                    hold_build(service)             # the cycle ended before it: the hold lands after it
+                held = True
+            note(f"step {index} {step}: held {held}, result {result}")
+            if held:
+                assert build not in {item["job_id"] for item in service._reset_demand()}, \
+                    ("T7: a held build was reset-credit demand", step)
+                if result is not None:
+                    spent_after = (list(http.consumed()), len(service.store.query("SELECT * FROM actions")),
+                                   len(service.store.query("SELECT * FROM events WHERE kind='reset-credit.confirmed'")))
+                    assert spent_after == spent_before and result.get("status") != "confirmed", \
+                        ("T7-pending: the timer spent a credit for a held build", step, result)
+
+
+def test_t7_the_reset_timer_spends_nothing_for_a_held_job():
+    reaching(reset_schedules, RESET_REACH)
+
+
 # --- the properties against the mutants (opt-in) ------------------------------------------------
 
 PROPERTIES = {
@@ -505,6 +753,7 @@ PROPERTIES = {
     "T2": test_t2_other_tasks_are_placed_as_with_no_hold,
     "T5": test_t5_turns_and_everything_else_ignore_a_hold_with_nothing_to_hold,
     "T6-one-job": test_t6_one_jobs_clock_under_random_holds,
+    "T7-reset": test_t7_the_reset_timer_spends_nothing_for_a_held_job,
     "clock": test_a_hold_is_in_force_exactly_before_its_end,
 }
 #: `TASK_HOLD_MUTANT_MATRIX=all` (or a comma list of mutant names) runs every property against
@@ -521,6 +770,7 @@ MATRIX = [name for name in (MUTANTS if os.environ.get("TASK_HOLD_MUTANT_MATRIX")
 @pytest.mark.parametrize("name", MATRIX or ["none"])
 def test_the_properties_against_a_mutant(name, prop, monkeypatch):
     MUTANTS[name](monkeypatch)
+    MUTATED[0] = True                         # only an invariant kills a mutant, never a reach count
     try:
         PROPERTIES[prop]()
     except Exception as exc:                  # noqa: BLE001 -- any failure is the mutant's kill
@@ -528,6 +778,8 @@ def test_the_properties_against_a_mutant(name, prop, monkeypatch):
                 "first": f"{type(exc).__name__}: {str(exc).splitlines()[0][:300] if str(exc) else ''}"}
     else:
         cell = {"mutant": name, "property": prop, "result": "S"}
+    finally:
+        MUTATED[0] = bool(os.environ.get("TASK_HOLD_MUTANT"))
     report = os.environ.get("TASK_HOLD_MUTANT_REPORT")
     if report:
         with open(report, "a", encoding="utf-8") as out:

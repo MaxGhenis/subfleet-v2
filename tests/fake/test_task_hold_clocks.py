@@ -23,8 +23,8 @@ import pytest
 from subfleet import daemon as daemon_module
 from subfleet.contracts import TRANSIENT_RETRY_DELAY_S, Exit
 from tests.disk_floor_model import stamp
-from tests.task_hold_support import (attempts, configure, finalize_transient, fresh_daemon, hold, job, release,
-                                     restart, submit)
+from tests.task_hold_support import (attempts, configure, finalize_transient, finish, fresh_daemon, hold, job,
+                                     release, restart, submit)
 
 GRACE = 60
 
@@ -130,6 +130,59 @@ def test_a_held_jobs_pin_grace_is_paused_and_50_s_are_left_when_the_hold_ends(ki
         assert service._pin_episodes[build]["fail_at"] == stamp(ended + 50)
         assert job(service, build)["next_check_at"] == stamp(ended + 50)
         fails_exactly_at(service, clock, build, ended + 50)
+
+
+QUIET_ENDS = ("release", "expiry", "restart-at-expiry")
+
+
+@pytest.mark.parametrize("kind", ["pinned", "retry"])
+@pytest.mark.parametrize("end", QUIET_ENDS)
+def test_a_hold_no_pass_saw_pauses_the_grace_from_its_commit(kind, end):
+    """Review r2 of #260, F1: the same stuck job, held at t=10 with no admission pass after the
+    hold (the daemon stopped, held back by C-5.10's pacing, or still in startup recovery until the
+    hold ended), then released at 500, expired at 1000, or expired at 1000 across a restart. The
+    job failed rc 3 at the hold's end: only a pass took it, so all the held time ran its grace.
+    Now the hold's own transaction takes it and pauses the grace: 50 s are left at the end."""
+    with fresh_daemon() as (service, harness, clock, signals):
+        build = stuck(service, harness, clock, kind)
+        clock[0] = 10
+        hold(service, "build", stamp(1000))         # no pass after it
+        if end == "release":
+            clock[0] = 500
+            release(service, "build")
+            ended = 500
+        elif end == "expiry":
+            ended = 1000
+        else:                                       # the daemon was down from the hold until its end
+            clock[0] = 1000
+            service = restart(service, harness)
+            ended = 1000
+        at(service, clock, ended)                   # the first pass since the hold
+        row = job(service, build)
+        assert (row["state"], row["wait_reason"]) == ("waiting", "capacity"), \
+            ("F1: the job ended at the hold's end, its grace run by the held time", dict(row))
+        assert row["next_check_at"] == stamp(ended + 50)
+        assert service._pin_episodes[build]["fail_at"] == stamp(ended + 50)
+        taken = service.store.query("SELECT data_json FROM events WHERE job_id=? AND kind='job.task_held' "
+                                    "AND json_extract(data_json,'$.taken')", (build,))
+        assert len(taken) == 1 and '"pin_paused_s":50.0' in taken[0]["data_json"]
+        fails_exactly_at(service, clock, build, ended + 50)
+
+
+def test_the_hold_takes_its_jobs_in_its_own_transaction():
+    """F1: the commit itself takes every job of the task that waits or is queued (a person's wait
+    excepted), each with its `job.task_held` event, beside `task.held`: no pass is needed."""
+    with fresh_daemon() as (service, harness, clock, signals):
+        builds = [submit(service, harness, "build", f"build-{n}") for n in range(2)]
+        review = submit(service, harness, "review", "review-1")
+        hold(service, "build", stamp(600))
+        for build in builds:
+            row = job(service, build)
+            assert (row["state"], row["wait_reason"], row["next_check_at"]) == ("waiting", "task-held", stamp(600))
+        assert job(service, review)["state"] == "queued"
+        kinds = [(row["kind"], row["job_id"]) for row in service.store.query(
+            "SELECT kind, job_id FROM events WHERE kind IN ('job.task_held','task.held') ORDER BY event_id")]
+        assert kinds == [("job.task_held", builds[0]), ("job.task_held", builds[1]), ("task.held", None)]
 
 
 def test_the_grace_runs_between_two_holds_no_pass_saw_apart():
@@ -265,6 +318,53 @@ def test_a_retrys_backoff_is_kept_apart_from_the_hold(schedule, started):
             assert retried_at(service, build) is None
         at(service, clock, started)
         assert retried_at(service, build) == stamp(started)
+
+
+def blocked_retry(service, harness, clock) -> tuple[str, dict]:
+    """Review r2 of #260, F2's input: the build's retry is due at 60 on codex-1, whose one slot a
+    review holds, so from 60 the build's C-6.10 recheck backs off, to 121 by t=92. The review is a
+    priority caller's (C-6.16), so the build's own wait keeps no slot from it (C-6.9). The build and
+    the blocking review's attempt."""
+    build = retrying(service, harness, clock)
+    configure(service, harness, lambda daemon: daemon.policy["admission"].update(priority_callers=["blocker"]))
+    blocker = submit(service, harness, "review", "review-1", pinned_lane="codex-1", caller_session="blocker")
+    service._admit()
+    [blocking] = attempts(service, blocker)
+    assert blocking["lane_id"] == "codex-1"
+    for t in (60, 61, 63, 67, 75, 91, 92):
+        at(service, clock, t)
+    row = job(service, build)
+    assert (row["state"], row["wait_reason"], row["next_check_at"]) == ("waiting", "capacity", stamp(121)), dict(row)
+    assert retried_at(service, build) is None
+    return build, blocking
+
+
+@pytest.mark.parametrize("schedule", ["unheld", "held-92-released-93", "held-92-expired-93"])
+def test_a_capacity_recheck_after_the_backoff_is_no_deadline_a_hold_keeps(schedule):
+    """F2: held at 92 and released (or expired) at 93, as the blocker finishes at 93. The hold kept
+    the recheck clock (121) as if it were C-4.5's deadline, which passed at 60, and dropped the
+    capacity wait, so the freed slot no longer brought the build forward: it started at 121, 28 s
+    after the unheld control. Now the hold keeps only a retry deadline still ahead; the build is
+    queued at the hold's end and starts at 93, as the control does."""
+    with fresh_daemon(lanes=1, caps={"max_in_flight_per_lane": 1}) as (service, harness, clock, signals):
+        build, blocking = blocked_retry(service, harness, clock)
+        if schedule != "unheld":
+            clock[0] = 92
+            hold(service, "build", stamp(93))
+            at(service, clock, 92)
+            assert job(service, build)["wait_reason"] == "task-held"
+            clock[0] = 93
+            if schedule == "held-92-released-93":
+                release(service, "build")
+        clock[0] = 93
+        finish(service, blocking)
+        service._admit()
+        assert retried_at(service, build) == stamp(93), \
+            ("F2: the hold kept a capacity recheck as the retry's deadline", schedule, dict(job(service, build)))
+        if schedule != "unheld":
+            [ended] = service.store.query("SELECT data_json FROM events WHERE job_id=? AND kind='job.task_hold_ended'",
+                                          (build,))
+            assert '"next_check_at":null' in ended["data_json"]
 
 
 def test_the_kept_backoff_survives_a_restart_while_held():
