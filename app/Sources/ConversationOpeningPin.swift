@@ -105,9 +105,9 @@ final class RevealTargetView: NSView {
     /// SwiftUI moves a row by moving the host it makes for this view, so the mark's
     /// own frame can stay put while its place in the document changes (review r6:
     /// a layout moved the target from y=300 to y=1,700 with no callback). At the end
-    /// of every main run-loop pass, after AppKit's layout and display, the mark
-    /// compares its frame in the document's coordinates with the last one it
-    /// reported. Every move happens on the main thread within some pass, whatever
+    /// of every main run-loop pass (the last `beforeWaiting` observer, just before the
+    /// loop sleeps), the mark compares its frame in the document's coordinates with
+    /// the last one it reported. Every move happens on the main thread within some pass, whatever
     /// made it (the mark, an ancestor, the document's layout, a new parent), so the
     /// pass that presents it reports it.
     private func watchPlacement(_ on: Bool) {

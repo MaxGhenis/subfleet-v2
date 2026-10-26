@@ -5094,9 +5094,11 @@ clip, which is its frame in the document and the clip's bounds.
 - **The mark's frame in the document** can change only on the main thread,
   inside some pass of the main run loop, whatever moves it: the mark, an
   ancestor's frame or bounds, a new parent, or the document's layout. The
-  observer runs at the end of every pass, after AppKit's layout and display
-  observers, in every common mode, including event tracking during a live
-  scroll and modal panels.
+  observer is the pass's last `beforeWaiting` observer (`CFIndex.max`), so it
+  runs after any change made earlier in the pass and just before the loop
+  sleeps, in every common mode, including event tracking during a live scroll
+  and modal panels. A change made later can only come in a later pass, which
+  ends with the same comparison.
 - **The pass that presents a move reports it.** A move made and undone within
   one pass was never presented. Hiding is compared too.
 - **The cost** is one frame conversion per pass while a target row is mounted.

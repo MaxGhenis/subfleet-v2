@@ -1153,8 +1153,8 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   clip or document change, whenever the mark's place in the document changes,
   and on the turn after the reveal's completion. SwiftUI moves a row by moving
   the host view it makes for the mark, so the mark's own frame can stay put:
-  at the end of every main run-loop pass, after AppKit's layout and display,
-  the mark compares its frame in the document's coordinates (and whether it is
+  at the end of every main run-loop pass (the last `beforeWaiting` observer,
+  just before the loop sleeps), the mark compares its frame in the document's coordinates (and whether it is
   hidden) with what it last reported, and reports a change; a reused mark that
   takes a new row id reports again. A completion can arrive before its scroll
   is laid out, so that turn first lays out the window. When the row is
