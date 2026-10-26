@@ -22,6 +22,7 @@ import pytest
 from subfleet import refusals
 from subfleet.sessions import handoff
 from subfleet.sessions.handoff import scrub_bounded, scrub_secrets
+from tests.scrub_work import scrub_work
 from tests.unit import scrub_release217 as release217
 from tests.unit.test_sessions_handoff import _scrubber_probe
 
@@ -480,3 +481,14 @@ print(json.dumps(work))
     assert small["lines"] > 0, measured                     # the trace saw the scrubber
     for count in ("reads", "lines"):
         assert large[count] < small[count] * WORK_GROWTH_MAX, (count, measured)
+
+
+@CI
+@given(text=st.one_of(TEXTS, st.randoms(use_true_random=False).map(lambda rng: _fuzz_text(rng)[0])))
+def test_the_counted_scrub_is_the_scrub(text):
+    """The count above changes nothing it counts (a differential, `tests.scrub_work`):
+    over the key-order grammar and the seeded fuzz, the counted scrub gives the plain
+    scrub's output and sees every regex call it makes, each call's matches `re`'s own.
+    The budget only bounds the run: these short texts read up to about 100 a character."""
+    work = scrub_work(text, reads_per_char=4096)
+    assert (work["over"], work["same"], work["uncounted"]) == (None, True, []), (text, work)
