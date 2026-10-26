@@ -296,7 +296,7 @@ def root_shape(patch, row: dict, shape: str) -> dict:
 def test_the_attempts_responsibility_root_never_holds_it_on_a_later_boot(monkeypatch, shape):
     """The root is the guardian, a recorded pid of the attempt's boot, and no process of a later
     boot names it: a root recorded without a unique id needs no live matching start there, and a
-    known one no final holder read ("a proven other boot needs no final holder check", C-5.5).
+    known one's final holder read is made but cannot hold it (only its failure is dropped, C-5.5).
     At 993a28ef3 and at 15bd8c172 each held trackb's shape with `responsibility root identity
     unavailable for pid 76526`; the first for as long as pid 76526 stayed free."""
     row = trackb_row()

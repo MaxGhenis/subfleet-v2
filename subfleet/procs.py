@@ -1107,8 +1107,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 # only holds the attempt. It never grants signal authority.
                 # A known root already gone with no provisional observations
                 # is still a valid empty source; do not make it sticky.
-                # A root whose boot is over needs no final holder check (no member names it,
-                # D-QUAR-REUSE1), whether or not a member's read asked `ours` first.
+                # The read is made; once the root's boot is over only its failure is dropped (no
+                # member names it, D-QUAR-REUSE1), whether or not a member's read asked `ours` first.
                 if (source_root.unique_id is None or holder_failed
                         or (holder is None and found_responsible)
                         or (holder is not None and holder.unique_id is None)) and not root_ended():
