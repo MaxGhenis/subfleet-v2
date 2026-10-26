@@ -14,6 +14,11 @@ it, and the invariants the fix keeps:
   tombstone, wherever symlinks point.
 - T6, rule-independence (r2): for every mode combination T3 draws, removal ends
   the same way under this host's directory rename rule and macOS 15's.
+- T7, the mode bound (r3, #258 review r1b2 P2-1): an entry swapped in between
+  removal's check of a directory and its mode change can be set to 0700, only
+  if it is this user's (a symlink's own mode, never its target's); nothing
+  outside the allocation gains a group or other bit. Every mode change sets
+  exactly 0700, through the directory's descriptor unless its open is refused.
 
 macOS 15 refuses to rename a directory that lacks owner write, even within one
 parent; macOS 26, this host, allows it (#258's CI, r2). T1 to T5, and every

@@ -4,7 +4,7 @@ Base: `c0759bd658d6b55a656117badf3ccfa8271eab43`. Work began at 2026-10-22 07:41
 
 ## D-TMP1-P3 (#246 review r2's P3s and review r3's wording, 2026-10-24)
 
-Review r2 approved #246 with five P3s, all executed. P3-4 was fixed in `8ae931aa6`; this round builds the hub's decisions for P3-1, P3-2, P3-3 and P3-5, and review r3's two wording points. Base: `abe117e67`, release/217 with #246. Work began at 2026-10-25 01:06 UTC in a detached checkout. The assigned branch, `fix/attempt-tmpdir-p3-217`, is checked out in the caller's lane checkout, so the commits are on this workspace's detached HEAD (Subfleet keeps them as a salvage ref) and the branch ref was not moved. Nothing was pushed. Where this section and the earlier ones disagree (a fresh tombstone name, "a crash leaves a tombstone, an unknown folder the sweep ages"), this section wins, and so does C-12.10. Its last subsection, r2, covers #258's failures on macOS 15; where r2 and the text above it disagree (removal now fixes the folder's mode before its rename, not after), r2 wins.
+Review r2 approved #246 with five P3s, all executed. P3-4 was fixed in `8ae931aa6`; this round builds the hub's decisions for P3-1, P3-2, P3-3 and P3-5, and review r3's two wording points. Base: `abe117e67`, release/217 with #246. Work began at 2026-10-25 01:06 UTC in a detached checkout. The assigned branch, `fix/attempt-tmpdir-p3-217`, is checked out in the caller's lane checkout, so the commits are on this workspace's detached HEAD (Subfleet keeps them as a salvage ref) and the branch ref was not moved. Nothing was pushed. Where this section and the earlier ones disagree (a fresh tombstone name, "a crash leaves a tombstone, an unknown folder the sweep ages"), this section wins, and so does C-12.10. Its subsection r2 covers #258's failures on macOS 15; where r2 and the text above it disagree (removal now fixes the folder's mode before its rename, not after), r2 wins. Its last subsection, r3, covers #258's review r1b2; where r3 and the text above it disagree (every mode change now sets exactly 0700, through the folder's descriptor where an open admits it), r3 wins.
 
 Commits, oldest first:
 - `def9165ae`: test (the regressions, the invariants and the mutation witnesses, written to fail before the fix).
@@ -205,7 +205,7 @@ Commits, oldest first:
 
 - **Before the rename,** `_remove` looks at the entry under the allocation's name with `os.stat(name, dir_fd=parent, follow_symlinks=False)` and checks it against the record with `_is`, the same identity check as after the rename. A different entry refuses removal (`TMPDIR removal refused for <attempt>: its folder was swapped`) before any mode change or rename. When the mode lacks any of `0o700`, it calls `os.chmod(name, mode | 0o700, dir_fd=parent, follow_symlinks=False)`. Then it renames, and checks the tombstone with `_is` as before.
 - **The tombstone's own mode change stays,** for a tombstone a crash left, where no rename happens: what #258's first build leaves on macOS 26 when it dies between its rename and its mode change. In the rename branch it no longer fires, since the folder already has owner `rwx`.
-- **The swap window.** An entry swapped in between the check and the mode change can at most gain owner bits, and only if it is this user's (a symlink's own, never its target's): the exposure the tombstone's mode change already accepts. The check after the rename then refuses it and puts it back. That is in `_remove`'s docstring and in C-12.10; nothing more was built.
+- **The swap window.** An entry swapped in between the check and the mode change can at most gain owner bits, and only if it is this user's (a symlink's own, never its target's): the exposure the tombstone's mode change already accepts. (False, as review r1b2 executed: the change set `mode | 0o700`, a whole mode, so a hard link to a file outside the root took the folder's group and other bits. r3 below fixes it.) The check after the rename then refuses it and puts it back. That is in `_remove`'s docstring and in C-12.10; nothing more was built.
 - **A refusal after the mode change** (the post-rename check, `_empty`, the `rmdir`) puts the folder back under its name with owner `rwx` added. The T3 deferral test now asserts it: 0000 comes back as 0700.
 - **The other sites the brief named.**
   - `:466`, `_put_back`'s rename of the tombstone back to its name, is a rename and applies in principle, but needs no change. Its source then holds owner `rwx`: the mode change before the rename gave it to the allocation, and the tombstone branch's mode change to a crash-left tombstone, before any refusal that puts the folder back. The one entry put back without that is a directory swapped in after the check, whose mode removal must never change. On macOS 15 that directory got through the rename only because it had owner write, so it goes back, unless its mode changes in between; then it stays at the tombstone name and `_put_back` logs it, as it already did for any failed put-back.
@@ -320,6 +320,168 @@ Every mutant was killed by its named test under each rule its row names, and eve
 - **`test_directory_renamed_in_after_the_check_is_refused_and_put_back`** (lifecycle): the check before the rename now refuses its swap before anything moves, so nothing is put back there. By reading, every assertion it makes still holds, but the lifecycle file ran in no hold this round. It no longer kills `no-identity-check` or `no-rename-verify`, whose new oracle swaps later.
 - **Commits on the detached HEAD,** as before: the branch is checked out in the caller's lane checkout, so its ref was not moved. Nothing was pushed.
 - **Nothing of mine outside the workspace and the scratch folder,** beyond the hold wrappers' own logs; no network, no real credentials, nothing live. The scratch folder is removed, and `git status --ignored` is clean.
+
+### r3: every mode change sets 0700 (#258 review r1b2, 2026-10-25)
+
+Review r1b2 asked for changes at `2bdcb2e1f`: one P2 (P2-1) and three P3s, with checks 7 to 12. This round builds the hub's six decisions on `2bdcb2e1f`. Work began at 2026-10-26 04:17 UTC (2026-10-25 local), in a detached checkout as before; the commits are on its HEAD for the hub to push, and nothing was pushed.
+
+Commits, oldest first:
+- `af8b5599b`: test (the regressions, written to fail at `2bdcb2e1f`, and review r1b2's three mutants with their oracles).
+- `5ea67495a`: fix, with the mutation rows that follow its text and r3's own mutants.
+- A last docs commit: C-12.10 and its 2026-10-25 change-log entry, this subsection, and the leak suite's header.
+
+#### The cause (P2-1)
+
+- **A whole mode, by name.** Each of the three mode changes (before the rename, at a crash-left tombstone, and on a directory inside the tree) checked the entry by name, then called `os.chmod(name, mode | 0o700, dir_fd=…, follow_symlinks=False)`. That sets an absolute mode on whatever has the name by then. A provider that can write the user temp root (an unsandboxed Claude provider) can swap in, between the two calls, a hard link to any file of this user's on the volume, and that file takes the folder's mode plus 0700: 0077 and 0577 made a 0600 file outside the root 0777. Removal still refused afterwards, but the mode had changed.
+- **The docs claimed otherwise.** `_remove`'s docstring, C-12.10, its change-log entry and r2 above all said such an entry "can at most gain owner permissions".
+
+#### The decisions, as built
+
+1. **Every mode change sets exactly `0o700` (`stat.S_IRWXU`).**
+   - **`_own(record, name, parent)`** serves the mode change before the rename and a crash-left tombstone's. It opens the entry with `rfs.O_DIR` (`O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC`) relative to the parent's descriptor, checks `_is` on that descriptor's `fstat`, and `fchmod`s it to 0700. A descriptor that is not the record returns False, and removal refuses (`TMPDIR removal refused for <attempt>: its folder was swapped`) with nothing changed.
+   - **Only a `PermissionError` with `EACCES`** (no owner read: 0000, 0300) falls back to `os.chmod(name, 0o700, dir_fd=parent, follow_symlinks=False)`, after the existing lstat check. Any other open error raises (`ENOTDIR` and `ELOOP` for a file or symlink swapped in, `EMFILE`, `EPERM`), and removal defers as before, logging the class.
+   - **Inside the tree,** `_empty` now opens a directory first, with `rfs.open_dir(name, dir_fd=fd, expect=found)`, which checks the descriptor against the directory's lstat (device and inode; there is no record to apply `_is` to there). `writable` then sets 0700 through the descriptor. Only an open refused with `EACCES` sets 0700 by name first, then opens it, checked the same way. The old trigger (`& 0o500 != 0o500`, which changed a 0400 or 0600 directory by name) is gone.
+   - **`writable`'s own `fchmod`** sets 0700 too, so every mode change removal makes sets exactly 0700. It was `mode | 0o700` on a verified descriptor, which was safe but put a refused folder back wider than 0700.
+   - **Unchanged:** a mode changes only when owner read, write or search is missing, as in r2.
+   - **The bound,** now in `_remove`'s docstring, `_empty`'s, C-12.10, its 2026-10-25 change-log entry and this report: an entry swapped in between the check and the mode change can be set to 0700, only if it is this user's (a symlink's own mode, never its target's); it never gains group or other bits. Also: after a refused removal, the folder put back is at 0700.
+   - **One wording deviation:** the docs qualify that last sentence ("one that already had owner read, write and search keeps its own mode, which removal never changed"), because removal changes no mode of a folder that already has owner `rwx`. A 0755 folder whose removal is refused goes back at 0755. As a bare sentence it would be false for that folder.
+2. **The regression,** `test_an_entry_swapped_in_before_a_mode_change_never_gains_group_or_other_bits`, is the reviewer's property as a real test.
+   - **Coverage:** all three sites, both rename rules, folder modes 0000, 0500, 0077 and 0577 with a hard link to a 0600 file outside the root swapped in, and a 0500 folder with a symlink to a 0500 directory outside it swapped in.
+   - **Two windows:** right after removal's check of the entry by name (`after-check`), and right before a mode change by name (`at-mode-change`, the reviewer's hook). The first is the descriptor path's only window; the second reaches the fallback's.
+   - **The swap works on a real macOS 15 too.** It adds owner write, renames, and puts the mode back, as a provider must there.
+   - **What it asserts:** the file outside ends at 0600 or 0700, never with a group or other bit; its contents are unchanged; the symlink's target stays 0500 with its contents; removal refuses or defers whenever the swap ran, and removes the folder when it didn't. In the `after-check` window the swap must run, so that window is never vacuous.
+   - **The two path tests:**
+     - `test_a_folder_the_owner_can_read_gets_0700_through_its_descriptor_never_by_name` (0500, 0400, at each site, under both rules) requires exactly one mode change, an `fchmod` to 0700 of that directory's inode, and none by name.
+     - `test_a_folder_the_owner_cannot_read_gets_0700_by_name_once_its_open_is_refused` (0000, 0300) requires an open refused with `EACCES`, then exactly one `chmod` by name to 0700.
+   - **T3's deferral test** now runs from 0000, 0500, 0077 and 0577, with the directory holding the undeletable file at the same mode, and requires both back at exactly 0700.
+   - **T1's `remove:top-chmodded` point** now also fires at an `fchmod` (a remove child's first is the top folder's), since a 0500 folder's mode now changes through its descriptor. A new point, `remove:top-unreadable-chmodded`, crashes after a 0000 folder's change by name, for `recorded` and `legacy` allocations. An unknown 0000 folder is left out: its marker can't be read, so no sweep sights it (#246's rule, unchanged).
+3. **P3-1:** `test_a_tombstone_value_that_is_not_a_tombstone_name_refuses_removal`, the reviewer's test.
+   - **The values:** `../escape-r1b`, a name without the prefix, one with a slash, one longer than 128 characters, and a non-string.
+   - **What it asserts:** removal returns None and logs `its recorded tombstone is not one`; the allocation stays where it was with its contents; nothing in the root or around it is renamed; `tombstone_path` is None.
+4. **P3-2:** the reviewer's two tests.
+   - **`test_a_successful_create_leaves_no_journal_entry`** checks three in-process creates. Each name is in the journal when its folder is made, no entry is left once its marker is published, and each folder is owned and marked. The in-journal-at-mkdir check also kills the reviewer's "intent written after mkdir" mutant in-process, which only T1's child could reach before.
+   - **`test_a_journal_entry_naming_a_symlink_or_a_file_is_never_recorded_or_removed`** checks three journal-named entries. A symlink to a 0500 directory outside, a file, and a hard link to a 0600 file outside are swept three times a day apart. None is sighted or removed, and their journal entries go. The link, its target, the file and the file outside are unchanged.
+5. **The power-loss gap (check 12):** when `_intend` makes `tmpdir-intents`, it fsyncs the parent (the state root) before publishing the first entry.
+   - **The creation test:** the mkdir now uses `exist_ok=False` inside `try`, and an existing directory is accepted as `exist_ok=True` accepted it. So "made here" is exactly the mkdir that succeeded.
+   - **The fsync test:** `test_the_journal_folders_own_entry_is_fsynced_once_when_it_is_made` wraps `os.fsync`, `os.mkdir` and `os.rename` in-process. Across three creates (two on one `AttemptTemp`, one on a second over the same store), the event sequence must be: one fsync of the state root, with the folder already there and empty, then entry, folder, entry, folder, entry, folder.
+   - **Residuals, not built:**
+     - Two creates racing the very first one in one process: the second can publish its entry and make its folder before the first's fsync.
+     - An fsync that fails: the folder stays made with its parent unsynced, and later creates don't retry.
+     - A state root the same `mkdir(parents=True)` made: it isn't fsynced in its own parent. The daemon makes the state root long before any allocation.
+
+     Each needs a power loss inside a window of microseconds, once per store.
+6. **P3-3:** no change. T3's any-modes test passed in hold c1 under both rules (16 s and 12 s), so there is no failing example to keep.
+
+#### A counterexample, and the change it needed
+
+The mutation row `no-pre-rename-identity-check` (the check by name before the mode change dropped) survived its oracle at `5ea67495a`, under both rules.
+- **The oracle:** `test_a_locked_directory_swapped_in_before_removal_is_neither_changed_nor_moved` swaps in a 0500 directory of this user's.
+- **Why it survived:** with the check dropped, `_own` opens that directory, `_is` on its descriptor fails, and removal refuses before any mode change or rename. Every assertion holds: the descriptor's own check does the work.
+- **The intent still holds:** the check by name stands alone only before a change by name, for a directory no open admits.
+- **The change:** the oracle is now parametrized by the swapped-in directory's mode (0500 and 0000), and the row uses 0000. The mutant changes the 0000 directory to 0700 by name and fails `and before any mode change`. Production passes both modes. No production change was needed.
+
+#### Invariants
+
+T1 to T6 are as stated above and hold under both rename rules, now with the bound restated. One invariant is new:
+- **T7, the mode bound:** for every entry swapped in between removal's check of a directory and its mode change, at any of the three sites, nothing outside the allocation gains a group or other bit, and a symlink's target is never changed. The only mode such an entry of this user's can get is exactly 0700.
+- **Where it is tested:** the swap property above, plus the two path tests that pin how it holds (no change by name for a folder an open admits, and a change by name only after `EACCES`).
+
+#### Mutants
+
+Each is the production module with one decision changed, executed in memory, and must fail the named test. Every oracle also passes on the real module ("production" rows). All are in `tests/unit/test_attempt_tmpdir_mutations.py`; "both" rows run once per rename rule.
+
+| Mutant | What changes | Test that fails | Rules |
+| --- | --- | --- | --- |
+| or-mode-before-rename (new) | r2's `chmod(name, mode \| 0o700)` by name restored before the rename | swap property, `before-rename-0077-hard-link-at-mode-change` | both |
+| or-mode-tombstone (new) | the same at a crash-left tombstone | swap property, `crash-left-tombstone-0077-hard-link-at-mode-change` | both |
+| or-mode-nested (new) | the nested fallback sets `mode \| 0o700` by name | swap property, `nested-0077-hard-link-at-mode-change` | both |
+| or-mode-descriptor (new) | both `fchmod`s set `mode \| 0o700` | T3's deferral, `0577` (put back at 0777) | both |
+| by-name-own (new) | `_own` always changes by name: the descriptor path dropped | the descriptor test, `before-rename-0500` and `crash-left-tombstone-0500` | both |
+| by-name-nested (new) | `_empty` always changes a directory by name before opening it | the descriptor test, `nested-0500` | both |
+| no-journal-fsync (new) | the state root's fsync dropped | the fsync test | |
+| any-tombstone (review r1b2) | `_tombstone` accepts any string | the bad-tombstone test, `../escape-r1b` | |
+| create-skips-settle (review r1b2) | `create` never settles its entry | create leaves no journal entry | |
+| sweep-no-ownership-check (review r1b2) | the sweep's directory-and-owner check dropped | the journal-entry test | |
+| no-pre-rename-identity-check | the check by name before the mode change dropped | the locked-swap test, now `0000` (above) | both |
+| no-top-chmod, no-pre-rename-chmod | their r2 decisions dropped, at r3's text (`_own`'s calls) | as in r2 | as in r2 |
+
+The other seventeen are unchanged and still killed by their oracles. `test_the_pre_rename_chmod_mutant_is_caught_by_this_hosts_rule_only_if_it_refuses` still passes: the mutant survives this host's rule, as it should on macOS 26. Review r1b2 executed the survival of its three mutants against the PR's earlier tests; this round didn't re-run that.
+
+#### Red first
+
+**Hold red1** ran `af8b5599b`'s tests on `2bdcb2e1f`'s module: the worktree before the fix, the same files as that commit. It selected 116 tests: all of r3's, T3's deferral, T1's two top-chmodded points, and the three new mutation rows. Result: **47 failed, 69 passed**.
+
+| Test | Failed at `2bdcb2e1f` | Why |
+| --- | --- | --- |
+| swap property, before the rename | 8 of 20 (4 of the 8 hard-link cases per window, as review r1b2 found) | 0077 and 0577, in both windows, under both rules: the file outside became 0777 |
+| swap property, crash-left tombstone | 8 of 20 | the same |
+| swap property, nested | 4 of 20 | 0077 only: r2's nested site changed a 0577 directory through its descriptor, so a swap there reaches no change by name |
+| descriptor test | 10 of 12 | a mode change by name; `nested-0500` passed, because r2 already used the descriptor there |
+| fallback test | 12 of 12 | no open was attempted before the change by name |
+| T3's deferral | 4 of 8 | 0077 and 0577 came back at 0777 |
+| fsync test | 1 of 1 | no fsync of the state root |
+
+The other 69 passed as intended:
+- 40 swap cases;
+- `nested-0500` under both rules;
+- T3's deferral at 0000 and 0500;
+- the five P3-1 values;
+- the two P3-2 tests;
+- T1's ten top-chmodded cases;
+- the three reviewer mutants' kill and production rows.
+
+The P3 tests' red is the kill rows: each fails on its mutant at `2bdcb2e1f`.
+
+#### Holds
+
+Every pytest ran under `suite_hold.sh` in slot A, one pytest per hold, single-process, from this workspace, with `TMPDIR` and Hypothesis storage in this job's scratch (`sf-tmpdirp3r3`) and `env -u SUBFLEET_RETENTION_DORMANT -u PYTHONPATH`. This job's tool caps a foreground call at 10 minutes and detaching was ruled out, so a small driver ran each hold in its own process group, in the foreground, and would have killed the group at 540 s. No hold reached that deadline.
+
+| Hold | Started (UTC) | Head | Selection | Result |
+| --- | --- | --- | --- | --- |
+| red1-co | 04:40 | `2bdcb2e1f` + r3's tests | collect-only | 116 of 250 selected |
+| red1 | 04:42 | the same | r3's red set | 47 failed, 69 passed in 264 s |
+| g1 | 04:52 | the fix, uncommitted | r3's tests, T3's deferral, the mutation file | 183 passed, 2 failed (the counterexample above) |
+| g2 | 04:54 | with the oracle change | the locked-swap test and its rows | 8 passed |
+| c1 | 04:56 | `5ea67495a` | leaks, all but T1 and P3-5 | 131 passed in 360 s |
+| c2a | 05:04 | `5ea67495a` | T1's create cases, and its `recorded` removal cases | 30 passed in 190 s |
+| c2b | 05:08 | `5ea67495a` | T1's `legacy` and `unknown` removal cases | 34 passed in 79 s |
+| c3 | 05:10 | `5ea67495a` | P3-5, and the whole mutation file | 87 passed in 99 s |
+| c4 | 05:12 | `5ea67495a` | fake `test_attempt_tmpdir_leaks_daemon.py` | 8 passed in 36 s |
+| guards | after the docs commit | the docs head | the three contract guards | in the next subsection |
+
+`raw_log_sites` on the fixed module returns nothing, as on `2bdcb2e1f`. That was run as a plain call, not as a pytest.
+
+#### Counts
+
+"Before" is r2 at `2bdcb2e1f` as its report gives it; "now" is this round's holds at `5ea67495a`.
+
+| File | Before (rule-free / `host-rename` / `macos15-rename`) | Now |
+| --- | --- | --- |
+| unit `test_attempt_tmpdir_leaks.py` | 93 passed: 13 / 40 / 40 | 197 passed: 21 / 88 / 88 (c1, c2a, c2b, c3) |
+| unit `test_attempt_tmpdir_mutations.py` | 49 passed: 27 / 10 / 12 | 85 passed: 35 / 24 / 26 (c3) |
+| fake `test_attempt_tmpdir_leaks_daemon.py` | 8 passed: 6 / 1 / 1 | 8 passed: 6 / 1 / 1 (c4) |
+
+The leak suite's 104 new cases:
+- 60 swap cases, 12 descriptor cases and 12 fallback cases;
+- 5 P3-1 values, 2 P3-2 tests and 1 fsync test;
+- 6 more T3 deferral cases, 2 more locked-swap cases, and 4 T1 cases at the new point.
+
+#### Not run
+
+- **The rest of the suite,** as the brief said: CI runs it. That includes unit `test_attempt_tmpdir_lifecycle.py`, `_guardian.py`, `_retention.py`, fake `test_attempt_tmpdir_daemon.py` and `test_daemon_log_sites.py`.
+  - **By reading,** none of them patches `os.open`, `os.fchmod`, `os.chmod` or `os.fsync` around removal or allocation.
+  - **The lifecycle suite's read-only tree** (0555 directories and a 0000 one) takes both new paths: the descriptor for 0555, the fallback for 0000.
+  - **Its two mutation oracles** passed in c3.
+- **A real macOS 15:** CI's runners are the proof, as for r2. The swap's own renames follow that rule, so the property runs there as written.
+- **The survival of review r1b2's three mutants** against the PR's earlier tests: the reviewer executed it, and it was not re-run here.
+
+#### Deviations and housekeeping
+
+- **"After a refused removal, the folder put back is at 0700"** is qualified in the docs, as decision 1 above says.
+- **Inside the tree,** the descriptor is checked against the directory's lstat (device and inode), not `_is`, because no record names a directory there. That check is #246's `open_dir(expect=…)`, unchanged.
+- **The `no-pre-rename-identity-check` oracle changed,** for the counterexample above.
+- **Holds were shorter than 20 minutes,** under a 540 s deadline each, because a foreground call here is capped at 10 minutes. So the files ran in seven holds rather than two or three.
+- **Commits on the detached HEAD,** as before. Nothing was pushed. No network, no live process, nothing of mine outside the workspace and the scratch folder beyond the hold wrappers' own logs.
 
 ## Round-1 fix (#246 review r1, 2026-10-23)
 
