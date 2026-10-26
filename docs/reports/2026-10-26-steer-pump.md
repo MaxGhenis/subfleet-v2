@@ -50,7 +50,7 @@ The steer carries no `into`.
   retried with or without `into` (`:441-449`).
   - The hub read C-29.7 as asking again after any `not-steerable` answer. C-29.7 says it does so
     "when it names its turn (`into`)".
-  - The app always names the turn: the composer uses `UIModel.swift:818` and "Send now" uses `:844`.
+  - The app always names the turn: the composer uses `UIModel.swift:818` and "Send now" uses `:843`.
     The probe did not.
 - **When the daemon answers `not-steerable`.** `op_message_steer` answers it (code 7) in two cases
   (`subfleet/conversations/service.py:1349-1358`): no runner holds the live turn, or the runner's
