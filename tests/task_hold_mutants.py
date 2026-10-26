@@ -123,21 +123,16 @@ def pause_only_at_the_pass(patch):
 def held_job_is_demand(patch):
     """P2-3: `_reset_demand` counts a job a hold keeps, until admission looks at it again.
 
-    Since fix round 2 the hold's commit takes the job off its capacity wait (F1), so the hold
-    check in `_reset_demand` decides nothing on its own: a held job never reaches it as
-    demand. So this mutant takes that commit away too (`pause_only_at_the_pass`), the state
-    the check is there for, and removes the check."""
-    pause_only_at_the_pass(patch)
+    Round 1's definition, restored in fix round 3 (review r3 of #260, R3-3): the check alone is
+    removed, and the commit's take stays. Its scenario reaches a held job on a capacity wait with
+    that take intact (`tests/fake/test_task_hold_reset_demand.py`)."""
     patch.setattr(Daemon, "_demand_held", lambda self, job, holds: False)
 
 
 def pending_ignores_holds(patch):
     """P2-3: the reset action's pending transaction does not read the hold again.
 
-    As for `held_job_is_demand`: since fix round 2 the commit's take leaves the job no capacity
-    wait, which the pending transaction finds before it reads the hold (`demand-gone`), so
-    this mutant also takes away the commit's take."""
-    pause_only_at_the_pass(patch)
+    Round 1's definition, restored in fix round 3 (R3-3), as for `held_job_is_demand`."""
     patch.setattr(task_holds, "job_held", lambda conn, job_id, now: None)
 
 

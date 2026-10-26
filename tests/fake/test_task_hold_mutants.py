@@ -187,14 +187,17 @@ def recheck_is_no_kept_deadline():
         assert retried_at(service, build) == stamp(93), "T6-recheck: the hold kept a capacity recheck as a deadline"
 
 
-def held_job_is_no_reset_demand():
-    from tests.fake.test_task_hold_reset_demand import held_job_spends_nothing
-    held_job_spends_nothing()
+def held_retry_is_no_reset_demand():
+    """Fix round 3 (review r3 of #260, R3-3): the round-1 mutant, the check alone removed, with the
+    commit's take intact: a held build's retry waits on capacity before any pass takes it."""
+    from tests.fake.test_task_hold_reset_demand import held_retry_is_no_reset_demand as scenario
+    scenario()
 
 
-def hold_after_the_demand_read_spends_nothing():
-    from tests.fake.test_task_hold_reset_demand import hold_after_demand_was_read_spends_nothing
-    hold_after_demand_was_read_spends_nothing()
+def held_retry_spends_nothing():
+    """Fix round 3 (R3-3): as above, for the reset action's pending transaction."""
+    from tests.fake.test_task_hold_reset_demand import held_retry_spends_nothing as scenario
+    scenario()
 
 
 def offline_count_is_the_total():
@@ -259,8 +262,8 @@ SCENARIOS = {
     "startup-clears-leases": (hold_survives_a_restart, "storage"),
     "grace-runs-while-held": (pin_grace_survives_a_hold, "T6-grace"),
     "release-drops-retry-backoff": (retry_backoff_survives_a_hold, "T6-retry"),
-    "held-job-is-demand": (held_job_is_no_reset_demand, "T7"),
-    "pending-ignores-holds": (hold_after_the_demand_read_spends_nothing, "T7-pending"),
+    "held-job-is-demand": (held_retry_is_no_reset_demand, "T7"),
+    "pending-ignores-holds": (held_retry_spends_nothing, "T7-pending"),
     "offline-counts-the-display-cap": (offline_count_is_the_total, "C-17.4"),
     "note-strips-before-checking": (edge_controls_are_refused, "note"),
     "release-hint-unquoted": (release_hint_is_one_argument, "hint"),

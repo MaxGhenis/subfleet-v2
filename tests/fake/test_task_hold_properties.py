@@ -530,24 +530,30 @@ CLOCK_STEP = st.one_of(
 )
 #: The steps after which no pass runs.
 CLOCK_QUIET = ("hold-quiet", "pause")
-ONE_JOB_REACH = ("taken", "paused", "kept", "recheck-held")
+ONE_JOB_REACH = ("taken", "paused", "kept", "recheck-held", "kept-late")
 #: Review r2's F2 input as clock steps: the retry is due at 60 on the job's one lane, whose one
 #: slot a review holds, so the job's C-6.10 recheck backs off to 121 by t=92.
 BLOCKED_TO_92 = [("tick", 60), ("tick", 1), ("tick", 2), ("tick", 4), ("tick", 8), ("tick", 16), ("tick", 1)]
+#: Fix round 3 (review r3 of #260, R3-2): how long after the provider's `transient` exit at t=0
+#: the finalizer runs, for kind `backoff` (load, a restart): the retry is due 60 s after that.
+LATE = st.sampled_from((0, 0, 1, 40, 100))
 
 
 @SETTINGS
-@example(kind="pinned", grace=60, steps=[("hold", 90), ("tick", 120)])                     # review r2's
-@example(kind="pinned", grace=60, steps=[("hold-quiet", 90), ("tick", 120)])               # F1: expiry
-@example(kind="pinned", grace=60, steps=[("hold-quiet", 300), ("pause", 100), ("release",)])   # F1: release
-@example(kind="all-lanes", grace=60, steps=[("hold-quiet", 90), ("pause", 100), ("restart",)])  # F1: restart
-@example(kind="backoff", grace=60, steps=[("hold", 30), ("tick", 20), ("tick", 45)])       # a kept backoff
-@example(kind="backoff-blocked", grace=60, steps=[*BLOCKED_TO_92, ("hold", 1), ("tick", 1), ("finish",)])
-@example(kind="backoff-blocked", grace=60, steps=[*BLOCKED_TO_92, ("hold", 300), ("tick", 1), ("release",),
-                                                  ("finish",)])
-@given(kind=st.sampled_from(("pinned", "all-lanes", "backoff", "backoff-blocked")), grace=GRACES,
+@example(kind="pinned", grace=60, late=0, steps=[("hold", 90), ("tick", 120)])                     # review r2's
+@example(kind="pinned", grace=60, late=0, steps=[("hold-quiet", 90), ("tick", 120)])               # F1: expiry
+@example(kind="pinned", grace=60, late=0, steps=[("hold-quiet", 300), ("pause", 100), ("release",)])   # F1: release
+@example(kind="all-lanes", grace=60, late=0, steps=[("hold-quiet", 90), ("pause", 100), ("restart",)])  # F1: restart
+@example(kind="backoff", grace=60, late=0, steps=[("hold", 30), ("tick", 20), ("tick", 45)])       # a kept backoff
+@example(kind="backoff-blocked", grace=60, late=0, steps=[*BLOCKED_TO_92, ("hold", 1), ("tick", 1), ("finish",)])
+@example(kind="backoff-blocked", grace=60, late=0, steps=[*BLOCKED_TO_92, ("hold", 300), ("tick", 1), ("release",),
+                                                          ("finish",)])
+# Review r3's R3-2: finalized at 100, held at 110, released at 111; the retry is due at 160.
+@example(kind="backoff", grace=60, late=100, steps=[("tick", 10), ("hold", 10), ("tick", 1), ("release",),
+                                                     ("tick", 49)])
+@given(kind=st.sampled_from(("pinned", "all-lanes", "backoff", "backoff-blocked")), grace=GRACES, late=LATE,
        steps=st.lists(CLOCK_STEP, min_size=1, max_size=14))
-def one_job_schedules(kind, grace, steps):
+def one_job_schedules(kind, grace, late, steps):
     """T6 where the schedules above seldom reach: one build whose clock runs from t=0, a
     C-11.8 grace on its disabled pinned lane (`pinned`) or with every lane disabled after a
     `transient` end (`all-lanes`), or C-4.5's backoff after a `transient` end, due at
@@ -563,7 +569,9 @@ def one_job_schedules(kind, grace, steps):
       force, never before (the deadline is an instant: held time does not move it); a blocked
       one, on the first such pass once its blocker has ended too, as unheld, where a freed slot
       brings a capacity wait forward (C-6.10): a hold keeps no capacity recheck as a deadline
-      (a restart, which forgets what freed up, is a plain pass in this kind);
+      (a restart, which forgets what freed up, is a plain pass in this kind); in kind `backoff`
+      the finalizer runs `late` seconds after the provider's exit (fix round 3, R3-2), and the
+      deadline is 60 s after the finalizer, not after the exit;
     - nothing else ends the job (T3)."""
     blocked = kind == "backoff-blocked"
     with grace_daemon({"max_in_flight_per_lane": 1} if blocked else None, grace, lanes=1 if blocked else 2) \
@@ -574,7 +582,10 @@ def one_job_schedules(kind, grace, steps):
         else:
             service._admit()
             [first] = attempts(service, build)
-            finalize_transient(service, dict(first))
+            if kind == "backoff":
+                finalize_transient(service, dict(first), clock=clock, finalized_at=late)
+            else:
+                finalize_transient(service, dict(first))
             if kind == "all-lanes":
                 for lane in ("codex-1", "codex-2"):
                     service.store.update_lane(lane, enabled=0)
@@ -583,7 +594,8 @@ def one_job_schedules(kind, grace, steps):
             # A priority caller's review (C-6.16), so the build's own wait keeps no slot from it (C-6.9).
             configure(service, harness, lambda daemon: daemon.policy["admission"].update(priority_callers=["blocker"]))
             blocker = submit(service, harness, "review", "review-1", pinned_lane="codex-1", caller_session="blocker")
-        service._admit()                            # t=0: the grace, or the backoff, runs from here
+        service._admit()                            # t=0 (`late`): the grace, or the backoff, runs from here
+        deadline = (late if kind == "backoff" else 0) + TRANSIENT_RETRY_DELAY_S
         if blocked:
             [blocking] = attempts(service, blocker)
         spans: list[list[int]] = []                 # each stretch `build` was held, [start, end]
@@ -611,6 +623,8 @@ def one_job_schedules(kind, grace, steps):
                         reach("paused")
                     if data.get("kept"):
                         reach("kept")
+                        if kind == "backoff" and late:
+                            reach("kept-late")      # R3-2: the deadline of a late finalizer
             seen[0] = service.store.one("SELECT max(event_id) AS n FROM events")["n"] or 0
         for step in steps:
             now = clock[0]
@@ -618,7 +632,7 @@ def one_job_schedules(kind, grace, steps):
                 clock[0] += step[1]
             elif step[0] in ("hold", "hold-quiet"):
                 row = service.store.get_job(build)
-                if (kind.startswith("backoff") and now >= TRANSIENT_RETRY_DELAY_S
+                if (kind.startswith("backoff") and now >= deadline
                         and (row["state"], row["wait_reason"]) == ("waiting", "capacity")
                         and row["next_check_at"] and row["next_check_at"] > stamp(now)):
                     reach("recheck-held")           # F2: a hold meets a capacity recheck, past the deadline
@@ -650,7 +664,7 @@ def one_job_schedules(kind, grace, steps):
             if blocked:
                 due = max(TRANSIENT_RETRY_DELAY_S, finished) if finished is not None else None
             else:
-                due = TRANSIENT_RETRY_DELAY_S if kind == "backoff" else grace_end()
+                due = deadline if kind == "backoff" else grace_end()
             if expected is None and due is not None and at >= due and not held_at(at):
                 expected = at
             row = service.store.get_job(build)

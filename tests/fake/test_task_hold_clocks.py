@@ -18,6 +18,10 @@ Every case runs on the real daemon pass, in process, on a virtual clock.
 
 from __future__ import annotations
 
+import contextlib
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 
 from subfleet import daemon as daemon_module
@@ -402,3 +406,117 @@ def test_a_job_held_from_the_queue_is_queued_again_with_no_clock():
         assert [row["data_json"] for row in ended] == [
             daemon_module._event_json({"by": "release", "ended_at": stamp(0), "next_check_at": None,
                                        "task": "build"})]
+
+
+# --- fix round 3 (review r3 of #260): a look under way when the hold commits, a late finalizer ---
+
+
+@contextlib.contextmanager
+def look_under_way(service, patch, method: str):
+    """One admission pass on its own thread, stopped as it enters `method` (once) until the block
+    ends: the look under way when the hold commits (review r3 of #260, R3-1, run as r3 ran it). The
+    pass holds no store lock while stopped, so a hold or release commits beside it."""
+    entered = threading.Barrier(2, timeout=15)
+    resume = threading.Barrier(2, timeout=15)
+    original = getattr(service, method)
+    stopped = [False]
+
+    def stopping(*args, **kwargs):
+        if not stopped[0]:
+            stopped[0] = True
+            entered.wait()
+            resume.wait()
+        return original(*args, **kwargs)
+    patch.setattr(service, method, stopping)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(service._admit)
+        entered.wait()
+        try:
+            yield
+        finally:
+            resume.wait()
+            future.result(timeout=20)
+
+
+def test_a_pin_check_under_way_when_the_hold_commits_keeps_the_last_second(monkeypatch):
+    """R3-1, executed: a 60 s grace from t=0, the pass that looks at 59 stopped in C-11.8's check,
+    the hold committed at 59 and the pass resumed at 60. The look failed the held job rc 3 on its
+    stale episode; the commit had paused the grace with 1 s left. Now the transaction that would
+    fail it reads the hold, and the job keeps its second until the hold ends."""
+    with fresh_daemon() as (service, harness, clock, signals):
+        build = stuck(service, harness, clock, "pinned")
+        clock[0] = 59
+        with look_under_way(service, monkeypatch, "_stuck_pin"):
+            hold(service, "build", stamp(1000))
+            clock[0] = 60
+        row = job(service, build)
+        assert (row["state"], row["wait_reason"], row["next_check_at"]) == ("waiting", "task-held", stamp(1000)), \
+            ("R3-1: a pin check under way failed a held job", dict(row))
+        assert service._pin_episodes[build]["paused_s"] == 1
+        clock[0] = 500
+        assert release(service, "build")["woken"] == 1
+        fails_exactly_at(service, clock, build, 501)
+
+
+@pytest.mark.parametrize("ending,fail_at", [("retake", 660), ("release", 110), ("late-expiry", 1060)])
+def test_an_episode_opened_under_way_when_the_hold_commits_is_paused_from_the_commit(ending, fail_at, monkeypatch):
+    """R3-1, executed: the build's first look, at t=10, stopped as C-11.8 opens its episode; the
+    hold committed (taking the queued job); the look then wrote its capacity wait, due at 70, over
+    `task-held`. A release at 50 woke nothing and the job failed at 70; an expiry at 1000 seen at
+    1030 failed it at once. Only a pass that took it again (the control, at 500) kept its 60 s. Now
+    the opening's transaction reads the hold: the episode opens at 10 with its grace paused from
+    the commit, as the commit's take pauses one, and the job stays `task-held`."""
+    with fresh_daemon() as (service, harness, clock, signals):
+        configure(service, harness, lambda daemon: daemon.policy["admission"].update(pin_grace_s=GRACE))
+        service.store.update_lane("codex-1", enabled=0)
+        build = submit(service, harness, "build", "build-1", pinned_lane="codex-1")
+        clock[0] = 10
+        with look_under_way(service, monkeypatch, "_stuck_pin"):
+            hold(service, "build", stamp(1000))
+        row = job(service, build)
+        assert (row["wait_reason"], row["next_check_at"]) == ("task-held", stamp(1000)), \
+            ("R3-1: the episode's opening wrote its capacity wait over task-held", dict(row))
+        episode = service._pin_episodes[build]
+        assert (episode["open"], episode["since"], episode["paused_s"]) == (True, stamp(10), 60)
+        if ending == "retake":
+            at(service, clock, 500)
+            assert job(service, build)["wait_reason"] == "task-held"
+            assert service._pin_episodes[build]["paused_s"] == 60
+            clock[0] = 600
+            assert release(service, "build")["woken"] == 1
+        elif ending == "release":
+            clock[0] = 50
+            assert release(service, "build")["woken"] == 1
+        else:
+            at(service, clock, 1030)
+            row = job(service, build)
+            assert (row["state"], row["wait_reason"], row["next_check_at"]) == ("waiting", "capacity", stamp(1060))
+        fails_exactly_at(service, clock, build, fail_at)
+
+
+@pytest.mark.parametrize("held", [False, True])
+def test_a_late_finalizers_deadline_is_the_one_a_hold_keeps(held):
+    """R3-2, executed: the provider exits `transient` at t=0 and the finalizer runs at 100, so the
+    retry is due at 160 while the attempt's end stays 0. The unheld control starts at 160. Held at
+    110 and released at 111, it started at 111: the take judged the deadline as the end plus 60,
+    passed at 60, and kept nothing. Now the take keeps the deadline the finalizer wrote."""
+    with fresh_daemon() as (service, harness, clock, signals):
+        build = submit(service, harness, "build", "build-1")
+        service._admit()
+        [first] = attempts(service, build)
+        row = finalize_transient(service, first, clock=clock, finalized_at=100)
+        assert (row["wait_reason"], row["next_check_at"]) == ("capacity", stamp(160))
+        assert attempts(service, build)[0]["finished_at"] == stamp(0)
+        if held:
+            clock[0] = 110
+            hold(service, "build", stamp(500))
+            clock[0] = 111
+            assert release(service, "build")["woken"] == 1
+            row = job(service, build)
+            assert (row["state"], row["wait_reason"], row["next_check_at"]) == ("waiting", "capacity", stamp(160)), \
+                ("R3-2: the hold dropped the finalizer's deadline", dict(row))
+        for t in (111, 159):
+            at(service, clock, t)
+            assert retried_at(service, build) is None, ("R3-2: the retry started before its deadline", t)
+        at(service, clock, 160)
+        assert retried_at(service, build) == stamp(160)

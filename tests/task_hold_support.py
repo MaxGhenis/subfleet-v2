@@ -81,10 +81,14 @@ class Disconnected(FakeAdapter):
                                  "admission": "stream disconnected before completion"})
 
 
-def finalize_transient(service, attempt: dict) -> dict:
+def finalize_transient(service, attempt: dict, *, clock: list | None = None,
+                       finalized_at: int | None = None) -> dict:
     """End `attempt` through the daemon's own finalizer (`_finalize`) as a `transient` exit:
     the job waits on `capacity` with its retry due `TRANSIENT_RETRY_DELAY_S` after the
-    finalizer's clock. The job's row, after."""
+    finalizer's clock. With `clock` and `finalized_at`, the provider exits at the clock's
+    reading and the finalizer runs at `finalized_at`, as when load or a restart delays it
+    (review r3 of #260, R3-2): the attempt's end stays the provider's exit, and the retry is
+    due 60 s after the finalizer. The job's row, after."""
     from tests.fake.test_state_contract import receipt_fixture
     adir = service.root / "jobs" / attempt["job_id"] / f"a{attempt['seq']}"
     adir.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -92,6 +96,8 @@ def finalize_transient(service, attempt: dict) -> dict:
     register("codex", Disconnected)
     try:
         receipt = receipt_fixture(service, attempt, adir, rc=1, stdout=b"")
+        if clock is not None and finalized_at is not None:
+            clock[0] = finalized_at
         service._finalize(receipt)
     finally:
         register("codex", FakeAdapter)
