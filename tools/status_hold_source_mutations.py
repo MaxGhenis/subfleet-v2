@@ -10,6 +10,10 @@ the tree (review r1 of #263 ran it so, never in a worktree):
 
     .venv/bin/python tools/status_hold_source_mutations.py
 
+A JUnit file of a run of the same unmutated tree, at `.mutants-baseline.xml`
+in the tree's root, stands for the baseline of each named test it shows passed
+(every case of it, parametrized ones included); only the rest are run first.
+
 It rewrites the files in place, one mutant at a time, and restores them whatever
 happens. M1 to M7 are the build's; M8 to M14 are review r1's (M14 in two
 halves, the daemon's refusal and the CLI's). It exits 1 if the baseline fails, or a mutant survives or no longer
@@ -20,6 +24,7 @@ from __future__ import annotations
 from pathlib import Path
 import subprocess
 import sys
+import xml.etree.ElementTree as ElementTree
 
 STATUS, ALERTS, DAEMON = Path("subfleet/status_json.py"), Path("subfleet/alerts.py"), Path("subfleet/daemon.py")
 CONTRACTS, CLI = Path("subfleet/contracts.py"), Path("subfleet/cli.py")
@@ -114,6 +119,22 @@ MUTANTS = {
 }
 
 
+#: A JUnit file of the same unmutated tree's run: its passing tests need no baseline run.
+BASELINE_JUNIT = Path(".mutants-baseline.xml")
+
+
+def junit_passed(path: Path) -> set[str]:
+    """The `file::test` nodes whose every case passed in the JUnit file at `path`."""
+    passed, failed = set(), set()
+    for case in ElementTree.parse(path).getroot().iter("testcase"):
+        classname, name = case.get("classname", ""), case.get("name", "")
+        if not classname or not name:
+            continue                    # an interrupted run's marker, not a test
+        node = classname.replace(".", "/") + ".py::" + name.split("[")[0]
+        (failed if any(child.tag in ("failure", "error", "skipped") for child in case) else passed).add(node)
+    return passed - failed
+
+
 def run(nodes: list[str]) -> tuple[int, list[str]]:
     """pytest over `nodes`: its exit status and its `FAILED` summary lines."""
     done = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--tb=line", "-rf",
@@ -128,9 +149,12 @@ def main() -> int:
     if checkout and subprocess.run(["git", "diff", "--quiet", "--", *map(str, files)]).returncode:
         print(f"{', '.join(map(str, files))}: uncommitted changes; commit them first", file=sys.stderr)
         return 2
-    named = [node for _, nodes in MUTANTS.values() for node in nodes]
-    rc, failed = run(named)
-    print(f"baseline  {'passed' if rc == 0 else 'FAILED'}  {len(dict.fromkeys(named))} named tests")
+    named = list(dict.fromkeys(node for _, nodes in MUTANTS.values() for node in nodes))
+    prior = junit_passed(BASELINE_JUNIT) & set(named) if BASELINE_JUNIT.exists() else set()
+    todo = [node for node in named if node not in prior]
+    rc, failed = run(todo) if todo else (0, [])
+    print(f"baseline  {'passed' if rc == 0 else 'FAILED'}  {len(named)} named tests: "
+          f"{len(prior)} passed in {BASELINE_JUNIT if prior else 'no prior run'}, {len(todo)} run now")
     if rc:
         print("\n".join(failed))
         return 1
