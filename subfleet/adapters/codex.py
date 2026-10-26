@@ -1,6 +1,9 @@
 """Codex subscription adapter (C-9, C-10, C-12); no store or process ownership."""
 from __future__ import annotations
 
+from ..contracts import launch_capability
+from ..review_publish import codex_environment_overrides, protect_launch, publishing_denied
+
 import base64
 import json
 import math
@@ -539,13 +542,25 @@ class CodexAdapter(Adapter):
         sandbox = Sandbox(job.sandbox)
         if sandbox == Sandbox.WORKSPACE_WRITE and not guard_override:
             raise AdapterError("Writable Codex jobs require the never-rules guard", fix="Run the guard trust preflight and supply its hooks override.", reason="codex-guard-required")
+        from ..guard.preflight import PUBLISH_HOOK_KEY
+        if (sandbox == Sandbox.WORKSPACE_WRITE and publishing_denied(job) and not job.isolated_review
+                and PUBLISH_HOOK_KEY not in guard_override):
+            # C-12.3: zsh startup puts Homebrew ahead of the PATH wrappers, so the
+            # hook is the layer that refuses a writable review's gh writes.
+            raise AdapterError("Writable Codex reviews require the review publish hook",
+                               fix="Run the guard trust preflight with the publish hook and supply its hooks override.",
+                               reason="codex-publish-hook-required")
         home = lane.home or lane.credential.ref
         if not home or (credential_env.get("CODEX_HOME") and Path(credential_env["CODEX_HOME"]).expanduser().resolve() != Path(home).expanduser().resolve()):
             raise AdapterError("Codex credential home does not match the lane", fix="Resolve CODEX_HOME from this lane's original home.", reason="codex-home-mismatch")
         argv = [self.codex_bin, "exec", "--json"]
         if job.isolated_review:
             from .isolation import codex_args, validate_isolated_review
-            env = build_environment(credential_env)
+            # D-ENV2 (review r2 of #248, P3-2): the inspection withholds what the launch
+            # does, in or out of a helper scope; `inspect_codex` selects from this env.
+            environment = getattr(self, "provider_environment", None)
+            env = build_environment(credential_env,
+                                    withheld=environment.withheld() if environment is not None else ())
             validate_isolated_review(sandbox, job.review_root, os.environ.keys() | credential_env.keys())
             argv += ["--skip-git-repo-check"]  # The gate's required neutral cwd is not a repository.
             argv += codex_args(self.codex_bin, home=home, workdir=job.workdir, env=env,
@@ -577,6 +592,10 @@ class CodexAdapter(Adapter):
             argv += ["-c", "features.unified_exec=false"]
         if guard_override and not job.isolated_review:
             argv += ["-c", guard_override if guard_override.startswith("hooks=") else f"hooks={guard_override}"]
+        if publishing_denied(job):
+            # C-12.4, #221 review r2 P3-3: the git denial and the marker, pinned in
+            # Codex's own shell environment so a lane's policy cannot drop them.
+            argv += codex_environment_overrides()
         argv += ["--output-last-message", str(attempt_dir / "last.md")]
         if session_id:
             argv += ["resume", session_id, "-"]
@@ -587,9 +606,9 @@ class CodexAdapter(Adapter):
         attempt_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         sent_path = attempt_dir / "prompt.sent.md"
         atomic_publish(sent_path, read_regular(prompt_path))
-        return Launch(tuple(argv), env, ("CODEX_API_KEY", "OPENAI_API_KEY"), job.workdir,
+        return protect_launch(job, Launch(tuple(argv), env, ("CODEX_API_KEY", "OPENAI_API_KEY"), job.workdir,
                       str(sent_path), str(attempt_dir / "stdout"), str(attempt_dir / "stderr"),
-                      str(attempt_dir / "stream.jsonl"), session_id, lane.lane_id)
+                      str(attempt_dir / "stream.jsonl"), session_id, lane.lane_id, notes={"capability": launch_capability("codex", sandbox).value, "sandbox": sandbox.value}), attempt_dir)
 
     def build_launch(self, job: JobSpec, attempt_id: str, attempt_dir: Path, lane: Lane,
                      credential_env: dict[str, str], model_id: str, effort: str | None,

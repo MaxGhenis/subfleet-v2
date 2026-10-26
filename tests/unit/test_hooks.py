@@ -923,6 +923,33 @@ def test_timeout_is_explicit_and_overridable(monkeypatch):
     assert hooks.timeout_s() == 600
 
 
+
+# C-12.4, #221 review r1b P1: the installed `subfleet hook PreToolUse` applies
+# the publish rule in a launch that carries the marker, and only there.
+@pytest.mark.parametrize("command", ["gh pr comment 7 --body published", "gh api -iXPOST repos/o/r/issues/1/comments",
+                                     "cd . && gh pr merge 7", "git push origin HEAD"])
+def test_pre_tool_use_denies_publishing_in_a_publish_denied_launch(command):
+    import io
+    from subfleet.hooks import pre_tool_use
+    out = io.StringIO()
+    payload = {"tool_name": "Bash", "tool_input": {"command": command}}
+    assert pre_tool_use(payload, stdout=out, env={"SUBFLEET_PUBLISH_DENIED": "1"}) == 0
+    decision = json.loads(out.getvalue())["hookSpecificOutput"]
+    assert decision["permissionDecision"] == "deny" and "review publish: denied" in decision["permissionDecisionReason"]
+    quiet = io.StringIO()
+    assert pre_tool_use(payload, stdout=quiet, env={}) == 0 and quiet.getvalue() == ""
+
+
+@pytest.mark.parametrize("command", ["gh pr view 7", "gh pr checks 7", "gh run view 1 --log-failed", "uv run pytest -q"])
+def test_pre_tool_use_allows_reads_in_a_publish_denied_launch(command):
+    import io
+    from subfleet.hooks import pre_tool_use
+    out = io.StringIO()
+    assert pre_tool_use({"tool_name": "Bash", "tool_input": {"command": command}}, stdout=out,
+                        env={"SUBFLEET_PUBLISH_DENIED": "1"}) == 0
+    assert out.getvalue() == ""
+
+
 def test_post_tool_candidate_call_uses_remaining_deadline(root):
     """C-15.2 the initial list cannot spend more than the whole hook budget."""
     from types import SimpleNamespace

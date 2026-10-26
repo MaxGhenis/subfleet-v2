@@ -87,7 +87,7 @@ RETIRED_MODELS = {"sol": "astra"}
 LEGACY_TASK_CLASSES = {"review": "review", "build": "build", "sweep": "sweep"}
 LEGACY_MODEL_CLASSES = {"fable": "fable"}
 
-MODEL_CHOICES = ("fable", "opus", "sonnet", "haiku", "astra", "terra", "sol")
+MODEL_CHOICES = ("fable", "opus", "sonnet", "haiku", "astra", "terra", "luna", "sol61", "sol")
 TASK_CHOICES = ("lookup", "research", "sweep", "review", "build",
                 "authored-prose", "strategy", "adjudication")
 TIER_CHOICES = ("trivial", "easy", "standard", "hard")
@@ -464,6 +464,8 @@ def format_alerts(alerts: Any) -> list[str]:
 def format_status(data: dict[str, Any]) -> str:
     """Alerts in force, lanes with their newest readings, live closures, and running jobs."""
     lines: list[str] = format_alerts(data.get("alerts"))
+    if "restricted_runs_24h" in data:
+        lines.append(render.restricted_runs_text(data["restricted_runs_24h"]))
     lines.extend(render.provider_cap_text(row) for row in rows_of(data.get("provider_caps")))
     lanes = [dict(lane) for lane in rows_of(data.get("lanes"))]
     readings = [dict(row) for row in rows_of(data.get("readings"))]
@@ -895,6 +897,7 @@ def _prepare_submit(args: argparse.Namespace,
         workdir=workdir,
         prompt_path=prompt_path,
         sandbox=sandbox,
+        needs_shell=getattr(args, "needs_shell", None),
         task=args.task,
         tier=args.tier,
         pinned_model=args.m,
@@ -1097,8 +1100,9 @@ BATCH_KEYS: dict[str, tuple[str, str]] = {
     "allow_unmeasured_reserve": ("unmeasured_reserve_reason", "str"),
     "mcp": ("mcp", "list"),
     "push_branch": ("push_branch", "str"),
+    "needs_shell": ("needs_shell", "bool"),
 }
-BATCH_CHOICES = {"task": TASK_CHOICES, "tier": TIER_CHOICES, "model": MODEL_CHOICES,
+BATCH_CHOICES = {"task": TASK_CHOICES, "tier": TIER_CHOICES,
                  "sandbox": SANDBOX_CHOICES}
 BATCH_MAX = 256
 
@@ -1426,9 +1430,11 @@ def _wait_summary(job: dict[str, Any]) -> str:
               if row["state"] == JobState.SUCCEEDED.value else "-")
     attempt = job.get("attempt") or {}
     detail = job.get("outcome_detail") or attempt.get("outcome_detail")
+    capability = render.attempt_shell_text(job)
     return (f"{PROG} wait: {row['id']} {label} · {row['model'] or '-'} · "
             f"lane={row['lane'] or '-'} · {duration} · out={target}"
-            + (f" · {detail}" if state == "FAILED" and detail else ""))
+            + (f" · {detail}" if state == "FAILED" and detail else "")
+            + (f" · {capability}" if capability else ""))
 
 
 def wait_jobs(args: argparse.Namespace, ids: Sequence[str], *,
@@ -1807,6 +1813,9 @@ def _format_job(job: dict[str, Any]) -> str:
         value = job.get(key)
         if value not in (None, ""):
             lines.append(f"{label:<8} {value}")
+    copy = render.uncommitted_text(job.get("uncommitted") or (job.get("job") or {}).get("uncommitted"))
+    if copy:
+        lines.append(f"{'worktree':<8} {copy}")
     attempts = rows_of(job.get("attempts"))
     if attempts:
         lines.append("attempts")
@@ -1822,11 +1831,15 @@ def _format_job(job: dict[str, Any]) -> str:
                 f"  a{attempt.get('seq')} {attempt.get('state')} "
                 f"lane={attempt.get('lane_id')} model={attempt.get('model_requested')}"
                 + receipt
+                + f" capability={attempt.get('capability') or 'unknown'}"
                 + (f" rc={attempt.get('rc')}" if attempt.get("rc") is not None else "")
                 + (f" class={attempt.get('outcome_class')}"
                    if attempt.get("outcome_class") else "")
                 + (f" quarantine={attempt.get('quarantine_reason')}"
                    if attempt.get("quarantine_reason") else ""))
+            capability = render.attempt_shell_text({**job, "attempt": attempt})
+            if capability:
+                lines.append("    " + capability)
     artifacts = rows_of(job.get("artifacts"))
     if artifacts:
         lines.append("artifacts")
@@ -3425,8 +3438,8 @@ def build_parser() -> argparse.ArgumentParser:
                       help=argparse.SUPPRESS)          # deprecated (C-17.2)
     p_run.add_argument("--tier", choices=TIER_CHOICES,
                        help="minimum capability for --task")
-    p_run.add_argument("-m", dest="m", choices=MODEL_CHOICES,
-                       help="pin one model; never falls back (sol is retired → astra)")
+    p_run.add_argument("-m", dest="m", metavar="MODEL",
+                       help="pin a live policy model (" + ", ".join(MODEL_CHOICES) + "); never falls back (sol is retired → astra)")
     pins = p_run.add_mutually_exclusive_group()
     pins.add_argument("-a", dest="a", metavar="EMAIL", help="pin a Claude lane account")
     pins.add_argument("-H", dest="H", metavar="CODEX_HOME", help="pin a Codex lane home")
@@ -3445,7 +3458,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("-n", "--name", dest="name", metavar="NAME",
                        help="short label for the job id")
     p_run.add_argument("-s", dest="s", choices=SANDBOX_CHOICES,
-                       help="sandbox (default: the policy's permissions for --task; build writes, the rest read)")
+                       help="sandbox (default: policy permissions for --task; reviews write in their own git worktree)")
+    shell = p_run.add_mutually_exclusive_group()
+    shell.add_argument("--needs-shell", dest="needs_shell", action="store_true", default=None,
+                       help="commands only, no writes; for tests use -s workspace-write (default: policy requires for --task)")
+    shell.add_argument("--no-needs-shell", dest="needs_shell", action="store_false",
+                       help="allow launches without command execution")
     p_run.add_argument("-x", "--exclude", action="append", default=[], metavar="EMAIL",
                        help="never pick this account (repeatable)")
     p_run.add_argument("--allow-desktop", action="store_true",
@@ -3615,7 +3633,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_why.add_argument("id", nargs="?")
     p_why.add_argument("--task", choices=TASK_CHOICES)
     p_why.add_argument("--tier", choices=TIER_CHOICES)
-    p_why.add_argument("-m", dest="m", choices=MODEL_CHOICES)
+    p_why.add_argument("-m", dest="m", metavar="MODEL")
     p_why.add_argument("-x", "--exclude", action="append", default=[], metavar="EMAIL")
     p_why.add_argument("--allow-desktop", action="store_true")
     _add_json(p_why)

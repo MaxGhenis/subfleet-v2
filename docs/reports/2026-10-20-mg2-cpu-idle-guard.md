@@ -1,5 +1,750 @@
 # D-MG2: CPU idle and disk guard — fix report
 
+## Review-r3 P3 follow-up (2026-10-23)
+
+**Change-log entry — 2026-10-23:** implement P3-1, P3-2 and P3-3 from the
+approved r3 review; document handle disappearance and one-device baseline scans
+in C-6.13; record the read-only cost comparison and this follow-up's unit census.
+The existing C-6.13 sentence preserving counters and EWMA on an unreadable read
+is unchanged and now holds for failed root stat and lookup samples.
+
+All three P3 fixes are implemented. **426 distinct required cases passed** in
+separate guard (**275**) and admission/state (**151**) holds. All three requested
+mutants were rejected by their named regressions, with passing positive controls.
+The generated topology checks ran **3,000 fixed-seed sequences / 75,000 samples**.
+
+The combined required-gate and whole-unit census is **12,467 passed, 9 failed,
+22 skipped**, with no test-case errors or expected failures. Of **347 unit files**,
+**285 are complete, 6 partial and 56 unrun**. The five fake gate files are complete,
+**114 passed**. This is an **incomplete, non-green whole-unit run**. Collection
+manifests identify **at least 1,474 unrun unit cases**, plus the uncollected cases
+in `test_retention_shared_folders.py` and `test_retention_sweep_race.py`.
+
+### Branch, merge history and policy
+
+The follow-up starts at release/217 **15a73b7bde23**, which already includes #241.
+No merge or fetch was needed. The historical PR description described only the
+first release merge, **08ba94992** of **e345f0803**. The hub subsequently merged
+release **c2e080e44** in **f5b86cb05**; that second merge is an ancestor of this
+follow-up's base. Its release changes and both contract histories remain intact.
+
+The sandbox rejected the shared worktree index lock. As permitted by the brief,
+all commits use workspace-local **`.git-local`**, branch **`fix/mg2-p3-217`**,
+with the shared object store as a read-only alternate. The normal `.git` pointer
+still names the original detached checkout. **The hub must import the local
+branch before retiring this workspace.** No caller index, branch or checkout was
+written, no history was rewritten, and nothing was pushed.
+
+No live policy was read or edited. `subfleet/default_policy.json`, `policy.py`
+and `daemon.py` are unchanged from 15a73b7bde23. The default remains
+`machine_guard: null`; the proposal still has no disk or load threshold. Max's
+explicit policy edit under d1377 remains the activation step.
+
+### P3-1 — unknown topology preserves smoothing
+
+A failed stat or driver lookup produced `None`, which `_select_device` treated as
+a new identity. It discarded the prior counters and disk EWMA, then reset again
+when the original device returned. The sampler now keeps the last good root key,
+resolved driver, counter baseline and smoothing through either failure. A failed
+root check reads no disk counters; a failed resolution skips the counter read
+following that resolution. A changed root with a failed lookup stays pending and
+is retried, rather than reading its old root's still-readable driver.
+
+A different resolved driver or a root `st_dev` change between good resolved reads
+still resets counters and EWMA, including a reused registry ID. CPU and legacy
+sources remain independent. The existing native-counter rollback safety is
+unchanged.
+
+The review's `disk_busy_max = 4`, 10 ms/op through t=120, then 2 ms/op input now
+releases at **t=220** for all three rows: no fault, failed stat at t=121, and failed
+read plus lookup at t=121. The faulty implementation released the latter two at
+t=133. The smaller 0/1/2/3-second input recovers at approximately **4.6223 ms/op**,
+retaining its earlier counters and EWMA.
+
+**The oracle in `tests/unit/test_machine_topology.py` around the former line 103
+was corrected.** It previously expected a reset after an unknown sample. It now
+compares with the sampler's last good root key and resolved driver, so an unknown
+request does not manufacture an identity change.
+
+### P3-2 — retain the resolved handle and reject disappeared devices
+
+The old steady path rebuilt registry-ID matching dictionaries and asked
+`IOServiceGetMatchingService` for the driver every read. `_Storage` now owns one
+retained driver handle, including the handle obtained during ancestry resolution.
+Steady reads use it directly; diagnostic enumeration keeps its previous behavior.
+`close()` releases the cached right, and replacement and failed selected reads
+release it as appropriate. CF statistics snapshots and keys remain per-read owned
+objects and are released on every path.
+
+**Disappearance is defined by detachment from the IOService plane.** The selected
+handle must be attached before and after its statistics snapshot, and its registry
+ID must match the requested driver. A retained detached object may still expose
+old statistics; these are rejected as unknown. The failed read drops the native
+handle while retaining the sampler's counters and EWMA. The next selected read
+resolves by registry ID, unless the sampler's ancestry recovery has already
+supplied a fresh handle. A successful different-device resolution still follows
+the normal baseline-only first sample rule.
+
+The existing registry fake was extended with handle identity and attachment. The
+regressions cover two steady reads with one lookup, ownership transfer from
+ancestry, idempotent close, readable stale properties after detachment, registry-ID
+re-resolution on the following read, a mismatched replacement handle, and
+detachment during statistics acquisition. The old selected-read release assertion
+now explicitly closes the retained handle.
+
+### Read-only cost comparison
+
+One suite-wrapper hold alternated method order over **N=300 measured reads each**,
+with one warmup per method. Both read physical driver **4294970958**, resolved from
+an owned root on the state volume; every measured result was checked for that
+identity. No device writes or saturation workload ran. The host was on **AC**, with
+load1 **21.09 before / 22.84 after**; Python was GIL CPython **3.14.7**.
+
+| Storage read method | N | Median, µs | p90, µs |
+|---|---:|---:|---:|
+| Registry-ID lookup, source at 15a73b7bde23 | 300 | 834.42 | 5,580.71 |
+| Retained handle, including identity/attachment checks | 300 | 53.94 | 99.33 |
+
+p90 is the nearest-rank 90th percentile. These are observed reader wall times,
+including host scheduling. They exclude CPU, root checks, legacy sampling and
+SQLite recording. The retained reader's median was about **15.5× faster** in this
+run. The previous complete-sampler measurements below remain historical evidence.
+`tools/measure_machine_device_reads.py` provides the same alternating comparison,
+using a scratch copy of the base source for the old reader.
+
+### P3-3 — one device identity per baseline
+
+The eligible-row predicate re-read `self.device_id` for every history row while
+admission could change it. Value and age could therefore use rows from two
+drivers. `_baseline` now captures the identity once and passes it to the shared
+eligibility predicate. Percentile and newest observation use that one eligible
+set, timestamp and cutoff. The exact two-row history (device 1 at 2 ms/op at 1000;
+device 2 at 50 ms/op at 1900; switch between rows; status at 2000) reports
+**2.0 ms/op aged 1,000 seconds**.
+
+### Invariants and property evidence
+
+| Invariant | Evidence |
+|---|---|
+| **One device per reading:** no reading or baseline mixes two devices. | Independent elapsed-weight EWMA/counter state model across replacements, returns and reused IDs; unrelated-driver calibration rows; native mismatched-handle rejection; exact two-row status interleaving. |
+| **Unknown is not a change:** an unreadable sample never holds, releases or resets. | Failed stat/lookup continuity checks preserve root/device/counters/time/EWMA; generated unknown rows hold nothing and preserve latch membership; failed-stat counter-call trap. |
+| **Resets are real:** counters and EWMA reset only on a different resolved device or a `st_dev` change between two good reads. | Model compares counter baseline, identity, timestamp, EWMA numerator and weight at every generated step; explicit changed-root/failed-lookup recovery and reused-ID regressions. |
+
+`test_machine_device_properties.py` uses seeds **241, 613 and 20261023**, **1,000
+sequences each**, **25 sample events per sequence**. Each sequence includes stat
+failure, failed lookup, same-device return, a changed root reusing an ID, and a
+driver replacement before its bounded random events. The topology model uses
+valid nondecreasing counters; existing handling of a genuine native counter
+rollback remains separate and unchanged under C-6.13. A resolved topology change
+is real evidence even when its first counter sample is baseline-only. Unknown
+reads interrupt the latch's recovery timer while preserving counters and EWMA.
+
+Existing bounded Hypothesis device/age and scheduler properties remain intact.
+No deep profile ran.
+
+### Tests first and named mutations
+
+The initial pre-fix regression hold produced **14 failures and 1 passing control**,
+without collection/setup errors. The small continuity fixture was then corrected
+to the review's short intervals before the tests-first commit; an additional
+mid-read-detachment regression was added before implementation. The subsequent
+required guard hold passed all 275 cases and the admission/state hold all 151.
+
+The mutation file compiles isolated module copies; production source is never
+mutated. Anchor validation is outside expected-failure handling. Each mutant's
+named assertion failed and its unmodified positive control passed: **6 passed**.
+
+| Mutation | Named rejecting regression |
+|---|---|
+| Remove the unknown-identity guard so a failed lookup becomes a change | `test_unknown_sample_preserves_counter_baseline_and_smoothing[lookup]` |
+| Re-read `device_id` for every history row | `test_status_baseline_captures_device_once_before_history_scan` |
+| Read through a detached stale handle by removing attachment checks | `test_disappeared_handle_is_unknown_then_reresolved_by_id` |
+
+Required-file counts, all complete and passing:
+
+| File | Passed |
+|---|---:|
+| `tests/unit/test_machine_signals.py` | 25 |
+| `tests/unit/test_machine_topology.py` | 12 |
+| `tests/unit/test_machine_device_continuity.py` | 13 |
+| `tests/unit/test_machine_device_properties.py` | 3 |
+| `tests/unit/test_machine_device_mutations.py` | 6 |
+| `tests/unit/test_scheduler_machine_signals.py` | 13 |
+| `tests/unit/test_policy.py` | 203 |
+| `tests/unit/test_admission_uncapped.py` | 27 |
+| `tests/unit/test_scheduler_priority_callers.py` | 9 |
+| `tests/unit/test_test_module_names.py` | 1 |
+| `tests/fake/test_machine_guard_daemon.py` | 6 |
+| `tests/fake/test_admission_priority.py` | 33 |
+| `tests/fake/test_admission_ramp.py` | 19 |
+| `tests/fake/test_reset_credit_incident.py` | 19 |
+| `tests/fake/test_state_contract.py` | 37 |
+
+`tests/unit/test_daemon_admission*.py` matches no files at this base. Verification
+used the actual uncapped admission and scheduler-caller unit modules, the guard
+fake, admission priority/ramp fakes, and reset-credit incident fake listed above.
+Every `test_machine*.py`, plus scheduler machine signals and policy, ran in the
+275-case guard hold. State contract and module-name checks ran in the second hold.
+
+### Whole-unit sweep, failures and unrun work
+
+The census combines required gates and the whole-unit attempt, deduplicated by
+pytest node ID and taking each case's latest recorded JUnit outcome. Synthetic
+session interruption/harness error records with no test file are excluded from
+product case counts. A file is complete only when its collected cases were
+recorded, or its earlier complete required/file execution establishes completion.
+Partial-file counts include only their recorded cases. Failing cases were retained;
+they were not silently deselected as passes in later summaries.
+
+| Directory/scope | Passed | Failed | Skipped | Complete files | Partial | Unrun |
+|---|---:|---:|---:|---:|---:|---:|
+| All 347 unit files | 12,467 | 9 | 22 | 285 | 6 | 56 |
+| Five requested/equivalent fake gate files | 114 | 0 | 0 | 5 | 0 | 0 |
+
+The other **108 of 113 fake modules** were unrun; the follow-up requested the whole
+unit directory rather than a whole-fake sweep. A fresh base replay of the nine
+failures was also unrun when the hold-start window closed. The inherited brief
+already identifies importer, QoS and descriptor baseline failures. Their tests
+and the implementation files appearing in these failure stacks, plus `bin/codex`,
+are unchanged from 15a73b7bde23; a `git diff --exit-code` check confirmed this. This
+follow-up does **not** claim fresh base reproduction of the timeout failures.
+
+| Failed case | Observed result |
+|---|---|
+| `test_descriptors.py::test_c16_6_the_kernel_ceiling_is_read_on_macos` | Kernel ceiling returned `None` in the sandbox. |
+| `test_daemon_qos_tools.py::test_thread_priorities_reads_every_thread_of_a_clamped_process` | Sandbox denied `/bin/ps` with `PermissionError`. |
+| `test_importer.py::test_states_map_from_rc` | Expected lost attempt remained running. |
+| `test_importer.py::test_the_daemon_never_adopts_an_external_run` | Extra lost attempt classified as live imported work. |
+| `test_importer.py::test_a_live_claude_process_outside_subfleet_keeps_history_out_and_fences_nothing[True]` | History stayed held by a legacy owner. |
+| `test_retention_archive.py::test_parked_jobs_take_turns_at_the_pass_time` | 180 s per-test timeout in `F_FULLFSYNC`; it had passed in the earlier partial file run. |
+| `test_mirror_flags_stateful.py::test_the_mirror_follows_its_flag_protocol_on_random_interleavings[0]` | 180 s timeout during `os.replace`, followed by Hypothesis `FlakyStrategyDefinition`. |
+| `test_suggestion_structural_errors.py::test_generated_exception_and_caller_text_never_reaches_any_channel` | 180 s timeout during parser construction, wrapped by Hypothesis. |
+| `test_codex_shim.py::test_shim_forwards_model_and_original_argv[args0-gpt-6-astra]` | The test's own subprocess timed out after 5 s. |
+
+Partial files and their known remaining cases:
+
+| File | Passed so far | Unrun cases |
+|---|---:|---:|
+| `tests/unit/test_launch_env_round4.py` | 26 | 14 |
+| `tests/unit/test_launch_env_round5.py` | 21 | 18 |
+| `tests/unit/test_reset_credit_properties.py` | 1 | 10 |
+| `tests/unit/test_sessions_headless_properties.py` | 3 | 2 |
+| `tests/unit/test_sessions_mirror_safety.py` | 25 | 3 |
+| `tests/unit/test_suggestions_r1b_adversarial.py` | 11 | 19 |
+
+<details><summary>All 56 wholly unrun unit files</summary>
+
+- `tests/unit/test_limit_from_model_text.py`
+- `tests/unit/test_live_store_guard_round9_mutations.py`
+- `tests/unit/test_live_store_guard_state_root.py`
+- `tests/unit/test_mcp_cli_contract.py`
+- `tests/unit/test_notify_push.py`
+- `tests/unit/test_outcome_unknown.py`
+- `tests/unit/test_prune_decision_backup_verification.py`
+- `tests/unit/test_resource_identity.py`
+- `tests/unit/test_retention_nested_leases.py`
+- `tests/unit/test_retention_regenerable.py`
+- `tests/unit/test_retention_regenerable_properties.py`
+- `tests/unit/test_retention_salvage_properties.py`
+- `tests/unit/test_retention_shared_folders.py`
+- `tests/unit/test_retention_sweep_race.py`
+- `tests/unit/test_retention_turn_contract.py`
+- `tests/unit/test_retention_turn_workdirs.py`
+- `tests/unit/test_retention_turns.py`
+- `tests/unit/test_review_pr127_pr_wakes.py`
+- `tests/unit/test_review_pr127_report.py`
+- `tests/unit/test_review_pr127_requests.py`
+- `tests/unit/test_review_r2_repro.py`
+- `tests/unit/test_review_r3_measure.py`
+- `tests/unit/test_review_r5_repro.py`
+- `tests/unit/test_scheduler.py`
+- `tests/unit/test_scheduler_turns.py`
+- `tests/unit/test_scrub_key_order.py`
+- `tests/unit/test_sessions_mirror.py`
+- `tests/unit/test_sessions_mirror_cache_coherence.py`
+- `tests/unit/test_sessions_nudge.py`
+- `tests/unit/test_sessions_revive.py`
+- `tests/unit/test_soak_tools.py`
+- `tests/unit/test_stop_alarm.py`
+- `tests/unit/test_stop_watchdog.py`
+- `tests/unit/test_stopped_daemon.py`
+- `tests/unit/test_store_ids.py`
+- `tests/unit/test_store_snapshot_plans.py`
+- `tests/unit/test_suggest_hint.py`
+- `tests/unit/test_suggestion_error_boundaries.py`
+- `tests/unit/test_suggestion_properties.py`
+- `tests/unit/test_suggestion_secret_properties.py`
+- `tests/unit/test_suggestions_review_multiline.py`
+- `tests/unit/test_suggestions_review_response.py`
+- `tests/unit/test_tick_prefilter.py`
+- `tests/unit/test_timers_alerts.py`
+- `tests/unit/test_timers_busy_read.py`
+- `tests/unit/test_timers_keepalive.py`
+- `tests/unit/test_timers_reset_credits.py`
+- `tests/unit/test_title_review_regressions.py`
+- `tests/unit/test_turn_attachment_replay.py`
+- `tests/unit/test_turn_overlap.py`
+- `tests/unit/test_turn_replay.py`
+- `tests/unit/test_turn_runner.py`
+- `tests/unit/test_ultracode_effort.py`
+- `tests/unit/test_unadmittable_pin.py`
+- `tests/unit/test_wait_hub.py`
+- `tests/unit/test_wake_cli.py`
+
+</details>
+
+### Hold accounting and workflow corrections
+
+Own start was **12:15 UTC**, so new holds stopped at **16:45 UTC**. The last hold
+was already started before that cutoff and completed afterward. A runner guard
+prevents a queued wrapper from beginning pytest after the cutoff. Each test hold
+had one outer pytest invocation, no xdist workers, and unset
+`SUBFLEET_RETENTION_DORMANT`. Resumptions got separate wrapper holds and deselected
+already recorded cases. The directory census includes earlier complete gates,
+so those successful files are not counted as unrun merely because a later sweep
+batch was queued.
+
+The following rows show per-invocation counts, which intentionally contain repeat
+executions; they are not summed for the deduplicated directory census. Manual
+rows give pytest elapsed seconds; automatic rows give observed active-wrapper
+seconds, including startup/cleanup.
+
+| Hold/result | Passed / failed / skipped | Seconds | Completion |
+|---|---:|---:|---|
+| `guard.xml` | 275 / 0 / 0 | 11.37 | complete |
+| `admission.xml` | 151 / 0 / 0 | 334.20 | complete |
+| `unit-1.xml` | 973 / 1 / 0 | 1221.33 | interrupted |
+| `sweep-1.xml` | 30 / 1 / 0 | 908.88 | interrupted |
+| `sweep-4.xml` | 496 / 0 / 0 | 922.17 | interrupted |
+| `auto-02/results.xml` | 385 / 1 / 0 | 1112.03 | time interruption |
+| `auto-03/results.xml` | 528 / 0 / 2 | 1122.09 | time interruption |
+| `auto-04/results.xml` | 220 / 0 / 0 | 441.12 | harness interruption |
+| `auto-05/results.xml` | 354 / 0 / 3 | 454.66 | harness interruption |
+| `auto-06/results.xml` | 1350 / 2 / 0 | 1102.89 | time interruption |
+| `auto-07/results.xml` | 828 / 3 / 5 | 1114.88 | time interruption |
+| `auto-08/results.xml` | 562 / 0 / 4 | 1094.32 | time interruption |
+| `auto-09/results.xml` | 1473 / 0 / 0 | 643.39 | complete |
+| `auto-10/results.xml` | 1145 / 0 / 2 | 1008.44 | complete |
+| `auto-11/results.xml` | 658 / 0 / 0 | 1098.84 | time interruption |
+| `auto-12/results.xml` | 2437 / 1 / 6 | 592.74 | complete |
+| `auto-13/results.xml` | 970 / 0 / 0 | 452.24 | complete |
+| `auto-14/results.xml` | 78 / 0 / 0 | 255.19 | complete |
+
+Workflow deviations/corrections are explicit:
+
+- The first broad unit invocation exceeded the 20-minute rule: **1221.33 s of
+  pytest**, before wrapper overhead. Its attempted 18-minute `SIGALRM` bound was
+  overwritten by pytest-timeout's per-test alarms. It was interrupted. Later
+  holds used an independent thread sending SIGINT, first at 15 minutes and then
+  at 18 minutes with cleanup margin; all subsequent active holds stayed below
+  20 minutes. The controller's hard-stop fallback was never needed.
+- The first controller argument list used literal newline escapes. It was stopped
+  without executing test cases, corrected, and excluded from the product census.
+  Process-group signaling was denied in this sandbox; the normal foreground
+  process arrangement and directly owned pytest PID were used subsequently.
+- Two already-started holds hit an evidence-hook `TMPDIR` lookup while tests
+  cleared their environment, stopping after 220 passes and 354 passes/3 skips.
+  The hook was corrected to capture its path and I/O before tests run. Their
+  recorded cases were preserved and untouched cases queued for later holds;
+  remaining interrupted cases are visible in the census.
+- Two helpers were briefly started while locating the absent brief files. Once
+  the inherited no-sub-agent rule was found, both were interrupted before they
+  edited files or ran tests. All implementation and verification then ran here.
+
+Environment setup reused one owned CPython 3.14.7 venv. Offline `uv sync` could
+not populate its empty private cache, so the locked test package versions were
+repacked from existing cache payloads into a small owned wheelhouse and installed
+through the setup wrapper. Pytest **9.1.1**, Hypothesis **6.168.1** and pytest-timeout
+**2.4.0** were reused with `uv run --offline --no-sync`; no dependency or lock file
+changed. All measurement and pytest invocations used the suite wrapper. No
+network remote, GitHub call, fetch, push or saturation run occurred.
+
+The required `pgrep -fl 'suite_hold.sh|pytest|lockf'` was attempted before writing
+this section; the sandbox cannot enumerate processes (`sysmond service not
+found`). Every recorded owned pytest PID was independently checked and was gone;
+all foreground wrapper/controller handles had completed and been reaped. Both
+helper turns are interrupted. No unrelated process was signalled.
+
+**Cleanup:** Verified complete. The owned `sf-mg2p3` folder is absent, including its venv, wheelhouse, private uv cache, all hold TMPDIRs, Hypothesis storage and probe/evidence files. Two test-created mode-0555 directories needed owner write permission restored inside that folder before the guarded removal succeeded. Five generated untracked repository bytecode caches were removed after checking that they contained no tracked paths. The shared temporary folder was not removed. Workspace-local Git metadata and committed source/report files remain for the hub.
+
+### Per-file census for this follow-up
+
+P = passed, F = failed, E = test-case error, S = skipped, XF = expected failure.
+A zero for an unrun file means no recorded execution, not a passing result.
+The two never-collected retention files have unknown remaining case counts.
+
+<details><summary>All 347 unit files and five fake gate files</summary>
+
+| File | P | F | E | S | XF | State | Known unrun cases |
+|---|---:|---:|---:|---:|---:|---|---:|
+| `tests/unit/test_admission_uncapped.py` | 27 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_agent_secret_credentials.py` | 7 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_app_cutover_daemon.py` | 13 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_approval_commit.py` | 6 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_approval_resolution.py` | 33 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_boot_identity.py` | 10 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_capacity_desktop.py` | 20 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_capacity_steer_mutations.py` | 10 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_capacity_steer_route.py` | 22 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_capacity_view.py` | 20 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_census_counted.py` | 5 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_census_identity_uncertainty.py` | 8 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_census_procargs.py` | 52 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_census_recycled_pid.py` | 25 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_census_responsibility_failures.py` | 20 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_census_responsibility_identity.py` | 17 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_census_responsibility_races.py` | 34 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_census_survivors_review.py` | 14 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_ci_retry_known_flakes.py` | 72 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_ci_shard_plugin.py` | 48 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_claude_adapter.py` | 170 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_claude_attest.py` | 19 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_claude_cards.py` | 96 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_claude_cards_wiring.py` | 15 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_claude_conversation_mcp_scope.py` | 8 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_claude_identity.py` | 30 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_claude_large_stream.py` | 30 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_claude_mcp.py` | 32 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_claude_mcp_launch.py` | 11 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_claude_stream.py` | 60 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_claude_synthetic_error.py` | 63 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_claude_turn.py` | 69 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_claude_usage.py` | 28 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_claude_v1_parity.py` | 6 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_cli.py` | 248 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_cli_batch.py` | 18 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_cli_turns.py` | 23 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_client_availability.py` | 22 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_codex_adapter.py` | 172 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_codex_ca_bundle.py` | 46 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_codex_ca_bundle_provider.py` | 6 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_codex_probe.py` | 55 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_codex_shim.py` | 30 | 1 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_codex_turn.py` | 67 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_codex_turn_completed.py` | 41 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_compat.py` | 1615 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_continuation_r2.py` | 11 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_conversation_catalog.py` | 15 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_conversation_catalog_lifecycle.py` | 21 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_conversation_connections.py` | 9 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_conversation_diff.py` | 39 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_conversation_fifo_reads.py` | 26 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_conversation_handoff.py` | 48 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_conversation_handoff_briefs.py` | 28 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_conversation_handoff_dispatch_races.py` | 9 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_conversation_history.py` | 22 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_conversation_peers_attachments.py` | 44 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_conversation_reconcile.py` | 36 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_conversation_redact.py` | 9 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_conversation_service.py` | 100 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_conversation_state_reads.py` | 18 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_conversation_status.py` | 9 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_conversation_steer_service.py` | 45 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_conversation_store.py` | 32 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_conversation_stream_assertion.py` | 13 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_conversation_titles.py` | 89 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_conversation_waits.py` | 9 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_conversation_wakes.py` | 28 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_cpu_scaling.py` | 2 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_daemon_accept.py` | 5 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_daemon_connections.py` | 31 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_daemon_fifo_reads.py` | 27 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_daemon_init_release.py` | 2 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_daemon_inspection_load.py` | 22 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_daemon_inspection_properties.py` | 4 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_daemon_integration.py` | 7 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_daemon_log_cut_windows.py` | 169 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_daemon_log_first_pass.py` | 25 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_daemon_log_handler.py` | 127 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_daemon_log_mutation_tool.py` | 4 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_daemon_log_reminders.py` | 101 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_daemon_log_scrubbing.py` | 86 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_daemon_log_sites.py` | 80 | 0 | 0 | 2 | 0 | complete | 0 |
+| `tests/unit/test_daemon_log_tail.py` | 16 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_daemon_qos_tools.py` | 3 | 1 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_daemon_refusals_cli.py` | 8 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_daemon_settle.py` | 61 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_daemon_verbs.py` | 15 | 0 | 0 | 5 | 0 | complete | 0 |
+| `tests/unit/test_decision_horizon.py` | 7 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_descriptor_review_fixes.py` | 56 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_descriptors.py` | 15 | 1 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_descriptors_desktop.py` | 8 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_desktop_account_cache.py` | 3 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_desktop_in_use.py` | 13 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_desktop_ledger.py` | 4 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_disk_admission.py` | 27 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_disk_floor.py` | 60 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_doctor.py` | 44 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_doctor_ca_bundle.py` | 16 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_doctor_identity.py` | 13 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_empty_provider_results.py` | 334 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_enrollment_runner.py` | 7 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_failed_keep.py` | 2 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_failed_keep_layout.py` | 4 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_failed_keep_prune.py` | 25 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_failed_keep_teardown.py` | 4 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_fake_codex_http.py` | 7 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_filesystem_identity_agreement.py` | 37 | 0 | 0 | 3 | 0 | complete | 0 |
+| `tests/unit/test_folders.py` | 23 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_forget_paced.py` | 2 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_fresh_until.py` | 1 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_frontend_probe_cache.py` | 4 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_frozen_provider_streams.py` | 217 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_gate_admission.py` | 24 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_gate_merge.py` | 59 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_gate_replay.py` | 23 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_gate_revision.py` | 16 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_gate_service.py` | 25 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_gate_verdict.py` | 45 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_guard_overlay.py` | 22 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_guard_trust.py` | 98 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_guardian.py` | 13 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_guardian_qos.py` | 14 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_handler_refusals.py` | 317 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_held_waiter_holdback.py` | 6 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_hidden_environment.py` | 7 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_hook_cost.py` | 5 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_hooks.py` | 72 | 0 | 0 | 1 | 0 | complete | 0 |
+| `tests/unit/test_hooks_native_guard.py` | 18 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_host_push.py` | 118 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_host_push_admission.py` | 15 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_host_push_build.py` | 10 | 0 | 0 | 1 | 0 | complete | 0 |
+| `tests/unit/test_host_push_build_budget.py` | 15 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_host_push_cli.py` | 7 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_host_push_config_cost.py` | 7 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_host_push_copy.py` | 11 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_host_push_export.py` | 10 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_host_push_intake.py` | 13 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_host_push_metadata.py` | 33 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_host_push_mutations.py` | 24 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_host_push_names.py` | 13 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_host_push_quarantine_restart.py` | 8 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_host_push_restart.py` | 4 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_host_push_retention.py` | 2 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_host_push_storage_recovery.py` | 2 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_host_push_storage_retry_budget.py` | 61 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_host_push_store_completion_pr183.py` | 2 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_host_push_store_interleavings.py` | 26 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_host_push_trees.py` | 5 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_host_push_validated_top.py` | 8 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_importer.py` | 145 | 3 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_inspection_pacing_properties.py` | 1 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_invariants_index.py` | 25 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_keychain_exec_guard_properties.py` | 3 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_lane_answers.py` | 27 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_lanes_transfer.py` | 79 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_launch_env_allowlist.py` | 27 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_launch_env_helpers.py` | 20 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_launch_env_mutations.py` | 41 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_launch_env_policy.py` | 26 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_launch_env_round2.py` | 67 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_launch_env_round3.py` | 69 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_launch_env_round4.py` | 26 | 0 | 0 | 0 | 0 | PARTIAL | 14 |
+| `tests/unit/test_launch_env_round5.py` | 21 | 0 | 0 | 0 | 0 | PARTIAL | 18 |
+| `tests/unit/test_lease_waiter_selection.py` | 6 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_legacy_hold.py` | 50 | 0 | 0 | 6 | 0 | complete | 0 |
+| `tests/unit/test_limit_from_model_text.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 95 |
+| `tests/unit/test_live_store_guard.py` | 324 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_live_store_guard_round10.py` | 66 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_live_store_guard_round10_mutations.py` | 18 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_live_store_guard_round3.py` | 22 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_live_store_guard_round4.py` | 8 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_live_store_guard_round5.py` | 11 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_live_store_guard_round6.py` | 112 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_live_store_guard_round7.py` | 50 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_live_store_guard_round7_mutations.py` | 23 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_live_store_guard_round8.py` | 100 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_live_store_guard_round8_mutations.py` | 4 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_live_store_guard_round9.py` | 89 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_live_store_guard_round9_mutations.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 12 |
+| `tests/unit/test_live_store_guard_state_root.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 22 |
+| `tests/unit/test_lockwatch.py` | 20 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_machine_device_continuity.py` | 13 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_machine_device_mutations.py` | 6 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_machine_device_properties.py` | 3 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_machine_signals.py` | 25 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_machine_topology.py` | 12 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_mcp_cli_contract.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 6 |
+| `tests/unit/test_mcp_scheduler_contract.py` | 5 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_mirror_flags_faults.py` | 29 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_mirror_flags_model.py` | 12 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_mirror_flags_stateful.py` | 1 | 1 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_native_operations.py` | 28 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_notice_rendering.py` | 21 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_notify_push.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 31 |
+| `tests/unit/test_offline.py` | 33 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_operator_hold_closures.py` | 15 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_operator_notices.py` | 79 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_outcome_unknown.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 58 |
+| `tests/unit/test_person_boundary.py` | 97 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_person_boundary_identity.py` | 25 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_picker.py` | 39 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_placement_ramp.py` | 26 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_policy.py` | 203 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_policy_disk.py` | 57 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_policy_ramp.py` | 46 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_policy_support.py` | 14 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_policy_tier_preferences.py` | 15 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_pr124_fixes.py` | 10 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_pr124_review_r2_fixes.py` | 6 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_pr192_review_r1.py` | 21 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_pr192_review_r2.py` | 9 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_procs.py` | 48 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_protocol_secrecy.py` | 322 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_provider_active_cap.py` | 50 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_prune_217.py` | 9 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_prune_decision_backup_verification.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 23 |
+| `tests/unit/test_prune_decision_fingerprints.py` | 15 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_prune_decisions.py` | 48 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_prune_restore.py` | 4 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_quota_projection.py` | 28 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_rank_review_report.py` | 3 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_reap_liveness.py` | 7 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_rediscovery_git_trace.py` | 17 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_relay.py` | 30 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_render.py` | 20 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_render_quota_projection.py` | 23 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_reserve_authorization_plumbing.py` | 5 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_reset_credit_claim_timing.py` | 2 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_reset_credit_demand.py` | 68 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_reset_credit_properties.py` | 1 | 0 | 0 | 0 | 0 | PARTIAL | 10 |
+| `tests/unit/test_reset_credit_review_r1.py` | 22 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_reset_credit_review_r2.py` | 52 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_reset_credit_review_r3.py` | 23 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_reset_credit_review_r3_mutants.py` | 12 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_resource_identity.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 10 |
+| `tests/unit/test_retention_81_notes.py` | 38 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_retention_archive.py` | 108 | 1 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_retention_archive_properties.py` | 2 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_retention_case_alias.py` | 56 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_retention_nested_leases.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 27 |
+| `tests/unit/test_retention_ordinary_trees.py` | 0 | 0 | 0 | 4 | 0 | complete | 0 |
+| `tests/unit/test_retention_qos.py` | 8 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_retention_readback.py` | 37 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_retention_rediscovery.py` | 17 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_retention_regenerable.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 26 |
+| `tests/unit/test_retention_regenerable_properties.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 1 |
+| `tests/unit/test_retention_salvage_properties.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 2 |
+| `tests/unit/test_retention_shared_folders.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | not collected |
+| `tests/unit/test_retention_sweep_race.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | not collected |
+| `tests/unit/test_retention_turn_contract.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 2 |
+| `tests/unit/test_retention_turn_workdirs.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 1 |
+| `tests/unit/test_retention_turns.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 7 |
+| `tests/unit/test_retention_worktrees.py` | 15 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_review130_pass.py` | 21 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_review_pr127_fixes.py` | 12 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_review_pr127_history.py` | 6 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_review_pr127_pr_wakes.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 7 |
+| `tests/unit/test_review_pr127_report.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 1 |
+| `tests/unit/test_review_pr127_requests.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 17 |
+| `tests/unit/test_review_pr127_service.py` | 8 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_review_r223_conv_probes.py` | 17 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_review_r2_repro.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 31 |
+| `tests/unit/test_review_r3_measure.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 6 |
+| `tests/unit/test_review_r3_repro.py` | 12 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_review_r4_repro.py` | 27 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_review_r5_repro.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 17 |
+| `tests/unit/test_review_r6_probes.py` | 30 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_review_r6_restart.py` | 5 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_round10_refusal_context.py` | 59 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_route_check.py` | 24 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_salvage.py` | 31 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_salvage_optional_transient.py` | 15 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_salvage_ref_race.py` | 9 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_salvage_unindexable.py` | 86 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_scheduler.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 97 |
+| `tests/unit/test_scheduler_machine_signals.py` | 13 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_scheduler_priority_callers.py` | 9 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_scheduler_split.py` | 3 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_scheduler_tier_preferences.py` | 9 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_scheduler_turns.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 10 |
+| `tests/unit/test_scheduler_weekly.py` | 33 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_scoped_stream_capacity.py` | 17 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_scrub_key_order.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 70 |
+| `tests/unit/test_sessions_cli.py` | 142 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_sessions_handoff.py` | 117 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_sessions_handoff_excerpts.py` | 153 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_sessions_headless_properties.py` | 3 | 0 | 0 | 0 | 0 | PARTIAL | 2 |
+| `tests/unit/test_sessions_mirror.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 41 |
+| `tests/unit/test_sessions_mirror_cache_coherence.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 4 |
+| `tests/unit/test_sessions_mirror_fifo.py` | 49 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_sessions_mirror_hot_health.py` | 6 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_sessions_mirror_hot_progress.py` | 16 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_sessions_mirror_hot_regressions.py` | 22 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_sessions_mirror_inventory.py` | 8 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_sessions_mirror_load_gap.py` | 85 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_sessions_mirror_safety.py` | 25 | 0 | 0 | 0 | 0 | PARTIAL | 3 |
+| `tests/unit/test_sessions_mirror_write_churn.py` | 3 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_sessions_nudge.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 44 |
+| `tests/unit/test_sessions_registry.py` | 24 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_sessions_revive.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 45 |
+| `tests/unit/test_sessions_revive_reads.py` | 10 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_sessions_transcripts.py` | 71 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_settle_properties.py` | 129 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_soak_tools.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 49 |
+| `tests/unit/test_status_json.py` | 56 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_steer_invariants.py` | 248 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_stop_alarm.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 2 |
+| `tests/unit/test_stop_watchdog.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 29 |
+| `tests/unit/test_stopped_daemon.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 72 |
+| `tests/unit/test_store_contention_queries.py` | 212 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_store_ids.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 27 |
+| `tests/unit/test_store_migration_2.py` | 10 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_store_properties.py` | 3 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_store_readers.py` | 26 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_store_snapshot_plans.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 4 |
+| `tests/unit/test_suggest_cli.py` | 7 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_suggest_hint.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 10 |
+| `tests/unit/test_suggestion_error_boundaries.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 22 |
+| `tests/unit/test_suggestion_properties.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 1 |
+| `tests/unit/test_suggestion_secret_properties.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 7 |
+| `tests/unit/test_suggestion_structural_errors.py` | 39 | 1 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_suggestions.py` | 30 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_suggestions_r1b_adversarial.py` | 11 | 0 | 0 | 0 | 0 | PARTIAL | 19 |
+| `tests/unit/test_suggestions_r3_channels.py` | 14 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_suggestions_review_boundaries.py` | 7 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_suggestions_review_multiline.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 6 |
+| `tests/unit/test_suggestions_review_response.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 3 |
+| `tests/unit/test_test_module_names.py` | 1 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_tick_prefilter.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 30 |
+| `tests/unit/test_timers_alerts.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 17 |
+| `tests/unit/test_timers_busy_read.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 115 |
+| `tests/unit/test_timers_daemon.py` | 4 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_timers_keepalive.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 14 |
+| `tests/unit/test_timers_probe.py` | 35 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_timers_reset_credits.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 47 |
+| `tests/unit/test_timers_retention.py` | 20 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/unit/test_title_review_regressions.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 4 |
+| `tests/unit/test_turn_attachment_replay.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 13 |
+| `tests/unit/test_turn_overlap.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 10 |
+| `tests/unit/test_turn_replay.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 33 |
+| `tests/unit/test_turn_runner.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 83 |
+| `tests/unit/test_ultracode_effort.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 39 |
+| `tests/unit/test_unadmittable_pin.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 12 |
+| `tests/unit/test_wait_hub.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 44 |
+| `tests/unit/test_wake_cli.py` | 0 | 0 | 0 | 0 | 0 | UNRUN | 2 |
+| `tests/unit/test_weekly_rank_vs_base.py` | 26 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/fake/test_admission_priority.py` | 33 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/fake/test_admission_ramp.py` | 19 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/fake/test_machine_guard_daemon.py` | 6 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/fake/test_reset_credit_incident.py` | 19 | 0 | 0 | 0 | 0 | complete | 0 |
+| `tests/fake/test_state_contract.py` | 37 | 0 | 0 | 0 | 0 | complete | 0 |
+
+</details>
+
+### Commits
+
+- `b88c59142` — tests first: continuity, handle lifecycle, baseline race and
+  3,000-sequence properties; corrected topology oracle and registry fake.
+- `9f501267e` — three named mutations and their positive controls.
+- `a1a637acb` — unknown-state continuity, retained attached handle, baseline identity.
+- `13d03cfb7` — executable read-only 300/300-method cost comparison.
+- `4c4f8a4d5` — C-6.13 wording and its change-log entry.
+- This report commit records final counts, failures, unrun work and cleanup.
+
+All are on workspace-local `fix/mg2-p3-217`; nothing was pushed. The original
+round-2 and round-1 reports below remain historical records.
+
 ## Round-2 fix (2026-10-22–23)
 
 Both review findings are fixed. **404 distinct required cases passed**, counting

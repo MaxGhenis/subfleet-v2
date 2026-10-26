@@ -6,6 +6,9 @@ transactions contain only SQL (C-3.3, C-16.4).
 """
 from __future__ import annotations
 
+from .contracts import launch_has_shell, launch_capability
+from .policy import job_needs_shell, resolve_sandbox
+
 import argparse
 import contextlib
 import ctypes
@@ -81,7 +84,8 @@ from .salvage import (
 from .sessions import registry
 from .sessions.registry import CONVERSATION_FIX
 from .sessions.transcripts import NotRegularFile, open_regular, read_regular
-from .store import Store, _pin_notice_key, cancel_info, notice_fingerprint, notice_rows, pin_notice_jobs
+from .store import Store, _pin_notice_key, cancel_info, notice_fingerprint, notice_rows, pin_notice_jobs, shell_flags
+from . import uncommitted
 
 
 def spawn_guardian(command: list[str], *, disclaim: bool, **options):
@@ -95,7 +99,7 @@ def spawn_guardian(command: list[str], *, disclaim: bool, **options):
 def _helper_environment(function):
     @functools.wraps(function)
     def scoped(self, *args, **kwargs):
-        with helper_policy(getattr(self, "policy", {})):
+        with helper_policy(getattr(self, "policy", {}), withheld=self._helper_withheld):
             return function(self, *args, **kwargs)
     return scoped
 
@@ -294,6 +298,9 @@ LAUNCH_CHECK_UNFINISHED = "workdir-branch-check-unfinished:"
 #: C-13.1: how many of the paths a salvage left out the attempt's evidence and the
 #: job's notice name; both give the count of all of them.
 SALVAGE_SKIPPED_SHOWN = 5
+#: C-13.1 (D-SALV-MISSING1): what salvage records of a worktree that no longer exists.
+#: It is not a failure, and nothing is kept.
+WORKTREE_GONE = "worktree already gone: nothing to salvage"
 #: C-9.2, C-4.3: `finalization.json`'s `rule` when this daemon classified the
 #: attempt. Every replay keeps such a verdict as its first pass decided it; only a
 #: verdict an older daemon recorded, without it, is reconciled with completion proof.
@@ -313,6 +320,19 @@ def _skipped(paths: list[str]) -> dict:
     """C-13.1: what the evidence records of the paths a snapshot left out: how
     many, and the first `SALVAGE_SKIPPED_SHOWN`."""
     return {"count": len(paths), "paths": paths[:SALVAGE_SKIPPED_SHOWN]}
+
+
+def _gone(path: str) -> bool:
+    """D-SALV-MISSING1: is there nothing at `path`? Only an absence the file system
+    reports (no such entry, or a parent that is not a directory); a path that cannot be
+    looked at is not gone, and its salvage fails as git says."""
+    try:
+        os.lstat(path)
+    except (FileNotFoundError, NotADirectoryError):
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
+    return False
 
 
 def _left_out(skipped: dict) -> str:
@@ -351,12 +371,12 @@ def _evidence_key(evidence_json: str | None, key: str) -> Any:
     return evidence.get(key) if isinstance(evidence, dict) else None
 
 
-#: C-12.10: every path an allocation record names, released or not: each
-#: attempt's evidence and each probe's newest record.
-TMPDIR_PATHS = (
-    "SELECT json_extract(evidence_json,'$.tmpdir.path') AS path FROM attempts "
+#: C-12.10: every allocation record, released or not: each attempt's evidence
+#: and each probe's newest record.
+TMPDIR_RECORDS = (
+    "SELECT json_extract(evidence_json,'$.tmpdir') AS tmpdir FROM attempts "
     "WHERE json_valid(evidence_json) AND json_type(evidence_json,'$.tmpdir')='object' "
-    "UNION SELECT json_extract(data_json,'$.tmpdir.path') FROM events WHERE event_id IN ("
+    "UNION ALL SELECT json_extract(data_json,'$.tmpdir') FROM events WHERE event_id IN ("
     "SELECT MAX(event_id) FROM events WHERE kind='probe.state' AND json_valid(data_json) "
     "GROUP BY json_extract(data_json,'$.holder')) AND json_type(data_json,'$.tmpdir')='object'")
 
@@ -493,17 +513,42 @@ WRITE_PREAMBLE = (
     "Commit each coherent step on the assigned branch; never rewrite history "
     "or push to main or master. Leave a concise report of changes and tests.\n\n"
 )
+#: A writable review's preamble (#221 review r1b, P3-8): it may run tests and
+#: write scratch in its own worktree, and never commits or publishes; its
+#: verdict is its deliverable (C-12.4).
+REVIEW_PREAMBLE = (
+    "<!-- subfleet:review -->\n"
+    "This is a review. You may run tests and write scratch files in your own workspace "
+    "(below); nothing you write there is part of your answer. Do not commit, push or "
+    "publish anything, on GitHub or elsewhere: pushes and GitHub writes are refused in this "
+    "job. Your verdict, with the evidence for it, is your deliverable.\n\n"
+)
 #: What a writable job that is not in place is told about where it works
 #: (C-6.6, C-13.1). Without it a brief's absolute paths lead a writer back into
-#: the caller's checkout, which the job must never touch (review of d261).
+#: the caller's checkout, which the job must never touch (review of d261). An
+#: ignored file a brief names is never in the worktree, so the note says where
+#: it may be read (#221 review r2, P3-9).
 WORKSPACE_NOTE = (
     "Your workspace is {worktree}: a detached checkout of {top} at commit {head}, made "
     "for this job. It holds only what is committed there, none of the caller's uncommitted, "
     "untracked or ignored files (dependencies such as .venv or node_modules may need "
     "installing). The checkout at {top} is the caller's: where the task names a path in it, "
-    "use the same relative path in your workspace, and never write under {top}.{place} When the "
-    "job ends, Subfleet keeps what you changed here as a git ref under refs/subfleet-salvage/ in "
-    "that repository.\n\n"
+    "use the same relative path in your workspace, and never write under {top}. An ignored file "
+    "the task names (one under .diag/, say) is not in your workspace: you may read it in the "
+    "caller's checkout at the same relative path.{place} When the job ends, Subfleet keeps what "
+    "you changed here as a git ref under refs/subfleet-salvage/ in that repository.\n\n"
+)
+#: D-SH1 round 6: a policy review's worktree with the caller's uncommitted copy (`uncommitted`).
+WORKSPACE_NOTE_UNCOMMITTED = (
+    "Your workspace is {worktree}: a detached checkout of {top} at commit {head}, made "
+    "for this job, plus the caller's uncommitted changes and untracked files as of submit "
+    "({files} files), copied in; it holds none of the caller's ignored files (dependencies "
+    "such as .venv or node_modules may need installing). The checkout at {top} is the "
+    "caller's: where the task names a path in it, use the same relative path in your "
+    "workspace, and never write under {top}. An ignored file the task names (one under .diag/, "
+    "say) is not in your workspace: you may read it in the caller's checkout at the same "
+    "relative path.{place} When the job ends, Subfleet keeps what you changed here as a git ref "
+    "under refs/subfleet-salvage/ in that repository.\n\n"
 )
 #: The caller ran the job from a directory below the repository's top (review B-4).
 WORKSPACE_PLACE = (" The caller ran this job from {top}/{prefix}: a path the task gives relative to "
@@ -755,6 +800,9 @@ class Daemon:
         self.stop_grace_s = stop_grace_s
         self.on_stop: Callable[[], bool | None] | None = None
         self.crash_hook, self.publish_hook = crash_hook, publish_hook
+        # C-12.4, #221 review r2 P3-7: publish-hook self-tests that denied, for
+        # this daemon run, keyed by hook command and the hashes of its files.
+        self._hook_self_tests: dict[tuple, bool] = {}
         # C-10.3: who asks the desktop app's own credential who it is. `None`
         # means the Claude adapter's keychain reader; a harness that must not
         # touch a real login passes its own, and one that returns nothing keeps
@@ -1503,6 +1551,8 @@ class Daemon:
                     "closures": self.store.list_closures(),
                     "attempts": self.store.query(ROUTE_ATTEMPTS if route else STATUS_ATTEMPTS),
                     "jobs": self.store.query(ROUTE_JOBS if route else STATUS_JOBS)}
+            if not route:
+                rows["jobs"] = [shell_flags(row) for row in rows["jobs"]]
             if scheduler.provider_caps_on(self.policy):
                 quarantines = self.store.query(PROVIDER_QUARANTINES)
                 if route:
@@ -2262,6 +2312,8 @@ class Daemon:
         # `turn` is the dispatcher's own block (C-26.1); nothing else passes it.
         if (args.kind == "turn") != (turn is not None):
             raise AdapterError("a turn job needs its conversation's turn block", code=7, reason="turn-block")
+        if args.push_branch is not None and (args.task == "review" or args.kind == "gate-review"):
+            raise AdapterError("reviews cannot publish", code=7, fix="omit --push-branch", reason="review-publish")
         if args.push_branch is not None and args.kind != "dispatch":
             raise AdapterError("host push is supported for dispatch jobs", code=7,
                                fix="submit a dispatch with --push-branch", reason="push-dispatch-only")
@@ -2310,17 +2362,17 @@ class Daemon:
             # pass of a job submit had accepted (C-6.12).
             args = dataclasses.replace(args, task=args.task or None, tier=args.tier or None)
             from_policy = args.sandbox == protocol.POLICY_SANDBOX
-            if from_policy:
-                args = dataclasses.replace(args, sandbox=self._policy_sandbox(args))
             try:
                 ids.request_id(args.request_id)
                 if not isinstance(args.exclusions, list) or any(not isinstance(name, str) for name in args.exclusions):
                     # C-6.12: admission merges these with lane ids, so each must be a name.
                     raise ValueError("exclusions must be a list of lane names")
-                sandbox = Sandbox(args.sandbox)
                 workdir = Path(args.workdir).expanduser().resolve(strict=True)
                 if not workdir.is_dir():
                     raise ValueError("workdir must be a directory")
+                if from_policy:
+                    args = dataclasses.replace(args, sandbox=self._policy_sandbox(args))
+                sandbox = Sandbox(args.sandbox)
                 review_root = None
                 if args.isolated_review:
                     from .adapters.isolation import validate_isolated_review
@@ -2390,7 +2442,22 @@ class Daemon:
                                            fix="commit a baseline or run it from a repository, or pass -s read-only "
                                                "to run it here without writing", reason="policy-workdir",
                                            details={"repository": where, "task": args.task})
-                    raise AdapterError("writable jobs require a committed git repository", fix="initialize a feature branch and commit a baseline", reason="writable-repository")
+                    raise AdapterError("writable jobs require a committed git repository", fix="initialize a feature branch and commit a baseline, or pass -s read-only", reason="writable-repository")
+                copy_plan = copy_fallback = None
+                if (from_policy and sandbox == Sandbox.WORKSPACE_WRITE and not args.in_place and turn is None
+                        and head is not None and args.push_branch is None
+                        and self._policy_entry(args) == "worktree-write"):
+                    # D-SH1 round 6 (#221 review r1b, P2): a review in its own worktree
+                    # sees what its caller sees, or reads the checkout in place. Decided
+                    # here, before the job exists, so no sandbox is lowered after submit.
+                    cap = self.policy["caps"]["workspace_git_timeout_s"]
+                    try:
+                        copy_plan = uncommitted.plan(git_toplevel(str(workdir), timeout_s=cap) or str(workdir),
+                                                     head, scratch_root=self.root / "tmp", timeout_s=cap)
+                    except uncommitted.CopyRefused as exc:
+                        copy_fallback = str(exc)
+                        args = dataclasses.replace(args, sandbox=Sandbox.READ_ONLY.value)
+                        sandbox = Sandbox.READ_ONLY
                 # C-6.5: an in-place job's hold is its checkout, not the directory
                 # named by -C, so `/repo` and `/repo/sub` are one place to write. It is
                 # spelled one way (`folders.canonical`, as a conversation's workspace
@@ -2416,8 +2483,17 @@ class Daemon:
                 # on every folder above it, by string operations alone (`folders.retiring`).
                 folder = read_folder or (folders.canonical(workdir) if turn is None and write_target is None else None)
                 model = args.pinned_model
-                if model:
-                    model = resolve_model(self.policy, model)
+                if model is not None:
+                    try:
+                        model = resolve_model(self.policy, model)
+                    except PolicyError as exc:
+                        raise AdapterError(f"unknown pinned model {model!r}; policy models: "
+                                           + ", ".join(self.policy["models"]), code=7,
+                                           fix="pin a model from the live policy",
+                                           reason="unknown-pinned-model", details={"model": model}) from exc
+                if args.needs_shell is not None and type(args.needs_shell) is not bool:
+                    raise ValueError("needs_shell must be true or false")
+                needs_shell = job_needs_shell(self.policy, dataclasses.asdict(args))
                 if args.task and args.task not in self.policy["chains"]:
                     raise ValueError(f"unknown task {args.task}")
                 if args.tier and args.tier not in self.policy["tiers"]:
@@ -2452,6 +2528,10 @@ class Daemon:
                 provider = self.policy["models"][task_model]["provider"]
                 if lane and lane.provider != provider:
                     raise ValueError("pinned lane and model providers disagree")
+                if needs_shell and (model or lane) and not launch_has_shell(provider, sandbox):
+                    raise AdapterError(f"needs a shell: {task_model} runs {sandbox.value} jobs without one",
+                                       code=7, fix="pass -s workspace-write, or pin a Codex model",
+                                       reason="needs-shell", details={"model": task_model, "sandbox": sandbox.value})
                 if lane:
                     self._validate_home(lane)
                 mcp_found = self._mcp_entries(args, mcp_servers, workdir, resume) if mcp_servers else None
@@ -2469,7 +2549,7 @@ class Daemon:
                     isolated_review=args.isolated_review, review_root=review_root,
                     round_lease=args.round_lease, resume=resume,
                     unmeasured_reserve_reason=reason, mcp_servers=mcp_servers,
-                    push_branch=args.push_branch, push_remote=push_remote)
+                    push_branch=args.push_branch, push_remote=push_remote, needs_shell=needs_shell)
                 if turn is not None:
                     # C-6.2 for turns: the message digest, not HEAD or the policy
                     # hash, so a restart can always re-bind the job (review IR-1).
@@ -2513,7 +2593,7 @@ class Daemon:
             values = dataclasses.asdict(args)
             for k in ("allow_tmp", "no_preamble", "dry_run", "batch", "pinned_provider"):
                 values.pop(k)
-            values.update(job_id=job_id, state="queued", payload_digest=digest,
+            values.update(job_id=job_id, state="queued", payload_digest=digest, needs_shell=needs_shell,
                           workdir=recorded_workdir, workdir_head=head, out_path=out,
                           push_remote=push_remote, push_default_branch=push_default,
                           pinned_model=model, pinned_lane=pinned_lane, prompt_path=str(jobdir / "prompt.md"),
@@ -2570,6 +2650,18 @@ class Daemon:
             if turn is not None:
                 manifest["turn"] = turn
             note = b""
+            copied = None
+            if copy_plan is not None:
+                try:
+                    copied = uncommitted.keep(copy_plan, jobdir)
+                except uncommitted.CopyRefused as exc:
+                    shutil.rmtree(jobdir, ignore_errors=True)
+                    raise AdapterError(f"the caller's uncommitted files changed while they were copied: {exc}",
+                                       code=int(Exit.OPERATIONAL), fix="submit again",
+                                       reason="uncommitted-copy") from None
+                manifest["uncommitted"] = copied
+            elif copy_fallback is not None:
+                manifest["uncommitted"] = {"fallback": copy_fallback}
             if resume_workspace:
                 # Review B-2: a resume starts where its source started (`_launch_dir`).
                 manifest["workspace"] = resume_workspace
@@ -2602,7 +2694,10 @@ class Daemon:
                         # Review B-4: the worktree will not hold it; start at the top.
                         prefix = "."
                 manifest["workspace"] = {"worktree": str(worktree), "prefix": prefix}
-                note = WORKSPACE_NOTE.format(worktree=worktree, top=top, head=head[:12], place=place).encode()
+                note = (WORKSPACE_NOTE_UNCOMMITTED.format(worktree=worktree, top=top, head=head[:12], place=place,
+                                                          files=copied["files"])
+                        if copied else WORKSPACE_NOTE.format(worktree=worktree, top=top, head=head[:12],
+                                                             place=place)).encode()
                 if args.push_branch is not None:
                     note = note.replace(b"Subfleet keeps what you changed here as a git ref under refs/subfleet-salvage/ in that repository.",
                                         b"Subfleet accepts committed work only through your push bundle.")
@@ -2627,8 +2722,9 @@ class Daemon:
                 # Review B-3: `--no-preamble` drops the template, never the note on
                 # where the job may write.
                 prepared_path = jobdir / "prompt.prepared.md"
+                template = REVIEW_PREAMBLE if args.task == "review" or args.kind == "gate-review" else WRITE_PREAMBLE
                 self._publish("prompt-prepared", prepared_path,
-                              (WRITE_PREAMBLE.encode() if preamble else b"") + note + prompt)
+                              (template.encode() if preamble else b"") + note + prompt)
                 manifest["prepared_prompt_path"] = str(prepared_path)
             self._publish("manifest", jobdir / "manifest.json", json_bytes(manifest))
             authorization = ({"unmeasured_reserve_authorization": {
@@ -2642,7 +2738,8 @@ class Daemon:
                          **({"folder": folder} if folder else {}),
                          **({"unspelled": True} if unspelled else {}),
                          **({"batch": batch} if batch else {}),
-                         **({"mcp": mcp_found["sources"]} if mcp_servers else {})}
+                         **({"mcp": mcp_found["sources"]} if mcp_servers else {}),
+                         **({"uncommitted": manifest["uncommitted"]} if "uncommitted" in manifest else {})}
             with self.store.transaction("job.submitted", job_id=job_id, data=submitted or None) as tx:
                 # Recheck the parent in the same transaction as insertion so a
                 # concurrent parent cancellation cannot leave an uncancelled child.
@@ -2691,15 +2788,24 @@ class Daemon:
             raise ValueError(f"unknown lane {args.pinned_lane}")
         return lane
 
+    def _policy_entry(self, args: protocol.SubmitArgs) -> str | None:
+        """C-11.1: the `permissions` entry a submit that named no sandbox reads."""
+        permissions = self.policy.get("permissions") or {}
+        return permissions.get(args.task or "") or permissions.get("*")
+
     def _policy_sandbox(self, args: protocol.SubmitArgs) -> str:
         """d261, C-11.1: the sandbox a submit that named none gets. The policy's
         `permissions` entry for the task, else its `*` entry, else read-only; an
         isolated review and a gate round read only, whatever the policy says."""
-        if args.isolated_review or args.kind == "gate-review":
-            return Sandbox.READ_ONLY.value
         permissions = self.policy.get("permissions") or {}
-        chosen = permissions.get(args.task or "") or permissions.get("*") or Sandbox.READ_ONLY.value
-        return chosen if chosen in {s.value for s in Sandbox} else Sandbox.READ_ONLY.value
+        chosen = permissions.get(args.task or "") or permissions.get("*")
+        needs_git = chosen == "worktree-write" and not (
+            args.in_place or args.isolated_review or args.kind == "gate-review")
+        committed = needs_git and git_head(Path(args.workdir).expanduser(),
+            timeout_s=self.policy["caps"]["workspace_git_timeout_s"]) is not None
+        return resolve_sandbox(self.policy, protocol.POLICY_SANDBOX, task=args.task,
+                               in_place=args.in_place, git=committed,
+                               isolated=args.isolated_review, gate=args.kind == "gate-review")
 
     def _accepted_request(self, request_id: Any) -> bool:
         """C-6.2: whether a job already holds `request_id`, so this submit is a retry."""
@@ -2839,6 +2945,7 @@ class Daemon:
             pinned_lane=attempt["lane_id"], pinned_model=attempt["model_requested"],
             task=source["task"], tier=source["tier"], allow_desktop=bool(source["allow_desktop"]),
             exclusions=json.loads(source["exclusions"] or "[]"),
+            needs_shell=(args.needs_shell if args.needs_shell is not None else bool(source.get("needs_shell"))),
             independent=True, allow_tmp=True, no_preamble=not preamble, mcp_servers=list(recorded))
         resume = {"source_job_id": source["job_id"], "source_attempt_id": attempt["attempt_id"],
                   "native_session_id": native, "lane_id": attempt["lane_id"],
@@ -3286,6 +3393,15 @@ class Daemon:
         and the hooks of the lanes.json rows startup ignored (`credentials.ignored_hooks`)."""
         return withheld_references(self.store.list_lanes()) | self._ignored_hooks
 
+    def _helper_withheld(self) -> frozenset[str]:
+        """D-ENV2 (review r2 of #248, P3-2): what every helper subprocess withholds,
+        read at each `build_environment` in this daemon's helper scopes: exactly what
+        its launches withhold (`_withheld_references`, through `_provider_environment`).
+        A Daemon assembled without `__init__` (unit tests build one by hand) withholds
+        what the `_provider_environment` it was given does, and nothing without one."""
+        environment = getattr(self, "_provider_environment", None)
+        return environment.withheld() if environment is not None else frozenset()
+
     def _credential_environment(self, lane: Lane) -> dict[str, str]:
         return self._provider_environment.additions(lane.provider, resolve_credential(lane.credential))
 
@@ -3297,13 +3413,16 @@ class Daemon:
     @staticmethod
     def _guard_override(adapter, lane: Lane, workdir: str, recorder: Callable | None = None,
                         state_root: Path | None = None, full: bool = False,
-                        env: dict[str, str] | None = None, env_pass=()):
+                        env: dict[str, str] | None = None, env_pass=(),
+                        publish_command: str | None = None):
         """C-14.2: run the Codex guard preflight for this launch.
 
         ``recorder`` (see ``_guard_recorder``) receives the verdict before it is
         judged, so a refusal is diagnosable from the attempt directory alone.
         ``state_root`` places the scratch home and the verdict markers under the
         daemon's own root (C-2.1) rather than whatever ``$SUBFLEET_HOME`` says.
+        ``publish_command`` (a review launch, C-12.3) adds the publish hook to
+        the override; the preflight then verifies its trust as well.
         """
         # The Codex adapter lane exposes its binary as codex_bin. Registered
         # fake adapters launch their Python fixtures and do not expose it.
@@ -3311,7 +3430,7 @@ class Daemon:
         if lane.provider != "codex" or binary is None:
             return None
         try:
-            from .guard.preflight import PROBE, TIMEOUT, preflight
+            from .guard.preflight import PROBE, PUBLISH, TIMEOUT, preflight
         except ImportError:
             raise AdapterError("Codex guard preflight is not installed", code=7,
                                fix="install the Codex adapter and reviewed guard files", reason="guard-missing") from None
@@ -3319,6 +3438,8 @@ class Daemon:
         if env is not None:
             options["env"] = env
             options["env_pass"] = tuple(env_pass)
+        if publish_command is not None:
+            options["publish_command"] = publish_command
         result = preflight(binary, home=lane.home or lane.credential.ref, workdir=workdir, **options)
         if recorder is not None:
             recorder(result)
@@ -3326,9 +3447,49 @@ class Daemon:
             # A timeout or an unusable probe is not a mismatch: its template says so (C-14.2).
             raise AdapterError(result.message, code=7, fix=result.fix or "rerun subfleet doctor",
                                reason=("guard-preflight-timeout" if result.kind == TIMEOUT else
-                                       "guard-preflight-probe" if result.kind == PROBE else "guard-preflight"),
+                                       "guard-preflight-probe" if result.kind == PROBE else
+                                       # C-14.2: the guard verified; only a review's publish hook did not.
+                                       "guard-preflight-publish" if result.kind == PUBLISH else "guard-preflight"),
                                details={"guard_kind": result.kind})
         return result if full else result.override
+
+    def _publish_self_test(self, lane: Lane, launch: Launch, a: dict) -> tuple[Launch, AdapterError | None]:
+        """C-12.4, #221 review r2 P3-7: before a publish-denied launch starts,
+        each publish hook its argv installs is fed a PreToolUse payload for `gh
+        pr comment 1 --body x`, in the launch's environment with its C-5.1
+        markers; the launch is refused (`publish-hook-self-test`) unless every
+        one answers with the deny JSON. A pass is cached for this daemon run
+        (`review_publish.hook_self_test`); the verdict rides in launch.json."""
+        from .review_publish import hook_self_test, installed_publish_hooks
+        commands = installed_publish_hooks(launch.argv) if launch.notes.get("publish_denied") else []
+        if not commands:
+            return launch, None
+        env = self._launch_environment(lane, launch)
+        env.update(SUBFLEET_JOB=a["job_id"], SUBFLEET_ATTEMPT=a["attempt_id"], SUBFLEET_ROOT=str(self.root))
+        verdicts = []
+        for command in commands:
+            verdict = hook_self_test(command, env, cwd=launch.cwd, cache=self._hook_self_tests)
+            verdicts.append({"ok": verdict.ok, "cached": verdict.cached, "elapsed_s": verdict.elapsed_s})
+            self.log.info("publish hook self-test attempt=%s ok=%s cached=%s elapsed=%ss%s", a["attempt_id"],
+                          verdict.ok, verdict.cached, verdict.elapsed_s,
+                          f": {verdict.detail}" if verdict.detail else "")
+            if not verdict.ok:
+                return launch, AdapterError(
+                    "the review publish hook did not deny a gh write when it was tested before launch",
+                    code=7, fix=("check that the hook's interpreter and the subfleet package it imports are in "
+                                 "place (daemon.log names the failure), then submit again"),
+                    reason="publish-hook-self-test")
+        return dataclasses.replace(launch, notes={**launch.notes, "publish_hook_self_test": verdicts}), None
+
+    def _record_launch(self, attempt_id: str, provider: str, sandbox: Any, publish_denied: bool) -> None:
+        """C-12.4: what this attempt's launch got, written once the launch is built.
+
+        Never at reservation: an attempt that ends before launching (refused,
+        cancelled, `reserved-no-launch`) records no capability, so its notice
+        claims nothing ran and the 24-hour status line does not count it.
+        """
+        self.store.update_attempt(attempt_id, capability=launch_capability(provider, sandbox).value,
+                                  publish_denied=publish_denied)
 
     def _guard_recorder(self, lane: Lane, workdir: str, attempt_dir: Path) -> Callable:
         """Keep a preflight verdict's diagnostics beside the attempt (C-14.2).
@@ -3408,7 +3569,7 @@ class Daemon:
                 if not isinstance(a.last, int) or a.last < 0:
                     raise protocol.ProtocolError("last must be a nonnegative integer", reason="list-last")
                 sql += " LIMIT ?"; params.append(a.last)
-            jobs = self.store.query(sql, params)
+            jobs = [shell_flags(row) for row in self.store.query(sql, params)]
             batches = self._batches([row["job_id"] for row in jobs])
             return {"jobs": [{**row, "batch": batches[row["job_id"]]} if row["job_id"] in batches else row
                              for row in jobs]}
@@ -3424,11 +3585,14 @@ class Daemon:
             # C-12.9: the row names the job's MCP servers; where each came from is in its manifest.
             mcp = ((self._read_json(self.root / "jobs" / a.job_id / "manifest.json") or {}).get("mcp")
                    if job.get("mcp_servers") not in (None, "[]") else None)
-            return {"job": job, "batch": self._submitted(a.job_id).get("batch"), "mcp": mcp,
+            submitted = self._submitted(a.job_id)
+            return {"job": job, "batch": submitted.get("batch"), "mcp": mcp,
+                    "uncommitted": submitted.get("uncommitted"),
                     "cancel": self._cancel_info(a.job_id),
                     "workspace": ({"at": workspace["ts"], "event": workspace["kind"],
                                    **json.loads(workspace["data_json"])} if workspace else None),
-                    "attempts": self.store.query("SELECT * FROM attempts WHERE job_id=? ORDER BY seq", (a.job_id,)),
+                    "attempts": [shell_flags(row) for row in self.store.query(
+                        "SELECT * FROM attempts WHERE job_id=? ORDER BY seq", (a.job_id,))],
                     "artifacts": self.store.query("SELECT artifacts.* FROM artifacts JOIN attempts USING(attempt_id) WHERE job_id=?", (a.job_id,)),
                     "notices": self.store.query("SELECT * FROM notices WHERE job_id=?", (a.job_id,)),
                     "pushes": self.store.query("SELECT * FROM job_pushes WHERE job_id=?", (a.job_id,))}
@@ -3566,6 +3730,9 @@ class Daemon:
         if op == "daemon.status":
             view = self._capacity_view(self._desktop_identity())
             view["disk"] = self._disk_status()
+            from .store import RESTRICTED_RUNS_SQL, restricted_window
+            view["restricted_runs_24h"] = [row["job_id"] for row in self.store.query(
+                RESTRICTED_RUNS_SQL, restricted_window(utcnow()))]
             if ramp_settings(self.policy)["enabled"] and self._ramp.snapshot["enabled"]:
                 view["ramp"] = self._ramp.status(utcnow())
             return {**view, "status": render.status(view), "pid": os.getpid(), "version": __version__, "state_root": str(self.root),
@@ -4066,8 +4233,9 @@ class Daemon:
             if not all(j["state"] in TERMINAL for j in jobs) or pending_exports:
                 return None
             for job in jobs:
-                job["attempt"] = self.store.one(
+                attempt = self.store.one(
                     "SELECT * FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1", (job["job_id"],))
+                job["attempt"] = shell_flags(attempt) if attempt is not None else None
                 job["notices"] = self.store.query("SELECT * FROM notices WHERE job_id=? ORDER BY notice_id", (job["job_id"],))
         return {"jobs": jobs, "timeout": False}
 
@@ -4260,15 +4428,32 @@ class Daemon:
         if exited is None:
             exited = self._wall_exited_descendants(job_id) if wall_family else set()
         changed = False
+        family_sql = ("WITH RECURSIVE family(job_id) AS (SELECT ? UNION ALL SELECT j.job_id "
+                      "FROM jobs j JOIN family f ON j.parent_job_id=f.job_id WHERE j.independent=0) "
+                      if family else "WITH family(job_id) AS (SELECT ?) ")
+        # C-5.9 (review r4 of #240, P3-1): a job this ends from the queue may still hold its
+        # worktree key, kept when start grace queued it again; its cwd scan is taken here,
+        # before the transaction, as the export takes its own. One statement finds them; a
+        # job not scanned keeps the key it holds by the transaction. A finished job, one whose
+        # export is pending included, is not scanned: the transaction leaves it alone. Nor is
+        # any job when this thread is already in a transaction (review r5 of #240, P3-1): the
+        # wall's cascade runs in the one that settles its parent's attempt, and a scan of every
+        # process's cwd there held the store's write lock for seconds. Each job keeps its key
+        # as a job not scanned does, and the cwd worker settles the row.
+        observers = {} if self.store._holds_writer() else {
+            row["job_id"]: self._scan_observers(row["job_id"]) for row in self.store.query(
+                family_sql + "SELECT f.job_id FROM family f JOIN jobs j USING(job_id) WHERE "
+                "j.state NOT IN ('succeeded','failed','cancelled','lost') AND EXISTS (SELECT 1 FROM leases l "
+                "WHERE l.holder=f.job_id AND l.lease_key LIKE 'worktree:%') AND NOT EXISTS (SELECT 1 FROM "
+                "attempts a WHERE a.job_id=f.job_id AND a.state IN ('reserved','starting','running',"
+                "'finalizing','quarantined'))", (job_id,))}
         with self.store.transaction("job.cancel_checked", job_id=job_id, attempt_id=attempt_id) as tx:
             job = self._job(job_id)
             if job["state"] in TERMINAL and not job["cancel_requested_at"]:
                 return False
             if without_attempt and tx.execute("SELECT 1 FROM attempts WHERE job_id=?", (job_id,)).fetchone():
                 return False
-            rows = (tx.execute("WITH RECURSIVE family(job_id) AS (SELECT ? UNION ALL SELECT j.job_id "
-                               "FROM jobs j JOIN family f ON j.parent_job_id=f.job_id WHERE j.independent=0) "
-                               "SELECT j.* FROM jobs j JOIN family f USING(job_id)", (job_id,)).fetchall()
+            rows = (tx.execute(family_sql + "SELECT j.* FROM jobs j JOIN family f USING(job_id)", (job_id,)).fetchall()
                     if family else [job])
             now = utcnow()
             for raw in rows:
@@ -4312,10 +4497,11 @@ class Daemon:
                     if not active:
                         inner.execute("UPDATE jobs SET state='cancelled',rc=130,finished_at=?,wait_reason=NULL,"
                                       "next_check_at=NULL WHERE job_id=?", (now, row["job_id"]))
-                        inner.execute("DELETE FROM leases WHERE holder=?", (row["job_id"],))
+                        retained = self._release_ending(inner, row["job_id"], None,     # C-5.5
+                                                        observers.get(row["job_id"]))
                         earlier = self._earlier_attempt(inner, row)
                         summary = "cancelled while waiting to retry" + earlier if earlier else "cancelled before launch"
-                        self._notice(inner, row, summary + ("\n" + requester if requester else ""))
+                        self._notice(inner, row, summary + retained + ("\n" + requester if requester else ""))
                     elif requester and row["caller_session"]:
                         inner.execute("INSERT INTO service_notices(session_id,text,state,created_at) "
                                       "VALUES(?,?,'pending',?)", (row["caller_session"], f"{row['job_id']}: {requester}", now))
@@ -4444,7 +4630,7 @@ class Daemon:
         quarantine's release whose salvage failed or left paths out (C-13.1),
         found after the job's notice went out at the quarantine.
         """
-        row = tx.execute("SELECT job_id,state,rc,out_path,accepted_attempt_id,caller_session,kind "
+        row = tx.execute("SELECT job_id,state,rc,out_path,accepted_attempt_id,caller_session,kind,sandbox "
                          "FROM jobs WHERE job_id=?", (job["job_id"],)).fetchone()
         if row is not None and row["kind"] == "turn":
             return      # C-26.12: the conversation, not a notice, carries a turn's end
@@ -4457,7 +4643,13 @@ class Daemon:
             requester = self._cancel_requester(dict(row), self._cancel_info(row["job_id"]) or {})
             if requester and requester not in summary:
                 summary += "\n" + requester
-        text = render.notice_header(dict(row), self.root) + "\n" + summary + self._moved_on(tx, row["job_id"])
+        latest = tx.execute("SELECT * FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1",
+                            (row["job_id"],)).fetchone()
+        submitted = tx.execute("SELECT data_json FROM events WHERE job_id=? AND +kind='job.submitted' "
+                               "ORDER BY event_id LIMIT 1", (row["job_id"],)).fetchone()
+        notice_job = {**dict(row), "attempt": dict(latest) if latest else None,
+                      "uncommitted": json.loads(submitted[0] or "{}").get("uncommitted") if submitted else None}
+        text = render.notice_text(notice_job, self.root, summary + self._moved_on(tx, row["job_id"]))
         tx.execute("INSERT INTO notices(job_id,session_id,text,state,created_at) VALUES(?,?,?,'pending',?)",
                    (row["job_id"], row["caller_session"], text, utcnow()))
         # C-11.8: a pin notice nobody was shown says the job waits and how to fix it;
@@ -4604,6 +4796,44 @@ class Daemon:
                         folders.cwd_holder(job_id), utcnow()))
         tx.execute("DELETE FROM leases WHERE lease_key LIKE 'worktree:%' AND holder IN (?,?)", holders)
 
+    def _ending_observers(self, job_id: str, attempt_id: str | None = None) -> frozenset[int] | None:
+        """C-5.9: the cwd scan of a job that may end while it holds a `worktree:` key,
+        taken before the transaction that ends it, as the export takes its own.
+
+        That is a job ending from the queue (cancelled while it waits, `_fail_queued`)
+        or with an unlaunched attempt and no census, after start grace queued it
+        again holding its key (review r4 of #240, P3-1). None means keep: the scan
+        could not be read, or the job held no key when asked, so none was taken
+        (one it holds by its ending transaction is kept, and the cwd worker's
+        recheck releases it). An empty set alone lets the key go."""
+        holders = (job_id, attempt_id or job_id)
+        if not self.store.one("SELECT 1 FROM leases WHERE lease_key LIKE 'worktree:%' AND holder IN (?,?)", holders):
+            return None
+        return self._scan_observers(job_id)
+
+    def _scan_observers(self, job_id: str) -> frozenset[int] | None:
+        try:
+            return self._worktree_observers(self._job(job_id))
+        except (procs.InspectionError, OSError, ValueError):
+            return None                    # an unreadable scan keeps the row, as at export
+
+    def _release_ending(self, tx, job_id: str, attempt_id: str | None, observers: frozenset[int] | None,
+                        *, convert: bool = True) -> str:
+        """Release the leases of a job (and its attempt) as it ends, in the ending transaction.
+
+        A `worktree:` key is kept unless a scan showed no observer (C-5.5, C-5.9);
+        when the job ends (`convert`) it becomes the reader row `_keep_for_cwd`
+        makes. A job queued again keeps its own key. Returns the notice's
+        `worktree retained` line, which names pids only, or ''."""
+        holders = (job_id, attempt_id or job_id)
+        keep = observers != frozenset() and bool(tx.execute(
+            "SELECT 1 FROM leases WHERE lease_key LIKE 'worktree:%' AND holder IN (?,?)", holders).fetchone())
+        tx.execute("DELETE FROM leases WHERE holder IN (?,?)" +
+                   (" AND lease_key NOT LIKE 'worktree:%'" if keep else ''), holders)
+        if keep and convert:
+            self._keep_for_cwd(tx, job_id, attempt_id)
+        return self._cwd_notice(procs.Containment(cwd_pids=observers)) if keep and convert and observers else ''
+
     def _cwd_wait(self, a: dict, census: procs.Containment, *, began: float) -> bool:
         timers = self.__dict__.setdefault('_cwd_settle', {})
         clocks = self.__dict__.setdefault('_cwd_wait_next', {})
@@ -4612,7 +4842,13 @@ class Daemon:
             clocks.pop(a['attempt_id'], None)
             return False
         now = time.monotonic()
-        clocks[a['attempt_id']] = began + self.inspect_interval_s
+        # Never sooner than an interval after the clock that allowed this census. A
+        # loss's clock runs from when its inspection fell due, which lags when it ran
+        # if the attempt is given a shared table that expires early (C-5.12) and each
+        # census is slow: 90 censuses in 30 s at 254 ms each, against Invariant 5's 61
+        # (round 4's pacing test). Finalization and start grace pass the census's own
+        # start, which is never before that clock, so this changes nothing for them.
+        clocks[a['attempt_id']] = max(began, clocks.get(a['attempt_id'], began)) + self.inspect_interval_s
         return now - timers.setdefault(a['attempt_id'], now) < CWD_SETTLE_S
 
     def _cwd_census_due(self, a: dict) -> bool:
@@ -4878,6 +5114,10 @@ class Daemon:
                              cancel=self.timers.cancel, deadline=time.monotonic() + RETENTION_PASS_S,
                              state=self._retention_state,
                              remote_less_history_bytes=int(budget["remote_less_history_bytes"]))
+        for left in result.get("tmpdir_left") or ():
+            # C-12.10 (P3-2): the folder is no longer any record's; only the log names it.
+            self.log.warning("retention: retired %s with its TMPDIR cleared but not removed: %s",
+                             left["job_id"], ", ".join(left["paths"]))
         pruned = len(result.get("pruned") or ())
         progressed = bool(pruned or result.get("progressed"))
         interrupted = result.get("interrupted")
@@ -5322,13 +5562,19 @@ class Daemon:
             validate_writable_workdir(workdir, timeout_s=cap)
         if job["sandbox"] == "workspace-write" and not job["in_place"] and not job.get("worktree"):
             workdir = str(self.root / "worktrees" / job["job_id"])
+            jobdir = self.root / "jobs" / job["job_id"]
+            copy = (jobdir / uncommitted.DIRECTORY).is_dir()
             if Path(workdir).exists() and (not (Path(workdir) / ".git").is_file()
-                                           or git_head(workdir, timeout_s=cap) is None):
+                                           or git_head(workdir, timeout_s=cap) is None
+                                           or (copy and not uncommitted.applied(jobdir, workdir))):
                 # A `worktree add` killed at its cap can leave a directory that is
                 # not a worktree. `.git` is checked first because git run in a
                 # bare directory answers for whatever repository encloses it.
-                # Nothing has run here (the job has no attempt), so it is rebuilt
-                # rather than handed to a provider.
+                # A daemon stopped between the cut and the end of the copy leaves
+                # a worktree without the caller's changes, which would be
+                # reviewed as complete (#221 review r2, P3-1): its copy has no
+                # marker. Nothing has run here (the job has no attempt), so it is
+                # rebuilt rather than handed to a provider.
                 self._discard_worktree(job["workdir"], workdir, cap)
             if not Path(workdir).exists():
                 try:
@@ -5359,6 +5605,19 @@ class Daemon:
                                            "daemon.log has its output", transient=True)
                     raise AdapterError("could not allocate the worktree; daemon.log has git's output",
                                        fix="check repository and state-root permissions", reason="workspace-prepare")
+                if copy:
+                    # D-SH1 round 6: the copy submit kept, checked then to apply to this HEAD;
+                    # marked applied once it is all in (round 7).
+                    try:
+                        uncommitted.apply(jobdir, workdir, timeout_s=cap)
+                    except (uncommitted.CopyRefused, OSError) as exc:
+                        self._discard_worktree(job["workdir"], workdir, cap)
+                        raise AdapterError(f"the caller's uncommitted changes could not be copied into the worktree: {exc}",
+                                           fix="submit again, or pass -s read-only to review the checkout in place",
+                                           reason="uncommitted-apply") from None
+                    except SalvageError:
+                        self._discard_worktree(job["workdir"], workdir, cap)
+                        raise
             os.chmod(workdir, 0o700)
         head = git_head(workdir, timeout_s=cap)
         baseline = None
@@ -5508,9 +5767,7 @@ class Daemon:
             self.log.warning("TMPDIR sweep deferred: %s", type(exc).__name__)
             return
         try:
-            # Every path an allocation record names, released or not: such a
-            # folder follows its record, and is never aged as unknown.
-            named = {row["path"] for row in self.store.query(TMPDIR_PATHS) if isinstance(row["path"], str)}
+            named = self._tmpdir_named()
             for a in self.store.query(
                     "SELECT * FROM attempts WHERE state IN ('succeeded','failed','interrupted','lost','cancelled','quarantined') "
                     "AND json_valid(evidence_json) AND json_type(evidence_json,'$.tmpdir')='object' "
@@ -5521,11 +5778,49 @@ class Daemon:
                 if probe:
                     self._cleanup_probe_tmpdir(probe)
             self._attempt_temp.sweep_unknown(named.__contains__, self._tmpdir_first_seen,
-                                             self._tmpdir_seen, self._tmpdir_unknown_removed)
+                                             self._tmpdir_seen, self._tmpdir_unknown_removed,
+                                             tombstoned=self._tmpdir_tombstones().get)
         except Exception as exc:
             self.log.warning("TMPDIR sweep deferred: %s", type(exc).__name__)
         finally:
             self._tmpdir_sweeping.release()
+
+    def _tmpdir_named(self) -> set[str]:
+        """Every path an allocation record names, released or not: such a folder
+        follows its record, and is never aged as unknown. So does the tombstone
+        the store recorded for an allocation not yet released, which a crash
+        during its removal can leave and its record's cleanup finishes (P3-1)."""
+        named = set()
+        for row in self.store.query(TMPDIR_RECORDS):
+            try:
+                record = json.loads(row["tmpdir"])
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(record, dict) or not isinstance(record.get("path"), str):
+                continue
+            named.add(record["path"])
+            tomb = None if record.get("removed_at") else self._attempt_temp.tombstone_path(record)
+            if tomb is not None:
+                named.add(tomb)
+        return named
+
+    def _tmpdir_tombstones(self) -> dict[str, dict]:
+        """The tombstone of each unknown folder's current sighting, which a crash
+        during its removal can leave (P3-1): the sweep finishes it."""
+        rows = self.store.query(
+            "SELECT kind,data_json FROM events WHERE event_id IN ("
+            "SELECT MAX(event_id) FROM events WHERE kind IN ('tmpdir.unknown_seen','tmpdir.unknown_removed') "
+            "AND json_valid(data_json) AND json_type(data_json,'$.path')='text' "
+            "GROUP BY json_extract(data_json,'$.path'))")
+        tombs = {}
+        for row in rows:
+            if row["kind"] != "tmpdir.unknown_seen":
+                continue
+            sighting = json.loads(row["data_json"])
+            tomb = self._attempt_temp.tombstone_path(sighting)
+            if tomb is not None:
+                tombs[tomb] = sighting
+        return tombs
 
     def _tmpdir_first_seen(self, path: str) -> dict | None:
         """The store's first sighting of an unknown folder, or None (C-12.10, P3-4)."""
@@ -5568,8 +5863,11 @@ class Daemon:
         census and nothing measured. A terminal holder whose census found
         members keeps it, and gets no new census until its state changes (or
         the daemon restarts); an uncertain census is asked again next pass.
-        A verified-empty census clears it (`cleared_at`), so it pins nothing
-        even if its removal fails and is retried.
+        A census that found none of the holder's own processes clears it
+        (`cleared_at`), so it pins nothing even if its removal fails and is
+        retried. That is `containment_empty`, not `verified_empty`: a cwd
+        observer is in the worktree, not the scratch, and holds only the
+        worktree (C-5.5, C-12.10; review r4 of #240, P3-2).
         """
         state = subject.get("state")
         outcome = self._attempt_temp.remove(record, subject, verified_empty=False)
@@ -5586,8 +5884,8 @@ class Daemon:
             if census.live_pids:
                 self._tmpdir_held[holder] = state
                 return {}
-            if not census.verified_empty:
-                return {}
+            if not census.containment_empty:
+                return {}                   # unverifiable: asked again next pass
         self._tmpdir_held.pop(holder, None)
         measured = self._attempt_temp.size(record)
         outcome = self._attempt_temp.remove(record, subject, verified_empty=True)
@@ -7528,9 +7826,12 @@ class Daemon:
                             reserved_at = utcnow()
                         if job["kind"] != "turn" and self._disk.settings["enabled"]:
                             evidence["disk_reservation"] = self._disk.evidence()
+                        # C-12.4: capability and publish denial are the launch's, recorded
+                        # when it is built (`_record_launch`); a reservation that never
+                        # launches claims neither (#221 review r1b, P3-2).
                         tx.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,baseline_tree,evidence_json,reserved_at) VALUES(?,?,?,?,?,'reserved',?,?,?)",
-                                   (aid, job["job_id"], seq, lane_id, self.policy["models"][decision.chosen_model]["id"], baseline,
-                                    json.dumps(evidence), reserved_at))
+                                   (aid, job["job_id"], seq, lane_id, self.policy["models"][decision.chosen_model]["id"],
+                                    baseline, json.dumps(evidence), reserved_at))
                         if pinned:
                             self.store.add_artifact(aid, **pinned)      # C-13.1: kept, as a salvage ref is
                         tx.execute("INSERT INTO decisions(job_id,attempt_id,evaluated_at,policy_hash,decision_json) VALUES(?,?,?,?,?)",
@@ -8176,6 +8477,7 @@ class Daemon:
 
     def _fail_queued(self, job: dict, detail: str, *, rc: int = 1, kind: str = "job.failed",
                      data: dict | None = None) -> None:
+        observers = self._ending_observers(job["job_id"])     # C-5.9, before the transaction
         with self.store.transaction(kind, job_id=job["job_id"], data=data) as tx:
             job = self._job(job["job_id"])
             if job["state"] in TERMINAL:
@@ -8183,10 +8485,11 @@ class Daemon:
             state, rc = ("cancelled", 130) if job["cancel_requested_at"] else ("failed", rc)
             tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=?,wait_reason=NULL,next_check_at=NULL WHERE job_id=?",
                        (state, rc, utcnow(), job["job_id"]))
-            tx.execute("DELETE FROM leases WHERE holder=?", (job["job_id"],))
+            retained = self._release_ending(tx, job["job_id"], None, observers)      # C-5.5
             # C-13.1, C-15.1: a job with an attempt behind it was preparing its retry.
             earlier = self._earlier_attempt(tx, job)
-            self._notice(tx, job, (f"{state} while preparing the retry: " if earlier else "") + detail + earlier)
+            self._notice(tx, job, (f"{state} while preparing the retry: " if earlier else "") + detail + earlier
+                         + retained)
         self._notify()
 
     def _launch(self, a: dict) -> None:
@@ -8240,9 +8543,13 @@ class Daemon:
                 return
             credential_env = {**credential_env, "TMPDIR": tmpdir}
             spec = self._spec(job, workdir=self._launch_dir(job, lane.provider), prompt_path=str(prompt_path))
+            from .review_publish import publish_hook, publishing_denied
             guard_override = None if spec.isolated_review or job["kind"] == "turn" else self._guard_override(
                 adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir), self.root,
-                env=self._provider_environment.assemble(credential_env), env_pass=credential_env)
+                env=self._provider_environment.assemble(credential_env), env_pass=credential_env,
+                # C-12.3: a review's Codex launch judges every command with the publish rule.
+                publish_command=(publish_hook(self.root) if publishing_denied(spec)
+                                 and lane.provider == "codex" else None))
             resume = None
             if turn_block is not None:
                 guard = None
@@ -8298,6 +8605,17 @@ class Daemon:
             else:
                 self._launch_failure(a, f"workdir branch check failed: {said}", rc=int(Exit.OPERATIONAL))
             return
+        has_shell = launch_has_shell(lane.provider, spec.sandbox)
+        if job_needs_shell(self.policy, job) and not has_shell:
+            self._unlaunched(a, f"needs a shell: {model['id']} runs {job['sandbox']} jobs without one")
+            return
+        from .review_publish import protect_launch
+        launch = protect_launch(spec, launch, adir)
+        launch, refused = self._publish_self_test(lane, launch, a)
+        if refused is not None:
+            self._launch_failure(a, self._refused_job(a["job_id"], refused), rc=refused.code)
+            return
+        self._record_launch(a["attempt_id"], lane.provider, spec.sandbox, bool(launch.notes.get("publish_denied")))
         self._launches[a["attempt_id"]] = launch
         safe_launch = dataclasses.asdict(launch)
         safe_launch.pop("env_add")
@@ -8700,10 +9018,11 @@ class Daemon:
         # before that key holds what it held). The kill protocol's censuses count
         # as one census: while it runs, what it started from stays held
         # (`_held_scope`), as each TERMed child of a respawning driver opens a gap.
+        # The stored ones go through the census's attempt-boot filter (D-QUAR-REUSE1); what
+        # the protocol's own censuses carry is this boot's and is not stored (`carried`).
         marked = dict(evidence["held_marked"] if "held_marked" in evidence else held)
         scope = self.__dict__.get("_held_scope", {}).get(a.get("attempt_id") or "")
-        if scope is not None:
-            marked = {**marked, **scope["carry"], **scope["fresh"]}
+        carried = {**scope["carry"], **scope["fresh"]} if scope is not None else {}
         # Fix 1 (P3-3): an ancestor the chain rule added is kept by its birth, with
         # the reason it was added; it is never a walk seed.
         reasons = evidence.get("chain_reasons") or {}
@@ -8713,7 +9032,8 @@ class Daemon:
         chain = (procs.ParentChain(str(worktree) if worktree is not None else None,
                                    Daemon._never_signalled(self, a), os.geteuid(),
                                    {int(pid): procs.ProcessIdentity(**value) for pid, value in marked.items()},
-                                   recorded_chain)
+                                   recorded_chain,
+                                   {int(pid): procs.ProcessIdentity(**value) for pid, value in carried.items()})
                  if a.get("attempt_id") else None)
         census = procs.containment(a.get("pgid") or start.get("pgid"), guardian,
                                    a.get("child_pid") or receipt.get("child_pid"),
@@ -8723,11 +9043,22 @@ class Daemon:
                                    started_at=a.get("started_at") or start.get("started_at")
                                    or a.get("reserved_at") or a.get("created_at"),
                                    finished_at=receipt.get("finished_at"),
-                                   responsible_root=responsible,
+                                   responsible_root=responsible, attempt_boot=boot,
                                    **({"parent_chain": chain} if chain is not None else {}))
+
+        def on_boot(found: procs.ProcessIdentity) -> bool:
+            # D-QUAR-REUSE1: a process on another boot than the attempt's recorded one is
+            # not the attempt's, whichever source counted it. Kept, it seeded every later
+            # census as a recorded survivor (incident 2026-10-24: trackb kept a stranger
+            # reusing its receipt's child pid 83026, and stayed quarantined). D-KILL4's
+            # keys (chain ancestors, held parents, `held_marked`, taint) take the same filter.
+            return not procs.boot_identity.differ(found.boot_id, boot)
+
+        def attempts(pid: int) -> bool:
+            return on_boot(census.identities[pid])
         fresh = {str(pid): dataclasses.asdict(census.identities[pid]) for pid in sorted(census.responsible_pids)
                  if guardian not in census.recycled
-                 and pid != guardian and pid in census.identities
+                 and pid != guardian and pid in census.identities and attempts(pid)
                  and named.get(str(pid)) != dataclasses.asdict(census.identities[pid])}
         # D-KILL2: the other members, by whichever source counted them. A group
         # member may already be owned; only an identity not yet kept is written.
@@ -8738,19 +9069,20 @@ class Daemon:
                         if not census.leader_verified else frozenset())
         sighted = {str(pid): dataclasses.asdict(census.identities[pid])
                    for pid in sorted(census.live_pids - census.responsible_pids - census.chain_pids - unattributed)
-                   if pid != guardian and pid in census.identities
+                   if pid != guardian and pid in census.identities and attempts(pid)
                    and all(kept.get(str(pid)) != dataclasses.asdict(census.identities[pid])
                            for kept in (owned, named, counted))}
         # `recycled[pid]` excludes an older recorded birth, not a new member
         # observed at the same pid. Its census evidence still must be saved.
         # D-KILL4: a held parent is remembered by its birth, never as a seed.
         parents = {str(pid): dataclasses.asdict(ident) for pid, ident in sorted(census.held_identities.items())
-                   if held.get(str(pid)) != dataclasses.asdict(ident)}
+                   if held.get(str(pid)) != dataclasses.asdict(ident) and on_boot(ident)}
         # Fix 1 (P3-3, P3-4): each ancestor the chain rule added, with its reason,
         # from whichever census added it, on every path.
         kept_chain = evidence.get("chain_identities") or {}
         added = {str(pid): dataclasses.asdict(census.identities[pid]) for pid in sorted(census.chain_pids)
-                 if pid in census.identities and kept_chain.get(str(pid)) != dataclasses.asdict(census.identities[pid])}
+                 if pid in census.identities and attempts(pid)
+                 and kept_chain.get(str(pid)) != dataclasses.asdict(census.identities[pid])}
         for key, kind, kept, found in (("responsible_identities", "attempt.responsible_recorded", named, fresh),
                                        ("counted_identities", "attempt.counted_recorded", counted, sighted),
                                        ("held_parents", "attempt.parents_held", held, parents),
@@ -8800,7 +9132,8 @@ class Daemon:
             # those a marked process names now. Inside the kill protocol they are
             # gathered in memory and written when it ends (`_kill_protocol`).
             now_marked = {str(pid): dataclasses.asdict(census.held_identities[pid])
-                          for pid in sorted(census.held_fresh) if pid in census.held_identities}
+                          for pid in sorted(census.held_fresh)
+                          if pid in census.held_identities and on_boot(census.held_identities[pid])}
             if scope is not None:
                 scope["fresh"].update(now_marked)
             else:
@@ -8812,7 +9145,8 @@ class Daemon:
             seeds = {**current.get("responsible_identities", {}), **current.get("counted_identities", {})}
             known = current.get("unverified_identities") or {}
             tainted = {str(pid): dataclasses.asdict(census.identities[pid])
-                       for pid in sorted(Daemon._tainted(current, census)) if pid in census.identities}
+                       for pid in sorted(Daemon._tainted(current, census, boot))
+                       if pid in census.identities and attempts(pid)}
             tainted = {pid: value for pid, value in tainted.items()
                        if seeds.get(pid) == value and known.get(pid) != value}
             if tainted:
@@ -8835,6 +9169,16 @@ class Daemon:
             census = dataclasses.replace(census, unverifiable=True,
                                          errors=(*census.errors, "worktree cwd inspection unavailable"))
         return census
+
+    def _attempt_boot(self, a: dict) -> str | None:
+        """D-QUAR-REUSE1: the boot the attempt's guardian identity records, the row's
+        `boot_id`, else `start.json`'s, as `_contain` reads it."""
+        if a.get("boot_id"):
+            return a["boot_id"]
+        directory = (Path(a["directory"]) if a.get("directory") else
+                     attempt_dir(self.root, a["job_id"], a["seq"]) if a.get("job_id") and a.get("seq") else None)
+        return ((self._read_json(directory / "start.json") or {}).get("boot_id")
+                if directory is not None else None)
 
     def _never_signalled(self, a: dict) -> frozenset[int]:
         """D-KILL4: pids C-5.6 never signals individually and the parent-chain rule
@@ -8864,13 +9208,17 @@ class Daemon:
                        (a["evidence_json"], a["attempt_id"]))
 
     @staticmethod
-    def _tainted(evidence: dict, census: procs.Containment) -> set[int]:
+    def _tainted(evidence: dict, census: procs.Containment, boot: str | None = None) -> set[int]:
         """D-KILL4: the census members first recorded by an unverifiable census
         (`unverified_identities`, by identity) and every member below one of them
-        by this census's parent links."""
-        unverified = {(int(pid), value.get("proc_start"))
-                      for pid, value in (evidence.get("unverified_identities") or {}).items()}
-        tainted = {pid for pid, ident in census.identities.items() if (pid, ident.proc_start) in unverified}
+        by this census's parent links. A record of another boot than the member's,
+        or than the attempt's (`boot`), names another process and never matches
+        (D-QUAR-REUSE1); legacy seconds and a missing boot compare by start, as before."""
+        unverified = {(int(pid), value.get("proc_start")): value.get("boot_id")
+                      for pid, value in (evidence.get("unverified_identities") or {}).items()
+                      if not procs.boot_identity.differ(value.get("boot_id"), boot)}
+        tainted = {pid for pid, ident in census.identities.items() if (pid, ident.proc_start) in unverified
+                   and not procs.boot_identity.differ(unverified[(pid, ident.proc_start)], ident.boot_id)}
         grown = True
         while grown:
             grown = False
@@ -9076,7 +9424,15 @@ class Daemon:
         event, as admission's are. Queued at once, a launch-time check that kept
         getting no answer while admission's got one used up the job's attempts in
         as many passes (review of the P3-5 fix).
+
+        `census` is start grace's, which decided that nothing of the attempt's
+        remains; its cwd holders are the worktree's. Every other caller passes
+        none, and the worktree is scanned here, before the transaction, as the
+        export scans it (C-5.9; review r4 of #240, P3-1). The TMPDIR cleanup
+        reuses start grace's census rather than taking another (r4's note).
         """
+        observers = (frozenset(census.cwd_pids) if census is not None
+                     else self._ending_observers(a["job_id"], a["attempt_id"]))
         with self.store.transaction("attempt.no_launch", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"detail": detail}) as tx:
             job = self._job(a["job_id"])
             cancel = bool(job["cancel_requested_at"])
@@ -9085,20 +9441,15 @@ class Daemon:
             tx.execute("UPDATE attempts SET state=?,outcome_class='unknown',outcome_detail=?,"
                        "finished_at=COALESCE(started_at,?) WHERE attempt_id=?",
                        ("interrupted" if cancel else "failed", detail, utcnow(), a["attempt_id"]))
-            keep = bool(census and census.cwd_pids)
-            tx.execute("DELETE FROM leases WHERE holder IN (?,?)" +
-                       (" AND lease_key NOT LIKE 'worktree:%'" if keep else ''),
-                       (a["attempt_id"], job["job_id"]))
-            if keep:
+            retry = not cancel and self._attempts_left(tx, job, a)
+            # It ends: its kept worktree excludes no writer (C-5.5). Queued again,
+            # the job is still the writer there and keeps its own key.
+            retained = self._release_ending(tx, job["job_id"], a["attempt_id"], observers, convert=not retry)
+            if observers:
                 evidence = json.loads(a['evidence_json'] or '{}')
-                evidence['cwd_holders'] = census.to_dict()['cwd_holders']
+                evidence['cwd_holders'] = procs.Containment(cwd_pids=observers).to_dict()['cwd_holders']
                 tx.execute('UPDATE attempts SET evidence_json=? WHERE attempt_id=?',
                            (json.dumps(evidence), a['attempt_id']))
-            retry = not cancel and self._attempts_left(tx, job, a)
-            if keep and not retry:
-                # It ends: its kept worktree excludes no writer (C-5.5). Queued
-                # again, the job is still the writer there and keeps its own key.
-                self._keep_for_cwd(tx, job["job_id"], a["attempt_id"])
             state = "queued" if retry else "cancelled" if cancel else "failed"
             rc = None if retry else 130 if cancel else 1
             tx.execute("UPDATE jobs SET state=?,rc=?,finished_at=?,wait_reason=NULL,next_check_at=NULL WHERE job_id=?", (state, rc, None if retry else utcnow(), job["job_id"]))
@@ -9107,9 +9458,8 @@ class Daemon:
             if not retry:
                 # C-13.1, C-15.1: a retry that never launched names the attempt before it.
                 earlier = self._earlier_attempt(tx, job, before=a["seq"])
-                self._notice(tx, job, (f"attempt a{a['seq']}: " if earlier else "") + detail + earlier
-                             + (self._cwd_notice(census) if census else ''))
-        self._cleanup_attempt_tmpdir(a)
+                self._notice(tx, job, (f"attempt a{a['seq']}: " if earlier else "") + detail + earlier + retained)
+        self._cleanup_attempt_tmpdir(a, census)
         self._notify()
 
     def _defer_after_launch(self, tx, job: dict, exc: SalvageError) -> None:
@@ -9273,8 +9623,11 @@ class Daemon:
         leaderless group at the recorded pgid names: it may be a stranger's."""
         never = Daemon._never_signalled(self, a)
         evidence = json.loads(a.get("evidence_json") or "{}")
-        tainted = Daemon._tainted(evidence, census)
-        owned = evidence.get("owned_identities") or {}
+        boot = Daemon._attempt_boot(self, a)
+        tainted = Daemon._tainted(evidence, census, boot)
+        # D-QUAR-REUSE1: an owned identity of another boot than the attempt's attributes nothing.
+        owned = {pid: value for pid, value in (evidence.get("owned_identities") or {}).items()
+                 if not procs.boot_identity.differ(value.get("boot_id"), boot)}
         found: dict[int, tuple[procs.ProcessIdentity, str]] = {}
         for pid in sorted(census.live_pids):
             ident = census.identities.get(pid)
@@ -9336,10 +9689,14 @@ class Daemon:
         scopes = self.__dict__.setdefault("_held_scope", {})
         if aid:
             # Fix 1 (P3-2): the protocol's censuses count as one; what its first held stays held.
+            # Only "fresh" is stored when the protocol ends (`held_marked`), so only it takes the
+            # attempt-boot filter of every stored key (D-QUAR-REUSE1).
+            boot = Daemon._attempt_boot(self, a)
             scopes[aid] = {"carry": {str(pid): dataclasses.asdict(ident)
                                      for pid, ident in census.held_identities.items()},
                            "fresh": {str(pid): dataclasses.asdict(census.held_identities[pid])
-                                     for pid in census.held_fresh if pid in census.held_identities}}
+                                     for pid in census.held_fresh if pid in census.held_identities
+                                     and not procs.boot_identity.differ(census.held_identities[pid].boot_id, boot)}}
 
         def note(found: procs.Containment) -> procs.Containment:
             chain.update(found.chain_reasons)
@@ -9630,25 +9987,37 @@ class Daemon:
             cap = self.policy["caps"]["workspace_git_timeout_s"]
             result = checkpoint = error = None
             skipped: list[str] = []
+            # D-SALV-MISSING1: a worktree already removed (by retention, or by its owner
+            # while the attempt sat in quarantine) holds nothing to salvage, which is no
+            # failure. Asked of git, it read "git rev-parse failed", and the notice said
+            # "the worktree is kept" of a path that was not there.
+            gone = _gone(workspace)
             try:
-                result = salvage(workspace, baseline, a["seq"],
-                                 writable=True, state="finalizing", timestamp=a["reserved_at"],
-                                 baseline_tree=a.get("baseline_tree"), timeout_s=cap, left_out=skipped)
-                checkpoint = git_head(workspace, timeout_s=cap)
+                if not gone:
+                    result = salvage(workspace, baseline, a["seq"],
+                                     writable=True, state="finalizing", timestamp=a["reserved_at"],
+                                     baseline_tree=a.get("baseline_tree"), timeout_s=cap, left_out=skipped)
+                    checkpoint = git_head(workspace, timeout_s=cap)
             except (SalvageError, OSError) as exc:
-                failures = self._salvage_failures[a["attempt_id"]] = self._salvage_failures.get(a["attempt_id"], 0) + 1
-                transient = getattr(exc, "transient", False) or transient_os_error(exc)
-                if retry and transient and failures < SALVAGE_TRIES:
-                    raise
-                # The receipt reaches the attempt's evidence (`runs show`) and the
-                # job's notice, so it says how git ended, as C-6.8's record does:
-                # what git printed (a repository's own filters print there) goes to
-                # daemon.log only, scrubbed (C-25.7). A snapshot already written
-                # stands when only reading HEAD after it failed. Valid UTF-8, or the
-                # receipt could not be written, on this try or any other (N1).
-                stage = "checkpoint" if result else "salvage"
-                error = utf8_text(f"{stage} failed: {self._workspace_error(exc)[1]['error']}")[:500]
-                self.log.warning("attempt %s %s failed: %s", a["attempt_id"], stage, refusals.scrubbed_words(exc))
+                # Removed while the snapshot was taken, its absence is what failed.
+                gone = not result and _gone(workspace)
+                if not gone:
+                    failures = self._salvage_failures[a["attempt_id"]] = self._salvage_failures.get(a["attempt_id"], 0) + 1
+                    transient = getattr(exc, "transient", False) or transient_os_error(exc)
+                    if retry and transient and failures < SALVAGE_TRIES:
+                        raise
+                    # The receipt reaches the attempt's evidence (`runs show`) and the
+                    # job's notice, so it says how git ended, as C-6.8's record does:
+                    # what git printed (a repository's own filters print there) goes to
+                    # daemon.log only, scrubbed (C-25.7). A snapshot already written
+                    # stands when only reading HEAD after it failed. Valid UTF-8, or the
+                    # receipt could not be written, on this try or any other (N1).
+                    stage = "checkpoint" if result else "salvage"
+                    error = utf8_text(f"{stage} failed: {self._workspace_error(exc)[1]['error']}")[:500]
+                    self.log.warning("attempt %s %s failed: %s", a["attempt_id"], stage, refusals.scrubbed_words(exc))
+            if gone:
+                skipped = []                     # its paths went with it
+                self.log.info("attempt %s: %s", a["attempt_id"], WORKTREE_GONE)
             self._salvage_failures.pop(a["attempt_id"], None)
             # Every path as valid UTF-8: `json_bytes` cannot encode the surrogates
             # `os.fsdecode` carries a name that is not UTF-8 in, and a receipt that
@@ -9656,10 +10025,14 @@ class Daemon:
             skipped = [path_text(path) for path in skipped]
             receipt = {"result": {**dataclasses.asdict(result), "skipped": skipped} if result else None,
                        "checkpoint": checkpoint, "error": error, "skipped": skipped}
+            if gone:
+                receipt["gone"] = True
             self._publish("salvage", receipt_path, json_bytes(receipt))
             self._boundary("salvage", job["job_id"], a["attempt_id"])
         result = receipt["result"]
         evidence = {"salvage_error": receipt["error"]} if receipt.get("error") else {}
+        if receipt.get("gone"):
+            evidence["salvage_gone"] = WORKTREE_GONE
         # A receipt written before `skipped` had its own key lists them in the result.
         skipped = receipt.get("skipped", (result or {}).get("skipped")) or []
         if skipped:
@@ -9676,13 +10049,16 @@ class Daemon:
     @staticmethod
     def _salvage_summary(job: dict, artifacts: list[dict], evidence: dict) -> str:
         """C-13.1: the notice's lines for what salvage could not save ("" when it saved
-        everything): its error, the paths it left out, and where they still are."""
+        everything): its error, the paths it left out, and where they still are; or that
+        the worktree was already gone, when nothing was there to save or to keep."""
         lines = [evidence["salvage_error"]] if evidence.get("salvage_error") else []
         skipped = evidence.get("salvage_skipped")
         if skipped:
             lines.append(f"salvage left out {_left_out(skipped)}")
         if lines and (skipped or not artifacts):
             lines[-1] += f"; the worktree is kept: {job.get('worktree') or job['workdir']}"
+        if evidence.get("salvage_gone"):
+            lines.append(evidence["salvage_gone"])
         return "".join("\n" + line for line in lines)
 
     @staticmethod
@@ -10400,8 +10776,16 @@ class Daemon:
                    "(export_error IS NULL OR export_error<>?)", (error, job_id, error))
         # A legacy loser may still be running when the winner decides. Its
         # completion notice then appears later, before the loser's own export.
-        tx.execute("UPDATE notices SET text=text || ? WHERE job_id=? AND instr(text,?)=0",
-                   ("\n" + error, job_id, error))
+        Daemon._notice_detail(tx, job_id, error, once=True)
+
+    @staticmethod
+    def _notice_detail(tx, job_id: str, detail: str, *, once: bool = False) -> None:
+        """Preserve the notice body and keep capability evidence last."""
+        rows = tx.execute("SELECT notice_id,text FROM notices WHERE job_id=?", (job_id,)).fetchall()
+        for notice_id, text in rows:
+            if not once or detail not in text:
+                tx.execute("UPDATE notices SET text=? WHERE notice_id=?",
+                           (render.append_notice_detail(text, detail), notice_id))
 
     #: C-8.5: a push whose verification was cut short this many times (a
     #: restart, or a fault of the daemon's own) fails instead of retrying again.
@@ -10476,10 +10860,12 @@ class Daemon:
             if not error:
                 tx.execute("UPDATE job_owned_branches SET sha=?,job_id=? WHERE remote_key=? AND branch_key=?",
                            (sha, job_id, host_push.ownership_key(remote), host_push.fold(branch)))
-            tx.execute("UPDATE notices SET text=text || ? WHERE job_id=?", ("\n" + line, job_id))
+            self._notice_detail(tx, job_id, line)
 
     def _publish_bundle(self, job: dict) -> str:
         """Intake, verify and publish one accepted job's bundle; the pushed SHA."""
+        if job.get("task") == "review" or job["kind"] == "gate-review":
+            raise host_push.PushError("review publish: denied")
         branch, remote = job["push_branch"], job["push_remote"]
         settings = host_push.check_policy(branch, remote, self.policy, job["push_default_branch"])
         family = job
