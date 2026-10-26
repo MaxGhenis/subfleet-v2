@@ -105,6 +105,19 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
         return (log.last?["seq"] as? Int) ?? 0
     }
 
+    // Round 8: the next events read answers `reset: true`, as when the cursor fell
+    // behind the compaction floor; the model drops what events made and re-reads.
+    private var resetPending = false
+    func resetOnce() {
+        lock.lock(); resetPending = true; lock.unlock()
+    }
+    private func takeReset() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        let pending = resetPending
+        resetPending = false
+        return pending
+    }
+
     func push(_ events: [[String: Any]]) {
         lock.lock(); log += events; lock.broadcast(); lock.unlock()
     }
@@ -132,6 +145,9 @@ final class R4ViewDaemon: DaemonCalling, @unchecked Sendable {
             out = ["messages": receipts.filter { ids.contains($0["message_id"] as! String) }]
         case "conversation.events":
             let after = value["after"]?.int ?? 0
+            if takeReset() {
+                return try json(["events": [], "next": 0, "reset": true]).decode(R.self)
+            }
             if (value["wait_s"]?.double ?? 0) == 0 {
                 catchupGate.lock()
                 waitingForCatchup = !catchupReleased
@@ -282,7 +298,7 @@ let readinessDeadline = 120.0
          pageDelay: Double = 0, pageSize: Int = 200, revealOnMount: String? = nil,
          liveText: String = "the live request", pauseCatchup: Bool = false,
          immediateDelivery: Bool = false, onMount: ((NSView) -> Void)? = nil,
-         silentFoldDeadline: Double? = nil, holdCatchup: Bool = false) async {
+         silentFoldDeadline: Double? = nil, holdCatchup: Bool = false, liveState: String = "running") async {
         self.cid = cid
         var events: [[String: Any]] = []
         var receipts: [[String: Any]] = []
@@ -298,7 +314,7 @@ let readinessDeadline = 120.0
             events.append(event(next(), mid, "turn.completed", ["state": "complete"]))
         }
         receipts.append(["message_id": live, "conversation_id": cid, "seq": prior + 1, "origin": "person",
-                         "state": "running", "text": liveText])
+                         "state": liveState, "text": liveText])
         events.append(event(next(), live, "accepted", [:]))
         events.append(event(next(), live, "text.delta", ["block": "live", "text": "streaming starts\n"]))
         for (index, text) in tray.enumerated() {
@@ -451,6 +467,12 @@ let readinessDeadline = 120.0
             let root = URL(fileURLWithPath: CommandLine.arguments[1])
             let result = mode == "fix11-live-turn" ? await suspendedLiveTurn(root)
                 : await settlingReveal(root, mode: String(mode.dropFirst("fix11-".count)))
+            print(String(decoding: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), as: UTF8.self))
+            return
+        }
+        if let mode = CommandLine.arguments.last, mode.hasPrefix("fix12-") {
+            let root = URL(fileURLWithPath: CommandLine.arguments[1])
+            let result = await fix12Cases(root, mode: String(mode.dropFirst("fix12-".count)))
             print(String(decoding: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), as: UTF8.self))
             return
         }
@@ -1801,4 +1823,332 @@ final class RevealArrivals: @unchecked Sendable {
     out["mounted_windows"] = ProbePresentation.mountedWindows
     out["animation_calls"] = ProbePresentation.animationCalls
     return out
+}
+
+// MARK: - Round 8: three ways the view stayed behind the end (review r6 of round 7)
+
+/// One round-8 scene's record: the view's follow trace, the clip's geometry and
+/// named steps, each with its position, readiness and whether the model holds the
+/// reveal's target.
+@MainActor final class Fix12Record {
+    let name: String
+    let started = Date()
+    var trace: [[String: Any]] = []
+    var geometry: [[String: Any]] = []
+    var steps: [[String: Any]] = []
+    var scene: Scene?
+    var host: NSView?
+    private var boundsObserver: NSObjectProtocol?
+
+    init(_ name: String) {
+        self.name = name
+        ConversationFollowTest.record = { [weak self] cid, entry in
+            guard let self, cid == self.name else { return }
+            self.trace.append(entry.merging(["at": self.at(), "position": self.position()]) { _, new in new })
+        }
+    }
+
+    func at() -> Double { Date().timeIntervalSince(started) }
+    func position() -> [String: Double] { host.map { sample($0) } ?? [:] }
+
+    func mounted(_ view: NSView) {
+        host = view
+        let clip = timelineScroll(view)?.contentView
+        clip?.postsBoundsChangedNotifications = true
+        boundsObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
+                                                                object: clip, queue: nil) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.geometry.append(["at": self.at(), "position": self.position()])
+            }
+        }
+    }
+
+    func step(_ label: String, target: String? = nil, _ extra: [String: Any] = [:]) {
+        var entry = extra.merging(["step": label, "at": at(), "position": position()]) { _, new in new }
+        if let scene {
+            entry["readiness"] = scene.readiness()
+            let timeline = scene.model.state.timelines[name]
+            entry["resets"] = timeline?.resets ?? -1
+            let items = scene.model.state.layout(conversationID: name)?.items ?? []
+            if let target { entry["target_in_model"] = items.contains { $0.id == target } }
+            entry["last_row"] = items.last?.id ?? ""
+            entry["own_send_last"] = items.last.flatMap { last in
+                last.messageID.map { timeline?.turn($0)?.locallySent == true } } ?? false
+        }
+        steps.append(entry)
+    }
+
+    func clipTo(offset: CGFloat? = nil, fromEnd: CGFloat? = nil) {
+        guard let host, let scroll = timelineScroll(host), let document = scroll.documentView else { return }
+        let clip = scroll.contentView
+        let y = offset ?? max(0, document.frame.height - clip.bounds.height - (fromEnd ?? 0))
+        clip.scroll(to: NSPoint(x: 0, y: y))
+        scroll.reflectScrolledClipView(clip)
+    }
+
+    func finish(_ extra: [String: Any] = [:]) -> [String: Any] {
+        ConversationFollowTest.record = nil
+        if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
+        scene?.close()
+        return extra.merging(["steps": steps, "trace": trace, "geometry": geometry,
+                              "readiness_waits": ProbeWaits.log,
+                              "visible_windows": NSApp.windows.filter(\.isVisible).count]) { _, new in new }
+    }
+}
+
+/// A reveal request the probe posts itself, as a requester does: the request, the
+/// scroll's first pass (if any) and the completion, all in one turn.
+@MainActor func postReveal(_ record: Fix12Record, target: String, offset: CGFloat? = nil, fromEnd: CGFloat? = nil) -> UUID {
+    let request = UUID()
+    NotificationCenter.default.post(name: .conversationRowScroll, object: record.name,
+                                    userInfo: ["request": request, "target": target])
+    record.step("reveal", target: target)
+    if offset != nil || fromEnd != nil { record.clipTo(offset: offset, fromEnd: fromEnd) }
+    ConversationOpeningPin.didRevealRow(in: record.name, request: request)
+    return request
+}
+
+// P2-1, the review's input: a pending reveal to `text:m000040:b` (its scroll had
+// left the end before the row was in the clip), then an event-log reset that took
+// that row out of the model. Catch-up is held across the reset, so the row stays
+// out until the re-read. The clip clamps to the shrunk end, and the next reply
+// must be followed. `away` is the control: the clip sits 3,000 pt down a
+// 9,000 pt test inset, so the end stays out of view after the reset; suspension
+// must hold until the person scrolls to the end.
+@MainActor func removedTarget(_ root: URL, away: Bool) async -> [String: Any] {
+    let record = Fix12Record(away ? "removed-away" : "removed")
+    let target = "text:m000040:b"
+    if away { ConversationFollowTest.inset.top = 9000 }
+    defer { ConversationFollowTest.inset.top = 0 }
+    let scene = await Scene(record.name, root: root, prior: 120,
+                            priorText: { "person message \($0) asks something" }, tray: [],
+                            onMount: { record.mounted($0) })
+    record.scene = scene
+    _ = await stablePosition(scene.host)
+    record.step("opened", target: target)
+    scene.daemon.pauseCatchup()
+    _ = away ? postReveal(record, target: target, offset: 3000) : postReveal(record, target: target, fromEnd: 2000)
+    await settle(scene.host, seconds: 0.5)
+    // Gate: lazy measurement can shrink the document under the clip and clamp it to
+    // the end meanwhile (round 7). Put the clip back where the reveal's first pass
+    // left it, and take the step and the reset's request in that one turn.
+    away ? record.clipTo(offset: 3000) : record.clipTo(fromEnd: 2000)
+    record.step("pending", target: target)
+    scene.daemon.resetOnce()
+    await waitReady("removed.reset", seconds: 30, view: scene.host, state: { scene.readiness() }) {
+        (scene.model.state.timelines[record.name]?.resets ?? 0) >= 1 && scene.daemon.catchupPending
+    }
+    await settle(scene.host, seconds: 1.0)
+    record.step("reset", target: target)
+    scene.daemon.resumeCatchup()
+    await scene.waitFolded(scene.daemon.lastSeq, "removed.caught_up")
+    await settle(scene.host, seconds: 1.0)
+    record.step("caught_up", target: target)
+    if away {
+        await scene.stream(20)
+        record.step("reply_held", target: target)
+        record.step("person_scrolling", target: target)
+        await scene.personScroll(toEnd: true)
+        record.step("person_at_end", target: target)
+    }
+    await scene.stream(20)
+    record.step("reply", target: target)
+    return record.finish(["target": target, "away": away])
+}
+
+// P2-1's second way: a request whose target the model does not hold (the search
+// revealer's second pass after its row went, or any stale id). Nothing presents
+// such a row, so it must be abandoned at once.
+@MainActor func missingTarget(_ root: URL) async -> [String: Any] {
+    let record = Fix12Record("missing")
+    let target = "text:gone:b"
+    let scene = await Scene(record.name, root: root, prior: 30,
+                            priorText: { "person message \($0) asks something" }, tray: [],
+                            onMount: { record.mounted($0) })
+    record.scene = scene
+    _ = await stablePosition(scene.host)
+    record.step("opened", target: target)
+    _ = postReveal(record, target: target)
+    await settle(scene.host, seconds: 0.5)
+    record.step("requested", target: target)
+    await scene.stream(20)
+    record.step("reply", target: target)
+    return record.finish(["target": target])
+}
+
+// P2-2: the person's own send (`UIModel.send`) during a pending reveal, with
+// catch-up held (`catchup`) or after it (`ordinary`, the control). The live
+// message has ended, so the send is the timeline's last row, not a tray row.
+@MainActor func ownSendDuringReveal(_ root: URL, catchup: Bool) async -> [String: Any] {
+    let record = Fix12Record(catchup ? "send-catchup" : "send-ordinary")
+    let target = "person:m000040"
+    let scene = await Scene(record.name, root: root, prior: 120,
+                            priorText: { "person message \($0) asks something" }, tray: [],
+                            pageDelay: catchup ? 0.25 : 0, pageSize: catchup ? 40 : 200, pauseCatchup: catchup,
+                            onMount: { record.mounted($0) }, holdCatchup: catchup, liveState: "complete")
+    record.scene = scene
+    _ = await stablePosition(scene.host)
+    record.step("opened", target: target)
+    _ = postReveal(record, target: target, fromEnd: 2000)
+    await settle(scene.host, seconds: 0.5)
+    // Gate, as in `removedTarget`: the clip where the first pass left it, the step and
+    // the send in one turn.
+    record.clipTo(fromEnd: 2000)
+    record.step("pending", target: target)
+    scene.model.send(conversationID: record.name, text: "my own reply", staged: [],
+                     settings: ConversationSettings(model: "claude-opus-5-5"))
+    await settle(scene.host, seconds: 1.0)
+    record.step("sent", target: target)
+    if catchup {
+        scene.daemon.resumeCatchup()
+        await scene.waitFolded(scene.daemon.lastSeq, "send.caught_up")
+        await settle(scene.host, seconds: 1.0)
+        record.step("caught_up", target: target)
+    }
+    await scene.stream(20)
+    record.step("reply", target: target)
+    return record.finish(["target": target, "catchup": catchup, "held_before_reveal": scene.heldBeforeReveal])
+}
+
+// P2-3: the pin's mark check must run whenever the mark's place in the document
+// changes. Three scenes, each with a 2,000 pt document under a 550 pt clip and a
+// reveal outstanding for `target`:
+// - `swiftui`: a SwiftUI layout redistributes row heights, moving the row's
+//   AppKitPlatformViewHost from y=300 to y=1,700 with the clip at the end (y=1,450);
+//   the mark's own frame, the clip and the document do not change. The row and the
+//   end are then in the clip together: landed, and suspension released.
+// - `parent`: an AppKit parent view moves the mark from y=300 to y=1,200 under a
+//   clip at y=1,000, its own frame unchanged: landed, with the end out of view.
+// - `identity`: a reused mark already in the clip at the end takes the target's id
+//   (`updateNSView` on reuse): landed, and suspension released.
+@MainActor final class MarkRows: ObservableObject { @Published var heights: [CGFloat] = [300, 100, 1600] }
+
+struct MarkRowsView: View {
+    @ObservedObject var rows: MarkRows
+    let cid: String
+    let landed: (UUID) -> Void
+    let endVisible: (UUID) -> Void
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                ForEach(Array(rows.heights.enumerated()), id: \.offset) { index, height in
+                    Color.clear.frame(height: height).background(mark(index == 1))
+                }
+            }
+            .background(ConversationOpeningPin(conversationID: cid, onRevealEndVisible: endVisible,
+                                               onRevealLanded: landed))
+        }
+    }
+    @ViewBuilder private func mark(_ isTarget: Bool) -> some View {
+        if isTarget { RevealTargetMark(conversationID: cid, itemID: "target") }
+    }
+}
+
+final class FlippedDocument: NSView { override var isFlipped: Bool { true } }
+
+@MainActor func markScene(_ kind: String) async -> [String: Any] {
+    let cid = "mark-" + kind
+    let started = Date()
+    func at() -> Double { Date().timeIntervalSince(started) }
+    var trace: [[String: Any]] = []
+    var landed: [Double] = []
+    var endVisible: [Double] = []
+    ConversationFollowTest.record = { id, entry in
+        guard id == cid else { return }
+        trace.append(entry.merging(["at": at()]) { _, new in new })
+    }
+    defer { ConversationFollowTest.record = nil }
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 550), styleMask: [.borderless],
+                          backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    let rows = MarkRows()
+    var parent: NSView?
+    var appKitMark: RevealTargetView?
+    var appKitPin: OpeningPinView?
+    if kind == "swiftui" {
+        let host = NSHostingView(rootView: MarkRowsView(rows: rows, cid: cid, landed: { _ in landed.append(at()) },
+                                                        endVisible: { _ in endVisible.append(at()) })
+            .transaction { $0.animation = nil; $0.disablesAnimations = true })
+        window.contentView = host
+    } else {
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 400, height: 550))
+        let document = FlippedDocument(frame: NSRect(x: 0, y: 0, width: 400, height: 2000))
+        scroll.documentView = document
+        let pin = OpeningPinView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
+        pin.conversationID = cid
+        pin.onRevealLanded = { _ in landed.append(at()) }
+        pin.onRevealEndVisible = { _ in endVisible.append(at()) }
+        document.addSubview(pin)
+        // `parent`: the mark's row container far above the clip. `identity`: a
+        // reused mark, still carrying another row's id, already in the clip.
+        let holder = NSView(frame: NSRect(x: 0, y: kind == "parent" ? 300 : 1600, width: 400, height: 100))
+        let mark = RevealTargetView(frame: holder.bounds)
+        mark.conversationID = cid
+        mark.itemID = kind == "parent" ? "target" : "another-row"
+        holder.addSubview(mark)
+        document.addSubview(holder)
+        window.contentView = scroll
+        parent = holder
+        appKitMark = mark
+        appKitPin = pin
+    }
+    mountOffscreen(window)
+    let content = window.contentView!
+    await settle(content, seconds: 0.5)
+    func marks() -> [RevealTargetView] { descendants(content).compactMap { $0 as? RevealTargetView } }
+    func snapshot() -> [String: Any] {
+        var out: [String: Any] = sample(content)
+        if let mark = marks().first, let document = timelineScroll(content)?.documentView {
+            let local = mark.frame
+            let placed = mark.convert(mark.bounds, to: document)
+            out["mark_frame"] = ["x": Double(local.minX), "y": Double(local.minY), "height": Double(local.height)]
+            out["mark_in_document"] = ["y": Double(placed.minY), "height": Double(placed.height)]
+            out["mark_id"] = mark.itemID ?? ""
+        }
+        out["landed"] = landed.count
+        out["end_visible"] = endVisible.count
+        return out
+    }
+    // The opening pin has put the clip at the end; the request stops it.
+    let opened = snapshot()
+    let request = ConversationOpeningPin.revealRow(in: cid, target: "target")
+    if kind == "parent", let scroll = timelineScroll(content) {
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: 1000))
+        scroll.reflectScrolledClipView(scroll.contentView)
+    }
+    ConversationOpeningPin.didRevealRow(in: cid, request: request)
+    await settle(content, seconds: 0.5)
+    let before = snapshot()
+    let movedAt = at()
+    switch kind {
+    case "swiftui": rows.heights = [1700, 100, 200]
+    case "parent": parent?.setFrameOrigin(NSPoint(x: 0, y: 1200))
+    default: appKitMark?.itemID = "target"
+    }
+    await settle(content, seconds: 0.8)
+    let after = snapshot()
+    appKitPin?.detach()
+    window.contentView = nil
+    window.close()
+    return ["kind": kind, "opened": opened, "before": before, "after": after, "moved_at": movedAt,
+            "landed_at": landed, "end_visible_at": endVisible, "trace": trace]
+}
+
+@MainActor func fix12Cases(_ root: URL, mode: String) async -> [String: Any] {
+    switch mode {
+    case "removed": return await removedTarget(root, away: false)
+    case "removed-away": return await removedTarget(root, away: true)
+    case "missing": return await missingTarget(root)
+    case "send-catchup": return await ownSendDuringReveal(root, catchup: true)
+    case "send-ordinary": return await ownSendDuringReveal(root, catchup: false)
+    case "mark":
+        var out: [String: Any] = [:]
+        for kind in ["swiftui", "parent", "identity"] { out[kind] = await markScene(kind) }
+        out["visible_windows"] = NSApp.windows.filter(\.isVisible).count
+        return out
+    default:
+        FileHandle.standardError.write(Data("unknown fix12 mode \(mode)\n".utf8))
+        exit(64)
+    }
 }
