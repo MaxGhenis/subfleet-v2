@@ -250,10 +250,24 @@ let readinessDeadline = 120.0
     exit(70)
 }
 
+/// A wait whose precondition no longer holds can never be met by waiting longer: it
+/// ends the probe at once, naming what is missing (round 8's continuation: CI's
+/// shrink replay waited out 20 s for a clamp that rows measured after it had undone).
+@MainActor func readinessUnmet(_ name: String, _ missing: String, state: [String: Any]) -> Never {
+    let detail = (try? JSONSerialization.data(withJSONObject: state, options: [.sortedKeys]))
+        .map { String(decoding: $0, as: UTF8.self) } ?? String(describing: state)
+    writeWaitFailure(name, reason: "cannot be met: \(missing)", state: state)
+    FileHandle.standardError.write(Data("readiness wait '\(name)' cannot be met: \(missing); last state: \(detail)\n".utf8))
+    exit(71)
+}
+
+/// `unmet` names a precondition of the wait that no longer holds, or is nil while all do.
 @MainActor func waitReady(_ name: String, seconds: Double = readinessDeadline, view: NSView?, step: Double = 0.02,
-                          state: () -> [String: Any] = { [:] }, until ready: () -> Bool) async {
+                          state: () -> [String: Any] = { [:] }, unmet: () -> String? = { nil },
+                          until ready: () -> Bool) async {
     let started = Date()
     while !ready() {
+        if let missing = unmet() { readinessUnmet(name, missing, state: state()) }
         if Date().timeIntervalSince(started) >= seconds { readinessExpired(name, seconds: seconds, state: state()) }
         await settle(view ?? NSView(), seconds: step)
     }
