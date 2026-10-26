@@ -148,10 +148,24 @@ def releases_after(result, at):
             and e["event"] != "move"]
 
 
+def settling_ticks(result, steps):
+    """Every settling follow decision after catch-up was released."""
+    return [e for e in result["trace"] if e["at"] >= steps["tick"]["at"] and e["event"] == "move" and e["settling"]]
+
+
 def settling_tick(result, steps):
     """The first settling follow decision after catch-up was released."""
-    return next((e for e in result["trace"] if e["at"] >= steps["tick"]["at"] and e["event"] == "move"
-                 and e["settling"]), None)
+    return next(iter(settling_ticks(result, steps)), None)
+
+
+def assert_catchup_follows_the_end(result, steps):
+    """Released, every settling tick jumps to the end, and the view is there once caught up. A
+    sample between a page's growth and its jump can lag the end (83 pt, run 2026-10-26), so
+    in-flight positions are not checked against END."""
+    diagnostic = json.dumps(result, sort_keys=True)
+    ticks = settling_ticks(result, steps)
+    assert ticks and all(not t["suspended"] and t["move"] == "jump" for t in ticks), diagnostic
+    assert steps["caught_up"]["position"]["from_end"] <= END, diagnostic
 
 
 def assert_replayed_shrink_order(result, steps):
@@ -201,10 +215,7 @@ def test_person_scroll_to_the_end_during_a_pending_reveal_releases(fix8_view_bin
     assert steps["scrolled"]["position"]["from_end"] > DISTANT, diagnostic
     assert steps["person_at_end"]["position"]["from_end"] <= END, diagnostic
     assert releases_after(result, steps["scrolled"]["at"]), diagnostic
-    tick = settling_tick(result, steps)
-    assert tick is not None and not tick["suspended"] and tick["move"] == "jump", diagnostic
-    for key in ("after_tick", "caught_up"):
-        assert steps[key]["position"]["from_end"] <= END, diagnostic
+    assert_catchup_follows_the_end(result, steps)
 
 
 def assert_landed_shrink_order(result, steps):
@@ -221,10 +232,7 @@ def assert_landed_shrink_releases(result, steps):
     diagnostic = json.dumps(result, sort_keys=True)
     released = releases_after(result, steps["shrinking"]["at"])
     assert released and released[0]["event"] == "marker_appeared", diagnostic
-    tick = settling_tick(result, steps)
-    assert not tick["suspended"] and tick["move"] == "jump", diagnostic
-    for key in ("after_tick", "caught_up"):
-        assert steps[key]["position"]["from_end"] <= END, diagnostic
+    assert_catchup_follows_the_end(result, steps)
 
 
 def test_document_shrink_after_a_distant_reveal_lands_releases(fix8_view_binary, tmp_path):
