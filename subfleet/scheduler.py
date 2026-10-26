@@ -18,7 +18,7 @@ from typing import Any
 from .capacity import credential_gone, desktop_excluded, fresh_provider, identity_blocked, pilot_block
 from .launch_env import refused_reference
 from .contracts import (CAPACITY_RECHECK_BASE_S, CAPACITY_RECHECK_CEILING_S, DEFAULT_CAPS,
-                        HEADROOM_FLOOR, Decision, Exit, launch_has_shell)
+                        HEADROOM_FLOOR, Decision, Exit, hold_source_shown, launch_has_shell)
 from .policy import (MEMORY_PRESSURE_LEVELS, PolicyError, admission_settings, cap, flatten_chain, lane_slot_cap,
                      provider_cap, provider_caps_on, resolve_model, resolve_sandbox, turn_cap, job_needs_shell)
 
@@ -1100,11 +1100,15 @@ def pin_unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: An
         return None
     if not found:
         return None
-    held = [{"scope": row["scope"], "until_at": row["until_at"], "reason": row.get("reason")}
+    # Explanations retain the stored hold source, through #263's strict reader;
+    # neither the source nor the lane's display name participates in judgment.
+    held = [{"scope": row["scope"], "until_at": row["until_at"], "reason": row.get("reason"),
+             **({"source_event": hold_source_shown(row.get("source_event"))}
+                if row.get("reason") == "operator-hold" else {})}
             for row in closures if f"closed:{row['scope']}:{row['until_at']}" in found]
     return {"lane_id": lane["lane_id"], "reasons": found, "closures": held,
-            **({"probe_status": lane.get("probe_status")} if "credential-latched" in found else {}),
-            **({"credential_ref": lane.get("credential_ref")} if "credential-refused" in found else {})}
+            "home": lane.get("home"), "credential_ref": lane.get("credential_ref"),
+            **({"probe_status": lane.get("probe_status")} if "credential-latched" in found else {})}
 
 
 def unadmittable(policy: Mapping[str, Any], view: Mapping[str, Any], job: Any,

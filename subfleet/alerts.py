@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from .render import _held_text, lane_home as _home
-from .status_json import CREDENTIAL_VERDICTS, closure_note, dispatchable, instant, lane_verdict, timestamp
+from .status_json import CREDENTIAL_VERDICTS, dispatchable, instant, lane_verdict, timestamp
 
 
 def _login(lane: Mapping[str, Any]) -> str:

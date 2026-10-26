@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 from hypothesis import example, given, settings, strategies as st
 
-from subfleet import cli, daemon, protocol, render
+from subfleet import cli, daemon, protocol, render, scheduler
 from subfleet.alerts import Alerts, evaluate_conditions
 from subfleet.capacity import build_view, from_store
 from subfleet.contracts import ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner
@@ -118,7 +118,7 @@ def test_each_print_site_calls_an_operator_hold_held(operator, note, site):
         Alerts(operator.store, {}, delivered.append).evaluate(view, now=NOW)
         text = json.dumps(delivered)
     elif site == "status":
-        text = format_status(view)
+        text = format_status({**view, "alerts": evaluate_conditions(view, now=NOW)})
     elif site == "capacity":
         text = render.status(view)
     elif site == "lanes":
@@ -146,6 +146,10 @@ def test_each_print_site_calls_an_operator_hold_held(operator, note, site):
         text = brief(view)
     expected = "held by the operator" + (f": {note}" if note else "") + f" (until {UNTIL} at the latest)"
     assert expected in text
+    if site == "status":
+        before, separator, after = text.partition("\nclosures\n")
+        assert separator and "/homes/codex-1: " + expected in before
+        assert "/homes/codex-1: " + expected in after
     if site not in ("why", "why-rejected", "conversation"):
         assert "/homes/codex-1: " + expected in text
     assert "closed (operator-hold)" not in text
@@ -167,14 +171,16 @@ def test_other_closures_never_show_a_note_and_keep_their_wording(operator, reaso
     assert "DO NOT DISPLAY" not in json.dumps(build_status({"lanes": [lane]}, now=NOW))
 
 
-def test_pin_explanation_keeps_the_note_from_real_admission(operator):
+@pytest.mark.parametrize("note", [None, NOTE])
+def test_pin_explanation_keeps_the_note_from_real_admission(operator, note):
     """C-9.6, C-11.8: scheduler explanations must carry the note through to notices."""
     from subfleet.scheduler import pin_unadmittable
-    hold(operator, note=NOTE, until="2027-01-01T00:00:00Z")
+    hold(operator, note=note, until="2027-01-01T00:00:00Z")
     stuck = pin_unadmittable(POLICY, from_store(operator.store, now=NOW),
                              {**JOB, "pinned_lane": "codex-1"})
     assert stuck is not None
-    assert f"/homes/codex-1: held by the operator: {NOTE}" in render.pin_notice("job", stuck, None)
+    expected = "/homes/codex-1: held by the operator" + (f": {note}" if note else "")
+    assert expected + " (until 2027-01-01T00:00:00Z at the latest)" in render.pin_notice("job", stuck, None)
 
 
 @pytest.mark.parametrize("note", [None, NOTE])
@@ -287,3 +293,15 @@ def test_r1_notes_are_refused_by_cli_and_daemon_without_writes(operator, monkeyp
     assert error.value.reason == "hold-note"
     assert operator.store.list_closures() == []
     assert operator.store.list_events() == before
+
+
+def test_real_pin_explanation_withholds_an_external_credential_source(operator):
+    """C-9.6: carrying hold metadata into pin notices preserves #263's strict reader."""
+    hold(operator, note=NOTE, until="2027-01-01T00:00:00Z")
+    with operator.store.transaction() as tx:
+        tx.execute("UPDATE closures SET source_event=?", ("operator: password=SECRET7-left",))
+    stuck = scheduler.pin_unadmittable(POLICY, from_store(operator.store, now=NOW),
+                                       {**JOB, "pinned_lane": "codex-1"})
+    assert "SECRET7" not in json.dumps(stuck)
+    assert "/homes/codex-1: held by the operator: [note withheld: it would carry a credential]" in (
+        render.pin_notice("job", stuck, None))

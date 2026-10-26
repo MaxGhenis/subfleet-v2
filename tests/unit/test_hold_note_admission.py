@@ -91,6 +91,7 @@ def test_real_store_sequences_admission_is_blind_to_notes(steps):
                 if "codex-1" in held[0]:
                     assert all(decision.chosen_lane is None for decision in decisions)
             lanes = [view["lanes"][0] for view in views]
+            assert actions.lane_hold(lanes[0], now=now) == actions.lane_hold(lanes[1], now=now)
             assert actions.lane_hold(lanes[0], now=now, held=held[0]) == actions.lane_hold(
                 lanes[1], now=now, held=held[1])
             assert status_json.dispatchable(lanes[0]) == status_json.dispatchable(lanes[1])
