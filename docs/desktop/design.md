@@ -1141,15 +1141,26 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   without animation unless an explicit approval or search reveal that scrolls
   the timeline has suspended settling and ordinary following (C-27.5, C-29.7,
   C-29.12). Suspension starts before scrolling and preserves the revealed
-  position even while the lazy end marker's disappearance is pending. It ends
-  when the marker really appears, or when the matching completed reveal's
-  presented geometry confirms that the end remains visible. A completion can
-  arrive before its scroll is laid out, so the geometry is read on the next
-  turn, after the window's pending layout has applied the reveal. Confirmation
-  releases suspension without scrolling; catch-up resumes on the next changed
-  key. During ordinary following the person's own new send still glides while
-  suspended; other changes follow only with the end on screen. Remote
-  event-only turns do not count as the person's own send.
+  position even while the lazy end marker's disappearance is pending. Each
+  reveal request names its target row, which the view marks with a
+  `RevealTargetMark` (an NSView in the row's background), and the reveal is
+  outstanding until that row is presented in the clip. While it is
+  outstanding, the end coming into view releases nothing: the reveal's scroll
+  can leave the end before the lazy stack has laid out the row, and measuring
+  the rows it then lays out can shrink the document under the clip and clamp
+  it to the end (CI run 40251214771, a 6,382 pt shrink with no page, history
+  or row change). The opening pin reads the mark's presented frame after each
+  clip or document change and on the turn after the reveal's completion. A
+  completion can arrive before its scroll is laid out, so that turn first
+  lays out the window. When the row is presented the reveal has landed, and
+  the end visible beside it releases suspension (a nearby reveal). Once no
+  reveal is outstanding the marker appearing again releases it, as before.
+  The person's live scroll, wheel or paging keys end an outstanding reveal and
+  release suspension if the end is then visible; the person's own new send,
+  which still glides to the end while suspended, ends it too. Release does not
+  scroll; catch-up resumes on the next changed key. Other changes follow only
+  with the end on screen. Remote event-only turns do not count as the
+  person's own send.
   Approval positioning on opening also has
   no animation; subsequent newly pending cards retain their explicit reveal.
 - A listed session that cannot continue here (a Codex-app thread) opens as a
