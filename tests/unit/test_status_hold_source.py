@@ -803,8 +803,9 @@ def _comparisons(text: str, filename: str) -> list[int]:
     `GUARD_MISSES`: a comparison through `operator.eq`, `__eq__`, a dict
     lookup or a dict's keys (`in {"operator": 1}`); the word reached through
     `getattr`, a call (`hold_source(None)`, `"OPERATOR".lower()`), an f-string
-    (`f"{HOLD_SOURCE}"`), a concatenation (`"oper" + "ator"`) or a variable;
-    SQL held in a variable; and in SQL, `COALESCE(source_event, …)`, `BETWEEN`,
+    (`f"{HOLD_SOURCE}"`), a `+` concatenation (`"oper" + "ator"`) or a
+    variable; a `?` in SQL held in a variable; and in SQL,
+    `COALESCE(source_event, …)` followed by the comparison, `BETWEEN`,
     `CASE source_event WHEN` and a named parameter (`:s`). A prefix test
     (`startswith`, `hold_note_of`) is no comparison."""
     lines = []
@@ -1220,6 +1221,12 @@ GUARD_CASES_R3 = {
                             "    return conn.execute(\"SELECT 1 FROM closures WHERE lower(source_event)='operator'\")\n", [2]),
     "a space after the (, caught at b11661169": ("def compares(conn):\n    return conn.execute("
                                                  "\"SELECT 1 FROM closures WHERE source_event IN ( 'operator')\")\n", [2]),
+    "the word first, before COALESCE (review r4)": ("def compares(conn):\n    return conn.execute("
+                                                    "\"SELECT 1 FROM closures WHERE 'operator' = COALESCE(source_event, '')\")\n",
+                                                    [2]),
+    "SQL held in a variable, the word written in (review r4)": (
+        "SQL = \"SELECT 1 FROM closures WHERE source_event = 'operator'\"\n\n\ndef compares(conn):\n"
+        "    return conn.execute(SQL)\n", [1]),
 }
 
 
