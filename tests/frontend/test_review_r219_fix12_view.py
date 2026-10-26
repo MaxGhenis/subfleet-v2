@@ -96,6 +96,39 @@ def test_reveal_of_a_target_missing_from_the_model_is_abandoned(fix8_view_binary
     assert steps["reply"]["position"]["from_end"] <= GAP, diagnostic
 
 
+def assert_missing_away_order(result, steps):
+    """The request came with the end out of view, and the end then came into view with no
+    person input."""
+    diagnostic = json.dumps(result, sort_keys=True)
+    assert steps["opened"]["position"]["from_end"] <= END, diagnostic
+    requests = [e for e in result["trace"] if e["event"] == "reveal"]
+    assert len(requests) == 1 and not requests[0]["at_bottom"], diagnostic
+    assert not steps["reveal"]["target_in_model"], diagnostic
+    assert steps["requested"]["position"]["from_end"] > DISTANT, diagnostic
+    assert steps["end_shown"]["position"]["from_end"] <= END, diagnostic
+    assert not any(e["event"] in ("person_scrolled", "move") for e in result["trace"]
+                   if steps["reveal"]["at"] <= e["at"] <= steps["end_shown"]["at"]), diagnostic
+
+
+def assert_missing_away_releases(result, steps):
+    """Abandoned at the request, which released nothing with the end away; the marker's
+    appearance then released suspension, and the next reply is followed."""
+    diagnostic = json.dumps(result, sort_keys=True)
+    assert abandonments(result, "target_missing"), diagnostic
+    assert follow_state(result, steps["requested"]["at"])["suspended"], diagnostic
+    released = releases_between(result, steps["showing"]["at"], steps["end_shown"]["at"])
+    assert released and released[0]["event"] == "marker_appeared", diagnostic
+    assert steps["reply"]["position"]["from_end"] <= GAP, diagnostic
+
+
+def test_missing_target_away_from_the_end_releases_when_the_end_appears(fix8_view_binary, tmp_path):
+    """With the end out of view the abandoned request releases nothing, and from then on the
+    normal rules apply: the end coming into view without the person releases suspension."""
+    result, steps, _ = fix12_run(fix8_view_binary, tmp_path, "missing-away")
+    assert_missing_away_order(result, steps)
+    assert_missing_away_releases(result, steps)
+
+
 def test_removed_target_away_from_the_end_holds_until_the_end_is_shown(fix8_view_binary, tmp_path):
     """The control: the same reset with the end out of view abandons the reveal but releases
     nothing; through catch-up and a reply the view stays, until the person scrolls to the end
@@ -186,6 +219,17 @@ def assert_mark_scene_order(scene):
     else:
         assert after["mark_in_document"]["y"] != before["mark_in_document"]["y"], diagnostic
         assert after["mark_id"] == "target", diagnostic
+
+
+def assert_mark_probes_order(result):
+    for kind in ("swiftui", "parent", "identity"):
+        assert_mark_scene_order(result[kind])
+
+
+def assert_mark_probes_run_the_check(result):
+    """Every scene's change ran the check and released or kept suspension correctly."""
+    for kind, released in (("swiftui", True), ("parent", False), ("identity", True)):
+        assert_mark_check_ran(result[kind], released=released)
 
 
 def assert_mark_check_ran(scene, *, released):

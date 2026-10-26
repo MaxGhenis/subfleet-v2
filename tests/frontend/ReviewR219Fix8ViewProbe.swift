@@ -1978,9 +1978,12 @@ final class RevealArrivals: @unchecked Sendable {
 
 // P2-1's second way: a request whose target the model does not hold (the search
 // revealer's second pass after its row went, or any stale id). Nothing presents
-// such a row, so it must be abandoned at once.
-@MainActor func missingTarget(_ root: URL) async -> [String: Any] {
-    let record = Fix12Record("missing")
+// such a row, so it must be abandoned at once. With `away`, the person has scrolled
+// 2,000 pt up when the request comes, so nothing releases then; the end is then
+// brought into view with no person input (as a shrink or SwiftUI's own scroll
+// does), and the marker's appearance must release suspension.
+@MainActor func missingTarget(_ root: URL, away: Bool) async -> [String: Any] {
+    let record = Fix12Record(away ? "missing-away" : "missing")
     let target = "text:gone:b"
     let scene = await Scene(record.name, root: root, prior: 30,
                             priorText: { "person message \($0) asks something" }, tray: [],
@@ -1988,12 +1991,30 @@ final class RevealArrivals: @unchecked Sendable {
     record.scene = scene
     _ = await stablePosition(scene.host)
     record.step("opened", target: target)
+    if away, let scroll = timelineScroll(scene.host) {
+        // The person reads 2,000 pt up (which stops the opening pin); wait until lazy
+        // measurement there has settled and the marker has gone.
+        NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: scroll)
+        record.clipTo(fromEnd: 2000)
+        NotificationCenter.default.post(name: NSScrollView.didEndLiveScrollNotification, object: scroll)
+        _ = await stablePosition(scene.host, awayFromEnd: true)
+        await waitReady("missing.marker_gone", seconds: 20, view: scene.host, state: { scene.readiness() }) {
+            record.trace.last { $0["at_bottom"] != nil }?["at_bottom"] as? Bool == false
+        }
+        record.clipTo(fromEnd: 2000)
+    }
     _ = postReveal(record, target: target)
     await settle(scene.host, seconds: 0.5)
     record.step("requested", target: target)
+    if away {
+        record.step("showing", target: target)
+        record.clipTo(fromEnd: 0)
+        await settle(scene.host, seconds: 0.5)
+        record.step("end_shown", target: target)
+    }
     await scene.stream(20)
     record.step("reply", target: target)
-    return record.finish(["target": target])
+    return record.finish(["target": target, "away": away])
 }
 
 // P2-2: the person's own send (`UIModel.send`) during a pending reveal, with
@@ -2158,7 +2179,8 @@ final class FlippedDocument: NSView { override var isFlipped: Bool { true } }
     switch mode {
     case "removed": return await removedTarget(root, away: false)
     case "removed-away": return await removedTarget(root, away: true)
-    case "missing": return await missingTarget(root)
+    case "missing": return await missingTarget(root, away: false)
+    case "missing-away": return await missingTarget(root, away: true)
     case "send-catchup": return await ownSendDuringReveal(root, catchup: true)
     case "send-ordinary": return await ownSendDuringReveal(root, catchup: false)
     case "mark":
