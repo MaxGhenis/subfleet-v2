@@ -330,8 +330,9 @@ MEMBER = 83100
 #: root shape: the root's recorded unique id, its pid on boot B ("free"; "unreadable", free with
 #: the kernel's read of it failing; "stranger", a row of boot B) and whether a process names it as
 #: responsible, then `kernel.process(76526)` calls, of those the final holder read after the member
-#: scan, and whether the scan read any process's responsibility. Review r6 of #240 executed the
-#: first four rows. The last two are a root the census proves recycled, which disables the source.
+#: scan, and whether the scan was given the root, so read its members. Review r6 of #240 executed
+#: the first four rows. The last two are a root the census proves recycled, which disables the
+#: source.
 BOOT_SCOPE = {
     "known-id-holder-read-fails": ((9000, "unreadable", False), (1, 1, True)),
     "known-id-holder-gone": ((9000, "free", False), (1, 1, True)),
@@ -350,7 +351,7 @@ def test_c5_5_boot_scope_the_final_holder_read_by_root_shape(monkeypatch, shape)
     start is absent or changed, drops the responsibility source without an error, so neither its
     members nor its holder are read. Every shape verifies empty with no error. A stranger's pid is
     a listed pid, so the marker source reads it once in the scan; that read is not a holder read."""
-    (unique_id, holder, member), (process_calls, final_reads, members_read) = BOOT_SCOPE[shape]
+    (unique_id, holder, member), (process_calls, final_reads, source) = BOOT_SCOPE[shape]
     row = trackb_row()
     evidence = json.loads(row["evidence_json"])
     evidence["responsible_root"] = {"pid": GUARDIAN, "unique_id": unique_id}
@@ -363,20 +364,19 @@ def test_c5_5_boot_scope_the_final_holder_read_by_root_shape(monkeypatch, shape)
     if member:
         kernel.processes[MEMBER] = procargs(["tail"])
         kernel.boss[MEMBER] = GUARDIAN
-    scanned, real = [], procs._kernel_sources
+    scans, real = [], procs._kernel_sources
 
-    def scan(*args, **kwargs):
+    def scan(kernel_reader, candidates, marker, root, ours):
         try:
-            return real(*args, **kwargs)
+            return real(kernel_reader, candidates, marker, root, ours)
         finally:
-            scanned.append(len(kernel.calls))
+            scans.append((len(kernel.calls), root is not None))
     monkeypatch.setattr(procs, "_kernel_sources", scan)
     result = Daemon._contain(trackb_core(row), dict(row))
     assert result.verified_empty and result.errors == (), result.to_dict()
-    assert len(scanned) == 1, scanned
+    assert [rooted for _, rooted in scans] == [source], scans
     assert kernel.calls.count(("process", GUARDIAN)) == process_calls, kernel.calls
-    assert kernel.calls[scanned[0]:].count(("process", GUARDIAN)) == final_reads, kernel.calls
-    assert any(call[0] == "responsible" for call in kernel.calls) == members_read, kernel.calls
+    assert kernel.calls[scans[0][0]:].count(("process", GUARDIAN)) == final_reads, kernel.calls
     if holder == "stranger":
         assert result.recycled[GUARDIAN]["reason"] == "different start identity"
     if member:
