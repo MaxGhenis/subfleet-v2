@@ -99,7 +99,7 @@ def spawn_guardian(command: list[str], *, disclaim: bool, **options):
 def _helper_environment(function):
     @functools.wraps(function)
     def scoped(self, *args, **kwargs):
-        with helper_policy(getattr(self, "policy", {})):
+        with helper_policy(getattr(self, "policy", {}), withheld=self._helper_withheld):
             return function(self, *args, **kwargs)
     return scoped
 
@@ -3365,6 +3365,15 @@ class Daemon:
         """D-ENV1: the names every launch withholds for the lanes (`credentials.withheld_references`),
         and the hooks of the lanes.json rows startup ignored (`credentials.ignored_hooks`)."""
         return withheld_references(self.store.list_lanes()) | self._ignored_hooks
+
+    def _helper_withheld(self) -> frozenset[str]:
+        """D-ENV2 (review r2 of #248, P3-2): what every helper subprocess withholds,
+        read at each `build_environment` in this daemon's helper scopes: exactly what
+        its launches withhold (`_withheld_references`, through `_provider_environment`).
+        A Daemon assembled without `__init__` (unit tests build one by hand) withholds
+        what the `_provider_environment` it was given does, and nothing without one."""
+        environment = getattr(self, "_provider_environment", None)
+        return environment.withheld() if environment is not None else frozenset()
 
     def _credential_environment(self, lane: Lane) -> dict[str, str]:
         return self._provider_environment.additions(lane.provider, resolve_credential(lane.credential))
