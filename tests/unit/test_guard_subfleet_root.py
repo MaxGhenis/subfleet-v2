@@ -1036,7 +1036,7 @@ def generate(scale: int) -> list[dict]:
                     if homed:
                         for env in twin_spellings(suffix, s_index, scale):
                             cases.append(dict(case, command=case["command_as"](env), spelling=env,
-                                              twin_of=case["command"],
+                                              twin_of=case["command"], source_spelling=spelling,
                                               home_ref=case["command_as"](ENV_HOME[env])))
     for case in cases:
         case.pop("command_for", None)
@@ -1362,12 +1362,22 @@ def test_known_limits_r2_lists_are_pre_existing_for_every_root(hooks):
 
 # ---------------------------------------------------------------- S5
 
+def same_on_disk(suffix: str) -> bool:
+    """Whether <FAKE_HOME>/<suffix> and /Users/maxghenis/<suffix> are the same kind of thing in the
+    fixture (a directory, a file, or nothing)."""
+    def kind(path: Path) -> str:
+        return "dir" if path.is_dir() else "file" if path.exists() else "none"
+    return kind(fs_path(FAKE_HOME + "/" + suffix)) == kind(fs_path("/Users/maxghenis/" + suffix))
+
+
 def test_s5_env_spellings_decide_as_their_home_expansions(hooks, corpus):
     """S5 over the generator: each env-spelled twin gets exactly the decision of its
     ``$HOME/.subfleet`` expansion (``home_ref``: the same draw over ``$HOME/.subfleet``, or
     ``${HOME}/.subfleet`` for a braced twin) and of its source command (the same draw over
     <home>/.subfleet[/…] in the source's home spelling); the twin shares its context, searcher,
-    quoting, slash and depth bound."""
+    quoting, slash and depth bound. A source spelled /Users/maxghenis names another home than the
+    hook's $HOME, so where the two homes differ on disk (r3 and r3b judge files there) it is
+    compared with nothing (``other_home_sources``)."""
     twins = [case for case in corpus["generated"] if "twin_of" in case]
     outs = judge_all(hooks["new"], [(c["command"], c["cwd"]) for c in twins]
                      + [(c["home_ref"], c["cwd"]) for c in twins]
@@ -1376,11 +1386,17 @@ def test_s5_env_spellings_decide_as_their_home_expansions(hooks, corpus):
     counts = {"twins": len(twins), "home_refs": len({c["home_ref"] for c in twins}),
               "sources": len({c["twin_of"] for c in twins}), "denied": 0, "allowed": 0,
               "by_spelling": dict.fromkeys(ENV_SPELLINGS, 0), "scale": scale()}
+    counts["other_home_sources"] = 0
     for case in twins:
         twin = rule(outs[(case["command"], case["cwd"])])
         ref = rule(outs[(case["home_ref"], case["cwd"])])
         source = rule(outs[(case["twin_of"], case["cwd"])])
-        if not twin == ref == source:
+        # A source spelled /Users/maxghenis names another home than the hook's $HOME (FAKE_HOME). Since
+        # r3 judges paths on disk, it decides as its own path where the two homes differ there
+        # (.subfleet/subfleetd.log is a file only under FAKE_HOME), so it is compared where they agree.
+        other = case["source_spelling"] not in ("~", "$HOME", "${HOME}", FAKE_HOME) and not same_on_disk(case["suffix"])
+        counts["other_home_sources"] += other
+        if not (twin == ref and (other or ref == source)):
             differ.append((case["command"], twin, case["home_ref"], ref, case["twin_of"], source))
         counts["denied" if twin else "allowed"] += 1
         counts["by_spelling"][case["spelling"]] += 1
