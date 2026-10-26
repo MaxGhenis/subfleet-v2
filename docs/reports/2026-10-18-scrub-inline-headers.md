@@ -1304,3 +1304,145 @@ The two regressions added later were run at `8fde0c4ad` as plain calls:
 - **Follow-ups for the hub:** round 4's, with these.
   - **P3-4's join, stated not fixed.** Closing it in every mode would mean masking a quoted value's secret-named flag and its fold as one span across the line break, as the references do. That changes the fold's shape everywhere a quoted value ends in such a flag. *Round 6:* fixed with review r6's `p34f`, which changes what ends a quoted value only where the flag's name is a key whose separator is on the next line.
   - **The 169 texts where this head shows a value `c469f44b6` hid** (all shown by both references): round 4's fold fix and this round's narrowing, measured, not leaks.
+
+## Fix round 6 (#239 review r6, 2026-10-26)
+
+**Brief:** `~/reviews/subfleet-hub/scrub-inline-2026-10-18/brief-fix6.md`. **Review:** that folder's `review-r6.md`, REQUEST_CHANGES at `1ad7da99c`: one P2 (P2-1, round 5's P3-4 and its class, a regression against the live release, with a measured fix, `p34f`), and three P3s. This round built the hub's six decisions as given; none proved wrong in a test. One choice was left open: the review gives the P3-4 generator's core size but not its shape (below). The work stayed in the job's worktree (job `20261026-095419-pr239-fix6`, from 17:05Z): no Git remote operations, no sub-agents, nothing pushed. All test values are dummy `SECRET7…` strings.
+
+**Names in this section.**
+- **`1ad7da99c`** is this branch's head before this round. **`6d7e4ada9`** is the code head: no later commit changes `subfleet/`.
+- **The references** stay `473fe2941` and `c2e080e44`; the tests use the frozen `scrub_473fe2941` for both and check `3fbc4b7c5` where `_new_leaks` does. **Release** is the live `be0c2a311`. The probes ran the real trees from `git archive`.
+
+### Findings: cause and fix
+
+**P2-1: a quoted header value's flag whose name is a key past its line (round 5's P3-4, and its class).**
+- **Cause, as review r6 traced it:** in `\nAuthorization:"--1_token` and `=r SECRET7c5` on the next line, the quoted pass took the flag and the fold's run as two spans, and the line-start header kept the flag's name as a key whose `=` is past the line. Both references join the key's value to the quoted value instead, so the header takes the rest of the joined line. The ordinary-flag form (`\nAuthorization:"--password` and `=r SECRET7c5`) showed the same word by the same route. Release `be0c2a311` hides all of them. Round 5's own trace, that the flag rule takes the flag with its run, was wrong (its P3-2); that line of round 5's section now carries the correction.
+- **Fix (`6d7e4ada9`, review r6's `p34f` as given):** in `_scrub_named_values`'s unclosed-quote branch, after `owned_before(...)`, a flag that ends the line ends nothing when `_key_past_line` finds a key there, at or after the quoted value's start. The union then takes the flag with that key's value, as both references do and as the head already did for any other such key (`\nAuthorization:"x password` and `=r SECRET7c5` was hidden at `1ad7da99c`). `_key_past_line` is read once per line end, in a `keyed` memo beside `owned`.
+- **The nine inputs:** round 5's four and review r6's five siblings (three ordinary flags; two quoted headers on the line after a header whose value would start there). Each now gives both references' exact output in all five modes (`test_review_r6_s_p2_1_inputs_give_both_references_output_in_every_mode`). Both references show `SECRET7c5` in one place: `detail_line` of `Authorization:`, `'Cookie: --api-key` and `=r SECRET7c5`. This scrubber now shows it there too, and nowhere else.
+- **Round 5's four P3-4 pins** now hold both references' output, and are no longer a documented limitation (`test_a_quoted_header_s_flag_folding_onto_an_assignment_hides_the_next_word_as_both_references_do`).
+- **The class as a property (`p3_4_class`):** review r6's generator, PRE × HEADER × QUOTE × VAL × FLAG × GAP × RUN × REST × TAIL (8 × 10 × 4 × 3 × 6 × 5 × 11 × 6 × 4, 7,603,200 cells).
+  - **The core:** the review gives its size, 6,720 cells, but not its shape. Here it is every lead, header, quote, value and flag at round 5's gap, run and rest (`\n`, `=r`, ` SECRET7c5`), 5,760 cells, plus every header, quote and flag after the `\n` lead with each other run that starts with `=` or `:` (`:r`, `=`, `:`, `=SECRET7r9`), 960 cells. It holds the seven inputs of the generator's shape.
+  - **The draws:** 30,000 seeded draws over the whole product (seed 6239), each kept once and only if it holds a secret: 33,740 texts in all. The review's 33,808 differ only in the core's shape.
+  - **By default** it runs a seeded 600-cell sample, with invariants 1 to 3 against both references (`_p3_4_failures`). At `1ad7da99c` 45 of the 600 show a value both references hide.
+  - **With `SF_SCRUB_FULL_MATRIX=1`** it runs all 33,740. Run once, foreground, as a plain script in three worker processes (`_p3_4_failures` over 30 interleaved chunks, 134 s): **0 texts show a value both references hide, 0 splits, 0 reveals.** At `1ad7da99c` the same run found 2,678 (0 splits, 0 reveals).
+- **What it shows that `1ad7da99c` hid (the decision's trade):** counted on this round's corpus (below), 389 texts: 365 of the P3-4 class and 24 of the 15,000 joins (the review measured 184 and 24 on its own). All 389 are in daemon.log's line modes only (386 in both, 3 in `detail_line` alone). Each value is one both references show there. In 366 of them this scrubber's output is both references' exact output in every mode; the other 23 are joins.
+  - For example, `\napi_key:"--password` and `=r SECRET7c5` now scrub as both references scrub them in every mode (`api_key:[REDACTED] SECRET7c5`). At `1ad7da99c`, the excerpt left `"--password` visible (`\napi_key:"--password` and `=[REDACTED] SECRET7c5`), and daemon.log's folded line hid the rest of the joined line.
+  - 337 of the 365 class texts are plain keys (`api_key:`, `password=`, `token: `); 28 are headers.
+  - C-23.14 names them with the folded-line trade, per corpus (decision 5, below).
+
+**P3-1: two cases the lone-flag sentence does not reach (stated, not closed).**
+- Both references show the value in both, and so do `8fde0c4ad` and `c469f44b6`:
+  - a quoted header on the next line: `Authorization:`, `'Cookie: --api-key` and `SECRET7c3` give `Authorization:`, `[REDACTED] --api-key` and `SECRET7c3`;
+  - a next-line header that isn't at the value's start: `x Cookie:`, `x Cookie: --api-key` and `SECRET7c3` give `x Cookie:`, `[REDACTED] --api-key` and `SECRET7c3`.
+- Each shows `SECRET7c3` in the excerpt, whole and `clean` modes. C-23.14's lone-flag sentence names both. Round 4's change-log entry no longer says "now true", nor that round 5 closes the rest; round 5's entry says the sentence holds but for these two.
+- Pinned at today's output, mode by mode (`test_a_lone_flag_the_sentence_does_not_reach_shows_its_value_as_stated`, a documented limitation).
+- The mechanisms are review r6's traces (the quoted pass reads `Authorization:` and `'Cookie:` as a key and its unclosed value, ended before the flag; the inline rule takes `x Cookie:` as the first header's value, up to the flag). This round did not trace them itself, so C-23.14 states the outputs only.
+
+**P3-2: C-23.14's P3-4 sentence.** The class is closed, so the exception is removed rather than restated. The converse is again the one value a reference hides that this scrubber is known to show. A new sentence states the rule `p34f` adds, with an executed example. Round 5's section keeps its mechanism line with a dated correction.
+
+**P3-3: both halves of `be6fb4330`'s skip are pinned.**
+- **M4** (the skip's secret-prefix redaction out): `x`, `SECRET7ab1Cookie`, `:` and `Cookie: v SECRET7c3` on four lines then shows `SECRET7ab1` in the excerpt, whole and `clean` modes; the head hides it.
+- **M7** (the `_HEADER_RE` half out): `Authorization:`, `Cookie`, `: --api-key` and `SECRET7c3` on four lines then shows `SECRET7c3` in the same three modes; the head hides it.
+- Both references show each value, so only a pin of today's output sees either mutant (`test_the_next_line_skip_s_halves_are_pinned`). Each pin fails under its mutant and passes at the head, before and after the fix.
+- **M6** (the `_header_name_at` half out) survives every test, round 6's included. It is probably equivalent, for review r6's reason: the quoted pass takes quoted names on the next line first. No input found tells it from the head.
+
+**Decision 5: the folded-line trade's scale, per corpus.** Round 5 called it "3 of 243,680", which is its own corpus only. Per corpus:
+- **Round 5's corpus:** 3 of 243,680 texts, against `8fde0c4ad`.
+- **Review r6's line-start generator:** 763 of 53,825 texts that `be6fb4330`'s skip makes show, against that head without the skip (`noskip`; 1,168 against `8fde0c4ad`, with round 5's P2-1 edits).
+- **This round's corpus:** 389 of 48,758, against `1ad7da99c` (above).
+
+All of them are in daemon.log's two line modes only, and each is a value both references show there. C-23.14's change log states this, and round 5's section carries the restatement.
+
+### Invariants
+
+Each holds for every input, with its stated exceptions and scope.
+1. **No new leak:** in no mode does the head show a `SECRET7` value that 473fe2941 or `c2e080e44` hides.
+   - **One stated exception:** round 2's converse (`invalid Bearer SECRET7_token: expired`, a value only `3fbc4b7c5` hid). P3-4's join is fixed.
+   - **Scope:** every generator of rounds 1 to 6 (the holds below) and this round's corpus: 0 of 48,758 show a value both references hide, and 0 show a value `3fbc4b7c5` hides.
+2. **Monotone:** no second scrub reveals anything over the corpus (0 of 48,758).
+3. **Excerpts agree with the whole** at every cut `_neutral_break` allows (0 of 48,758 split).
+4. **Ownership:** round 3's twin matrices pass unchanged (hold 1b).
+5. **Cost:** review r6's three rows stay within 1.3× of `c2e080e44` on the median, and the quadratic shape stays linear (Cost, below). The `keyed` memo is needed: without it the excerpt row reads 1.353× (min) in run 1.
+6. **A lone flag survives whatever takes its header's line:** a fold, a refused `Bearer`'s line, or a header whose value would start on that line, but for the two cases C-23.14 now names (P3-1).
+
+### The corpus
+
+Plain scripts, three workers, outside the lock. The texts ran through the real `git archive` trees of `6d7e4ada9`, `1ad7da99c`, `473fe2941`, `c2e080e44`, release `be0c2a311` and `3fbc4b7c5`, in all five modes. The head's rows also check every allowed excerpt cut and a second scrub.
+
+| Set | Texts | Head: shows what both references hide | `1ad7da99c` | Release | Head: splits / reveals | Head shows what `1ad7da99c` hid |
+|---|---|---|---|---|---|---|
+| The P3-4 class (`p3_4_class`, less the 7 regression inputs it holds) | 33,733 | 0 | 2,671 | 0 | 0 / 0 | 365 |
+| Seeded joins, seed 6240 (two or three pieces of every generator of rounds 2 to 6, ten joints) | 15,000 | 0 | 180 | 0 | 0 / 0 | 24 |
+| Round 5's and round 6's regression inputs, and the review's `x password` contrast | 25 | 0 | 9 | 0 | 0 / 0 | 0 |
+| **Total** | **48,758** | **0** | **2,860** | **0** | **0 / 0** | **389** |
+
+- The two reference trees give the same output in every mode on every text. The head shows nothing that `3fbc4b7c5` or release hides.
+- **Against `1ad7da99c`:** the head hides more in 4,040 texts, and shows something `1ad7da99c` hid in the 389 above.
+- **`1ad7da99c`'s 2,860, by the modes they show in:** 1,331 in the excerpt, whole, `clean` and `detail_line` modes; 637 in all five; 547 in the excerpt, whole and `clean` modes; 341 in the excerpt and `clean` modes; 4 in other sets.
+
+### Mutations
+
+Each change was made on its own in a copy of `6d7e4ada9`'s tree (M4 and M7 also on `1ad7da99c`'s, for the red runs), and `test_scrub_review_r6.py` (15 cases, 1 opt-in skip) ran against it as plain calls outside the lock. The head, as the control, passes all 15.
+
+| Mutant | Killing tests |
+|---|---|
+| `p34f`'s check removed | the nine P2-1 inputs and the class sample (10); in `_r5`, the four P3-4 pins |
+| The `keyed` memo removed (`_key_past_line` read per candidate) | no test (its output is the head's); the cost row: the excerpt row at 1.353× (min) in run 1 and 1.172× in run 2, against the head's 1.103× and 1.098× |
+| M4: the skip's secret-prefix redaction out | `test_the_next_line_skip_s_halves_are_pinned[secret-prefix-goes]` (1) |
+| M7: the skip's `_HEADER_RE` half out | `test_the_next_line_skip_s_halves_are_pinned[line-start-header-read-across-its-colon]` (1) |
+| M6: the skip's `_header_name_at` half out (not in the brief) | none; probably equivalent (P3-3, above) |
+
+### Cost
+
+`cost.py` loads every tree in one process, and each sample asks every tree in turn, with the order alternating sample by sample. Each tree's `subfleet` modules are put back in `sys.modules` before its calls, because `refusals.scrubbed_line` imports `suggestions` when it is called. Times are CPU (`thread_time`); 11, 7 and 5 samples per row. The shapes are review r6's: `_adversary(712)` (261,666 characters); `_adversary(1440)` cut to 1 MiB; and six ordinary header lines (two at a line start, `curl -H`, `wget --header`, prose, `Set-Cookie`) repeated to 1 MiB. The 1 MiB shapes go through `refusals.detail_line`.
+
+| Row | Head ÷ `c2e080e44`, run 1 (min / median) | Run 2 | `1ad7da99c`, run 1 / run 2 | Without the memo, run 1 / run 2 |
+|---|---|---|---|---|
+| Excerpt, 261,666 characters | 1.103 / 1.048 | 1.098 / 1.009 | 1.231 / 1.064; 0.946 / 1.029 | 1.353 / 1.206; 1.172 / 1.133 |
+| 1 MiB `detail_line`, adversary | 0.877 / 0.992 | 0.899 / 0.969 | 1.123 / 1.063; 1.339 / 0.946 | 1.124 / 1.072; 1.316 / 0.974 |
+| 1 MiB `detail_line`, headers | 1.205 / 1.172 | 1.420 / 1.159 | 1.066 / 1.122; 1.622 / 1.245 | 1.034 / 1.122; 1.297 / 1.155 |
+
+- **Run 1** ran at load 64 to 98 (18:19Z), **run 2** at load 25 to 33 (19:21Z).
+- **Run 2's header row reads 1.420 on the min.** `c2e080e44` had one fast sample there (876 ms against a median of 1,209 ms), and `1ad7da99c` reads 1.622 on the same samples. All three medians are within 1.3×. A third run of that row alone, 15 samples (19:23Z, load 24 to 28, the host on battery), read 1.222 / 1.182 for the head and 1.296 / 1.200 for `1ad7da99c`.
+- **The quadratic shape** is round 4's 80,010-character shape at 20,010, 40,010, 80,010 and 160,010 characters (min, ms):
+  - **Head:** 16.4, 30.6, 84.0 and 212.3 in run 1; 22.7, 53.3, 94.2 and 161.6 in run 2.
+  - **`c2e080e44`:** 5.6, 12.4, 29.5 and 73.9; 7.8, 12.2, 26.7 and 52.1.
+  - **`1ad7da99c`:** 15.4, 31.1, 70.7 and 187.6; 23.6, 51.6, 72.5 and 187.1.
+  - Each tree grows about 7 to 13 times over an 8 times larger input, `c2e080e44` alike, and no doubling more than 2.8 times. The head stays a constant 2.5 to 4.4 times `c2e080e44` at every size, as `1ad7da99c` does (2.4 to 4.2). That is linear.
+
+### Tests
+
+**Red at `1ad7da99c`,** under the lock (17:22:27Z, slot A, load 130): `test_scrub_review_r6.py` as first committed (`44e3d08cf`) had 10 failed, 5 passed and 1 skipped.
+- **Failed:** the nine P2-1 inputs, each showing `SECRET7c5` where both references hide it, and the class sample (45 of its 600 cells).
+- **Passed:** the class's size check, and the four pins of today's output (P3-1's two and P3-3's two).
+- **Decision 4's two pins under their mutants,** as plain calls on `1ad7da99c`'s tree: M4 fails `secret-prefix-goes` (it shows `SECRET7ab1` in the excerpt, whole and `clean` modes), and M7 fails `line-start-header-read-across-its-colon` (it shows `SECRET7c3` in the same three). Both pass at the head. M6 passes both.
+
+**Holds, at `6d7e4ada9`** (the code head), under the lock. Each of review r6's four holds is split so no one pytest passes 10 minutes: by file, or with `-k` for hold 2. Hold 4's guards ran after the C-23.14 commit (`364e577b2`).
+
+| Hold | Lock | Files and results |
+|---|---|---|
+| 1a, 17:59:05Z, 476 s | slot A, load 95 | `test_scrub_review_r4` 36, `_r5` 24 and 1 opt-in skip, `_r6` 15 and 1 opt-in skip |
+| 1b, 18:09:56Z, 145 s | slot A, load 65 | `test_scrub_review_r3` 29 and 1 opt-in skip |
+| 1c, 18:15:06Z, 127 s | slot A, load 18 | `test_scrub_review_r2` 75 |
+| 2a, 18:33:30Z, 69 s | slot B, load 54 | `test_scrub_inline_headers`, all but the bound and cost tests: 162 |
+| 2b, 18:35:02Z, 374 s | slot A, load 50 | `test_scrub_inline_headers`, the bound and cost tests: 111 |
+| 3a, 18:43:27Z, 242 s | slot A, load 78 | `test_daemon_log_cut_windows` 177 |
+| 3b, 18:48:28Z, 430 s | slot A, load 63 | `test_daemon_log_handler` 128 |
+| 4a, 18:56:30Z, 272 s | slot A, load 97 | `test_scrub_no_new_leak` 4, `test_cpu_scaling` 3 |
+| 4b, 19:05:56Z, 186 s | slot A, load 85 | `test_scrub_key_order` 70 |
+| 4c, 19:17:38Z, 176 s | slot A, load 33 | `fake/test_state_contract` 37, `test_test_module_names` 1, `test_invariants_index` 25 |
+
+In total, 897 passed, 3 were skipped (the opt-in full forms) and none failed.
+
+### Status
+
+- **Done:** the six decisions as given, the red runs, the full generator run, the corpus, the mutants, the cost runs (two, and a third of the header row) and every hold.
+- **Not run:**
+  - the opt-in full forms as tests (the P3-4 class's ran as a plain script, above; P2-1's 95,040-cell class and round 3's rules matrix were not rerun);
+  - review r6's own corpora beyond the P3-4 generator (not kept; this round's stands in), and the line-start generator behind its 763;
+  - the rest of `tests/unit` and `tests/fake` beyond the brief's files, `test_daemon_log_sites.py`'s real-daemon tests, Python 3.12 and CI;
+  - the cost rows under the lock;
+  - a sweep of the mutation driver (the Budget hold).
+- **Follow-ups for the hub:** round 5's, less P3-4's join, with these.
+  - **The lone-flag sentence's two named cases** (P3-1), stated and pinned, not closed; both references show them.
+  - **M6** survives, probably equivalent (P3-3).
