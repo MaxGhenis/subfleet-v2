@@ -439,8 +439,8 @@ def hold_note_of(source_event: Any) -> str | None:
     session notice) passes it on. A note over `HOLD_NOTE_MAX` is withheld
     unread: `hold_note` refuses it on its length before the scrubber reads it,
     work that grows with the square of the length (2,000 characters take
-    seconds). Only the call for a hold's row: any other closure's source is
-    no hold's."""
+    seconds). Call it for a hold's row only: any other closure's source
+    reads as withheld here."""
     prefix = f"{HOLD_SOURCE}: "
     written = source_event[len(prefix):] if isinstance(source_event, str) and source_event.startswith(prefix) else None
     try:
