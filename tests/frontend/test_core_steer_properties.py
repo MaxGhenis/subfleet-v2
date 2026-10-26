@@ -169,14 +169,16 @@ def expected_refusal(kind: str, live: bool, host: bool) -> str | None:
 @given(ops=st.lists(op, min_size=1, max_size=16), fates=st.lists(fate, min_size=16, max_size=16),
        b_live=st.booleans())
 def test_o1_o4_the_outbox_sends_in_order_and_steers_exactly_once(core_probe, ops, fates, b_live):
-    root = Path(tempfile.mkdtemp(prefix="sf-steer-o-", dir="/tmp"))
-    harness = ServiceHarness(root / "daemon")
-    server = ServiceServer(harness)
-    try:
-        run_outbox_history(core_probe, root, harness, server, ops, fates, b_live)
-    finally:
-        server.close()
-        harness.close()
+    # Each example's root (about 256 KiB) is removed when it ends, also when it fails (#265 review r1).
+    with tempfile.TemporaryDirectory(prefix="sf-steer-o-", dir="/tmp") as scratch:
+        root = Path(scratch)
+        harness = ServiceHarness(root / "daemon")
+        server = ServiceServer(harness)
+        try:
+            run_outbox_history(core_probe, root, harness, server, ops, fates, b_live)
+        finally:
+            server.close()
+            harness.close()
 
 
 def run_outbox_history(core_probe, root: Path, harness, server, ops, fates, b_live) -> None:

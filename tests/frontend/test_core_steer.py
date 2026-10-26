@@ -50,20 +50,29 @@ REFUSED_WORDS = {
 }
 
 
+# Each root holds about 256 KiB; teardown removes it, also after a failed test (#265 review r1).
 @pytest.fixture
 def harness():
-    harness = ServiceHarness(Path(tempfile.mkdtemp(prefix="sf-steer-", dir="/tmp")))
-    yield harness
-    harness.close()
+    with tempfile.TemporaryDirectory(prefix="sf-steer-", dir="/tmp") as root:
+        harness = ServiceHarness(Path(root))
+        try:
+            yield harness
+        finally:
+            harness.close()
 
 
 @pytest.fixture
 def daemon():
-    harness = ServiceHarness(Path(tempfile.mkdtemp(prefix="sf-steer-ob-", dir="/tmp")))
-    server = ServiceServer(harness)
-    yield harness, server
-    server.close()
-    harness.close()
+    with tempfile.TemporaryDirectory(prefix="sf-steer-ob-", dir="/tmp") as root:
+        harness = ServiceHarness(Path(root))
+        try:
+            server = ServiceServer(harness)
+            try:
+                yield harness, server
+            finally:
+                server.close()
+        finally:
+            harness.close()
 
 
 #: The two fixtures above, run in a scratch pytest session of their own: each test records
