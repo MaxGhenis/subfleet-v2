@@ -417,7 +417,7 @@ def test_c11_8_the_notice_and_the_failure_say_what_and_what_to_do():
     assert both["reasons"] == [f"closed:account:{held['until_at']}"] * 2
     assert [row["reason"] for row in both["closures"]] == ["operator-hold", "provider-limit"]
     assert render.pin_refusals(both) == (
-        f"claude-9: held by the operator (until {held['until_at']} at the latest); "
+        f"/c/claude-9: held by the operator (until {held['until_at']} at the latest); "
         f"claude-9 is closed for account (provider-limit) until {held['until_at']}")
     spent = render.pin_refusals({"lane_id": "codex-1", "reasons": ["credential-latched"], "probe_status": "expired-token"})
     assert "one heal the timers allow a Codex login ran" in spent and "only a new login" in spent
