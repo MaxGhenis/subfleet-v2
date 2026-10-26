@@ -385,11 +385,19 @@ func steerRow(_ steer: OutboxSteer?) -> Any {
 
 @main
 struct QueueTrayViewProbe {
-    @MainActor static func main() async throws {
+    @MainActor static func main() throws {
         NSApplication.shared.setActivationPolicy(.prohibited)
         if CommandLine.arguments.count > 2, CommandLine.arguments[1] == "send-now" {
+            // The model's work is asynchronous: run it as a main-actor task, turning the run
+            // loop (which serves the main actor) until it is done. The layouts below stay as
+            // they were, synchronous.
             let spec = try JSONValue.parse(Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[2])))
-            let result = try await sendNow(spec)
+            var finished: Result<[String: Any], Error>?
+            Task { @MainActor in
+                do { finished = .success(try await sendNow(spec)) } catch { finished = .failure(error) }
+            }
+            while finished == nil { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+            let result = try finished!.get()
             print(String(data: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), encoding: .utf8)!)
             return
         }
