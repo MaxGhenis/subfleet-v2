@@ -174,6 +174,8 @@ def retry_waits_while_held(service, build) -> None:
     from tests.fake.test_reset_credit_incident import open_lane
     from tests.task_hold_support import finalize_transient
     open_lane(service, 6, measured=True)
+    with service.store.transaction("test.recheck_due", job_id=build) as tx:    # its next look comes due
+        tx.execute("UPDATE jobs SET next_check_at=? WHERE job_id=?", ("2000-01-01T00:00:00Z", build))
     service._admit()
     [attempt] = service.store.query("SELECT * FROM attempts WHERE job_id=?", (build,))
     assert attempt["lane_id"] == "codex-6"
