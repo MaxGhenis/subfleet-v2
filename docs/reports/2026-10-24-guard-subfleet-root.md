@@ -500,6 +500,25 @@ protection, S1-r3, S2, the cwd list, S5; S4 skips without the analyzer), the ove
 tests), the mutation driver, the 7 other never-rules modules and S1-S5 at scale 2. The verdict
 cache of hold B (305 verdicts) resumes the scale-1 corpus.
 
+### r3b's holds
+
+Through `suite_hold.sh`, one pytest or driver per hold, each bounded by its own alarm (scratch:
+`$(getconf DARWIN_USER_TEMP_DIR)sf-guardr3b/logs/`). Holds waited 8-55 minutes for a slot.
+
+| Hold | Run | Result |
+| --- | --- | --- |
+| red, 05:09Z | the r3b cases at `52ea3f546` (the new tests beside r3's hook) | 28 failed, 1 passed (the substitution test, which r3's code already met), 213 s |
+| check, 05:17Z | the r3 and r3b tests but the r3 property, the shell differential and S1-r3, at `7589d54b2` | 37 passed, 3 failed (two shell states: bash 3.2's `=~` obeys `nocaseglob`; the disk-function fence matched `pw_readlink`), both fixed in `ece09cd4d`; the r3b property (2,400 words) passed |
+| file1, 05:47Z | `tests/unit/test_guard_subfleet_root.py` at `096b8574e`, scale 1 | 16 tests before the alarm, 1 failed: `$SUBFLEET_ROOT/subfleetd.log/` is a file now (pin flipped in `788add5fa`) |
+| mut1, 06:47Z | the 11 r3b mutants at `9e1768212` | control passed; 11 of 11 killed |
+| file2, 07:10Z | the file's corpus tests at `9e1768212`, resuming file1's verdict cache | 10 passed (S1, S1's protection, S1-r3, S2, S3 twice, the cwd list, both known-limit pins, the env spellings); S5 failed on a source spelled `/Users/maxghenis` (another home, where the fixture's file is absent), fixed in `ce6911afc`; S4 skipped (no analyzer) |
+
+S1 at scale 1: 781 commands (531 generated, 308 of them env twins, 255 fixed); the old hook
+denies 124 and the new 246; 245 carry a path word the pass may move, 39 of which move (all
+tightened). S1-r3 against the r2 hook: 245 labelled (76 `file`, 136 `root`, 33 `glob`), 59 moved,
+none the wrong way and none unlabelled. S2: 227 bounded or deep searches allowed by both hooks.
+S5: 308 twins over 154 references and 84 sources, 52 denied and 256 allowed.
+
 ## Known limits
 
 The decision fenced the edit to the roots, so these stay as they were and apply to the new
