@@ -4857,6 +4857,7 @@ the 4-at-a-time mutant builds. No hold compiled anything.
 | 2 | fix8, fix9 | Lock, slot A | 06:56:56–07:09:18, 734 s | fix8 6 passed; fix9 3 passed |
 | 3 | mutations | Lock, slot A | 07:29:51–07:55:02, 1,495 s | 8 passed, 2 failed (below) |
 | 4 | state contract, module names, invariants index | Direct: queued at 06:55:09Z, nothing admitted by 07:25Z | 07:26:34–07:29:44, 155 s | 37 + 1 + 25 = 63 passed |
+| Extra | `tests/unit/test_frontend_probe_cache.py` (`compile_probe` now takes a source list) | Lock, slot A | 08:27:49–08:27:58, 6 s | 4 passed |
 
 The hold-1 failure was the person control's first assertion set. The product
 did what the control requires: the person's input released suspension, and
