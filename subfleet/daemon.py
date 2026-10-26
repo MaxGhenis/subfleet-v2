@@ -347,12 +347,12 @@ def _evidence_key(evidence_json: str | None, key: str) -> Any:
     return evidence.get(key) if isinstance(evidence, dict) else None
 
 
-#: C-12.10: every path an allocation record names, released or not: each
-#: attempt's evidence and each probe's newest record.
-TMPDIR_PATHS = (
-    "SELECT json_extract(evidence_json,'$.tmpdir.path') AS path FROM attempts "
+#: C-12.10: every allocation record, released or not: each attempt's evidence
+#: and each probe's newest record.
+TMPDIR_RECORDS = (
+    "SELECT json_extract(evidence_json,'$.tmpdir') AS tmpdir FROM attempts "
     "WHERE json_valid(evidence_json) AND json_type(evidence_json,'$.tmpdir')='object' "
-    "UNION SELECT json_extract(data_json,'$.tmpdir.path') FROM events WHERE event_id IN ("
+    "UNION ALL SELECT json_extract(data_json,'$.tmpdir') FROM events WHERE event_id IN ("
     "SELECT MAX(event_id) FROM events WHERE kind='probe.state' AND json_valid(data_json) "
     "GROUP BY json_extract(data_json,'$.holder')) AND json_type(data_json,'$.tmpdir')='object'")
 
@@ -4841,6 +4841,10 @@ class Daemon:
                              cancel=self.timers.cancel, deadline=time.monotonic() + RETENTION_PASS_S,
                              state=self._retention_state,
                              remote_less_history_bytes=int(budget["remote_less_history_bytes"]))
+        for left in result.get("tmpdir_left") or ():
+            # C-12.10 (P3-2): the folder is no longer any record's; only the log names it.
+            self.log.warning("retention: retired %s with its TMPDIR cleared but not removed: %s",
+                             left["job_id"], ", ".join(left["paths"]))
         pruned = len(result.get("pruned") or ())
         progressed = bool(pruned or result.get("progressed"))
         interrupted = result.get("interrupted")
@@ -5490,9 +5494,7 @@ class Daemon:
             self.log.warning("TMPDIR sweep deferred: %s", type(exc).__name__)
             return
         try:
-            # Every path an allocation record names, released or not: such a
-            # folder follows its record, and is never aged as unknown.
-            named = {row["path"] for row in self.store.query(TMPDIR_PATHS) if isinstance(row["path"], str)}
+            named = self._tmpdir_named()
             for a in self.store.query(
                     "SELECT * FROM attempts WHERE state IN ('succeeded','failed','interrupted','lost','cancelled','quarantined') "
                     "AND json_valid(evidence_json) AND json_type(evidence_json,'$.tmpdir')='object' "
@@ -5503,11 +5505,49 @@ class Daemon:
                 if probe:
                     self._cleanup_probe_tmpdir(probe)
             self._attempt_temp.sweep_unknown(named.__contains__, self._tmpdir_first_seen,
-                                             self._tmpdir_seen, self._tmpdir_unknown_removed)
+                                             self._tmpdir_seen, self._tmpdir_unknown_removed,
+                                             tombstoned=self._tmpdir_tombstones().get)
         except Exception as exc:
             self.log.warning("TMPDIR sweep deferred: %s", type(exc).__name__)
         finally:
             self._tmpdir_sweeping.release()
+
+    def _tmpdir_named(self) -> set[str]:
+        """Every path an allocation record names, released or not: such a folder
+        follows its record, and is never aged as unknown. So does the tombstone
+        the store recorded for an allocation not yet released, which a crash
+        during its removal can leave and its record's cleanup finishes (P3-1)."""
+        named = set()
+        for row in self.store.query(TMPDIR_RECORDS):
+            try:
+                record = json.loads(row["tmpdir"])
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(record, dict) or not isinstance(record.get("path"), str):
+                continue
+            named.add(record["path"])
+            tomb = None if record.get("removed_at") else self._attempt_temp.tombstone_path(record)
+            if tomb is not None:
+                named.add(tomb)
+        return named
+
+    def _tmpdir_tombstones(self) -> dict[str, dict]:
+        """The tombstone of each unknown folder's current sighting, which a crash
+        during its removal can leave (P3-1): the sweep finishes it."""
+        rows = self.store.query(
+            "SELECT kind,data_json FROM events WHERE event_id IN ("
+            "SELECT MAX(event_id) FROM events WHERE kind IN ('tmpdir.unknown_seen','tmpdir.unknown_removed') "
+            "AND json_valid(data_json) AND json_type(data_json,'$.path')='text' "
+            "GROUP BY json_extract(data_json,'$.path'))")
+        tombs = {}
+        for row in rows:
+            if row["kind"] != "tmpdir.unknown_seen":
+                continue
+            sighting = json.loads(row["data_json"])
+            tomb = self._attempt_temp.tombstone_path(sighting)
+            if tomb is not None:
+                tombs[tomb] = sighting
+        return tombs
 
     def _tmpdir_first_seen(self, path: str) -> dict | None:
         """The store's first sighting of an unknown folder, or None (C-12.10, P3-4)."""
