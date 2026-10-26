@@ -430,25 +430,31 @@ def hold_source(note: str | None) -> str:
 def hold_note_of(source_event: Any) -> str | None:
     """The note an operator hold's `source_event` carries, or None (C-9.6).
 
-    A stored note `hold_note` would refuse as a credential reads as
-    `HOLD_NOTE_WITHHELD`, so no reader (status, its JSON, the alerts, a session
-    notice) passes one on. Such a row comes only from a writer outside `lanes
-    hold`. So does a note longer than `HOLD_NOTE_MAX`, which is withheld
-    unread: reading it whole and from each joiner is work that grows with the
-    square of its length (a 2,000-character note takes seconds)."""
+    Read strictly (review r2 of #263, P3-3): `operator` carries no note, and
+    `operator: <note>` carries the note when `hold_note` accepts it as it
+    stands. Any other source, which only a writer outside `lanes hold` can
+    leave (`operator:<note>`, `Operator: <note>`, a bare `sk-…`, a note with
+    a credential or of more than `HOLD_NOTE_MAX` characters), reads as
+    `HOLD_NOTE_WITHHELD`, so no reader (status, its JSON, the alerts, a
+    session notice) passes it on. A note over `HOLD_NOTE_MAX` is withheld
+    unread: `hold_note` refuses it on its length before the scrubber reads it,
+    work that grows with the square of the length (2,000 characters take
+    seconds). Only the call for a hold's row: any other closure's source is
+    no hold's."""
     prefix = f"{HOLD_SOURCE}: "
-    if isinstance(source_event, str) and source_event.startswith(prefix):
-        note = source_event[len(prefix):]
-        if not note:
-            return None
-        from .ids import holds_credential
-        return HOLD_NOTE_WITHHELD if len(note) > HOLD_NOTE_MAX or holds_credential(note) else note
-    return None
+    written = source_event[len(prefix):] if isinstance(source_event, str) and source_event.startswith(prefix) else None
+    try:
+        note = hold_note(written)
+    except ValueError:
+        return HOLD_NOTE_WITHHELD
+    # Exactly what `lanes hold` writes for that note: a round trip, not a
+    # comparison with the word (C-9.6's guard).
+    return note if hold_source(note) == source_event else HOLD_NOTE_WITHHELD
 
 
 def hold_source_shown(source_event: Any) -> Any:
     """A hold's `source_event` as a reader shows it: as stored, unless its note is
-    withheld (`hold_note_of`), when the stored text is replaced too."""
+    withheld (`hold_note_of`), when it is `operator: ` and the withheld text."""
     note = hold_note_of(source_event)
     return hold_source(note) if note == HOLD_NOTE_WITHHELD else source_event
 

@@ -140,16 +140,24 @@ def closure_note(row: Mapping[str, Any]) -> str | None:
     return hold_note_of(row.get("source_event")) if closure_kind(row) == "hold" else None
 
 
+def withheld_source(row: Mapping[str, Any]) -> Mapping[str, Any]:
+    """C-9.6: a closure row with a hold's `source_event` as a reader shows it
+    (`hold_source_shown`): as stored when it is exactly what `lanes hold` writes
+    (`operator`, or `operator: <note>` with a note `hold_note` accepts as it
+    stands), else `operator: [note withheld: …]` (review r2 of #263, P3-3). Any
+    other row is returned as it is."""
+    if closure_kind(row) == "hold" and "source_event" in row:
+        return {**row, "source_event": hold_source_shown(row["source_event"])}
+    return row
+
+
 def closure_row(row: Mapping[str, Any]) -> dict[str, Any]:
     """D-STATUS-SRC1: a closure as `status --json` shows it: every field it had, with `kind` and `note`.
 
-    A hold whose stored note is withheld (`hold_note_of`) shows its
-    `source_event` withheld too, so the stored text reaches no reader."""
-    kind = closure_kind(row)
-    shown = {**row, "kind": kind, "note": closure_note(row)}
-    if kind == "hold" and "source_event" in row:
-        shown["source_event"] = hold_source_shown(row["source_event"])
-    return shown
+    A hold whose stored source is not exactly what `lanes hold` writes shows
+    its note and its `source_event` withheld (`hold_note_of`, `withheld_source`),
+    so the stored text reaches no reader."""
+    return {**withheld_source(row), "kind": closure_kind(row), "note": closure_note(row)}
 
 
 def closure_rows(view: dict[str, Any]) -> dict[str, Any]:
