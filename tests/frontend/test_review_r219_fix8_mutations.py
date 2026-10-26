@@ -1,12 +1,10 @@
 """Each fix-8 mutation must fail a named behavioral regression."""
 import os
-import platform
-import subprocess
 
 import pytest
 
 from tests.frontend.conftest import needs_swift, run_probe, write_json
-from tests.frontend.swift import ROOT, app_sources
+from tests.frontend.swift import ROOT, app_sources, compile_probe
 from tests.frontend.test_review_r219_fix8_engine import (
     test_reopen_fetches_no_known_receipt as reopen_regression,
     test_receipt_batch_sorts_once as batch_regression,
@@ -20,6 +18,13 @@ from tests.frontend.test_review_r219_fix8_view import (
 from tests.frontend.test_review_r219_fix9_view import (
     test_real_uimodel_reopen_fetches_no_known_receipt as uimodel_regression,
     test_live_row_reveal_during_slow_catchup_keeps_the_end as catchup_regression,
+)
+from tests.frontend.test_review_r219_fix10_view import (
+    assert_landed_shrink_order,
+    assert_landed_shrink_releases,
+    assert_replayed_shrink_order,
+    assert_shrink_releases_nothing,
+    shrink_replay,
 )
 
 pytestmark = needs_swift
@@ -39,7 +44,36 @@ MUTATIONS = {
     "key_on_all_rows": ("UISearchPalette.swift", [
         ("            var targetPresent: Bool\n", "            var targetPresent: Bool\n            var allRows: Set<String>?\n"),
         ("targetPresent: present)", "targetPresent: present, allRows: revealIDs)")]),
+    # Round 7: an outstanding reveal's suspension against an end shown by a shrink.
+    "marker_releases_pending_reveal": ("UIWindow.swift", [
+        ("atBottom = true; if !revealPending { followSuspended = false }", "atBottom = true; followSuspended = false")]),
+    "confirm_by_distance_only": ("ConversationOpeningPin.swift", [
+        ("if presented && distance <= Theme.space.column + 1", "if distance <= Theme.space.column + 1")]),
+    "reveal_never_lands": ("UIWindow.swift", [
+        ("        revealPending = false\n        traceFollow(\"reveal_landed\")", "        traceFollow(\"reveal_landed\")")]),
 }
+# Each round-7 mutant, the replay mode it runs, the order that mode must show (checked
+# outside `raises`, so a broken schedule cannot pass as a kill) and the rule it must fail.
+ROUND7 = {
+    "marker_releases_pending_reveal": ("replay", assert_replayed_shrink_order, assert_shrink_releases_nothing),
+    "confirm_by_distance_only": ("replay", assert_replayed_shrink_order, assert_shrink_releases_nothing),
+    "reveal_never_lands": ("landed", assert_landed_shrink_order, assert_landed_shrink_releases),
+}
+VIEW = {"notice_sets_at_bottom_false", "key_on_all_rows", "uimodel_drops_known_receipts",
+        "settling_stops_follow_at_end", *ROUND7}
+
+
+def mutant_source(mutation, filename, text):
+    """The mutated file at a path of its own, so `compile_probe` reuses an exact earlier build
+    (a full-source compile can take most of a hold on a loaded host)."""
+    path = ROOT / "build/frontend-mutants" / mutation / filename
+    if path.is_file() and path.read_text() == text:
+        return path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    partial = path.with_name(f".{filename}.{os.getpid()}.partial")
+    partial.write_text(text)
+    os.replace(partial, path)
+    return path
 
 
 def compile_mutation(mutation, tmp_path):
@@ -51,24 +85,17 @@ def compile_mutation(mutation, tmp_path):
             for old, new in edits:
                 assert text.count(old) == 1, (mutation, old)
                 text = text.replace(old, new)
-            source = tmp_path / filename
-            source.write_text(text)
+            source = mutant_source(mutation, filename, text)
         sources.append(source)
-    view = mutation in {"notice_sets_at_bottom_false", "key_on_all_rows",
-                        "uimodel_drops_known_receipts", "settling_stops_follow_at_end"}
+    view = mutation in VIEW
     probe = ROOT / f"tests/frontend/ReviewR219Fix8{'View' if view else 'Engine'}Probe.swift"
-    binary = tmp_path / "probe"
-    command = ["xcrun", "swiftc", "-whole-module-optimization", "-D",
-               "SUBFLEET_VIEW_TEST" if view else "SUBFLEET_MODEL_TEST", "-parse-as-library",
-               "-target", f"{platform.machine()}-apple-macos14.0", *map(str, sources), str(probe), "-o", str(binary)]
-    if os.environ.get("SUBFLEET_SWIFT_NESTED_SANDBOX") == "off":
-        command[2:2] = ["-Xfrontend", "-disable-sandbox"]
-    compiled = subprocess.run(command, capture_output=True, text=True, timeout=900)
-    assert compiled.returncode == 0, compiled.stderr[-20000:]
+    binary = compile_probe(tmp_path / "probe", probe, "SUBFLEET_VIEW_TEST" if view else "SUBFLEET_MODEL_TEST",
+                           timeout=900, sources=sources)
     return binary, view
 
 
-@pytest.mark.parametrize("mutation", [name for name in MUTATIONS if name != "settling_stops_follow_at_end"])
+@pytest.mark.parametrize("mutation", [name for name in MUTATIONS
+                                      if name != "settling_stops_follow_at_end" and name not in ROUND7])
 def test_mutation_fails_its_named_regression(mutation, tmp_path):
     binary, view = compile_mutation(mutation, tmp_path)
     if mutation == "uimodel_drops_known_receipts":
@@ -117,3 +144,14 @@ def test_settling_mutation_fails_each_named_regression(settling_mutant, name):
     with pytest.raises(AssertionError):
         catchup_regression(settling_mutant, name)
     print(f"settling mutant {name} killed by {catchup_regression.__name__}")
+
+
+@pytest.mark.parametrize("mutation", ROUND7)
+def test_round7_mutation_fails_its_named_regression(mutation, tmp_path):
+    binary, _ = compile_mutation(mutation, tmp_path)
+    mode, order, rule = ROUND7[mutation]
+    result, steps, _ = shrink_replay(binary, tmp_path, mode)
+    order(result, steps)
+    with pytest.raises(AssertionError) as rejected:
+        rule(result, steps)
+    print(f"{mutation} killed by {rule.__name__}: {str(rejected.value)[:300]}")
