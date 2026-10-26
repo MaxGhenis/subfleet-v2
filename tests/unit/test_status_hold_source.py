@@ -1167,6 +1167,38 @@ def test_r2_p3_4_the_source_guard_passes_what_is_no_comparison_with_the_word(tmp
     assert operator_comparisons(module.parent) == []
 
 
+# Review r3 of #263, P3-1: the SQL check reads more of SQL's comparisons. Each case
+# but the last is a form review r3 executed that the guard at `b11661169` missed;
+# the last is one it caught, which review r3's regex as written would miss (a space
+# after the `(`). `name: (module, the lines the guard must name)`.
+
+GUARD_CASES_R3 = {
+    "IN, the word a later item": ("def compares(conn):\n    return conn.execute("
+                                  "\"SELECT 1 FROM closures WHERE source_event IN ('wham','operator')\")\n", [2]),
+    "NOT IN": ("def compares(conn):\n    return conn.execute(\"SELECT 1 FROM closures WHERE source_event NOT IN ('operator')\")\n",
+               [2]),
+    "IS NOT": ("def compares(conn):\n    return conn.execute(\"SELECT 1 FROM closures WHERE source_event IS NOT 'operator'\")\n",
+               [2]),
+    "NOT LIKE": ("def compares(conn):\n"
+                 "    return conn.execute(\"SELECT 1 FROM closures WHERE source_event NOT LIKE 'operator'\")\n", [2]),
+    "GLOB": ("def compares(conn):\n    return conn.execute(\"SELECT 1 FROM closures WHERE source_event GLOB 'operator'\")\n",
+             [2]),
+    "the word first": ("def compares(conn):\n    return conn.execute(\"SELECT 1 FROM closures WHERE 'operator' = source_event\")\n",
+                       [2]),
+    "lower(source_event)": ("def compares(conn):\n"
+                            "    return conn.execute(\"SELECT 1 FROM closures WHERE lower(source_event)='operator'\")\n", [2]),
+    "a space after the (, caught at b11661169": ("def compares(conn):\n    return conn.execute("
+                                                 "\"SELECT 1 FROM closures WHERE source_event IN ( 'operator')\")\n", [2]),
+}
+
+
+@pytest.mark.parametrize("case", sorted(GUARD_CASES_R3))
+def test_r3_p3_1_the_source_guard_catches_each_sql_form_it_reads(tmp_path, case):
+    text, lines = GUARD_CASES_R3[case]
+    module = scratch_module(tmp_path, text)
+    assert operator_comparisons(module.parent) == [f"{module}:{line}" for line in lines]
+
+
 # P3-4: I3 checks every count the fleet-empty body renders.
 
 def test_r1_p3_4_i3_catches_a_rendered_count_dropped(monkeypatch):
