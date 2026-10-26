@@ -1589,11 +1589,13 @@ class Daemon:
         keeps for its end, or None. Only a retry's backoff: the job waits on `capacity` after
         a latest attempt that ended `transient` with no capacity steer (`RETRY_END_SQL`), and
         its deadline, that end plus `TRANSIENT_RETRY_DELAY_S`, is still ahead. Until then no
-        look has set the job another clock (a retry's wait has no capacity wait for freed
-        capacity to bring forward, C-6.10), so its clock is the one the finalizer set, and
-        that clock is kept. Once the deadline has passed, the clock is a C-6.10 recheck's,
-        which is no deadline: keeping it would leave the job waiting for it after the hold,
-        unmoved by capacity that frees up (r2: a hold of one second delayed a retry 28 s)."""
+        look has given the job a recheck (a retry's wait has no capacity wait for freed
+        capacity to bring forward, C-6.10): its clock is the finalizer's, or a C-11.8
+        episode's, whose grace the hold pauses and gives back first, and that clock, the one
+        it would wait for with no hold, is kept. Once the deadline has passed, the clock is a
+        C-6.10 recheck's, which is no deadline: keeping it would leave the job waiting for it
+        after the hold, unmoved by capacity that frees up (r2: a hold of one second delayed a
+        retry 28 s)."""
         if not (state == "waiting" and reason == "capacity" and clock):
             return None
         row = tx.execute(RETRY_END_SQL, (job_id,)).fetchone()
