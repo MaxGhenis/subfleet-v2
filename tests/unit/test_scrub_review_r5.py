@@ -150,9 +150,9 @@ def test_no_drawn_cell_of_the_p2_1_class_shows_what_both_references_hide(text):
 
 #: Each hides its value in every mode (c469f44b6 did; 8fde0c4ad showed it in the excerpt,
 #: whole and `clean` modes; both references show it). The first: P3-1's rule in
-#: `_refused_bearer` (the refused `Bearer`'s line takes nothing where it would end early);
-#: the second: a line-start header whose value would start on the next line leaves that
-#: line's own header to it, as an inline one does.
+#: `_refused_bearer` (the refused `Bearer`'s line at a header's name takes nothing where
+#: it would end early); the second: a line-start header whose value would start on the
+#: next line leaves that line's own header to it, as an inline one does.
 P3_1 = {
     "refused-bearer-before-a-secret-name": ("Authorization: Bearer\nSECRET7ab1Set-Cookie : --password\nSECRET7c3",
                                             "Authorization: [REDACTED]\n[REDACTED]Cookie : [REDACTED]\n[REDACTED]"),
@@ -169,6 +169,23 @@ P3_1 = {
 def test_review_r5_s_p3_1_inputs_are_hidden_in_every_mode(text, scrubbed):
     for mode, out in _outputs(handoff, text).items():
         assert "SECRET7" not in out, (mode, out)
+    assert _new_leaks(text) == {} and _splits(text) == [] and _unstable(text) == {}
+    assert handoff.scrub_secrets(text)[0] == handoff.scrub_secrets(text, whole=True)[0] == scrubbed
+
+
+#: Review r5's `_refused_bearer` rule, applied to every refused `Bearer`'s line (the hub's
+#: decision 2 as given), left a line that is no header's to its own rules too, where a word
+#: no rule owns showed: `SECRET7abc13` here, in the excerpt, whole, `clean` and
+#: `detail_line` modes (this round's corpus: 4 joins). 8fde0c4ad and c469f44b6 hid it; both
+#: references show it. The rule applies at a header's name only, as the fold's does, so
+#: the line is taken up to the flag as before, and round 3's two refused-`Bearer` pins hold.
+NOT_A_HEADER_LINE = ("Authorization: Bearer\nclient_secret=x SECRET7abc13 --password",
+                     "Authorization: [REDACTED]\n[REDACTED] --password")
+
+
+def test_a_refused_bearer_s_line_that_is_no_header_s_keeps_its_redaction():
+    text, scrubbed = NOT_A_HEADER_LINE
+    assert all("SECRET7abc13" not in out for out in _outputs(handoff, text).values())
     assert _new_leaks(text) == {} and _splits(text) == [] and _unstable(text) == {}
     assert handoff.scrub_secrets(text)[0] == handoff.scrub_secrets(text, whole=True)[0] == scrubbed
 
