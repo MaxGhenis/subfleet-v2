@@ -1,4 +1,5 @@
 """Each fix-8 mutation must fail a named behavioral regression."""
+from functools import partial
 import os
 
 import pytest
@@ -26,6 +27,15 @@ from tests.frontend.test_review_r219_fix10_view import (
     assert_shrink_releases_nothing,
     shrink_replay,
 )
+from tests.frontend.test_review_r219_fix12_view import (
+    assert_mark_probes_order,
+    assert_mark_probes_run_the_check,
+    assert_missing_away_order,
+    assert_missing_away_releases,
+    assert_own_send_order,
+    assert_own_send_releases,
+    fix12_run,
+)
 
 pytestmark = needs_swift
 MUTATIONS = {
@@ -51,6 +61,16 @@ MUTATIONS = {
         ("if presented && distance <= Theme.space.column + 1", "if distance <= Theme.space.column + 1")]),
     "reveal_never_lands": ("UIWindow.swift", [
         ("        revealPending = false\n        traceFollow(\"reveal_landed\")", "        traceFollow(\"reveal_landed\")")]),
+    # Round 8: abandonment, the own send during catch-up, and where the mark is checked.
+    "abandon_keeps_pending": ("UIWindow.swift", [
+        ("        revealPending = false\n        ConversationOpeningPin.abandonReveal(in: conversation.conversation_id, "
+         "request: request)\n", "")]),
+    "own_send_after_catchup_guard": ("UIWindow.swift", [
+        ("let ownSend = FollowKey.ownSend(from: old, to: new)",
+         "let ownSend = !(old.settling || new.settling) && FollowKey.ownSend(from: old, to: new)")]),
+    "mark_local_frame_only": ("ConversationOpeningPin.swift", [
+        ("watchPlacement(window != nil)", "watchPlacement(false)"),
+        ("var itemID: String? { didSet { if itemID != oldValue { placeAgain() } } }", "var itemID: String?")]),
 }
 # Each round-7 mutant, the replay mode it runs, the order that mode must show (checked
 # outside `raises`, so a broken schedule cannot pass as a kill) and the rule it must fail.
@@ -59,8 +79,17 @@ ROUND7 = {
     "confirm_by_distance_only": ("replay", assert_replayed_shrink_order, assert_shrink_releases_nothing),
     "reveal_never_lands": ("landed", assert_landed_shrink_order, assert_landed_shrink_releases),
 }
+# Each round-8 mutant, its scene, the order that scene must show (outside `raises`) and the
+# rule it must fail.
+ROUND8 = {
+    "abandon_keeps_pending": ("missing-away", assert_missing_away_order, assert_missing_away_releases),
+    "own_send_after_catchup_guard": ("send-catchup", partial(assert_own_send_order, catchup=True),
+                                     partial(assert_own_send_releases, catchup=True)),
+    "mark_local_frame_only": ("mark", lambda result, _: assert_mark_probes_order(result),
+                              lambda result, _: assert_mark_probes_run_the_check(result)),
+}
 VIEW = {"notice_sets_at_bottom_false", "key_on_all_rows", "uimodel_drops_known_receipts",
-        "settling_stops_follow_at_end", *ROUND7}
+        "settling_stops_follow_at_end", *ROUND7, *ROUND8}
 
 
 def mutant_source(mutation, filename, text):
@@ -95,7 +124,8 @@ def compile_mutation(mutation, tmp_path):
 
 
 @pytest.mark.parametrize("mutation", [name for name in MUTATIONS
-                                      if name != "settling_stops_follow_at_end" and name not in ROUND7])
+                                      if name != "settling_stops_follow_at_end" and name not in ROUND7
+                                      and name not in ROUND8])
 def test_mutation_fails_its_named_regression(mutation, tmp_path):
     binary, view = compile_mutation(mutation, tmp_path)
     if mutation == "uimodel_drops_known_receipts":
@@ -155,3 +185,14 @@ def test_round7_mutation_fails_its_named_regression(mutation, tmp_path):
     with pytest.raises(AssertionError) as rejected:
         rule(result, steps)
     print(f"{mutation} killed by {rule.__name__}: {str(rejected.value)[:300]}")
+
+
+@pytest.mark.parametrize("mutation", ROUND8)
+def test_round8_mutation_fails_its_named_regression(mutation, tmp_path):
+    binary, _ = compile_mutation(mutation, tmp_path)
+    mode, order, rule = ROUND8[mutation]
+    result, steps, _ = fix12_run(binary, tmp_path, mode)
+    order(result, steps)
+    with pytest.raises(AssertionError) as rejected:
+        rule(result, steps)
+    print(f"{mutation} killed by {getattr(rule, 'func', rule).__name__}: {str(rejected.value)[:300]}")
