@@ -1821,7 +1821,9 @@ def _fold_value(text: str, end: int) -> tuple[int, int] | None:
     the line after; #239 review r4, P3-1). It is decided once per line
     (`_ENDS_EARLY`), as one line fold did before. A run that starts a header only the
     line-start rule reads there (`_parts_line_start_header`: `Set-Cookie` and `: v` on
-    the next line) takes nothing too, and that rule takes the header's value whole.
+    the next line), or one whose value that rule reads on a later line than the run's
+    own, at a header's name too (`Set-Cookie :` and `;v` on the next line; #239 review
+    r5, P2-1), takes nothing too, and that rule takes the header's value whole.
     Elsewhere such an item that ends the run is left to its own rule, as an enclosing
     rule leaves one: the span ends before it, and is None when that leaves nothing."""
     value = _run_end(text, end)
@@ -1834,6 +1836,8 @@ def _fold_value(text: str, end: int) -> tuple[int, int] | None:
             return None
         stop = text.find("\n", value)
         stop = _last_visible(text, len(text) if stop < 0 else stop) + 1
+        if _parts_line_start_header(text, end, value, stop):
+            return None
         span = _kept_span(text, value, stop)
         if span == (value, stop):
             return span
@@ -1853,12 +1857,15 @@ def _parts_line_start_header(text: str, end: int, run: int, stop: int) -> bool:
     (`Set-Cookie` and `: v` on the next line; past a fold's run, a vertical tab or a
     no-break space between them too). Taken, the span would end inside the name,
     before its header word (`_kept_span`), or take it whole, so no header rule would
-    read the name and the plain rule would take at most the value's first word. A
-    fold, or a refused `Bearer`'s line, takes nothing there, and the line-start rule
-    takes the header's value whole, as both references do (#239 fix round 4)."""
+    read the name and the plain rule would take at most the value's first word. Or
+    the span would end before the value that rule reads on a later line, past its
+    colon (`Set-Cookie :` and `;v` on the next line), and leave that value to no rule
+    (#239 review r5, P2-1). A fold, or a refused `Bearer`'s line, takes nothing there,
+    and the line-start rule takes the header's value whole, as both references do
+    (#239 fix round 4)."""
     gap = text.rfind("\n", end, run)
     match = _HEADER_RE.match(text, gap + 1) if gap >= 0 else None
-    return match is not None and text.rfind(":", run, match.end(1)) >= stop
+    return match is not None and (text.rfind(":", run, match.end(1)) >= stop or "\n" in text[stop:match.end(1)])
 
 
 def _kept_span(text: str, start: int, stop: int) -> tuple[int, int] | None:
@@ -2024,8 +2031,10 @@ def _scrub_inline_headers(text: str, tally: "_Tally", *, line_start: bool = Fals
         named = word > start and bool(_value_runs(text[start:word]))
         value_start = _WHITESPACE_RUN_RE.match(text, hit_end).end()
         # A value at the text's end or already redacted is left alone, and so is one
-        # that starts at the next line's own header (#239 review r2, P2-3), or one that
-        # a closing quote leaves empty. The second scan reads a name that the prefix
+        # that starts at the next line's own header (#239 review r2, P2-3), the inline
+        # rule's or the line-start rule's, whose colon or value a line break may part
+        # from its name (`Set-Cookie` and `:v` on the next line; #239 review r5, P2-1),
+        # or one that a closing quote leaves empty. The second scan reads a name that the prefix
         # rule left starting with `[REDACTED]` at a line start as the line-start rule
         # reads a name there: its value goes, already redacted or not, so daemon.log's
         # folded line (`[REDACTED]Cookie: [REDACTED]` and the next line's words) keeps
@@ -2034,7 +2043,8 @@ def _scrub_inline_headers(text: str, tally: "_Tally", *, line_start: bool = Fals
                and ((newline := text.rfind("\n", gap, start - len(REDACTED))) >= 0 or gap == 0)
                and _VISIBLE_RE.search(text, newline + 1, start - len(REDACTED)) is None)
         skip = (value_start == len(text) or (text.startswith(REDACTED, value_start) and not led)
-                or ("\n" in text[hit_end:value_start] and _header_name_at(text, value_start)))
+                or ("\n" in text[hit_end:value_start] and (_header_name_at(text, value_start) or _HEADER_RE.match(
+                    text, text.rfind("\n", 0, value_start) + 1) is not None)))
         if not skip:
             if line_end < value_start:
                 line_end = text.find("\n", value_start)
