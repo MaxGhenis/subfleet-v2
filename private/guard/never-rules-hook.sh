@@ -465,46 +465,82 @@ collapse_quotes() {
   printf '%s' "$1" | CQ_MODE="${2:-q}" CQ_ROOT="${3:-^\$}" LC_ALL=C awk "function collapse(s,   out, q, inner, rs, rl, pre) { out = \"\"; while (match(s, /'[^']*'|\"[^\"]*\"/)) { rs = RSTART; rl = RLENGTH; q = substr(s, rs, rl); inner = substr(q, 2, rl - 2); pre = out substr(s, 1, rs - 1); out = pre; if (inner ~ /(^|[[:space:];&|(])(find|rg|grep)[[:space:]]/ && pre ~ /(^|[[:space:]])(-[A-Za-z]*c|eval|sh|bash|zsh|dash|ksh)[[:space:]]+$/) out = out substr(q, 1, 1) collapse(inner) substr(q, 1, 1); else if (ENVIRON[\"CQ_MODE\"] == \"roots\" && inner ~ ENVIRON[\"CQ_ROOT\"]) out = out inner; else out = out \"Q\"; s = substr(s, rs + rl) } return out s } { print collapse(\$0) }" 2>/dev/null
 }
 # >>> r3 path words: begin >>>
-# Path words judged on disk (D-LANE-SCOPE1 r3, 2026-10-25). Before the text
-# rules below, every path word of the command is judged once. A path word is
-# a run of characters other than whitespace and | ; & ( ) < >, its quote marks
-# dropped, that starts with a root spelling: ~, $HOME, $SUBFLEET_ROOT or
-# $SUBFLEET_HOME (each alone or before a /), or /.
-#   decision 1  A root by name that names an existing non-directory (a file,
-#               or a link to one; -e and ! -d follow links) is not broad:
-#               `grep -rn x ~/.subfleet/policy.json` reads one file. The word
-#               becomes the neutral placeholder F (its quote marks kept), so
-#               the rules judge the command's other words as before. Judged by
-#               name, as before: a missing path, a dangling link, a path that
-#               cannot be checked, one still holding $ or a backtick, and a
-#               trailing slash (`policy.json/` fails -e).
-#   decision 2  A root followed by a trailing run of bare `*` or `.*`
+# Path words judged on disk (D-LANE-SCOPE1 r3, 2026-10-25; r3b, 2026-10-26,
+# for parity with snapshot-5 of the Claude half's unscoped_search.py). Before
+# the text rules below, every path word of the command is judged once. A path
+# word is a run of characters other than whitespace and | ; & ( ) < >, where a
+# quoted string counts as part of its run (`"/Volumes/Macintosh HD"` is one
+# word), its quote marks dropped, that starts with a root spelling: ~, $HOME,
+# $SUBFLEET_ROOT or $SUBFLEET_HOME (each alone or before a /), or /. A run
+# that is no path word has the words of each of its quoted strings judged in
+# turn (`bash -c 'cd ~/x && rg y'`).
+#   roots       A spelling is resolved to an absolute path ($SUBFLEET_ROOT and
+#               $SUBFLEET_HOME as $HOME/.subfleet, never their environment
+#               values) and normalized: // collapsed, . and .. resolved by
+#               name, /System/Volumes/Data folded to / and /private/tmp,
+#               /private/var and /private/etc to /tmp, /var and /etc. It is a
+#               broad root by name, matched case-insensitively as APFS is, if
+#               it is /, /Users, /Users/<any>, its TheAxiomFoundation,
+#               RulesFoundation, PolicyEngine, Library, Library/Caches,
+#               .cache, .local or .subfleet and each folder directly in that
+#               .subfleet, /Volumes, /Volumes/<any>, /System, /System/Volumes,
+#               /private, /tmp, /var, /var/folders, /opt, /opt/homebrew,
+#               /Library, /Applications or /usr, or the home or one of those
+#               home children wherever the home is (snapshot-5's BROAD_RE,
+#               HOME_SUBDIRS and HOME_PARENTS).
+#   links       A written path is broad when it is a broad root by name and
+#               not an existing non-directory (a file, or a link to one:
+#               `grep -rn x ~/.subfleet/policy.json` reads one file), or when
+#               it leads through symlinks (resolved as realpath does) to a
+#               different path that is (`rg x ~/link-to-home`). A path under a
+#               mount that may stall (/Volumes, /Network, /net, /home and
+#               anything under them) is never resolved or tested on disk: it
+#               reads as no file, and as leading nowhere else.
+#   walks       A root followed by a trailing run of bare `*` or `.*`
 #               components (`rg foo ~/.subfleet/jobs/*`, `~/*/*`), or by a `**/`
 #               component, is that root: the shell hands the searcher every
-#               entry of it, and zsh walks it for `**/`. `/*` itself stays the
-#               text rule's root.
-#   decision 3  A glob word whose literal directory part can hold a root by
-#               name (/, /Users, /private, a home, its Library or its
-#               .subfleet) is expanded as bash expands it (case-sensitive, a
-#               leading dot matched only by a leading dot) and is broad iff
-#               one of its first 20,000 matches is a broad root (decision 1
-#               included): `rg foo ~/Pol*` is ~/PolicyEngine, while `grep -rn x
-#               ~/.subfleet/*.json` over files is not. No match: the word
-#               becomes F (zsh aborts; bash passes the literal, which names no
-#               path). A glob word in any other folder, or holding $, a
-#               backtick or {, is judged by its text, as before.
-# A broad word of decision 2 or 3 becomes a placeholder root
-# (/Users/@sfglob<n>@) that every rule reads like any other, and the block
-# message names the word as written plus " (glob)". $SUBFLEET_ROOT and
-# $SUBFLEET_HOME are read as $HOME/.subfleet, never as their environment
-# values. Two test seams, which the daemon's launch environment (an exact
-# allowlist, subfleet/launch_env.py) never carries to a lane:
-# CODEX_GUARD_TEST_FSROOT, a folder that stands in for / in every check made
-# on disk here, and CODEX_GUARD_TEST_GLOB_CAP, the match cap.
+#               entry of it, and zsh walks it for `**/`. Inside a script run by
+#               bash, sh, dash or ksh -c, `**` is `*` (no globstar). `/*`
+#               itself stays the text rule's root.
+#   globs       Any other glob word is judged component by component, as the
+#               shells glob (case-sensitive, a leading dot matched only by a
+#               leading dot): the literal components before the first glob
+#               component are its prefix, and a word whose prefix is no broad
+#               root is not judged. A glob component lists a folder only when
+#               a name directly in it can be a broad root (pw_holds: /,
+#               /Users, /Users/<any>, its Library and .subfleet, /Volumes,
+#               /System, /System/Volumes, /private, /var, /opt, the home and
+#               its Library and .subfleet); a plain component keeps a path
+#               only where something is there, and under /Volumes it is
+#               matched against the listing, never stat'ed. Between
+#               components only broad roots that are no file go on; at the
+#               end a broad root that is no file is a match, and so is a
+#               plain path or a listed link that leads to one. At most 20,000
+#               directory entries are read per word. No match, or a form these
+#               patterns cannot express: the word is not judged (it becomes F).
+#               A glob word holding $, a backtick or { is judged by its text.
+# A word whose verdict the text rules would not give becomes a placeholder:
+# a broad one /Users/@sfglob<n>@, which every rule reads like any other root
+# and the block message names as the word was written (plus " (glob)" for a
+# glob word), and one that is not broad F. Only the five pw_* disk functions
+# below touch the file system. Two test seams, which the daemon's launch
+# environment (an exact allowlist, subfleet/launch_env.py) never carries to a
+# lane: CODEX_GUARD_TEST_FSROOT, a folder that stands in for / in every
+# check made on disk here, and CODEX_GUARD_TEST_GLOB_CAP, the entry cap.
 pw_fs=${CODEX_GUARD_TEST_FSROOT:-}
 pw_fs=${pw_fs%/}
 pw_cap=${CODEX_GUARD_TEST_GLOB_CAP:-20000}
 case "$pw_cap" in ''|*[!0-9]*) pw_cap=20000 ;; esac
+# --- the file system: P is an absolute path, judged under the seam ---
+# pw_islink P: P is a symlink (not followed).
+pw_islink() { [ -L "$pw_fs$1" ]; }
+# pw_lexists P: something is at P, a dangling link included.
+pw_lexists() { [ -e "$pw_fs$1" ] || [ -L "$pw_fs$1" ]; }
+# pw_nondir P: P exists and is not a directory, links followed.
+pw_nondir() { [ -e "$pw_fs$1" ] && [ ! -d "$pw_fs$1" ]; }
+# pw_readlink P: pw_rl is the target of the link at P.
+pw_readlink() { pw_rl=$(readlink "$pw_fs$1" 2>/dev/null) || pw_rl=""; }
+# --- names ---
 # pw_abs WORD: pw_p is the absolute path a root spelling names, or empty.
 pw_abs() {
   pw_p=""
@@ -526,6 +562,59 @@ pw_norm() {
   done
   pw_n=${out:-/}
 }
+# pw_normalize PATH: pw_norm, then the data volume folded to / and /private/tmp,
+# /private/var and /private/etc to /tmp, /var and /etc (any letter case).
+pw_normalize() {
+  local nc=""
+  pw_norm "$1"
+  shopt -q nocasematch && nc=1
+  shopt -s nocasematch
+  case "$pw_n" in
+    /system/volumes/data) pw_n=/ ;;
+    /system/volumes/data/*) pw_n=${pw_n:20} ;;
+  esac
+  case "$pw_n" in
+    /private/tmp|/private/tmp/*|/private/var|/private/var/*|/private/etc|/private/etc/*) pw_n=${pw_n:8} ;;
+  esac
+  [ -n "$nc" ] || shopt -u nocasematch
+}
+# pw_child S: S (a path below a home, or below /Users/<any>) is one of its
+# broad children, or a folder directly in its .subfleet. Caller has nocasematch.
+pw_child() {
+  case "$1" in
+    theaxiomfoundation|rulesfoundation|policyengine|library|library/caches|.cache|.local|.subfleet) return 0 ;;
+    .subfleet/*) case "${1:10}" in */*) return 1 ;; esac; return 0 ;;
+  esac
+  return 1
+}
+# pw_isbroad P: P (normalized) is a broad root by name.
+pw_isbroad() {
+  local p=$1 rest="" nc="" r=1
+  shopt -q nocasematch && nc=1
+  shopt -s nocasematch
+  case "$p" in
+    /|/users|/volumes|/system|/system/volumes|/private|/tmp|/var|/var/folders|/opt|/opt/homebrew|/library|/applications|/usr) r=0 ;;
+    /volumes/*) case "${p:9}" in */*) ;; *) r=0 ;; esac ;;
+    /users/*) rest=${p:7}
+      case "$rest" in
+        */*) pw_child "${rest#*/}" && r=0 ;;
+        *) r=0 ;;
+      esac ;;
+  esac
+  if [ "$r" -ne 0 ] && [ -n "$pw_home" ] && [ "$pw_home" != / ]; then
+    if [[ $p == "$pw_home" ]]; then r=0
+    elif [[ $p == "$pw_home"/* ]]; then pw_child "${p:${#pw_home}+1}" && r=0
+    fi
+  fi
+  [ -n "$nc" ] || shopt -u nocasematch
+  return $r
+}
+# --- where links lead ---
+# pw_isfile P: P (normalized) exists and is no directory.
+pw_isfile() { pw_nondir "$1"; }
+# pw_broad P: P (normalized) is a broad root by name and no file.
+pw_broad() { pw_isbroad "$1" && ! pw_isfile "$1"; }
+# --- globs (r3's whole-word expansion) ---
 # pw_listed DIR: whether the normalized DIR can hold a broad root by name.
 pw_listed() {
   case "$1" in
@@ -600,12 +689,6 @@ pw_glob() {
     exit 1
   }
 }
-# pw_sentinel WORD: pw_t is a new placeholder root, named WORD (glob).
-pw_sentinel() {
-  pw_nt=$((pw_nt + 1))
-  pw_t="/Users/@sfglob${pw_nt}@"
-  pw_shown[$pw_nt]="$1 (glob)"
-}
 # pw_word_glob WORD: decisions 2 and 3 for a word with a glob character. pw_t
 # is a placeholder root (broad), F (judged on disk, not broad), or empty (the
 # text rule's).
@@ -622,7 +705,7 @@ pw_word_glob() {
   [ -n "$b" ] || b=/
   case "$b" in
     *[*?[]*) ;;
-    *) if [ -n "$walk" ] && [[ $b =~ $pw_root_re ]]; then pw_sentinel "$1"; fi
+    *) if [ -n "$walk" ] && [[ $b =~ $pw_root_re ]]; then pw_sentinel "$1" " (glob)"; fi
        return 0 ;;
   esac
   pw_abs "$b"
@@ -630,7 +713,44 @@ pw_word_glob() {
   lit=${pw_p%%[*?[]*}; dir=${lit%/*}; rest=${pw_p:${#dir}+1}
   pw_norm "${dir:-/}"
   pw_listed "$pw_n" || return 0
-  if pw_glob "$dir" "$rest"; then pw_sentinel "$1"; else pw_t=F; fi
+  if pw_glob "$dir" "$rest"; then pw_sentinel "$1" " (glob)"; else pw_t=F; fi
+}
+# --- words ---
+# pw_sentinel WORD [SUFFIX]: pw_t is a new placeholder root, named WORD SUFFIX.
+pw_sentinel() {
+  pw_nt=$((pw_nt + 1))
+  pw_t="/Users/@sfglob${pw_nt}@"
+  pw_shown[$pw_nt]="$1${2-}"
+}
+# pw_word WORD CONTEXT: pw_t is a placeholder root (broad), F (not broad), or
+# empty (the text rules' verdict stands). CONTEXT b: the word is in a script
+# run by bash, sh, dash or ksh -c, where `**` is `*`. QUOTED q: a quote mark
+# was part of the word, so a broad one is placed even where the text rules
+# read it as a root by name (they would see a quoted part as Q).
+pw_word() {
+  local nc=""
+  shopt -q nocasematch && nc=1
+  shopt -u nocasematch
+  pw_word_judge "$@"
+  [ -z "$nc" ] || shopt -s nocasematch
+}
+pw_word_judge() {
+  local w=$1 b="" walk=""
+  pw_t=""
+  case "$w" in
+    '/*') return 0 ;;
+    *[*?[]*) ;;
+    *) pw_abs "$w"
+       case "$pw_p" in ''|*'$'*|*'`'*) return 0 ;; esac
+       pw_normalize "$pw_p"
+       if pw_broad "$pw_n"; then
+         if [ "${3-}" = q ] || ! [[ $w =~ $pw_root_re ]]; then pw_sentinel "$w"; fi
+       elif [[ $w =~ $pw_root_re ]]; then
+         pw_t=F
+       fi
+       return 0 ;;
+  esac
+  pw_word_glob "$w"
 }
 # <<< r3 path words: end <<<
 
@@ -704,58 +824,62 @@ if [ -n "$searcher" ] && ! printf '%s' "$command" | grep -qE -- '--?max-?depth';
     [ -n "$judged" ] || judged=$command
   fi
   # >>> r3 path words: judge >>>
-  # Path words judged on disk (decisions 1-3, see "Path words" above): pass 1
-  # lists each path word that is a root by name or holds a glob character,
-  # each is judged here, and pass 2 rewrites the ones that moved (F, or a
-  # placeholder root) with their quote marks kept, so every rule below reads
+  # Path words judged on disk (see "Path words" above): pass 1 lists every
+  # path word with its context (b inside a script run by bash, sh, dash or ksh
+  # -c without globstar, z otherwise) and whether a quote mark was part of it
+  # (q, else u), each is judged here, and pass 2
+  # rewrites the ones whose verdict moves (F, or a placeholder root, inside
+  # the word's first quote mark when it has one), so every rule below reads
   # the rewritten command.
   pw_root_re="^(${root_core})\$"
-  pw_norm "$HOME"; pw_home=$pw_n
+  pw_normalize "$HOME"; pw_home=$pw_n
   pw_nt=0 pw_nd=0 pw_dec=""
-  while IFS=$'\t' read -r pw_k pw_b; do
-    pw_t=""
-    case "$pw_b" in
-      '/*') ;;
-      *[*?[]*) pw_word_glob "$pw_b" ;;
-      *) pw_abs "$pw_b"
-         case "$pw_p" in
-           ''|*'$'*|*'`'*) ;;
-           *) if [ -e "$pw_fs$pw_p" ] && [ ! -d "$pw_fs$pw_p" ]; then pw_t=F; fi ;;
-         esac ;;
-    esac
-    if [ -n "$pw_t" ]; then pw_dec="$pw_dec$pw_k	$pw_t
-"; pw_nd=$((pw_nd + 1)); fi
-  done < <(printf '%s\n' "$judged" | PW_ROOT="$pw_root_re" LC_ALL=C awk '
-    BEGIN { re = ENVIRON["PW_ROOT"]; q = "[\"\047]" }
-    {
-      s = $0
-      while (match(s, /[^[:space:]|;&()<>]+/)) {
-        run = substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH); k++
-        bare = run; gsub(q, "", bare)
-        if (bare !~ /^(~|\$HOME|\$SUBFLEET_(ROOT|HOME))(\/|$)/ && bare !~ /^\//) continue
-        if (bare ~ /[*?[]/ || bare ~ re) print k "\t" bare
-      }
-    }' 2>/dev/null)
-  if [ "$pw_nd" -gt 0 ]; then
-    pw_j=$( { printf '%s' "$pw_dec"; printf '%s\n' "$judged"; } | LC_ALL=C awk -v NB="$pw_nd" '
-      NR <= NB { split($0, f, "\t"); tok[f[1]] = f[2]; next }
-      {
-        s = $0; out = ""
-        while (match(s, /[^[:space:]|;&()<>]+/)) {
-          out = out substr(s, 1, RSTART - 1); run = substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH); k++
-          if (k in tok) {
-            r = ""; placed = 0
-            for (i = 1; i <= length(run); i++) {
-              c = substr(run, i, 1)
-              if (c == "\"" || c == "\047") r = r c
-              else if (!placed) { r = r tok[k]; placed = 1 }
-            }
-            run = r
+  pw_awk='
+    function ctx_of(pre, ctx) {
+      if (pre ~ /(^|[[:space:];&|(\/])(sh|bash|dash|ksh)([[:space:]]+-[^[:space:]]+)*[[:space:]]+-[A-Za-z]*c[A-Za-z]*[[:space:]]*$/) return "b"
+      if (pre ~ /(^|[[:space:];&|(\/])zsh([[:space:]]+-[^[:space:]]+)*[[:space:]]+-[A-Za-z]*c[A-Za-z]*[[:space:]]*$/) return "z"
+      return ctx
+    }
+    function walk(s, ctx,   out, orig, run, orun, b, qc, rest, piece, opiece, q, inner, nctx) {
+      out = ""; orig = ""
+      while (match(s, /([^[:space:]|;&()<>"\047]|"[^"]*"|\047[^\047]*\047)+/)) {
+        out = out substr(s, 1, RSTART - 1); orig = orig substr(s, 1, RSTART - 1)
+        run = substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH); orun = run
+        b = run; gsub(/["\047]/, "", b)
+        if (b ~ /^(~|\$HOME|\$SUBFLEET_(ROOT|HOME))(\/|$)/ || b ~ /^\//) {
+          k++
+          if (pass == 1) printf "%d\t%s\t%s\t%s\n", k, ctx, (run == b) ? "u" : "q", b
+          else if (k in tok) {
+            qc = ""
+            if (match(run, /["\047]/)) qc = substr(run, RSTART, 1)
+            run = qc tok[k] qc
           }
           out = out run
+        } else {
+          rest = run; piece = ""; opiece = ""
+          while (match(rest, /"[^"]*"|\047[^\047]*\047/)) {
+            piece = piece substr(rest, 1, RSTART - 1); opiece = opiece substr(rest, 1, RSTART - 1)
+            q = substr(rest, RSTART, RLENGTH); rest = substr(rest, RSTART + RLENGTH)
+            inner = substr(q, 2, length(q) - 2)
+            nctx = ctx_of(orig opiece, ctx)
+            if (nctx == "b" && inner ~ /globstar/) nctx = "z"
+            piece = piece substr(q, 1, 1) walk(inner, nctx) substr(q, 1, 1); opiece = opiece q
+          }
+          out = out piece rest
         }
-        print out s
-      }' 2>/dev/null) && [ -n "$pw_j" ] && judged=$pw_j
+        orig = orig orun
+      }
+      return out s
+    }
+    pass == 2 && NR <= nb { split($0, f, "\t"); tok[f[1]] = f[2]; next }
+    { line = walk($0, "z"); if (pass == 2) print line }'
+  while IFS=$'\t' read -r pw_k pw_c pw_q pw_b; do
+    pw_word "$pw_b" "$pw_c" "$pw_q"
+    if [ -n "$pw_t" ]; then pw_dec="$pw_dec$pw_k	$pw_t
+"; pw_nd=$((pw_nd + 1)); fi
+  done < <(printf '%s\n' "$judged" | LC_ALL=C awk -v pass=1 "$pw_awk" 2>/dev/null)
+  if [ "$pw_nd" -gt 0 ]; then
+    pw_j=$( { printf '%s' "$pw_dec"; printf '%s\n' "$judged"; } | LC_ALL=C awk -v pass=2 -v nb="$pw_nd" "$pw_awk" 2>/dev/null) && [ -n "$pw_j" ] && judged=$pw_j
   fi
   # <<< r3 path words: judge <<<
   # stripped: judged with quoted strings collapsed, a whole-root quoted string
