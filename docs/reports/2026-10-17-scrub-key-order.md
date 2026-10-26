@@ -73,7 +73,12 @@ Each holds for every input, and each is executed by the tests named:
 2. **Idempotence.** Scrubbing a scrubbed text changes nothing, in the excerpt, whole and daemon.log modes. Tested by the property and the header tests.
 3. **Excerpt agreement.** For every line break `_neutral_break` allows, `_scrub(t[:p]) + _scrub(t[p:]) == _scrub(t)`. Each `scrub_bounded` excerpt equals the matching part of the whole block's scrub. Tested by the property, with excerpts shrunk to the text's length; the regressions use real 131,072-character excerpts.
 4. **Monotone against release/217.** On the seeded fuzz, every (text, mode, secret) triple the head leaks, release/217 leaks too. Tested by the differential.
-5. **Linear work.** Four times the input does well under 8× the work: for the lookahead (`test_the_bearer_lookahead_keeps_scrubbing_linear`), and for ordinary identifiers (`test_scrubber_work_scales_linearly_for_long_ordinary_identifiers`, unchanged, CPU-timed). Since D-SCRUB-LINEAR (2026-10-26) the lookahead's test counts rather than times: the characters each regex call of the scrub reads (`tests/scrub_work.py`, on #233's `tests/regex_reads.py`) and the `subfleet` lines it runs grow under 5× for 4× the input, and no scrub reads more than 256 a character. Timed, its CPU ratio failed shared CI runners at about 9× on unchanged code (runs 39682771461 and 40326659520).
+5. **Linear work.** Four times the input does well under 8× the work: for the lookahead (`test_the_bearer_lookahead_keeps_scrubbing_linear`), and for ordinary identifiers (`test_scrubber_work_scales_linearly_for_long_ordinary_identifiers`, unchanged, CPU-timed). Since D-SCRUB-LINEAR (2026-10-26) the lookahead's tests count rather than time, and each count grows under 5× for 4× the input:
+   - the characters each regex call of the scrub reads (`tests/scrub_work.py`, on #233's `tests/regex_reads.py`), and no scrub reads more than 256 a character;
+   - the `subfleet` lines it runs;
+   - the instructions the CPU retires for the plain scrub (`test_the_bearer_scrub_retires_linear_instructions`, `tests/cpu_scaling.py`), where the CPU's counter is exposed (a virtual machine may hide it, and the test is then skipped).
+
+   The reads and lines miss C-level `str` work and a regex call C code makes on a pattern no stand-in holds; the instructions count both (#266 review r1). None of the three sees growth like n log n (about 4.7× for 4×), or input shapes other than the five Bearer runs. Timed, the lookahead's CPU ratio failed shared CI runners at about 9× on unchanged code (runs 39682771461 and 40326659520).
 6. **Unchanged where nothing changed.** Ordinary headers and inline `Bearer` tokens scrub exactly as at release/217, output and count.
 
 ## Fuzz and differential numbers

@@ -9,19 +9,27 @@ here are the same on every run of one interpreter:
   each call's matches checked against `re`'s own. Every compiled pattern `handoff`
   holds is counted, the ones its rule tuples hold (`_TOKEN_RULES`, `_BLOCK_RULES`)
   included: one counting stand-in for each pattern, wherever the module keeps it, so
-  `pattern is _HEADER_RE` and `pattern in (_PEM_RE, …)` still hold. A regex call the
-  stand-ins do not see (a pattern kept elsewhere, `re.sub` with a string, another
-  module's) is named in `uncounted` (`sys.setprofile`), so none is read uncounted.
+  `pattern is _HEADER_RE` and `pattern in (_PEM_RE, …)` still hold.
 - `lines`: the lines of `subfleet` Python runs during the call (`sys.settrace`), so a
   loop of the scrubber's own counts too.
+- `uncounted`: what `sys.setprofile` sees the reads miss. That is a regex call made
+  from Python on a pattern no stand-in holds (one another module keeps, or one in a
+  list or dict, or `re.sub` with a string), and each call the scrub makes to `re`'s
+  API (a pattern compiled as it runs).
+
+Neither count sees C-level `str` work (slices, `in`, `find`, `casefold`, `join`), nor
+a regex call that C code makes on a pattern no stand-in holds (`map(p.search, …)`).
+The profile sees only calls made from Python (#266 review r1, P2-1). The instructions
+the CPU retires see both (`tests.cpu_scaling.fewest_instructions`).
 
 A scrub that reads more than its `budget` is stopped before `re` runs the call:
 `OverBudget`, the call's pattern in `over`. A catastrophic pattern is thus never run
 by `re`, which would hold the GIL for as long as it backtracks.
 
-Run it in a child (`_scrubber_probe`): it replaces `handoff`'s patterns while it runs,
-traces the interpreter, and the emulator nests a generator for each repetition of a
-group, so the child raises the recursion limit.
+Every exit restores `handoff`'s names and the interpreter's trace and profile. Run
+long texts in a child (`_scrubber_probe`): the emulator nests a generator for each
+repetition of a group, so the child raises the recursion limit. The differential's
+short texts run in-process at the default limit.
 """
 from __future__ import annotations
 
@@ -37,6 +45,8 @@ from tests import regex_reads
 SUBFLEET = str(Path(handoff.__file__).parents[1]) + os.sep
 #: The count's own files: a regex call made from them is the count's, not the scrub's.
 COUNTING = {__file__, regex_reads.__file__}
+#: `re`'s own Python code (`re.compile`, `re.sub`, …), whose API the scrub never calls.
+RE = os.path.dirname(re.__file__) + os.sep
 
 
 class Work:
@@ -123,7 +133,8 @@ def scrub_work(text: str, *, reads_per_char: int) -> dict:
     """`scrub_secrets(text)`'s regex reads and `subfleet` lines, within a budget of
     `reads_per_char` reads a character of `text` (`over` names the pattern past it).
     `same`: the counted scrub gave what the scrub gives uncounted (None when stopped);
-    `uncounted`: the regex calls the count did not see."""
+    `uncounted`: the regex calls from Python, and the calls to `re`'s API, that the
+    reads did not see (none of the C-level work above)."""
     work = Work(reads_per_char * max(1, len(text)))
     found: dict[int, tuple[str, re.Pattern]] = {}
     for name, value in vars(handoff).items():
@@ -140,7 +151,13 @@ def scrub_work(text: str, *, reads_per_char: int) -> dict:
         return lines if frame.f_code.co_filename.startswith(SUBFLEET) else None
 
     def regex_calls(frame, event, arg):
-        if (event == "c_call" and isinstance(pattern := getattr(arg, "__self__", None), re.Pattern)
+        if event == "call":                 # a pattern the scrub compiles, called from C or not
+            # `re`'s API only: `Match.expand` enters the cached `re._compile_template`
+            # from C, which matches nothing, and only before the cache holds the template.
+            if (frame.f_code.co_filename.startswith(RE) and not frame.f_code.co_name.startswith("_")
+                    and (caller := frame.f_back) is not None and caller.f_code.co_filename.startswith(SUBFLEET)):
+                work.uncounted.add(f"re.{frame.f_code.co_name}")
+        elif (event == "c_call" and isinstance(pattern := getattr(arg, "__self__", None), re.Pattern)
                 and frame.f_code.co_filename not in COUNTING):
             work.uncounted.add(pattern.pattern[:60])
 

@@ -22,6 +22,7 @@ import pytest
 from subfleet import refusals
 from subfleet.sessions import handoff
 from subfleet.sessions.handoff import scrub_bounded, scrub_secrets
+from tests.cpu_scaling import COUNT_GROWTH_MAX, counts_instructions
 from tests.scrub_work import scrub_work
 from tests.unit import scrub_release217 as release217
 from tests.unit.test_sessions_handoff import _scrubber_probe
@@ -451,18 +452,24 @@ def test_the_head_leaks_nothing_release_217_keeps_out_and_no_bearer_or_header_va
 #: (`tests.scrub_work`): release/217 reads at most 43. A call past it is stopped before
 #: `re` runs it, so a catastrophic lookahead fails here in seconds.
 READS_PER_CHAR_MAX = 256
-#: Four times the input: linear work grows about 4 times (its fixed part makes it
-#: less), quadratic about 16. The counts are exact, so the bound can sit near 4.
-WORK_GROWTH_MAX = 5
+#: The long Bearer runs the lookahead reads.
+BEARER_TOKENS = ["a_", "token", "secret_", "--a", "x."]
+#: The instruction count where the CPU's counter is exposed to the kernel (not in a
+#: virtual machine that hides it).
+INSTRUCTIONS = pytest.mark.skipif(not counts_instructions(), reason="no CPU instruction counter here")
 
 
-@pytest.mark.parametrize("token", ["a_", "token", "secret_", "--a", "x."])
+@pytest.mark.parametrize("token", BEARER_TOKENS)
 def test_the_bearer_lookahead_keeps_scrubbing_linear(token):
     """C-23.14 / C-25.5: the lazy lookahead reads a token once per position; four times
     the input must not do quadratic work (`_SENSITIVE_KEY` there would). Counted, not
     timed (D-SCRUB-LINEAR: the CPU ratio failed shared runners at about 9x on code no
     PR had touched): what each regex call of the scrub reads, and the lines of
-    `subfleet` it runs, are the same on every run."""
+    `subfleet` it runs, are the same on every run. They miss C-level `str` work and a
+    regex call C code makes on a pattern no stand-in holds (`tests.scrub_work`); the
+    instruction test below sees those. After the Bearer rule redacts the run, the later
+    passes read `Bearer [REDACTED]`, so the lines stay flat but for `x.`. Neither test
+    sees growth like n log n (about 4.7x here) or shapes other than these runs."""
     measured = _scrubber_probe(f"token = {token!r}\nreads_per_char = {READS_PER_CHAR_MAX}\n" + '''
 import json, sys
 from tests.scrub_work import scrub_work
@@ -480,7 +487,23 @@ print(json.dumps(work))
     small, large = measured["2048"], measured["8192"]
     assert small["lines"] > 0, measured                     # the trace saw the scrubber
     for count in ("reads", "lines"):
-        assert large[count] < small[count] * WORK_GROWTH_MAX, (count, measured)
+        assert large[count] < small[count] * COUNT_GROWTH_MAX, (count, measured)
+
+
+@INSTRUCTIONS
+@pytest.mark.parametrize("token", BEARER_TOKENS)
+def test_the_bearer_scrub_retires_linear_instructions(token):
+    """C-23.14 / C-25.5, what the counts above cannot see (#266 review r1, P2-1): C-level
+    `str` work, and a regex call C code makes on a pattern no stand-in holds. The
+    instructions the CPU retires for the plain scrub count both, and grow as the counts
+    do. Unlike CPU time they do not move with the runner's load."""
+    measured = _scrubber_probe(f"token = {token!r}\n" + '''
+import json
+from tests.cpu_scaling import fewest_instructions
+print(json.dumps({size: fewest_instructions(lambda text="Bearer " + token * (size // len(token)): scrub_secrets(text))
+                  for size in (2048, 8192)}))
+''')
+    assert measured["8192"] < measured["2048"] * COUNT_GROWTH_MAX, measured
 
 
 @CI
@@ -488,7 +511,8 @@ print(json.dumps(work))
 def test_the_counted_scrub_is_the_scrub(text):
     """The count above changes nothing it counts (a differential, `tests.scrub_work`):
     over the key-order grammar and the seeded fuzz, the counted scrub gives the plain
-    scrub's output and sees every regex call it makes, each call's matches `re`'s own.
-    The budget only bounds the run: these short texts read up to about 100 a character."""
+    scrub's output, each call's matches `re`'s own, and the profile names no regex call
+    made from Python past the count, nor any call to `re`'s API. The budget only bounds
+    the run: these short texts read up to about 100 a character."""
     work = scrub_work(text, reads_per_char=4096)
     assert (work["over"], work["same"], work["uncounted"]) == (None, True, []), (text, work)
