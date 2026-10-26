@@ -3,6 +3,7 @@
 Each is applied to `Daemon._request_cancel`'s source text and must fail its oracle (strict
 xfail); each oracle passes unmutated in `test_census_round6_cascade.py`, and I6 in
 `test_census_round4_endings.py`. The third is r5's survivor: it passed every round-4 test.
+Round 7 (review r6, P3-2) tests the I6 kill check itself on a synthetic property.
 """
 
 from hypothesis import example, given, strategies as st
@@ -71,11 +72,15 @@ def test_r6_the_root_only_scan_fails_the_family_kill_regression(observed, monkey
 
 
 def failures_only_at(failure: pytest.ExceptionInfo, ending: str) -> None:
-    """Every failure Hypothesis reports is an assertion error at `ending`'s example."""
+    """Every failure Hypothesis reports is an assertion error at `ending`'s example, and none hides
+    another. Below `Verbosity.verbose`, Hypothesis 6.168.1 keeps one failing explicit example per
+    origin (exception type and line), the one with the shortest repr, and only counts the rest in
+    a note (`_simplify_explicit_errors`)."""
     found = failure.value.exceptions if isinstance(failure.value, BaseExceptionGroup) else (failure.value,)
     assert found and all(isinstance(error, AssertionError) for error in found), found
     examples = ["\n".join(getattr(error, "__notes__", [])) for error in found]
     assert all(f"ending={ending!r}" in example for example in examples), examples
+    assert not any("also failed with this error" in example for example in examples), examples
 
 
 def test_r6_the_root_only_scan_fails_the_i6_property_at_its_family_ending_alone(tmp_path_factory, monkeypatch):
