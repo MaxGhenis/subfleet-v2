@@ -39,6 +39,16 @@ final class LiveRun {
     }
 }
 
+/// A journaled steer as a check's detail, every field with a missing one as null: a failed
+/// steer check then says whether its steer was refused, is waiting to be asked again, or
+/// was never journaled (its receipt alone read null for all three, D-STEER-PUMP1).
+func steerDetail(_ steer: OutboxSteer?) -> Any {
+    guard let steer else { return "no steer journaled" }
+    return ["message_id": steer.messageID, "state": steer.state.rawValue, "attempts": steer.attempts,
+            "next_attempt_at": steer.nextAttemptAt ?? NSNull(), "into": steer.into ?? NSNull(),
+            "failure": steer.failure.map(jsonObject) ?? NSNull(), "receipt": steer.receipt.map(jsonObject) ?? NSNull()]
+}
+
 func runLive(_ arguments: [String]) throws -> Any {
     let run = LiveRun()
     do {
@@ -478,8 +488,7 @@ private func driveLive(_ arguments: [String], _ run: LiveRun) throws {
         state.apply(outbox: report, outbox: outbox)
         let answer = outbox.steer(steered.key)
         run.check("steer: the daemon takes the steer", answer?.state == .acknowledged
-                  && ["steering", "steered"].contains(answer?.receipt?.state ?? ""),
-                  answer.map { jsonObject($0.receipt) } ?? NSNull())
+                  && ["steering", "steered"].contains(answer?.receipt?.state ?? ""), steerDetail(answer))
         // A slow turn ends only when stopped; a steer it has not taken by then runs next.
         Thread.sleep(forTimeInterval: 3)
         _ = try? engine.stop(.interrupt(messageID: host.key))
