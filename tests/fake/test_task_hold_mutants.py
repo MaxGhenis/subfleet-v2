@@ -222,6 +222,22 @@ def look_under_way_takes_the_job():
             "T6-inflight: the grace ran while the job was held"
 
 
+def late_finalizer_keeps_its_deadline():
+    """Fix round 3, R3-2: finalized at 100 after an exit at 0, held at 110 and released at 111:
+    the retry is due at 160, as unheld."""
+    from tests.fake.test_task_hold_clocks import retried_at
+    with fresh_daemon() as (service, harness, clock, signals):
+        build = submit(service, harness, "build", "build-1")
+        service._admit()
+        finalize_transient(service, attempts(service, build)[0], clock=clock, finalized_at=100)
+        clock[0] = 110
+        hold(service, "build", stamp(500))
+        clock[0] = 111
+        release(service, "build")
+        service._admit()
+        assert retried_at(service, build) is None, "T6-finalizer: the hold dropped the finalizer's deadline"
+
+
 def offline_count_is_the_total():
     from subfleet import cli
     from subfleet.offline import Offline
@@ -293,6 +309,7 @@ SCENARIOS = {
     "pause-only-at-the-pass": (hold_no_pass_saw_pauses_the_grace, "T6-commit"),
     "keep-any-capacity-clock": (recheck_is_no_kept_deadline, "T6-recheck"),
     "admission-writes-over-the-hold": (look_under_way_takes_the_job, "T6-inflight"),
+    "retry-deadline-from-the-attempt-end": (late_finalizer_keeps_its_deadline, "T6-finalizer"),
 }
 
 

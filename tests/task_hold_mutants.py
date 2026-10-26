@@ -9,6 +9,7 @@ assertion. `TASK_HOLD_MUTANT=<name>` applies one to the property tests too
 from __future__ import annotations
 
 from subfleet import daemon as daemon_module, task_holds
+from subfleet.contracts import TRANSIENT_RETRY_DELAY_S
 from subfleet.daemon import Daemon
 
 
@@ -155,6 +156,21 @@ def admission_writes_over_the_hold(patch):
     patch.setattr(Daemon, "_task_held_at_write", lambda self, tx, job, holds, **kwargs: None)
 
 
+def retry_deadline_from_the_attempt_end(patch):
+    """Fix round 3, R3-2: a take judges a retry's deadline as the attempt's end plus 60 s (fix
+    round 2's predicate) and keeps the job's clock, not the deadline the finalizer wrote."""
+    def kept(self, tx, job_id, state, reason, clock, now):
+        if not (state == "waiting" and reason == "capacity" and clock):
+            return None
+        row = tx.execute(daemon_module.RETRY_END_SQL, (job_id,)).fetchone()
+        if row is None or not isinstance(row[0], str):
+            return None
+        if not daemon_module._earlier(now, daemon_module._later(row[0], TRANSIENT_RETRY_DELAY_S)):
+            return None
+        return {"wait_reason": reason, "next_check_at": clock}
+    patch.setattr(Daemon, "_kept_retry", kept)
+
+
 def offline_counts_the_display_cap(patch):
     """P3-1: status counts a hold's waiting jobs from the jobs it lists (offline: 50)."""
     original = task_holds.listing
@@ -210,4 +226,5 @@ MUTANTS = {
     "pause-only-at-the-pass": pause_only_at_the_pass,
     "keep-any-capacity-clock": keep_any_capacity_clock,
     "admission-writes-over-the-hold": admission_writes_over_the_hold,
+    "retry-deadline-from-the-attempt-end": retry_deadline_from_the_attempt_end,
 }

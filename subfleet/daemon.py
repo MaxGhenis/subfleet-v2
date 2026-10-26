@@ -246,11 +246,13 @@ NOT_ADMISSIONS_TO_PLACE = ("approval", "uncertain", "workspace", "attempt-live",
 #: C-6.10, C-11.10: the key range admission's lease census leaves out: an operator's task
 #: holds (`task_holds.KEY`), which are no capacity, so a release frees no capacity wait early.
 LEASE_CENSUS_SKIPS = task_holds.ROWS_PARAMS
-#: C-4.5, C-11.10: when the job's latest attempt ended, if it ended `transient` with no model
-#: capacity steer (C-9.5: a steered retry is due at the next pass, with no backoff): its retry
-#: is due `TRANSIENT_RETRY_DELAY_S` after that. A task hold keeps the job's clock only while
-#: that deadline is still ahead (`_kept_retry`).
-RETRY_END_SQL = ("SELECT a.finished_at FROM attempts a WHERE a.job_id=? AND a.outcome_class='transient' "
+#: C-4.5, C-11.10: when the job's latest attempt ended, and the retry deadline its finalizer
+#: wrote (`retry_due_at` in the attempt's evidence, review r3 of #260, R3-2), if it ended
+#: `transient` with no model capacity steer (C-9.5: a steered retry is due at the next pass,
+#: with no backoff). A task hold keeps that deadline only while it is still ahead (`_kept_retry`).
+RETRY_END_SQL = ("SELECT a.finished_at, CASE WHEN json_valid(a.evidence_json) "
+                 "THEN json_extract(a.evidence_json,'$.retry_due_at') END "
+                 "FROM attempts a WHERE a.job_id=? AND a.outcome_class='transient' "
                  "AND a.seq=(SELECT MAX(seq) FROM attempts WHERE job_id=a.job_id) "
                  "AND NOT (json_valid(a.evidence_json) AND json_extract(a.evidence_json,'$.capacity_steer') IS NOT NULL)")
 #: C-6.11: ordinary queueing. A fleet at its cap with lanes to spare is working.
@@ -1639,25 +1641,29 @@ class Daemon:
 
     def _kept_retry(self, tx: sqlite3.Connection, job_id: str, state: str, reason: str | None,
                     clock: str | None, now: str) -> dict | None:
-        """C-4.5, C-11.10 (review r2 of #260, F2): the clock a hold that takes the job at `now`
-        keeps for its end, or None. Only a retry's backoff: the job waits on `capacity` after
-        a latest attempt that ended `transient` with no capacity steer (`RETRY_END_SQL`), and
-        its deadline, that end plus `TRANSIENT_RETRY_DELAY_S`, is still ahead. Until then no
-        look has given the job a recheck (a retry's wait has no capacity wait for freed
-        capacity to bring forward, C-6.10): its clock is the finalizer's, or a C-11.8
-        episode's, whose grace the hold pauses and gives back first, and that clock, the one
-        it would wait for with no hold, is kept. Once the deadline has passed, the clock is a
+        """C-4.5, C-11.10 (review r2 of #260, F2; review r3, R3-2): the clock a hold that takes
+        the job at `now` keeps for its end, or None. Only a retry's backoff: the job waits on
+        `capacity` after a latest attempt that ended `transient` with no capacity steer
+        (`RETRY_END_SQL`), and the deadline its finalizer wrote, kept in that attempt's
+        evidence as `retry_due_at`, is still ahead; that deadline is what is kept. It is 60 s
+        after the finalizer ran, which may be long after the provider's exit: r3 finalized an
+        exit at 0 at 100, so the retry was due at 160, and the exit plus 60 had passed when a
+        hold at 110 took the job, which a release at 111 then started 49 s early. Until the
+        deadline no look has given the job a recheck (a retry's wait has no capacity wait for
+        freed capacity to bring forward, C-6.10). Once it has passed, the job's clock is a
         C-6.10 recheck's, which is no deadline: keeping it would leave the job waiting for it
         after the hold, unmoved by capacity that frees up (r2: a hold of one second delayed a
-        retry 28 s)."""
+        retry 28 s). An attempt a daemon before fix round 3 finalized has no `retry_due_at`;
+        its deadline is read as its end plus `TRANSIENT_RETRY_DELAY_S`, as before."""
         if not (state == "waiting" and reason == "capacity" and clock):
             return None
         row = tx.execute(RETRY_END_SQL, (job_id,)).fetchone()
         if row is None or not isinstance(row[0], str):
             return None
-        if not _earlier(now, _later(row[0], TRANSIENT_RETRY_DELAY_S)):
+        deadline = row[1] if isinstance(row[1], str) else _later(row[0], TRANSIENT_RETRY_DELAY_S)
+        if not _earlier(now, deadline):
             return None
-        return {"wait_reason": reason, "next_check_at": clock}
+        return {"wait_reason": reason, "next_check_at": deadline}
 
     def _held_pin_episode(self, tx: sqlite3.Connection, job_id: str) -> dict:
         """C-11.8, C-11.10: `job_id`'s pin episode as the store has it, read in `tx`
@@ -10287,6 +10293,14 @@ class Daemon:
             if steered:
                 evidence["capacity_steer"] = {"model_id": a["model_requested"],
                                               "until": _later(provider_finished_at, MODEL_CAPACITY_STEER_S)}
+            # C-4.5: a transient retry is due `TRANSIENT_RETRY_DELAY_S` after this finalization, which
+            # may be well after the provider's exit (load, a restart); the deadline is kept with the
+            # attempt, so a task hold keeps exactly it, not the exit plus 60 s (C-11.10, review r3
+            # of #260, R3-2).
+            next_check = after(TRANSIENT_RETRY_DELAY_S if outcome.cls == OutcomeClass.TRANSIENT and not steered
+                               else 0) if retry else None
+            if retry and outcome.cls == OutcomeClass.TRANSIENT and not steered:
+                evidence["retry_due_at"] = next_check
             tx.execute("UPDATE attempts SET state=?,rc=?,outcome_class=?,outcome_detail=?,evidence_json=?,attestation=?,model_served=?,native_session_id=COALESCE(?,native_session_id),transcript_path=?,finished_at=? WHERE attempt_id=?",
                        (attempt_state, rc, outcome.cls.value, outcome.detail, json.dumps(evidence), attest_status, served_model,
                         outcome.native_session_id, outcome.transcript_path, provider_finished_at, a["attempt_id"]))
@@ -10318,8 +10332,6 @@ class Daemon:
                 job_rc = {OutcomeClass.LIMITED: 4,  # C-17.3: a final limited attempt reports 4, pinned or not
                           OutcomeClass.AUTH_DEAD: 5, OutcomeClass.CLI_TOO_OLD: 6}.get(outcome.cls, rc)
             accepted = a["attempt_id"] if ok and not cancel else None
-            next_check = after(TRANSIENT_RETRY_DELAY_S if outcome.cls == OutcomeClass.TRANSIENT and not steered
-                               else 0) if retry else None
             tx.execute("UPDATE jobs SET state=?,rc=?,accepted_attempt_id=?,finished_at=?,wait_reason=?,next_check_at=? WHERE job_id=?",
                        (job_state, job_rc, accepted, None if retry else utcnow(), "capacity" if retry else None, next_check, job["job_id"]))
             self._cascade_final_wall(a, wall_exited)
