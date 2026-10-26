@@ -550,7 +550,8 @@ def format_status(data: dict[str, Any]) -> str:
         lines.append("")
         lines.append("closures")
         for closure in closures:
-            lines.append(f"  {render.closure_line(closure)}")
+            lane = next((row for row in lanes if row.get("lane_id") == closure.get("lane_id")), closure)
+            lines.append("  " + render.closure_line(closure, home=render.lane_home(lane)))
     lines.append("")
     callers = rows_of(data.get("priority_callers"))
     if isinstance(data.get("disk"), dict):
@@ -2268,6 +2269,10 @@ def _format_lanes(result: dict[str, Any]) -> str:
             f"{('yes' if lane.get('enabled', True) else 'no'):<8} "
             f"{str(lane.get('identity_status') or '-'):<12.12} "     # C-10.6
             f"{lane.get('plan') or '-'}")
+        for closure in lane.get("closures", result.get("closures", ())):
+            if (closure.get("reason") == "operator-hold"
+                    and closure.get("lane_id", lane.get("lane_id")) == lane.get("lane_id")):
+                lines.append("  " + render.closure_text(closure, home=render.lane_home(lane)))
     return "\n".join(lines)
 
 
@@ -2364,7 +2369,13 @@ def cmd_lanes(args: argparse.Namespace) -> int:
         if not (result.get("held") or result.get("released")):
             return fail(Exit.DAEMON_UNAVAILABLE, f"the daemon did not {action} the lane; it is older than this CLI",
                         RESTART_DAEMON)
-        out(f"{action}: {result.get('held') or result.get('released')}")
+        closure = next((row for row in result.get("closures", ())
+                        if row.get("lane_id") == args.lane and row.get("reason") == "operator-hold"), None)
+        if action == "hold" and closure:
+            lane = next((row for row in result.get("lanes", ()) if row.get("lane_id") == args.lane), closure)
+            out(render.closure_text(closure, home=render.lane_home(lane)))
+        else:
+            out(f"{action}: {result.get('held') or result.get('released')}")
         if limits:
             out(f"guessed limits released: {len(result['limits_released'])}")
             if result.get("limits_reported"):

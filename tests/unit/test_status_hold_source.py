@@ -344,6 +344,17 @@ def test_i2_precedence_auth_dead_disabled_limited_held():
 
 # --- examples: today's case and its neighbours ---------------------------------
 
+def hold_words(home, until, note=NOTE):
+    """Contract wording, independent of the production renderer."""
+    return (f"{home}: held by the operator" + (f": {note}" if note else "")
+            + f" (until {until} at the latest)")
+
+
+def held_details(rows):
+    return "; ".join(hold_words(row["home"], item["until_at"], status_json.closure_note(item))
+                     for row in rows for item in row["closures"] if item["reason"] == "operator-hold")
+
+
 def six_held(explicit: str | None = None) -> list[dict]:
     ends = ["2026-10-25T03:51:22Z", "2026-10-25T03:09:22Z", "2026-10-25T04:30:00Z",
             "2026-10-25T03:51:22Z", "2026-10-25T05:00:00Z", "2026-10-25T03:20:00Z"]
@@ -362,8 +373,7 @@ def test_all_six_codex_lanes_held_by_an_operator_read_held_not_limited(explicit)
     assert not [key for key in found if key.startswith("codex-scoped-limit:")]       # no per-lane "limited"
     empty = found["codex-fleet-empty"]
     assert empty["subject"] == "codex: no dispatchable lanes"
-    assert empty["body"] == ("No codex lane is dispatchable: 6 held by operator "
-                             f"({NOTE}; earliest end 2026-10-25T03:09:22Z). Run: subfleet status")
+    assert empty["body"] == "No codex lane is dispatchable: 6 held (" + held_details(lanes) + "). Run: subfleet status"
     assert empty["severity"] == "warn"
     assert empty["causes"] == {"held": 6, "limited": 0, "credential": 0, "disabled": 0, "other": 0}
     assert "limited" not in empty["body"] and "exhausted" not in empty["body"]
@@ -371,8 +381,8 @@ def test_all_six_codex_lanes_held_by_an_operator_read_held_not_limited(explicit)
 
 def test_all_six_held_status_text_says_held_by_operator_with_the_note():
     text = status_text(six_held())
-    assert closure_lines(text)[0] == f"  codex-1 held by operator until 2026-10-25T03:51:22Z: {NOTE}"
-    assert all(" held by operator until " in line for line in closure_lines(text))
+    assert closure_lines(text)[0] == "  " + hold_words("/homes/codex-1", "2026-10-25T03:51:22Z")
+    assert all(": held by the operator: " in line and " at the latest)" in line for line in closure_lines(text))
     assert lane_row(text, "codex-1").endswith("[held]")
     assert "limited" not in text
 
@@ -382,8 +392,7 @@ def test_a_mix_of_holds_and_provider_limits_names_each_with_counts():
              limited_lane(5, "2026-10-27T04:00:00Z"), limited_lane(6, "2026-10-26T04:00:00Z")]
     found = conditions(*lanes)
     empty = found["codex-fleet-empty"]
-    assert empty["body"] == ("No codex lane is dispatchable: 4 held by operator "
-                             f"({NOTE}; earliest end 2026-10-25T01:00:00Z), "
+    assert empty["body"] == ("No codex lane is dispatchable: 4 held (" + held_details(lanes[:4]) + "), "
                              "2 provider-limited (earliest reset 2026-10-26T04:00:00Z). Run: subfleet status")
     assert empty["severity"] == "critical"
     assert empty["causes"] == {"held": 4, "limited": 2, "credential": 0, "disabled": 0, "other": 0}
@@ -414,7 +423,7 @@ def test_a_hold_and_a_limit_on_one_lane_reads_limited_and_shows_both():
                                                 limit("claude-10", "2026-10-27T04:00:00Z")])
     assert status_json.lane_verdict(row) == "limited"
     text = status_text([row])
-    assert closure_lines(text) == [f"  claude-10 held by operator until 2026-10-25T03:51:22Z: {NOTE}",
+    assert closure_lines(text) == ["  " + hold_words("/homes/claude-10", "2026-10-25T03:51:22Z"),
                                    "  claude-10 provider limit on account until 2026-10-27T04:00:00Z (reported)"]
     assert lane_row(text, "claude-10").endswith("[limited]")
     shown = [status_json.closure_row(item) for item in row["closures"]]
@@ -448,8 +457,8 @@ def test_a_disabled_lane_reads_disabled_and_the_fleet_is_not_all_held():
     assert status_json.lane_verdict(lanes[1]) == "disabled"
     empty = conditions(*lanes)["codex-fleet-empty"]
     assert empty["causes"] == {"held": 1, "limited": 0, "credential": 0, "disabled": 1, "other": 0}
-    assert empty["body"] == ("No codex lane is dispatchable: 1 held by operator "
-                             f"({NOTE}; earliest end {UNTILS[1]}), 1 disabled. Run: subfleet status")
+    assert empty["body"] == ("No codex lane is dispatchable: 1 held (" + held_details(lanes[:1])
+                             + "), 1 disabled. Run: subfleet status")
     assert empty["severity"] == "critical"
 
 
@@ -459,8 +468,7 @@ def test_claude_lanes_all_held_raise_no_per_lane_limit_and_stay_warn():
     assert not [key for key in found if key.startswith("claude-limit:")]
     empty = found["claude-lanes-empty"]
     assert (empty["severity"], empty["subject"]) == ("warn", "claude: no dispatchable lanes")
-    assert empty["body"] == ("No claude lane is dispatchable: 3 held by operator "
-                             f"(claude-open: running cap; earliest end {UNTILS[1]}). Run: subfleet status")
+    assert empty["body"] == "No claude lane is dispatchable: 3 held (" + held_details(lanes) + "). Run: subfleet status"
     accounts = status_json.build_status({"lanes": lanes}, now=NOW)["claude"]["accounts"]
     assert {row["verdict"] for row in accounts} == {"held"}
 
@@ -469,10 +477,9 @@ def test_holds_without_notes_and_with_several_notes():
     lanes = [held_lane(1, UNTILS[1], note=None), held_lane(2, UNTILS[0], note="load 140"),
              held_lane(3, UNTILS[1], note=NOTE), held_lane(4, UNTILS[1], note="load 140")]
     empty = conditions(*lanes)["codex-fleet-empty"]
-    assert empty["body"] == ("No codex lane is dispatchable: 4 held by operator "
-                             f"(load 140; {NOTE}; earliest end {UNTILS[0]}). Run: subfleet status")
+    assert empty["body"] == "No codex lane is dispatchable: 4 held (" + held_details(lanes) + "). Run: subfleet status"
     bare = conditions(held_lane(1, UNTILS[1], note=None))["codex-fleet-empty"]
-    assert bare["body"] == f"No codex lane is dispatchable: 1 held by operator (earliest end {UNTILS[1]}). Run: subfleet status"
+    assert bare["body"] == ("No codex lane is dispatchable: 1 held (" + hold_words("/homes/codex-1", UNTILS[1], None) + "). Run: subfleet status")
 
 
 def test_a_lane_held_twice_is_held_until_its_last_hold_ends():
@@ -480,12 +487,12 @@ def test_a_lane_held_twice_is_held_until_its_last_hold_ends():
                                     hold("codex-1", "2026-10-25T06:00:00Z", note="load 140", scope="gpt-6-astra")])
     later = held_lane(2, "2026-10-25T05:00:00Z")
     body = conditions(row, later)["codex-fleet-empty"]["body"]
-    assert f"({NOTE}; load 140; earliest end 2026-10-25T05:00:00Z)" in body
+    assert body == "No codex lane is dispatchable: 2 held (" + held_details([row, later]) + "). Run: subfleet status"
 
 
 def test_a_hold_without_a_note_shows_held_by_operator_and_no_note():
     row = held_lane(1, UNTILS[1], note=None)
-    assert closure_lines(status_text([row])) == [f"  codex-1 held by operator until {UNTILS[1]}"]
+    assert closure_lines(status_text([row])) == ["  " + hold_words("/homes/codex-1", UNTILS[1], None)]
     shown = status_json.closure_row(row["closures"][0])
     assert (shown["kind"], shown["note"]) == ("hold", None)
 
@@ -541,7 +548,7 @@ def test_i3_fleet_empty_counts_sum_and_limited_words_need_a_limited_lane(rows):
 
 
 #: C-18.4: what the fleet-empty body calls each cause, in the order it names them.
-CAUSE_WORDS = {"held": "held by operator", "limited": "provider-limited", "credential": "credential-blocked",
+CAUSE_WORDS = {"held": "held", "limited": "provider-limited", "credential": "credential-blocked",
                "disabled": "disabled", "other": "otherwise unavailable"}
 RENDERED_CAUSE = re.compile(r"([0-9]+) (" + "|".join(map(re.escape, CAUSE_WORDS.values())) + r")(?: \(([^()]*)\))?\Z")
 
@@ -555,6 +562,7 @@ def rendered_causes(body: str, provider: str, notes: list[str]) -> list[tuple[st
     middle = body[len(prefix):len(body) - len(suffix)]
     for note in sorted({*notes, WITHHELD}, key=len, reverse=True):
         middle = middle.replace(note, "\x00")
+    middle = re.sub(r"\(until [^()]* at the latest\)", "BOUND", middle)
     parts = [RENDERED_CAUSE.match(part) for part in middle.split(", ")]
     assert all(parts), (body, middle)
     return [(part[2], int(part[1])) for part in parts]
@@ -584,7 +592,7 @@ def check_fleet_empty(rows: list[dict]) -> None:
     else:
         assert f"{limited} provider-limited (earliest reset " in body
     if held:
-        assert f"{held} held by operator (" in body
+        assert f"{held} held (" in body
     assert not re.search(r"\b0 ", words)                     # a cause with no lane is not named
     all_held = held == len(rows)
     assert empty["severity"] == ("warn" if all_held or provider == "claude" else "critical")
@@ -695,9 +703,10 @@ def test_i4_a_note_round_trips_or_is_refused_with_the_store_unchanged(core, note
         assert [item["note"] for item in status["lanes"][0]["closures"]] == [expected]
         offline = [item for item in Offline(core.root).status()["closures"] if item["reason"] == "operator-hold"]
         assert [(item["kind"], item["note"]) for item in offline] == [("hold", expected)]
-        assert f"  codex-1 held by operator until {until}: {expected}" in cli.format_status(status).splitlines()
+        assert "  " + hold_words(core.store.get_lane("codex-1")["home"], until, expected) in cli.format_status(status).splitlines()
         alert = conditions(*core.timers.snapshot()["lanes"])["codex-fleet-empty"]
-        assert alert["body"].startswith(f"No codex lane is dispatchable: 1 held by operator ({expected}; earliest end ")
+        assert alert["body"] == ("No codex lane is dispatchable: 1 held ("
+            + hold_words(core.store.get_lane("codex-1")["home"], until, expected) + "). Run: subfleet status")
         assert core._timer_notice(alert)                     # the session notice the alert becomes
         notice = core.store.one("SELECT text FROM service_notices ORDER BY notice_id DESC LIMIT 1")["text"]
         assert notice == f"codex: no dispatchable lanes\n{alert['body']}"
@@ -715,7 +724,7 @@ def test_i4_a_hold_without_a_note_records_operator_as_before(core):
     assert json.loads(event["data_json"]) == {"until": until}
     status = core.dispatch("daemon.status", {})
     assert [(item["kind"], item["note"]) for item in status["closures"]] == [("hold", None)]
-    assert f"  codex-1 held by operator until {until}" in cli.format_status(status).splitlines()
+    assert "  " + hold_words(core.store.get_lane("codex-1")["home"], until, None) in cli.format_status(status).splitlines()
 
 
 def test_i4_a_later_hold_takes_the_row_and_its_note_a_shorter_one_leaves_both(core):
@@ -1009,11 +1018,11 @@ def test_r1_p2_a_stored_credential_note_is_withheld_by_every_reader(core):
     rows = [*status["closures"], *status["lanes"][0]["closures"]]
     assert [(row["kind"], row["note"], row["source_event"]) for row in rows] == [
         ("hold", WITHHELD, f"operator: {WITHHELD}")] * 2
-    assert f"  codex-1 held by operator until {until}: {WITHHELD}" in cli.format_status(status).splitlines()
+    assert "  " + hold_words(core.store.get_lane("codex-1")["home"], until, WITHHELD) in cli.format_status(status).splitlines()
     offline = Offline(core.root).status()
     assert [(row["note"], row["source_event"]) for row in offline["closures"]] == [(WITHHELD, f"operator: {WITHHELD}")]
     alert = conditions(*core.timers.snapshot()["lanes"])["codex-fleet-empty"]
-    assert f"1 held by operator ({WITHHELD}; earliest end " in alert["body"]
+    assert hold_words(core.store.get_lane("codex-1")["home"], until, WITHHELD) in alert["body"]
     assert core._timer_notice(alert)
     notice = core.store.one("SELECT text FROM service_notices")["text"]
     for shown in (cli.format_status(status), str(status), str(offline["closures"]), cli.format_status(offline),
@@ -1314,7 +1323,7 @@ def test_i5_no_credential_reaches_the_store_status_alerts_or_a_notice_through_a_
         assert accepted == note.strip() and not holds_credential(accepted)
         status = core.dispatch("daemon.status", {})
         shown = [row for row in (*status["closures"], *status["lanes"][0]["closures"]) if row["kind"] == "hold"]
-        line = next(text for text in cli.format_status(status).splitlines() if " held by operator " in text)
+        line = next(text for text in cli.format_status(status).splitlines() if ": held by the operator" in text)
         alert = conditions(*core.timers.snapshot()["lanes"])["codex-fleet-empty"]
         assert core._timer_notice(alert)
         notice = core.store.one("SELECT text FROM service_notices ORDER BY notice_id DESC LIMIT 1")["text"]
@@ -1501,9 +1510,9 @@ def test_r2_p3_3_a_hold_source_lanes_hold_would_not_write_is_withheld(core, case
     offline = Offline(core.root).status()
     assert shown_holds(offline["closures"]) == [SHOWN_WITHHELD]
     text = cli.format_status(status)
-    assert f"  codex-1 held by operator until {until}: {WITHHELD}" in text.splitlines()
+    assert "  " + hold_words(core.store.get_lane("codex-1")["home"], until, WITHHELD) in text.splitlines()
     alert = conditions(*core.timers.snapshot()["lanes"])["codex-fleet-empty"]
-    assert f"1 held by operator ({WITHHELD}; earliest end " in alert["body"]
+    assert hold_words(core.store.get_lane("codex-1")["home"], until, WITHHELD) in alert["body"]
     assert core._timer_notice(alert)
     notice = core.store.one("SELECT text FROM service_notices ORDER BY notice_id DESC LIMIT 1")["text"]
     for shown in (json.dumps(status, sort_keys=True, default=str), json.dumps(offline, sort_keys=True, default=str),
@@ -1522,9 +1531,9 @@ def test_r2_p3_5_a_stored_note_over_160_characters_is_withheld_unread(core, monk
     status = core.dispatch("daemon.status", {})
     assert shown_holds([*status["closures"], *status["lanes"][0]["closures"]]) == [SHOWN_WITHHELD] * 2
     text = cli.format_status(status)
-    assert f"  codex-1 held by operator until {until}: {WITHHELD}" in text.splitlines()
+    assert "  " + hold_words(core.store.get_lane("codex-1")["home"], until, WITHHELD) in text.splitlines()
     alert = conditions(*core.timers.snapshot()["lanes"])["codex-fleet-empty"]
-    assert f"1 held by operator ({WITHHELD}; earliest end " in alert["body"]
+    assert hold_words(core.store.get_lane("codex-1")["home"], until, WITHHELD) in alert["body"]
     assert core._timer_notice(alert)
     notice = core.store.one("SELECT text FROM service_notices ORDER BY notice_id DESC LIMIT 1")["text"]
     assert notice == f"codex: no dispatchable lanes\n{alert['body']}"
