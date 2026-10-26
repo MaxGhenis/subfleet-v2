@@ -22,8 +22,8 @@ import pytest
 from tests.cpu_scaling import (COUNT_GROWTH_MAX, GROWTH_RATIO_MAX, best_cpu_samples, counts_instructions,
                                fewest_instructions)
 
-#: The instruction count where the CPU's counter is exposed to the kernel (not in a
-#: virtual machine that hides it).
+#: The instruction count where the CPU's counter is exposed to the kernel: not in a
+#: virtual machine that hides it, as CI's `macos-15` runners do (run 40399635625).
 INSTRUCTIONS = pytest.mark.skipif(not counts_instructions(), reason="no CPU instruction counter here")
 
 SIZES = (65536, 262144)                 # the scaling tests' sizes, four times apart
@@ -96,7 +96,7 @@ def test_the_instruction_count_tells_linear_work_from_quadratic():
 @INSTRUCTIONS
 def test_the_instruction_count_repeats():
     """Why the count replaces timing: the same call retires the same instructions, to
-    within 1%, whatever the load (CPU time's ratio reached 9x for 4x on CI)."""
+    within 1%, under the host's load (CPU time's ratio reached 9x for 4x on CI)."""
     call = linear(SIZES[1])
     first, second = fewest_instructions(call), fewest_instructions(call)
     assert abs(first - second) < first / 100, (first, second)

@@ -454,8 +454,8 @@ def test_the_head_leaks_nothing_release_217_keeps_out_and_no_bearer_or_header_va
 READS_PER_CHAR_MAX = 256
 #: The long Bearer runs the lookahead reads.
 BEARER_TOKENS = ["a_", "token", "secret_", "--a", "x."]
-#: The instruction count where the CPU's counter is exposed to the kernel (not in a
-#: virtual machine that hides it).
+#: The instruction count where the CPU's counter is exposed to the kernel: not in a
+#: virtual machine that hides it, as CI's `macos-15` runners do (run 40399635625).
 INSTRUCTIONS = pytest.mark.skipif(not counts_instructions(), reason="no CPU instruction counter here")
 
 
@@ -496,14 +496,26 @@ def test_the_bearer_scrub_retires_linear_instructions(token):
     """C-23.14 / C-25.5, what the counts above cannot see (#266 review r1, P2-1): C-level
     `str` work, and a regex call C code makes on a pattern no stand-in holds. The
     instructions the CPU retires for the plain scrub count both, and grow as the counts
-    do. Unlike CPU time they do not move with the runner's load."""
+    do. Unlike CPU time they barely move with the runner's load. A cheap quadratic
+    hides under the scrub's linear work at these sizes and shows as they grow (a slice
+    per identifier: 4.6x from 2,048 to 8,192, 6.1x from 8,192 to 32,768; #266 review
+    r2, P3-2), so the test goes on to 32,768 after a linear pair. It stops at the first
+    pair past the bound, before a catastrophic scrub outruns the probe's timeout. CI's
+    virtual machines hide the counter, so CI skips this test: there only the counts
+    above run."""
     measured = _scrubber_probe(f"token = {token!r}\n" + '''
 import json
-from tests.cpu_scaling import fewest_instructions
-print(json.dumps({size: fewest_instructions(lambda text="Bearer " + token * (size // len(token)): scrub_secrets(text))
-                  for size in (2048, 8192)}))
+from tests.cpu_scaling import COUNT_GROWTH_MAX, fewest_instructions
+counts = {}
+for size in (2048, 8192, 32768):
+    counts[size] = fewest_instructions(lambda text="Bearer " + token * (size // len(token)): scrub_secrets(text))
+    if size // 4 in counts and counts[size] >= counts[size // 4] * COUNT_GROWTH_MAX:
+        break
+print(json.dumps(counts))
 ''')
-    assert measured["8192"] < measured["2048"] * COUNT_GROWTH_MAX, measured
+    counts = list(measured.values())
+    assert len(counts) == 3, measured
+    assert all(large < small * COUNT_GROWTH_MAX for small, large in zip(counts, counts[1:])), measured
 
 
 @CI

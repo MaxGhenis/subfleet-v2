@@ -3,7 +3,7 @@
 They detect super-linear growth (a quadratic regression), not a constant-factor
 slowdown: see `best_cpu_samples`, and `tests/unit/test_cpu_scaling.py`, which
 pins that scope. `fewest_instructions` measures the same growth by the
-instructions the CPU retires, a count the runner's load does not move.
+instructions the CPU retires, a count the runner's load barely moves.
 """
 
 from __future__ import annotations
@@ -18,10 +18,10 @@ from collections.abc import Callable
 #: The growth criterion: `ratio` below this for inputs four times apart. Linear
 #: work grows about 4×, quadratic about 16×; 8 sits between them.
 GROWTH_RATIO_MAX = 8
-#: The growth criterion for counts, which load does not move (`fewest_instructions`,
-#: and the scrub's regex reads and lines, `tests.scrub_work`): linear work grows about
-#: 4× (its fixed part makes it less), quadratic about 16×, and with no noise to allow
-#: for the bound can sit near 4.
+#: The growth criterion for counts, which load moves little (`fewest_instructions`) or
+#: not at all (the scrub's regex reads and lines, `tests.scrub_work`): linear work grows
+#: about 4× (its fixed part makes it less), quadratic about 16×, and with so little
+#: noise to allow for the bound can sit near 4.
 COUNT_GROWTH_MAX = 5
 
 
@@ -98,12 +98,15 @@ def counts_instructions() -> bool:
 def fewest_instructions(call: Callable[[], object], runs: int = 3) -> int:
     """The fewest instructions one `call()` retires, over `runs` runs after a warm-up.
 
-    Unlike CPU time, the count does not move with the runner's load, clock or
-    caches: a scrub's count varied under 0.2% between runs at a host load of 100
-    (#266). It counts every instruction the call retires, C-level `str` work and
+    Unlike CPU time, the count moves little with the runner's load, clock or
+    caches. It counts every instruction the call retires, C-level `str` work and
     `re`'s engine included, so it sees work a count of regex reads or Python lines
-    cannot. The count is the whole process's: measure where no other thread works,
-    as in the scrubber's single-threaded child probes.
+    cannot. The kernel's work for the process counts too (page faults, system calls,
+    interrupts): over ten runs at a host load of about 107, a scrub's count spread up
+    to 1.5%, and the fewest of three came within 0.3% of the fewest of ten (#266
+    review r2). The count is the whole process's: measure where no other thread
+    works, as in the scrubber's single-threaded child probes. It reads 0 where the
+    CPU's counters are hidden, as on CI's virtual machines.
     """
     call()
     counts = []

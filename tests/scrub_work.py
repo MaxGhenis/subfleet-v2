@@ -19,8 +19,10 @@ here are the same on every run of one interpreter:
 
 Neither count sees C-level `str` work (slices, `in`, `find`, `casefold`, `join`), nor
 a regex call that C code makes on a pattern no stand-in holds (`map(p.search, …)`).
-The profile sees only calls made from Python (#266 review r1, P2-1). The instructions
-the CPU retires see both (`tests.cpu_scaling.fewest_instructions`).
+The profile sees a pattern's own calls only when Python makes them (#266 review r1,
+P2-1); it names a call into `re`'s API however it is entered. The instructions the
+CPU retires see both (`tests.cpu_scaling.fewest_instructions`), where the CPU's
+counter is exposed (not on CI's virtual machines).
 
 A scrub that reads more than its `budget` is stopped before `re` runs the call:
 `OverBudget`, the call's pattern in `over`. A catastrophic pattern is thus never run
