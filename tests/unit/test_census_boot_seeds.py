@@ -43,6 +43,7 @@ import pytest
 from subfleet import boot_identity, procs
 from subfleet.daemon import Daemon
 from tests import reference_census_15bd8c172 as base
+from tests.fake_kernel import procargs
 from tests.unit.test_census_procargs import Store, captured
 from tests.unit.test_procs import BOOT_A, BOOT_B, census
 
@@ -322,6 +323,64 @@ def test_the_roots_identity_checks_are_unchanged_without_a_boot_known_over(monke
     result = Daemon._contain(trackb_core(row, receipt_child=None, start_boot=attempt_boot), dict(row))
     assert ROOT_ERROR in result.errors and result.unverifiable
     assert result.to_dict() == at_base(calls[-1]).to_dict()
+
+
+MEMBER = 83100
+#: C-5.5's boot-scope sentence in trackb's shape (the attempt on boot A, the census on boot B), by
+#: root shape: the root's recorded unique id, its pid on boot B ("free"; "unreadable", free with
+#: the kernel's read of it failing; "stranger", a row of boot B) and whether a process names it as
+#: responsible, then `kernel.process(76526)` calls, of those the final holder read after the member
+#: scan, and whether the scan read any process's responsibility. Review r6 of #240 executed the
+#: first four rows. The last two are a root the census proves recycled, which disables the source.
+BOOT_SCOPE = {
+    "known-id-holder-read-fails": ((9000, "unreadable", False), (1, 1, True)),
+    "known-id-holder-gone": ((9000, "free", False), (1, 1, True)),
+    "unique-id-unrecorded": ((None, "free", False), (0, 0, False)),
+    "a-member-names-the-root": ((9000, "free", True), (0, 0, True)),
+    "known-id-pid-held-by-a-stranger": ((9000, "stranger", False), (1, 0, False)),
+    "unique-id-unrecorded-pid-held-by-a-stranger": ((None, "stranger", False), (1, 0, False)),
+}
+
+
+@pytest.mark.parametrize("shape", list(BOOT_SCOPE))
+def test_c5_5_boot_scope_the_final_holder_read_by_root_shape(monkeypatch, shape):
+    """C-5.5 once the attempt's boot is over (review r6 of #240, P3-1). A root with a recorded unique
+    id takes its final holder read unless the census proved the root recycled or a member's read
+    proved the other boot, and that read's failure is dropped. A root recorded without one, whose
+    start is absent or changed, drops the responsibility source without an error, so neither its
+    members nor its holder are read. Every shape verifies empty with no error. A stranger's pid is
+    a listed pid, so the marker source reads it once in the scan; that read is not a holder read."""
+    (unique_id, holder, member), (process_calls, final_reads, members_read) = BOOT_SCOPE[shape]
+    row = trackb_row()
+    evidence = json.loads(row["evidence_json"])
+    evidence["responsible_root"] = {"pid": GUARDIAN, "unique_id": unique_id}
+    row["evidence_json"] = json.dumps(evidence)
+    extra = (f"{GUARDIAN} 1 {GUARDIAN} Ss {STRANGER_START}\n",) if holder == "stranger" else ()
+    install(monkeypatch, stranger_table(*extra))
+    kernel = procs.kernel
+    if holder == "unreadable":
+        kernel.fail.add(("process", GUARDIAN))
+    if member:
+        kernel.processes[MEMBER] = procargs(["tail"])
+        kernel.boss[MEMBER] = GUARDIAN
+    scanned, real = [], procs._kernel_sources
+
+    def scan(*args, **kwargs):
+        try:
+            return real(*args, **kwargs)
+        finally:
+            scanned.append(len(kernel.calls))
+    monkeypatch.setattr(procs, "_kernel_sources", scan)
+    result = Daemon._contain(trackb_core(row), dict(row))
+    assert result.verified_empty and result.errors == (), result.to_dict()
+    assert len(scanned) == 1, scanned
+    assert kernel.calls.count(("process", GUARDIAN)) == process_calls, kernel.calls
+    assert kernel.calls[scanned[0]:].count(("process", GUARDIAN)) == final_reads, kernel.calls
+    assert any(call[0] == "responsible" for call in kernel.calls) == members_read, kernel.calls
+    if holder == "stranger":
+        assert result.recycled[GUARDIAN]["reason"] == "different start identity"
+    if member:
+        assert ("responsible", MEMBER) in kernel.calls and MEMBER not in result.responsible_pids
 
 
 def test_c5_12_the_attempts_boot_is_read_only_when_a_seed_depends_on_it(monkeypatch):

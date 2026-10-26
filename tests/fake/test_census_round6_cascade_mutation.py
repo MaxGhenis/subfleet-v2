@@ -5,12 +5,15 @@ xfail); each oracle passes unmutated in `test_census_round6_cascade.py`, and I6 
 `test_census_round4_endings.py`. The third is r5's survivor: it passed every round-4 test.
 """
 
+from hypothesis import example, given, strategies as st
 import pytest
 
 from subfleet.daemon import Daemon
 from tests.fake import test_census_round6_cascade as oracle
 from tests.fake.test_census_round3_leases import observed  # noqa: F401
 from tests.fake.test_census_round4_endings import (
+    BOUNDED,
+    ENDINGS,
     test_r4_i6_every_ending_with_an_observer_leaves_one_reader_row_and_no_writer_key as i6,
 )
 from tests.fake.test_state_contract import state_daemon  # noqa: F401
@@ -67,6 +70,14 @@ def test_r6_the_root_only_scan_fails_the_family_kill_regression(observed, monkey
     oracle.test_r6_a_family_kill_scans_the_queued_child_that_holds_its_key(observed, monkeypatch, scan)
 
 
+def failures_only_at(failure: pytest.ExceptionInfo, ending: str) -> None:
+    """Every failure Hypothesis reports is an assertion error at `ending`'s example."""
+    found = failure.value.exceptions if isinstance(failure.value, BaseExceptionGroup) else (failure.value,)
+    assert found and all(isinstance(error, AssertionError) for error in found), found
+    examples = ["\n".join(getattr(error, "__notes__", [])) for error in found]
+    assert all(f"ending={ending!r}" in example for example in examples), examples
+
+
 def test_r6_the_root_only_scan_fails_the_i6_property_at_its_family_ending_alone(tmp_path_factory, monkeypatch):
     """I6 kills it too, and only at the family kill: the cascade takes no scan, and every other
     ending is the root's own. Hypothesis groups failures from distinct lines (here the missing
@@ -74,7 +85,37 @@ def test_r6_the_root_only_scan_fails_the_i6_property_at_its_family_ending_alone(
     mutate(monkeypatch, "root-only-scan")
     with pytest.raises((AssertionError, BaseExceptionGroup)) as failure:
         i6(tmp_path_factory=tmp_path_factory)
-    found = failure.value.exceptions if isinstance(failure.value, BaseExceptionGroup) else (failure.value,)
-    assert found and all(isinstance(error, AssertionError) for error in found), found
-    examples = ["\n".join(getattr(error, "__notes__", [])) for error in found]
-    assert all("ending='family-cancel'" in example for example in examples), examples
+    failures_only_at(failure, "family-cancel")
+
+
+def i6_shaped(failing: frozenset[str]):
+    """Review r6's synthetic property (P3-2): I6's settings and its three no-observer examples,
+    each ending in `failing` failing at one assertion, as a cascade would at I6's
+    `("no observer, no row", ...)` line."""
+    @BOUNDED
+    @given(ending=st.sampled_from(ENDINGS), pids=st.just(frozenset()))
+    @example(ending="family-cancel", pids=frozenset())
+    @example(ending="cascade-quarantine", pids=frozenset())
+    @example(ending="cascade-finalize", pids=frozenset())
+    def prop(ending, pids):
+        assert ending not in failing, ("no observer, no row", ending)
+    return prop
+
+
+def test_r7_the_i6_kill_check_sees_a_cascade_failing_at_family_cancels_line():
+    """Review r6 P3-2: Hypothesis reports one failing explicit example per line, the shortest, so a
+    cascade failing where family-cancel fails is hidden behind it, named only in a note. The kill
+    check must fail on that note."""
+    with pytest.raises(AssertionError) as failure:
+        i6_shaped(frozenset({"family-cancel", "cascade-finalize"}))()
+    notes = "\n".join(getattr(failure.value, "__notes__", []))
+    assert "ending='family-cancel'" in notes and "ending='cascade-finalize'" not in notes, notes
+    with pytest.raises(AssertionError, match="also failed with this error"):
+        failures_only_at(failure, "family-cancel")
+
+
+def test_r7_the_i6_kill_check_passes_a_failure_at_family_cancel_alone():
+    """The control: a property failing only at family-cancel passes the check."""
+    with pytest.raises(AssertionError) as failure:
+        i6_shaped(frozenset({"family-cancel"}))()
+    failures_only_at(failure, "family-cancel")
