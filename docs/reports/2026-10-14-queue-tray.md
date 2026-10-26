@@ -4571,9 +4571,10 @@ embeds the cache path, so the cache was warmed from cold.
 
 The host was heavily loaded throughout (load 80–226). This job's processes ran
 at scheduler priority 20 against the default 31, so a full-source probe
-compile got seconds of CPU per minute. Two compiles inside 20-minute holds hit
-their deadlines. The successful builds ran outside the suite lock: they are not
-pytest, and they need no lock for correctness. They took 943 s (fixed probe,
+compile got seconds of CPU per minute. Three build attempts inside holds did not
+finish: one at a 570 s deadline, one pair at the 900 s compiler timeout, and one
+cancelled after 12 minutes with 12 s of CPU. The successful builds ran outside
+the suite lock: they are not pytest, and they need no lock for correctness. They took 943 s (fixed probe,
 written to the probe cache) and 933 s (counterfactual probe), concurrently.
 
 | Hold | Admitted | Result |
