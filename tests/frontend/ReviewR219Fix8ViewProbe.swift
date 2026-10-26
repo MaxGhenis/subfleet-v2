@@ -824,7 +824,10 @@ struct SettlingPageView: View {
             ScrollView {
                 VStack(spacing: 0) {
                     Text("Earlier history").frame(height: 900)
-                    Text("The live request").frame(height: 40).id("person:live")
+                    // Marked as ConversationView marks a reveal's row, for the pin's landing check.
+                    Text("The live request").frame(height: 40)
+                        .background(RevealTargetMark(conversationID: conversationID, itemID: "person:live"))
+                        .id("person:live")
                     if page.loaded { Text("One catch-up page").frame(height: 4000) }
                     Color.clear.frame(height: 1).id("bottom")
                 }

@@ -8,22 +8,34 @@ import SwiftUI
 struct ConversationOpeningPin: NSViewRepresentable {
     var conversationID: String? = nil
     var onRevealEndVisible: (UUID) -> Void = { _ in }
+    /// The request's own row was presented in the clip: the reveal is no longer outstanding.
+    var onRevealLanded: (UUID) -> Void = { _ in }
+    /// The person scrolled while a reveal was still outstanding.
+    var onPersonScroll: () -> Void = {}
     func makeNSView(context: Context) -> OpeningPinView {
         let view = OpeningPinView()
-        view.conversationID = conversationID
-        view.onRevealEndVisible = onRevealEndVisible
+        update(view)
         return view
     }
     func updateNSView(_ view: OpeningPinView, context: Context) {
-        view.conversationID = conversationID
-        view.onRevealEndVisible = onRevealEndVisible
+        update(view)
         view.attach()
     }
 
-    @discardableResult static func revealRow(in conversationID: String) -> UUID {
+    private func update(_ view: OpeningPinView) {
+        view.conversationID = conversationID
+        view.onRevealEndVisible = onRevealEndVisible
+        view.onRevealLanded = onRevealLanded
+        view.onPersonScroll = onPersonScroll
+    }
+
+    /// `target` is the row the reveal scrolls to; the view marks it with a
+    /// `RevealTargetMark`, so its presented geometry can end the reveal.
+    @discardableResult static func revealRow(in conversationID: String, target: String? = nil) -> UUID {
         let request = UUID()
-        NotificationCenter.default.post(name: .conversationRowScroll, object: conversationID,
-                                        userInfo: ["request": request])
+        var info: [AnyHashable: Any] = ["request": request]
+        if let target { info["target"] = target }
+        NotificationCenter.default.post(name: .conversationRowScroll, object: conversationID, userInfo: info)
         return request
     }
 
@@ -38,17 +50,57 @@ struct ConversationOpeningPin: NSViewRepresentable {
 extension Notification.Name {
     static let conversationRowScroll = Notification.Name("SubfleetConversationRowScroll")
     static let conversationRowScrollCompleted = Notification.Name("SubfleetConversationRowScrollCompleted")
+    static let conversationRevealTargetMoved = Notification.Name("SubfleetConversationRevealTargetMoved")
+}
+
+/// Marks a reveal's target row in the timeline's document. The opening pin reads
+/// its presented frame to tell whether the row is in the clip.
+struct RevealTargetMark: NSViewRepresentable {
+    let conversationID: String
+    let itemID: String
+    func makeNSView(context: Context) -> RevealTargetView {
+        let view = RevealTargetView()
+        view.setAccessibilityElement(false)
+        updateNSView(view, context: context)
+        return view
+    }
+    func updateNSView(_ view: RevealTargetView, context: Context) {
+        view.conversationID = conversationID
+        view.itemID = itemID
+    }
+}
+
+final class RevealTargetView: NSView {
+    var conversationID: String?
+    var itemID: String?
+
+    // The row's own content takes every click.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); moved() }
+    override func setFrameOrigin(_ newOrigin: NSPoint) { super.setFrameOrigin(newOrigin); moved() }
+    override func setFrameSize(_ newSize: NSSize) { super.setFrameSize(newSize); moved() }
+
+    // A lazily made row can be presented without the clip or the document moving.
+    private func moved() {
+        guard window != nil, let conversationID else { return }
+        NotificationCenter.default.post(name: .conversationRevealTargetMoved, object: conversationID)
+    }
 }
 
 final class OpeningPinView: NSView {
     var conversationID: String?
     var onRevealEndVisible: (UUID) -> Void = { _ in }
+    var onRevealLanded: (UUID) -> Void = { _ in }
+    var onPersonScroll: () -> Void = {}
     private weak var scroll: NSScrollView?
     private var observers: [NSObjectProtocol] = []
     private var inputMonitor: Any?
     private var pinScheduled = false
     private var personScrolled = false
     private var viewportSize = NSSize.zero
+    /// The newest reveal whose own row has not yet been presented in the clip.
+    private var outstanding: (request: UUID, target: String?)?
+    private var revealCheckScheduled = false
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -70,6 +122,9 @@ final class OpeningPinView: NSView {
         observers.append(center.addObserver(forName: .conversationRowScroll, object: nil, queue: .main) { [weak self] note in
             guard let self, note.object as? String == self.conversationID else { return }
             self.personScrolled = true
+            if let request = note.userInfo?["request"] as? UUID {
+                self.outstanding = (request, note.userInfo?["target"] as? String)
+            }
         })
         observers.append(center.addObserver(forName: .conversationRowScrollCompleted, object: nil,
                                              queue: .main) { [weak self] note in
@@ -83,11 +138,22 @@ final class OpeningPinView: NSView {
             DispatchQueue.main.async { [weak self] in self?.confirmEndVisible(request) }
         })
         observers.append(center.addObserver(forName: NSView.frameDidChangeNotification, object: document,
-                                             queue: .main) { [weak self] _ in self?.schedulePin() })
+                                             queue: .main) { [weak self] _ in
+            self?.schedulePin()
+            self?.scheduleRevealCheck()
+        })
         observers.append(center.addObserver(forName: NSView.boundsDidChangeNotification, object: found.contentView,
-                                             queue: .main) { [weak self] _ in self?.viewportChanged() })
+                                             queue: .main) { [weak self] _ in
+            self?.viewportChanged()
+            self?.scheduleRevealCheck()
+        })
+        observers.append(center.addObserver(forName: .conversationRevealTargetMoved, object: nil,
+                                             queue: .main) { [weak self] note in
+            guard let self, note.object as? String == self.conversationID else { return }
+            self.scheduleRevealCheck()
+        })
         observers.append(center.addObserver(forName: NSScrollView.willStartLiveScrollNotification, object: found,
-                                             queue: .main) { [weak self] _ in self?.personScrolled = true })
+                                             queue: .main) { [weak self] _ in self?.personScrolledNow() })
         // Keyboard paging need not start an AppKit live-scroll gesture. Watch
         // only this view's input, so scrolling the sidebar or typing in the
         // composer does not release the opening pin.
@@ -104,27 +170,91 @@ final class OpeningPinView: NSView {
         if let inputMonitor { NSEvent.removeMonitor(inputMonitor) }
         inputMonitor = nil
         scroll = nil
+        outstanding = nil
     }
 
     private func confirmEndVisible(_ request: UUID) {
-        guard let scroll, let document = scroll.documentView else { return }
+        guard let scroll else { return }
         // Apply the reveal's pending scroll before reading the clip; reading
         // first can confirm the end the reveal is about to leave.
         (scroll.window?.contentView ?? scroll).layoutSubtreeIfNeeded()
+        checkReveal(request, source: "completion")
+    }
+
+    /// Presented geometry decides a reveal after each change while it is outstanding.
+    private func scheduleRevealCheck() {
+        guard outstanding != nil, !revealCheckScheduled else { return }
+        revealCheckScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.revealCheckScheduled = false
+            if let request = self.outstanding?.request { self.checkReveal(request, source: "geometry") }
+        }
+    }
+
+    /// A reveal is outstanding until its own row is presented in the clip. Until
+    /// then the end's visibility releases nothing: the document can shrink under
+    /// the clip and clamp it to the end before the row is shown (CI run
+    /// 40251214771). Once the row is presented the reveal has landed, and the end
+    /// visible beside it releases suspension (a nearby reveal).
+    private func checkReveal(_ request: UUID, source: String) {
+        guard let scroll, let document = scroll.documentView,
+              let pending = outstanding, pending.request == request else { return }
         let clip = scroll.contentView.bounds
         let distance = document.isFlipped ? document.bounds.maxY - clip.maxY : clip.minY - document.bounds.minY
-        if distance <= Theme.space.column + 1 { onRevealEndVisible(request) }
+        let presented = targetPresented(pending.target, in: scroll)
+        #if SUBFLEET_VIEW_TEST
+        if let conversationID {
+            ConversationFollowTest.record?(conversationID, ["event": "reveal_check", "source": source,
+                "presented": presented, "distance": Double(distance), "target": pending.target ?? ""])
+        }
+        #endif
+        if presented {
+            outstanding = nil
+            onRevealLanded(request)
+        }
+        if presented && distance <= Theme.space.column + 1 { onRevealEndVisible(request) }
+    }
+
+    /// Whether the target row's mark is laid out in the clip with some of its height showing.
+    private func targetPresented(_ target: String?, in scroll: NSScrollView) -> Bool {
+        guard let target, let document = scroll.documentView else { return false }
+        let clip = scroll.contentView
+        func marks(_ view: NSView) -> [RevealTargetView] {
+            view.subviews.flatMap { ($0 as? RevealTargetView).map { [$0] } ?? marks($0) }
+        }
+        return marks(document).contains { mark in
+            guard mark.itemID == target, !mark.isHiddenOrHasHiddenAncestor else { return false }
+            return clip.bounds.intersection(mark.convert(mark.bounds, to: clip)).height > 1
+        }
+    }
+
+    /// The person's own scroll ends an outstanding reveal: suspension is then
+    /// released as it was before reveals were tracked, when the end is shown.
+    private func personScrolledNow() {
+        personScrolled = true
+        guard let request = outstanding?.request else { return }
+        outstanding = nil
+        onPersonScroll()
+        // The marker may already be mounted (a shrink showed the end), so no new
+        // onAppear would follow; measure after this input's scroll as well.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let scroll = self.scroll, let document = scroll.documentView else { return }
+            let clip = scroll.contentView.bounds
+            let distance = document.isFlipped ? document.bounds.maxY - clip.maxY : clip.minY - document.bounds.minY
+            if distance <= Theme.space.column + 1 { self.onRevealEndVisible(request) }
+        }
     }
 
     private func noteScrollInput(_ event: NSEvent) {
         guard let scroll, event.window === scroll.window else { return }
         if event.type == .scrollWheel {
             let clip = scroll.contentView
-            if clip.bounds.contains(clip.convert(event.locationInWindow, from: nil)) { personScrolled = true }
+            if clip.bounds.contains(clip.convert(event.locationInWindow, from: nil)) { personScrolledNow() }
         } else if [49, 115, 116, 119, 121, 125, 126].contains(event.keyCode),
                   let responder = scroll.window?.firstResponder as? NSView,
                   responder === scroll || responder.isDescendant(of: scroll) {
-            personScrolled = true
+            personScrolledNow()
         }
     }
 
