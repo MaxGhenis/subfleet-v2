@@ -113,8 +113,15 @@ func project(_ outcome: OutboxSender.WithdrawOutcome) -> [String: Any] {
 func runOutbox(socket: String, journal: String, stepsData: Data) throws -> [String: Any] {
     let clock = ProbeClock()
     let transport = try probeTransport(socket)
-    (transport as? ScriptedProbeTransport)?.clock = clock
-    let client = DaemonClient(transport: transport)
+    // A scripted daemon's exchanges take time on the probe's clock, so `settle-steer` bounds
+    // them by its deadline on that clock, as the live step does on the wall clock. A socket's
+    // take none on it, and are left as they are.
+    var bounded: DeadlineTransport?
+    if let scripted = transport as? ScriptedProbeTransport {
+        scripted.clock = clock
+        bounded = DeadlineTransport(scripted, now: { clock.now })
+    }
+    let client = DaemonClient(transport: bounded ?? transport)
     client.baseTimeout = 3
     var calls: [String] = []
     client.onExchange = { op, request, response in
@@ -227,16 +234,21 @@ func runOutbox(socket: String, journal: String, stepsData: Data) throws -> [Stri
                 results.append(["do": action])
             case "settle-steer":
                 // The live probe's step 14 (CoreProbeLive.swift): the app's pump until the steer is
-                // answered for good or `deadline` seconds pass, waiting on this clock, then its check.
-                // `step_s` is the time on this clock since the step began (`step-start`).
+                // answered for good or `deadline` seconds pass since the step began (`step-start`;
+                // without one, from here), waiting on this clock, then its check. `step_s` is the
+                // time on this clock since the step began.
                 let engine = ConversationEngine(client: client, outbox: outbox)
                 let began = stepStarted ?? clock.now
                 var pauses: [Double] = []
-                let wait = step["deadline"]?.double ?? steerSettleDeadline(answerTimeout: client.baseTimeout)
+                let wait = step["deadline"]?.double ?? steerStepDeadline(answerTimeout: client.baseTimeout)
                 let settling = settleSteer(resolve(step["key"]?.string), outbox: outbox,
-                                           deadline: clock.now.addingTimeInterval(wait), now: { clock.now },
+                                           deadline: began.addingTimeInterval(wait), now: { clock.now },
                                            pause: { pauses.append($0); clock.now = clock.now.addingTimeInterval($0) },
-                                           pump: { _ = engine.pump() })
+                                           pump: { until in
+                                               bounded?.deadline = until
+                                               defer { bounded?.deadline = nil }
+                                               _ = engine.pump()
+                                           })
                 results.append(["do": action, "taken": steerTaken(settling.steer), "steer": steerDetail(settling.steer),
                                 "pumps": settling.pumps, "waited_s": settling.waited, "deadline_s": wait,
                                 "step_s": clock.now.timeIntervalSince(began), "pauses": pauses])

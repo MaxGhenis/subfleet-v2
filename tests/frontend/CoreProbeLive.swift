@@ -61,16 +61,47 @@ struct SteerSettling {
     var waited: TimeInterval
 }
 
-/// How long step 14 waits for a steer to be answered for good: the outbox's own bound on
-/// that, with margin. It asks at most `Outbox.steerAttempts` (5) times, 0.5 s doubling
-/// between tries (7.5 s in all), and each try waits up to `answerTimeout` (the client's
-/// 15 s) for its answer: 82.5 s. With 7.5 s of margin for the pumps' own journal writes,
-/// 90 s. A steer still open then is stuck, not slow; one answered for good ends the wait
-/// as soon as the pump that answered it returns.
-func steerSettleDeadline(answerTimeout: TimeInterval) -> TimeInterval {
+/// How long step 14 may take, from its start to judging its steer: an elapsed bound,
+/// counting everything the step does first. With the client's 15 s answer deadline:
+/// - 15 s for the prerequisite: the host's submit and the wait for its turn to run and
+///   be accepted (a second or two on CI; run 40273357312 reached step 14 within 15 s of
+///   the probe's start);
+/// - 15 s for the steered message's own submit, which the step's first pump sends ahead
+///   of its steer;
+/// - 82.5 s for the steer itself: at most `Outbox.steerAttempts` (5) tries, 0.5 s doubling
+///   between them (7.5 s), each waiting up to the answer deadline (75 s);
+/// - 7.5 s of margin for the pumps' journal writes.
+/// 120 s. Inside it the outbox gets every try it is entitled to whenever the prerequisite
+/// takes 15 s or less; a slower one leaves the steer less, and the check's detail says how
+/// many tries it had. A steer still open at the deadline is stuck, not slow; one answered
+/// for good ends the wait as soon as the pump that answered it returns.
+func steerStepDeadline(answerTimeout: TimeInterval) -> TimeInterval {
     let backoffs = (1..<Outbox.steerAttempts).map { Outbox.backoff(attempts: $0) }.reduce(0, +)
     let margin: TimeInterval = 7.5
-    return backoffs + Double(Outbox.steerAttempts) * answerTimeout + margin
+    return answerTimeout + answerTimeout + backoffs + Double(Outbox.steerAttempts) * answerTimeout + margin
+}
+
+/// A transport that, while `deadline` is set, lets no exchange wait past it: each one waits
+/// for its answer at most the client's own timeout or the time left, whichever is less,
+/// and one that would begin at or after the deadline is not sent and reads as unanswered.
+/// A pump through it therefore ends by the deadline however many calls it makes, give or
+/// take its own journal writes (step 14's hard bound, #265 review r1).
+final class DeadlineTransport: DaemonTransport {
+    let inner: DaemonTransport
+    let now: () -> Date
+    var deadline: Date?
+
+    init(_ inner: DaemonTransport, now: @escaping () -> Date = Date.init) {
+        self.inner = inner
+        self.now = now
+    }
+
+    func exchange(_ line: Data, timeout: TimeInterval) throws -> Data {
+        guard let deadline else { return try inner.exchange(line, timeout: timeout) }
+        let left = deadline.timeIntervalSince(now())
+        guard left > 0 else { throw DaemonClientError.timedOut(op: "", seconds: 0) }
+        return try inner.exchange(line, timeout: min(timeout, left))
+    }
 }
 
 /// Pump until the steer of `messageID` is answered for good (taken, or closed: refused,
@@ -78,21 +109,25 @@ func steerSettleDeadline(answerTimeout: TimeInterval) -> TimeInterval {
 /// steer that names its turn and hears `not-steerable` is asked again briefly). Between
 /// pumps it waits until the steer's own retry time (`nextAttemptAt`), or 0.5 s (the
 /// outbox's shortest backoff) while none is due, so it never spins (D-STEER-PUMP1).
+///
+/// The deadline is checked before every pump and before every wait, and each wait is cut
+/// to the time left, so nothing starts at or after it. `pump` is given the deadline and
+/// must not run past it (the live step pumps through a `DeadlineTransport`): the wait then
+/// ends by the deadline, a hard bound, give or take the pump's own journal writes.
 func settleSteer(_ messageID: String, outbox: Outbox, deadline: Date, now: () -> Date,
-                 pause: (TimeInterval) -> Void, pump: () -> Void) -> SteerSettling {
+                 pause: (TimeInterval) -> Void, pump: (_ deadline: Date) -> Void) -> SteerSettling {
     let started = now()
     var pumps = 0
-    while true {
-        pump()
+    while now() < deadline {
+        pump(deadline)
         pumps += 1
-        let steer = outbox.steer(messageID)
+        guard let open = outbox.steer(messageID), open.isOpen else { break }
         let left = deadline.timeIntervalSince(now())
-        guard let open = steer, open.isOpen, left > 0 else {
-            return SteerSettling(steer: steer, pumps: pumps, waited: now().timeIntervalSince(started))
-        }
+        guard left > 0 else { break }
         let retry = (open.nextAttemptAt ?? 0) - now().timeIntervalSince1970
         pause(min(left, retry > 0 ? retry : Outbox.backoff(attempts: 1)))
     }
+    return SteerSettling(steer: outbox.steer(messageID), pumps: pumps, waited: now().timeIntervalSince(started))
 }
 
 func runLive(_ arguments: [String]) throws -> Any {
@@ -126,7 +161,9 @@ private func driveLive(_ arguments: [String], _ run: LiveRun) throws {
         return
     }
     run.check("endpoint resolves for the development build", true, endpoint.root.path)
-    let client = DaemonClient(endpoint: endpoint)
+    // Step 14 bounds its pumps' exchanges by its deadline; elsewhere this passes them through.
+    let bounded = DeadlineTransport(UnixSocketTransport(path: endpoint.socketURL.path))
+    let client = DaemonClient(transport: bounded)
     let exchangeLock = NSLock()
     client.onExchange = { op, request, response in
         var row: [String: Any] = ["op": op, "request": String(decoding: request, as: UTF8.self)]
@@ -518,6 +555,10 @@ private func driveLive(_ arguments: [String], _ run: LiveRun) throws {
     // turn runs goes into that turn. Whether the provider takes it at a step or it misses
     // the turn and runs next (DESIGN.md section 4), it settles once and is drawn once.
     if state.availability.capabilities?.canSteer("claude") == true {
+        // The step's deadline counts from here: the prerequisite and the steer's submit
+        // are inside it (`steerStepDeadline`, #265 review r1).
+        let stepStarted = Date()
+        let stepBudget = steerStepDeadline(answerTimeout: client.baseTimeout)
         state.focus(cid)
         let host = try engine.send(conversation: cid, text: "steer into me [fake:slow]", settings: settings)
         _ = engine.pump()
@@ -536,12 +577,16 @@ private func driveLive(_ arguments: [String], _ run: LiveRun) throws {
         // `into` and read after one pump was refused at once (D-STEER-PUMP1).
         let steered = try engine.send(conversation: cid, text: "also say steered", settings: settings, steer: true,
                                       into: host.key)
-        let settling = settleSteer(steered.key, outbox: outbox,
-                                   deadline: Date().addingTimeInterval(steerSettleDeadline(answerTimeout: client.baseTimeout)),
+        let settling = settleSteer(steered.key, outbox: outbox, deadline: stepStarted.addingTimeInterval(stepBudget),
                                    now: Date.init, pause: { Thread.sleep(forTimeInterval: $0) },
-                                   pump: { state.apply(outbox: engine.pump(), outbox: outbox) })
+                                   pump: { until in
+                                       bounded.deadline = until
+                                       defer { bounded.deadline = nil }
+                                       state.apply(outbox: engine.pump(), outbox: outbox)
+                                   })
         run.check("steer: the daemon takes the steer", steerTaken(settling.steer),
-                  ["steer": steerDetail(settling.steer), "pumps": settling.pumps, "waited_s": settling.waited])
+                  ["steer": steerDetail(settling.steer), "pumps": settling.pumps, "waited_s": settling.waited,
+                   "step_s": Date().timeIntervalSince(stepStarted), "deadline_s": stepBudget])
         // A slow turn ends only when stopped; a steer it has not taken by then runs next.
         Thread.sleep(forTimeInterval: 3)
         _ = try? engine.stop(.interrupt(messageID: host.key))

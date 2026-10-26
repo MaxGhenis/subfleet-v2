@@ -129,7 +129,8 @@ def test_step_14_waits_out_each_retry_and_judges_the_last_answer(core_probe, tmp
     else:
         assert result["taken"] is False and steer["state"] == "refused"
         assert steer["failure"]["reason"] == "not-steerable" and steer["failure"]["retryable"] is False
-        assert result["deadline_s"] == 7.5 + TRIES * 3 + 7.5 and result["waited_s"] < result["deadline_s"]
+        # The step's bound at the harness's 3 s answers: prerequisite, submit, the tries, margin.
+        assert result["deadline_s"] == 3 + 3 + 7.5 + TRIES * 3 + 7.5 and result["waited_s"] < result["deadline_s"]
         assert steer_frames(runners[host]) == []
         assert harness.store.message(steered)["state"] == "queued"
 
@@ -170,7 +171,8 @@ def test_a_steer_refused_for_good_fails_the_check_however_long_step_14_waits(cor
 def test_step_14_stops_at_its_deadline_and_judges_a_steer_still_waiting(core_probe, tmp_path, daemon):
     """A deadline shorter than the outbox's tries ends the wait there, with the steer still
     waiting to be asked again: the check fails and says so, after one pump per retry time
-    and one at the deadline."""
+    before the deadline. The wait before the third try is cut to the 0.5 s left, and no pump
+    runs at the deadline (#265 review r1: it is checked before every pump)."""
     harness, server = daemon
     host, steered = ids(2)
     lagging_host(harness, host, steered, "catching-up", tries=TRIES)
@@ -178,7 +180,8 @@ def test_step_14_stops_at_its_deadline_and_judges_a_steer_still_waiting(core_pro
     steer = result["steer"]
     assert result["taken"] is False, json.dumps(result, sort_keys=True)
     assert (steer["state"], steer["attempts"], steer["failure"]["retryable"]) == ("queued", 2, True)
-    assert (result["pumps"], result["waited_s"], result["deadline_s"]) == (3, 1.0, 1.0)
+    assert (result["pumps"], result["waited_s"], result["deadline_s"]) == (2, 1.0, 1.0)
+    assert result["pauses"] == [0.5, 0.5]
     assert steer_requests(server) == [steered] * 2
 
 
