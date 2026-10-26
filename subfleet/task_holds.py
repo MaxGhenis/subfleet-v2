@@ -5,9 +5,11 @@ job whose task is T, from `subfleet tasks hold T --until <iso> --note <text>`
 until that instant or `subfleet tasks release T`. Lanes stay open: jobs of every
 other task, and conversation turns, are placed as if no hold existed.
 
-A hold is one row of `leases` (schema 7, no new table): key `task-hold:<task>`,
-holder `operator: <note>`, `acquired_at` when it was set and `expires_at` its
-end. No attempt or job holds such a key, and every lease reaper deletes by
+A hold is one row of `leases`, so it needs no schema change (no table or
+column of its own; release/217's migrations 8 and 9 add only job and attempt
+columns): key `task-hold:<task>`, holder `operator: <note>`, `acquired_at`
+when it was set (a replacement of a hold in force keeps it) and `expires_at`
+its end. No attempt or job holds such a key, and every lease reaper deletes by
 holder (an attempt's, a job's, a probe's, retention's) or by a key of its own,
 so none removes it; the report `docs/reports/2026-10-24-task-hold.md` lists
 each reader. A hold past its end is not in force, by the clock: nothing reaps
