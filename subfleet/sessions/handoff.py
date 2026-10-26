@@ -44,6 +44,7 @@ import json
 import os
 import re
 import subprocess
+import threading
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -956,7 +957,10 @@ def quoted_value_spans(text: str) -> list[tuple[int, int, str]]:
     it replaces is the same whatever the rest of the text holds only if these are (review
     r5, P2-1: `daemon_log._reminders_resolved`). One pass of that rule over `text`."""
     spans: list[tuple[int, int, str]] = []
-    _scrub_named_values(text, lambda _matched, out: out, quoted=True, multiline=True, spans=spans)
+    try:
+        _scrub_named_values(text, lambda _matched, out: out, quoted=True, multiline=True, spans=spans)
+    finally:
+        _forget_ends_early()
     return spans
 
 
@@ -1815,13 +1819,22 @@ def _secret_flag(text: str, start: int, end: int) -> tuple[int, int] | None:
 #: A run of visible characters: a flag's value once folding puts a space before it.
 _VISIBLE_RUN_RE = re.compile(r"\S+")
 
-#: The last line on which a fold at a header's name found an item that owns a value past
-#: the line (`_fold_value`): the text, that line's start, and where the fold's span would
-#: have ended before the item. Every fold at a header's name on that line before that
-#: point takes nothing, so later ones read it here instead of walking the line's last
-#: identifier again, which made a line of such folds quadratic (#239 fix round 4). Only
-#: that answer is kept; `_scrub` clears it, so no text outlives its scrub here.
-_ENDS_EARLY: tuple[str, int, int] | None = None
+#: Per thread, `line`: the last line on which a fold at a header's name found an item that
+#: owns a value past the line (`_fold_value`): the text, that line's start, and where the
+#: fold's span would have ended before the item. Every fold at a header's name on that
+#: line before that point takes nothing, so later ones read it here instead of walking
+#: the line's last identifier again, which made a line of such folds quadratic (#239 fix
+#: round 4). Only that answer is kept. Each thread has its own, so a scrub on another
+#: thread never overwrites it, and the two calls that fold, `_scrub` and
+#: `quoted_value_spans` (which `daemon_log` calls outside `_scrub`), clear it when they
+#: end, raising or not (`_forget_ends_early`), so no text outlives the call that read it
+#: (#239 review r5, P3-3).
+_ENDS_EARLY = threading.local()
+
+
+def _forget_ends_early() -> None:
+    """Drop this thread's `_ENDS_EARLY` answer, and the text it holds."""
+    _ENDS_EARLY.line = None
 
 
 def _fold_value(text: str, end: int) -> tuple[int, int] | None:
@@ -1848,8 +1861,7 @@ def _fold_value(text: str, end: int) -> tuple[int, int] | None:
     if value == end or value >= len(text) or text[value] == "-":
         return None
     if _header_name_at(text, value):
-        global _ENDS_EARLY
-        early = _ENDS_EARLY
+        early = getattr(_ENDS_EARLY, "line", None)
         if early is not None and early[0] is text and early[1] <= value < early[2]:
             return None
         stop = text.find("\n", value)
@@ -1859,7 +1871,7 @@ def _fold_value(text: str, end: int) -> tuple[int, int] | None:
         span = _kept_span(text, value, stop)
         if span == (value, stop):
             return span
-        _ENDS_EARLY = (text, text.rfind("\n", 0, value) + 1, value + 1 if span is None else span[1])
+        _ENDS_EARLY.line = (text, text.rfind("\n", 0, value) + 1, value + 1 if span is None else span[1])
         return None
     stop = _VISIBLE_RUN_RE.match(text, value).end()
     if _parts_line_start_header(text, end, value, stop):
@@ -2146,7 +2158,16 @@ def _resolve_blocks(text: str, strip_reminders: bool, tally: _Tally) -> str:
 
 
 def _scrub(text: str, strip_reminders: bool, *, multiline: bool = False) -> tuple[str, int]:
-    """`scrub_secrets` on a text within its work bound."""
+    """`scrub_secrets` on a text within its work bound. The folds' per-line answer
+    (`_ENDS_EARLY`) is dropped when it ends, raising or not."""
+    try:
+        return _scrub_rules(text, strip_reminders, multiline=multiline)
+    finally:
+        _forget_ends_early()
+
+
+def _scrub_rules(text: str, strip_reminders: bool, *, multiline: bool = False) -> tuple[str, int]:
+    """`_scrub`'s rules, in order."""
     tally = _Tally()
     if multiline:
         # Mask the original value before headers or reminders can consume its
@@ -2181,8 +2202,6 @@ def _scrub(text: str, strip_reminders: bool, *, multiline: bool = False) -> tupl
     text = _scrub_named_values(text, tally, quoted=True, multiline=multiline)
     text = _scrub_named_values(text, tally)
     text = _scrub_named_values(text, tally, flags=True)
-    global _ENDS_EARLY
-    _ENDS_EARLY = None
     return text, tally.total
 
 
