@@ -464,9 +464,8 @@ def test_the_bearer_lookahead_keeps_scrubbing_linear(token):
     `subfleet` it runs, are the same on every run."""
     measured = _scrubber_probe(f"token = {token!r}\nreads_per_char = {READS_PER_CHAR_MAX}\n" + '''
 import json, sys
-from tests.scrub_work import scrub_work, uncounted
+from tests.scrub_work import scrub_work
 sys.setrecursionlimit(100_000)          # the emulator nests a generator per group repeat
-assert uncounted() == [], uncounted()
 work = {}
 for size in (2048, 8192):
     work[size] = scrub_work("Bearer " + token * (size // len(token)), reads_per_char=reads_per_char)
@@ -476,6 +475,7 @@ print(json.dumps(work))
 ''')
     assert [size["over"] for size in measured.values()] == [None, None], measured
     assert [size["same"] for size in measured.values()] == [True, True], measured
+    assert [size["uncounted"] for size in measured.values()] == [[], []], measured
     small, large = measured["2048"], measured["8192"]
     assert small["lines"] > 0, measured                     # the trace saw the scrubber
     for count in ("reads", "lines"):

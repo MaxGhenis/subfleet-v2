@@ -9,7 +9,9 @@ here are the same on every run of one interpreter:
   each call's matches checked against `re`'s own. Every compiled pattern `handoff`
   holds is counted, the ones its rule tuples hold (`_TOKEN_RULES`, `_BLOCK_RULES`)
   included: one counting stand-in for each pattern, wherever the module keeps it, so
-  `pattern is _HEADER_RE` and `pattern in (_PEM_RE, …)` still hold.
+  `pattern is _HEADER_RE` and `pattern in (_PEM_RE, …)` still hold. A regex call the
+  stand-ins do not see (a pattern kept elsewhere, `re.sub` with a string, another
+  module's) is named in `uncounted` (`sys.setprofile`), so none is read uncounted.
 - `lines`: the lines of `subfleet` Python runs during the call (`sys.settrace`), so a
   loop of the scrubber's own counts too.
 
@@ -23,6 +25,7 @@ group, so the child raises the recursion limit.
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -31,16 +34,20 @@ from subfleet.sessions import handoff
 from tests import regex_reads
 
 #: The package's folder as its code objects name it (`co_filename`, not resolved).
-SUBFLEET = str(Path(handoff.__file__).parents[1])
+SUBFLEET = str(Path(handoff.__file__).parents[1]) + os.sep
+#: The count's own files: a regex call made from them is the count's, not the scrub's.
+COUNTING = {__file__, regex_reads.__file__}
 
 
 class Work:
-    """What one scrub read and ran, and the pattern that went past the budget."""
+    """What one scrub read and ran, the pattern that went past the budget, and the
+    regex calls it made past the count."""
 
     def __init__(self, budget: int):
         self.reads, self.lines, self.budget = 0, 0, budget
         self.by_pattern: dict[str, int] = {}
         self.over: str | None = None
+        self.uncounted: set[str] = set()
 
 
 class _Counted:
@@ -112,34 +119,11 @@ def _counted(value, stand_ins: dict[int, _Counted]):
     return value
 
 
-def uncounted() -> list[str]:
-    """Where `handoff` keeps a pattern the stand-ins cannot replace: in a list, set or
-    dict, a function's defaults or a closure. A scrub that called it would read
-    uncounted, so the count requires there be none."""
-    found = []
-    for name, value in vars(handoff).items():
-        if isinstance(value, (list, set, frozenset, dict)):
-            items = value.values() if isinstance(value, dict) else value
-            found += [name for item in items if isinstance(item, re.Pattern)][:1]
-        functions = [value] if callable(value) and getattr(value, "__module__", None) == handoff.__name__ else []
-        if isinstance(value, type) and value.__module__ == handoff.__name__:
-            functions = [member for member in vars(value).values() if callable(member)]
-        for function in functions:
-            held = list(getattr(function, "__defaults__", None) or ())
-            held += list((getattr(function, "__kwdefaults__", None) or {}).values())
-            for cell in getattr(function, "__closure__", None) or ():
-                try:
-                    held.append(cell.cell_contents)
-                except ValueError:                          # a cell not yet filled
-                    pass
-            found += [f"{name}.{function.__name__}" for item in held if isinstance(item, re.Pattern)][:1]
-    return found
-
-
 def scrub_work(text: str, *, reads_per_char: int) -> dict:
     """`scrub_secrets(text)`'s regex reads and `subfleet` lines, within a budget of
     `reads_per_char` reads a character of `text` (`over` names the pattern past it).
-    `same`: the counted scrub gave what the scrub gives uncounted (None when stopped)."""
+    `same`: the counted scrub gave what the scrub gives uncounted (None when stopped);
+    `uncounted`: the regex calls the count did not see."""
     work = Work(reads_per_char * max(1, len(text)))
     found: dict[int, tuple[str, re.Pattern]] = {}
     for name, value in vars(handoff).items():
@@ -155,18 +139,26 @@ def scrub_work(text: str, *, reads_per_char: int) -> dict:
     def calls(frame, event, arg):
         return lines if frame.f_code.co_filename.startswith(SUBFLEET) else None
 
-    previous = sys.gettrace()
+    def regex_calls(frame, event, arg):
+        if (event == "c_call" and isinstance(pattern := getattr(arg, "__self__", None), re.Pattern)
+                and frame.f_code.co_filename not in COUNTING):
+            work.uncounted.add(pattern.pattern[:60])
+
+    previous = sys.gettrace(), sys.getprofile()
     for name, value in replaced.items():
         setattr(handoff, name, value)
     sys.settrace(calls)
+    sys.setprofile(regex_calls)
     try:
         scrubbed = handoff.scrub_secrets(text)
     except regex_reads.OverBudget:
         scrubbed = None
     finally:
-        sys.settrace(previous)
+        sys.setprofile(previous[1])
+        sys.settrace(previous[0])
         for name in replaced:
             setattr(handoff, name, saved[name])
     same = None if work.over else scrubbed == handoff.scrub_secrets(text)
     return {"chars": len(text), "reads": work.reads, "lines": work.lines, "over": work.over, "same": same,
+            "uncounted": sorted(work.uncounted),
             "widest": sorted(work.by_pattern.items(), key=lambda item: -item[1])[:3]}
