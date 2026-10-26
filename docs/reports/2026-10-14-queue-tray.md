@@ -5252,3 +5252,187 @@ Each commit carries the co-author trailer.
 
 Only named files were staged. No logs or evidence are in the repository.
 Nothing was fetched, merged or pushed, and no sub-agents were used.
+
+### Round-8 continuation: the shrink replay on any layout
+
+CI run 40303045129 ran the whole suite at round 7's head, `5a5db9da4`. On
+py3.12 shard 1/5 two tests failed, both in round 7's shrink replay: the
+regression itself and the unmutated run inside
+`test_round7_mutation_fails_its_named_regression[marker_releases_pending_reveal]`.
+Each failed the same way: `readiness wait 'shrink.clamped' expired after 20.0
+s`, last state `content 9204, offset 8411, viewport 554, from_end 239`,
+`reveal_pending: false`. The other 2,885 tests in the shard passed. Round 8
+had not changed `shrinkReplay` (its setup gate is in the `fix12-*` scenes
+only), so the failure stood at `35ce3c745`.
+
+#### Decision 1: why the clamp did not happen
+
+- **The shrink:** a fixed 9,000 pt, the whole test inset set to zero at once,
+  then a poll every 20 ms (one `settle` step) for `from_end <= 1`.
+- **The clip at the shrink:** the probe printed nothing but the expired
+  wait's last state, so CI's own steps were lost. The last state fits two
+  orders: the clip was more than 9,000 pt from the end when the inset went,
+  or it clamped and the end then moved away. The run below decides between
+  them.
+- **The reproduction:** with the probe's new layout setting, round 7's
+  unchanged scene fails exactly as CI did at 760 pt and 1.728x text, 4 of 4
+  runs, with the same final state each time, as CI's two runs had. Its
+  report shows the second order:
+  - at the shrink the clip was 2,000 pt from the end (offset 16,825 of 19,308);
+  - the shrink clamped it: content 10,362, offset 9,879, `from_end` 0;
+  - 271 ms later, rows measured in the next pass grew the document 116 pt
+    under the fixed clip. The wait reads its condition after every settle
+    call and never saw `from_end` 0, so both changes came inside one call.
+    The marker never appeared.
+  - At 2.07x text the growth was 478 pt, 20 ms after the clamp.
+  - CI's last state fits this order exactly: a clamp to an 8,965 pt end, then
+    239 pt of rows. Its log alone can't rule out the other order; the
+    measured shrink below handles both.
+- **Why `reveal_pending` was false:** it isn't the view's state. The
+  readiness field is `palette.reveal != nil`, the search palette's reveal,
+  and `replay` never sets the palette: it posts its request itself. The
+  field reads false at every step of a passing replay too, right after the
+  request included. The view's reveal was still outstanding: its trace has
+  the request and no `reveal_landed`, `person_scrolled` or
+  `reveal_abandoned` after it.
+
+#### Decisions 2 and 3 as built
+
+- **The measured shrink (`cf69265c5`):** in one main-actor turn the scene:
+  - lays out the window;
+  - reads the clip's distance from the end;
+  - checks its preconditions;
+  - shrinks the inset by that distance plus two viewports, and lays out again.
+
+  The document's end then lies a viewport above the clip's top, and the
+  second viewport absorbs rows measured in the same pass. Rows measured
+  after the shrink can move the end away again, so the scene shrinks again,
+  measured the same way, until the end stays in view for a step. The inset
+  is 40,000 pt, room for any measured shrink.
+- **The gate:** at every shrink, in `replay` the reveal must still be
+  outstanding, and in `landed` it must have landed, both read from the view's
+  own trace. Each place the view sets or clears `revealPending` traces an
+  event. Also, at the first shrink the clip must be more than 600 pt from
+  the end, and the inset must hold the shrink. A missing precondition ends
+  the probe at once, with exit 71 and the precondition named: "readiness wait
+  'shrink.clamped' cannot be met: …".
+- **Waits (`71704dc01`):** any `waitReady` can name preconditions (`unmet`).
+  When one no longer holds the wait fails at once, not at its deadline. A
+  failed wait in the shrink replay also writes its whole report (steps,
+  traces, shrinks, layout) to the probe's root, and the test prints it, so
+  CI's log keeps it (`88fef0dad`).
+- **Order checks:** `assert_replayed_shrink_order` and
+  `assert_landed_shrink_order` assert the reveal's state at the shrink, and
+  that every shrink was at least the measured distance plus a viewport.
+- **Layouts in the suite:** the replay and landed tests run at the default
+  layout and at 1.728x text (`R219_PROBE_TEXT_SCALE`), the layout that
+  reproduced CI.
+
+**Counterexamples, and the smallest changes kept to the decisions' intent:**
+- **The clip drifts to the end before the shrink (`4a27d1703`).** At 560 pt
+  and 1.44x text, rows measured after the reveal's 2,000 pt placement shrank
+  the document 1,856 pt under the clip. That left it 144 pt from the end
+  before the shrink, and the gate stopped the scene at once, by name. The
+  scene now repeats the placement, up to eight times, until the clip stays
+  more than 600 pt away, as round 8's scenes repeat their moves. At that
+  layout it now passes after 2 placements.
+- **A clamp undone eight times (`a752cbae6`).** The landed control at the
+  default layout clamped eight times. Each clamp was undone by rows measured
+  after it, 293 pt down to 136 pt, and the eighth stayed. It did the same in
+  10 of 10 runs. The first cap, eight shrinks, was counted before the last
+  shrink had settled, and failed the run. The cap is now checked only after
+  a shrink has settled, and allows sixteen.
+- **A landed reveal that never landed (`3c5deff77`).** In 1 of 5 landed runs
+  at 560 pt (load 148), neither pass of the real search reveal presented
+  the row: rows measured after the passes moved it out of the clip. The
+  product kept the reveal outstanding, as its rule says, and the gate stopped
+  the control by name. The old scene would have reported a failed release
+  rule here instead. The control now reveals the row again, up to three
+  times, until the trace shows it landed.
+
+#### Red at `35ce3c745`
+
+The probe with `88fef0dad`'s layout setting and failure report, with round
+7's scene unchanged, run natively. Loads are `os.getloadavg()` before each
+run. Each run is judged by `35ce3c745`'s Python checks.
+
+| Layout (height, text) | Runs | Load before | Result at `35ce3c745` |
+| --- | ---: | --- | --- |
+| 760 pt, 1.728x | 4 | 116–163 | **fails as CI did:** `shrink.clamped` expired after 20 s, `from_end` 116 (content 10,478, offset 9,879), every run |
+| 760 pt, 2.0736x | 1 | 155 | **fails as CI did:** expired, `from_end` 478 |
+| 760 pt, 1.728x, landed control | 1 | 143 | **fails as CI did:** expired, `from_end` 283 |
+| 560 pt, 1.2x / 560 pt, 1.44x / 660 pt, 1.44x | 1 each | 117–148 | fails the scene's order check: the clip drifted to 448 / 144 / 482 pt from the end before the shrink |
+| 760 pt, 1x / 560 pt, 1x / 760 pt, 1.2x / 760 pt, 1.44x / 560 pt, 1.728x | 1 each | 117–171 | passes |
+
+#### Native probe runs on the final product
+
+The final probe (`3c5deff77`), from `compile_probe`'s cache, run natively,
+one at a time beside the holds.
+
+| Scene | Layout | Runs | Failed | Load before | Shrinks per run |
+| --- | --- | ---: | ---: | --- | --- |
+| Replay | 760 pt, 1x (default) | 10 | 0 | 56.65–73.42 | 1 |
+| Replay | 560 pt, 1x | 10 | 0 | 55.56–145.18 | 1 |
+| Replay | 760 pt, 1.728x | 10 | 0 | 24.52–101.77 | 2 |
+| Landed control | 760 pt, 1x | 10 | 0 | 35.78–89.64 | 1, 2 or 8 |
+| Landed control | 560 pt, 1x | 10 | 0 | 21.12–91.61 | 1 |
+| Landed control | 760 pt, 1.728x | 5 | 0 | 78.21–105.74 | 1 or 3 |
+| Person control | each of the three | 2 each | 0 | 60.15–106.10 | none |
+
+Every replay run's clip stayed away from the end after one placement. Every
+landed run landed at its first reveal, so these runs did not exercise
+`3c5deff77`'s repeat. The drift layouts (560 pt at 1.2x and 1.44x, 660 pt at
+1.44x) and 2.0736x passed once each on `a752cbae6`. At 560 pt and 1.44x the
+clip needed 2 placements on `4a27d1703`.
+
+Earlier batches on `4a27d1703` (before the cap fix) and `cf69265c5` matched
+these: 30 replay runs passed at the three layouts, and the person control
+passed 3 of 3 at each.
+
+#### Validation holds
+
+| Hold | Files | Queued → admitted (UTC) | Result |
+| --- | --- | --- | --- |
+| 1 | fix10, fix11 | 17:25:20 → 17:37:43, slot B | 42 passed in 15:49 |
+| 2 | mutations, `-k round7` | 17:54:20 → 17:57:35, slot B | 3 passed, 10 deselected, in 2:11 |
+| 4 | state contract, module names, invariants index | 18:00:49 → 18:03:18, slot B | 63 passed in 2:04 |
+| 3 | fix12 (round 8's view tests) | 18:05:58 → 18:07:39, slot B | 9 passed in 1:45 |
+
+All four ran on the final head (`3c5deff77`) through the lock. Every probe
+came from `compile_probe`'s cache, which the final probe and round 7's three
+mutants filled first (208–432 s each, four at a time, peak RSS 1.26 GB). The
+same holds also passed on the intermediate heads:
+- hold 1 on `4a27d1703` (42 in 12:53) and on `a752cbae6` (42 in 9:51);
+- hold 2 on both (3 passed);
+- hold 3 on `a752cbae6` (9 in 6:53).
+
+A first hold 1 on `cf69265c5` was stopped, by me, once the drift
+counterexample had made it stale: rc 143, no results.
+
+Counts per file on the final product: fix10 36 (34 before, plus the replay and landed tests at the larger-text layout), fix11 6, fix12 9, mutations 3 (round 7's three; 10 deselected), and the three guards 63 together (37 + 1 + 25 in round 8; none of the three files changed).
+
+#### Mutants
+
+Round 7's three, rebuilt with the final probe, run natively at each layout.
+Each run passed its order check and then failed its named rule.
+
+| Mutant | Rule it fails | 760 pt, 1x | 560 pt, 1x | 760 pt, 1.728x |
+| --- | --- | --- | --- | --- |
+| `marker_releases_pending_reveal` | `assert_shrink_releases_nothing` (a release after the request) | killed, load 68.23 | killed, 77.58 | killed, 65.24 |
+| `confirm_by_distance_only` | `assert_shrink_releases_nothing` (a release after the request) | killed, 90.79 | killed, 75.20 | killed, 66.56 |
+| `reveal_never_lands` | `assert_landed_shrink_releases` (no marker release after the shrink) | killed, 76.17 | killed, 68.54 | killed, 82.93 |
+
+Hold 2 killed all three at the default layout as well.
+
+#### Round-8 continuation commits
+
+- `88fef0dad`: the layout setting and the failed wait's report.
+- `71704dc01`: decision 3, waits that fail at once.
+- `cf69265c5`: decision 2, the measured, gated shrink, and the larger-text layout in the suite.
+- `4a27d1703`: the replay's clip kept away from the end until the shrink.
+- `a752cbae6`: the shrink cap counted after each shrink settles.
+- `3c5deff77`: the landed control's reveal repeated until it lands.
+- The report commit.
+
+The product (`app/Sources`) is unchanged, so design §12 and C-27.5 are too.
+Each commit carries the co-author trailer.
