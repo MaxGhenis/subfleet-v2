@@ -221,7 +221,7 @@ class Timers:
         return {'status': 'scheduled', 'timer': name, 'target': target}
 
     def _run_worker(self, function, *args):
-        with helper_policy(self.policy):
+        with helper_policy(self.policy, withheld=self._withheld):
             return function(*args)
 
     def _run(self, name, callback=None):
@@ -459,10 +459,14 @@ class Timers:
                 for row in self.store.query("SELECT lane_id,identity,label,account_key,enabled FROM lanes "
                                             "WHERE provider='claude' ORDER BY created_at,rowid")]
 
+    def _withheld(self) -> frozenset[str]:
+        """D-ENV2: what the timers' launches and helper subprocesses withhold, read at
+        each: the daemon's set (`Daemon._withheld_references`), else the stored lanes'."""
+        return frozenset(self.references() if self.references else withheld_references(self.store.list_lanes()))
+
     def _provider_environment(self) -> ProviderEnvironment:
         """The daemon's launch selection: no lane's credential reference (D-ENV1)."""
-        return ProviderEnvironment(self.policy, references=self.references or (
-            lambda: withheld_references(self.store.list_lanes())))
+        return ProviderEnvironment(self.policy, references=self._withheld)
 
     def _card_sensor(self):
         if self._cards_sensor is None:

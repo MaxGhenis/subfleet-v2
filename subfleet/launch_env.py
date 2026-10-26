@@ -6,7 +6,7 @@ anywhere in a name refuses it, listed or not, unless a reviewed exception says
 why that name holds no secret.
 """
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 import os
@@ -107,6 +107,10 @@ LAUNCH_NAMES = frozenset({
     "SUBFLEET_PUBLISH_DENIED",
 })
 _HELPER_PASS: ContextVar[tuple[str, ...]] = ContextVar("subfleet_helper_env_pass", default=())
+# D-ENV2 (review r2 of #248, P3-2): each enclosing helper scope's source of the
+# daemon's withheld names, outermost first; read at every `build_environment`.
+_HELPER_WITHHELD: ContextVar[tuple[Callable[[], Iterable[str]], ...]] = ContextVar(
+    "subfleet_helper_env_withheld", default=())
 
 
 def valid_name(name: object) -> bool:
@@ -207,17 +211,34 @@ def _selected(parent: Mapping[str, str]):
 
 
 @contextmanager
-def helper_policy(policy: Mapping):
+def helper_policy(policy: Mapping, *, withheld: Callable[[], Iterable[str]] | None = None):
     """Select helper authority for one operation; never mutate process globals.
 
     Workers enter their own scope. Providers always supply their policy's
     explicit names, so a helper scope cannot authorize a provider credential.
+
+    `withheld` returns the daemon's withheld names (D-ENV2, review r2 of #248,
+    P3-2): its lanes' credential references and startup's ignored hooks. Every
+    `build_environment` in the scope calls it and withholds what it returns, so
+    a lane stored or held after the scope opened is covered too. A nested scope
+    replaces the policy's names but keeps every outer scope's withheld names:
+    `pass` grants authority, and withholding only removes it. A source an outer
+    scope already carries (the gate's inside `Daemon.dispatch`) is read once per
+    build, not once per scope (review r1 of #262).
     """
     token = _HELPER_PASS.set(tuple(policy.get("env", {}).get("pass", ())))
+    outer = _HELPER_WITHHELD.get()
+    sources = _HELPER_WITHHELD.set(outer + ((withheld,) if withheld is not None and withheld not in outer else ()))
     try:
         yield
     finally:
+        _HELPER_WITHHELD.reset(sources)
         _HELPER_PASS.reset(token)
+
+
+def _scope_withheld() -> frozenset[str]:
+    """The withheld names of every enclosing helper scope, read now; none outside one."""
+    return frozenset().union(*(source() for source in _HELPER_WITHHELD.get()))
 
 
 def build_environment(additions: Mapping[str, str] | None = None,
@@ -229,7 +250,8 @@ def build_environment(additions: Mapping[str, str] | None = None,
 
     Callers supply only their own additions; never pass an ambient environment
     as additions. Explicit policy names authorize inheritance, not values or
-    patterns. `withheld` names are never taken from the parent, even when
+    patterns. `withheld` names, and inside a helper scope the daemon's withheld
+    names (`helper_policy`), are never taken from the parent, even when
     allowlisted or passed: lane credential references, which reach their own
     lane only as an addition. Reject malformed programmatic callers as well as
     policy files.
@@ -237,7 +259,7 @@ def build_environment(additions: Mapping[str, str] | None = None,
     passed = frozenset(_HELPER_PASS.get() if pass_names is None else pass_names)
     if any(not valid_name(name) for name in passed):
         raise ValueError("environment pass-through requires exact variable names")
-    withheld = frozenset(withheld)
+    withheld = frozenset(withheld) | _scope_withheld()
     parent = os.environ if environ is None else environ
     selected = _selected(parent)
     result = _present(parent, (name for name in parent
