@@ -446,19 +446,37 @@ def test_the_head_leaks_nothing_release_217_keeps_out_and_no_bearer_or_header_va
 
 # --- the lookahead's work ------------------------------------------------------------
 
+#: The most a scrub of the texts below may read a character, every regex call counted
+#: (`tests.scrub_work`): release/217 reads at most 43. A call past it is stopped before
+#: `re` runs it, so a catastrophic lookahead fails here in seconds.
+READS_PER_CHAR_MAX = 256
+#: Four times the input: linear work grows about 4 times (its fixed part makes it
+#: less), quadratic about 16. The counts are exact, so the bound can sit near 4.
+WORK_GROWTH_MAX = 5
+
+
 @pytest.mark.parametrize("token", ["a_", "token", "secret_", "--a", "x."])
 def test_the_bearer_lookahead_keeps_scrubbing_linear(token):
     """C-23.14 / C-25.5: the lazy lookahead reads a token once per position; four times
-    the input must not take quadratic CPU (`_SENSITIVE_KEY` there would)."""
-    measured = _scrubber_probe(f"token = {token!r}\n" + '''
-import json, time
-samples = {}
+    the input must not do quadratic work (`_SENSITIVE_KEY` there would). Counted, not
+    timed (D-SCRUB-LINEAR: the CPU ratio failed shared runners at about 9x on code no
+    PR had touched): what each regex call of the scrub reads, and the lines of
+    `subfleet` it runs, are the same on every run."""
+    measured = _scrubber_probe(f"token = {token!r}\nreads_per_char = {READS_PER_CHAR_MAX}\n" + '''
+import json, sys
+from tests.scrub_work import scrub_work, uncounted
+sys.setrecursionlimit(100_000)          # the emulator nests a generator per group repeat
+assert uncounted() == [], uncounted()
+work = {}
 for size in (2048, 8192):
-    text = "Bearer " + token * (size // len(token))
-    start = time.thread_time()
-    for _ in range(8):
-        scrub_secrets(text)
-    samples[size] = (time.thread_time() - start) / 8
-print(json.dumps(samples))
+    work[size] = scrub_work("Bearer " + token * (size // len(token)), reads_per_char=reads_per_char)
+    if work[size]["over"]:
+        break
+print(json.dumps(work))
 ''')
-    assert measured["8192"] < max(measured["2048"], 0.0001) * 8, measured
+    assert [size["over"] for size in measured.values()] == [None, None], measured
+    assert [size["same"] for size in measured.values()] == [True, True], measured
+    small, large = measured["2048"], measured["8192"]
+    assert small["lines"] > 0, measured                     # the trace saw the scrubber
+    for count in ("reads", "lines"):
+        assert large[count] < small[count] * WORK_GROWTH_MAX, (count, measured)
