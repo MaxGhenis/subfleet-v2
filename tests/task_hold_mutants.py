@@ -104,39 +104,53 @@ def startup_clears_leases(patch):
 # --- one per decision of fix round 1 ------------------------------------------------------------
 
 def grace_runs_while_held(patch):
-    """P2-1: a hold takes a job without pausing its pin grace (as the build shipped)."""
-    original = Daemon._take_for_hold
-
-    def take(self, tx, job, hold, *, data=None):
-        episode = self._pin_episodes.pop(job["job_id"], None)
-        try:
-            return original(self, tx, job, hold, data=data)
-        finally:
-            if episode is not None:
-                self._pin_episodes[job["job_id"]] = episode
-    patch.setattr(Daemon, "_take_for_hold", take)
+    """P2-1: a hold takes a job without pausing its pin grace (as the build shipped): the take
+    reads no pin episode."""
+    patch.setattr(Daemon, "_held_pin_episode", lambda self, tx, job_id: {})
 
 
 def release_drops_retry_backoff(patch):
     """P2-2: a hold keeps no clock of the job's, so its end starts a retry early."""
-    original = Daemon._take_for_hold
+    patch.setattr(Daemon, "_kept_retry", lambda self, tx, job_id, state, reason, clock, now: None)
 
-    def take(self, tx, job, hold, *, data=None):
-        paused = original(self, tx, job, hold, data=data)
-        if data is not None and data.get("kept"):
-            data["kept"] = None
-        return paused
-    patch.setattr(Daemon, "_take_for_hold", take)
+
+def pause_only_at_the_pass(patch):
+    """Fix round 2, F1: the hold's commit writes its row and takes no job (as fix round 1 had it):
+    a job's clocks stop only when an admission pass takes it."""
+    patch.setattr(Daemon, "_take_task_jobs", lambda self, tx, hold, now: None)
 
 
 def held_job_is_demand(patch):
-    """P2-3: `_reset_demand` counts a job a hold keeps, until admission looks at it again."""
+    """P2-3: `_reset_demand` counts a job a hold keeps, until admission looks at it again.
+
+    Since fix round 2 the hold's commit takes the job off its capacity wait (F1), so the hold
+    check in `_reset_demand` decides nothing on its own: a held job never reaches it as
+    demand. So this mutant takes that commit away too (`pause_only_at_the_pass`), the state
+    the check is there for, and removes the check."""
+    pause_only_at_the_pass(patch)
     patch.setattr(Daemon, "_demand_held", lambda self, job, holds: False)
 
 
 def pending_ignores_holds(patch):
-    """P2-3: the reset action's pending transaction does not read the hold again."""
+    """P2-3: the reset action's pending transaction does not read the hold again.
+
+    As for `held_job_is_demand`: since fix round 2 the commit's take leaves the job no capacity
+    wait, which the pending transaction finds before it reads the hold (`demand-gone`), so
+    this mutant also takes away the commit's take."""
+    pause_only_at_the_pass(patch)
     patch.setattr(task_holds, "job_held", lambda conn, job_id, now: None)
+
+
+def keep_any_capacity_clock(patch):
+    """Fix round 2, F2: a hold keeps any capacity clock whose job's latest attempt ended
+    `transient` (as fix round 1 had it), a recheck after the backoff included."""
+    def kept(self, tx, job_id, state, reason, clock, now):
+        if not (state == "waiting" and reason == "capacity" and clock):
+            return None
+        transient = tx.execute("SELECT 1 FROM attempts a WHERE a.job_id=? AND a.outcome_class='transient' "
+                               "AND a.seq=(SELECT MAX(seq) FROM attempts WHERE job_id=a.job_id)", (job_id,)).fetchone()
+        return {"wait_reason": reason, "next_check_at": clock} if transient else None
+    patch.setattr(Daemon, "_kept_retry", kept)
 
 
 def offline_counts_the_display_cap(patch):
@@ -191,4 +205,6 @@ MUTANTS = {
     "note-strips-before-checking": note_strips_before_checking,
     "release-hint-unquoted": release_hint_unquoted,
     "release-skips-notify": release_skips_notify,
+    "pause-only-at-the-pass": pause_only_at_the_pass,
+    "keep-any-capacity-clock": keep_any_capacity_clock,
 }

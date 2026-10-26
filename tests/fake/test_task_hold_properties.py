@@ -94,6 +94,7 @@ def reaching(prop, states) -> None:
     backoff, so its T6 and T7 assertions effectively never fired)."""
     REACH.clear()
     prop()
+    print(f"reach {prop.__name__}: {dict(sorted(REACH.items()))}")      # shown with -rP
     if not MUTATED[0]:
         missing = [state for state in states if not REACH[state]]
         assert not missing, ("reach: no example reached", missing, dict(REACH))

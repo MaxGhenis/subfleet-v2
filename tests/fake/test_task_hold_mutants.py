@@ -3,7 +3,8 @@
 Every scenario passes on the daemon as built (the baseline), and each mutant in
 `tests/task_hold_mutants.py` makes the scenario paired with it fail with that
 scenario's own message, so the test that catches it is the one it names. The
-build's seven, review r1's four (fix round 1) and one per decision of fix round 1.
+build's seven, review r1's four (fix round 1), one per decision of fix round 1,
+and one each for fix round 2's F1 and F2.
 """
 
 from __future__ import annotations
@@ -13,8 +14,8 @@ import pytest
 from subfleet import protocol, task_holds
 from tests.disk_floor_model import stamp
 from tests.task_hold_mutants import MUTANTS
-from tests.task_hold_support import (attempts, configure, finalize_transient, fresh_daemon, hold, job, release,
-                                     restart, submit, turn)
+from tests.task_hold_support import (attempts, configure, finalize_transient, finish, fresh_daemon, hold, job,
+                                     release, restart, submit, turn)
 
 
 def held_build_never_starts():
@@ -154,6 +155,38 @@ def retry_backoff_survives_a_hold():
         assert len(attempts(service, build)) == 1, "T6-retry: a release started a retry before its backoff ended"
 
 
+def hold_no_pass_saw_pauses_the_grace():
+    """Fix round 2, F1: held at t=10 with no pass, released at 500: the commit paused the grace."""
+    with fresh_daemon() as (service, harness, clock, signals):
+        configure(service, harness, lambda daemon: daemon.policy["admission"].update(pin_grace_s=60))
+        service.store.update_lane("codex-1", enabled=0)
+        build = submit(service, harness, "build", "build-1", pinned_lane="codex-1")
+        service._admit()
+        clock[0] = 10
+        hold(service, "build", stamp(1000))
+        clock[0] = 500
+        release(service, "build")
+        service._admit()
+        row = job(service, build)
+        fail_at = service._pin_episodes.get(build, {}).get("fail_at")
+        assert (row["state"], fail_at) == ("waiting", stamp(550)), \
+            "T6-commit: a hold no pass saw ran the job's pin grace"
+
+
+def recheck_is_no_kept_deadline():
+    """Fix round 2, F2: review r2's input; the retry starts at 93, as with no hold, not at 121."""
+    from tests.fake.test_task_hold_clocks import at, blocked_retry, retried_at
+    with fresh_daemon(lanes=1, caps={"max_in_flight_per_lane": 1}) as (service, harness, clock, signals):
+        build, blocking = blocked_retry(service, harness, clock)
+        hold(service, "build", stamp(3600))
+        at(service, clock, 92)
+        clock[0] = 93
+        release(service, "build")
+        finish(service, blocking)
+        service._admit()
+        assert retried_at(service, build) == stamp(93), "T6-recheck: the hold kept a capacity recheck as a deadline"
+
+
 def held_job_is_no_reset_demand():
     from tests.fake.test_task_hold_reset_demand import held_job_spends_nothing
     held_job_spends_nothing()
@@ -232,6 +265,8 @@ SCENARIOS = {
     "note-strips-before-checking": (edge_controls_are_refused, "note"),
     "release-hint-unquoted": (release_hint_is_one_argument, "hint"),
     "release-skips-notify": (release_notifies_the_waiters, "T3-notify"),
+    "pause-only-at-the-pass": (hold_no_pass_saw_pauses_the_grace, "T6-commit"),
+    "keep-any-capacity-clock": (recheck_is_no_kept_deadline, "T6-recheck"),
 }
 
 

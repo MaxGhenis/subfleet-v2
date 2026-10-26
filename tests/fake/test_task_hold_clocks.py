@@ -194,7 +194,12 @@ def test_the_grace_runs_between_two_holds_no_pass_saw_apart():
         at(service, clock, 10)                      # held at 10: 50 s left
         clock[0] = 50                               # the hold ended at 30; no pass ran since
         hold(service, "build", stamp(1000), note="the next booking")
-        assert job(service, build)["next_check_at"] == stamp(30)       # left on the end that passed
+        # The commit ended the first hold where it ended (30) and took the job for this one (F1).
+        assert job(service, build)["next_check_at"] == stamp(1000)
+        assert service.store.one("SELECT data_json FROM events WHERE job_id=? AND kind='job.task_hold_ended' "
+                                 "ORDER BY event_id DESC LIMIT 1", (build,))["data_json"] == \
+            daemon_module._event_json({"by": "end", "ended_at": stamp(30), "next_check_at": stamp(80),
+                                       "pin_fail_at": stamp(80), "task": "build"})
         at(service, clock, 50)                      # 30 to 50 ran the grace: 30 s left
         assert job(service, build)["wait_reason"] == "task-held"
         clock[0] = 500

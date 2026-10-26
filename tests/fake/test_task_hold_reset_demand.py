@@ -9,6 +9,11 @@ transaction reads the hold again before anything is spent, so a hold committed a
 was read still spends nothing. Once the hold is released and admission has looked at the job
 again, it is demand again.
 
+Fix round 2 (review r2's F1): the hold's own transaction now takes the job off its capacity wait,
+so neither read finds it waiting on capacity at all, and the two hold checks are the backstop
+for a job the take did not reach. The mutants of those checks take the take away too
+(`tests/task_hold_mutants.py`).
+
 The daemon, the reset timer and the Codex adapter are real; the Codex usage and reset-credit
 endpoints are `FakeWham` (`tests/fake/test_reset_credit_incident.py`), so no real
 credential, endpoint or credit is touched.
@@ -82,7 +87,8 @@ def held_job_spends_nothing():
 
 def hold_after_demand_was_read_spends_nothing():
     """The hold lands after the timer read demand for the last time, before its pending action:
-    the action's transaction reads the hold again and spends nothing."""
+    the hold's own transaction took the job off its capacity wait (fix round 2, F1), and the
+    action's transaction, which reads the job's wait and then its hold again, spends nothing."""
     with reset_fleet() as (service, http, build):
         reader = service.timers.demand
         reads = []
@@ -96,8 +102,7 @@ def hold_after_demand_was_read_spends_nothing():
         service.timers.demand = demand
         result = service.timers.reset_credits_cycle()
         assert len(reads) == 2 and [item["job_id"] for item in reads[1]] == [build]
-        assert (result["status"], result.get("task_held")) == ("demand-gone", "build"), \
-            f"T7-pending: {result}"
+        assert result["status"] == "demand-gone", f"T7-pending: {result}"
         assert spent(service, http) == ([], []), "T7-pending: a credit was spent for a held job"
 
 
