@@ -791,27 +791,31 @@ pw_isfile() { pw_stall "$1" && return 1; pw_nondir "$1"; }
 # resolved first and kept (pw_pcd, pw_pcr), so the words of one folder (300
 # files on one line) resolve it once.
 pw_physical() {
-  local path="" rest="" name="" hops=0 d=${1%/*}
+  local path="" rest="" name="" hops=0 d=${1%/*} top=""
   pw_r=$1
   pw_stall "$1" && return 0
   rest=${1#/}
-  if [ -n "$d" ]; then
-    if [ "$d" != "${pw_pcd-}" ]; then pw_physical "$d"; pw_pcd=$d pw_pcr=$pw_r; fi
-    path=${pw_pcr%/}; rest=${1##*/}
+  if [ -n "$d" ] && [ "$d" = "${pw_pcd-}" ]; then path=${pw_pcr%/}; rest=${1##*/}
+  elif [ -n "$d" ] && [ -n "${1##*/}" ]; then top=${1##*/}; rest=${d#/}
   fi
-  while [ -n "$rest" ]; do
-    case "$rest" in */*) name=${rest%%/*}; rest=${rest#*/} ;; *) name=$rest; rest="" ;; esac
-    case "$name" in ''|.) continue ;; ..) path=${path%/*}; continue ;; esac
-    if pw_islink "$path/$name"; then
-      hops=$((hops + 1))
-      [ "$hops" -le 40 ] || { pw_r=$1; return 0; }
-      pw_readlink "$path/$name"
-      if [ -z "$pw_rl" ]; then path="$path/$name"; continue; fi
-      case "$pw_rl" in /*) path="" ;; esac
-      rest="$pw_rl${rest:+/$rest}"
-    else
-      path="$path/$name"
-    fi
+  while :; do
+    while [ -n "$rest" ]; do
+      case "$rest" in */*) name=${rest%%/*}; rest=${rest#*/} ;; *) name=$rest; rest="" ;; esac
+      case "$name" in ''|.) continue ;; ..) path=${path%/*}; continue ;; esac
+      if pw_islink "$path/$name"; then
+        hops=$((hops + 1))
+        [ "$hops" -le 40 ] || { pw_r=$1; return 0; }
+        pw_readlink "$path/$name"
+        if [ -z "$pw_rl" ]; then path="$path/$name"; continue; fi
+        case "$pw_rl" in /*) path="" ;; esac
+        rest="$pw_rl${rest:+/$rest}"
+      else
+        path="$path/$name"
+      fi
+    done
+    [ -n "$top" ] || break
+    pw_normalize "${path:-/}"; pw_pcd=$d pw_pcr=$pw_n
+    path=${pw_n%/}; rest=$top; top=""
   done
   pw_normalize "${path:-/}"
   pw_r=$pw_n
@@ -1254,7 +1258,7 @@ pw_word_judge() {
   local w=$1 ctx=${2-z} q=${3-} f=${4-p} shown=${5-$1} a="" broad="" glob=""
   pw_t=""
   # r4 decision 6: a word past the scan cap is broad, unscanned (fails closed)
-  if pw_capped "$w"; then pw_sentinel "${shown:0:120}" " (not judged: more than 64 { or [, or over 4 KB)"; return 0; fi
+  if pw_capped "$w"; then pw_sentinel "${shown:0:120}" " (not judged: more than 64 { or [, 256 components, or 4 KB)"; return 0; fi
   # r4 decision 9: ~$USER, ~${USER} and ~$(whoami) are the home (placed even
   # where the text rules would read ~ by name: they see the word as written)
   case "$w" in
@@ -1299,12 +1303,15 @@ pw_word_judge() {
   done
   if [ -n "$broad" ]; then pw_sentinel "$shown" "${glob:+ (glob)}"; else pw_t=F; fi
 }
-# pw_capped WORD: WORD has more than 64 { or [, or over 4 KB (r4 decision 6).
+# pw_capped WORD: WORD has more than 64 { or [, or over 4 KB, or more than 256
+# components (r4 decision 6; the last: each component costs the folder walks
+# a pass over the word, so 2,000 of them in 4 KB took seconds).
 pw_capped() {
   # (a word of at most 1,024 characters is at most 4 KB in any encoding, so
   # only a longer one has its bytes counted, under LC_ALL=C)
   [ "${#1}" -le 4096 ] || return 0
   [ "${#1}" -le 1024 ] || pw_bytes "$1" || return 0
+  if [ "${#1}" -gt 256 ]; then pw_count '/' "$1"; [ "$pw_c" -le 256 ] || return 0; fi
   case "$1" in *[\{\[]*) ;; *) return 1 ;; esac
   pw_count '{[' "$1"
   [ "$pw_c" -gt 64 ]
@@ -1487,6 +1494,7 @@ pw_lib_awk='
     return 0
   }
   function value(t,   out, i, n, c, j) {
+    if (t !~ /[\\\047"$]/) return t
     out = ""; n = length(t); i = 1
     while (i <= n) {
       c = substr(t, i, 1)
@@ -1543,8 +1551,8 @@ pw_lib_awk='
 # simple command that holds a searcher and its own unquoted depth bound (-maxdepth, --max-depth, -d N), or
 # whose searcher prints and exits (rg --version, -V, --help, -h, --type-list; find --version; grep
 # --version, -V, --help; not another option's value; r4 decision 8), made `:`; (3) a bare `cd` or `cd --`
-# made `cd ~`; (4) a comment dropped. Every other byte is kept, but for a space after a backtick or a ) so
-# the rules see a name that follows one. Then (r4 decision 3) every script a shell or eval runs is added
+# made `cd ~`; (4) a comment dropped. Every other byte is kept, but for a space between an opening
+# backtick and the searcher it runs, so the rules see its name. Then (r4 decision 3) every script a shell or eval runs is added
 # as its own lines, each line led by \003<context>\003 and a space (b in a script run by bash, sh, dash or
 # ksh without globstar, z otherwise), itself read the same way, to depth 4 (a searcher's script deeper adds
 # the line \003D\003): a shell's -c script; eval's arguments, joined; and, for a shell given no script, the
@@ -1606,7 +1614,7 @@ pw_prep_awk="$pw_lib_awk"'
     }
     return 0
   }
-  function simple(seg, depth, piped, noext, ctx,   nt, i, n, c, j, t, b, hs, hb, out, w, tk, val, sp, qd, stdin, npos, hasE, rec, k, files, rd, hstr, st, pin, prod, pc, scr, ev, op, tg) {
+  function simple(seg, depth, piped, noext, ctx, bt,   nt, i, n, c, j, t, b, hs, hb, out, w, tk, val, sp, qd, stdin, npos, hasE, rec, k, files, rd, hstr, st, pin, prod, pc, scr, ev, op, tg) {
     pin = pipein
     nt = 0; i = 1; n = length(seg); sp[0] = ""
     while (i <= n) {
@@ -1668,6 +1676,8 @@ pw_prep_awk="$pw_lib_awk"'
       t += WPOS[w]
     }
     if (t <= nt) { b = base(val[t]); if (isname(b) && tk[t] != canon(b)) { tk[t] = canon(b); val[t] = tk[t] } }
+    # a searcher right after an opening backtick gets a space before it, so the rules see its name
+    if (bt && t == 1 && sp[0] == "" && isname(base(val[1]))) sp[0] = " "
     hs = 0; hb = 0
     for (k = 1; k <= nt; k++) {
       if (isname(base(val[k])) || val[k] == "grep -r") hs = 1
@@ -1763,8 +1773,8 @@ pw_prep_awk="$pw_lib_awk"'
     for (t = 1; t <= nt; t++) out = out tk[t] sp[t]
     return out
   }
-  function prep(t, depth, noext, ctx,   n, i, c, seg, res, j, sep, piped, nextin, r) {
-    n = length(t); i = 1; seg = ""; res = ""; piped = 0; nextin = ""
+  function prep(t, depth, noext, ctx,   n, i, c, seg, res, j, sep, piped, nextin, r, bt) {
+    n = length(t); i = 1; seg = ""; res = ""; piped = 0; nextin = ""; bt = 0
     while (i <= n) {
       if (match(substr(t, i, 512), /^[^\\\047"#;&|()`$\n]+/)) { seg = seg substr(t, i, RLENGTH); i += RLENGTH; continue }
       c = substr(t, i, 1)
@@ -1780,13 +1790,12 @@ pw_prep_awk="$pw_lib_awk"'
       sep = c
       if ((c == "|" || c == "&") && substr(t, i + 1, 1) == c) sep = c c
       else if (c == "|" && substr(t, i + 1, 1) == "&") sep = "|&"
-      pipein = nextin; r = simple(seg, depth, piped, noext, ctx); nextin = (sep == "|" || sep == "|&") ? lastprod : ""
+      pipein = nextin; r = simple(seg, depth, piped, noext, ctx, bt); nextin = (sep == "|" || sep == "|&") ? lastprod : ""
       res = res r sep; seg = ""; i += length(sep)
-      if (sep == "`" || sep == ")") res = res " "
-      piped = (sep == "|" || sep == "|&")
+      piped = (sep == "|" || sep == "|&"); bt = (sep == "`")
     }
     pipein = nextin
-    return res simple(seg, depth, piped, noext, ctx)
+    return res simple(seg, depth, piped, noext, ctx, bt)
   }
   BEGIN {
     SRCH = "(^|[[:space:];&|(\047\"\\\\/`])(find|rg|grep|egrep|fgrep|rgrep|ugrep)([[:space:]\047\")`]|$)"
@@ -1918,6 +1927,7 @@ if [ -n "$searcher" ]; then
       return c
     }
     function sform(run, mode,   out, i, n, c, j, seg, k) {
+      if (run !~ /[\\\047"$]/) return run
       out = ""; n = length(run); i = 1
       while (i <= n) {
         c = substr(run, i, 1)
@@ -1999,16 +2009,16 @@ if [ -n "$searcher" ]; then
   [ -n "$pw_sf" ] || set +f
   if [ -n "$pw_ifs_set" ]; then IFS=$pw_ifs; else unset IFS; fi
   for pw_l in ${pw_lines[@]+"${pw_lines[@]}"}; do
-    pw_k=${pw_l%%$'\t'*}; pw_l=${pw_l#*$'\t'}
-    pw_c=${pw_l%%$'\t'*}
-    if [ "$pw_k" = 0 ]; then
-      [ "$pw_c" != deep ] || pw_deep=1
+    # (its fields split the same way: ${x%%...} is quadratic on a long word)
+    set -f; IFS=$'\t'; pw_fl=( $pw_l )
+    [ -n "$pw_sf" ] || set +f
+    if [ -n "$pw_ifs_set" ]; then IFS=$pw_ifs; else unset IFS; fi
+    if [ "${pw_fl[0]-}" = 0 ]; then
+      [ "${pw_fl[1]-}" != deep ] || pw_deep=1
       continue
     fi
-    case "$pw_l" in *$'\t'*$'\t'*$'\t'*$'\t'*) ;; *) continue ;; esac
-    pw_l=${pw_l#*$'\t'}; pw_q=${pw_l%%$'\t'*}; pw_l=${pw_l#*$'\t'}
-    pw_f=${pw_l%%$'\t'*}; pw_l=${pw_l#*$'\t'}
-    pw_b=${pw_l%%$'\t'*}; pw_s=${pw_l#*$'\t'}
+    [ "${#pw_fl[@]}" -eq 6 ] || continue
+    pw_k=${pw_fl[0]} pw_c=${pw_fl[1]} pw_q=${pw_fl[2]} pw_f=${pw_fl[3]} pw_b=${pw_fl[4]} pw_s=${pw_fl[5]}
     pw_word "$pw_b" "$pw_c" "$pw_q" "$pw_f" "$pw_s"
     if [ -n "$pw_t" ]; then pw_dec="$pw_dec$pw_k	$pw_t
 "; pw_nd=$((pw_nd + 1)); fi

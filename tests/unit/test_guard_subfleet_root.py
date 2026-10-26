@@ -175,7 +175,7 @@ R3B_HOOK_SHA256 = "f952fd3e9648df1783cec96327b66a84a21082ba63469ef56d41749d23a51
 #: The overlay's hook after r3c (review r2's walk-arounds closed), which r4 replaces.
 R3C_HOOK_SHA256 = "7a5ad79d3f7db4c3c08bf07b8455344a4bdae3e66224218094b398cdf1091a1a"
 #: The overlay's hook after r4 (review r3's walk-arounds closed): TRUST's hook_sha256.
-NEW_HOOK_SHA256 = "efa86362091a0d254608f23334c7ab0b6c9955e295fc82e5650ce42fcdd0110e"
+NEW_HOOK_SHA256 = "4b382c2920a50b0a517e3d70979c931338d654868e564508f127f95285b479ec"
 
 FAKE_HOME = "/Users/tester"
 SCOPED_CWD = FAKE_HOME + "/work/repo"
@@ -2962,11 +2962,11 @@ abs_of() {
 }
 BUDGET=0
 globbroad() {
-  local IFS=/ c="" first=-1 k=0 n=0 prefix="" text="" isglob="" p="" q="" name="" kind="" i=0 last=""
+  local IFS=/ c="" first=-1 k=0 n=0 prefix="" text="" isglob="" p="" q="" name="" kind="" i=0 last="" lastup=-1
   local -a cs cand kinds next nkinds
   set -f; local -a raw=( $1 ); set +f
   IFS=$' \t\n'
-  for c in ${raw[@]+"${raw[@]}"}; do [ -z "$c" ] || { cs[$n]=$c; n=$((n + 1)); }; done
+  for c in ${raw[@]+"${raw[@]}"}; do [ -z "$c" ] || { cs[$n]=$c; [ "$c" != .. ] || lastup=$n; n=$((n + 1)); }; done
   while [ "$k" -lt "$n" ]; do
     case "${cs[$k]}" in *[*?[]*) first=$k; break ;; esac
     prefix="$prefix/${cs[$k]}"; k=$((k + 1))
@@ -3017,7 +3017,8 @@ globbroad() {
     done
     cand=(); kinds=(); i=0
     while [ "$i" -lt "${#next[@]}" ]; do
-      if [ -n "$last" ] || { isbroad "${next[$i]}" && ! isfile "${next[$i]}"; }; then
+      if [ -n "$last" ] || { isbroad "${next[$i]}" && ! isfile "${next[$i]}"; } \
+         || { [ "$k" -lt "$lastup" ] && ! isfile "${next[$i]}"; }; then
         cand[${#cand[@]}]=${next[$i]}; kinds[${#kinds[@]}]=${nkinds[$i]}
       fi
       i=$((i + 1))
@@ -3116,19 +3117,59 @@ alternation() {
   done
   ALTS=( "${out[@]}" )
 }
+# r4 decision 9: a written path (absolute) is broad when its physical reading is, or, climbing out of a
+# /Volumes entry with .., when the rest read from / is
+written() {
+  local p=$1 l="" rest=""
+  physdots "$p"; normalize "$R"; broad "$R" && return 0
+  lc "$p"; l=$R
+  case "$l" in
+    /volumes/*/*) rest=${p#/*/*/}
+      case "/$rest/" in */../*) normalize "/$rest"; broad "$R" && return 0 ;; esac ;;
+  esac
+  return 1
+}
+# r4 decision 1: the word with each <component>/.. after its first glob component folded away by name
+dotfold() {
+  local IFS=/ part="" g="" pre="" n=0 i=0 out=""
+  local -a st
+  set -f; local -a parts=( $1 ); set +f
+  for part in ${parts[@]+"${parts[@]}"}; do
+    if [ -z "$g" ]; then
+      case "$part" in *[*?[]*) g=1; st[0]=$part; n=1 ;; *) pre="$pre$part/" ;; esac
+      continue
+    fi
+    case "$part" in
+      ''|.) ;;
+      ..) if [ "$n" -gt 0 ] && [ "${st[$((n - 1))]}" != .. ]; then n=$((n - 1)); else st[$n]=..; n=$((n + 1)); fi ;;
+      *) st[$n]=$part; n=$((n + 1)) ;;
+    esac
+  done
+  out=$pre
+  while [ "$i" -lt "$n" ]; do out="$out${st[$i]}/"; i=$((i + 1)); done
+  out=${out%/}
+  R=${out:-/}
+}
 judge_alt() {
-  local w=$1 b="" walk="" c="" x=""
+  local w=$1 b="" f=""
   case "$w" in
     *[*?[]*) ;;
     *) abs_of "$w"; case "$R" in *'$'*) return 1 ;; esac
-       physdots "$R"; normalize "$R"; broad "$R"; return ;;
+       written "$R"; return ;;
   esac
   b="/$w/"
   while [ "${b//\/\*\*\*\//}" != "$b" ]; do b=${b//\/\*\*\*\//\/**\/}; done
   b=${b#/}; b=${b%/}
   b=${b//\[\^\/\]/[^$'\a']}; b=${b//\[\!\/\]/[!$'\a']}
+  judge_glob "$b" && return 0
+  dotfold "$b"; f=$R
+  [ "$f" != "$b" ] && judge_glob "$f"
+}
+judge_glob() {
+  local b=$1 walk="" c="" x=""
   case "/$b" in */\*\*/*) b=${b%%/\*\*/*}; walk=1 ;; esac
-  if [ -z "$walk" ]; then
+  # r4 decision 2: the trailing run is read before a **/ too
+  if :; then
     while :; do
       c=${b##*/}
       case "$b" in
@@ -3145,7 +3186,7 @@ judge_alt() {
   [ -n "$b" ] || b=/
   case "$b" in
     *[*?[]*) abs_of "$b"; case "$R" in *'$'*) return 1 ;; esac; globbroad "$R" ;;
-    *) abs_of "$b"; case "$R" in *'$'*) return 1 ;; esac; physdots "$R"; normalize "$R"; broad "$R" ;;
+    *) abs_of "$b"; case "$R" in *'$'*) return 1 ;; esac; written "$R" ;;
   esac
 }
 judge() {
@@ -3961,13 +4002,20 @@ R4_HOSTILE = {
     "1,000 unclosed {": "rg --files ~/.subfleet ~/" + "{" * 1000,
     "/[ x1,000": "rg --files ~/.subfleet " + "/[" * 1000,
     "10,000 commas": "rg --files ~/.subfleet ~/{" + "," * 10000 + "}",
+    # under 4 KB, but 2,040 components: each cost the folder walks a pass over the word (7 s in r3c's
+    # loop), so more than 256 components is capped too (the smallest change that keeps decision 6's intent)
+    "2,040 components in 4 KB": "rg --files ~/.subfleet " + "/a" * 2040,
+}
+#: The cap's scanned edge (64 { or [ in just under 4 KB): judged, and denied beside the crawl; its time is
+#: reported, not bounded (2.4 s and 5.1 s best of three at load ~100 in round r4: the residual cost).
+R4_CAP_EDGE = {
     "64 unclosed { in 4 KB": "rg --files ~/.subfleet ~/" + ("{" + "a" * 62) * 64,
     "64 /[ in 4 KB": "rg --files ~/.subfleet " + ("/[" + "a" * 61) * 64,
 }
 #: ... and capped words alone: broad unscanned (fail closed), whatever they hold.
 R4_CAPPED = {
     "65 {": f"rg foo {S_}/src/" + "{a}" * 65, "65 [": f"rg foo {S_}/src/" + "[a]" * 65,
-    "4 KB": f"rg foo {S_}/src/" + "a" * 4097,
+    "4 KB": f"rg foo {S_}/src/" + "a" * 4097, "257 components": f"rg foo {S_}/src" + "/a" * 257,
 }
 
 
@@ -3978,19 +4026,26 @@ def hook_seconds(hook: Path, command: str, cwd: str = S_) -> tuple[float, str]:
 
 
 def test_r4_hostile_words_fail_closed_fast():
-    """Decision 6: 1,000 unclosed {, /[ x1,000, 10,000 commas (and the cap's own edges) each finish under
-    2 s beside a crawl and stay denied; a word past the cap is broad on its own."""
+    """Decision 6: 1,000 unclosed {, /[ x1,000, 10,000 commas and 2,040 components each finish under 2 s
+    beside a crawl and stay denied; the scanned edge (64 { or [ in 4 KB) stays denied, its time reported; a
+    word past the cap (more than 64 { or [, more than 256 components, or over 4 KB) is broad on its own."""
     rows = {}
     for name, command in R4_HOSTILE.items():
         runs = [hook_seconds(HOOK, command) for _ in range(3)]
         assert all(rule(out) == "unscoped-search" for _, out in runs), name
         rows[name] = min(t for t, _ in runs)
-    report("hostile-r4", rows)
+    edge = {}
+    for name, command in R4_CAP_EDGE.items():
+        t, out = hook_seconds(HOOK, command)
+        assert rule(out) == "unscoped-search", name
+        edge[name] = t
+    report("hostile-r4", {**rows, "cap edge (not bounded)": edge})
     assert {name: t for name, t in rows.items() if t >= R4_HOSTILE_S} == {}
     for name, command in R4_CAPPED.items():
         assert rule(run_hook(HOOK, command, LANE_W)) == "unscoped-search", name
     assert rule(run_hook(HOOK, f"rg foo {S_}/src/" + "{a}" * 64, LANE_W)) is None
     assert rule(run_hook(HOOK, f"rg foo {S_}/src/" + "a" * 4000, LANE_W)) is None
+    assert rule(run_hook(HOOK, f"rg foo {S_}/src" + "/a" * 200, LANE_W)) is None
 
 
 def test_r4_absolute_paths_cost_at_most_twice_the_installed_hook(hooks):
