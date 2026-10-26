@@ -8,6 +8,7 @@ the store, the daemon, the adapters, and the CLI cannot drift apart.
 from __future__ import annotations
 
 import enum
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -403,16 +404,20 @@ def hold_note(value: Any) -> str | None:
     of printable characters (`str.isprintable`: no newline, tab, control or
     separator character other than the space), from 1 to `HOLD_NOTE_MAX` of
     them, that the C-23.14 scrubber leaves whole, read from its start or from
-    just after any `-` or `_` (`ids.holds_credential`). Anything else raises
-    ValueError naming the rule it breaks, never the text, and the caller writes
-    nothing."""
+    just after any `-` or `_` (`ids.holds_credential`), both as written and as
+    JSON writes it (review r2 of #263, P3-1: the scrubber's URL rule finds no
+    word boundary before `https` in `ühttps://u:<password>@host` and leaves it
+    whole, but masks the password in `\\u00fchttps://…`, the form `status
+    --json` and `status.json` carry). Anything else raises ValueError naming
+    the rule it breaks, never the text, and the caller writes nothing. The
+    length is checked first, so a longer text is never read for a credential."""
     if value is None:
         return None
     note = value.strip() if isinstance(value, str) else ""
     if not note or len(note) > HOLD_NOTE_MAX or not note.isprintable():
         raise ValueError(HOLD_NOTE_RULE)
     from .ids import holds_credential       # ids imports this module
-    if holds_credential(note):
+    if holds_credential(note) or holds_credential(json.dumps(note)[1:-1]):
         raise ValueError(HOLD_NOTE_CREDENTIAL_RULE)
     return note
 
