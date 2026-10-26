@@ -85,7 +85,7 @@ are unchanged. The test fixture in `tests/fake/guard.py` is deliberately synthet
 and must never be staged as operator security policy. It is absent from both
 prepared distributions, and the runtime has no test-fixture fallback.
 
-## Policy revision: ~/.subfleet roots (D-LANE-SCOPE1, 2026-10-24; r2, r3 and r3b 2026-10-25)
+## Policy revision: ~/.subfleet roots (D-LANE-SCOPE1, 2026-10-24; r2, r3 and r3b 2026-10-25; r3c 2026-10-26)
 
 The table above is the original pair of 2026-09-05. It is not the rollback: its TRUST
 (`0b9d688e…`) pins `codex-cli 0.153.3`, and staging it would make preflight refuse every
@@ -103,7 +103,8 @@ walked 14,121 job folders and 1,765 job worktrees, the `unscoped-search` rule tr
 folder: `$SUBFLEET_ROOT` (the daemon sets it on every attempt) and `$SUBFLEET_HOME` (the
 launch allowlist passes it through), each also as `${…}`, are spellings of `$HOME/.subfleet`
 under the same depth rule. One job's folder (`~/.subfleet/jobs/<id>`, `$SUBFLEET_ROOT/jobs/<id>`)
-and anything deeper stays scoped; `-maxdepth`/`--max-depth` still disarms the rule. The region
+and anything deeper stays scoped; a `-maxdepth`/`--max-depth` exempts the search it bounds (since
+r3c only that simple command's own, see below). The region
 is edited in this overlay itself now: the Claude hook no longer carries it (its rule moved to
 `unscoped_search.py` on 2026-10-20), and the same roots go into that analyzer in one reviewed
 step.
@@ -123,11 +124,33 @@ volume folded to `/`, `/private/tmp`, `/private/var` and `/private/etc` to `/tmp
 `/etc`) and matched in any letter case against snapshot-5's roots, which adds `/Volumes` and each
 entry in it, `/System`, `/System/Volumes`, `/private`, `/var`, `/var/folders`, `/opt`,
 `/opt/homebrew`, `/Library`, `/Applications`, `/usr` and `~/Library`. A written path is judged
-where its links lead (`rg x ~/link-to-home` is denied), and nothing under `/Volumes`,
-`/Network`, `/net` or `/home` is ever resolved or stat'ed. A glob is judged component by
+where its links lead (`rg x ~/link-to-home` is denied), except under `/Volumes`, `/Network`,
+`/net` or `/home`: a written path under them is never resolved or stat'ed; a link leading into
+one still is. A glob is judged component by
 component, listing only a folder a root can be in (computed from the roots, as snapshot-5's
 `holds_root` is), so `rg foo "/V*/Macintosh HD"` is denied, matched in `/Volumes`' listing,
 while `rg x /*/*/x` and `rg foo /Volumes/*/x*` read nothing inside a mount.
+
+Its r3c (2026-10-26) closes the walk-arounds of the hub's review r2. A glob that matches every
+entry is the folder it sits in: trailing `/`, `/.` and `<glob>/..` are read first, and a trailing
+run of components made only of wildcards (`?*`, `[!.]*`, `[0-9]*`, a `/` inside brackets
+included) is that folder, listed or not (`rg --files ~/.subfleet/jobs/?*` and `rg --files /tmp/?*`
+are denied); any glob directly in a folder of a `.subfleet` is that folder, so r3's allowed
+`~/.subfleet/jobs/2026*` is denied now, while `jobs/<id>/a1/*` and `/tmp/sf-*` pass.
+`/Volumes/<entry>/<rest>` is judged by name as `/<rest>` (`"/Volumes/Macintosh HD/Users/<me>/.subfleet"`,
+an external disk's `Users`); nothing inside a mount entry is listed, and a glob there matches the
+names a root can have plus any other name. Comma braces are expanded (64 words at most; a nested
+group, a `{x..y}` sequence or more reads each group as `*`) and zsh's `(a|b)` is judged by its
+alternatives. A searcher's `..` after a link is resolved where find and rg resolve it (a cd
+target's stays logical). Searchers are found by basename (`/usr/bin/find`, `\rg`, `"rg"`,
+`$(which rg)`, egrep, fgrep, rgrep, ugrep) and right after a quote. Backslash escapes, `***`,
+`~user`, `$'…'` (read as `*`) and the two code points APFS folds to an ASCII letter here (U+017F to
+`s`, U+212A to `k`) are read as the shell and the volume read them. A bare `cd` is `cd ~`, a
+recursive searcher given no path is judged by the cwd rule (`rg foo` sitting in the home), a
+`sh`/`bash`/`zsh`/`dash`/`ksh -c` or `eval` script holding a searcher is judged as its own line to
+depth 4 (deeper is denied), and a depth bound exempts only the simple command it is an argument
+of (`rg --files ~/.subfleet # --max-depth` is denied). The block message's root list is made from
+the root table, so a `/usr` or `/Volumes/<entry>` denial names its root.
 
 **Against the Claude half** (`~/.claude/hooks/unscoped_search.py`, session 7f214082's): after
 r3b the path words follow its snapshot-5 (roots, normalization, letter case, links, stall
@@ -136,20 +159,37 @@ rule is r3's decision 2. Its intended limits are this overlay's too: a glob in a
 cannot hold a root is not listed, so a link inside it to a root is not followed
 (`rg x src/link-u*`); zsh qualifiers (`*(/)`), `<1-9>` and extendedglob forms are not judged;
 and a link inside a listed folder that points into a mount that may stall is still resolved.
-Known differences that remain: this overlay judges only words spelled from `~`, `$HOME`,
-`$SUBFLEET_*` or `/` (relative paths and the cwd rule's list are D-LANE-SCOPE2's), never sees a
-searcher right after a quote, judges a quoted glob as if unquoted, and runs r3's trailing-`/*`
-rule before the glob (`rg x ~/Pol*/*` is denied here, allowed there). The report's known limits
-list the rest.
+Known differences that remain after r3c. Forms this overlay still lets through: relative paths
+(`rg --files ..` from a worktree) and the cwd rule's fixed list (`rg --files .` sitting in
+`~/.subfleet`), both D-LANE-SCOPE2's; a searcher named through a variable (`RG=rg; $RG …`) or a
+tool it does not know (fd, bfs, gfind, ggrep, ag, `git grep`, tree, du, `ls -R`); a `find` that
+ends the command (`… | xargs -n1 find`); `env -C <root> rg`; a quoted for-loop list; parameter
+forms other than `$NAME` and `${NAME}` (`${SUBFLEET_ROOT:-~/.subfleet}`); a `$'…'` that starts a
+word (`$'/Users/me'`, a relative glob); `~+` and `~-`; a link inside a mount entry that a glob
+there would match (nothing there is listed); a link in a folder that cannot hold a root, found by
+a glob (`rg x src/link-u*`), or among the matches of a `<glob>/..`; a bare `*` between two plain
+names under a folder that is listed (`rg -l foo ~/*/src`, its matches judged); an unquoted
+depth-bound spelling used as a pattern (`rg -e --max-depth ~`); zsh qualifiers, `<1-9>` and
+extendedglob forms; and a `bash -c` script that spans lines. Places this overlay is now stricter
+than snapshot-5: a quoted glob is judged as if unquoted; r3's trailing-`/*` rule runs before the
+glob (`rg x ~/Pol*/*`); 1(b) makes a trailing wildcard-only component its folder even where the
+folder is never listed (`/tmp/?*`, `~/PolicyEngine/?*`); 1(c) makes any glob directly in a folder
+of a `.subfleet` that folder (`jobs/2026*`, `jobs/link-u*`); `/Volumes/<entry>/<rest>` is judged as
+`/<rest>` and a glob inside a mount entry by name; a `$'…'` is read as `*` (snapshot-5 decodes
+it); every comma group of a word is expanded, and a nested group or a `{x..y}` reads as `*`
+(snapshot-5's `expand_braces` expands one group and leaves the others as written); a searcher
+nested deeper than 4 shells is denied (snapshot-5 follows nesting to its `MAX_NEST` of 24); and a
+searcher's name after a quote, a backslash or a path is detected anywhere in the text, not only as
+a command word. The report's known limits list the rest.
 
 | File | SHA-256 |
 | --- | --- |
-| `never-rules-hook.sh` | `f952fd3e9648df1783cec96327b66a84a21082ba63469ef56d41749d23a5131e` |
-| `TRUST` | `0d5dac0fc9290eac8cfd1483b7f44cde9bb27e817657dd7fe4dc7b2ab07054d8` |
+| `never-rules-hook.sh` | `7a5ad79d3f7db4c3c08bf07b8455344a4bdae3e66224218094b398cdf1091a1a` |
+| `TRUST` | `68936fafa42f885c29fadd9b48c2de48ace5e1ccd29b9c0cee0a09ad9e1ac91a` |
 
 TRUST is the installed TRUST of 2026-09-29 (`b3193b97…`), changing only `hook_sha256` and
 appending four dated provenance additions (D-LANE-SCOPE1's three sentences, r2's one, r3's one
-and r3b's one); `hooks_trust_hash` and
+and r3b's one, whose mount clause r3c corrected to the sentence above); `hooks_trust_hash` and
 `override` hash the hook's identity, not its bytes, and do not move. The staging helper above
 refuses to replace a different overlay in place, so this revision is staged into a fresh state
 root and swapped in; `tests/unit/test_guard_subfleet_root.py` states and checks the rule's

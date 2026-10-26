@@ -438,7 +438,12 @@ prohibition on editing the copy: the pinned hash fails the moment anyone does.
 region in the overlay (`private/guard/never-rules-hook.sh`) to add the `~/.subfleet` roots, with
 the same roots in the Claude analyzer, and TRUST pins the new bytes. The hash pin still fails any
 unreviewed edit; `tests/unit/test_guard_subfleet_root.py` rebuilds the original reviewed hook from
-the overlay and checks that only the roots, the header and the block message's root list changed.
+the overlay. Its fence removes the three path-word blocks that rounds r3, r3b and r3c added (the
+on-disk judging of path words, its judge pass, and the message naming), undoes the text pairs
+those rounds made outside the blocks (the header's sentences and comments, and since r3c the
+prefilter's third term, the command read before detection, the `judged` lines, the cwd rule and
+the message's root list, now built from the root table), and must get the r2 bytes; undoing
+D-LANE-SCOPE1's roots, header and message edits then gives the original reviewed bytes.
 
 #### 58 — the seven byte-identical rule blocks
 

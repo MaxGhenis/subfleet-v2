@@ -13,13 +13,16 @@ Round r3 (2026-10-25, "r3" below) judges path words on disk: a file is never a b
 trailing `/*` after a root is that root, and a glob that can match a root is judged by what it
 matches. Round r3b (2026-10-25, "r3b" below) makes those path words judged with the roots,
 globs and mounts of the Claude half's snapshot-5 (its roots, normalized and in any letter case;
-links followed except under a mount that may stall; globs component by component). Nothing here
-touches the live guard; the hub installs it with the steps below.
+links followed except under a mount that may stall; globs component by component). Round r3c
+(2026-10-26, "r3c" below) closes the walk-arounds of the hub's review r2 (REQUEST_CHANGES at
+`674abdac7`): globs that match every entry, `/Volumes/<entry>` paths, braces and zsh's
+alternation, links before `..`, searchers named by path or quote, and the other escapes. Nothing
+here touches the live guard; the hub installs it with the steps below.
 
 ## What changed
 
-**The hook** (`private/guard/never-rules-hook.sh`, SHA-256 `f952fd3e…131e` after r3b; r3's
-was `2c3fbc1a…d7cf`, r2's `dbe21e1d…041c`). Two alternations join the roots in `broad_re`:
+**The hook** (`private/guard/never-rules-hook.sh`, SHA-256 `7a5ad79d…1a1a` after r3c; r3b's
+was `f952fd3e…131e`, r3's `2c3fbc1a…d7cf`, r2's `dbe21e1d…041c`). Two alternations join the roots in `broad_re`:
 
 ```
 …|Library/Caches|\.cache|\.local|\.subfleet(/[^/[:space:]'\"]+)?))?|\\\$SUBFLEET_(ROOT|HOME)(/[^/[:space:]'\"]+)?|(/private)?/tmp
@@ -48,18 +51,25 @@ The region's own `roots` and `judged` comments and the header say so; the header
 paragraph records that the region is edited in this file on hub decisions (the Claude hook's
 2026-10-20 rewrite moved its rule to `unscoped_search.py`, so the byte-identical contract and
 its skip-gated DriftTests are historical). Nothing else changed:
-`test_only_the_roots_the_header_and_the_message_changed` undoes exactly these edits (the text
-edits, the two `sed` edits and the `broad_re` line) and gets the original reviewed bytes
-(`a60d1c51…`) back.
+`test_only_the_roots_the_header_and_the_message_changed` first removes the three path-word blocks
+whole (`# >>> r3 path words: begin|judge|name >>>` to their end markers) and undoes the text pairs
+r3, r3b and r3c made outside them (`R3C_TEXT`, then `R3_TEXT`: the header's sentences, the
+region's header comments, and since r3c the prefilter's third term, `pw_cmd` in the detection, the
+`judged` lines and the cwd rule, and the message's root list), which must give the r2 bytes
+(`dbe21e1d…`); then it undoes D-LANE-SCOPE1's text edits, the two `sed` edits and the `broad_re`
+line and gets the original reviewed bytes (`a60d1c51…`) back.
 
-**TRUST** (`0d5dac0f…54d8` after r3b; r3's was `12b5f31a…58a2`, r2's `aa09f53d…a2f0`). It is built on the installed TRUST of 2026-09-29 (`b3193b97…`, the
+**TRUST** (`68936faf…c91a` after r3c; r3b's was `0d5dac0f…54d8`, r3's `12b5f31a…58a2`, r2's `aa09f53d…a2f0`). It is built on the installed TRUST of 2026-09-29 (`b3193b97…`, the
 `codex-cli 0.159.0` pin), not on the repository's copy at `abe117e67` (`0b9d688e…`, which still
 pins `codex-cli 0.153.3`; a TRUST built on it would refuse every Codex lane at preflight with
 VERSION, `subfleet/guard/preflight.py:649-650`). It has the same keys. `hook_sha256` is
-recomputed for the new bytes, and `provenance` gains three dated additions: D-LANE-SCOPE1's three
+recomputed for the new bytes, and `provenance` gains four dated additions: D-LANE-SCOPE1's three
 sentences, ending "Installed only after the hub's review and a live hooks/list preflight.",
 r2's one sentence, naming the env spellings, r3's one sentence, naming the path words judged
-on disk, and r3b's one sentence, naming snapshot-5's roots, links and globs. Nothing else moved. `hooks_trust_hash` (`sha256:f97fa95f…`) and
+on disk, and r3b's one sentence, naming snapshot-5's roots, links and globs, whose mount clause r3c
+corrected (decision 7: "except under /Volumes, /Network, /net or /home: a written path under them
+is never resolved or stat'ed; a link leading into one still is"). r3c added no sentence: its
+decision 8 lets TRUST change only `hook_sha256` and that sentence. Nothing else moved. `hooks_trust_hash` (`sha256:f97fa95f…`) and
 `override` are unchanged: `subfleet/guard/preflight.py:hooks_trust_hash` hashes the hook's
 identity (event, matcher, type, command path, timeout, async flag, status message), not its
 bytes. Checked three ways: `hooks_trust_hash(reference_hook_path)` still equals the pin; the
@@ -364,6 +374,143 @@ for the two words that list only those.
 expects, and the rollback: hook `a60d1c51…`, TRUST `b3193b97…` (unchanged by r3b).
 
 
+## r3c: review r2's walk-arounds closed (2026-10-26)
+
+**Why.** The hub's review r2 (REQUEST_CHANGES at `674abdac7`) confirmed three ways around the rule
+through the whole hook and in real `/bin/zsh -f` and `/bin/bash`: globs that match every entry
+(`rg --files ~/.subfleet/jobs/?*`, `…/*//`, `…/*/..`), the boot volume's alias
+(`"/Volumes/Macintosh HD/Users/<me>/.subfleet"`), and braces and zsh's `(a|b)`, plus four P3s
+(a link before `..`, searcher names, other escapes, sentences). Every review input was allowed at
+`674abdac7` (95 of the 97 red inputs; the other two, `~/.subfleet/{jobs,src}` and a Kelvin-sign
+`worKtrees`, were already denied as one child's name).
+
+**The decisions as built** (the hub's numbering):
+
+1. **A glob that matches every entry is its folder.** In `pw_alt`, trailing `/`, `/.` and
+   `<glob>/..` are read first; then a trailing run of components made only of wildcards (`*`,
+   `?`, bracket expressions: `pw_wild`), or `.*` or `**`, is the folder they sit in, listed or not
+   (`(glob)` in the message). In `pw_globbroad`, any glob component directly in a folder of a
+   `.subfleet` (the home's, or any `/Users/<x>`'s, as BROAD_RE has them) makes the word that
+   folder (`pw_subchild`), so r3's allowed `~/.subfleet/jobs/2026*` is denied; `jobs/<id>/a1/*`,
+   `/tmp/sf-*`, `W/*` and `W/**/*.py` pass.
+   *Deviation.* 1(b) as written covers a wildcard-only component in any position. Read that way
+   it denies r3b's must-allow `rg x /*/*.py` (it names files one level down) and
+   `rg foo /Volumes/*/x*`, and the r3b differential's `/*/*/x` (no real match is a root). So 1(b)
+   is the last component (after 1(a)), at any root; a wildcard-only component followed by a plain
+   name under a folder that is listed is judged by the listing, as r3b decided. Under a folder that
+   is never listed because it is inside a mount entry, a glob component matches by name (below),
+   which denies review r2's `"/Volumes/Macintosh HD/Users/"*/.subfleet`.
+2. **`/Volumes/<entry>/<rest>` is `/<rest>` by name.** `pw_isbroad` maps the path (again for
+   `/Volumes/<a>/Volumes/<b>/…`) before matching and never stats it; `pw_holds` is false inside a
+   mount entry, so nothing there is listed. *Addition:* a glob component inside a mount entry
+   matches the names a root can have (snapshot-5's ROOT_NAMES) plus a placeholder for any other
+   name, judged by name only: `"/Volumes/Macintosh HD/"U*` is denied, `/Volumes/Ext/src/x*` passes.
+   Without it, a selective glob under the alias (`…/Macintosh HD/U*`) would be a new walk-around.
+3. **Braces and alternation.** `pw_expand` expands every unquoted comma group (64 words at most);
+   a nested group, a `{x..y}` sequence or more than 64 words reads each group as `*`. Outside a
+   bash/sh/dash/ksh `-c` script (zsh's reading; bash refuses the form), a `(a|b)` group of plain
+   names is judged by its alternatives, and any other group reads its component as `*`. The judge
+   pass now carries the word as the shell reads it, with a quoted or escaped `{ } , ( | )` kept
+   literal (`\001`–`\006`), and a run that starts with a brace group is a path word too
+   (`{~,/tmp/x}/.subfleet`). A word is broad when one of its words is; the message names it as
+   written, plus `(glob)` when that word was judged as a glob.
+4. **A searcher's `..` is physical.** `pw_physdots` resolves the links before each `..` (with
+   `pw_physical`) for a plain word, a glob's prefix, and a plain `..` after a glob; inside a stall
+   mount it stays by name. A `cd`/`pushd` target keeps the logical `..` (the judge pass marks it;
+   `cd -P`'s is physical).
+5. **Searchers by basename.** Before the detection, `pw_prep_awk` reads the command as the rules
+   do (`pw_cmd`): in command position (the first word, or after `env`, `command`, `builtin`,
+   `exec`, `nice`, `nohup`, `time`, `timeout`, `xargs`, `sudo`, `noglob`, `stdbuf` or `caffeinate`
+   and their options), a searcher named by a path, a backslash or a quote is made its name,
+   egrep/fgrep/ugrep `grep` and rgrep `grep -r`; `$(which X)`, `$(command -v X)` and `` `which X` ``
+   become X. The detection regexes take a quote or a backslash before the name, and the prefilter
+   gains a third term for these spellings. `RG=rg; $RG …` stays a known limit.
+6. **The other escapes.** Backslash escapes are applied as the shell applies them (unquoted `\x` is
+   `x`; in double quotes only `\$`, `` \` ``, `\"`, `\\` and backslash-newline). `***` is `**`. A
+   `/` inside a bracket expression splits no component in zsh's reading (`/[^/]*` is every entry of
+   `/`). The two folded code points below are folded in `pw_normalize`. Each `$'…'` in a path word
+   is `*`. `~name` is `/Users/name`, or the home when `name` is this user (`id -un`). A bare `cd`
+   or `cd --` is `cd ~`. A recursive searcher given no path walks `.`, and the cwd rule judges it
+   (`pw_nopath`): find with an expression first, rg with no path and nothing on its stdin (no pipe
+   into it, no `<` redirection; `--files` lists `.` whatever its stdin, as snapshot-5 reads rg),
+   grep -r with none. A `sh`/`bash`/`zsh`/`dash`/`ksh -c` or `eval` script holding a searcher is
+   added to the judged command as its own line (its words judged in the shell's reading), to depth
+   4; a searcher deeper than that adds a placeholder root, so it is denied ("a searcher nested
+   deeper than 4 shells"). A depth bound (`-maxdepth`, `--max-depth`, `-d N`) that is an unquoted
+   argument of a simple command holding a searcher makes that command `:`, so it exempts only
+   itself; the global "any max-depth disarms the rule" check is gone, and the header's "no
+   override … no magic comment" sentence is true now.
+7. **Sentences.** The mount sentence is corrected in TRUST and the overlay doc; this section's
+   "What changed" paragraph lists the fence's three path-word blocks and counts four dated
+   additions; `docs/invariants.md` says what the fence undoes; the overlay doc's "Known differences
+   that remain" lists the open forms and where this overlay is stricter than snapshot-5; the block
+   message's root list is built from the root table `pw_isbroad` reads (`pw_fixed`, `pw_kids`).
+8. **TRUST and install.** TRUST changes only `hook_sha256` and that sentence; step 0 below expects
+   the new pair.
+
+**The folded code points** (decision 6): every code point whose Python `casefold()` is one ASCII
+letter while it is none, each checked in scratch with `os.path.samefile` against the ASCII name on
+this volume (APFS, case-insensitive). `test_r3c_folded_code_points_are_exactly_the_confirmed_set`
+re-enumerates them and pins the hook's folding.
+
+| Code point | Name | UTF-8 | Folds to | `samefile` here |
+| --- | --- | --- | --- | --- |
+| U+017F | LATIN SMALL LETTER LONG S | `c5 bf` | `s` | yes |
+| U+212A | KELVIN SIGN | `e2 84 aa` | `k` | yes |
+
+**Changed verdicts against `674abdac7`.**
+- *Now denied:* every input of review r2's P2-1, P2-2 and P2-3 lists, P3-1's two links, P3-2's
+  names and the P3-3 forms (`R3C_WILD_DENIED`, `R3C_VOLUMES_DENIED`, `R3C_BRACES_DENIED`,
+  `R3C_DOTS_DENIED`, `R3C_SEARCHERS_DENIED`, `R3C_FORMS_DENIED`); r3's allowed
+  `rg x ~/.subfleet/jobs/2026*` and snapshot-5's `jobs/2026*` and `jobs/link-u*` (1(c)); r2's known
+  limits `~tester/.subfleet`, `~tester/PolicyEngine`, `~/.subfleet/jobs/*/a1`,
+  `bash -c 'rg --files $SUBFLEET_ROOT'` and `bash -c 'rg --files ~'` (`R3C_CLOSED_LIMITS`); the
+  known-limit pins `bash -c 'find / -name x'`, `bash -c 'rg --files ~/.subfleet'` and
+  `eval 'grep -r x ~/.subfleet/jobs'`; the Claude example table's `rg foo`, `rg --files | head`,
+  `grep -r foo` and `ps | grep -r foo` from the home (no path, so `.`); the root table's
+  `/Volumes/Macintosh HD/Users` (decision 2).
+- *Now allowed:* none. S1 finds no command the original hook denies that this one allows; its
+  two "intended, loosened" rows are S3's labelled case, an apply_patch body plus a new-root search,
+  denied by both hooks (`hf-dest` before, `unscoped-search` now).
+- *Still allowed, by design:* review r2's 25 scoped searches and the roots in pattern position
+  (`R3C_ALLOWED`, 47 cases with the brief's must-stay-allowed ones), `rg -l foo ~/*/src`, and the
+  forms listed under "Known limits".
+
+**The property** (`test_r3c_property_the_hook_agrees_with_an_independent_reference`, seed
+20261027, 2,400 words, 1,986 distinct, 1,102 broad): r3b's generator plus wildcard-only and bracket
+components (with a `/` inside brackets and `***`), the `//`, `/.`, `/./`, `/..` and `<glob>/..`
+tails, the `/Volumes/Macintosh HD` and `/Volumes/Boot` prefixes (`/Volumes/Boot` is the fixture's
+link to `/`, standing in for the alias), comma braces (360 words) and zsh alternation (306), `~user`,
+98 words with a backslash, and the two folded code points. `REFERENCE_SH` was rewritten from the
+r3c brief, not from the hook. Every plain word goes through `pw_word`; the 98 escaped words and 200
+more go through the whole hook. Result: 0 disagreements. On the way it found one hook over-block,
+minimized to `rg -n foo /VOLUMES/Boot/private/(link-to-usr|o\pt)//`: the judge pass's paren group
+did not take a backslash escape, so the word split and its `//` tail read as `/`; fixed. It also
+found a reference bug, minimized to `/Volumes/Macintosh HD/Users/x*`: the reference's glob walk
+started from the path `isbroad` had overwritten (`R`, the mapped `/users`); fixed. r3b's property
+(seed 20261026) still gives 0 of 2,400 against the rewritten reference, and r3's property (seed
+20261025) passes against its updated oracle.
+
+**The real-shell differential** (`test_r3c_globs_braces_and_alternation_agree_with_real_shells`,
+45 words: the r3c glob, brace, alternation, bracket, `***` and `/Volumes/Boot` cases): each is
+denied exactly when some expansion of it in `/bin/zsh -f` or `/bin/bash`, over the fixture, names a
+root (`r3c_real`: the shells expand; decision 1 is read as written; every match is judged by
+`REFERENCE_SH`). Alternation is zsh's alone. The documented exceptions are the entry budget (none
+here) and decision 2's by-name reading inside a mount entry: `/Volumes/Boot/Users/zz*` and
+`/Volumes/Boot/Users/glob/The*` are denied by name though no real entry matches. r3's differential
+(324 words) takes the same either-shell rule now: bash reads `**/` as `*/`, which r3's oracle had
+read as zsh's walk in both shells.
+
+**The mount test** (`test_r3c_nothing_inside_a_mount_is_read`): r2's harness, the five disk
+functions wrapped, over r3b's 20 mount words and 16 more (`/Volumes/<entry>/…` by name, braces,
+alternation, `..` and `***` under a mount): no call lists or stats anything inside
+`/Volumes/<entry>`, `/Network`, `/net` or `/home`.
+
+**Hashes for the install.** The new pair: hook
+`7a5ad79d3f7db4c3c08bf07b8455344a4bdae3e66224218094b398cdf1091a1a`, TRUST
+`68936fafa42f885c29fadd9b48c2de48ace5e1ccd29b9c0cee0a09ad9e1ac91a`. The installed pair step 0
+expects, and the rollback: hook `a60d1c51…`, TRUST `b3193b97…` (unchanged by r3c).
+
 ## Invariants and how they were checked
 
 `tests/unit/test_guard_subfleet_root.py` states each in its docstring and checks it.
@@ -547,33 +694,35 @@ the first three entries below into D-LANE-SCOPE2.
   `~/PolicyEngine/policyengine-us/policyengine_us` and `rg --files ../../PolicyEngine` from
   `~/PolicyEngine/policyengine-us` pass the old hook (and `find ../../..` from `~/PolicyEngine/…`).
   The Claude analyzer resolves the cwd and blocks all three.
-- **A searcher right after a quote is not detected** (found by the first build's differential).
-  The searcher regexes want a space, `;`, `&`, `|`, `(` or the line start before `find`/`rg`/
-  `grep`, so a sub-script that starts with one passes: `bash -c 'find / -name x'`,
-  `sh -c "rg foo ~"`, `eval 'grep -r x ~/.subfleet/jobs'` and `bash -c 'rg --files $SUBFLEET_ROOT'`
-  are allowed today by the live hook. `bash -c 'cd / && find . -name x'` and
-  `bash -c ' find / -name x'` are denied. The Claude analyzer parses sub-scripts and blocks all
-  of them. This is the largest gap the differential found; it predates D-LANE-SCOPE1 and needs
-  its own decision (allowing `'` and `"` before the searcher in the three detection regexes is
-  the obvious repair; it changes the prefilter literal the Claude-era drift tests pinned).
+- **A searcher right after a quote** was not detected before r3c (`bash -c 'find / -name x'`,
+  `eval 'grep -r x ~/.subfleet/jobs'`, `bash -c 'rg --files $SUBFLEET_ROOT'` are allowed by the
+  live hook). r3c's decision 5 detects it and its decision 6 judges the script as its own line, so
+  all of them are denied now; the Claude-era prefilter literal is kept byte for byte and a third
+  term carries the new spellings.
 - **`xargs -n1 find`** (review r1, P3-3, seen at scale 2). `printf '%s\n' ~/.subfleet/ | xargs -n1 find`
   passes: a `find` that ends the command is not detected as a searcher (the detection and the
   prefilter want whitespace after it). Pre-existing: `printf '%s\n' ~/ | xargs -n1 find` passes
   the old hook.
 - **Other gaps shared with every root** (review r1, P3-3), each pre-existing:
-  - spellings the rule does not normalize: `$'…'` quoting; other names for the folder
-    (`~maxghenis/.subfleet`); a glob in a middle component under a folder that cannot hold a
-    root by name (`…/jobs/*/a1`; r3's decision 2 took the trailing `/*` out of this list, and
-    r3b's normalization took `~//.subfleet`, `~/.subfleet/./jobs`, a trailing `/.` or `/..`,
-    `~/".subfleet"`, `~/.Subfleet` and `/System/Volumes/Data/…` out of it); `env -C ~/.subfleet rg --files`; and parameter
-    forms of the env spellings other than `$NAME` and `${NAME}` (`${SUBFLEET_ROOT:-~/.subfleet}`,
-    as `${HOME:-…}` today);
+  - spellings the rule does not normalize: a `$'…'` that starts a word (`$'/Users/me/.subfleet'`;
+    r3c reads a `$'…'` inside a path word as `*`); `~+` and `~-`; `env -C ~/.subfleet rg --files`;
+    and parameter forms of the env spellings other than `$NAME` and `${NAME}`
+    (`${SUBFLEET_ROOT:-~/.subfleet}`, as `${HOME:-…}` today). r3's decision 2 took the trailing
+    `/*` out of this list; r3b's normalization took `~//.subfleet`, `~/.subfleet/./jobs`, a
+    trailing `/.` or `/..`, `~/".subfleet"`, `~/.Subfleet` and `/System/Volumes/Data/…`; r3c took
+    `~user`, `…/jobs/*/a1` (1(c)), braces, zsh alternation, backslash escapes, `***`, a `/` inside
+    brackets, U+017F and U+212A, and `/Volumes/<entry>/…`;
   - shell structure: a quoted for-loop list (`for d in "$HOME/.subfleet"; do find $d …; done`
     passes; the unquoted form is denied);
-  - searchers the rule does not know: fd, bfs, ag, `git grep --no-index`, tree, du and `ls -R`.
+  - searchers the rule does not know: fd, bfs, gfind, ggrep, ag, `git grep --no-index`, tree, du
+    and `ls -R`, and a searcher named through a variable (`RG=rg; $RG --files ~/.subfleet`; r3c
+    finds one named by a path, a backslash, a quote or `$(which …)`, and egrep, fgrep, rgrep and
+    ugrep).
 - **The cwd list is unchanged.** `rg --files .` with a payload cwd of `~/.subfleet` passes; the
   list never held the other home children either (`Library/Caches`, `.cache`, `.local`). A
-  Codex lane's cwd is its job workdir, normally a worktree two levels under `~/.subfleet`.
+  Codex lane's cwd is its job workdir, normally a worktree two levels under `~/.subfleet`. Since
+  r3c a recursive searcher given no path is judged by this list too (`rg foo` sitting in the
+  home is denied).
 - **r3 reversed r2's decision 6: a file one component down is not a root.** r2 kept
   `rg -n ERROR ~/.subfleet/daemon.log`, `rg -n sol61 ~/.subfleet/policy.json` and
   `grep -rn codex ~/.subfleet/lanes.json` denied (review r1, P3-1); r3's decision 1 allows them,
@@ -596,6 +745,17 @@ the first three entries below into D-LANE-SCOPE2.
   unresolved; a `?` in a glob matches one byte of a non-ASCII name; a script under
   `bash -O globstar -c` is read as zsh (its `**/` walks), which matches; and a `bash -c` script
   that spans lines loses its context (its `**/` walks).
+- **r3c's limits.** A glob inside a mount entry is judged by name (root names plus any other
+  name) and never listed, so it over-approximates (`/Volumes/Ext/Users/zz*` is denied though
+  nothing matches) and does not see a link there (`"/Volumes/Macintosh HD/Users/me/"link-to-*`);
+  a link among the matches of a `<glob>/..` is not followed (1(a) reads it as the folder);
+  a bare `*` between two plain names under a folder that is listed is judged by its matches
+  (`rg -l foo ~/*/src` passes; under a folder that is not, it is no match: `~/PolicyEngine/*/src`
+  passes, as snapshot-5 has it); an unquoted depth-bound spelling used as a value still exempts
+  its command (`rg -e --max-depth ~`); a nested script is judged in its shell's reading but
+  without the outer command's cd; and a top-level word is read the zsh way only, which for every
+  r3c form denies whatever bash's reading would (bash refuses `(a|b)`, leaves `/[^/]*` unmatched
+  and reads `**` and `***` as `*`), so "deny if either shell denies" holds without a second pass.
 - **Over-approximations shared with every root.** With xargs running a searcher, a new root
   anywhere in the command counts (`ls -t ~/.subfleet/jobs | head -5 | xargs -I{} rg -l foo ~/.subfleet/jobs/{}/a1`
   and `… | xargs rg foo > ~/.subfleet/out.log` are denied); a `cd ~/.subfleet` (or a child) with
@@ -624,9 +784,9 @@ could time out).
    shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST
    # a60d1c514d3a3bcec68c246a33c849c11fd37e1bdf60d886650cd9d6651390db  …/never-rules-hook.sh
    # b3193b97d712bda6a5cc0f2447907e674f7ed90911a82d7709de8298b42aaa06  …/TRUST
-   shasum -a 256 private/guard/never-rules-hook.sh private/guard/TRUST   # the reviewed pair (r3b)
-   # f952fd3e9648df1783cec96327b66a84a21082ba63469ef56d41749d23a5131e  private/guard/never-rules-hook.sh
-   # 0d5dac0fc9290eac8cfd1483b7f44cde9bb27e817657dd7fe4dc7b2ab07054d8  private/guard/TRUST
+   shasum -a 256 private/guard/never-rules-hook.sh private/guard/TRUST   # the reviewed pair (r3c)
+   # 7a5ad79d3f7db4c3c08bf07b8455344a4bdae3e66224218094b398cdf1091a1a  private/guard/never-rules-hook.sh
+   # 68936fafa42f885c29fadd9b48c2de48ace5e1ccd29b9c0cee0a09ad9e1ac91a  private/guard/TRUST
    ```
 
 1. **Stage through the repository's staging path**, into a fresh state root on the same volume
@@ -663,7 +823,7 @@ could time out).
    EOF
    cmp private/guard/never-rules-hook.sh ~/.subfleet/guard/never-rules-hook.sh
    cmp private/guard/TRUST ~/.subfleet/guard/TRUST
-   shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST   # f952fd3e…131e, 0d5dac0f…54d8
+   shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST   # 7a5ad79d…1a1a, 68936faf…c91a
    ls -la ~/.subfleet/guard
    ```
 
@@ -755,7 +915,7 @@ could time out).
 
    If that directory is gone, the old hook is `git show abe117e67:private/guard/never-rules-hook.sh`,
    and the old TRUST is this TRUST with `hook_sha256` set back to `a60d1c51…` and all four dated
-   additions removed, D-LANE-SCOPE1's, r2's, r3's and r3b's: cut the provenance after "Previous pin kept at
+   additions removed, D-LANE-SCOPE1's, r2's, r3's and r3b's (with r3c's corrected clause): cut the provenance after "Previous pin kept at
    TRUST.pre-0.159.0.bak." (`test_trust_changed_only_the_hook_hash_and_the_appended_provenance`
    proves that gives `b3193b97…` byte for byte). Stage it the same way, with the two backups. Never stage
    `abe117e67`'s TRUST (`0b9d688e…`, the table's in `docs/private-guard-overlay.md`): it pins
