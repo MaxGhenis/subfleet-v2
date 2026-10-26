@@ -53,10 +53,16 @@ P2_A = {
     "digit-named-flags": ("--db2-password\nx--db3-password SECRET7c3", "[REDACTED]\n[REDACTED][REDACTED] [REDACTED]"),
     "header-s-lone-flag": ("Authorization: --db2-password\nx--db3-password SECRET7c3",
                            "Authorization: [REDACTED]\n[REDACTED][REDACTED] [REDACTED]"),
+    # Since #239 review r5 (P3-1, the hub's decision), a refused `Bearer`'s line that a
+    # key, flag or `Bearer` would end early is left to its own rules, as a fold's is: the
+    # flag rule takes each secret- or digit-named flag with its folded value, and the
+    # plain rule the key's value (`client_secret=x`). That redacts less than the line
+    # took: the key's name and a `--password` that owns no value (a flag follows it) show,
+    # and no value does.
     "refused-bearer-line": ("x cookie: Bearer\nclient_secret=x --SECRET7a1_token\nSECRET7b2",
-                            "x cookie: [REDACTED]\n[REDACTED] [REDACTED]\n[REDACTED]"),
+                            "x cookie: [REDACTED]\nclient_secret=[REDACTED] [REDACTED]\n[REDACTED]"),
     "refused-bearer-detail-line": ("Cookie:Bearer\n--password\t--2-apikey\nSECRET7821",
-                                   "Cookie:[REDACTED]\n[REDACTED]\t[REDACTED]\n[REDACTED]"),
+                                   "Cookie:[REDACTED]\n--password\t[REDACTED]\n[REDACTED]"),
 }
 #: P2-B: a fold whose run starts at a header's name, its value glued to the colon,
 #: took the name; nothing then read the rest of that line as a header.

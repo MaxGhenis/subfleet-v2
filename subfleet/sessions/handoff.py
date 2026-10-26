@@ -1905,13 +1905,17 @@ def _refused_bearer(text: str, bearer: int) -> tuple[int, int] | None:
     """For a `Bearer` at `bearer` that ends a header's value: when `_BEARER_RE` reads a
     run after it that `_bearer_refusal` refuses, whole or in part (a key, not a token:
     `Authorization: Bearer` and `client_secret=…` on the next line), the span from that
-    run to the end of its line, which the header takes (#239 review r2, check 2), ended
-    before a key, flag or `Bearer` that ends it and owns a value past it (`_kept_span`:
-    `Authorization: "Bearer` and `password=` on the next line, its value after that);
-    None when the `Bearer` reads no run, or a token, which the `Bearer` rule takes, or
-    when nothing is left, and when the span would end before the colon of a header the
-    line-start rule reads at the run's line start (`_parts_line_start_header`:
-    `Set-Cookie` and `: v` on the next line), whose value that rule takes whole."""
+    run to the end of its line, which the header takes (#239 review r2, check 2). None
+    when the `Bearer` reads no run, or a token, which the `Bearer` rule takes; when the
+    span would end before the colon of a header the line-start rule reads at the run's
+    line start, or before that header's value (`_parts_line_start_header`: `Set-Cookie`
+    and `: v` on the next line), whose value that rule takes whole; and when a key, flag
+    or `Bearer` ends the line and owns a value past it (`_kept_span` would end the span
+    before it: `Authorization: Bearer` and `client_secret=x --password` on the next
+    line): then the line is left to its own rules, which take that item with its value
+    as they would with no `Bearer` before it, as a fold at a header's name leaves its
+    line (`_fold_value`), so a header there whose whole value is a lone flag takes the
+    value on the line after (#239 review r5, P3-1)."""
     match = _BEARER_RE.match(text, bearer)
     if match is None or _bearer_refusal(match) is None:
         return None
@@ -1919,7 +1923,8 @@ def _refused_bearer(text: str, bearer: int) -> tuple[int, int] | None:
     stop = _last_visible(text, len(text) if stop < 0 else stop) + 1
     if _parts_line_start_header(text, bearer, match.start(1), stop):
         return None
-    return _kept_span(text, match.start(1), stop)
+    span = _kept_span(text, match.start(1), stop)
+    return span if span == (match.start(1), stop) else None
 
 
 def _bearer_refusal(match: re.Match) -> int | None:
