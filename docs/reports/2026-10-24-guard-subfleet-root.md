@@ -381,8 +381,9 @@ through the whole hook and in real `/bin/zsh -f` and `/bin/bash`: globs that mat
 (`rg --files ~/.subfleet/jobs/?*`, `…/*//`, `…/*/..`), the boot volume's alias
 (`"/Volumes/Macintosh HD/Users/<me>/.subfleet"`), and braces and zsh's `(a|b)`, plus four P3s
 (a link before `..`, searcher names, other escapes, sentences). Every review input was allowed at
-`674abdac7` (95 of the 97 red inputs; the other two, `~/.subfleet/{jobs,src}` and a Kelvin-sign
-`worKtrees`, were already denied as one child's name).
+`674abdac7`: of the 96 red inputs, 94 were allowed there; the other two, `~/.subfleet/{jobs,src}`
+and a Kelvin-sign `worKtrees`, were already denied as one child's name. The red hold (the seven
+r3c tests at `a7ac35e20`, the hook still r3b's) gave 6 failed and 1 passed (the allowed list).
 
 **The decisions as built** (the hub's numbering):
 
@@ -473,7 +474,7 @@ re-enumerates them and pins the hook's folding.
   two "intended, loosened" rows are S3's labelled case, an apply_patch body plus a new-root search,
   denied by both hooks (`hf-dest` before, `unscoped-search` now).
 - *Still allowed, by design:* review r2's 25 scoped searches and the roots in pattern position
-  (`R3C_ALLOWED`, 47 cases with the brief's must-stay-allowed ones), `rg -l foo ~/*/src`, and the
+  (`R3C_ALLOWED`, 46 cases with the brief's must-stay-allowed ones), `rg -l foo ~/*/src`, and the
   forms listed under "Known limits".
 
 **The property** (`test_r3c_property_the_hook_agrees_with_an_independent_reference`, seed
@@ -505,6 +506,43 @@ read as zsh's walk in both shells.
 functions wrapped, over r3b's 20 mount words and 16 more (`/Volumes/<entry>/…` by name, braces,
 alternation, `..` and `***` under a mount): no call lists or stats anything inside
 `/Volumes/<entry>`, `/Network`, `/net` or `/home`.
+
+**r3c's holds** (each one pytest under the shared lock; the guard file in six `-k` parts, which
+together select all 81 of its items, verdicts carried between them by `GUARD_DIFF_CACHE`):
+
+| Hold | Admitted, load | Run | Result |
+| --- | --- | --- | --- |
+| red | 11:56Z, 24 | the seven r3c tests at `a7ac35e20` | 6 failed, 1 passed |
+| A | 13:09Z, 45 | examples, TRUST, fence, known limits, r3c tests (43 items) | 43 passed in 340 s |
+| B | 13:17Z, 48 | r3 and r3b examples, tables, mounts, shell states, ported vectors | 39 passed in 185 s |
+| D | 13:20Z, 71 | S1, S1's protection, S2, the cwd list, S4 | 4 passed, 2 skipped (S4: no analyzer) |
+| E | 13:24Z, 50 | S1-r3, S5, S3 | 4 passed in 174 s |
+| F | 13:27Z, 53 | r3's property, r3's and r3c's shell differentials | 3 passed in 525 s |
+| G | 13:38Z, 51 | r3b's and r3c's properties | 2 passed in 280 s |
+| overlay | 14:13Z, 129 | `tests/unit/test_guard_overlay.py` | 22 passed in 7 s |
+| guards | 14:22Z, 129 | the three contract guards | 63 passed in 22 s |
+| mutants | 14:23Z, 123 | the driver, `--only` r3c's seven | control passed; 7 of 7 killed |
+
+S1 at scale 1: 785 commands; the original hook denies 124 and this one 308; 186 differences are
+labelled intended (r3, r3b or r3c forms), 184 of them tightening and two S3's apply_patch case
+(denied by both, under another rule); none is allowed by this hook while the original denies it.
+S1-r3 counts 602 commands with an r3c form, and no form that only denies more ever allows more
+than the r2 hook. S2 checked 227 commands, S5 308 twins. The two holds queued at 13:47Z and 13:57Z
+were stopped unadmitted after 590 s each (both slots busy, load over 120) and requeued.
+
+| Mutant (decision) | Killing test | Named test | Fence |
+| --- | --- | --- | --- |
+| `r3c-wild-only-dropped` (1(b)) | `test_r3c_globs_that_match_every_entry_are_their_folder` | killed | passed |
+| `r3c-subchild-dropped` (1(c)) | `test_r3c_globs_that_match_every_entry_are_their_folder` | killed | passed |
+| `r3c-volumes-mapping-dropped` (2) | `test_r3c_volumes_entries_are_judged_as_the_rest_of_the_path` | killed | passed |
+| `r3c-braces-dropped` (3) | `test_r3c_braces_and_alternation_are_judged_by_their_alternatives` | killed | passed |
+| `r3c-physical-dots-dropped` (4) | `test_r3c_dotdot_after_a_link_is_physical` | killed | passed |
+| `r3c-basename-dropped` (5) | `test_r3c_searchers_are_found_by_basename` | killed | passed |
+| `r3c-unescape-dropped` (6) | `test_r3c_the_other_escapes_are_closed` | killed | passed |
+
+r3's and r3b's 23 mutants were not run (the 17-mutant driver waits for the Budget hold to end); six
+of their edits whose text r3c moved are retargeted at the new code, and every edit in the driver
+matches the hook exactly once.
 
 **Hashes for the install.** The new pair: hook
 `7a5ad79d3f7db4c3c08bf07b8455344a4bdae3e66224218094b398cdf1091a1a`, TRUST
