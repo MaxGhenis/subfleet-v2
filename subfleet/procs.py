@@ -343,6 +343,9 @@ class Containment:
     # C-5.5's fourth source (D-CEN1): the live processes whose responsible
     # process is the attempt's recorded responsibility root.
     responsible_pids: frozenset[int] = frozenset()
+    # D-QUAR-REUSE1: stored identities recorded on another boot than the attempt's,
+    # by pid. None of them is the attempt's: none seeds the walk or is counted.
+    other_boot: dict[int, list[dict[str, Any]]] = field(default_factory=dict)
 
     @property
     def live_pids(self) -> frozenset[int]:
@@ -353,7 +356,7 @@ class Containment:
         return not self.unverifiable and not self.live_pids
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        found = {
             "group_pids": sorted(self.group_pids),
             "descendant_pids": sorted(self.descendant_pids),
             "marker_pids": sorted(self.marker_pids),
@@ -365,6 +368,11 @@ class Containment:
             "shapes": {str(pid): dict(value) for pid, value in sorted(self.shapes.items())},
             "recycled": {str(pid): dict(value) for pid, value in sorted(self.recycled.items())},
         }
+        if self.other_boot:
+            # Only when there is one, so a census without one reads as it always did.
+            found["other_boot"] = {str(pid): [dict(value) for value in values]
+                                   for pid, values in sorted(self.other_boot.items())}
+        return found
 
 
 def group_members(pgid: int) -> dict[int, str]:
@@ -705,7 +713,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 recorded_identities: dict[int, ProcessIdentity] | None = None,
                 recorded_alternatives: dict[int, list[ProcessIdentity]] | None = None,
                 started_at: str | None = None, finished_at: str | None = None,
-                responsible_root: ResponsibleRoot | None = None) -> Containment:
+                responsible_root: ResponsibleRoot | None = None,
+                attempt_boot: str | None = None) -> Containment:
     """Collect C-5.5 sources; failed sources or needed identity reads prevent release.
 
     Receipt timestamps are accepted for caller compatibility, but cannot prove
@@ -731,6 +740,20 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     id needs a matching start-time read before the member scan. Every scanned
     root's current holder is read in process afterwards (C-5.12).
     Commands and environments are never retained.
+
+    `attempt_boot` is the boot the attempt's guardian identity records (D-QUAR-REUSE1).
+    A stored identity recorded on another boot is not the attempt's: it seeds nothing
+    and is named in `other_boot`. A reboot ends every process, so when that boot is
+    known (a boot-session UUID) and is not this one, by C-5.12's fresh read, nothing
+    alive now is the attempt's child or descends from it: no seed (identity-less ones
+    included) and not the recorded group counts a process of this boot, and each seed
+    the table shows, or whose pid parents a row, and the group's leader are recorded
+    under `recycled`, for the reason a birth gives or else the attempt's boot. The
+    responsibility root is the guardian, so no check of its identity holds the attempt
+    either (one recorded without a unique id, or the final holder read). The marker
+    source is unchanged: it matches the attempt's environment, not a pid. An unknown boot
+    (none recorded, legacy seconds, or one that cannot be read) keeps the conservative
+    answer.
     """
     groups: set[int] = set()
     descendants: set[int] = set()
@@ -742,6 +765,22 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     checked: set[int] = set()
     recorded_identities = recorded_identities or {}
     recorded_alternatives = recorded_alternatives or {}
+    # D-QUAR-REUSE1: only a boot-session UUID names the attempt's boot; legacy seconds
+    # can shift within one boot (C-5.3), so they decide nothing here.
+    attempt_uuid = boot_identity.session_uuid(str(attempt_boot or ""))
+    other_boot: dict[int, list[dict[str, Any]]] = {}
+    if attempt_uuid:
+        def attempts(pid: int, known: ProcessIdentity) -> bool:
+            """A stored birth on another boot than the attempt's is not the attempt's: a
+            census on a later boot counted it (release/217 kept such identities)."""
+            if not boot_identity.differ(known.boot_id, attempt_uuid):
+                return True
+            if asdict(known) not in other_boot.setdefault(pid, []):
+                other_boot[pid].append(asdict(known))
+            return False
+        recorded_identities = {pid: known for pid, known in recorded_identities.items() if attempts(pid, known)}
+        recorded_alternatives = {pid: kept for pid, births in recorded_alternatives.items()
+                                 if (kept := [known for known in births if attempts(pid, known)])}
     try:
         seen: ProcessTable | None = snapshot()
         table = seen.rows
@@ -824,22 +863,83 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
             recycled[pid]["also_recorded"] = [asdict(known) for known in choices[1:]]
         return True
 
+    over: list[bool] = []
+
+    def attempt_boot_over() -> bool:
+        """D-QUAR-REUSE1: is the attempt's recorded boot provably not this one? Read once,
+        and only when a seed or a failed check of the root depends on it; a cached mismatch
+        is read afresh (C-5.12)."""
+        if not over:
+            match = None
+            if attempt_uuid and seen is not None:
+                try:
+                    match = boot_identity.matches(attempt_uuid, seen.boot(), seen.legacy_seconds)
+                    if match is False:
+                        forget_boot_id()
+                        match = boot_identity.matches(attempt_uuid, boot_id(), seen.legacy_seconds)
+                except InspectionError:
+                    match = None
+            over.append(match is False)
+        return over[0]
+
+    def exclude(pid: int) -> None:
+        """D-QUAR-REUSE1: record a seed, or the group's leader, of an attempt whose boot is
+        over. A birth the comparison above can decide keeps its reason; any other seed,
+        an identity-less one included, belongs to the attempt's boot, and adds no error."""
+        mark = len(errors)
+        proven = is_recycled(pid)
+        del errors[mark:]
+        if proven:
+            return
+        checked.add(pid)
+        choices = []
+        for known in [recorded_identities.get(pid), *recorded_alternatives.get(pid, ())]:
+            if known is not None and known not in choices:
+                choices.append(known)
+        try:
+            now_boot = seen.boot()
+        except InspectionError:
+            now_boot = None
+        recycled[pid] = {
+            "recorded": asdict(choices[0]) if choices else {"pid": pid, "boot_id": attempt_uuid, "proc_start": None},
+            "now": {"pid": pid, "boot_id": now_boot, "proc_start": (table[pid][3] or None) if pid in table else None},
+            "reason": "different boot identity (attempt's boot)",
+        }
+        if len(choices) > 1:
+            recycled[pid]["also_recorded"] = [asdict(known) for known in choices[1:]]
+
     if seen is not None:
         # XNU forkproc rejects PIDs reserved by a process group or session:
         # https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.1.9/bsd/kern/kern_fork.c#L970-L972
         # Thus a different process at pid == pgid proves the old group is gone.
         # An absent leader does NOT: retain its surviving group members.
         groups = set(seen.group(pgid))
-        if pgid and groups and is_recycled(pgid):
+        seeds = {pid for pid in {*recorded_identities, *recorded_alternatives, guardian_pid, child_pid}
+                 if pid and pid > 0}
+        parents = {row[0] for row in table.values()}
+        if (attempt_boot and (groups or any(pid in table or pid in parents for pid in seeds))
+                and attempt_boot_over()):
+            # D-QUAR-REUSE1: the attempt's boot is over, and every process of it with it.
+            # Each recorded pid that now names something (a row, a parent link, a group)
+            # names a process of this boot: an exit receipt's identity-less child pid
+            # reused by a stranger kept trackb quarantined (incident 2026-10-24).
+            leader = {pgid} if groups else set()
+            for pid in sorted(seeds | leader):
+                if pid in table or pid in parents or pid in leader:
+                    exclude(pid)
             groups.clear()
-        # There is no recorded group before setsid. The other sources
-        # still enumerate the guardian and any inherited marker.
-        # The snapshot is not atomic: an absent/zombie parent may still have
-        # live child rows. Keep its links, and seed every recorded survivor so
-        # an escaped writer reparented to init survives exclusion of its root.
-        # These are census seeds only; signal ownership is checked separately.
-        roots = {pid for pid in {*recorded_identities, *recorded_alternatives, guardian_pid, child_pid}
-                 if pid and pid > 0 and not is_recycled(pid)}
+            roots = set()
+        else:
+            if pgid and groups and is_recycled(pgid):
+                groups.clear()
+            # There is no recorded group before setsid. The other sources
+            # still enumerate the guardian and any inherited marker.
+            # The snapshot is not atomic: an absent/zombie parent may still have
+            # live child rows. Keep its links, and seed every recorded survivor so
+            # an escaped writer reparented to init survives exclusion of its root.
+            # These are census seeds only; signal ownership is checked separately.
+            roots = {pid for pid in {*recorded_identities, *recorded_alternatives, guardian_pid, child_pid}
+                     if pid and pid > 0 and not is_recycled(pid)}
         found = set(roots)
         frontier = roots
         while frontier:
@@ -883,6 +983,15 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         return (order[0] is None or responsible_root.unique_id is None or process.unique_id is None
                 or process.unique_id >= responsible_root.unique_id)
 
+    def root_ended() -> bool:
+        """D-QUAR-REUSE1: the root is the attempt's guardian (`Daemon._contain`), recorded on the
+        attempt's boot. When that boot is over no process of this one names it, so a check of its
+        identity guards nothing: asked only where such a check fails, so no other census reads
+        the boot for it (C-5.12)."""
+        return (responsible_root is not None and attempt_uuid is not None
+                and boot_identity.session_uuid(str(responsible_root.boot_id or "")) == attempt_uuid
+                and attempt_boot_over())
+
     # The table's start/boot comparison is stronger than unique-id ordering, and
     # also protects legacy roots whose unique id was unavailable at launch.
     source_root = responsible_root
@@ -901,7 +1010,10 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         except InspectionError:
             root_matches = False
         if not root_matches:
-            errors.append(f"responsibility root identity unavailable for pid {source_root.pid}")
+            # D-QUAR-REUSE1: once the attempt's boot is over its guardian's pid is free or a
+            # stranger's for good, and the source has nothing to read.
+            if not root_ended():
+                errors.append(f"responsibility root identity unavailable for pid {source_root.pid}")
             source_root = None
     if wanted is not None or source_root is not None:
         listed = True
@@ -941,9 +1053,11 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 # only holds the attempt. It never grants signal authority.
                 # A known root already gone with no provisional observations
                 # is still a valid empty source; do not make it sticky.
+                # A root whose boot is over needs no final holder check (no member names it,
+                # D-QUAR-REUSE1), whether or not a member's read asked `ours` first.
                 if (source_root.unique_id is None or holder_failed
                         or (holder is None and found_responsible)
-                        or (holder is not None and holder.unique_id is None)):
+                        or (holder is not None and holder.unique_id is None)) and not root_ended():
                     failed.append(f"responsibility root identity unavailable for pid {source_root.pid}")
         markers |= found_marked
         responsible.update(found_responsible)
@@ -998,7 +1112,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
               and (pid not in responsible_records or responsible_records[pid].proc_start == table[pid][3])}
     return Containment(frozenset(groups), frozenset(descendants), frozenset(markers),
                        bool(errors), identities, tuple(errors), shapes, recycled,
-                       frozenset(responsible))
+                       frozenset(responsible), other_boot)
 
 
 def signal_group(pgid: int, sig: int | signal.Signals, *, boot_id: str,
