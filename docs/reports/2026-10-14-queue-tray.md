@@ -4909,3 +4909,344 @@ brief's "report and design §12", and is flagged for the hub's contract merge.
 
 Only named files were staged. No logs or evidence are in the repository.
 Nothing was fetched, merged or pushed, and no sub-agents were used.
+
+### Round-8 abandoned reveals, the own send and the mark's place
+
+Review r6 of round 7 (`5a5db9da4`) asked for changes, with three P2s it had
+executed, and found round 6's completion-first setup check nondeterministic
+(check 6). The hub decided four changes; each is built as decided, with one
+addition to decision 2, explained below. The new tests are in
+`tests/frontend/test_review_r219_fix12_view.py`, and its scenes are the
+`fix12-*` modes of `ReviewR219Fix8ViewProbe.swift`.
+
+#### Decision 1: a reveal whose target goes away is abandoned
+
+**The gap (P2-1).** A reveal to `text:m000040:b` was pending when an
+event-log reset dropped every row the events made, that one included. The
+document shrank, the clip clamped to the end and the marker appeared, but the
+reveal stayed outstanding, since its row could never be presented. Suspension
+stayed on, and the next reply left the view 1,050 pt behind.
+
+**The rule.** A reveal is abandoned at once when its target row leaves the
+model before it is presented, or is not in the model when it is requested.
+Then:
+- the view cancels that request by id;
+- it clears both pending states;
+- it reconciles: with the end marker on screen it releases suspension, as the
+  marker would with no reveal outstanding. Otherwise the marker's next
+  appearance releases it.
+
+**The mechanism** (`a5466ec2a`):
+- **The rows.** The conversation view computes its rows once per body, as
+  `WorkPresentation` groups them. `Self.row(_:marks:)` says whether a row carries
+  the target's mark: the row itself, or the work group holding it. The same
+  predicate places the `RevealTargetMark`, so "in the model" means exactly
+  "has a row that would carry the mark".
+- **Leaving.** `.onChange` of whether the rows hold the target calls
+  `abandonReveal("target_removed")` when they stop holding it. It acts only
+  while the reveal is pending, so a landed reveal is never abandoned. A reset,
+  a history change and a timeline rebuild all reach the view through these
+  rows.
+- **Missing at the request.** The request's handler checks the model's rows as
+  they are at that moment (`timelineRows()`, not the last body's), and abandons
+  with `target_missing`.
+- **Cancelling.** `abandonReveal` clears `revealPending`, `rowReveal` and
+  `revealTarget`, and posts `ConversationOpeningPin.abandonReveal(in:request:)`.
+  The pin clears its outstanding reveal only if it is that request, so a newer
+  one stays. The view's handler can run before the pin's handler for the same
+  request, so the pin also remembers the newest abandoned id and never makes
+  that request outstanding.
+- **Reconciling.** `if atBottom { followSuspended = false }`, the release the
+  marker would give.
+- **Unchanged.** Supersession (a newer request replaces `rowReveal`) and a
+  conversation switch (fresh view identity) end a reveal as before; their tests
+  pass in hold 1.
+
+**Regressions:**
+- `test_reset_removing_a_pending_reveals_target_abandons_it`: the review's
+  input. A distant reveal to `text:m000040:b`, with its first pass 2,000 pt
+  from the end, then a reset while catch-up is held, so the row stays out
+  until the re-read. Its order checks: pending and suspended, then the row out
+  of the model with the clip clamped to the end, then the row back once caught
+  up. Its rule: abandoned by `target_removed` by the reset step, released by
+  then, and the next reply within 25 pt of the end.
+- `test_reveal_of_a_target_missing_from_the_model_is_abandoned`: a request
+  for `text:gone:b` with the view at the end. Abandoned by `target_missing`
+  within the request, released, and the reply within 25 pt.
+- `test_missing_target_away_from_the_end_releases_when_the_end_appears`: the
+  person has read 2,000 pt up when the missing-target request comes. Nothing
+  releases then; the end is then brought into view with no person input, and
+  the marker's appearance must release suspension. This case is added to
+  decision 1's list as the deterministic kill for its mutant (below).
+- `test_removed_target_away_from_the_end_holds_until_the_end_is_shown`: the
+  control. The same reset with the clip 3,000 pt down a 9,000 pt test inset,
+  so the end stays out of view. Nothing releases through the reset, catch-up
+  and a held reply, until the person scrolls to the end; then the next reply
+  is followed.
+
+**Setup gate.** In 3 of 6 early fixed runs the lazy stack shrank the document
+3,464 pt right after the reveal's scroll and clamped the clip to the end
+before the "pending" step: round 7's shrink. The product did right (it
+abandoned with the marker on screen and released), but the order check
+failed. The scenes now put the clip back where the first pass left it and
+take the step and the next input in that one turn.
+
+#### Decision 2: the person's own send ends a reveal, catch-up included
+
+**The gap (P2-2).** With catch-up held, `UIModel.send` during a pending
+reveal chose `stay`: `FollowKey.move` returns for settling (`suspended ?
+.stay : .jump`) before its own-send rule. The view was left 2,232 pt behind,
+and 18,529 pt after catch-up and a reply.
+
+**As built** (`8c3ee09c3`):
+- **Before the move.** `followChanged` asks `FollowKey.ownSend(from:to:)`,
+  the same test `move` uses, before it asks for the move.
+- **What an own send does.** It abandons any outstanding reveal by id
+  (`abandonReveal("own_send")`) and releases suspension, whatever the move.
+  The move is then chosen unsuspended. During catch-up that is the settling
+  `jump` to the end, and every later settling move jumps too. Outside
+  catch-up the send glides, as before.
+
+**The addition: the send's landing** (`f20d59549`). The ordinary-following
+control failed 1 of 10 native runs on the fixed product at load 66–75, and
+1 of 8 at `5a5db9da4` (`2/6` before the setup gate). The counterexample, in
+fixed run 1:
+- The send released suspension and glided.
+- The glide stopped 208 pt short of a document that then grew 224 pt as the
+  new row was measured.
+- The end marker never appeared, so `atBottom` stayed false and the next
+  reply was left 610 pt behind.
+
+Decision 2's intent is that the view follows after the person's own send. So
+the smallest change that keeps it:
+- **The state.** `ownSendLanding` is set by an own send, and the view follows
+  as if the end were on screen (`atBottom || landing`).
+- **What clears it.** The marker appearing, the person's scroll, or a new
+  reveal. The pin's new `onPersonInput` reports any live scroll, wheel in the
+  clip or paging key, reveal or not.
+- **The glide.** The send still glides; nothing scrolls on its own.
+- **The evidence.** The control then passed 10 of 10 at load 56–66. In all
+  ten the marker appeared after the glide, so no later move needed the
+  landing. The failure it addresses came once in 18 earlier runs, and no
+  deterministic replay of a never-appearing marker was built. Its mechanism
+  is argued from the counterexample's trace.
+
+**Regressions:**
+- `test_own_send_during_catchup_ends_a_pending_reveal`: the review's input.
+  Catch-up is held from the opening, and the scene's live message has ended,
+  so the send is the timeline's last row, not a tray row. A distant reveal is
+  pending 2,000 pt from the end. The order checks: suspended, the send last,
+  and catch-up still held when it lands. The rule: released at the send,
+  every later settling move an unsuspended `jump`, and the reply after
+  catch-up within 25 pt.
+- `test_own_send_during_a_pending_reveal_releases_while_following`: the same
+  send once caught up, the ordinary-following control kept as a test. It must
+  release and follow the reply within 25 pt.
+
+**C-27.5.** The contract's own-send sentence now holds with no qualifier:
+"The person's own send ends any reveal and releases suspension, catch-up
+included, and goes to the end". Checked sentence by sentence against the
+code:
+
+| Sentence | Code |
+| --- | --- |
+| A reveal is outstanding until its row is presented, the person scrolls or sends, or it is abandoned | `revealLanded`, `personScrolledDuringReveal`, `abandonReveal` (own send, `target_removed`, `target_missing`) clear `revealPending` |
+| While it is outstanding an end that comes into view releases nothing | `endAppeared` releases only with `!revealPending`; the pin releases only with the row presented |
+| Abandoned at once when the row leaves the model or is not in it at the request | `.onChange` of `rows.contains(Self.row(_:marks:))`; the request handler's `timelineRows()` check |
+| With the end then on screen released as the marker would; otherwise the marker's next appearance | `if atBottom { followSuspended = false }`; `endAppeared` with `revealPending` false |
+| The row's presentation with the end beside it releases without scrolling | `checkReveal`: presented and within 25 pt calls `onRevealEndVisible` |
+| Once none is outstanding, the marker or the end in view after the person's scroll releases | `endAppeared`; `personScrolledNow`'s next-turn distance check |
+| The own send ends any reveal and releases, catch-up included, and goes to the end | `followChanged`: `ownSend` abandons and releases before `move`; settling then jumps, otherwise it glides |
+| Until the marker appears, the person scrolls or a reveal starts, the view follows as if the end were on screen | `ownSendLanding`: set by the send; cleared by `endAppeared`, `onPersonInput` and the request handler |
+| Otherwise changes follow only while the end is on screen | `FollowKey.move`'s `guard atBottom` |
+
+The opening sentence's exception now reads "apart from the person’s own send
+and what follows it until the marker appears, and the initial opening pin".
+The change log has a round-8 entry.
+
+#### Decision 3: the mark is checked whenever its place in the document changes
+
+**The gap (P2-3).** A SwiftUI layout redistributed row heights under a
+2,000 pt document with the clip at the end (y=1,450). SwiftUI moved the
+row's `AppKitPlatformViewHost` from y=300 to y=1,700, and the mark's own
+frame did not change. The row and the end were visible together, and neither
+callback ran. A reused mark that takes a new row id ran no check either.
+
+**The mechanism** (`e90f29431`). `RevealTargetView` reports its place in
+the document, not its local frame:
+- **Each pass.** A `CFRunLoopObserver` on the main run loop, for
+  `beforeWaiting` in the common modes and ordered last (`CFIndex.max`),
+  compares the mark's frame converted to the document view, and whether it
+  is hidden, with what it last reported. It posts
+  `conversationRevealTargetMoved` on any change, and the pin then schedules
+  its check (source `mark`).
+- **Lifetime.** The observer exists while the mark is in a window, and it
+  invalidates itself if the mark is gone.
+- **Identity and parent.** A new `itemID` or `conversationID` (set by
+  `updateNSView` on reuse), a new window or a new parent clears the last
+  report, so the mark reports again wherever it is.
+- **Unchanged.** Its own frame changes still report at once.
+
+**Why it can't miss a move.** The check's input is the mark's frame in the
+clip, which is its frame in the document and the clip's bounds.
+- **The clip and the document** report through their own bounds and frame
+  notifications, as before.
+- **The mark's frame in the document** can change only on the main thread,
+  inside some pass of the main run loop, whatever moves it: the mark, an
+  ancestor's frame or bounds, a new parent, or the document's layout. The
+  observer runs at the end of every pass, after AppKit's layout and display
+  observers, in every common mode, including event tracking during a live
+  scroll and modal panels.
+- **The pass that presents a move reports it.** A move made and undone within
+  one pass was never presented. Hiding is compared too.
+- **The cost** is one frame conversion per pass while a target row is mounted.
+
+**Regressions.** Three scenes run in one probe process (`fix12-mark`), each a
+2,000 pt document under a 550 pt clip, with a reveal outstanding for
+`target`. Each scene's order checks show:
+- the reveal outstanding, with an earlier check that found the row absent;
+- the clip, the document and the mark's own frame unchanged;
+- only the mark's place in the document, or its id, changed.
+
+Each rule checks that the first check after the change came from the mark,
+found the row presented, landed it once, and released only with the end in
+view:
+- `test_swiftui_layout_moving_the_marks_host_runs_the_check`: the review's
+  SwiftUI probe. Host y=300 → 1,700 with the clip at the end: landed and
+  released.
+- `test_appkit_parent_moving_the_mark_runs_the_check`: an AppKit parent
+  moves the mark from y=300 to y=1,200 under a clip at y=1,000. Landed, and
+  held, since the end is 450 pt away.
+- `test_reused_mark_taking_the_targets_id_runs_the_check`: a mark already in
+  the clip at the end changes its id from `another-row` to `target`: landed
+  and released.
+
+#### Decision 4: the completion-first scene's gate
+
+`completeBeforeScroll(gate: true)` (`75a785169`) replaces the reliance on
+mount-time scheduling, where the search revealer's first pass came 250 ms
+after the reveal was set and a loaded opening pin could still be settling.
+In the first request's own main-actor turn it:
+- applies pending layout;
+- puts the clip at the end as the opening pin does;
+- samples it, and posts the completion.
+
+Later requests are completed where the clip is, as before. The test asserts
+that the gate ran on the first request only. In 10 of 10 native runs on the
+final product the first completion read 0 pt from the end; before the gate
+moved it, the clip was at 0, 24.5 or 25 pt. None released, and every opening
+landed 17,131–21,358 pt from the end.
+
+#### Red at `5a5db9da4`
+
+The final probe, compiled with `5a5db9da4`'s `app/Sources`, run natively.
+The probe's round-8 changes outside the new scenes are the daemon's one-shot
+reset, the scene's `liveState` and the completion-first gate, which no new
+scene uses.
+
+| Test | Load before | Result at `5a5db9da4` |
+| --- | --- | --- |
+| removed target (review input) | 41.34 | fails `assert_removed_target_releases`: no abandonment; suspended after the reset; reply 13,845 pt from the end |
+| missing target | 41.34 | fails: no abandonment; reply 490.5 pt |
+| missing target, end away | 50.33 | fails: no abandonment; reply 471 pt |
+| own send during catch-up (review input) | 41.34 | fails `assert_own_send_releases`: no release at the send; reply 17,528 pt |
+| SwiftUI mark probe | 41.34 | fails: mark y 300 → 1,700, no check after it, no callback |
+| AppKit parent probe | 41.34 | fails: mark y 300 → 1,200, no check, no callback |
+| AppKit reused-mark probe | 41.34 | fails: id changed in the clip, no check, no callback |
+| removed target, end away (control) | 41.34 | passes, reply 24.5 pt |
+| ordinary send (control) | 41.34 | passes, reply 24 pt (7 of 8 after the setup gate; see decision 2) |
+
+#### Native probe runs on the final product
+
+The final product is `f20d59549` (the landing fix) with the probe at
+`59ecf8b93`. Each batch ran 10 runs, two at a time, beside hold 1's rerun. The
+load is `sysctl -n vm.loadavg` before the batch.
+
+| Scene | Load before | Runs | Failed | Measured |
+| --- | --- | ---: | ---: | --- |
+| Completion-first opening, gated | 48.01 46.67 47.03 | 10 | 0 | first completion 0 pt every run; opening 17,131–21,358 pt from the end; no `reveal_end_visible` |
+| Round 7's shrink replay | 44.32 47.70 47.50 | 10 | 0 | after the tick 18,950 or 20,581 pt from the end |
+| Removed target (review input) | 30.10 42.61 45.58 | 10 | 0 | reply 24–25 pt |
+| Missing target | 43.78 43.70 45.72 | 10 | 0 | reply 24–24.5 pt |
+| Missing target, end away | 54.11 46.23 46.55 | 10 | 0 | reply 24–25 pt |
+| Removed target, end away (control) | 50.75 46.94 46.82 | 10 | 0 | reply 24.5 pt |
+| Own send during catch-up (review input) | 45.73 45.72 46.32 | 10 | 0 | reply 24.5 pt |
+| Own send, ordinary (control) | 56.11 54.43 48.24 | 10 | 0 | reply 24–25 pt (three at a time) |
+| Mark probes (three scenes per run) | 60.40 52.47 49.00 | 10 | 0 | every scene checked by `mark` and landed once; released in the SwiftUI and reused-mark scenes only |
+
+Earlier batches, on the product before the landing fix:
+- every scene above passed 10 of 10, except two;
+- the missing-target-away scene failed 3 of 10, in its own setup: a single
+  direct move to the end landed 438–462 pt short. `59ecf8b93` repeats the
+  move, and the scene then passed 10 of 10;
+- the ordinary control failed 1 of 10 (decision 2's counterexample).
+
+#### Validation holds
+
+pytest-xdist is not in the locked dev group, so every hold ran serially. Every
+probe binary came from the probe cache: the fixed product and all eight
+mutants were built through `compile_probe` before the holds, in 80–370 s
+each, 2–4 at a time. Every hold went through the lock; none needed the
+direct fallback.
+
+| Hold | Files | Product | Queued → admitted (UTC) | Result |
+| --- | --- | --- | --- | --- |
+| 1 | fix10, fix11 | `59ecf8b93` (before the landing fix) | 12:43:02 → 12:45:05, slot B | 40 passed in 8:50 |
+| 3 | fix12 (new) | same | 12:54:14 → 12:55:49, slot A | 9 passed in 1:10 |
+| 2 | fix8, fix9 | same | 12:57:21 → 12:57:21, slot A | 9 passed in 2:47 |
+| 4 | mutations, `-k "round7 or round8"` | same | 13:00:54 → 13:00:54, slot A | 6 passed, 7 deselected, in 1:55 |
+| 5 | state contract, module names, invariants index | same | 13:07:45 → 13:07:45, slot B | 37 + 1 + 25 = 63 passed in 34 s |
+| 1 again | fix10, fix11 | `f20d59549` (final) | 13:33:46 → 13:36:39, slot A | 40 passed in 11:22 |
+| 3 again | fix12 | final | 13:48:38 → 13:51:37, slot A | 9 passed in 2:52 |
+| 2 again | fix8, fix9 | final | 13:54:54 → 13:57:44, slot B | 9 passed in 7:28 (load 154 at the end) |
+| 5 again | the three guards, after the docs | final | 14:17:39, slot B | 63 passed in 34 s |
+| 4 again | mutations, `-k "round7 or round8"` | final | 14:05:48 → 14:21:10, slot A (slot B closed at load > 120) | 6 passed, 7 deselected, in 1:19 |
+
+Counts per file on the final product: fix10 34, fix11 6, fix12 9, fix8 6,
+fix9 3, mutations 6 (round 7's three shrink mutants and round 8's three), state contract 37, module names 1,
+invariants index 25.
+
+#### Mutants
+
+Each is in `test_review_r219_fix8_mutations.py`. Round 8's three are
+`test_round8_mutation_fails_its_named_regression`; each scene's order is
+asserted outside `raises`.
+
+| Mutant | Edit | Killed by | Measured (native, final mutant build) |
+| --- | --- | --- | --- |
+| `abandon_keeps_pending` | abandonment clears neither the view's pending state nor the pin's request | `assert_missing_away_releases` | abandoned (`target_missing`), but the end came into view and the marker released nothing; reply 465 pt from the end |
+| `own_send_after_catchup_guard` | the own send handled only outside catch-up, as before round 8 | `assert_own_send_releases` (catch-up send) | the send chose `stay` (1,988 pt); settling moves stayed suspended; 16,895 pt once caught up, 17,414 after the reply |
+| `mark_local_frame_only` | the mark reports only its own frame changes: no per-pass placement check, no check on a new id | `assert_mark_probes_run_the_check` | all three scenes: no check after the change, nothing landed (SwiftUI 300 → 1,700, parent 300 → 1,200, id changed in place) |
+| `marker_releases_pending_reveal` (round 7) | `endAppeared` releases unconditionally | `assert_shrink_releases_nothing` | killed in both mutation holds |
+| `confirm_by_distance_only` (round 7) | the pin confirms by distance alone | `assert_shrink_releases_nothing` | killed in both mutation holds |
+| `reveal_never_lands` (round 7) | a landed reveal stays outstanding | `assert_landed_shrink_releases` | killed in both mutation holds |
+| `notice_sets_at_bottom_false` (round 7) | a reveal notice sets `atBottom` false | `test_timeline_reveal_leaving_end_visible_keeps_follow` (fix8:39) | native, final build, load 164: 850 and 1,632 pt from the end after the streams (207 s) |
+| `key_on_all_rows` (round 7) | every row arrival restarts the search reveal | `test_continuous_rows_reveal_at_most_twice`, `busy_400ms` (fix8:53) | native, final build, load 164: 6 starts (208 s) |
+
+The last two run the full fix-8 default probe, so they ran natively, as in
+round 7 and review r6, with a 1,500 s timeout; they took 207–208 s here.
+`key_on_all_rows` has a weak spot: its `busy_400ms` kill needs rows to arrive
+during the reveal. In one earlier native run (load 12–30) activation held the
+main actor about 11 s, no row arrived during the reveal, and the mutant passed
+`busy_400ms` (1 start, 2 reveals) while failing `busy_200ms` (12 starts). In
+round 7's runs this scene took 1 sample per 3 s, so the slow loop is this
+host, not round 8. Two later native runs killed it (5 and 6 starts).
+
+#### Round-8 commits and cleanup
+
+- `4ea7fbba1`: the red tests.
+- `a5466ec2a`: decision 1, abandonment.
+- `8c3ee09c3`: decision 2, the own send before the catch-up guard.
+- `e90f29431`: decision 3, the mark's place in the document.
+- `75a785169`: decision 4, the completion-first gate.
+- `33c322051`: the missing-target-away regression.
+- `c5688ec6f`: round 8's mutants.
+- `59ecf8b93`: the missing-away scene's repeated move to the end.
+- `f20d59549`: the own send's landing.
+- `e4530b85d`: design §12 and C-27.5.
+- The report commit.
+
+Each commit carries the co-author trailer.
+
+Only named files were staged. No logs or evidence are in the repository.
+Nothing was fetched, merged or pushed, and no sub-agents were used.
