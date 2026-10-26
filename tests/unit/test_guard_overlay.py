@@ -169,8 +169,8 @@ def test_private_overlay_bytes_remain_the_original_reviewed_pair():
     repo = Path(__file__).resolve().parents[2]
     directory = repo / "private/guard"
     expected = {
-        "never-rules-hook.sh": "efa86362091a0d254608f23334c7ab0b6c9955e295fc82e5650ce42fcdd0110e",
-        "TRUST": "5f227944e4d2441724969dd2e9f9e66dd7a492fde37f86e8f89e22f3d01ca42b",
+        "never-rules-hook.sh": "4b382c2920a50b0a517e3d70979c931338d654868e564508f127f95285b479ec",
+        "TRUST": "807f0e8b745ba09bb5b89be8392e5e90b6d8d2a157942d01f5e18d94758f7fb4",
     }
     for name, digest in expected.items():
         assert hashlib.sha256((directory / name).read_bytes()).hexdigest() == digest

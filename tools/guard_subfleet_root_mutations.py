@@ -34,7 +34,7 @@ NEW_ROOTS = "|\\.subfleet(/[^/[:space:]'\\\"]+)?"
 ENV_ROOTS = "|\\\\\\$SUBFLEET_(ROOT|HOME)(/[^/[:space:]'\\\"]+)?"
 ENV_SED = " s/\\$[{]SUBFLEET_ROOT[}]/$SUBFLEET_ROOT/g; s/\\$[{]SUBFLEET_HOME[}]/$SUBFLEET_HOME/g'"
 OLD_HOOK_SHA256 = "a60d1c514d3a3bcec68c246a33c849c11fd37e1bdf60d886650cd9d6651390db"
-NEW_HOOK_SHA256 = "7a5ad79d3f7db4c3c08bf07b8455344a4bdae3e66224218094b398cdf1091a1a"
+NEW_HOOK_SHA256 = "4b382c2920a50b0a517e3d70979c931338d654868e564508f127f95285b479ec"
 ROOT_CORE = 'root_core="/|/\\\\*|/Users/?|(${broad_re})/?"'
 
 # name -> (file, old text, new text, the named test that must kill it)
@@ -85,6 +85,22 @@ MUTATIONS = {
     "r3c-physical-dots-dropped": (HOOK, None, None, "test_r3c_dotdot_after_a_link_is_physical"),
     "r3c-basename-dropped": (HOOK, None, None, "test_r3c_searchers_are_found_by_basename"),
     "r3c-unescape-dropped": (HOOK, None, None, "test_r3c_the_other_escapes_are_closed"),
+    # review r3's five (its h9), retargeted to the r4 code
+    "r3c-wrappers-env-only": (HOOK, None, None, "test_r4_searchers_after_keywords_wrappers_and_quotes_are_found"),
+    "r3c-unbalanced-brace-allows": (HOOK, None, None, "test_r4_brace_groups_that_span_a_slash_or_climb_fail_closed"),
+    "r3c-physical-stall-guard-dropped": (HOOK, None, None, "test_r3c_nothing_inside_a_mount_is_read"),
+    "r3c-in-mount-glob-lists": (HOOK, None, None, "test_r3c_nothing_inside_a_mount_is_read"),
+    "r3c-eval-unwrap-dropped": (HOOK, None, None, "test_r4_every_shell_and_eval_script_is_judged"),
+    # r4 (the hub's decisions on review r3), one per decision
+    "r4-fold-dropped": (HOOK, None, None, "test_r4_dotdot_after_a_glob_is_folded"),
+    "r4-tree-loop-skipped": (HOOK, None, None, "test_r4_a_tree_glob_after_a_wildcard_component_is_its_folder"),
+    "r4-scripts-dropped": (HOOK, None, None, "test_r4_every_shell_and_eval_script_is_judged"),
+    "r4-keywords-dropped": (HOOK, None, None, "test_r4_searchers_after_keywords_wrappers_and_quotes_are_found"),
+    "r4-starred-slash-allowed": (HOOK, None, None, "test_r4_brace_groups_that_span_a_slash_or_climb_fail_closed"),
+    "r4-cap-dropped": (HOOK, None, None, "test_r4_hostile_words_fail_closed_fast"),
+    "r4-device-is-stdin": (HOOK, None, None, "test_r4_a_device_or_a_closed_stdin_is_no_pipe"),
+    "r4-meta-walks": (HOOK, None, None, "test_r4_print_and_exit_forms_walk_nothing"),
+    "r4-tilde-user-dropped": (HOOK, None, None, "test_r4_the_unlisted_forms_are_judged"),
 }
 #: r3's and r3b's mutants: (old text, new text) pairs, each old text exactly once in the hook.
 LIST_GUARD = '      elif pw_holds "$p"; then\n'
@@ -108,7 +124,7 @@ HOLDS = """pw_holds() {
 }
 """
 #: r3c: pw_alt's trailing rule (1(b): a component made only of wildcards, or .* or **, is its folder).
-WILD_LINE = "          if [ \"$c\" = '.*' ] || [ \"$c\" = '**' ] || pw_wild \"$c\"; then b=${b%/*}; walk=1; else break; fi ;;\n"
+WILD_LINE = "        if [ \"$c\" = '.*' ] || [ \"$c\" = '**' ] || pw_wild \"$c\"; then b=${b%/*}; else break; fi ;;\n"
 EDITS = {
     "file-exception-removed": [('    pw_isfile "$1" && return 1\n    return 0\n', "    return 0\n")],
     "not-dir-dropped": [('pw_nondir() { [ -e "$pw_fs$1" ] && [ ! -d "$pw_fs$1" ]; }',
@@ -136,8 +152,8 @@ EDITS = {
                               '        np[${#np[@]}]=$pw_n; nl[${#nl[@]}]=u\n')],
     "volumes-name-stated": [('      elif [ -z "$glob" ] && ! pw_stall "$p"; then\n', '      elif [ -z "$glob" ]; then\n')],
     "usr-dropped": [('/Library /Applications /usr"', '/Library /Applications"')],
-    "case-sensitive-roots": [('  local p=$1 rest="" nc="" r=1 sv=$pw_n\n  shopt -q nocasematch && nc=1\n  shopt -s nocasematch\n',
-                              '  local p=$1 rest="" nc="" r=1 sv=$pw_n\n  shopt -q nocasematch && nc=1\n  shopt -u nocasematch\n')],
+    "case-sensitive-roots": [('  if [ -n "${pw_hfast-}" ]; then case "$p" in /[Vv]*) ;; /*/*/*/*/*/*) return 1 ;; esac; fi\n  shopt -q nocasematch && nc=1\n  shopt -s nocasematch\n',
+                              '  if [ -n "${pw_hfast-}" ]; then case "$p" in /[Vv]*) ;; /*/*/*/*/*/*) return 1 ;; esac; fi\n  shopt -q nocasematch && nc=1\n  shopt -u nocasematch\n')],
     "alias-folding-dropped": [("""  case "$pw_n" in
     /system/volumes/data) pw_n=/ ;;
     /system/volumes/data/*) pw_n=${pw_n:20} ;;
@@ -154,7 +170,7 @@ EDITS = {
   return 1
 }
 """)],
-    "non-last-keeps-all": [('        if pw_isbroad "${np[$m]}" && ! pw_isfile "${np[$m]}"; then', '        if :; then')],
+    "non-last-keeps-all": [('        if { [ "$k" -lt "$up" ] || pw_isbroad "${np[$m]}"; } && ! pw_isfile "${np[$m]}"; then', '        if :; then')],
     "written-link-dropped": [("""  pw_physical "$1"
   [ "$pw_r" != "$1" ] && pw_isbroad "$pw_r" && ! pw_isfile "$pw_r"
 }
@@ -164,14 +180,46 @@ EDITS = {
     "r3c-wild-only-dropped": [(WILD_LINE, WILD_LINE.replace('|| pw_wild "$c"', "|| [ \"$c\" = '*' ]"))],
     "r3c-subchild-dropped": [('      if [ -n "$glob" ] && pw_subchild "$p" && ! pw_isfile "$p"; then return 0; fi\n', "")],
     "r3c-volumes-mapping-dropped": [('  while [[ $p == /volumes/*/* ]]; do rest=${p:9}; pw_normalize "/${rest#*/}"; p=$pw_n; done\n', "")],
-    "r3c-braces-dropped": [('  local LC_ALL=C s=$1 n=${#1} k=$2 j=0 d=0 nested="" commas=0\n',
-                            '  local LC_ALL=C s=$1 n=${#1} k=$2 j=0 d=0 nested="" commas=0\n  return 1\n')],
+    "r3c-braces-dropped": [('  pw_gs=(); pw_ge=(); pw_gk=(); pw_gn=(); pw_gx=()\n  while [ "$k" -lt "$n" ]; do\n',
+                            '  pw_gs=(); pw_ge=(); pw_gk=(); pw_gn=(); pw_gx=()\n  return 0\n  while [ "$k" -lt "$n" ]; do\n')],
     "r3c-physical-dots-dropped": [('  local rest="$1/" c="" path=""\n  pw_pd=$1\n', '  local rest="$1/" c="" path=""\n  pw_pd=$1\n  return 0\n')],
     "r3c-basename-dropped": [('    if (t <= nt) { b = base(val[t]); if (isname(b) && tk[t] != canon(b)) { tk[t] = canon(b); val[t] = tk[t] } }\n', "")],
+    "r3c-wrappers-env-only": [('    while (t <= nt && (base(val[t]) in WRAP)) {\n', '    while (t <= nt && base(val[t]) == "env") {\n')],
+    "r3c-unbalanced-brace-allows": [('    k=$((k + 1))\n  done\n  k=0; d=0\n', '    k=$((k + 1))\n  done\n  [ "$top" -eq 0 ] || exit 0\n  k=0; d=0\n')],
+    "r3c-physical-stall-guard-dropped": [('  local path="" rest="" name="" hops=0 d=${1%/*} top=""\n  pw_r=$1\n  pw_stall "$1" && return 0\n',
+                                          '  local path="" rest="" name="" hops=0 d=${1%/*} top=""\n  pw_r=$1\n')],
+    "r3c-in-mount-glob-lists": [('      if pw_stall "$p" && ! pw_volumes "$p"; then\n', '      if false; then\n')],
+    "r3c-eval-unwrap-dropped": [('        if (scr != "") script(scr, ctx, depth)\n', '')],
+    "r4-fold-dropped": [('  local -a st\n  pw_fd=$1\n', '  local -a st\n  pw_fd=$1\n  return 0\n')],
+    "r4-tree-loop-skipped": [("""    case "/$b" in */'**'/*) b=${b%%/'**'/*} ;; esac
+  fi
+""", """    case "/$b" in */'**'/*) b=${b%%/'**'/*}; x=walk ;; esac
+  fi
+"""), ("""  while :; do
+    case "$b" in
+      /|'') break ;;
+""", """  while [ "$x" != walk ]; do
+    case "$b" in
+      /|'') break ;;
+""")],
+    "r4-scripts-dropped": [('    if (!noext) {\n', '    if (0) {\n')],
+    "r4-keywords-dropped": [('      if (!qd[t] && val[t] ~ /^(if|then|else|elif|while|until|do|done|fi|esac|coproc|!|\\{|\\})$/) { t++; continue }\n', '')],
+    "r4-starred-slash-allowed": [('        [ -z "${pw_gx[$k]}" ] || pw_fc=1\n', '')],
+    "r4-cap-dropped": [("""  [ "${#1}" -le 4096 ] || return 0
+  [ "${#1}" -le 1024 ] || pw_bytes "$1" || return 0
+""", """  return 1
+""")],
+    "r4-device-is-stdin": [('          else if (op == "<&") stdin = (tg == "-") ? 0 : 1\n          else stdin = (tg ~ /^\\/dev\\//) ? 0 : 1\n',
+                            '          else stdin = 1\n')],
+    "r4-meta-walks": [('    if (t <= nt && ismeta(val[t], val, rd, t, nt)) return sp[0] ":" sp[nt]\n', '')],
+    "r4-tilde-user-dropped": [("""    '~$USER'|'~$USER/'*) w="~${w:6}"; q=q ;;
+""", "")],
     "r3c-unescape-dropped": [('        if (c == "\\\\") { if (i < n) out = out (mode ? lit(substr(run, i + 1, 1)) : substr(run, i + 1, 1)); i += 2; continue }\n',
                               '        if (c == "\\\\") { out = out c; i++; continue }\n')],
 }
 FENCE = "test_only_the_roots_the_header_and_the_message_changed"
+REVIEW_R3 = {"r3c-wrappers-env-only", "r3c-unbalanced-brace-allows", "r3c-physical-stall-guard-dropped",
+             "r3c-in-mount-glob-lists", "r3c-eval-unwrap-dropped"}
 
 
 #: What the named tests need of HEAD (the rest of the tree, the app and the docs, is a sixth of
@@ -248,9 +296,11 @@ def pytest(tree: Path, tests: list[str], scratch: Path) -> dict[str, str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scratch", type=Path, required=True)
-    # r3b's mutants first, then r3's: a run its hold cuts short still reports the newest decisions.
-    order = ([name for name in MUTATIONS if name in EDITS][10:] + [name for name in MUTATIONS if name in EDITS][:10]
-             + [name for name in MUTATIONS if name not in EDITS])
+    # r4's and review r3's mutants first, then r3c's, r3b's and r3's: a run its hold cuts short still
+    # reports the newest decisions.
+    edited = [name for name in MUTATIONS if name in EDITS]
+    newest = [name for name in edited if name.startswith("r4-")] + [name for name in edited if name in REVIEW_R3]
+    order = newest + [name for name in reversed(edited) if name not in newest] + [name for name in MUTATIONS if name not in EDITS]
     parser.add_argument("--only", nargs="*", default=order)
     args = parser.parse_args()
     if "/sf-" not in str(args.scratch.resolve()):
