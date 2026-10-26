@@ -243,6 +243,103 @@ def undo(text: str, edits) -> str:
 R3_BLOCKS = [("# >>> r3 path words: begin >>>\n", "# <<< r3 path words: end <<<\n"),
              ("  # >>> r3 path words: judge >>>\n", "  # <<< r3 path words: judge <<<\n"),
              ("    # >>> r3 path words: name >>>\n", "    # <<< r3 path words: name <<<\n")]
+#: r3c (2026-10-26): the edits outside the path-word blocks, as (r3c text, r3b text): the prefilter's
+#: third term, the header, pw_cmd in the detection, the judged lines and the cwd rule, and the
+#: message's root list. Undone first, so the r3 and r3b pairs below find their text.
+R3C_TEXT = [
+    (r"""# codex addition that lets the fenced hf-dest heredoc scan below run; the
+# third (D-LANE-SCOPE1 r3c) lets a searcher named by a path, after a quote or
+# a backslash, through $(which …), or as egrep, fgrep, rgrep or ugrep reach the
+# unscoped-search rule.
+""",
+     r"""# codex addition that lets the fenced hf-dest heredoc scan below run.
+"""),
+    (r"""  || printf '%s' "$command" | grep -qE '\*\*\* Begin Patch' \
+  || printf '%s' "$command" | grep -qE "(^|[[:space:];&|(/\\\\'\"\`])(find|rg|[efru]?grep)[\`'\")]?([[:space:]]|\$)" \
+""",
+     r"""  || printf '%s' "$command" | grep -qE '\*\*\* Begin Patch' \
+"""),
+    (r"""#              r3c: also after a quote or a backslash, and named by basename:
+#              a path, a backslash or a quote before the name, egrep, fgrep,
+#              rgrep and ugrep, $(which X) and `which X` are read as the
+#              searcher first (pw_cmd, "the command as the rules read it").
+#   escape     a `-maxdepth` / `--max-depth` / `-d N` that is an unquoted
+#              argument of the searcher's own simple command exempts that
+#              command (r3c; before, one anywhere in the command disarmed the
+#              rule, a comment or a commit message included).
+""",
+     r"""#   escape     any `-maxdepth` / `--max-depth` in the command disarms the rule
+#              (a depth-bounded search is fine).
+"""),
+    (r"""#              and a glob component by component ("Path words").
+#              r3c: a glob matching every entry is its folder, a glob directly
+#              in a folder of ~/.subfleet is that folder, /Volumes/<entry>/x
+#              is judged as /x, braces and zsh's (a|b) by their alternatives,
+#              a searcher's .. after a link physically, and backslashes, ***,
+#              a / inside brackets, ~user, $'…' and APFS's folded letters as
+#              the shell and the volume read them ("Path words").
+""",
+     r"""#              and a glob component by component ("Path words").
+"""),
+    (r"""#              while any searcher is present (a bare `cd` is `cd ~`, r3c);
+#              and `.`/`./` when the cwd itself is a broad root, as is a
+#              recursive searcher given no path (r3c). A sh/bash/zsh/dash/ksh
+#              -c or eval script holding a searcher is judged again as its own
+#              line, to depth 4; a searcher deeper is denied (r3c). A root in
+#              another command of the pipeline
+""",
+     r"""#              while any searcher is present; and `.`/`./` when the cwd itself
+#              is a broad root. A root in another command of the pipeline
+"""),
+    (r"""if printf '%s' "$pw_cmd" | grep -qE "(^|[[:space:];&|('\"\\\\])find[[:space:]]"; then searcher="find"
+elif printf '%s' "$pw_cmd" | grep -qE "(^|[[:space:];&|('\"\\\\])rg[[:space:]]"; then searcher="rg"
+elif printf '%s' "$pw_cmd" | grep -qE "(^|[[:space:];&|('\"\\\\])grep[[:space:]]" \
+  && printf '%s' "$pw_cmd" | grep -qE '(^|[[:space:]])(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive|--dereference-recursive)([[:space:]]|$)'; then searcher="recursive grep"
+""",
+     r"""if printf '%s' "$command" | grep -qE '(^|[[:space:];&|(])find[[:space:]]'; then searcher="find"
+elif printf '%s' "$command" | grep -qE '(^|[[:space:];&|(])rg[[:space:]]'; then searcher="rg"
+elif printf '%s' "$command" | grep -qE '(^|[[:space:];&|(])grep[[:space:]]' \
+  && printf '%s' "$command" | grep -qE '(^|[[:space:]])(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive|--dereference-recursive)([[:space:]]|$)'; then searcher="recursive grep"
+"""),
+    (r"""if [ -n "$searcher" ]; then
+""",
+     r"""if [ -n "$searcher" ] && ! printf '%s' "$command" | grep -qE -- '--?max-?depth'; then
+"""),
+    (r"""  # (and `${SUBFLEET_ROOT}`/`${SUBFLEET_HOME}` without braces too). Since r3c it
+  # starts from pw_cmd (searcher names, depth bounds and a bare cd read, see
+  # "the command as the rules read it"), as do the searcher detection above and
+  # the cwd rule below.
+  judged=$(printf '%s' "$pw_cmd" | LC_ALL=C awk '{ if (sub(/\\$/, "")) printf "%s", $0; else print }' 2>/dev/null | LC_ALL=C sed 's/\$[{]HOME[}]/$HOME/g; s/\$[{]SUBFLEET_ROOT[}]/$SUBFLEET_ROOT/g; s/\$[{]SUBFLEET_HOME[}]/$SUBFLEET_HOME/g' 2>/dev/null) || judged=""
+  [ -n "$judged" ] || judged=$pw_cmd
+""",
+     r"""  # (and `${SUBFLEET_ROOT}`/`${SUBFLEET_HOME}` without braces too).
+  # The searcher detection above and the cwd rule below keep looking at the raw
+  # command.
+  judged=$(printf '%s' "$command" | LC_ALL=C awk '{ if (sub(/\\$/, "")) printf "%s", $0; else print }' 2>/dev/null | LC_ALL=C sed 's/\$[{]HOME[}]/$HOME/g; s/\$[{]SUBFLEET_ROOT[}]/$SUBFLEET_ROOT/g; s/\$[{]SUBFLEET_HOME[}]/$SUBFLEET_HOME/g' 2>/dev/null) || judged=""
+  [ -n "$judged" ] || judged=$command
+"""),
+    (r"""  if printf '%s' "$pw_cmd" | LC_ALL=C awk 'match($0, /\\+$/) && RLENGTH % 2 == 0 { even=1 } END { exit !even }' 2>/dev/null; then
+    judged=$(printf '%s' "$pw_cmd" | LC_ALL=C awk '{ if (match($0, /\\+$/) && RLENGTH % 2 == 1) printf "%s", substr($0, 1, length($0) - 1); else print }' 2>/dev/null | LC_ALL=C sed 's/\$[{]HOME[}]/$HOME/g; s/\$[{]SUBFLEET_ROOT[}]/$SUBFLEET_ROOT/g; s/\$[{]SUBFLEET_HOME[}]/$SUBFLEET_HOME/g' 2>/dev/null) || judged=""
+    [ -n "$judged" ] || judged=$pw_cmd
+""",
+     r"""  if printf '%s' "$command" | LC_ALL=C awk 'match($0, /\\+$/) && RLENGTH % 2 == 0 { even=1 } END { exit !even }' 2>/dev/null; then
+    judged=$(printf '%s' "$command" | LC_ALL=C awk '{ if (match($0, /\\+$/) && RLENGTH % 2 == 1) printf "%s", substr($0, 1, length($0) - 1); else print }' 2>/dev/null | LC_ALL=C sed 's/\$[{]HOME[}]/$HOME/g; s/\$[{]SUBFLEET_ROOT[}]/$SUBFLEET_ROOT/g; s/\$[{]SUBFLEET_HOME[}]/$SUBFLEET_HOME/g' 2>/dev/null) || judged=""
+    [ -n "$judged" ] || judged=$command
+"""),
+    (r"""  # cwd rule: `find .` / `rg pat .` executed while sitting IN a broad root, and
+  # (r3c) a recursive searcher given no path, which walks "." (pw_nopath).
+""",
+     r"""  # cwd rule: `find .` / `rg pat .` executed while sitting IN a broad root.
+"""),
+    (r"""        if printf '%s' "$pw_cmd" | grep -qE "(^|[[:space:];&|(])(find|rg|grep)[[:space:]]+([^|;&]*[[:space:]])?\.(/)?([[:space:]]|\$)" || pw_nopath "$pw_cmd"; then hit=1; matched=". (cwd $cwd)"; fi ;;
+""",
+     r"""        if printf '%s' "$command" | grep -qE "(^|[[:space:];&|(])(find|rg|grep)[[:space:]]+([^|;&]*[[:space:]])?\.(/)?([[:space:]]|\$)"; then hit=1; matched=". (cwd $cwd)"; fi ;;
+"""),
+    (r"""    block "[unscoped-search] Whole-tree ${searcher} over a broad root (${pw_roots_msg}) — 8 of these ran in parallel on 8/8 and drove load to 47, and ~22 sol-lane finds on 8/18 held load at 57 for hours, beachballing the Mac. Scope it: exact subdirectory, -maxdepth/--max-depth, 'git ls-files' inside a repo, 'axiom-locate' (engine|release|pypkg|corpus-file) for Axiom artifacts, or the interpreter for python package paths (python -c 'import x; print(x.__file__)'). Matched broad root: '${matched}'."
+""",
+     r"""    block "[unscoped-search] Whole-tree ${searcher} over a broad root (/, /Users, ~, ~/TheAxiomFoundation, ~/PolicyEngine, ~/.subfleet, ~/.subfleet/<child>, /tmp, caches) — 8 of these ran in parallel on 8/8 and drove load to 47, and ~22 sol-lane finds on 8/18 held load at 57 for hours, beachballing the Mac. Scope it: exact subdirectory, -maxdepth/--max-depth, 'git ls-files' inside a repo, 'axiom-locate' (engine|release|pypkg|corpus-file) for Axiom artifacts, or the interpreter for python package paths (python -c 'import x; print(x.__file__)'). Matched broad root: '${matched}'."
+"""),
+]
 R3_TEXT = [
     ("""#     ~/.subfleet by default, as spellings of it. D-LANE-SCOPE1 r3
 #     (2026-10-25) judged path words on disk (the "r3 path words" blocks): a
@@ -271,6 +368,7 @@ R3_TEXT = [
 """, """#              comment, nothing in the command text lets a crawl through.
 """),
 ]
+R3_TEXT = R3C_TEXT + R3_TEXT
 
 
 def rebuild_r2(text: str) -> str:
@@ -1099,7 +1197,7 @@ def corpus(repos) -> dict:
     fixed += [(cmd + "; " + search, repos[where]) for where, cmd, _ in OTHER_RULES for search in COMBINED]
     fixed += [(c, SCOPED_CWD) for c, _ in ENV_DENIED] + [(c, SCOPED_CWD) for c in ENV_ALLOWED]
     fixed += [(cmd, cwd) for pairs in R2_LIMITS for cwd, cmd in pairs]
-    fixed += [(cmd, cwd) for cwd, cmd in R2_OVER_APPROXIMATIONS + R3_RESOLVED]
+    fixed += [(cmd, cwd) for cwd, cmd in R2_OVER_APPROXIMATIONS + R3_RESOLVED + R3C_CLOSED_LIMITS + R3C_STILL_ALLOWED]
     fixed += [(c, SCOPED_CWD) for c in R3_CORPUS]
     return {"generated": generated, "fixed": list(dict.fromkeys(fixed))}
 
@@ -1130,17 +1228,22 @@ def test_s1_the_new_hook_is_monotone_and_moves_only_on_new_roots(corpus, verdict
     loosened, stray = [], []
     counts = {"commands": 0, "old_denied": 0, "new_denied": 0, "newly_denied": 0,
               "newly_denied_generated": 0, "newly_denied_fixed": 0, "r3_intended": 0,
-              "r3_intended_loosened": 0, "r3_intended_tightened": 0, "r3_labelled": 0}
+              "r3_intended_loosened": 0, "r3_intended_tightened": 0, "r3_labelled": 0, "r3c_labelled": 0}
     seen = set()
 
     def r3(key, o, n):
-        labelled = bool(r3_labels(key[0]))
+        r3c = r3c_labels(*key)
+        labelled = bool(r3_labels(key[0]) or r3c)
         if key not in seen:
             seen.add(key)
             counts["r3_labelled"] += labelled
+            counts["r3c_labelled"] += bool(r3c)
             if labelled and o != n:
                 counts["r3_intended"] += 1
                 counts["r3_intended_loosened" if o else "r3_intended_tightened"] += 1
+            # r3c: a command whose only labels deny more never loosens
+            if r3c and r3c <= R3C_DENY_ONLY and not r3_labels(key[0]) and o and not n:
+                loosened.append(key)
         return labelled
 
     for case in corpus["generated"]:
@@ -1276,9 +1379,12 @@ def test_known_limits_the_new_roots_share_with_the_old_ones(hooks):
     """
     allowed = ["bash -c 'find / -name x'", "bash -c 'rg --files ~/.subfleet'",
                "eval 'grep -r x ~/.subfleet/jobs'"]
-    for which in ("old", "new"):
-        for command, out in judged(hooks[which], allowed).items():
-            assert rule(out) is None, (which, command)
+    for command, out in judged(hooks["old"], allowed).items():
+        assert rule(out) is None, ("old", command)
+    # r3c decision 5: a searcher right after a quote is found now, and the script it starts is judged
+    # as its own line (decision 6), so the new hook denies all three.
+    for command, out in judged(hooks["new"], allowed).items():
+        assert rule(out) == "unscoped-search", ("new", command)
     assert rule(run_hook(hooks["new"], "rg --files .", FAKE_HOME + "/.subfleet")) is None
     for command in ("rg foo ~/.subfleet/jobs/*", "rg foo ~/*"):
         # r3 decision 2: was allowed by every hook before r3; now that root.
@@ -1309,12 +1415,9 @@ R2_LIMITS = [
     # P3-3: spellings the rule does not normalize (r3b normalizes //, /./, letter case, the data
     # volume and a quoted part, and R3B_FLIPPED holds those five pairs now)
     ((S_, "rg --files $'/Users/tester/.subfleet'"), (S_, "rg --files $'/Users/tester'")),
-    ((S_, "rg --files ~tester/.subfleet"), (S_, "rg --files ~tester/PolicyEngine")),
-    ((S_, "rg -l foo ~/.subfleet/jobs/*/a1"), (S_, "rg -l foo ~/*/src")),
     ((S_, "env -C ~/.subfleet rg --files"), (S_, "env -C ~ rg --files")),
     ((S_, "rg --files ${SUBFLEET_ROOT:-~/.subfleet}"), (S_, "rg --files ${HOME:-/Users/tester}")),
     # P3-3: shell structure the rule misses
-    ((S_, "bash -c 'rg --files $SUBFLEET_ROOT'"), (S_, "bash -c 'rg --files ~'")),
     ((S_, 'for d in "$SUBFLEET_ROOT"; do find $d -name x; done'), (S_, 'for d in "$HOME"; do find $d -name x; done')),
     # P3-3: searchers the rule does not know
     ((S_, "fd -H AGENTS.md ~/.subfleet"), (S_, "fd -H AGENTS.md ~")),
@@ -1330,6 +1433,14 @@ R2_LIMITS = [
 #: this list in r3: ~/.subfleet/daemon.log is a file, which decision 1 never counts as broad
 #: (``R3_RESOLVED``).
 R3_RESOLVED = [(S_, "find ~/.subfleet/jobs/20261024-115712-x -newer ~/.subfleet/daemon.log")]
+#: r2's known limits r3c closes (the hub's decisions on review r2): ~user (decision 6), a glob directly in
+#: a folder of ~/.subfleet (1(c)) and a script run by bash -c (decisions 5 and 6). The old hook allows
+#: each; the new one denies each. ``rg -l foo ~/*/src`` (a bare * between two plain names under a folder
+#: that is listed) stays allowed by both: its matches are judged, and none is a root.
+R3C_CLOSED_LIMITS = [(S_, "rg --files ~tester/.subfleet"), (S_, "rg --files ~tester/PolicyEngine"),
+                     (S_, "rg -l foo ~/.subfleet/jobs/*/a1"), (S_, "bash -c 'rg --files $SUBFLEET_ROOT'"),
+                     (S_, "bash -c 'rg --files ~'")]
+R3C_STILL_ALLOWED = [(S_, "rg -l foo ~/*/src")]
 R2_OVER_APPROXIMATIONS = [
     (S_, "cd ~/.subfleet/jobs && rg -n foo 20261024-115712-x/a1/out.md"),
     (S_, "ls -t ~/.subfleet/jobs | head -5 | xargs -I{} rg -l foo ~/.subfleet/jobs/{}/a1"),
@@ -1353,6 +1464,14 @@ def test_known_limits_r2_lists_are_pre_existing_for_every_root(hooks):
     for case in over:
         assert rule(new[case]) == "unscoped-search", case
         assert rule(old[case]) is None, case
+    closed = [(cmd, cwd) for cwd, cmd in R3C_CLOSED_LIMITS]
+    new, old = judge_all(hooks["new"], closed), judge_all(hooks["old"], closed)
+    for case in closed:
+        assert rule(new[case]) == "unscoped-search", case
+        assert rule(old[case]) is None, case
+    for which in ("old", "new"):
+        outs = judge_all(hooks[which], [(cmd, cwd) for cwd, cmd in R3C_STILL_ALLOWED])
+        assert all(rule(out) is None for out in outs.values()), which
     # r3 decision 1 flipped P3-2's find -newer case: the r2 hook denied it, the new one allows it.
     resolved = [(cmd, cwd) for cwd, cmd in R3_RESOLVED]
     new, r2 = judge_all(hooks["new"], resolved), judge_all(hooks["r2"], resolved)
@@ -1629,6 +1748,42 @@ def r3_labels(command: str, home: str = FAKE_HOME) -> set[str]:
     return {label for word, quoted in command_path_words(command) if (label := r3_word(word, quoted, home))}
 
 
+#: r3c's forms (the hub's decisions on review r2), each read from the command text, not from the hook.
+R3C_NAME = re.compile(r"""(^|[\s;&|(])(["'\\]|[^\s;&|()<>]*/)(find|rg|grep|egrep|fgrep|rgrep|ugrep)(["']|\s|$)"""
+                      r"""|(^|[\s;&|(])(egrep|fgrep|rgrep|ugrep)(\s|$)|\$\((which|command -v)\s|`(which|command -v)\s""")
+R3C_NEST = re.compile(r"""(^|[\s;&|(/])((sh|bash|zsh|dash|ksh)(\s+-\S+)*\s+-[A-Za-z]*c[A-Za-z]*|eval)\s+\S*["']""")
+R3C_BOUND = re.compile(r"""-max-?depth|(^|\s)-d\s*[0-9]""")
+R3C_BARE_CD = re.compile(r"""(^|[\s;&|(])cd\s*(--\s*)?($|[;&|)\n])""")
+R3C_WORD = re.compile(r"""[{}\\()|]|\$'|^~[A-Za-z0-9._-]|\*\*\*|(^|/)\.\.(/|$)|\u017f|\u212a|^/volumes/[^/]+/""", re.I)
+R3C_DENY_ONLY = {"name", "nest", "bound", "cd", "nopath"}
+
+
+def r3c_labels(command: str, cwd: str = SCOPED_CWD, home: str = FAKE_HOME) -> set[str]:
+    """The r3c forms a command holds (S1's and S1-r3's intended differences): a searcher named by a path,
+    a quote, a backslash, $(which ...) or as egrep/fgrep/rgrep/ugrep ("name", decision 5); a sh -c or
+    eval script ("nest", decision 6: judged as its own line); a depth bound ("bound": it exempts only its
+    own command now); a bare cd ("cd"); a searcher run from a cwd the cwd rule lists ("nopath": a
+    searcher given no path walks it); and a path word holding a brace, a parenthesis, a backslash, $'...',
+    ~user, ***, .., a folded code point or a /Volumes/<entry>/ prefix ("word", decisions 2-4 and 6).
+    Each but "word" can only deny more."""
+    labels = set()
+    if R3C_NAME.search(command):
+        labels.add("name")
+    if R3C_NEST.search(command):
+        labels.add("nest")
+    if R3C_BOUND.search(command):
+        labels.add("bound")
+    if R3C_BARE_CD.search(command):
+        labels.add("cd")
+    cwds = {home, home + "/TheAxiomFoundation", home + "/RulesFoundation", home + "/PolicyEngine", "/tmp",
+            "/private/tmp", "/", "/Users"}
+    if cwd in cwds and re.search(r"(find|rg|grep)", command):
+        labels.add("nopath")
+    if any(R3C_WORD.search(word) for word, _ in command_path_words(command)) or re.search(r"(^|\s)\{\S*[,.]", command):
+        labels.add("word")
+    return labels
+
+
 #: The brief's cases (the hub's decisions 1-5, round r3), in the fixture filesystem.
 R3_FILE_ALLOWED = [            # decision 1: each names a file (or a link to one)
     "grep -rn -i 'retention' ~/.subfleet/policy.json",
@@ -1656,7 +1811,6 @@ R3_GLOB_ALLOWED = [            # decision 3: no match is a broad root, or no mat
     "rg foo ~/Pol*/policyengine-us",                      # two levels down
     "rg foo ~/pol*",                                      # case-sensitive: no match
     "rg foo ~/*ubfleet",                                  # a leading dot only by a leading dot
-    "rg x ~/.subfleet/jobs/2026*",                        # jobs/ cannot hold a root by name: text
     "rg x src/*.py",                                      # relative: text
     "grep -rn x ~/.subfleet/*.nomatch",                   # no match
     "rg x ~/.subfleet/x*",                                # no match (the text rule would deny it)
@@ -1685,13 +1839,17 @@ R3_GLOB_DENIED = [             # decision 3: some match is a broad root
     ("rg foo ~/.subfleet/[a-z]*", "~/.subfleet/[a-z]* (glob)"),      # daemon.log first, then jobs
     ("find $HOME/Pol* -name x", "$HOME/Pol* (glob)"),
 ]
+#: r3 allowed ``rg x ~/.subfleet/jobs/2026*`` (jobs/ cannot hold a root by name); r3c's 1(c) makes a glob
+#: directly in a folder of ~/.subfleet that folder (R3C_WILD_DENIED pins it), so the r2 hook and this one
+#: differ on it now.
 R3_CORPUS = (R3_FILE_ALLOWED + [c for c, _ in R3_NAME_DENIED] + R3_GLOB_ALLOWED
-             + [c for c, _ in R3_STAR_DENIED] + [c for c, _ in R3_GLOB_DENIED])
+             + [c for c, _ in R3_STAR_DENIED] + [c for c, _ in R3_GLOB_DENIED] + ["rg x ~/.subfleet/jobs/2026*"])
 #: Of those, the ones whose verdict r3 moves (the r2 hook gives the other verdict).
 R3_MOVED = (set(R3_FILE_ALLOWED) | {"grep -rn x ~/.subfleet/*.nomatch", "rg x ~/.subfleet/x*",
                                      "grep -rn x ~/.subfleet/*.json"}
             | {c for c, _ in R3_STAR_DENIED} - {"rg foo ~/.subfleet/*"}
-            | {c for c, _ in R3_GLOB_DENIED} - {"rg foo ~/.subfleet/j*", "rg foo ~/.subfleet/[a-z]*"})
+            | {c for c, _ in R3_GLOB_DENIED} - {"rg foo ~/.subfleet/j*", "rg foo ~/.subfleet/[a-z]*"}
+            | {"rg x ~/.subfleet/jobs/2026*"})
 
 
 def test_r3_a_file_is_never_a_broad_root(hooks):
@@ -1853,12 +2011,21 @@ def test_s1_r3_moves_each_decision_only_its_own_way(hooks, corpus):
     pairs = [(case["command"], case["cwd"]) for case in corpus["generated"]] + corpus["fixed"]
     prime_labels([command for command, _ in pairs])
     new, r2 = judge_all(hooks["new"], pairs), judge_all(hooks["r2"], pairs)
-    wrong, counts = [], {"labelled": 0, "moved": 0, "file": 0, "root": 0, "glob": 0}
+    wrong, counts = [], {"labelled": 0, "moved": 0, "file": 0, "root": 0, "glob": 0, "r3c": 0}
     for key in dict.fromkeys(pairs):
         labels = r3_labels(key[0])
+        r3c = r3c_labels(*key)
         n, o = rule(new[key]), rule(r2[key])
+        counts["r3c"] += bool(r3c)
+        if r3c and not labels:
+            # r3c's forms: the deny-only ones never allow more than r2 did
+            if r3c <= R3C_DENY_ONLY and o is not None and n is None:
+                wrong.append(("r3c allowed more", key, o, n))
+            counts["moved"] += n != o
+            continue
+        labels |= r3c
         for label in labels:
-            counts[label] += 1
+            counts[label] = counts.get(label, 0) + 1
         counts["labelled"] += bool(labels)
         counts["moved"] += n != o
         if not labels and n != o:
@@ -2251,10 +2418,15 @@ ROOT_TABLE = {
            "/var/folders", "/private/var/folders", "/opt", "/opt/homebrew", "/Library", "/Applications",
            "/usr", "/USR", "/users/ME/policyengine", "/SYSTEM/volumes/DATA/Users", "//Users//me/",
            "/Users/me/src/..", "/Users/./me/./Library", "/System/Volumes/Data/private/var/folders",
-           "/Users/me/Library/../.subfleet/guard", "/Users/me/.subfleet/leases"],
+           "/Users/me/Library/../.subfleet/guard", "/Users/me/.subfleet/leases",
+           # r3c decision 2: /Volumes/<entry>/<rest> is /<rest> by name (r3b had this one as no root)
+           "/Volumes/Macintosh HD/Users", "/Volumes/Macintosh HD/Users/me/.subfleet", "/Volumes/Backup/tmp",
+           "/Volumes/Backup/Users/x/.subfleet/jobs", "/Volumes/a/Volumes/b/Users", "/volumes/X/private/var",
+           # r3c decision 6: the code points APFS folds to an ASCII letter here (U+017F, U+212A)
+           "/U\u017fers", "/Users/me/.\u017fubfleet", "/Users/me/.subfleet/wor\u212atrees"],
     False: ["/etc", "/private/etc", "/usr/local", "/usr/bin", "/opt/homebrew/Cellar", "/var/folders/zz",
             "/Library/Caches", "/Applications/x.app", "/System/Library", "/System/Volumes/Data/x",
-            "/Volumes/Macintosh HD/Users", "/Users/me/src", "/Users/me/.subfleet/jobs/x",
+            "/Volumes/Macintosh HD/src", "/Volumes/Backup/Users/me/src", "/Users/me/src", "/Users/me/.subfleet/jobs/x",
             "/Users/me/Library/Caches/x", "/Users/me/.subfleet-old", "/Network", "/net", "/home",
             "/tmp/x", "/Users/x/y/PolicyEngine", "/Users/me/Pictures"],
 }
@@ -2405,6 +2577,9 @@ HOME_BROAD = {"theaxiomfoundation", "rulesfoundation", "policyengine", "library"
 
 def oracle_broad(canonical: str) -> bool:
     q = canonical.lower()
+    # r3c decision 2 (this overlay only; snapshot-5 does not): /Volumes/<entry>/<rest> is judged as /<rest>.
+    while re.match(r"/volumes/[^/]+/.", q):
+        q = "/" + q.split("/", 3)[3]
     data = "/system/volumes/data"
     if q == data or q.startswith(data + "/"):
         q = q[len(data):] or "/"
@@ -2512,10 +2687,11 @@ R3B_GLOB_CASES = [
     ("rg foo ~/[P]olicyEngine/policyengine-us", False), ("rg foo ~/Pol*/policyengine-us", False),
     ("rg foo ~/.subfleet/*.json", False), ("rg foo ~/notes*", False), ("rg foo ~/link-to-f*", False),
     ("rg foo ~/src*", False), ("rg foo ~/pol*", False), ("rg foo ~/*ubfleet", False),
-    ("rg foo ~/[!P]olicyEngine", False), ("rg foo ~/.subfleet/jobs/2026*", False), ("rg foo ~/.sub*/nosuch", False),
+    ("rg foo ~/[!P]olicyEngine", False), ("rg foo ~/.subfleet/jobs/2026*", True), ("rg foo ~/.sub*/nosuch", False),
     ("rg foo ~/[.]subfleet/nosuch/..", False), ("rg foo ~/L*/Caches/nosuch", False),
     ("rg foo ~/[[:digit:]]olicyEngine", False), ("rg foo ~/[[:nosuch:]]olicyEngine", False), ("rg foo ~/Pol[", False),
-    ("rg foo src/*.py", False), ("rg foo ~/src/link-u*", False), ("rg foo ~/.subfleet/jobs/link-u*", False),
+    # r3c 1(c): a glob directly in a folder of ~/.subfleet is that folder (snapshot-5 lists nothing there)
+    ("rg foo src/*.py", False), ("rg foo ~/src/link-u*", False), ("rg foo ~/.subfleet/jobs/link-u*", True),
     # test_a_file_is_never_a_root
     ("rg x ~/.subfleet/*.json", False), ("rg x ~/link-to-file", False),
     # the example table: aliases and the data volume
@@ -2997,7 +3173,7 @@ R3C_SEARCHERS_DENIED = [
 #: Review r2's P3-3: the other escapes (decision 6). (command, cwd).
 R3C_FORMS_DENIED = [
     ("rg --files /Users/tester/.sub\\fleet", S_), ("rg --files ~/.s\\ubfleet/jobs", S_), ("rg --files /\\Users", S_),
-    ('rg --files "$HOME/.sub\\fleet"', S_), ("rg --files ~/***/x", S_), ("rg --files ~/.subfleet/***/x", S_),
+    ('rg --files "$HOME/.subfleet"\\/jobs', S_), ("rg --files ~/***/x", S_), ("rg --files ~/.subfleet/***/x", S_),
     ("rg --files ~/.ſubfleet", S_), ("rg --files /Uſers", S_), ("rg --files ~/.subfleet/worKtrees", S_),
     ("rg --files ~/$'.subfleet'", S_), ("rg --files ~tester/.subfleet", S_), ("rg --files ~tester/PolicyEngine", S_),
     ("cd && rg --files", S_), ("cd; rg --files .", S_), ("cd -- && find . -name x", S_),
@@ -3029,6 +3205,8 @@ R3C_ALLOWED = [
     ("rg foo src/{a,b}.py", LANE_W), ("rg foo {src,tests}", LANE_W),
     # decision 4: cd's .. stays logical; decision 2: a scoped path under a mount entry
     ("cd ~/work/jl/.. && rg foo", S_), (f'rg foo "{MAC}/Users/tester/work/repo"', S_), ("rg foo /Volumes/Ext/src/x", S_),
+    # decision 6: in double quotes only \$, \`, \", \\ and a backslash-newline are escapes: this names .sub\fleet
+    ('rg --files "$HOME/.sub\\fleet"', S_),
     # decision 5: a searcher named through a variable stays a known limit
     ("RG=rg; $RG --files ~/.subfleet", S_),
     # decision 6: rg reading a pipe or a file, and a no-path search outside a root

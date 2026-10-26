@@ -285,9 +285,13 @@ fi
 # Cheap prefilter: bail immediately unless a rule keyword appears. The first
 # grep literal is BYTE-IDENTICAL to the Claude hook's prefilter (its tail is
 # the searcher term the drift tests pin in both hooks); the second is the
-# codex addition that lets the fenced hf-dest heredoc scan below run.
+# codex addition that lets the fenced hf-dest heredoc scan below run; the
+# third (D-LANE-SCOPE1 r3c) lets a searcher named by a path, after a quote or
+# a backslash, through $(which …), or as egrep, fgrep, rgrep or ugrep reach the
+# unscoped-search rule.
 printf '%s' "$command" | grep -qE 'stash|AXIOM_|getUpdates|get_updates|dump-keychain|checkout[[:space:]]+-b|switch[[:space:]]+-c|pr[[:space:]]+merge|git[[:space:]]+push|(^|[[:space:];&|(])(find|rg|grep)[[:space:]]' \
   || printf '%s' "$command" | grep -qE '\*\*\* Begin Patch' \
+  || printf '%s' "$command" | grep -qE "(^|[[:space:];&|(/\\\\'\"\`])(find|rg|[efru]?grep)[\`'\")]?([[:space:]]|\$)" \
   || exit 0
 
 # --- tg-getupdates: Telegram polling steals updates from the OpenClaw gateway ---
@@ -391,8 +395,14 @@ fi
 #   searcher   find, rg, or grep with a recursive flag, preceded by a line
 #              start, whitespace, `;`, `&`, `|` or `(` — the three detection
 #              regexes both hooks have always used (also the prefilter term).
-#   escape     any `-maxdepth` / `--max-depth` in the command disarms the rule
-#              (a depth-bounded search is fine).
+#              r3c: also after a quote or a backslash, and named by basename:
+#              a path, a backslash or a quote before the name, egrep, fgrep,
+#              rgrep and ugrep, $(which X) and `which X` are read as the
+#              searcher first (pw_cmd, "the command as the rules read it").
+#   escape     a `-maxdepth` / `--max-depth` / `-d N` that is an unquoted
+#              argument of the searcher's own simple command exempts that
+#              command (r3c; before, one anywhere in the command disarmed the
+#              rule, a comment or a commit message included).
 #   roots      `/`, `/*`, `/Users`, `/Users/<user>`, `~`, `$HOME` (`${HOME}`
 #              is read as `$HOME`), their TheAxiomFoundation / RulesFoundation
 #              / PolicyEngine / Library/Caches / .cache / .local children,
@@ -408,6 +418,12 @@ fi
 #              (also /usr, /Library, /opt/homebrew, /Volumes/<entry> and the
 #              rest, in any letter case, aliases folded), through its links,
 #              and a glob component by component ("Path words").
+#              r3c: a glob matching every entry is its folder, a glob directly
+#              in a folder of ~/.subfleet is that folder, /Volumes/<entry>/x
+#              is judged as /x, braces and zsh's (a|b) by their alternatives,
+#              a searcher's .. after a link physically, and backslashes, ***,
+#              a / inside brackets, ~user, $'…' and APFS's folded letters as
+#              the shell and the volume read them ("Path words").
 #   judged     backslash-newline continuations are joined first (as the shell
 #              does) and `${HOME}`, `${SUBFLEET_ROOT}` and `${SUBFLEET_HOME}`
 #              lose their braces; then collapse_quotes
@@ -428,8 +444,12 @@ fi
 #              command when `xargs` runs a searcher (a deliberately
 #              conservative exception to the ordinary pipeline ownership
 #              rule); as the target of cd/pushd
-#              while any searcher is present; and `.`/`./` when the cwd itself
-#              is a broad root. A root in another command of the pipeline
+#              while any searcher is present (a bare `cd` is `cd ~`, r3c);
+#              and `.`/`./` when the cwd itself is a broad root, as is a
+#              recursive searcher given no path (r3c). A sh/bash/zsh/dash/ksh
+#              -c or eval script holding a searcher is judged again as its own
+#              line, to depth 4; a searcher deeper is denied (r3c). A root in
+#              another command of the pipeline
 #              (`ls ~ | rg x`) or in pattern position (`rg / src`) is not a
 #              crawl and passes.
 #   matched    the token that fired is named at the end of the block message
@@ -539,6 +559,10 @@ pw_fs=${CODEX_GUARD_TEST_FSROOT:-}
 pw_fs=${pw_fs%/}
 pw_cap=${CODEX_GUARD_TEST_GLOB_CAP:-20000}
 case "$pw_cap" in ''|*[!0-9]*) pw_cap=20000 ;; esac
+# The root table (r3c: pw_isbroad and the block message's root list both read
+# it): the fixed roots, and the home's children (each also under /Users/<any>).
+pw_fixed="/ /Users /Volumes /System /System/Volumes /private /tmp /var /var/folders /opt /opt/homebrew /Library /Applications /usr"
+pw_kids="TheAxiomFoundation RulesFoundation PolicyEngine Library Library/Caches .cache .local .subfleet"
 # --- the file system: P is an absolute path, judged under the seam ---
 # pw_islink P: P is a symlink (not followed).
 pw_islink() { [ -L "$pw_fs$1" ]; }
@@ -575,11 +599,17 @@ pw_ls() {
 }
 # --- names ---
 # pw_abs WORD: pw_p is the absolute path a root spelling names, or empty.
+# ~name is /Users/name, or the home when name is this user (r3c).
 pw_abs() {
+  local n=""
   pw_p=""
   case "$1" in
     '~'|'$HOME') pw_p=$HOME ;;
     '~/'*) pw_p="$HOME/${1#\~/}" ;;
+    '~'?*) n=${1#\~}; n=${n%%/*}
+      case "$n" in *[!A-Za-z0-9._-]*) return 0 ;; esac
+      [ -n "${pw_me+x}" ] || pw_me=$(id -un 2>/dev/null)
+      if [ "$n" = "$pw_me" ]; then pw_p="$HOME${1#\~"$n"}"; else pw_p="/Users/$n${1#\~"$n"}"; fi ;;
     '$HOME/'*) pw_p="$HOME/${1#\$HOME/}" ;;
     '$SUBFLEET_ROOT'|'$SUBFLEET_HOME') pw_p="$HOME/.subfleet" ;;
     '$SUBFLEET_ROOT/'*|'$SUBFLEET_HOME/'*) pw_p="$HOME/.subfleet/${1#*/}" ;;
@@ -595,11 +625,16 @@ pw_norm() {
   done
   pw_n=${out:-/}
 }
-# pw_normalize PATH: pw_norm, then the data volume folded to / and /private/tmp,
-# /private/var and /private/etc to /tmp, /var and /etc (any letter case).
+# pw_normalize PATH: pw_norm, then the two code points APFS folds to an ASCII
+# letter on this volume (U+017F long s to s, U+212A Kelvin sign to k; r3c), and
+# the data volume folded to / and /private/tmp, /private/var and /private/etc
+# to /tmp, /var and /etc (any letter case).
 pw_normalize() {
   local nc=""
   pw_norm "$1"
+  case "$pw_n" in
+    *$'\305\277'*|*$'\342\204\252'*) pw_n=${pw_n//$'\305\277'/s}; pw_n=${pw_n//$'\342\204\252'/k} ;;
+  esac
   shopt -q nocasematch && nc=1
   shopt -s nocasematch
   case "$pw_n" in
@@ -623,19 +658,21 @@ pw_stall() {
 # pw_child S: S (a path below a home, or below /Users/<any>) is one of its
 # broad children, or a folder directly in its .subfleet. Caller has nocasematch.
 pw_child() {
-  case "$1" in
-    theaxiomfoundation|rulesfoundation|policyengine|library|library/caches|.cache|.local|.subfleet) return 0 ;;
-    .subfleet/*) case "${1:10}" in */*) return 1 ;; esac; return 0 ;;
-  esac
+  case " $pw_kids " in *" $1 "*) return 0 ;; esac
+  case "$1" in .subfleet/?*) case "${1:10}" in */*) return 1 ;; esac; return 0 ;; esac
   return 1
 }
-# pw_isbroad P: P (normalized) is a broad root by name.
+# pw_isbroad P: P (normalized) is a broad root by name. /Volumes/<entry>/<rest>
+# is judged as /<rest> (r3c decision 2: the boot volume's alias, or a disk's
+# Users), by name only; pw_n is left as the caller had it.
 pw_isbroad() {
-  local p=$1 rest="" nc="" r=1
+  local p=$1 rest="" nc="" r=1 sv=$pw_n
   shopt -q nocasematch && nc=1
   shopt -s nocasematch
-  case "$p" in
-    /|/users|/volumes|/system|/system/volumes|/private|/tmp|/var|/var/folders|/opt|/opt/homebrew|/library|/applications|/usr) r=0 ;;
+  while [[ $p == /volumes/*/* ]]; do rest=${p:9}; pw_normalize "/${rest#*/}"; p=$pw_n; done
+  pw_n=$sv
+  case " $pw_fixed " in *" $p "*) r=0 ;; esac
+  [ "$r" -eq 0 ] || case "$p" in
     /volumes/*) case "${p:9}" in */*) ;; *) r=0 ;; esac ;;
     /users/*) rest=${p:7}
       case "$rest" in
@@ -655,12 +692,32 @@ pw_isbroad() {
 # one of the names roots have, or any name (snapshot-5's holds_root).
 pw_holds() {
   local n=""
+  if pw_stall "$1" && ! pw_volumes "$1"; then return 1; fi
   for n in TheAxiomFoundation RulesFoundation PolicyEngine Library Caches .cache .local .subfleet \
            Users Volumes System private tmp var folders opt homebrew Applications usr Data @sf-any@; do
     pw_normalize "$1/$n"
     pw_isbroad "$pw_n" && return 0
   done
   return 1
+}
+# pw_volumes P: P (normalized) is /Volumes itself, the one stall folder listed.
+pw_volumes() {
+  local nc="" r=1
+  shopt -q nocasematch && nc=1
+  shopt -s nocasematch
+  [[ $1 == /volumes ]] && r=0
+  [ -n "$nc" ] || shopt -u nocasematch
+  return $r
+}
+# pw_subchild P: P (normalized) is a broad root directly in a .subfleet: jobs,
+# worktrees and the rest (r3c 1(c)).
+pw_subchild() {
+  local nc="" r=1
+  shopt -q nocasematch && nc=1
+  shopt -s nocasematch
+  [[ ${1%/*} == */.subfleet ]] && pw_isbroad "$1" && r=0
+  [ -n "$nc" ] || shopt -u nocasematch
+  return $r
 }
 # --- where links lead ---
 # pw_isfile P: P (normalized) exists and is no directory; never asked under a
@@ -690,6 +747,24 @@ pw_physical() {
   done
   pw_normalize "${path:-/}"
   pw_r=$pw_n
+}
+# pw_physdots PATH: pw_pd is the absolute PATH with each .. applied where a
+# searcher applies it, after the links before it are resolved (pw_physical),
+# as find and rg resolve it (r3c decision 4); under a mount that may stall,
+# by name. A cd target keeps the shell's logical .. (its caller skips this).
+pw_physdots() {
+  local rest="$1/" c="" path=""
+  pw_pd=$1
+  case "$rest" in */../*) ;; *) return 0 ;; esac
+  while [ -n "$rest" ]; do
+    c=${rest%%/*}; rest=${rest#*/}
+    case "$c" in
+      ''|.) ;;
+      ..) pw_physical "${path:-/}"; path=${pw_r%/*} ;;
+      *) path="$path/$c" ;;
+    esac
+  done
+  pw_pd=${path:-/}
 }
 # pw_broad P: a walk of P (normalized) covers a broad root: P is one and no
 # file, or P leads through links to a different path that is.
@@ -737,6 +812,7 @@ pw_pattern() {
       case "$ch" in
         -) if [ "$bl" -eq 0 ] || [ "$((j + 1))" -ge "$n" ] || [ "${s:j+1:1}" = "]" ]; then body="$body\\-"; else body="$body-"; fi ;;
         '\'|'['|']'|'!'|'^') body="$body\\$ch" ;;
+        $'\007') body="$body/" ;;
         *) body="$body$ch" ;;
       esac
       bl=$((bl + 1)); j=$((j + 1))
@@ -762,10 +838,11 @@ pw_match() {
   [ -z "$nc" ] || shopt -s nocasematch
   [ -z "$e" ] || shopt -s extglob
 }
-# pw_globbroad PATH: status 0 iff the glob PATH (absolute, unnormalized) can
-# match a broad root, judged component by component (see "globs" above).
+# pw_globbroad PATH [c]: status 0 iff the glob PATH (absolute, unnormalized) can
+# match a broad root, judged component by component (see "globs" above); c: a
+# cd target, whose .. stays logical.
 pw_globbroad() {
-  local rest="$1/" c="" nc=0 first=-1 k=0 text="" glob="" pat="" p="" q="" l="" i=0 budget=$pw_cap last=0 m=0
+  local rest="$1/" logical=${2-} c="" nc=0 first=-1 k=0 text="" glob="" pat="" p="" q="" l="" i=0 budget=$pw_cap last=0 m=0 dot=""
   local -a comps cp cl np nl
   while [ -n "$rest" ]; do
     c=${rest%%/*}; rest=${rest#*/}
@@ -778,6 +855,7 @@ pw_globbroad() {
   rest=""
   k=0
   while [ "$k" -lt "$first" ]; do rest="$rest/${comps[$k]}"; k=$((k + 1)); done
+  [ "$logical" = c ] || { pw_physdots "${rest:-/}"; rest=$pw_pd; }
   pw_normalize "${rest:-/}"
   pw_isbroad "$pw_n" || return 1
   cp=( "$pw_n" ); cl=( n )
@@ -790,8 +868,24 @@ pw_globbroad() {
     i=0
     while [ "$i" -lt "${#cp[@]}" ]; do
       p=${cp[$i]}; i=$((i + 1))
-      if [ -z "$glob" ] && ! pw_stall "$p"; then
-        pw_normalize "$p/$text"
+      if [ -n "$glob" ] && pw_subchild "$p" && ! pw_isfile "$p"; then return 0; fi
+      if pw_stall "$p" && ! pw_volumes "$p"; then
+        # Inside a mount entry nothing is listed or stat'ed: a plain name is
+        # kept by name, and a glob matches the names a root can have plus a
+        # placeholder for any other name (r3c decision 2).
+        if [ -z "$glob" ]; then
+          pw_normalize "$p/$text"; np[${#np[@]}]=$pw_n; nl[${#nl[@]}]=n
+        else
+          case "$text" in .*) dot=1 ;; *) dot="" ;; esac
+          pw_match "$pat" "$dot" TheAxiomFoundation RulesFoundation PolicyEngine Library Caches .cache .local .subfleet \
+                   Users Volumes System private tmp var folders opt homebrew Applications usr Data
+          pw_hits[${#pw_hits[@]}]=@sf-any@
+          for q in "${pw_hits[@]}"; do pw_normalize "$p/$q"; np[${#np[@]}]=$pw_n; nl[${#nl[@]}]=n; done
+        fi
+      elif [ -z "$glob" ] && ! pw_stall "$p"; then
+        if [ "$text" = .. ] && [ "$logical" != c ]; then pw_physical "$p"; q=${pw_r%/*}; pw_normalize "${q:-/}"
+        else pw_normalize "$p/$text"
+        fi
         if pw_lexists "$pw_n"; then np[${#np[@]}]=$pw_n; nl[${#nl[@]}]=u; fi
       elif pw_holds "$p"; then
         pw_ls "$p"
@@ -837,6 +931,158 @@ pw_globbroad() {
   done
   return 1
 }
+# pw_wild COMP: COMP is made only of wildcards: *, ? and bracket expressions,
+# no literal character (r3c 1(b)).
+pw_wild() {
+  local LC_ALL=C s=$1 n=${#1} k=0 j=0 rest="" cls=""
+  [ "$n" -gt 0 ] || return 1
+  while [ "$k" -lt "$n" ]; do
+    case "${s:k:1}" in
+      '*'|'?') k=$((k + 1)) ;;
+      '[') j=$((k + 1))
+        case "${s:j:1}" in '!'|'^') j=$((j + 1)) ;; esac
+        [ "${s:j:1}" != "]" ] || j=$((j + 1))
+        while [ "$j" -lt "$n" ] && [ "${s:j:1}" != "]" ]; do
+          if [ "${s:j:1}" = "[" ] && [ "${s:j+1:1}" = ":" ]; then
+            rest=${s:j+2}; cls=${rest%%:]*}
+            if [ "$cls" != "$rest" ]; then j=$((j + ${#cls} + 4)); continue; fi
+          fi
+          j=$((j + 1))
+        done
+        [ "$j" -lt "$n" ] || return 1
+        k=$((j + 1)) ;;
+      *) return 1 ;;
+    esac
+  done
+}
+# pw_stars WORD CONTEXT: pw_w is WORD with each *** component read as ** (zsh
+# reads them alike), and in CONTEXT b each ** and *** as * (r3c).
+pw_stars() {
+  local x="/$1/" y="" a='/***/' z='/**/'
+  while :; do y=${x//"$a"/"$z"}; [ "$y" != "$x" ] || break; x=$y; done
+  if [ "${2-}" = b ]; then
+    while :; do y=${x//"$z"/"/*/"}; [ "$y" != "$x" ] || break; x=$y; done
+  fi
+  x=${x#/}; pw_w=${x%/}
+}
+# pw_brackets WORD: pw_w is WORD with each / inside a bracket expression made
+# \007, so it splits no component: zsh reads /[^/]* as every entry of / (r3c).
+pw_brackets() {
+  local LC_ALL=C s=$1 n=${#1} k=0 j=0 out="" body="" rest="" cls=""
+  while [ "$k" -lt "$n" ]; do
+    if [ "${s:k:1}" != "[" ]; then out="$out${s:k:1}"; k=$((k + 1)); continue; fi
+    j=$((k + 1))
+    case "${s:j:1}" in '!'|'^') j=$((j + 1)) ;; esac
+    [ "${s:j:1}" != "]" ] || j=$((j + 1))
+    while [ "$j" -lt "$n" ] && [ "${s:j:1}" != "]" ]; do
+      if [ "${s:j:1}" = "[" ] && [ "${s:j+1:1}" = ":" ]; then
+        rest=${s:j+2}; cls=${rest%%:]*}
+        if [ "$cls" != "$rest" ]; then j=$((j + ${#cls} + 4)); continue; fi
+      fi
+      j=$((j + 1))
+    done
+    if [ "$j" -lt "$n" ]; then body=${s:k:j-k+1}; out="$out${body//\//$'\007'}"; k=$((j + 1))
+    else out="$out["; k=$((k + 1))
+    fi
+  done
+  pw_w=$out
+}
+# pw_bscan WORD FROM: the first brace group at or after FROM that is no ${:
+# pw_bs and pw_be its { and }, pw_bk its kind (comma, nested, seq or lit), pw_bn
+# its alternatives; status 1 when there is none.
+pw_bscan() {
+  local LC_ALL=C s=$1 n=${#1} k=$2 j=0 d=0 nested="" commas=0
+  while [ "$k" -lt "$n" ]; do
+    if [ "${s:k:1}" = "{" ] && { [ "$k" -eq 0 ] || [ "${s:k-1:1}" != '$' ]; }; then
+      j=$((k + 1)); d=1; nested=""; commas=0
+      while [ "$j" -lt "$n" ]; do
+        case "${s:j:1}" in
+          '{') d=$((d + 1)); nested=1 ;;
+          '}') d=$((d - 1)); [ "$d" -gt 0 ] || break ;;
+          ',') [ "$d" -ne 1 ] || commas=$((commas + 1)) ;;
+        esac
+        j=$((j + 1))
+      done
+      if [ "$j" -lt "$n" ]; then
+        pw_bs=$k; pw_be=$j; pw_bn=$((commas + 1))
+        if [ -n "$nested" ]; then pw_bk=nested
+        elif [ "$commas" -gt 0 ]; then pw_bk=comma
+        else case "${s:k+1:j-k-1}" in *..*) pw_bk=seq ;; *) pw_bk=lit ;; esac
+        fi
+        return 0
+      fi
+    fi
+    k=$((k + 1))
+  done
+  return 1
+}
+# pw_expand WORD CONTEXT: pw_alts is every word WORD can be after brace expansion
+# and, outside CONTEXT b, zsh's (a|b) alternation (r3c decision 3): each comma
+# group expanded, 64 words at most; a nested group, a {x..y} sequence or more
+# than 64 words reads each group as *, and an alternation that is not a list of
+# plain names, or would pass 64, reads its component as * (pw_grp set then). A
+# quoted or escaped { } , ( | ) arrives as \001-\006, and is itself again at the
+# end.
+pw_expand() {
+  local LC_ALL=C w=$1 ctx=${2-z} k=0 prod=1 star="" x="" pre="" post="" inner="" a="" found="" one="" lb='{' rb='}' cm=',' lp='(' vb='|' rp=')'
+  local -a todo out
+  pw_grp=""
+  while pw_bscan "$w" "$k"; do
+    case "$pw_bk" in nested|seq) star=1 ;; comma) prod=$((prod * pw_bn)) ;; esac
+    [ "$prod" -le 64 ] || star=1
+    k=$((pw_be + 1))
+  done
+  if [ -n "$star" ]; then
+    k=0
+    while pw_bscan "$w" "$k"; do
+      if [ "$pw_bk" = lit ]; then k=$((pw_be + 1)); continue; fi
+      w="${w:0:pw_bs}*${w:pw_be+1}"; k=$((pw_bs + 1))
+    done
+    pw_alts=( "$w" ); pw_grp=1
+  else
+    todo=( "$w" ); pw_alts=()
+    while [ "${#todo[@]}" -gt 0 ]; do
+      x=${todo[0]}; todo=( ${todo[@]+"${todo[@]:1}"} )
+      k=0; found=""
+      while pw_bscan "$x" "$k"; do
+        if [ "$pw_bk" = comma ]; then found=1; break; fi
+        k=$((pw_be + 1))
+      done
+      if [ -z "$found" ]; then pw_alts[${#pw_alts[@]}]=$x; continue; fi
+      pre=${x:0:pw_bs}; post=${x:pw_be+1}; inner="${x:pw_bs+1:pw_be-pw_bs-1},"
+      while [ -n "$inner" ]; do a=${inner%%,*}; inner=${inner#*,}; todo[${#todo[@]}]="$pre$a$post"; done
+    done
+  fi
+  if [ "$ctx" != b ]; then
+    todo=( "${pw_alts[@]}" ); out=()
+    while [ "${#todo[@]}" -gt 0 ]; do
+      x=${todo[0]}; todo=( ${todo[@]+"${todo[@]:1}"} )
+      case "$x" in *'('*')'*) ;; *) out[${#out[@]}]=$x; continue ;; esac
+      pre=${x%%'('*}; inner=${x#*'('}; post=${inner#*')'}; inner=${inner%%')'*}
+      one=""
+      case "$inner" in
+        *'|'*) case "$inner" in *['*?[/~#^<>(']*) ;; *)
+            a=${inner//[!|]/}; [ $(( ${#todo[@]} + ${#out[@]} + ${#a} + 1 )) -le 64 ] && one=1 ;; esac ;;
+      esac
+      if [ -n "$one" ]; then
+        inner="$inner|"
+        while [ -n "$inner" ]; do a=${inner%%'|'*}; inner=${inner#*'|'}; todo[${#todo[@]}]="$pre$a$post"; done
+      else
+        case "$pre" in */*) pre="${pre%/*}/" ;; *) pre="" ;; esac
+        case "$post" in */*) post="/${post#*/}" ;; *) post="" ;; esac
+        todo[${#todo[@]}]="$pre*$post"; pw_grp=1
+      fi
+    done
+    pw_alts=( "${out[@]}" )
+  fi
+  k=0
+  while [ "$k" -lt "${#pw_alts[@]}" ]; do
+    x=${pw_alts[$k]}
+    x=${x//$'\001'/$lb}; x=${x//$'\002'/$rb}; x=${x//$'\003'/$cm}
+    x=${x//$'\004'/$lp}; x=${x//$'\005'/$vb}; x=${x//$'\006'/$rp}
+    pw_alts[$k]=$x; k=$((k + 1))
+  done
+}
 # --- words ---
 # pw_sentinel WORD [SUFFIX]: pw_t is a new placeholder root, named WORD SUFFIX.
 pw_sentinel() {
@@ -844,12 +1090,17 @@ pw_sentinel() {
   pw_t="/Users/@sfglob${pw_nt}@"
   pw_shown[$pw_nt]="$1${2-}"
 }
-# pw_word WORD CONTEXT: pw_t is a placeholder root (broad), F (not broad), or
-# empty (the text rules' verdict stands). CONTEXT b: the word is in a script
-# run by bash, sh, dash or ksh -c, where `**` is `*`. QUOTED q: a quote mark
-# was part of the word, so a broad one is placed even where the text rules
-# read it as a root by name (they would see a quoted part as Q). Judged with
-# nocasematch and nocaseglob off (bash 3.2's =~ obeys either), both put back.
+# pw_word WORD CONTEXT [QUOTED [CD [SHOWN]]]: pw_t is a placeholder root
+# (broad), F (not broad), or empty (the text rules' verdict stands). WORD is
+# the word as the shell reads it (r3c: quote marks and backslash escapes gone,
+# a quoted { } , ( | ) as \001-\006, a $'...' as *). CONTEXT b: the word is in
+# a script run by bash, sh, dash or ksh -c, where `**` is `*`; z: zsh's
+# reading as well (alternation, a / inside brackets, `**/`). QUOTED q: a quote
+# mark or a backslash was part of the word, so a broad one is placed even where
+# the text rules read it as a root by name (they see it otherwise). CD c: a
+# cd or pushd target, whose .. stays logical. SHOWN: the word for the block
+# message. Judged with nocasematch and nocaseglob off (bash 3.2's =~ obeys
+# either), both put back.
 pw_word() {
   local nc="" ng=""
   shopt -q nocasematch && nc=1
@@ -860,55 +1111,247 @@ pw_word() {
   [ -z "$ng" ] || shopt -s nocaseglob
 }
 pw_word_judge() {
-  local w=$1 b="" walk=""
+  local w=$1 ctx=${2-z} q=${3-} f=${4-p} shown=${5-$1} a="" broad="" glob=""
   pw_t=""
+  pw_expand "$w" "$ctx"
+  if [ "${#pw_alts[@]}" -eq 1 ] && [ -z "$pw_grp" ]; then
+    a=${pw_alts[0]}
+    pw_alt "$a" "$ctx" "$f"
+    case "$pw_av" in
+      B) if [ "$q" = q ] || ! [[ $a =~ $pw_root_re ]]; then pw_sentinel "$shown"; fi ;;
+      N) if [[ $a =~ $pw_root_re ]]; then pw_t=F; fi ;;
+      G) pw_sentinel "$shown" " (glob)" ;;
+      NG) pw_t=F ;;
+    esac
+    return 0
+  fi
+  for a in ${pw_alts[@]+"${pw_alts[@]}"}; do
+    pw_alt "$a" "$ctx" "$f"
+    case "$pw_av" in
+      B) broad=1 ;;
+      G) broad=1; glob=1 ;;
+      T) if [[ $a =~ $pw_root_re ]]; then broad=1; fi ;;
+    esac
+    [ -z "$broad" ] || break
+  done
+  if [ -n "$broad" ]; then pw_sentinel "$shown" "${glob:+ (glob)}"; else pw_t=F; fi
+}
+# pw_alt WORD CONTEXT CD: pw_av is how one alternative of a word (no group
+# left) is judged: B broad, N not broad, G broad as a glob, NG not broad as a
+# glob, T left to the text rules (it still holds $ or a backtick, or is /*).
+pw_alt() {
+  local w=$1 ctx=$2 f=$3 b="" walk="" x="" c=""
+  pw_av=T
   case "$w" in
     '/*') return 0 ;;
     *[*?[]*) ;;
     *) pw_abs "$w"
        case "$pw_p" in ''|*'$'*|*'`'*) return 0 ;; esac
+       [ "$f" = c ] || { pw_physdots "$pw_p"; pw_p=$pw_pd; }
        pw_normalize "$pw_p"
-       if pw_broad "$pw_n"; then
-         if [ "${3-}" = q ] || ! [[ $w =~ $pw_root_re ]]; then pw_sentinel "$w"; fi
-       elif [[ $w =~ $pw_root_re ]]; then
-         pw_t=F
-       fi
+       if pw_broad "$pw_n"; then pw_av=B; else pw_av=N; fi
        return 0 ;;
   esac
-  b=$w
-  if [ "${2-}" != b ]; then
+  pw_stars "$w" "$ctx"; b=$pw_w
+  if [ "$ctx" != b ]; then
+    pw_brackets "$b"; b=$pw_w
     case "/$b" in */'**'/*) b=${b%%/'**'/*}; walk=1 ;; esac
   fi
+  # r3c 1(a) and 1(b): trailing slashes, /. components and <glob>/.. go first;
+  # then a trailing run of components made only of wildcards (or .* or **) is
+  # the folder they sit in, whether or not it is ever listed.
   if [ -z "$walk" ]; then
-    [ "$b" = "/" ] || b=${b%/}
     while :; do
-      case "$b" in */'*'|*/'.*'|*/'**') b=${b%/*}; walk=1 ;; *) break ;; esac
+      case "$b" in
+        /|'') break ;;
+        */) b=${b%/} ;;
+        */.) b=${b%/.} ;;
+        */..) x=${b%/..}; c=${x##*/}
+          case "$c" in *[*?[]*) b=${x%/*}; walk=1 ;; *) break ;; esac ;;
+        */*) c=${b##*/}
+          if [ "$c" = '.*' ] || [ "$c" = '**' ] || pw_wild "$c"; then b=${b%/*}; walk=1; else break; fi ;;
+        *) break ;;
+      esac
+      [ -n "$b" ] || b=/
     done
   fi
   [ -n "$b" ] || b=/
   case "$b" in
     *[*?[]*) ;;
     *) pw_abs "$b"
-       case "$pw_p" in
-         ''|*'$'*|*'`'*) if [[ $b =~ $pw_root_re ]]; then pw_sentinel "$w" " (glob)"; fi; return 0 ;;
-       esac
+       case "$pw_p" in ''|*'$'*|*'`'*) if [[ $b =~ $pw_root_re ]]; then pw_av=G; fi; return 0 ;; esac
+       [ "$f" = c ] || { pw_physdots "$pw_p"; pw_p=$pw_pd; }
        pw_normalize "$pw_p"
-       if pw_broad "$pw_n"; then pw_sentinel "$w" " (glob)"; else pw_t=F; fi
+       if pw_broad "$pw_n"; then pw_av=G; else pw_av=NG; fi
        return 0 ;;
   esac
   pw_abs "$b"
-  case "$pw_p" in ''|*'$'*|*'`'*|*'{'*) return 0 ;; esac
-  if pw_globbroad "$pw_p"; then pw_sentinel "$w" " (glob)"; else pw_t=F; fi
+  case "$pw_p" in ''|*'$'*|*'`'*) return 0 ;; esac
+  if pw_globbroad "$pw_p" "$f"; then pw_av=G; else pw_av=NG; fi
 }
+# --- the command as the rules read it (r3c) ---
+# pw_prep_awk, mode prep: the command with, in every simple command and in every
+# quoted string holding a searcher's name, (1) a searcher named by a path, a
+# backslash or a quote, or as egrep, fgrep or ugrep, made find, rg or grep (rgrep
+# grep -r), as is $(which X), $(command -v X) and `which X` (decision 5); (2) a
+# simple command that holds a searcher and its own unquoted depth bound
+# (-maxdepth, --max-depth, -d N) made `:`, the bound exempting only that
+# command (decision 6); (3) a bare `cd` or `cd --` made `cd ~`; (4) a comment
+# dropped. Every other byte is kept. Mode nopath prints 1 when some simple
+# command is a recursive searcher given no path, so it walks ".": find with an
+# expression first, rg with no path and nothing on its stdin (no pipe into it,
+# no < redirection; --files lists "." whatever its stdin), grep -r with none.
+pw_prep_awk='
+  function base(v,   x) { x = v; sub(/.*\//, "", x); return x }
+  function isname(v) { return v ~ /^(find|rg|grep|egrep|fgrep|rgrep|ugrep)$/ }
+  function canon(v) { if (v ~ /^(egrep|fgrep|ugrep)$/) return "grep"; if (v == "rgrep") return "grep -r"; return v }
+  function value(t,   out, i, n, c, j) {
+    out = ""; n = length(t); i = 1
+    while (i <= n) {
+      c = substr(t, i, 1)
+      if (c == "\\") { out = out substr(t, i + 1, 1); i += 2; continue }
+      if (c == "\047") { j = index(substr(t, i + 1), "\047"); if (!j) j = n - i + 1; out = out substr(t, i + 1, j - 1); i += j + 1; continue }
+      if (c == "\"") { i++; while (i <= n && substr(t, i, 1) != "\"") { c = substr(t, i, 1); if (c == "\\" && i < n) { i++; c = substr(t, i, 1) }; out = out c; i++ }; i++; continue }
+      out = out c; i++
+    }
+    return out
+  }
+  function dqend(t, i,   n, c) {
+    n = length(t); i++
+    while (i <= n) { c = substr(t, i, 1); if (c == "\\") { i += 2; continue }; if (c == "\"") return i; i++ }
+    return 0
+  }
+  function subst(t,   out, m, w) {
+    out = ""
+    while (match(t, /\$\((which|command[[:space:]]+-v)[[:space:]]+[^[:space:]()`]+[[:space:]]*\)|`(which|command[[:space:]]+-v)[[:space:]]+[^[:space:]()`]+[[:space:]]*`/)) {
+      m = substr(t, RSTART, RLENGTH); w = m
+      sub(/^(\$\(|`)(which|command[[:space:]]+-v)[[:space:]]+/, "", w); sub(/[[:space:]]*(\)|`)$/, "", w)
+      out = out substr(t, 1, RSTART - 1) (isname(base(w)) ? w : m); t = substr(t, RSTART + RLENGTH)
+    }
+    return out t
+  }
+  function inner(q, depth) { return (mode == "prep" && depth < 6 && q ~ SRCH) ? prep(q, depth + 1) : q }
+  function simple(seg, depth, piped,   nt, i, n, c, j, t, b, hs, hb, out, w, tk, val, sp, qd, stdin, npos, hasE, rec, k, files) {
+    nt = 0; i = 1; n = length(seg); sp[0] = ""
+    while (i <= n) {
+      c = substr(seg, i, 1)
+      if (c ~ /[[:space:]]/) { sp[nt] = sp[nt] c; i++; continue }
+      nt++; tk[nt] = ""; sp[nt] = ""
+      while (i <= n) {
+        c = substr(seg, i, 1)
+        if (c ~ /[[:space:]]/) break
+        if (c == "\\") { tk[nt] = tk[nt] substr(seg, i, 2); i += 2; continue }
+        if (c == "\047") {
+          j = index(substr(seg, i + 1), "\047")
+          if (!j) { tk[nt] = tk[nt] substr(seg, i); i = n + 1; continue }
+          tk[nt] = tk[nt] "\047" inner(substr(seg, i + 1, j - 1), depth) "\047"; i += j + 1; continue
+        }
+        if (c == "\"") {
+          j = dqend(seg, i)
+          if (!j) { tk[nt] = tk[nt] substr(seg, i); i = n + 1; continue }
+          tk[nt] = tk[nt] "\"" inner(substr(seg, i + 1, j - i - 1), depth) "\""; i = j + 1; continue
+        }
+        tk[nt] = tk[nt] c; i++
+      }
+    }
+    for (t = 1; t <= nt; t++) { val[t] = value(tk[t]); qd[t] = (tk[t] ~ /["\047\\]/) }
+    t = 1
+    while (t <= nt && val[t] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) t++
+    while (t <= nt && val[t] ~ /^(env|command|builtin|exec|nice|nohup|time|timeout|xargs|sudo|noglob|stdbuf|caffeinate)$/) {
+      t++
+      while (t <= nt && (val[t] ~ /^-/ || val[t] ~ /^[0-9][0-9.]*[smhd]?$/ || val[t] ~ /^[A-Za-z_][A-Za-z0-9_]*=/)) t++
+    }
+    if (t <= nt) { b = base(val[t]); if (isname(b) && tk[t] != canon(b)) { tk[t] = canon(b); val[t] = tk[t] } }
+    hs = 0; hb = 0
+    for (k = 1; k <= nt; k++) {
+      if (isname(base(val[k])) || val[k] == "grep -r") hs = 1
+      if (!qd[k] && (tk[k] ~ /^--?max-?depth(=.*)?$/ || tk[k] ~ /^-d[0-9]+$/ || (tk[k] == "-d" && k < nt && tk[k + 1] ~ /^[0-9]+$/))) hb = 1
+    }
+    if (mode == "nopath") {
+      if (hb || t > nt) return ""
+      b = val[t]; stdin = piped; npos = 0; hasE = 0; rec = 0; files = 0
+      if (b == "grep -r") { b = "grep"; rec = 1 }
+      if (b == "find") {
+        k = t + 1
+        while (k <= nt && val[k] ~ /^-([HLPEXdsx]|O[0-9]*)$/) k++
+        if (k > nt || val[k] ~ /^-./ || val[k] == "(" || val[k] == "!") found = 1
+        return ""
+      }
+      if (b != "rg" && b != "grep") return ""
+      for (k = t + 1; k <= nt; k++) {
+        w = tk[k]
+        if (w ~ /^[0-9]*<<?<?$/) { stdin = 1; k++; continue }
+        if (w ~ /^[0-9]*</) { stdin = 1; continue }
+        if (w ~ /^[0-9&]*>>?&?$/) { k++; continue }
+        if (w ~ /^[0-9&]*>/) continue
+        if (w == "--") { for (k++; k <= nt; k++) npos++; break }
+        if (w ~ /^--/) {
+          if (w ~ /^--(regexp|file|files)(=|$)/) hasE = 1
+          if (w == "--files") files = 1
+          if (w ~ /^--(recursive|dereference-recursive)$/ || w ~ /^--directories=recurse$/) rec = 1
+          if (w !~ /=/ && w ~ /^--(regexp|file|glob|iglob|type|type-not|type-add|type-clear|max-count|max-columns|max-filesize|context|after-context|before-context|include|exclude|exclude-dir|replace|threads|encoding|sort|sortr|colors|pre|engine|ignore-file|path-separator|context-separator|label|directories|devices)$/) {
+            if (w == "--directories" && val[k + 1] == "recurse") rec = 1
+            k++
+          }
+          continue
+        }
+        if (w ~ /^-./) {
+          if (b == "grep" && w ~ /^-[a-zA-Z]*[rR]/) rec = 1
+          if (w ~ /^-[a-zA-Z]*[ef]$/ || w ~ /^-[ef]/) hasE = 1
+          if (b == "grep" && w == "-d" && val[k + 1] == "recurse") rec = 1
+          if (w ~ /^-[a-zA-Z]*[efgtTABCmMjdDEr]$/ && !(b == "grep" && w ~ /[rET]$/)) k++
+          continue
+        }
+        npos++
+      }
+      if (b == "grep") { if (rec && npos - (hasE ? 0 : 1) <= 0) found = 1; return "" }
+      if (npos - (hasE ? 0 : 1) <= 0 && (files || !stdin)) found = 1
+      return ""
+    }
+    if (hs && hb) return sp[0] ":" sp[nt]
+    if (nt == 1 && tk[1] == "cd") tk[1] = "cd ~"
+    else if (nt == 2 && tk[1] == "cd" && tk[2] == "--") tk[2] = "~"
+    out = sp[0]
+    for (t = 1; t <= nt; t++) out = out tk[t] sp[t]
+    return out
+  }
+  function prep(t, depth,   n, i, c, seg, res, j, sep, piped, run) {
+    n = length(t); i = 1; seg = ""; res = ""; piped = 0
+    while (i <= n) {
+      if (match(substr(t, i, 512), /^[^\\\047"#;&|()\n]+/)) { seg = seg substr(t, i, RLENGTH); i += RLENGTH; continue }
+      c = substr(t, i, 1)
+      if (c == "\\") { seg = seg substr(t, i, 2); i += 2; continue }
+      if (c == "\047") { j = index(substr(t, i + 1), "\047"); if (!j) j = n - i; seg = seg substr(t, i, j + 1); i += j + 1; continue }
+      if (c == "\"") { j = dqend(t, i); if (!j) j = n; seg = seg substr(t, i, j - i + 1); i = j + 1; continue }
+      if (c == "#" && (seg == "" || seg ~ /[[:space:]]$/)) { while (i <= n && substr(t, i, 1) != "\n") i++; continue }
+      if (c == "#") { seg = seg c; i++; continue }
+      sep = c
+      if ((c == "|" || c == "&") && substr(t, i + 1, 1) == c) sep = c c
+      res = res simple(seg, depth, piped) sep; seg = ""; i += length(sep)
+      piped = (sep == "|")
+    }
+    return res simple(seg, depth, piped)
+  }
+  BEGIN { SRCH = "(^|[[:space:];&|(\047\"\\\\/`])(find|rg|grep|egrep|fgrep|rgrep|ugrep)([[:space:]\047\")`]|$)" }
+  mode == "prep" { printf "%s%s", (NR > 1 ? "\001" : ""), prep(subst($0), 0) }
+  mode == "nopath" { prep($0, 0) }
+  END { if (mode == "nopath") print (found ? 1 : 0) }'
+# pw_nopath CMD: CMD (prepped) holds a recursive searcher given no path.
+pw_nopath() { [ "$(printf '%s' "$1" | LC_ALL=C awk -v RS=$'\001' -v mode=nopath "$pw_prep_awk" 2>/dev/null)" = 1 ]; }
+pw_cmd=$command
+if [ "${#command}" -le 65536 ] && printf '%s' "$command" | grep -qE "(^|[[:space:];&|(/\\\\'\"\`])(find|rg|[efru]?grep)[\`'\")]?([[:space:]]|\$)"; then
+  pw_cmd=$(printf '%s' "$command" | LC_ALL=C awk -v RS=$'\001' -v mode=prep "$pw_prep_awk" 2>/dev/null) || pw_cmd=""
+  [ -n "$pw_cmd" ] || pw_cmd=$command
+fi
 # <<< r3 path words: end <<<
 
 searcher=""
-if printf '%s' "$command" | grep -qE '(^|[[:space:];&|(])find[[:space:]]'; then searcher="find"
-elif printf '%s' "$command" | grep -qE '(^|[[:space:];&|(])rg[[:space:]]'; then searcher="rg"
-elif printf '%s' "$command" | grep -qE '(^|[[:space:];&|(])grep[[:space:]]' \
-  && printf '%s' "$command" | grep -qE '(^|[[:space:]])(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive|--dereference-recursive)([[:space:]]|$)'; then searcher="recursive grep"
+if printf '%s' "$pw_cmd" | grep -qE "(^|[[:space:];&|('\"\\\\])find[[:space:]]"; then searcher="find"
+elif printf '%s' "$pw_cmd" | grep -qE "(^|[[:space:];&|('\"\\\\])rg[[:space:]]"; then searcher="rg"
+elif printf '%s' "$pw_cmd" | grep -qE "(^|[[:space:];&|('\"\\\\])grep[[:space:]]" \
+  && printf '%s' "$pw_cmd" | grep -qE '(^|[[:space:]])(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive|--dereference-recursive)([[:space:]]|$)'; then searcher="recursive grep"
 fi
-if [ -n "$searcher" ] && ! printf '%s' "$command" | grep -qE -- '--?max-?depth'; then
+if [ -n "$searcher" ]; then
   broad_re="(/Users/[^/[:space:]'\"]+|~|\\\$HOME)(/(TheAxiomFoundation|RulesFoundation|PolicyEngine|Library/Caches|\.cache|\.local|\.subfleet(/[^/[:space:]'\"]+)?))?|\\\$SUBFLEET_(ROOT|HOME)(/[^/[:space:]'\"]+)?|(/private)?/tmp"
   # Every root spelling: bare `/`, `/*` (the shell expands it to every
   # top-level directory), `/Users`, `/Users/`, and broad_re with an optional
@@ -958,18 +1401,19 @@ if [ -n "$searcher" ] && ! printf '%s' "$command" | grep -qE -- '--?max-?depth';
   loop_head_re="(^|[[:space:];&|(])for[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]+in[[:space:]]+${root_re}${root_end}"
   # judged: the command with backslash-newline continuations joined exactly as
   # the original port-back contract specifies, then `${HOME}` spelled `$HOME`
-  # (and `${SUBFLEET_ROOT}`/`${SUBFLEET_HOME}` without braces too).
-  # The searcher detection above and the cwd rule below keep looking at the raw
-  # command.
-  judged=$(printf '%s' "$command" | LC_ALL=C awk '{ if (sub(/\\$/, "")) printf "%s", $0; else print }' 2>/dev/null | LC_ALL=C sed 's/\$[{]HOME[}]/$HOME/g; s/\$[{]SUBFLEET_ROOT[}]/$SUBFLEET_ROOT/g; s/\$[{]SUBFLEET_HOME[}]/$SUBFLEET_HOME/g' 2>/dev/null) || judged=""
-  [ -n "$judged" ] || judged=$command
+  # (and `${SUBFLEET_ROOT}`/`${SUBFLEET_HOME}` without braces too). Since r3c it
+  # starts from pw_cmd (searcher names, depth bounds and a bare cd read, see
+  # "the command as the rules read it"), as do the searcher detection above and
+  # the cwd rule below.
+  judged=$(printf '%s' "$pw_cmd" | LC_ALL=C awk '{ if (sub(/\\$/, "")) printf "%s", $0; else print }' 2>/dev/null | LC_ALL=C sed 's/\$[{]HOME[}]/$HOME/g; s/\$[{]SUBFLEET_ROOT[}]/$SUBFLEET_ROOT/g; s/\$[{]SUBFLEET_HOME[}]/$SUBFLEET_HOME/g' 2>/dev/null) || judged=""
+  [ -n "$judged" ] || judged=$pw_cmd
   # Two trailing backslashes escape each other, so the following newline is a
   # real command separator. The mandated one-backslash join above cannot tell
   # that case apart; retain the raw newline when an even run is present so an
   # old blocked crawl on the next line cannot disappear during normalization.
-  if printf '%s' "$command" | LC_ALL=C awk 'match($0, /\\+$/) && RLENGTH % 2 == 0 { even=1 } END { exit !even }' 2>/dev/null; then
-    judged=$(printf '%s' "$command" | LC_ALL=C awk '{ if (match($0, /\\+$/) && RLENGTH % 2 == 1) printf "%s", substr($0, 1, length($0) - 1); else print }' 2>/dev/null | LC_ALL=C sed 's/\$[{]HOME[}]/$HOME/g; s/\$[{]SUBFLEET_ROOT[}]/$SUBFLEET_ROOT/g; s/\$[{]SUBFLEET_HOME[}]/$SUBFLEET_HOME/g' 2>/dev/null) || judged=""
-    [ -n "$judged" ] || judged=$command
+  if printf '%s' "$pw_cmd" | LC_ALL=C awk 'match($0, /\\+$/) && RLENGTH % 2 == 0 { even=1 } END { exit !even }' 2>/dev/null; then
+    judged=$(printf '%s' "$pw_cmd" | LC_ALL=C awk '{ if (match($0, /\\+$/) && RLENGTH % 2 == 1) printf "%s", substr($0, 1, length($0) - 1); else print }' 2>/dev/null | LC_ALL=C sed 's/\$[{]HOME[}]/$HOME/g; s/\$[{]SUBFLEET_ROOT[}]/$SUBFLEET_ROOT/g; s/\$[{]SUBFLEET_HOME[}]/$SUBFLEET_HOME/g' 2>/dev/null) || judged=""
+    [ -n "$judged" ] || judged=$pw_cmd
   fi
   # >>> r3 path words: judge >>>
   # Path words judged on disk (see "Path words" above): pass 1 lists every
@@ -981,22 +1425,61 @@ if [ -n "$searcher" ] && ! printf '%s' "$command" | grep -qE -- '--?max-?depth';
   # the rewritten command.
   pw_root_re="^(${root_core})\$"
   pw_normalize "$HOME"; pw_home=$pw_n
-  pw_nt=0 pw_nd=0 pw_dec=""
+  pw_nt=0 pw_nd=0 pw_dec="" pw_deep="" pw_unwrap=""
   pw_awk='
     function ctx_of(pre, ctx) {
       if (pre ~ /(^|[[:space:];&|(\/])(sh|bash|dash|ksh)([[:space:]]+-[^[:space:]]+)*[[:space:]]+-[A-Za-z]*c[A-Za-z]*[[:space:]]*$/) return "b"
       if (pre ~ /(^|[[:space:];&|(\/])zsh([[:space:]]+-[^[:space:]]+)*[[:space:]]+-[A-Za-z]*c[A-Za-z]*[[:space:]]*$/) return "z"
       return ctx
     }
-    function walk(s, ctx,   out, orig, run, orun, b, qc, rest, piece, opiece, q, inner, nctx) {
-      out = ""; orig = ""
-      while (match(s, /([^[:space:]|;&()<>"\047]|"[^"]*"|\047[^\047]*\047)+/)) {
-        out = out substr(s, 1, RSTART - 1); orig = orig substr(s, 1, RSTART - 1)
+    function isc(pre) {
+      return pre ~ /(^|[[:space:];&|(\/])(sh|bash|dash|ksh|zsh)([[:space:]]+-[^[:space:]]+)*[[:space:]]+-[A-Za-z]*c[A-Za-z]*[[:space:]]*$/ || pre ~ /(^|[[:space:];&|(])eval[[:space:]]+$/
+    }
+    function lit(c) {
+      if (c == "{") return "\001"; if (c == "}") return "\002"; if (c == ",") return "\003"
+      if (c == "(") return "\004"; if (c == "|") return "\005"; if (c == ")") return "\006"
+      return c
+    }
+    function sform(run, mode,   out, i, n, c, j, seg, k) {
+      out = ""; n = length(run); i = 1
+      while (i <= n) {
+        c = substr(run, i, 1)
+        if (c == "\\") { if (i < n) out = out (mode ? lit(substr(run, i + 1, 1)) : substr(run, i + 1, 1)); i += 2; continue }
+        if (c == "$" && substr(run, i + 1, 1) == "\047") {
+          j = index(substr(run, i + 2), "\047")
+          if (j) { out = out (mode ? "*" : substr(run, i + 2, j - 1)); i += j + 2; continue }
+        }
+        if (c == "\047") {
+          j = index(substr(run, i + 1), "\047"); if (!j) j = n - i + 1
+          seg = substr(run, i + 1, j - 1)
+          if (mode) for (k = 1; k <= length(seg); k++) out = out lit(substr(seg, k, 1)); else out = out seg
+          i += j + 1; continue
+        }
+        if (c == "\"") {
+          i++
+          while (i <= n && substr(run, i, 1) != "\"") {
+            c = substr(run, i, 1)
+            if (c == "\\" && i < n && index("$`\"\\\n", substr(run, i + 1, 1))) { i++; c = substr(run, i, 1) }
+            out = out (mode ? lit(c) : c); i++
+          }
+          i++; continue
+        }
+        out = out c; i++
+      }
+      return out
+    }
+    function walk(s, ctx, depth, prose,   out, orig, run, orun, b, sf, qc, rest, piece, opiece, q, inner, nctx, gap, first, cd, cdp, val) {
+      out = ""; orig = ""; first = 1; cd = 0; cdp = 0
+      while (match(s, /(\\.|[^[:space:]|;&()<>"\047\\]|"([^"\\]|\\.)*"|\047[^\047]*\047|\([^[:space:]()<>;&"\047\\]*\))+/)) {
+        gap = substr(s, 1, RSTART - 1)
+        if (gap ~ /[;&|()]/) { first = 1; cd = 0; cdp = 0 }
+        out = out gap; orig = orig gap
         run = substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH); orun = run
         b = run; gsub(/["\047]/, "", b)
-        if (b ~ /^(~|\$HOME|\$SUBFLEET_(ROOT|HOME))(\/|$)/ || b ~ /^\//) {
+        sf = sform(run, 1)
+        if (sf ~ /^(~[A-Za-z0-9._-]*|\$HOME|\$SUBFLEET_(ROOT|HOME))(\/|$)/ || sf ~ /^\// || (sf ~ /^\{/ && sf ~ /,|\.\./)) {
           k++
-          if (pass == 1) printf "%d\t%s\t%s\t%s\n", k, ctx, (run == b) ? "u" : "q", b
+          if (pass == 1) printf "%d\t%s\t%s\t%s\t%s\t%s\n", k, ctx, (run == sf) ? "u" : "q", (cd && !cdp) ? "c" : "p", sf, b
           else if (k in tok) {
             qc = ""
             if (match(run, /["\047]/)) qc = substr(run, RSTART, 1)
@@ -1005,29 +1488,58 @@ if [ -n "$searcher" ] && ! printf '%s' "$command" | grep -qE -- '--?max-?depth';
           out = out run
         } else {
           rest = run; piece = ""; opiece = ""
-          while (match(rest, /"[^"]*"|\047[^\047]*\047/)) {
+          while (match(rest, /"([^"\\]|\\.)*"|\047[^\047]*\047/)) {
             piece = piece substr(rest, 1, RSTART - 1); opiece = opiece substr(rest, 1, RSTART - 1)
             q = substr(rest, RSTART, RLENGTH); rest = substr(rest, RSTART + RLENGTH)
             inner = substr(q, 2, length(q) - 2)
             nctx = ctx_of(orig opiece, ctx)
             if (nctx == "b" && inner ~ /globstar/) nctx = "z"
-            piece = piece substr(q, 1, 1) walk(inner, nctx) substr(q, 1, 1); opiece = opiece q
+            piece = piece substr(q, 1, 1) walk(inner, nctx, depth, 1) substr(q, 1, 1); opiece = opiece q
           }
           out = out piece rest
+          # A -c or eval argument holding a searcher is the script a shell runs:
+          # judged again as its own line, to depth 4 (r3c decision 6).
+          if (!prose && isc(orig)) {
+            val = sform(orun, 0)
+            if (val ~ /(^|[[:space:];&|(\047"\\\/`])(find|rg|grep|egrep|fgrep|rgrep|ugrep)([[:space:]\047")`]|$)/) {
+              nctx = ctx_of(orig, ctx)
+              if (nctx == "b" && val ~ /globstar/) nctx = "z"
+              if (depth >= 4) deep = 1
+              else { val = walk(val, nctx, depth + 1, 0); extra = extra val "\n" }
+            }
+          }
         }
+        val = sform(orun, 0)
+        if (first) { cd = (val == "cd" || val == "pushd"); first = (val == "builtin" || val == "command") }
+        else if (cd && val == "-P") cdp = 1
         orig = orig orun
       }
       return out s
     }
     pass == 2 && NR <= nb { split($0, f, "\t"); tok[f[1]] = f[2]; next }
-    { line = walk($0, "z"); if (pass == 2) print line }'
-  while IFS=$'\t' read -r pw_k pw_c pw_q pw_b; do
-    pw_word "$pw_b" "$pw_c" "$pw_q"
+    { line = walk($0, "z", 0, 0); if (pass == 2) print line }
+    END {
+      if (pass == 1 && deep) print "0\tdeep"
+      if (pass == 1 && extra != "") print "0\tunwrap"
+      if (pass == 2) printf "%s", extra
+    }'
+  while IFS=$'\t' read -r pw_k pw_c pw_q pw_f pw_b pw_s; do
+    if [ "$pw_k" = 0 ]; then
+      case "$pw_c" in deep) pw_deep=1 ;; unwrap) pw_unwrap=1 ;; esac
+      continue
+    fi
+    pw_word "$pw_b" "$pw_c" "$pw_q" "$pw_f" "$pw_s"
     if [ -n "$pw_t" ]; then pw_dec="$pw_dec$pw_k	$pw_t
 "; pw_nd=$((pw_nd + 1)); fi
   done < <(printf '%s\n' "$judged" | LC_ALL=C awk -v pass=1 "$pw_awk" 2>/dev/null)
-  if [ "$pw_nd" -gt 0 ]; then
+  if [ "$pw_nd" -gt 0 ] || [ -n "$pw_unwrap" ]; then
     pw_j=$( { printf '%s' "$pw_dec"; printf '%s\n' "$judged"; } | LC_ALL=C awk -v pass=2 -v nb="$pw_nd" "$pw_awk" 2>/dev/null) && [ -n "$pw_j" ] && judged=$pw_j
+  fi
+  # A searcher nested deeper than 4 shells is denied (r3c decision 6).
+  if [ -n "$pw_deep" ]; then
+    pw_sentinel "a searcher nested deeper than 4 shells"
+    judged="$judged
+rg --files $pw_t"
   fi
   # <<< r3 path words: judge <<<
   # stripped: judged with quoted strings collapsed, a whole-root quoted string
@@ -1132,16 +1644,24 @@ if [ -n "$searcher" ] && ! printf '%s' "$command" | grep -qE -- '--?max-?depth';
       hit=1; matched=$(last_word_of_match "$judged" "$subscript_rgpath_re")
     fi
   fi
-  # cwd rule: `find .` / `rg pat .` executed while sitting IN a broad root.
+  # cwd rule: `find .` / `rg pat .` executed while sitting IN a broad root, and
+  # (r3c) a recursive searcher given no path, which walks "." (pw_nopath).
   if [ -z "$hit" ]; then
     case "$cwd" in
       "$HOME"|"$HOME/TheAxiomFoundation"|"$HOME/RulesFoundation"|"$HOME/PolicyEngine"|/tmp|/private/tmp|/|/Users)
-        if printf '%s' "$command" | grep -qE "(^|[[:space:];&|(])(find|rg|grep)[[:space:]]+([^|;&]*[[:space:]])?\.(/)?([[:space:]]|\$)"; then hit=1; matched=". (cwd $cwd)"; fi ;;
+        if printf '%s' "$pw_cmd" | grep -qE "(^|[[:space:];&|(])(find|rg|grep)[[:space:]]+([^|;&]*[[:space:]])?\.(/)?([[:space:]]|\$)" || pw_nopath "$pw_cmd"; then hit=1; matched=". (cwd $cwd)"; fi ;;
     esac
   fi
   if [ -n "$hit" ]; then
     [ -n "$matched" ] || matched="?"
     # >>> r3 path words: name >>>
+    pw_roots_msg="/, /Users, /Users/<user>, ~"
+    for pw_x in $pw_kids; do pw_roots_msg="$pw_roots_msg, ~/$pw_x"; done
+    pw_roots_msg="$pw_roots_msg, ~/.subfleet/<child>"
+    for pw_x in $pw_fixed; do
+      case "$pw_x" in /|/Users) ;; *) pw_roots_msg="$pw_roots_msg, $pw_x" ;; esac
+      [ "$pw_x" != /Volumes ] || pw_roots_msg="$pw_roots_msg, /Volumes/<entry>"
+    done
     pw_i=1
     while [ "$pw_i" -le "$pw_nt" ]; do
       pw_t="/Users/@sfglob${pw_i}@"
@@ -1149,7 +1669,7 @@ if [ -n "$searcher" ] && ! printf '%s' "$command" | grep -qE -- '--?max-?depth';
       pw_i=$((pw_i + 1))
     done
     # <<< r3 path words: name <<<
-    block "[unscoped-search] Whole-tree ${searcher} over a broad root (/, /Users, ~, ~/TheAxiomFoundation, ~/PolicyEngine, ~/.subfleet, ~/.subfleet/<child>, /tmp, caches) — 8 of these ran in parallel on 8/8 and drove load to 47, and ~22 sol-lane finds on 8/18 held load at 57 for hours, beachballing the Mac. Scope it: exact subdirectory, -maxdepth/--max-depth, 'git ls-files' inside a repo, 'axiom-locate' (engine|release|pypkg|corpus-file) for Axiom artifacts, or the interpreter for python package paths (python -c 'import x; print(x.__file__)'). Matched broad root: '${matched}'."
+    block "[unscoped-search] Whole-tree ${searcher} over a broad root (${pw_roots_msg}) — 8 of these ran in parallel on 8/8 and drove load to 47, and ~22 sol-lane finds on 8/18 held load at 57 for hours, beachballing the Mac. Scope it: exact subdirectory, -maxdepth/--max-depth, 'git ls-files' inside a repo, 'axiom-locate' (engine|release|pypkg|corpus-file) for Axiom artifacts, or the interpreter for python package paths (python -c 'import x; print(x.__file__)'). Matched broad root: '${matched}'."
   fi
 fi
 # <<< unscoped-search: shared region end <<<
