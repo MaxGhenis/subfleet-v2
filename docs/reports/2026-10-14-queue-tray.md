@@ -4609,3 +4609,302 @@ and interval checks, loud waits, opening traces), `9c1555328`
 trailer. No product counterfactual is committed. Only named files were staged,
 and no logs or evidence are in the repository. Nothing was fetched, merged or
 pushed, and no sub-agents were used.
+
+### Round-7 shrink under a pending reveal
+
+#### What CI found
+
+CI run 40251214771 ran the whole suite at `a011be106` (round 6's `cec9ba866`
+with release/217 merged). One test failed, on py3.12 shard 1/5: round 6's own
+regression `test_completion_before_scroll_cannot_release_a_distant_opening_reveal`,
+at its last assert (no `reveal_end_visible`). Every earlier assert passed,
+including the final offsets. The hub's reading of the captured trace
+(`pr254-fix10-diagnostic.json`) checks out against the code:
+
+| Time, s | Event | `content/from_end/offset` | Suspended |
+| ---: | --- | --- | --- |
+| 0.619 | First reveal request; the probe's early completion | `16684/0/16130` | true |
+| 0.626 | The reveal's first-pass scroll | `16684/5647/10483` | |
+| 0.684 | Marker disappears (the lazy stack's next update) | | true |
+| 0.686 | **The document shrinks by 6,382 pt**; the clip clamps to the end | `10302/0/9748` | |
+| 0.689 | `marker_appeared`: `endAppeared()` releases | | **false** |
+| 0.694 | The request's real completion, at the clamped end | | |
+| 0.699 | Its next-turn check measures 0 pt: `reveal_end_visible` | `10071/0/9517` | false |
+| 0.702 | SwiftUI scrolls back up, to offset 3,750 | `10071/5767/3750` | |
+| 0.909 | Catch-up's second page: settling `jump`, unsuspended | | false |
+| 0.918 | The view is at the end: the reveal is undone | `11540/0/10986` | |
+| 1.240 | The second reveal restores it, so the final offsets passed | | |
+
+#### Decision 1: what shrank the document
+
+**The lazy stack's estimate of rows it had not laid out, with no page,
+history or row change.** Evidence:
+
+- Every catch-up page changes the follow key. `followed` is the newest row
+  of the turn whose first event is latest (`Timeline.followedItem`), and each
+  page folds later turns. So each applied page records one `move`. The CI
+  trace has 11 settling moves (0.396, 0.909, 1.455 … 4.549 and 4.902) for
+  362 events in 40-event pages: ten pages and the caught-up turn. No page
+  was applied between 0.396 and 0.909 s.
+- The history page loaded inside `UIModel.open`, before the view was
+  mounted (`conversation.history` returns no items and no `next_before`), so
+  `historyPagesLoaded` did not change during the run.
+- The document height changed with the model unchanged: +7,029 pt at
+  0.445 s, 49 ms after page 1, and −6,382 pt at 0.686 s. The shrink came
+  60 ms after the reveal's scroll moved the clip to rows the lazy stack had
+  not laid out, and 1.4 ms after that stack dropped the end marker (0.684 s).
+  SwiftUI then scrolled to offset 3,750 (0.702 s), 6,733 pt above its first
+  pass.
+- Round 7 added a document trace to the opening scene (`documentObserver`):
+  each height change with the timeline's cursor, history pages, resets,
+  layout items and presented rows. In 20 fixed-product completion-first runs
+  every change of 1,000 pt or more followed a page (a new cursor and more
+  rows); 3 to 8 smaller changes per run came with none. No large shrink
+  without a page recurred locally.
+
+Locally the same window showed a second way for the end to come into view.
+At `a011be106`, in all 8 completion-first runs (load 94), SwiftUI's first
+pass moved the clip 5,918 pt from the end (offset 3,873; 6,411 pt in one
+run). It then moved the clip back to within 8 pt of the end (12.5 pt in that
+run) with the document height unchanged, and the marker appeared and
+released suspension. On the fixed product the same return, to within
+40.5–198 pt of the end, came in 14 of 20 runs; the other six first passes
+went to 2,936.5–3,283 pt and stayed. No app code scrolled: no follow move was
+recorded, the opening pin had stopped at the request, and no person input
+came. In every fixed run the first request's row was never presented; the
+second request's scroll presented it. So the end can come into view before
+the reveal's row by SwiftUI's own intermediate scroll as well as by a shrink.
+The mechanism below covers both.
+
+#### Decision 2: the rule and its mechanism
+
+While a reveal is outstanding, an end that comes into view releases nothing.
+A reveal is outstanding from `.conversationRowScroll` until its own target
+row is presented in the clip, or until the person scrolls or sends. As built
+(`ad3bd6413`):
+
+- `ConversationOpeningPin.revealRow(in:target:)` puts the target row's id in
+  the request. The approval follow and `SearchRevealer` pass it. The
+  conversation view marks that row with `RevealTargetMark`, an NSView in the
+  row's background that takes no clicks and is hidden from accessibility;
+  a work group carries the mark if the target is inside it. Only the latest
+  reveal's target row carries a mark.
+- `OpeningPinView` holds the outstanding request and target. After each clip
+  bounds change, document frame change or mark move, and on the turn after
+  the request's completion (which first lays out the window, as in round 6),
+  it checks the mark's frame converted to the clip. If more than 1 pt of the
+  row's height is in the clip, the reveal has landed (`onRevealLanded`). If
+  the end is also within 25 pt, the pin releases suspension
+  (`onRevealEndVisible`), the nearby case. An end in view with the row
+  absent does nothing.
+- `endAppeared()` sets `atBottom` and releases suspension only while no reveal
+  is pending (`revealPending`, cleared by the landing).
+- The person's live scroll, wheel in the clip, or paging keys while a reveal is
+  outstanding end it (`onPersonScroll`). The pin measures again after that
+  input's scroll and releases suspension if the end is visible, since the
+  marker may already be mounted and show no new onAppear.
+- The person's own send, which glides to the end while suspended, ends a
+  pending reveal and releases if the marker is mounted.
+
+Why it can't miss a release a person expects:
+
+- **The person goes to the end.** Their input ends the reveal; the end then
+  in view releases it from the presented clip, or the marker does when the
+  end is next shown.
+- **A send.** The person's send ends the reveal; its glide to the end then
+  releases it. No test drives a send during a pending reveal; this path is
+  argued from the code.
+- **A nearby reveal.** The row and the end are presented together, which
+  releases it, and fix11's near tests pass.
+- **A distant reveal that has landed.** The marker releases as before, which
+  the landed control checks.
+
+What a pending reveal withholds is only the end shown without the row and
+without the person: a shrink, or SwiftUI's intermediate scroll. A target that
+is never presented (removed before landing, say) keeps suspension until the
+person scrolls or sends or a new reveal starts. Before this round, an end
+shown that way released it.
+
+This is broader than the hub's wording: "only because the document shrank".
+It is not a deviation from its list of what still releases during a reveal.
+That list is the person scrolling, and a reveal whose row and end are both in
+the clip, and those are exactly the paths that remain. Detecting shrinks
+alone would have missed the local runs above, where the clip moved back to
+the end with the document unchanged.
+
+#### Decision 3: the replay and its controls
+
+`shrinkReplay` (`946a20b3a`) replays the CI order with catch-up held until
+its tick. A test inset above the rows is compiled only under
+`SUBFLEET_VIEW_TEST` and is zero unless a probe sets it. It stands in for the
+lazy measurement: shrinking it moves the content up under a clip that stays
+put. The probe posts the request and its completions, and it applies the
+first-pass scroll itself, 2,000 pt from the end, before the row is
+presented. That is what SwiftUI did in CI. So no step waits on lazy-stack
+timing. The schedule:
+
+1. The request.
+2. Its completion, with the clip at the old end.
+3. The scroll.
+4. The inset shrinks by 9,000 pt until the clip clamps and the marker appears.
+5. A second completion at the clamped end.
+6. The inset regrows.
+7. Catch-up's first page.
+
+Tests in `test_review_r219_fix10_view.py`:
+
+- `test_document_shrink_under_a_pending_reveal_releases_nothing`. First
+  `assert_replayed_shrink_order` checks each step as presented. Then
+  `assert_shrink_releases_nothing` checks that nothing released suspension
+  after the reveal, that no `reveal_end_visible` occurred, that the tick is a
+  suspended `stay`, and that no geometry after the regrowth came within
+  600 pt of the end.
+- `test_person_scroll_to_the_end_during_a_pending_reveal_releases`. The same
+  reveal, then the person scrolls to the end: suspension is released, every
+  settling tick is an unsuspended jump, and the view is at the end once
+  caught up (`assert_catchup_follows_the_end`).
+- `test_document_shrink_after_a_distant_reveal_lands_releases`. The real
+  search reveal lands with catch-up held, and then the same shrink happens:
+  the marker releases, and catch-up follows the end as above. In the fixed
+  product's trace, the reveal's first pass placed the clip 5,421.5 pt from
+  the end, and the pin's check there found the row not presented. SwiftUI's
+  correction, 114 ms after the first pass, presented it at 6,458 pt. That is
+  the same two-pass scroll as CI's, here without a shrink.
+- Fix11's near tests are the nearby-reveal control.
+
+**Red at `946a20b3a`** (the `a011be106` product with only the inset added),
+host load 25.2. The run kept the CI order, and each order check passed.
+`assert_shrink_releases_nothing` failed at its first assert:
+
+| After the request, s | Event | `from_end`, pt |
+| ---: | --- | ---: |
+| 0.339 | `marker_appeared` at the clamped end: **suspended false** | 0 |
+| 0.793 | `reveal_end_visible` from the second completion | 0 |
+| 3.026 | Settling tick: `jump`, unsuspended | 9,000 |
+| 8.097 | After the tick | 24.5 |
+
+The person control also failed at `a011be106`, and it is not a regression
+guard there. After the probe's direct clip scroll to the end the marker did
+not appear again within 2.3 s, so nothing released. On the fixed product the
+person's input releases suspension from the measured clip. The landed control
+passed at `a011be106`.
+
+**Fixed product** (`ad3bd6413`): all three pass. In the replay the marker
+appeared once, still suspended. Every pin check read "row not presented": at
+2,000 pt, at 0 pt (the clamped end), at 9,000 pt, and then farther out as
+catch-up grew the document. Each tick stayed, and the view ended 30,747 pt
+from the end.
+
+#### Decision 4: mutants
+
+Each is in `test_review_r219_fix8_mutations.py`
+(`test_round7_mutation_fails_its_named_regression`). The schedule's order is
+checked outside `raises`, so a broken schedule can't count as a kill.
+
+| Mutant | Edit | Killed by | Measured |
+| --- | --- | --- | --- |
+| `marker_releases_pending_reveal` | `endAppeared` releases unconditionally | `assert_shrink_releases_nothing` (replay) | `marker_appeared` releases at the clamp; the tick jumps; 24.5 pt from the end |
+| `confirm_by_distance_only` | the pin releases on distance from the end alone | `assert_shrink_releases_nothing` (replay) | `reveal_end_visible` twice (the geometry check after the shrink and the late completion); the tick jumps; 24.5 pt |
+| `reveal_never_lands` | a landed reveal stays outstanding | `assert_landed_shrink_releases` (landed control) | no release after the shrink; the tick stays; 12,783 pt from the end |
+
+Hold 3 killed all three (below). The measurements come from native runs of
+the same cached binaries. A mutant's source now has a stable path under `build/`, and
+`compile_mutation` goes through `compile_probe`, so the probe cache reuses an
+exact build. On this host a full-source compile took 19–25 minutes at
+scheduler priority 20, and the 4-at-a-time mutant builds about 12½ minutes
+each.
+
+#### Native probe runs on the final product
+
+Each batch ran two probes at a time; the load is `sysctl -n vm.loadavg`
+before the batch.
+
+| Scene | Binary | Load before | Runs | Failed |
+| --- | --- | --- | ---: | ---: |
+| The replay | fixed | 30.20 65.46 72.14 | 20 | 0 |
+| Completion-first opening (round 6's test) | fixed | 94.09 79.04 75.70 | 20 | 1 |
+| Completion-first opening, counterfactual | `a011be106` product | 94.20 86.42 79.63 | 8 | 8 |
+
+- **The replay:** every run held one marker appearance and stayed suspended
+  through every tick. A second after the first tick, each view was 18,950 or
+  20,581 pt from the end.
+- **Completion-first opening, fixed:**
+  - Nineteen runs passed. None recorded `reveal_end_visible`, every opening was
+    19,104–21,225 pt from the end, and none drifted.
+  - Fourteen of the twenty held a marker appearance: the end was in view while
+    the reveal was outstanding.
+  - Run 20 failed round 6's order precondition: the first completion's clip
+    was 69.5 pt from the end, where END is 30. The opening pin had not yet
+    re-pinned after page 1. Its rule checks held: no `reveal_end_visible`,
+    an opening 20,140.5 pt from the end, and zero drift.
+- **The counterfactual:** all eight failed at the CI assert
+  (`reveal_end_visible`). Their final offsets passed (17,198.5–20,842 pt),
+  as in CI: no settling page fell between the release and the second request.
+
+#### Validation holds
+
+The venv was set up through `uv_sync_hold.sh`, with its uv cache in
+`sf-qtflake7`. The first attempt failed when its PyPI request timed out; the
+second completed, and nothing else was installed. The locked dev group has no pytest-xdist, so every run below is
+serial, with no `-n`. Every compiled binary came from the probe cache
+(`build/` linked into the scratch folder), seeded from the fixed build and
+the 4-at-a-time mutant builds. No hold compiled anything.
+
+| Hold | Files | How | Times (UTC) | Result |
+| --- | --- | --- | --- | --- |
+| 1 | fix10, fix11 | Direct: queued on the lock at 06:23:36Z, nothing admitted by 06:54Z. A first direct start with `-n 2` stopped at pytest's usage error. | 06:56:20–07:15:12, 1,121 s | fix10 33 passed, 1 failed; fix11 6 passed |
+| 1, rerun | fix10's three round-7 tests | Direct, after the assertion fix | 07:35:07–07:39:17, 232 s | 3 passed |
+| 2 | fix8, fix9 | Lock, slot A | 06:56:56–07:09:18, 734 s | fix8 6 passed; fix9 3 passed |
+| 3 | mutations | Lock, slot A | 07:29:51–07:55:02, 1,495 s | 8 passed, 2 failed (below) |
+| 4 | state contract, module names, invariants index | Direct: queued at 06:55:09Z, nothing admitted by 07:25Z | 07:26:34–07:29:44, 155 s | 37 + 1 + 25 = 63 passed |
+
+The hold-1 failure was the person control's first assertion set. The product
+did what the control requires: the person's input released suspension, and
+every settling tick was an unsuspended jump. But the sample a second after
+the first tick read 83 pt from the end, between a page's growth and its jump.
+`db1791e31` checks the ticks and the caught-up position instead. Re-judged
+on the saved results, that run passes, as do both earlier fixed controls and
+the red landed control. The red person control and all three mutants still
+fail. The rerun above is the corrected tests as pytest items.
+
+Hold 3 ran past the 20-minute target (24 min 55 s). Its round-7 mutants were
+killed, along with `uimodel_drops_known_receipts`, both engine mutants and
+both settling schedules. The two failures were `subprocess.TimeoutExpired` at `run_probe`'s 600 s,
+outside `raises`. They came on the full fix-8 default probe that
+`notice_sets_at_bottom_false` and `key_on_all_rows` run, so neither result
+was judged.
+
+I then ran both natively with a 1,500 s timeout, two at a time, at load 55.16.
+Both finished, in 748 s and 760 s, and both failed their named regressions:
+- `notice_sets_at_bottom_false` failed
+  `test_timeline_reveal_leaving_end_visible_keeps_follow` (fix8:39): 760 and
+  1,624 pt from the end after the streams.
+- `key_on_all_rows` failed `test_continuous_rows_reveal_at_most_twice` on
+  `busy_400ms` (fix8:53): 3 reveals, 2 starts.
+
+An earlier native attempt ran three at a time, with the fixed product beside
+the two mutants. All three, the fixed product included, ended with exit 70 at
+`scene.waitFolded` in `opening_control`. That scene has no reveal, and each
+stopped at cursor 280 of 362. Its cause was not determined.
+
+These two kills are native results, not hold results.
+
+#### Round-7 commits and cleanup
+
+Step commits:
+- `946a20b3a`: the replay, red.
+- `ad3bd6413`: the product fix, with the fixture's mark.
+- `2ff2ec78b`: the mutants and cached mutant builds.
+- `33b8551ad`: design §12 and C-27.5.
+- `db1791e31`: the controls judged by ticks.
+- The report commit.
+
+Each commit carries the co-author trailer.
+
+C-27.5's sentence on releasing suspension said that the marker appearing
+releases it, which is no longer true while a reveal is outstanding. So the
+clause and the change log now state the round-7 rule. This goes beyond the
+brief's "report and design §12", and is flagged for the hub's contract merge.
+
+Only named files were staged. No logs or evidence are in the repository.
+Nothing was fetched, merged or pushed, and no sub-agents were used.
