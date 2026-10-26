@@ -594,14 +594,16 @@ ENV_NEAR_MISSES = [
 
 
 def test_every_env_spelling_is_a_root_one_level_down_and_no_deeper():
-    """Each env spelling alone or with one component (a file too), with or without a trailing
-    slash, bare or quoted wholly or partly, is a root; two components down stays scoped; other
-    variables, other names and the name as a pattern or in prose stay allowed."""
+    """Each env spelling alone or with one component, with or without a trailing slash, bare or
+    quoted wholly or partly, is a root (a file is not, r3 and r3b); two components down stays
+    scoped; other variables, other names and the name as a pattern or in prose stay allowed."""
     searches = ("rg -l foo {}", "find {} -type f", "grep -r x {}", "rg --files {}")
     denied, allowed = [], list(ENV_NEAR_MISSES)
     for i, env in enumerate(ENV_SPELLINGS):
         forms = [(env, True), (env + "/", True), ('"' + env + '"', True), (env + "/jobs", True),
-                 (env + "/subfleetd.log/", True), ('"' + env + '/worktrees"', True),
+                 # r3b decision 1: normalize drops the slash before the file test, and subfleetd.log
+                 # is a file in the fixture (R3B_FLIPPED; r3 judged it by name)
+                 (env + "/subfleetd.log/", False), ('"' + env + '/worktrees"', True),
                  ('"' + env + '"/archive/', True), (env + "/jobs/20261024-115712-x", False),
                  ('"' + env + '"/jobs/20261024-115712-x/a1/', False),
                  ('"' + env + '/worktrees/20261025-033945-x"', False)]
@@ -2138,6 +2140,7 @@ R3B_ALLOWED = [
 R3B_FLIPPED = [
     # decision 1: the trailing slash is dropped before a file is tested, as normalize does
     ("rg x ~/.subfleet/policy.json/", None),
+    ("rg -l foo $SUBFLEET_ROOT/subfleetd.log/", None),
     # decisions 1-2: the root before a trailing /* is judged as a written path, and a file is none
     ("rg foo ~/.subfleet/policy.json/*", None),
     # decision 1: spellings normalize used to miss (r2's known limits)
