@@ -276,11 +276,30 @@ directory; a kill is a failed assertion in the named test):
 | r3: a trailing `/*` left as text | `test_r3_a_bare_star_after_a_root_is_that_root` |
 | r3: the expansion state not restored | `test_r3_glob_expansion_restores_every_setting` |
 
-{{MUTANT_RESULTS}}
+Round r3 did not reach the driver: its hold was the third of five in the brief's order, and
+the suite lock stayed contended (load 100-240, both slots taken by other sessions' holds of 15-50
+minutes) until the round's 4-hour mark. The driver asserts that each r3 mutant's text occurs
+exactly once in the hook; that check passed for all ten when they were written. The mutants are
+unrun.
 
 ### Results
 
-{{RESULTS}}
+Round r3's holds, through `suite_hold.sh` (round r2b's runs were cut off by the 2026-10-25
+network outage and are replaced by these):
+
+| Hold | Run | Result |
+| --- | --- | --- |
+| A, 22:02:13Z, load 138 | red: the r3 cases at `dcc8dbbab` (the new tests beside the r2 hook) | 9 failed, 1 passed (the "stays a root" cases, which r3 does not move), 389 s |
+| B, 00:20:16Z, load 119 | `tests/unit/test_guard_subfleet_root.py` at `e4d02bbf7`, scale 1, r3's tests ordered first | the first 30 of 53 items passed; the hold's 1,140 s alarm ended it in the property test |
+
+The 30: the three TRUST tests, the identity-hash test, the fence, both known-limit pins, and
+every r3 test but the property, the shell differential and S1-r3 (the shell-state test's 11
+cases included). Unrun, for the hub: the property (seed 20261025, 2,000 examples), the zsh/bash
+differential, 13 example tests (the review's and r2's inputs, spellings, children, trailing
+slashes, depth, near misses, the log line, S3), the corpus tests at scale 1 (S1, S1's
+protection, S1-r3, S2, the cwd list, S5; S4 skips without the analyzer), the overlay test (22
+tests), the mutation driver, the 7 other never-rules modules and S1-S5 at scale 2. The verdict
+cache of hold B (305 verdicts) resumes the scale-1 corpus.
 
 ## Known limits
 
