@@ -34,7 +34,7 @@ NEW_ROOTS = "|\\.subfleet(/[^/[:space:]'\\\"]+)?"
 ENV_ROOTS = "|\\\\\\$SUBFLEET_(ROOT|HOME)(/[^/[:space:]'\\\"]+)?"
 ENV_SED = " s/\\$[{]SUBFLEET_ROOT[}]/$SUBFLEET_ROOT/g; s/\\$[{]SUBFLEET_HOME[}]/$SUBFLEET_HOME/g'"
 OLD_HOOK_SHA256 = "a60d1c514d3a3bcec68c246a33c849c11fd37e1bdf60d886650cd9d6651390db"
-NEW_HOOK_SHA256 = "f952fd3e9648df1783cec96327b66a84a21082ba63469ef56d41749d23a5131e"
+NEW_HOOK_SHA256 = "7a5ad79d3f7db4c3c08bf07b8455344a4bdae3e66224218094b398cdf1091a1a"
 ROOT_CORE = 'root_core="/|/\\\\*|/Users/?|(${broad_re})/?"'
 
 # name -> (file, old text, new text, the named test that must kill it)
@@ -77,6 +77,14 @@ MUTATIONS = {
     "non-last-keeps-all": (HOOK, None, None, "test_r3b_scoped_paths_no_match_and_mount_contents_stay_allowed"),
     "written-link-dropped": (HOOK, None, None, "test_r3b_the_new_roots_aliases_case_links_and_globs_block"),
     "file-test-on-stall": (HOOK, None, None, "test_r3b_nothing_inside_a_mount_is_read"),
+    # r3c (the hub's decisions on review r2): the brief's seven.
+    "r3c-wild-only-dropped": (HOOK, None, None, "test_r3c_globs_that_match_every_entry_are_their_folder"),
+    "r3c-subchild-dropped": (HOOK, None, None, "test_r3c_globs_that_match_every_entry_are_their_folder"),
+    "r3c-volumes-mapping-dropped": (HOOK, None, None, "test_r3c_volumes_entries_are_judged_as_the_rest_of_the_path"),
+    "r3c-braces-dropped": (HOOK, None, None, "test_r3c_braces_and_alternation_are_judged_by_their_alternatives"),
+    "r3c-physical-dots-dropped": (HOOK, None, None, "test_r3c_dotdot_after_a_link_is_physical"),
+    "r3c-basename-dropped": (HOOK, None, None, "test_r3c_searchers_are_found_by_basename"),
+    "r3c-unescape-dropped": (HOOK, None, None, "test_r3c_the_other_escapes_are_closed"),
 }
 #: r3's and r3b's mutants: (old text, new text) pairs, each old text exactly once in the hook.
 LIST_GUARD = '      elif pw_holds "$p"; then\n'
@@ -90,6 +98,7 @@ RESTORE = """  if [ -n "$gi_set" ]; then GLOBIGNORE=$gi; fi
 """
 HOLDS = """pw_holds() {
   local n=""
+  if pw_stall "$1" && ! pw_volumes "$1"; then return 1; fi
   for n in TheAxiomFoundation RulesFoundation PolicyEngine Library Caches .cache .local .subfleet \\
            Users Volumes System private tmp var folders opt homebrew Applications usr Data @sf-any@; do
     pw_normalize "$1/$n"
@@ -98,6 +107,8 @@ HOLDS = """pw_holds() {
   return 1
 }
 """
+#: r3c: pw_alt's trailing rule (1(b): a component made only of wildcards, or .* or **, is its folder).
+WILD_LINE = "          if [ \"$c\" = '.*' ] || [ \"$c\" = '**' ] || pw_wild \"$c\"; then b=${b%/*}; walk=1; else break; fi ;;\n"
 EDITS = {
     "file-exception-removed": [('    pw_isfile "$1" && return 1\n    return 0\n', "    return 0\n")],
     "not-dir-dropped": [('pw_nondir() { [ -e "$pw_fs$1" ] && [ ! -d "$pw_fs$1" ]; }',
@@ -113,22 +124,20 @@ EDITS = {
 """)],
     "glob-as-single-file": [("    '/*') return 0 ;;\n    *[*?[]*) ;;\n", "    '/*') return 0 ;;\n")],
     "dot-rule-dropped": [('    case "$x" in .*) [ -n "$dot" ] || continue ;; esac\n', "")],
-    "nomatch-judged-by-text": [('  if pw_globbroad "$pw_p"; then pw_sentinel "$w" " (glob)"; else pw_t=F; fi',
-                                '  if pw_globbroad "$pw_p"; then pw_sentinel "$w" " (glob)"; fi')],
+    "nomatch-judged-by-text": [('  if pw_globbroad "$pw_p" "$f"; then pw_av=G; else pw_av=NG; fi',
+                                '  if pw_globbroad "$pw_p" "$f"; then pw_av=G; fi')],
     "case-insensitive": [("  shopt -u nocasematch extglob\n", "  shopt -s nocasematch; shopt -u extglob\n")],
-    "slash-star-left-as-text": [("""    while :; do
-      case "$b" in */'*'|*/'.*'|*/'**') b=${b%/*}; walk=1 ;; *) break ;; esac
-    done
-""", "")],
+    # r3c: the trailing run is now read in pw_alt's loop (r3's bare * among its forms)
+    "slash-star-left-as-text": [(WILD_LINE, "          break ;;\n")],
     "state-not-restored": [(RESTORE, "")],
     "stall-mount-listed": [(LIST_GUARD, '      elif pw_holds "$p" || pw_stall "$p"; then\n')],
     "volumes-not-listed": [(LIST_GUARD, '      elif ! pw_stall "$p" && pw_holds "$p"; then\n')],
     "plain-name-unchecked": [('        if pw_lexists "$pw_n"; then np[${#np[@]}]=$pw_n; nl[${#nl[@]}]=u; fi\n',
                               '        np[${#np[@]}]=$pw_n; nl[${#nl[@]}]=u\n')],
-    "volumes-name-stated": [('      if [ -z "$glob" ] && ! pw_stall "$p"; then\n', '      if [ -z "$glob" ]; then\n')],
-    "usr-dropped": [("/library|/applications|/usr) r=0 ;;", "/library|/applications) r=0 ;;")],
-    "case-sensitive-roots": [('  local p=$1 rest="" nc="" r=1\n  shopt -q nocasematch && nc=1\n  shopt -s nocasematch\n',
-                              '  local p=$1 rest="" nc="" r=1\n  shopt -q nocasematch && nc=1\n  shopt -u nocasematch\n')],
+    "volumes-name-stated": [('      elif [ -z "$glob" ] && ! pw_stall "$p"; then\n', '      elif [ -z "$glob" ]; then\n')],
+    "usr-dropped": [('/Library /Applications /usr"', '/Library /Applications"')],
+    "case-sensitive-roots": [('  local p=$1 rest="" nc="" r=1 sv=$pw_n\n  shopt -q nocasematch && nc=1\n  shopt -s nocasematch\n',
+                              '  local p=$1 rest="" nc="" r=1 sv=$pw_n\n  shopt -q nocasematch && nc=1\n  shopt -u nocasematch\n')],
     "alias-folding-dropped": [("""  case "$pw_n" in
     /system/volumes/data) pw_n=/ ;;
     /system/volumes/data/*) pw_n=${pw_n:20} ;;
@@ -151,6 +160,16 @@ EDITS = {
 }
 """, "  return 1\n}\n")],
     "file-test-on-stall": [('pw_isfile() { pw_stall "$1" && return 1; pw_nondir "$1"; }', 'pw_isfile() { pw_nondir "$1"; }')],
+    # r3c, decision by decision
+    "r3c-wild-only-dropped": [(WILD_LINE, WILD_LINE.replace('|| pw_wild "$c"', "|| [ \"$c\" = '*' ]"))],
+    "r3c-subchild-dropped": [('      if [ -n "$glob" ] && pw_subchild "$p" && ! pw_isfile "$p"; then return 0; fi\n', "")],
+    "r3c-volumes-mapping-dropped": [('  while [[ $p == /volumes/*/* ]]; do rest=${p:9}; pw_normalize "/${rest#*/}"; p=$pw_n; done\n', "")],
+    "r3c-braces-dropped": [('  local LC_ALL=C s=$1 n=${#1} k=$2 j=0 d=0 nested="" commas=0\n',
+                            '  local LC_ALL=C s=$1 n=${#1} k=$2 j=0 d=0 nested="" commas=0\n  return 1\n')],
+    "r3c-physical-dots-dropped": [('  local rest="$1/" c="" path=""\n  pw_pd=$1\n', '  local rest="$1/" c="" path=""\n  pw_pd=$1\n  return 0\n')],
+    "r3c-basename-dropped": [('    if (t <= nt) { b = base(val[t]); if (isname(b) && tk[t] != canon(b)) { tk[t] = canon(b); val[t] = tk[t] } }\n', "")],
+    "r3c-unescape-dropped": [('        if (c == "\\\\") { if (i < n) out = out (mode ? lit(substr(run, i + 1, 1)) : substr(run, i + 1, 1)); i += 2; continue }\n',
+                              '        if (c == "\\\\") { out = out c; i++; continue }\n')],
 }
 FENCE = "test_only_the_roots_the_header_and_the_message_changed"
 

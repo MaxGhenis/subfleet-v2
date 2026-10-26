@@ -153,21 +153,24 @@ def test_private_overlay_bytes_remain_the_original_reviewed_pair():
     r2 (2026-10-25) read $SUBFLEET_ROOT and $SUBFLEET_HOME as spellings of
     ~/.subfleet, its r3 (2026-10-25) judged path words on disk (a file is
     never a broad root, a trailing /* after a root is that root, a glob that
-    can match a root is judged by its matches), and its r3b (2026-10-25)
+    can match a root is judged by its matches), its r3b (2026-10-25)
     judged them with the roots, links and globs of the Claude half's
-    snapshot-5; TRUST pins those bytes. That TRUST is the installed one of
+    snapshot-5, and its r3c (2026-10-26) closed the hub's review r2's
+    walk-arounds (globs matching every entry, /Volumes/<entry> paths,
+    braces, links before .., searcher names, escapes, nesting); TRUST pins
+    those bytes. That TRUST is the installed one of
     2026-09-29 (b3193b97…, the codex-cli 0.159.0 pin; with hook a60d1c51… it
     is the rollback) with the new hook hash and four dated provenance
     additions appended (D-LANE-SCOPE1's three sentences, r2's one, r3's one
-    and r3b's one).
+    and r3b's one, whose mount clause r3c corrected).
     The 2026-09-05 TRUST (0b9d688e…) pins codex-cli 0.153.3 and must never be
     staged. Any other edit fails here; tests/unit/test_guard_subfleet_root.py
     rebuilds the original from this one."""
     repo = Path(__file__).resolve().parents[2]
     directory = repo / "private/guard"
     expected = {
-        "never-rules-hook.sh": "f952fd3e9648df1783cec96327b66a84a21082ba63469ef56d41749d23a5131e",
-        "TRUST": "0d5dac0fc9290eac8cfd1483b7f44cde9bb27e817657dd7fe4dc7b2ab07054d8",
+        "never-rules-hook.sh": "7a5ad79d3f7db4c3c08bf07b8455344a4bdae3e66224218094b398cdf1091a1a",
+        "TRUST": "68936fafa42f885c29fadd9b48c2de48ace5e1ccd29b9c0cee0a09ad9e1ac91a",
     }
     for name, digest in expected.items():
         assert hashlib.sha256((directory / name).read_bytes()).hexdigest() == digest

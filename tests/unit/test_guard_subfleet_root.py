@@ -155,8 +155,10 @@ HOOKS_TRUST_HASH = "sha256:f97fa95f2f4d43e1f8d35cd92da4d7f3f1861497abd86916680e0
 R2_HOOK_SHA256 = "dbe21e1d9a2ed3f57a7675fd09d3f8cacb2f73a6bfec7fd22e800da3691a041c"
 #: The overlay's hook after r3 (path words judged on disk), which r3b replaces.
 R3_HOOK_SHA256 = "2c3fbc1a6d563ee28e47d172343508d0613a9e7bb75567ec82a60e702980d7cf"
-#: The overlay's hook after r3b (snapshot-5's roots, links and globs): TRUST's hook_sha256.
-NEW_HOOK_SHA256 = "f952fd3e9648df1783cec96327b66a84a21082ba63469ef56d41749d23a5131e"
+#: The overlay's hook after r3b (snapshot-5's roots, links and globs), which r3c replaces.
+R3B_HOOK_SHA256 = "f952fd3e9648df1783cec96327b66a84a21082ba63469ef56d41749d23a5131e"
+#: The overlay's hook after r3c (review r2's walk-arounds closed): TRUST's hook_sha256.
+NEW_HOOK_SHA256 = "7a5ad79d3f7db4c3c08bf07b8455344a4bdae3e66224218094b398cdf1091a1a"
 
 FAKE_HOME = "/Users/tester"
 SCOPED_CWD = FAKE_HOME + "/work/repo"
@@ -243,10 +245,19 @@ def undo(text: str, edits) -> str:
 R3_BLOCKS = [("# >>> r3 path words: begin >>>\n", "# <<< r3 path words: end <<<\n"),
              ("  # >>> r3 path words: judge >>>\n", "  # <<< r3 path words: judge <<<\n"),
              ("    # >>> r3 path words: name >>>\n", "    # <<< r3 path words: name <<<\n")]
-#: r3c (2026-10-26): the edits outside the path-word blocks, as (r3c text, r3b text): the prefilter's
-#: third term, the header, pw_cmd in the detection, the judged lines and the cwd rule, and the
-#: message's root list. Undone first, so the r3 and r3b pairs below find their text.
+#: r3c (2026-10-26): the edits outside the path-word blocks, as (r3c text, r3b text): the header's
+#: r3c sentence, the prefilter's third term, the region's header, pw_cmd in the detection, the judged
+#: lines and the cwd rule, and the message's root list. Undone first, so the r3 and r3b pairs below
+#: find their text.
 R3C_TEXT = [
+    (r"""#     stall, and globs listed component by component where a root can be.
+#     r3c (2026-10-26) closed the walk-arounds of the hub's review r2: globs
+#     that match every entry, /Volumes/<entry> paths, braces and zsh's
+#     alternation, links before .., searchers named by path or quote, shell
+#     escapes, nested scripts and a depth bound outside its own command.
+""",
+     r"""#     stall, and globs listed component by component where a root can be.
+"""),
     (r"""# codex addition that lets the fenced hf-dest heredoc scan below run; the
 # third (D-LANE-SCOPE1 r3c) lets a searcher named by a path, after a quote or
 # a backslash, through $(which …), or as egrep, fgrep, rgrep or ugrep reach the
@@ -810,6 +821,10 @@ def test_trust_pins_the_new_hook_bytes():
            "disk" in trust["provenance"]
     assert "live hooks/list preflight. 2026-10-25, D-LANE-SCOPE1 r3b: the path words are judged with " \
            "the roots, links and globs of the Claude half's snapshot-5" in trust["provenance"]
+    # r3c (the hub's decision 7): the mount sentence says what the code does
+    assert "except under /Volumes, /Network, /net or /home: a written path under them is never resolved " \
+           "or stat'ed; a link leading into one still is;" in trust["provenance"]
+    assert "nothing under /Volumes" not in trust["provenance"]
     assert trust["provenance"].endswith(
         "installed only after the hub's review and a live hooks/list preflight.")
 

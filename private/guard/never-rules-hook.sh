@@ -37,6 +37,10 @@
 #     Claude half's snapshot-5: its BROAD_RE and home children (normalized,
 #     in any letter case), links followed except under a mount that may
 #     stall, and globs listed component by component where a root can be.
+#     r3c (2026-10-26) closed the walk-arounds of the hub's review r2: globs
+#     that match every entry, /Volumes/<entry> paths, braces and zsh's
+#     alternation, links before .., searchers named by path or quote, shell
+#     escapes, nested scripts and a depth bound outside its own command.
 #     Change a root on both sides in one reviewed step: here, and in
 #     unscoped_search.py (BROAD_RE, HOME_SUBDIRS, expand()).
 #
@@ -494,14 +498,31 @@ collapse_quotes() {
 }
 # >>> r3 path words: begin >>>
 # Path words judged on disk (D-LANE-SCOPE1 r3, 2026-10-25; r3b, 2026-10-25,
-# for parity with snapshot-5 of the Claude half's unscoped_search.py). Before
-# the text rules below, every path word of the command is judged once. A path
-# word is a run of characters other than whitespace and | ; & ( ) < >, where a
-# quoted string counts as part of its run (`"/Volumes/Macintosh HD"` is one
-# word), its quote marks dropped, that starts with a root spelling: ~, $HOME,
-# $SUBFLEET_ROOT or $SUBFLEET_HOME (each alone or before a /), or /. A run
-# that is no path word has the words of each of its quoted strings judged in
-# turn (`bash -c 'cd ~/x && rg y'`).
+# for parity with snapshot-5 of the Claude half's unscoped_search.py; r3c,
+# 2026-10-26, on the hub's review r2). Before the text rules below, every path
+# word of the command is judged once. A path word is a run of characters other
+# than whitespace and | ; & ( ) < >, where a quoted string, a backslash escape
+# and a ( ) group with no space in it count as part of its run
+# (`"/Volumes/Macintosh HD"` and `~/(a|b)` are one word), read as the shell
+# reads it (quote marks gone, backslash escapes applied, a quoted { } , ( | )
+# kept literal, each $'...' a *), that starts with a root spelling: ~, ~user,
+# $HOME, $SUBFLEET_ROOT or $SUBFLEET_HOME (each alone or before a /), / or a
+# brace group. A run that is no path word has the words of each of its quoted
+# strings judged in turn (`bash -c 'cd ~/x && rg y'`), and when it is the
+# script of a sh, bash, zsh, dash or ksh -c or of eval and names a searcher,
+# that script is also added to the command as its own line, to depth 4; a
+# searcher deeper is denied (r3c).
+#   r3c         A word's brace groups are expanded (64 words at most; a nested
+#               group, a {x..y} sequence or more reads each group as *) and,
+#               outside a bash/sh/dash/ksh -c script, zsh's (a|b) taken by its
+#               plain-name alternatives (any other group reads its component
+#               as *); the word is broad when one of its words is. ~name is
+#               /Users/name, or the home for this user; *** is ** (zsh); a /
+#               inside a bracket expression splits no component (zsh); a
+#               searcher's .. is applied after the links before it resolve
+#               (a cd target's stays logical); /Volumes/<entry>/<rest> is
+#               judged by name as /<rest>; U+017F and U+212A are s and k, as
+#               APFS folds them on this volume.
 #   roots       A spelling is resolved to an absolute path ($SUBFLEET_ROOT and
 #               $SUBFLEET_HOME as $HOME/.subfleet, never their environment
 #               values) and normalized: // collapsed, . and .. resolved by
@@ -520,16 +541,19 @@ collapse_quotes() {
 #               not an existing non-directory (a file, or a link to one:
 #               `grep -rn x ~/.subfleet/policy.json` reads one file), or when
 #               it leads through symlinks (resolved as realpath does) to a
-#               different path that is (`rg x ~/link-to-home`). A path under a
-#               mount that may stall (/Volumes, /Network, /net, /home and
-#               anything under them) is never resolved or tested on disk: it
-#               reads as no file, and as leading nowhere else.
-#   walks       A root followed by a trailing run of bare `*` or `.*`
-#               components (`rg foo ~/.subfleet/jobs/*`, `~/*/*`), or by a `**/`
-#               component, is that root: the shell hands the searcher every
-#               entry of it, and zsh walks it for `**/`. Inside a script run by
-#               bash, sh, dash or ksh -c, `**` is `*` (no globstar). `/*`
-#               itself stays the text rule's root.
+#               different path that is (`rg x ~/link-to-home`). A written path
+#               under a mount that may stall (/Volumes, /Network, /net, /home
+#               and anything under them) is never resolved or stat'ed: it reads
+#               as no file, and as leading nowhere else; a link leading into
+#               one still is resolved (a limit snapshot-5 shares).
+#   walks       A root followed by a trailing run of components made only of
+#               wildcards (`*`, `?`, brackets; r3c), or `.*`, after trailing /,
+#               /. and <glob>/.. are read (`rg foo ~/.subfleet/jobs/?*`,
+#               `~/*/*`, `jobs/*/..`), or by a `**/` component, is that root,
+#               listed or not: the shell hands the searcher every entry of
+#               it, and zsh walks it for `**/`. Inside a script run by bash,
+#               sh, dash or ksh -c, `**` is `*` (no globstar). `/*` itself
+#               stays the text rule's root.
 #   globs       Any other glob word is judged component by component, as the
 #               shells glob (case-sensitive, a leading dot matched only by a
 #               leading dot): the literal components before the first glob
@@ -546,7 +570,12 @@ collapse_quotes() {
 #               plain path or a listed link that leads to one. At most 20,000
 #               directory entries are read per word. No match, or a form these
 #               patterns cannot express: the word is not judged (it becomes F).
-#               A glob word holding $, a backtick or { is judged by its text.
+#               r3c: any glob component directly in a folder of a .subfleet
+#               (jobs, worktrees, ...) makes the word that folder; inside a
+#               mount entry nothing is listed or stat'ed: a plain name is kept
+#               by name and a glob matches the names a root can have plus any
+#               other name. A glob word holding $ or a backtick is judged by
+#               its text.
 # A word whose verdict the text rules would not give becomes a placeholder:
 # a broad one /Users/@sfglob<n>@, which every rule reads like any other root
 # and the block message names as the word was written (plus " (glob)" for a
