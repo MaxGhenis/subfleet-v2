@@ -44,12 +44,21 @@ struct ConversationOpeningPin: NSViewRepresentable {
                                         userInfo: ["request": request])
     }
 
+    /// The view abandoned this request (its target left the model, was never in it,
+    /// or the person sent): the pin stops waiting for its row. Only this request is
+    /// cancelled; a newer one stays outstanding.
+    static func abandonReveal(in conversationID: String, request: UUID) {
+        NotificationCenter.default.post(name: .conversationRowScrollAbandoned, object: conversationID,
+                                        userInfo: ["request": request])
+    }
+
     static func dismantleNSView(_ view: OpeningPinView, coordinator: ()) { view.detach() }
 }
 
 extension Notification.Name {
     static let conversationRowScroll = Notification.Name("SubfleetConversationRowScroll")
     static let conversationRowScrollCompleted = Notification.Name("SubfleetConversationRowScrollCompleted")
+    static let conversationRowScrollAbandoned = Notification.Name("SubfleetConversationRowScrollAbandoned")
     static let conversationRevealTargetMoved = Notification.Name("SubfleetConversationRevealTargetMoved")
 }
 
@@ -100,6 +109,9 @@ final class OpeningPinView: NSView {
     private var viewportSize = NSSize.zero
     /// The newest reveal whose own row has not yet been presented in the clip.
     private var outstanding: (request: UUID, target: String?)?
+    /// The newest request the view abandoned. Its notice can reach the pin before
+    /// the request's own does, so a request already abandoned never becomes outstanding.
+    private var abandoned: UUID?
     private var revealCheckScheduled = false
 
     override func viewDidMoveToWindow() {
@@ -122,9 +134,16 @@ final class OpeningPinView: NSView {
         observers.append(center.addObserver(forName: .conversationRowScroll, object: nil, queue: .main) { [weak self] note in
             guard let self, note.object as? String == self.conversationID else { return }
             self.personScrolled = true
-            if let request = note.userInfo?["request"] as? UUID {
+            if let request = note.userInfo?["request"] as? UUID, request != self.abandoned {
                 self.outstanding = (request, note.userInfo?["target"] as? String)
             }
+        })
+        observers.append(center.addObserver(forName: .conversationRowScrollAbandoned, object: nil,
+                                             queue: .main) { [weak self] note in
+            guard let self, note.object as? String == self.conversationID,
+                  let request = note.userInfo?["request"] as? UUID else { return }
+            self.abandoned = request
+            if self.outstanding?.request == request { self.outstanding = nil }
         })
         observers.append(center.addObserver(forName: .conversationRowScrollCompleted, object: nil,
                                              queue: .main) { [weak self] note in

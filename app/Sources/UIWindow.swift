@@ -354,7 +354,8 @@ struct ConversationView: View {
     @State private var rowReveal: UUID?
     /// The reveal's row has not yet been presented in the clip. Until it is, an
     /// end that comes into view (the document can shrink under the clip) does not
-    /// release suspension; the person's own scroll or send still does.
+    /// release suspension; the person's own scroll or send still does, and a
+    /// target that leaves the model, or was never in it, abandons the reveal.
     @State private var revealPending = false
     @State private var revealTarget: String?
     #if SUBFLEET_VIEW_TEST
@@ -372,6 +373,7 @@ struct ConversationView: View {
         let pendingRows = timeline?.pendingApprovalItems ?? []
         let layout = model.state.layout(conversationID: conversation.conversation_id)
         let follow = layout?.followKey(length: streamedLength) ?? .empty
+        let rows = timeline.map { WorkPresentation.rows(in: $0, items: layout?.items) } ?? []
         VStack(spacing: 0) {
             header
             RunsStrip(runs: model.runs[conversation.conversation_id] ?? [])
@@ -388,18 +390,17 @@ struct ConversationView: View {
                                 Task { await model.loadHistory(conversation.conversation_id, follow: true) }
                             }.buttonStyle(.link)
                         }
-                        ForEach(timeline.map { WorkPresentation.rows(in: $0, items: layout?.items) } ?? []) { row in
+                        ForEach(rows) { row in
                             switch row {
                             case .item(let item):
                                 TimelineRow(model: model, conversation: conversation, item: item, review: review)
-                                    .background(revealMark(item.id == revealTarget)).id(item.id)
+                                    .background(revealMark(row, revealTarget)).id(item.id)
                             case .work(let group):
                                 WorkGroupView(group: group, initiallyExpanded: initiallyExpandedWork,
                                     served: group.completed ? group.items.first?.messageID.flatMap {
                                         model.state.servedChip(conversationID: conversation.conversation_id, messageID: $0)
                                     } : nil)
-                                    .background(revealMark(revealTarget.map { target in
-                                        group.id == target || group.items.contains { $0.id == target } } ?? false))
+                                    .background(revealMark(row, revealTarget))
                                     .id(group.id)
                             }
                         }
@@ -420,6 +421,11 @@ struct ConversationView: View {
                 .initialConversationScrollAnchor()
                 .onChange(of: follow) { old, new in
                     followChanged(from: old, to: new, proxy: proxy)
+                }
+                // A reset, a history change or a rebuild can take the target's row
+                // out of the model before it is presented; its mark can never land.
+                .onChange(of: revealTarget.map { target in rows.contains { Self.row($0, marks: target) } }) { _, held in
+                    if held == false { abandonReveal("target_removed") }
                 }
                 .onChange(of: approvalKey(timeline, pendingRows)) { _, _ in followApprovals(proxy) }
                 .onChange(of: model.approvalReveal) { _, _ in followApprovals(proxy) }
@@ -500,6 +506,10 @@ struct ConversationView: View {
             revealTarget = note.userInfo?["target"] as? String
             revealPending = true
             traceFollow("reveal")
+            // A target the model does not hold is never presented, so nothing would end the reveal.
+            if let target = revealTarget, !timelineRows().contains(where: { Self.row($0, marks: target) }) {
+                abandonReveal("target_missing")
+            }
         }
         .onChange(of: timeline?.liveMessageID) { _, _ in
             // A turn started or ended: an open pane compares again.
@@ -538,9 +548,39 @@ struct ConversationView: View {
         traceFollow("person_scrolled")
     }
 
-    @ViewBuilder private func revealMark(_ isTarget: Bool) -> some View {
-        if isTarget, let revealTarget {
-            RevealTargetMark(conversationID: conversation.conversation_id, itemID: revealTarget)
+    /// Ends an outstanding reveal whose row can no longer be presented, or that the
+    /// person's own send ended: the pin stops waiting for this request, and the view
+    /// reconciles. With the end in view, suspension is released as the marker would
+    /// release it with no reveal outstanding; otherwise the marker's next appearance does.
+    private func abandonReveal(_ reason: String) {
+        guard revealPending, let request = rowReveal else { return }
+        revealPending = false
+        ConversationOpeningPin.abandonReveal(in: conversation.conversation_id, request: request)
+        rowReveal = nil
+        revealTarget = nil
+        if atBottom { followSuspended = false }
+        traceFollow("reveal_abandoned", extra: ["reason": reason])
+    }
+
+    /// The timeline's rows as the model holds them now, grouped as the body shows them.
+    private func timelineRows() -> [ProgressRow] {
+        let id = conversation.conversation_id
+        return model.state.timelines[id].map {
+            WorkPresentation.rows(in: $0, items: model.state.layout(conversationID: id)?.items)
+        } ?? []
+    }
+
+    /// Whether `row` carries the mark for `target`: the row itself, or the work group holding it.
+    private static func row(_ row: ProgressRow, marks target: String) -> Bool {
+        switch row {
+        case .item(let item): return item.id == target
+        case .work(let group): return group.id == target || group.items.contains { $0.id == target }
+        }
+    }
+
+    @ViewBuilder private func revealMark(_ row: ProgressRow, _ target: String?) -> some View {
+        if let target, Self.row(row, marks: target) {
+            RevealTargetMark(conversationID: conversation.conversation_id, itemID: target)
         }
     }
 
