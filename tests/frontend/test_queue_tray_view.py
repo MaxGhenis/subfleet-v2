@@ -7,7 +7,7 @@ offers it, and a bounded list for a long queue (2026-09-28).
 The probe hosts `QueueTray` offscreen with rows built directly. SwiftUI builds
 no accessibility tree without an assistive client and a link button's AppKit
 title is empty, so a tray control is named by what its click fired (the closures
-log "withdraw:<id>" and "steer:<id>") and by its width, matched against link
+log "withdraw:<id>" and "steer:<id> into <turn>") and by its width, matched against link
 buttons the probe draws with each label the tray uses. The same limit hides the
 buttons' VoiceOver labels (`.accessibilityLabel`) and tooltips (`.help`); no test
 here checks them.
@@ -117,7 +117,7 @@ def test_c29_7_a_row_being_withdrawn_offers_no_second_withdraw(trays, views):
 
 
 def test_c29_7_a_row_being_withdrawn_cannot_be_steered(trays):
-    """C-29.7: the head row the daemon offers to steer (canSteer, with a steer
+    """C-29.7: the head row the daemon offers to steer (`steerInto`, with a steer
     closure) has neither Steer nor Withdraw while its Withdraw is under way, so
     no click steers a message on its way out; the only button is the next
     row's Withdraw, in that row."""
@@ -306,16 +306,17 @@ def test_c29_7_a_status_caption_adds_a_line(views):
 
 
 def test_c29_7_steer_shows_only_where_the_daemon_offers_it(trays, views):
-    """C-29.7: a row with canSteer, given a steer closure, has a Steer button in
-    its own row whose click steers that row only; its Withdraw and the next row's
-    still withdraw. Without the closure, or with canSteer false, no row has Steer."""
+    """C-29.7: a row that names the turn it may be steered into (`steerInto`), given a
+    steer closure, has a Send now button in its own row whose click steers that row
+    only, into that turn; its Withdraw and the next row's still withdraw. Without the
+    closure, or with no turn named (none is live), no row has Send now."""
     labels = views["label_widths"]
     steer = trays["steer"]
     for shown in steer["passes"]:
         assert shown["buttons"] == 3
         assert all(len(click) == 1 for click in shown["clicks"])
-        assert sorted(fired(shown["clicks"])) == ["steer:q1", "withdraw:q1", "withdraw:q2"]
-        [index] = [i for i, click in enumerate(shown["clicks"]) if click == ["steer:q1"]]
+        assert sorted(fired(shown["clicks"])) == ["steer:q1 into host-a", "withdraw:q1", "withdraw:q2"]
+        [index] = [i for i, click in enumerate(shown["clicks"]) if click == ["steer:q1 into host-a"]]
         [head] = [i for i, click in enumerate(shown["clicks"]) if click == ["withdraw:q1"]]
         assert shown["widths"][index] == labels["Send now"]
         assert shown["tops"][index] == shown["tops"][head]
@@ -432,7 +433,9 @@ def test_c29_7_send_now_clicked_after_its_turn_ended_names_that_turn_and_c_stays
     a, b, c = out["ids"]["a"], out["ids"]["b"], out["ids"]["c"]
     detail = json.dumps(out, sort_keys=True)
     assert out["offered"]["live"] == a and out["offered"]["rows"] == [c] and out["offered"]["send_now"], detail
+    assert out["offered"]["steer_into"] == [a], detail                     # what the tray offered it for
     assert out["live_at_click"] is None and out["clicked"], detail       # A ended; the app shows no live turn
+    assert out["offered_at_click"] is False, detail                       # nor would a fresh tray offer it
     assert out["requests"] and all(r == {"message_id": c, "into": a} for r in out["requests"]), detail
     assert out["daemon"]["state"] == "queued" and out["daemon"].get("steered_into") is None, detail
     assert out["b_frames"] == [], detail                                  # B's runner was never given C
@@ -450,6 +453,7 @@ def test_c29_7_send_now_offered_while_b_runs_names_b(queue_tray_view_probe):
     b, c = out["ids"]["b"], out["ids"]["c"]
     detail = json.dumps(out, sort_keys=True)
     assert out["offered"]["live"] == b and out["offered"]["rows"] == [c] and out["offered"]["send_now"], detail
+    assert out["offered"]["steer_into"] == [b], detail
     assert out["requests"] == [{"message_id": c, "into": b}], detail
     assert out["daemon"]["state"] == "steering" and out["daemon"]["steered_into"] == b, detail
     assert out["b_frames"] == [c], detail

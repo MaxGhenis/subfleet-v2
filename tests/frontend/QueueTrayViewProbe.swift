@@ -27,7 +27,8 @@ import SwiftUI
     return (size, all(hosting).compactMap { $0 as? NSButton }, window)
 }
 
-/// What the queue tray's closures were asked to do, in order: "withdraw:<id>" and "steer:<id>".
+/// What the queue tray's closures were asked to do, in order: "withdraw:<id>" and
+/// "steer:<id> into <turn>", the turn being the one the row's Send now names.
 @MainActor final class TrayLog {
     var events: [String] = []
 }
@@ -91,9 +92,9 @@ import SwiftUI
 }
 
 /// A person's message the daemon holds, built with the memberwise initializer.
-func queued(_ id: String, _ preview: String, status: String? = nil, canSteer: Bool = false) -> QueuedMessage {
+func queued(_ id: String, _ preview: String, status: String? = nil, steerInto: String? = nil) -> QueuedMessage {
     QueuedMessage(id: id, origin: "person", preview: preview, text: preview, attachments: 0, sending: false,
-                  status: status, canSteer: canSteer, withdraw: .cancel(messageID: id))
+                  status: status, steerInto: steerInto, withdraw: .cancel(messageID: id))
 }
 
 /// `count` short queued messages, q01 first.
@@ -153,7 +154,7 @@ struct HostedTray: View {
                                 attachments: 0, sending: true, status: "Sending", withdraw: .withdraw(messageID: "q2"))
     let first = queued("q1", "Fix the failing test"), second = queued("q2", "And the tests too")
     var head = first
-    head.canSteer = true
+    head.steerInto = "host-a"
     var configurations = [
         TrayConfiguration(name: "one", rows: [first]),
         TrayConfiguration(name: "long", rows: [queued("q1", String(repeating: "abcdefghi ", count: 500))]),
@@ -182,7 +183,7 @@ struct HostedTray: View {
         func hostedTray(_ rows: [QueuedMessage]) -> HostedTray {
             HostedTray(tray: QueueTray(title: title, rows: rows, withdrawing: configuration.withdrawing,
                                        withdraw: { log.events.append("withdraw:" + $0.id) },
-                                       steer: configuration.steer ? { log.events.append("steer:" + $0.id) } : nil,
+                                       steer: configuration.steer ? { log.events.append("steer:\($0.id) into \($1)") } : nil,
                                        notice: configuration.notice ? { id in
                                            guard id == "q1" else { return nil }
                                            return AnyView(VStack(alignment: .leading) {
@@ -336,12 +337,9 @@ func steerRow(_ steer: OutboxSteer?) -> Any {
         let layout = model.state.layout(conversationID: cid)
         var shown: [String: Any] = ["live": model.state.timelines[cid]?.liveMessageID as Any? ?? NSNull(),
                                     "rows": layout?.tray.map(\.id) ?? [],
-                                    "can_steer": layout?.tray.map(\.canSteer) ?? []]
+                                    "steer_into": layout?.tray.map { $0.steerInto as Any? ?? NSNull() } ?? []]
         guard let layout, let title = layout.trayTitle else { out["offered"] = shown; return nil }
-        let tray = QueueTray(title: title, rows: layout.tray, withdrawing: model.withdrawingMessages,
-                             withdraw: { model.withdrawQueued($0, conversationID: cid) },
-                             steer: { model.steer(messageID: $0.id, conversationID: cid) },
-                             conversationID: cid)
+        let tray = QueueTray(model: model, conversationID: cid, title: title, rows: layout.tray)
         let hosted = FixedWidthHost(tray, width: 480)
         windows.append(hosted.window)
         let buttons = hosted.layout().buttons

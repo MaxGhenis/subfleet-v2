@@ -814,15 +814,18 @@ final class UIModel: ObservableObject {
         let provider = state.conversation(conversationID)?.provider
         let messageID = Outbox.newMessageID()
         // The turn the person steers into now: a steer that reaches the daemon after
-        // it ended is refused, never joined to the next turn (C-24.9).
+        // it ended is refused, never joined to the next turn (C-24.9). The composer
+        // asks to steer only while there is one, in this same main-actor turn; with
+        // none, the message queues rather than steer without naming a turn.
         let into = steer ? state.steerHost(forComposerOf: conversationID)?.messageID : nil
+        let steering = into != nil
         state.addLocalMessage(conversationID: conversationID, messageID: messageID, text: text,
-                              attachments: staged.map(\.sha256), settings: settings, steer: steer)
+                              attachments: staged.map(\.sha256), settings: settings, steer: steering)
         Task {
             do {
                 _ = try await onOutbox {
                     try engine.send(conversation: conversationID, text: text, staged: staged, settings: settings,
-                                    messageID: messageID, steer: steer, into: into)
+                                    messageID: messageID, steer: steering, into: into)
                 }
                 if let provider { defaults.set(settings.model, forKey: "lastModel.\(provider)") }
                 pump()
@@ -832,15 +835,17 @@ final class UIModel: ObservableObject {
         }
     }
 
-    /// Steer a queued message into the running turn (C-24.9): journaled, then sent.
-    /// A refusal leaves it queued and its status line says why. The queue tray's
-    /// "Send now" (DESIGN.md sections 7 to 9) calls this.
-    func steer(messageID: String, conversationID: String) {
+    /// Steer a queued message into the running turn `into` (C-24.9): journaled, then
+    /// sent. A refusal leaves it queued and its status line says why. The queue tray's
+    /// "Send now" (DESIGN.md sections 7 to 9) calls this with the turn the tray showed
+    /// when it offered the action (`QueuedMessage.steerInto`), never the turn live when
+    /// the click lands: one that ended meanwhile has the daemon refuse the steer
+    /// (`no-live-turn`), so the message stays queued and never joins the next turn.
+    func steer(messageID: String, conversationID: String, into: String) {
         guard let engine else { return }
         // Slash commands and shell input wait for the turn to end (DESIGN.md section 9).
         let text = state.timelines[conversationID]?.turn(messageID)?.personText ?? ""
         guard steerable(text: text) else { return }
-        let into = state.timelines[conversationID]?.liveMessageID
         state.requestSteer(conversationID: conversationID, messageID: messageID)
         Task {
             do {
