@@ -28,6 +28,7 @@ from tests.frontend.daemon_harness import (
 )
 
 pytestmark = needs_swift
+pytest_plugins = ["pytester"]
 
 # The read states of a steered message, in Claude Code's words (DESIGN.md section 8).
 UNREAD = "Unread until Claude's next step."
@@ -63,6 +64,54 @@ def daemon():
     yield harness, server
     server.close()
     harness.close()
+
+
+#: The two fixtures above, run in a scratch pytest session of their own: each test records
+#: nothing itself; the roots are what `tempfile.mkdtemp` made meanwhile.
+ROOTS_CONFTEST = """
+from tests.frontend.test_core_steer import daemon, harness  # noqa: F401  the fixtures under test
+"""
+ROOTS_TESTS = """
+import pytest
+
+CASES = pytest.mark.parametrize("raises", [False, True], ids=["passes", "raises"])
+
+
+@CASES
+def test_harness(harness, raises):
+    assert harness.root.is_dir()
+    if raises:
+        raise RuntimeError("the test body raises")
+
+
+@CASES
+def test_daemon(daemon, raises):
+    harness, server = daemon
+    assert harness.root.is_dir() and server.path.exists()
+    if raises:
+        raise RuntimeError("the test body raises")
+"""
+
+
+def test_the_steer_fixtures_leave_no_root_after_teardown(pytester, monkeypatch):
+    """#265 review r1 (P3): every root the `harness` and `daemon` fixtures make (about
+    256 KiB each) is gone after teardown, also when the test body raises; so is the
+    socket server's own folder."""
+    made: list[Path] = []
+    real = tempfile.mkdtemp
+
+    def mkdtemp(*args, **kwargs):
+        path = real(*args, **kwargs)
+        if Path(path).name.startswith("sf-"):
+            made.append(Path(path))
+        return path
+    monkeypatch.setattr(tempfile, "mkdtemp", mkdtemp)
+    pytester.makeconftest(ROOTS_CONFTEST)
+    pytester.makepyfile(test_steer_roots=ROOTS_TESTS)
+    run = pytester.inline_run("-p", "no:cacheprovider", "-q")
+    run.assertoutcome(passed=2, failed=2)
+    assert len([path for path in made if path.name.startswith("sf-steer-")]) == 4, made
+    assert [path for path in made if path.exists()] == []
 
 
 # --- helpers -----------------------------------------------------------------------

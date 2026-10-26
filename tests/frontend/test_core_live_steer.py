@@ -19,11 +19,14 @@ import json
 
 import pytest
 
-from tests.frontend.conftest import needs_swift
+from subfleet import protocol
+from tests.frontend.conftest import needs_swift, write_json
 from tests.frontend.daemon_harness import (
     STEER_CAPS, after_submitted, go_live_when_submitted, record_state, steer_frames, steer_requests,
 )
-from tests.frontend.test_core_steer import create_step, daemon, ids, run_steps  # noqa: F401 (daemon is a fixture)
+from tests.frontend.test_core_steer import (  # noqa: F401 (daemon and harness are fixtures)
+    create_step, daemon, harness, ids, run_steps,
+)
 
 pytestmark = needs_swift
 
@@ -177,3 +180,95 @@ def test_step_14_stops_at_its_deadline_and_judges_a_steer_still_waiting(core_pro
     assert (steer["state"], steer["attempts"], steer["failure"]["retryable"]) == ("queued", 2, True)
     assert (result["pumps"], result["waited_s"], result["deadline_s"]) == (3, 1.0, 1.0)
     assert steer_requests(server) == [steered] * 2
+
+
+# --- step 14's deadline is an elapsed bound from the step's start (#265 review r1, P3) ----------
+#
+# On the probe's clock, with the client's 15 s answer deadline: a scripted daemon whose
+# answers take time on that clock (`cost`), or never come (`timeout`, which takes the whole
+# answer deadline the client gave the exchange). `step-start` marks where step 14 began:
+# before the host's prerequisite, which `advance` stands for here.
+
+ANSWER_S = 15.0                             # DaemonClient.baseTimeout
+STEP_DEADLINE_S = 120.0                     # CoreProbeLive.swift `steerStepDeadline`, at 15 s
+
+
+def ok(result: dict) -> dict:
+    return json.loads(protocol.encode(protocol.ok("", result)))
+
+
+def clocked_step_14(core_probe, tmp_path, harness, *, prerequisite: float, submit_cost: float,
+                    taken: bool = False) -> dict:
+    """Step 14 on the probe's clock: the step begins, the prerequisite takes `prerequisite`
+    seconds, the steered message is journaled with its steer (naming the host), and the
+    step's wait runs. The daemon answers the submit after `submit_cost` seconds; it takes
+    the steer at once when `taken`, else each try waits out the whole answer deadline.
+    Returns the wait's result."""
+    host, steered = ids(2)
+    cid = harness.create()["conversation_id"]
+    receipt = harness.submit(cid, "also say steered", message_id=steered)
+    steering = {**receipt, "state": "steering", "state_reason": f"steer:{host}"}
+    answers = [{"op": "message.submit", "answer": ok(receipt), "cost": submit_cost},
+               *([{"op": "message.steer", "answer": ok(steering)}] if taken
+                 else [{"op": "message.steer", "timeout": True}] * TRIES)]
+    script = "script:" + str(write_json(tmp_path / "clocked.json", answers))
+    out = run_steps(core_probe, tmp_path, script, [
+        {"do": "know_chain", "conversation": cid, "last": None},
+        {"do": "client-timeout", "seconds": ANSWER_S},
+        {"do": "step-start"},
+        {"do": "advance", "seconds": prerequisite},
+        {"do": "submit", "conversation": cid, "message_id": steered, "text": "also say steered",
+         "steer": True, "into": host},
+        {"do": "settle-steer", "key": steered},
+    ])
+    result = out["results"][-1]
+    assert result["do"] == "settle-steer" and "error" not in result, json.dumps(out, sort_keys=True)
+    return result
+
+
+#: (prerequisite, the submit's answer time, then what the step's pumps and waits come to)
+CLOCKED = {
+    # The review's virtual-time input: a 15 s answer ahead of the steer, then five steer
+    # tries that each wait out the 15 s answer deadline (97.5 s past 90 s at 44d4c8b49).
+    # Inside 120 s the outbox gets all five tries and gives the steer up itself.
+    "review-input": (0.0, 15.0, {"step_s": 97.5, "pumps": 5, "pauses": [0.5, 1.0, 2.0, 4.0],
+                                 "state": "refused", "attempts": 5}),
+    # Time spent inside a pump: the fifth try starts at 107.5 s and its exchange may wait
+    # only the 12.5 s left, so the step ends at its deadline exactly, not 2.5 s past it.
+    "time-in-pumps": (40.0, 0.0, {"step_s": 120.0, "pumps": 5, "pauses": [0.5, 1.0, 2.0, 4.0],
+                                  "state": "refused", "attempts": 5}),
+    # The deadline falls in a backoff: the fourth try ends at 117.5 s, the wait before the
+    # fifth is cut to the 2.5 s left, and no pump runs at or after the deadline.
+    "deadline-in-backoff": (54.0, 0.0, {"step_s": 120.0, "pumps": 4, "pauses": [0.5, 1.0, 2.0, 2.5],
+                                        "state": "queued", "attempts": 4}),
+}
+
+
+@pytest.mark.parametrize("case", CLOCKED)
+def test_step_14_judges_its_steer_by_its_deadline_counted_from_the_step_start(core_probe, tmp_path, harness,
+                                                                              case):
+    """C-29.7 (#265 review r1, P3): step 14's deadline counts from the step's start, its
+    prerequisite and the steered message's submit included. It is checked before every pump
+    and every wait, each wait is cut to the time left, and each exchange a pump makes waits
+    at most until the deadline: the step never runs past it, however its time is spent."""
+    prerequisite, submit_cost, expect = CLOCKED[case]
+    result = clocked_step_14(core_probe, tmp_path, harness, prerequisite=prerequisite, submit_cost=submit_cost)
+    detail = json.dumps(result, sort_keys=True)
+    assert result["step_s"] <= result["deadline_s"], detail
+    assert result["deadline_s"] == STEP_DEADLINE_S, detail
+    assert result["step_s"] == pytest.approx(expect["step_s"]), detail
+    assert (result["pumps"], result["pauses"]) == (expect["pumps"], pytest.approx(expect["pauses"])), detail
+    steer = result["steer"]
+    assert (steer["state"], steer["attempts"]) == (expect["state"], expect["attempts"]), detail
+    assert result["taken"] is False and steer["receipt"] is None, detail
+    assert steer["failure"]["reason"] == ("no-answer" if expect["state"] == "refused" else None), detail
+
+
+def test_step_14_takes_an_answered_steer_with_one_pump_and_no_wait(core_probe, tmp_path, harness):
+    """A turn that takes the steer at once: one pump sends the submit and the steer, the
+    steer is acknowledged and taken, and the step waits for nothing."""
+    result = clocked_step_14(core_probe, tmp_path, harness, prerequisite=0.0, submit_cost=0.0, taken=True)
+    detail = json.dumps(result, sort_keys=True)
+    assert result["taken"] is True, detail
+    assert (result["pumps"], result["pauses"], result["waited_s"], result["step_s"]) == (1, [], 0, 0), detail
+    assert (result["steer"]["state"], result["steer"]["attempts"]) == ("acknowledged", 1), detail

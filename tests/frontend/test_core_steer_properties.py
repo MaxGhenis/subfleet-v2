@@ -28,10 +28,12 @@ a `/` command, or a steer of the running message itself):
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 import tempfile
 import uuid
 
 from hypothesis import HealthCheck, example, given, settings, strategies as st
+import pytest
 
 from tests.frontend.conftest import needs_swift, run_probe, write_json
 from tests.frontend.daemon_harness import (
@@ -272,3 +274,30 @@ def run_outbox_history(core_probe, root: Path, harness, server, ops, fates, b_li
                 "SELECT after_message_id FROM messages WHERE conversation_id=? ORDER BY seq",
                 (harness.store.message(mids[0])["conversation_id"],))]
             assert chain == [None, *mids[:-1]]
+
+
+def test_the_property_harness_leaves_no_root_after_each_example(monkeypatch):
+    """#265 review r1 (P3): the root each example makes (about 256 KiB) is gone when the
+    example ends, also when its body raises. The example's body is replaced by one that
+    checks the root exists, then returns or raises; the harness around it is the test's own."""
+    made: list[Path] = []
+    real = tempfile.mkdtemp
+
+    def mkdtemp(*args, **kwargs):
+        path = real(*args, **kwargs)
+        if Path(path).name.startswith("sf-"):
+            made.append(Path(path))
+        return path
+
+    def body(core_probe, root, harness, server, ops, fates, b_live):
+        assert root.is_dir() and server.path.exists()
+        if b_live:
+            raise RuntimeError("the example's body raises")
+    monkeypatch.setattr(tempfile, "mkdtemp", mkdtemp)
+    monkeypatch.setattr(sys.modules[__name__], "run_outbox_history", body)
+    run_example = test_o1_o4_the_outbox_sends_in_order_and_steers_exactly_once.hypothesis.inner_test
+    run_example(None, ops=[], fates=[], b_live=False)
+    with pytest.raises(RuntimeError, match="body raises"):
+        run_example(None, ops=[], fates=[], b_live=True)
+    assert len([path for path in made if path.name.startswith("sf-steer-o-")]) == 2, made
+    assert [path for path in made if path.exists()] == []
