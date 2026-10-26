@@ -4417,12 +4417,19 @@ class Daemon:
         # C-5.9 (review r4 of #240, P3-1): a job this ends from the queue may still hold its
         # worktree key, kept when start grace queued it again; its cwd scan is taken here,
         # before the transaction, as the export takes its own. One statement finds them; a
-        # job not scanned keeps the key it holds by the transaction.
-        observers = {row["job_id"]: self._scan_observers(row["job_id"]) for row in self.store.query(
-            family_sql + "SELECT f.job_id FROM family f WHERE EXISTS (SELECT 1 FROM leases l WHERE "
-            "l.holder=f.job_id AND l.lease_key LIKE 'worktree:%') AND NOT EXISTS (SELECT 1 FROM attempts a "
-            "WHERE a.job_id=f.job_id AND a.state IN ('reserved','starting','running','finalizing','quarantined'))",
-            (job_id,))}
+        # job not scanned keeps the key it holds by the transaction. A finished job, one whose
+        # export is pending included, is not scanned: the transaction leaves it alone. Nor is
+        # any job when this thread is already in a transaction (review r5 of #240, P3-1): the
+        # wall's cascade runs in the one that settles its parent's attempt, and a scan of every
+        # process's cwd there held the store's write lock for seconds. Each job keeps its key
+        # as a job not scanned does, and the cwd worker settles the row.
+        observers = {} if self.store._holds_writer() else {
+            row["job_id"]: self._scan_observers(row["job_id"]) for row in self.store.query(
+                family_sql + "SELECT f.job_id FROM family f JOIN jobs j USING(job_id) WHERE "
+                "j.state NOT IN ('succeeded','failed','cancelled','lost') AND EXISTS (SELECT 1 FROM leases l "
+                "WHERE l.holder=f.job_id AND l.lease_key LIKE 'worktree:%') AND NOT EXISTS (SELECT 1 FROM "
+                "attempts a WHERE a.job_id=f.job_id AND a.state IN ('reserved','starting','running',"
+                "'finalizing','quarantined'))", (job_id,))}
         with self.store.transaction("job.cancel_checked", job_id=job_id, attempt_id=attempt_id) as tx:
             job = self._job(job_id)
             if job["state"] in TERMINAL and not job["cancel_requested_at"]:
