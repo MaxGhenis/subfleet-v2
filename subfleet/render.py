@@ -388,7 +388,8 @@ def pin_refusals(stuck: Mapping[str, Any]) -> str:
 
     A hold and a limit keep separate rows (C-9.6), so two closures can share a
     scope and an end, and `scheduler.judge_lane` then names that refusal once
-    per row: it is said once, with every row's reason (review of PR #208)."""
+    per row. Keep the hold's operator wording apart from the provider reasons
+    sharing its clock (D-RAMP-HOLD-LABEL)."""
     lane = stuck.get("lane_id") or "the lane"
     closures: dict[str, list[Mapping[str, Any]]] = {}
     for row in stuck.get("closures") or ():

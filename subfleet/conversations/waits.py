@@ -12,6 +12,8 @@ that text. The kinds:
   the reserved model). The only kind the app words as waiting for capacity.
 - `closed`: every lane that could take it is closed by its provider until a
   reset; the detail names the earliest.
+- `held`: every lane that could take it is held by the operator; the detail
+  keeps each hold's note and its latest possible release.
 - `usage-unknown`: no fresh usage reading says whether a lane may take it.
 - `no-lane`: no lane can take it for a reason no wait ends by itself
   (disabled, signed in to another account, excluded, needs a probe), or the

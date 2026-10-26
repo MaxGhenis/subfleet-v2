@@ -16,6 +16,7 @@ from subfleet.capacity import build_view, from_store
 from subfleet.contracts import ClockSource, Closure, ClosureReason, Credential, Lane, LaneOwner
 from subfleet.conversations import waits
 from subfleet.operations import brief, error_report
+from subfleet.offline import Offline
 from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
 from subfleet.scheduler import evaluate
 from subfleet.status_json import build_status
@@ -129,8 +130,7 @@ def test_valid_note_is_preserved_and_absence_is_json_null(operator, note):
     result = json.loads(json.dumps(hold(operator, note=note)))
     assert result["closures"][0]["note"] == (note or None)
     assert operator.store.list_closures()[0]["source_event"] == "operator"
-    projected = build_status({"lanes": result["lanes"]}, now=NOW)
-    assert projected["codex"]["homes"][0]["closures"][0]["note"] == (note or None)
+    assert json.loads(json.dumps(from_store(operator.store, now=NOW)))["closures"][0]["note"] == (note or None)
 
 
 @pytest.mark.parametrize("note", [None, NOTE])
@@ -172,6 +172,8 @@ def test_each_print_site_calls_an_operator_hold_held(operator, note, site):
         text = brief(view)
     expected = "held by the operator" + (f": {note}" if note else "") + f" (until {UNTIL} at the latest)"
     assert expected in text
+    if site not in ("why", "conversation"):
+        assert "/homes/codex-1: " + expected in text
     assert "closed (operator-hold)" not in text
     assert "operator-hold, provider-limit" not in text
 
@@ -191,7 +193,7 @@ def test_other_closures_never_show_a_note_and_keep_their_wording(operator, reaso
     operator.store.add_closure(Closure("codex-1", "account", UNTIL, ClosureReason(reason),
                                        ClockSource.REPORTED, "provider-event", "DO NOT DISPLAY"))
     assert operator.store.list_closures()[0]["note"] is None
-    assert build_status({"lanes": [lane]}, now=NOW)["codex"]["homes"][0]["closures"][0]["note"] is None
+    assert "DO NOT DISPLAY" not in json.dumps(build_status({"lanes": [lane]}, now=NOW))
 
 
 def test_a_hold_and_provider_limit_have_independent_alerts():
@@ -249,6 +251,27 @@ def test_note_migrates_an_old_store_without_rewriting_its_hold(tmp_path):
             assert store.one("SELECT MAX(version) AS v FROM schema_version")["v"] == SCHEMA_VERSION
             migrations = [json.loads(row["data_json"]) for row in store.list_events() if row["kind"] == "schema.migrated"]
             assert migrations == [{"version": HOLD_NOTE_MIGRATION}]
+
+
+@pytest.mark.parametrize("old_store", [True, False])
+def test_offline_hold_json_keeps_note_or_null_without_migrating(tmp_path, old_store):
+    """C-9.6, C-17.5: offline status carries a note, or null for stores predating it, without writes."""
+    path = tmp_path / "state.sqlite3"
+    schema = (Path(__file__).parents[2] / "subfleet/store_schema.sql").read_text()
+    if old_store:
+        schema = schema.replace("  note TEXT,\n", "")
+    with sqlite3.connect(path) as conn:
+        conn.executescript(schema)
+        conn.execute("INSERT INTO schema_version VALUES (?,?)", (HOLD_NOTE_MIGRATION - 1 if old_store else SCHEMA_VERSION, iso(NOW)))
+        conn.execute("INSERT INTO closures(lane_id,scope,until_at,reason,clock_source,source_event,created_at) "
+                     "VALUES ('codex-1','account',?,'operator-hold','reported','operator',?)", (UNTIL, iso(NOW)))
+        if not old_store:
+            conn.execute("UPDATE closures SET note=?", (NOTE,))
+    before = path.read_bytes()
+    [row] = Offline(tmp_path).status()["closures"]
+    assert row["reason"] == "operator-hold" and row["until_at"] == UNTIL
+    assert row["note"] == (None if old_store else NOTE)
+    assert path.read_bytes() == before
 
 
 POLICY = capped(load_policy(DEFAULT_POLICY_PATH))

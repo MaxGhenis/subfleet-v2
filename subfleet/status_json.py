@@ -318,8 +318,6 @@ def build_status(snapshot: Mapping[str, Any], *, now: str | datetime | None = No
                   # C-18.1: the probe holding this lane's slot, if one does.
                   "probe_state": lane.get("probe_state"), "probe_holder": lane.get("probe_holder")}
         common["weekly_projections"] = weekly_projections(lane, now=at, samples=snapshot.get("weekly_samples"))
-        common["closures"] = [{**row, "note": row.get("note") if row.get("reason") == "operator-hold" else None}
-                              for row in lane.get("closures", ())]
         if lane.get("identity_status") is not None:
             common["identity_status"] = lane["identity_status"]
         email = lane.get("email") or str(lane.get("account_key", "unknown")).partition(":")[2] or lane.get("account_key", "unknown")
