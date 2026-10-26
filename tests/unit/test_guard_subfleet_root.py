@@ -2016,9 +2016,9 @@ def test_r3_property_the_verdict_is_the_rule():
 
 
 def test_r3_globs_agree_with_real_zsh_and_bash():
-    """The differential: every glob case (PROP_GLOBS, and the brief's in the tester home) is
-    expanded by real /bin/zsh -f and /bin/bash in the fixture, and the hook denies iff a real
-    match is a broad root (``real_broad``), in each shell. Two forms differ between them by
+    """The differential: every glob case (PROP_GLOBS, and r3's and r3b's brief cases in the tester
+    home) is expanded by real /bin/zsh -f and /bin/bash in the fixture, and the hook denies iff a
+    real match is broad as a written path (``real_broad``, by REFERENCE_SH), in each shell. Two forms differ between them by
     design, and both shells still agree on the verdict: zsh walks a ``**/`` (bash 3.2 reads it as
     ``*``), which decision 2 judges by the part before it; bash's ``.*`` matches . and .., which
     no case here has."""
@@ -2028,7 +2028,12 @@ def test_r3_globs_agree_with_real_zsh_and_bash():
     brief = {"~/.subfleet/*.json": False, "~/Pol*/policyengine-us": False, "~/pol*": False, "~/*ubfleet": False,
              "~/.subfleet/*.nomatch": False, "~/.subfleet/x*": False, "~/.subfleet/j*": True, "~/.sub*": True,
              "~/Pol*": True, "~/P?licyEngine": True, "~/[P]olicyEngine": True, "~/Lib*/Cach?s": True,
-             "~/Pol*/**/*.py": True, "~/.subfleet/[a-z]*": True}
+             "~/Pol*/**/*.py": True, "~/.subfleet/[a-z]*": True,
+             # r3b's glob words (the brief's), over the fixture's /, /Users and /Volumes; ~/s*/link-up is
+             # left out: a real match is a link to /, which no folder that cannot hold a root lists
+             "/U*/tester": True, "/Users/*/PolicyEngine": True, "/Volumes/Ma*": True, "/Volumes/Zz*nosuch": False,
+             "/Volumes/*/x*": False, "/U*/nosuch": False, "/*/foo": False, "/*/*.py": False, "/*/*/x": False,
+             "/p*/var/f*": True, "/S*/V*": True, "/o*/h*": True}
     brief_out = judge_prop(HOOK, ["rg foo " + w for w in brief], home=FAKE_HOME)
     differ, counts = [], {"cases": len(words) + len(brief), "denied": 0, "zsh_bash_agree": 0}
     for word, command in [*zip(words, commands), *(((w, "rg foo " + w) for w in brief))]:
