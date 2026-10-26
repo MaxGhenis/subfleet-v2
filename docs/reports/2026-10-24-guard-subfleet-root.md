@@ -306,6 +306,7 @@ r3's expansion); `true; bash -c 'true; rg foo /**/*.py'` is allowed; and `R3B_FL
 | Command | r3 | r3b | Why |
 | --- | --- | --- | --- |
 | `rg x ~/.subfleet/policy.json/` | denied | allowed | normalize drops the slash before the file test (decision 1) |
+| `rg -l foo $SUBFLEET_ROOT/subfleetd.log/` (each env spelling) | denied | allowed | the same, for an env spelling's file child |
 | `rg foo ~/.subfleet/policy.json/*` | denied | allowed | the root before `/*` is judged as a written path |
 | `rg --files ~//.subfleet`, `~//PolicyEngine` | allowed | denied | `//` collapsed |
 | `rg --files ~/.subfleet/./jobs`, `~/./PolicyEngine` | allowed | denied | `.` resolved |
