@@ -12,6 +12,8 @@ struct ConversationOpeningPin: NSViewRepresentable {
     var onRevealLanded: (UUID) -> Void = { _ in }
     /// The person scrolled while a reveal was still outstanding.
     var onPersonScroll: () -> Void = {}
+    /// The person scrolled the timeline (live scroll, wheel or paging key), reveal or not.
+    var onPersonInput: () -> Void = {}
     func makeNSView(context: Context) -> OpeningPinView {
         let view = OpeningPinView()
         update(view)
@@ -27,6 +29,7 @@ struct ConversationOpeningPin: NSViewRepresentable {
         view.onRevealEndVisible = onRevealEndVisible
         view.onRevealLanded = onRevealLanded
         view.onPersonScroll = onPersonScroll
+        view.onPersonInput = onPersonInput
     }
 
     /// `target` is the row the reveal scrolls to; the view marks it with a
@@ -144,6 +147,7 @@ final class OpeningPinView: NSView {
     var onRevealEndVisible: (UUID) -> Void = { _ in }
     var onRevealLanded: (UUID) -> Void = { _ in }
     var onPersonScroll: () -> Void = {}
+    var onPersonInput: () -> Void = {}
     private weak var scroll: NSScrollView?
     private var observers: [NSObjectProtocol] = []
     private var inputMonitor: Any?
@@ -296,6 +300,7 @@ final class OpeningPinView: NSView {
     /// released as it was before reveals were tracked, when the end is shown.
     private func personScrolledNow() {
         personScrolled = true
+        onPersonInput()
         guard let request = outstanding?.request else { return }
         outstanding = nil
         onPersonScroll()

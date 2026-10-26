@@ -358,6 +358,11 @@ struct ConversationView: View {
     /// target that leaves the model, or was never in it, abandons the reveal.
     @State private var revealPending = false
     @State private var revealTarget: String?
+    /// The person's own send moved the view to the end. Until the marker appears there,
+    /// the person scrolls or a reveal starts, the view follows as if the end were on
+    /// screen: the move can land short while the new row is measured, and the marker
+    /// may never appear (round 8's ordinary send: 224 pt short, the reply 610 pt behind).
+    @State private var ownSendLanding = false
     #if SUBFLEET_VIEW_TEST
     @State private var markerDisappearance: Task<Void, Never>?
     #endif
@@ -413,7 +418,8 @@ struct ConversationView: View {
                     .background(ConversationOpeningPin(conversationID: conversation.conversation_id,
                                                        onRevealEndVisible: resumeFollow,
                                                        onRevealLanded: revealLanded,
-                                                       onPersonScroll: personScrolledDuringReveal))
+                                                       onPersonScroll: personScrolledDuringReveal,
+                                                       onPersonInput: { ownSendLanding = false }))
                     .conversationColumn(conversation.conversation_id, proxy: proxy,
                                         revealIDs: Set(layout?.items.map(\.id) ?? []))
                     .frame(maxWidth: .infinity)
@@ -505,6 +511,7 @@ struct ConversationView: View {
             rowReveal = note.userInfo?["request"] as? UUID
             revealTarget = note.userInfo?["target"] as? String
             revealPending = true
+            ownSendLanding = false
             traceFollow("reveal")
             // A target the model does not hold is never presented, so nothing would end the reveal.
             if let target = revealTarget, !timelineRows().contains(where: { Self.row($0, marks: target) }) {
@@ -527,6 +534,7 @@ struct ConversationView: View {
         // into view before the reveal's row did; the opening pin releases it when
         // the row is presented beside the end, or when the person scrolls.
         atBottom = true; if !revealPending { followSuspended = false }
+        ownSendLanding = false
         traceFollow("marker_appeared")
     }
 
@@ -611,10 +619,13 @@ struct ConversationView: View {
         if ownSend {
             abandonReveal("own_send")
             followSuspended = false
+            ownSendLanding = true
         }
-        let move = FollowKey.move(from: old, to: new, atBottom: atBottom, suspended: followSuspended && !ownSend)
+        let landing = ownSendLanding || ownSend
+        let move = FollowKey.move(from: old, to: new, atBottom: atBottom || landing,
+                                  suspended: followSuspended && !ownSend)
         #if SUBFLEET_VIEW_TEST
-        traceFollow("move", extra: ["move": String(describing: move),
+        traceFollow("move", extra: ["move": String(describing: move), "landing": landing,
                     "old_length": old.followedLength, "new_length": new.followedLength,
                     "settling": old.settling || new.settling])
         #endif
