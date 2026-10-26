@@ -104,6 +104,19 @@ independent bash reference of decisions 1-4, written from the brief: the propert
 (R3B_PROPERTY_SEED, R3B_PROPERTY_CASES) holds the hook's functions to it, and S1's labels come from it.
 The mount test wraps the hook's five disk functions and records every listing and stat.
 
+r4 (2026-10-26, the hub's decisions on review r3) closes review r3's walk-arounds: a .. anywhere after a glob
+is folded, and the word is broad when either reading is; the trailing-run rule also runs before a **/;
+every sh/bash/zsh/dash/ksh and eval script is judged (option values, --, a quoted shell name, eval's joined
+arguments, a here-string or an echo/printf/cat pipe into a shell with no script, ANSI-C escapes); searchers
+are found after keywords, function bodies and wrapper option values (a table), under wrappers named by
+basename, and with quotes or backslashes inside the name; ${...} is no brace group and a starred word whose
+group holds / or .. is broad; a path word over the scan cap (64 { or [, 4 KB) is broad unscanned and the
+brace and bracket scans are one pass; rg with a device or a closed stdin searches .; print-and-exit forms
+walk nothing; ~$USER, $"..." and /Volumes/<entry>/.. are read as the shell and the volume read them. Its
+pins are review r3's inputs, run through the whole hook; the command pins and must-allow forms are also run
+by real /bin/zsh -f and /bin/bash over the fixture with stub searchers (``r4_shell_walks``), and decision
+2's words by the word oracle (``r4_real``). Two timing tests pin decision 6's cost.
+
 Also: the new hook keeps the reviews' allowed commands allowed and names the
 matched root; the old hook passed every review input (so these roots are the
 change); TRUST pins the new bytes while its identity hash and override stay put;
@@ -126,6 +139,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import functools
 import hashlib
 import importlib.util
+import itertools
 import json
 import os
 from pathlib import Path
@@ -134,6 +148,7 @@ import re
 import shlex
 import subprocess
 import threading
+import time
 
 import pytest
 
@@ -3699,3 +3714,439 @@ def test_r3c_folded_code_points_are_exactly_the_confirmed_set(tmp_path):
     body = 'while IFS= read -r p; do pw_normalize "$p"; printf "%s\\n" "$pw_n"; done'
     out = run_r3_functions(body, "/Users/me", fs="/nonexistent-r3c-seam", stdin="".join(p + "\n" for p in paths))
     assert out.stdout.splitlines() == ["/Users/me/xsy", "/Users/me/xky", "/Users", "/Users/me/.subfleet", "/Ušers"]
+
+
+# ---------------------------------------------------------------- r4: review r3's walk-arounds
+
+# Round r4 (2026-10-26) builds the hub's decisions on review r3 (REQUEST_CHANGES at d9d4f355e). Each
+# pin below is one of review r3's inputs (or the brief's), judged through the whole hook in the fixture:
+#   1. a .. anywhere after a glob is folded before judging, and the word is broad when either the folded
+#      or the unfolded reading is (a literal component's .. resolved physically);
+#   2. a **/ after a wildcard-only component: the trailing-run rule runs on the part before **/ too;
+#   3. every shell and eval script is judged: -o/+o/-O/+O values, option clusters ending in o or O,
+#      --rcfile, -- and a quoted shell name; eval's joined arguments; a here-string, or an echo, printf
+#      or cat pipe, into a shell given no script; \xHH, \NNN and \' in a $'...' script;
+#   4. searchers after a keyword or a function body's {, after a wrapper's option values (a table), under
+#      a wrapper named by path or as doas/gtimeout, and with a quote or a backslash inside the name;
+#   5. a ${...} is no brace group, and a starred word whose group holds / or .. is broad (fails closed);
+#   6. a path word with more than 64 { or [, or over 4 KB, is broad unscanned; the scans are one pass;
+#   7. rg with a device or a closed stdin and no path searches ., so it is judged as .;
+#   8. print-and-exit forms (rg --version, -V, --help, -h, --type-list, find --version) walk nothing;
+#   9. ~$USER, ~${USER} and ~$(whoami) are the home, $"..." is "...", and /Volumes/<entry>/.. is / as
+#      well as its by-name reading.
+R4_LAYOUT = [
+    ("Users/tester/work/repo/src/a.py", "file", None),
+    ("Users/tester/work/repo/tests/unit/t.py", "file", None),
+    ("Users/tester/PolicyEngine/policyengine-us/pkg/sub/deep.py", "file", None),
+    ("Users/tester/notes.txt", "file", None),
+    ("tmp/x/y/x", "file", None),
+]
+FS_LAYOUT += R4_LAYOUT
+FS_DIGEST = hashlib.sha256(json.dumps(FS_LAYOUT).encode()).hexdigest()
+H_ = FAKE_HOME
+
+#: Decision 1 (review r3's P2-1, and a link standing for a literal component after the glob).
+R4_FOLD_DENIED = [
+    f"find ~/.sub*/jobs/{JOB}/.. -name AGENTS.md", f"rg --files ~/.subfleet/jobs/{JOB}/a*/../..",
+    "rg --files ~/work/r*/../../.subfleet", "rg --files ~/*/policyengine-us/..",
+    "rg --files ~/w*/jl/..", "rg --files ~/.subfleet/jobs/*/../..",
+]
+#: Decision 2 (review r3's P2-2).
+R4_TREE_DENIED = [
+    "rg foo ~/PolicyEngine/*/**/*.py", "grep -rn foo ~/PolicyEngine/*/**/*.py", "rg foo ~/PolicyEngine/?*/**/*.py",
+    "rg foo /tmp/*/**/x", "rg foo ~/PolicyEngine/[!.]*/**/*.py",
+]
+#: Decision 3 (review r3's P2-3, and the brief's +o, +O, --rcfile, printf and cat forms).
+R4_SCRIPTS_DENIED = [
+    "bash -o pipefail -c 'rg --files ~/.subfleet'", "bash -euo pipefail -c 'rg --files ~/.subfleet'",
+    "bash -O extglob -c 'rg --files ~/.subfleet'", "zsh -o extendedglob -c 'rg --files ~/.subfleet'",
+    "bash +o posix -c 'rg --files ~/.subfleet'", "bash +O extglob -c 'rg --files ~/.subfleet'",
+    "bash --rcfile /dev/null -c 'rg --files ~/.subfleet'", "bash -c -- 'rg --files ~/.subfleet'",
+    "\"bash\" -c 'rg --files ~/.subfleet'", "'bash' -c 'rg --files ~/.subfleet'", "/bin/b\\ash -c 'rg --files ~/.subfleet'",
+    "eval 'rg' --files ~/.subfleet", "eval \\rg --files ~/.subfleet", "eval -- 'rg --files ~/.subfleet'",
+    "eval /usr/bin/find / -name x", "eval 'rg --files ~/.subfleet'",
+    "echo 'rg --files ~/.subfleet' | bash", "printf '%s\\n' 'rg --files ~/.subfleet' | sh",
+    "cat <<< 'rg --files ~/.subfleet' | zsh", "bash <<< 'rg --files ~/.subfleet'", "bash -s <<< 'rg --files ~/.subfleet'",
+    "echo -n 'rg --files ~/.subfleet' | bash -s", "echo 'rg --files ~/.subfleet' | sudo -u root bash",
+    "bash -c $'rg --files \\x7e/.subfleet'", "bash -c $'rg --files \\176/.subfleet'",
+    "bash -c $'bash -c \\'rg --files ~/.subfleet\\''",
+]
+#: Decision 4 (review r3's P3-1; nice -n 5 is review r3's surviving mutant's pin).
+R4_NAMES_DENIED = [
+    "if true; then /usr/bin/find / -name x; fi", "if true; then \\rg --files ~/.subfleet; fi",
+    "{ /usr/bin/find / -name x; }", "! /usr/bin/find / -name x", "while /usr/bin/find / -name x; do break; done",
+    "for i in 1; do /usr/bin/find / -name x; done", "f() { /usr/bin/find / -name x; }; f",
+    "sudo -u root /usr/bin/find / -name x", "timeout -s KILL 60 /usr/bin/find / -name x",
+    "exec -a foo /usr/bin/find / -name x", "env -u FOO /usr/bin/find / -name x",
+    "echo / | xargs -I {} /usr/bin/find {} -name x", "doas /usr/bin/find / -name x", "gtimeout 5 /usr/bin/find / -name x",
+    "/usr/bin/env /usr/bin/find / -name x", "r''g --files ~/.subfleet", 'r""g --files ~/.subfleet',
+    "r\\g --files ~/.subfleet", '"r"g --files ~/.subfleet', "$'rg' --files ~/.subfleet", "f\\ind / -name x",
+    "fi''nd / -name x", "gr\\ep -r x ~/.subfleet", "nice -n 5 /usr/bin/find / -name x",
+    "until /usr/bin/find / -name x; do :; done", "if ! \\rg --files ~/.subfleet; then :; fi",
+]
+#: Decision 5 (review r3's P3-2; the unclosed brace is review r3's surviving mutant's pin).
+R4_BRACES_DENIED = [
+    "rg --files /{Users/{tester,x},y}/.subfleet", "rg --files /{Users/tester,x}/.{s..s}ubfleet",
+    "rg --files /{Users/tester,x}/.subfleet{,}{,}{,}{,}{,}{,}", "rg --files ~/work/{..,x}{,}{,}{,}{,}{,}{,}/.subfleet",
+    "rg --files {/Users/${USER},x}/.subfleet", "rg --files ~/.subfleet ~/{a",
+]
+#: Decision 7 (review r3's P3-4), from the home.
+R4_DEVICE_DENIED = ["rg foo </dev/null", "rg foo < /dev/null", "rg foo <&-", "rg -l foo 0</dev/null",
+                    "rg foo </dev/zero", "rg foo 0<&-"]
+#: Decision 8 (review r3's P3-5): from the home and from /, each prints and exits.
+R4_META = ["rg --version", "rg -V", "rg --help", "rg -h", "rg --type-list", "find --version"]
+#: ... and the forms whose option is a value, so the walk stays.
+R4_META_DENIED = [("rg -e --version", H_), ("rg -g --version foo", H_), ("find -name --version", "/"),
+                  ("rg -- --version", H_)]
+#: Decision 9 (review r3's P3-6).
+R4_FORMS_DENIED = [
+    "rg --files ~$USER/.subfleet", "rg --files ~${USER}/.subfleet", "rg --files ~$(whoami)/.subfleet",
+    'rg --files $"/Users/tester/.subfleet"', 'bash -c $"rg --files /Users/tester/.subfleet"',
+    f'rg --files "{MAC}/../Users/tester/.subfleet"',
+]
+#: Review r3's check 3, kept: scoped searches from a lane worktree, scratch and /tmp (each of these 21
+#: in each of the three, 63 in all) ...
+R4_SCOPED_CWDS = [LANE_W, "/var/folders/9l/x/T/sf-lane", "/tmp/lane"]
+R4_SCOPED = [
+    "rg foo", "rg foo .", "rg foo src", "rg --files", "rg -n x tests/unit", "find . -name '*.py'", "grep -rn foo src",
+    "rg foo src/{a,b}.py", "rg foo {src,tests}", "git grep foo", "rg -l foo src/*/x.py", "find src -maxdepth 2",
+    "rg foo </dev/null", "echo 'rg foo src' | bash", "bash -c 'rg foo src'", "eval 'rg foo src'",
+    "if true; then rg foo src; fi", "timeout -s KILL 60 rg foo src", "rg foo src/*/**/*.py", "rg --version",
+    "bash -euo pipefail -c 'rg -n foo src'",
+]
+#: ... roots in pattern position (12) ...
+R4_PATTERN_ROOTS = [
+    "rg '/usr' src", "rg -e '/usr' src", "rg -g '/Library/*' foo src", "rg '~/.subfleet' src", "rg '/' src",
+    "rg -F '/tmp' src", "grep -rn '/Users' src", "rg -w '/opt' src", "rg '$HOME' src", 'rg "~" src',
+    "rg '/System' src", "grep -r -e '/var' src",
+]
+#: ... and the must-allow cases (13), with prose and depth bounds: (command, cwd).
+R4_MUST_ALLOW = [
+    ("rg foo src/{a,b}.py", LANE_W), ("rg foo {src,tests}", LANE_W), ("git grep foo", H_), ("rg -n x tests/unit", LANE_W),
+    ("find . -name '*.py'", LANE_W), ("rg x /*/*.py", S_), ("rg foo /Volumes/*/x*", S_),
+    ('git commit -m "find / -name x"', S_), ('echo "rg --files ~/.subfleet" >> notes.md', S_),
+    ('git commit -m "eval rg --files ~/.subfleet; bash -euo pipefail -c \'find / -name x\'"', S_),
+    ("rg --max-depth 1 foo ~/.subfleet", S_), ("find ~/.subfleet -maxdepth 1 -name x", S_),
+    ("RG=rg; $RG --files ~/.subfleet", S_),
+]
+#: The forms each decision must leave alone: (command, cwd).
+R4_ALLOWED = [
+    # 1 and 2: no root on either reading
+    (f"rg foo {LANE_W}/*/**/*.py", S_), ("rg foo ~/work/*/**/*.py", S_), ("rg foo src/*/**/*.py", LANE_W),
+    ("rg foo ~/work/r*/src/..", S_), (f"rg -l foo ~/.subfleet/jobs/{JOB}/a*/..", S_),
+    # 3: a script that is scoped, a script file, and a pipe into something that is no shell
+    ("echo 'rg foo src' | bash", S_), ("bash script.sh", S_), ("echo hi | bash -c 'rg foo src'", S_),
+    ("echo 'rg --files ~/.subfleet' | cat", S_), ('eval "$(ssh-agent -s)"', S_), ("bash -o pipefail -c 'rg foo src'", S_),
+    # 4: scoped searchers after a keyword or a wrapper
+    ("if [ -d src ]; then rg foo src; fi", S_), ("sudo -u root rg foo src", S_), ("doas /usr/bin/rg foo src", S_),
+    ("f() { rg foo src; }; f", S_), ("echo src | xargs -I {} rg foo {}", S_),
+    # 5: brace groups that hold no / or ..
+    ("rg foo src/{a,b}/{c,d}.py", LANE_W), ("rg foo src/{1..3}.py", LANE_W), ("rg foo src/${X}/y", LANE_W),
+    # 7: a device from a scoped cwd, a file and a pipe from the home
+    ("rg foo </dev/null", LANE_W), ("rg foo < notes.txt", H_), ("cat notes.txt | rg foo", H_), ("rg foo <<< x", H_),
+    # 8: print and exit, from the home and /
+    *((c, cwd) for cwd in (H_, "/") for c in R4_META),
+    # 9: the forms read as their homes, scoped
+    ("rg foo ~$USER/work/repo/src", S_), ('rg foo $"src"', LANE_W),
+]
+
+
+def r4_denied(commands, cwd: str = S_) -> list:
+    """The commands the hook does not deny as [unscoped-search] (empty when every one is)."""
+    outs = judged(HOOK, commands, cwd)
+    return [c for c in commands if rule(outs[c]) != "unscoped-search"]
+
+
+def test_r4_dotdot_after_a_glob_is_folded():
+    """Decision 1: each <component>/.. after the first glob is folded, and either reading denies."""
+    assert r4_denied(R4_FOLD_DENIED) == []
+
+
+def test_r4_a_tree_glob_after_a_wildcard_component_is_its_folder():
+    """Decision 2: the trailing-run rule runs on the part before a **/ (zsh walks every match)."""
+    assert r4_denied(R4_TREE_DENIED) == []
+
+
+def test_r4_every_shell_and_eval_script_is_judged():
+    """Decision 3: shell options and their values, --, quoted shell names, eval's joined arguments,
+    stdin scripts and ANSI-C scripts; the 4-deep bound still holds (R3C_DEEP)."""
+    assert r4_denied(R4_SCRIPTS_DENIED + [R3C_DEEP]) == []
+    assert rule(run_hook(HOOK, nest("true; rg --files src", 4))) is None
+
+
+def test_r4_searchers_after_keywords_wrappers_and_quotes_are_found():
+    """Decision 4: keywords, a function body's {, wrapper option values, wrappers by basename, quoted names."""
+    assert r4_denied(R4_NAMES_DENIED) == []
+
+
+def test_r4_brace_groups_that_span_a_slash_or_climb_fail_closed():
+    """Decision 5: ${...} is no group; a starred word whose group holds / or .. is broad."""
+    assert r4_denied(R4_BRACES_DENIED) == []
+
+
+def test_r4_a_device_or_a_closed_stdin_is_no_pipe():
+    """Decision 7: rg with </dev/null, <&- or another /dev/ target and no path searches the cwd."""
+    assert r4_denied(R4_DEVICE_DENIED, H_) == []
+
+
+def test_r4_print_and_exit_forms_walk_nothing():
+    """Decision 8: allowed from any cwd; an option that is another option's value is no such form."""
+    for cwd in (H_, "/", S_):
+        outs = judged(HOOK, R4_META, cwd)
+        assert [c for c in R4_META if rule(outs[c]) is not None] == [], cwd
+    assert [(c, cwd) for c, cwd in R4_META_DENIED if rule(run_hook(HOOK, c, cwd)) != "unscoped-search"] == []
+
+
+def test_r4_the_unlisted_forms_are_judged():
+    """Decision 9: ~$USER, ~${USER}, ~$(whoami), $"..." and /Volumes/<entry>/.. ."""
+    assert r4_denied(R4_FORMS_DENIED) == []
+
+
+def test_r4_scoped_searches_stay_allowed():
+    """Review r3's check 3 (scoped searches in a lane worktree, scratch and /tmp, roots in pattern
+    position, the must-allow cases) and each decision's must-allow forms."""
+    cases = ([(c, cwd) for cwd in R4_SCOPED_CWDS for c in R4_SCOPED] + [(c, LANE_W) for c in R4_PATTERN_ROOTS]
+             + R4_MUST_ALLOW + R4_ALLOWED)
+    assert len(R4_SCOPED) * len(R4_SCOPED_CWDS) >= 47 and len(R4_PATTERN_ROOTS) == 12 and len(R4_MUST_ALLOW) == 13
+    outs = judge_all(HOOK, [(c, cwd) for c, cwd in cases])
+    assert [case for case in cases if rule(outs[case]) is not None] == []
+
+
+# ---------------------------------------------------------------- r4: cost (decision 6)
+
+#: Hostile words beside a crawl: each must finish in R4_HOSTILE_S and stay denied. The time is the best
+#: of three runs (the host's load is not the hook's cost; the bound is not loosened).
+R4_HOSTILE_S = 2.0
+R4_HOSTILE = {
+    "1,000 unclosed {": "rg --files ~/.subfleet ~/" + "{" * 1000,
+    "/[ x1,000": "rg --files ~/.subfleet " + "/[" * 1000,
+    "10,000 commas": "rg --files ~/.subfleet ~/{" + "," * 10000 + "}",
+    "64 unclosed { in 4 KB": "rg --files ~/.subfleet ~/" + ("{" + "a" * 62) * 64,
+    "64 /[ in 4 KB": "rg --files ~/.subfleet " + ("/[" + "a" * 61) * 64,
+}
+#: ... and capped words alone: broad unscanned (fail closed), whatever they hold.
+R4_CAPPED = {
+    "65 {": f"rg foo {S_}/src/" + "{a}" * 65, "65 [": f"rg foo {S_}/src/" + "[a]" * 65,
+    "4 KB": f"rg foo {S_}/src/" + "a" * 4097,
+}
+
+
+def hook_seconds(hook: Path, command: str, cwd: str = S_) -> tuple[float, str]:
+    started = time.perf_counter()
+    out = run_hook(hook, command, cwd)
+    return time.perf_counter() - started, out
+
+
+def test_r4_hostile_words_fail_closed_fast():
+    """Decision 6: 1,000 unclosed {, /[ x1,000, 10,000 commas (and the cap's own edges) each finish under
+    2 s beside a crawl and stay denied; a word past the cap is broad on its own."""
+    rows = {}
+    for name, command in R4_HOSTILE.items():
+        runs = [hook_seconds(HOOK, command) for _ in range(3)]
+        assert all(rule(out) == "unscoped-search" for _, out in runs), name
+        rows[name] = min(t for t, _ in runs)
+    report("hostile-r4", rows)
+    assert {name: t for name, t in rows.items() if t >= R4_HOSTILE_S} == {}
+    for name, command in R4_CAPPED.items():
+        assert rule(run_hook(HOOK, command, LANE_W)) == "unscoped-search", name
+    assert rule(run_hook(HOOK, f"rg foo {S_}/src/" + "{a}" * 64, LANE_W)) is None
+    assert rule(run_hook(HOOK, f"rg foo {S_}/src/" + "a" * 4000, LANE_W)) is None
+
+
+def test_r4_absolute_paths_cost_at_most_twice_the_installed_hook(hooks):
+    """Decision 6: 300 absolute paths, judged five times by each hook, interleaved: the new hook's median
+    is at most twice the installed hook's (the installed hook, a60d1c51..., rebuilt as hooks["old"])."""
+    command = "rg foo " + " ".join(f"{S_}/src/f{i}.py" for i in range(300))
+    new, old = [], []
+    for _ in range(5):
+        t, out = hook_seconds(HOOK, command)
+        assert rule(out) is None
+        new.append(t)
+        old.append(hook_seconds(hooks["old"], command)[0])
+    report("abs300-r4", {"new": sorted(new), "old": sorted(old)})
+    assert sorted(new)[2] <= 2 * sorted(old)[2], (new, old)
+
+
+# ---------------------------------------------------------------- r4: the real shells
+
+#: Stub searchers: each run records its name, its cwd, what its stdin is and its argv (NUL-separated, one
+#: file per run) and exits 0; the wrappers this host lacks (timeout, gtimeout, doas) and sudo skip their
+#: options and run the rest.
+R4_STUB = r"""#!/bin/sh
+if [ -p /dev/stdin ]; then s=pipe; elif [ -f /dev/stdin ]; then s=file; elif [ -e /dev/stdin ]; then s=dev
+else s=closed; fi
+f=$(/usr/bin/mktemp "$R4_CALLS/call.XXXXXX")
+printf '%s\0' "${0##*/}" "$PWD" "$s" "$@" > "$f"
+"""
+R4_WRAP = r"""#!/bin/sh
+case "${0##*/}" in
+  sudo|doas) while [ $# -gt 0 ]; do case "$1" in -u|-g|-C|-D|-h|-p|-r|-t|-U|-T) shift 2 ;; -*) shift ;; *) break ;; esac; done ;;
+  *) while [ $# -gt 0 ]; do case "$1" in -s|-k) shift 2 ;; -*) shift ;; *) break ;; esac; done; shift ;;
+esac
+exec "$@"
+"""
+R4_RUNS = itertools.count()
+R4_SEARCHERS = ("rg", "find", "grep", "egrep", "fgrep", "rgrep", "ugrep")
+R4_RG_VALUE = set("ABCEMTdefgjmrt")
+R4_RG_LONG = {"--after-context", "--before-context", "--context", "--color", "--colors", "--context-separator",
+              "--encoding", "--engine", "--file", "--glob", "--iglob", "--ignore-file", "--max-columns",
+              "--max-count", "--max-filesize", "--path-separator", "--pre", "--pre-glob", "--regexp", "--replace",
+              "--sort", "--sortr", "--threads", "--type", "--type-not", "--type-add", "--type-clear"}
+
+
+def r4_walked_paths(name: str, cwd: str, stdin: str, args: list[str]) -> list[str]:
+    """What one stub run would have walked had it been the real searcher (snapshot-5's models, cut down
+    to the options the pins use): find's start paths, rg's and grep -r's path operands, or the cwd."""
+    if name == "find":
+        if args[:1] and args[0] in ("--version", "-version", "--help", "-help"):
+            return []
+        paths = []
+        for a in args:
+            if a.startswith("-") or a in ("(", "!"):
+                break
+            paths.append(a)
+        return paths or [cwd]
+    grep = name != "rg"
+    pos, files, has_e, rec, meta, k = [], False, False, name == "rgrep", False, 0
+    while k < len(args):
+        a = args[k]
+        k += 1
+        if a == "--":
+            pos += args[k:]
+            break
+        if a.startswith("--"):
+            files |= a == "--files"
+            has_e |= a.split("=")[0] in ("--regexp", "--file")
+            rec |= a in ("--recursive", "--dereference-recursive")
+            meta |= a in ("--version", "--help", "--type-list")
+            if "=" not in a and a in R4_RG_LONG:
+                k += 1
+            continue
+        if a.startswith("-") and len(a) > 1:
+            rec |= grep and bool(re.search(r"[rR]", a))
+            meta |= (not grep and a in ("-V", "-h")) or (grep and a == "-V")
+            has_e |= a[-1] in "ef"
+            if not grep and a[-1] in R4_RG_VALUE or grep and a[-1] in "ABCDefm":
+                k += 1
+            continue
+        pos.append(a)
+    if meta or (grep and not rec):
+        return []
+    paths = pos if (files or has_e) else pos[1:]
+    if paths:
+        return paths
+    if not grep and not files and stdin in ("pipe", "file"):
+        return []
+    return [cwd]
+
+
+def r4_canonical(path: str, cwd: str) -> str:
+    """A walked path inside the fixture, links followed as the kernel follows them, seam-relative; one
+    outside it by name (/Volumes/Macintosh HD is a link to / on this host: review r3's os.readlink)."""
+    fs, rfs = str(_FS["root"]), os.path.realpath(str(_FS["root"]))
+    full = path if path.startswith("/") else cwd.rstrip("/") + "/" + path
+    if any(full == f or full.startswith(f + "/") for f in (fs, rfs)):
+        real = os.path.realpath(full)
+        return (real[len(rfs):] or "/") if real == rfs or real.startswith(rfs + "/") else real
+    if full.startswith(MAC + "/") or full == MAC:
+        full = "/" + full[len(MAC):]
+    return norm(full)
+
+
+def r4_shell_walks(shell: str, command: str, cwd: str, tmp: Path) -> bool:
+    """Whether ``command``, run by the real shell over the fixture with stub searchers, would have walked a
+    root: some stub run's walked path is broad by REFERENCE_SH."""
+    fs = str(_FS["root"])
+    stubs = tmp / "stubs"
+    if not stubs.exists():
+        stubs.mkdir()
+        for name in R4_SEARCHERS:
+            (stubs / name).write_text(R4_STUB)
+        for name in ("timeout", "gtimeout", "doas", "sudo"):
+            (stubs / name).write_text(R4_WRAP)
+        for p in stubs.iterdir():
+            p.chmod(0o755)
+    calls = tmp / f"calls-{shell}-{next(R4_RUNS)}"
+    calls.mkdir()
+    text = command.replace("/usr/bin/find", f"{stubs}/find").replace("/usr/bin/grep", f"{stubs}/grep")
+    text = text.replace("/opt/homebrew/bin/rg", f"{stubs}/rg").replace("/usr/bin/rg", f"{stubs}/rg")
+    text = re.sub(r"(?<![\w./~-])/Users/tester", fs + "/Users/tester", text)
+    text = re.sub(r"(?<![\w./~-])/tmp/", fs + "/tmp/", text)
+    text = re.sub(r"(?<=\s)/(?=\s|$)", fs + "/", text)
+    # the session's PATH after the stubs (the test session's keychain guard refuses a shell whose PATH
+    # reaches a system folder before its recorder)
+    env = {"PATH": f"{stubs}:{os.environ['PATH']}", "HOME": fs + FAKE_HOME, "R4_CALLS": str(calls),
+           "USER": os.environ.get("USER", "nobody"), "LC_ALL": "C", "TMPDIR": str(tmp)}
+    argv = ["/bin/bash", "--noprofile", "--norc", "-c", text] if shell == "bash" else ["/bin/zsh", "-f", "-c", text]
+    with open(os.devnull) as devnull:
+        subprocess.run(argv, stdin=devnull, capture_output=True, env=env, cwd=fs + cwd, timeout=60)
+    walked = []
+    for f in sorted(calls.iterdir()):
+        name, at, stdin, *args = f.read_bytes().decode().split("\0")[:-1]
+        walked += [r4_canonical(p, at) for p in r4_walked_paths(name, at, stdin, args)]
+    return any(reference_cached(walked, FAKE_HOME)) if walked else False
+
+
+#: The decisions' command pins whose shell run a stub can watch: (command, cwd). Decision 2's walks are the
+#: shell's own (zsh expands **/ itself), so they are in R4_SHELL_WORDS, judged by the word oracle.
+R4_SHELL_COMMANDS = ([(c, S_) for c in R4_FOLD_DENIED + R4_SCRIPTS_DENIED + R4_NAMES_DENIED + R4_BRACES_DENIED
+                      + R4_FORMS_DENIED] + [(c, H_) for c in R4_DEVICE_DENIED]
+                     + [(c, cwd) for c, cwd in R4_META_DENIED] + [(c, H_) for c in R4_META]
+                     + [case for case in R4_ALLOWED if not case[0].startswith(("rg foo src/{", "bash script", "eval \"$("))])
+#: The shell runs the hook judges by design, not by what the stub saw: a by-name reading the real file
+#: system cannot show, and the stubs' own limits. (command, the hook's verdict).
+R4_SHELL_EXCEPTIONS = {
+    # the fixture has no link to / to stand for /Volumes/Macintosh HD; its walk is r4_canonical's by-name /
+    f'rg --files "{MAC}/../Users/tester/.subfleet"': True,
+}
+
+
+def test_r4_command_pins_agree_with_real_shells(tmp_path):
+    """Each command pin and must-allow form, run by /bin/zsh -f and /bin/bash over the fixture with stub
+    searchers: the hook denies it exactly when either shell's run would have walked a root."""
+    outs = judge_all(HOOK, R4_SHELL_COMMANDS)
+    rows, differ = [], []
+    for command, cwd in R4_SHELL_COMMANDS:
+        denied = rule(outs[(command, cwd)]) == "unscoped-search"
+        shells = {sh: r4_shell_walks(sh, command, cwd, tmp_path) for sh in ("zsh", "bash")}
+        rows.append((command, cwd, denied, shells))
+        if command in R4_SHELL_EXCEPTIONS:
+            if denied != R4_SHELL_EXCEPTIONS[command]:
+                differ.append(("exception", command, denied, shells))
+        elif denied != any(shells.values()):
+            differ.append((command, cwd, denied, shells))
+    report("shells-r4", {"cases": len(rows), "denied": sum(r[2] for r in rows),
+                         "zsh": sum(r[3]["zsh"] for r in rows), "bash": sum(r[3]["bash"] for r in rows)})
+    assert differ == [], differ[:10]
+
+
+#: Decision 2's (and 1's and 5's) words, for the word oracle: zsh expands **/ itself.
+R4_SHELL_WORDS = ["~/PolicyEngine/*/**/*.py", "~/PolicyEngine/?*/**/*.py", "/tmp/*/**/x", "~/PolicyEngine/[!.]*/**/*.py",
+                  "~/work/*/**/*.py", f"{LANE_W}/*/**/*.py", f"~/.sub*/jobs/{JOB}/..", "~/work/r*/../../.subfleet",
+                  "~/*/policyengine-us/..", f"~/.subfleet/jobs/{JOB}/a*/../..", "~/work/r*/src/..",
+                  "/{Users/{tester,x},y}/.subfleet", "/{Users/tester,x}/.{s..s}ubfleet"]
+
+
+def r4_real(shell: str, word: str, home: str = FAKE_HOME) -> bool:
+    """r3c_real, with decision 2 as written: in zsh the part before a **/ component goes through the
+    trailing-run rule (a wildcard-only run is its folder) before its matches are judged."""
+    if shell == "zsh":
+        for w in (r3c_noglob(shell, word, home) if ("{" in word or "~" in word) else [word]):
+            comps = ["**" if c == "***" else c for c in r3c_split(w, shell)]
+            if "**" in comps[:-1]:
+                prefix = comps[:comps.index("**")]
+                while len(prefix) > 1 and (prefix[-1] in ("", ".", ".*") or WILD_ONLY.fullmatch(prefix[-1])):
+                    prefix.pop()
+                if r3c_paths(shell, "/".join(prefix) or "/", home):
+                    return True
+    return r3c_real(shell, word, home)
+
+
+def test_r4_words_agree_with_real_shells():
+    """The word differential (r3c's, with r4_real): each word is denied exactly when some expansion in
+    /bin/zsh -f or /bin/bash, over the fixture, names a root."""
+    commands = {w: "rg foo " + w for w in R4_SHELL_WORDS}
+    outs = judge_prop(HOOK, list(commands.values()), home=FAKE_HOME)
+    differ = [(w, rule(outs[commands[w]]), r4_real("zsh", w), r4_real("bash", w)) for w in R4_SHELL_WORDS
+              if (rule(outs[commands[w]]) == "unscoped-search") != (r4_real("zsh", w) or r4_real("bash", w))]
+    assert differ == []
