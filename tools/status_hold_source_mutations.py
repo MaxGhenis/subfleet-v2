@@ -20,8 +20,8 @@ in the tree's root, stands for the baseline of each named test it shows passed
 It rewrites the files in place, one mutant at a time, and restores them whatever
 happens. M1 to M7 are the build's; M8 to M14 are review r1's (M14 in two
 halves, the daemon's refusal and the CLI's); R1 and M15 to M17 are review
-r2's. It exits 1 if the baseline fails, or a mutant survives or no longer
-applies. It is a development check, not part of the suite.
+r2's, and M18 is review r3's. It exits 1 if the baseline fails, or a mutant
+survives or no longer applies. It is a development check, not part of the suite.
 """
 from __future__ import annotations
 
@@ -50,6 +50,13 @@ CLI_REFUSAL = f"{TESTS}::test_r1_p2_lanes_hold_refuses_a_credential_note_without
 OLD_GUARD = ('''for number, text in enumerate(path.read_text().splitlines(), start=1)
             if "source_event" in text and re.search(r"""source_event\\W{0,3}\\s*(==|!=)|['"]operator['"]|'''
              '''source_event\\s*(=|IN)\\s*\\(?'operator""", text, re.IGNORECASE)]''')
+#: The source guard's SQL check as review r3 of #263 extended it, and as review r2 left it (at `b11661169`).
+R3_SQL = r'''SQL_COMPARISON = re.compile(r"""source_event\s*\)?\s*(?:\bNOT\s+)?(?:==?|!=|<>|\bIN\b|\bIS(?:\s+NOT)?\b|\bLIKE\b|\bGLOB\b)"""
+                            r"""\s*\(?\s*(?:[^()]*?,\s*)?(?:'operator'|"operator"|(\?))"""
+                            r"""|(?:'operator'|"operator")\s*(?:==?|!=|<>|\bIS\b)\s*[\w(]*source_event""",
+                            re.IGNORECASE)'''
+R2_SQL = r'''SQL_COMPARISON = re.compile(r"""source_event\s*(?:==?|!=|<>|\bIN\b|\bIS\b|\bLIKE\b)\s*\(?\s*(?:'operator'|"operator"|(\?))""",
+                            re.IGNORECASE)'''
 
 HELD_PART = '        parts.append(f"{len(held)} held by operator"'
 LIMITED_PART = '        parts.append(f"{len(limited)} provider-limited"'
@@ -144,6 +151,10 @@ MUTANTS = {
         [(DAEMON, '            return {"lanes": closure_rows(self._capacity_view(self._desktop_identity()))["lanes"],\n',
           '            return {"lanes": self._capacity_view(self._desktop_identity())["lanes"],\n')],
         [EVERY_READER]),
+    # Review r3 of #263.
+    "M18 the source guard's SQL check as review r2 left it": (
+        [(GUARD, R3_SQL, R2_SQL)],
+        [f"{TESTS}::test_r3_p3_1_the_source_guard_catches_each_sql_form_it_reads"]),
 }
 
 

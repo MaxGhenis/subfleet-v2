@@ -734,11 +734,18 @@ def test_i4_a_later_hold_takes_the_row_and_its_note_a_shorter_one_leaves_both(co
 REPOSITORY = Path(__file__).resolve().parents[2]
 
 
-#: SQL that compares the column with `operator` (review r2 of #263, P3-4): `=`, `==`,
-#: `!=`, `<>`, `IN`, `IS` or `LIKE`, then the word in either quote, or a `?` (the
-#: group), which counts only when the call the SQL is passed to has the word among
-#: its other arguments.
-SQL_COMPARISON = re.compile(r"""source_event\s*(?:==?|!=|<>|\bIN\b|\bIS\b|\bLIKE\b)\s*\(?\s*(?:'operator'|"operator"|(\?))""",
+#: SQL that compares the column with `operator` (review r2 of #263, P3-4; review r3,
+#: P3-1), in any letter case. Either the column, an optional `)` after it
+#: (`lower(source_event)`), then `=`, `==`, `!=`, `<>`, `IN`, `IS`, `IS NOT`, `LIKE`
+#: or `GLOB`, each optionally after `NOT`, then an optional `(`, any text without
+#: parentheses that ends in a comma (a list's earlier items), and the word in either
+#: quote or a `?` (the group); or the word first, then `=`, `==`, `!=`, `<>` or `IS`,
+#: and the column after any letters, digits, `_` or `(` (`lower(source_event`). A
+#: `?` counts only when the call the SQL is passed to has the word among its other
+#: arguments.
+SQL_COMPARISON = re.compile(r"""source_event\s*\)?\s*(?:\bNOT\s+)?(?:==?|!=|<>|\bIN\b|\bIS(?:\s+NOT)?\b|\bLIKE\b|\bGLOB\b)"""
+                            r"""\s*\(?\s*(?:[^()]*?,\s*)?(?:'operator'|"operator"|(\?))"""
+                            r"""|(?:'operator'|"operator")\s*(?:==?|!=|<>|\bIS\b)\s*[\w(]*source_event""",
                             re.IGNORECASE)
 COMPARISONS = (ast.Eq, ast.NotEq, ast.In, ast.NotIn, ast.Is, ast.IsNot)
 COLLECTIONS = ("frozenset", "set", "tuple", "list")
@@ -784,16 +791,22 @@ def _sql_compares(node: ast.AST, others: list[ast.AST]) -> bool:
 
 def _comparisons(text: str, filename: str) -> list[int]:
     """The lines of `text` that compare with `operator`, as far as its syntax shows
-    (C-9.6, review r2 of #263, P3-4). Caught: a comparison (`==`, `!=`, `in`,
-    `not in`, `is`, `is not`) with the literal `"operator"` or a name or
-    attribute `HOLD_SOURCE` on either side, or a set, tuple, list or
-    `frozenset(…)` holding one, whatever the other side is, so a wrapped column
-    (`str(…).strip()`, `(x or "")`), an alias of it, or a helper's parameter;
-    a `match` case whose value pattern is one; and SQL in a string or f-string
-    comparing `source_event` with the word in either quote, or with a `?` its
-    call passes the word for. Not seen: a comparison through `getattr`,
-    `operator.eq` or a lookup, or with the word or the SQL held in a variable
-    first. A prefix test (`startswith`, `hold_note_of`) is no comparison."""
+    (C-9.6, review r2 of #263, P3-4; review r3, P3-1). Caught: a comparison
+    (`==`, `!=`, `in`, `not in`, `is`, `is not`) with the literal `"operator"`
+    or a name or attribute `HOLD_SOURCE` on either side, or a set, tuple or
+    list, or a one-argument `frozenset(…)`, `set(…)`, `tuple(…)` or `list(…)`,
+    holding one, nesting included, whatever the other side is, so a wrapped
+    column (`str(…).strip()`, `(x or "")`), an alias of it, or a helper's
+    parameter; a `match` case whose value pattern is one; and SQL in a string
+    or f-string that `SQL_COMPARISON` finds comparing `source_event` with the
+    word, or with a `?` its call passes the word for. Not seen, each a case of
+    `GUARD_MISSES`: a comparison through `operator.eq`, `__eq__`, a dict
+    lookup or a dict's keys (`in {"operator": 1}`); the word reached through
+    `getattr`, a call (`hold_source(None)`, `"OPERATOR".lower()`), an f-string
+    (`f"{HOLD_SOURCE}"`), a concatenation (`"oper" + "ator"`) or a variable;
+    SQL held in a variable; and in SQL, `COALESCE(source_event, …)`, `BETWEEN`,
+    `CASE source_event WHEN` and a named parameter (`:s`). A prefix test
+    (`startswith`, `hold_note_of`) is no comparison."""
     lines = []
     for node in ast.walk(ast.parse(text, filename=filename)):
         if isinstance(node, ast.Compare):
@@ -1128,6 +1141,24 @@ GUARD_MISSES = {
     "the constant aliased through a variable": 'MARK = "operator"\ndef compares(row):\n    return row["source_event"] == MARK\n',
     "the SQL aliased through a variable": ('SQL = "SELECT 1 FROM closures WHERE source_event=?"\ndef compares(conn):\n'
                                            '    return conn.execute(SQL, ("operator",))\n'),
+    # Review r3 of #263, P3-1: the SQL forms the extended check still does not read,
+    # and the Python forms C-9.6's list did not name.
+    "SQL COALESCE(source_event, ...)": ("def compares(conn):\n    return conn.execute("
+                                        "\"SELECT 1 FROM closures WHERE COALESCE(source_event,'')='operator'\")\n"),
+    "SQL BETWEEN": ("def compares(conn):\n    return conn.execute("
+                    "\"SELECT 1 FROM closures WHERE source_event BETWEEN 'operator' AND 'operator'\")\n"),
+    "SQL CASE source_event WHEN": ("def compares(conn):\n    return conn.execute("
+                                   "\"SELECT CASE source_event WHEN 'operator' THEN 1 END FROM closures\")\n"),
+    "SQL a named parameter": ("def compares(conn):\n    return conn.execute("
+                              "\"SELECT 1 FROM closures WHERE source_event=:s\", {\"s\": \"operator\"})\n"),
+    "== an f-string of the constant": ('from subfleet.contracts import HOLD_SOURCE\ndef compares(row):\n'
+                                       '    return row["source_event"] == f"{HOLD_SOURCE}"\n'),
+    "== the word in two parts": 'def compares(row):\n    return row["source_event"] == "oper" + "ator"\n',
+    "__eq__": 'def compares(row):\n    return row["source_event"].__eq__("operator")\n',
+    "== hold_source(None)": ('from subfleet.contracts import hold_source\ndef compares(row):\n'
+                             '    return row["source_event"] == hold_source(None)\n'),
+    "lower() on both sides": 'def compares(row):\n    return row["source_event"].lower() == "OPERATOR".lower()\n',
+    "in a dict's keys": 'def compares(row):\n    return row["source_event"] in {"operator": 1}\n',
 }
 
 
