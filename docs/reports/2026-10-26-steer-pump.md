@@ -267,7 +267,7 @@ The brief's live runs did not run:
 **Why:** they can't pass under a Subfleet lane.
 - The daemon's person-only peer check reads every ancestor of the caller. It refuses one that runs
   under a Subfleet guardian or carries `SUBFLEET_JOB`/`SUBFLEET_ATTEMPT`
-  (`subfleet/conversations/peers.py:192-197`).
+  (`subfleet/conversations/peers.py:193-197`).
 - So the probe stops at step 5, before step 14 (run L).
 - At this host's load, the first four attempts didn't even get the development daemon up within
   the harness's 10 s.
