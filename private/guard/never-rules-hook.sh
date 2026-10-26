@@ -540,6 +540,31 @@ pw_lexists() { [ -e "$pw_fs$1" ] || [ -L "$pw_fs$1" ]; }
 pw_nondir() { [ -e "$pw_fs$1" ] && [ ! -d "$pw_fs$1" ]; }
 # pw_readlink P: pw_rl is the target of the link at P.
 pw_readlink() { pw_rl=$(readlink "$pw_fs$1" 2>/dev/null) || pw_rl=""; }
+# pw_ls DIR: pw_ents is the name of every entry of DIR in byte order (bash's
+# own pathname expansion of a quoted folder and a bare *, which never runs a
+# substitution); every setting it changes is put back.
+pw_ls() {
+  local LC_ALL=C f="" n="" d="" c="" e="" g="" gi=${GLOBIGNORE-} gi_set=${GLOBIGNORE+x} x="" i=0
+  case $- in *f*) f=1 ;; esac
+  if shopt -q nullglob; then n=1; fi
+  if shopt -q dotglob; then d=1; fi
+  if shopt -q nocaseglob; then c=1; fi
+  if shopt -q extglob; then e=1; fi
+  if shopt -q failglob; then g=1; fi
+  unset GLOBIGNORE
+  set +f
+  shopt -s nullglob dotglob
+  shopt -u nocaseglob extglob failglob
+  pw_ents=( "$pw_fs$1"/* )
+  if [ -n "$gi_set" ]; then GLOBIGNORE=$gi; fi
+  if [ -n "$n" ]; then shopt -s nullglob; else shopt -u nullglob; fi
+  if [ -n "$d" ]; then shopt -s dotglob; else shopt -u dotglob; fi
+  if [ -n "$c" ]; then shopt -s nocaseglob; else shopt -u nocaseglob; fi
+  if [ -n "$e" ]; then shopt -s extglob; else shopt -u extglob; fi
+  if [ -n "$g" ]; then shopt -s failglob; else shopt -u failglob; fi
+  if [ -n "$f" ]; then set -f; fi
+  for x in ${pw_ents[@]+"${pw_ents[@]}"}; do pw_ents[$i]=${x##*/}; i=$((i + 1)); done
+}
 # --- names ---
 # pw_abs WORD: pw_p is the absolute path a root spelling names, or empty.
 pw_abs() {
@@ -618,6 +643,17 @@ pw_isbroad() {
   [ -n "$nc" ] || shopt -u nocasematch
   return $r
 }
+# pw_holds DIR: a name directly in DIR (normalized) can be a broad root by name:
+# one of the names roots have, or any name (snapshot-5's holds_root).
+pw_holds() {
+  local n=""
+  for n in TheAxiomFoundation RulesFoundation PolicyEngine Library Caches .cache .local .subfleet \
+           Users Volumes System private tmp var folders opt homebrew Applications usr Data @sf-any@; do
+    pw_normalize "$1/$n"
+    pw_isbroad "$pw_n" && return 0
+  done
+  return 1
+}
 # --- where links lead ---
 # pw_isfile P: P (normalized) exists and is no directory; never asked under a
 # mount that may stall.
@@ -657,106 +693,141 @@ pw_broad() {
   pw_physical "$1"
   [ "$pw_r" != "$1" ] && pw_isbroad "$pw_r" && ! pw_isfile "$pw_r"
 }
-# --- globs (r3's whole-word expansion) ---
-# pw_listed DIR: whether the normalized DIR can hold a broad root by name.
-pw_listed() {
-  case "$1" in
-    /|/Users|/private|"$pw_home"|"$pw_home/Library"|"$pw_home/.subfleet") return 0 ;;
-  esac
-  local u=${1#/Users/}
-  [ "$u" != "$1" ] || return 1
-  case "$u" in
-    */*/*) return 1 ;;
-    */Library|*/.subfleet) return 0 ;;
-    */*) return 1 ;;
-  esac
-  return 0
-}
-# pw_glob DIR PATTERN: status 0 iff one of the first pw_cap matches of
-# DIR/PATTERN is a broad root. Bash's own pathname expansion of an unquoted
-# variable, which never runs a substitution; every setting it changes is put
-# back before it judges a match.
-pw_glob() {
-  local f="" n="" d="" c="" e="" g="" ifs=${IFS-} ifs_set=${IFS+x} gi=${GLOBIGNORE-} gi_set=${GLOBIGNORE+x} m=""
-  case $- in *f*) f=1 ;; esac
-  if shopt -q nullglob; then n=1; fi
-  if shopt -q dotglob; then d=1; fi
-  if shopt -q nocaseglob; then c=1; fi
-  if shopt -q extglob; then e=1; fi
-  if shopt -q failglob; then g=1; fi
-  unset GLOBIGNORE
-  set +f
-  shopt -s nullglob
-  shopt -u dotglob nocaseglob extglob failglob
-  IFS=
-  pw_m=( "$pw_fs$1"/$2 )
-  if [ -n "$ifs_set" ]; then IFS=$ifs; else unset IFS; fi
-  if [ -n "$gi_set" ]; then GLOBIGNORE=$gi; fi
-  if [ -n "$n" ]; then shopt -s nullglob; else shopt -u nullglob; fi
-  if [ -n "$d" ]; then shopt -s dotglob; else shopt -u dotglob; fi
-  if [ -n "$c" ]; then shopt -s nocaseglob; else shopt -u nocaseglob; fi
-  if [ -n "$e" ]; then shopt -s extglob; else shopt -u extglob; fi
-  if [ -n "$g" ]; then shopt -s failglob; else shopt -u failglob; fi
-  if [ -n "$f" ]; then set -f; fi
-  [ "${#pw_m[@]}" -gt 0 ] && [ "$pw_cap" -gt 0 ] || return 1
-  # Each match by name (the seam folder taken off, //, . and .. resolved, the
-  # home spelled ~), then on disk: a broad root by name that is an existing
-  # non-directory is not broad (decision 1).
-  printf '%s\n' "${pw_m[@]:0:$pw_cap}" | PW_FS="$pw_fs" PW_HOME="$pw_home" PW_ROOT="$pw_root_re" LC_ALL=C awk '
-    function norm(p,   n, i, parts, k, r, st) {
-      n = split(p, parts, "/"); k = 0
-      for (i = 1; i <= n; i++) {
-        if (parts[i] == "" || parts[i] == ".") continue
-        if (parts[i] == "..") { if (k > 0) k--; continue }
-        st[++k] = parts[i]
-      }
-      r = ""
-      for (i = 1; i <= k; i++) r = r "/" st[i]
-      return (r == "") ? "/" : r
-    }
-    BEGIN { fs = ENVIRON["PW_FS"]; home = ENVIRON["PW_HOME"]; re = ENVIRON["PW_ROOT"] }
-    {
-      p = $0
-      if (fs != "") { if (index(p, fs "/") != 1) next; p = substr(p, length(fs) + 1) }
-      p = norm(p)
-      if (home != "" && home != "/") {
-        if (p == home) p = "~"
-        else if (index(p, home "/") == 1) p = "~" substr(p, length(home) + 1)
-      }
-      if (p ~ re) print $0
-    }' 2>/dev/null | {
-    while IFS= read -r m; do
-      if [ -e "$m" ] && [ ! -d "$m" ]; then continue; fi
-      exit 0
+# --- globs ---
+# pw_pattern COMP: pw_pat is a bash pattern matching what fnmatch matches for
+# the glob component COMP (every * ? [ a glob character); status 1 for a form
+# it cannot express (a POSIX class other than alpha, digit, alnum, upper,
+# lower, xdigit and space). Every other character is escaped, so no pattern
+# is ever an extglob or holds a substitution.
+pw_pattern() {
+  local LC_ALL=C s=$1 n=${#1} k=0 j=0 ch="" lead="" body="" rest="" cls="" end=0 bl=0
+  pw_pat=""
+  while [ "$k" -lt "$n" ]; do
+    ch=${s:k:1}
+    case "$ch" in
+      '*'|'?') pw_pat="$pw_pat$ch"; k=$((k + 1)); continue ;;
+      '[') ;;
+      *) pw_pat="$pw_pat\\$ch"; k=$((k + 1)); continue ;;
+    esac
+    j=$((k + 1)); lead=""; body=""; bl=0
+    case "${s:j:1}" in '!'|'^') j=$((j + 1)); lead='!' ;; esac
+    if [ "${s:j:1}" = "]" ]; then j=$((j + 1)); body='\]'; bl=1; fi
+    while [ "$j" -lt "$n" ] && [ "${s:j:1}" != "]" ]; do
+      ch=${s:j:1}
+      if [ "$ch" = "[" ] && [ "${s:j+1:1}" = ":" ]; then
+        rest=${s:j+2}; cls=${rest%%:]*}
+        [ "$cls" != "$rest" ] || return 1
+        end=${#cls}
+        case "$cls" in
+          alpha) body="${body}a-zA-Z" ;; digit) body="${body}0-9" ;; alnum) body="${body}a-zA-Z0-9" ;;
+          upper) body="${body}A-Z" ;; lower) body="${body}a-z" ;; xdigit) body="${body}0-9A-Fa-f" ;;
+          space) body="$body"$' \t\n\r\f\v' ;;
+          *) return 1 ;;
+        esac
+        bl=$((bl + 1)); j=$((j + end + 4)); continue
+      fi
+      case "$ch" in
+        -) if [ "$bl" -eq 0 ] || [ "$((j + 1))" -ge "$n" ] || [ "${s:j+1:1}" = "]" ]; then body="$body\\-"; else body="$body-"; fi ;;
+        '\'|'['|']'|'!'|'^') body="$body\\$ch" ;;
+        *) body="$body$ch" ;;
+      esac
+      bl=$((bl + 1)); j=$((j + 1))
     done
-    exit 1
-  }
+    if [ "$j" -lt "$n" ]; then pw_pat="$pw_pat[$lead$body]"; k=$((j + 1))
+    else pw_pat="$pw_pat\\["; k=$((k + 1))
+    fi
+  done
 }
-# pw_word_glob WORD: decisions 2 and 3 for a word with a glob character. pw_t
-# is a placeholder root (broad), F (judged on disk, not broad), or empty (the
-# text rule's).
-pw_word_glob() {
-  local b=$1 walk="" lit="" dir="" rest=""
-  pw_t=""
-  case "/$b" in
-    */'**'/*) b=${b%%/'**'/*}; walk=1 ;;
-    *) [ "$b" = "/" ] || b=${b%/}
-       while :; do
-         case "$b" in */'*'|*/'.*'|*/'**') b=${b%/*}; walk=1 ;; *) break ;; esac
-       done ;;
-  esac
-  [ -n "$b" ] || b=/
-  case "$b" in
-    *[*?[]*) ;;
-    *) if [ -n "$walk" ] && [[ $b =~ $pw_root_re ]]; then pw_sentinel "$1" " (glob)"; fi
-       return 0 ;;
-  esac
-  pw_abs "$b"
-  case "$pw_p" in ''|*'$'*|*'`'*|*'{'*) return 0 ;; esac
-  lit=${pw_p%%[*?[]*}; dir=${lit%/*}; rest=${pw_p:${#dir}+1}
-  pw_norm "${dir:-/}"
-  pw_listed "$pw_n" || return 0
-  if pw_glob "$dir" "$rest"; then pw_sentinel "$1" " (glob)"; else pw_t=F; fi
+# pw_match PATTERN DOT NAME...: pw_hits is every NAME the bash PATTERN matches,
+# case-sensitive, byte by byte; a leading dot only when DOT is set.
+pw_match() {
+  local LC_ALL=C pat=$1 dot=$2 nc="" e="" x=""
+  shift 2
+  pw_hits=()
+  shopt -q nocasematch && nc=1
+  shopt -q extglob && e=1
+  shopt -u nocasematch extglob
+  for x in "$@"; do
+    case "$x" in .*) [ -n "$dot" ] || continue ;; esac
+    [[ $x == $pat ]] && pw_hits[${#pw_hits[@]}]=$x
+  done
+  [ -z "$nc" ] || shopt -s nocasematch
+  [ -z "$e" ] || shopt -s extglob
+}
+# pw_globbroad PATH: status 0 iff the glob PATH (absolute, unnormalized) can
+# match a broad root, judged component by component (see "globs" above).
+pw_globbroad() {
+  local rest="$1/" c="" nc=0 first=-1 k=0 text="" glob="" pat="" p="" q="" l="" i=0 budget=$pw_cap last=0 m=0
+  local -a comps cp cl np nl
+  while [ -n "$rest" ]; do
+    c=${rest%%/*}; rest=${rest#*/}
+    [ -n "$c" ] || continue
+    comps[$nc]=$c
+    case "$c" in *[*?[]*) [ "$first" -ge 0 ] || first=$nc ;; esac
+    nc=$((nc + 1))
+  done
+  [ "$first" -ge 0 ] || return 1
+  rest=""
+  k=0
+  while [ "$k" -lt "$first" ]; do rest="$rest/${comps[$k]}"; k=$((k + 1)); done
+  pw_normalize "${rest:-/}"
+  pw_isbroad "$pw_n" || return 1
+  cp=( "$pw_n" ); cl=( n )
+  k=$first
+  while [ "$k" -lt "$nc" ]; do
+    text=${comps[$k]}; glob=""; last=""
+    [ "$k" -lt "$((nc - 1))" ] || last=1
+    case "$text" in *[*?[]*) glob=1; pw_pattern "$text" || return 1; pat=$pw_pat ;; esac
+    np=(); nl=()
+    i=0
+    while [ "$i" -lt "${#cp[@]}" ]; do
+      p=${cp[$i]}; i=$((i + 1))
+      if [ -z "$glob" ] && ! pw_stall "$p"; then
+        pw_normalize "$p/$text"
+        if pw_lexists "$pw_n"; then np[${#np[@]}]=$pw_n; nl[${#nl[@]}]=u; fi
+      elif pw_holds "$p"; then
+        pw_ls "$p"
+        if [ "${#pw_ents[@]}" -gt "$budget" ]; then pw_ents=( ${pw_ents[@]+"${pw_ents[@]:0:$budget}"} ); fi
+        budget=$((budget - ${#pw_ents[@]}))
+        [ "${#pw_ents[@]}" -gt 0 ] || continue
+        if [ -n "$glob" ]; then
+          case "$text" in .*) pw_match "$pat" 1 "${pw_ents[@]}" ;; *) pw_match "$pat" "" "${pw_ents[@]}" ;; esac
+        else
+          pw_hits=()
+          for q in "${pw_ents[@]}"; do [ "$q" != "$text" ] || pw_hits[0]=$q; done
+        fi
+        [ "${#pw_hits[@]}" -gt 0 ] || continue
+        for q in "${pw_hits[@]}"; do
+          pw_normalize "$p/$q"
+          l=n
+          if [ -n "$last" ] && ! pw_isbroad "$pw_n" && ! pw_stall "$pw_n" && pw_islink "$p/$q"; then l=y; fi
+          np[${#np[@]}]=$pw_n; nl[${#nl[@]}]=$l
+        done
+      fi
+    done
+    if [ -z "$last" ]; then
+      cp=(); cl=(); m=0
+      while [ "$m" -lt "${#np[@]}" ]; do
+        if pw_isbroad "${np[$m]}" && ! pw_isfile "${np[$m]}"; then cp[${#cp[@]}]=${np[$m]}; cl[${#cl[@]}]=${nl[$m]}; fi
+        m=$((m + 1))
+      done
+    else
+      cp=( ${np[@]+"${np[@]}"} ); cl=( ${nl[@]+"${nl[@]}"} )
+    fi
+    [ "${#cp[@]}" -gt 0 ] || return 1
+    k=$((k + 1))
+  done
+  m=0
+  while [ "$m" -lt "${#cp[@]}" ]; do
+    q=${cp[$m]}; l=${cl[$m]}; m=$((m + 1))
+    if pw_isbroad "$q"; then
+      pw_isfile "$q" || return 0
+    elif [ "$l" != n ]; then
+      pw_physical "$q"
+      [ "$pw_r" != "$q" ] && pw_isbroad "$pw_r" && ! pw_isfile "$pw_r" && return 0
+    fi
+  done
+  return 1
 }
 # --- words ---
 # pw_sentinel WORD [SUFFIX]: pw_t is a new placeholder root, named WORD SUFFIX.
@@ -793,7 +864,30 @@ pw_word_judge() {
        fi
        return 0 ;;
   esac
-  pw_word_glob "$w"
+  b=$w
+  if [ "${2-}" != b ]; then
+    case "/$b" in */'**'/*) b=${b%%/'**'/*}; walk=1 ;; esac
+  fi
+  if [ -z "$walk" ]; then
+    [ "$b" = "/" ] || b=${b%/}
+    while :; do
+      case "$b" in */'*'|*/'.*'|*/'**') b=${b%/*}; walk=1 ;; *) break ;; esac
+    done
+  fi
+  [ -n "$b" ] || b=/
+  case "$b" in
+    *[*?[]*) ;;
+    *) pw_abs "$b"
+       case "$pw_p" in
+         ''|*'$'*|*'`'*) if [[ $b =~ $pw_root_re ]]; then pw_sentinel "$w" " (glob)"; fi; return 0 ;;
+       esac
+       pw_normalize "$pw_p"
+       if pw_broad "$pw_n"; then pw_sentinel "$w" " (glob)"; else pw_t=F; fi
+       return 0 ;;
+  esac
+  pw_abs "$b"
+  case "$pw_p" in ''|*'$'*|*'`'*|*'{'*) return 0 ;; esac
+  if pw_globbroad "$pw_p"; then pw_sentinel "$w" " (glob)"; else pw_t=F; fi
 }
 # <<< r3 path words: end <<<
 
