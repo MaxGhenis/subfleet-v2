@@ -213,7 +213,12 @@ def test_an_uncounted_operator_process_in_the_worktree_is_never_signalled_and_th
     assert not lockf.alive
     assert a["state"] == "succeeded" and job["rc"] == 0 and job["accepted_attempt_id"] == ATTEMPT
     assert json.loads(a["evidence_json"])["cwd_holders"] == [f"pid {operator.pid}: cwd in worktree"]
-    assert daemon.store.one("SELECT 1 FROM leases WHERE lease_key=?", (key,))   # the worktree stays held
+    # The worktree stays held, as a reader row for the cwd holder: since #240's round 3 the
+    # job's end converts its exclusive key (C-5.5, C-5.9, `Daemon._keep_for_cwd`).
+    assert not daemon.store.one("SELECT 1 FROM leases WHERE lease_key=?", (key,))
+    kept = daemon.store.one("SELECT holder FROM leases WHERE lease_key=?",
+                            (folders.turn_key(str(tree), JOB, writable=False),))
+    assert kept and kept["holder"] == folders.cwd_holder(JOB), kept
 
 
 # 6. Stopped processes (2026-10-22: 13 escaped processes, all ps state T, for over a day).
