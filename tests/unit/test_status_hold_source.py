@@ -29,9 +29,18 @@ Invariants, for every input (Hypothesis), beside the examples:
   fleet-empty body and the session notice it becomes; a note it refuses (exit 2,
   the rule it broke) leaves the store unchanged: no closure, no event.
 - I5: no text the C-23.14 scrubber would change reaches the store, status, the
-  alerts or a notice through a hold: a note with a dummy credential spliced in
-  is refused with the store unchanged, or accepted only when the scrubber leaves
-  every surface it reaches alone; an ordinary note is always accepted.
+  alerts or a notice through a hold, as written or as JSON carries it (`status
+  --json`, `status.json`; review r2 of #263): a note with a dummy credential
+  spliced in (a URL password among the shapes, a letter outside ASCII just
+  before it among the prefixes) is refused with the store unchanged, or
+  accepted only when the scrubber leaves every surface it reaches alone; an
+  ordinary note is always accepted. Outside I5, pinned as it stands: a URL
+  password just after a digit, which no scrubber mode masks (D-SCR-URL1).
+
+A hold's stored `source_event` reads strictly (review r2 of #263): exactly
+`operator`, or exactly `operator: <note>` with a note the rule accepts as it
+stands; anything else, which only a writer outside `lanes hold` leaves, is
+withheld by every reader of closure rows.
 """
 
 from __future__ import annotations
@@ -725,53 +734,95 @@ def test_i4_a_later_hold_takes_the_row_and_its_note_a_shorter_one_leaves_both(co
 REPOSITORY = Path(__file__).resolve().parents[2]
 
 
-#: SQL that compares the column with `operator` (`source_event='operator'`, `IN ('operator')`).
-SQL_COMPARISON = re.compile(r"source_event\s*(?:==?|!=|<>|\bIN\b|\bIS\b|\bLIKE\b)\s*\(?\s*'operator'", re.IGNORECASE)
+#: SQL that compares the column with `operator` (review r2 of #263, P3-4): `=`, `==`,
+#: `!=`, `<>`, `IN`, `IS` or `LIKE`, then the word in either quote, or a `?` (the
+#: group), which counts only when the call the SQL is passed to has the word among
+#: its other arguments.
+SQL_COMPARISON = re.compile(r"""source_event\s*(?:==?|!=|<>|\bIN\b|\bIS\b|\bLIKE\b)\s*\(?\s*(?:'operator'|"operator"|(\?))""",
+                            re.IGNORECASE)
+COMPARISONS = (ast.Eq, ast.NotEq, ast.In, ast.NotIn, ast.Is, ast.IsNot)
+COLLECTIONS = ("frozenset", "set", "tuple", "list")
 
 
-def _is_source(node: ast.expr) -> bool:
-    """`x["source_event"]`, `x.source_event` or `x.get("source_event")`."""
-    if isinstance(node, ast.Subscript):
-        return isinstance(node.slice, ast.Constant) and node.slice.value == "source_event"
-    if isinstance(node, ast.Attribute):
-        return node.attr == "source_event"
-    return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "get"
-            and bool(node.args) and isinstance(node.args[0], ast.Constant) and node.args[0].value == "source_event")
+def _is_operator(node: ast.AST) -> bool:
+    """The literal `"operator"`, or a name or an attribute `HOLD_SOURCE` (the contract's constant)."""
+    return (isinstance(node, ast.Constant) and node.value == "operator"
+            or isinstance(node, ast.Name) and node.id == "HOLD_SOURCE"
+            or isinstance(node, ast.Attribute) and node.attr == "HOLD_SOURCE")
 
 
-def _is_operator(node: ast.expr) -> bool:
-    """The constant `"operator"`, or a tuple, list or set holding it."""
+def _holds_operator(node: ast.AST) -> bool:
+    """`_is_operator`, or a set, tuple or list, or a `frozenset(…)`, `set(…)`, `tuple(…)`
+    or `list(…)` of one, holding it."""
     if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
-        return any(_is_operator(item) for item in node.elts)
-    return isinstance(node, ast.Constant) and node.value == "operator"
+        return any(_holds_operator(item) for item in node.elts)
+    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in COLLECTIONS
+            and len(node.args) == 1 and not node.keywords):
+        return _holds_operator(node.args[0])
+    return _is_operator(node)
+
+
+def _sql_text(node: ast.AST) -> str | None:
+    """A string constant's text, or an f-string's with each `operator` it formats in
+    written out (and `{}` for anything else it formats); None for anything else."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr):
+        return "".join(part.value if isinstance(part, ast.Constant) else
+                       "operator" if _is_operator(part.value) else "{}" for part in node.values)
+    return None
+
+
+def _sql_compares(node: ast.AST, others: list[ast.AST]) -> bool:
+    """Whether SQL in `node` compares `source_event` with the word: written in, or a
+    `?` for which `others`, the rest of the call it is passed to, give the word."""
+    text = _sql_text(node)
+    return text is not None and any(
+        found.group(1) is None or any(_is_operator(inner) for other in others for inner in ast.walk(other))
+        for found in SQL_COMPARISON.finditer(text))
 
 
 def _comparisons(text: str, filename: str) -> list[int]:
-    """The lines of `text` that compare a `source_event` with `"operator"`: each
-    `==`, `!=`, `in` or `not in` between the two, however the comparison is laid
-    out over lines, and SQL in a string constant that does the same. A prefix test
-    (`startswith`, `hold_note_of`) is no comparison."""
+    """The lines of `text` that compare with `operator`, as far as its syntax shows
+    (C-9.6, review r2 of #263, P3-4). Caught: a comparison (`==`, `!=`, `in`,
+    `not in`, `is`, `is not`) with the literal `"operator"` or a name or
+    attribute `HOLD_SOURCE` on either side, or a set, tuple, list or
+    `frozenset(…)` holding one, whatever the other side is, so a wrapped column
+    (`str(…).strip()`, `(x or "")`), an alias of it, or a helper's parameter;
+    a `match` case whose value pattern is one; and SQL in a string or f-string
+    comparing `source_event` with the word in either quote, or with a `?` its
+    call passes the word for. Not seen: a comparison through `getattr`,
+    `operator.eq` or a lookup, or with the word or the SQL held in a variable
+    first. A prefix test (`startswith`, `hold_note_of`) is no comparison."""
     lines = []
     for node in ast.walk(ast.parse(text, filename=filename)):
         if isinstance(node, ast.Compare):
             operands = [node.left, *node.comparators]
-            lines += [node.lineno for op, left, right in zip(node.ops, operands, operands[1:])
-                      if isinstance(op, (ast.Eq, ast.NotEq, ast.In, ast.NotIn))
-                      and (_is_source(left) and _is_operator(right) or _is_operator(left) and _is_source(right))]
-        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and SQL_COMPARISON.search(node.value):
+            if any(isinstance(op, COMPARISONS) and (_holds_operator(left) or _holds_operator(right))
+                   for op, left, right in zip(node.ops, operands, operands[1:])):
+                lines.append(node.lineno)
+        elif isinstance(node, ast.Match):
+            lines += [pattern.lineno for case in node.cases for pattern in ast.walk(case.pattern)
+                      if isinstance(pattern, ast.MatchValue) and _is_operator(pattern.value)]
+        elif isinstance(node, ast.Call):
+            arguments = [*node.args, *(keyword.value for keyword in node.keywords)]
+            lines += [argument.lineno for index, argument in enumerate(arguments)
+                      if _sql_compares(argument, arguments[:index] + arguments[index + 1:])]
+        elif _sql_compares(node, []):
             lines.append(node.lineno)
     return sorted(set(lines))
 
 
 def operator_comparisons(*roots: Path) -> list[str]:
-    """`path:line` for each place under `roots` that compares a closure's `source_event` with `operator`."""
+    """`path:line` for each place under `roots` that compares with `operator`, as far as syntax shows (`_comparisons`)."""
     return [f"{path}:{number}"
             for path in sorted(path for root in roots for path in root.rglob("*.py"))
             for number in _comparisons(path.read_text(), str(path))]
 
 
 def test_nothing_reads_a_closure_source_for_equality_with_operator():
-    """D-STATUS-SRC1: the note rides in `source_event`, so no reader may compare it with `operator`."""
+    """D-STATUS-SRC1: the note rides in `source_event`, so no reader may compare it with `operator`.
+    The check is syntactic (C-9.6); `_comparisons` names what it does not see."""
     assert operator_comparisons(REPOSITORY / "subfleet", REPOSITORY / "tools") == []
 
 
