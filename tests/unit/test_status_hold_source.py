@@ -804,7 +804,7 @@ def _comparisons(text: str, filename: str) -> list[int]:
     lookup or a dict's keys (`in {"operator": 1}`); the word reached through
     `getattr`, a call (`hold_source(None)`, `"OPERATOR".lower()`), an f-string
     (`f"{HOLD_SOURCE}"`), a `+` concatenation (`"oper" + "ator"`) or a
-    variable; a `?` in SQL held in a variable; and in SQL,
+    variable; a `?` in SQL first held in a variable; and in SQL,
     `COALESCE(source_event, …)` followed by the comparison, `BETWEEN`,
     `CASE source_event WHEN` and a named parameter (`:s`). A prefix test
     (`startswith`, `hold_note_of`) is no comparison."""

@@ -1020,7 +1020,7 @@ this round carries a credential.
      - `source_event`, with an optional `)` after it (`lower(source_event)`);
      - then `=`, `==`, `!=`, `<>`, `IN`, `IS`, `IS NOT`, `LIKE` or `GLOB`,
        each optionally after `NOT`;
-     - then an optional `(`, and optionally any text without parentheses that
+     - then an optional `(`, and optionally, any text without parentheses that
        ends in a comma (a list's earlier items);
      - then the word in either quote, or a `?` whose call has the word or
        `HOLD_SOURCE` among its other arguments.
@@ -1138,6 +1138,6 @@ Review r4 (`a5a0665ca`) approved the regex, the pins, the deviation and the muta
 
 The hub applied the review's wording, with no code change:
 - C-9.6 and the `_comparisons` docstring now say "a `?` in SQL first held in a variable", "`COALESCE(source_event, …)` followed by the comparison" and "a `+` concatenation";
-- the SQL clause says "optionally any text without parentheses that ends in a comma".
+- the SQL clause says "optionally, any text without parentheses that ends in a comma".
 
 Both inputs are pinned as caught in `GUARD_CASES_R3`. Under the suite lock, `test_status_hold_source.py` and the three guards gave 198 passed.
