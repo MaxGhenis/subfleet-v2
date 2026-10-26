@@ -247,6 +247,21 @@ def test_no_dash_led_name_after_a_fold_splits_or_shows_what_a_reference_hides():
     assert _failures(cells) == CLEAN
 
 
+#: Round 4's P3-4 (b) with a dash-led name: the prefix rule keeps the `-`, and the second
+#: scan still reads `-[REDACTED]Cookie:` at a line start as a name that starts its line, so
+#: daemon.log's line keeps nothing of the header's line, as 8fde0c4ad's did with the `-`
+#: gone (`[REDACTED]Cookie: [REDACTED]`). Both references show `SECRET7c3` there.
+DASH_LED_LINE = ("-SECRET7ab1Cookie: x\nSECRET7c3", "-[REDACTED]Cookie: [REDACTED]")
+
+
+def test_daemon_log_s_line_for_a_dash_led_secret_name_keeps_none_of_its_line():
+    text, line = DASH_LED_LINE
+    outputs = _outputs(handoff, text)
+    assert outputs["daemon.log line"] == line
+    assert all("SECRET7ab1" not in out for out in outputs.values())
+    assert _new_leaks(text) == {} and _splits(text) == [] and _unstable(text) == {}
+
+
 # --- P3-3: `_ENDS_EARLY` per scrub -------------------------------------------------------
 
 def _held() -> tuple | None:
