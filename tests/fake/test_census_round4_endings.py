@@ -10,6 +10,10 @@ transaction, as the export does, and converts the key as the other endings do.
 I6, over every ending (Hypothesis, bounded): a job that ends while it holds a
 `worktree:` key and has a live observer leaves exactly one `worktree-read:<folder>:<job
 id>` row, held by `cwd:<job id>`, and no writer key; with no observer it leaves none.
+Round 6 (review r5 of #240) adds the endings a parent gives its child: a client kill of
+the family, and the wall's cascade as the parent's attempt settles. No ending scans under
+the store's write lock, so a cascade takes no scan: its row is kept with no pid line, as
+for a scan that cannot be read, until the cwd worker's next tick settles it (intended).
 
 The source jobs run the real submit, admission, finalization, export and kill; only
 the provider and the kernel's reads are fixtures (`observed`).
@@ -28,8 +32,8 @@ from subfleet.adapters.registry import register
 from subfleet.daemon import Daemon, LAUNCH_CHECK_UNFINISHED
 from subfleet.procs import Containment
 from tests.fake.conftest import Harness
-from tests.fake.test_census_round3_leases import kept_key, leases, observed  # noqa: F401
-from tests.fake.test_state_contract import receipt_fixture, reserve, state_daemon  # noqa: F401
+from tests.fake.test_census_round3_leases import kept_key, leases, observed, tick  # noqa: F401
+from tests.fake.test_state_contract import launched, receipt_fixture, reserve, state_daemon  # noqa: F401
 from tests.fake.test_workspace_contract import repository
 from tests.fake_adapter import FakeAdapter
 
@@ -76,6 +80,55 @@ def end_cancelled_before_launch(daemon, job_id):
 
 QUEUE_ENDINGS = {"kill": (end_by_kill, "cancelled"), "fail-queued": (end_by_fail_queued, "failed"),
                  "cancelled-before-launch": (end_cancelled_before_launch, "cancelled")}
+
+# --- Round 6: a child its parent ends ---------------------------------------------------------------
+
+#: The wall's own request (`_enforce_wall`): the parent alone, its attempt `killed_by` the wall.
+WALL = {"by": "daemon", "reason": "max_wall_s", "running_s": 21601}
+
+
+def parent_attempt(daemon, parent: str) -> str:
+    """The read-only parent's attempt, which admission reserved beside its child's."""
+    attempt = daemon.store.list_attempts(parent)[-1]
+    daemon._pending_launches.discard(attempt["attempt_id"])
+    (daemon.root / "jobs" / parent / f"a{attempt['seq']}").mkdir(mode=0o700, exist_ok=True)
+    return attempt["attempt_id"]
+
+
+def wall_receipt(daemon, aid: str) -> dict:
+    """What `_kill_attempt` publishes when the wall stopped an attempt that left no receipt:
+    one naming the wall, which no natural exit supersedes (C-9.2)."""
+    attempt = daemon.store.get_attempt(aid)
+    adir = daemon.root / "jobs" / attempt["job_id"] / f"a{attempt['seq']}"
+    for name in ("stdout", "stderr", "lane.log", "stream.jsonl"):
+        (adir / name).write_bytes(b"")
+    receipt = {"rc": -15, "signal": 15, "child_pid": None, "wall_s": .1,
+               "finished_at": daemon_module.utcnow_ms(), "killed_by": "max_wall_s"}
+    (adir / "exit.json").write_text(json.dumps(receipt))
+    launched(daemon, attempt)
+    daemon._begin_finalizing(attempt, receipt)
+    return daemon.store.get_attempt(aid)
+
+
+def end_by_parent(daemon, parent: str, ending: str, *, resolve=None) -> None:
+    """End the child through its read-only parent: a client kill of the family, or the wall's
+    cascade (`_cascade_final_wall`) as the wall-cancelled parent's attempt settles inside one
+    transaction, at quarantine resolution (`kill --confirm-dead`) or at finalization.
+    `resolve` runs the resolution (default: the worker's `_resolve_quarantine`, called here)."""
+    aid = daemon.store.list_attempts(parent)[-1]["attempt_id"]
+    if ending == "family-cancel":
+        daemon.kill(protocol.KillArgs(parent))
+        return
+    assert daemon._request_cancel(parent, dict(WALL), attempt_id=aid, killed_by="max_wall_s")
+    if ending == "cascade-quarantine":
+        daemon._quarantine(daemon.store.get_attempt(aid), Containment(marker_pids=frozenset({9999})),
+                           "dummy writers remain")
+        args = protocol.KillArgs(parent, confirm_dead=True, operator_note="dummy")
+        (resolve or (lambda: daemon._resolve_quarantine(daemon.store.get_attempt(aid), args)))()
+    else:
+        daemon._finalize(wall_receipt(daemon, aid))
+    assert daemon.store.get_attempt(aid)["state"] == "interrupted", daemon.store.get_attempt(aid)
+    assert daemon.store.get_job(parent)["state"] == "cancelled"
 
 
 @pytest.mark.parametrize("ending", list(QUEUE_ENDINGS))
@@ -176,7 +229,12 @@ def test_r4_an_observer_never_holds_the_attempt_tmpdir(observed, monkeypatch):
 # --- I6 over every ending ---------------------------------------------------------------------------
 
 ENDINGS = ["export", "verdict", "unlaunched", "quarantine-resolution", "cancel-queued", "fail-queued",
-           "cancelled-before-launch"]
+           "cancelled-before-launch", "family-cancel", "cascade-quarantine", "cascade-finalize"]
+#: Round 6: the job is the child of a read-only parent, queued again holding its key after
+#: start grace, and its parent ends it (`end_by_parent`).
+FAMILY = ("family-cancel", "cascade-quarantine", "cascade-finalize")
+#: The wall's cascade runs inside the parent's settling transaction, so it takes no scan.
+CASCADES = ("cascade-quarantine", "cascade-finalize")
 #: Bounded (the ci profile's spirit): each example builds a repository, a worktree and a daemon.
 BOUNDED = settings(max_examples=8, deadline=None, derandomize=True, database=None,
                    suppress_health_check=[HealthCheck.too_slow, HealthCheck.data_too_large])
@@ -188,7 +246,10 @@ class Ending:
     def __init__(self, root: Path, patch: pytest.MonkeyPatch):
         self.harness = Harness(root)
         self.observers: frozenset[int] = frozenset({OBSERVER})
-        patch.setattr(procs, "worktree_cwd_pids", lambda worktree: self.observers)
+        self.daemon = None
+        #: Worktrees scanned while the store's write lock was held (round 6: never).
+        self.locked_scans: list[str] = []
+        patch.setattr(procs, "worktree_cwd_pids", self.scan)
         self.daemon = Daemon(self.harness.root)
 
         def refuse_real_launch(*args):
@@ -197,11 +258,20 @@ class Ending:
         self.daemon._salvage = lambda job, a, **kwargs: ([], None, {})
         repository(self.daemon, self.harness)
 
+    def scan(self, worktree) -> frozenset[int]:
+        if self.daemon is not None and self.daemon.store._depth:
+            self.locked_scans.append(str(worktree))
+        return self.observers
+
     def run(self, ending: str, pids: frozenset[int]) -> str:
         daemon = self.daemon
-        queued = ending in ("cancel-queued", "fail-queued", "cancelled-before-launch")
+        queued = ending in ("cancel-queued", "fail-queued", "cancelled-before-launch", *FAMILY)
+        parent = daemon.dispatch("submit", self.harness.submit_args())["job_id"] if ending in FAMILY else None
         job_id, attempt, adir = reserve(daemon, self.harness, sandbox="workspace-write",
-                                        max_attempts=2 if queued else 1)
+                                        max_attempts=2 if queued else 1,
+                                        **({"parent_job_id": parent} if parent else {}))
+        if parent:
+            parent_attempt(daemon, parent)
         self.worktree = daemon.store.get_job(job_id)["worktree"]
         if queued:
             daemon.store.update_attempt(attempt["attempt_id"], state="starting")
@@ -224,21 +294,35 @@ class Ending:
             end_by_kill(daemon, job_id)
         elif ending == "fail-queued":
             end_by_fail_queued(daemon, job_id)
+        elif ending in FAMILY:
+            end_by_parent(daemon, parent, ending)
         else:
             end_cancelled_before_launch(daemon, job_id)
         assert daemon.store.get_job(job_id)["state"] in daemon_module.TERMINAL, (ending, daemon.store.get_job(job_id))
         return job_id
 
-    def check(self, job_id: str, pids: frozenset[int]) -> None:
+    def mine(self, job_id: str) -> dict[str, str]:
         attempts = {a["attempt_id"] for a in self.daemon.store.list_attempts(job_id)}
         held = {row["lease_key"]: row["holder"] for row in self.daemon.store.list_leases()}
-        mine = {key: holder for key, holder in held.items()
+        return {key: holder for key, holder in held.items()
                 if holder in attempts | {job_id, folders.cwd_holder(job_id)}}
+
+    def check(self, job_id: str, pids: frozenset[int], ending: str) -> None:
+        assert self.locked_scans == [], ("a cwd scan under the store's write lock", ending, self.locked_scans)
+        mine = self.mine(job_id)
         assert not [key for key in mine if key.startswith(folders.EXCLUSIVE)], ("I6: a writer key", mine)
+        text = notices(self.daemon, job_id)
+        row = {kept_key(self.worktree, job_id): folders.cwd_holder(job_id)}
+        if ending in CASCADES:
+            # Intended (round 6): no scan, so the row is kept with no pid line, observer or
+            # not, and the cwd worker's next tick settles it.
+            assert mine == row and "worktree retained" not in text, ("unscanned: kept, no pid line", mine, text)
+            tick(self.daemon, job_id)
+            mine = self.mine(job_id)
+            assert self.locked_scans == [], ("the worker scans outside the lock", self.locked_scans)
         if pids:
-            assert mine == {kept_key(self.worktree, job_id): folders.cwd_holder(job_id)}, ("I6", mine)
-            text = notices(self.daemon, job_id)
-            for pid in pids:
+            assert mine == row, ("I6", mine)
+            for pid in pids if ending not in CASCADES else ():
                 assert f"pid {pid}: cwd in worktree" in text, text
         else:
             assert mine == {}, ("no observer, no row", mine)
@@ -277,9 +361,16 @@ def ending_world(root: Path):
 @example(ending="cancel-queued", pids=frozenset({OBSERVER}))
 @example(ending="fail-queued", pids=frozenset({OBSERVER}))
 @example(ending="cancelled-before-launch", pids=frozenset({OBSERVER}))
+@example(ending="family-cancel", pids=frozenset({OBSERVER}))
+@example(ending="cascade-quarantine", pids=frozenset({OBSERVER}))
+@example(ending="cascade-finalize", pids=frozenset({OBSERVER}))
+# And each of round 6's with nobody left in the worktree:
+@example(ending="family-cancel", pids=frozenset())
+@example(ending="cascade-quarantine", pids=frozenset())
+@example(ending="cascade-finalize", pids=frozenset())
 def test_r4_i6_every_ending_with_an_observer_leaves_one_reader_row_and_no_writer_key(tmp_path_factory, ending, pids):
     root = tmp_path_factory.mktemp("r4-ending") / "state"
     root.mkdir()
     with ending_world(root) as state:
         job_id = state.run(ending, pids)
-        state.check(job_id, pids)
+        state.check(job_id, pids, ending)
