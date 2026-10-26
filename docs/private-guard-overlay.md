@@ -85,7 +85,7 @@ are unchanged. The test fixture in `tests/fake/guard.py` is deliberately synthet
 and must never be staged as operator security policy. It is absent from both
 prepared distributions, and the runtime has no test-fixture fallback.
 
-## Policy revision: ~/.subfleet roots (D-LANE-SCOPE1, 2026-10-24; r2 and r3 2026-10-25)
+## Policy revision: ~/.subfleet roots (D-LANE-SCOPE1, 2026-10-24; r2, r3 and r3b 2026-10-25)
 
 The table above is the original pair of 2026-09-05. It is not the rollback: its TRUST
 (`0b9d688e…`) pins `codex-cli 0.153.3`, and staging it would make preflight refuse every
@@ -117,22 +117,39 @@ home, its `Library` or `.subfleet`) is expanded by bash and judged by what it ma
 (`rg foo ~/Pol*` is denied, `grep -rn x ~/.subfleet/*.json` over files and a glob that matches
 nothing pass). Every direct child of `~/.subfleet` stays a root.
 
-**Against the Claude half** (`~/.claude/hooks/unscoped_search.py`, session 7f214082's): r3's
-decisions 1 and 3 now match it, a file is never a broad root and a glob that can match a root
-is judged by its matches (its snapshot-4, in verification on 2026-10-25), and its bare-`/*` rule
-is decision 2. Snapshot-4's two intended limits are this overlay's too: a glob in a folder that
-cannot hold a root by name is not listed, so a link inside it to a root is not followed
-(`rg x src/link-u*`), and zsh qualifiers (`*(/)`), `<1-9>` and extendedglob forms are not
-judged. The report's known limits list the rest; the trailing-`/*` entry left that list in r3.
+Its r3b (2026-10-25) judges those path words with the roots, globs and mounts of the Claude
+half's snapshot-5. Every path word is resolved, normalized (`//`, `.` and `..` by name, the data
+volume folded to `/`, `/private/tmp`, `/private/var` and `/private/etc` to `/tmp`, `/var` and
+`/etc`) and matched in any letter case against snapshot-5's roots, which adds `/Volumes` and each
+entry in it, `/System`, `/System/Volumes`, `/private`, `/var`, `/var/folders`, `/opt`,
+`/opt/homebrew`, `/Library`, `/Applications`, `/usr` and `~/Library`. A written path is judged
+where its links lead (`rg x ~/link-to-home` is denied), and nothing under `/Volumes`,
+`/Network`, `/net` or `/home` is ever resolved or stat'ed. A glob is judged component by
+component, listing only a folder a root can be in (computed from the roots, as snapshot-5's
+`holds_root` is), so `rg foo "/V*/Macintosh HD"` is denied, matched in `/Volumes`' listing,
+while `rg x /*/*/x` and `rg foo /Volumes/*/x*` read nothing inside a mount.
+
+**Against the Claude half** (`~/.claude/hooks/unscoped_search.py`, session 7f214082's): after
+r3b the path words follow its snapshot-5 (roots, normalization, letter case, links, stall
+mounts, step-by-step globs and the computed list of folders a glob reads), and its bare-`/*`
+rule is r3's decision 2. Its intended limits are this overlay's too: a glob in a folder that
+cannot hold a root is not listed, so a link inside it to a root is not followed
+(`rg x src/link-u*`); zsh qualifiers (`*(/)`), `<1-9>` and extendedglob forms are not judged;
+and a link inside a listed folder that points into a mount that may stall is still resolved.
+Known differences that remain: this overlay judges only words spelled from `~`, `$HOME`,
+`$SUBFLEET_*` or `/` (relative paths and the cwd rule's list are D-LANE-SCOPE2's), never sees a
+searcher right after a quote, judges a quoted glob as if unquoted, and runs r3's trailing-`/*`
+rule before the glob (`rg x ~/Pol*/*` is denied here, allowed there). The report's known limits
+list the rest.
 
 | File | SHA-256 |
 | --- | --- |
-| `never-rules-hook.sh` | `2c3fbc1a6d563ee28e47d172343508d0613a9e7bb75567ec82a60e702980d7cf` |
-| `TRUST` | `12b5f31ae63c036f56f08d2fe9ab83154eab84bb1f6884d5d8b220a98ac758a2` |
+| `never-rules-hook.sh` | `f952fd3e9648df1783cec96327b66a84a21082ba63469ef56d41749d23a5131e` |
+| `TRUST` | `0d5dac0fc9290eac8cfd1483b7f44cde9bb27e817657dd7fe4dc7b2ab07054d8` |
 
 TRUST is the installed TRUST of 2026-09-29 (`b3193b97…`), changing only `hook_sha256` and
-appending three dated provenance additions (D-LANE-SCOPE1's three sentences, r2's one and r3's
-one); `hooks_trust_hash` and
+appending four dated provenance additions (D-LANE-SCOPE1's three sentences, r2's one, r3's one
+and r3b's one); `hooks_trust_hash` and
 `override` hash the hook's identity, not its bytes, and do not move. The staging helper above
 refuses to replace a different overlay in place, so this revision is staged into a fresh state
 root and swapped in; `tests/unit/test_guard_subfleet_root.py` states and checks the rule's
