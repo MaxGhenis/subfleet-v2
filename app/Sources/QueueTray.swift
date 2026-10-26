@@ -126,21 +126,26 @@ struct FollowKey: Equatable {
     /// marker's disappearance is pending. The marker resumes following when it
     /// appears again, or its presented geometry confirms that a completed reveal
     /// left it visible.
-    /// Catch-up resumes after that confirmation releases suspension; an own
-    /// send still glides during ordinary following.
+    /// Catch-up resumes after that confirmation releases suspension. The view
+    /// releases suspension for the person's own send before asking (`ownSend`),
+    /// so during catch-up it jumps to the end and otherwise glides.
     /// A message queued or withdrawn while the person reads further up moves
     /// nothing; the tray shows it.
     static func move(from old: FollowKey, to new: FollowKey, atBottom: Bool, suspended: Bool = false) -> Move {
         guard old != new else { return .stay }
         if old.settling || new.settling { return suspended ? .stay : .jump }
-        if new.last != old.last && new.lastIsOwnSend,
-           new.localSend == nil || new.localSend != old.localSend { return .glide }
+        if ownSend(from: old, to: new) { return .glide }
         guard !suspended else { return .stay }
         guard atBottom else { return .stay }
         if new.last != old.last || new.followed != old.followed || new.tray != old.tray { return .glide }
         if new.followedLength != old.followedLength || new.hasHistory != old.hasHistory
             || new.live != old.live || new.held != old.held { return .jump }
         return .stay
+    }
+
+    /// The change is the person's own new message: the last row is one this app sent.
+    static func ownSend(from old: FollowKey, to new: FollowKey) -> Bool {
+        new.last != old.last && new.lastIsOwnSend && (new.localSend == nil || new.localSend != old.localSend)
     }
 }
 

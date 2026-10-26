@@ -604,13 +604,15 @@ struct ConversationView: View {
     }
 
     private func followChanged(from old: FollowKey, to new: FollowKey, proxy: ScrollViewProxy) {
-        let move = FollowKey.move(from: old, to: new, atBottom: atBottom, suspended: followSuspended)
-        if move == .glide && followSuspended && revealPending {
-            // The person's own send glides to the end while suspended: the reveal is
-            // over. A marker already in view would show no new onAppear.
-            revealPending = false
-            if atBottom { followSuspended = false }
+        // The person's own send ends any reveal and releases suspension before the
+        // move is chosen, catch-up included: catch-up's settling move then goes to
+        // the end, as any other move does.
+        let ownSend = FollowKey.ownSend(from: old, to: new)
+        if ownSend {
+            abandonReveal("own_send")
+            followSuspended = false
         }
+        let move = FollowKey.move(from: old, to: new, atBottom: atBottom, suspended: followSuspended && !ownSend)
         #if SUBFLEET_VIEW_TEST
         traceFollow("move", extra: ["move": String(describing: move),
                     "old_length": old.followedLength, "new_length": new.followedLength,
