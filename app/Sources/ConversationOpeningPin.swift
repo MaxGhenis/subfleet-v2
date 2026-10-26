@@ -80,18 +80,61 @@ struct RevealTargetMark: NSViewRepresentable {
 }
 
 final class RevealTargetView: NSView {
-    var conversationID: String?
-    var itemID: String?
+    // A reused row gets the identity of its new target: the pin checks it again.
+    var conversationID: String? { didSet { if conversationID != oldValue { placeAgain() } } }
+    var itemID: String? { didSet { if itemID != oldValue { placeAgain() } } }
+    /// Where the pin was last told this mark is: its frame in the document's
+    /// coordinates, and whether it was hidden.
+    private var placed: (frame: NSRect, hidden: Bool)?
+    private var placement: CFRunLoopObserver?
 
     // The row's own content takes every click.
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
-    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); moved() }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        watchPlacement(window != nil)
+        placeAgain()
+    }
+    override func viewDidMoveToSuperview() { super.viewDidMoveToSuperview(); placeAgain() }
     override func setFrameOrigin(_ newOrigin: NSPoint) { super.setFrameOrigin(newOrigin); moved() }
     override func setFrameSize(_ newSize: NSSize) { super.setFrameSize(newSize); moved() }
 
-    // A lazily made row can be presented without the clip or the document moving.
+    /// SwiftUI moves a row by moving the host it makes for this view, so the mark's
+    /// own frame can stay put while its place in the document changes (review r6:
+    /// a layout moved the target from y=300 to y=1,700 with no callback). At the end
+    /// of every main run-loop pass, after AppKit's layout and display, the mark
+    /// compares its frame in the document's coordinates with the last one it
+    /// reported. Every move happens on the main thread within some pass, whatever
+    /// made it (the mark, an ancestor, the document's layout, a new parent), so the
+    /// pass that presents it reports it.
+    private func watchPlacement(_ on: Bool) {
+        if let placement { CFRunLoopObserverInvalidate(placement); self.placement = nil }
+        guard on else { return }
+        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true,
+                                                          CFIndex.max) { [weak self] observer, _ in
+            MainActor.assumeIsolated {
+                guard let self else { if let observer { CFRunLoopObserverInvalidate(observer) }; return }
+                self.moved()
+            }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        placement = observer
+    }
+
+    /// A new identity, window or parent: the pin is told again wherever the mark is.
+    private func placeAgain() {
+        placed = nil
+        moved()
+    }
+
+    /// Tells the pin when the mark's place in the document changed since it last did.
     private func moved() {
         guard window != nil, let conversationID else { return }
+        let document = enclosingScrollView?.documentView
+        let frame = document.map { convert(bounds, to: $0) } ?? .zero
+        let hidden = isHiddenOrHasHiddenAncestor
+        if let placed, placed.frame == frame, placed.hidden == hidden { return }
+        placed = (frame, hidden)
         NotificationCenter.default.post(name: .conversationRevealTargetMoved, object: conversationID)
     }
 }
@@ -159,17 +202,17 @@ final class OpeningPinView: NSView {
         observers.append(center.addObserver(forName: NSView.frameDidChangeNotification, object: document,
                                              queue: .main) { [weak self] _ in
             self?.schedulePin()
-            self?.scheduleRevealCheck()
+            self?.scheduleRevealCheck("document")
         })
         observers.append(center.addObserver(forName: NSView.boundsDidChangeNotification, object: found.contentView,
                                              queue: .main) { [weak self] _ in
             self?.viewportChanged()
-            self?.scheduleRevealCheck()
+            self?.scheduleRevealCheck("clip")
         })
         observers.append(center.addObserver(forName: .conversationRevealTargetMoved, object: nil,
                                              queue: .main) { [weak self] note in
             guard let self, note.object as? String == self.conversationID else { return }
-            self.scheduleRevealCheck()
+            self.scheduleRevealCheck("mark")
         })
         observers.append(center.addObserver(forName: NSScrollView.willStartLiveScrollNotification, object: found,
                                              queue: .main) { [weak self] _ in self?.personScrolledNow() })
@@ -200,14 +243,15 @@ final class OpeningPinView: NSView {
         checkReveal(request, source: "completion")
     }
 
-    /// Presented geometry decides a reveal after each change while it is outstanding.
-    private func scheduleRevealCheck() {
+    /// Presented geometry decides a reveal after each change while it is outstanding:
+    /// the clip, the document, or the target's mark moving in the document.
+    private func scheduleRevealCheck(_ source: String) {
         guard outstanding != nil, !revealCheckScheduled else { return }
         revealCheckScheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.revealCheckScheduled = false
-            if let request = self.outstanding?.request { self.checkReveal(request, source: "geometry") }
+            if let request = self.outstanding?.request { self.checkReveal(request, source: source) }
         }
     }
 
