@@ -129,8 +129,15 @@ def test_completion_before_scroll_cannot_release_a_distant_opening_reveal(fix8_v
 
 
 def shrink_replay(binary, root, mode):
-    """Round 7's fixed schedule (`shrinkReplay` in the probe), with its own steps and trace."""
-    result = run_probe(binary, root, f"fix10-shrink-{mode}", timeout=240)
+    """Round 7's fixed schedule (`shrinkReplay` in the probe), with its own steps and trace. A
+    failed wait's whole report (steps, traces, layout) is printed, so CI's log keeps it."""
+    try:
+        result = run_probe(binary, root, f"fix10-shrink-{mode}", timeout=240)
+    except AssertionError:
+        failure = root / "probe-failure.json"
+        if failure.is_file():
+            print(f"shrink {mode} probe failure: " + failure.read_text())
+        raise
     write_json(root / "result.json", result)
     diagnostic = json.dumps(result, sort_keys=True)
     print(f"shrink {mode}: " + diagnostic)

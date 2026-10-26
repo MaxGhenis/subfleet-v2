@@ -40,6 +40,20 @@ func withAnimation<Value>(_ animation: Animation?, completionCriteria: Animation
     ProbePresentation.mountedWindows += 1
 }
 
+// A scene's layout, from the environment, so a scene can be replayed on more than
+// one (round 8's continuation: CI's macOS 15 runner laid round 7's shrink replay
+// out differently from a lane, and only there did its fixed shrink not clamp).
+// `R219_PROBE_WINDOW_HEIGHT` is the scene window's height in points (760 unless
+// set) and `R219_PROBE_TEXT_SCALE` the conversation's text scale (actual size
+// unless set), the one View > Bigger and Smaller step.
+@MainActor enum ProbeLayout {
+    static let windowHeight = CGFloat(ProcessInfo.processInfo.environment["R219_PROBE_WINDOW_HEIGHT"]
+        .flatMap(Double.init) ?? 760)
+    static let textScale = TextScale.clamp(ProcessInfo.processInfo.environment["R219_PROBE_TEXT_SCALE"]
+        .flatMap(Double.init) ?? TextScale.actual)
+    static var described: [String: Any] { ["window_height": Double(windowHeight), "text_scale": textScale] }
+}
+
 
 // Review r4 of #219: the real ConversationView, UIModel.open and its events loop
 // against a scripted daemon. Measures whether the timeline keeps following its
@@ -210,11 +224,28 @@ let readinessDeadline = 120.0
 @MainActor enum ProbeWaits {
     static var log: [[String: Any]] = []
     static func since(_ mark: Int) -> [[String: Any]] { Array(log[min(mark, log.count)...]) }
+    /// A failed wait's whole report goes to this file, when a scene names one: stderr
+    /// keeps only the last state, and CI's log keeps only its first characters (CI run
+    /// 40303045129 lost the shrink replay's steps that way). `context` adds the
+    /// scene's steps and traces so far.
+    static var failureFile: URL?
+    static var context: (() -> [String: Any])?
+}
+
+@MainActor func writeWaitFailure(_ name: String, reason: String, state: [String: Any]) {
+    guard let file = ProbeWaits.failureFile else { return }
+    var report: [String: Any] = ["wait": name, "reason": reason, "state": state, "waits": ProbeWaits.log,
+                                 "layout": ProbeLayout.described]
+    if let context = ProbeWaits.context { report["context"] = context() }
+    guard JSONSerialization.isValidJSONObject(report),
+          let data = try? JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]) else { return }
+    try? data.write(to: file)
 }
 
 @MainActor func readinessExpired(_ name: String, seconds: Double, state: [String: Any]) -> Never {
     let detail = (try? JSONSerialization.data(withJSONObject: state, options: [.sortedKeys]))
         .map { String(decoding: $0, as: UTF8.self) } ?? String(describing: state)
+    writeWaitFailure(name, reason: "expired after \(seconds) s", state: state)
     FileHandle.standardError.write(Data("readiness wait '\(name)' expired after \(seconds) s; last state: \(detail)\n".utf8))
     exit(70)
 }
@@ -339,8 +370,10 @@ let readinessDeadline = 120.0
             exit(3)
         }
         host = NSHostingView(rootView: AnyView(ConversationView(model: model, conversation: shown)
-            .environment(\.searchPalette, palette).transaction { $0.animation = nil; $0.disablesAnimations = true }))
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 760), styleMask: [.borderless],
+            .environment(\.searchPalette, palette).environment(\.textScale, ProbeLayout.textScale)
+            .transaction { $0.animation = nil; $0.disablesAnimations = true }))
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: ProbeLayout.windowHeight),
+                          styleMask: [.borderless],
                           backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
@@ -1229,9 +1262,13 @@ struct SettlingPageView: View {
         guard cid == name else { return }
         trace.append(entry.merging(["at": at(), "position": position()]) { _, new in new })
     }
+    ProbeWaits.failureFile = root.appendingPathComponent("probe-failure.json")
+    ProbeWaits.context = { ["mode": mode, "steps": steps, "trace": trace, "geometry": geometry, "documents": documents] }
     defer {
         ConversationFollowTest.record = nil
         ConversationFollowTest.inset.top = 0
+        ProbeWaits.failureFile = nil
+        ProbeWaits.context = nil
         if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
         if let documentChanges { NotificationCenter.default.removeObserver(documentChanges) }
     }
@@ -1324,6 +1361,7 @@ struct SettlingPageView: View {
     step("caught_up")
     scene.close()
     return ["mode": mode, "target": target, "inset": Double(inset), "steps": steps, "trace": trace,
+            "layout": ProbeLayout.described,
             "geometry": geometry, "documents": documents, "before_catchup": scene.beforeCatchup,
             "held_before_reveal": scene.heldBeforeReveal, "readiness_waits": ProbeWaits.log,
             "visible_windows": NSApp.windows.filter(\.isVisible).count]
