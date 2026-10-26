@@ -2364,7 +2364,7 @@ def cmd_lanes(args: argparse.Namespace) -> int:
             # #263 returns the stored row but has no kept flag and echoes the
             # requested note at the top level. The row remains the authority.
             stored_note = hold_note_of(closure.get("source_event"))
-            result["kept"] = (render.instant(closure["until_at"]) != render.instant(args.until)
+            result["kept"] = (render.instant(closure["until_at"]) != render.instant(args.until.strip())
                               or stored_note != note)
             result["note"] = stored_note
     if args.json:

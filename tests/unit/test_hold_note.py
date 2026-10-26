@@ -317,7 +317,8 @@ def test_real_pin_explanation_withholds_an_external_credential_source(operator):
         render.pin_notice("job", stuck, None))
 
 
-def test_legacy_refresh_json_describes_the_stored_row(operator, monkeypatch, capsys):
+@pytest.mark.parametrize("asked_until", ["2026-10-26T21:55:00Z", "  2026-10-26T21:55:00Z  "])
+def test_legacy_refresh_json_describes_the_stored_row(operator, monkeypatch, capsys, asked_until):
     """C-9.6: #263's requested-note echo cannot contradict its stored row in a CLI acknowledgement."""
     hold(operator, note=NOTE)
     def call(_op, args):
@@ -326,7 +327,7 @@ def test_legacy_refresh_json_describes_the_stored_row(operator, monkeypatch, cap
         result["note"] = args.get("note")
         return result
     monkeypatch.setattr(cli, "_client", lambda _: SimpleNamespace(call=call))
-    assert cli.main(["lanes", "hold", "codex-1", "--until", "2026-10-26T21:55:00Z",
+    assert cli.main(["lanes", "hold", "codex-1", "--until", asked_until,
                      "--note", "asked note", "--json"]) == 0
     result = json.loads(capsys.readouterr().out)
     assert result["kept"] is True and result["note"] == NOTE
