@@ -2612,7 +2612,7 @@ physical() {
       if [ "$c" = "$rest" ]; then rest=""; else rest=${rest#*/}; fi
       [ -n "$c" ] || continue
       if [ -h "$FS$prefix/$c" ]; then
-        t=$(readlink "$FS$prefix/$c")
+        t=$(/usr/bin/readlink "$FS$prefix/$c")
         case "$t" in /*) lexnorm "$t${rest:+/$rest}" ;; *) lexnorm "$prefix/$t${rest:+/$rest}" ;; esac
         p=$R; found=1; break
       fi
@@ -2679,7 +2679,7 @@ globbroad() {
           kind=plain
           if ! stall "$p" && [ -h "$FS$p/$name" ]; then kind=link; fi
           next[${#next[@]}]=$q; nkinds[${#nkinds[@]}]=$kind
-        done < <(ls -A1 "$FS$p" 2>/dev/null)
+        done < <(/bin/ls -A1 "$FS$p" 2>/dev/null)
       fi
     done
     cand=(); kinds=(); i=0
@@ -2730,7 +2730,9 @@ done
 
 
 def reference_verdicts(words, home: str) -> list[bool]:
-    env = {"PATH": "/usr/bin:/bin", "FS": str(_FS["root"]), "HOME_L": home, "CAP": "20000", "LC_ALL": "C"}
+    # The session's PATH, as run_hook passes it (the test session's keychain guard refuses a shell
+    # whose PATH starts at a system folder); the script names its tools by absolute path.
+    env = {"PATH": os.environ["PATH"], "FS": str(_FS["root"]), "HOME_L": home, "CAP": "20000", "LC_ALL": "C"}
     out = subprocess.run(["/bin/bash", "-c", REFERENCE_SH], input="".join(w + "\n" for w in words),
                          capture_output=True, text=True, env=env, timeout=900)
     assert out.returncode == 0 and not out.stderr, out.stderr[-2000:]
