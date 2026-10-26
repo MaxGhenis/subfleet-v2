@@ -41,17 +41,19 @@ ROOT_CORE = 'root_core="/|/\\\\*|/Users/?|(${broad_re})/?"'
 MUTATIONS = {
     # r1's root edits: the path-word pass now judges every resolvable word against snapshot-5's roots, so
     # these mutants show only on a word the text rules judge alone (one still holding $ after resolving).
-    "new-roots-removed": (HOOK, NEW_ROOTS, "", "test_r3_a_directory_a_link_to_one_and_a_name_stay_roots"),
+    # An edit outside the r3 blocks makes the ``hooks`` fixture error (its r2 rebuild no longer hashes to
+    # R2_HOOK_SHA256), and an error is no kill, so each is named by a test that reads HOOK directly.
+    "new-roots-removed": (HOOK, NEW_ROOTS, "", "test_each_direct_child_is_a_root"),
     "child-form-dropped": (HOOK, NEW_ROOTS, "|\\.subfleet", "test_each_direct_child_is_a_root"),
     "prefix-match": (HOOK, NEW_ROOTS, "|\\.subfleet(/[^[:space:]'\\\"]+)?",
-                     "test_two_or_more_levels_under_subfleet_stay_scoped"),
+                     "test_near_misses_patterns_prose_and_bounded_searches_stay_allowed"),
     # The roots moved to their own root_core alternative, without the shared `/?`.
     "trailing-slash-missed": (HOOK, None, None, "test_trailing_slash_spellings_are_denied"),
     "trust-hash-stale": (TRUST, None, None, "test_trust_pins_the_new_hook_bytes"),
     # The hub review's finding: a TRUST built on the repository's stale copy rolls the lane pin back.
     "trust-built-on-repo-copy": (TRUST, None, None, "test_trust_keeps_the_installed_lane_pin"),
     # r2: the env spellings dropped (their broad_re alternative and their ${…} normalization).
-    "env-spellings-dropped": (HOOK, None, None, "test_env_spellings_of_subfleet_are_denied"),
+    "env-spellings-dropped": (HOOK, None, None, "test_every_env_spelling_is_a_root_one_level_down_and_no_deeper"),
     # r3 (decisions 1-3), each as EDITS rewrites r3b's code.
     "file-exception-removed": (HOOK, None, None, "test_r3_a_file_is_never_a_broad_root"),
     "not-dir-dropped": (HOOK, None, None, "test_r3_a_directory_a_link_to_one_and_a_name_stay_roots"),

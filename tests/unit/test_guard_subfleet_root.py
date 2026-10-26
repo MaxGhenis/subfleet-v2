@@ -681,6 +681,7 @@ NEAR_MISSES = [
     "rg ~/.subfleet src/", "grep -rn '~/.subfleet' src", "git log --grep .subfleet",
     "rg --max-depth 3 foo ~/.subfleet", "find ~/.subfleet/jobs -maxdepth 2 -name AGENTS.md",
     'echo "rg --files ~/.subfleet" >> notes.md', "git commit -m 'guard ~/.subfleet roots: rg x ~/.subfleet'",
+    "rg foo ~/.subfleet/jobs/$ID",      # r3b: two levels down, judged by the text rules alone
 ]
 
 
