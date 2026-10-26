@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .capacity import ACTIVE_ATTEMPT_STATES, build_view
-from .contracts import READING_TTL_S, attempt_dir
+from .contracts import READING_TTL_S, attempt_dir, hold_note_of
 from .launch_env import refused_reference
 from .quota_projection import instant, weekly_projections
 
@@ -70,9 +70,39 @@ def reading_text(value: Any) -> str:
     return result + (" [" + "; ".join(details) + "]" if details else "")
 
 
-def closure_text(value: Any) -> str:
-    """C-9.6: closures show their scope, reason, source, and explicit clock."""
+#: D-STATUS-SRC1: what `status` calls each kind of limit.
+LIMIT_WORDS = {"provider-limit": "provider limit", "credits": "credits limit", "cooldown": "cooldown"}
+
+
+def _held_text(closure: Mapping[str, Any]) -> str:
+    """An operator hold, with its note (C-9.6, `lanes hold --note`) when it has one."""
+    scope = closure.get("scope")
+    note = hold_note_of(closure.get("source_event"))
+    return ("held by operator" + (f" on {scope}" if scope not in (None, "account") else "")
+            + f" until {closure.get('until_at')}" + (f": {note}" if note else ""))
+
+
+def closure_line(value: Any) -> str:
+    """D-STATUS-SRC1: one closure as `subfleet status` lists it, saying what it is.
+
+    `codex-1 held by operator until <end>: <note>` for an operator hold, else
+    `<lane> provider limit on account until <end> (reported)`, with the limit's
+    kind, its scope and its clock source."""
     closure = _row(value)
+    reason = _label(closure.get("reason", "closed"))
+    if reason == "operator-hold":
+        return f"{closure.get('lane_id')} {_held_text(closure)}"
+    clock = f" ({_label(closure['clock_source'])})" if closure.get("clock_source") else ""
+    return (f"{closure.get('lane_id')} {LIMIT_WORDS.get(reason, reason)} on {closure.get('scope')} "
+            f"until {closure.get('until_at')}{clock}")
+
+
+def closure_text(value: Any) -> str:
+    """C-9.6: closures show their scope, reason, source, and explicit clock; a hold
+    says it is the operator's, with its note (D-STATUS-SRC1)."""
+    closure = _row(value)
+    if _label(closure.get("reason", "closed")) == "operator-hold":
+        return _held_text(closure)
     result = f"{closure['scope']} until {closure['until_at']} ({_label(closure.get('reason', 'closed'))}"
     if closure.get("clock_source"):
         result += f"; {_label(closure['clock_source'])} clock"
