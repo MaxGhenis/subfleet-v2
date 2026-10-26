@@ -44,9 +44,55 @@ final class LiveRun {
 /// was never journaled (its receipt alone read null for all three, D-STEER-PUMP1).
 func steerDetail(_ steer: OutboxSteer?) -> Any {
     guard let steer else { return "no steer journaled" }
-    return ["message_id": steer.messageID, "state": steer.state.rawValue, "attempts": steer.attempts,
-            "next_attempt_at": steer.nextAttemptAt ?? NSNull(), "into": steer.into ?? NSNull(),
-            "failure": steer.failure.map(jsonObject) ?? NSNull(), "receipt": steer.receipt.map(jsonObject) ?? NSNull()]
+    return project(steer)
+}
+
+/// Step 14's check (C-24.9): the daemon took the steer. The outbox holds its receipt and
+/// the message is steering or steered; a steer refused or given up never passes.
+func steerTaken(_ steer: OutboxSteer?) -> Bool {
+    steer?.state == .acknowledged && ["steering", "steered"].contains(steer?.receipt?.state ?? "")
+}
+
+/// What waiting for a steer's answer came to: the steer then, how many pumps it took, and
+/// how long it waited on its clock.
+struct SteerSettling {
+    var steer: OutboxSteer?
+    var pumps: Int
+    var waited: TimeInterval
+}
+
+/// How long step 14 waits for a steer to be answered for good: the outbox's own bound on
+/// that, with margin. It asks at most `Outbox.steerAttempts` (5) times, 0.5 s doubling
+/// between tries (7.5 s in all), and each try waits up to `answerTimeout` (the client's
+/// 15 s) for its answer: 82.5 s. With 7.5 s of margin for the pumps' own journal writes,
+/// 90 s. A steer still open then is stuck, not slow; one answered for good ends the wait
+/// as soon as the pump that answered it returns.
+func steerSettleDeadline(answerTimeout: TimeInterval) -> TimeInterval {
+    let backoffs = (1..<Outbox.steerAttempts).map { Outbox.backoff(attempts: $0) }.reduce(0, +)
+    let margin: TimeInterval = 7.5
+    return backoffs + Double(Outbox.steerAttempts) * answerTimeout + margin
+}
+
+/// Pump until the steer of `messageID` is answered for good (taken, or closed: refused,
+/// given up or withdrawn) or `deadline` passes, as the app's pump timer would (C-29.7: a
+/// steer that names its turn and hears `not-steerable` is asked again briefly). Between
+/// pumps it waits until the steer's own retry time (`nextAttemptAt`), or 0.5 s (the
+/// outbox's shortest backoff) while none is due, so it never spins (D-STEER-PUMP1).
+func settleSteer(_ messageID: String, outbox: Outbox, deadline: Date, now: () -> Date,
+                 pause: (TimeInterval) -> Void, pump: () -> Void) -> SteerSettling {
+    let started = now()
+    var pumps = 0
+    while true {
+        pump()
+        pumps += 1
+        let steer = outbox.steer(messageID)
+        let left = deadline.timeIntervalSince(now())
+        guard let open = steer, open.isOpen, left > 0 else {
+            return SteerSettling(steer: steer, pumps: pumps, waited: now().timeIntervalSince(started))
+        }
+        let retry = (open.nextAttemptAt ?? 0) - now().timeIntervalSince1970
+        pause(min(left, retry > 0 ? retry : Outbox.backoff(attempts: 1)))
+    }
 }
 
 func runLive(_ arguments: [String]) throws -> Any {
@@ -483,12 +529,19 @@ private func driveLive(_ arguments: [String], _ run: LiveRun) throws {
         }
         run.check("steer: the composer steers into the running turn", running != nil && composer?.messageID == host.key,
                   composer?.messageID ?? NSNull())
-        let steered = try engine.send(conversation: cid, text: "also say steered", settings: settings, steer: true)
-        let report = engine.pump()
-        state.apply(outbox: report, outbox: outbox)
-        let answer = outbox.steer(steered.key)
-        run.check("steer: the daemon takes the steer", answer?.state == .acknowledged
-                  && ["steering", "steered"].contains(answer?.receipt?.state ?? ""), steerDetail(answer))
+        // Sent as the app sends it, naming the turn it steers into (C-29.7), and pumped until
+        // answered for good. A turn whose runner cannot take a steer yet (still catching up
+        // under load, or the provider's capabilities not read yet) answers `not-steerable`: a
+        // steer that names its turn is asked again at 0.5 s doubling, where one sent without
+        // `into` and read after one pump was refused at once (D-STEER-PUMP1).
+        let steered = try engine.send(conversation: cid, text: "also say steered", settings: settings, steer: true,
+                                      into: host.key)
+        let settling = settleSteer(steered.key, outbox: outbox,
+                                   deadline: Date().addingTimeInterval(steerSettleDeadline(answerTimeout: client.baseTimeout)),
+                                   now: Date.init, pause: { Thread.sleep(forTimeInterval: $0) },
+                                   pump: { state.apply(outbox: engine.pump(), outbox: outbox) })
+        run.check("steer: the daemon takes the steer", steerTaken(settling.steer),
+                  ["steer": steerDetail(settling.steer), "pumps": settling.pumps, "waited_s": settling.waited])
         // A slow turn ends only when stopped; a steer it has not taken by then runs next.
         Thread.sleep(forTimeInterval: 3)
         _ = try? engine.stop(.interrupt(messageID: host.key))

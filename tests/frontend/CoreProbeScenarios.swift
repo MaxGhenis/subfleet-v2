@@ -204,6 +204,16 @@ func runOutbox(socket: String, journal: String, stepsData: Data) throws -> [Stri
                 results.append(["do": action])
             case "sendable":
                 results.append(["do": action, "keys": outbox.sendable().map(\.key)])
+            case "settle-steer":
+                // The live probe's step 14 (CoreProbeLive.swift): the app's pump until the steer is
+                // answered for good or `deadline` seconds pass, waiting on this clock, then its check.
+                let engine = ConversationEngine(client: client, outbox: outbox)
+                let wait = step["deadline"]?.double ?? steerSettleDeadline(answerTimeout: client.baseTimeout)
+                let settling = settleSteer(resolve(step["key"]?.string), outbox: outbox,
+                                           deadline: clock.now.addingTimeInterval(wait), now: { clock.now },
+                                           pause: { clock.now = clock.now.addingTimeInterval($0) }, pump: { _ = engine.pump() })
+                results.append(["do": action, "taken": steerTaken(settling.steer), "steer": steerDetail(settling.steer),
+                                "pumps": settling.pumps, "waited_s": settling.waited, "deadline_s": wait])
             case "engine-pump":
                 // The app's pump: send, then keep only the newest `keep` closed entries.
                 let engine = ConversationEngine(client: client, outbox: outbox)
