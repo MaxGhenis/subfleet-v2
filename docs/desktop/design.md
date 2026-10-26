@@ -1150,17 +1150,31 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   the rows it then lays out can shrink the document under the clip and clamp
   it to the end (CI run 40251214771, a 6,382 pt shrink with no page, history
   or row change). The opening pin reads the mark's presented frame after each
-  clip or document change and on the turn after the reveal's completion. A
-  completion can arrive before its scroll is laid out, so that turn first
-  lays out the window. When the row is presented the reveal has landed, and
-  the end visible beside it releases suspension (a nearby reveal). Once no
-  reveal is outstanding the marker appearing again releases it, as before.
-  The person's live scroll, wheel or paging keys end an outstanding reveal and
-  release suspension if the end is then visible; the person's own new send,
-  which still glides to the end while suspended, ends it too. Release does not
-  scroll; catch-up resumes on the next changed key. Other changes follow only
-  with the end on screen. Remote event-only turns do not count as the
-  person's own send.
+  clip or document change, whenever the mark's place in the document changes,
+  and on the turn after the reveal's completion. SwiftUI moves a row by moving
+  the host view it makes for the mark, so the mark's own frame can stay put:
+  at the end of every main run-loop pass, after AppKit's layout and display,
+  the mark compares its frame in the document's coordinates (and whether it is
+  hidden) with what it last reported, and reports a change; a reused mark that
+  takes a new row id reports again. A completion can arrive before its scroll
+  is laid out, so that turn first lays out the window. When the row is
+  presented the reveal has landed, and the end visible beside it releases
+  suspension (a nearby reveal). A reveal whose target row leaves the model
+  before it is presented (a reset, a history change, a rebuild), or is not in
+  the model when it is requested, is abandoned at once: the view cancels that
+  request by id in the pin, clears its pending state and releases suspension
+  if the end marker is on screen; otherwise the marker's next appearance does.
+  Once no reveal is outstanding the marker appearing again releases it, as
+  before. The person's live scroll, wheel or paging keys end an outstanding
+  reveal and release suspension if the end is then visible. The person's own
+  new send ends any reveal and releases suspension before the move is chosen,
+  catch-up included: it glides to the end, or during catch-up the settling
+  move jumps there. The send's move can land short while its row is measured,
+  so until the marker appears after it, the person scrolls or a reveal starts,
+  later changes follow as if the end were on screen. Release does not scroll;
+  catch-up resumes on the next changed key. Other changes follow only with the
+  end on screen. Remote event-only turns do not count as the person's own
+  send.
   Approval positioning on opening also has
   no animation; subsequent newly pending cards retain their explicit reveal.
 - A listed session that cannot continue here (a Codex-app thread) opens as a
