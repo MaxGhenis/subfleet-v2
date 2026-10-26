@@ -480,7 +480,8 @@ class GateService:
 
 
 def dispatch(daemon, op: str, args: dict) -> dict:
-    with helper_policy(daemon.policy):
+    # D-ENV2 (review r2 of #248, P3-2): gate helpers withhold the daemon's names too.
+    with helper_policy(daemon.policy, withheld=getattr(daemon, "_helper_withheld", None)):
         return _dispatch(daemon, op, args)
 
 
