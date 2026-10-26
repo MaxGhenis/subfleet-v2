@@ -13,6 +13,10 @@ Review r1 of #260 executed two clocks that a hold let run:
   Now both start it at 60, as with no hold, and a hold that outlasts the backoff (t=10 to 90)
   starts it at 90: it satisfies the backoff and never extends it.
 
+Fix round 3 (review r3 of #260): a look under way when the hold commits, stopped with barriers on
+its own thread, writes nothing over `task-held` (R3-1); and a finalizer that runs long after the
+provider's exit sets the deadline a hold keeps (R3-2).
+
 Every case runs on the real daemon pass, in process, on a virtual clock.
 """
 

@@ -1543,16 +1543,14 @@ class Daemon:
           seconds of it left at the hold's start (`since`, kept through replacements that
           leave the hold in force) or the episode's own start, whichever is later. The
           episode is read in `tx` (`_held_pin_episode`), as the store has it: one a take
-          paused and no end has given back (a write that raced the take, a look already
-          under way when the hold committed, moved the job off `task-held`) stays paused,
-          with the seconds it had.
+          paused and no end has given back stays paused, with the seconds it had.
 
         A job taken already (the hold's commit took it after the look began) keeps the
         clocks the event that took it kept; only its end moves, if a replacement moved it.
         If its pin episode runs all the same (review r3 of #260, R3-1: a look under way
         when the hold committed opened it, in its own transaction, after the commit's
-        take), the grace is paused here, as that take would have paused it, in a new
-        `taken` event that keeps what the first one kept.
+        take, `_task_held_at_write`), the grace is paused here, as that take would have
+        paused it, in a new `taken` event that keeps what the first one kept.
 
         The seconds paused, or None (no grace ran, the job is no longer queued or
         waiting, or a take before this one holds it already, its grace paused)."""

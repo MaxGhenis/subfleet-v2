@@ -11,8 +11,14 @@ again, it is demand again.
 
 Fix round 2 (review r2's F1): the hold's own transaction now takes the job off its capacity wait,
 so neither read finds it waiting on capacity at all, and the two hold checks are the backstop
-for a job the take did not reach. The mutants of those checks take the take away too
-(`tests/task_hold_mutants.py`).
+for a job the take did not reach.
+
+Fix round 3 (review r3 of #260): no admission write lands over a committed hold any more (R3-1),
+so r3's way to the checks, an episode opening under way when the hold commits, now leaves the
+job held. A job the take does not reach still waits on capacity before a pass takes it: a held
+build whose attempt was live at the commit and ended `transient` since. Each check is the only
+one that stops it at some interleaving (`retry_waits_while_held`), and round 1's mutant of each,
+the check alone removed with the take intact, is killed there (R3-3).
 
 The daemon, the reset timer and the Codex adapter are real; the Codex usage and reset-credit
 endpoints are `FakeWham` (`tests/fake/test_reset_credit_incident.py`), so no real
