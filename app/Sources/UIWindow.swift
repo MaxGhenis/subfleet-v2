@@ -320,8 +320,28 @@ extension View {
 @MainActor enum ConversationFollowTest {
     static var disappearanceDelay: Double = 0
     static var record: ((String, [String: Any]) -> Void)?
+    /// Room above the rows that a probe shrinks and regrows: the document changes
+    /// height under a clip that does not move, as lazy row measurement does.
+    static let inset = Inset()
+    final class Inset: ObservableObject { @Published var top: CGFloat = 0 }
+}
+
+@MainActor struct ConversationFollowTestInset: ViewModifier {
+    @ObservedObject var inset = ConversationFollowTest.inset
+    func body(content: Content) -> some View { content.padding(.top, inset.top) }
 }
 #endif
+
+extension View {
+    /// Only view probes compile the inset; it is zero unless one sets it.
+    @ViewBuilder func conversationFollowTestInset() -> some View {
+        #if SUBFLEET_VIEW_TEST
+        modifier(ConversationFollowTestInset())
+        #else
+        self
+        #endif
+    }
+}
 
 struct ConversationView: View {
     @ObservedObject var model: UIModel
@@ -378,6 +398,7 @@ struct ConversationView: View {
                             .onAppear { endAppeared() }
                             .onDisappear { endDisappeared() }
                     }
+                    .conversationFollowTestInset()
                     .padding(Theme.space.column)
                     .background(ConversationOpeningPin(conversationID: conversation.conversation_id,
                                                        onRevealEndVisible: resumeFollow))

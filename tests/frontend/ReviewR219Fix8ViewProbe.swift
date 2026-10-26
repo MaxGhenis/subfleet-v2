@@ -233,6 +233,38 @@ let readinessDeadline = 120.0
     }.sorted()
 }
 
+// The model of the scene being mounted, for observers registered in onMount.
+@MainActor enum ProbeScene { static var model: UIModel? }
+
+// Each document height change with the model state beside it (round 7): a
+// change with no page, history or row change is the lazy stack's measurement.
+@MainActor func documentObserver(_ cid: String, host: NSView, started: Date,
+                                 record: @escaping ([String: Any]) -> Void) -> NSObjectProtocol? {
+    guard let document = timelineScroll(host)?.documentView else { return nil }
+    document.postsFrameChangedNotifications = true
+    var previous = Double(document.frame.height)
+    return NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: document,
+                                                  queue: nil) { _ in
+        MainActor.assumeIsolated {
+            let height = Double(document.frame.height)
+            guard abs(height - previous) > 0.5 else { return }
+            var entry: [String: Any] = ["at": Date().timeIntervalSince(started), "previous": previous,
+                                        "content": height, "position": sample(host)]
+            previous = height
+            if let model = ProbeScene.model, let timeline = model.state.timelines[cid] {
+                let layout = model.state.layout(conversationID: cid)
+                entry["cursor"] = timeline.cursor
+                entry["caught_up"] = timeline.caughtUp
+                entry["history_pages"] = timeline.historyPagesLoaded
+                entry["resets"] = timeline.resets
+                entry["items"] = layout?.items.count ?? -1
+                entry["rows"] = WorkPresentation.rows(in: timeline, items: layout?.items).count
+            }
+            record(entry)
+        }
+    }
+}
+
 @MainActor final class Scene {
     let cid: String
     let daemon: R4ViewDaemon
@@ -250,7 +282,7 @@ let readinessDeadline = 120.0
          pageDelay: Double = 0, pageSize: Int = 200, revealOnMount: String? = nil,
          liveText: String = "the live request", pauseCatchup: Bool = false,
          immediateDelivery: Bool = false, onMount: ((NSView) -> Void)? = nil,
-         silentFoldDeadline: Double? = nil) async {
+         silentFoldDeadline: Double? = nil, holdCatchup: Bool = false) async {
         self.cid = cid
         var events: [[String: Any]] = []
         var receipts: [[String: Any]] = []
@@ -298,6 +330,7 @@ let readinessDeadline = 120.0
         window.contentView = host
         host.frame = window.contentView!.bounds
         mountOffscreen(window)
+        ProbeScene.model = model
         onMount?(host)
         let mounted: NSView = host
         if pauseCatchup {
@@ -308,6 +341,8 @@ let readinessDeadline = 120.0
             }
             beforeCatchup = sample(mounted)
             heldBeforeReveal = daemon.catchupPending && !caughtUp
+            // The scene drives its own schedule with catch-up still held.
+            if holdCatchup { return }
         }
         if let revealOnMount { palette.reveal = SearchReveal(conversationID: cid, itemID: revealOnMount) }
         if pauseCatchup {
@@ -416,6 +451,12 @@ let readinessDeadline = 120.0
             let root = URL(fileURLWithPath: CommandLine.arguments[1])
             let result = mode == "fix11-live-turn" ? await suspendedLiveTurn(root)
                 : await settlingReveal(root, mode: String(mode.dropFirst("fix11-".count)))
+            print(String(decoding: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), as: UTF8.self))
+            return
+        }
+        if let mode = CommandLine.arguments.last, mode.hasPrefix("fix10-shrink-") {
+            let root = URL(fileURLWithPath: CommandLine.arguments[1])
+            let result = await shrinkReplay(root, mode: String(mode.dropFirst("fix10-shrink-".count)))
             print(String(decoding: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), as: UTF8.self))
             return
         }
@@ -1050,7 +1091,9 @@ struct SettlingPageView: View {
     var geometry: [[String: Any]] = []
     var requests: [[String: Any]] = []
     var completions: [[String: Any]] = []
+    var documents: [[String: Any]] = []
     var boundsObserver: NSObjectProtocol?
+    var documentChanges: NSObjectProtocol?
     func at() -> Double { Date().timeIntervalSince(started) }
     func position() -> [String: Double] { host.map { sample($0) } ?? [:] }
     let observer = NotificationCenter.default.addObserver(forName: .conversationRowScroll, object: nil,
@@ -1078,6 +1121,7 @@ struct SettlingPageView: View {
         NotificationCenter.default.removeObserver(requestObserver)
         NotificationCenter.default.removeObserver(completionObserver)
         if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
+        if let documentChanges { NotificationCenter.default.removeObserver(documentChanges) }
         if let earlyObserver { NotificationCenter.default.removeObserver(earlyObserver) }
     }
     let scene = await Scene(name, root: root, prior: 120,
@@ -1094,6 +1138,7 @@ struct SettlingPageView: View {
                                                                 object: clip, queue: nil) { _ in
             MainActor.assumeIsolated { geometry.append(["at": at(), "position": position()]) }
         }
+        documentChanges = documentObserver(name, host: mounted, started: started) { documents.append($0) }
     })
     defer { scene.close() }
     let opened = sample(scene.host)
@@ -1106,7 +1151,138 @@ struct SettlingPageView: View {
             "opened_at": openedAt, "readiness_at_open": openedReadiness,
             "readiness_at_fold": scene.foldedReadiness, "trace": trace, "geometry": geometry,
             "requests": requests, "completions": completions, "completion_first": completionFirst,
-            "early_completions": early]
+            "early_completions": early, "documents": documents]
+}
+
+// Round 7: CI run 40251214771 failed the completion-first opening another way.
+// The reveal's scroll left the end before its row was presented; lazy
+// measurement then shrank the document by 6,382 pt under the clip, which clamped
+// to the new end. The marker appeared, and the request's own completion measured
+// the clamped end: both released suspension, and catch-up's next settling jump
+// undid the reveal. This replays that order on a fixed schedule, with catch-up
+// held until its settling tick. A test inset above the rows stands in for the
+// measurement: shrinking it moves the content up under a clip that stays put. The
+// probe posts the request and its completions and applies the first-pass scroll
+// itself, so no step waits on lazy-stack timing. Modes: `replay` (the CI order),
+// `person` (the person scrolls to the end during the reveal) and `landed` (the
+// real reveal lands first, so none is outstanding when the document shrinks).
+@MainActor func shrinkReplay(_ root: URL, mode: String) async -> [String: Any] {
+    let name = "shrink-" + mode
+    let target = "person:m000040"
+    let inset: CGFloat = 9000
+    let started = Date()
+    func at() -> Double { Date().timeIntervalSince(started) }
+    var trace: [[String: Any]] = []
+    var geometry: [[String: Any]] = []
+    var documents: [[String: Any]] = []
+    var steps: [[String: Any]] = []
+    var host: NSView?
+    var boundsObserver: NSObjectProtocol?
+    var documentChanges: NSObjectProtocol?
+    func position() -> [String: Double] { host.map { sample($0) } ?? [:] }
+    ConversationFollowTest.inset.top = inset
+    ConversationFollowTest.record = { cid, entry in
+        guard cid == name else { return }
+        trace.append(entry.merging(["at": at(), "position": position()]) { _, new in new })
+    }
+    defer {
+        ConversationFollowTest.record = nil
+        ConversationFollowTest.inset.top = 0
+        if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
+        if let documentChanges { NotificationCenter.default.removeObserver(documentChanges) }
+    }
+    let scene = await Scene(name, root: root, prior: 120, priorText: { "person message \($0) asks something" },
+                            tray: [], pageDelay: 0.25, pageSize: 40, pauseCatchup: true,
+                            onMount: { mounted in
+        host = mounted
+        let clip = timelineScroll(mounted)?.contentView
+        clip?.postsBoundsChangedNotifications = true
+        boundsObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
+                                                                object: clip, queue: nil) { _ in
+            MainActor.assumeIsolated { geometry.append(["at": at(), "position": position()]) }
+        }
+        documentChanges = documentObserver(name, host: mounted, started: started) { documents.append($0) }
+    }, holdCatchup: true)
+    defer { scene.close() }
+    func step(_ label: String, _ extra: [String: Any] = [:]) {
+        steps.append(extra.merging(["step": label, "at": at(), "position": sample(scene.host),
+                                    "readiness": scene.readiness()]) { _, new in new })
+    }
+    func clipToEndOffset(_ fromEnd: CGFloat) {
+        guard let scroll = timelineScroll(scene.host), let document = scroll.documentView else { return }
+        let clip = scroll.contentView
+        clip.scroll(to: NSPoint(x: 0, y: max(0, document.frame.height - clip.bounds.height - fromEnd)))
+        scroll.reflectScrolledClipView(clip)
+    }
+    let opened = await stablePosition(scene.host)
+    step("opened", ["stable": opened.samples])
+    let request = UUID()
+    if mode == "landed" {
+        // The real reveal, both passes, with catch-up still held.
+        scene.palette.reveal = SearchReveal(conversationID: name, itemID: target)
+        await waitReady("shrink.reveal_consumed", view: scene.host, state: { scene.readiness() }) {
+            scene.palette.reveal == nil
+        }
+        let landed = await stablePosition(scene.host)
+        step("landed", ["stable": landed.samples])
+    } else {
+        // The request and its first completion, with the clip still at the old end
+        // (CI 0.619 s), then the reveal's scroll as the lazy first pass presented it:
+        // away from the end before the row was in the clip (CI 0.626 s). All three in
+        // one turn, so the completion's deferred check reads the applied scroll.
+        NotificationCenter.default.post(name: .conversationRowScroll, object: name,
+                                        userInfo: ["request": request, "target": target])
+        step("reveal")
+        ConversationOpeningPin.didRevealRow(in: name, request: request)
+        step("early_completion")
+        clipToEndOffset(2000)
+        await settle(scene.host, seconds: 0.3)
+        step("scrolled")
+    }
+    if mode == "person" {
+        await scene.personScroll(toEnd: true)
+        step("person_at_end")
+    } else {
+        // The document shrinks under the clip until it clamps to the end, and the
+        // marker appears (CI 0.686-0.689 s).
+        step("shrinking")
+        ConversationFollowTest.inset.top = 0
+        await waitReady("shrink.clamped", seconds: 20, view: scene.host, state: { scene.readiness() }) {
+            (sample(scene.host)["from_end"] ?? 1e9) <= 1
+        }
+        await settle(scene.host, seconds: 0.3)
+        step("shrunk")
+        if mode == "replay" {
+            // The request's own completion, delivered at the clamped end (CI 0.694 s).
+            ConversationOpeningPin.didRevealRow(in: name, request: request)
+            await settle(scene.host, seconds: 0.3)
+            step("late_completion")
+        }
+        // The document regrows, and the clip is far from the end again.
+        ConversationFollowTest.inset.top = inset
+        await waitReady("shrink.regrown", seconds: 20, view: scene.host, state: { scene.readiness() }) {
+            (sample(scene.host)["from_end"] ?? 0) > 600
+        }
+        await settle(scene.host, seconds: 0.3)
+        step("regrown")
+    }
+    // Catch-up's settling tick: its first page changes the follow key (CI 0.909 s).
+    let tickFrom = trace.count
+    step("tick")
+    scene.daemon.resumeCatchup()
+    await waitReady("shrink.settling_tick", seconds: 60, view: scene.host, state: { scene.readiness() }) {
+        trace[tickFrom...].contains { $0["event"] as? String == "move" && $0["settling"] as? Bool == true }
+    }
+    await settle(scene.host, seconds: 1.0)
+    step("after_tick")
+    await scene.waitFolded(scene.daemon.lastSeq, "shrink.caught_up")
+    await settle(scene.host, seconds: 0.5)
+    step("caught_up")
+    scene.close()
+    return ["mode": mode, "target": target, "inset": Double(inset), "steps": steps, "trace": trace,
+            "geometry": geometry, "documents": documents, "before_catchup": scene.beforeCatchup,
+            "held_before_reveal": scene.heldBeforeReveal, "readiness_waits": ProbeWaits.log,
+            "visible_windows": NSApp.windows.filter(\.isVisible).count]
 }
 
 // Review r3's settling replay: reveal while catch-up is held, then resume the

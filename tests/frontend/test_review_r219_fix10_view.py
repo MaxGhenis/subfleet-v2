@@ -125,6 +125,93 @@ def test_completion_before_scroll_cannot_release_a_distant_opening_reveal(fix8_v
     assert not any(e["event"] == "reveal_end_visible" for e in run["trace"]), diagnostic
 
 
+def shrink_replay(binary, root, mode):
+    """Round 7's fixed schedule (`shrinkReplay` in the probe), with its own steps and trace."""
+    result = run_probe(binary, root, f"fix10-shrink-{mode}", timeout=240)
+    write_json(root / "result.json", result)
+    diagnostic = json.dumps(result, sort_keys=True)
+    print(f"shrink {mode}: " + diagnostic)
+    assert result["visible_windows"] == 0, diagnostic
+    assert result["held_before_reveal"], diagnostic
+    steps = {step["step"]: step for step in result["steps"]}
+    assert steps["opened"]["position"]["from_end"] <= END, diagnostic
+    # Catch-up stays held until the settling tick.
+    for name, step in steps.items():
+        if step["at"] < steps["tick"]["at"]:
+            assert not step["readiness"]["caught_up"] and step["readiness"]["catchup_pending"], diagnostic
+    return result, steps, diagnostic
+
+
+def releases_after(result, at):
+    """Each trace entry from `at` on that turns suspension off."""
+    return [e for e in result["trace"] if e["at"] >= at and "suspended" in e and not e["suspended"]
+            and e["event"] != "move"]
+
+
+def settling_tick(result, steps):
+    """The first settling follow decision after catch-up was released."""
+    return next((e for e in result["trace"] if e["at"] >= steps["tick"]["at"] and e["event"] == "move"
+                 and e["settling"]), None)
+
+
+def test_document_shrink_under_a_pending_reveal_releases_nothing(fix8_view_binary, tmp_path):
+    """Round 7 (CI run 40251214771, py3.12): the completion-first opening's reveal scrolled away
+    from the end before its row was presented, and lazy measurement then shrank the document
+    6,382 pt under the clip, clamping it to the end. `marker_appeared` and the request's own
+    completion (`reveal_end_visible`) both released suspension, and catch-up's settling jump
+    undid the reveal. This replays that order: while a reveal is outstanding, an end shown only
+    because the document shrank releases nothing."""
+    result, steps, diagnostic = shrink_replay(fix8_view_binary, tmp_path, "replay")
+    # The CI order, each step as presented.
+    assert steps["early_completion"]["position"]["from_end"] <= END, diagnostic
+    assert steps["scrolled"]["position"]["from_end"] > DISTANT, diagnostic
+    assert steps["shrunk"]["position"]["from_end"] <= END, diagnostic
+    assert any(e["event"] == "marker_appeared" and steps["shrinking"]["at"] <= e["at"] <= steps["shrunk"]["at"]
+               for e in result["trace"]), diagnostic
+    assert steps["late_completion"]["position"]["from_end"] <= END, diagnostic
+    assert steps["regrown"]["position"]["from_end"] > DISTANT, diagnostic
+    tick = settling_tick(result, steps)
+    assert tick is not None, diagnostic
+    # Nothing released suspension: neither the marker nor the completion at the clamped end.
+    assert not releases_after(result, steps["reveal"]["at"]), diagnostic
+    assert not any(e["event"] == "reveal_end_visible" for e in result["trace"]), diagnostic
+    assert tick["suspended"] and tick["move"] == "stay", diagnostic
+    # The settling jump never brought the view to the end.
+    for g in result["geometry"]:
+        if g["at"] >= steps["regrown"]["at"]:
+            assert g["position"]["from_end"] > DISTANT, json.dumps(g) + ": " + diagnostic
+    for key in ("after_tick", "caught_up"):
+        assert steps[key]["position"]["from_end"] > DISTANT, diagnostic
+
+
+def test_person_scroll_to_the_end_during_a_pending_reveal_releases(fix8_view_binary, tmp_path):
+    """Round 7's control: the person scrolling to the end during the same reveal releases
+    suspension, and catch-up's settling tick follows the end."""
+    result, steps, diagnostic = shrink_replay(fix8_view_binary, tmp_path, "person")
+    assert steps["scrolled"]["position"]["from_end"] > DISTANT, diagnostic
+    assert steps["person_at_end"]["position"]["from_end"] <= END, diagnostic
+    assert releases_after(result, steps["scrolled"]["at"]), diagnostic
+    tick = settling_tick(result, steps)
+    assert tick is not None and not tick["suspended"] and tick["move"] == "jump", diagnostic
+    for key in ("after_tick", "caught_up"):
+        assert steps[key]["position"]["from_end"] <= END, diagnostic
+
+
+def test_document_shrink_after_a_distant_reveal_lands_releases(fix8_view_binary, tmp_path):
+    """Round 7's control: once the reveal has landed on its row, none is outstanding, and an end
+    shown by the same shrink releases suspension through the marker, as before."""
+    result, steps, diagnostic = shrink_replay(fix8_view_binary, tmp_path, "landed")
+    assert steps["landed"]["stable"] >= 3 and steps["landed"]["position"]["from_end"] > DISTANT, diagnostic
+    assert steps["shrunk"]["position"]["from_end"] <= END, diagnostic
+    released = releases_after(result, steps["shrinking"]["at"])
+    assert released and released[0]["event"] == "marker_appeared", diagnostic
+    assert steps["regrown"]["position"]["from_end"] > DISTANT, diagnostic
+    tick = settling_tick(result, steps)
+    assert tick is not None and not tick["suspended"] and tick["move"] == "jump", diagnostic
+    for key in ("after_tick", "caught_up"):
+        assert steps[key]["position"]["from_end"] <= END, diagnostic
+
+
 def test_focused_50ms_probe_lands_and_keeps_position(fix8_view_binary, tmp_path):
     """Allow fresh-process repetitions without rerunning six unrelated scenes."""
     result = run_probe(fix8_view_binary, tmp_path, "fix10-far-text-50ms", timeout=240)
