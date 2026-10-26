@@ -1470,7 +1470,7 @@ if [ -n "$searcher" ]; then
     }
     function walk(s, ctx, depth, prose,   out, orig, run, orun, b, sf, qc, rest, piece, opiece, q, inner, nctx, gap, first, cd, cdp, val) {
       out = ""; orig = ""; first = 1; cd = 0; cdp = 0
-      while (match(s, /(\\.|[^[:space:]|;&()<>"\047\\]|"([^"\\]|\\.)*"|\047[^\047]*\047|\([^[:space:]()<>;&"\047\\]*\))+/)) {
+      while (match(s, /(\\.|[^[:space:]|;&()<>"\047\\]|"([^"\\]|\\.)*"|\047[^\047]*\047|\(([^[:space:]()<>;&"\047\\]|\\.)*\))+/)) {
         gap = substr(s, 1, RSTART - 1)
         if (gap ~ /[;&|()]/) { first = 1; cd = 0; cdp = 0 }
         out = out gap; orig = orig gap

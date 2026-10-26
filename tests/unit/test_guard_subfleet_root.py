@@ -1779,7 +1779,8 @@ def r3c_labels(command: str, cwd: str = SCOPED_CWD, home: str = FAKE_HOME) -> se
             "/private/tmp", "/", "/Users"}
     if cwd in cwds and re.search(r"(find|rg|grep)", command):
         labels.add("nopath")
-    if any(R3C_WORD.search(word) for word, _ in command_path_words(command)) or re.search(r"(^|\s)\{\S*[,.]", command):
+    if (any(R3C_WORD.search(word) for word, _ in command_path_words(command))
+            or re.search(r"""(^|\s)\{\S*[,.]|(^|[\s'"=])~[A-Za-z0-9._-]""", command)):
         labels.add("word")
     return labels
 
@@ -2116,13 +2117,10 @@ def real_broad(shell: str, word: str, home: str = PROP_HOME) -> bool:
     REFERENCE_SH (a broad root by name that is no file, or a path that leads to one through links;
     the seam folder off and //, . and .. resolved first). A ``**/`` component or a trailing run of
     bare ``*`` / ``.*`` (decision 2) makes the part before it the root, written or expanded and
-    judged the same way. No match: not broad."""
-    fs = str(_FS["root"])
-    prefix, walk = walk_prefix(word)
-    if not GLOB_CHAR.search(prefix):
-        return bool(walk and reference_cached([prefix], home)[0])
-    paths = [norm(m[len(fs):]) for m in shell_matches(shell, prefix, home) if m.startswith(fs + "/")]
-    return any(reference_cached(paths, home))
+    judged the same way. No match: not broad. Since r3c it is ``r3c_real``: decision 1 also makes a
+    trailing run of wildcard-only components (after the trailing /, /. and <glob>/.. go) its folder, and a
+    glob directly in a folder of a .subfleet that folder; the matches are still the real shell's."""
+    return r3c_real(shell, word, home)
 
 
 _PROP: dict[tuple[str, str], str] = {}
@@ -2168,8 +2166,8 @@ def test_r3_property_the_verdict_is_the_rule():
     not and a trailing /* or not, and over the glob words of PROP_GLOBS. The oracle:
       - a plain word is broad iff its resolved path (the trailing slash kept) is not an
         existing non-directory; with a trailing /*, always broad;
-      - a glob word is broad iff some real match is a broad root (``real_broad`` in bash,
-        which the hook's expansion is); no match, allowed.
+      - a glob word is broad iff some real match is a broad root (``real_broad`` in bash or zsh,
+        r3c); no match, allowed.
     The hook denies iff the word is broad. The space is finite (PLAIN_SPACE and PROP_GLOBS), so
     the hook's verdicts are taken for all of it first, four at a time; every drawn example is
     then checked against its verdict and the oracle."""
@@ -2187,7 +2185,9 @@ def test_r3_property_the_verdict_is_the_rule():
                      st.sampled_from(globs).map(lambda x: ("glob",) + x)))
     def check(example):
         family, case, command = example
-        broad = plain_broad(case[0], case[3], case[4]) if family == "plain" else real_broad("bash", glob_word(*case))
+        # r3c: a glob word is broad when some real match in either shell is (zsh walks **/, bash reads */)
+        broad = (plain_broad(case[0], case[3], case[4]) if family == "plain"
+                 else real_broad("bash", glob_word(*case)) or real_broad("zsh", glob_word(*case)))
         denied = rule(verdicts[command]) == "unscoped-search"
         assert denied == broad, (command, case, broad)
         assert rule(verdicts[command]) in (None, "unscoped-search"), command
@@ -2229,9 +2229,11 @@ def test_r3_globs_agree_with_real_zsh_and_bash():
         shells = {shell: real_broad(shell, word, home) for shell in ("bash", "zsh")}
         counts["denied"] += denied
         counts["zsh_bash_agree"] += shells["bash"] == shells["zsh"]
-        if home == FAKE_HOME and shells["bash"] != brief[word]:
+        # r3c: denied exactly when some expansion in either shell names a root (bash reads **/ as */,
+        # which r3's oracle read as zsh's walk in both shells)
+        if home == FAKE_HOME and any(shells.values()) != brief[word]:
             differ.append(("brief", word, brief[word], shells))
-        if any(denied != broad for broad in shells.values()):
+        if denied != any(shells.values()):
             differ.append((command, denied, shells))
     report("shells", counts)
     assert not differ, differ[:10]
@@ -2765,6 +2767,7 @@ REFERENCE_SH = r"""
 set -u
 export LC_ALL=C
 UP=ABCDEFGHIJKLMNOPQRSTUVWXYZ; LO=abcdefghijklmnopqrstuvwxyz
+ME=$(/usr/bin/id -un)
 lc() {
   local s=$1 o="" c="" i=0 pre=""
   while [ "$i" -lt "${#s}" ]; do
@@ -2784,9 +2787,11 @@ lexnorm() {
   while [ "$i" -lt "$n" ]; do out="$out/${st[$i]}"; i=$((i + 1)); done
   R=${out:-/}
 }
+# r3c: the two code points APFS folds to an ASCII letter on this volume
+fold() { local f=$1; f=${f//$'\xc5\xbf'/s}; R=${f//$'\xe2\x84\xaa'/k}; }
 normalize() {
   local p a l
-  lexnorm "$1"; p=$R
+  lexnorm "$1"; fold "$R"; p=$R
   lc "$p"; l=$R
   if [ "$l" = /system/volumes/data ]; then p=/
   elif [ "${l#/system/volumes/data/}" != "$l" ]; then p=${p:20}; fi
@@ -2800,8 +2805,12 @@ FIXED=" / /users /volumes /system /system/volumes /private /tmp /var /var/folder
 HSUB=" theaxiomfoundation rulesfoundation policyengine library library/caches .cache .local .subfleet "
 normalize "$HOME_L"; lc "$R"; LH=$R
 isbroad() {
-  local l sub n
-  lc "$1"; l=$R
+  local l sub n p=$1
+  lc "$p"; l=$R
+  # r3c decision 2: /Volumes/<entry>/<rest> is judged by name as /<rest>
+  while [ "${l#/volumes/*/}" != "$l" ] && [ -n "${l#/volumes/*/}" ]; do
+    p="/${p#/*/*/}"; normalize "$p"; p=$R; lc "$p"; l=$R
+  done
   case "$FIXED" in *" $l "*) return 0 ;; esac
   n=${l//[!\/]/}; n=${#n}
   case "$l" in
@@ -2823,6 +2832,7 @@ isbroad() {
   return 1
 }
 stall() { lc "$1"; case "$R" in /volumes|/volumes/*|/network|/network/*|/net|/net/*|/home|/home/*) return 0 ;; esac; return 1; }
+inmount() { lc "$1"; [ "$R" != /volumes ] && stall "$1"; }
 isfile() { if stall "$1"; then return 1; fi; [ -e "$FS$1" ] && [ ! -d "$FS$1" ]; }
 physical() {
   local p=$1 round=0 prefix="" c="" rest="" t="" found=""
@@ -2844,6 +2854,15 @@ physical() {
   done
   normalize "$p"
 }
+# r3c decision 4: each .. applied after the links before it are resolved
+physdots() {
+  local IFS=/ part path=""
+  set -f; local -a parts=( $1 ); set +f
+  for part in ${parts[@]+"${parts[@]}"}; do
+    case "$part" in ''|.) ;; ..) physical "${path:-/}"; path=${R%/*} ;; *) path="$path/$part" ;; esac
+  done
+  R=${path:-/}
+}
 broad() {
   local r
   if isbroad "$1"; then if isfile "$1"; then return 1; fi; return 0; fi
@@ -2851,11 +2870,20 @@ broad() {
   [ "$r" != "$1" ] && isbroad "$r" && ! isfile "$r"
 }
 NAMES="TheAxiomFoundation RulesFoundation PolicyEngine Library Caches .cache .local .subfleet Users Volumes System private tmp var folders opt homebrew Applications usr Data any-name-at-all"
-holds() { local n; for n in $NAMES; do normalize "$1/$n"; if isbroad "$R"; then return 0; fi; done; return 1; }
+holds() {
+  local n
+  if inmount "$1"; then return 1; fi
+  for n in $NAMES; do normalize "$1/$n"; if isbroad "$R"; then return 0; fi; done; return 1
+}
+# r3c 1(c): a broad root directly in a .subfleet
+subchild() { local d=${1%/*}; lc "${d##*/}"; [ "$R" = .subfleet ] && isbroad "$1"; }
 abs_of() {
+  local n=""
   case "$1" in
     '~'|'$HOME') R=$HOME_L ;;
     '~/'*) R="$HOME_L/${1#\~/}" ;;
+    '~'*) n=${1#\~}; n=${n%%/*}
+      if [ "$n" = "$ME" ]; then R="$HOME_L${1#\~$n}"; else R="/Users/$n${1#\~$n}"; fi ;;
     '$HOME/'*) R="$HOME_L/${1#\$HOME/}" ;;
     '$SUBFLEET_ROOT'|'$SUBFLEET_HOME') R=$HOME_L/.subfleet ;;
     '$SUBFLEET_ROOT/'*|'$SUBFLEET_HOME/'*) R="$HOME_L/.subfleet/${1#*/}" ;;
@@ -2874,18 +2902,31 @@ globbroad() {
     prefix="$prefix/${cs[$k]}"; k=$((k + 1))
   done
   [ "$first" -ge 0 ] || return 1
-  normalize "${prefix:-/}"
-  isbroad "$R" || return 1
-  cand=( "$R" ); kinds=( plain )
+  physdots "${prefix:-/}"; normalize "$R"; prefix=$R
+  isbroad "$prefix" || return 1
+  cand=( "$prefix" ); kinds=( plain )
   k=$first
   while [ "$k" -lt "$n" ]; do
-    text=${cs[$k]}; isglob=""; last=""
+    text=${cs[$k]//$'\a'/\/}; isglob=""; last=""
     case "$text" in *[*?[]*) isglob=1 ;; esac
     [ "$k" -ne $((n - 1)) ] || last=1
     next=(); nkinds=()
     for p in "${cand[@]}"; do
-      if [ -z "$isglob" ] && ! stall "$p"; then
-        normalize "$p/$text"; q=$R
+      if [ -n "$isglob" ] && subchild "$p" && ! isfile "$p"; then return 0; fi
+      if inmount "$p"; then
+        if [ -z "$isglob" ]; then normalize "$p/$text"; next[${#next[@]}]=$R; nkinds[${#nkinds[@]}]=plain
+        else
+          for name in $NAMES; do
+            if [ "$name" != any-name-at-all ]; then
+              case "$name" in .*) case "$text" in .*) ;; *) continue ;; esac ;; esac
+              [[ $name == $text ]] || continue
+            fi
+            normalize "$p/$name"; next[${#next[@]}]=$R; nkinds[${#nkinds[@]}]=plain
+          done
+        fi
+      elif [ -z "$isglob" ] && ! stall "$p"; then
+        if [ "$text" = .. ]; then physical "$p"; q=${R%/*}; normalize "${q:-/}"; else normalize "$p/$text"; fi
+        q=$R
         if [ -e "$FS$q" ] || [ -h "$FS$q" ]; then next[${#next[@]}]=$q; nkinds[${#nkinds[@]}]=written; fi
       elif holds "$p"; then
         while IFS= read -r name; do
@@ -2927,23 +2968,129 @@ globbroad() {
   done
   return 1
 }
-judge() {
-  local w=$1 b="" walk=""
-  BUDGET=$CAP
+# r3c 1(b): a component made only of *, ? and bracket expressions
+WILD_RE='^(\*|\?|\[[!^]?\]?([^]]|\[:[a-z]+:\])*\])+$'
+BRACE_RE='^(.*[^$])?[{]([^{}]*,[^{}]*)[}](.*)$'
+ALT_RE='^([^(]*)[(]([^()]*)[)](.*)$'
+PLAIN_RE='^[A-Za-z0-9._@%+=:,|-]*$'
+# r3c decision 3: brace words (comma groups, 64 at most; a nested group, {x..y} or more reads each as *)
+# and zsh alternation (plain names, else the component as *); the words go to ALTS, STARRED is set
+# when a group was read as *.
+braces() {
+  local w=$1 todo=() x="" i=0 j=0 d=0 c="" open=-1 cnt=1 bad="" groups=0 out="" t=""
+  i=0; d=0
+  while [ "$i" -lt "${#w}" ]; do
+    c=${w:i:1}
+    if [ "$c" = "{" ] && { [ "$i" -eq 0 ] || [ "${w:i-1:1}" != '$' ]; }; then
+      if [ "$d" -eq 0 ]; then open=$i; t=""; else bad=1; fi
+      d=$((d + 1))
+    elif [ "$c" = "}" ] && [ "$d" -gt 0 ]; then
+      d=$((d - 1))
+      if [ "$d" -eq 0 ]; then
+        t=${w:open+1:i-open-1}
+        case "$t" in *[{]*) ;; *,*) c=${t//[!,]/}; cnt=$((cnt * (${#c} + 1))); groups=$((groups + 1)) ;; *..*) bad=1 ;; esac
+      fi
+    fi
+    i=$((i + 1))
+  done
+  [ "$cnt" -le 64 ] || bad=1
+  STARRED=""
+  if [ -n "$bad" ]; then
+    out=""; i=0; d=0
+    while [ "$i" -lt "${#w}" ]; do
+      c=${w:i:1}
+      if [ "$c" = "{" ] && { [ "$i" -eq 0 ] || [ "${w:i-1:1}" != '$' ]; }; then
+        [ "$d" -ne 0 ] || open=${#out}
+        d=$((d + 1)); out="$out$c"
+      elif [ "$c" = "}" ] && [ "$d" -gt 0 ]; then
+        d=$((d - 1)); out="$out$c"
+        if [ "$d" -eq 0 ]; then
+          t=${out:open}
+          case "$t" in *,*|*..*) out="${out:0:open}*" ;; esac
+        fi
+      else out="$out$c"
+      fi
+      i=$((i + 1))
+    done
+    ALTS=( "$out" ); STARRED=1; return 0
+  fi
+  ALTS=(); todo=( "$w" )
+  while [ "${#todo[@]}" -gt 0 ]; do
+    x=${todo[${#todo[@]}-1]}; unset "todo[${#todo[@]}-1]"; todo=( ${todo[@]+"${todo[@]}"} )
+    if [[ $x =~ $BRACE_RE ]]; then
+      local pre=${BASH_REMATCH[1]} mid="${BASH_REMATCH[2]}," post=${BASH_REMATCH[3]}
+      while [ -n "$mid" ]; do todo[${#todo[@]}]="$pre${mid%%,*}$post"; mid=${mid#*,}; done
+    else
+      ALTS[${#ALTS[@]}]=$x
+    fi
+  done
+}
+alternation() {
+  local x="" todo=() out=() pre="" mid="" post="" a=""
+  todo=( "${ALTS[@]}" )
+  while [ "${#todo[@]}" -gt 0 ]; do
+    x=${todo[0]}; todo=( ${todo[@]+"${todo[@]:1}"} )
+    if [[ $x =~ $ALT_RE ]]; then
+      pre=${BASH_REMATCH[1]}; mid=${BASH_REMATCH[2]}; post=${BASH_REMATCH[3]}
+      if [[ $mid == *'|'* ]] && [[ $mid =~ $PLAIN_RE ]] && [ $(( ${#todo[@]} + ${#out[@]} )) -lt 60 ]; then
+        mid="$mid|"
+        while [ -n "$mid" ]; do todo[${#todo[@]}]="$pre${mid%%|*}$post"; mid=${mid#*|}; done
+      else
+        case "$pre" in */*) pre="${pre%/*}/" ;; *) pre="" ;; esac
+        case "$post" in */*) post="/${post#*/}" ;; *) post="" ;; esac
+        todo[${#todo[@]}]="$pre*$post"; STARRED=1
+      fi
+    else
+      out[${#out[@]}]=$x
+    fi
+  done
+  ALTS=( "${out[@]}" )
+}
+judge_alt() {
+  local w=$1 b="" walk="" c="" x=""
   case "$w" in
     *[*?[]*) ;;
-    *) abs_of "$w"; normalize "$R"; broad "$R"; return ;;
+    *) abs_of "$w"; case "$R" in *'$'*) return 1 ;; esac
+       physdots "$R"; normalize "$R"; broad "$R"; return ;;
   esac
-  b=$w
-  [ "$b" = / ] || b=${b%/}
-  while :; do
-    case "$b" in */\*|*/.\*|*/\*\*) b=${b%/*}; walk=1 ;; *) break ;; esac
-  done
+  b="/$w/"
+  while [ "${b//\/\*\*\*\//}" != "$b" ]; do b=${b//\/\*\*\*\//\/**\/}; done
+  b=${b#/}; b=${b%/}
+  b=${b//\[\^\/\]/[^$'\a']}; b=${b//\[\!\/\]/[!$'\a']}
+  case "/$b" in */\*\*/*) b=${b%%/\*\*/*}; walk=1 ;; esac
+  if [ -z "$walk" ]; then
+    while :; do
+      c=${b##*/}
+      case "$b" in
+        /|'') break ;;
+        */) b=${b%/} ;;
+        */.) b=${b%/.} ;;
+        */..) x=${b%/..}; c=${x##*/}; case "$c" in *[*?[]*) b=${x%/*}; walk=1 ;; *) break ;; esac ;;
+        */*) if [ "$c" = '.*' ] || [ "$c" = '**' ] || [[ $c =~ $WILD_RE ]]; then b=${b%/*}; walk=1; else break; fi ;;
+        *) break ;;
+      esac
+      [ -n "$b" ] || b=/
+    done
+  fi
   [ -n "$b" ] || b=/
   case "$b" in
-    *[*?[]*) abs_of "$b"; globbroad "$R" ;;
-    *) abs_of "$b"; normalize "$R"; broad "$R" ;;
+    *[*?[]*) abs_of "$b"; case "$R" in *'$'*) return 1 ;; esac; globbroad "$R" ;;
+    *) abs_of "$b"; case "$R" in *'$'*) return 1 ;; esac; physdots "$R"; normalize "$R"; broad "$R" ;;
   esac
+}
+judge() {
+  local w=$1 a="" e=""
+  BUDGET=$CAP
+  # r3c decision 6: an unquoted backslash escapes the next character
+  while [[ $w == *'\'* ]]; do e="$e${w%%\\*}"; w=${w#*\\}; e="$e${w:0:1}"; w=${w:1}; done
+  w="$e$w"
+  braces "$w"
+  alternation
+  for a in "${ALTS[@]}"; do
+    BUDGET=$CAP
+    if judge_alt "$a"; then return 0; fi
+  done
+  return 1
 }
 while IFS= read -r word; do
   if judge "$word"; then echo 1; else echo 0; fi
@@ -3272,3 +3419,268 @@ def test_r3c_scoped_searches_stay_allowed(hooks):
     """Review r2's check 3 and the brief's must-stay-allowed cases."""
     for command, cwd in R3C_ALLOWED:
         assert rule(run_hook(hooks["new"], command, cwd)) is None, (command, cwd)
+
+
+# ---------------------------------------------------------------- r3c: the property, the shells, the mounts
+
+R3C_PROPERTY_SEED = 20261027
+R3C_PROPERTY_CASES = 2400
+#: r3c's additions to the generator: components made only of wildcards (with a / inside brackets and
+#: ***), the trailing //, /., /./, /.. and <glob>/.. tails, the /Volumes/Macintosh HD prefix (and
+#: /Volumes/Boot, the fixture's link to /, standing in for it on this host), comma braces, zsh
+#: alternation, ~user, backslashes and the folded code points.
+R3C_WILD = ["?*", "*?", "[!.]*", "[0-9]*", "?", "[a-z]*", "*", "**", "***", ".*", "[^/]*", "[!/]*", "[[:alpha:]]*"]
+R3C_TAILS = ["", "", "", "", "/", "//", "/.", "/./", "/..", "/*/..", "/*//", "/*/./", "/?*"]
+R3C_NAMES = [n for n in PROP_NAMES if " " not in n]
+R3C_PREFIXES = PROP_PREFIXES + ["/Volumes/Boot", "/Volumes/Boot/Users/prop", "/Volumes/Macintosh HD/Users",
+                                "/Volumes/Macintosh HD", "/Volumes/Ext/Users/x", "~prop", "~other", "/VOLUMES/Boot/private"]
+
+
+def r3c_component(rng: random.Random) -> str:
+    roll = rng.random()
+    if roll < 0.05:
+        return rng.choice([".", "..", ""])
+    if roll < 0.17:
+        return rng.choice(R3C_WILD)
+    if roll < 0.25:
+        a, b = rng.sample(R3C_NAMES, 2)
+        return "{%s,%s}" % (a, b)
+    if roll < 0.28:
+        return rng.choice(["{a..c}*", "{%s,{x,y}}" % rng.choice(R3C_NAMES), "{,%s}" % rng.choice(R3C_NAMES)])
+    if roll < 0.35:
+        a, b = rng.sample(R3C_NAMES, 2)
+        return "(%s|%s)" % (a, b)
+    if roll < 0.37:
+        return "(%s*|zz)" % rng.choice(R3C_NAMES)[:2]
+    name = rng.choice(PROP_NAMES)
+    if rng.random() < 0.15:
+        name = "".join(ch.swapcase() if rng.random() < 0.5 else ch for ch in name)
+    if rng.random() < 0.25:
+        name = glob_component(rng, name)
+    if rng.random() < 0.1 and ("s" in name or "k" in name):
+        name = name.replace("s", "ſ", 1) if "s" in name else name.replace("k", "K", 1)
+    return name
+
+
+def r3c_property_words(rng: random.Random, n: int) -> list[str]:
+    words = []
+    while len(words) < n:
+        comps = [r3c_component(rng) for _ in range(rng.randint(0, 3))]
+        prefix = rng.choice(R3C_PREFIXES)
+        word = (prefix.rstrip("/") + ("/" + "/".join(comps) if comps else "")) or "/"
+        word += rng.choice(R3C_TAILS)
+        if rng.random() < 0.06:
+            # an unquoted backslash before a letter (decision 6; never before a metacharacter)
+            at = [i for i, ch in enumerate(word) if ch.isalpha() and i > len(prefix)]
+            if at:
+                i = rng.choice(at)
+                word = word[:i] + "\\" + word[i:]
+        if word != "/*":
+            words.append(word)
+    return words
+
+
+def test_r3c_property_the_hook_agrees_with_an_independent_reference(hooks):
+    """R3C_PROPERTY_CASES seeded words (R3C_PROPERTY_SEED): r3b's generator plus wildcard-only and bracket
+    components, the //, /., /./, /.. and <glob>/.. tails, the /Volumes/Macintosh HD prefix (and
+    /Volumes/Boot, a link to / in the fixture), comma braces and zsh alternation, ~user, backslashes, ***
+    and the folded code points. REFERENCE_SH (rewritten from the r3c brief, not from the hook) gives the
+    verdict. Every word without a backslash goes through the hook's functions (pw_word in context z, the
+    text rule by name for a word it leaves); every word with one, and 200 more, go through the whole hook
+    as ``rg -n foo <word>`` (a space escaped), where the shell form is the hook's own reading."""
+    rng = random.Random(R3C_PROPERTY_SEED)
+    words = r3c_property_words(rng, R3C_PROPERTY_CASES)
+    ref = reference_verdicts(words, PROP_HOME)
+    verdict = dict(zip(words, ref))
+    plain = list(dict.fromkeys(w for w in words if "\\" not in w))
+    got = dict(zip(plain, hook_word_verdicts(plain, PROP_HOME)))
+    differ = [(w, got[w], verdict[w]) for w in plain if got[w] != verdict[w]]
+    escaped = list(dict.fromkeys(w for w in words if "\\" in w))
+    sample = escaped + plain[:: max(1, len(plain) // 200)][:200]
+    commands = {w: "rg -n foo " + w.replace(" ", "\\ ") for w in sample}
+    outs = judge_prop(hooks["new"], list(commands.values()), home=PROP_HOME)
+    whole = [(w, verdict[w]) for w, c in commands.items() if (rule(outs[c]) == "unscoped-search") != verdict[w]]
+    report("property-r3c", {"seed": R3C_PROPERTY_SEED, "cases": len(words), "distinct": len(set(words)),
+                            "broad": sum(ref), "escaped": len(escaped), "differ": len(differ),
+                            "whole_hook": len(sample), "whole_hook_differ": len(whole),
+                            "braces": sum("{" in w for w in words), "alternation": sum("(" in w for w in words),
+                            "volumes": sum(w.lower().startswith("/volumes/") for w in words)})
+    assert differ == [], differ[:10]
+    assert whole == [], whole[:10]
+    assert len(escaped) > 50 and 0.2 < sum(ref) / len(ref) < 0.8
+
+
+def r3c_split(word: str, shell: str) -> list[str]:
+    """The word's components as the shell splits them: zsh keeps a / inside a bracket expression."""
+    if shell == "zsh":
+        word = re.sub(r"\[([!^]?)([^]]*)\]", lambda m: "[" + m[1] + m[2].replace("/", "\a") + "]", word)
+    return [c.replace("\a", "/") for c in word.split("/")]
+
+
+WILD_ONLY = re.compile(r"(\*|\?|\[[!^]?\]?([^]]|\[:[a-z]+:\])*\])+")
+
+
+def r3c_noglob(shell: str, word: str, home: str) -> list[str]:
+    """The words the shell makes of ``word`` before globbing (braces and ~), seam-relative."""
+    fs = str(_FS["root"])
+    text = fs + word if word.startswith("/") else word
+    env = {"PATH": os.environ["PATH"], "HOME": fs + home, "SUBFLEET_ROOT": fs + home + "/.subfleet",
+           "SUBFLEET_HOME": fs + home + "/.subfleet"}
+    if shell == "bash":
+        argv = ["/bin/bash", "--noprofile", "--norc", "-c", "set -f; for m in " + text + "; do printf '%s\\n' \"$m\"; done"]
+    else:
+        argv = ["/bin/zsh", "-f", "-c", "setopt NO_GLOB; for m in " + text + "; do print -r -- $m; done"]
+    out = subprocess.run(argv, capture_output=True, text=True, env=env, cwd=fs, timeout=60)
+    return [m[len(fs):] if m.startswith(fs) else m for m in out.stdout.splitlines()] if out.returncode == 0 else []
+
+
+def r3c_real(shell: str, word: str, home: str = FAKE_HOME) -> bool:
+    """The oracle: the word as the real shell expands it, over the fixture, names a root, reading the
+    hub's decision 1 as written: a trailing run of wildcard-only (or .*, **) components after the
+    trailing /, /. and <glob>/.. are taken off is the folder they sit in (zsh walks **/ and ***/), and a
+    glob directly in a folder of a .subfleet is that folder. Every match and folder is judged by
+    REFERENCE_SH as a written path (where links lead, .. after them, /Volumes/<entry>/x as /x)."""
+    fs = str(_FS["root"])
+    for w in (r3c_noglob(shell, word, home) if ("{" in word or "~" in word) else [word]):
+        comps = r3c_split(w, shell)
+        if shell == "zsh":
+            comps = ["**" if c == "***" else c for c in comps]
+            if "**" in comps[:-1]:
+                k = comps.index("**")
+                prefix = "/".join(comps[:k]) or "/"
+                if r3c_paths(shell, prefix, home):
+                    return True
+                continue
+        else:
+            comps = ["*" if c in ("**", "***") else c for c in comps]
+        walk = False
+        while len(comps) > 1:
+            last = comps[-1]
+            if last in ("", "."):
+                comps.pop()
+            elif last == ".." and len(comps) > 2 and GLOB_CHAR.search(comps[-2]):
+                comps = comps[:-2]; walk = True
+            elif last in (".*", "**") or WILD_ONLY.fullmatch(last):
+                comps.pop(); walk = True
+            else:
+                break
+        prefix = "/".join(comps) or "/"
+        if walk:
+            if r3c_paths(shell, prefix, home):
+                return True
+            continue
+        for k, comp in enumerate(comps):
+            if k and GLOB_CHAR.search(comp):
+                for parent in r3c_matches(shell, "/".join(comps[:k]) or "/", home):
+                    d = parent.rstrip("/")
+                    if ("/" + d).rsplit("/", 2)[-2].lower() == ".subfleet" and reference_cached([d], home)[0]:
+                        return True
+        if r3c_paths(shell, prefix, home):
+            return True
+    return False
+
+
+def r3c_matches(shell: str, word: str, home: str) -> list[str]:
+    if not GLOB_CHAR.search(word) and "(" not in word:
+        return [spelled_abs(word, home) or word]
+    fs = str(_FS["root"])
+    return [m[len(fs):] for m in shell_matches(shell, word, home) if m.startswith(fs + "/")]
+
+
+def r3c_paths(shell: str, word: str, home: str) -> bool:
+    return any(reference_cached(r3c_matches(shell, word, home), home))
+
+
+#: (word, the hook's verdict, the shells' verdict when it differs by design): the r3c glob, brace,
+#: alternation, bracket, *** and /Volumes/<entry> cases, in the tester home.
+R3C_SHELL_CASES = [
+    *((w, None) for w in (
+        "~/.subfleet/jobs/?*", "~/.subfleet/jobs/*?", "~/.subfleet/jobs/[!.]*", "~/.subfleet/jobs/[0-9]*",
+        "~/.subfleet/jobs/2026*", "~/.subfleet/jobs/*/a1", "~/.subfleet/jobs/*//", "~/.subfleet/jobs/*/./",
+        "~/.subfleet/jobs/*/.", "~/.subfleet/jobs/*/..", "~/PolicyEngine/?*", "~/PolicyEngine/*/.", "/tmp/?*",
+        "/usr/?*", "/tmp/sf-*", f"~/.subfleet/jobs/{JOB}/a1/*", "~/.subfleet/w*/2026*", "~/Pol*/?*",
+        "~/{PolicyEngine,TheAxiomFoundation}", "~/.{subfleet,cache}", "~/.sub{fleet,x}", "/U{sers,x}",
+        "/{tmp,x}", "~/{src,work}/repo", "~/{PolicyEngine,{a,b}}", "~/{a..z}*", "/Users/tester/{PolicyEngine,.subfleet}",
+        "~/{work,src}/*.py", "~/(PolicyEngine|TheAxiomFoundation)", "~/(.subfleet|x)", "~/(src|work)",
+        "~/(Pol*|x)", "/[^/]*", "~/[!/]*", "~/.subfleet/[^/]*", "~/***/x", "~/.subfleet/***/x",
+        "/Volumes/Boot/Users/tester/.subfleet/jobs/?*", "/Volumes/Boot/Users/*/.subfleet", "/Volumes/Boot/tmp/?*",
+        "/Volumes/Boot/U*", "/Volumes/Boot/Users/tester/work/repo/*.py", "/Volumes/Boot/Users/tester/Rul*")),
+    # by name inside a mount entry (decision 2): the hook lists nothing there, so a name a root can have
+    # counts whether or not it is there; the shells, following the fixture's link, find no such entry
+    ("/Volumes/Boot/Users/zz*", True), ("/Volumes/Boot/Users/glob/The*", True),
+]
+
+
+def test_r3c_globs_braces_and_alternation_agree_with_real_shells(hooks):
+    """The real-shell differential (r3c): each case is denied exactly when some expansion of it in
+    /bin/zsh -f or /bin/bash, over the fixture, names a root (``r3c_real``); alternation and a / inside
+    brackets are zsh's alone (bash refuses the first and splits the second). The documented exceptions
+    are the entry budget (none here) and decision 2's by-name reading inside a mount entry, listed with
+    the hook's verdict."""
+    commands = {w: "rg foo " + w.replace(" ", "\\ ") for w, _ in R3C_SHELL_CASES}
+    outs = judge_prop(hooks["new"], list(commands.values()), home=FAKE_HOME)
+    differ, counts = [], {"cases": len(R3C_SHELL_CASES), "denied": 0, "by_name": 0}
+    for word, by_name in R3C_SHELL_CASES:
+        denied = rule(outs[commands[word]]) == "unscoped-search"
+        shells = {"zsh": r3c_real("zsh", word)}
+        if "(" not in word:
+            shells["bash"] = r3c_real("bash", word)
+        counts["denied"] += denied
+        if by_name is not None:
+            counts["by_name"] += 1
+            if denied != by_name or any(shells.values()):
+                differ.append(("by name", word, denied, shells))
+        elif denied != any(shells.values()):
+            differ.append((word, denied, shells))
+    report("shells-r3c", counts)
+    assert not differ, differ[:10]
+
+
+R3C_MOUNT_WORDS = [
+    "/Volumes/Macintosh HD/Users/tester/.subfleet", "/Volumes/Macintosh HD/Users/*/.subfleet",
+    "/Volumes/Macintosh HD/Users/tester/.subfleet/jobs/2026*", "/Volumes/*/Users/*/x", "/V*/Macintosh HD/U*",
+    "/Volumes/Backup/Users/{a,b}", "/Volumes/Ma*/Users/tester/..", "/net/host/x/..", "/home/x/(a|b)",
+    "/Volumes/Backup/***/x", "/Volumes/Backup/?*", "/Volumes/Backup/inside/[!.]*", "/Network/*/..",
+    "/Volumes/Macintosh HD/inside/x", "/Volumes/Boot/Users", "/home/*/.subfleet/jobs/?*",
+]
+
+
+def test_r3c_nothing_inside_a_mount_is_read(tmp_path):
+    """r2's harness, the five disk functions wrapped: no word that names or globs a mount (r3c's
+    /Volumes/<entry> words by name, braces, alternation, .. and *** under a mount) lists or stats
+    anything inside /Volumes/<entry>, /Network, /net or /home. The fixture holds something in each."""
+    verdicts, calls = traced(R3C_MOUNT_WORDS + MOUNT_WORDS, tmp_path / "trace", fs=None, home=FAKE_HOME)
+    assert [c for c in calls if inside_a_mount(c[1])] == []
+    got = dict(zip(R3C_MOUNT_WORDS, verdicts))
+    assert got["/Volumes/Macintosh HD/Users/tester/.subfleet"] and got["/Volumes/Macintosh HD/Users/*/.subfleet"]
+    assert got["/Volumes/Macintosh HD/Users/tester/.subfleet/jobs/2026*"] and got["/V*/Macintosh HD/U*"]
+    assert got["/Volumes/Backup/?*"] and not got["/Volumes/Macintosh HD/inside/x"] and not got["/net/host/x/.."]
+
+
+#: The code points whose casefold is one ASCII letter while they are none (decision 6), each checked
+#: with os.path.samefile on this volume in round r3c: U+017F (long s) and U+212A (Kelvin sign).
+R3C_FOLDED = {"ſ": "s", "K": "k"}
+
+
+def test_r3c_folded_code_points_are_exactly_the_confirmed_set(tmp_path):
+    """Every code point whose casefold() is a single ASCII letter while it is not one is in R3C_FOLDED;
+    on a case-insensitive volume each names the same entry as its letter (os.path.samefile); and the
+    hook's pw_normalize folds exactly these, so ~/.ſubfleet and /Uſers are roots by name."""
+    found = {}
+    for cp in range(0x110000):
+        ch = chr(cp)
+        if 0xD800 <= cp <= 0xDFFF:
+            continue
+        folded = ch.casefold()
+        if len(folded) == 1 and folded.isascii() and folded.isalpha() and not (ch.isascii() and ch.isalpha()):
+            found[ch] = folded
+    assert found == R3C_FOLDED
+    (tmp_path / "Ab").mkdir()
+    if (tmp_path / "aB").exists() and os.path.samefile(tmp_path / "Ab", tmp_path / "aB"):
+        for ch, letter in found.items():
+            (tmp_path / f"x{letter}y").mkdir()
+            assert os.path.samefile(tmp_path / f"x{letter}y", tmp_path / f"x{ch}y"), hex(ord(ch))
+    paths = [f"/Users/me/x{ch}y" for ch in found] + ["/Uſers", "/Users/me/.ſubfleet", "/Ušers"]
+    body = 'while IFS= read -r p; do pw_normalize "$p"; printf "%s\\n" "$pw_n"; done'
+    out = run_r3_functions(body, "/Users/me", fs="/nonexistent-r3c-seam", stdin="".join(p + "\n" for p in paths))
+    assert out.stdout.splitlines() == ["/Users/me/xsy", "/Users/me/xky", "/Users", "/Users/me/.subfleet", "/Ušers"]
