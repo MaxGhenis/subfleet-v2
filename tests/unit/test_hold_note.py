@@ -103,7 +103,7 @@ def test_replacing_hold_takes_new_calls_note_or_none(operator, note):
 
 @pytest.mark.parametrize("note", [None, NOTE])
 @pytest.mark.parametrize("site", ["alert", "notice", "status", "capacity", "lanes", "why", "runs",
-                                  "pin-notice", "pin-failure", "brief", "conversation", "why-rejected"])
+                                  "pin-notice", "pin-failure", "brief", "conversation", "why-rejected", "why-queue", "why-retry"])
 def test_each_print_site_calls_an_operator_hold_held(operator, note, site):
     """C-9.6: every human closure display uses the operator wording and the latest bound."""
     closure = held(note)
@@ -130,6 +130,9 @@ def test_each_print_site_calls_an_operator_hold_held(operator, note, site):
             "rejections": [{"lane_id": "codex-1", "reasons": stuck["reasons"]}]}]})
         text = next(line for line in text.splitlines() if "rejected codex-1:" in line)
         assert f"closed:account:{UNTIL}" not in text
+    elif site in ("why-queue", "why-retry"):
+        text = "\n".join(render.why_queue({"job_id": "job", "state": "waiting", "hold": {
+            **stuck, "reason": "pin-unadmittable" if site == "why-queue" else "lanes-unadmittable"}}))
     elif site == "runs":
         text = cli._format_job({"job_id": "job", "state": "waiting", "notices": [
             {"state": "pending", "text": render.pin_notice("job", stuck, None)}]})
