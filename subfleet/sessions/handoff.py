@@ -390,6 +390,7 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
     ranges: list[tuple[int, int, str]] = []
     visible: dict[int, int] = {}
     owned: dict[int, tuple[int | None, int, tuple[int, int] | None]] = {}
+    keyed: dict[int, int | None] = {}
 
     def visible_end(at: int) -> int:
         # The end of the last visible character before `at`, walked back once per
@@ -495,6 +496,13 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
                     # value, which may be past the line, exactly as it would with no
                     # quote: the redaction ends before it (`_owned_item`, C-23.14).
                     item, fold = owned_before(opening.end(), visible_end(end))
+                    # But a flag whose name is a key with its separator on the next line
+                    # (`--password` and `=r` there) ends nothing: the union takes it with
+                    # the key's value, as for any other such key (#239 review r6, P2-1).
+                    if (last := visible_end(end)) not in keyed:
+                        keyed[last] = _key_past_line(text, 0, last)
+                    if keyed[last] is not None and keyed[last] >= opening.end():
+                        item = fold = None
                     if item is not None:
                         if item == opening.end():
                             continue                # the value is the item alone: its rule's

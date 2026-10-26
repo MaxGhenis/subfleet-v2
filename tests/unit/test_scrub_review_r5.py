@@ -1,7 +1,7 @@
 """C-23.14 (D-SCR2 fix round 5, #239 review r5): no mode of the head's scrubber shows a
 `SECRET7` value that 473fe2941 or release/217 (`c2e080e44`'s scrubber) hides, but the
-stated converse and the quoted-value join below, and an excerpt cut scrubs as the whole
-text does there.
+stated converse (and, through round 5, the quoted-value join below), and an excerpt cut
+scrubs as the whole text does there.
 
 `scrub_473fe2941` stands for both references, as in `test_scrub_review_r2` to `_r4`; the
 pre-#231 scrubber (`scrub_release217`, 3fbc4b7c5) is checked where `_failures` checks it.
@@ -24,10 +24,10 @@ Review r5's executed inputs are regressions, each failing at 8fde0c4ad:
   overwrote another's.
 
 P3-4, a quoted header value ending in a secret-named flag whose fold takes only the next
-line's first run, starting with `=` or `:`, is not fixed: it shows the line's next word in
-the excerpt, whole, `clean` and `detail_line` modes, where both references hide it only
-because their quoted pass's union joins the two lines for the header to take. Its output
-is pinned as the stated limitation C-23.14 names."""
+line's first run, starting with `=` or `:`, was stated here, not fixed: it showed the line's
+next word in the excerpt, whole, `clean` and `detail_line` modes. Fix round 6 (#239 review
+r6, P2-1) closes it, with its class (`test_scrub_review_r6`): its four inputs now give both
+references' output in every mode."""
 
 from __future__ import annotations
 
@@ -374,45 +374,40 @@ def test_two_threads_scrubbing_keep_the_single_thread_counts(monkeypatch):
     assert found == {0: alone, 1: alone}, (alone, found)
 
 
-# --- P3-4: a quoted header value's fold onto `=` or `:` (stated, not fixed) --------------
+# --- P3-4: a quoted header value's fold onto `=` or `:` (closed in fix round 6) ----------
 
 #: Review r5's input and its three siblings. Both references hide `SECRET7c5` in every mode:
 #: their quoted pass masks `"--1_token` and the fold's `=r` as one span, which joins the
-#: two lines, and the line-start header then takes the rest of the joined line. The head's
-#: quoted pass keeps the line break, so the word after the fold's run shows in the excerpt,
-#: whole and `clean` modes and in `detail_line`, whose inline header's value starts with
-#: `[REDACTED]` and is left alone; the plain daemon.log line's header takes it. Unquoted
-#: (`Authorization:--1_token`, or a plain run on the next line), both references show it
-#: too. Changing the folded line's skip closes `detail_line` alone, so it is not done; C-23.14
-#: states the case beside the converse. Pinned, mode by mode, at today's output.
+#: two lines, and the line-start header then takes the rest of the joined line. Through
+#: round 5 the head's quoted pass took the flag and the fold's run as two spans, and the
+#: header kept the flag's name as a key whose `=` is past the line, so the word after the
+#: run showed in the excerpt, whole, `clean` and `detail_line` modes. Since fix round 6
+#: (#239 review r6, P2-1) a flag whose name is such a key ends no quoted value, and the
+#: union takes it with the key's value, as both references do. Pinned, mode by mode, at
+#: both references' output.
 P3_4 = {
     "quoted-flag-equals": ('\nAuthorization:"--1_token\n=r SECRET7c5',
-                           ('\nAuthorization:[REDACTED]\n[REDACTED] SECRET7c5', 'Authorization:[REDACTED]\n[REDACTED] SECRET7c5',
-                            'Authorization:[REDACTED]',
-                            'request submit refused (ValueError): Authorization:[REDACTED] [REDACTED] SECRET7c5')),
+                           ('\nAuthorization:[REDACTED]', 'Authorization:[REDACTED]', 'Authorization:[REDACTED]',
+                            'request submit refused (ValueError): Authorization:[REDACTED]')),
     "quoted-digit-flag": ('\nAuthorization: "x --db2-password\n=r SECRET7c5',
-                          ('\nAuthorization: [REDACTED]\n[REDACTED] SECRET7c5', 'Authorization: [REDACTED]\n[REDACTED] SECRET7c5',
-                           'Authorization: [REDACTED]',
-                           'request submit refused (ValueError): Authorization: [REDACTED] [REDACTED] SECRET7c5')),
+                          ('\nAuthorization: [REDACTED]', 'Authorization: [REDACTED]', 'Authorization: [REDACTED]',
+                           'request submit refused (ValueError): Authorization: [REDACTED]')),
     "single-quoted-secret-flag": ("x\nCookie: '--SECRET7a1_token\n=r SECRET7c5",
-                                  ('x\nCookie: [REDACTED]\n[REDACTED] SECRET7c5', 'x\nCookie: [REDACTED]\n[REDACTED] SECRET7c5',
-                                   'x Cookie: [REDACTED] [REDACTED] SECRET7c5',
-                                   'request submit refused (ValueError): x Cookie: [REDACTED] [REDACTED] SECRET7c5')),
+                                  ('x\nCookie: [REDACTED]', 'x\nCookie: [REDACTED]', 'x Cookie: [REDACTED]',
+                                   'request submit refused (ValueError): x Cookie: [REDACTED]')),
     "quoted-flag-colon": ('\nAuthorization:"--1_token\n:r SECRET7c5',
-                          ('\nAuthorization:[REDACTED]\n[REDACTED] SECRET7c5', 'Authorization:[REDACTED]\n[REDACTED] SECRET7c5',
-                           'Authorization:[REDACTED]',
-                           'request submit refused (ValueError): Authorization:[REDACTED] [REDACTED] SECRET7c5')),
+                          ('\nAuthorization:[REDACTED]', 'Authorization:[REDACTED]', 'Authorization:[REDACTED]',
+                           'request submit refused (ValueError): Authorization:[REDACTED]')),
 }
 
 
-@pytest.mark.documented_limitation
 @pytest.mark.parametrize("text,pinned", P3_4.values(), ids=P3_4.keys())
-def test_a_quoted_header_s_flag_folding_onto_an_assignment_shows_the_next_word_as_stated(text, pinned):
-    """The stated limitation (C-23.14, beside the converse), pinned in all five modes; both
-    references hide `SECRET7c5` in each, and no excerpt cut or second scrub differs."""
+def test_a_quoted_header_s_flag_folding_onto_an_assignment_hides_the_next_word_as_both_references_do(text, pinned):
+    """Pinned in all five modes, each both references' output; no excerpt cut or second
+    scrub differs."""
     excerpt, clean, line, detail = pinned
     outputs = _outputs(handoff, text)
     assert outputs == {"excerpt": excerpt, "whole": excerpt, "clean": clean, "daemon.log line": line,
                        "detail_line": detail}
-    assert all("SECRET7c5" not in out for out in _outputs(base473, text).values())
+    assert _outputs(base473, text) == outputs
     assert _splits(text) == [] and _unstable(text) == {}
