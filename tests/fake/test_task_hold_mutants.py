@@ -4,7 +4,9 @@ Every scenario passes on the daemon as built (the baseline), and each mutant in
 `tests/task_hold_mutants.py` makes the scenario paired with it fail with that
 scenario's own message, so the test that catches it is the one it names. The
 build's seven, review r1's four (fix round 1), one per decision of fix round 1,
-and one each for fix round 2's F1 and F2.
+one each for fix round 2's F1 and F2, and one each for fix round 3's R3-1 and
+R3-2; fix round 3 (R3-3) gave round 1's two reset-demand mutants back their
+own definitions and scenarios that reach them with the commit's take intact.
 """
 
 from __future__ import annotations
@@ -200,6 +202,26 @@ def held_retry_spends_nothing():
     scenario()
 
 
+def look_under_way_takes_the_job():
+    """Fix round 3, R3-1: the first look at 10 stopped as C-11.8 opens the episode, the hold
+    committed, the look resumed; released at 50, the job fails at 110, not 70."""
+    from tests.fake.test_task_hold_clocks import look_under_way
+    with fresh_daemon() as (service, harness, clock, signals), pytest.MonkeyPatch.context() as patch:
+        configure(service, harness, lambda daemon: daemon.policy["admission"].update(pin_grace_s=60))
+        service.store.update_lane("codex-1", enabled=0)
+        build = submit(service, harness, "build", "build-1", pinned_lane="codex-1")
+        clock[0] = 10
+        with look_under_way(service, patch, "_stuck_pin"):
+            hold(service, "build", stamp(1000))
+        assert job(service, build)["wait_reason"] == "task-held", \
+            "T6-inflight: a look under way wrote its wait over the committed hold"
+        clock[0] = 50
+        release(service, "build")
+        service._admit()
+        assert service._pin_episodes.get(build, {}).get("fail_at") == stamp(110), \
+            "T6-inflight: the grace ran while the job was held"
+
+
 def offline_count_is_the_total():
     from subfleet import cli
     from subfleet.offline import Offline
@@ -270,6 +292,7 @@ SCENARIOS = {
     "release-skips-notify": (release_notifies_the_waiters, "T3-notify"),
     "pause-only-at-the-pass": (hold_no_pass_saw_pauses_the_grace, "T6-commit"),
     "keep-any-capacity-clock": (recheck_is_no_kept_deadline, "T6-recheck"),
+    "admission-writes-over-the-hold": (look_under_way_takes_the_job, "T6-inflight"),
 }
 
 

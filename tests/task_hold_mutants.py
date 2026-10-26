@@ -148,6 +148,13 @@ def keep_any_capacity_clock(patch):
     patch.setattr(Daemon, "_kept_retry", kept)
 
 
+def admission_writes_over_the_hold(patch):
+    """Fix round 3, R3-1: an admission write (an episode's opening, a pin failure, a wait) reads
+    no hold in its own transaction, as fix round 2 had it: a look under way when the hold commits
+    writes over `task-held`."""
+    patch.setattr(Daemon, "_task_held_at_write", lambda self, tx, job, holds, **kwargs: None)
+
+
 def offline_counts_the_display_cap(patch):
     """P3-1: status counts a hold's waiting jobs from the jobs it lists (offline: 50)."""
     original = task_holds.listing
@@ -202,4 +209,5 @@ MUTANTS = {
     "release-skips-notify": release_skips_notify,
     "pause-only-at-the-pass": pause_only_at_the_pass,
     "keep-any-capacity-clock": keep_any_capacity_clock,
+    "admission-writes-over-the-hold": admission_writes_over_the_hold,
 }

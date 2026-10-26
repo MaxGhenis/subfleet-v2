@@ -520,3 +520,58 @@ def test_a_late_finalizers_deadline_is_the_one_a_hold_keeps(held):
             assert retried_at(service, build) is None, ("R3-2: the retry started before its deadline", t)
         at(service, clock, 160)
         assert retried_at(service, build) == stamp(160)
+
+
+@pytest.mark.parametrize("site", ["route-deferral", "workspace-deferral", "admittable-again", "end-seen-late"])
+def test_every_admission_write_under_way_when_the_hold_commits_takes_the_job(site, monkeypatch):
+    """R3-1's fix, beyond r3's four inputs: every admission transaction that writes a job's wait
+    reads the task's hold in that transaction (`Daemon._task_held_at_write`). Each look below is
+    stopped as it reaches its write, the hold commits, and the look resumes; the job stays
+    `task-held` until the hold's end, and this pass reports it so:
+
+    - `route-deferral`: C-6.12's route wait (`_unroutable`);
+    - `workspace-deferral`: C-6.8's backoff (`_workspace_failed`);
+    - `admittable-again`: C-11.8's episode ending as its lane comes back (`_unstuck_pin`), which
+      set the job due at once: the episode stays open, its grace paused, for the end to give back;
+    - `end-seen-late`: a pass whose read of the holds came before a second hold committed found
+      the first one ended (`_task_hold_ended`), and gave the job its grace back over the second."""
+    with fresh_daemon() as (service, harness, clock, signals):
+        method = {"route-deferral": "_unroutable", "workspace-deferral": "_workspace_failed",
+                  "admittable-again": "_unstuck_pin", "end-seen-late": "_task_hold_ended"}[site]
+        if site == "route-deferral":
+            build = submit(service, harness, "build", "build-1")
+
+            def unroutable(*args, **kwargs):
+                raise daemon_module.Unroutable(RuntimeError("route probe"))
+            monkeypatch.setattr(service, "_prepare_route", unroutable)
+        elif site == "workspace-deferral":
+            build = submit(service, harness, "build", "build-1")
+
+            def unprepared(job_row):
+                raise daemon_module.SalvageError("workspace probe", transient=True, public="workspace probe")
+            monkeypatch.setattr(service, "_workspace", unprepared)
+        else:
+            build = stuck(service, harness, clock, "pinned")
+            clock[0] = 10
+            if site == "admittable-again":
+                service.store.update_lane("codex-1", enabled=1)
+            else:
+                hold(service, "build", stamp(30))           # ends by its clock, seen by no pass
+                clock[0] = 50
+        with look_under_way(service, monkeypatch, method):
+            hold(service, "build", stamp(1000))
+        row = job(service, build)
+        assert (row["state"], row["wait_reason"], row["next_check_at"]) == ("waiting", "task-held", stamp(1000)), \
+            (f"R3-1: {method} under way wrote over the committed hold", dict(row))
+        assert service._holds[build]["reason"] == "task-held"
+        assert attempts(service, build) == []
+        if site in ("admittable-again", "end-seen-late"):
+            # The grace left: 50 s at the hold's start at 10; or, held 10 to 30 and not held 30 to 50,
+            # 30 s at the second hold's start at 50. As the store has it (a pass reads it next look).
+            episode = service._load_pin_episodes(build)[build]
+            left = 50 if site == "admittable-again" else 30
+            assert episode["open"] and episode["paused_s"] == left, episode
+            clock[0] = 500
+            assert release(service, "build")["woken"] == 1
+            row = job(service, build)
+            assert (row["wait_reason"], row["next_check_at"]) == ("capacity", stamp(500 + left))
