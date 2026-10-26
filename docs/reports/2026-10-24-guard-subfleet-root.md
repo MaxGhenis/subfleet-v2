@@ -16,12 +16,16 @@ globs and mounts of the Claude half's snapshot-5 (its roots, normalized and in a
 links followed except under a mount that may stall; globs component by component). Round r3c
 (2026-10-26, "r3c" below) closes the walk-arounds of the hub's review r2 (REQUEST_CHANGES at
 `674abdac7`): globs that match every entry, `/Volumes/<entry>` paths, braces and zsh's
-alternation, links before `..`, searchers named by path or quote, and the other escapes. Nothing
-here touches the live guard; the hub installs it with the steps below.
+alternation, links before `..`, searchers named by path or quote, and the other escapes. Round r4
+(2026-10-26, "r4" below) closes those of the hub's review r3 (REQUEST_CHANGES at `d9d4f355e`): a `..`
+after a glob, a `**/` after a wildcard, every script a shell or `eval` runs, searchers after keywords,
+wrapper options and quotes, brace groups across a `/`, hostile words' cost, a device on stdin,
+print-and-exit forms, `~$USER`, `$"…"` and `/Volumes/<entry>/..`. Nothing here touches the live
+guard; the hub installs it with the steps below.
 
 ## What changed
 
-**The hook** (`private/guard/never-rules-hook.sh`, SHA-256 `7a5ad79d…1a1a` after r3c; r3b's
+**The hook** (`private/guard/never-rules-hook.sh`, SHA-256 `4b382c29…79ec` after r4; r3c's was `7a5ad79d…1a1a`, r3b's
 was `f952fd3e…131e`, r3's `2c3fbc1a…d7cf`, r2's `dbe21e1d…041c`). Two alternations join the roots in `broad_re`:
 
 ```
@@ -59,7 +63,7 @@ region's header comments, and since r3c the prefilter's third term, `pw_cmd` in 
 (`dbe21e1d…`); then it undoes D-LANE-SCOPE1's text edits, the two `sed` edits and the `broad_re`
 line and gets the original reviewed bytes (`a60d1c51…`) back.
 
-**TRUST** (`68936faf…c91a` after r3c; r3b's was `0d5dac0f…54d8`, r3's `12b5f31a…58a2`, r2's `aa09f53d…a2f0`). It is built on the installed TRUST of 2026-09-29 (`b3193b97…`, the
+**TRUST** (`807f0e8b…7fb4` after r4; r3c's was `68936faf…c91a`, r3b's `0d5dac0f…54d8`, r3's `12b5f31a…58a2`, r2's `aa09f53d…a2f0`). It is built on the installed TRUST of 2026-09-29 (`b3193b97…`, the
 `codex-cli 0.159.0` pin), not on the repository's copy at `abe117e67` (`0b9d688e…`, which still
 pins `codex-cli 0.153.3`; a TRUST built on it would refuse every Codex lane at preflight with
 VERSION, `subfleet/guard/preflight.py:649-650`). It has the same keys. `hook_sha256` is
@@ -544,10 +548,210 @@ r3's and r3b's 23 mutants were not run (the 17-mutant driver waits for the Budge
 of their edits whose text r3c moved are retargeted at the new code, and every edit in the driver
 matches the hook exactly once.
 
-**Hashes for the install.** The new pair: hook
+**r3c's pair** (superseded by r4's, below): hook
 `7a5ad79d3f7db4c3c08bf07b8455344a4bdae3e66224218094b398cdf1091a1a`, TRUST
 `68936fafa42f885c29fadd9b48c2de48ace5e1ccd29b9c0cee0a09ad9e1ac91a`. The installed pair step 0
 expects, and the rollback: hook `a60d1c51…`, TRUST `b3193b97…` (unchanged by r3c).
+
+## r4: review r3's walk-arounds closed (2026-10-26)
+
+**Why.** The hub's review r3 (REQUEST_CHANGES at `d9d4f355e`) confirmed three more ways around the
+rule, each through the whole hook and in real `/bin/zsh -f` and `/bin/bash`: a `..` after a glob
+climbs out of the judged prefix (`find ~/.sub*/jobs/<id>/.. -name AGENTS.md` is the incident's
+crawl), a `**/` after a wildcard-only component is not read as its folder
+(`rg foo ~/PolicyEngine/*/**/*.py`), and shell and `eval` scripts the r3c unwrap missed
+(`bash -euo pipefail -c 'rg --files ~/.subfleet'`, `eval 'rg' --files ~/.subfleet`); and seven
+P3s. Every input below is review r3's; the pins run through the whole hook in the fixture seam
+(home `/Users/tester`).
+
+**The decisions as built** (the hub's numbering):
+
+1. **A `..` anywhere after a glob is folded** (`pw_fold`). Each `<component>/..` after a word's
+   first glob component is folded away by name; a `..` that reaches back into the literal part
+   before it stays, and `pw_physdots` applies it physically (r3c's decision 4). The word is broad
+   when the folded or the unfolded reading is. In the unfolded reading `pw_globbroad` now keeps a
+   candidate that a later `..` may climb out of, broad or not, so that `..` is applied to it
+   physically: `rg --files ~/w*/jl/..` (`jl` a link into a job folder) is denied. Review r3's four
+   inputs are pinned, with `rg --files ~/.subfleet/jobs/*/../..`.
+2. **A `**/` after a wildcard-only component.** The trailing-run loop (1(a)/1(b)) runs on the part
+   before a `**/` whether or not the word walks, so `~/PolicyEngine/*/**/*.py`, `…/?*/**/*.py`,
+   `…/[!.]*/**/*.py` and `/tmp/*/**/x` are their folders. `~/work/*/**/*.py` and a lane
+   worktree's `W/*/**/*.py` pass.
+3. **Every shell and `eval` script is judged.** The scripts moved from the judge pass to the
+   command prep (`pw_prep_awk`), so the searcher detection and the cwd rule see them too: each
+   script is added to `pw_cmd` as its own lines, each line led by `\003<context>\003` and a space
+   (`b` in a script run by bash, sh, dash or ksh without globstar, `z` otherwise), and itself read
+   the same way, to depth 4 (a deeper searcher still adds r3c's deny). A shell invocation is read
+   word by word (`shstep`): `-o X`, `+o X`, `-O X`, `+O X`, a cluster ending in `o` or `O`
+   (`-euo pipefail`), `--rcfile X` and `--init-file X` take the next word, `--` or `-` ends the
+   options, the shell's name is read dequoted (`"bash"`, `'bash'`, `/bin/b\ash`), and the first
+   other word is the `-c` script. `eval`'s arguments are joined (a leading `--` dropped). A shell
+   given no script (or `-s`) reads its here-string, or what an `echo`, `print`, `printf` (its
+   arguments joined by newlines, as snapshot-5 joins them) or `cat <<<` piped into it writes. A
+   `$'…'` is decoded as bash decodes it (`\xHH`, `\NNN`, `\'`, `\n` and the rest), in the prep's
+   reading of words and in the judge pass's script reading; the run regexes end a `$'…'` at its
+   real closing quote. The prefilter gains a fifth term for a `$'…'` holding an escape. Review r3's
+   inputs, `+o`, `+O`, `--rcfile`, `printf` and `cat <<<` forms, and `echo … | sudo -u root bash`
+   are pinned; `nest(…, 4)` stays allowed and five deep stays denied.
+4. **Searcher detection matches snapshot-5's.** In command position the prep skips shell keywords
+   (snapshot-5's KEYWORDS: `if`, `then`, `else`, `elif`, `while`, `until`, `do`, `!`, `{`, `}`,
+   `done`, `fi`, `esac`, `coproc`, and `function NAME`; a function body's `{` is the `{` after
+   `f()`), assignments, redirections, and the wrappers, matched by basename (`/usr/bin/env`), with
+   snapshot-5's WRAPPERS table of options that take a value (`sudo -u`, `timeout -s`/`-k`, `exec
+   -a`, `env -u`/`-C`/`-S`, `xargs -I`/`-n`/…, `nice -n`, `time -o`/`-f`, `stdbuf`, `caffeinate`,
+   `ionice`, `doas`, `gtimeout`, `chronic`, `unbuffer`, `noglob`, `nocorrect`) and timeout's
+   duration. A name is read dequoted (`r''g`, `r\g`, `"r"g`, `$'rg'`, `f\ind`), and the prefilter's
+   fourth term reads a dequoted copy of the command. The segment regexes see the canonical name
+   wherever the prep writes it: the prep splits a segment at a backtick as at `(`, writes a space
+   after a backtick or a `)`, and keeps `>&`, `<&` and `&>` inside their segment. Every input of
+   review r3's P3-1 is pinned, with `nice -n 5 /usr/bin/find /` (review r3's surviving mutant), and
+   the overlay doc's false "stricter" sentence is gone.
+5. **Brace groups.** The groups are found in one pass with a stack (`pw_groups`); a `${…}` span is
+   skipped, so `{/Users/${USER},x}/.subfleet` is a comma group of `/Users/${USER}` and `x`. A word
+   whose group is read as `*` (nested, a sequence, or more than 64 words) and holds a `/` or a `..`
+   component is denied (`pw_fc`); that fails closed on a rare form (`rg foo src/{a,b/c}{1..9}` in a
+   worktree would be denied). Review r3's five inputs are pinned, with `rg --files ~/.subfleet ~/{a`.
+6. **Cost on hostile words fails closed.** A path word with more than 64 `{` or `[`, or over 4 KB
+   (bytes), is broad without being scanned (`pw_capped`; its message says so). The brace scan is
+   one pass (`pw_groups`), and the bracket scans (`pw_brackets`, `pw_pattern`) stop where a bracket
+   that never closed walked. **Deviation, with its counterexample:** a word of 2,040 components in
+   4,080 bytes (`/a/a/…`, under the 4 KB cap) cost 7.4 s in `pw_physical` alone (r3c's loop as
+   well), so a word with more than 256 components is capped too; it is then 0.08 s. Further cost
+   fixes, none changing a verdict: counts and splits by field splitting (bash's `${x//…}` took 13 s
+   on a 10 KB word, and `${x%%…}` is quadratic too), a word's folder resolved once and kept for the
+   next word (`pw_pcd`, `pw_pcr`), a plain deep word in a folder already resolved with no link
+   judged with one lstat, the plain absolute word sent straight to the written-path judgment, the
+   stall check and the alias folding without option toggles, pass 1's output split in memory, and
+   awk's `sform` and `value` returning a run with no quote, backslash or `$` as it is.
+7. **A device or a closed stdin is no pipe.** rg's stdin is taken as its redirections leave it, in
+   order: a here-string, a heredoc or a `<` from a file is readable, a `<` from any `/dev/` file
+   (`</dev/null`, `< /dev/null`, `0</dev/null`, `</dev/zero`) or `<&-` is not, and `<&N` stays
+   readable. **Deviation:** a redirection on another fd (`3<file`) leaves stdin as it was; r3c
+   counted any `<` as stdin. A pipe and a file stay as r3c built them.
+8. **Print-and-exit forms walk nothing.** A simple command whose searcher prints and exits is read
+   as `:`, as a depth bound is: rg's `--help`, `-h`, `--version`, `-V`, `--type-list`,
+   `--generate`, `--pcre2-version`; find's `-help`, `--help`, `-version`, `--version`; and grep's
+   `--help`, `-V`, `--version` (snapshot-5's `grep_model`; an addition to the brief's list), each as
+   an option of its own, not another option's value (`rg -e --version`, `rg -g --version foo`,
+   `find -name --version`, `rg -- --version` stay denied from the home).
+9. **The unlisted forms.** `~$USER`, `~${USER}` and `~$(whoami)` are read as the home; `$"…"` is
+   read as `"…"`, in a path word and in a script; and a searcher's `/Volumes/<entry>/..` is also
+   read with the entry as `/`, so `"/Volumes/Macintosh HD/../Users/me/.subfleet"` is the home's
+   `.subfleet` (the by-name reading, `/Volumes/Users/…`, is still judged too). zsh's `:h`
+   modifiers are named under "qualifiers are not judged" in the known limits.
+10. **The overlay doc and the known limits** are rewritten from the code (below and in
+    `docs/private-guard-overlay.md`).
+11. **TRUST** changes only `hook_sha256`; no decision changes what the provenance says, so no
+    sentence is added. Step 0 lists the installed pair and the reviewed pair; the rollback pair
+    stays `a60d1c51…`/`b3193b97…`.
+
+**Commits.** `c4667dc7e` red tests; `537b71e23` the hook, decisions 1–9 in one commit (the command
+prep carries 3, 4, 7 and 8, and the word judge 1, 2, 5, 6 and 9, through the same functions), with
+the fence's `R4_TEXT`; `e46212414` TRUST; then the cost fixes found by the hostile-word timing (the
+256-component cap, the folder walk without recursion, the field splits and the awk fast paths), the
+mutation driver, and the docs.
+
+**Red at `d9d4f355e`.** Through the scratch probe (the fixture seam): of the 71 inputs that must be
+denied, 68 were allowed and three denied (review r3's surviving-mutant pins: `eval 'rg --files
+~/.subfleet'`, `nice -n 5 /usr/bin/find / -name x`, `rg --files ~/.subfleet ~/{a`), and the six
+print-and-exit forms were denied from the home; the installed hook allowed all 77. All 13 r4 tests
+failed (`c4667dc7e` against the r3c hook), including the 300-path cost (median 6.2 s against the
+installed hook's 1.8 s) and a hostile word past the 120 s run limit.
+
+**The real shells.** `test_r4_command_pins_agree_with_real_shells` runs each command pin and
+must-allow form (119) in `/bin/zsh -f` and `/bin/bash` over the fixture, with stub `rg`, `find` and
+grep-family searchers (and stub `sudo`, `doas`, `timeout`, `gtimeout` that run the rest) that record
+their argv, cwd and stdin; a run walked a root when a path the stub would have walked (snapshot-5's
+models, cut down) is broad by REFERENCE_SH. The hook denies a command exactly when either shell
+walked a root:
+
+| The shells walked a root | Commands | The hook |
+| --- | --- | --- |
+| both | 75 | denied |
+| zsh only (`~$USER`, `~${USER}`, `~$(whoami)`: bash leaves them literal) | 3 | denied |
+| bash only (`$"…"` and `bash -c $"…"`: zsh reads `$` and the string) | 2 | denied |
+| neither (the must-allow forms, print-and-exit, scoped scripts and wrappers) | 39 | allowed |
+
+`"/Volumes/Macintosh HD/../Users/tester/.subfleet"` is among the 75 by its documented by-name
+reading (the fixture holds no link to `/` for the boot volume's alias). Decision 2's walks are the
+shell's own, so `test_r4_words_agree_with_real_shells` checks 13 words with the word oracle
+(`r4_real`: r3c's, with decision 2 as written); they agree.
+
+**Timing** (best of three for the hostile words; medians of five interleaved runs for 300 paths):
+
+| Run, load | 1,000 unclosed `{` | `/[` ×1,000 | 10,000 commas | 2,040 components | 64 `{` in 4 KB | 64 `/[` in 4 KB | 300 paths, new / installed |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| red (r3c hook), ~50 | timed out (> 120 s) | | | | | | 6.2 s / 1.8 s |
+| hold 1 (`e46212414`), 106 | 1.79 s | 3.61 s | 7.90 s | | 6.18 s | 5.98 s | 5.52 s / 4.76 s (1.16×) |
+| direct, final cost fixes, 92–118 | 1.11 s | 1.64 s | 1.69 s | 1.16 s | 2.37 s | 5.09 s | 1.50 s / 1.03 s (1.46×) |
+
+At low load (32) the capped words took 0.21–0.35 s. The two scanned edge words (64 `{` or `[` in
+just under 4 KB) are judged and denied, but are slower than 2 s at load ~100: the residual cost,
+reported (`R4_CAP_EDGE`) and not bounded.
+
+**r4's runs.** The 3-hour mark (21:38Z) fell after hold 3 was admitted, so three holds ran under
+the shared lock, all at `e46212414` (hook `efa86362…`); the cost fixes and the hook's last two edits
+came after, and the final head was checked by direct runs outside the lock (the fixture seam, four
+workers at most), each named below with the hook it ran:
+
+| Run | Started, load | Hook | Selection | Result |
+| --- | --- | --- | --- | --- |
+| hold 1 | 21:03Z slot B, 106 | `efa86362…` | the 13 r4 tests | 12 passed; the hostile timing failed (the table above) |
+| hold 2 | 21:19Z slot A, 86 | `efa86362…` | `test_guard_overlay.py` and the three guards | 85 passed (22 and 63) in 340 s |
+| hold 3 | 21:31Z slot B, 72 | `efa86362…` | r3c's ten items other than its property | 10 passed in 757 s (past the 10-minute split I meant to keep) |
+| direct 1 | 21:57Z, ~100 | `c00b29ee…` | r4 (not the shells), r3c's examples, the fence, TRUST | 21 passed; the hostile timing failed |
+| direct 2 | 22:21Z, 92–118 | `8bff5b29…` | the two timing tests | 300 paths passed (1.46×); the hostile test failed on the two cap-edge words, which then moved to `R4_CAP_EDGE` |
+| direct 3 | 22:25Z, 88 | `8bff5b29…` | r4's pins and allowed lists, the overlay file, the pin tests | 34 passed |
+| direct 4 | 22:30Z | `8bff5b29…` | r3b's and r3c's properties, the fence, TRUST | 4 passed; both properties failed (3 and 8 words, all a `..` after a glob or a `/Volumes/<entry>/..`: decisions 1 and 9, which REFERENCE_SH did not have yet) |
+| direct 5 | 22:52Z, 89 | `8bff5b29…` | both properties, REFERENCE_SH extended from the r4 brief | r3b's passed (0 of 2,400); r3c's 1 (my reference reused the name `fold`) |
+| direct 6 | 23:02Z | `8bff5b29…` | r3c's property | 0 of 2,400 at function level; 25 of 298 through the whole hook (a hook bug: the space the prep wrote after a `)` split zsh alternation words; fixed) |
+| direct 7 | 23:12Z | `4b382c29…` (final) | r3c's property | passed: 0 of 2,400, 0 of 298 |
+| direct 8 | 23:20Z | `4b382c29…` (final) | r4 but its two timing tests, the fence, TRUST, the overlay pin | 16 passed in 936 s, both real-shell tests among them (119 commands: 80 denied, zsh walked 78, bash 77; 13 words) |
+
+**REFERENCE_SH for r4** (written from the r4 brief, not from the hook): a written path also reads a
+`/Volumes/<entry>/..` from `/` (`written`); a glob word is judged as written and with each
+`<component>/..` after its first glob component folded (`dotfold`), broad if either is; the trailing
+run is read before a `**/` too; and between components a candidate a later `..` may climb out of
+stays. The generator is unchanged.
+
+**Counts per file at the final head** (`4b382c29…`): `test_guard_subfleet_root.py` has 94 items (81
+r3c, 13 r4). At the final hook: the 11 r4 tests but the two timing tests, the fence and the four TRUST
+tests (direct 8), r3c's property (direct 7); at `8bff5b29…`, which differs from it only in the
+backtick space: r3b's property and the timing tests (directs 5 and 2); at `efa86362…`: r3c's other
+ten items (hold 3). `test_guard_overlay.py`: 22 passed at `efa86362…` (hold 2), the pin test again at
+the final head (direct 8). The three guards: 63 passed (hold 2).
+
+
+**Mutants** (named only, under the Budget hold: none was run this round). Each edit is checked to
+match the hook exactly once; the driver now runs r4's and review r3's first.
+
+| Mutant (decision) | Edit | Killing test |
+| --- | --- | --- |
+| `r4-fold-dropped` (1) | `pw_fold` returns the word unfolded | `test_r4_dotdot_after_a_glob_is_folded` |
+| `r4-tree-loop-skipped` (2) | the trailing-run loop skipped after a `**/` cut | `test_r4_a_tree_glob_after_a_wildcard_component_is_its_folder` |
+| `r4-scripts-dropped` (3) | no script is extracted | `test_r4_every_shell_and_eval_script_is_judged` |
+| `r4-keywords-dropped` (4) | keywords are not skipped | `test_r4_searchers_after_keywords_wrappers_and_quotes_are_found` |
+| `r4-starred-slash-allowed` (5) | a starred group with `/` or `..` passes | `test_r4_brace_groups_that_span_a_slash_or_climb_fail_closed` |
+| `r4-cap-dropped` (6) | `pw_capped` never caps | `test_r4_hostile_words_fail_closed_fast` |
+| `r4-device-is-stdin` (7) | any `<` is stdin again | `test_r4_a_device_or_a_closed_stdin_is_no_pipe` |
+| `r4-meta-walks` (8) | print-and-exit forms walk | `test_r4_print_and_exit_forms_walk_nothing` |
+| `r4-tilde-user-dropped` (9) | `~$USER` is not read as the home | `test_r4_the_unlisted_forms_are_judged` |
+| `r3c-wrappers-env-only` (review r3) | only `env` is a wrapper | `test_r4_searchers_after_keywords_wrappers_and_quotes_are_found` |
+| `r3c-unbalanced-brace-allows` (review r3) | an unclosed `{` exits 0 | `test_r4_brace_groups_that_span_a_slash_or_climb_fail_closed` |
+| `r3c-physical-stall-guard-dropped` (review r3) | `pw_physical` resolves under a mount | `test_r3c_nothing_inside_a_mount_is_read` |
+| `r3c-in-mount-glob-lists` (review r3) | a glob inside a mount entry lists it | `test_r3c_nothing_inside_a_mount_is_read` |
+| `r3c-eval-unwrap-dropped` (review r3) | `eval`'s script is not judged | `test_r4_every_shell_and_eval_script_is_judged` |
+
+Review r3's three survivors' pins are in the r4 tests: `nice -n 5 /usr/bin/find /`
+(`R4_NAMES_DENIED`), `rg --files ~/.subfleet ~/{a` (`R4_BRACES_DENIED`) and `eval 'rg --files
+~/.subfleet'` (`R4_SCRIPTS_DENIED`). Five earlier edits whose text r4 moved (`r3c-braces-dropped`, `slash-star-left-as-text`,
+`r3c-wild-only-dropped`, `case-sensitive-roots`, `non-last-keeps-all`) are retargeted at the new
+code; the driver holds 49 mutants.
+
+**Hashes for the install.** The new pair: hook
+`4b382c2920a50b0a517e3d70979c931338d654868e564508f127f95285b479ec`, TRUST
+`807f0e8b745ba09bb5b89be8392e5e90b6d8d2a157942d01f5e18d94758f7fb4`. The installed pair step 0
+expects, and the rollback: hook `a60d1c51…`, TRUST `b3193b97…` (unchanged by r4).
 
 ## Invariants and how they were checked
 
@@ -780,13 +984,13 @@ the first three entries below into D-LANE-SCOPE2.
 - **r3b's limits.** The shared one (decision 6): a link inside a listed folder that points into a
   mount that may stall is still resolved, as a written path's links are; snapshot-5 has the same.
   Also: the cwd list is unchanged (a `.` search sitting in `/usr` passes); a symlink loop is left
-  unresolved; a `?` in a glob matches one byte of a non-ASCII name; a script under
-  `bash -O globstar -c` is read as zsh (its `**/` walks), which matches; and a `bash -c` script
-  that spans lines loses its context (its `**/` walks).
+  unresolved; a `?` in a glob matches one byte of a non-ASCII name; and a script under
+  `bash -O globstar -c` is read as zsh (its `**/` walks), which matches. (r4 took a `bash -c` script
+  that spans lines: the prep reads it whole and adds it in its context.)
 - **r3c's limits.** A glob inside a mount entry is judged by name (root names plus any other
   name) and never listed, so it over-approximates (`/Volumes/Ext/Users/zz*` is denied though
   nothing matches) and does not see a link there (`"/Volumes/Macintosh HD/Users/me/"link-to-*`);
-  a link among the matches of a `<glob>/..` is not followed (1(a) reads it as the folder);
+  a link among the matches of a `<glob>/..` is followed since r4 only where the folder is listed;
   a bare `*` between two plain names under a folder that is listed is judged by its matches
   (`rg -l foo ~/*/src` passes; under a folder that is not, it is no match: `~/PolicyEngine/*/src`
   passes, as snapshot-5 has it); an unquoted depth-bound spelling used as a value still exempts
@@ -794,6 +998,21 @@ the first three entries below into D-LANE-SCOPE2.
   without the outer command's cd; and a top-level word is read the zsh way only, which for every
   r3c form denies whatever bash's reading would (bash refuses `(a|b)`, leaves `/[^/]*` unmatched
   and reads `**` and `***` as `*`), so "deny if either shell denies" holds without a second pass.
+- **r4's limits.** Shared with snapshot-5 and still open: zsh qualifiers and glob modifiers are not
+  judged (`*(/)`, and `:h`: `rg foo ~/work/repo(:h:h)` walks the home and passes), nor are `<1-9>`
+  and extendedglob forms; a glob in a folder that cannot hold a root is not listed, so a link inside
+  it is not followed (`rg x src/link-u*`), also before a `..` (`~/work/r*/jl2/../..` with `jl2` a
+  link into a job folder is read by name); a link inside a mount entry, and a link in a listed
+  folder that points into a mount that may stall (still resolved); paths fed by xargs
+  (`… | xargs -n1 find`); a script read from a file or a process substitution
+  (`bash <(echo 'rg …')`, `bash script.sh`); and ag, `git grep --no-index`, tree, du and `ls -R`.
+  This overlay's own: `~+` is not judged (the cwd, as a relative path) and `~-` is read as a user
+  named `-`; the fold goes by name, so it over-approximates where the folded component does not
+  exist (`…/link-to-hom*/lf.log/..` is denied with no `lf.log` there), as decision 1 has it; a brace
+  group read as `*` that holds a `/` or a `..` component fails closed (`rg foo src/{a,b/c}{1..9}`
+  in a worktree is denied); and the cap's scanned edge (64 `{` or `[` in just under 4 KB) costs
+  seconds at load ~100. The differences from snapshot-5 in either direction are listed in
+  `docs/private-guard-overlay.md`, "Known differences that remain after r4".
 - **Over-approximations shared with every root.** With xargs running a searcher, a new root
   anywhere in the command counts (`ls -t ~/.subfleet/jobs | head -5 | xargs -I{} rg -l foo ~/.subfleet/jobs/{}/a1`
   and `… | xargs rg foo > ~/.subfleet/out.log` are denied); a `cd ~/.subfleet` (or a child) with
@@ -822,9 +1041,9 @@ could time out).
    shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST
    # a60d1c514d3a3bcec68c246a33c849c11fd37e1bdf60d886650cd9d6651390db  …/never-rules-hook.sh
    # b3193b97d712bda6a5cc0f2447907e674f7ed90911a82d7709de8298b42aaa06  …/TRUST
-   shasum -a 256 private/guard/never-rules-hook.sh private/guard/TRUST   # the reviewed pair (r3c)
-   # 7a5ad79d3f7db4c3c08bf07b8455344a4bdae3e66224218094b398cdf1091a1a  private/guard/never-rules-hook.sh
-   # 68936fafa42f885c29fadd9b48c2de48ace5e1ccd29b9c0cee0a09ad9e1ac91a  private/guard/TRUST
+   shasum -a 256 private/guard/never-rules-hook.sh private/guard/TRUST   # the reviewed pair (r4)
+   # 4b382c2920a50b0a517e3d70979c931338d654868e564508f127f95285b479ec  private/guard/never-rules-hook.sh
+   # 807f0e8b745ba09bb5b89be8392e5e90b6d8d2a157942d01f5e18d94758f7fb4  private/guard/TRUST
    ```
 
 1. **Stage through the repository's staging path**, into a fresh state root on the same volume
@@ -861,7 +1080,7 @@ could time out).
    EOF
    cmp private/guard/never-rules-hook.sh ~/.subfleet/guard/never-rules-hook.sh
    cmp private/guard/TRUST ~/.subfleet/guard/TRUST
-   shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST   # 7a5ad79d…1a1a, 68936faf…c91a
+   shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST   # 4b382c29…79ec, 807f0e8b…7fb4
    ls -la ~/.subfleet/guard
    ```
 
