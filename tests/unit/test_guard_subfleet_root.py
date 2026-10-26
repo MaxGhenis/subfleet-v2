@@ -2880,3 +2880,217 @@ def test_r3b_property_the_hook_agrees_with_an_independent_reference(hooks):
     assert differ == [], differ[:10]
     assert whole == [], whole[:5]
     assert 0.2 < sum(ref) / len(ref) < 0.8
+
+
+# ---------------------------------------------------------------- r3c: review r2's walk-arounds closed
+
+# Round r3c (2026-10-26, the hub's decisions 1-8 on review r2 at 674abdac7):
+#   1. a glob that matches every entry is the folder it sits in: (a) trailing /, /. and <glob>/.. are
+#      normalized first; (b) a last component made only of wildcards (?, *, brackets) under a broad root
+#      is that root; (c) any glob directly in a folder of ~/.subfleet (jobs, worktrees, ...) is that folder;
+#   2. /Volumes/<entry>/<rest> is judged by name as /<rest>, never stat'ed or resolved;
+#   3. comma braces are expanded (64 at most) and zsh's (a|b) judged by its alternatives; a nested group,
+#      a {x..y} sequence or more than 64 reads each group as *;
+#   4. a searcher's .. after a link is resolved physically, as find and rg resolve it (cd's stays logical);
+#   5. searchers are found by basename (a path, a backslash or a quote before the name, egrep, fgrep, rgrep,
+#      ugrep, $(which X) and `which X`);
+#   6. backslash escapes, ***, a / inside brackets, APFS's folded code points, $'...', ~user, a bare cd and a
+#      searcher with no path, nesting to depth 4, and a depth bound only for its own command;
+#   7-8. the sentences, the message's root list, TRUST and the install steps.
+#: r3c's fixture entries: links whose .. leads into ~/.subfleet (decision 4), and a link standing in for
+#: /Volumes/Macintosh HD, which is a link to / on this host (decision 2's differential).
+def nest(command: str, depth: int, shell: str = "sh") -> str:
+    """``command`` run through ``depth`` levels of ``shell -c``, each quoting the next."""
+    for _ in range(depth):
+        command = f"{shell} -c {shlex.quote(command)}"
+    return command
+
+
+R3C_LAYOUT = [
+    ("Users/tester/work/jl", "link", f"../.subfleet/jobs/{JOB}"),
+    ("Users/tester/work/repo/wt", "link", "../../.subfleet/worktrees/20261024-115939-guardscope-build"),
+    ("Volumes/Boot", "link", ".."),
+]
+FS_LAYOUT += R3C_LAYOUT
+FS_DIGEST = hashlib.sha256(json.dumps(FS_LAYOUT).encode()).hexdigest()
+LANE_W = FAKE_HOME + "/.subfleet/worktrees/20261024-115939-guardscope-build"
+MAC = "/Volumes/Macintosh HD"
+
+#: Review r2's P2-1: globs that match every entry, and the trailing //, /./, /. and /.. forms
+#: (decision 1). (command, the root the message names).
+R3C_WILD_DENIED = [
+    ("rg --files ~/.subfleet/jobs/?*", "~/.subfleet/jobs/?* (glob)"),
+    ("rg --files ~/.subfleet/jobs/*?", "~/.subfleet/jobs/*? (glob)"),
+    ("rg --files ~/.subfleet/jobs/[!.]*", "~/.subfleet/jobs/[!.]* (glob)"),
+    ("rg --files ~/.subfleet/jobs/[0-9]*", "~/.subfleet/jobs/[0-9]* (glob)"),
+    ("find ~/.subfleet/jobs/?* -name AGENTS.md", "~/.subfleet/jobs/?* (glob)"),
+    ("rg --files ~/.subfleet/worktrees/?*", "~/.subfleet/worktrees/?* (glob)"),
+    ("rg --files $SUBFLEET_ROOT/jobs/?*", "$SUBFLEET_ROOT/jobs/?* (glob)"),
+    ("rg --files ~/PolicyEngine/?*", "~/PolicyEngine/?* (glob)"),
+    ("rg --files /tmp/?*", "/tmp/?* (glob)"),
+    ("rg --files /usr/?*", "/usr/?* (glob)"),
+    ("rg --files ~/.subfleet/jobs/*//", "~/.subfleet/jobs/*// (glob)"),
+    ("rg --files ~/.subfleet/jobs/*/./", "~/.subfleet/jobs/*/./ (glob)"),
+    ("rg --files ~/.subfleet/jobs/*/.", "~/.subfleet/jobs/*/. (glob)"),
+    ("rg --files ~/.subfleet/jobs/*/..", "~/.subfleet/jobs/*/.. (glob)"),
+    ("grep -r x ~/.subfleet/jobs/*/..", "~/.subfleet/jobs/*/.. (glob)"),
+    ("rg --files ~/PolicyEngine/*/.", "~/PolicyEngine/*/. (glob)"),
+    # 1(c): a glob directly in a folder of ~/.subfleet is that folder (reverses r3's jobs/2026*)
+    ("rg x ~/.subfleet/jobs/2026*", "~/.subfleet/jobs/2026* (glob)"),
+    ("rg -l foo ~/.subfleet/jobs/*/a1", "~/.subfleet/jobs/*/a1 (glob)"),
+    ("rg foo ~/.subfleet/jobs/link-u*", "~/.subfleet/jobs/link-u* (glob)"),
+    # decision 6: a / inside a bracket expression does not split components (zsh)
+    ("rg --files /[^/]*", "/[^/]* (glob)"),
+    ("find /[!/]* -name x", "/[!/]* (glob)"),
+    ("rg --files ~/[!/]*", "~/[!/]* (glob)"),
+    ("rg --files ~/.subfleet/[^/]*", "~/.subfleet/[^/]* (glob)"),
+]
+#: Review r2's P2-2: the boot volume's alias, and an external disk's Users (decision 2).
+R3C_VOLUMES_DENIED = [
+    (f'rg --files -g AGENTS.md "{MAC}/Users/tester/.subfleet"', f"{MAC}/Users/tester/.subfleet"),
+    (f'find "{MAC}/Users" -name AGENTS.md', f"{MAC}/Users"),
+    (f'rg --files "{MAC}/Users/tester"', f"{MAC}/Users/tester"),
+    (f'rg --files "{MAC}/tmp"', f"{MAC}/tmp"),
+    (f'rg --files "{MAC}/private/tmp"', f"{MAC}/private/tmp"),
+    (f'rg --files "{MAC}/Users/"*/.subfleet', f"{MAC}/Users/*/.subfleet (glob)"),
+    (f'rg --files "{MAC}/Users/tester/.subfleet/jobs/"2026*', f"{MAC}/Users/tester/.subfleet/jobs/2026* (glob)"),
+    ("rg --files /Volumes/Ext/Users", "/Volumes/Ext/Users"),
+    ("find /Volumes/Ext/Users/someone/PolicyEngine -name x", "/Volumes/Ext/Users/someone/PolicyEngine"),
+    (f'rg --files "{MAC}/"U*', f"{MAC}/U* (glob)"),
+    (f'rg --files "{MAC}/Users/"t*', f"{MAC}/Users/t* (glob)"),
+]
+#: Review r2's P2-3: braces and zsh's alternation (decision 3).
+R3C_BRACES_DENIED = [
+    ("find ~/{PolicyEngine,TheAxiomFoundation} -name x", "~/{PolicyEngine,TheAxiomFoundation}"),
+    ("rg -l foo ~/{PolicyEngine,TheAxiomFoundation}", "~/{PolicyEngine,TheAxiomFoundation}"),
+    ("rg -l foo /Users/tester/{PolicyEngine,.subfleet}", "/Users/tester/{PolicyEngine,.subfleet}"),
+    ("rg -l foo ~/.{subfleet,cache}", "~/.{subfleet,cache}"),
+    ("rg --files ~/.sub{fleet,x}", "~/.sub{fleet,x}"),
+    ("rg --files /U{sers,x}", "/U{sers,x}"),
+    ("rg --files /{tmp,x}", "/{tmp,x}"),
+    ("rg --files ~/(PolicyEngine|TheAxiomFoundation)", "~/(PolicyEngine|TheAxiomFoundation)"),
+    ("find ~/(.subfleet|x) -name AGENTS.md", "~/(.subfleet|x)"),
+    # other groups read as *: nested, a sequence, more than 64 results, an alternation that is no plain name
+    ("rg --files ~/{PolicyEngine,{a,b}}", "~/{PolicyEngine,{a,b}} (glob)"),
+    ("rg --files ~/{a..z}*", "~/{a..z}* (glob)"),
+    ("rg --files ~/{a,b,c,d,e,f,g,h,i}{1,2,3,4,5,6,7,8}", "~/{a,b,c,d,e,f,g,h,i}{1,2,3,4,5,6,7,8} (glob)"),
+    ("rg --files ~/(Pol*|x)", "~/(Pol*|x) (glob)"),
+    ("rg --files {~,/tmp/x}/.subfleet", "{~,/tmp/x}/.subfleet"),
+    ("rg --files ~/.subfleet/{jobs,src}", "~/.subfleet/{jobs,src}"),
+]
+#: Review r2's P3-1: a link followed by .. (decision 4), from the fixture's ~/work.
+R3C_DOTS_DENIED = [
+    ("rg --files ~/work/jl/..", "~/work/jl/.."),
+    ("rg --files ~/work/repo/wt/..", "~/work/repo/wt/.."),
+    ("find /Users/tester/work/jl/.. -name x", "/Users/tester/work/jl/.."),
+]
+#: Review r2's P3-2: searchers the detection missed (decision 5).
+R3C_SEARCHERS_DENIED = [
+    "/usr/bin/find / -name x", "/usr/bin/grep -r x ~", "/opt/homebrew/bin/rg --files ~/.subfleet",
+    "\\rg --files ~/.subfleet", '"rg" --files ~/.subfleet', "'rg' --files ~/.subfleet",
+    "$(which rg) --files ~/.subfleet", "$(command -v rg) --files ~/.subfleet", "`which rg` --files ~/.subfleet",
+    "egrep -r x ~/.subfleet", "fgrep -r x ~/.subfleet", "rgrep x ~/.subfleet", "ugrep -r x ~/.subfleet",
+    '"/usr/bin/find" ~/.subfleet -name x', "env /usr/bin/rg --files ~/.subfleet",
+    # a searcher right after a quote (r2's known limit, now detected)
+    "bash -c 'rg --files ~/.subfleet'", "bash -c 'find / -name x'", "eval 'grep -r x ~/.subfleet/jobs'",
+]
+#: Review r2's P3-3: the other escapes (decision 6). (command, cwd).
+R3C_FORMS_DENIED = [
+    ("rg --files /Users/tester/.sub\\fleet", S_), ("rg --files ~/.s\\ubfleet/jobs", S_), ("rg --files /\\Users", S_),
+    ('rg --files "$HOME/.sub\\fleet"', S_), ("rg --files ~/***/x", S_), ("rg --files ~/.subfleet/***/x", S_),
+    ("rg --files ~/.ſubfleet", S_), ("rg --files /Uſers", S_), ("rg --files ~/.subfleet/worKtrees", S_),
+    ("rg --files ~/$'.subfleet'", S_), ("rg --files ~tester/.subfleet", S_), ("rg --files ~tester/PolicyEngine", S_),
+    ("cd && rg --files", S_), ("cd; rg --files .", S_), ("cd -- && find . -name x", S_),
+    ("rg foo", FAKE_HOME), ("grep -r foo", FAKE_HOME), ("rg --files | head", FAKE_HOME), ("find -name x", "/"),
+    ("ps | grep -r foo", FAKE_HOME),
+    ("bash -c 'bash -c \"true; rg --files ~/.subfleet\"'", S_),
+    (nest("true; rg --files /tmp", 4), S_),
+    ("rg --files ~/.subfleet # --max-depth", S_),
+    ("git commit -m 'drop --max-depth' && rg --files ~/.subfleet", S_),
+    ("rg --max-depth 1 foo ~ && rg --files ~/.subfleet", S_),
+]
+#: Five levels of sh -c, each quoting the next: a searcher deeper than 4 is denied, even a scoped one.
+R3C_DEEP = nest("true; rg --files src", 5)
+#: Review r2's check 3 (25 scoped searches inside a lane worktree and scratch, and roots in pattern
+#: position) and the brief's must-stay-allowed cases: (command, cwd).
+R3C_ALLOWED = [
+    ("rg foo .", LANE_W), ("rg foo src", LANE_W), ("rg foo", LANE_W), ("rg --files", LANE_W),
+    ("rg foo " + LANE_W, S_), ('rg foo "' + LANE_W + '"', S_), ("rg foo ~/.subfleet/worktrees/20261024-115939-guardscope-build", S_),
+    ("rg foo $HOME/.subfleet/worktrees/20261024-115939-guardscope-build/", S_),
+    ("rg foo $SUBFLEET_ROOT/worktrees/20261024-115939-guardscope-build", S_),
+    ("rg foo " + LANE_W + "/*", S_), ("grep -r foo " + LANE_W + "/**/*.py", S_), ("cd " + LANE_W + " && rg foo", S_),
+    ("rg foo /var/folders/9l/x/T/sf-lane", S_), ("rg foo /private/var/folders/9l/x/T/sf-lane", S_),
+    ("rg foo /tmp/lane", S_), ("rg foo /tmp/sf-*", S_), ("rg foo $(getconf DARWIN_USER_TEMP_DIR)sf-*", S_),
+    ('rg foo "$(getconf DARWIN_USER_TEMP_DIR)"sf-*', S_),
+    (f"rg foo ~/.subfleet/jobs/{JOB}/a1/out.md", S_), (f"rg foo ~/.subfleet/jobs/{JOB}/a1/*", S_),
+    (f"grep -rn x ~/.subfleet/jobs/{JOB}/a1", S_), ("rg -n ERROR ~/.subfleet/daemon.log", S_),
+    ("rg '/usr' src", LANE_W), ("rg -g '/Library/*' foo src", LANE_W), ("rg -e '/usr' src", LANE_W),
+    # decision 3: braces and words that are no path words, in a lane worktree
+    ("rg foo src/{a,b}.py", LANE_W), ("rg foo {src,tests}", LANE_W),
+    # decision 4: cd's .. stays logical; decision 2: a scoped path under a mount entry
+    ("cd ~/work/jl/.. && rg foo", S_), (f'rg foo "{MAC}/Users/tester/work/repo"', S_), ("rg foo /Volumes/Ext/src/x", S_),
+    # decision 5: a searcher named through a variable stays a known limit
+    ("RG=rg; $RG --files ~/.subfleet", S_),
+    # decision 6: rg reading a pipe or a file, and a no-path search outside a root
+    ("ps aux | rg foo", FAKE_HOME), ("rg foo < log.txt", FAKE_HOME), ("rg foo", S_), ("grep -r foo", S_),
+    # the depth bound in the searcher's own command still exempts it, nested too
+    ("rg --max-depth 1 foo ~/.subfleet", S_), ("bash -c 'find ~ -maxdepth 1 -name x'", S_),
+    ("cd ~ && rg --max-depth 1 foo", S_), ("echo ~ | xargs rg --max-depth 1 foo", S_),
+    (nest("rg --files src", 4), S_), (nest("rg --files src", 3, "bash"), S_),
+    # decision 1: a glob below a job, and words that list nothing
+    ("rg x /*/foo", S_), ("rg x /*/*.py", S_), ("rg foo /Volumes/*/x*", S_), ("bash -c 'rg foo /**/*.py'", S_),
+]
+
+
+def test_r3c_globs_that_match_every_entry_are_their_folder(hooks):
+    """Decision 1 on review r2's P2-1 list: wildcard-only last components, the trailing //, /./, /.
+    and <glob>/.. forms, a glob directly in a folder of ~/.subfleet, and a / inside brackets."""
+    for command, root in R3C_WILD_DENIED:
+        out = run_hook(hooks["new"], command)
+        assert rule(out) == "unscoped-search", command
+        assert matched_root(out) == root, (command, matched_root(out))
+
+
+def test_r3c_volumes_entries_are_judged_as_the_rest_of_the_path(hooks):
+    """Decision 2 on review r2's P2-2 list: /Volumes/<entry>/<rest> is judged by name as /<rest>."""
+    for command, root in R3C_VOLUMES_DENIED:
+        out = run_hook(hooks["new"], command)
+        assert rule(out) == "unscoped-search", command
+        assert matched_root(out) == root, (command, matched_root(out))
+
+
+def test_r3c_braces_and_alternation_are_judged_by_their_alternatives(hooks):
+    """Decision 3 on review r2's P2-3 list (the test file's own Claude example included)."""
+    for command, root in R3C_BRACES_DENIED:
+        out = run_hook(hooks["new"], command, "/tmp/work")
+        assert rule(out) == "unscoped-search", command
+        assert matched_root(out) == root, (command, matched_root(out))
+
+
+def test_r3c_dotdot_after_a_link_is_physical(hooks):
+    """Decision 4 on review r2's P3-1: jl leads to a job folder and wt to a worktree, so .. is jobs and
+    worktrees, as find and rg resolve it."""
+    assert fs_path(FAKE_HOME + "/work/jl").is_symlink() and fs_path(FAKE_HOME + "/work/repo/wt").is_symlink()
+    for command, root in R3C_DOTS_DENIED:
+        out = run_hook(hooks["new"], command)
+        assert rule(out) == "unscoped-search", command
+        assert matched_root(out) == root, (command, matched_root(out))
+
+
+def test_r3c_searchers_are_found_by_basename(hooks):
+    """Decision 5 on review r2's P3-2 list, and a searcher right after a quote."""
+    for command in R3C_SEARCHERS_DENIED:
+        assert rule(run_hook(hooks["new"], command)) == "unscoped-search", command
+
+
+def test_r3c_the_other_escapes_are_closed(hooks):
+    """Decision 6 on review r2's P3-3 list: backslashes, ***, the folded code points, $'...', ~user, a
+    bare cd and a searcher with no path, double nesting, depth past 4, and a depth bound elsewhere."""
+    for command, cwd in R3C_FORMS_DENIED + [(R3C_DEEP, S_)]:
+        assert rule(run_hook(hooks["new"], command, cwd)) == "unscoped-search", (command, cwd)
+
+
+def test_r3c_scoped_searches_stay_allowed(hooks):
+    """Review r2's check 3 and the brief's must-stay-allowed cases."""
+    for command, cwd in R3C_ALLOWED:
+        assert rule(run_hook(hooks["new"], command, cwd)) is None, (command, cwd)
