@@ -833,8 +833,8 @@ answer, CLI output, an alert, a notice or a published file.
 
 **Reading a hold's note through the strict `hold_note_of`, as text:**
 - `render.closure_line` and `render.closure_text` (`_held_text`). These serve
-  the `status` text, `operations.brief`, the `readings` text, and `why`'s and
-  `run --dry-run`'s text.
+  the `status` text, `operations.brief`, the `readings` answer's `status` text,
+  and the `why` answer's `text` (`render.why`).
 - `alerts.fleet_empty_body` (`closure_note`). This serves the alert body, the
   session notice, the alert latch's kept words, and `status.json`'s `alerts`.
 
@@ -857,6 +857,8 @@ answer, CLI output, an alert, a notice or a published file.
   no closure rows.
 - `daemon._open_closures` and `_pin_view`: internal route and pin views.
 - `tools/compare_decisions.py`: the chosen model and lane, and the reason.
+- `cli._format_decision`, the text `why` and `run --dry-run` print: each
+  evaluation's reason, candidates and rejections, and no closure row.
 
 **Writers and copies, not readers:**
 - the re-enrollment copy (`daemon.py:1275`), which copies a stored source as
@@ -926,9 +928,9 @@ admitted at once.
 | Hold | Tree | What ran | Result | Load at start → end |
 | --- | --- | --- | --- | --- |
 | red, 10:25 | `349b81601`: `09ce84d32`'s code with the red tests | the round's new and changed tests in `test_status_hold_source.py` (`-k`) | **33 failed, 12 passed** in 11 s, as intended. The 12 passes are the tests whose behaviour already held: the guard cases the old guard caught (literal `==`, SQL `LIKE`, the f-string with the literal), the five pinned misses, the pass case, the D-SCR-URL1 pin, I4, and P3-5 (the >160 rule exists at the base) | 25.7 → 29.0 |
-| R1 red, 10:30 | the same tree, R1 applied | `test_r2_p3_5_…` and three others | `test_r2_p3_5_…` **failed** with R1, against passing without it. The other three failed for their own decisions: `test_hold_note_accepts_…` on the strict read, I5 on `éhttps://…`, and P3-2 on the `lanes` list | about 29 |
-| 1, 10:35 | the head's code, uncommitted | `test_status_hold_source.py` | **115 passed** in 82 s | 15.6 → 23.0 |
-| mutants, 10:40 | export of `2fee10928` | R1, M15, M16, M17 | baseline passed (10 tests); **4 of 4 killed** | 34.99 → 30.7 |
+| R1 red, 10:30 | the same tree, R1 applied | `test_r2_p3_5_…` and three others | `test_r2_p3_5_…` **failed** with R1, against passing without it. The other three failed for their own decisions: `test_hold_note_accepts_…` on the strict read, I5 on `éhttps://…`, and P3-2 on the `lanes` list | not recorded (29.0 two minutes before) |
+| 1, 10:35 | the head's code before it was committed (one docstring changed after) | `test_status_hold_source.py` | **115 passed** in 82 s | 15.6 → 23.0 |
+| mutants, 10:40 | export of `2fee10928` | R1, M15, M16, M17 | baseline passed (10 tests); **4 of 4 killed** | 36.9 → 30.7 |
 | A, 10:42 | `2e1f8c702` | `test_status_hold_source.py`, `frontend/test_status_model.py`, the three contract guards | **204 passed** in 199 s: 115, 26, `fake/test_state_contract` 37, `test_test_module_names` 1, `test_invariants_index` 25 | 35.1 → 35.9 |
 | B, 10:46 | `2e1f8c702` | `test_cli.py` | **256 passed** in 45 s; `test_ping_continuous_input_has_a_total_deadline` passed at load 33 | 33.5 → 23.0 |
 | C, 10:47 | `2e1f8c702` | beyond the brief's list: 11 existing tests that drive the readers this round routed (`why` against the recorded decision, the `why` walk over the socket, `run --dry-run`, `error_report`, `release --limits`, the `lanes` list with a transaction open, the hold/limit interleaving property) | **20 passed** in 27 s | 23.6 → 33.3 |
