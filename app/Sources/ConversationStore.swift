@@ -196,11 +196,19 @@ func composerSteerHost(conversation: Conversation, timeline: Timeline?, capabili
 /// DESIGN.md sections 7 to 9): the person's message, not already being steered,
 /// not a slash command or shell input, that a running turn would take.
 func canSteer(messageID: String, conversation: Conversation, timeline: Timeline?, capabilities: Capabilities?) -> Bool {
+    queuedSteerHost(messageID: messageID, conversation: conversation, timeline: timeline,
+                    capabilities: capabilities) != nil
+}
+
+/// The running turn a queued message would be steered into now (`canSteer`), or nil.
+func queuedSteerHost(messageID: String, conversation: Conversation, timeline: Timeline?,
+                     capabilities: Capabilities?) -> SteerHost? {
     guard let timeline, let turn = timeline.turn(messageID), turn.messageState == .queued, !turn.steerRequested,
           turn.origin == "person", steerable(text: turn.personText ?? ""),
-          let host = runningSteerHost(in: timeline, provider: conversation.provider, capabilities: capabilities)
-    else { return false }
-    return steerPermits(turn.settings?.permission, into: host)
+          let host = runningSteerHost(in: timeline, provider: conversation.provider, capabilities: capabilities),
+          steerPermits(turn.settings?.permission, into: host)
+    else { return nil }
+    return host
 }
 
 /// What Esc does while a turn runs (DESIGN.md sections 8 and 9).
@@ -1105,9 +1113,10 @@ final class ConversationEngine {
     /// Journal a steer of a queued message (C-24.9); sending is `pump`. A refusal
     /// leaves the message queued, and the report says why. `into` is the running
     /// turn the person steers into: a steer that reaches the daemon after that
-    /// turn ended is refused (`no-live-turn`), never joined to the next one.
+    /// turn ended is refused (`no-live-turn`), never joined to the next one. The
+    /// app always names it (`UIModel.steer`); every caller passes it explicitly.
     @discardableResult
-    func steer(messageID: String, conversationID: String, into: String? = nil) throws -> OutboxSteer {
+    func steer(messageID: String, conversationID: String, into: String?) throws -> OutboxSteer {
         try outbox.enqueueSteer(conversation: conversationID, messageID: messageID, into: into)
     }
 
