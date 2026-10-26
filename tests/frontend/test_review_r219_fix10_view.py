@@ -114,9 +114,12 @@ def test_completion_before_scroll_cannot_release_a_distant_opening_reveal(fix8_v
     diagnostic = json.dumps({"failure_trace": opening_trace(run), "run": run}, sort_keys=True)
     print("completion before scroll: " + diagnostic)
     assert result["visible_windows"] == 0, diagnostic
-    # The order under test: the first completion arrives with the clip still at the end.
+    # The order under test: the first completion arrives with the clip still at the end. The
+    # probe's gate (round 8) puts it there in the request's own turn: mount-time scheduling had
+    # let a loaded opening's pin still be settling (69.5 pt in round 7, 24 pt in review r6).
     early = run["early_completions"]
     assert run["completion_first"] and len(early) == 2, diagnostic
+    assert "gated_from" in early[0] and "gated_from" not in early[1], diagnostic
     assert early[0]["position"]["from_end"] <= END, diagnostic
     assert run["caught_up"] and run["reveal_consumed"] and run["notices"] == 2, diagnostic
     assert run["after_open"]["from_end"] > 600, diagnostic

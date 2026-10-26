@@ -1090,12 +1090,31 @@ struct SettlingPageView: View {
 // presented, the order a loaded opening recorded (both completions arrived with
 // the clip still at the old end). Registered once the view is mounted, after the
 // view's own request observer, so the completion matches the current request.
-@MainActor func completeBeforeScroll(_ cid: String, started: Date, host: @escaping () -> NSView?,
+// With `gate` (round 8), the first request's order is established rather than
+// hoped for: in the request's own main-actor turn the probe applies pending layout,
+// puts the clip at the end as the opening pin does, samples it and completes. The
+// SearchRevealer's mount-time 250 ms schedule had let a loaded host's opening pin
+// still be settling (69.5 pt from the end in round 7's run, 24 pt in review r6's).
+@MainActor func completeBeforeScroll(_ cid: String, started: Date, host: @escaping () -> NSView?, gate: Bool = false,
                                      record: @escaping ([String: Any]) -> Void) -> NSObjectProtocol {
-    NotificationCenter.default.addObserver(forName: .conversationRowScroll, object: nil, queue: nil) { note in
+    var gated = false
+    return NotificationCenter.default.addObserver(forName: .conversationRowScroll, object: nil, queue: nil) { note in
         guard note.object as? String == cid, let request = note.userInfo?["request"] as? UUID else { return }
         MainActor.assumeIsolated {
-            record(["at": Date().timeIntervalSince(started), "position": host().map { sample($0) } ?? [:]])
+            var entry: [String: Any] = [:]
+            if gate && !gated, let mounted = host(), let scroll = timelineScroll(mounted),
+               let document = scroll.documentView {
+                gated = true
+                (scroll.window?.contentView ?? scroll).layoutSubtreeIfNeeded()
+                let clip = scroll.contentView
+                let end = document.isFlipped ? max(document.bounds.minY, document.bounds.maxY - clip.bounds.height)
+                    : document.bounds.minY
+                entry["gated_from"] = sample(mounted)
+                clip.scroll(to: NSPoint(x: clip.bounds.minX, y: end))
+                scroll.reflectScrolledClipView(clip)
+            }
+            entry.merge(["at": Date().timeIntervalSince(started), "position": host().map { sample($0) } ?? [:]]) { _, new in new }
+            record(entry)
             ConversationOpeningPin.didRevealRow(in: cid, request: request)
         }
     }
@@ -1155,7 +1174,7 @@ struct SettlingPageView: View {
                             onMount: { mounted in
         host = mounted
         if completionFirst {
-            earlyObserver = completeBeforeScroll(name, started: started, host: { host }) { early.append($0) }
+            earlyObserver = completeBeforeScroll(name, started: started, host: { host }, gate: true) { early.append($0) }
         }
         let clip = timelineScroll(mounted)?.contentView
         clip?.postsBoundsChangedNotifications = true
