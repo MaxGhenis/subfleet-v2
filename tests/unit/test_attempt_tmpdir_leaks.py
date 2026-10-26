@@ -1001,11 +1001,14 @@ def test_put_back_never_replaces_a_name_that_reappeared(tmp_path, monkeypatch, c
 # --- r2: removal checks the folder before it changes its mode or renames it ----------------------
 
 @pytest.mark.parametrize("rule", RULES)
+@pytest.mark.parametrize("mode", [0o500, 0o000], ids=lambda mode: f"{mode:04o}")
 def test_a_locked_directory_swapped_in_before_removal_is_neither_changed_nor_moved(tmp_path, monkeypatch, caplog,
-                                                                                     rule):
+                                                                                     mode, rule):
     """A directory of this user's, without owner write, renamed into the
     allocation's place after `presence()` looked. Removal refuses it before it
-    changes any mode or renames anything: the check before the mode change (r2)."""
+    changes any mode or renames anything: the check before the mode change (r2).
+    For 0500, the descriptor's check refuses it too (r3); for 0000, which no
+    open admits, the check by name is all that stands before a change by name."""
     scratch = manager(tmp_path)
     record = scratch.create("job/a1")
     path = Path(record["path"])
@@ -1020,7 +1023,7 @@ def test_a_locked_directory_swapped_in_before_removal_is_neither_changed_nor_mov
         if where == "present":
             os.rename(path, scratch.root / "moved-away")
             os.rename(victim, path)
-            os.chmod(path, 0o500)
+            os.chmod(path, mode)
         return where
 
     real_rename, moved = os.rename, []
@@ -1037,7 +1040,8 @@ def test_a_locked_directory_swapped_in_before_removal_is_neither_changed_nor_mov
             patch.setattr(os, "rename", recording)
             assert scratch.remove(record, subject(), verified_empty=True) is None
         assert moved == [], "refused before any rename"
-        assert stat.S_IMODE(path.lstat().st_mode) == 0o500, "and before any mode change"
+        assert stat.S_IMODE(path.lstat().st_mode) == mode, "and before any mode change"
+        os.chmod(path, 0o700)
         assert (path / "keep").read_text() == "dummy"
         assert "TMPDIR removal refused for job/a1: its folder was swapped" in caplog.messages
     finally:

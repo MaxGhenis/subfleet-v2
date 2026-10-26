@@ -148,7 +148,19 @@ class AttemptTemp:
         return {**record, "path": str(path), "tombstone": new_tombstone()}
 
     def _intend(self, name: str) -> None:
-        self.intents.mkdir(mode=0o700, parents=True, exist_ok=True)
+        try:
+            self.intents.mkdir(mode=0o700, parents=True)
+        except OSError:
+            if not self.intents.is_dir():
+                raise
+        else:
+            # r3: the journal folder's own entry survives a power loss before any
+            # name in it is relied on.
+            parent = os.open(self.intents.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(parent)
+            finally:
+                os.close(parent)
         atomic_publish(self.intents / name, (json.dumps({"path": str(self.root / name)}) + "\n").encode())
 
     def _settle(self, name: str) -> None:
@@ -324,14 +336,20 @@ class AttemptTemp:
 
         Opening the folder needs owner read and search, and macOS 15 refuses to
         rename a directory without owner write, even within one parent, where
-        macOS 26 allows it (P3-2, r2). So the folder gets owner read, write and
-        search before its rename, once its entry passes the same identity check
+        macOS 26 allows it (P3-2, r2). So a folder lacking any of them is set to
+        0700 before its rename, once its entry passes the same identity check
         as after the rename; a crash-left tombstone, which no rename precedes,
-        gets them before it is opened. No check or mode change follows a
-        symlink. An entry swapped in between a check and its mode change can at
-        most gain owner bits, and only if it is this user's; the check after the
-        rename then refuses it. A removal refused after a mode change puts
-        the folder back under its name with owner read, write and search added.
+        is set to 0700 before it is opened. Every mode change sets exactly
+        0700, never the folder's mode plus owner bits (r3), and goes through the
+        folder's descriptor, opened without following a symlink and checked
+        again, so it reaches nothing else (`_own`). Only a folder without owner
+        read, which no open admits (0000, 0300), is changed by name, never
+        through a symlink: an entry swapped in between the check and the mode
+        change can be set to 0700, only if it is this user's (a symlink's own
+        mode, never its target's); it never gains group or other bits, and the
+        check after the rename then refuses it. After a refused removal, the
+        folder put back is at 0700 (one that already had owner read, write and
+        search keeps its own mode: removal never changed it).
         """
         name = Path(record["path"]).name
         tomb = self._tombstone(record)
@@ -350,10 +368,11 @@ class AttemptTemp:
                 if not self._is(record, source):
                     self.log.warning("TMPDIR removal refused for %s: its folder was swapped", record.get("attempt_id"))
                     return False
-                mode = stat.S_IMODE(source.st_mode)
-                if mode & 0o700 != 0o700:
+                if stat.S_IMODE(source.st_mode) & 0o700 != 0o700:
                     # r2: before the rename, which macOS 15 refuses without owner write.
-                    os.chmod(name, mode | 0o700, dir_fd=parent, follow_symlinks=False)
+                    if not self._own(record, name, parent):
+                        self.log.warning("TMPDIR removal refused for %s: its folder was swapped", record.get("attempt_id"))
+                        return False
                 os.rename(name, tomb, src_dir_fd=parent, dst_dir_fd=parent)
                 moved = True
                 found = os.stat(tomb, dir_fd=parent, follow_symlinks=False)
@@ -365,11 +384,12 @@ class AttemptTemp:
             if not self._is(record, found):
                 self.log.warning("TMPDIR removal refused for %s: its folder was swapped", record.get("attempt_id"))
                 return False
-            mode = stat.S_IMODE(found.st_mode)
-            if mode & 0o700 != 0o700:
+            if stat.S_IMODE(found.st_mode) & 0o700 != 0o700:
                 # P3-2: a tombstone a crash left before its mode was fixed, which
-                # opening needs. Checked above, never through a symlink.
-                os.chmod(tomb, mode | 0o700, dir_fd=parent, follow_symlinks=False)
+                # opening needs. Checked above.
+                if not self._own(record, tomb, parent):
+                    self.log.warning("TMPDIR removal refused for %s: its folder was swapped", record.get("attempt_id"))
+                    return False
             fd = rfs.open_dir(tomb, dir_fd=parent, expect=found)
             try:
                 _empty(fd, found.st_dev)
@@ -394,6 +414,32 @@ class AttemptTemp:
             if moved:
                 _put_back(parent, tomb, name, self.log)
             os.close(parent)
+
+    def _own(self, record: dict, name: str, parent: int) -> bool:
+        """Set the recorded directory at `name` in `parent` to exactly 0700 (r3).
+
+        It is opened without following a symlink, checked against the record
+        through that descriptor, and changed through it, so the change reaches
+        nothing else. An open refused with EACCES (no owner read: 0000, 0300)
+        is the one case changed by name, after the caller's check of the entry
+        and never through a symlink. False, with nothing changed: the entry
+        there now is not the recorded directory. Any other failure to open
+        raises, and removal defers.
+        """
+        try:
+            fd = os.open(name, rfs.O_DIR, dir_fd=parent)
+        except PermissionError as exc:
+            if exc.errno != errno.EACCES:
+                raise
+            os.chmod(name, stat.S_IRWXU, dir_fd=parent, follow_symlinks=False)
+            return True
+        try:
+            if not self._is(record, os.fstat(fd)):
+                return False
+            os.fchmod(fd, stat.S_IRWXU)
+            return True
+        finally:
+            os.close(fd)
 
     def sweep_unknown(self, named: Callable[[str], bool], seen: Callable[[str], dict | None],
                       note: Callable[[dict], None], removed: Callable[[dict], None], *,
@@ -500,19 +546,23 @@ def _empty(top: int, dev: int) -> None:
     """Delete everything under an open, verified directory.
 
     Never follows a symlink (it is unlinked) and never leaves the device.
-    Each directory inside the tree is made readable, writable and searchable
-    by its owner before it is opened and emptied, and `_remove` does the same
+    Each directory inside the tree that lacks owner read, write or search is
+    set to exactly 0700 (r3) before it is emptied, and `_remove` does the same
     for the tree itself before renaming or opening it (P3-2, r2), so a
     read-only or unreadable tree (Go's 0555 module cache, a 0000 TMPDIR) goes
-    too; nothing above the tree changes. Nothing inside the tree is renamed,
+    too; nothing above the tree changes. The change goes through the
+    directory's descriptor, opened without following a symlink and checked
+    against its lstat; only one whose open is refused with EACCES (no owner
+    read) is changed by name first, never through a symlink, so an entry
+    swapped in between can be set to 0700, only if it is this user's, and
+    never gains group or other bits. Nothing inside the tree is renamed,
     so macOS 15's rename rule never applies to it (r2). A tree deeper than
     `retention_fs.MAX_DEPTH` is refused, as `size()` refuses to measure it, so
     removal holds at most that many descriptors (P3-5).
     """
     def writable(fd: int) -> None:
-        mode = stat.S_IMODE(os.fstat(fd).st_mode)
-        if mode & 0o700 != 0o700:
-            os.fchmod(fd, mode | 0o700)
+        if stat.S_IMODE(os.fstat(fd).st_mode) & 0o700 != 0o700:
+            os.fchmod(fd, stat.S_IRWXU)
 
     writable(top)
     stack: list[tuple[int, list[str], str | None]] = [(top, os.listdir(top), None)]
@@ -534,11 +584,15 @@ def _empty(top: int, dev: int) -> None:
                 continue
             if len(stack) >= rfs.MAX_DEPTH:
                 raise rfs.TreeError("too-deep", name)
-            if stat.S_IMODE(found.st_mode) & 0o500 != 0o500:
-                # Unreadable or unsearchable: open needs read. The mode change
-                # never follows a symlink, and the open below checks identity.
-                os.chmod(name, stat.S_IMODE(found.st_mode) | 0o700, dir_fd=fd, follow_symlinks=False)
-            child = rfs.open_dir(name, dir_fd=fd, expect=found)
+            try:
+                child = rfs.open_dir(name, dir_fd=fd, expect=found)
+            except PermissionError as exc:
+                if exc.errno != errno.EACCES:
+                    raise
+                # No owner read, so no open (r3): by name, never through a
+                # symlink, and the open below checks identity.
+                os.chmod(name, stat.S_IRWXU, dir_fd=fd, follow_symlinks=False)
+                child = rfs.open_dir(name, dir_fd=fd, expect=found)
             try:
                 writable(child)
                 stack.append((child, os.listdir(child), name))

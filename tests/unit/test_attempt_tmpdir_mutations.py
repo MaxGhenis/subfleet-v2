@@ -53,11 +53,15 @@ MUTATIONS = {
     "no-tombstone-record": [("        name = record.get(\"tombstone\")\n        if name is None:",
                              "        name = None\n        if True:\n            return new_tombstone()")],
     # The mode change of a crash-left tombstone, which no rename precedes.
-    "no-top-chmod": [("                os.chmod(tomb, mode | 0o700, dir_fd=parent, follow_symlinks=False)",
-                      "                pass")],
+    "no-top-chmod": [("                if not self._own(record, tomb, parent):\n"
+                      "                    self.log.warning(\"TMPDIR removal refused for %s: its folder was swapped\", record.get(\"attempt_id\"))\n"
+                      "                    return False\n",
+                      "                pass\n")],
     # D-TMP1-P3 r2: the mode fixed before the rename, and the check before that.
-    "no-pre-rename-chmod": [("                    os.chmod(name, mode | 0o700, dir_fd=parent, follow_symlinks=False)",
-                             "                    pass")],
+    "no-pre-rename-chmod": [("                    if not self._own(record, name, parent):\n"
+                             "                        self.log.warning(\"TMPDIR removal refused for %s: its folder was swapped\", record.get(\"attempt_id\"))\n"
+                             "                        return False\n",
+                             "                    pass\n")],
     "no-pre-rename-identity-check": [("                if not self._is(record, source):\n",
                                       "                if False:\n")],
     "no-rmdir": [("                os.rmdir(path)\n            except OSError as exc:",
@@ -80,6 +84,29 @@ MUTATIONS = {
     "put-back-over": [("        os.stat(name, dir_fd=parent, follow_symlinks=False)\n"
                        "        log.warning(\"TMPDIR tombstone %s kept: %s reappeared\", tomb, name)\n        return\n",
                        "        raise FileNotFoundError(name)\n")],
+    # r3 (review r1b2 P2-1): r2's `mode | 0o700` by name, restored at each site.
+    "or-mode-before-rename": [("                    if not self._own(record, name, parent):\n",
+                               "                    os.chmod(name, stat.S_IMODE(source.st_mode) | 0o700, dir_fd=parent, "
+                               "follow_symlinks=False)\n                    if False:\n")],
+    "or-mode-tombstone": [("                if not self._own(record, tomb, parent):\n",
+                           "                os.chmod(tomb, stat.S_IMODE(found.st_mode) | 0o700, dir_fd=parent, "
+                           "follow_symlinks=False)\n                if False:\n")],
+    "or-mode-nested": [("                os.chmod(name, stat.S_IRWXU, dir_fd=fd, follow_symlinks=False)\n",
+                        "                os.chmod(name, stat.S_IMODE(found.st_mode) | 0o700, dir_fd=fd, follow_symlinks=False)\n")],
+    # ... and through a verified descriptor, which is safe but puts a refused folder back wider than 0700.
+    "or-mode-descriptor": [("            os.fchmod(fd, stat.S_IRWXU)\n",
+                            "            os.fchmod(fd, stat.S_IMODE(os.fstat(fd).st_mode) | 0o700)\n")],
+    # The descriptor path dropped: always by name.
+    "by-name-own": [("        try:\n            fd = os.open(name, rfs.O_DIR, dir_fd=parent)\n"
+                     "        except PermissionError as exc:\n            if exc.errno != errno.EACCES:\n"
+                     "                raise\n",
+                     "        if True:\n")],
+    "by-name-nested": [("            try:\n                child = rfs.open_dir(name, dir_fd=fd, expect=found)\n"
+                        "            except PermissionError as exc:\n                if exc.errno != errno.EACCES:\n"
+                        "                    raise\n",
+                        "            if True:\n")],
+    # The journal folder's parent never fsynced when the folder is made.
+    "no-journal-fsync": [("                os.fsync(parent)\n", "                pass\n")],
     # Review r1b2's P3-1 and P3-2: what C-12.10 states and no PR test pinned.
     "any-tombstone": [("        if isinstance(name, str) and name.startswith(TOMBSTONE) and \"/\" not in name and len(name) <= 128:",
                        "        if isinstance(name, str):")],
@@ -99,6 +126,10 @@ def _ruled(mutation, test, args, rules=RULES):
 #: what the rename moved can refuse it (r2: the check before the rename refuses
 #: the lifecycle suite's swap, which comes earlier).
 LAST_LOOK = "leaks:test_a_directory_swapped_in_after_removals_last_look_is_refused_and_put_back"
+#: r3: an entry swapped in before a mode change never gains group or other bits.
+SWAP = "leaks:test_an_entry_swapped_in_before_a_mode_change_never_gains_group_or_other_bits"
+#: r3: a folder an open admits gets 0700 through its descriptor, never by name.
+DESCRIPTOR = "leaks:test_a_folder_the_owner_can_read_gets_0700_through_its_descriptor_never_by_name"
 
 ORACLES = [
     ("reuse", "reuse", "lifecycle:test_attempt_names_are_unique_even_after_path_sanitizing", ()),
@@ -120,9 +151,10 @@ ORACLES = [
     # covers for it (`test_the_pre_rename_chmod_mutant_is_caught_by_this_hosts_rule_only_if_it_refuses`).
     *_ruled("no-pre-rename-chmod", "leaks:test_p3_2_owner_unreadable_top_folder_is_removed",
             ("monkeypatch", "caplog"), rules=(MACOS15,)),
+    # A 0000 directory (r3): for one an open admits, `_own`'s descriptor check refuses it too.
     *_ruled("no-pre-rename-identity-check",
             "leaks:test_a_locked_directory_swapped_in_before_removal_is_neither_changed_nor_moved",
-            ("monkeypatch", "caplog")),
+            ("monkeypatch", "caplog", 0o000)),
     ("no-rmdir", "no-rmdir", "leaks:test_p3_3_failed_marker_publish_leaves_no_folder", ("monkeypatch",)),
     *_ruled("no-depth-check", "leaks:test_t4_a_chain_past_max_depth_is_refused_in_bounded_descriptors",
             ("monkeypatch", "caplog")),
@@ -132,6 +164,17 @@ ORACLES = [
     ("cross-device", "cross-device", "leaks:test_removal_never_enters_another_device", ("monkeypatch", "caplog")),
     ("put-back-over", "put-back-over", "leaks:test_put_back_never_replaces_a_name_that_reappeared",
      ("monkeypatch", "caplog")),
+    *_ruled("or-mode-before-rename", SWAP, ("monkeypatch", "before-rename", 0o077, "hard-link", "at-mode-change")),
+    *_ruled("or-mode-tombstone", SWAP, ("monkeypatch", "crash-left-tombstone", 0o077, "hard-link", "at-mode-change")),
+    *_ruled("or-mode-nested", SWAP, ("monkeypatch", "nested", 0o077, "hard-link", "at-mode-change")),
+    *_ruled("or-mode-descriptor", "leaks:test_t3_a_deletion_no_mode_change_fixes_defers_logs_and_keeps_the_record",
+            ("monkeypatch", "caplog", 0o577)),
+    *_ruled("by-name-own", DESCRIPTOR, ("monkeypatch", "before-rename", 0o500)),
+    *[(f"by-name-own-tombstone-{rule}", "by-name-own", DESCRIPTOR,
+       ("monkeypatch", "crash-left-tombstone", 0o500, rule)) for rule in RULES],
+    *_ruled("by-name-nested", DESCRIPTOR, ("monkeypatch", "nested", 0o500)),
+    ("no-journal-fsync", "no-journal-fsync", "leaks:test_the_journal_folders_own_entry_is_fsynced_once_when_it_is_made",
+     ("monkeypatch",)),
     ("any-tombstone", "any-tombstone", "leaks:test_a_tombstone_value_that_is_not_a_tombstone_name_refuses_removal",
      ("caplog", "../escape-r1b")),
     ("create-skips-settle", "create-skips-settle", "leaks:test_a_successful_create_leaves_no_journal_entry",
