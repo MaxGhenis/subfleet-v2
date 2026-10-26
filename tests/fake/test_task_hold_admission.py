@@ -17,7 +17,7 @@ from subfleet.store import SCHEMA_VERSION, Store
 from tests.disk_floor_model import stamp
 from tests.fake.test_admission_ramp import fake_clock
 from tests.fake.test_state_contract import state_daemon  # noqa: F401
-from tests.task_hold_support import (NOTE, attempts, finish, hold, held_now, job, refused, release, store_image,
+from tests.task_hold_support import (NOTE, attempts, finish, fresh_daemon, hold, held_now, job, refused, release, store_image,
                                      submit, turn)
 
 
@@ -487,3 +487,28 @@ def test_the_hold_shows_in_why_text_constants():
     assert "task-held" in render._HOLD_TEXT
     assert "task-held" in daemon_module.NOT_ADMISSIONS_TO_PLACE
     assert protocol.TasksArgs().action == "list"
+
+
+def test_quarantined_probe_can_recover_without_a_person(monkeypatch):
+    from subfleet.procs import Containment, ProcessIdentity
+    from tests.fake.test_probe_recovery import reserved_probe, exit_receipts
+    with fresh_daemon() as (service, harness, clock, signals):
+        build = submit(service, harness, "build", "probe-recovery")
+        record = reserved_probe(service, build, state="quarantined")
+        exit_receipts(record)
+        hold(service, "build", stamp(1000))
+        assert job(service, build)["wait_reason"] == "task-held"
+        census = [Containment(marker_pids=frozenset({900003}), identities={
+            900003: ProcessIdentity(900003, "boot", "escaped")})]
+        monkeypatch.setattr(service, "_probe_census", lambda record: census[0])
+        service._recover_probes()
+        assert job(service, build)["wait_reason"] == "uncertain"
+        assert service._probe_record(record["holder"])["state"] == "quarantined"
+        census[0] = Containment()
+        service._recover_probes()
+        assert service._probe_record(record["holder"])["state"] == "completed"
+        assert job(service, build)["wait_reason"] == "capacity"
+        assert service._task_holds_now().get("build")
+        service._admit()
+        assert job(service, build)["wait_reason"] == "task-held"
+        assert attempts(service, build) == []

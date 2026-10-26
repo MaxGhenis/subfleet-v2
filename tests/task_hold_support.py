@@ -104,6 +104,26 @@ def finalize_transient(service, attempt: dict, *, clock: list | None = None,
     return service.store.get_job(attempt["job_id"])
 
 
+def legacy_retry(service, harness, clock, finalized_at):
+    """A pre-round-3 row: real finalization and audit, without the new evidence field."""
+    import json
+
+    build = submit(service, harness, "build", "legacy-retry")
+    service._admit()
+    [attempt] = attempts(service, build)
+    finalize_transient(service, attempt, clock=clock, finalized_at=finalized_at)
+    evidence = json.loads(attempts(service, build)[0]["evidence_json"])
+    evidence.pop("retry_due_at")
+    with service.store.transaction("test.legacy_attempt", attempt_id=attempt["attempt_id"]) as tx:
+        tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
+                   (json.dumps(evidence), attempt["attempt_id"]))
+    accepted = service.store.one("SELECT ts FROM events WHERE kind='attempt.accepted' AND attempt_id=?",
+                                 (attempt["attempt_id"],))
+    assert accepted["ts"] == stamp(finalized_at)
+    assert attempts(service, build)[0]["finished_at"] == stamp(0)
+    return build
+
+
 def restart(service, harness):
     """The daemon stops and its successor opens on the same state root, as a restart leaves
     it: what it knew in memory it reads from the store again (`_load_pin_episodes`). Each

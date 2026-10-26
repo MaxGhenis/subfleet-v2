@@ -251,7 +251,7 @@ LEASE_CENSUS_SKIPS = task_holds.ROWS_PARAMS
 #: `transient` with no model capacity steer (C-9.5: a steered retry is due at the next pass,
 #: with no backoff). A task hold keeps that deadline only while it is still ahead (`_kept_retry`).
 RETRY_END_SQL = ("SELECT a.finished_at, CASE WHEN json_valid(a.evidence_json) "
-                 "THEN json_extract(a.evidence_json,'$.retry_due_at') END "
+                 "THEN json_extract(a.evidence_json,'$.retry_due_at') END, a.attempt_id "
                  "FROM attempts a WHERE a.job_id=? AND a.outcome_class='transient' "
                  "AND a.seq=(SELECT MAX(seq) FROM attempts WHERE job_id=a.job_id) "
                  "AND NOT (json_valid(a.evidence_json) AND json_extract(a.evidence_json,'$.capacity_steer') IS NOT NULL)")
@@ -1507,13 +1507,21 @@ class Daemon:
                 else:
                     with self.store.transaction("job.task_hold_moved", job_id=job_id,
                                                 data={"task": hold["task"], "until": hold["until"]}) as inner:
-                        inner.execute(sql, (hold["until"], job_id))
+                        current = self._task_held_at_write(inner, job, holds)
+                    if current is None:
+                        holds.pop(job_id, None)
+                        return
+                    hold = current
             elif tx is not None:
                 paused = self._take_for_hold(tx, job, hold)
             else:
                 data: dict[str, Any] = {"task": hold["task"], "until": hold["until"]}
                 with self.store.transaction("job.task_held", job_id=job_id, data=data) as inner:
-                    paused = self._take_for_hold(inner, job, hold, data=data)
+                    current = self._task_held_at_write(inner, job, holds)
+                if current is None:
+                    holds.pop(job_id, None)
+                    return
+                hold = current
         if tx is not None:
             if paused is not None:
                 # Read from the store once this transaction's outcome is known (a reservation's may
@@ -1652,13 +1660,21 @@ class Daemon:
         C-6.10 recheck's, which is no deadline: keeping it would leave the job waiting for it
         after the hold, unmoved by capacity that frees up (r2: a hold of one second delayed a
         retry 28 s). An attempt a daemon before fix round 3 finalized has no `retry_due_at`;
-        its deadline is read as its end plus `TRANSIENT_RETRY_DELAY_S`, as before."""
+        its deadline is its own `attempt.accepted` audit stamp plus `TRANSIENT_RETRY_DELAY_S`.
+        Store.transaction stamps that event after the finalizer reads its deadline, using
+        the same UTC wall clock, so this fallback is conservative, unlike the provider's exit."""
         if not (state == "waiting" and reason == "capacity" and clock):
             return None
         row = tx.execute(RETRY_END_SQL, (job_id,)).fetchone()
         if row is None or not isinstance(row[0], str):
             return None
-        deadline = row[1] if isinstance(row[1], str) else _later(row[0], TRANSIENT_RETRY_DELAY_S)
+        deadline = row[1]
+        if not isinstance(deadline, str):
+            accepted = tx.execute("SELECT ts FROM events WHERE kind='attempt.accepted' AND attempt_id=? "
+                                  "ORDER BY event_id DESC LIMIT 1", (row[2],)).fetchone()
+            if accepted is None:
+                return None
+            deadline = _later(accepted[0], TRANSIENT_RETRY_DELAY_S)
         if not _earlier(now, deadline):
             return None
         return {"wait_reason": reason, "next_check_at": deadline}
@@ -1829,15 +1845,16 @@ class Daemon:
         except ValueError:
             raise protocol.ProtocolError(refusals.HANDLER_MESSAGES["task-hold-note"][0],
                                          reason="task-hold-note") from None
-        now = utcnow()
-        try:
-            until = task_holds.until_text(a.until, now)
-        except ValueError:
-            raise protocol.ProtocolError(refusals.HANDLER_MESSAGES["task-hold-until"][0],
-                                         reason="task-hold-until") from None
         task, key = a.task, task_holds.lease_key(a.task)
-        data: dict[str, Any] = {"task": task, "until": until, "note": note, "replaced": None}
+        data: dict[str, Any] = {"task": task, "note": note, "replaced": None}
         with self.store.transaction("task.held", data=data) as tx:
+            now = utcnow()
+            try:
+                until = task_holds.until_text(a.until, now)
+            except ValueError:
+                raise protocol.ProtocolError(refusals.HANDLER_MESSAGES["task-hold-until"][0],
+                                             reason="task-hold-until") from None
+            data["until"] = until
             row = tx.execute(task_holds.ROW_SQL, (key,)).fetchone()
             replaced = task_holds.hold_of(dict(row)) if row else None
             if not task_holds.in_force_now(replaced, now):
@@ -1877,8 +1894,8 @@ class Daemon:
                 self._known_task(task) or self.store.one(task_holds.ROW_SQL, (task_holds.lease_key(task),)))):
             raise self._unknown_task(task, "release")
         data: dict[str, Any] = {"task": task}
-        now = utcnow()
         with self.store.transaction("task.released", data=data) as tx:
+            now = utcnow()
             row = tx.execute(task_holds.ROW_SQL, (task_holds.lease_key(task),)).fetchone()
             ended = task_holds.hold_of(dict(row)) if row else None
             if ended is not None:

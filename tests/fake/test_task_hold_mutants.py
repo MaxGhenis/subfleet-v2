@@ -7,6 +7,7 @@ build's seven, review r1's four (fix round 1), one per decision of fix round 1,
 one each for fix round 2's F1 and F2, and one each for fix round 3's R3-1 and
 R3-2; fix round 3 (R3-3) gave round 1's two reset-demand mutants back their
 own definitions and scenarios that reach them with the commit's take intact.
+Fix round 4 adds three direct named pairs, outside the opt-in property registry.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ import pytest
 from subfleet import protocol, task_holds
 from tests.disk_floor_model import stamp
 from tests.task_hold_mutants import MUTANTS
+from tests.task_hold_mutants import door_without_reread, handler_clock_before_writer, legacy_deadline_from_end
 from tests.task_hold_support import (attempts, configure, finalize_transient, finish, fresh_daemon, hold, job,
                                      release, restart, submit, turn)
 
@@ -311,6 +313,36 @@ SCENARIOS = {
     "admission-writes-over-the-hold": (look_under_way_takes_the_job, "T6-inflight"),
     "retry-deadline-from-the-attempt-end": (late_finalizer_keeps_its_deadline, "T6-finalizer"),
 }
+
+
+@pytest.mark.parametrize("name", ["door-without-reread", "legacy-deadline-from-end", "handler-clock-before-writer"])
+def test_round_four_mutant_fails_its_named_assertion(name, monkeypatch):
+    from tests.fake.test_task_hold_clocks import (
+        test_hold_and_release_clocks_are_sampled_after_finalizer_lock_wait,
+        test_legacy_finalizer_deadline_survives_upgrade,
+        test_stale_door_take_uses_current_hold_at_write,
+    )
+
+    if name == "door-without-reread":
+        mutate = door_without_reread
+        scenario = lambda patch: test_stale_door_take_uses_current_hold_at_write("replacement", patch)
+        tag = "R4-door-replacement:"
+    elif name == "legacy-deadline-from-end":
+        mutate = legacy_deadline_from_end
+        scenario = lambda patch: test_legacy_finalizer_deadline_survives_upgrade(100)
+        tag = "R4-legacy:"
+    else:
+        mutate = handler_clock_before_writer
+        scenario = lambda patch: test_hold_and_release_clocks_are_sampled_after_finalizer_lock_wait("release", patch)
+        tag = "R4-commit-clock:"
+    with monkeypatch.context() as baseline:
+        scenario(baseline)
+    with monkeypatch.context() as mutated:
+        mutate(mutated)
+        with pytest.raises(AssertionError, match=tag):
+            scenario(mutated)
+    with monkeypatch.context() as restored:
+        scenario(restored)
 
 
 def test_every_mutant_has_a_scenario():

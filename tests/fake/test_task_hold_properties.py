@@ -38,6 +38,8 @@ transaction run after a hold landed (`test_t7_the_reset_timer_spends_nothing_for
 
 Bounded: 25 examples per property (`TASK_HOLD_EXAMPLES` resizes them), derandomized,
 no example database, so a plain run is repeatable and leaves no `.hypothesis`.
+`TASK_HOLD_SHARD=1` allows `--hypothesis-seed` to select independent smaller runs
+whose example counts add to the requested total, without repeating a derandomized prefix.
 `TASK_HOLD_MUTANT=<name>` runs them against one of `tests/task_hold_mutants.py`'s mutants,
 and `HYPOTHESIS_NO_SHRINK=1` stops at the first failing example.
 """
@@ -56,17 +58,39 @@ from subfleet import task_holds
 from subfleet.contracts import TRANSIENT_RETRY_DELAY_S, Exit
 from tests.disk_floor_model import stamp
 from tests.task_hold_mutants import MUTANTS
-from tests.task_hold_support import (attempts, configure, finalize_transient, finish, fresh_daemon, hold, release,
-                                     restart, submit, turn)
+from tests.task_hold_support import (attempts, configure, finalize_transient, finish, fresh_daemon, hold,
+                                     legacy_retry, release, restart, submit, turn)
 
 EXAMPLES = int(os.environ.get("TASK_HOLD_EXAMPLES", "25"))
-SETTINGS = settings(max_examples=EXAMPLES, deadline=None, derandomize=True, database=None,
+SETTINGS = settings(max_examples=EXAMPLES, deadline=None, derandomize=not bool(os.environ.get("TASK_HOLD_SHARD")),
+                    database=None,
                     suppress_health_check=[HealthCheck.too_slow, HealthCheck.data_too_large,
                                            HealthCheck.function_scoped_fixture])
 if os.environ.get("HYPOTHESIS_NO_SHRINK"):
     # Each example builds one or two daemons, so shrinking a failure can take minutes:
     # this reports the first failure as found (the mutant runs in the report use it).
     SETTINGS = settings(SETTINGS, phases=[Phase.explicit, Phase.reuse, Phase.generate])
+
+
+@SETTINGS
+@given(finalized_at=st.sampled_from((0, 1, 40, 100)))
+def test_legacy_retries_keep_the_finalizer_deadline(finalized_at):
+    with fresh_daemon() as (service, harness, clock, signals):
+        build = legacy_retry(service, harness, clock, finalized_at)
+        service = restart(service, harness)
+        clock[0] = finalized_at + 10
+        hold(service, "build", stamp(500))
+        clock[0] = finalized_at + 11
+        release(service, "build")
+        due = finalized_at + TRANSIENT_RETRY_DELAY_S
+        for instant in (finalized_at + 11, due - 1, due, due + 1):
+            clock[0] = instant
+            service._admit()
+            count = len(attempts(service, build))
+            if instant < due:
+                assert count == 1, "R4-legacy: early retry"
+            if instant == due + 1:
+                assert count == 2, "R4-legacy: late retry"
 
 
 @pytest.fixture(autouse=True)

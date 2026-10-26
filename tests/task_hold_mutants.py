@@ -8,9 +8,37 @@ assertion. `TASK_HOLD_MUTANT=<name>` applies one to the property tests too
 
 from __future__ import annotations
 
+import inspect
+import textwrap
+
 from subfleet import daemon as daemon_module, task_holds
 from subfleet.contracts import TRANSIENT_RETRY_DELAY_S
 from subfleet.daemon import Daemon
+
+
+def replace_method(patch, name, old, new):
+    source = textwrap.dedent(inspect.getsource(getattr(Daemon, name)))
+    assert old in source
+    namespace = {}
+    exec(source.replace(old, new), vars(daemon_module), namespace)
+    patch.setattr(Daemon, name, namespace[name])
+
+
+def door_without_reread(patch):
+    replace_method(patch, "_task_held", "current = self._task_held_at_write(inner, job, holds)",
+                   "current = (self._take_for_hold(inner, job, hold), hold)[1]")
+
+
+def legacy_deadline_from_end(patch):
+    replace_method(patch, "_kept_retry", "deadline = _later(accepted[0], TRANSIENT_RETRY_DELAY_S)",
+                   "deadline = _later(row[0], TRANSIENT_RETRY_DELAY_S)")
+
+
+def handler_clock_before_writer(patch):
+    for method, kind in (("_hold_task", "task.held"), ("_release_task", "task.released")):
+        transaction = f'with self.store.transaction("{kind}", data=data) as tx:'
+        replace_method(patch, method, transaction + "\n        now = utcnow()",
+                       "now = utcnow()\n    " + transaction)
 
 
 def drop_admission_check(patch):
