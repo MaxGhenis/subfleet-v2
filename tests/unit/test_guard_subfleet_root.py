@@ -172,8 +172,10 @@ R2_HOOK_SHA256 = "dbe21e1d9a2ed3f57a7675fd09d3f8cacb2f73a6bfec7fd22e800da3691a04
 R3_HOOK_SHA256 = "2c3fbc1a6d563ee28e47d172343508d0613a9e7bb75567ec82a60e702980d7cf"
 #: The overlay's hook after r3b (snapshot-5's roots, links and globs), which r3c replaces.
 R3B_HOOK_SHA256 = "f952fd3e9648df1783cec96327b66a84a21082ba63469ef56d41749d23a5131e"
-#: The overlay's hook after r3c (review r2's walk-arounds closed): TRUST's hook_sha256.
-NEW_HOOK_SHA256 = "7a5ad79d3f7db4c3c08bf07b8455344a4bdae3e66224218094b398cdf1091a1a"
+#: The overlay's hook after r3c (review r2's walk-arounds closed), which r4 replaces.
+R3C_HOOK_SHA256 = "7a5ad79d3f7db4c3c08bf07b8455344a4bdae3e66224218094b398cdf1091a1a"
+#: The overlay's hook after r4 (review r3's walk-arounds closed): TRUST's hook_sha256.
+NEW_HOOK_SHA256 = "efa86362091a0d254608f23334c7ab0b6c9955e295fc82e5650ce42fcdd0110e"
 
 FAKE_HOME = "/Users/tester"
 SCOPED_CWD = FAKE_HOME + "/work/repo"
@@ -394,7 +396,45 @@ R3_TEXT = [
 """, """#              comment, nothing in the command text lets a crawl through.
 """),
 ]
-R3_TEXT = R3C_TEXT + R3_TEXT
+#: r4 (2026-10-26): the edits outside the path-word blocks, as (r4 text, r3c text): the header's r4
+#: sentence, the region's searcher and position notes, and the prefilter's fourth and fifth terms (a name
+#: with a quote or a backslash inside it, and a $'...' holding an escape). Undone before R3C_TEXT.
+R4_TEXT = [
+    ("""#     escapes, nested scripts and a depth bound outside its own command.
+#     r4 (2026-10-26) closed those of review r3: a .. after a glob, a **/
+#     after a wildcard, every script a shell or eval runs, searchers after
+#     keywords, wrapper options and quotes, brace groups across a / or a ..,
+#     hostile words' cost, a device on stdin, print-and-exit forms, ~$USER,
+#     $"..." and /Volumes/<entry>/.. .
+""", """#     escapes, nested scripts and a depth bound outside its own command.
+"""),
+    ("""#              searcher first (pw_cmd, "the command as the rules read it").
+#              r4: also after a keyword, a function body's {, a wrapper's
+#              option values (a table) or a wrapper named by basename, with a
+#              quote or a backslash inside the name, and in every script a
+#              shell or eval runs (pw_cmd adds each as its own lines); a
+#              print-and-exit form (rg --version, find --version) walks nothing.
+""", """#              searcher first (pw_cmd, "the command as the rules read it").
+"""),
+    ("""#              line, to depth 4; a searcher deeper is denied (r3c); r4: also
+#              with option values or -- before the script, a quoted shell name,
+#              eval's joined arguments, and a here-string or an echo, printf or
+#              cat pipe into a shell given no script. rg reading a device or a
+#              closed stdin, with no path, searches . (r4). A root in
+#              another command of the pipeline
+""", """#              line, to depth 4; a searcher deeper is denied (r3c). A root in
+#              another command of the pipeline
+"""),
+    (r"""# unscoped-search rule; the fourth and fifth (r4) one with a quote or a
+# backslash inside its name (r''g, f\ind, $'rg'), and a $'...' holding an
+# escape, which may spell one.
+""", r"""# unscoped-search rule.
+"""),
+    (r"""  || printf '%s' "$command" | LC_ALL=C tr -d "\\\\'\"\$" | grep -qE "(^|[[:space:];&|(/\`])(find|rg|[efru]?grep)[\`)]?([[:space:]]|\$)" \
+  || printf '%s' "$command" | grep -qE "\\\$'[^']*\\\\[0-7xX]" \
+""", ""),
+]
+R3_TEXT = R4_TEXT + R3C_TEXT + R3_TEXT
 
 
 def rebuild_r2(text: str) -> str:

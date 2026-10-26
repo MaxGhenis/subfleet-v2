@@ -41,6 +41,11 @@
 #     that match every entry, /Volumes/<entry> paths, braces and zsh's
 #     alternation, links before .., searchers named by path or quote, shell
 #     escapes, nested scripts and a depth bound outside its own command.
+#     r4 (2026-10-26) closed those of review r3: a .. after a glob, a **/
+#     after a wildcard, every script a shell or eval runs, searchers after
+#     keywords, wrapper options and quotes, brace groups across a / or a ..,
+#     hostile words' cost, a device on stdin, print-and-exit forms, ~$USER,
+#     $"..." and /Volumes/<entry>/.. .
 #     Change a root on both sides in one reviewed step: here, and in
 #     unscoped_search.py (BROAD_RE, HOME_SUBDIRS, expand()).
 #
@@ -292,10 +297,14 @@ fi
 # codex addition that lets the fenced hf-dest heredoc scan below run; the
 # third (D-LANE-SCOPE1 r3c) lets a searcher named by a path, after a quote or
 # a backslash, through $(which …), or as egrep, fgrep, rgrep or ugrep reach the
-# unscoped-search rule.
+# unscoped-search rule; the fourth and fifth (r4) one with a quote or a
+# backslash inside its name (r''g, f\ind, $'rg'), and a $'...' holding an
+# escape, which may spell one.
 printf '%s' "$command" | grep -qE 'stash|AXIOM_|getUpdates|get_updates|dump-keychain|checkout[[:space:]]+-b|switch[[:space:]]+-c|pr[[:space:]]+merge|git[[:space:]]+push|(^|[[:space:];&|(])(find|rg|grep)[[:space:]]' \
   || printf '%s' "$command" | grep -qE '\*\*\* Begin Patch' \
   || printf '%s' "$command" | grep -qE "(^|[[:space:];&|(/\\\\'\"\`])(find|rg|[efru]?grep)[\`'\")]?([[:space:]]|\$)" \
+  || printf '%s' "$command" | LC_ALL=C tr -d "\\\\'\"\$" | grep -qE "(^|[[:space:];&|(/\`])(find|rg|[efru]?grep)[\`)]?([[:space:]]|\$)" \
+  || printf '%s' "$command" | grep -qE "\\\$'[^']*\\\\[0-7xX]" \
   || exit 0
 
 # --- tg-getupdates: Telegram polling steals updates from the OpenClaw gateway ---
@@ -403,6 +412,11 @@ fi
 #              a path, a backslash or a quote before the name, egrep, fgrep,
 #              rgrep and ugrep, $(which X) and `which X` are read as the
 #              searcher first (pw_cmd, "the command as the rules read it").
+#              r4: also after a keyword, a function body's {, a wrapper's
+#              option values (a table) or a wrapper named by basename, with a
+#              quote or a backslash inside the name, and in every script a
+#              shell or eval runs (pw_cmd adds each as its own lines); a
+#              print-and-exit form (rg --version, find --version) walks nothing.
 #   escape     a `-maxdepth` / `--max-depth` / `-d N` that is an unquoted
 #              argument of the searcher's own simple command exempts that
 #              command (r3c; before, one anywhere in the command disarmed the
@@ -452,7 +466,11 @@ fi
 #              and `.`/`./` when the cwd itself is a broad root, as is a
 #              recursive searcher given no path (r3c). A sh/bash/zsh/dash/ksh
 #              -c or eval script holding a searcher is judged again as its own
-#              line, to depth 4; a searcher deeper is denied (r3c). A root in
+#              line, to depth 4; a searcher deeper is denied (r3c); r4: also
+#              with option values or -- before the script, a quoted shell name,
+#              eval's joined arguments, and a here-string or an echo, printf or
+#              cat pipe into a shell given no script. rg reading a device or a
+#              closed stdin, with no path, searches . (r4). A root in
 #              another command of the pipeline
 #              (`ls ~ | rg x`) or in pattern position (`rg / src`) is not a
 #              crawl and passes.
@@ -523,6 +541,17 @@ collapse_quotes() {
 #               (a cd target's stays logical); /Volumes/<entry>/<rest> is
 #               judged by name as /<rest>; U+017F and U+212A are s and k, as
 #               APFS folds them on this volume.
+#   r4          (the hub's decisions on review r3) Each <component>/.. after a
+#               word's first glob component is folded away by name, and the
+#               word is broad when the folded or the unfolded reading is (a
+#               candidate a later .. may climb out of is kept, so its .. is
+#               physical); the trailing-run rule also runs on the part before a
+#               **/; a ${...} is no brace group, and a word whose group read as *
+#               holds a / or a .. component is broad; a word with more than 64 {
+#               or [, or over 4 KB, is broad unscanned, and the brace, bracket
+#               and folder scans are one pass; ~$USER, ~${USER} and ~$(whoami)
+#               are the home, $"..." is "...", and a searcher's
+#               /Volumes/<entry>/.. is also read with the entry as /.
 #   roots       A spelling is resolved to an absolute path ($SUBFLEET_ROOT and
 #               $SUBFLEET_HOME as $HOME/.subfleet, never their environment
 #               values) and normalized: // collapsed, . and .. resolved by
@@ -664,6 +693,8 @@ pw_normalize() {
   case "$pw_n" in
     *$'\305\277'*|*$'\342\204\252'*) pw_n=${pw_n//$'\305\277'/s}; pw_n=${pw_n//$'\342\204\252'/k} ;;
   esac
+  # only /System/... and /private/... fold (r4 decision 6: no option set else)
+  case "$pw_n" in /[SsPp]*) ;; *) return 0 ;; esac
   shopt -q nocasematch && nc=1
   shopt -s nocasematch
   case "$pw_n" in
@@ -677,12 +708,11 @@ pw_normalize() {
 }
 # pw_stall P: P (normalized) is a mount that may stall a stat, or under one.
 pw_stall() {
-  local nc="" r=1
-  shopt -q nocasematch && nc=1
-  shopt -s nocasematch
-  case "$1" in /volumes|/volumes/*|/network|/network/*|/net|/net/*|/home|/home/*) r=0 ;; esac
-  [ -n "$nc" ] || shopt -u nocasematch
-  return $r
+  case "$1" in
+    /[Vv][Oo][Ll][Uu][Mm][Ee][Ss]|/[Vv][Oo][Ll][Uu][Mm][Ee][Ss]/*|/[Nn][Ee][Tt][Ww][Oo][Rr][Kk]|/[Nn][Ee][Tt][Ww][Oo][Rr][Kk]/*) return 0 ;;
+    /[Nn][Ee][Tt]|/[Nn][Ee][Tt]/*|/[Hh][Oo][Mm][Ee]|/[Hh][Oo][Mm][Ee]/*) return 0 ;;
+  esac
+  return 1
 }
 # pw_child S: S (a path below a home, or below /Users/<any>) is one of its
 # broad children, or a folder directly in its .subfleet. Caller has nocasematch.
@@ -696,6 +726,9 @@ pw_child() {
 # Users), by name only; pw_n is left as the caller had it.
 pw_isbroad() {
   local p=$1 rest="" nc="" r=1 sv=$pw_n
+  # r4 decision 6: six or more components deep, outside /Volumes, is no root
+  # by name when the home is at most three deep (pw_hfast)
+  if [ -n "${pw_hfast-}" ]; then case "$p" in /[Vv]*) ;; /*/*/*/*/*/*) return 1 ;; esac; fi
   shopt -q nocasematch && nc=1
   shopt -s nocasematch
   while [[ $p == /volumes/*/* ]]; do rest=${p:9}; pw_normalize "/${rest#*/}"; p=$pw_n; done
@@ -754,12 +787,18 @@ pw_subchild() {
 pw_isfile() { pw_stall "$1" && return 1; pw_nondir "$1"; }
 # pw_physical P: pw_r is P (normalized) with its symlinks resolved, as
 # realpath resolves them (a missing part is kept as written); P itself under
-# a mount that may stall, or when the links loop.
+# a mount that may stall, or when the links loop. r4 decision 6: P's folder is
+# resolved first and kept (pw_pcd, pw_pcr), so the words of one folder (300
+# files on one line) resolve it once.
 pw_physical() {
-  local path="" rest="" name="" hops=0
+  local path="" rest="" name="" hops=0 d=${1%/*}
   pw_r=$1
   pw_stall "$1" && return 0
   rest=${1#/}
+  if [ -n "$d" ]; then
+    if [ "$d" != "${pw_pcd-}" ]; then pw_physical "$d"; pw_pcd=$d pw_pcr=$pw_r; fi
+    path=${pw_pcr%/}; rest=${1##*/}
+  fi
   while [ -n "$rest" ]; do
     case "$rest" in */*) name=${rest%%/*}; rest=${rest#*/} ;; *) name=$rest; rest="" ;; esac
     case "$name" in ''|.) continue ;; ..) path=${path%/*}; continue ;; esac
@@ -812,7 +851,8 @@ pw_broad() {
 # lower, xdigit and space). Every other character is escaped, so no pattern
 # is ever an extglob or holds a substitution.
 pw_pattern() {
-  local LC_ALL=C s=$1 n=${#1} k=0 j=0 ch="" lead="" body="" rest="" cls="" end=0 bl=0
+  local LC_ALL=C s=$1 n=${#1} k=0 j=0 ch="" lead="" body="" rest="" cls="" end=0 bl=0 seen="" x=""
+  local -a dead
   pw_pat=""
   while [ "$k" -lt "$n" ]; do
     ch=${s:k:1}
@@ -824,7 +864,11 @@ pw_pattern() {
     j=$((k + 1)); lead=""; body=""; bl=0
     case "${s:j:1}" in '!'|'^') j=$((j + 1)); lead='!' ;; esac
     if [ "${s:j:1}" = "]" ]; then j=$((j + 1)); body='\]'; bl=1; fi
+    seen=""
     while [ "$j" -lt "$n" ] && [ "${s:j:1}" != "]" ]; do
+      # one pass (r4 decision 6): where a bracket that never closed walked, none closes
+      if [ -n "${dead[$j]-}" ]; then j=$n; break; fi
+      seen="$seen $j"
       ch=${s:j:1}
       if [ "$ch" = "[" ] && [ "${s:j+1:1}" = ":" ]; then
         rest=${s:j+2}; cls=${rest%%:]*}
@@ -847,7 +891,7 @@ pw_pattern() {
       bl=$((bl + 1)); j=$((j + 1))
     done
     if [ "$j" -lt "$n" ]; then pw_pat="$pw_pat[$lead$body]"; k=$((j + 1))
-    else pw_pat="$pw_pat\\["; k=$((k + 1))
+    else for x in $seen; do dead[$x]=1; done; pw_pat="$pw_pat\\["; k=$((k + 1))
     fi
   done
 }
@@ -871,13 +915,13 @@ pw_match() {
 # match a broad root, judged component by component (see "globs" above); c: a
 # cd target, whose .. stays logical.
 pw_globbroad() {
-  local rest="$1/" logical=${2-} c="" nc=0 first=-1 k=0 text="" glob="" pat="" p="" q="" l="" i=0 budget=$pw_cap last=0 m=0 dot=""
+  local rest="$1/" logical=${2-} c="" nc=0 first=-1 k=0 text="" glob="" pat="" p="" q="" l="" i=0 budget=$pw_cap last=0 m=0 dot="" up=-1
   local -a comps cp cl np nl
   while [ -n "$rest" ]; do
     c=${rest%%/*}; rest=${rest#*/}
     [ -n "$c" ] || continue
     comps[$nc]=$c
-    case "$c" in *[*?[]*) [ "$first" -ge 0 ] || first=$nc ;; esac
+    case "$c" in *[*?[]*) [ "$first" -ge 0 ] || first=$nc ;; ..) up=$nc ;; esac
     nc=$((nc + 1))
   done
   [ "$first" -ge 0 ] || return 1
@@ -937,9 +981,11 @@ pw_globbroad() {
       fi
     done
     if [ -z "$last" ]; then
+      # r4 decision 1: a candidate a later .. may climb back out of stays, broad
+      # or not, so that .. is applied to it physically
       cp=(); cl=(); m=0
       while [ "$m" -lt "${#np[@]}" ]; do
-        if pw_isbroad "${np[$m]}" && ! pw_isfile "${np[$m]}"; then cp[${#cp[@]}]=${np[$m]}; cl[${#cl[@]}]=${nl[$m]}; fi
+        if { [ "$k" -lt "$up" ] || pw_isbroad "${np[$m]}"; } && ! pw_isfile "${np[$m]}"; then cp[${#cp[@]}]=${np[$m]}; cl[${#cl[@]}]=${nl[$m]}; fi
         m=$((m + 1))
       done
     else
@@ -996,91 +1042,145 @@ pw_stars() {
 }
 # pw_brackets WORD: pw_w is WORD with each / inside a bracket expression made
 # \007, so it splits no component: zsh reads /[^/]* as every entry of / (r3c).
+# One pass (r4 decision 6): a position a bracket that never closed walked
+# through ends any later bracket's walk there.
 pw_brackets() {
-  local LC_ALL=C s=$1 n=${#1} k=0 j=0 out="" body="" rest="" cls=""
+  local LC_ALL=C s=$1 n=${#1} k=0 j=0 out="" body="" rest="" cls="" seen="" x=""
+  local -a dead
+  case "$s" in *'['*) ;; *) pw_w=$s; return 0 ;; esac
   while [ "$k" -lt "$n" ]; do
-    if [ "${s:k:1}" != "[" ]; then out="$out${s:k:1}"; k=$((k + 1)); continue; fi
+    rest=${s:k}
+    if [ "${rest:0:1}" != "[" ]; then body=${rest%%\[*}; out="$out$body"; k=$((k + ${#body})); continue; fi
     j=$((k + 1))
     case "${s:j:1}" in '!'|'^') j=$((j + 1)) ;; esac
     [ "${s:j:1}" != "]" ] || j=$((j + 1))
+    seen=""
     while [ "$j" -lt "$n" ] && [ "${s:j:1}" != "]" ]; do
+      if [ -n "${dead[$j]-}" ]; then j=$n; break; fi
+      seen="$seen $j"
       if [ "${s:j:1}" = "[" ] && [ "${s:j+1:1}" = ":" ]; then
         rest=${s:j+2}; cls=${rest%%:]*}
         if [ "$cls" != "$rest" ]; then j=$((j + ${#cls} + 4)); continue; fi
       fi
       j=$((j + 1))
     done
-    if [ "$j" -lt "$n" ]; then body=${s:k:j-k+1}; out="$out${body//\//$'\007'}"; k=$((j + 1))
-    else out="$out["; k=$((k + 1))
+    if [ "$j" -lt "$n" ]; then
+      body=${s:k:j-k+1}
+      case "$body" in */*) body=$(printf '%s' "$body" | tr '/' '\007') ;; esac
+      out="$out$body"; k=$((j + 1))
+    else for x in $seen; do dead[$x]=1; done; out="$out["; k=$((k + 1))
     fi
   done
   pw_w=$out
 }
-# pw_bscan WORD FROM: the first brace group at or after FROM that is no ${:
-# pw_bs and pw_be its { and }, pw_bk its kind (comma, nested, seq or lit), pw_bn
-# its alternatives; status 1 when there is none.
-pw_bscan() {
-  local LC_ALL=C s=$1 n=${#1} k=$2 j=0 d=0 nested="" commas=0
+# pw_groups WORD: the brace groups of WORD, found in one pass with a stack (r4
+# decision 6): each { with its matching }, held by no other closed group, in
+# order. pw_gs and pw_ge are its { and }, pw_gk its kind (comma, nested, seq or
+# lit), pw_gn its alternatives, pw_gx set when it holds a / or a .. component
+# (r4 decision 5). A ${...} span is no group (decision 5); an unclosed { is none.
+pw_groups() {
+  local LC_ALL=C s=$1 n=${#1} k=0 c="" d=0 top=0 m=0 x="" t="" body=""
+  local -a os oc ok cs ce cc cn cp shut
+  pw_gs=(); pw_ge=(); pw_gk=(); pw_gn=(); pw_gx=()
   while [ "$k" -lt "$n" ]; do
-    if [ "${s:k:1}" = "{" ] && { [ "$k" -eq 0 ] || [ "${s:k-1:1}" != '$' ]; }; then
-      j=$((k + 1)); d=1; nested=""; commas=0
-      while [ "$j" -lt "$n" ]; do
-        case "${s:j:1}" in
-          '{') d=$((d + 1)); nested=1 ;;
-          '}') d=$((d - 1)); [ "$d" -gt 0 ] || break ;;
-          ',') [ "$d" -ne 1 ] || commas=$((commas + 1)) ;;
-        esac
-        j=$((j + 1))
-      done
-      if [ "$j" -lt "$n" ]; then
-        pw_bs=$k; pw_be=$j; pw_bn=$((commas + 1))
-        if [ -n "$nested" ]; then pw_bk=nested
-        elif [ "$commas" -gt 0 ]; then pw_bk=comma
-        else case "${s:k+1:j-k-1}" in *..*) pw_bk=seq ;; *) pw_bk=lit ;; esac
-        fi
-        return 0
+    body=${s:k}; x=${body%%[\{\},\$]*}
+    if [ -n "$x" ]; then k=$((k + ${#x})); continue; fi
+    c=${s:k:1}
+    case "$c" in
+      '$') if [ "${s:k+1:1}" = "{" ]; then
+             d=1; k=$((k + 2))
+             while [ "$k" -lt "$n" ] && [ "$d" -gt 0 ]; do
+               case "${s:k:1}" in '{') d=$((d + 1)) ;; '}') d=$((d - 1)) ;; esac
+               k=$((k + 1))
+             done
+             continue
+           fi ;;
+      '{') os[$top]=$k; oc[$top]=0; ok[$top]=""; top=$((top + 1)) ;;
+      ',') [ "$top" -eq 0 ] || oc[top-1]=$((oc[top-1] + 1)) ;;
+      '}') if [ "$top" -gt 0 ]; then
+             top=$((top - 1))
+             cs[$m]=${os[$top]}; ce[$m]=$k; cc[$m]=${oc[$top]}; cn[$m]=${ok[$top]}; shut[${os[$top]}]=1
+             if [ "$top" -gt 0 ]; then cp[$m]=${os[top-1]}; ok[top-1]=1; else cp[$m]=-1; fi
+             m=$((m + 1))
+           fi ;;
+    esac
+    k=$((k + 1))
+  done
+  k=0; d=0
+  while [ "$k" -lt "$m" ]; do
+    # the closed groups in the order they closed: a group is top-level when the
+    # { around it never closed; then sort by position (they never overlap)
+    if [ "${cp[$k]}" -lt 0 ] || [ -z "${shut[${cp[$k]}]-}" ]; then
+      body=${s:cs[k]+1:ce[k]-cs[k]-1}
+      if [ -n "${cn[$k]}" ]; then t=nested
+      elif [ "${cc[$k]}" -gt 0 ]; then t=comma
+      else case "$body" in *..*) t=seq ;; *) t=lit ;; esac
       fi
+      x=""
+      case ",$body," in */*|*[,\{]..[,\}]*) x=1 ;; esac
+      # insert by position
+      c=$d
+      while [ "$c" -gt 0 ] && [ "${pw_gs[c-1]}" -gt "${cs[$k]}" ]; do
+        pw_gs[$c]=${pw_gs[c-1]}; pw_ge[$c]=${pw_ge[c-1]}; pw_gk[$c]=${pw_gk[c-1]}; pw_gn[$c]=${pw_gn[c-1]}; pw_gx[$c]=${pw_gx[c-1]}
+        c=$((c - 1))
+      done
+      pw_gs[$c]=${cs[$k]}; pw_ge[$c]=${ce[$k]}; pw_gk[$c]=$t; pw_gn[$c]=$((cc[k] + 1)); pw_gx[$c]=$x
+      d=$((d + 1))
     fi
     k=$((k + 1))
   done
-  return 1
 }
 # pw_expand WORD CONTEXT: pw_alts is every word WORD can be after brace expansion
 # and, outside CONTEXT b, zsh's (a|b) alternation (r3c decision 3): each comma
 # group expanded, 64 words at most; a nested group, a {x..y} sequence or more
 # than 64 words reads each group as *, and an alternation that is not a list of
 # plain names, or would pass 64, reads its component as * (pw_grp set then). A
-# quoted or escaped { } , ( | ) arrives as \001-\006, and is itself again at the
-# end.
+# group read as * that holds a / or a .. component sets pw_fc: the word is broad,
+# failing closed (r4 decision 5). A quoted or escaped { } , ( | ) arrives as
+# \001-\006, and is itself again at the end.
 pw_expand() {
-  local LC_ALL=C w=$1 ctx=${2-z} k=0 prod=1 star="" x="" pre="" post="" inner="" a="" found="" one="" lb='{' rb='}' cm=',' lp='(' vb='|' rp=')'
-  local -a todo out
-  pw_grp=""
-  while pw_bscan "$w" "$k"; do
-    case "$pw_bk" in nested|seq) star=1 ;; comma) prod=$((prod * pw_bn)) ;; esac
-    [ "$prod" -le 64 ] || star=1
-    k=$((pw_be + 1))
+  local LC_ALL=C w=$1 ctx=${2-z} k=0 i=0 prod=1 star="" x="" pre="" post="" inner="" a="" one="" lit="" r="" lb='{' rb='}' cm=',' lp='(' vb='|' rp=')'
+  local -a todo out new
+  pw_grp="" pw_fc=""
+  case "$w" in
+    *[\{\(]*) ;;
+    *) pw_alts=( "$w" )
+       case "$w" in *[$'\001'-$'\006']*) ;; *) return 0 ;; esac ;;
+  esac
+  case "$w" in *'{'*) pw_groups "$w" ;; *) pw_gs=(); pw_ge=(); pw_gk=(); pw_gn=(); pw_gx=() ;; esac
+  while [ "$k" -lt "${#pw_gs[@]}" ]; do
+    case "${pw_gk[$k]}" in nested|seq) star=1 ;; comma) prod=$((prod * pw_gn[k])); [ "$prod" -le 64 ] || star=1 ;; esac
+    k=$((k + 1))
   done
   if [ -n "$star" ]; then
-    k=0
-    while pw_bscan "$w" "$k"; do
-      if [ "$pw_bk" = lit ]; then k=$((pw_be + 1)); continue; fi
-      w="${w:0:pw_bs}*${w:pw_be+1}"; k=$((pw_bs + 1))
+    k=$(( ${#pw_gs[@]} - 1 ))
+    while [ "$k" -ge 0 ]; do
+      if [ "${pw_gk[$k]}" != lit ]; then
+        w="${w:0:pw_gs[k]}*${w:pw_ge[k]+1}"
+        [ -z "${pw_gx[$k]}" ] || pw_fc=1
+      fi
+      k=$((k - 1))
     done
     pw_alts=( "$w" ); pw_grp=1
   else
-    todo=( "$w" ); pw_alts=()
-    while [ "${#todo[@]}" -gt 0 ]; do
-      x=${todo[0]}; todo=( ${todo[@]+"${todo[@]:1}"} )
-      k=0; found=""
-      while pw_bscan "$x" "$k"; do
-        if [ "$pw_bk" = comma ]; then found=1; break; fi
-        k=$((pw_be + 1))
-      done
-      if [ -z "$found" ]; then pw_alts[${#pw_alts[@]}]=$x; continue; fi
-      pre=${x:0:pw_bs}; post=${x:pw_be+1}; inner="${x:pw_bs+1:pw_be-pw_bs-1},"
-      while [ -n "$inner" ]; do a=${inner%%,*}; inner=${inner#*,}; todo[${#todo[@]}]="$pre$a$post"; done
+    # every comma group expanded at once (none is nested here), the first slowest
+    pw_alts=( "" ); i=0
+    for k in ${pw_gs[@]+"${!pw_gs[@]}"}; do
+      lit=${w:i:pw_gs[k]-i}
+      if [ "${pw_gk[$k]}" != comma ]; then lit="$lit${w:pw_gs[k]:pw_ge[k]-pw_gs[k]+1}"; new=()
+        for r in "${pw_alts[@]}"; do new[${#new[@]}]="$r$lit"; done
+      else
+        new=()
+        for r in "${pw_alts[@]}"; do
+          inner="${w:pw_gs[k]+1:pw_ge[k]-pw_gs[k]-1},"
+          while [ -n "$inner" ]; do new[${#new[@]}]="$r$lit${inner%%,*}"; inner=${inner#*,}; done
+        done
+      fi
+      pw_alts=( "${new[@]}" ); i=$((pw_ge[k] + 1))
     done
+    lit=${w:i}; new=()
+    for r in "${pw_alts[@]}"; do new[${#new[@]}]="$r$lit"; done
+    pw_alts=( "${new[@]}" )
   fi
   if [ "$ctx" != b ]; then
     todo=( "${pw_alts[@]}" ); out=()
@@ -1091,7 +1191,7 @@ pw_expand() {
       one=""
       case "$inner" in
         *'|'*) case "$inner" in *['*?[/~#^<>(']*) ;; *)
-            a=${inner//[!|]/}; [ $(( ${#todo[@]} + ${#out[@]} + ${#a} + 1 )) -le 64 ] && one=1 ;; esac ;;
+            pw_count '|' "$inner"; [ $(( ${#todo[@]} + ${#out[@]} + pw_c + 1 )) -le 64 ] && one=1 ;; esac ;;
       esac
       if [ -n "$one" ]; then
         inner="$inner|"
@@ -1107,8 +1207,7 @@ pw_expand() {
   k=0
   while [ "$k" -lt "${#pw_alts[@]}" ]; do
     x=${pw_alts[$k]}
-    x=${x//$'\001'/$lb}; x=${x//$'\002'/$rb}; x=${x//$'\003'/$cm}
-    x=${x//$'\004'/$lp}; x=${x//$'\005'/$vb}; x=${x//$'\006'/$rp}
+    case "$x" in *[$'\001'-$'\006']*) x=$(printf '%s' "$x" | tr '\001\002\003\004\005\006' '{},(|)') ;; esac
     pw_alts[$k]=$x; k=$((k + 1))
   done
 }
@@ -1132,9 +1231,21 @@ pw_sentinel() {
 # either), both put back.
 pw_word() {
   local nc="" ng=""
-  shopt -q nocasematch && nc=1
-  shopt -q nocaseglob && ng=1
-  shopt -u nocasematch nocaseglob
+  # r4 decision 6: a plain absolute word six or more components deep, outside
+  # /Volumes, /Network, /net, /home, /System and /private and with no
+  # component starting with a dot, in the folder the last word resolved when
+  # that folder holds no link (pw_pcd, pw_pcr), is no root unless it is a link
+  # itself: one lstat, where pw_word_judge would give the same verdict
+  case "$1" in
+    /[!VvNnHhSsPp]*/*/*/*/*/*)
+      case "$1" in *[\{\(\[*?\$\`\\]*|*/.*|*//*|*[$'\001'-$'\006']*) ;; *)
+        if [ -n "${pw_hfast-}" ] && [ "${#1}" -le 1024 ] && [ "${1%/*}" = "${pw_pcd-}" ] && [ "${pw_pcr-}" = "${1%/*}" ] && ! [ -L "$pw_fs$1" ]; then
+          pw_t=""; return 0
+        fi ;;
+      esac ;;
+  esac
+  if shopt -q nocasematch; then nc=1; shopt -u nocasematch; fi
+  if shopt -q nocaseglob; then ng=1; shopt -u nocaseglob; fi
   pw_word_judge "$@"
   [ -z "$nc" ] || shopt -s nocasematch
   [ -z "$ng" ] || shopt -s nocaseglob
@@ -1142,7 +1253,30 @@ pw_word() {
 pw_word_judge() {
   local w=$1 ctx=${2-z} q=${3-} f=${4-p} shown=${5-$1} a="" broad="" glob=""
   pw_t=""
+  # r4 decision 6: a word past the scan cap is broad, unscanned (fails closed)
+  if pw_capped "$w"; then pw_sentinel "${shown:0:120}" " (not judged: more than 64 { or [, or over 4 KB)"; return 0; fi
+  # r4 decision 9: ~$USER, ~${USER} and ~$(whoami) are the home (placed even
+  # where the text rules would read ~ by name: they see the word as written)
+  case "$w" in
+    '~$USER'|'~$USER/'*) w="~${w:6}"; q=q ;;
+    '~${USER}'|'~${USER}/'*) w="~${w:8}"; q=q ;;
+    '~$(whoami)'|'~$(whoami)/'*) w="~${w:10}"; q=q ;;
+  esac
+  # r4 decision 6: a plain absolute word (no glob, brace, alternation, $ or
+  # backtick) goes straight to the written-path judgment pw_alt would give it;
+  # a word with six or more slashes is no root the text rules know by name
+  case "$w" in
+    /*) case "$w" in *[\{\(\[*?\$\`]*|*[$'\001'-$'\006']*) ;; *)
+          if pw_written "$w" "$f"; then
+            if [ "$q" = q ] || ! [[ $w =~ $pw_root_re ]]; then pw_sentinel "$shown"; fi
+          else
+            case "$w" in /*/*/*/*/*/*) ;; *) if [[ $w =~ $pw_root_re ]]; then pw_t=F; fi ;; esac
+          fi
+          return 0 ;;
+        esac ;;
+  esac
   pw_expand "$w" "$ctx"
+  if [ -n "$pw_fc" ]; then pw_sentinel "$shown" " (glob)"; return 0; fi
   if [ "${#pw_alts[@]}" -eq 1 ] && [ -z "$pw_grp" ]; then
     a=${pw_alts[0]}
     pw_alt "$a" "$ctx" "$f"
@@ -1165,91 +1299,263 @@ pw_word_judge() {
   done
   if [ -n "$broad" ]; then pw_sentinel "$shown" "${glob:+ (glob)}"; else pw_t=F; fi
 }
+# pw_capped WORD: WORD has more than 64 { or [, or over 4 KB (r4 decision 6).
+pw_capped() {
+  # (a word of at most 1,024 characters is at most 4 KB in any encoding, so
+  # only a longer one has its bytes counted, under LC_ALL=C)
+  [ "${#1}" -le 4096 ] || return 0
+  [ "${#1}" -le 1024 ] || pw_bytes "$1" || return 0
+  case "$1" in *[\{\[]*) ;; *) return 1 ;; esac
+  pw_count '{[' "$1"
+  [ "$pw_c" -gt 64 ]
+}
+# pw_bytes WORD: WORD is at most 4,096 bytes.
+pw_bytes() { local LC_ALL=C; [ "${#1}" -le 4096 ]; }
+# pw_count CHARS TEXT: pw_c is how many bytes of TEXT are in CHARS (no
+# whitespace among them), counted in one pass by field splitting; bash's
+# ${x//...} is quadratic on a long word.
+pw_count() {
+  local LC_ALL=C IFS=$1 f=""
+  local -a parts
+  case $- in *f*) f=1 ;; esac
+  set -f
+  parts=( x${2}x )
+  [ -n "$f" ] || set +f
+  pw_c=$(( ${#parts[@]} - 1 ))
+}
 # pw_alt WORD CONTEXT CD: pw_av is how one alternative of a word (no group
 # left) is judged: B broad, N not broad, G broad as a glob, NG not broad as a
 # glob, T left to the text rules (it still holds $ or a backtick, or is /*).
+# r4 decision 1: a glob word is broad when its reading with each
+# <component>/.. after the first glob component folded away (pw_fold) is, as
+# well as when the unfolded reading (pw_glob) is.
 pw_alt() {
-  local w=$1 ctx=$2 f=$3 b="" walk="" x="" c=""
+  local w=$1 ctx=$2 f=$3 b="" fd="" sv=""
   pw_av=T
   case "$w" in
     '/*') return 0 ;;
     *[*?[]*) ;;
     *) pw_abs "$w"
        case "$pw_p" in ''|*'$'*|*'`'*) return 0 ;; esac
-       [ "$f" = c ] || { pw_physdots "$pw_p"; pw_p=$pw_pd; }
-       pw_normalize "$pw_p"
-       if pw_broad "$pw_n"; then pw_av=B; else pw_av=N; fi
+       if pw_written "$pw_p" "$f"; then pw_av=B; else pw_av=N; fi
        return 0 ;;
   esac
   pw_stars "$w" "$ctx"; b=$pw_w
+  if [ "$ctx" != b ]; then pw_brackets "$b"; b=$pw_w; fi
+  pw_fold "$b"; fd=$pw_fd
+  pw_glob "$b" "$ctx" "$f"
+  if [ "$pw_av" != G ] && [ "$fd" != "$b" ]; then
+    sv=$pw_av; pw_glob "$fd" "$ctx" "$f"; [ "$pw_av" = G ] || pw_av=$sv
+  fi
+}
+# pw_fold WORD: pw_fd is WORD with each <component>/.. after its first glob
+# component folded away by name (r4 decision 1); a .. that reaches back into
+# the literal part before that component stays, for pw_physdots.
+pw_fold() {
+  local rest="$1/" c="" pre="" g="" n=0 i=0 out=""
+  local -a st
+  pw_fd=$1
+  case "/$1/" in */../*) ;; *) return 0 ;; esac
+  while [ -n "$rest" ]; do
+    c=${rest%%/*}; rest=${rest#*/}
+    if [ -z "$g" ]; then
+      case "$c" in *[*?[]*) g=1; st[0]=$c; n=1 ;; *) pre="$pre$c/" ;; esac
+      continue
+    fi
+    case "$c" in
+      ''|.) ;;
+      ..) if [ "$n" -gt 0 ] && [ "${st[n-1]}" != .. ]; then n=$((n - 1)); else st[$n]=..; n=$((n + 1)); fi ;;
+      *) st[$n]=$c; n=$((n + 1)) ;;
+    esac
+  done
+  [ -n "$g" ] || return 0
+  out=$pre
+  while [ "$i" -lt "$n" ]; do out="$out${st[$i]}/"; i=$((i + 1)); done
+  out=${out%/}
+  pw_fd=${out:-/}
+}
+# pw_written P CD: the written path P (absolute) is broad: its .. applied where
+# a searcher applies it (CD c: a cd target, whose .. stays logical), normalized
+# and judged where its links lead; and (r4 decision 9) a searcher's
+# /Volumes/<entry>/.. read with that entry as / (pw_voldots) as well.
+pw_written() {
+  local p=$1
+  [ "$2" = c ] || { pw_physdots "$p"; p=$pw_pd; }
+  pw_normalize "$p"
+  pw_broad "$pw_n" && return 0
+  [ "$2" != c ] && pw_voldots "$1" && pw_broad "$pw_vd"
+}
+# pw_voldots P: P (absolute, as written) climbs out of a /Volumes entry with ..:
+# pw_vd is the rest of P read from / (the boot volume's alias is a link to /),
+# normalized by name.
+pw_voldots() {
+  local p=$1 rest="" nc="" r=1
+  while :; do case "$p" in *//*) p=${p//\/\//\/} ;; */./*) p=${p//\/.\//\/} ;; *) break ;; esac; done
+  shopt -q nocasematch && nc=1
+  shopt -s nocasematch
+  if [[ $p == /volumes/*/* ]]; then
+    rest=${p#/*/*/}
+    case "/$rest/" in */../*) pw_normalize "/$rest"; pw_vd=$pw_n; r=0 ;; esac
+  fi
+  [ -n "$nc" ] || shopt -u nocasematch
+  return $r
+}
+# pw_glob WORD CONTEXT CD: pw_av (G, NG or T) for one reading of a glob word,
+# after pw_stars and pw_brackets.
+pw_glob() {
+  local b=$1 ctx=$2 f=$3 x="" c=""
+  pw_av=T
   if [ "$ctx" != b ]; then
-    pw_brackets "$b"; b=$pw_w
-    case "/$b" in */'**'/*) b=${b%%/'**'/*}; walk=1 ;; esac
+    case "/$b" in */'**'/*) b=${b%%/'**'/*} ;; esac
   fi
   # r3c 1(a) and 1(b): trailing slashes, /. components and <glob>/.. go first;
   # then a trailing run of components made only of wildcards (or .* or **) is
-  # the folder they sit in, whether or not it is ever listed.
-  if [ -z "$walk" ]; then
-    while :; do
-      case "$b" in
-        /|'') break ;;
-        */) b=${b%/} ;;
-        */.) b=${b%/.} ;;
-        */..) x=${b%/..}; c=${x##*/}
-          case "$c" in *[*?[]*) b=${x%/*}; walk=1 ;; *) break ;; esac ;;
-        */*) c=${b##*/}
-          if [ "$c" = '.*' ] || [ "$c" = '**' ] || pw_wild "$c"; then b=${b%/*}; walk=1; else break; fi ;;
-        *) break ;;
-      esac
-      [ -n "$b" ] || b=/
-    done
-  fi
+  # the folder they sit in, whether or not it is ever listed. r4 decision 2:
+  # also before a **/, where zsh walks every match of the part before it.
+  while :; do
+    case "$b" in
+      /|'') break ;;
+      */) b=${b%/} ;;
+      */.) b=${b%/.} ;;
+      */..) x=${b%/..}; c=${x##*/}
+        case "$c" in *[*?[]*) b=${x%/*} ;; *) break ;; esac ;;
+      */*) c=${b##*/}
+        if [ "$c" = '.*' ] || [ "$c" = '**' ] || pw_wild "$c"; then b=${b%/*}; else break; fi ;;
+      *) break ;;
+    esac
+    [ -n "$b" ] || b=/
+  done
   [ -n "$b" ] || b=/
   case "$b" in
     *[*?[]*) ;;
     *) pw_abs "$b"
        case "$pw_p" in ''|*'$'*|*'`'*) if [[ $b =~ $pw_root_re ]]; then pw_av=G; fi; return 0 ;; esac
-       [ "$f" = c ] || { pw_physdots "$pw_p"; pw_p=$pw_pd; }
-       pw_normalize "$pw_p"
-       if pw_broad "$pw_n"; then pw_av=G; else pw_av=NG; fi
+       if pw_written "$pw_p" "$f"; then pw_av=G; else pw_av=NG; fi
        return 0 ;;
   esac
   pw_abs "$b"
   case "$pw_p" in ''|*'$'*|*'`'*) return 0 ;; esac
   if pw_globbroad "$pw_p" "$f"; then pw_av=G; else pw_av=NG; fi
 }
-# --- the command as the rules read it (r3c) ---
-# pw_prep_awk, mode prep: the command with, in every simple command and in every
-# quoted string holding a searcher's name, (1) a searcher named by a path, a
-# backslash or a quote, or as egrep, fgrep or ugrep, made find, rg or grep (rgrep
-# grep -r), as is $(which X), $(command -v X) and `which X` (decision 5); (2) a
-# simple command that holds a searcher and its own unquoted depth bound
-# (-maxdepth, --max-depth, -d N) made `:`, the bound exempting only that
-# command (decision 6); (3) a bare `cd` or `cd --` made `cd ~`; (4) a comment
-# dropped. Every other byte is kept. Mode nopath prints 1 when some simple
-# command is a recursive searcher given no path, so it walks ".": find with an
-# expression first, rg with no path and nothing on its stdin (no pipe into it,
-# no < redirection; --files lists "." whatever its stdin), grep -r with none.
-pw_prep_awk='
+# --- the command as the rules read it (r3c; r4) ---
+# pw_lib_awk: the awk functions the command prep and the judge pass share. value is a word as the shell
+# reads it (quotes, backslash escapes, $'...' decoded as bash decodes it, $"..." as "..."); shstep reads a
+# shell invocation word by word (r4 decision 3): -o/+o/-O/+O and a cluster ending in o or O take the next
+# word, as --rcfile and --init-file do, -- or - ends the options, and the first other word is the -c
+# script, or the script file (- and /dev/stdin name stdin); rdop is the length of the redirection operator
+# a word starts with.
+pw_lib_awk='
   function base(v,   x) { x = v; sub(/.*\//, "", x); return x }
   function isname(v) { return v ~ /^(find|rg|grep|egrep|fgrep|rgrep|ugrep)$/ }
   function canon(v) { if (v ~ /^(egrep|fgrep|ugrep)$/) return "grep"; if (v == "rgrep") return "grep -r"; return v }
-  function value(t,   out, i, n, c, j) {
+  function hexv(c) { return index("0123456789abcdef", tolower(c)) - 1 }
+  function ansic(t,   out, i, n, c, e, v, m) {
     out = ""; n = length(t); i = 1
     while (i <= n) {
       c = substr(t, i, 1)
-      if (c == "\\") { out = out substr(t, i + 1, 1); i += 2; continue }
-      if (c == "\047") { j = index(substr(t, i + 1), "\047"); if (!j) j = n - i + 1; out = out substr(t, i + 1, j - 1); i += j + 1; continue }
-      if (c == "\"") { i++; while (i <= n && substr(t, i, 1) != "\"") { c = substr(t, i, 1); if (c == "\\" && i < n) { i++; c = substr(t, i, 1) }; out = out c; i++ }; i++; continue }
-      out = out c; i++
+      if (c != "\\" || i == n) { out = out c; i++; continue }
+      e = substr(t, i + 1, 1)
+      if (e ~ /[0-7]/) {
+        v = 0; m = 0
+        while (m < 3 && substr(t, i + 1 + m, 1) ~ /[0-7]/) { v = v * 8 + substr(t, i + 1 + m, 1); m++ }
+        if (v % 256) out = out sprintf("%c", v % 256)
+        i += 1 + m; continue
+      }
+      if (e == "x" && substr(t, i + 2, 1) ~ /[0-9A-Fa-f]/) {
+        v = hexv(substr(t, i + 2, 1)); m = 1
+        if (substr(t, i + 3, 1) ~ /[0-9A-Fa-f]/) { v = v * 16 + hexv(substr(t, i + 3, 1)); m = 2 }
+        if (v) out = out sprintf("%c", v)
+        i += 2 + m; continue
+      }
+      if (e == "n") out = out "\n"; else if (e == "t") out = out "\t"; else if (e == "r") out = out "\r"
+      else if (e == "a") out = out "\007"; else if (e == "b") out = out "\010"; else if (e == "e" || e == "E") out = out "\033"
+      else if (e == "f") out = out "\014"; else if (e == "v") out = out "\013"
+      else if (e == "\\" || e == "\047" || e == "\"" || e == "?") out = out e
+      else out = out "\\" e
+      i += 2
     }
     return out
+  }
+  function sqend(t, i,   n, c) {
+    n = length(t); i++
+    while (i <= n) { c = substr(t, i, 1); if (c == "\\") { i += 2; continue }; if (c == "\047") return i; i++ }
+    return 0
   }
   function dqend(t, i,   n, c) {
     n = length(t); i++
     while (i <= n) { c = substr(t, i, 1); if (c == "\\") { i += 2; continue }; if (c == "\"") return i; i++ }
     return 0
   }
+  function value(t,   out, i, n, c, j) {
+    out = ""; n = length(t); i = 1
+    while (i <= n) {
+      c = substr(t, i, 1)
+      if (c == "\\") { out = out substr(t, i + 1, 1); i += 2; continue }
+      if (c == "$" && substr(t, i + 1, 1) == "\047") { j = sqend(t, i + 1); if (!j) j = n + 1; out = out ansic(substr(t, i + 2, j - i - 2)); i = j + 1; continue }
+      if (c == "$" && substr(t, i + 1, 1) == "\"") { i++; continue }
+      if (c == "\047") { j = index(substr(t, i + 1), "\047"); if (!j) j = n - i + 1; out = out substr(t, i + 1, j - 1); i += j + 1; continue }
+      if (c == "\"") {
+        i++
+        while (i <= n && substr(t, i, 1) != "\"") {
+          c = substr(t, i, 1)
+          if (c == "\\" && i < n && index("$`\"\\\n", substr(t, i + 1, 1))) { i++; c = substr(t, i, 1) }
+          out = out c; i++
+        }
+        i++; continue
+      }
+      out = out c; i++
+    }
+    return out
+  }
+  function shstep(st, v,   b) {
+    if (st["s"] == "" || st["s"] == 0) {
+      b = base(v)
+      if (b !~ /^(sh|bash|zsh|dash|ksh)$/) return ""
+      st["s"] = 1; st["x"] = (b == "zsh") ? "z" : "b"; st["c"] = 0; st["S"] = 0; st["f"] = 0
+      return "shell"
+    }
+    if (st["s"] == 9) return ""
+    if (st["s"] == 2) { st["s"] = 1; return "val" }
+    if (st["s"] == 1) {
+      if (v == "--" || v == "-") { st["s"] = 3; return "opt" }
+      if (v == "--rcfile" || v == "--init-file") { st["s"] = 2; return "opt" }
+      if (v ~ /^--./) return "opt"
+      if (v ~ /^[-+][A-Za-z]+$/) {
+        if (v ~ /^-/ && v ~ /c/) st["c"] = 1
+        if (v ~ /^-/ && v ~ /s/) st["S"] = 1
+        if (v ~ /[oO]$/) st["s"] = 2
+        return "opt"
+      }
+    }
+    st["s"] = 9
+    if (st["c"]) return "script"
+    if (v == "-" || v == "/dev/stdin" || v == "/dev/fd/0") return "stdin"
+    st["f"] = 1
+    return "file"
+  }
+  function sx(st, s) { return (st["x"] == "b" && s ~ /globstar/) ? "z" : st["x"] }
+  function rdop(v) { if (match(v, /^[0-9]*(<<<|<<-|<<|<>|<&|>&|>>|>\||&>>|&>|<|>)/)) return RLENGTH; return 0 }'
+# pw_prep_awk, mode prep: the command with, in every simple command and in every quoted string holding a
+# searcher's name, (1) a searcher named by a path, a backslash or a quote, or as egrep, fgrep or ugrep, made
+# find, rg or grep (rgrep grep -r), as is $(which X), $(command -v X) and `which X` (r3c decision 5), in
+# command position: past shell keywords, a function body's {, assignments and redirections, and the
+# wrappers by basename with their options' values (snapshot-5's WRAPPERS table; r4 decision 4); (2) a
+# simple command that holds a searcher and its own unquoted depth bound (-maxdepth, --max-depth, -d N), or
+# whose searcher prints and exits (rg --version, -V, --help, -h, --type-list; find --version; grep
+# --version, -V, --help; not another option's value; r4 decision 8), made `:`; (3) a bare `cd` or `cd --`
+# made `cd ~`; (4) a comment dropped. Every other byte is kept, but for a space after a backtick or a ) so
+# the rules see a name that follows one. Then (r4 decision 3) every script a shell or eval runs is added
+# as its own lines, each line led by \003<context>\003 and a space (b in a script run by bash, sh, dash or
+# ksh without globstar, z otherwise), itself read the same way, to depth 4 (a searcher's script deeper adds
+# the line \003D\003): a shell's -c script; eval's arguments, joined; and, for a shell given no script, the
+# here-string it reads, or what an echo, print, printf or cat <<< piped into it writes. Mode nopath prints 1
+# when some simple command is a recursive searcher given no path, so it walks ".": find with an
+# expression first, rg with no path and nothing readable on its stdin (no pipe into it, no < from a file,
+# no here-string; a /dev/ file or a closed stdin is nothing, r4 decision 7; --files lists "." whatever its
+# stdin), grep -r with none.
+pw_prep_awk="$pw_lib_awk"'
+  function wv(w, list,   a, i, n) { n = split(list, a, " "); for (i = 1; i <= n; i++) WVAL[w, a[i]] = 1 }
+  function lv(c, list,   a, i, n) { n = split(list, a, " "); for (i = 1; i <= n; i++) LVAL[c, a[i]] = 1 }
   function subst(t,   out, m, w) {
     out = ""
     while (match(t, /\$\((which|command[[:space:]]+-v)[[:space:]]+[^[:space:]()`]+[[:space:]]*\)|`(which|command[[:space:]]+-v)[[:space:]]+[^[:space:]()`]+[[:space:]]*`/)) {
@@ -1259,8 +1565,49 @@ pw_prep_awk='
     }
     return out t
   }
-  function inner(q, depth) { return (mode == "prep" && depth < 6 && q ~ SRCH) ? prep(q, depth + 1) : q }
-  function simple(seg, depth, piped,   nt, i, n, c, j, t, b, hs, hb, out, w, tk, val, sp, qd, stdin, npos, hasE, rec, k, files) {
+  function inner(q, depth, ctx) { return (mode == "prep" && depth < 6 && q ~ SRCH) ? prep(q, depth + 1, 1, ctx) : q }
+  function named(s,   d) { d = s; gsub(/[\047"\\$]/, "", d); return s ~ SRCH || d ~ SRCH }
+  function script(s, x, depth,   y) {
+    if (depth >= 4) { if (named(s) || named(ansic(s))) deep = 1; return }
+    y = prep(subst(s), depth + 1, 0, x)
+    gsub(/\n/, "\n\003" x "\003 ", y)
+    xlines = xlines "\n\003" x "\003 " y
+  }
+  function ismeta(b, val, rd, t, nt,   k, v, j, sv, c) {
+    if (b == "find") {
+      for (k = t + 1; k <= nt; k++) {
+        if (rd[k]) continue
+        v = val[k]
+        if (v ~ /^-(exec|execdir|ok|okdir)$/) { while (k < nt && val[k + 1] != ";" && val[k + 1] != "+") k++; k++; continue }
+        if (v == "-fprintf") { k += 2; continue }
+        if (("find", v) in LVAL || v ~ /^-newer/) { k++; continue }
+        if (v ~ /^--?(help|version)$/) return 1
+      }
+      return 0
+    }
+    if (b == "rg") { sv = "ABCEMTdefgjmrt"; c = "rg" } else if (b == "grep" || b == "grep -r") { sv = "ABCDdefmgOtMNKJ"; c = "grep" } else return 0
+    for (k = t + 1; k <= nt; k++) {
+      if (rd[k]) continue
+      v = val[k]
+      if (v == "--") return 0
+      if (v ~ /^--./) {
+        if (c == "rg" && v ~ /^--(help|version|type-list|generate|pcre2-version)(=|$)/) return 1
+        if (c == "grep" && v ~ /^--(help|version)$/) return 1
+        if (v !~ /=/ && ((c, v) in LVAL)) k++
+        continue
+      }
+      if (v ~ /^-./) {
+        for (j = 2; j <= length(v); j++) {
+          if (c == "rg" && substr(v, j, 1) ~ /[hV]/) return 1
+          if (c == "grep" && substr(v, j, 1) == "V") return 1
+          if (index(sv, substr(v, j, 1))) { if (j == length(v)) k++; break }
+        }
+      }
+    }
+    return 0
+  }
+  function simple(seg, depth, piped, noext, ctx,   nt, i, n, c, j, t, b, hs, hb, out, w, tk, val, sp, qd, stdin, npos, hasE, rec, k, files, rd, hstr, st, pin, prod, pc, scr, ev, op, tg) {
+    pin = pipein
     nt = 0; i = 1; n = length(seg); sp[0] = ""
     while (i <= n) {
       c = substr(seg, i, 1)
@@ -1270,25 +1617,55 @@ pw_prep_awk='
         c = substr(seg, i, 1)
         if (c ~ /[[:space:]]/) break
         if (c == "\\") { tk[nt] = tk[nt] substr(seg, i, 2); i += 2; continue }
+        if (c == "$" && substr(seg, i + 1, 1) == "\047") {
+          j = sqend(seg, i + 1)
+          if (!j) { tk[nt] = tk[nt] substr(seg, i); i = n + 1; continue }
+          tk[nt] = tk[nt] substr(seg, i, j - i + 1); i = j + 1; continue
+        }
         if (c == "\047") {
           j = index(substr(seg, i + 1), "\047")
           if (!j) { tk[nt] = tk[nt] substr(seg, i); i = n + 1; continue }
-          tk[nt] = tk[nt] "\047" inner(substr(seg, i + 1, j - 1), depth) "\047"; i += j + 1; continue
+          tk[nt] = tk[nt] "\047" inner(substr(seg, i + 1, j - 1), depth, ctx) "\047"; i += j + 1; continue
         }
         if (c == "\"") {
           j = dqend(seg, i)
           if (!j) { tk[nt] = tk[nt] substr(seg, i); i = n + 1; continue }
-          tk[nt] = tk[nt] "\"" inner(substr(seg, i + 1, j - i - 1), depth) "\""; i = j + 1; continue
+          tk[nt] = tk[nt] "\"" inner(substr(seg, i + 1, j - i - 1), depth, ctx) "\""; i = j + 1; continue
         }
         tk[nt] = tk[nt] c; i++
       }
     }
     for (t = 1; t <= nt; t++) { val[t] = value(tk[t]); qd[t] = (tk[t] ~ /["\047\\]/) }
+    # redirections: rd is 1 for an operator word and 2 for its target; hstr is a here-string
+    hstr = ""
+    for (k = 1; k <= nt; k++) {
+      if (rd[k] || !(j = rdop(tk[k]))) continue
+      rd[k] = 1
+      if (j == length(tk[k])) { if (k < nt) { rd[k + 1] = 2; if (substr(tk[k], j - 2, 3) == "<<<") hstr = val[k + 1] } }
+      else if (substr(tk[k], j - 2, 3) == "<<<") hstr = value(substr(tk[k], j + 1))
+    }
     t = 1
-    while (t <= nt && val[t] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) t++
-    while (t <= nt && val[t] ~ /^(env|command|builtin|exec|nice|nohup|time|timeout|xargs|sudo|noglob|stdbuf|caffeinate)$/) {
-      t++
-      while (t <= nt && (val[t] ~ /^-/ || val[t] ~ /^[0-9][0-9.]*[smhd]?$/ || val[t] ~ /^[A-Za-z_][A-Za-z0-9_]*=/)) t++
+    if (t <= nt && tk[t] ~ /^\003.\003$/) t++
+    while (t <= nt) {
+      if (rd[t]) { t++; continue }
+      if (!qd[t] && val[t] ~ /^(if|then|else|elif|while|until|do|done|fi|esac|coproc|!|\{|\})$/) { t++; continue }
+      if (!qd[t] && val[t] == "function" && t < nt) { t += 2; continue }
+      if (val[t] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { t++; continue }
+      break
+    }
+    while (t <= nt && (base(val[t]) in WRAP)) {
+      w = base(val[t]); t++
+      while (t <= nt) {
+        if (rd[t]) { t++; continue }
+        if (val[t] == "--") { t++; break }
+        if (w == "env" && val[t] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { t++; continue }
+        if (val[t] !~ /^-./) break
+        if (val[t] ~ /^--/) { if (val[t] !~ /=/ && ((w, val[t]) in WVAL)) t++; t++; continue }
+        for (j = 2; j <= length(val[t]); j++) if ((w, "-" substr(val[t], j, 1)) in WVAL) break
+        if (j == length(val[t])) t++
+        t++
+      }
+      t += WPOS[w]
     }
     if (t <= nt) { b = base(val[t]); if (isname(b) && tk[t] != canon(b)) { tk[t] = canon(b); val[t] = tk[t] } }
     hs = 0; hb = 0
@@ -1309,11 +1686,19 @@ pw_prep_awk='
       if (b != "rg" && b != "grep") return ""
       for (k = t + 1; k <= nt; k++) {
         w = tk[k]
-        if (w ~ /^[0-9]*<<?<?$/) { stdin = 1; k++; continue }
-        if (w ~ /^[0-9]*</) { stdin = 1; continue }
-        if (w ~ /^[0-9&]*>>?&?$/) { k++; continue }
-        if (w ~ /^[0-9&]*>/) continue
-        if (w == "--") { for (k++; k <= nt; k++) npos++; break }
+        if (rd[k] == 2) continue
+        if (rd[k]) {
+          # stdin as the redirections leave it, in order: a here-string or heredoc, or a < from a file, is
+          # readable; a < from a /dev/ file, or <&-, is not (r4 decision 7); another fd leaves it alone
+          j = rdop(w); op = substr(w, 1, j); tg = (j < length(w)) ? value(substr(w, j + 1)) : val[k + 1]
+          if (op !~ /^0?(<|<<|<<-|<<<|<&|<>)$/) continue
+          sub(/^0/, "", op)
+          if (op ~ /^<</) stdin = 1
+          else if (op == "<&") stdin = (tg == "-") ? 0 : 1
+          else stdin = (tg ~ /^\/dev\//) ? 0 : 1
+          continue
+        }
+        if (w == "--") { for (k++; k <= nt; k++) if (!rd[k]) npos++; break }
         if (w ~ /^--/) {
           if (w ~ /^--(regexp|file|files)(=|$)/) hasE = 1
           if (w == "--files") files = 1
@@ -1338,37 +1723,104 @@ pw_prep_awk='
       return ""
     }
     if (hs && hb) return sp[0] ":" sp[nt]
+    if (t <= nt && ismeta(val[t], val, rd, t, nt)) return sp[0] ":" sp[nt]
+    # the scripts a shell or eval runs (r4 decision 3), each judged as its own lines
+    if (!noext) {
+      if (t <= nt && val[t] == "eval") {
+        scr = ""; ev = 0
+        for (k = t + 1; k <= nt; k++) {
+          if (rd[k]) continue
+          if (!ev && val[k] == "--") { ev = 1; continue }
+          ev = 1; scr = scr (scr == "" ? "" : " ") val[k]
+        }
+        if (scr != "") script(scr, ctx, depth)
+      }
+      st["s"] = 0
+      for (k = t; k <= nt; k++) if (!rd[k] && shstep(st, val[k]) == "script") script(val[k], sx(st, val[k]), depth)
+      if (st["s"] && !st["c"] && (!st["f"] || st["S"])) {
+        scr = (hstr != "") ? hstr : pin
+        if (scr != "") script(scr, sx(st, scr), depth)
+      }
+    }
+    # what this command writes to a pipe after it, when it is an echo, print, printf or cat <<<
+    prod = ""
+    if (t <= nt) {
+      pc = base(val[t]); k = t + 1
+      if (pc == "echo" || pc == "print") {
+        while (k <= nt && (rd[k] || val[k] ~ /^-[neErRl]+$/)) k++
+        for (; k <= nt; k++) if (!rd[k]) prod = prod (prod == "" ? "" : " ") val[k]
+      } else if (pc == "printf") {
+        for (; k <= nt; k++) if (!rd[k]) prod = prod (prod == "" ? "" : "\n") val[k]
+      } else if (pc == "cat") {
+        for (; k <= nt; k++) if (!rd[k]) break
+        if (k > nt) prod = hstr
+      }
+    }
+    lastprod = prod
     if (nt == 1 && tk[1] == "cd") tk[1] = "cd ~"
     else if (nt == 2 && tk[1] == "cd" && tk[2] == "--") tk[2] = "~"
     out = sp[0]
     for (t = 1; t <= nt; t++) out = out tk[t] sp[t]
     return out
   }
-  function prep(t, depth,   n, i, c, seg, res, j, sep, piped, run) {
-    n = length(t); i = 1; seg = ""; res = ""; piped = 0
+  function prep(t, depth, noext, ctx,   n, i, c, seg, res, j, sep, piped, nextin, r) {
+    n = length(t); i = 1; seg = ""; res = ""; piped = 0; nextin = ""
     while (i <= n) {
-      if (match(substr(t, i, 512), /^[^\\\047"#;&|()\n]+/)) { seg = seg substr(t, i, RLENGTH); i += RLENGTH; continue }
+      if (match(substr(t, i, 512), /^[^\\\047"#;&|()`$\n]+/)) { seg = seg substr(t, i, RLENGTH); i += RLENGTH; continue }
       c = substr(t, i, 1)
       if (c == "\\") { seg = seg substr(t, i, 2); i += 2; continue }
+      if (c == "$" && substr(t, i + 1, 1) == "\047") { j = sqend(t, i + 1); if (!j) j = n; seg = seg substr(t, i, j - i + 1); i = j + 1; continue }
+      if (c == "$") { seg = seg c; i++; continue }
       if (c == "\047") { j = index(substr(t, i + 1), "\047"); if (!j) j = n - i; seg = seg substr(t, i, j + 1); i += j + 1; continue }
       if (c == "\"") { j = dqend(t, i); if (!j) j = n; seg = seg substr(t, i, j - i + 1); i = j + 1; continue }
       if (c == "#" && (seg == "" || seg ~ /[[:space:]]$/)) { while (i <= n && substr(t, i, 1) != "\n") i++; continue }
       if (c == "#") { seg = seg c; i++; continue }
+      # a redirection holding & (>&, <&, &>) is no separator
+      if (c == "&" && (seg ~ /[<>]$/ || substr(t, i + 1, 1) == ">")) { seg = seg c; i++; continue }
       sep = c
       if ((c == "|" || c == "&") && substr(t, i + 1, 1) == c) sep = c c
-      res = res simple(seg, depth, piped) sep; seg = ""; i += length(sep)
-      piped = (sep == "|")
+      else if (c == "|" && substr(t, i + 1, 1) == "&") sep = "|&"
+      pipein = nextin; r = simple(seg, depth, piped, noext, ctx); nextin = (sep == "|" || sep == "|&") ? lastprod : ""
+      res = res r sep; seg = ""; i += length(sep)
+      if (sep == "`" || sep == ")") res = res " "
+      piped = (sep == "|" || sep == "|&")
     }
-    return res simple(seg, depth, piped)
+    pipein = nextin
+    return res simple(seg, depth, piped, noext, ctx)
   }
-  BEGIN { SRCH = "(^|[[:space:];&|(\047\"\\\\/`])(find|rg|grep|egrep|fgrep|rgrep|ugrep)([[:space:]\047\")`]|$)" }
-  mode == "prep" { printf "%s%s", (NR > 1 ? "\001" : ""), prep(subst($0), 0) }
-  mode == "nopath" { prep($0, 0) }
-  END { if (mode == "nopath") print (found ? 1 : 0) }'
+  BEGIN {
+    SRCH = "(^|[[:space:];&|(\047\"\\\\/`])(find|rg|grep|egrep|fgrep|rgrep|ugrep)([[:space:]\047\")`]|$)"
+    n = split("env command builtin exec nice nohup time timeout gtimeout xargs sudo doas noglob nocorrect stdbuf caffeinate ionice chronic unbuffer", a, " ")
+    for (i = 1; i <= n; i++) WRAP[a[i]] = 1
+    WPOS["timeout"] = 1; WPOS["gtimeout"] = 1
+    wv("sudo", "-u -g -C -D -h -p -r -t -U -T --user --group --host --prompt --role --type --other-user --chdir --close-from --command-timeout")
+    wv("doas", "-u -C"); wv("exec", "-a"); wv("env", "-u -C -P -S --unset --chdir --split-string")
+    wv("time", "-o -f --output --format"); wv("nice", "-n --adjustment"); wv("ionice", "-c -n -p -P -u --class --classdata")
+    wv("timeout", "-s -k --signal --kill-after"); wv("gtimeout", "-s -k --signal --kill-after"); wv("caffeinate", "-t -w")
+    wv("stdbuf", "-i -o -e --input --output --error")
+    wv("xargs", "-I -J -L -n -P -R -S -s -d -E -a --max-args --max-procs --delimiter --arg-file --replace --max-lines --max-chars --eof --process-slot-var")
+    lv("rg", "--after-context --before-context --context --color --colors --context-separator --dfa-size-limit --encoding --engine --field-context-separator --field-match-separator --file --glob --iglob --ignore-file --max-columns --max-count --max-depth --maxdepth --max-filesize --path-separator --pre --pre-glob --regex-size-limit --regexp --replace --sort --sortr --threads --type --type-not --type-add --type-clear --hostname-bin --hyperlink-format")
+    lv("grep", "--regexp --file --max-count --after-context --before-context --context --directories --devices --include --exclude --exclude-dir --exclude-from --include-dir --include-from --label --glob --iglob --file-extension --file-type --file-magic --neg-regexp --range --jobs --format --sort --tag --encoding --filter --depth --max-depth --maxdepth --exclude-fs --include-fs --group-separator")
+    lv("find", "-name -iname -path -ipath -wholename -iwholename -lname -ilname -regex -iregex -regextype -type -xtype -user -group -uid -gid -perm -size -mtime -atime -ctime -Btime -mmin -amin -cmin -Bmin -samefile -inum -links -fstype -mindepth -maxdepth -used -context -fprint -fprint0 -fls -printf -xattrname -flags -limit -anewer -cnewer -Bnewer -D -S -f -files0-from")
+  }
+  mode == "prep" { gsub(/\003/, "?"); printf "%s%s", (NR > 1 ? "\001" : ""), prep(subst($0), 0, 0, "z") }
+  mode == "nopath" { prep($0, 0, 1, "z") }
+  END {
+    if (mode == "nopath") print (found ? 1 : 0)
+    if (mode == "prep") printf "%s%s", xlines, (deep ? "\n\003D\003" : "")
+  }'
 # pw_nopath CMD: CMD (prepped) holds a recursive searcher given no path.
 pw_nopath() { [ "$(printf '%s' "$1" | LC_ALL=C awk -v RS=$'\001' -v mode=nopath "$pw_prep_awk" 2>/dev/null)" = 1 ]; }
+# pw_named CMD: CMD names a searcher where the prep reads one: plainly, after a quote, a backslash, a / or
+# a backtick, once its quote marks, backslashes and $ are gone (r4 decision 4), or in a $'...' holding an
+# escape (decision 3).
+pw_named() {
+  printf '%s' "$1" | grep -qE "(^|[[:space:];&|(/\\\\'\"\`])(find|rg|[efru]?grep)[\`'\")]?([[:space:]]|\$)" \
+    || printf '%s' "$1" | LC_ALL=C tr -d "\\\\'\"\$" | grep -qE "(^|[[:space:];&|(/\`])(find|rg|[efru]?grep)[\`)]?([[:space:]]|\$)" \
+    || printf '%s' "$1" | grep -qE "\\\$'[^']*\\\\[0-7xX]"
+}
 pw_cmd=$command
-if [ "${#command}" -le 65536 ] && printf '%s' "$command" | grep -qE "(^|[[:space:];&|(/\\\\'\"\`])(find|rg|[efru]?grep)[\`'\")]?([[:space:]]|\$)"; then
+if [ "${#command}" -le 65536 ] && pw_named "$command"; then
   pw_cmd=$(printf '%s' "$command" | LC_ALL=C awk -v RS=$'\001' -v mode=prep "$pw_prep_awk" 2>/dev/null) || pw_cmd=""
   [ -n "$pw_cmd" ] || pw_cmd=$command
 fi
@@ -1447,23 +1899,19 @@ if [ -n "$searcher" ]; then
   # >>> r3 path words: judge >>>
   # Path words judged on disk (see "Path words" above): pass 1 lists every
   # path word with its context (b inside a script run by bash, sh, dash or ksh
-  # -c without globstar, z otherwise) and whether a quote mark was part of it
+  # without globstar, z otherwise) and whether a quote mark was part of it
   # (q, else u), each is judged here, and pass 2
   # rewrites the ones whose verdict moves (F, or a placeholder root, inside
   # the word's first quote mark when it has one), so every rule below reads
-  # the rewritten command.
+  # the rewritten command. A line the command prep added for a script a shell
+  # or eval runs (\003<context>\003 and a space first; r4 decision 3) is judged
+  # in its context; a quoted string that is a shell's -c script, found word by
+  # word (shstep), is judged in that shell's.
   pw_root_re="^(${root_core})\$"
   pw_normalize "$HOME"; pw_home=$pw_n
-  pw_nt=0 pw_nd=0 pw_dec="" pw_deep="" pw_unwrap=""
-  pw_awk='
-    function ctx_of(pre, ctx) {
-      if (pre ~ /(^|[[:space:];&|(\/])(sh|bash|dash|ksh)([[:space:]]+-[^[:space:]]+)*[[:space:]]+-[A-Za-z]*c[A-Za-z]*[[:space:]]*$/) return "b"
-      if (pre ~ /(^|[[:space:];&|(\/])zsh([[:space:]]+-[^[:space:]]+)*[[:space:]]+-[A-Za-z]*c[A-Za-z]*[[:space:]]*$/) return "z"
-      return ctx
-    }
-    function isc(pre) {
-      return pre ~ /(^|[[:space:];&|(\/])(sh|bash|dash|ksh|zsh)([[:space:]]+-[^[:space:]]+)*[[:space:]]+-[A-Za-z]*c[A-Za-z]*[[:space:]]*$/ || pre ~ /(^|[[:space:];&|(])eval[[:space:]]+$/
-    }
+  case "$pw_home" in /*/*/*/*) pw_hfast="" ;; *) pw_hfast=1 ;; esac
+  pw_nt=0 pw_nd=0 pw_dec="" pw_deep=""
+  pw_awk="$pw_lib_awk"'
     function lit(c) {
       if (c == "{") return "\001"; if (c == "}") return "\002"; if (c == ",") return "\003"
       if (c == "(") return "\004"; if (c == "|") return "\005"; if (c == ")") return "\006"
@@ -1475,9 +1923,10 @@ if [ -n "$searcher" ]; then
         c = substr(run, i, 1)
         if (c == "\\") { if (i < n) out = out (mode ? lit(substr(run, i + 1, 1)) : substr(run, i + 1, 1)); i += 2; continue }
         if (c == "$" && substr(run, i + 1, 1) == "\047") {
-          j = index(substr(run, i + 2), "\047")
-          if (j) { out = out (mode ? "*" : substr(run, i + 2, j - 1)); i += j + 2; continue }
+          j = sqend(run, i + 1)
+          if (j) { out = out (mode ? "*" : ansic(substr(run, i + 2, j - i - 2))); i = j + 1; continue }
         }
+        if (c == "$" && substr(run, i + 1, 1) == "\"") { i++; continue }
         if (c == "\047") {
           j = index(substr(run, i + 1), "\047"); if (!j) j = n - i + 1
           seg = substr(run, i + 1, j - 1)
@@ -1497,16 +1946,21 @@ if [ -n "$searcher" ]; then
       }
       return out
     }
-    function walk(s, ctx, depth, prose,   out, orig, run, orun, b, sf, qc, rest, piece, opiece, q, inner, nctx, gap, first, cd, cdp, val) {
-      out = ""; orig = ""; first = 1; cd = 0; cdp = 0
-      while (match(s, /(\\.|[^[:space:]|;&()<>"\047\\]|"([^"\\]|\\.)*"|\047[^\047]*\047|\(([^[:space:]()<>;&"\047\\]|\\.)*\))+/)) {
+    function walk(s, ctx,   out, run, orun, b, sf, qc, rest, piece, q, inner, nctx, gap, g, first, cd, cdp, val, st, role, rdn) {
+      out = ""; first = 1; cd = 0; cdp = 0; st["s"] = 0
+      while (match(s, /(\$\047([^\047\\]|\\.)*\047|\\.|[^[:space:]|;&()<>"\047\\]|"([^"\\]|\\.)*"|\047[^\047]*\047|\(([^[:space:]()<>;&"\047\\]|\\.)*\))+/)) {
         gap = substr(s, 1, RSTART - 1)
-        if (gap ~ /[;&|()]/) { first = 1; cd = 0; cdp = 0 }
-        out = out gap; orig = orig gap
+        g = gap; gsub(/[0-9]*(<<<|<<-|<<|<>|<&|>&|>>|>\||&>>|&>|<|>)/, "", g)
+        if (g ~ /[;&|()\n]/) { first = 1; cd = 0; cdp = 0; st["s"] = 0 }
+        rdn = (gap ~ /[<>|&][[:space:]]*$/ && g !~ /[;&|()\n][[:space:]]*$/)
+        out = out gap
         run = substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH); orun = run
+        val = sform(orun, 0)
+        role = (rdn || (val ~ /^[0-9]+$/ && substr(s, 1, 1) ~ /[<>]/)) ? "" : shstep(st, val)
+        nctx = (role == "script") ? sx(st, val) : ctx
         b = run; gsub(/["\047]/, "", b)
         sf = sform(run, 1)
-        if (sf ~ /^(~[A-Za-z0-9._-]*|\$HOME|\$SUBFLEET_(ROOT|HOME))(\/|$)/ || sf ~ /^\// || (sf ~ /^\{/ && sf ~ /,|\.\./)) {
+        if (sf ~ /^(~[A-Za-z0-9._-]*|~\$USER|~\$\{USER\}|~\$\(whoami\)|\$HOME|\$SUBFLEET_(ROOT|HOME))(\/|$)/ || sf ~ /^\// || (sf ~ /^\{/ && sf ~ /,|\.\./)) {
           k++
           if (pass == 1) printf "%d\t%s\t%s\t%s\t%s\t%s\n", k, ctx, (run == sf) ? "u" : "q", (cd && !cdp) ? "c" : "p", sf, b
           else if (k in tok) {
@@ -1516,52 +1970,50 @@ if [ -n "$searcher" ]; then
           }
           out = out run
         } else {
-          rest = run; piece = ""; opiece = ""
-          while (match(rest, /"([^"\\]|\\.)*"|\047[^\047]*\047/)) {
-            piece = piece substr(rest, 1, RSTART - 1); opiece = opiece substr(rest, 1, RSTART - 1)
+          rest = run; piece = ""
+          while (match(rest, /\$\047([^\047\\]|\\.)*\047|"([^"\\]|\\.)*"|\047[^\047]*\047/)) {
+            piece = piece substr(rest, 1, RSTART - 1)
             q = substr(rest, RSTART, RLENGTH); rest = substr(rest, RSTART + RLENGTH)
+            if (substr(q, 1, 1) == "$") { piece = piece q; continue }
             inner = substr(q, 2, length(q) - 2)
-            nctx = ctx_of(orig opiece, ctx)
             if (nctx == "b" && inner ~ /globstar/) nctx = "z"
-            piece = piece substr(q, 1, 1) walk(inner, nctx, depth, 1) substr(q, 1, 1); opiece = opiece q
+            piece = piece substr(q, 1, 1) walk(inner, nctx) substr(q, 1, 1)
           }
           out = out piece rest
-          # A -c or eval argument holding a searcher is the script a shell runs:
-          # judged again as its own line, to depth 4 (r3c decision 6).
-          if (!prose && isc(orig)) {
-            val = sform(orun, 0)
-            if (val ~ /(^|[[:space:];&|(\047"\\\/`])(find|rg|grep|egrep|fgrep|rgrep|ugrep)([[:space:]\047")`]|$)/) {
-              nctx = ctx_of(orig, ctx)
-              if (nctx == "b" && val ~ /globstar/) nctx = "z"
-              if (depth >= 4) deep = 1
-              else { val = walk(val, nctx, depth + 1, 0); extra = extra val "\n" }
-            }
-          }
         }
-        val = sform(orun, 0)
         if (first) { cd = (val == "cd" || val == "pushd"); first = (val == "builtin" || val == "command") }
         else if (cd && val == "-P") cdp = 1
-        orig = orig orun
       }
       return out s
     }
     pass == 2 && NR <= nb { split($0, f, "\t"); tok[f[1]] = f[2]; next }
-    { line = walk($0, "z", 0, 0); if (pass == 2) print line }
-    END {
-      if (pass == 1 && deep) print "0\tdeep"
-      if (pass == 1 && extra != "") print "0\tunwrap"
-      if (pass == 2) printf "%s", extra
-    }'
-  while IFS=$'\t' read -r pw_k pw_c pw_q pw_f pw_b pw_s; do
+    $0 == "\003D\003" { if (pass == 1) print "0\tdeep"; else print; next }
+    substr($0, 1, 1) == "\003" && substr($0, 3, 2) == "\003 " { line = substr($0, 1, 4) walk(substr($0, 5), substr($0, 2, 1)); if (pass == 2) print line; next }
+    { line = walk($0, "z"); if (pass == 2) print line }'
+  # (pass 1's lines are split in memory: read takes a pipe a byte at a time)
+  pw_out=$(printf '%s\n' "$judged" | LC_ALL=C awk -v pass=1 "$pw_awk" 2>/dev/null) || pw_out=""
+  pw_sf=""; case $- in *f*) pw_sf=1 ;; esac
+  pw_ifs=${IFS-}; pw_ifs_set=${IFS+x}
+  IFS=$'\n'; set -f
+  pw_lines=( $pw_out )
+  [ -n "$pw_sf" ] || set +f
+  if [ -n "$pw_ifs_set" ]; then IFS=$pw_ifs; else unset IFS; fi
+  for pw_l in ${pw_lines[@]+"${pw_lines[@]}"}; do
+    pw_k=${pw_l%%$'\t'*}; pw_l=${pw_l#*$'\t'}
+    pw_c=${pw_l%%$'\t'*}
     if [ "$pw_k" = 0 ]; then
-      case "$pw_c" in deep) pw_deep=1 ;; unwrap) pw_unwrap=1 ;; esac
+      [ "$pw_c" != deep ] || pw_deep=1
       continue
     fi
+    case "$pw_l" in *$'\t'*$'\t'*$'\t'*$'\t'*) ;; *) continue ;; esac
+    pw_l=${pw_l#*$'\t'}; pw_q=${pw_l%%$'\t'*}; pw_l=${pw_l#*$'\t'}
+    pw_f=${pw_l%%$'\t'*}; pw_l=${pw_l#*$'\t'}
+    pw_b=${pw_l%%$'\t'*}; pw_s=${pw_l#*$'\t'}
     pw_word "$pw_b" "$pw_c" "$pw_q" "$pw_f" "$pw_s"
     if [ -n "$pw_t" ]; then pw_dec="$pw_dec$pw_k	$pw_t
 "; pw_nd=$((pw_nd + 1)); fi
-  done < <(printf '%s\n' "$judged" | LC_ALL=C awk -v pass=1 "$pw_awk" 2>/dev/null)
-  if [ "$pw_nd" -gt 0 ] || [ -n "$pw_unwrap" ]; then
+  done
+  if [ "$pw_nd" -gt 0 ]; then
     pw_j=$( { printf '%s' "$pw_dec"; printf '%s\n' "$judged"; } | LC_ALL=C awk -v pass=2 -v nb="$pw_nd" "$pw_awk" 2>/dev/null) && [ -n "$pw_j" ] && judged=$pw_j
   fi
   # A searcher nested deeper than 4 shells is denied (r3c decision 6).
