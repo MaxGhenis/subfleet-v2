@@ -1386,13 +1386,21 @@ struct SettlingPageView: View {
     step("opened", ["stable": opened.samples])
     let request = UUID()
     if mode == "landed" {
-        // The real reveal, both passes, with catch-up still held.
-        scene.palette.reveal = SearchReveal(conversationID: name, itemID: target)
-        await waitReady("shrink.reveal_consumed", view: scene.host, state: state) {
-            scene.palette.reveal == nil
-        }
-        let landed = await stablePosition(scene.host)
-        step("landed", ["stable": landed.samples])
+        // The real reveal, both passes, with catch-up still held. Rows measured after
+        // both passes can move the row out of the clip before it is presented (1 of 5
+        // runs at 560 pt, load 148), and this control is about a reveal that landed,
+        // so reveal it again, up to three times, until it has.
+        var reveals = 0
+        var landed: (position: [String: Double], samples: Int)
+        repeat {
+            reveals += 1
+            scene.palette.reveal = SearchReveal(conversationID: name, itemID: target)
+            await waitReady("shrink.reveal_consumed", view: scene.host, state: state) {
+                scene.palette.reveal == nil
+            }
+            landed = await stablePosition(scene.host)
+        } while revealUnmet() != nil && reveals < 3
+        step("landed", ["stable": landed.samples, "reveals": reveals])
     } else {
         // The request and its first completion, with the clip still at the old end
         // (CI 0.619 s), then the reveal's scroll as the lazy first pass presented it:
