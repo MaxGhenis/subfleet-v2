@@ -1290,6 +1290,10 @@ The two regressions added later were run at `8fde0c4ad` as plain calls:
   - **Decisions 3 and 4** as given, plus the `led` part of 3 that its mutant found.
   - **Decision 5's** stated-and-pinned branch, with the review's scope corrected.
   - **The rest:** C-23.14 and its change-log entry, the corpus, the mutants, the cost rows and the holds.
+- **Final holds, at `61a60ca02`** (after every test and docs commit; no code change since `70aafdcaf`):
+  - hold 1 again (12:20:34Z, slot B, load 57): 164 passed, 2 skipped, the dash-led daemon.log test among them;
+  - hold 4 again (12:27:25Z, slot A, load 61): 140 passed.
+  - Holds 2 and 3 were not repeated: neither their files nor the code changed after `70aafdcaf`.
 - **Not run:**
   - the rest of `tests/unit` and `tests/fake` beyond the brief's files (CI runs them);
   - `test_daemon_log_sites.py`'s real-daemon tests;
