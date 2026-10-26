@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import dataclasses
 import json
 import re
 import string
@@ -47,7 +48,7 @@ from pathlib import Path
 import pytest
 from hypothesis import HealthCheck, example, given, settings, strategies as st
 
-from subfleet import alerts, cli, contracts, protocol, status_json
+from subfleet import alerts, cli, contracts, ids, operations, protocol, status_json
 from subfleet import daemon as daemon_module
 from subfleet import refusals as refusals_module
 from subfleet import render as render_module
@@ -617,15 +618,27 @@ LONGEST = ("codex-open: disk brake; load 140 > 120; " * 4)[:159] + "!"
 def note_rule(text: str) -> str | None:
     """The spec: the rule `text` breaks, or None when it is a note. After stripping it
     must be one line of 1 to 160 printable characters, and the C-23.14 scrubber must
-    leave it whole, read from its start or from just after any `-` or `_` in it."""
+    leave it whole, read from its start or from just after any `-` or `_` in it, both
+    as written and as JSON writes it (review r2 of #263, P3-1: `status --json` and
+    `status.json` carry `\\u00fc` for `ü`)."""
     stripped = text.strip()
     if not (0 < len(stripped) <= 160 and stripped.isprintable()):
         return "--note must be one line of 1 to 160 printable characters"
-    return CREDENTIAL_RULE if holds_credential(stripped) else None
+    return CREDENTIAL_RULE if holds_credential(stripped) or holds_credential(json.dumps(stripped)[1:-1]) else None
 
 
 def valid_note(text: str) -> bool:
     return note_rule(text) is None
+
+
+def stored_note(source) -> str | None:
+    """The spec (review r2 of #263, P3-3): the note a hold's stored `source_event`
+    shows. None for exactly `operator`; the note for exactly `operator: <note>` with
+    a note the rule accepts as it stands; the withheld text for anything else."""
+    if source == "operator":
+        return None
+    note = source[len("operator: "):] if isinstance(source, str) and source.startswith("operator: ") else None
+    return note if note is not None and valid_note(note) and note == note.strip() else WITHHELD
 
 
 NOTES = st.one_of(
@@ -824,7 +837,16 @@ def test_hold_note_accepts_exactly_the_spec_and_round_trips_through_source_event
             contracts.hold_note(text)
         assert str(refused.value) == note_rule(text)          # each refusal names its own rule
     assert contracts.hold_note(None) is None and contracts.hold_source(None) == "operator"
-    assert contracts.hold_note_of("operator") is None and contracts.hold_note_of("wham") is None
+    assert contracts.hold_note_of("operator") is None
+    # Review r2 of #263, P3-3: a hold's source reads strictly. It is `operator`, or
+    # `operator: ` and a note `hold_note` takes as it stands; anything else, the
+    # text itself included, is withheld.
+    for source in (text, f"operator: {text}"):
+        assert contracts.hold_note_of(source) == stored_note(source)
+    for other in ("wham", None, "", "operator: ", "Operator", f"operator:{NOTE}", f"operator:  {NOTE}",
+                  f"operator: {NOTE} ", f"Operator: {NOTE}", f" operator: {NOTE}"):
+        assert contracts.hold_note_of(other) == WITHHELD
+        assert contracts.hold_source_shown(other) == f"operator: {WITHHELD}"
 
 
 # --- review r1 (P2, P3-1 to P3-4) ---------------------------------------------------
@@ -992,6 +1014,108 @@ def test_r1_p3_3_the_source_guard_passes_prefix_reads(tmp_path):
     assert operator_comparisons(module.parent) == []
 
 
+# Review r2 of #263, P3-4: the guard is syntactic, and catches the comparisons it
+# can see as syntax. Review r2 kept none of its 16 scratch modules, so each is
+# rebuilt from its list, `name: (module, the lines the guard must name)`. Its
+# getattr and its alias are each read both ways: on the column, where the word
+# is an operand and the guard sees it, and on the constant, a known miss below.
+
+GUARD_CASES_R2 = {
+    "01 literal ==": ('def compares(row):\n    return row["source_event"] == "operator"\n', [2]),
+    "02 match, the literal": ('def compares(row):\n    match row["source_event"]:\n        case "operator":\n'
+                              '            return True\n    return False\n', [3]),
+    "02 match, the constant": ('from subfleet import contracts\ndef compares(row):\n    match row.get("source_event"):\n'
+                               '        case "wham" | contracts.HOLD_SOURCE:\n            return True\n    return False\n',
+                               [4]),
+    "03 == HOLD_SOURCE": ('from subfleet.contracts import HOLD_SOURCE\ndef compares(row):\n'
+                          '    return row["source_event"] == HOLD_SOURCE\n', [3]),
+    "04 == contracts.HOLD_SOURCE": ('from subfleet import contracts\ndef compares(row):\n'
+                                    '    return row.get("source_event") == contracts.HOLD_SOURCE\n', [3]),
+    "05 an alias of the column": ('def compares(row):\n    source = row["source_event"]\n    return source == "operator"\n',
+                                  [3]),
+    "06 a helper function": ('def is_operator(value):\n    return value == "operator"\ndef compares(row):\n'
+                             '    return is_operator(row["source_event"])\n', [2]),
+    "07 is": ('def compares(row):\n    return row["source_event"] is "operator"\n', [2]),
+    "07 is not, the constant": ('from subfleet.contracts import HOLD_SOURCE\ndef compares(closure):\n'
+                                '    return closure.source_event is not HOLD_SOURCE\n', [3]),
+    "08 str(...).strip() ==": ('def compares(row):\n    return str(row.get("source_event")).strip() == "operator"\n', [2]),
+    "09 (x or '') ==": ('def compares(row):\n    return (row["source_event"] or "") == "operator"\n', [2]),
+    "10 getattr on the column": ('def compares(closure):\n    return getattr(closure, "source_event") == "operator"\n',
+                                 [2]),
+    "12 in frozenset(...)": ('def compares(row):\n    return row["source_event"] in frozenset({"wham", "operator"})\n',
+                             [2]),
+    "12 not in a set of the constant": ('from subfleet.contracts import HOLD_SOURCE\ndef compares(row):\n'
+                                        '    return row["source_event"] not in {HOLD_SOURCE}\n', [3]),
+    "12 in frozenset((...)) and a list": ('def compares(row, other):\n'
+                                          '    return row["source_event"] in frozenset(("operator",)) or other in ["operator"]\n',
+                                          [2]),
+    "14 SQL ?, the literal its parameter": ('def compares(conn):\n    return conn.execute(\n'
+                                            '        "SELECT 1 FROM closures WHERE source_event=?", ("operator",))\n', [3]),
+    "14 SQL IN (?), the constant its parameter": ('from subfleet.contracts import HOLD_SOURCE\ndef compares(conn):\n'
+                                                  '    return conn.execute("SELECT 1 FROM closures WHERE source_event IN (?)",\n'
+                                                  '                        params=[HOLD_SOURCE])\n', [3]),
+    "15 SQL, double quotes": ("def compares(conn):\n"
+                              "    return conn.execute('SELECT 1 FROM closures WHERE source_event = \"operator\"')\n", [2]),
+    "15 SQL LIKE": ("def compares(conn):\n    return conn.execute(\"SELECT 1 FROM closures WHERE source_event LIKE 'operator'\")\n",
+                    [2]),
+    "16 SQL in an f-string": ('def compares(conn, lane):\n    return conn.execute(f"SELECT 1 FROM closures '
+                              'WHERE lane_id=\'{lane}\' AND source_event=\'operator\'")\n', [2]),
+    "16 SQL in an f-string, the constant": ('from subfleet.contracts import HOLD_SOURCE\ndef compares(conn):\n'
+                                            '    return conn.execute(f"SELECT 1 FROM closures WHERE source_event=\'{HOLD_SOURCE}\'")\n',
+                                            [3]),
+    # Syntactic: any comparison with the word, whatever the other side, though no code today has one.
+    "any comparison with the word": ('def compares(action):\n    return action["trigger"] == "operator"\n', [2]),
+}
+
+#: The known misses (C-9.6: the guard is syntactic only). Each compares a closure's
+#: `source_event` with `operator`, and the guard does not see it.
+GUARD_MISSES = {
+    "11 operator.eq": 'import operator\ndef compares(row):\n    return operator.eq(row["source_event"], "operator")\n',
+    "13 a dict lookup": 'def compares(row):\n    return {"operator": True}.get(row["source_event"], False)\n',
+    "getattr for the constant": ('from subfleet import contracts\ndef compares(row):\n'
+                                 '    return row["source_event"] == getattr(contracts, "HOLD_SOURCE")\n'),
+    "the constant aliased through a variable": 'MARK = "operator"\ndef compares(row):\n    return row["source_event"] == MARK\n',
+    "the SQL aliased through a variable": ('SQL = "SELECT 1 FROM closures WHERE source_event=?"\ndef compares(conn):\n'
+                                           '    return conn.execute(SQL, ("operator",))\n'),
+}
+
+
+def scratch_module(tmp_path: Path, text: str) -> Path:
+    module = tmp_path / "scratch_pkg" / "compares.py"
+    module.parent.mkdir()
+    module.write_text(text)
+    return module
+
+
+@pytest.mark.parametrize("case", sorted(GUARD_CASES_R2))
+def test_r2_p3_4_the_source_guard_catches_each_comparison_it_can_see(tmp_path, case):
+    text, lines = GUARD_CASES_R2[case]
+    module = scratch_module(tmp_path, text)
+    assert operator_comparisons(module.parent) == [f"{module}:{line}" for line in lines]
+
+
+@pytest.mark.parametrize("case", sorted(GUARD_MISSES))
+def test_r2_p3_4_the_source_guard_known_misses_stay_listed(tmp_path, case):
+    """Each is a miss the contract names. One the guard comes to catch fails here, to
+    be moved to the cases above and dropped from C-9.6's list."""
+    module = scratch_module(tmp_path, GUARD_MISSES[case])
+    assert operator_comparisons(module.parent) == []
+
+
+def test_r2_p3_4_the_source_guard_passes_what_is_no_comparison_with_the_word(tmp_path):
+    module = scratch_module(tmp_path, 'from subfleet.contracts import HOLD_SOURCE, hold_note, hold_source\n'
+                                      'PREFIX = f"{HOLD_SOURCE}: "\n'
+                                      'def parsed(source_event, note):\n'
+                                      '    return hold_source(hold_note(note)) == source_event\n'
+                                      'def reads(conn, source):\n'
+                                      '    conn.execute("SELECT 1 FROM closures WHERE source_event=?", (source,))\n'
+                                      '    conn.execute("SELECT 1 FROM closures WHERE reason=?", ("operator",))\n'
+                                      '    return conn.execute("UPDATE attempts SET killed_by=\'operator\'")\n'
+                                      'def kinds(row):\n'
+                                      '    return row["reason"] in ("operator-hold", "auth-dead") or "operator" + "s"\n')
+    assert operator_comparisons(module.parent) == []
+
+
 # P3-4: I3 checks every count the fleet-empty body renders.
 
 def test_r1_p3_4_i3_catches_a_rendered_count_dropped(monkeypatch):
@@ -1011,7 +1135,9 @@ def test_r1_p3_4_i3_catches_a_rendered_count_dropped(monkeypatch):
 # in, in the shapes the scrubber's own tests use, alone or after a `-` or `_` joiner.
 
 DUMMY_VALUES = st.text(string.ascii_letters + string.digits, min_size=20, max_size=28)
-CREDENTIAL_SHAPES = ("api_key={}", "sk-{}", "glpat-{}", "xoxb-{}", "Bearer {}")
+#: Review r2 of #263, P3-1: URL passwords too, in the scrubber's URL rule's shape.
+CREDENTIAL_SHAPES = ("api_key={}", "sk-{}", "glpat-{}", "xoxb-{}", "Bearer {}", "https://u:{}@host",
+                     "ftp://operator:{}@example.invalid/x")
 CREDENTIALS = st.builds(lambda shape, value: (shape.format(value), value), st.sampled_from(CREDENTIAL_SHAPES),
                         DUMMY_VALUES)
 JOINED = st.one_of(CREDENTIALS, st.builds(lambda word, joiner, credential: (word + joiner + credential[0], credential[1]),
@@ -1019,7 +1145,14 @@ JOINED = st.one_of(CREDENTIALS, st.builds(lambda word, joiner, credential: (word
                                           st.sampled_from("-_"), CREDENTIALS))
 PRINTABLE = st.text(st.characters(codec="utf-8", categories=("L", "N", "P", "S", "Zs")).filter(str.isprintable),
                     max_size=30)
-SPLICED = st.builds(lambda head, joined, tail: (head + joined[0] + tail, joined[1]), PRINTABLE, JOINED, PRINTABLE)
+#: Review r2 of #263, P3-1: a letter outside ASCII just before the credential, where the
+#: URL rule's leading `\b` finds no boundary and JSON writes a `\uXXXX` escape.
+NON_ASCII = st.sampled_from(["", "ü", "é", "中"])
+SPLICED = st.builds(lambda head, letter, joined, tail: (head + letter + joined[0] + tail, joined[1]),
+                    PRINTABLE, NON_ASCII, JOINED, PRINTABLE)
+#: Review r2 of #263, P3-1, as executed: each refused only because its JSON form is read.
+URL_SECRET = "SECRET7dummy0123456789abcdef"
+URL_NOTES = [f"{letter}https://u:{URL_SECRET}@host" for letter in ("ü", "é", "中")]
 
 
 def scrubbed_alike(text: str) -> bool:
@@ -1027,11 +1160,23 @@ def scrubbed_alike(text: str) -> bool:
     return scrub_secrets(text, strip_reminders=True, whole=True) == (text, 0) and not holds_credential(text)
 
 
+def survives_scrubbing(document: str, note: str) -> bool:
+    """Whether `note`, as JSON writes it, is in `document` (a JSON text) and every copy
+    of it comes through the C-23.14 scrubber over the whole of `document` unchanged.
+    (The whole document need not: `daemon.status` carries `"lane_credentials": []`.)"""
+    written = json.dumps(note)[1:-1]
+    clean, _ = scrub_secrets(document, strip_reminders=True, whole=True)
+    return document.count(written) > 0 and clean.count(written) == document.count(written)
+
+
 @settings(max_examples=150, deadline=None, database=None, derandomize=True, suppress_health_check=FIXTURE_HEALTH)
 @given(spliced=SPLICED)
 @example(spliced=(DUMMY_NOTE, "review_dummy_01234567890123456789"))
 @example(spliced=("xsk-r1dummyABCDEFGHIJ0123456789 done", "r1dummyABCDEFGHIJ0123456789"))
 @example(spliced=("hold: run-sk-r1dummyABCDEFGHIJ0123456789", "r1dummyABCDEFGHIJ0123456789"))
+@example(spliced=(URL_NOTES[0], URL_SECRET))
+@example(spliced=(URL_NOTES[1], URL_SECRET))
+@example(spliced=(f"load 140: {URL_NOTES[2]} now", URL_SECRET))
 def test_i5_no_credential_reaches_the_store_status_alerts_or_a_notice_through_a_hold(core, spliced):
     note, value = spliced
     core.policy.setdefault("alerts", {})["operator_session"] = "r1-session"
@@ -1057,6 +1202,14 @@ def test_i5_no_credential_reaches_the_store_status_alerts_or_a_notice_through_a_
         texts = [event["note"], line, alert["body"], notice,
                  *(row[key] for row in shown for key in ("note", "source_event"))]
         assert all(scrubbed_alike(text) for text in texts)
+        # Review r2 of #263, P3-1: and as JSON carries them, in `status --json` (the
+        # CLI's `emit`) and in `status.json` as the timers publish it, its alerts included.
+        assert all(scrubbed_alike(json.dumps(text)[1:-1]) for text in texts)
+        snapshot = core.timers.snapshot()
+        core.timers.alerts.evaluate(snapshot, now=core.timers.now(), offline=False)
+        core.timers.publish_status(snapshot)
+        for document in (json.dumps(status, sort_keys=True, default=str), (core.root / "status.json").read_text()):
+            assert survives_scrubbing(document, accepted)
     finally:
         core.dispatch("lanes", {"action": "release", "lane_id": "codex-1"})
 
@@ -1090,3 +1243,170 @@ def test_i5_the_plain_alphabet_can_spell_a_credential_shape_and_that_is_refused(
     assert holds_credential(note)
     with pytest.raises(ValueError, match=re.escape(CREDENTIAL_RULE)):
         contracts.hold_note(note)
+
+
+# --- review r2 (P3-1 to P3-5) -------------------------------------------------------
+#
+# Every credential below is a dummy made up for these tests (`SECRET7…`).
+
+# P3-1: a URL password just after a letter outside ASCII. The raw note passes the
+# scrubber (its URL rule opens with `\b`, and there is no boundary between `ü` and
+# `h`); the JSON form `status --json` and `status.json` carry (`ühttps://…`)
+# does not. `hold_note` reads both.
+
+@pytest.mark.parametrize("note", URL_NOTES)
+def test_r2_p3_1_a_url_password_after_a_non_ascii_letter_is_refused(core, note):
+    assert not holds_credential(note) and holds_credential(json.dumps(note)[1:-1])     # why the JSON form is read
+    with pytest.raises(ValueError) as rule:
+        contracts.hold_note(note)
+    assert str(rule.value) == CREDENTIAL_RULE
+    before = store_counts(core)
+    with pytest.raises(protocol.ProtocolError) as refused:
+        core.dispatch("lanes", {"action": "hold", "lane_id": "codex-1", "until": future(), "note": note})
+    assert (refused.value.code, refused.value.reason) == (Exit.INVALID_INPUT, "hold-note")
+    assert protocol.refusal_text(refused.value) == (f"lanes hold: {CREDENTIAL_RULE}", None)
+    assert store_counts(core) == before and URL_SECRET not in store_text(core)
+
+
+@pytest.mark.parametrize("note", URL_NOTES)
+def test_r2_p3_1_lanes_hold_refuses_it_before_asking_the_daemon(daemon, capsys, note):
+    server = daemon({"lanes": held_answer})
+    assert cli.main(["lanes", "hold", "codex-1", "--until", "2026-10-25T03:51:22Z", "--note", note]) == 2
+    assert tuple(capsys.readouterr()) == ("", f"subfleet: lanes hold: {CREDENTIAL_RULE}\n")
+    assert server.ops() == []
+
+
+def test_d_scr_url1_a_url_password_after_a_digit_is_accepted_today():
+    """D-SCR-URL1, outside #263, pinned as it stands: no scrubber mode masks a URL
+    password just after a digit, raw or as JSON writes it (the URL rule's `\\b`
+    finds no boundary, and its scheme must open with a letter). The hold rule reads
+    the scrubber, so it accepts this note. When D-SCR-URL1 changes the URL rule,
+    this note is refused and this test is to be turned round."""
+    note = f"1https://u:{URL_SECRET}@host"
+    for text in (note, json.dumps(note)[1:-1]):
+        for whole in (False, True):
+            assert scrub_secrets(text, strip_reminders=True, whole=whole) == (text, 0)
+        assert not holds_credential(text)
+    assert contracts.hold_note(note) == note
+
+
+# P3-2, P3-5: notes no writer here accepts, stored outside `lanes hold`: a credential,
+# and an ordinary note one character over the rule's 160.
+OVER_LONG = LONGEST + "!"
+STORED_NOTES = {"credential": f"api_key={URL_SECRET}", "161 characters": OVER_LONG}
+SHOWN_WITHHELD = (WITHHELD, f"operator: {WITHHELD}")
+
+
+def stored_hold(core, source: str) -> str:
+    """A hold row with `source` as its `source_event`, written to the store directly."""
+    until = future()
+    core.store.add_closure(contracts.Closure("codex-1", "account", until, contracts.ClosureReason.OPERATOR_HOLD,
+                                             contracts.ClockSource.REPORTED, source))
+    return until
+
+
+def shown_holds(rows) -> list[tuple]:
+    """Each hold row's note and `source_event`, as a reader shows them."""
+    return [(row.get("note"), row["source_event"]) for row in rows if row.get("reason") == "operator-hold"]
+
+
+def decision_holds(decision: dict) -> list:
+    """Each hold row's `source_event` in a route decision's evaluations."""
+    return [row["source_event"] for evaluation in decision["evaluations"]
+            for row in (*evaluation["closures"], *evaluation["stranding_closures"])
+            if row.get("reason") == "operator-hold"]
+
+
+@pytest.mark.parametrize("case", sorted(STORED_NOTES))
+def test_r2_p3_2_every_reader_withholds_a_stored_note(core, tmp_path, case):
+    """Each reader of closure rows outside `status` (review r2 of #263, P3-2, and the
+    route decisions the grep found): the `lanes` list, `readings`, `errors`, the
+    `release --limits` answer, `why` (a shape, and a job's recorded decision), the
+    `run --dry-run` answer and the offline `runs show`."""
+    note = STORED_NOTES[case]
+    assert case != "161 characters" or (len(note) == 161 and contracts.hold_note(note[:160]) == note[:160])
+    stored_hold(core, f"operator: {note}")
+    core.store.add_closure(contracts.Closure("codex-1", "account", future(), contracts.ClosureReason.PROVIDER_LIMIT,
+                                             contracts.ClockSource.GUESSED, "attempt"))      # for `release --limits`
+    answers = {}
+    answers["lanes"] = core.dispatch("lanes", {})
+    assert shown_holds(answers["lanes"]["lanes"][0]["closures"]) == [SHOWN_WITHHELD]
+    answers["readings"] = core.dispatch("readings", {})
+    assert shown_holds(answers["readings"]["closures"]) == [SHOWN_WITHHELD]
+    answers["errors"] = operations.error_report(core.store.query, 1)
+    assert shown_holds(answers["errors"]["closures"]) == [SHOWN_WITHHELD]
+    # The route decision as the scheduler makes it carries the stored row, as stored.
+    shape = protocol.coerce_args(protocol.WhyArgs, {"task": "build", "tier": "standard"})
+    recorded = dataclasses.asdict(core._pick(dataclasses.asdict(shape), desktop=core._desktop_identity()))
+    assert decision_holds(recorded) == [f"operator: {note}"]
+    answers["why"] = core.dispatch("why", {"task": "build", "tier": "standard"})
+    assert decision_holds(answers["why"]["decision"]) == [SHOWN_WITHHELD[1]]
+    work, prompt = tmp_path / "work", tmp_path / "prompt.md"
+    work.mkdir()
+    prompt.write_text("r2 probe")
+    core.store.add_job(job_id="r2-job", request_id="r2-request", payload_digest="digest", kind="dispatch",
+                       workdir=str(work), prompt_path=str(prompt), sandbox="read-only", state="succeeded")
+    core.store.add_decision("r2-job", recorded)
+    answers["why job"] = core.dispatch("why", {"job_id": "r2-job"})
+    assert decision_holds(answers["why job"]["decision"]) == [SHOWN_WITHHELD[1]]
+    answers["runs show (offline)"] = Offline(core.root).show_job("r2-job")
+    assert decision_holds(answers["runs show (offline)"]["decision"]) == [SHOWN_WITHHELD[1]]
+    answers["run --dry-run"] = core.dispatch("submit", {
+        "request_id": "r2-dry-run", "kind": "dispatch", "workdir": str(work), "prompt_path": str(prompt),
+        "sandbox": "read-only", "task": "build", "tier": "standard", "allow_tmp": True, "dry_run": True})
+    assert decision_holds(answers["run --dry-run"]["decision"]) == [SHOWN_WITHHELD[1]]
+    answers["release --limits"] = core.dispatch("lanes", {"action": "release-limits", "lane_id": "codex-1",
+                                                          "note": "false positive"})
+    assert shown_holds(answers["release --limits"]["closures"]) == [SHOWN_WITHHELD]
+    assert shown_holds(answers["release --limits"]["lanes"][0]["closures"]) == [SHOWN_WITHHELD]
+    for name, answer in answers.items():                     # as JSON (`--json`, `errors`) and as text
+        for shown in (json.dumps(answer, sort_keys=True, default=str), str(answer)):
+            assert note not in shown and json.dumps(note)[1:-1] not in shown, name
+
+
+# P3-3: the reader's backstop parses a hold's source strictly: hold rows a writer
+# outside `lanes hold` could leave, which the backstop let through raw unless they
+# began exactly `operator: `.
+MALFORMED_SOURCES = {"no space": f"operator:api_key={URL_SECRET}", "capital": f"Operator: api_key={URL_SECRET}",
+                     "no prefix": f"sk-{URL_SECRET}", "url after ü": f"operator: {URL_NOTES[0]}"}
+
+
+@pytest.mark.parametrize("case", sorted(MALFORMED_SOURCES))
+def test_r2_p3_3_a_hold_source_lanes_hold_would_not_write_is_withheld(core, case):
+    core.policy.setdefault("alerts", {})["operator_session"] = "r2-session"
+    until = stored_hold(core, MALFORMED_SOURCES[case])
+    status = core.dispatch("daemon.status", {})
+    assert shown_holds([*status["closures"], *status["lanes"][0]["closures"]]) == [SHOWN_WITHHELD] * 2
+    offline = Offline(core.root).status()
+    assert shown_holds(offline["closures"]) == [SHOWN_WITHHELD]
+    text = cli.format_status(status)
+    assert f"  codex-1 held by operator until {until}: {WITHHELD}" in text.splitlines()
+    alert = conditions(*core.timers.snapshot()["lanes"])["codex-fleet-empty"]
+    assert f"1 held by operator ({WITHHELD}; earliest end " in alert["body"]
+    assert core._timer_notice(alert)
+    notice = core.store.one("SELECT text FROM service_notices ORDER BY notice_id DESC LIMIT 1")["text"]
+    for shown in (json.dumps(status, sort_keys=True, default=str), json.dumps(offline, sort_keys=True, default=str),
+                  text, cli.format_status(offline), alert["body"], notice):
+        assert URL_SECRET not in shown
+
+
+# P3-5: a stored note longer than 160 characters is withheld, and unread.
+
+def test_r2_p3_5_a_stored_note_over_160_characters_is_withheld_unread(core, monkeypatch):
+    assert len(OVER_LONG) == 161 and not holds_credential(OVER_LONG)          # nothing else to withhold it for
+    read = []
+    monkeypatch.setattr(ids, "holds_credential", lambda text, real=ids.holds_credential: read.append(text) or real(text))
+    core.policy.setdefault("alerts", {})["operator_session"] = "r2-session"
+    until = stored_hold(core, f"operator: {OVER_LONG}")
+    status = core.dispatch("daemon.status", {})
+    assert shown_holds([*status["closures"], *status["lanes"][0]["closures"]]) == [SHOWN_WITHHELD] * 2
+    text = cli.format_status(status)
+    assert f"  codex-1 held by operator until {until}: {WITHHELD}" in text.splitlines()
+    alert = conditions(*core.timers.snapshot()["lanes"])["codex-fleet-empty"]
+    assert f"1 held by operator ({WITHHELD}; earliest end " in alert["body"]
+    assert core._timer_notice(alert)
+    notice = core.store.one("SELECT text FROM service_notices ORDER BY notice_id DESC LIMIT 1")["text"]
+    assert notice == f"codex: no dispatchable lanes\n{alert['body']}"
+    for shown in (json.dumps(status, sort_keys=True, default=str), text, alert["body"], notice):
+        assert OVER_LONG not in shown and OVER_LONG[:160] not in shown
+    assert not [item for item in read if OVER_LONG[:160] in item]            # withheld unread
