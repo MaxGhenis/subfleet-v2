@@ -4554,3 +4554,57 @@ Now the expired fold wait ends the case. `settling_run` requires the
 opening's own readiness (`caught_up` false here), so it rejects the sample.
 
 No product race was found for this case.
+
+#### Environment, holds and what remains unrun
+
+The venv was set up once through `uv_sync_hold.sh`, offline, with the uv cache
+in `sf-qtflake6c`. The empty cache lacked the locked Pygments wheel. The venv
+was then completed from the first attempt's scratch venv, copying the same
+locked packages; no download and no second setup ran. Imports verify
+**CPython 3.14.7**, `Py_GIL_DISABLED=0`, **pytest 9.1.1**, **Hypothesis
+6.168.1** and **pytest-xdist 3.8.0**.
+
+Swift and Clang module caches, binaries, basetemps, Hypothesis storage and logs
+are all under `$(getconf DARWIN_USER_TEMP_DIR)sf-qtflake6c`. The probe cache
+is a symlink into it. A cloned module cache was rejected by the compiler, which
+embeds the cache path, so the cache was warmed from cold.
+
+The host was heavily loaded throughout (load 80–226). This job's processes ran
+at scheduler priority 20 against the default 31, so a full-source probe
+compile got seconds of CPU per minute. Two compiles inside 20-minute holds hit
+their deadlines. The successful builds ran outside the suite lock: they are not
+pytest, and they need no lock for correctness. They took 943 s (fixed probe,
+written to the probe cache) and 933 s (counterfactual probe), concurrently.
+
+| Hold | Admitted | Result |
+| --- | --- | --- |
+| `proof-old` (direct probes, old binaries) | 22:18:03Z, slot B | 41 runs, 514 s; 20 + 20 and the replay, above |
+| `proof-new` (direct probes, final product) | 22:43:56Z, slot B | 31 runs, 562 s; 10 + 10, counterfactuals, controls and the item-2 replay, above |
+| `views` (required fix8–fix11 views) | never | Queued 22:56:08Z. Other holds won every slot; cancelled at the 00:09Z cutoff, 73 minutes later. |
+
+**Unrun at the cutoff:**
+- the required view hold (fix11, fix10, fix9 and fix8 views), including this
+  round's two new tests as pytest items;
+- the mutations hold;
+- the core, tray and module-name hold;
+- the five loaded repetitions;
+- the 11 other follow and reveal files.
+
+The new tests' scenes did execute natively in `proof-new`: the
+completion-first opening and the near-end control, with their committed
+assertions, plus the replay and the item-2 replay. They have not run as
+pytest items. The first attempt's detached driver did complete pytest holds on
+`d867b6968`, before this round's later changes, and those are not counted
+here.
+
+#### Round-6 commits and cleanup
+
+Step commits: `12c61056e` (replayed survivor, red), `d867b6968` (destination
+and interval checks, loud waits, opening traces), `9c1555328`
+(completion-first regression, red), `f94b26d6c` (product fix), `ded91c201`
+(interval by distance from the end), `2dc8bda31` (landing readiness),
+`b74ab4d17` (1,200 pt approach bound), `d73cf4374` (its comment),
+`c714fd1df` (design §12), and the report commits. Each carries the co-author
+trailer. No product counterfactual is committed. Only named files were staged,
+and no logs or evidence are in the repository. Nothing was fetched, merged or
+pushed, and no sub-agents were used.
