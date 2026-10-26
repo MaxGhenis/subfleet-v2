@@ -91,7 +91,7 @@ iff its resolved path is not an existing non-directory, always with a trailing /
 word is broad iff some real bash match is a broad root, and not when nothing matches. The
 shell differential expands every glob case in real /bin/zsh -f and /bin/bash.
 
-r3b (2026-10-26, the hub's decisions 1-6, for parity with snapshot-5 of the Claude half, read from
+r3b (2026-10-25, the hub's decisions 1-6, for parity with snapshot-5 of the Claude half, read from
 its frozen .ref copy) judges every path word: the roots are snapshot-5's (BROAD_RE, HOME_SUBDIRS and
 HOME_PARENTS, matched case-insensitively after ``normalize`` folds //, . and .., the data volume and
 /private/{tmp,var,etc}); a written path is judged where its links lead, except under a mount that may
@@ -153,8 +153,10 @@ OLD_TRUST_SHA256 = "b3193b97d712bda6a5cc0f2447907e674f7ed90911a82d7709de8298b42a
 HOOKS_TRUST_HASH = "sha256:f97fa95f2f4d43e1f8d35cd92da4d7f3f1861497abd86916680e0189e0ec34b1"
 #: The overlay's hook after r2 (the env spellings), which r3 is built on.
 R2_HOOK_SHA256 = "dbe21e1d9a2ed3f57a7675fd09d3f8cacb2f73a6bfec7fd22e800da3691a041c"
-#: The overlay's hook after r3 (path words judged on disk): TRUST's hook_sha256.
-NEW_HOOK_SHA256 = "2c3fbc1a6d563ee28e47d172343508d0613a9e7bb75567ec82a60e702980d7cf"
+#: The overlay's hook after r3 (path words judged on disk), which r3b replaces.
+R3_HOOK_SHA256 = "2c3fbc1a6d563ee28e47d172343508d0613a9e7bb75567ec82a60e702980d7cf"
+#: The overlay's hook after r3b (snapshot-5's roots, links and globs): TRUST's hook_sha256.
+NEW_HOOK_SHA256 = "f952fd3e9648df1783cec96327b66a84a21082ba63469ef56d41749d23a5131e"
 
 FAKE_HOME = "/Users/tester"
 SCOPED_CWD = FAKE_HOME + "/work/repo"
@@ -235,8 +237,9 @@ def undo(text: str, edits) -> str:
     return text
 
 
-#: r3 (2026-10-25, decisions 1-3): the three path-word blocks, each from its begin marker line
-#: through its end marker line, and the comments that name them, as (r3 text, r2 text).
+#: r3 (2026-10-25, decisions 1-3) and r3b (2026-10-25): the three path-word blocks, each from its
+#: begin marker line through its end marker line, and the comments that name them, as (r3b text,
+#: r2 text).
 R3_BLOCKS = [("# >>> r3 path words: begin >>>\n", "# <<< r3 path words: end <<<\n"),
              ("  # >>> r3 path words: judge >>>\n", "  # <<< r3 path words: judge <<<\n"),
              ("    # >>> r3 path words: name >>>\n", "    # <<< r3 path words: name <<<\n")]
@@ -244,8 +247,12 @@ R3_TEXT = [
     ("""#     ~/.subfleet by default, as spellings of it. D-LANE-SCOPE1 r3
 #     (2026-10-25) judged path words on disk (the "r3 path words" blocks): a
 #     file is never a broad root, a trailing `/*` after a root is that root,
-#     and a glob word that can match a root is judged by its matches. Change
-#     a root on both sides in one reviewed step: here, and in
+#     and a glob word that can match a root is judged by its matches. r3b
+#     (2026-10-25) made those blocks judge the roots, globs and mounts of the
+#     Claude half's snapshot-5: its BROAD_RE and home children (normalized,
+#     in any letter case), links followed except under a mount that may
+#     stall, and globs listed component by component where a root can be.
+#     Change a root on both sides in one reviewed step: here, and in
 #     unscoped_search.py (BROAD_RE, HOME_SUBDIRS, expand()).
 """, """#     ~/.subfleet by default, as spellings of it. Change a root on both sides
 #     in one reviewed step: here, and in unscoped_search.py (BROAD_RE,
@@ -254,6 +261,10 @@ R3_TEXT = [
     ("""#              r3: a root by name that is an existing non-directory is not
 #              broad, a root before a trailing `/*` run or a `**/` is that
 #              root, and a glob word is judged by its matches ("Path words").
+#              r3b: every path word is judged against snapshot-5's roots
+#              (also /usr, /Library, /opt/homebrew, /Volumes/<entry> and the
+#              rest, in any letter case, aliases folded), through its links,
+#              and a glob component by component ("Path words").
 """, ""),
     ("""#              comment, nothing in the command text lets a crawl through
 #              (r3's two test seams are names no lane's environment carries).
@@ -622,13 +633,19 @@ def test_each_direct_child_is_a_root():
         for j, spelling in enumerate(HOME_SPELLINGS):
             command = searches[(i + j) % len(searches)].format(f"{spelling}/.subfleet/{child}")
             expected[command] = f"{spelling.replace('${HOME}', '$HOME')}/.subfleet/{child}"
+    # r3b: a resolvable child is judged by the path-word pass against snapshot-5's roots; a child the
+    # shell names only at run time ($CHILD) is the text rules' alone, so it keeps their child form honest.
+    for j, spelling in enumerate(HOME_SPELLINGS):
+        command = searches[j % len(searches)].format(f"{spelling}/.subfleet/$CHILD")
+        expected[command] = f"{spelling.replace('${HOME}', '$HOME')}/.subfleet/$CHILD"
     for command, out in judged(HOOK, list(expected)).items():
         assert rule(out) == "unscoped-search", command
         assert matched_root(out) == expected[command]
 
 
 TRAILING = ["~/.subfleet/", "$HOME/.subfleet/", "${HOME}/.subfleet/", "/Users/maxghenis/.subfleet/",
-            "~/.subfleet/jobs/", "$HOME/.subfleet/worktrees/", "/Users/maxghenis/.subfleet/archive/"]
+            "~/.subfleet/jobs/", "$HOME/.subfleet/worktrees/", "/Users/maxghenis/.subfleet/archive/",
+            "~/.subfleet/$CHILD/"]   # r3b: the text rules' alone (see test_each_direct_child_is_a_root)
 
 
 def test_trailing_slash_spellings_are_denied():
@@ -641,7 +658,8 @@ def test_trailing_slash_spellings_are_denied():
 DEEP = ["~/.subfleet/jobs/20261024-115712-x", "~/.subfleet/jobs/20261024-115712-x/",
         "$HOME/.subfleet/worktrees/20261024-115939-guardscope-build",
         "/Users/maxghenis/.subfleet/jobs/20261024-115712-x/a1",
-        "~/.subfleet/jobs/20261024-115712-x/a1/deliverable.md", "${HOME}/.subfleet/archive/2026-10/x"]
+        "~/.subfleet/jobs/20261024-115712-x/a1/deliverable.md", "${HOME}/.subfleet/archive/2026-10/x",
+        "~/.subfleet/jobs/$ID", "$HOME/.subfleet/worktrees/$NAME/x"]   # r3b: the text rules' alone
 
 
 def test_two_or_more_levels_under_subfleet_stay_scoped(hooks):
@@ -689,6 +707,8 @@ def test_trust_pins_the_new_hook_bytes():
            "D-LANE-SCOPE1 r2: $SUBFLEET_ROOT and $SUBFLEET_HOME" in trust["provenance"]
     assert "live hooks/list preflight. 2026-10-25, D-LANE-SCOPE1 r3: path words are judged on " \
            "disk" in trust["provenance"]
+    assert "live hooks/list preflight. 2026-10-25, D-LANE-SCOPE1 r3b: the path words are judged with " \
+           "the roots, links and globs of the Claude half's snapshot-5" in trust["provenance"]
     assert trust["provenance"].endswith(
         "installed only after the hub's review and a live hooks/list preflight.")
 
@@ -2028,7 +2048,7 @@ def test_r3_globs_agree_with_real_zsh_and_bash():
 
 # ---------------------------------------------------------------- r3b: snapshot-5's roots, globs and mounts
 
-# Round r3b (2026-10-26, the hub's decisions 1-6, for parity with snapshot-5 of the Claude half,
+# Round r3b (2026-10-25, the hub's decisions 1-6, for parity with snapshot-5 of the Claude half,
 # ~/.claude/hooks/unscoped_search.py, read from its frozen .ref copy only):
 #   1. the roots are snapshot-5's: a resolved path is normalized (// . .. by name, the data volume
 #      and /private/{tmp,var,etc} folded) and matched case-insensitively against BROAD_RE and the
@@ -2283,8 +2303,9 @@ def test_r3b_only_the_disk_functions_touch_the_file_system():
     outside += "\n" + "\n".join(top)
     outside += "\n" + blocks[1] + "\n" + blocks[2]
     code = "\n".join(line for line in outside.splitlines() if not line.lstrip().startswith("#"))
-    for needle in ("$pw_fs", "readlink", "[ -e", "[ -L", "[ -d", "[ -f", "[ -h", "test -", " ls "):
-        assert needle not in code, needle
+    assert "$pw_fs" not in code
+    for needle in (r"(?<![\w-])readlink\b", r"\[ -[eLdfhrwxs] ", r"(?<![\w-])test -", r"(?<![\w-])ls\b"):
+        assert not re.search(needle, code), needle
     assert not re.search(r"=\(\s*[^)]*\*", code), "a pathname expansion outside pw_ls"
 
 

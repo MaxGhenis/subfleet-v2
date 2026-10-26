@@ -32,8 +32,12 @@
 #     ~/.subfleet by default, as spellings of it. D-LANE-SCOPE1 r3
 #     (2026-10-25) judged path words on disk (the "r3 path words" blocks): a
 #     file is never a broad root, a trailing `/*` after a root is that root,
-#     and a glob word that can match a root is judged by its matches. Change
-#     a root on both sides in one reviewed step: here, and in
+#     and a glob word that can match a root is judged by its matches. r3b
+#     (2026-10-25) made those blocks judge the roots, globs and mounts of the
+#     Claude half's snapshot-5: its BROAD_RE and home children (normalized,
+#     in any letter case), links followed except under a mount that may
+#     stall, and globs listed component by component where a root can be.
+#     Change a root on both sides in one reviewed step: here, and in
 #     unscoped_search.py (BROAD_RE, HOME_SUBDIRS, expand()).
 #
 # Rules (one line each; details in docs/guard.md):
@@ -400,6 +404,10 @@ fi
 #              r3: a root by name that is an existing non-directory is not
 #              broad, a root before a trailing `/*` run or a `**/` is that
 #              root, and a glob word is judged by its matches ("Path words").
+#              r3b: every path word is judged against snapshot-5's roots
+#              (also /usr, /Library, /opt/homebrew, /Volumes/<entry> and the
+#              rest, in any letter case, aliases folded), through its links,
+#              and a glob component by component ("Path words").
 #   judged     backslash-newline continuations are joined first (as the shell
 #              does) and `${HOME}`, `${SUBFLEET_ROOT}` and `${SUBFLEET_HOME}`
 #              lose their braces; then collapse_quotes
@@ -465,7 +473,7 @@ collapse_quotes() {
   printf '%s' "$1" | CQ_MODE="${2:-q}" CQ_ROOT="${3:-^\$}" LC_ALL=C awk "function collapse(s,   out, q, inner, rs, rl, pre) { out = \"\"; while (match(s, /'[^']*'|\"[^\"]*\"/)) { rs = RSTART; rl = RLENGTH; q = substr(s, rs, rl); inner = substr(q, 2, rl - 2); pre = out substr(s, 1, rs - 1); out = pre; if (inner ~ /(^|[[:space:];&|(])(find|rg|grep)[[:space:]]/ && pre ~ /(^|[[:space:]])(-[A-Za-z]*c|eval|sh|bash|zsh|dash|ksh)[[:space:]]+$/) out = out substr(q, 1, 1) collapse(inner) substr(q, 1, 1); else if (ENVIRON[\"CQ_MODE\"] == \"roots\" && inner ~ ENVIRON[\"CQ_ROOT\"]) out = out inner; else out = out \"Q\"; s = substr(s, rs + rl) } return out s } { print collapse(\$0) }" 2>/dev/null
 }
 # >>> r3 path words: begin >>>
-# Path words judged on disk (D-LANE-SCOPE1 r3, 2026-10-25; r3b, 2026-10-26,
+# Path words judged on disk (D-LANE-SCOPE1 r3, 2026-10-25; r3b, 2026-10-25,
 # for parity with snapshot-5 of the Claude half's unscoped_search.py). Before
 # the text rules below, every path word of the command is judged once. A path
 # word is a run of characters other than whitespace and | ; & ( ) < >, where a
@@ -840,13 +848,16 @@ pw_sentinel() {
 # empty (the text rules' verdict stands). CONTEXT b: the word is in a script
 # run by bash, sh, dash or ksh -c, where `**` is `*`. QUOTED q: a quote mark
 # was part of the word, so a broad one is placed even where the text rules
-# read it as a root by name (they would see a quoted part as Q).
+# read it as a root by name (they would see a quoted part as Q). Judged with
+# nocasematch and nocaseglob off (bash 3.2's =~ obeys either), both put back.
 pw_word() {
-  local nc=""
+  local nc="" ng=""
   shopt -q nocasematch && nc=1
-  shopt -u nocasematch
+  shopt -q nocaseglob && ng=1
+  shopt -u nocasematch nocaseglob
   pw_word_judge "$@"
   [ -z "$nc" ] || shopt -s nocasematch
+  [ -z "$ng" ] || shopt -s nocaseglob
 }
 pw_word_judge() {
   local w=$1 b="" walk=""
