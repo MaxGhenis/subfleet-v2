@@ -2007,9 +2007,14 @@ final class RevealArrivals: @unchecked Sendable {
     await settle(scene.host, seconds: 0.5)
     record.step("requested", target: target)
     if away {
+        // Rows measured on the way move the end, so keep moving until it stays in view.
         record.step("showing", target: target)
-        record.clipTo(fromEnd: 0)
-        await settle(scene.host, seconds: 0.5)
+        for _ in 0..<12 {
+            record.clipTo(fromEnd: 0)
+            await settle(scene.host, seconds: 0.25)
+            if (sample(scene.host)["from_end"] ?? 1e9) <= 1 { break }
+        }
+        await settle(scene.host, seconds: 0.3)
         record.step("end_shown", target: target)
     }
     await scene.stream(20)
