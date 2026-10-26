@@ -13,6 +13,8 @@ The daemon then answers `not-steerable` (C-24.9, C-25.2).
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from tests.frontend.conftest import needs_swift
@@ -72,6 +74,6 @@ def test_step_14_takes_a_steer_the_running_turn_could_not_take_at_first(core_pro
         {"do": "engine-pump"},
     ])
     (steer,) = out["steers"]
-    assert taken(steer), steer
+    assert taken(steer), json.dumps(steer, sort_keys=True)
     assert steer_requests(server) == [steered] * steer["attempts"]
     assert steer_frames(runners[host]) == [steered]
