@@ -290,6 +290,9 @@ LAUNCH_CHECK_UNFINISHED = "workdir-branch-check-unfinished:"
 #: C-13.1: how many of the paths a salvage left out the attempt's evidence and the
 #: job's notice name; both give the count of all of them.
 SALVAGE_SKIPPED_SHOWN = 5
+#: C-13.1 (D-SALV-MISSING1): what salvage records of a worktree that no longer exists.
+#: It is not a failure, and nothing is kept.
+WORKTREE_GONE = "worktree already gone: nothing to salvage"
 #: C-9.2, C-4.3: `finalization.json`'s `rule` when this daemon classified the
 #: attempt. Every replay keeps such a verdict as its first pass decided it; only a
 #: verdict an older daemon recorded, without it, is reconciled with completion proof.
@@ -309,6 +312,19 @@ def _skipped(paths: list[str]) -> dict:
     """C-13.1: what the evidence records of the paths a snapshot left out: how
     many, and the first `SALVAGE_SKIPPED_SHOWN`."""
     return {"count": len(paths), "paths": paths[:SALVAGE_SKIPPED_SHOWN]}
+
+
+def _gone(path: str) -> bool:
+    """D-SALV-MISSING1: is there nothing at `path`? Only an absence the file system
+    reports (no such entry, or a parent that is not a directory); a path that cannot be
+    looked at is not gone, and its salvage fails as git says."""
+    try:
+        os.lstat(path)
+    except (FileNotFoundError, NotADirectoryError):
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
+    return False
 
 
 def _left_out(skipped: dict) -> str:
@@ -8811,16 +8827,23 @@ class Daemon:
                                    started_at=a.get("started_at") or start.get("started_at")
                                    or a.get("reserved_at") or a.get("created_at"),
                                    finished_at=receipt.get("finished_at"),
-                                   responsible_root=responsible)
+                                   responsible_root=responsible, attempt_boot=boot)
+
+        def attempts(pid: int) -> bool:
+            # D-QUAR-REUSE1: a process on another boot than the attempt's recorded one is
+            # not the attempt's, whichever source counted it. Kept, it seeded every later
+            # census as a recorded survivor (incident 2026-10-24: trackb kept a stranger
+            # reusing its receipt's child pid 83026, and stayed quarantined).
+            return not procs.boot_identity.differ(census.identities[pid].boot_id, boot)
         fresh = {str(pid): dataclasses.asdict(census.identities[pid]) for pid in sorted(census.responsible_pids)
                  if guardian not in census.recycled
-                 and pid != guardian and pid in census.identities
+                 and pid != guardian and pid in census.identities and attempts(pid)
                  and named.get(str(pid)) != dataclasses.asdict(census.identities[pid])}
         # D-KILL2: the other members, by whichever source counted them. A group
         # member may already be owned; only an identity not yet kept is written.
         sighted = {str(pid): dataclasses.asdict(census.identities[pid])
                    for pid in sorted(census.live_pids - census.responsible_pids)
-                   if pid != guardian and pid in census.identities
+                   if pid != guardian and pid in census.identities and attempts(pid)
                    and all(kept.get(str(pid)) != dataclasses.asdict(census.identities[pid])
                            for kept in (owned, named, counted))}
         # `recycled[pid]` excludes an older recorded birth, not a new member
@@ -9384,25 +9407,37 @@ class Daemon:
             cap = self.policy["caps"]["workspace_git_timeout_s"]
             result = checkpoint = error = None
             skipped: list[str] = []
+            # D-SALV-MISSING1: a worktree already removed (by retention, or by its owner
+            # while the attempt sat in quarantine) holds nothing to salvage, which is no
+            # failure. Asked of git, it read "git rev-parse failed", and the notice said
+            # "the worktree is kept" of a path that was not there.
+            gone = _gone(workspace)
             try:
-                result = salvage(workspace, baseline, a["seq"],
-                                 writable=True, state="finalizing", timestamp=a["reserved_at"],
-                                 baseline_tree=a.get("baseline_tree"), timeout_s=cap, left_out=skipped)
-                checkpoint = git_head(workspace, timeout_s=cap)
+                if not gone:
+                    result = salvage(workspace, baseline, a["seq"],
+                                     writable=True, state="finalizing", timestamp=a["reserved_at"],
+                                     baseline_tree=a.get("baseline_tree"), timeout_s=cap, left_out=skipped)
+                    checkpoint = git_head(workspace, timeout_s=cap)
             except (SalvageError, OSError) as exc:
-                failures = self._salvage_failures[a["attempt_id"]] = self._salvage_failures.get(a["attempt_id"], 0) + 1
-                transient = getattr(exc, "transient", False) or transient_os_error(exc)
-                if retry and transient and failures < SALVAGE_TRIES:
-                    raise
-                # The receipt reaches the attempt's evidence (`runs show`) and the
-                # job's notice, so it says how git ended, as C-6.8's record does:
-                # what git printed (a repository's own filters print there) goes to
-                # daemon.log only, scrubbed (C-25.7). A snapshot already written
-                # stands when only reading HEAD after it failed. Valid UTF-8, or the
-                # receipt could not be written, on this try or any other (N1).
-                stage = "checkpoint" if result else "salvage"
-                error = utf8_text(f"{stage} failed: {self._workspace_error(exc)[1]['error']}")[:500]
-                self.log.warning("attempt %s %s failed: %s", a["attempt_id"], stage, refusals.scrubbed_words(exc))
+                # Removed while the snapshot was taken, its absence is what failed.
+                gone = not result and _gone(workspace)
+                if not gone:
+                    failures = self._salvage_failures[a["attempt_id"]] = self._salvage_failures.get(a["attempt_id"], 0) + 1
+                    transient = getattr(exc, "transient", False) or transient_os_error(exc)
+                    if retry and transient and failures < SALVAGE_TRIES:
+                        raise
+                    # The receipt reaches the attempt's evidence (`runs show`) and the
+                    # job's notice, so it says how git ended, as C-6.8's record does:
+                    # what git printed (a repository's own filters print there) goes to
+                    # daemon.log only, scrubbed (C-25.7). A snapshot already written
+                    # stands when only reading HEAD after it failed. Valid UTF-8, or the
+                    # receipt could not be written, on this try or any other (N1).
+                    stage = "checkpoint" if result else "salvage"
+                    error = utf8_text(f"{stage} failed: {self._workspace_error(exc)[1]['error']}")[:500]
+                    self.log.warning("attempt %s %s failed: %s", a["attempt_id"], stage, refusals.scrubbed_words(exc))
+            if gone:
+                skipped = []                     # its paths went with it
+                self.log.info("attempt %s: %s", a["attempt_id"], WORKTREE_GONE)
             self._salvage_failures.pop(a["attempt_id"], None)
             # Every path as valid UTF-8: `json_bytes` cannot encode the surrogates
             # `os.fsdecode` carries a name that is not UTF-8 in, and a receipt that
@@ -9410,10 +9445,14 @@ class Daemon:
             skipped = [path_text(path) for path in skipped]
             receipt = {"result": {**dataclasses.asdict(result), "skipped": skipped} if result else None,
                        "checkpoint": checkpoint, "error": error, "skipped": skipped}
+            if gone:
+                receipt["gone"] = True
             self._publish("salvage", receipt_path, json_bytes(receipt))
             self._boundary("salvage", job["job_id"], a["attempt_id"])
         result = receipt["result"]
         evidence = {"salvage_error": receipt["error"]} if receipt.get("error") else {}
+        if receipt.get("gone"):
+            evidence["salvage_gone"] = WORKTREE_GONE
         # A receipt written before `skipped` had its own key lists them in the result.
         skipped = receipt.get("skipped", (result or {}).get("skipped")) or []
         if skipped:
@@ -9430,13 +9469,16 @@ class Daemon:
     @staticmethod
     def _salvage_summary(job: dict, artifacts: list[dict], evidence: dict) -> str:
         """C-13.1: the notice's lines for what salvage could not save ("" when it saved
-        everything): its error, the paths it left out, and where they still are."""
+        everything): its error, the paths it left out, and where they still are; or that
+        the worktree was already gone, when nothing was there to save or to keep."""
         lines = [evidence["salvage_error"]] if evidence.get("salvage_error") else []
         skipped = evidence.get("salvage_skipped")
         if skipped:
             lines.append(f"salvage left out {_left_out(skipped)}")
         if lines and (skipped or not artifacts):
             lines[-1] += f"; the worktree is kept: {job.get('worktree') or job['workdir']}"
+        if evidence.get("salvage_gone"):
+            lines.append(evidence["salvage_gone"])
         return "".join("\n" + line for line in lines)
 
     @staticmethod
