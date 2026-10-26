@@ -66,7 +66,7 @@ from .client import (
 )
 from .contracts import (GIT_LOCATION_ENV, GIT_PATHSPEC_ENV, HOLD_NOTE_MAX, JOB_KINDS,
                         REQUEST_ID_MAX, STOP_BACKSTOP_S, STOP_GRACE_S, JobState, Sandbox, WAIT_POLL_MAX_S, Exit,
-                        hold_note)
+                        hold_note, hold_note_of)
 from .offline import (KNOWN_SCHEMA_VERSION, Offline, OfflineUnavailable,
                       SchemaTooNew, age_adjusted_label)
 from .protocol import ProtocolError
@@ -2360,6 +2360,13 @@ def cmd_lanes(args: argparse.Namespace) -> int:
                         and row.get("reason") == "operator-hold"), None)
         if closure is None:
             return fail(Exit.NO_LANE, "the hold is not in force; the daemon returned no active stored hold")
+        if "kept" not in result:
+            # #263 returns the stored row but has no kept flag and echoes the
+            # requested note at the top level. The row remains the authority.
+            stored_note = hold_note_of(closure.get("source_event"))
+            result["kept"] = (render.instant(closure["until_at"]) != render.instant(args.until)
+                              or stored_note != note)
+            result["note"] = stored_note
     if args.json:
         emit(result)
         return int(Exit.OK)

@@ -229,11 +229,18 @@ def test_past_or_present_until_is_refused_without_writes(operator, until):
 
 @pytest.mark.parametrize("refresh_until", [UNTIL, "2026-10-26T21:55:00Z"])
 @pytest.mark.parametrize("note", [None, "asked note"])
-def test_kept_refresh_acknowledges_stored_until_and_note(operator, monkeypatch, capsys, refresh_until, note):
+@pytest.mark.parametrize("legacy_reply", [False, True])
+def test_kept_refresh_acknowledges_stored_until_and_note(operator, monkeypatch, capsys, refresh_until, note,
+                                                        legacy_reply):
     """C-9.6: a non-extending call prints what remains in force and explains what was kept."""
     hold(operator, note=NOTE)
-    monkeypatch.setattr(cli, "_client", lambda _: SimpleNamespace(
-        call=lambda _op, args: daemon.Daemon._hold_lane(operator, protocol.LanesArgs(**args))))
+    def call(_op, args):
+        result = daemon.Daemon._hold_lane(operator, protocol.LanesArgs(**args))
+        if legacy_reply:
+            result.pop("kept")
+            result["note"] = args.get("note")       # #263's top-level echo
+        return result
+    monkeypatch.setattr(cli, "_client", lambda _: SimpleNamespace(call=call))
     argv = ["lanes", "hold", "codex-1", "--until", refresh_until] + (["--note", note] if note else [])
     assert cli.main(argv) == 0
     captured = capsys.readouterr()
@@ -308,3 +315,19 @@ def test_real_pin_explanation_withholds_an_external_credential_source(operator):
     assert "SECRET7" not in json.dumps(stuck)
     assert "/homes/codex-1: held by the operator: [note withheld: it would carry a credential]" in (
         render.pin_notice("job", stuck, None))
+
+
+def test_legacy_refresh_json_describes_the_stored_row(operator, monkeypatch, capsys):
+    """C-9.6: #263's requested-note echo cannot contradict its stored row in a CLI acknowledgement."""
+    hold(operator, note=NOTE)
+    def call(_op, args):
+        result = daemon.Daemon._hold_lane(operator, protocol.LanesArgs(**args))
+        result.pop("kept")
+        result["note"] = args.get("note")
+        return result
+    monkeypatch.setattr(cli, "_client", lambda _: SimpleNamespace(call=call))
+    assert cli.main(["lanes", "hold", "codex-1", "--until", "2026-10-26T21:55:00Z",
+                     "--note", "asked note", "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["kept"] is True and result["note"] == NOTE
+    assert result["closures"][0]["until_at"] == UNTIL
