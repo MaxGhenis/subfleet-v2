@@ -1404,7 +1404,16 @@ struct SettlingPageView: View {
         step("early_completion")
         clipToEndOffset(2000)
         await settle(scene.host, seconds: 0.3)
-        step("scrolled")
+        // Rows measured at the new place can pull the end in under the clip (at 560 pt
+        // and 1.44x text the document shrank 1,856 pt, leaving it 144 pt from the end
+        // before the shrink), so put it back until it stays away from the end.
+        var placements = 1
+        while (sample(scene.host)["from_end"] ?? 0) <= 600 && placements < 8 {
+            clipToEndOffset(2000)
+            placements += 1
+            await settle(scene.host, seconds: 0.3)
+        }
+        step("scrolled", ["placements": placements])
     }
     if mode == "person" {
         await scene.personScroll(toEnd: true)
