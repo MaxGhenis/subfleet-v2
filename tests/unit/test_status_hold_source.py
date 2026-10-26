@@ -703,10 +703,10 @@ def test_i4_a_note_round_trips_or_is_refused_with_the_store_unchanged(core, note
         assert [item["note"] for item in status["lanes"][0]["closures"]] == [expected]
         offline = [item for item in Offline(core.root).status()["closures"] if item["reason"] == "operator-hold"]
         assert [(item["kind"], item["note"]) for item in offline] == [("hold", expected)]
-        assert "  " + hold_words(core.store.get_lane("codex-1")["home"], until, expected) in cli.format_status(status).splitlines()
+        assert "  " + hold_words(core.store.get_lane("codex-1").home, until, expected) in cli.format_status(status).splitlines()
         alert = conditions(*core.timers.snapshot()["lanes"])["codex-fleet-empty"]
         assert alert["body"] == ("No codex lane is dispatchable: 1 held ("
-            + hold_words(core.store.get_lane("codex-1")["home"], until, expected) + "). Run: subfleet status")
+            + hold_words(core.store.get_lane("codex-1").home, until, expected) + "). Run: subfleet status")
         assert core._timer_notice(alert)                     # the session notice the alert becomes
         notice = core.store.one("SELECT text FROM service_notices ORDER BY notice_id DESC LIMIT 1")["text"]
         assert notice == f"codex: no dispatchable lanes\n{alert['body']}"
@@ -724,7 +724,7 @@ def test_i4_a_hold_without_a_note_records_operator_as_before(core):
     assert json.loads(event["data_json"]) == {"until": until}
     status = core.dispatch("daemon.status", {})
     assert [(item["kind"], item["note"]) for item in status["closures"]] == [("hold", None)]
-    assert "  " + hold_words(core.store.get_lane("codex-1")["home"], until, None) in cli.format_status(status).splitlines()
+    assert "  " + hold_words(core.store.get_lane("codex-1").home, until, None) in cli.format_status(status).splitlines()
 
 
 def test_i4_a_later_hold_takes_the_row_and_its_note_a_shorter_one_leaves_both(core):
@@ -1019,11 +1019,11 @@ def test_r1_p2_a_stored_credential_note_is_withheld_by_every_reader(core):
     rows = [*status["closures"], *status["lanes"][0]["closures"]]
     assert [(row["kind"], row["note"], row["source_event"]) for row in rows] == [
         ("hold", WITHHELD, f"operator: {WITHHELD}")] * 2
-    assert "  " + hold_words(core.store.get_lane("codex-1")["home"], until, WITHHELD) in cli.format_status(status).splitlines()
+    assert "  " + hold_words(core.store.get_lane("codex-1").home, until, WITHHELD) in cli.format_status(status).splitlines()
     offline = Offline(core.root).status()
     assert [(row["note"], row["source_event"]) for row in offline["closures"]] == [(WITHHELD, f"operator: {WITHHELD}")]
     alert = conditions(*core.timers.snapshot()["lanes"])["codex-fleet-empty"]
-    assert hold_words(core.store.get_lane("codex-1")["home"], until, WITHHELD) in alert["body"]
+    assert hold_words(core.store.get_lane("codex-1").home, until, WITHHELD) in alert["body"]
     assert core._timer_notice(alert)
     notice = core.store.one("SELECT text FROM service_notices")["text"]
     for shown in (cli.format_status(status), str(status), str(offline["closures"]), cli.format_status(offline),
@@ -1511,9 +1511,9 @@ def test_r2_p3_3_a_hold_source_lanes_hold_would_not_write_is_withheld(core, case
     offline = Offline(core.root).status()
     assert shown_holds(offline["closures"]) == [SHOWN_WITHHELD]
     text = cli.format_status(status)
-    assert "  " + hold_words(core.store.get_lane("codex-1")["home"], until, WITHHELD) in text.splitlines()
+    assert "  " + hold_words(core.store.get_lane("codex-1").home, until, WITHHELD) in text.splitlines()
     alert = conditions(*core.timers.snapshot()["lanes"])["codex-fleet-empty"]
-    assert hold_words(core.store.get_lane("codex-1")["home"], until, WITHHELD) in alert["body"]
+    assert hold_words(core.store.get_lane("codex-1").home, until, WITHHELD) in alert["body"]
     assert core._timer_notice(alert)
     notice = core.store.one("SELECT text FROM service_notices ORDER BY notice_id DESC LIMIT 1")["text"]
     for shown in (json.dumps(status, sort_keys=True, default=str), json.dumps(offline, sort_keys=True, default=str),
@@ -1532,9 +1532,9 @@ def test_r2_p3_5_a_stored_note_over_160_characters_is_withheld_unread(core, monk
     status = core.dispatch("daemon.status", {})
     assert shown_holds([*status["closures"], *status["lanes"][0]["closures"]]) == [SHOWN_WITHHELD] * 2
     text = cli.format_status(status)
-    assert "  " + hold_words(core.store.get_lane("codex-1")["home"], until, WITHHELD) in text.splitlines()
+    assert "  " + hold_words(core.store.get_lane("codex-1").home, until, WITHHELD) in text.splitlines()
     alert = conditions(*core.timers.snapshot()["lanes"])["codex-fleet-empty"]
-    assert hold_words(core.store.get_lane("codex-1")["home"], until, WITHHELD) in alert["body"]
+    assert hold_words(core.store.get_lane("codex-1").home, until, WITHHELD) in alert["body"]
     assert core._timer_notice(alert)
     notice = core.store.one("SELECT text FROM service_notices ORDER BY notice_id DESC LIMIT 1")["text"]
     assert notice == f"codex: no dispatchable lanes\n{alert['body']}"
