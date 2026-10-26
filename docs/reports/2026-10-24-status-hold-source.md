@@ -476,9 +476,9 @@ None is status, `status --json`, an alert or a notice. Routing them through
 
   A note it refuses is refused with exit 2, reason `hold-note` and the wire
   text of the rule it broke. The store is left unchanged: no closure and no
-  event. The 60 generated examples now include a 160-character ordinary note
-  and two credential shapes, and the oracle is the spec: the line rule, then
-  `holds_credential`.
+  event. Its pinned examples now include a 160-character ordinary note
+  (`LONGEST`) and two credential shapes, beside the 60 generated ones, and the
+  oracle is the spec: the line rule, then `holds_credential`.
 - **I5 (new).** No text the C-23.14 scrubber would change reaches the store,
   status, the alerts or a notice through a hold.
   - Notes are printable text with a dummy credential spliced in:
@@ -492,3 +492,127 @@ None is status, `status --json`, an alert or a notice. Routing them through
     and each hold row's `note` and `source_event` at both levels.
   - Paired with the ordinary-note property: every such note is accepted,
     and round-trips through `source_event` (400 examples).
+
+### Mutants, round r1
+
+`tools/status_hold_source_mutations.py` ran from a `git archive` export of
+`5bf49779f`'s tree in hold 1, never in the worktree. Its baseline was hold 1's
+own run of the same tree minutes before (`.mutants-baseline.xml`, that run's
+JUnit file): all 21 named tests passed there, every case. Each mutant then ran
+its named tests. "Killed" means pytest failed and at least one named test has a
+`FAILED` line.
+
+| Mutant | What it takes back | Named tests that failed | Result |
+| --- | --- | --- | --- |
+| M1 | `held` reads `limited` | `test_all_six_…` ×3, I2, `test_i1_a_held_lane_…` | killed |
+| M2 | `held` counts as dispatchable | I1, `test_i1_a_held_lane_…` | killed |
+| M3 | the per-cause counts dropped | `test_all_six_…` ×3, I3, `test_a_mix_…` | killed |
+| M4 | holds said to be exhausted | `test_all_six_…` ×3, I3 | killed |
+| M5 | the note stored without validation | I4 | killed |
+| M6 | a per-lane limit alert for a hold | `test_all_six_…` ×3, `test_claude_lanes_all_held_…` | killed |
+| M7 | an all-held fleet left critical | `test_all_six_…` ×3, I3 | killed |
+| M8 | I3: `1 disabled` rendered `disabled` | I3, `test_r1_p3_4_…`, `test_a_disabled_lane_…` | killed |
+| M9 | `hold_note` without the credential check | (the bound stopped it mid-run) | **not finished** |
+| M10 | the readers' backstop dropped | — | **not run** |
+| M11 | `_admission_verdict` reads the readings before the account test | — | **not run** |
+| M12 | the hold answer's nested rows left raw | — | **not run** |
+| M13 | the old line-filtering source guard | — | **not run** |
+| M14a, M14b | the daemon's, then the CLI's, refusal echoes the note | — | **not run** |
+
+The mutant step had a 25-minute bound. At load 105 to 124 each mutant took
+about 2.6 minutes, almost all of it pytest collecting the module under load.
+The bound stopped the driver inside M9 at 00:46Z, and the driver restored every
+file it had mutated (checked byte for byte against the commit afterwards). That
+was past the 4-hour mark, so no further run was started.
+
+**What stands in for M9 to M13: the red run.** For each of these five, the
+mutated code is exactly what `8b27040a2` had for that decision:
+- M9: no credential check;
+- M10: no backstop;
+- M11: no account test before the readings;
+- M12: nested rows raw;
+- M13: the line-filtering guard.
+
+The red run of the round's tests on that code failed each named assertion:
+- **M9:** I4, `test_hold_note_accepts_…`, I5, the constants test, the five
+  daemon-refusal cases, the five CLI-refusal cases and the P2 reproduction;
+- **M10:** `test_r1_p2_a_stored_credential_note_is_withheld_by_every_reader`;
+- **M11:** `test_r1_p3_1_…[None]` and `[readings1]`;
+- **M12:** `test_r1_p3_2_…`;
+- **M13:** `test_r1_p3_3_…[two lines]`.
+
+The same tests passed on the fixed tree in hold 1. This pairs each decision's
+code with its tests, but the rest of that tree is the unfixed one, so it is not
+the driver's one-change-at-a-time pairing. M14a and M14b have no stand-in and
+did not run.
+
+### Runs, round r1
+
+All pytest runs went through `suite_hold.sh`, one at a time, in-process under a
+`SIGALRM` bound (`run.py`), so a run that reached its bound stopped with
+teardown. `TMPDIR` and `HYPOTHESIS_STORAGE_DIRECTORY` were in the job's scratch
+folder, and `PYTHONPATH`, `SUBFLEET_HOME`, `SUBFLEET_ROOT` and
+`SUBFLEET_RETENTION_DORMANT` were unset. The lane markers were unset for the
+unit and fake files. Python 3.12.14 (`uv sync --group dev`), no network. Times
+are UTC, 2026-10-25 into 10-26. Loads are `vm.loadavg` (1, 5 and 15 minutes).
+
+| Hold | Tree | What ran | Result | Load at start → end |
+| --- | --- | --- | --- | --- |
+| red, 22:03 (queued 21:39) | `5a91bc9f8`: `8b27040a2`'s code with the red tests | `test_status_hold_source.py` | **32 failed, 39 passed** in 861 s, as intended. Every test of a behaviour this round changes failed. The 39 passes are the existing tests, plus the new tests whose behaviour already held at `8b27040a2`: the old guard caught five of the six comparison cases (all but the one split over two lines), though it also flagged the clean module's `source_event != "wham"`, and the ordinary-note property passed | 120 → 114 |
+| 2a, 22:44 | `3b62103f1` (the head's code) | the three contract guards | **63 passed** in 531 s: `fake/test_state_contract.py` 37, `test_test_module_names.py` 1, `test_invariants_index.py` 25 | 97 → 26 |
+| 2b, 22:53 | same | review r1's two unfinished tests in `test_unadmittable_pin.py` | **2 passed** in 159 s | 26 → 65 |
+| 2c, 22:56 | same | 19 neighbouring unit and fake files | **628 passed**, 0 failed, in 1,559 s, stopped at the bound in or just after `test_importer.py`. Passed: `test_offline` 33, `test_capacity_view` 20, `test_daemon_refusals_cli` 8, `test_native_operations` 28, `test_legacy_hold` 56, `test_route_check` 24, `test_timers_probe` 35, `test_timers_busy_read` 115, `test_timers_reset_credits` 47, `test_reset_credit_demand` 68, `test_reset_credit_properties` 11, `test_decision_horizon` 7, `test_lease_waiter_selection` 6, `test_limit_from_model_text` 95, `test_importer` 75. Not reached: `test_scheduler_weekly`, `test_capacity_steer_route`, `fake/test_admission_disk`, `fake/test_reset_credit_incident` | 65 → 110 |
+| 1a, 23:55 | `5bf49779f` (the head) | the builder's targets and the full CLI file, in that order | **240 passed**, 0 failed, in 1,524 s, stopped at the bound: `test_status_hold_source.py` **73 passed** (all of it), `test_handler_refusals.py` 167 passed (stopped after `test_a_checked_value_has_its_shape_and_no_free_text`). Not reached: `test_render`, `test_status_json`, `test_timers_alerts`, `test_operator_hold_closures`, `fake/test_lanes_enroll`, `fake/test_status_payload`, `test_operator_notices`, `test_cli`, `frontend/test_status_model` | 115 → 124 |
+| 1b, 00:21 | same | the mutants | M1 to M8 killed; M9 stopped by the bound; M10 to M14b not run | 124 → 105 |
+| 3, 00:46 | — | the rest of hold 1's targets, then the review's remaining files | not started: past the 4-hour mark | 108 |
+
+Before the holds, a plain Python smoke (not pytest) called the round's
+daemon-core tests and the rule tests directly on the fixed tree, with
+`tests/conftest.py`'s home-path isolation applied by hand: 36 checks passed. It
+found one test bug, now fixed (`edada4bdb`). The P2 reproduction, once the hold
+was refused, had no fleet-empty alert to read, so it now holds the lane with a
+plain note first.
+
+**The three CLI timing tests.** `test_cli.py` did not run in this round: hold
+1's bound stopped before it, and hold 3 could not start. So there were no
+failures to rerun, and no load-paired reruns exist. Their bounds are unchanged.
+
+**The app.** No Swift changed, so the app model tests (review r1's check 6)
+were not rerun.
+
+### Not run, round r1
+
+- **Mutants:** M9 to M14b, run as the driver pairs them; see above for the red
+  run's stand-in for M9 to M13.
+- **From the builder's targets** (review r1's hold 01):
+  - `test_render`, `test_status_json`, `test_timers_alerts`,
+    `test_operator_hold_closures`, `test_operator_notices` and `test_cli` (the
+    full CLI tests, the three timing tests among them);
+  - `fake/test_lanes_enroll`, `fake/test_status_payload`;
+  - `frontend/test_status_model`;
+  - the rest of `test_handler_refusals`.
+- **From review r1's holds table** (holds 02 to 05 and 09 to 12):
+  - `test_scheduler_weekly`, `test_capacity_steer_route`, `test_scheduler`,
+    `test_steer_invariants`;
+  - `test_conversation_handoff`, `test_conversation_handoff_dispatch_races`,
+    `test_conversation_steer_service`, `test_conversation_store`,
+    `test_conversation_wakes`;
+  - `test_claude_adapter`, `test_codex_adapter`, `test_daemon_verbs`,
+    `test_daemon_settle`, `test_policy`;
+  - `test_reset_credit_claim_timing`, `test_reset_credit_review_r1`,
+    `test_reset_credit_review_r2`, `test_timers_daemon`, `test_timers_keepalive`;
+  - `fake/test_admission_disk`, `fake/test_reset_credit_incident`;
+  - `e2e/test_http_isolation`, `e2e/test_milestone2_claude`;
+  - frontend `test_core_approval_reach`, `test_core_queue_tray`,
+    `test_pr124_fixes_ui`, `test_review_r219_probes`, `test_visual_progress`;
+  - the old-release Swift decoder check.
+
+The round's code changes touch `contracts.py` (`hold_note`, `hold_note_of`,
+`hold_source_shown`), `status_json.py` (`_admission_verdict`, `closure_row`,
+`closure_rows`), `daemon.py` (`_hold_lane`, `daemon.status`), `cli.py`
+(`cmd_lanes`'s refusal line) and `refusals.py` (the `hold-note` template).
+`test_status_hold_source.py` covers each of them and passed in full. Of the
+unrun files, `test_cli`, `test_status_json`, `test_render`,
+`test_operator_hold_closures`, `fake/test_lanes_enroll` and
+`fake/test_status_payload` import or drive these functions, so they are the
+first to run. CI on the head is the full check.
