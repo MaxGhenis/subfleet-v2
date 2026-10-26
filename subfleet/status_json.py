@@ -170,6 +170,21 @@ def closure_rows(view: dict[str, Any]) -> dict[str, Any]:
     return view
 
 
+def decision_rows(decision: Any) -> Any:
+    """C-9.6 (review r2 of #263, P3-2): a route decision as `why`, `run --dry-run`
+    and `runs show` show it. Each evaluation's `closures` and `stranding_closures`
+    are the rows the scheduler read, recorded as they were; each hold's
+    `source_event` is shown as `closure_row` shows it (`withheld_source`), and
+    nothing else changes, so a decision whose holds `lanes hold` wrote reads
+    exactly as recorded (C-11.5: `why` answers with the recorded walk)."""
+    for evaluation in (decision.get("evaluations") or ()) if isinstance(decision, dict) else ():
+        for key in ("closures", "stranding_closures"):
+            if isinstance(evaluation, dict) and isinstance(evaluation.get(key), list):
+                evaluation[key] = [withheld_source(row) if isinstance(row, Mapping) else row
+                                   for row in evaluation[key]]
+    return decision
+
+
 def _windows(lane: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     """C-9.1: utilization from any other evidence label is discarded."""
     windows: dict[str, dict[str, Any]] = {}

@@ -64,7 +64,7 @@ from .contracts import (
     AttestationResult, ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
     Reading, ReadingLabel, Sandbox, attempt_dir, hold_note, hold_source,
 )
-from .status_json import closure_rows
+from .status_json import closure_rows, decision_rows
 from .credentials import (env_references, ignored_hooks, reference_repair, resolve_credential, startup_lanes,
                           withheld_references)
 from .provider_env import ProviderEnvironment
@@ -1429,7 +1429,8 @@ class Daemon:
                        "AND reason IN ('provider-limit','credits') AND clock_source='guessed' "
                        "AND released_at IS NULL AND until_at>?", (now, a.lane_id, now))
         self._notify()
-        view = self._capacity_view(self._desktop_identity())
+        # D-STATUS-SRC1 (review r2 of #263, P3-2): closure rows as `daemon.status` shows them.
+        view = closure_rows(self._capacity_view(self._desktop_identity()))
         return {"released": a.lane_id, "limits_released": data["closure_ids"],
                 "limits_reported": data["reported_closure_ids"],
                 "lanes": view["lanes"], "closures": view["closures"]}
@@ -2594,7 +2595,8 @@ class Daemon:
                           mcp_servers=json.dumps(list(mcp_servers)))
             values["review_root"] = review_root
             if args.dry_run:
-                return {"dry_run": True, "decision": dataclasses.asdict(self._pick(values, desktop=self._desktop_identity()))}
+                return {"dry_run": True, "decision": decision_rows(       # C-9.6 (review r2 of #263, P3-2)
+                    dataclasses.asdict(self._pick(values, desktop=self._desktop_identity())))}
             # C-3.3: the instance and worktree questions need `ps` and `git`, so
             # they are answered here, under the submit lock and outside the
             # transaction; the transaction below re-checks with SQL alone.
@@ -3605,16 +3607,19 @@ class Daemon:
                 return self._hold_lane(a)
             if a.action == "release-limits":
                 return self._release_lane_limits(a)
-            return {"lanes": self._capacity_view(self._desktop_identity())["lanes"],
+            # D-STATUS-SRC1 (review r2 of #263, P3-2): each lane's closure rows as `daemon.status` shows them.
+            return {"lanes": closure_rows(self._capacity_view(self._desktop_identity()))["lanes"],
                     "leases": self.store.query("SELECT * FROM leases WHERE lease_key LIKE 'lane:%'")}
         if op == "readings":
-            view = self._capacity_view(self._desktop_identity())
+            view = closure_rows(self._capacity_view(self._desktop_identity()))
             return {"readings": view["readings"], "closures": view["closures"], "status": render.status(view)}
         if op == "why":
             a = protocol.coerce_args(protocol.WhyArgs, args)
             if a.job_id:
                 return self._why_job(self._job(a.job_id))
-            decision = dataclasses.asdict(self._pick(dataclasses.asdict(a), desktop=self._desktop_identity()))
+            # C-9.6 (review r2 of #263, P3-2): a hold's source as every reader shows it.
+            decision = decision_rows(dataclasses.asdict(self._pick(dataclasses.asdict(a),
+                                                                   desktop=self._desktop_identity())))
             return {"decision": decision, "text": render.why(decision)}
         if op == "notice.list":
             a = protocol.coerce_args(protocol.NoticeListArgs, args)
@@ -3873,6 +3878,7 @@ class Daemon:
                 # "No decision recorded." for five jobs that stopped admission.
                 route_error = f"{type(exc).__name__}: {exc}"
                 self.log.debug("why %s: evaluation failed: %s", job["job_id"], type(exc).__name__)
+        decision = decision_rows(decision)          # C-9.6 (review r2 of #263, P3-2)
         hold = self._holds.get(job["job_id"]) if pending else None
         wait = self._capacity_waits.get(job["job_id"]) if pending else None
         recheck = ({key: wait[key] for key in ("rechecks", "since", "checked_at", "label")} if wait else None)

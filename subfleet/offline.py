@@ -23,7 +23,7 @@ from .alerts import LATCH_QUERY, active_alerts, load_latches
 from .client import same_process
 from .contracts import READING_TTL_S, Exit, JobState
 from .quota_projection import weekly_projections
-from .status_json import closure_row
+from .status_json import closure_row, decision_rows
 from .store import SCHEMA_VERSION as KNOWN_SCHEMA_VERSION
 from .store import WEEKLY_HISTORY_SQL, cancel_info, notice_rows, shell_flags, weekly_history_params
 
@@ -290,7 +290,8 @@ class Offline:
         job["decision"] = None
         if decisions is not None:
             try:
-                job["decision"] = json.loads(decisions["decision_json"])
+                # C-9.6 (review r2 of #263, P3-2): a hold's source as every reader shows it.
+                job["decision"] = decision_rows(json.loads(decisions["decision_json"]))
             except (json.JSONDecodeError, TypeError):
                 job["decision"] = None
         for attempt in job["attempts"]:
