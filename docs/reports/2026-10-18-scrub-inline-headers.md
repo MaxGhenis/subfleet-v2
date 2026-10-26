@@ -1091,7 +1091,7 @@ Each change was taken out on its own, in a copy of the worktree's `subfleet` at 
 
 **Holds: none ran.** A driver in this job's process tree queued them one pytest at a time through `suite_hold.sh`, each from a `git archive` export (`hold.py`: `pytest.main` in process with `-v` and an alarm at 19 minutes, under `env -u PYTHONPATH -u SUBFLEET_RETENTION_DORMANT -u SUBFLEET_JOB -u SUBFLEET_ATTEMPT`, with the brief's `TMPDIR` and Hypothesis folder), in the brief's order: round 4's and round 3's files; `test_daemon_log_sites.py` and the three contract guards; round 2's file, `test_scrub_no_new_leak.py` and `test_scrub_key_order.py`; `test_scrub_inline_headers.py`; then the files that import `subfleet.sessions` or the scrubber, in four more holds.
 - **The first queue,** at `f100b523e` from 21:59Z, had no slot in 69 minutes. It was stopped at 23:07Z, when P3-1's cost fix changed the code.
-- **The second,** at `ce77f5d77` (the contract hold at `a493c30dc`, the same code) from 23:08Z, had no slot by the 4-hour mark either. About eight other holds were waiting throughout, slot A's holders ran for 27 to 51 minutes each, and slot B was shut whenever load passed 120 and taken by others when it opened.
+- **The second,** at `ce77f5d77` (the contract hold at `a493c30dc`, the same code) from 23:08Z, had no slot by 00:00Z, when it was stopped, 13 minutes before the job's 4-hour mark. About eight other holds were waiting throughout, slot A's holders ran for 27 to 51 minutes each, and slot B was shut whenever load passed 120 and taken by others when it opened.
 - **The cost hold,** queued at 22:10Z and again at 23:08Z, had no slot either (Cost, above).
 
 **Plain calls instead, outside the lock** (one process, the way the probes and mutations ran, with a runner that expands `parametrize` and `pytest.param` and gives `monkeypatch` and `tmp_path`; not a substitute for the holds):
@@ -1123,9 +1123,9 @@ Each change was taken out on its own, in a copy of the worktree's `subfleet` at 
   - C-23.14's amendments with their change-log entry, and this report's correction under round 3's Cost.
 - **Found and fixed beyond the brief:** P3-1's cost, quadratic in the folds on a line that ends in an owning flag, decided once per line now (decision 1's smallest change, Findings above).
 - **Not run:**
-  - every hold: none got a slot in the five hours this round's two queues waited between them; the plain calls in Tests stand in, outside the lock;
+  - every hold: none got a slot, in a first queue of 68 minutes and a second of 52, stopped at 00:00Z; the plain calls in Tests stand in, outside the lock;
   - the cost rows under the wrapper (they ran as plain probes, within the bar);
-  - 362 of `tests/unit`'s 370 files whole, 95 cases of `test_sessions_handoff.py`, and all 117 files of `tests/fake`, `test_state_contract.py` and `test_invariants_index.py` among them;
+  - 362 of `tests/unit`'s 370 files whole (`test_invariants_index.py` and `test_daemon_log_sites.py` among them), 95 cases of `test_sessions_handoff.py`, and all 117 files of `tests/fake` (`test_state_contract.py` among them);
   - the five real-daemon tests of `test_daemon_log_sites.py`, Python 3.12, and CI (no network, nothing pushed);
   - review r4's own corpora, which were not kept; the rebuild above stands in.
 - **Follow-ups for the hub:** round 3's, with these:
