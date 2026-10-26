@@ -2347,10 +2347,19 @@ def cmd_lanes(args: argparse.Namespace) -> int:
         return fail(Exit.DAEMON_UNAVAILABLE,
                     "the daemon did not release guessed limits; it is older than this CLI",
                     RESTART_DAEMON)
-    if action == "hold" and note is not None and result.get("held") and result.get("note") != note:
+    if action == "hold" and note is not None and result.get("held") and "note" not in result:
         # A daemon before D-STATUS-SRC1 holds the lane and drops the note.
         return fail(Exit.DAEMON_UNAVAILABLE, "the daemon recorded the hold without its note; "
                     "it is older than this CLI", RESTART_DAEMON)
+    if action == "hold":
+        if not result.get("held"):
+            return fail(Exit.DAEMON_UNAVAILABLE, "the daemon did not hold the lane; it is older than this CLI",
+                        RESTART_DAEMON)
+        closure = next((row for row in result.get("closures", ())
+                        if row.get("lane_id") == args.lane and row.get("scope") == "account"
+                        and row.get("reason") == "operator-hold"), None)
+        if closure is None:
+            return fail(Exit.NO_LANE, "the hold is not in force; the daemon returned no active stored hold")
     if args.json:
         emit(result)
         return int(Exit.OK)
@@ -2369,13 +2378,13 @@ def cmd_lanes(args: argparse.Namespace) -> int:
         if not (result.get("held") or result.get("released")):
             return fail(Exit.DAEMON_UNAVAILABLE, f"the daemon did not {action} the lane; it is older than this CLI",
                         RESTART_DAEMON)
-        closure = next((row for row in result.get("closures", ())
-                        if row.get("lane_id") == args.lane and row.get("reason") == "operator-hold"), None)
-        if action == "hold" and closure:
+        if action == "hold":
             lane = next((row for row in result.get("lanes", ()) if row.get("lane_id") == args.lane), closure)
             out(render.closure_text(closure, home=render.lane_home(lane)))
+            if result.get("kept"):
+                out("the stored until and note were kept; this call's until and note were not applied")
         else:
-            out(f"{action}: {result.get('held') or result.get('released')}")
+            out(f"{action}: {result.get('released')}")
         if limits:
             out(f"guessed limits released: {len(result['limits_released'])}")
             if result.get("limits_reported"):

@@ -737,7 +737,7 @@ def test_i4_a_later_hold_takes_the_row_and_its_note_a_shorter_one_leaves_both(co
     assert [(row["until_at"], row["source_event"]) for row in rows] == [(later, f"operator: {NOTE}")]
     notes = [json.loads(row["data_json"]).get("note") for row in
              core.store.query("SELECT data_json FROM events WHERE kind='lane.held' ORDER BY event_id")]
-    assert notes == ["load 140", NOTE, "running cap 6"]
+    assert notes == ["load 140", NOTE, NOTE]
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
@@ -853,7 +853,8 @@ def test_nothing_reads_a_closure_source_for_equality_with_operator():
 
 def held_answer(request: protocol.Request) -> dict:
     return {"held": request.args.get("lane_id"), "released": None, "note": request.args.get("note"),
-            "lanes": [], "closures": []}
+            "lanes": [lane(request.args["lane_id"])],
+            "closures": [hold(request.args["lane_id"], request.args["until"], request.args.get("note"))]}
 
 
 def test_lanes_hold_sends_the_stripped_note(daemon, capsys):
@@ -861,7 +862,7 @@ def test_lanes_hold_sends_the_stripped_note(daemon, capsys):
     assert cli.main(["lanes", "hold", "codex-1", "--until", "2026-10-25T03:51:22Z", "--note", f"  {NOTE} "]) == 0
     sent = server.args("lanes")
     assert (sent["action"], sent["lane_id"], sent["note"]) == ("hold", "codex-1", NOTE)
-    assert capsys.readouterr().out.strip() == "hold: codex-1"
+    assert capsys.readouterr().out.strip() == hold_words("/homes/codex-1", "2026-10-25T03:51:22Z")
 
 
 @pytest.mark.parametrize("note", ["disk\nbrake", "disk\x07brake", "x" * 161, "   ", "a\tb"])
@@ -880,7 +881,7 @@ def test_lanes_hold_with_a_note_refuses_an_older_daemon_that_dropped_it(daemon, 
 
 
 def test_lanes_hold_without_a_note_is_unchanged(daemon, capsys):
-    server = daemon({"lanes": lambda request: {"held": "codex-1", "lanes": [], "closures": []}})
+    server = daemon({"lanes": held_answer})
     assert cli.main(["lanes", "hold", "codex-1", "--until", "2026-10-25T03:51:22Z"]) == 0
     assert server.args("lanes").get("note") is None
     assert cli.main(["lanes", "release", "codex-1", "--note", "reason"]) == 2   # release keeps its rule
