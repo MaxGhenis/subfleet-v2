@@ -128,11 +128,19 @@ def test_completion_before_scroll_cannot_release_a_distant_opening_reveal(fix8_v
     assert not any(e["event"] == "reveal_end_visible" for e in run["trace"]), diagnostic
 
 
-def shrink_replay(binary, root, mode):
-    """Round 7's fixed schedule (`shrinkReplay` in the probe), with its own steps and trace. A
-    failed wait's whole report (steps, traces, layout) is printed, so CI's log keeps it."""
+# The shrink replay's layouts (round 8's continuation): the probe's default, and larger text
+# (1.728x, six View > Bigger steps), at which round 7's fixed 9,000 pt shrink failed as CI run
+# 40303045129 did: `shrink.clamped` expired with the clip 116 pt from the end in 4 of 4 runs at
+# 35ce3c745, and 283 pt from it in the landed control's one run.
+LAYOUTS = {"default": {}, "larger_text": {"R219_PROBE_TEXT_SCALE": "1.728"}}
+
+
+def shrink_replay(binary, root, mode, layout="default"):
+    """Round 7's schedule (`shrinkReplay` in the probe), with its own steps and trace, its shrink
+    measured since round 8's continuation. A failed wait's whole report (steps, traces, layout)
+    is printed, so CI's log keeps it."""
     try:
-        result = run_probe(binary, root, f"fix10-shrink-{mode}", timeout=240)
+        result = run_probe(binary, root, f"fix10-shrink-{mode}", env=LAYOUTS[layout], timeout=240)
     except AssertionError:
         failure = root / "probe-failure.json"
         if failure.is_file():
@@ -178,11 +186,28 @@ def assert_catchup_follows_the_end(result, steps):
     assert steps["caught_up"]["position"]["from_end"] <= END, diagnostic
 
 
+def assert_measured_shrinks(result, steps):
+    """Each shrink was measured in its own turn: at least the clip's distance from the end plus a
+    viewport (CI run 40303045129: a fixed 9,000 pt shrink left the clip 239 pt from the end), and
+    the scene stopped shrinking once the end stayed in view."""
+    diagnostic = json.dumps(result, sort_keys=True)
+    shrinks = steps["shrunk"]["shrinks"]
+    assert shrinks and steps["shrinking"]["position"]["from_end"] > DISTANT, diagnostic
+    for shrink in shrinks:
+        before = shrink["before"]
+        assert shrink["amount"] >= before["from_end"] + before["viewport"], diagnostic
+    assert all(s["before"]["from_end"] > 1 for s in shrinks), diagnostic
+
+
 def assert_replayed_shrink_order(result, steps):
-    """The CI order, each step as presented: the order the rule is checked against."""
+    """The CI order, each step as presented: the order the rule is checked against. The reveal is
+    still outstanding at the shrink (the view's own trace; the readiness `reveal_pending` is the
+    search palette's, false throughout this mode)."""
     diagnostic = json.dumps(result, sort_keys=True)
     assert steps["early_completion"]["position"]["from_end"] <= END, diagnostic
     assert steps["scrolled"]["position"]["from_end"] > DISTANT, diagnostic
+    assert steps["shrinking"]["reveal"]["outstanding"], diagnostic
+    assert_measured_shrinks(result, steps)
     assert steps["shrunk"]["position"]["from_end"] <= END, diagnostic
     assert any(e["event"] == "marker_appeared" and steps["shrinking"]["at"] <= e["at"] <= steps["shrunk"]["at"]
                for e in result["trace"]), diagnostic
@@ -206,14 +231,15 @@ def assert_shrink_releases_nothing(result, steps):
         assert steps[key]["position"]["from_end"] > DISTANT, diagnostic
 
 
-def test_document_shrink_under_a_pending_reveal_releases_nothing(fix8_view_binary, tmp_path):
+@pytest.mark.parametrize("layout", LAYOUTS)
+def test_document_shrink_under_a_pending_reveal_releases_nothing(fix8_view_binary, tmp_path, layout):
     """Round 7 (CI run 40251214771, py3.12): the completion-first opening's reveal scrolled away
     from the end before its row was presented, and lazy measurement then shrank the document
     6,382 pt under the clip, clamping it to the end. `marker_appeared` and the request's own
     completion (`reveal_end_visible`) both released suspension, and catch-up's settling jump
     undid the reveal. This replays that order: while a reveal is outstanding, an end shown only
     because the document shrank releases nothing."""
-    result, steps, _ = shrink_replay(fix8_view_binary, tmp_path, "replay")
+    result, steps, _ = shrink_replay(fix8_view_binary, tmp_path, "replay", layout)
     assert_replayed_shrink_order(result, steps)
     assert_shrink_releases_nothing(result, steps)
 
@@ -229,8 +255,12 @@ def test_person_scroll_to_the_end_during_a_pending_reveal_releases(fix8_view_bin
 
 
 def assert_landed_shrink_order(result, steps):
+    """The control's order: the reveal has landed on its row before the measured shrink."""
     diagnostic = json.dumps(result, sort_keys=True)
     assert steps["landed"]["stable"] >= 3 and steps["landed"]["position"]["from_end"] > DISTANT, diagnostic
+    reveal = steps["shrinking"]["reveal"]
+    assert not reveal["outstanding"] and reveal["ended_by"] == "reveal_landed", diagnostic
+    assert_measured_shrinks(result, steps)
     assert steps["shrunk"]["position"]["from_end"] <= END, diagnostic
     assert steps["regrown"]["position"]["from_end"] > DISTANT, diagnostic
     assert settling_tick(result, steps) is not None, diagnostic
@@ -245,10 +275,11 @@ def assert_landed_shrink_releases(result, steps):
     assert_catchup_follows_the_end(result, steps)
 
 
-def test_document_shrink_after_a_distant_reveal_lands_releases(fix8_view_binary, tmp_path):
+@pytest.mark.parametrize("layout", LAYOUTS)
+def test_document_shrink_after_a_distant_reveal_lands_releases(fix8_view_binary, tmp_path, layout):
     """Round 7's control: once the reveal has landed on its row, none is outstanding, and an end
     shown by the same shrink releases suspension through the marker, as before."""
-    result, steps, _ = shrink_replay(fix8_view_binary, tmp_path, "landed")
+    result, steps, _ = shrink_replay(fix8_view_binary, tmp_path, "landed", layout)
     assert_landed_shrink_order(result, steps)
     assert_landed_shrink_releases(result, steps)
 

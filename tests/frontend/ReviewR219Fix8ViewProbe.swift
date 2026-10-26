@@ -1257,10 +1257,23 @@ struct SettlingPageView: View {
 // itself, so no step waits on lazy-stack timing. Modes: `replay` (the CI order),
 // `person` (the person scrolls to the end during the reveal) and `landed` (the
 // real reveal lands first, so none is outstanding when the document shrinks).
+//
+// Round 8's continuation (CI run 40303045129, macOS 15): the shrink was a fixed
+// 9,000 pt, and a 20 ms poll waited for the clamp. On CI's layout the clip ended
+// 239 pt from the end (offset 8,411 of 9,204, viewport 554), and `shrink.clamped`
+// waited out 20 s. At 1.728x text the same failure shows how: the shrink clamped
+// the clip, and rows measured in the next pass grew the document 116 pt under it,
+// inside one settle step, so neither the poll nor the marker saw the end. The
+// shrink is now measured: in one main-actor turn the probe applies pending layout,
+// reads the clip's distance from the end, checks the scene's preconditions and
+// shrinks by that distance plus two viewports. It shrinks again, measured the same
+// way, until the end stays in view.
 @MainActor func shrinkReplay(_ root: URL, mode: String) async -> [String: Any] {
     let name = "shrink-" + mode
     let target = "person:m000040"
-    let inset: CGFloat = 9000
+    // Room above the rows for any measured shrink, and so for any layout: the clip can
+    // be as far from the end as the rows are tall.
+    let inset: CGFloat = 30000
     let started = Date()
     func at() -> Double { Date().timeIntervalSince(started) }
     var trace: [[String: Any]] = []
@@ -1277,7 +1290,9 @@ struct SettlingPageView: View {
         trace.append(entry.merging(["at": at(), "position": position()]) { _, new in new })
     }
     ProbeWaits.failureFile = root.appendingPathComponent("probe-failure.json")
-    ProbeWaits.context = { ["mode": mode, "steps": steps, "trace": trace, "geometry": geometry, "documents": documents] }
+    var shrinks: [[String: Any]] = []
+    ProbeWaits.context = { ["mode": mode, "steps": steps, "trace": trace, "geometry": geometry, "documents": documents,
+                            "shrinks": shrinks] }
     defer {
         ConversationFollowTest.record = nil
         ConversationFollowTest.inset.top = 0
@@ -1299,9 +1314,66 @@ struct SettlingPageView: View {
         documentChanges = documentObserver(name, host: mounted, started: started) { documents.append($0) }
     }, holdCatchup: true)
     defer { scene.close() }
+    /// The view's reveal, from its own trace: outstanding while its last request
+    /// (`reveal`) has not since landed, been ended by the person's scroll or been
+    /// abandoned. The view traces each of these where it sets or clears `revealPending`.
+    /// (The readiness `reveal_pending` is the search palette's reveal, which only
+    /// `landed` sets: it is false throughout `replay`, as in CI's last state.)
+    func reveal() -> [String: Any] {
+        guard let index = trace.lastIndex(where: { $0["event"] as? String == "reveal" }) else {
+            return ["outstanding": false, "ended_by": "no request"]
+        }
+        let ended = trace[(index + 1)...].first {
+            ["reveal_landed", "person_scrolled", "reveal_abandoned"].contains($0["event"] as? String ?? "")
+        }
+        return ["outstanding": ended == nil, "requested_at": trace[index]["at"] ?? 0,
+                "ended_by": ended?["event"] ?? "", "ended_at": ended?["at"] ?? -1]
+    }
+    func state() -> [String: Any] {
+        scene.readiness().merging(["reveal": reveal(), "inset": Double(ConversationFollowTest.inset.top),
+                                   "shrinks": shrinks.count]) { _, new in new }
+    }
+    /// The state the regression is about, as the shrink comes: in `replay` the reveal is
+    /// still outstanding, in `landed` it has landed.
+    func revealUnmet() -> String? {
+        let now = reveal()
+        let outstanding = now["outstanding"] as? Bool ?? false
+        if mode == "replay" && !outstanding {
+            return "the reveal is no longer outstanding (\(now["ended_by"] ?? "") at \(now["ended_at"] ?? -1) s)"
+        }
+        if mode == "landed" && (outstanding || now["ended_by"] as? String != "reveal_landed") {
+            return "the reveal has not landed (\(now["ended_by"] ?? ""))"
+        }
+        return nil
+    }
+    /// One shrink, measured and made in this main-actor turn: pending layout applied,
+    /// the clip's distance from the end read, the preconditions checked, and the inset
+    /// reduced by that distance plus two viewports. The document's end then lies a
+    /// viewport above the clip's top, so the clip must clamp to it; the second viewport
+    /// absorbs rows re-measured in the same pass (CI's 239 pt, round 8's 438-462 pt).
+    func shrinkUnderClip() {
+        let content: NSView = scene.window.contentView ?? scene.host
+        content.layoutSubtreeIfNeeded()
+        let before = sample(scene.host)
+        let fromEnd = CGFloat(before["from_end"] ?? 0), viewport = CGFloat(before["viewport"] ?? 0)
+        let amount = (max(0, fromEnd) + 2 * viewport).rounded(.up)
+        if let missing = revealUnmet() { readinessUnmet("shrink.clamped", missing, state: state()) }
+        if shrinks.isEmpty && fromEnd <= 600 {
+            readinessUnmet("shrink.clamped", "the clip is \(fromEnd) pt from the end before the shrink, not away from it",
+                           state: state())
+        }
+        let room = ConversationFollowTest.inset.top
+        if amount > room {
+            readinessUnmet("shrink.clamped", "the shrink needs \(amount) pt and the inset holds \(room) pt", state: state())
+        }
+        ConversationFollowTest.inset.top = room - amount
+        content.layoutSubtreeIfNeeded()
+        shrinks.append(["at": at(), "before": before, "amount": Double(amount), "inset_before": Double(room),
+                        "applied": sample(scene.host)])
+    }
     func step(_ label: String, _ extra: [String: Any] = [:]) {
         steps.append(extra.merging(["step": label, "at": at(), "position": sample(scene.host),
-                                    "readiness": scene.readiness()]) { _, new in new })
+                                    "readiness": scene.readiness(), "reveal": reveal()]) { _, new in new })
     }
     func clipToEndOffset(_ fromEnd: CGFloat) {
         guard let scroll = timelineScroll(scene.host), let document = scroll.documentView else { return }
@@ -1315,7 +1387,7 @@ struct SettlingPageView: View {
     if mode == "landed" {
         // The real reveal, both passes, with catch-up still held.
         scene.palette.reveal = SearchReveal(conversationID: name, itemID: target)
-        await waitReady("shrink.reveal_consumed", view: scene.host, state: { scene.readiness() }) {
+        await waitReady("shrink.reveal_consumed", view: scene.host, state: state) {
             scene.palette.reveal == nil
         }
         let landed = await stablePosition(scene.host)
@@ -1339,14 +1411,18 @@ struct SettlingPageView: View {
         step("person_at_end")
     } else {
         // The document shrinks under the clip until it clamps to the end, and the
-        // marker appears (CI 0.686-0.689 s).
+        // marker appears (CI 0.686-0.689 s). Rows measured after a shrink can move the
+        // end away again, so shrink again, measured the same way, until it stays in view.
+        // A lost precondition (the reveal ended, no room) fails at once, not at 20 s.
         step("shrinking")
-        ConversationFollowTest.inset.top = 0
-        await waitReady("shrink.clamped", seconds: 20, view: scene.host, state: { scene.readiness() }) {
-            (sample(scene.host)["from_end"] ?? 1e9) <= 1
+        await waitReady("shrink.clamped", seconds: 20, view: scene.host, step: 0.3, state: state, unmet: {
+            revealUnmet() ?? (shrinks.count < 8 ? nil : "the end did not stay in view after \(shrinks.count) shrinks")
+        }) {
+            if !shrinks.isEmpty, (sample(scene.host)["from_end"] ?? 1e9) <= 1 { return true }
+            shrinkUnderClip()
+            return false
         }
-        await settle(scene.host, seconds: 0.3)
-        step("shrunk")
+        step("shrunk", ["shrinks": shrinks])
         if mode == "replay" {
             // The request's own completion, delivered at the clamped end (CI 0.694 s).
             ConversationOpeningPin.didRevealRow(in: name, request: request)
@@ -1355,7 +1431,7 @@ struct SettlingPageView: View {
         }
         // The document regrows, and the clip is far from the end again.
         ConversationFollowTest.inset.top = inset
-        await waitReady("shrink.regrown", seconds: 20, view: scene.host, state: { scene.readiness() }) {
+        await waitReady("shrink.regrown", seconds: 20, view: scene.host, state: state) {
             (sample(scene.host)["from_end"] ?? 0) > 600
         }
         await settle(scene.host, seconds: 0.3)
@@ -1365,7 +1441,7 @@ struct SettlingPageView: View {
     let tickFrom = trace.count
     step("tick")
     scene.daemon.resumeCatchup()
-    await waitReady("shrink.settling_tick", seconds: 60, view: scene.host, state: { scene.readiness() }) {
+    await waitReady("shrink.settling_tick", seconds: 60, view: scene.host, state: state) {
         trace[tickFrom...].contains { $0["event"] as? String == "move" && $0["settling"] as? Bool == true }
     }
     await settle(scene.host, seconds: 1.0)
@@ -1375,7 +1451,7 @@ struct SettlingPageView: View {
     step("caught_up")
     scene.close()
     return ["mode": mode, "target": target, "inset": Double(inset), "steps": steps, "trace": trace,
-            "layout": ProbeLayout.described,
+            "layout": ProbeLayout.described, "shrinks": shrinks,
             "geometry": geometry, "documents": documents, "before_catchup": scene.beforeCatchup,
             "held_before_reveal": scene.heldBeforeReveal, "readiness_waits": ProbeWaits.log,
             "visible_windows": NSApp.windows.filter(\.isVisible).count]
