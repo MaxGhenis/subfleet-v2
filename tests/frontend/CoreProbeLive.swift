@@ -62,7 +62,9 @@ struct SteerSettling {
 }
 
 /// How long step 14 may take, from its start to judging its steer: an elapsed bound,
-/// counting everything the step does first. With the client's 15 s answer deadline:
+/// counting everything the step does first. The prerequisite itself runs without it, so a
+/// prerequisite that alone runs past it is judged when it ends. With the client's 15 s
+/// answer deadline:
 /// - 15 s for the prerequisite: the host's submit and the wait for its turn to run and
 ///   be accepted (a second or two on CI; run 40273357312 reached step 14 within 15 s of
 ///   the probe's start);

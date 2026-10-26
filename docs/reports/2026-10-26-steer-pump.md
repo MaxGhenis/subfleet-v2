@@ -61,7 +61,7 @@ The steer carries no `into`.
 
     Until fix round 1, "Send now" read the live turn when the click's callback ran (`UIModel.swift:843`
     at `44d4c8b49`), so a click that landed after its turn ended could name none; review r1 ran it.
-    The probe named no turn either.
+    Before the build round, the probe named no turn either.
 - **When the daemon answers `not-steerable`.** `op_message_steer` answers it (code 7) in two cases
   (`subfleet/conversations/service.py:1349-1358`): no runner holds the live turn, or the runner's
   `steerable` is false. `TurnRunner.steerable` (`runner.py:266-271`) needs:
@@ -383,11 +383,14 @@ turn runs, or none does) is refused `no-live-turn`, code 7, "the turn it was ste
 - C is neither dropped nor failed. The daemon never claims it, so it stays `queued` there. The app
   shows it queued, with the status "Queued, not steered: the turn it was sent to had ended".
 - There is one window where the answer is the retryable `not-steerable` first: A still recorded as
-  running while its runner has already gone (settling, `service.py:1349-1356`).
+  running. The daemon answers it in two branches: the runner has already gone (settling,
+  `service.py:1349-1356`), or the runner is there but cannot take a steer yet (`:1357-1358`).
   - The app asks again at most five times in all, 0.5 s doubling.
   - Once A is recorded as ended, the next try gets `no-live-turn` and the steer closes.
-  - `test_a_steer_refused_for_good_fails_the_check_however_long_step_14_waits` runs that path
-    (`not-steerable`, then `no-live-turn`, C still queued).
+  - `test_a_steer_refused_for_good_fails_the_check_however_long_step_14_waits` runs the second
+    branch: the runner is there, still catching up (`not-steerable`, then `no-live-turn`, C still
+    queued). No committed test removes the runner; review r2b ran that branch by hand and saw the
+    same sequence.
   - Left as it is, as the brief asked.
 
 **The regression** (`tests/frontend/test_queue_tray_view.py`, `QueueTrayViewProbe.swift`
@@ -425,8 +428,11 @@ ended at 97.5 s.
   (`:165`). While step 14's pumps run, each exchange waits for its answer at most the client's
   timeout or the time left, whichever is less. An exchange that would start at or after the deadline
   is not sent, and reads as unanswered.
-- **So the bound is hard:** step 14 judges its steer by 120 s after it began, plus only the pumps'
-  own local journal writes, which wait on no answer.
+- **So the bound is hard once the prerequisite is done:** step 14 judges its steer by 120 s after it
+  began, or when its prerequisite ends if that is later, plus only the pumps' own local journal
+  writes, which wait on no answer. The prerequisite runs without the deadline, so its own waits keep
+  their limits (`untilState` 60 s, `follow` 20 s, each exchange 15 s). One that runs to 120 s or past
+  leaves the steer no pump, and its submit is never sent (review r2b P3-1).
 - The check's detail adds `step_s` and `deadline_s`.
 - The outbox scenario's `settle-steer` runs the same code on the probe's clock. A scripted daemon's
   exchanges take time on that clock: `cost` is the seconds before an answer, and `timeout` takes the
@@ -441,7 +447,9 @@ ended at 97.5 s.
 | Deadline in a backoff (54 s prerequisite) | 120 s exactly; no pump at the deadline | 4 | 0.5, 1, 2, 2.5 | still queued, 4 tries |
 | Immediate success | 0 s | 1 | none | acknowledged, taken |
 
-At `44d4c8b49` the first three ended at 97.5 s, 122.5 s and 136.5 s, against 90 s.
+At `44d4c8b49` the first three ended at 97.5 s, 122.5 s and 136.5 s from the step's start. The old
+90 s counted from the steer's first pump, so only the review's input broke it; the other two spent
+82.5 s in the wait. The new deadline counts from the step's start, which the old one did not.
 
 Two existing tests changed with the new semantics:
 - the deadline at the harness's 3 s answers is now 36 s (3 + 3 + 7.5 + 15 + 7.5);
