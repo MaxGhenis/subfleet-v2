@@ -73,6 +73,11 @@ class World:
     #: A driver respawns on every n-th table only, so some tables fall between children.
     respawn_every: int = 1
     tables: int = 0
+    #: Fix round 2b (P3-4): the first `fail_tables` process-table reads raise, so the census
+    #: they belong to is unverifiable; and each pid in `fail_reads` has its argument buffer
+    #: refused (a failed marker read) while `tables` is at most its value.
+    fail_tables: int = 0
+    fail_reads: dict[int, int] = field(default_factory=dict)
 
     def add(self, pid: int, ppid: int, pgid: int | None = None, *, start: str | None = None, **options) -> Proc:
         self.births += 1
@@ -116,6 +121,9 @@ class World:
 
     # The host reads the daemon's census makes.
     def snapshot(self) -> procs.ProcessTable:
+        if self.fail_tables > 0:
+            self.fail_tables -= 1
+            raise procs.InspectionError("process table unavailable")
         self._respawn()
         rows = {pid: (proc.ppid, proc.pgid, "T" if proc.stopped else "S", proc.start)
                 for pid, proc in self.live().items()}
@@ -124,7 +132,8 @@ class World:
     def kernel(self) -> FakeKernel:
         markers = [f"SUBFLEET_ATTEMPT={self.attempt_id}", f"SUBFLEET_ROOT={self.root}"]
         live = self.live()
-        return FakeKernel({pid: procargs(["proc"], markers if proc.marked and not proc.hidden else [])
+        return FakeKernel({pid: None if self.tables <= self.fail_reads.get(pid, -1) else
+                           procargs(["proc"], markers if proc.marked and not proc.hidden else [])
                            for pid, proc in live.items() if proc.uid == UID},
                           others=[pid for pid, proc in live.items() if proc.uid != UID],   # EPERM: unreadable
                           starts={pid: proc.start for pid, proc in live.items()},

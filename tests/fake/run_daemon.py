@@ -60,6 +60,8 @@ def main() -> int:
     # long enough to observe a TERM-ignoring escaper between the TERM and the KILL.
     parser.add_argument("--start-grace-s", type=float, default=.65)
     parser.add_argument("--term-grace-s", type=float, default=.08)
+    # D-QUAR-START1 (a): the bound on start grace's extension for a live, running guardian.
+    parser.add_argument("--start-grace-max-s", type=float)
     parser.add_argument("--hide-environment-of", type=Path, action="append", default=[],
                         help="a file a test's process writes its pid to; the census reads that "
                              "pid's argument buffer without its environment (D-KILL2)")
@@ -133,6 +135,8 @@ def main() -> int:
     except DaemonUnavailable:
         return 69
     log_open_file_limit(daemon.log, *limits)
+    if args.start_grace_max_s is not None:
+        daemon.start_grace_max_s = args.start_grace_max_s
     if args.inspection_witness:
         original = daemon._record_owned
 

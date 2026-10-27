@@ -13,11 +13,18 @@ cancelled attempt on a simulated host (`tests/kill4_world.py`). For every input:
    outside the attempt's census is signalled;
 3. every CONT delivered to a process follows a TERM delivered to that same
    process (pid and birth), and the guardian is never continued (fix 1, P2, P3-1);
-4. an operator's process, a held parent, another user's process, the daemon, and
-   a stranger in a leaderless group at the recorded pgid are never signalled
-   (fix 1, P1);
+4. an operator's process, another user's process, the daemon, and a stranger in a
+   leaderless group at the recorded pgid are never signalled (fix 1, P1); and no
+   pid is signalled from a census that held it. A hold is per census: a later
+   census that attributes the pid (its lineage, a marker) supersedes it (fix round
+   2b, review r2's P3-3, C-5.5);
 5. every pid signalled one by one is named in the attempt's durable evidence with
    the reason it is the attempt's (fix 1, P3-4).
+
+Fix round 2b (review r2's P3-4): the endings are every path that ends an attempt or
+re-contains one: an exit receipt, a cancel, an expired start grace, a dead guardian,
+the wall, and `kill` on a finished job; and the census may be unverifiable at first
+(the first process-table read fails) or because a stranger's marker read fails.
 """
 
 from __future__ import annotations
@@ -34,7 +41,7 @@ from types import SimpleNamespace
 from hypothesis import HealthCheck, given, settings, strategies as st
 import pytest
 
-from subfleet import daemon as daemon_module, folders, procs
+from subfleet import daemon as daemon_module, folders, procs, protocol
 from subfleet.contracts import Credential, Lane, LaneOwner, attempt_dir
 from subfleet.daemon import Daemon
 from subfleet.guardian import atomic_publish
@@ -45,6 +52,8 @@ from tests.unit.test_daemon_settle import ATTEMPT, JOB, STARTED, StubAdapter, sh
 
 TERM, KILL, CONT = int(signal.SIGTERM), int(signal.SIGKILL), int(signal.SIGCONT)
 OPERATOR = 6000
+UNREADABLE = 5200                    # a stranger of this uid whose marker read fails at first
+ENDINGS = ["receipt", "cancel", "start-grace", "dead-guardian", "wall", "kill-finished"]
 
 
 def build_core(root: Path) -> Daemon:
@@ -97,8 +106,11 @@ def build_core(root: Path) -> Daemon:
 @st.composite
 def trees(draw):
     """A guardian (alive or gone), its provider, and up to eight more processes."""
-    spec = {"guardian": draw(st.booleans()), "ending": draw(st.sampled_from(["receipt", "cancel"])),
-            "rows": [], "counted": [], "operator": draw(st.booleans()), "strangers": []}
+    ending = draw(st.sampled_from(ENDINGS))
+    spec = {"guardian": draw(st.booleans()) and ending != "dead-guardian", "ending": ending,
+            "rows": [], "counted": [], "operator": draw(st.booleans()), "strangers": [],
+            "first_unverifiable": draw(st.integers(0, 3)) == 0,
+            "stranger_read_fails": draw(st.integers(0, 3)) == 0}
     parents = [1, 4242, 4243]
     for n in range(draw(st.integers(0, 8))):
         pid = 5000 + n
@@ -131,8 +143,9 @@ def build_world(core, spec) -> World:
     tree = str(core.root / "worktrees" / JOB)
     if spec["guardian"]:
         world.add(4242, 1, 4242, start=STARTED, marked=True, ignores_term=True, term_handler=True,
-                  exits_childless=True)
-        world.add(4243, 4242, 4242, start=STARTED, marked=True)
+                  exits_childless=spec["ending"] != "start-grace")
+        if spec["ending"] != "start-grace":           # a starting attempt has launched nothing
+            world.add(4243, 4242, 4242, start=STARTED, marked=True)
     for row in spec["rows"]:
         ppid = 1 if row["orphaned"] or row["ppid"] not in world.procs else row["ppid"]
         pgid = {"guardian": 4242, "own": row["pid"], "foreign": 7777}[row["pgid"]]
@@ -145,6 +158,11 @@ def build_world(core, spec) -> World:
         world.add(row["pid"], 1, 4242, stopped=row["stopped"], term_handler=row["term_handler"], cwd="/elsewhere")
     if spec["operator"]:
         world.add(OPERATOR, 1, OPERATOR, cwd=tree)          # an operator's shell in the worktree
+    if spec["stranger_read_fails"]:
+        world.add(UNREADABLE, 1, UNREADABLE, cwd="/elsewhere")
+        world.fail_reads[UNREADABLE] = 2                    # the first censuses cannot read it
+    if spec["first_unverifiable"]:
+        world.fail_tables = 1
     return world
 
 
@@ -171,24 +189,48 @@ def test_no_finalized_attempt_keeps_census_pids_and_nothing_outside_the_census_i
                     for pid in spec["counted"]}
             core.store.update_attempt(ATTEMPT, evidence_json=json.dumps(evidence))
             members: set[int] = set()
-            held: set[int] = set()
+            censuses: list[procs.Containment] = []
             contain = core._contain
 
             def recorded(a):
                 census = contain(a)
                 members.update(census.live_pids)
-                held.update(census.held_pids)
+                censuses.append(census)
                 return census
             core._contain = recorded
-            if spec["ending"] == "receipt":
+            sent_from: list[tuple[int, int]] = []          # (pid, the census before the signal)
+            single = procs.signal_process
+
+            def signalled(identity, sig, **kwargs):
+                delivered = single(identity, sig, **kwargs)
+                if delivered:
+                    sent_from.append((identity.pid, len(censuses) - 1))
+                return delivered
+            patch.setattr(procs, "signal_process", signalled)
+            ending = spec["ending"]
+            if ending == "receipt":
                 atomic_publish(attempt_dir(root, JOB, 1) / "exit.json", json.dumps(
                     {"rc": 0, "signal": None, "finished_at": "2026-09-05T14:01:00Z", "wall_s": 1,
                      "child_pid": 4243}).encode())
                 core.store.update_attempt(ATTEMPT, state="finalizing", rc=0)
                 core._finalize(dict(core.store.get_attempt(ATTEMPT)))
-            else:
+            elif ending in ("cancel", "wall"):
                 core.store.update_job(JOB, cancel_requested_at=daemon_module.utcnow())
+                if ending == "wall":
+                    core.store.update_attempt(ATTEMPT, killed_by="max_wall_s")
+                    patch.setattr(core, "_cancel_info", lambda job_id: {"by": "daemon", "reason": "max_wall_s"})
                 core._process_attempt(ATTEMPT)
+            elif ending == "start-grace":
+                core.store.update_attempt(ATTEMPT, state="starting", child_pid=None)
+                core.start_grace_s, core._starting_deadlines[ATTEMPT] = 10, 0.0
+                core._process_attempt(ATTEMPT)
+            elif ending == "dead-guardian":
+                core._process_attempt(ATTEMPT)
+            else:
+                core.store.update_attempt(ATTEMPT, state="succeeded")
+                core.store.update_job(JOB, state="succeeded")
+                patch.setattr(core, "_schedule", lambda key, fn, *args, **kw: fn(*args))
+                core.kill(protocol.KillArgs(job_id=JOB))
             a = dict(core.store.get_attempt(ATTEMPT))
             individually = {pid for kind, pid, _ in world.signals if kind == "pid"}
             # 2. Only census members, one by one; only the recorded group, as a group.
@@ -196,9 +238,14 @@ def test_no_finalized_attempt_keeps_census_pids_and_nothing_outside_the_census_i
             assert {pgid for kind, pgid, _ in world.signals if kind == "group"} <= {4242}
             # 4. Never these, whatever the tree; and no signal at all reaches a stranger.
             strangers = {row["pid"] for row in spec["strangers"]}
-            never = {OPERATOR, os.getpid(), *held, *strangers}
+            never = {OPERATOR, os.getpid(), UNREADABLE, *strangers}
             assert not (individually & never), (individually & never, world.signals)
-            assert not [d for d in world.delivered if d[0] in strangers], (world.delivered, world.signals)
+            assert not [d for d in world.delivered if d[0] in strangers | {UNREADABLE}], (
+                world.delivered, world.signals)
+            # A hold never authorizes a signal: no pid is signalled from a census that held it.
+            for pid, index in sent_from:
+                assert index >= 0 and pid not in censuses[index].held_pids, (
+                    pid, index, censuses[index].to_dict() if index >= 0 else None, world.signals)
             # 3. Every CONT delivered follows a TERM delivered to that same process; never the guardian's.
             for n, (pid, born, sig) in enumerate(world.delivered):
                 if sig == CONT:
@@ -211,7 +258,7 @@ def test_no_finalized_attempt_keeps_census_pids_and_nothing_outside_the_census_i
             assert individually <= named.keys(), (individually - named.keys(), evidence)
             assert all(named[pid] for pid in individually)
             # 1. No terminal state, nor a finalization under way, with live census pids.
-            if a["state"] != "quarantined" and a["state"] not in ("running", "starting"):
+            if ending != "kill-finished" and a["state"] != "quarantined" and a["state"] not in ("running", "starting"):
                 if not (a["state"] == "finalizing" and core.__dict__.get("_cwd_settle", {}).get(ATTEMPT)):
                     final = contain(a)
                     assert final.containment_empty, (a["state"], final.to_dict(), world.live())

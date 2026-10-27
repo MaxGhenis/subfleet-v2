@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import signal
+from types import SimpleNamespace
 
 import pytest
 
@@ -159,13 +160,33 @@ def test_start_grace_kills_a_guardian_stopped_before_its_setsid_and_never_terms_
 
 # P3-1: the group's TERM is credited only to the census taken before it.
 
-def test_self_stopping_children_born_after_the_group_term_each_get_a_term_before_any_cont(daemon, world):
+class FakeClock:
+    """`time.monotonic` for the daemon module, and a `stopping` event whose waits advance
+    it instead of sleeping, as #240's round-3 tests fake the clock: the protocol's 2 s TERM
+    grace then takes the same 20 censuses (one per 0.1 s wait) whatever the host's load.
+    Review r2's P3-4: on the real clock, 7 censuses at load 70 saw 4 joiners, not 5."""
+
+    def __init__(self, monkeypatch):
+        self.now = 1000.0
+        monkeypatch.setattr(daemon_module, "time", SimpleNamespace(monotonic=lambda: self.now))
+
+    def wait(self, timeout=None) -> bool:
+        self.now += timeout or 0
+        return False
+
+    def is_set(self) -> bool:
+        return False
+
+
+def test_self_stopping_children_born_after_the_group_term_each_get_a_term_before_any_cont(
+        daemon, world, monkeypatch):
     """Review r1's P3-1 input: a TERM-ignoring provider starts a child that stops itself
     every census; the attempt is cancelled."""
     world.add(4242, 1, 4242, start=STARTED, marked=True, ignores_term=True, term_handler=True)
     world.add(4243, 4242, 4242, start=STARTED, marked=True, ignores_term=True, spawns_stopped=True)
     daemon.store.update_job(JOB, cancel_requested_at=daemon_module.utcnow())
     daemon.term_grace_s = 2.0
+    daemon.stopping = FakeClock(monkeypatch)
     daemon._process_attempt(ATTEMPT)
     group_term = world.signals.index(("group", 4242, TERM))
     joiners = {pid for pid in world.respawned if world.born_after[pid] > group_term}
