@@ -57,7 +57,8 @@ class FakeAdapter(Adapter):
         for key, variable in (("scenario", "SUBFLEET_FAKE_SCENARIO"),
                               ("delay_s", "SUBFLEET_FAKE_DELAY_S"),
                               ("marker", "SUBFLEET_FAKE_MARKER"),
-                              ("node", "SUBFLEET_FAKE_NODE")):
+                              ("node", "SUBFLEET_FAKE_NODE"),
+                              ("ignore_term", "SUBFLEET_FAKE_IGNORE_TERM")):
             if key in settings:
                 env_add[variable] = str(settings[key])
         scenario = env_add.get("SUBFLEET_FAKE_SCENARIO",
@@ -70,6 +71,14 @@ class FakeAdapter(Adapter):
             # The test releases the provider only after witnessing an inspection.
             argv = ("/bin/sh", "-c", 'trap "exit 0" INT; '
                     '"$1" "$2" --escaper lockf --new-session & '
+                    'while [ ! -e "$SUBFLEET_FAKE_MARKER.release" ]; do /bin/sleep .05; done; '
+                    'exit 0', "shell-provider", sys.executable, str(binary))
+        if scenario in ("loop-driver", "loop-driver-detached"):
+            # D-KILL4: a shell provider that leaves a hidden-marker loop respawning a
+            # marked child. It ends by itself once the test releases it.
+            flags = "--driver --detached" if scenario.endswith("detached") else "--driver"
+            argv = ("/bin/sh", "-c", 'trap "exit 0" INT; '
+                    f'"$1" "$2" {flags} & '
                     'while [ ! -e "$SUBFLEET_FAKE_MARKER.release" ]; do /bin/sleep .05; done; '
                     'exit 0', "shell-provider", sys.executable, str(binary))
         return Launch(

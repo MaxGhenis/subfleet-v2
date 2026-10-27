@@ -1,4 +1,4 @@
-"""D-KILL3, C-5.5: hidden-marker runners outlive self-exit and turn interrupt.
+"""D-KILL3, C-5.5: hidden-marker runners outlive self-exit and turn interrupt; D-KILL4 contains them.
 
 Only scratch locks and test-owned process groups are used. The real daemon,
 guardian and shell provider run; the runner's real stop timer supplies SIGINT
@@ -18,7 +18,7 @@ import pytest
 from subfleet import procs
 from subfleet.conversations.runner import Clocks, TurnRunner
 from tests.fake.test_census_escapers_daemon import (
-    escaper_identity, executable, held, settled, stop,
+    escaper_identity, executable, settled, stop,
 )
 
 pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="macOS process census")
@@ -69,23 +69,26 @@ def test_d_kill3_inspection_keeps_a_hidden_lockf_after_its_shell_provider_ends(d
         else:
             Path(str(marker) + ".release").touch()
         attempt = settled(daemon, job)
-        assert attempt["state"] == "quarantined", attempt
+        # D-KILL4: the counted runner is no longer left waiting in quarantine; the
+        # kill protocol signals it as a census member, and the attempt ends from its
+        # provider's own outcome with no live census pid.
+        assert attempt["state"] != "quarantined", json.loads(attempt["quarantine_reason"] or "{}")
+        assert attempt["killed_by"] is None
         evidence = json.loads(attempt["evidence_json"])
         assert "responsible_root" not in evidence
         assert evidence["counted_identities"][str(runner.pid)] == {
             "pid": runner.pid, "boot_id": runner.boot_id, "proc_start": runner.proc_start}
         assert str(runner.pid) not in evidence.get("owned_identities", {})
-        census = json.loads(attempt["quarantine_reason"])
-        assert census["reason"] == "writers remain after exit receipt"
+        assert runner.pid in evidence["terminal_containment"][-1]["signalled"]
+        assert evidence["terminal_containment"][-1]["contained"] is True
+        census = json.loads(daemon.rows("SELECT data_json FROM events WHERE attempt_id=? AND kind=? "
+                                        "ORDER BY event_id", (attempt["attempt_id"], "attempt.containment"))[0]
+                            ["data_json"])["census"]
         assert runner.pid in census["descendant_pids"]
         assert runner.pid not in census["marker_pids"] + census["group_pids"]
         assert census["shapes"][str(runner.pid)]["ppid"] == 1
-        assert procs.liveness(runner.pid, runner.boot_id, runner.proc_start) == "alive"
-        assert held(daemon, job, attempt["attempt_id"])
-        daemon.call("kill", job_id=job, confirm_dead=True)
-        daemon.until(lambda: daemon.rows("SELECT 1 FROM events WHERE attempt_id=? AND kind=?",
-                                         (attempt["attempt_id"], "quarantine.still_live")), timeout=30)
-        assert held(daemon, job, attempt["attempt_id"])
+        # Contained before the verdict: no wait for its death after it.
+        assert procs.liveness(runner.pid, runner.boot_id, runner.proc_start) == "dead"
     finally:
         stop(runner)
         Path(str(marker) + ".release").touch()
