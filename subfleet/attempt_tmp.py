@@ -306,6 +306,9 @@ class AttemptTemp:
         keep. Anything else needs a terminal attempt (never a quarantined one)
         and a verified-empty census (C-12.10). Nothing else holds scratch. A
         tombstoned allocation is not absent: removal finishes it (P3-1).
+        `verified_empty` here is the holder's census having found none of its
+        own processes, verifiably (`Containment.containment_empty`): a cwd
+        observer in the job's worktree holds only the worktree (C-5.5).
         """
         try:
             where = self.presence(record)

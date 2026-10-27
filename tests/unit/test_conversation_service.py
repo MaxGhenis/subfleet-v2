@@ -57,6 +57,8 @@ POLICY = {"models": {"opus": {"provider": "claude", "id": "claude-opus-5-5"}},
 
 
 class FakeDaemon:
+    """What the borrowed methods read is checked by tests/unit/test_fake_daemon_borrowed_methods.py."""
+
     _job = Daemon._job
     _running_s = Daemon._running_s
     _request_cancel = Daemon._request_cancel
@@ -64,6 +66,10 @@ class FakeDaemon:
     _cancel_requester = staticmethod(Daemon._cancel_requester)
     _notice = Daemon._notice
     _earlier_attempt = Daemon._earlier_attempt
+    _scan_observers = Daemon._scan_observers
+    _release_ending = Daemon._release_ending
+    _keep_for_cwd = Daemon._keep_for_cwd
+    _cwd_notice = staticmethod(Daemon._cwd_notice)
     _start_stop_delivery = Daemon._start_stop_delivery
 
     def __init__(self, root: Path):

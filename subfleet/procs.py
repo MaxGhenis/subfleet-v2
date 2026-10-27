@@ -308,6 +308,24 @@ class ProcessTable:
             return frozenset()
         return frozenset(pid for pid, row in self.rows.items() if row[1] == pgid and self.live(pid))
 
+    def descendants(self, roots: set[int]) -> frozenset[int]:
+        """Live walk members, retaining absent and zombie parent-link anchors.
+
+        Build the parent index once, so walking a deep tree costs one pass over
+        the shared table rather than one pass per generation (C-5.12).
+        """
+        children: dict[int, list[int]] = {}
+        for pid, row in self.rows.items():
+            children.setdefault(row[0], []).append(pid)
+        found = set(roots)
+        pending = list(roots)
+        while pending:
+            for pid in children.get(pending.pop(), ()):
+                if pid not in found:
+                    found.add(pid)
+                    pending.append(pid)
+        return frozenset(pid for pid in found if self.live(pid))
+
 
 def snapshot() -> ProcessTable:
     """Read the process table once (C-5.5); raises `InspectionError` when it cannot.
@@ -347,13 +365,21 @@ class Containment:
     # by pid. None of them is the attempt's: none seeds the walk or is counted.
     other_boot: dict[int, list[dict[str, Any]]] = field(default_factory=dict)
 
+    # Hold only: observers never become walk seeds or signal targets.
+    cwd_pids: frozenset[int] = frozenset()
+
     @property
     def live_pids(self) -> frozenset[int]:
         return self.group_pids | self.descendant_pids | self.marker_pids | self.responsible_pids
 
     @property
-    def verified_empty(self) -> bool:
+    def containment_empty(self) -> bool:
+        """No attributed writers remain; cwd observers hold only the worktree."""
         return not self.unverifiable and not self.live_pids
+
+    @property
+    def verified_empty(self) -> bool:
+        return self.containment_empty and not self.cwd_pids
 
     def to_dict(self) -> dict[str, Any]:
         found = {
@@ -362,6 +388,7 @@ class Containment:
             "marker_pids": sorted(self.marker_pids),
             "responsible_pids": sorted(self.responsible_pids),
             "live_pids": sorted(self.live_pids),
+            "cwd_holders": [f"pid {pid}: cwd in worktree" for pid in sorted(self.cwd_pids)],
             "unverifiable": self.unverifiable,
             "identities": {str(pid): asdict(value) for pid, value in self.identities.items()},
             "errors": list(self.errors),
@@ -418,6 +445,10 @@ _PROC_ALL_PIDS = 1
 _PROC_PIDT_BSDINFOWITHUNIQID = 18
 _BSDINFO_SIZE = 136
 _BSDINFO_WITH_UNIQID_SIZE = _BSDINFO_SIZE + 56
+_PROC_PIDVNODEPATHINFO = 9
+_VNODE_INFO_SIZE = 152
+_MAXPATHLEN = 1024
+_VNODE_PATHINFO_SIZE = 2 * (_VNODE_INFO_SIZE + _MAXPATHLEN)
 _UNIQUEID_OFFSET = _BSDINFO_SIZE + 16
 _PROC_FLAG_INEXIT = 4                  # pbi_flags: the process has begun to exit
 _SZOMB = 5                             # pbi_status: a zombie
@@ -571,6 +602,29 @@ class Darwin:
         if got <= 0 and failure in (errno.ESRCH, errno.EPERM):
             return None
         raise InspectionError(f"process inspection of pid {pid} unavailable")
+
+    def cwd(self, pid: int) -> str | None:
+        """Kernel cwd via PROC_PIDVNODEPATHINFO; gone/denied processes have none.
+
+        Darwin's sys/proc_info.h defines two 1176-byte vnode_info_path records,
+        each a 152-byte vnode_info followed by MAXPATHLEN (1024) path bytes.
+        No command, environment, subprocess or lsof read is involved.
+        """
+        if self._pidinfo is None:
+            raise InspectionError("cwd inspection unavailable")
+        info = ctypes.create_string_buffer(_VNODE_PATHINFO_SIZE)
+        ctypes.set_errno(0)
+        got = self._pidinfo(pid, _PROC_PIDVNODEPATHINFO, 0, info, len(info))
+        failure = ctypes.get_errno()
+        if got == len(info):
+            path = info.raw[_VNODE_INFO_SIZE:_VNODE_INFO_SIZE + _MAXPATHLEN]
+            end = path.find(b"\0")
+            if end < 0:
+                raise InspectionError(f"cwd inspection of pid {pid} truncated")
+            return os.fsdecode(path[:end]) or None
+        if got <= 0 and failure in (errno.ESRCH, errno.EPERM):
+            return None
+        raise InspectionError(f"cwd inspection of pid {pid} unavailable")
 
     def arguments(self, pid: int, buffer) -> bytes | None:
         """`pid`'s raw `KERN_PROCARGS2` buffer, or None when the kernel refused it. It
@@ -1053,8 +1107,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                 # only holds the attempt. It never grants signal authority.
                 # A known root already gone with no provisional observations
                 # is still a valid empty source; do not make it sticky.
-                # A root whose boot is over needs no final holder check (no member names it,
-                # D-QUAR-REUSE1), whether or not a member's read asked `ours` first.
+                # The read is made; once the root's boot is over only its failure is dropped (no
+                # member names it, D-QUAR-REUSE1), whether or not a member's read asked `ours` first.
                 if (source_root.unique_id is None or holder_failed
                         or (holder is None and found_responsible)
                         or (holder is not None and holder.unique_id is None)) and not root_ended():
@@ -1113,6 +1167,31 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     return Containment(frozenset(groups), frozenset(descendants), frozenset(markers),
                        bool(errors), identities, tuple(errors), shapes, recycled,
                        frozenset(responsible), other_boot)
+
+
+def worktree_cwd_pids(worktree: str | os.PathLike) -> frozenset[int]:
+    """Live processes with cwd inside a resolved job-owned worktree (hold only).
+
+    The caller establishes ownership. Resolve both spellings, including /tmp
+    and /private/tmp, and compare whole path components. Cache repeated cwd
+    spellings within this one scan; nothing about observers is persisted.
+    Other users denied by libproc are skipped, as in the census.
+    """
+    from .folders import canonical
+    target = canonical(worktree)
+    prefix = target.rstrip(os.sep) + os.sep
+    resolved: dict[str, str] = {}
+    found = set()
+    for pid in kernel.pids():
+        cwd = kernel.cwd(pid)
+        if cwd is None:
+            continue
+        if cwd not in resolved:
+            resolved[cwd] = canonical(cwd)
+        current = resolved[cwd]
+        if current == target or current.startswith(prefix):
+            found.add(pid)
+    return frozenset(found)
 
 
 def signal_group(pgid: int, sig: int | signal.Signals, *, boot_id: str,

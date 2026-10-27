@@ -37,7 +37,8 @@ CODEX = {"model": "gpt-6-astra", "effort": None, "fast": False, "permission": "r
 
 
 class Daemon:
-    """Real main-store cancellation, with no pools or control loop."""
+    """Real main-store cancellation, with no pools or control loop. What the borrowed
+    methods read is checked by tests/unit/test_fake_daemon_borrowed_methods.py."""
 
     _job = RealDaemon._job
     _running_s = RealDaemon._running_s
@@ -46,6 +47,10 @@ class Daemon:
     _cancel_requester = staticmethod(RealDaemon._cancel_requester)
     _notice = RealDaemon._notice
     _earlier_attempt = RealDaemon._earlier_attempt
+    _scan_observers = RealDaemon._scan_observers
+    _release_ending = RealDaemon._release_ending
+    _keep_for_cwd = RealDaemon._keep_for_cwd
+    _cwd_notice = staticmethod(RealDaemon._cwd_notice)
 
     def __init__(self, root: Path):
         self.root = root
