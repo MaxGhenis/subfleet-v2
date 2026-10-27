@@ -156,6 +156,7 @@ def test_recorded_setsid_survivor_is_individually_signalled(monkeypatch, child_r
     monkeypatch.setattr(procs, "signal_group", lambda *args, **kwargs: False)
     monkeypatch.setattr(procs, "signal_process", lambda owned, sig, **kwargs: signalled.append((owned, sig)))
     Daemon._kill_attempt(core, a)
-    assert signalled == [(ident(43, 1), signal.SIGKILL)]
+    # D-KILL4: a census member is signalled TERM, then KILL, one by one (the group is gone).
+    assert signalled == [(ident(43, 1), signal.SIGTERM), (ident(43, 1), signal.SIGKILL)]
     assert saved["43"] == asdict(ident(43, 1))
     assert len(quarantined) == 1

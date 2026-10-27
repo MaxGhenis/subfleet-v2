@@ -128,22 +128,28 @@ def test_trackb_on_its_own_boot_is_still_held(state_daemon, monkeypatch):
 
 
 def test_invariant_4_no_signal_reaches_a_counted_or_responsible_identity(state_daemon, monkeypatch):
-    """The kill protocol signals by `owned_identities` alone (C-5.4, C-5.6). A cross-boot attempt
-    with an adopted counted identity, a stored responsible identity and a live process carrying
-    its marker pair sends no signal to any of them, owns nothing new, and is quarantined while
-    the marker process lives."""
+    """No counted or responsible identity of another boot is ever signalled (C-5.4, C-5.6). A
+    cross-boot attempt with an adopted counted identity, a stored responsible identity and a live
+    process carrying its marker pair asks no signal for the first two, owns nothing new, and is
+    quarantined while the marker process lives. Since D-KILL4 (#250) the census is the kill
+    protocol's signal authority, so the marker process, a member on this boot, is asked for; the
+    fixture's `ps` answers one start for every pid, so C-5.3's fresh check refuses it and no
+    signal reaches the host. What the protocol asks for (`asked`) carries the invariant."""
     daemon, harness = state_daemon
     adopted = asdict(procs.ProcessIdentity(CHILD, BOOT_B, STRANGER_START))
     named = asdict(procs.ProcessIdentity(SHELL, BOOT_B, SHELL_START))
     job_id, attempt = trackb(daemon, harness, monkeypatch, counted_identities={str(CHILD): adopted},
                              responsible_identities={str(SHELL): named},
                              extra_rows=f"90 1 90 S {STRANGER_START}\n", marked=(90,), quarantined=False)
-    signalled = []
+    signalled, asked, real = [], [], procs.signal_process
     monkeypatch.setattr(procs.os, "kill", lambda pid, sig: signalled.append(pid))
     monkeypatch.setattr(procs.os, "killpg", lambda pid, sig: signalled.append(pid))
+    monkeypatch.setattr(procs, "signal_process",
+                        lambda recorded, sig, **kwargs: asked.append(recorded.pid) or real(recorded, sig, **kwargs))
     daemon.term_grace_s = daemon.kill_settle_s = 0
     daemon._kill_attempt(daemon.store.get_attempt(attempt["attempt_id"]))
     assert signalled == []
+    assert CHILD not in asked and SHELL not in asked and set(asked) == {90}, asked
     after = daemon.store.get_attempt(attempt["attempt_id"])
     assert after["state"] == "quarantined"
     reason = json.loads(after["quarantine_reason"])
