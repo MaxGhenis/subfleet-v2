@@ -2597,9 +2597,15 @@ def traced(words, trace: Path, fs: str | None = None, home: str = FAKE_HOME) -> 
     return [line == "1" for line in out.stdout.splitlines()], calls
 
 
+#: r5 decision 7: the data volume's alias, in any letter case, folded before a path is placed.
+DATA_ALIAS = re.compile(r"^(/system/volumes/data(?=/|$))+", re.I)
+
+
 def inside_a_mount(path: str) -> bool:
     """Whether ``path`` (as a disk function gets it) is /Volumes/<entry> or under it, or /Network,
-    /net, /home or under them: /Volumes itself is the one stall folder that may be listed."""
+    /net, /home or under them: /Volumes itself is the one stall folder that may be listed. r5: the
+    data volume's alias is folded first, so /System/Volumes/Data/Volumes/<entry> is inside a mount."""
+    path = DATA_ALIAS.sub("", path) or "/"
     if not STALL.match(path):
         return False
     return path.rstrip("/").lower() != "/volumes"
@@ -3754,6 +3760,12 @@ R3C_MOUNT_WORDS = [
     "/Volumes/Backup/Users/{a,b}", "/Volumes/Ma*/Users/tester/..", "/net/host/x/..", "/home/x/(a|b)",
     "/Volumes/Backup/***/x", "/Volumes/Backup/?*", "/Volumes/Backup/inside/[!.]*", "/Network/*/..",
     "/Volumes/Macintosh HD/inside/x", "/Volumes/Boot/Users", "/home/*/.subfleet/jobs/?*",
+    # r5 decision 7 (review r4's P3-4): a mount reached through the data volume's alias, in any letter case,
+    # with a later glob too
+    "/System/Volumes/Data/Volumes/Backup/x/..", "/System/Volumes/Data/net/a/b/..", "/System/Volumes/Data/home/a/b/..",
+    "/System/Volumes/Data/Network/a/b/..", "/SYSTEM/VOLUMES/DATA/Volumes/Backup/x/..", "/system/volumes/data/NET/a/b/..",
+    "/System/Volumes/Data/Volumes/Backup/x/../*", "/System/Volumes/Data/home/a/b/../*.py",
+    "/System/volumes/Data/Network/a/b/../x*", "/System/Volumes/Data/Volumes/B*/x/..",
 ]
 
 
@@ -4267,3 +4279,333 @@ def test_review_r4_pins_r4s_unpinned_readings():
     outs = judge_all(HOOK, REVIEW_R4_DENIED + REVIEW_R4_ALLOWED)
     assert [case for case in REVIEW_R4_DENIED if rule(outs[case]) != "unscoped-search"] == []
     assert [case for case in REVIEW_R4_ALLOWED if rule(outs[case]) is not None] == []
+
+
+# ---------------------------------------------------------------- r5: review r4's findings
+
+# Round r5 (2026-10-27) builds the hub's decisions on review r4 (REQUEST_CHANGES at 6afb5ce19). Each pin below is
+# one of review r4's inputs (or the brief's), judged through the whole hook in the fixture:
+#   1. awk's base() is one split, so a long word with no slash costs what a short one does;
+#   2. heredoc bodies are data: the command prep keeps them out of its quote and separator tracking, and a body
+#      fed to a shell given no script is that shell's script;
+#   3. a depth bound covers only its own command's walk: the xargs rule reads a bounded producer's words, and the
+#      command find's -exec, -execdir, -ok or -okdir runs is judged on its own, {} standing for find's roots;
+#   4. the overlay doc holds one copy of its body;
+#   5. a closing backtick ends a root;
+#   6. a glob component bash can match against .. reads as its folder and that folder's parent;
+#   7. no disk call is made inside a stall mount reached through the data volume's alias (R3C_MOUNT_WORDS);
+#   8. a command too long to prep that names a searcher is denied;
+#   9. a root spelling right before a brace group is a path word;
+#  10. ~ followed by $ or a backtick is the home, and /Volumes/<glob>/.. is / as well;
+#  11. zsh's =cmd, a pipe into a shell through any stage, a positional -c script, eval of a command
+#      substitution, and <&0 are judged.
+R5_PRE = "cat > /dev/null <<'EOF'\nit's\nEOF\n"
+#: Decision 2 (review r4's P2-2): each was allowed because an apostrophe or a lone " in a heredoc body hid
+#: the rest from the prep. (command, cwd).
+R5_HEREDOC_DENIED = [
+    (R5_PRE + "/usr/bin/find / -name x", S_), (R5_PRE + "\\rg --files ~/.subfleet", S_),
+    (R5_PRE + "sudo -u root /usr/bin/find / -name x", S_), (R5_PRE + "echo 'rg --files ~/.subfleet' | bash", S_),
+    (R5_PRE + "bash <<< 'rg --files ~/.subfleet'", S_), (R5_PRE + "eval 'rg' --files ~/.subfleet", S_),
+    (R5_PRE + "bash -c $'rg --files \\x7e/.subfleet'", S_),
+    ("git commit -F - <<'EOF'\nIt's fixed\nEOF\ntimeout -s KILL 60 /usr/bin/find / -name x", S_),
+    ("cat <<'EOF' > x.md\nsay \"hi\nEOF\n/usr/bin/find / -name x", S_),
+    ("python3 - <<'EOF'\nx = 'a\nEOF\n/opt/homebrew/bin/rg --files ~/.subfleet", S_),
+    ("cat <<EOF > x.md\ndon't\nEOF\nif true; then \\rg --files ~/.subfleet; fi", S_),
+    ("cat > notes.md <<'EOF'\nit's\nEOF\nrg foo", H_),
+    # a heredoc into a shell given no script is its script (<<- strips the tabs); two on a line, in order
+    ("bash <<'EOF'\n\\rg --files ~/.subfleet\nEOF", S_), ("sh -s <<'EOF'\necho \"it's\"\n/usr/bin/find / -name x\nEOF", S_),
+    ("zsh <<EOF\n\\rg --files ~/.subfleet\nEOF", S_), ("bash <<-EOF\n\t\\rg --files ~/.subfleet\n\tEOF", S_),
+    ("cat <<A; bash <<B\nit's\nA\n\\rg --files ~/.subfleet\nB", S_), ("cat <<'EOF' | bash\n\\rg --files ~/.subfleet\nEOF", S_),
+]
+#: ... the control pair's other half and a plain find after the apostrophe (denied before r5 too) ...
+R5_HEREDOC_CONTROLS = [("cat > /dev/null <<'EOF'\nits\nEOF\n/usr/bin/find / -name x", S_), (R5_PRE + "find / -name x", S_)]
+#: ... and what stays allowed: a routine lane commit, a scoped search after a body, a scoped shell body, a body
+#: no shell runs (data), and an unterminated heredoc, whose rest is read as commands as before.
+R5_HEREDOC_ALLOWED = [
+    ("git commit -F - <<'EOF'\nIt's fixed\nEOF", S_), ("git commit -F - <<'EOF'\nIt's fixed\nEOF\nrg foo src", S_),
+    ("bash <<'EOF'\nrg foo src\nEOF", S_), ("cat > /dev/null <<'EOF'\nit's\nEOF\nrg foo src", H_),
+    ("cat > /dev/null <<'EOF'\nrg foo\nEOF", H_), ("cat <<'EOF'\nrg foo src", S_),
+]
+#: Decision 3 (review r4's P2-3 and the installed hook's form).
+R5_BOUND_DENIED = [
+    "find ~/.subfleet -maxdepth 1 -type d | xargs rg foo", "find ~/.subfleet -maxdepth 0 | xargs rg --files",
+    "find ~ -maxdepth 1 -name .subfleet | xargs rg --files", "find ~/.subfleet -maxdepth 1 | xargs -I{} rg --files {}",
+    "find . -maxdepth 1 -exec rg foo ~ \\;", "find ~/.subfleet -maxdepth 1 -exec rg foo {} \\;",
+    "find ~/PolicyEngine -maxdepth 1 -type d | xargs rg foo",
+]
+R5_BOUND_ALLOWED = [
+    ("find src -maxdepth 1 -type d | xargs rg foo", S_), ("find src -maxdepth 1 -exec rg foo {} \\;", S_),
+    ("find ~/.subfleet -maxdepth 1 -name x", S_), ("find ~/.subfleet -maxdepth 1 | xargs rg --max-depth 1 foo", S_),
+    ("find . -name '*.py' -exec grep -l / {} +", LANE_W), ("find . -maxdepth 2 -name '*.py' | xargs rg -l foo", LANE_W),
+]
+#: Decision 5 (review r4's P3-2): a root right before a closing backtick ...
+R5_BACKTICK_DENIED = ["echo `rg --files ~/.subfleet`", "echo `find ~/.subfleet`", "echo `rg foo /`", "x=`grep -r foo ~`",
+                      "echo `rg foo ~/PolicyEngine`", 'echo "`rg --files ~/.subfleet`"']
+#: ... and its two denied controls.
+R5_BACKTICK_CONTROLS = ["echo `rg --files ~/.subfleet | head`", "$(rg --files ~/.subfleet)"]
+R5_BACKTICK_ALLOWED = [("echo `rg foo src`", S_), ('echo "`git rev-parse HEAD`"', S_), ('git commit -m "use \\`rg\\` / here"', S_)]
+#: Decision 6 (review r4's P3-3, and the brief's bash -c form).
+R5_DOTDOT_DENIED = [
+    "rg foo ~/work/.*", f"rg --files ~/.subfleet/jobs/{JOB}/.*", f"rg --files ~/.subfleet/jobs/{JOB}/.?",
+    "rg --files ~/work/.?/.subfleet", "find ~/work/.* -name x", "bash -c 'rg --files ~/work/.*'",
+    "rg --files ~/work/.[.]/.subfleet", "rg --files ~/work/.[!a]/.subfleet",
+]
+#: ... and components that cannot match .., or whose parent is no root.
+R5_DOTDOT_ALLOWED = [("rg foo .*rc", S_), ("rg foo ~/work/.*rc", S_), ("rg foo ~/work/repo/src/.*", S_),
+                     ("rg foo ~/work/repo/.?", S_), ("rg foo ~/work/[.]*/.subfleet", S_)]
+#: Decision 8 (review r4's P3-5): over 64 KB, the prep is skipped.
+R5_LONG = "x" * 65600
+R5_TOO_LONG_DENIED = [f"echo {R5_LONG}; \\rg --files ~/.subfleet", f"echo {R5_LONG}; /usr/bin/find / -name x"]
+#: Decision 9 (review r4's P3-6).
+R5_BRACE_DENIED = ["rg --files ~{/.subfleet,/x}", "rg --files ~{,/.subfleet}", "rg --files $HOME{,}/.subfleet",
+                   "find ~{,} -name x", "rg --files ~{,}"]
+R5_BRACE_ALLOWED = [("rg foo src/{a,b}.py", LANE_W), ("rg foo {src,tests}", LANE_W), ("rg foo ~{/work/repo/src,/work/repo/tests}", S_)]
+#: Decision 10 (review r4's P3-7).
+R5_FAMILY_DENIED = ["rg --files ~$USERNAME/.subfleet", "rg --files ~$LOGNAME/.subfleet", "rg --files ~${LOGNAME}/.subfleet",
+                    "rg --files ~$(id -un)/.subfleet", "rg --files ~`whoami`/.subfleet",
+                    "rg --files /Volumes/M*/../Users/tester/.subfleet"]
+R5_FAMILY_ALLOWED = [("rg foo ~$LOGNAME/work/repo/src", S_), ("rg foo ~$(id -un)/work/repo/src", S_)]
+#: Decision 11 (review r4's P3-8). (command, cwd).
+R5_FORMS_DENIED = [
+    ("=rg --files ~/.subfleet", S_), ("=find / -name x", S_),
+    ("echo 'rg --files ~/.subfleet' | cat | bash", S_), ("echo 'rg --files ~/.subfleet' | tee /dev/null | bash", S_),
+    ("printf 'rg --files %s\\n' ~/.subfleet | bash", S_), ("printf 'rg --files ~/.subfleet' | xargs -0 bash -c", S_),
+    ("sh -c '\"$@\"' sh \\rg --files ~/.subfleet", S_), ("bash -c '$@' sh rg --files ~/.subfleet", S_),
+    ("eval \"$(echo 'rg --files ~/.subfleet')\"", S_), ("rg foo <&0", H_), ("rg foo 0<&0", H_),
+]
+R5_FORMS_ALLOWED = [
+    ("echo 'rg foo src' | cat | bash", S_), ("printf 'rg foo %s\\n' src | bash", S_), ("sh -c '\"$@\"' sh rg foo src", S_),
+    ("echo src | xargs -0 bash -c 'rg foo \"$1\"' sh", S_), ('eval "$(ssh-agent -s)"', S_), ("rg foo <&0", S_),
+    ("rg foo <&3", H_), ("ls -la =(echo x)", S_),
+]
+
+
+def r5_denied(cases) -> list:
+    """The (command, cwd) cases the hook does not deny as [unscoped-search] (empty when every one is)."""
+    outs = judge_all(HOOK, cases)
+    return [case for case in cases if rule(outs[case]) != "unscoped-search"]
+
+
+def r5_allowed(cases) -> list:
+    """The (command, cwd) cases the hook does not allow (empty when every one is)."""
+    outs = judge_all(HOOK, cases)
+    return [case for case in cases if rule(outs[case]) is not None]
+
+
+def test_r5_heredoc_bodies_are_data():
+    """Decision 2: review r4's P2-2 inputs and the control pair are denied; a routine commit, a body no shell
+    runs and an unterminated heredoc are allowed."""
+    assert r5_denied(R5_HEREDOC_DENIED + R5_HEREDOC_CONTROLS) == []
+    assert r5_allowed(R5_HEREDOC_ALLOWED) == []
+
+
+def test_r5_a_depth_bound_covers_only_its_own_walk():
+    """Decision 3: a bounded producer's roots feed its xargs consumer, and -exec's command is judged on its own
+    with {} as find's roots; a bound on the consumer, or a scoped producer, stays allowed."""
+    assert r5_denied([(c, S_) for c in R5_BOUND_DENIED]) == []
+    assert r5_allowed(R5_BOUND_ALLOWED) == []
+
+
+def test_r5_a_closing_backtick_ends_a_root():
+    """Decision 5: review r4's six forms and its two controls are denied; prose with escaped backticks is not."""
+    assert r5_denied([(c, S_) for c in R5_BACKTICK_DENIED + R5_BACKTICK_CONTROLS]) == []
+    assert r5_allowed(R5_BACKTICK_ALLOWED) == []
+
+
+def test_r5_a_component_bash_can_match_against_dotdot_names_its_parent():
+    """Decision 6: .*, .?, .[.] and .[!a] read as their folder and its parent, in every context; .*rc, a
+    bracket first and a parent that is no root stay allowed."""
+    assert r5_denied([(c, S_) for c in R5_DOTDOT_DENIED]) == []
+    assert r5_allowed(R5_DOTDOT_ALLOWED) == []
+
+
+def test_r5_a_command_too_long_to_prep_fails_closed():
+    """Decision 8: over 64 KB and naming a searcher, the command is denied and the message says why; a long
+    command that names none is allowed."""
+    outs = judge_all(HOOK, [(c, S_) for c in R5_TOO_LONG_DENIED])
+    for c in R5_TOO_LONG_DENIED:
+        assert rule(outs[(c, S_)]) == "unscoped-search"
+        assert "too long to judge" in json.loads(outs[(c, S_)])["hookSpecificOutput"]["permissionDecisionReason"]
+    assert rule(run_hook(HOOK, f"echo {R5_LONG}")) is None
+
+
+def test_r5_a_root_spelling_before_a_brace_is_a_path_word():
+    """Decision 9: ~, $HOME and the rest right before { are path words; groups after no root spelling are not."""
+    assert r5_denied([(c, S_) for c in R5_BRACE_DENIED]) == []
+    assert r5_allowed(R5_BRACE_ALLOWED) == []
+
+
+def test_r5_the_wider_user_and_volume_family():
+    """Decision 10: ~ followed by $, ${, $( or a backtick is the home; /Volumes/<glob>/.. is / as well."""
+    assert r5_denied([(c, S_) for c in R5_FAMILY_DENIED]) == []
+    assert r5_allowed(R5_FAMILY_ALLOWED) == []
+
+
+def test_r5_the_unjudged_forms_are_judged():
+    """Decision 11: =cmd, pipes into a shell through any stage (printf's %s in order), positional -c scripts,
+    eval of a command substitution and <&0 from the home; their scoped forms stay allowed."""
+    assert r5_denied(R5_FORMS_DENIED) == []
+    assert r5_allowed(R5_FORMS_ALLOWED) == []
+
+
+def test_r5_scoped_searches_stay_allowed():
+    """Review r4's check 3, rerun: r3's 47 scoped searches in a lane worktree, scratch and /tmp, the 12 roots in
+    pattern position, the 13 must-allow cases, r4's must-allow forms, the print-and-exit forms, and a routine
+    lane commit with an apostrophe in its message."""
+    cases = ([(c, cwd) for cwd in R4_SCOPED_CWDS for c in R4_SCOPED] + [(c, LANE_W) for c in R4_PATTERN_ROOTS]
+             + R4_MUST_ALLOW + R4_ALLOWED + REVIEW_R4_ALLOWED + [("git commit -F - <<'EOF'\nIt's fixed\nEOF", LANE_W)])
+    assert len(R4_SCOPED) * len(R4_SCOPED_CWDS) >= 47 and len(R4_PATTERN_ROOTS) == 12 and len(R4_MUST_ALLOW) == 13
+    assert r5_allowed(cases) == []
+
+
+# ---------------------------------------------------------------- r5: cost (decision 1)
+
+#: A 60,000-character word with no slash beside a crawl and beside a scoped search, then review r4's seven timing
+#: rows: (name, command, denied). Each must finish under R5_TIMING_S, or within twice the installed hook's time.
+R5_TIMING_S = 3.0
+R5_X = "x" * 60000
+R5_TIMING = [
+    ("60,000 x beside a crawl", f"echo {R5_X}; rg --files ~/.subfleet", True),
+    ("60,000 x beside rg foo src", f"echo {R5_X}; rg foo src", False),
+    ("65,000 x, scoped", f"echo {'x' * 65000}; rg foo src", False),
+    ("30,000 x beside a crawl", f"echo {'x' * 30000}; rg --files ~/.subfleet", True),
+    ("'60,000 x', scoped", f"echo '{R5_X}'; rg foo src", False),
+    ('"60,000 x", scoped', f'echo "{R5_X}"; rg foo src', False),
+    ("`echo 60,000 x`, scoped", f"echo `echo {R5_X}`; rg foo src", False),
+    ("4,000 words in a commit message, scoped", 'git commit -m "' + "word " * 4000 + '" && rg foo src', False),
+    ("a 70,000-character word beside a crawl", "rg --files ~/.subfleet " + "x" * 70000, True),
+]
+
+
+def test_r5_a_long_word_without_a_slash_costs_what_the_installed_hook_does(hooks):
+    """Decision 1: each row keeps its verdict and finishes under 3 s, or within twice the installed hook's time
+    (hooks["old"], a60d1c51...); one run each, the new hook first, at the host's load (reported)."""
+    rows = {}
+    for name, command, denied in R5_TIMING:
+        t, out = hook_seconds(HOOK, command)
+        assert (rule(out) == "unscoped-search") == denied, name
+        old = hook_seconds(hooks["old"], command)[0]
+        rows[name] = {"new": round(t, 2), "installed": round(old, 2), "load": round(os.getloadavg()[0], 1)}
+        assert t < R5_TIMING_S or t <= 2 * old, (name, rows[name])
+    report("timing-r5", rows)
+
+
+# ---------------------------------------------------------------- r5: the overlay doc (decision 4)
+
+def test_r5_the_overlay_doc_holds_one_copy_of_its_body():
+    """Decision 4: every heading of docs/private-guard-overlay.md is there once, the sentence r4's decision 4
+    removed is nowhere, and the reviewed pair's table (this hook's hash) sits once, in the policy revision."""
+    text = (REPO / "docs/private-guard-overlay.md").read_text(encoding="utf-8")
+    heads = [line for line in text.splitlines() if line.startswith("#")]
+    assert len(heads) == len(set(heads)), [h for h in heads if heads.count(h) > 1]
+    flat = " ".join(text.split())
+    assert "searcher's name after a quote, a backslash or a path is detected anywhere in the text" not in flat
+    assert text.count(NEW_HOOK_SHA256) == 1
+    revision = text.index("\n## Policy revision")
+    assert revision < text.index(NEW_HOOK_SHA256) < text.index("\n## ", revision + 1)
+
+
+# ---------------------------------------------------------------- r5: the real shells
+
+#: r5's stubs: find records its argv and runs the real /usr/bin/find (over the fixture), so a bounded producer's
+#: output reaches its consumer; git and python3 do nothing.
+R5_FIND = r"""#!/bin/sh
+f=$(/usr/bin/mktemp "$R4_CALLS/call.XXXXXX")
+printf '%s\0' find "$PWD" none "$@" > "$f"
+exec /usr/bin/find "$@"
+"""
+R5_NOOP = "#!/bin/sh\nexit 0\n"
+
+
+def r5_walked_paths(name: str, cwd: str, stdin: str, args: list[str]) -> list[str]:
+    """r4_walked_paths, and a depth bound in the searcher's own arguments (find's before an -exec) walks
+    nothing past it: the rule's escape, so the stubs count only unbounded walks."""
+    own = args
+    if name == "find":
+        cut = [i for i, a in enumerate(args) if a in ("-exec", "-execdir", "-ok", "-okdir")]
+        own = args[:cut[0]] if cut else args
+        if "-maxdepth" in own:
+            return []
+    elif any(re.fullmatch(r"--?max-?depth(=.*)?|-d[0-9]+", a) for a in own):
+        return []
+    return r4_walked_paths(name, cwd, stdin, args)
+
+
+def r5_shell_walks(shell: str, command: str, cwd: str, tmp: Path) -> bool:
+    """Whether ``command``, run by the real shell over the fixture with r5's stubs (r4's searchers and wrappers,
+    R5_FIND, git and python3 as no-ops), would have walked a root. /Volumes is the fixture's too, and any file a
+    pin writes in its cwd is removed afterwards."""
+    fs = str(_FS["root"])
+    stubs = tmp / "stubs-r5"
+    if not stubs.exists():
+        stubs.mkdir()
+        for name in R4_SEARCHERS:
+            (stubs / name).write_text(R5_FIND if name == "find" else R4_STUB)
+        for name in ("timeout", "gtimeout", "doas", "sudo"):
+            (stubs / name).write_text(R4_WRAP)
+        for name in ("git", "python3"):
+            (stubs / name).write_text(R5_NOOP)
+        for p in stubs.iterdir():
+            p.chmod(0o755)
+    calls = tmp / f"calls-r5-{shell}-{next(R4_RUNS)}"
+    calls.mkdir()
+    text = command.replace("/usr/bin/find", f"{stubs}/find").replace("/usr/bin/grep", f"{stubs}/grep")
+    text = text.replace("/opt/homebrew/bin/rg", f"{stubs}/rg").replace("/usr/bin/rg", f"{stubs}/rg")
+    text = re.sub(r"(?<![\w./~-])/Users/tester", fs + "/Users/tester", text)
+    text = re.sub(r"(?<![\w./~-])/(tmp|Volumes)/", fs + r"/\1/", text)
+    text = re.sub(r"(?<=\s)/(?=\s|$)", fs + "/", text)
+    env = {"PATH": f"{stubs}:{os.environ['PATH']}", "HOME": fs + FAKE_HOME, "R4_CALLS": str(calls),
+           "USER": os.environ.get("USER", "nobody"), "LC_ALL": "C", "TMPDIR": str(tmp)}
+    argv = ["/bin/bash", "--noprofile", "--norc", "-c", text] if shell == "bash" else ["/bin/zsh", "-f", "-c", text]
+    here = Path(fs + cwd)
+    before = set(os.listdir(here))
+    try:
+        with open(os.devnull) as devnull:
+            subprocess.run(argv, stdin=devnull, capture_output=True, env=env, cwd=here, timeout=120)
+    finally:
+        for new in set(os.listdir(here)) - before:
+            if (here / new).is_file() and not (here / new).is_symlink():
+                (here / new).unlink()
+    walked = []
+    for f in sorted(calls.iterdir()):
+        name, at, stdin, *args = f.read_bytes().decode().split("\0")[:-1]
+        walked += [r4_canonical(p, at) for p in r5_walked_paths(name, at, stdin, args)]
+    return any(reference_cached(walked, FAKE_HOME)) if walked else False
+
+
+#: Every r5 command pin and must-allow form a shell can run: (command, cwd).
+R5_SHELL_COMMANDS = (R5_HEREDOC_DENIED + R5_HEREDOC_CONTROLS + R5_HEREDOC_ALLOWED
+                     + [(c, S_) for c in R5_BOUND_DENIED] + R5_BOUND_ALLOWED
+                     + [(c, S_) for c in R5_BACKTICK_DENIED + R5_BACKTICK_CONTROLS] + R5_BACKTICK_ALLOWED
+                     + [(c, S_) for c in R5_DOTDOT_DENIED] + R5_DOTDOT_ALLOWED
+                     + [(c, S_) for c in R5_TOO_LONG_DENIED] + [(f"echo {R5_LONG}", S_)]
+                     + [(c, S_) for c in R5_BRACE_DENIED] + R5_BRACE_ALLOWED
+                     + [(c, S_) for c in R5_FAMILY_DENIED] + R5_FAMILY_ALLOWED
+                     + R5_FORMS_DENIED + [case for case in R5_FORMS_ALLOWED if "ssh-agent" not in case[0]]
+                     + [(R5_TIMING[0][1], S_), (R5_TIMING[1][1], S_)])
+#: The runs the hook judges by design, not by what the stubs saw: (command, the hook's verdict).
+R5_SHELL_EXCEPTIONS = {
+    # the fixture's /Volumes/Macintosh HD is a folder, not the boot volume's link to /: by name, its .. is /
+    "rg --files /Volumes/M*/../Users/tester/.subfleet": True,
+}
+
+
+def test_r5_command_pins_agree_with_real_shells(tmp_path):
+    """Each r5 command pin and must-allow form, run by /bin/zsh -f and /bin/bash over the fixture with r5's stubs:
+    the hook denies it exactly when either shell's run would have walked a root."""
+    outs = judge_all(HOOK, R5_SHELL_COMMANDS)
+    rows, differ = [], []
+    for command, cwd in R5_SHELL_COMMANDS:
+        denied = rule(outs[(command, cwd)]) == "unscoped-search"
+        shells = {sh: r5_shell_walks(sh, command, cwd, tmp_path) for sh in ("zsh", "bash")}
+        rows.append((command, cwd, denied, shells))
+        if command in R5_SHELL_EXCEPTIONS:
+            if denied != R5_SHELL_EXCEPTIONS[command]:
+                differ.append(("exception", command, denied, shells))
+        elif denied != any(shells.values()):
+            differ.append((command[:200], cwd, denied, shells))
+    report("shells-r5", {"cases": len(rows), "denied": sum(r[2] for r in rows),
+                         "zsh": sum(r[3]["zsh"] for r in rows), "bash": sum(r[3]["bash"] for r in rows),
+                         "both": sum(r[3]["zsh"] and r[3]["bash"] for r in rows),
+                         "neither": sum(not r[3]["zsh"] and not r[3]["bash"] for r in rows)})
+    assert differ == [], differ[:10]
