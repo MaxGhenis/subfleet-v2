@@ -978,7 +978,93 @@ pass's pass 1, alone, one 60,000-character word beside `rg foo src`, at load 40-
 | 60,000 blanks | — | 0.51 / 0.30 / 0.32 s |
 | 4,000 × `word` | — | 0.22 / 0.28 / 0.27 s |
 
-R5_RESULTS_PLACEHOLDER
+**Holds** (one pytest each, under the lock, in the foreground, home `/Users/tester`; the holds
+before 14:37Z ran at `8a53286b2`, whose hook differs from the final one only in the text of decision
+8's message, which `8484dfa94` changed after h4's first run found `ls` in it):
+
+| Hold | Admitted (slot, load) | Selection | Result, pytest time |
+| --- | --- | --- | --- |
+| h1a | 14:12:49Z (B, 62) | `test_r5_` but the shells: the nine decision tests, timing, the doc | 11 passed, 177 s |
+| h1b3 | 14:23:13Z (A, 31) | r5 shells (after two oracle fixes, below) | 1 passed, 90 s |
+| h2 | 14:25:23Z (A, 38) | r1/r2 examples, TRUST, the fence, known-limit pins | 18 passed, 60 s |
+| h3 | 14:26:40Z (A, 50) | r3 examples | 25 passed, 111 s |
+| h4 | 14:37:24Z (A, 54) | r3b examples and property (final hook) | 15 passed, 412 s |
+| h5 | 14:45:03Z (B, 14) | S1, S2, the cwd list, S4 | 4 passed, 2 skipped (S4), 632 s |
+| h10b | 15:07:06Z (A, 94) | r4 examples, shells and timing | 12 passed, 1 failed, 356 s |
+| h8 | 15:23:56Z (A, 147) | r3c property | 1 passed, 1,152 s |
+
+- **h1b's two failures were the oracle's, not the hook's:** `echo src | xargs -0 bash -c 'rg foo "$1"' sh`
+  hands rg `src` plus a newline, which broke REFERENCE_SH's line-by-line read (r5's shell oracle now
+  drops a walked path holding a newline: no root name holds one); and `~$LOGNAME`/`~${LOGNAME}`
+  were unwalked only because the oracle's environment had no LOGNAME, as review r4 noted (the oracle
+  now passes it, as lanes do).
+- **h10b's failure is load:** `test_r4_absolute_paths_cost_at_most_twice_the_installed_hook` measured
+  the new hook's median at 1.68 s against the installed hook's 0.60 s (2.8×) at load ~95-115. An
+  interleaved check right after, three runs each at load 117-146, gave the installed hook 1.08-1.28 s,
+  `cb63c20a1`'s 0.98-1.09 s and this head's 0.89-1.52 s. It was not rerun under the lock.
+- **Over 10 minutes:** h5's pytest took 632 s and h8's 1,152 s (a single test, which `-k` cannot
+  split); both passed.
+- **S1 at scale 1:** 777 commands, 185 newly denied, every one labelled; none loosened but r3's two
+  labelled file cases. **r3c property:** 0 of 2,400 differ from REFERENCE_SH (decision 6's and
+  decision 10's readings added to it, written from the brief), and 0 of 298 through the whole hook.
+
+**Timing rows** (h1a, one run each, the new hook then the installed one, `hooks["old"]`):
+
+| Row | Load | This head | Installed |
+| --- | --- | --- | --- |
+| 60,000 `x` beside `rg --files ~/.subfleet` (denied) | 70.7 | 2.05 s | 1.13 s |
+| 60,000 `x` beside `rg foo src` | 70.7 | 1.50 s | 1.40 s |
+| 65,000 `x`, scoped | 70.7 | 0.99 s | 0.39 s |
+| 30,000 `x` beside a crawl (denied) | 70.2 | 0.50 s | 0.39 s |
+| `'60,000 x'`, scoped | 70.2 | 0.64 s | 1.39 s |
+| `"60,000 x"`, scoped | 68.5 | 1.81 s | 0.97 s |
+| `` `echo 60,000 x` ``, scoped | 68.5 | 1.00 s | 0.68 s |
+| 4,000 words in a commit message, scoped | 68.5 | 0.86 s | 1.69 s |
+| a 70,000-character word beside a crawl (denied, too long) | 63.7 | 1.56 s | 3.08 s |
+
+At `cb63c20a1` the first two rows took 82.7 s and 82.2 s (four at a time, load 32-39). r4's hostile
+rows in h10b (load ~95): 1,000 `{` 0.79 s, `/[`×1,000 0.85 s, 10,000 commas 0.38 s, 2,040
+components 0.56 s; the cap edge (reported, not bounded) 2.08 s and 7.49 s.
+
+**The real shells.** r5's 104 command runs: the hook denies 70; zsh walked a root in 62 and bash in
+62 (both in 55, zsh only in 7, bash only in 7), neither in 35, and the one listed exception
+(`/Volumes/M*/../Users/tester/.subfleet`: the fixture's `Macintosh HD` is a folder, not the boot
+volume's link, so its `..` is judged by name) is denied by design. r4's 119 runs in h10b agree too
+(denied 80; zsh 78, bash 77).
+
+**Counts per file:** `test_guard_subfleet_root.py` has 107 items (r4v's 94, review r4's one, r5's 12),
+of which the holds above ran 89 (86 passed, 2 skipped, 1 failed on load); the rest are under "Unrun".
+
+**Mutants** (`tools/guard_subfleet_root_mutations.py`, one `git archive` of HEAD each, the named test
+and the fence). The lock admitted nothing in 30 minutes (load 108-120, slot B closed), so, as the lane
+rules allow, the build stopped its own queued waiter and ran these 16 directly, 16:14-16:52Z at load
+74-120. The control passed all 13 named tests and the fence at the final hook; every mutant was
+killed by its named test, and the fence passed for each.
+
+| Decision | Mutant | Killing test |
+| --- | --- | --- |
+| 1 | `r5-base-quadratic` (`base()` back to `sub(/.*\//, …)`) | `test_r5_a_long_word_without_a_slash_costs_what_the_installed_hook_does` |
+| 2 | `r5-heredoc-unread` | `test_r5_heredoc_bodies_are_data` |
+| 3 | `r5-bound-hides-producer` (the bounded command back to `:`) | `test_r5_a_depth_bound_covers_only_its_own_walk` |
+| 4 | `r5-doc-duplicated` (a section's heading twice) | `test_r5_the_overlay_doc_holds_one_copy_of_its_body` |
+| 5 | `r5-backtick-space-dropped`, `r5-dq-substitution-unread` | `test_r5_a_closing_backtick_ends_a_root` |
+| 6 | `r5-dotdot-parent-dropped` | `test_r5_a_component_bash_can_match_against_dotdot_names_its_parent` |
+| 7 | `r5-alias-unfolded` | `test_r3c_nothing_inside_a_mount_is_read` |
+| 8 | `r5-too-long-allowed` (r4's skip) | `test_r5_a_command_too_long_to_prep_fails_closed` |
+| 9 | `r5-brace-root-unread` | `test_r5_a_root_spelling_before_a_brace_is_a_path_word` |
+| 10 | `r5-voldots-glob-dropped` | `test_r5_the_wider_user_and_volume_family` |
+| 11 | `r5-pipe-stages-dropped` (only the stage right before the shell) | `test_r5_the_unjudged_forms_are_judged` |
+| review r4 | `rv4-otherfd-is-stdin`, `rv4-grep-meta-walks`, `rv4-backtick-space-dropped`, `rv4-function-keyword-dropped` | `test_review_r4_pins_r4s_unpinned_readings` |
+
+Two of r4's mutants were retargeted because r5 changed the code they edit: `r3c-physical-stall-guard-dropped`
+now drops both stall guards of `pw_physical` (decision 7's per-step guard alone would make the old edit
+equivalent), and `r4-tilde-user-dropped` drops the one line decision 10 made of r4's three. The driver
+now holds 65 mutants; the other 49 were not run this round.
+
+**Unrun at this head:** S3 ×2, S5 and the r3 shells; the r3 property; S1-r3; the r3c examples, shells
+and folded code points (the r3c mount test ran in the mutant control); the overlay file
+(`test_guard_overlay.py`) and the three guards; `test_guard_trust.py`; S4's two items (they need the
+operator's Claude hook); and `tests/frontend/test_core_live.py`, which cannot run on a lane.
 
 ## Invariants and how they were checked
 
