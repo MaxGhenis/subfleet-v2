@@ -1,5 +1,6 @@
 """Each fix-8 mutation must fail a named behavioral regression."""
 from functools import partial
+import json
 import os
 
 import pytest
@@ -38,11 +39,13 @@ from tests.frontend.test_review_r219_fix12_view import (
 )
 from tests.frontend.test_review_r219_fix13_view import (
     assert_landed_once,
+    assert_natural_presentation,
     assert_landing_follows,
     assert_quiet_landing_order,
     assert_rests_at_the_end,
     assert_stale_glide_order,
     landing_run,
+    own_send_landings,
 )
 
 pytestmark = needs_swift
@@ -271,3 +274,50 @@ def test_round10_mutation_fails_its_named_regression(mutation, mode, tmp_path):
     with pytest.raises(AssertionError) as rejected:
         rule(result, steps)
     print(f"{mutation} killed by {rule.__name__}[{mode}]: {str(rejected.value)[:300]}")
+
+
+def test_ci_landing_gap_reaches_the_behavioural_mutant_check(tmp_path):
+    """Replay r9's CI counterexample: a valid 24 pt callback must not kill the mutant
+    through setup. Establish zero before growth, then reject its unfollowed reply.
+
+    Replay the measured callback offset in the real scene, rather than depending on
+    this host's lazy layout to happen to produce the CI offset again.
+    """
+    saved = json.loads((ROOT / "tests/fixtures/qt-flake/r9-ci-quiet-natural.json").read_text())
+    saved_steps = {step["step"]: step for step in saved["steps"]}
+    assert_natural_presentation(saved, saved_steps)
+    gap = saved_steps["landed"]["landed"]["position"]["from_end"]
+    assert gap == 24 and saved_steps["reply"]["position"]["from_end"] == 880
+    # The saved scene still fails setup: the zero-gap barrier must remain strict.
+    with pytest.raises(AssertionError):
+        assert_quiet_landing_order(saved, saved_steps, "quiet-regrow-natural")
+
+    source = (ROOT / "tests/frontend/ReviewR219Fix8ViewProbe.swift").read_text()
+    old = '            self.trace.append(entry.merging(["at": self.at(), "position": self.position()]) { _, new in new })'
+    assert source.count(old) == 1
+    source = source.replace(old, f'''            if entry["event"] as? String == "own_send_landed" {{
+                self.clipTo(fromEnd: {gap})
+            }}
+{old}''')
+    probe = mutant_source("r11_ci_landing", "Probe.swift", source)
+    filename, edits = MUTATIONS["quiet_landing_ends_following"]
+    sources = []
+    for path in app_sources():
+        if path.name == filename:
+            text = path.read_text()
+            for before, after in edits:
+                assert text.count(before) == 1
+                text = text.replace(before, after)
+            path = mutant_source("quiet_landing_ends_following", filename, text)
+        sources.append(path)
+    binary = compile_probe(tmp_path / "probe", probe, "SUBFLEET_VIEW_TEST", sources=sources)
+    mode = "quiet-regrow-natural"
+    result, steps, _ = landing_run(binary, tmp_path, mode)
+    [callback] = own_send_landings(result, steps)
+    assert callback["position"]["from_end"] == gap, result
+    # Setup is deliberately outside raises. Only the reply assertion kills this mutant.
+    assert_quiet_landing_order(result, steps, mode)
+    with pytest.raises(AssertionError):
+        assert_landing_follows(result, steps)
+    print(f"CI replay reached behavioural check: callback={gap}, "
+          f"quiet={steps['landed']['position']['from_end']}, reply={steps['reply']['position']['from_end']}")
