@@ -106,7 +106,12 @@ def lockf_escaper() -> int:
 
 def escaper(kind: str) -> int:
     """The escaper's parent: started in a new session, it forks and exits.
-    `lockf` is the exception: it stays the session's leader (`lockf_escaper`)."""
+    `lockf` is the exception: it stays the session's leader (`lockf_escaper`).
+    With SUBFLEET_FAKE_IGNORE_TERM the escaper ignores TERM (SIG_IGN survives exec, and
+    lockf sets its own handler only once it holds its lock), so a test can watch the
+    kill protocol count it between the TERM and the KILL (D-KILL4 fix 1)."""
+    if os.environ.get("SUBFLEET_FAKE_IGNORE_TERM"):
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
     if kind == "lockf":
         return lockf_escaper()
     if os.fork():
@@ -125,7 +130,39 @@ def escaper(kind: str) -> int:
     return 1
 
 
+#: D-KILL4 (incident 2026-10-20, walled `us10299-review-shell-b`): an agent's
+#: `/bin/sh` loop respawning a marked runner. The loop is a shell, an Apple platform
+#: binary whose environment macOS 26 hides, so only its children show the markers;
+#: it outlives the provider in a session of its own (`--driver`), reparented to
+#: launchd once the provider ends (`--detached`: at once, by a fork that exits).
+#: It ends by itself within DRIVER_S, and each child within CHILD_S (long enough that a census
+#: sees one: a census landing between two children sees nothing of an uncounted loop).
+DRIVER_S = 90
+CHILD_S = 5.0
+DRIVER_LOOP = ('end=$(( $(/bin/date +%s) + {limit} )); '
+               'while [ "$(/bin/date +%s)" -lt "$end" ]; do "$0" "$1" --marked-child; done')
+
+
+def driver(detached: bool) -> int:
+    """Lead a new session, publish this pid, then become the shell loop in place."""
+    os.setsid()
+    if detached and os.fork():
+        return 0
+    marker = os.environ["SUBFLEET_FAKE_MARKER"]
+    with open(marker + ".tmp", "w") as stream:
+        stream.write(str(os.getpid()))
+    os.rename(marker + ".tmp", marker)
+    os.execv("/bin/sh", ["/bin/sh", "-c", DRIVER_LOOP.format(limit=DRIVER_S),
+                         sys.executable, str(Path(__file__).resolve())])
+    return 1
+
+
 def main() -> int:
+    if "--driver" in sys.argv:
+        return driver("--detached" in sys.argv)
+    if "--marked-child" in sys.argv:
+        time.sleep(CHILD_S)          # the markers it inherited show in its buffer
+        return 0
     if "--escaper" in sys.argv:
         if "--new-session" in sys.argv:
             os.setsid()

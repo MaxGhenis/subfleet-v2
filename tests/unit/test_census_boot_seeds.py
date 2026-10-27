@@ -27,6 +27,12 @@ no process now alive can be the child or descend from it:
 An unknown attempt boot (none recorded, legacy `kern.boottime` seconds, or a current boot
 that cannot be read) keeps release/217's conservative answer, and on the attempt's own
 boot every source counts what it counted at 15bd8c172.
+
+Since #250 (D-KILL4) merged, the census this change is measured against is #250's at
+380b626cf (`tests/reference_census_380b626cf.py`): release/217's with D-KILL4's
+parent-chain rule and group-leader check, which change the census on every boot by
+design. The differentials (`at_base`) compare with it, so "15bd8c172" in the invariants
+below reads "the census before the boot scope" on this line.
 """
 
 from __future__ import annotations
@@ -42,7 +48,8 @@ import pytest
 
 from subfleet import boot_identity, procs
 from subfleet.daemon import Daemon
-from tests import reference_census_15bd8c172 as base
+from tests import reference_census_15bd8c172 as release_217
+from tests import reference_census_380b626cf as base
 from tests.fake_kernel import procargs
 from tests.unit.test_census_procargs import Store, captured
 from tests.unit.test_procs import BOOT_A, BOOT_B, census
@@ -106,10 +113,22 @@ def recording(patch) -> list[dict]:
 
 
 def at_base(call: dict) -> procs.Containment:
-    """15bd8c172's census of the same request (it had no `attempt_boot`)."""
+    """The census before the boot scope, of the same request (it had no `attempt_boot`):
+    15bd8c172's at #259, 380b626cf's (D-KILL4, with `parent_chain`) since the merge. Its
+    `_parent_chain` is today's, the same as 380b626cf's while nothing is stored or carried."""
     procs.forget_boot_id()
     kwargs = {key: value for key, value in call["kwargs"].items() if key != "attempt_boot"}
+    chain = kwargs.get("parent_chain")
+    assert chain is None or not (chain.held or chain.recorded or chain.carried), chain
     return base.containment(*call["args"], **kwargs)
+
+
+def at_release_217(call: dict) -> procs.Containment:
+    """15bd8c172's census of the same request: release/217's, before D-KILL4 and the boot
+    scope (no `parent_chain`, no `attempt_boot`), for what the incident's line counted."""
+    procs.forget_boot_id()
+    kwargs = {key: value for key, value in call["kwargs"].items() if key not in ("attempt_boot", "parent_chain")}
+    return release_217.containment(*call["args"], **kwargs)
 
 
 def ident(pid: int, boot: str, start: str) -> procs.ProcessIdentity:
@@ -260,7 +279,7 @@ def test_an_orphaned_group_and_an_absent_seeds_children_on_a_later_boot_are_not_
     assert result.verified_empty and result.group_pids == result.descendant_pids == frozenset()
     assert result.recycled[GUARDIAN]["reason"] == REASON
     assert result.recycled[GUARDIAN]["now"] == {"pid": GUARDIAN, "boot_id": BOOT_B, "proc_start": None}
-    before = at_base(calls[-1])
+    before = at_release_217(calls[-1])
     assert before.group_pids == {500} and before.descendant_pids == {501}
 
 

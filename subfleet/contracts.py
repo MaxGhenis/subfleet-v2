@@ -271,6 +271,13 @@ TRANSIENT_RETRY_DELAY_S = 60
 #: the rest of an episode, against 0.2% four hours on (docs/reports/2026-10-13-model-capacity-steer.md).
 MODEL_CAPACITY_STEER_S = 900
 START_GRACE_S = 10
+#: D-QUAR-START1 (a), C-4.2: start grace's bound. At its expiry a guardian that is alive,
+#: running (not stopped) and verified by its recorded identity, and is the census's only
+#: member, is given more time, re-checked at the census's pacing (C-5.12), until this
+#: long after the deadline began (the launch). Python start-up, the launch gate and the
+#: identity reads all come before `start.json`; under load 60 to 100 on 2026-10-26 one
+#: guardian took about 31 s (`20261026-104634-ce1-review-r3/a1`).
+START_GRACE_MAX_S = 6 * START_GRACE_S
 TERM_GRACE_S = 15
 # C-5.6, C-5.9: how long a census may keep finding pids the kernel is still
 # tearing down (after SIGKILL, or after the guardian's exit receipt) before the
