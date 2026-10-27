@@ -182,7 +182,11 @@ def test_a_pid_held_by_one_census_is_signalled_when_a_later_census_attributes_it
     child = world.add(5001, 5000, 5001, cwd="/elsewhere", respawns=True)
     publish(daemon, "exit.json", {"rc": 0, "signal": None, "finished_at": "2026-09-05T14:01:00Z", "wall_s": 1,
                                   "child_pid": 4243})
-    daemon.store.update_attempt(ATTEMPT, state="finalizing", rc=0)
+    # Inspection recorded the provider as owned while the guardian led its group, as the
+    # property's world does; without it the child pid is an identity-less seed, census 1
+    # is unverifiable, and its taint (C-5.4), not a hold, keeps 5001 from the walk.
+    daemon.store.update_attempt(ATTEMPT, state="finalizing", rc=0, evidence_json=json.dumps(
+        {"owned_identities": {"4243": {"pid": 4243, "boot_id": "boot", "proc_start": STARTED}}}))
     censuses: list[procs.Containment] = []
     contain = daemon._contain
 
