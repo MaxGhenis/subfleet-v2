@@ -1033,7 +1033,8 @@ volume's link, so its `..` is judged by name) is denied by design. r4's 119 runs
 (denied 80; zsh 78, bash 77).
 
 **Counts per file:** `test_guard_subfleet_root.py` has 107 items (r4v's 94, review r4's one, r5's 12),
-of which the holds above ran 89 (86 passed, 2 skipped, 1 failed on load); the rest are under "Unrun".
+of which the holds above ran 90 (87 passed, 2 skipped, 1 failed on load); review r4's test passed in
+h1b's first run and in the mutant control, and the rest are under "Unrun".
 
 **Mutants** (`tools/guard_subfleet_root_mutations.py`, one `git archive` of HEAD each, the named test
 and the fence). The lock admitted nothing in 30 minutes (load 108-120, slot B closed), so, as the lane
