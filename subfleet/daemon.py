@@ -1682,7 +1682,10 @@ class Daemon:
         retry 28 s). An attempt a daemon before fix round 3 finalized has no `retry_due_at`;
         its deadline is its own `attempt.accepted` audit stamp plus `TRANSIENT_RETRY_DELAY_S`.
         Store.transaction stamps that event after the finalizer reads its deadline, using
-        the same UTC wall clock, so this fallback is conservative, unlike the provider's exit."""
+        the same UTC wall clock. While that clock runs forward, the fallback is never earlier
+        than the finalizer's deadline. It is later by the finalizer's time from reading the
+        deadline to committing, rounded up to the second, so a held legacy retry starts at
+        most 60 s late. A backward step between the reads makes it earlier by the step."""
         if not (state == "waiting" and reason == "capacity" and clock):
             return None
         row = tx.execute(RETRY_END_SQL, (job_id,)).fetchone()
@@ -1783,8 +1786,11 @@ class Daemon:
         """C-11.10: the hold that kept `job` waiting has ended by its clock (a release
         gives its jobs back itself): the job gets its clocks back (`_task_hold_restore`)
         and is looked at on this pass. The hold ended at its `until`, which its row's
-        clock is (`ended_at`, or now if that is still ahead: a release that has not
-        reached this row yet). The job as the rest of the pass sees it.
+        clock is, read inside the ending transaction, never from the pass's copy.
+        With `ended_at`, nothing is restored unless the row still names that end;
+        without it, the row supplies the end (or now if its clock is still ahead).
+        A newer take or move cannot have an older end given back over it (review
+        r5 of #260, R5-1). The job as the rest of the pass sees it.
 
         With `holds` (the door's look, whose read of the holds may predate a hold that
         has since committed and taken the job again), the transaction reads the task's
@@ -1797,7 +1803,14 @@ class Daemon:
         with self.store.transaction("job.task_hold_ended", job_id=job["job_id"], data=record) as tx:
             if holds is not None and self._task_held_at_write(tx, job, holds) is not None:
                 return None
-            values = self._task_hold_restore(tx, job["job_id"], end, now, record=record)
+            seen = tx.execute("SELECT next_check_at FROM jobs WHERE job_id=?", (job["job_id"],)).fetchone()
+            seen = seen[0] if seen else None
+            if ended_at is not None and seen != ended_at:
+                values = None
+            else:
+                if ended_at is None:
+                    end = seen if seen and not _earlier(now, seen) else now
+                values = self._task_hold_restore(tx, job["job_id"], end, now, record=record)
         self._sync_pin_episode(job["job_id"])
         if values is None:
             # Released (and given its clocks back) since the pass read it: as it is now.
