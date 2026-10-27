@@ -106,6 +106,29 @@ LAUNCH_NAMES = frozenset({
     # git denial, so a parent's value never reaches any launch.
     "SUBFLEET_PUBLISH_DENIED",
 })
+# D-ENV3: each provider's vendor, by the words its credential names carry. A
+# Codex lane's commands run under OpenAI's model and a Claude lane's under
+# Anthropic's, so one vendor's credential in the other's launch is a
+# credential handed to a third party. A name is a vendor's credential when it
+# carries that vendor's word and a credential word (`CREDENTIAL_PATTERN`):
+# `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` are Anthropic's,
+# `OPENAI_API_KEY` and `CODEX_API_KEY` OpenAI's. Homes (`CLAUDE_CONFIG_DIR`,
+# `CODEX_HOME`) carry no credential word; a test session's children inherit
+# them by design (D-ST1).
+VENDOR_WORDS = {"codex": ("OPENAI", "CODEX"), "claude": ("ANTHROPIC", "CLAUDE")}
+# D-ENV3: Codex's shell snapshot (a stable feature, on by default in codex-cli
+# 0.159.0) runs the person's ~/.zshrc and replays everything it exports before
+# each command, after this module's selection and Codex's own
+# shell_environment_policy. On 2026-10-26 that put 21 credentials a ~/.zshrc
+# exports into every Codex lane command, and a failed test's environment dump
+# sent ANTHROPIC_API_KEY to OpenAI as model input.
+# `experimental_use_profile` sources the login profile the same way, and
+# `shell_snapshot_v2` is the snapshot's successor. Every Codex launch that
+# runs a model turn pins all three off, so its commands see the environment
+# Subfleet selected and nothing a startup file adds after it. Codex accepts a
+# feature key it does not know.
+CODEX_SHELL_CONFIG = ("features.shell_snapshot=false", "features.shell_snapshot_v2=false",
+                      "shell_environment_policy.experimental_use_profile=false")
 _HELPER_PASS: ContextVar[tuple[str, ...]] = ContextVar("subfleet_helper_env_pass", default=())
 # D-ENV2 (review r2 of #248, P3-2): each enclosing helper scope's source of the
 # daemon's withheld names, outermost first; read at every `build_environment`.
@@ -129,6 +152,35 @@ def _no_credential_word(name: str) -> bool:
 def allowed_name(name: str) -> bool:
     """Ambient authority: a listed name or a harness hook, never a credential word."""
     return (name in ALLOWED_NAMES or harness_name(name)) and _no_credential_word(name)
+
+
+def codex_shell_args() -> list[str]:
+    """`-c` pairs for `CODEX_SHELL_CONFIG`: a Codex command's environment is the launch's."""
+    return [arg for config in CODEX_SHELL_CONFIG for arg in ("-c", config)]
+
+
+def credential_vendors(name: str) -> frozenset[str]:
+    """The providers whose vendor's credential `name` is (D-ENV3); a name, never a value."""
+    if CREDENTIAL_PATTERN.search(name) is None:
+        return frozenset()
+    upper = name.upper()
+    return frozenset(provider for provider, words in VENDOR_WORDS.items()
+                     if any(word in upper for word in words))
+
+
+def foreign_credentials(provider: str | None, names: Iterable[str],
+                        additions: Iterable[str] = ()) -> tuple[str, ...]:
+    """D-ENV3: the names among `names` that a launch for `provider` may not carry.
+
+    A vendor's credential reaches only its own provider's launches; an unknown
+    provider has no vendor, so it carries none. Without a provider, a vendor's
+    credential is kept only as one of the caller's own `additions` (a lane's
+    resolved credential), never from the parent or `env.pass`.
+    """
+    kept = frozenset(additions) if provider is None else frozenset()
+    return tuple(name for name in names
+                 if (vendors := credential_vendors(name))
+                 and (provider not in vendors if provider is not None else name not in kept))
 
 
 def session_name(name: str) -> bool:

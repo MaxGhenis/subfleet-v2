@@ -11,7 +11,7 @@ import time
 
 from .base import AdapterError
 from ..contracts import Sandbox
-from ..launch_env import build_environment
+from ..launch_env import CODEX_SHELL_CONFIG, build_environment
 
 MANAGED_ENV = ("CLAUDE_CODE_MANAGED_SETTINGS_PATH", "CLAUDE_CODE_REMOTE_SETTINGS_PATH",
                "CLAUDE_CODE_MOCK_REMOTE_SETTINGS")
@@ -24,13 +24,13 @@ CODEX_DISABLED_FEATURES = (
     "apps", "plugins", "remote_plugin", "hooks", "multi_agent", "multi_agent_v2",
     "tool_suggest", "skill_mcp_dependency_install", "computer_use", "browser_use",
     "browser_use_external", "browser_use_full_cdp_access", "in_app_browser",
-    "image_generation", "goals", "memories", "shell_snapshot",
+    "image_generation", "goals", "memories", "shell_snapshot", "shell_snapshot_v2",
 )
-CODEX_CONFIG = (
+# Every key of D-ENV3's `CODEX_SHELL_CONFIG` is here too, once.
+CODEX_CONFIG = tuple(dict.fromkeys((
     "project_doc_max_bytes=0", *(f"features.{name}=false" for name in CODEX_DISABLED_FEATURES),
-    "shell_environment_policy.experimental_use_profile=false", 'history.persistence="none"',
-    'web_search="disabled"',
-)
+    *CODEX_SHELL_CONFIG, 'history.persistence="none"', 'web_search="disabled"',
+)))
 
 
 def validate_isolated_review(sandbox, review_root, env=None):

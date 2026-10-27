@@ -11,7 +11,7 @@ from typing import Any
 
 from . import refusals
 from .policy import codex_ca_bundle
-from .launch_env import _present, build_environment
+from .launch_env import _present, build_environment, foreign_credentials
 from .sessions.transcripts import read_regular
 
 CA_SOURCES = ("SSL_CERT_FILE", "SSL_CERT_DIR")
@@ -113,18 +113,24 @@ class ProviderEnvironment:
         """The environment passed to a guardian or a preflight subprocess."""
         environ = os.environ if environ is None else environ
         return self.assemble(self.additions(provider, env_add, environ=environ),
-                             env_remove, environ=environ)
+                             env_remove, environ=environ, provider=provider)
 
     def assemble(self, env_add: Mapping[str, str] | None = None,
                  env_remove: Iterable[str] = (), *,
-                 environ: Mapping[str, str] | None = None) -> dict[str, str]:
+                 environ: Mapping[str, str] | None = None,
+                 provider: str | None = None) -> dict[str, str]:
         """Select parent names and merge already-selected credential/CA additions.
 
         A launch selects with ``additions`` once, then uses that result for
         adapter inspection, preflight and its guardian. Recovery selects anew.
         Ambient name selection is repeated at every process boundary, and
-        withholds every lane's credential reference each time.
+        withholds every lane's credential reference each time. Another
+        vendor's credential is dropped last (D-ENV3): for `provider`, any but
+        its own vendor's; without one, any not among ``env_add``.
         """
         environ = os.environ if environ is None else environ
-        return build_environment(env_add, env_remove, pass_names=self.pass_names, environ=environ,
-                                 withheld=self.withheld())
+        result = build_environment(env_add, env_remove, pass_names=self.pass_names, environ=environ,
+                                   withheld=self.withheld())
+        for name in foreign_credentials(provider, tuple(result), env_add or ()):
+            del result[name]
+        return result

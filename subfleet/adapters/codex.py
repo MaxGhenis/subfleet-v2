@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Callable, Iterator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from ..launch_env import build_environment
+from ..launch_env import build_environment, codex_shell_args
 from .base import Adapter, AdapterError, open_stream, stream_path
 from ..guardian import atomic_publish
 from ..sessions.transcripts import NotRegularFile, open_regular, read_regular
@@ -596,6 +596,10 @@ class CodexAdapter(Adapter):
             # C-12.4, #221 review r2 P3-3: the git denial and the marker, pinned in
             # Codex's own shell environment so a lane's policy cannot drop them.
             argv += codex_environment_overrides()
+        if not job.isolated_review:
+            # D-ENV3: no shell snapshot or login profile replays ~/.zshrc's exports
+            # into a command; an isolated review's `codex_args` carries the same keys.
+            argv += codex_shell_args()
         argv += ["--output-last-message", str(attempt_dir / "last.md")]
         if session_id:
             argv += ["resume", session_id, "-"]
