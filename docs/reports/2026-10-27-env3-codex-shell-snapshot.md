@@ -55,7 +55,11 @@ The process environment already had an explicit allowlist (D-ENV1), so this chan
 
 - **I1.** For every parent environment, `env.pass` list and launch path (detached, resume, turn, probe, isolated; both providers), the launch environment equals D-ENV1's selection plus the launch's additions, minus mandatory removals and minus every other vendor's credential. An oracle independent of `launch_env` decides the expected set. Hypothesis checks this: `test_property_every_launch_is_the_allowlist_minus_foreign_vendors`, plus the updated `test_bounded_property_all_lane_launches`.
 - **I2.** `foreign_credentials` equals the oracle on every name list, for a known provider and for an unknown one. Hypothesis checks this. Since review r1, both generators also draw names holding both vendors' words, which r1's counterexample showed they had missed.
-- **I3.** Every `codex exec` launch carries each `CODEX_SHELL_CONFIG` key among its options, before `resume`. No later `-c` or `--config`, in any spelling the CLI accepts (`-c V`, `-cV`, `-c=V`, `--config V`, `--config=V`) and wherever it stands, `resume`'s own options included, sets that key or a table holding it. No `--enable` anywhere names a shell feature: review r1 showed with the real binary that `--enable shell_snapshot` beats a `-c ...=false` from either side. Checked exhaustively over sandbox × review task × network × resume × unified-exec switch (32 cases), plus the isolated review and both conversation-turn forms. The checker has its own refusal tests.
+- **I3.** Every `codex exec` launch carries each `CODEX_SHELL_CONFIG` key among its options, before `resume`. No later `-c` or `--config` sets that key or a table holding it, wherever it stands, `resume`'s own options included. The checker reads each spelling real codex 0.159.0 was shown to accept and honour:
+  - the option as `-c V`, `-cV`, `-c=V`, `--config V` or `--config=V`;
+  - the key with surrounding whitespace, which Codex trims.
+
+  Codex ignores a key with a quoted segment or spaces around a dot, and refuses a non-boolean value (exit 1). No `--enable` anywhere names a shell feature: review r1 showed with the real binary that `--enable shell_snapshot` beats a `-c ...=false` from either side. Checked exhaustively over sandbox × review task × network × resume × unified-exec switch (32 cases), plus the isolated review and both conversation-turn forms. The checker has its own refusal tests.
 - **I4.** Differential, against the real binaries. With Subfleet's argv minus `CODEX_SHELL_CONFIG`, the `.zshrc` dummy reaches the command whenever the installed Codex has the snapshot on by default. With the launch's argv, neither the `.zshrc` dummy nor the daemon parent's `ANTHROPIC_API_KEY` reaches a command of `codex exec`, its resume, or `app-server`.
 
 ## Not covered
@@ -92,7 +96,7 @@ r2 found every r1 finding closed. It found no P1 or P2 defect in the delta, and 
 
 | Finding | Disposition |
 | --- | --- |
-| P3-1: the argv checker read only `-c V`, so `--config V`, `--config=V`, `-cV` and `-c=V` slipped past it, though real codex 0.159.0 accepts each and lets it turn the snapshot back on | The checker now parses every spelling, and reads options after `resume` too: `codex exec resume --help` lists `-c, --config` and `--enable`. No managed launch passes an override, so this was a test gap. The previous checker accepts 9 of the 10 new refusal cases (each spelling at the tail and after `resume`); the new one refuses all 10. A companion test checks that other keys, in every spelling, still pass. |
+| P3-1: the argv checker read only `-c V`, so `--config V`, `--config=V`, `-cV` and `-c=V` slipped past it, though real codex 0.159.0 accepts each and lets it turn the snapshot back on | The checker now parses each of these spellings, and reads options after `resume` too: `codex exec resume --help` lists `-c, --config` and `--enable`. No managed launch passes an override, so this was a test gap. The previous checker accepts 9 of the 10 new refusal cases (each spelling at the tail and after `resume`); the new one refuses all 10. A companion test checks that other keys, in every spelling, still pass. |
 | P3-2: wrong claims in this report and the PR body | The regression count above is corrected. The "Change" section no longer says the allowlist is the whole environment a command sees, and the r1 table no longer cites a stopgap script that is not in the repository. |
 
 r2 also confirmed the following:
@@ -100,6 +104,19 @@ r2 also confirmed the following:
 - Every caller of `ProviderEnvironment.additions` passes the launching lane's own provider. `codex` and `claude` are the only production providers.
 - A Claude token lane's `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CONFIG_DIR` and `CODEX_HOME` survive.
 - An env-kind credential reference is renamed to the canonical token name before the filter runs.
+
+## Review r3 (GPT-6.1 Sol, `20261027-074136-pr270-review-r3b`, APPROVE)
+
+r3 reviewed `ebbcddd7b`: r2's fixes plus the merge of `release/217` at `c9430763f` (#250, #268). It found r2's P3s closed and no P1 or P2. On the merge:
+- The same 46 calls of `assemble`, `additions`, `_launch_environment`, `build_environment` and `codex_shell_args` appear before and after it, with identical arguments.
+- No incoming code starts a provider, guardian or Codex process by a new path.
+- The change-log resolution kept every entry from both parents verbatim.
+
+Its one P3 is fixed:
+
+| Finding | Disposition |
+| --- | --- |
+| P3: a key with surrounding whitespace (`features.shell_snapshot =true`, ` features.shell_snapshot=true`, `features = {shell_snapshot=true}`) slipped past the checker, though Codex trims the key and turns the snapshot back on | The checker strips the key before comparing. Probes of the real binary (`features list`, with the three pins present) mapped what Codex honours. A tab or spaces around the key turn the snapshot on. A quoted segment (`features."shell_snapshot"`), spaces around the dot, another case or a hyphen are ignored. A non-boolean value exits 1. Ten new refusal cases (five values, each at the tail and after `resume`): the checker at `ebbcddd7b` accepts all 10; the new one refuses all 10. Test-only: no managed launch passes an override. |
 
 ## Verification
 
@@ -114,4 +131,9 @@ All runs were local, serial, under the hub's suite lock, with a private `TMPDIR`
 - **A names-only scan of 10,315 retained Codex job stdouts.** It found one environment printout that holds a credential name: the incident job's. Other hits were code or diffs that mention a name.
 - **After fix round r1:** the related suite again, plus the contract guards (`test_state_contract`, `test_test_module_names`, `test_invariants_index`) and `test_claude_adapter`. Result: 4,363 passed, 4 xfailed, 2 failed. Both failures were `test_launch_env_mutations`' withheld-name mutant, which rewrote `additions`' body; that body is now `_additions`. Retargeted, the file passes (70). `test_launch_env_vendor_shell.py` alone: 104 passed.
 - **After review r2's P3s:** `test_launch_env_vendor_shell.py` alone, 105 passed. The previous checker against the new refusal cases: 9 of 10 accepted. The head test file against `4179f7c94`'s code: 31 failed, 1 passed (the control above).
+- **After the merge of `release/217`:** the related suite plus every test file the merge brought in (104 files). Result: 4,955 passed, 33 xfailed, 2 failed.
+  - The failures are `test_quar_start1_daemon.py`'s two start-grace tests, from #250.
+  - In each, the census was unverifiable (`marker read unavailable` for another process on the host, at load around 95), so start grace was not extended.
+  - `release/217` at `c9430763f`, without this change, fails the same way. They are not a D-ENV3 effect.
+- **After review r3's P3:** `test_launch_env_vendor_shell.py`, the contract guards and `test_codex_turn.py`: 235 passed.
 - **CI** runs on the pull request.

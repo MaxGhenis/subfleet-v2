@@ -272,7 +272,10 @@ GUARD = 'hooks={PreToolUse=[], state={"' + PUBLISH_HOOK_KEY + '"={trusted_hash="
 
 
 def _key(config):
-    return config.split("=", 1)[0]
+    """The key a `-c` value sets. Codex trims whitespace around it (review r3 of #270,
+    P3), so `features.shell_snapshot =true` and `features = {...}` count as theirs.
+    It ignores a quoted segment or spaces around a dot, and refuses a non-boolean."""
+    return config.split("=", 1)[0].strip()
 
 
 SHELL_FEATURES = ("shell_snapshot", "shell_snapshot_v2")
@@ -401,7 +404,12 @@ def test_assert_shell_pinned_refuses_a_missing_or_overridden_key():
             assert_shell_pinned(["codex", "exec", *codex_shell_args(), *enable])
     # Review r2 of #270, P3-1: each spelling real codex 0.159.0 accepted, and which it let win.
     override = "features.shell_snapshot=true"
-    for spelling in (["--config", override], [f"--config={override}"], [f"-c{override}"], [f"-c={override}"]):
+    spellings = [["--config", override], [f"--config={override}"], [f"-c{override}"], [f"-c={override}"]]
+    # Review r3 of #270, P3: keys real codex 0.159.0 trims, each of which it let win.
+    spellings += [["-c", value] for value in ("features.shell_snapshot =true", " features.shell_snapshot=true",
+                                              "features.shell_snapshot\t=true", "features = {shell_snapshot=true}",
+                                              " shell_environment_policy.experimental_use_profile=true")]
+    for spelling in spellings:
         with pytest.raises(AssertionError, match="overridden"):
             assert_shell_pinned(["codex", "exec", *codex_shell_args(), *spelling])
         with pytest.raises(AssertionError, match="overridden"):
