@@ -53,5 +53,25 @@ if _abandoned is not None:
         return _abandoned(attempt_dir)
     guardian.abandoned = abandoned
 
+# Fix round 2b's mutation control (`tests/unit/test_kill4_fix2b_mutations.py`): the
+# guardian looks for the abandon before it publishes start.json instead of after.
+CHECK_FIRST = [
+    ('    _receipt(attempt_dir / "start.json", start)\n',
+     '    early = abandoned(attempt_dir)\n    _receipt(attempt_dir / "start.json", start)\n'),
+    ("        marker = abandoned(attempt_dir)\n        if marker is not None:\n            if relay",
+     "        marker = early\n        if marker is not None:\n            if relay"),
+]
+if os.environ.get("GUARDIAN_STEPS_MUTANT") == "check-first":
+    import inspect
+    import textwrap
+    source = textwrap.dedent(inspect.getsource(guardian.run_guardian))
+    for before, after in CHECK_FIRST:
+        if before not in source:
+            raise RuntimeError(f"mutation target missing: {before}")
+        source = source.replace(before, after)
+    namespace: dict = {}
+    exec(compile(source, "<mutation:run_guardian>", "exec"), guardian.__dict__, namespace)
+    guardian.run_guardian = namespace["run_guardian"]
+
 if __name__ == "__main__":
     raise SystemExit(guardian.main(sys.argv[1:]))

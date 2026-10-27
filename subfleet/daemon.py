@@ -69,7 +69,7 @@ from .credentials import (env_references, ignored_hooks, reference_repair, resol
                           withheld_references)
 from .provider_env import ProviderEnvironment
 from .launch_env import environment_report, guardian_pass_args, helper_policy
-from .guardian import atomic_publish, stream_digest
+from .guardian import ABANDON_NAME, atomic_publish, stream_digest
 from .frozen_stream import InvalidFrozenStream, freeze_stream, read_freeze_receipt, restore_stream
 from .lockwatch import LockWatch
 from .waits import WaitHub
@@ -607,6 +607,19 @@ def age(timestamp: str | None) -> float:
     if timestamp is None:
         return 0.0
     return (datetime.now(timezone.utc) - datetime.fromisoformat(timestamp.replace("Z", "+00:00"))).total_seconds()
+
+
+def abandoned_receipt(receipt: Any) -> bool:
+    """D-QUAR-START1 (b): an exit receipt the guardian wrote on finding the daemon's
+    abandon (`guardian.abandoned`): it spawned nothing, so the attempt is unlaunched."""
+    return isinstance(receipt, dict) and bool(receipt.get("abandoned"))
+
+
+def abandoned_detail(receipt: Any, default: str = "starting-no-receipt") -> str:
+    """The detail an abandoned attempt ends with: the marker's reason, as its receipt keeps it."""
+    found = receipt.get("abandoned") if isinstance(receipt, dict) else None
+    reason = found.get("reason") if isinstance(found, dict) else None
+    return reason if isinstance(reason, str) and reason else default
 
 
 def json_bytes(value: Any) -> bytes:
@@ -4545,24 +4558,14 @@ class Daemon:
                 if args.confirm_dead and job["state"] in TERMINAL:
                     # D-KILL4, C-5.7: never "dead" while the last attempt's census
                     # is not verified empty, quarantined or not.
-            live = self._terminal_census(args.job_id)
-            if live is not None:
-                a, census = live
-                # Fix round 2b, decision 2 (review r2's P3-2): a census whose members no source
-                # may signal (a stranger's leaderless group at the recorded pgid, held parents)
-                # schedules no protocol, which could only spend a TERM grace and push the
-                # attempt's real round out of its evidence.
-                contain = self._may_signal(a, census)
-                if contain:
-                    self._schedule("recontain:" + args.job_id, self._recontain, a, census)
-                if job["cancel_requested_at"]:
-                    # A cancelled parent's kill still cascades to live dependents (C-7.3).
-                    self._request_cancel(args.job_id, {"by": "client", "session_id": args.session_id,
-                                                       "pid": pid, "reason": args.reason or "client-request"},
-                                         family=True)
-                if not contain:
-                    return {"job_id": args.job_id, "status": "already finished",
-                            "detail": f"attempt a{a['seq']}: {self._held_words(census)}"}
+                    live = self._terminal_census(args.job_id)
+                    if live is not None:
+                        a, census = live
+                        then = (f"`subfleet kill {args.job_id}` contains them" if self._may_signal(a, census)
+                                else "none of them may be signalled, so they hold it until they exit")
+                        return {"job_id": args.job_id, "status": "not quarantined",
+                                "detail": f"attempt a{a['seq']} still has {self._census_words(census)}; nothing "
+                                          f"was released; {then}"}
                 return {"job_id": args.job_id, "status": "already finished" if job["state"] in TERMINAL else "not quarantined"}
             self._schedule("resolve:" + args.job_id, self._resolve_quarantine, quarantine, args)
             return {"job_id": args.job_id, "status": "resolution requested"}
@@ -8906,7 +8909,11 @@ class Daemon:
             # it has until `start_grace_max_s`, looked at again at the census's pacing.
             if self._start_extends(a, census, deadline):
                 return
-            if census.containment_empty:
+            # D-QUAR-START1 (b): the abandon is written, and start.json read for the last
+            # time, before anything ends the attempt or signals it (`_abandon_start`). With
+            # none, the guardian can never launch; with one, it may have, and `_kill_attempt`
+            # contains it as launched.
+            if census.containment_empty and self._abandon_start(a, "starting-no-receipt"):
                 if self._cwd_wait(a, census, began=began):
                     return
                 self._unlaunched(a, "starting-no-receipt", census=census)
@@ -8956,6 +8963,33 @@ class Daemon:
                                  data={"guardian_pid": guardian, "start_grace_s": self.start_grace_s,
                                        "start_grace_max_s": bound})
         return True
+
+    def _abandon(self, a: dict, detail: str) -> Path:
+        """D-QUAR-START1 (b): publish the attempt folder's `abandon.json`, `{"at", "reason"}`
+        with `reason` the detail the attempt ends with, unless it is there already. A
+        marker that cannot be written raises: nothing is ended, and the worker retries
+        (C-5.10). It lives only in the attempt folder, and only the guardian reads it."""
+        adir = attempt_dir(self.root, a["job_id"], a["seq"])
+        marker = adir / ABANDON_NAME
+        try:
+            marker.lstat()
+        except FileNotFoundError:
+            adir.mkdir(mode=0o700, parents=True, exist_ok=True)
+            self._publish("abandon", marker, json_bytes({"at": utcnow_ms(), "reason": detail}))
+        return adir
+
+    def _abandon_start(self, a: dict, detail: str) -> bool:
+        """D-QUAR-START1 (b), C-4.2: the daemon's half of the abandon handshake, before it
+        ends or signals an attempt that has no `start.json` (start grace, a cancel or the
+        wall while starting, a daemon restart's recovery, which is start grace's). First
+        `abandon.json` is written (`_abandon`), and only then is `start.json` read, for
+        the last time. True when there is none: the guardian publishes `start.json`
+        before it looks for the marker, and looks before it spawns (`guardian.abandoned`),
+        so it can never start the provider, and the attempt ends unlaunched. False when
+        there is one: it may have launched, and is contained as launched. Each side
+        writes its own file before it reads the other's, so at least one sees the other."""
+        adir = self._abandon(a, detail)
+        return not self._read_json(adir / "start.json")
 
     def _inspect_running(self, a: dict, adir: Path, due: float) -> bool:
         """The paced half of `_process_attempt` (C-5.12): is the guardian still ours?
@@ -9533,6 +9567,11 @@ class Daemon:
         export scans it (C-5.9; review r4 of #240, P3-1). The TMPDIR cleanup
         reuses start grace's census rather than taking another (r4's note).
         """
+        if (self.store.get_attempt(a["attempt_id"]) or a)["state"] == "starting":
+            # D-QUAR-START1 (b): no starting attempt ends without its abandon marker. The
+            # callers that may find its gate open have written it and read start.json
+            # (`_abandon_start`); the launch gate's own failure closed the gate.
+            self._abandon(a, detail)
         observers = (frozenset(census.cwd_pids) if census is not None
                      else self._ending_observers(a["job_id"], a["attempt_id"]))
         with self.store.transaction("attempt.no_launch", job_id=a["job_id"], attempt_id=a["attempt_id"], data={"detail": detail}) as tx:
@@ -9627,6 +9666,15 @@ class Daemon:
                 self._supersede_wall_cancel(a, receipt)
                 self._begin_finalizing(a, receipt)
                 return
+        detail = "cancelled-before-launch" if request else "starting-no-receipt"
+        if a["state"] == "starting":
+            # D-QUAR-START1 (b): the abandon precedes every signal, and the last read of
+            # start.json decides. None: the guardian can never launch, so its group is
+            # KILLed at once and the attempt ends unlaunched. One: it may have launched,
+            # so the full protocol runs against a census taken now, and its receipt decides.
+            unlaunched = self._abandon_start(a, detail)
+            if not unlaunched:
+                census = self._contain(a)
         evidence = json.loads(a["evidence_json"] or "{}")
         # Group members observed while the recorded leader is still ours stay
         # recorded as owned (C-5.6). D-KILL4: signal authority is the census
@@ -9688,12 +9736,13 @@ class Daemon:
             self._quarantine(a, census, reason)
             return
         receipt = self._read_json(adir / "exit.json")
-        if unlaunched and not receipt:
+        if abandoned_receipt(receipt) or (unlaunched and not receipt):
             # Fix round 2b, decision 1 (review r2's P3-1): nothing launched, so the attempt
             # ends unlaunched whatever is left in its worktree, as an empty start grace
             # does: one state and one retry decision, and `_unlaunched` keeps a cwd
-            # holder's hold.
-            self._unlaunched(a, "starting-no-receipt", census=census)
+            # holder's hold. A receipt the guardian left on finding the abandon reads so
+            # too, never as a provider's result.
+            self._unlaunched(a, abandoned_detail(receipt, detail), census=census)
             return
         if lost and receipt is None:
             self._lost(a)
@@ -10359,6 +10408,12 @@ class Daemon:
         if waiting_cwd:
             return
         self._exit_settle.pop(a["attempt_id"], None)
+        receipt = self._read_json(adir / "exit.json")
+        if abandoned_receipt(receipt):
+            # D-QUAR-START1 (b): the guardian found the daemon's abandon and spawned
+            # nothing; contained as any receipt is, the attempt ends unlaunched.
+            self._unlaunched(actual, abandoned_detail(receipt), census=census)
+            return
         # Persist the census's end before any fallible finalization work. A
         # replay after a failed launch read or salvage must not extend it.
         observed_exit_at = utcnow_ms()

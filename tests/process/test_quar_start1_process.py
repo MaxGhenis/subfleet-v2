@@ -18,6 +18,7 @@ test, in a scratch state root, and stopped by its recorded identity on failure t
 
 from __future__ import annotations
 
+import itertools
 import json
 import os
 from pathlib import Path
@@ -28,12 +29,12 @@ import tempfile
 import threading
 import time
 
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, example, given, settings, strategies as st
 import pytest
 
 from subfleet import procs
 from subfleet.contracts import attempt_dir
-from tests.process.test_kill4_fix1_process import REAL, end_group, real, until  # noqa: F401
+from tests.process.test_kill4_fix1_process import end_group, real, until  # noqa: F401
 from tests.unit.test_daemon_settle import ATTEMPT, JOB, attempt, daemon, with_launch  # noqa: F401
 
 pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="macOS process census")
@@ -179,9 +180,21 @@ def receipt(adir: Path) -> dict | None:
 
 # 1. Invariant 1 over every interleaving of the handshake's steps.
 
-ORDERS = st.permutations(["daemon", "daemon", "guardian", "guardian", "guardian"])
+STEPS = ["daemon", "daemon", "guardian", "guardian", "guardian"]
+ORDERS = st.permutations(STEPS)
+#: Every distinct order of the two sides' steps (5 choose 2 = 10), each an explicit example,
+#: so no generated run can miss one; generation then adds repeats.
+EVERY_ORDER = sorted({tuple("daemon" if i in pair else "guardian" for i in range(5))
+                      for pair in itertools.combinations(range(5), 2)})
 
 
+def every_order(test):
+    for order in EVERY_ORDER:
+        test = example(order=list(order))(test)
+    return test
+
+
+@every_order
 @settings(max_examples=24, deadline=None, database=None, derandomize=True,
           suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow])
 @given(order=ORDERS)
@@ -357,3 +370,19 @@ def test_an_unverifiable_census_at_expiry_signals_nothing_and_the_guardian_never
         assert receipt(adir)["abandoned"]["reason"] == "starting-no-receipt"
     finally:
         guardian.stop()
+
+
+# Mutation controls: each order mutant must fail the interleaving property.
+
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="the interleaving property must detect this mutant")
+@pytest.mark.parametrize("mutant", ["daemon-reads-first", "guardian-checks-first"])
+def test_a_handshake_order_mutant_fails_the_interleaving_property(mutant, real, monkeypatch):
+    from subfleet.daemon import Daemon as Core
+    from tests.unit.test_census_round1_mutations import replace_function
+    from tests.unit.test_kill4_fix2b_mutations import MUTANTS
+    if mutant == "daemon-reads-first":
+        for owner, name, replacements in MUTANTS[mutant]:
+            replace_function(monkeypatch, owner if owner is not Core else Core, name, replacements)
+    else:
+        monkeypatch.setenv("GUARDIAN_STEPS_MUTANT", "check-first")
+    test_no_provider_runs_for_an_attempt_the_daemon_ended_unlaunched_in_any_interleaving(real=real)

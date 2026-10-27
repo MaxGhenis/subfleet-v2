@@ -29,7 +29,7 @@ from subfleet.contracts import START_GRACE_S, attempt_dir
 from subfleet.guardian import atomic_publish
 from tests.kill4_world import World  # noqa: F401
 from tests.unit.test_daemon_settle import ATTEMPT, JOB, STARTED, attempt, daemon  # noqa: F401
-from tests.unit.test_kill4_terminal_containment import finalizing, kinds, owned_worktree, world  # noqa: F401
+from tests.unit.test_kill4_terminal_containment import kinds, owned_worktree, world  # noqa: F401
 
 TERM, KILL, CONT = int(signal.SIGTERM), int(signal.SIGKILL), int(signal.SIGCONT)
 MAX_S = 6 * START_GRACE_S          # START_GRACE_MAX_S, spelled out so the red run can import this file
