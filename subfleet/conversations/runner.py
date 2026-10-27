@@ -40,6 +40,10 @@ FLUSH_S = 0.25
 FLUSH_BYTES = 64 * 1024
 POLL_S = 0.05
 READ_CHUNK = 1 << 20
+# A proved exit may lose its receipt or leave descendants writing stdout. Allow
+# buffered output 30 s to drain (the default stop containment budget), then
+# request containment rather than keeping this turn in the drain loop forever.
+EXIT_DRAIN_S = 30.0
 
 # Stop escalation (C-24.7, review IR-3, design D-13 revision 3), seconds after the stop request:
 # the provider's interrupt at once, then SIGINT (ends a Claude turn; SIGTERM
@@ -152,6 +156,7 @@ class TurnRunner:
         self.replayed_message = USER_FRAME in self.sent
         self.handshake_done_once = False
         self.relay_failed = False
+        self.exit_proved_at: float | None = None
         self.handshaken = False
         self.optional_ack_lost = False         # a title write went unanswered: resynchronize first
         self.wrote_bytes: dict[str, int] = {}  # tag → bytes of each stdin line this runner wrote
@@ -370,7 +375,15 @@ class TurnRunner:
                     self._flush()
                 if self._process_gone():
                     while self._read_stdout():      # all of it: a replay can be far behind (C-26.6)
-                        pass
+                        if (self.exit_proved_at is not None
+                                and self.clock() - self.exit_proved_at >= EXIT_DRAIN_S):
+                            # A reaped direct child does not rule out a descendant
+                            # still writing. Containment needs no working relay or
+                            # guardian receipt. Preserve everything read so far.
+                            self.stop_reason = self.stop_reason or "stdout-drain-timeout"
+                            self.contained = True
+                            self.on_contain(self.attempt_id)
+                            break
                     # Ended-attempt replay may never reach an empty read in the main
                     # loop. Its unwritten claims must still settle as missed.
                     self._discard_steers("provider-ended")
@@ -405,7 +418,7 @@ class TurnRunner:
             self.log.error("turn runner %s failed: %s", self.attempt_id, refusals.scrubbed_words(exc))
 
     def _process_gone(self) -> bool:
-        return self.ended or (self.adir / "exit.json").exists()
+        return self.exit_proved_at is not None or self.ended or (self.adir / "exit.json").exists()
 
     def _read_stdout(self) -> bool:
         path = self.adir / "stdout"
@@ -708,7 +721,8 @@ class TurnRunner:
             self.relay_version = status.get("version")
             if status["applied"] != self.logged:
                 # The log and the relay disagree: nothing is sent on a guess.
-                self._relay_lost(f"the relay applied {status['applied']} frames, its log shows {self.logged}")
+                self._relay_lost(f"the relay applied {status['applied']} frames, its log shows {self.logged}",
+                                 child_exited=status.get("child") == "exited")
                 return True
         if unwritten:
             # A frame the log shows unwritten ended relaying for good (C-26.4); a
@@ -1061,7 +1075,10 @@ class TurnRunner:
         stopped, skipping the relay steps so containment ends it (D-13, design §6)."""
         if child_exited or self._process_gone():
             # Refusal after a proved exit is the provider's end, not a stop.
-            # Drain stdout and let EOF decide the outcome once exit.json arrives.
+            # Keep the proof even if the guardian never publishes exit.json.
+            # The stdout drain, bounded from the first proof, decides the outcome.
+            if self.exit_proved_at is None:
+                self.exit_proved_at = self.clock()
             self._discard_steers("provider-ended")
             self.outbox.clear()
             return
