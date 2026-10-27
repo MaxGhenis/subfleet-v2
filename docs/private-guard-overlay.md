@@ -408,8 +408,8 @@ a command word. The report's known limits list the rest.
 
 | File | SHA-256 |
 | --- | --- |
-| `never-rules-hook.sh` | `4b382c2920a50b0a517e3d70979c931338d654868e564508f127f95285b479ec` |
-| `TRUST` | `807f0e8b745ba09bb5b89be8392e5e90b6d8d2a157942d01f5e18d94758f7fb4` |
+| `never-rules-hook.sh` | `1d8bc1e54f8e1838dd21b09026119beda53e0c293c0cafb905527b701e5fe58c` |
+| `TRUST` | `3c7c8af80f34f0b8f8419355db66d654b730d08a37bc510f0bcacc8247f8f9bb` |
 
 TRUST is the installed TRUST of 2026-09-29 (`b3193b97…`), changing only `hook_sha256` and
 appending four dated provenance additions (D-LANE-SCOPE1's three sentences, r2's one, r3's one

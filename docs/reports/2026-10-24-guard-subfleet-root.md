@@ -25,7 +25,7 @@ guard; the hub installs it with the steps below.
 
 ## What changed
 
-**The hook** (`private/guard/never-rules-hook.sh`, SHA-256 `4b382c29…79ec` after r4; r3c's was `7a5ad79d…1a1a`, r3b's
+**The hook** (`private/guard/never-rules-hook.sh`, SHA-256 `1d8bc1e5…e58c` after r4v; r4's was `4b382c29…79ec`, r3c's `7a5ad79d…1a1a`, r3b's
 was `f952fd3e…131e`, r3's `2c3fbc1a…d7cf`, r2's `dbe21e1d…041c`). Two alternations join the roots in `broad_re`:
 
 ```
@@ -63,7 +63,7 @@ region's header comments, and since r3c the prefilter's third term, `pw_cmd` in 
 (`dbe21e1d…`); then it undoes D-LANE-SCOPE1's text edits, the two `sed` edits and the `broad_re`
 line and gets the original reviewed bytes (`a60d1c51…`) back.
 
-**TRUST** (`807f0e8b…7fb4` after r4; r3c's was `68936faf…c91a`, r3b's `0d5dac0f…54d8`, r3's `12b5f31a…58a2`, r2's `aa09f53d…a2f0`). It is built on the installed TRUST of 2026-09-29 (`b3193b97…`, the
+**TRUST** (`3c7c8af8…f9bb` after r4v; r4's was `807f0e8b…7fb4`, r3c's `68936faf…c91a`, r3b's `0d5dac0f…54d8`, r3's `12b5f31a…58a2`, r2's `aa09f53d…a2f0`). It is built on the installed TRUST of 2026-09-29 (`b3193b97…`, the
 `codex-cli 0.159.0` pin), not on the repository's copy at `abe117e67` (`0b9d688e…`, which still
 pins `codex-cli 0.153.3`; a TRUST built on it would refuse every Codex lane at preflight with
 VERSION, `subfleet/guard/preflight.py:649-650`). It has the same keys. `hook_sha256` is
@@ -684,10 +684,23 @@ shell's own, so `test_r4_words_agree_with_real_shells` checks 13 words with the 
 | red (r3c hook), ~50 | timed out (> 120 s) | | | | | | 6.2 s / 1.8 s |
 | hold 1 (`e46212414`), 106 | 1.79 s | 3.61 s | 7.90 s | | 6.18 s | 5.98 s | 5.52 s / 4.76 s (1.16×) |
 | direct, final cost fixes, 92–118 | 1.11 s | 1.64 s | 1.69 s | 1.16 s | 2.37 s | 5.09 s | 1.50 s / 1.03 s (1.46×) |
+| r4v hold, `4b382c29…`, 23–28 | 0.82 s | 1.02 s | 0.68 s | 0.69 s | 1.58 s | 4.30 s | 0.72 s / 0.68 s (1.06×) |
+| r4v hold, `4b382c29…`, 45→44 | 0.43 s | 0.37 s | 0.48 s | 0.43 s | 0.66 s | 0.98 s | 0.57 s / 0.57 s (1.01×) |
+| r4v run 1, `1d8bc1e5…`, 51→49 (300 paths 49→52) | 0.49 s | 0.34 s | 0.39 s | 0.38 s | 0.86 s | 2.27 s | 0.68 s / 0.44 s (1.53×) |
+| r4v run 2, `1d8bc1e5…`, 41→39 (300 paths 39→39) | 0.30 s | 0.32 s | 0.35 s | 0.32 s | 0.55 s | 1.51 s | 0.34 s / 0.25 s (1.37×) |
+| r4v run 3, `1d8bc1e5…`, 51→48 (300 paths 48→48) | 0.45 s | 0.54 s | 0.53 s | 0.32 s | 0.54 s | 1.75 s | 0.53 s / 0.37 s (1.44×) |
 
 At low load (32) the capped words took 0.21–0.35 s. The two scanned edge words (64 `{` or `[` in
 just under 4 KB) are judged and denied, but are slower than 2 s at load ~100: the residual cost,
 reported (`R4_CAP_EDGE`) and not bounded.
+
+The r4v rows are inside holds, with the 1-minute load at each test's start and end. The first two
+ran at r4's head; the three runs at the final hook (`1d8bc1e5…`) were each in their own hold. Every
+bounded word stayed under `R4_HOSTILE_S` (2.0 s), and 300 paths stayed under twice the installed
+hook. The 300-path ratio moves between runs (1.01× to 1.53×) because the installed hook's own
+median moves (0.25 s to 0.68 s). The fix below doesn't explain it: through r4's hook and the final
+one, interleaved 15 times each in one hold at load 27–31, the final hook's median was 0.95× r4's
+(0.88 s against 0.93 s).
 
 **r4's runs.** The 3-hour mark (21:38Z) fell after hold 3 was admitted, so three holds ran under
 the shared lock, all at `e46212414` (hook `efa86362…`); the cost fixes and the hook's last two edits
@@ -705,8 +718,8 @@ workers at most), each named below with the hook it ran:
 | direct 4 | 22:30Z | `8bff5b29…` | r3b's and r3c's properties, the fence, TRUST | 4 passed; both properties failed (3 and 8 words, all a `..` after a glob or a `/Volumes/<entry>/..`: decisions 1 and 9, which REFERENCE_SH did not have yet) |
 | direct 5 | 22:52Z, 89 | `8bff5b29…` | both properties, REFERENCE_SH extended from the r4 brief | r3b's passed (0 of 2,400); r3c's 1 (my reference reused the name `fold`) |
 | direct 6 | 23:02Z | `8bff5b29…` | r3c's property | 0 of 2,400 at function level; 25 of 298 through the whole hook (a hook bug: the space the prep wrote after a `)` split zsh alternation words; fixed) |
-| direct 7 | 23:12Z | `4b382c29…` (final) | r3c's property | passed: 0 of 2,400, 0 of 298 |
-| direct 8 | 23:20Z | `4b382c29…` (final) | r4 but its two timing tests, the fence, TRUST, the overlay pin | 16 passed in 936 s, both real-shell tests among them (119 commands: 80 denied, zsh walked 78, bash 77; 13 words) |
+| direct 7 | 23:12Z | `4b382c29…` (r4's final) | r3c's property | passed: 0 of 2,400, 0 of 298 |
+| direct 8 | 23:20Z | `4b382c29…` (r4's final) | r4 but its two timing tests, the fence, TRUST, the overlay pin | 16 passed in 936 s, both real-shell tests among them (119 commands: 80 denied, zsh walked 78, bash 77; 13 words) |
 
 **REFERENCE_SH for r4** (written from the r4 brief, not from the hook): a written path also reads a
 `/Volumes/<entry>/..` from `/` (`written`); a glob word is judged as written and with each
@@ -714,16 +727,52 @@ workers at most), each named below with the hook it ran:
 run is read before a `**/` too; and between components a candidate a later `..` may climb out of
 stays. The generator is unchanged.
 
-**Counts per file at the final head** (`4b382c29…`): `test_guard_subfleet_root.py` has 94 items (81
-r3c, 13 r4). At the final hook: the 11 r4 tests but the two timing tests, the fence and the four TRUST
+**Counts per file at r4's head** (`4b382c29…`): `test_guard_subfleet_root.py` has 94 items (81
+r3c, 13 r4). At r4's final hook: the 11 r4 tests but the two timing tests, the fence and the four TRUST
 tests (direct 8), r3c's property (direct 7); at `8bff5b29…`, which differs from it only in the
 backtick space: r3b's property and the timing tests (directs 5 and 2); at `efa86362…`: r3c's other
 ten items (hold 3). `test_guard_overlay.py`: 22 passed at `efa86362…` (hold 2), the pin test again at
 the final head (direct 8). The three guards: 63 passed (hold 2).
 
+**r4v: the holds at the final head** (2026-10-27). Every run in this round was under the shared
+lock: one pytest per hold, split with `-k` and run in the foreground, over the fixture seam's home
+`/Users/tester`. The first holds ran at r4's head (`6f192c499`, hook `4b382c29…`):
+- passed: the r1/r2 examples and pins (18), S1, S2, the cwd list and S4 (4 passed, 2 skipped), S3,
+  S5 and S1-r3 (4), r3's examples (25), its property (1), its shells (1), and the timing pair (2);
+- S3, S5 and S1-r3 took 741 s, past the 10-minute split, so they were split again below;
+- the hold of r3b's examples failed `test_r3b_only_the_disk_functions_touch_the_file_system`.
 
-**Mutants** (named only, under the Budget hold: none was run this round). Each edit is checked to
-match the hook exactly once; the driver now runs r4's and review r3's first.
+The cause was decision 6's fast path in `pw_word`. It tested `! [ -L "$pw_fs$1" ]` itself, outside
+the five disk functions, so the mount test's trace never saw that lstat. `da54c82de` calls
+`pw_islink "$1"` there instead. That is the same test, so no verdict changes. `1edee8dc7` re-pins TRUST
+(`hook_sha256` only, with no provenance sentence): hook `1d8bc1e5…`, TRUST `3c7c8af8…`. The rollback
+pair stays `a60d1c51…`/`b3193b97…`. Every part then ran again at `1edee8dc7`:
+
+| Hold | Admitted, slot, load | Selection | Result, pytest wall time |
+| --- | --- | --- | --- |
+| n1 | 03:00Z B, 18 | r1/r2 examples, TRUST, the fence and the known-limit pins (18); r3's examples (25); r3b's examples and ported vectors (14) and property (1); timing run 1 (2) | 60 passed, 378 s |
+| n2 | 03:12Z A, 50 | S1, S2, the cwd list, S4 | 4 passed, 2 skipped (S4's two need the Claude hook's `unscoped_search.py`, in the operator's home), 246 s |
+| n3 | 03:21Z A, 45 | S3 (2), S5, r3's real shells | 4 passed, 284 s |
+| n4 | 03:30Z A, 66 | S1-r3, r3c's property, timing | cut off when that attempt ended (S1-r3 270 s, r3c's property 756 s at load up to 229, no JUnit); rerun as holds 5, 6 and 8 |
+| 5 | 04:06Z B, 43 | r3's property; timing run 2 | 3 passed, 147 s |
+| 6 | 04:09Z B, 39 | r3c's property | 1 passed (0 of 2,400 differ; 0 of 298 through the whole hook), 234 s |
+| 7 | 04:19Z A, 50 | r3c's examples (7); its shells, mounts and code points (3) | 10 passed, 93 s |
+| 8 | 04:24Z A, 62 | S1-r3; r4's examples (9) and real shells (2); timing run 3 | 14 passed, 231 s |
+| 9 | 04:28Z A, 47 | `test_guard_overlay.py` (22), `test_guard_trust.py` (105), the three guards (37, 25 and 1) | 190 passed, 120 s |
+| 10 | 04:30Z A, 61 | `test_daemon_launch` (9), `test_claude_adapter` (172), `test_codex_turn` (67) | 248 passed, 41 s |
+| 11 | 04:33Z B, 60 | `test_doctor` (47), `test_hooks` (81), `test_live_store_guard` (324) | 452 passed, 54 s |
+
+**Counts per file at the final head** (`1d8bc1e5…`):
+- `test_guard_subfleet_root.py`: 94 items, 92 passed and 2 skipped (S4's). Each item ran in exactly one
+  of holds n1–n3 and 5–8, checked against the collected node ids, and the timing pair ran three times.
+- `test_guard_overlay.py`: 22 passed.
+- The three guards: 63 passed.
+- The seven never-rules modules: 805 passed, `test_guard_trust.py` included.
+- `tests/frontend/test_core_live.py` can't run on a lane, so CI runs it.
+
+
+**Mutants** (r4 named them but ran none, under the Budget hold; r4v ran all 49 at `1edee8dc7`, below).
+Each edit is checked to match the hook exactly once; the driver now runs r4's and review r3's first.
 
 | Mutant (decision) | Edit | Killing test |
 | --- | --- | --- |
@@ -748,10 +797,82 @@ Review r3's three survivors' pins are in the r4 tests: `nice -n 5 /usr/bin/find 
 `r3c-wild-only-dropped`, `case-sensitive-roots`, `non-last-keeps-all`) are retargeted at the new
 code; the driver holds 49 mutants.
 
-**Hashes for the install.** The new pair: hook
-`4b382c2920a50b0a517e3d70979c931338d654868e564508f127f95285b479ec`, TRUST
-`807f0e8b745ba09bb5b89be8392e5e90b6d8d2a157942d01f5e18d94758f7fb4`. The installed pair step 0
-expects, and the rollback: hook `a60d1c51…`, TRUST `b3193b97…` (unchanged by r4).
+**r4v's mutant runs.** `tools/guard_subfleet_root_mutations.py --only <group>` ran at `1edee8dc7`
+under the lock, four groups in four holds. Each run exported HEAD, and its control passed every
+named test of its group and the fence before any mutant ran. Then each mutant ran its named test
+and the fence. Every edit still matches the final hook exactly once.
+
+| Hold | Admitted, slot, load | Mutants | Control | Killed | Survived | Wall |
+| --- | --- | --- | --- | --- | --- | --- |
+| m1 | 04:35Z B, 32 | r4's 9 | 10 passed | 9 | 0 | 227 s |
+| m2 | 04:40Z B, 37 | review r3's 5, r3c's 7 | 11 passed | 12 | 0 | 288 s |
+| m3 | 04:45Z A, 43 | r3b's 11 | 6 passed | 10 | 1 | 361 s |
+| m4 | 04:53Z A, 39 | r3's 10, r1's and r2's 7 | 13 passed | 17 | 0 | 596 s |
+
+- **Killed, 48:**
+  - r4's 9 and review r3's 5, each by the test the table above names.
+  - r3c's 7, each by the test r3c named:
+    - `r3c-unescape-dropped` by `test_r3c_the_other_escapes_are_closed`;
+    - `r3c-basename-dropped` by `test_r3c_searchers_are_found_by_basename`;
+    - `r3c-physical-dots-dropped` by `test_r3c_dotdot_after_a_link_is_physical`;
+    - `r3c-braces-dropped` by `test_r3c_braces_and_alternation_are_judged_by_their_alternatives`;
+    - `r3c-volumes-mapping-dropped` by `test_r3c_volumes_entries_are_judged_as_the_rest_of_the_path`;
+    - `r3c-subchild-dropped` and `r3c-wild-only-dropped` by `test_r3c_globs_that_match_every_entry_are_their_folder`.
+  - r3b's 10:
+    - `file-test-on-stall` and `volumes-name-stated` by `test_r3b_nothing_inside_a_mount_is_read`;
+    - `written-link-dropped`, `alias-folding-dropped`, `usr-dropped` and `volumes-not-listed` by
+      `test_r3b_the_new_roots_aliases_case_links_and_globs_block`;
+    - `non-last-keeps-all` and `plain-name-unchecked` by
+      `test_r3b_scoped_paths_no_match_and_mount_contents_stay_allowed`;
+    - `holds-root-fixed-list` by `test_r3b_listable_folders_are_computed`;
+    - `case-sensitive-roots` by `test_r3b_root_table`.
+  - r3's 10:
+    - `state-not-restored` by `test_r3_glob_expansion_restores_every_setting`;
+    - `slash-star-left-as-text` by `test_r3_a_bare_star_after_a_root_is_that_root`;
+    - `case-insensitive`, `nomatch-judged-by-text`, `dot-rule-dropped` and `glob-as-single-file` by
+      `test_r3_selective_globs_are_judged_by_what_they_match`;
+    - `env-value-used` by `test_r3_env_values_are_never_read`;
+    - `exists-dropped` and `not-dir-dropped` by `test_r3_a_directory_a_link_to_one_and_a_name_stay_roots`;
+    - `file-exception-removed` by `test_r3_a_file_is_never_a_broad_root`.
+  - r1's and r2's 7:
+    - `new-roots-removed` and `child-form-dropped` by `test_each_direct_child_is_a_root`;
+    - `prefix-match` by `test_near_misses_patterns_prose_and_bounded_searches_stay_allowed`;
+    - `trailing-slash-missed` by `test_trailing_slash_spellings_are_denied`;
+    - `trust-hash-stale` by `test_trust_pins_the_new_hook_bytes`;
+    - `trust-built-on-repo-copy` by `test_trust_keeps_the_installed_lane_pin`;
+    - `env-spellings-dropped` by `test_every_env_spelling_is_a_root_one_level_down_and_no_deeper`.
+  - The fence failed too on the four root edits of r1 and r2 (`new-roots-removed`, `child-form-dropped`,
+    `prefix-match`, `trailing-slash-missed`) and on `env-spellings-dropped`, and passed on the other 44.
+- **Survived, 1: `stall-mount-listed` (r3b), and it is equivalent since r3c.** The edit turns the
+  listing guard in `pw_globbroad` into `elif pw_holds "$p" || pw_stall "$p"; then`.
+  - The added `pw_stall "$p"` is evaluated only when `pw_holds "$p"` is false, and `pw_stall` sets
+    nothing.
+  - r3c's mount branch comes first: `if pw_stall "$p" && ! pw_volumes "$p"`, where nothing is
+    listed. So any `p` that reaches the guard with `pw_stall` true also has `pw_volumes` true, which
+    means it is `/Volumes` in some letter case.
+  - `pw_holds` is always true there. Its first name gives `/Volumes/TheAxiomFoundation`, which
+    `pw_isbroad` takes as a `/volumes/<entry>` root under any home, and the depth rule skips `/V…`.
+  - So no input reaches the added disjunct with a different outcome. At r3b's head (`674abdac7`)
+    only the plain-name branch came before the guard. r3c (`8216108f8`) added the mount branch
+    ahead of it, and that made this mutant equivalent.
+  - Executed, in one hold (05:09Z, slot B, load 47), with HEAD and the mutant exported the driver's
+    way (mutant hook `fdae3f5a…`), over the fixture with home `/Users/tester`:
+    - the 20 `MOUNT_WORDS` plus 35 more mount words (`/Volumes/*`, `/vOlUmEs/*/*`, `/Volumes/*/..`,
+      `/V*/../V*/*`, `/[Vv]olumes/*`, `/Volumes/**/x`, `/NET/*`, `/h*/*` and the rest): identical
+      verdicts (29 denied) and identical disk-call traces, 112 calls in the batch and per word;
+    - `pw_stall`, `pw_volumes` and `pw_holds` over 19 stall spellings under the homes `/Users/tester`,
+      `/Users/me` and `/srv/me`: `pw_holds` is true for every spelling where `pw_stall` and
+      `pw_volumes` both are (`/Volumes`, `/VOLUMES`, `/volumes`, `/vOlUmEs`,
+      `/System/Volumes/Data/Volumes`, `/private/../Volumes`, `/Volumes/.` and `/Volumes/x/..`);
+      every other stall spelling has `pw_volumes` false, so the mount branch takes it.
+  - No test can kill it, so none was written. The driver still exits 1 on it until the hub retires
+    or retargets it.
+
+**Hashes for the install.** The new pair, after r4v's fix: hook
+`1d8bc1e54f8e1838dd21b09026119beda53e0c293c0cafb905527b701e5fe58c`, TRUST
+`3c7c8af80f34f0b8f8419355db66d654b730d08a37bc510f0bcacc8247f8f9bb`. r4's own pair (`4b382c29…`,
+`807f0e8b…`) is superseded. The installed pair step 0 expects, and the rollback: hook `a60d1c51…`,
+TRUST `b3193b97…` (unchanged by r4 and r4v).
 
 ## Invariants and how they were checked
 
@@ -1041,9 +1162,9 @@ could time out).
    shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST
    # a60d1c514d3a3bcec68c246a33c849c11fd37e1bdf60d886650cd9d6651390db  …/never-rules-hook.sh
    # b3193b97d712bda6a5cc0f2447907e674f7ed90911a82d7709de8298b42aaa06  …/TRUST
-   shasum -a 256 private/guard/never-rules-hook.sh private/guard/TRUST   # the reviewed pair (r4)
-   # 4b382c2920a50b0a517e3d70979c931338d654868e564508f127f95285b479ec  private/guard/never-rules-hook.sh
-   # 807f0e8b745ba09bb5b89be8392e5e90b6d8d2a157942d01f5e18d94758f7fb4  private/guard/TRUST
+   shasum -a 256 private/guard/never-rules-hook.sh private/guard/TRUST   # the reviewed pair (r4v)
+   # 1d8bc1e54f8e1838dd21b09026119beda53e0c293c0cafb905527b701e5fe58c  private/guard/never-rules-hook.sh
+   # 3c7c8af80f34f0b8f8419355db66d654b730d08a37bc510f0bcacc8247f8f9bb  private/guard/TRUST
    ```
 
 1. **Stage through the repository's staging path**, into a fresh state root on the same volume
@@ -1080,7 +1201,7 @@ could time out).
    EOF
    cmp private/guard/never-rules-hook.sh ~/.subfleet/guard/never-rules-hook.sh
    cmp private/guard/TRUST ~/.subfleet/guard/TRUST
-   shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST   # 4b382c29…79ec, 807f0e8b…7fb4
+   shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST   # 1d8bc1e5…e58c, 3c7c8af8…f9bb
    ls -la ~/.subfleet/guard
    ```
 
