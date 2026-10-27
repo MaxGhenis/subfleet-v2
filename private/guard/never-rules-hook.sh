@@ -2183,7 +2183,7 @@ pw_cmd=$command
 if pw_named "$command"; then
   # r5 decision 8: a command too long to prep (over 64 KB) that names a searcher fails closed, since none of
   # the prep's readings (names, keywords, scripts, heredocs, the no-path judgment) can be made
-  [ "${#command}" -le 65536 ] || block "[unscoped-search] Command too long to judge: it is over 64 KB and names a searcher (find, rg or grep), so the guard cannot read where it searches. Split it into shorter commands, and scope each search: exact subdirectory, -maxdepth/--max-depth, or 'git ls-files' inside a repo."
+  [ "${#command}" -le 65536 ] || block "[unscoped-search] Command too long to judge: it is over 64 KB and names a searcher (find, rg or grep), so the guard cannot read where it searches. Split it into shorter commands, and scope each search: an exact subdirectory or -maxdepth/--max-depth."
   pw_cmd=$(printf '%s' "$command" | LC_ALL=C awk -v RS=$'\001' -v mode=prep "$pw_prep_awk" 2>/dev/null) || pw_cmd=""
   [ -n "$pw_cmd" ] || pw_cmd=$command
 fi

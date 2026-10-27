@@ -235,8 +235,8 @@ the code as it stands:
 
 | File | SHA-256 |
 | --- | --- |
-| `never-rules-hook.sh` | `d44867ea69410296dd1c90e9153491cf46c796d7b31c5d72b62c1661b2d0575f` |
-| `TRUST` | `9a3ce01239a121594a33fddb57c66c99a1acbbe755428e11da567a99ab618f58` |
+| `never-rules-hook.sh` | `0b00cc6182af3cb19abdc78b74492b00c5a1b22c53e224c2ce65481e6744789b` |
+| `TRUST` | `09ed48d336d868d32ac6612035fcad272f27ff5ac81c9616cfa11841d0df17a8` |
 
 TRUST is the installed TRUST of 2026-09-29 (`b3193b97…`), changing only `hook_sha256` and
 appending four dated provenance additions (D-LANE-SCOPE1's three sentences, r2's one, r3's one
