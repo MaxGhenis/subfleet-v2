@@ -4621,8 +4621,10 @@ def r5_shell_walks(shell: str, command: str, cwd: str, tmp: Path) -> bool:
     text = re.sub(r"(?<![\w./~-])/Users/tester", fs + "/Users/tester", text)
     text = re.sub(r"(?<![\w./~-])/(tmp|Volumes)/", fs + r"/\1/", text)
     text = re.sub(r"(?<=\s)/(?=\s|$)", fs + "/", text)
+    # (LOGNAME as a lane carries it: review r4 found the ~$LOGNAME forms unwalked only for its absence)
     env = {"PATH": f"{stubs}:{os.environ['PATH']}", "HOME": fs + FAKE_HOME, "R4_CALLS": str(calls),
-           "USER": os.environ.get("USER", "nobody"), "LC_ALL": "C", "TMPDIR": str(tmp)}
+           "USER": os.environ.get("USER", "nobody"), "LOGNAME": os.environ.get("USER", "nobody"), "LC_ALL": "C",
+           "TMPDIR": str(tmp)}
     argv = ["/bin/bash", "--noprofile", "--norc", "-c", text] if shell == "bash" else ["/bin/zsh", "-f", "-c", text]
     here = Path(fs + cwd)
     before = set(os.listdir(here))
@@ -4637,6 +4639,8 @@ def r5_shell_walks(shell: str, command: str, cwd: str, tmp: Path) -> bool:
     for f in sorted(calls.iterdir()):
         name, at, stdin, *args = f.read_bytes().decode().split("\0")[:-1]
         walked += [r4_canonical(p, at) for p in r5_walked_paths(name, at, stdin, args)]
+    # (a path holding a newline, as xargs -0 hands on echo's, names no root, and REFERENCE_SH reads by line)
+    walked = [p for p in walked if "\n" not in p]
     return any(reference_cached(walked, FAKE_HOME)) if walked else False
 
 
