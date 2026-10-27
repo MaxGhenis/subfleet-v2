@@ -15,7 +15,11 @@ Review r7's inputs are regressions:
   946ea9f96 hide it). Now both sites ask round 6's question (`_key_past_line`) when they
   find an item, and a flag whose name is such a key ends nothing there either: the union
   takes it with the key's value, as both references do. The review's generator of the
-  family is rebuilt as a property."""
+  family is rebuilt as a property.
+- P3-2: the `keyed` memo (round 6) was untested, and without it the scrub is quadratic:
+  each unclosed value on a line walked the line's last identifier back again. Counted
+  here: one `_key_past_line` call per line end, and an identifier walk that stays under
+  the text's length."""
 
 from __future__ import annotations
 
@@ -25,9 +29,11 @@ import random
 
 import pytest
 
+from subfleet.conversations import suggestions
 from subfleet.sessions import handoff
 from tests.unit import scrub_473fe2941 as base473
-from tests.unit.test_scrub_review_r2 import PREFIX, _new_leaks, _outputs, _secrets, _splits, _unstable
+from tests.unit.test_scrub_review_r2 import PREFIX, _adversary, _new_leaks, _outputs, _secrets, _splits, _unstable
+from tests.unit.test_scrub_review_r3 import _assert_linear
 from tests.unit.test_scrub_review_r6 import CLEAN, _p3_4_failures, _pinned, _stratified_sample
 
 
@@ -180,3 +186,80 @@ def test_no_cell_of_a_family_sample_shows_what_both_references_hide():
 @pytest.mark.skipif(os.environ.get("SF_SCRUB_FULL_MATRIX") != "1", reason="the whole P2-1 family, on request")
 def test_no_cell_of_the_whole_family_shows_what_both_references_hide():
     assert _p3_4_failures(family_class()) == CLEAN
+
+
+# --- P3-2: the `keyed` memo reads a line's end once -------------------------------------
+
+def _memo_probe(values: int, identifier: int) -> str:
+    """Review r7's P3-2 input: `_adversary(values)`'s unclosed values on one line, its last
+    word a credential flag glued to an identifier of `identifier` characters
+    (` --aaa…_password`) whose name is a key with `=` on the next line. Each unclosed value
+    ends at that line's end, and asks whether a key there reaches past it."""
+    return _adversary(values)[:-len(" token\n")] + " --" + "a" * identifier + "_password\n=x SECRET7c5"
+
+
+#: The modes that scrub the whole probe: the excerpt keeps all of it (`SCRUB_MAX_CHARS` is
+#: 256 KiB, the largest probe 226,924 characters), and `detail_line`'s is the scrub of its
+#: prefixed text.
+MEMO_MODES = {"excerpt": lambda text: handoff.scrub_secrets(text)[0],
+              "whole": lambda text: handoff.scrub_secrets(text, whole=True)[0],
+              "detail_line": lambda text: suggestions._scrub_line(PREFIX + text)[0]}
+
+
+@pytest.mark.parametrize("mode", MEMO_MODES.values(), ids=MEMO_MODES.keys())
+def test_unclosed_values_sharing_a_line_end_read_the_key_past_it_once(mode, monkeypatch):
+    """C-23.14: the unclosed values on a line read the line's end once, however many share
+    it. 300 values share one, and `_key_past_line` reads it once; without the `keyed`
+    memo, 300 times, each walking the 40,000-character identifier back (review r7: 2.6 s,
+    against the head's 13 ms)."""
+    calls = []
+    original = handoff._key_past_line
+    monkeypatch.setattr(handoff, "_key_past_line",
+                        lambda text, start, end: calls.append(end) or original(text, start, end))
+    text = _memo_probe(300, 40000)
+    mode(text)
+    assert len(calls) == len(set(calls)) <= text.count("\n") + 1, calls[:5]
+
+
+def _memo_counts(pair, monkeypatch) -> tuple[dict[str, list[dict[str, int]]], list[int]]:
+    """For each mode, `_kept_span`'s calls and the Python-level identifier walk
+    (`_identifier_char` calls) on the two probes of `pair`, as `test_scrub_review_r3`'s
+    `_counts` counts them; and the two probes' lengths."""
+    counts = {"kept": 0, "walk": 0}
+    kept, walk = handoff._kept_span, handoff._identifier_char
+
+    def counted_kept(text, start, stop):
+        counts["kept"] += 1
+        return kept(text, start, stop)
+
+    def counted_walk(char):
+        counts["walk"] += 1
+        return walk(char)
+    monkeypatch.setattr(handoff, "_kept_span", counted_kept)
+    monkeypatch.setattr(handoff, "_identifier_char", counted_walk)
+    texts = [_memo_probe(*size) for size in pair]
+    found = {}
+    for name, mode in MEMO_MODES.items():
+        found[name] = []
+        for text in texts:
+            counts.update(kept=0, walk=0)
+            mode(text)
+            found[name].append(dict(counts))
+    return found, [len(text) for text in texts]
+
+
+#: Twice the values (88,474 to 226,924 characters) and twice the identifier (to 128,474),
+#: from review r7's 300 values and 40,000 characters.
+MEMO_PAIRS = {"2x-values": ((300, 40000), (600, 40000)), "2x-identifier": ((300, 40000), (300, 80000))}
+
+
+@pytest.mark.parametrize("pair", MEMO_PAIRS.values(), ids=MEMO_PAIRS.keys())
+def test_the_memo_s_probe_scrubs_in_linear_time(pair, monkeypatch):
+    """`_assert_linear` on each pair, and the identifier walk stays under the text's length
+    in every mode: the head walks the identifier once (40,012 and 80,012 calls; 1.0x at
+    twice the values, 2.0x at twice the identifier). Without the memo each value walks it,
+    12,003,600 calls on 88,474 characters. Each pair alone grows one factor of that
+    product, so only the bound sees the quadratic: `_assert_linear`'s 4x passes it."""
+    found, lengths = _memo_counts(pair, monkeypatch)
+    _assert_linear(found)
+    assert all(counts["walk"] <= length for both in found.values() for counts, length in zip(both, lengths)), found
