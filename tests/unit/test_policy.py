@@ -2,8 +2,11 @@
 
 import hashlib
 import json
+import tempfile
+from pathlib import Path
 
 import pytest
+from hypothesis import given, settings, strategies as st
 
 from subfleet.contracts import DEFAULT_CAPS, HEADROOM_FLOOR, READING_TTL_S, Exit
 from subfleet.policy import (
@@ -22,20 +25,49 @@ def write_policy(tmp_path, value):
     return path
 
 
+#: D-PROBE-DEADLINE1 r2: what the loader says for every refused `probe_deadline_s`.
+WHOLE_SECONDS = "must be a whole number of seconds from 1 to 900"
+
+
 @pytest.mark.parametrize("value", [0, -1, True, False, "180", float("nan"), None,
-                                   float("inf"), float("-inf"), 901, 10**1000])
+                                   float("inf"), float("-inf"), 901, 10**1000,
+                                   0.5, 1.25, 1/3, 0.999, 900.5, 1.0, 180.0, 900.0])
 def test_probe_deadline_rejects_invalid_seconds(tmp_path, policy_data, value):
-    """D-PROBE-DEADLINE1: seconds must be numeric, finite, positive and at most 900."""
+    """D-PROBE-DEADLINE1: a whole number of seconds, 1 to 900; every float is refused,
+    integral ones too, because a durable deadline is compared at whole seconds (#269 r1, P2)."""
     policy_data["admission"]["probe_deadline_s"] = value
     with pytest.raises(PolicyError) as caught:
         load_policy(write_policy(tmp_path, policy_data))
     assert caught.value.key == "admission.probe_deadline_s"
+    assert str(caught.value).endswith(f"admission.probe_deadline_s: {WHOLE_SECONDS}")
 
 
-@pytest.mark.parametrize("value", [1, 900, 1.25, 1/3])
-def test_probe_deadline_accepts_positive_seconds_through_900(tmp_path, policy_data, value):
+@pytest.mark.parametrize("value", [1, 2, 59, 60, 180, 899, 900])
+def test_probe_deadline_accepts_whole_seconds_from_1_through_900(tmp_path, policy_data, value):
     policy_data["admission"]["probe_deadline_s"] = value
-    assert load_policy(write_policy(tmp_path, policy_data))["admission"]["probe_deadline_s"] == value
+    loaded = load_policy(write_policy(tmp_path, policy_data))
+    assert loaded["admission"]["probe_deadline_s"] == value
+    assert type(loaded["admission"]["probe_deadline_s"]) is int
+
+
+@settings(max_examples=150, deadline=None, derandomize=True, database=None)
+@given(value=st.one_of(st.integers(-2000, 2000), st.integers(), st.booleans(), st.floats(), st.none(),
+                       st.text(max_size=4), st.integers(1, 900).map(float)))
+def test_probe_deadline_loads_exactly_the_whole_seconds_from_1_to_900(value):
+    """D-PROBE-DEADLINE1: the loader keeps exactly the `int` values 1 to 900, never a bool or
+    a float (integral ones included), and refuses everything else naming the key."""
+    data = json.loads(DEFAULT_POLICY_PATH.read_bytes())
+    data["admission"]["probe_deadline_s"] = value
+    whole = isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 900
+    with tempfile.TemporaryDirectory(prefix="probe-deadline-") as tmp:
+        path = write_policy(Path(tmp), data)
+        if whole:
+            assert load_policy(path)["admission"]["probe_deadline_s"] == value
+        else:
+            with pytest.raises(PolicyError) as caught:
+                load_policy(path)
+            assert (caught.value.key, str(caught.value).rsplit(": ", 1)[-1]) == (
+                "admission.probe_deadline_s", WHOLE_SECONDS)
 
 
 def test_probe_deadline_defaults_in_bundled_loaded_and_raw_policies(tmp_path, policy_data):

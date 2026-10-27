@@ -121,7 +121,7 @@ def test_a_reloaded_policy_applies_to_the_next_reservation(routing_state, monkey
     assert service._probe_record(first["holder"])["deadline_at"] == first["deadline_at"]
 
 
-@pytest.mark.parametrize("deadline_s", [1, 60, 180, 300, 900, 1.25])
+@pytest.mark.parametrize("deadline_s", [1, 60, 180, 300, 900])
 @pytest.mark.parametrize("lock_wait_s", [0, 45])
 def test_both_reservation_sites_use_the_policy_deadline_after_a_writer_wait(
         routing_state, monkeypatch, deadline_s, lock_wait_s):
@@ -170,19 +170,14 @@ def test_a_deadline_stopped_probe_is_due_at_once(routing_state, monkeypatch):
 
 
 @settings(max_examples=60, deadline=None, derandomize=True, database=None)
-@example(deadline_s=1.25, reserved_at=datetime(2026, 10, 26, tzinfo=timezone.utc))
-@example(deadline_s=1/3, reserved_at=datetime(2026, 10, 26, tzinfo=timezone.utc))
-@example(deadline_s=900, reserved_at=datetime(2026, 10, 26, 23, 59, 59, 999999, tzinfo=timezone.utc))
-@given(deadline_s=st.floats(min_value=0, exclude_min=True, max_value=900, allow_nan=False, allow_infinity=False),
+@example(deadline_s=1, reserved_at=datetime(2026, 10, 26, tzinfo=timezone.utc))
+@example(deadline_s=900, reserved_at=datetime(2026, 10, 26, 23, 59, 59, tzinfo=timezone.utc))
+@given(deadline_s=st.integers(1, 900),
        reserved_at=st.datetimes(min_value=datetime(2000, 1, 1), max_value=datetime(2099, 1, 1),
-                                timezones=st.just(timezone.utc)))
+                                timezones=st.just(timezone.utc)).map(lambda at: at.replace(microsecond=0)))
 def test_any_probe_deadline_is_added_at_reservation_and_retry_stays_independent(deadline_s, reserved_at):
-    """C-11.4, C-6.10: real reservations add any valid duration at datetime precision.
-
-    Literal float equality is impossible for e.g. 1/3 s: datetime stores
-    0.333333 s. Keep numeric validation and the existing timestamp format;
-    compare the exact timedelta addition, including that rounding.
-    """
+    """C-11.4, C-6.10: a reservation at a whole second adds the whole-second key exactly,
+    so `deadline_at` is a whole second too, the precision `utcnow()` is compared at."""
     with fleet() as (service, harness, patch):
         service.policy["admission"]["probe_deadline_s"] = deadline_s
         patch.setattr(daemon_module, "utcnow", lambda: stamp(reserved_at))
@@ -198,6 +193,8 @@ def test_any_probe_deadline_is_added_at_reservation_and_retry_stays_independent(
         created = datetime.fromisoformat(record["created_at"])
         assert created == reserved_at
         assert datetime.fromisoformat(record["deadline_at"]) == created + timedelta(seconds=deadline_s)
+        # The durable string itself is whole-second: `_await_probe` compares strings.
+        assert record["deadline_at"] == stamp(created + timedelta(seconds=deadline_s))
         next_check = datetime.fromisoformat(service.store.get_job(job_id)["next_check_at"])
         assert next_check >= created + timedelta(seconds=60)
         assert next_check == created + timedelta(seconds=60)
