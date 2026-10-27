@@ -9673,7 +9673,7 @@ class Daemon:
             return ("cancelled-before-launch" if self._job(a["job_id"])["cancel_requested_at"]
                     else "starting-no-receipt")
 
-        if a["state"] == "starting":
+        if a.get("state") == "starting":
             # D-QUAR-START1 (b): the abandon precedes every signal, and the last read of
             # start.json decides. None: the guardian can never launch, so its group is
             # KILLed at once and the attempt ends unlaunched. One: it may have launched,
