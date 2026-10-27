@@ -114,7 +114,8 @@ class GuardianSteps:
         steps.mkdir(parents=True, exist_ok=True)
         self.steps, self.next = steps, 1
         gate_r, gate_w = os.pipe()
-        env = {**os.environ, "PYTHONPATH": str(REPO), "GUARDIAN_STEPS_DIR": str(steps)}
+        env = {**os.environ, "PYTHONPATH": str(REPO), "GUARDIAN_STEPS_DIR": str(steps),
+               "GUARDIAN_STEPS_PARENT": str(os.getpid())}         # it exits if this process is gone
         if marked:
             env.update(SUBFLEET_ATTEMPT=ATTEMPT, SUBFLEET_ROOT=str(core.root))
         self.proc = subprocess.Popen(
@@ -214,12 +215,13 @@ def test_no_provider_runs_for_an_attempt_the_daemon_ended_unlaunched_in_any_inte
         adir.mkdir(parents=True, exist_ok=True)
         ran = scratch / "ran"
         daemon = DaemonSteps(real, {"write-abandon", "read-start"})
-        guardian = GuardianSteps(real, adir, scratch, ["/bin/sh", "-c", f'touch "{ran}"'], scratch / "steps",
-                            marked=False)
+        guardian = None
         verdict: list = []
         worker = threading.Thread(target=lambda: verdict.append(real._abandon_start(a, "starting-no-receipt")),
                                   daemon=True)
         try:
+            guardian = GuardianSteps(real, adir, scratch, ["/bin/sh", "-c", f'touch "{ran}"'], scratch / "steps",
+                                     marked=False)
             worker.start()
             for actor in order:
                 if actor == "guardian":
@@ -245,7 +247,8 @@ def test_no_provider_runs_for_an_attempt_the_daemon_ended_unlaunched_in_any_inte
                 assert ended["child_pid"] is None, ended
         finally:
             daemon.restore()
-            guardian.stop()
+            if guardian is not None:
+                guardian.stop()
 
 
 # 2. and 3. Through start grace (`_process_attempt`), each side's order forced.
@@ -266,9 +269,11 @@ def test_a_guardian_that_sees_the_abandon_spawns_nothing_and_its_receipt_says_so
     reads as unlaunched, never as a provider result."""
     adir = attempt_dir(real.root, JOB, 1)
     ran = tmp_path / "ran"
-    guardian = GuardianSteps(real, adir, tmp_path, ["/bin/sh", "-c", f'touch "{ran}"; exec sleep 60'], tmp_path / "steps")
     daemon, worker = start_grace(real, monkeypatch, {"read-start"})
+    guardian = None
     try:
+        guardian = GuardianSteps(real, adir, tmp_path, ["/bin/sh", "-c", f'touch "{ran}"; exec sleep 60'],
+                                 tmp_path / "steps")
         guardian.wait_for_step("read-abandon")                  # after its gate: nothing yet
         guardian.release()
         guardian.wait_for_step("write-start")
@@ -293,7 +298,8 @@ def test_a_guardian_that_sees_the_abandon_spawns_nothing_and_its_receipt_says_so
         assert not real.store.get_job(JOB)["accepted_attempt_id"]
     finally:
         daemon.run_free()
-        guardian.stop()
+        if guardian is not None:
+            guardian.stop()
 
 
 def test_a_start_json_the_daemon_reads_after_its_abandon_is_contained_as_launched(real, monkeypatch, tmp_path):
@@ -303,9 +309,11 @@ def test_a_start_json_the_daemon_reads_after_its_abandon_is_contained_as_launche
     group's TERM first, and the provider is contained; the end is not unlaunched."""
     adir = attempt_dir(real.root, JOB, 1)
     ran = tmp_path / "ran"
-    guardian = GuardianSteps(real, adir, tmp_path, ["/bin/sh", "-c", f'touch "{ran}"; exec sleep 60'], tmp_path / "steps")
     daemon, worker = start_grace(real, monkeypatch, {"write-abandon"})
+    guardian = None
     try:
+        guardian = GuardianSteps(real, adir, tmp_path, ["/bin/sh", "-c", f'touch "{ran}"; exec sleep 60'],
+                                 tmp_path / "steps")
         guardian.wait_for_step("read-abandon")
         guardian.release()
         guardian.wait_for_step("write-start")
@@ -332,7 +340,8 @@ def test_a_start_json_the_daemon_reads_after_its_abandon_is_contained_as_launche
         assert a["state"] not in ("starting", "running", "succeeded"), a
     finally:
         daemon.run_free()
-        guardian.stop()
+        if guardian is not None:
+            guardian.stop()
 
 
 # 4. An unverifiable census at expiry.
@@ -344,8 +353,10 @@ def test_an_unverifiable_census_at_expiry_signals_nothing_and_the_guardian_never
     the attempt has ended, writes start.json, finds the abandon and exits."""
     adir = attempt_dir(real.root, JOB, 1)
     ran = tmp_path / "ran"
-    guardian = GuardianSteps(real, adir, tmp_path, ["/bin/sh", "-c", f'touch "{ran}"'], tmp_path / "steps", marked=False)
+    guardian = None
     try:
+        guardian = GuardianSteps(real, adir, tmp_path, ["/bin/sh", "-c", f'touch "{ran}"'], tmp_path / "steps",
+                                 marked=False)
         guardian.wait_for_step("read-abandon")
         guardian.release()
         guardian.wait_for_step("write-start")
@@ -369,7 +380,8 @@ def test_an_unverifiable_census_at_expiry_signals_nothing_and_the_guardian_never
         assert not ran.exists(), "the guardian spawned its provider for an abandoned attempt"
         assert receipt(adir)["abandoned"]["reason"] == "starting-no-receipt"
     finally:
-        guardian.stop()
+        if guardian is not None:
+            guardian.stop()
 
 
 # Mutation controls: each order mutant must fail the interleaving property.

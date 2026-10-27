@@ -23,6 +23,9 @@ from subfleet import guardian
 
 STEPS = Path(os.environ["GUARDIAN_STEPS_DIR"])
 COUNT = [0]
+# The test process that started it: named by `GUARDIAN_STEPS_PARENT`, so a test gone before
+# this module ran is caught as well; else its parent when it began.
+PARENT = int(os.environ.get("GUARDIAN_STEPS_PARENT") or os.getppid())
 
 
 def pause(step: str) -> None:
@@ -31,8 +34,10 @@ def pause(step: str) -> None:
     (STEPS / f"{n}.{step}").touch()
     deadline = time.monotonic() + 120
     while not (STEPS / f"{n}.go").exists():
-        if time.monotonic() > deadline:
-            os._exit(98)                                   # the test is gone: never spawn
+        # The test is gone (#250 fix round 2c: a test process killed before its teardown
+        # leaves nothing behind), or never released this step: never spawn.
+        if time.monotonic() > deadline or os.getppid() != PARENT:
+            os._exit(98)
         time.sleep(.005)
 
 

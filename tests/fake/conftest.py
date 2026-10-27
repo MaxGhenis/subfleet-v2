@@ -64,7 +64,10 @@ class Harness:
         def limit():
             import resource
             resource.setrlimit(resource.RLIMIT_NOFILE, (open_files, open_files))
-        command = [sys.executable, "-m", "tests.fake.run_daemon", "--state-root", str(self.root), *options]
+        # The daemon stops once this test process is gone, whether or not this harness's
+        # teardown ran (`tests/fake/run_daemon.py`'s `ParentWatch`).
+        command = [sys.executable, "-m", "tests.fake.run_daemon", "--state-root", str(self.root),
+                   "--parent-pid", str(os.getpid()), *options]
         if rooted:
             # Model launchd's self-responsible daemon using only our own process.
             # The shell exec preserves its pid and sends diagnostics to our log.
@@ -186,12 +189,10 @@ class Harness:
             except subprocess.TimeoutExpired:
                 self.process.kill()
                 self.process.wait(timeout=2)
-        from subfleet.procs import same_process
-        for receipt in (self.root / "jobs").glob("*/a*/start.json"):
-            with suppress(OSError, ValueError, KeyError):
-                start = json.loads(receipt.read_text())
-                if same_process(start["guardian_pid"], start["boot_id"], start["proc_start"]):
-                    os.killpg(start["pgid"], signal.SIGKILL)
+        # Every guardian the store or a `start.json` records that is still alive by its
+        # recorded identity: a starting one (no `start.json`) as well (#250 fix round 2c).
+        from tests.fake.run_daemon import end_attempt_groups
+        end_attempt_groups(self.root)
         marker = self.root / "escaped.pid"
         if marker.exists():
             pid = int(marker.read_text())
