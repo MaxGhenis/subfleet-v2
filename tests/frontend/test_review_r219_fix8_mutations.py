@@ -36,7 +36,12 @@ from tests.frontend.test_review_r219_fix12_view import (
     assert_own_send_releases,
     fix12_run,
 )
-from tests.frontend.test_review_r219_fix13_view import landing_run, assert_landing_follows
+from tests.frontend.test_review_r219_fix13_view import (
+    assert_landed_once,
+    assert_landing_follows,
+    assert_quiet_landing_order,
+    landing_run,
+)
 
 pytestmark = needs_swift
 MUTATIONS = {
@@ -75,6 +80,15 @@ MUTATIONS = {
     "own_send_latch_ends_at_marker": ("UIWindow.swift", [
         ('        traceFollow("marker_appeared")',
          '        ownSendLanding = false\n        traceFollow("marker_appeared")')]),
+    # Round 10: following after an own send outlasts its landing check.
+    "quiet_landing_ends_following": ("ConversationOpeningPin.swift", [
+        ("                self.ownSendLanding = false\n                self.onOwnSendLanded()",
+         "                self.followingOwnSend = false\n                self.ownSendLanding = false\n"
+         "                self.onOwnSendLanded()")]),
+    "growth_repins_dropped": ("ConversationOpeningPin.swift", [
+        ("                                             queue: .main) { [weak self] _ in\n            self?.schedulePin()",
+         "                                             queue: .main) { [weak self] _ in\n"
+         "            if self?.followingOwnSend != true { self?.schedulePin() }")]),
 }
 # Each round-7 mutant, the replay mode it runs, the order that mode must show (checked
 # outside `raises`, so a broken schedule cannot pass as a kill) and the rule it must fail.
@@ -92,8 +106,17 @@ ROUND8 = {
     "mark_local_frame_only": ("mark", lambda result, _: assert_mark_probes_order(result),
                               lambda result, _: assert_mark_probes_run_the_check(result)),
 }
+# Each round-10 mutant with each scene that must kill it: the order that scene must show
+# (outside `raises`) and the rule it must fail.
+ROUND10_CASES = [
+    ("quiet_landing_ends_following", "quiet-regrow"),
+    ("quiet_landing_ends_following", "quiet-regrow-natural"),
+    ("quiet_landing_ends_following", "quiet-regrow-late"),
+    ("growth_repins_dropped", "quiet-regrow"),
+]
+ROUND10 = {mutation for mutation, _ in ROUND10_CASES}
 VIEW = {"notice_sets_at_bottom_false", "key_on_all_rows", "uimodel_drops_known_receipts",
-        "settling_stops_follow_at_end", "own_send_latch_ends_at_marker", *ROUND7, *ROUND8}
+        "settling_stops_follow_at_end", "own_send_latch_ends_at_marker", *ROUND7, *ROUND8, *ROUND10}
 
 
 def mutant_source(mutation, filename, text):
@@ -129,7 +152,8 @@ def compile_mutation(mutation, tmp_path):
 
 @pytest.mark.parametrize("mutation", [name for name in MUTATIONS
                                       if name != "settling_stops_follow_at_end" and name not in ROUND7
-                                      and name not in ROUND8 and name != "own_send_latch_ends_at_marker"])
+                                      and name not in ROUND8 and name != "own_send_latch_ends_at_marker"
+                                      and name not in ROUND10])
 def test_mutation_fails_its_named_regression(mutation, tmp_path):
     binary, view = compile_mutation(mutation, tmp_path)
     if mutation == "uimodel_drops_known_receipts":
@@ -203,9 +227,37 @@ def test_round8_mutation_fails_its_named_regression(mutation, tmp_path):
 
 
 def test_round9_marker_latch_mutation_fails_regrow(tmp_path):
+    # Round 10: the pin's following outlasts the landing check, so ending the check at the marker
+    # no longer leaves the reply behind; the landing is then never measured.
     binary, _ = compile_mutation("own_send_latch_ends_at_marker", tmp_path)
     result, steps, _ = landing_run(binary, tmp_path, "regrow")
     assert "growing" in steps
+    failed = []
+    for rule in (assert_landing_follows, assert_landed_once):
+        try:
+            rule(result, steps)
+        except AssertionError:
+            failed.append(rule.__name__)
+    assert failed, f"own_send_latch_ends_at_marker survived regrow: reply {steps['reply']['position']['from_end']} pt"
+    print(f"own_send_latch_ends_at_marker killed by {', '.join(failed)}[regrow]")
+
+
+def round10_order(mode):
+    if mode.startswith("quiet-"):
+        return lambda result, steps: assert_quiet_landing_order(result, steps, mode)
+    return lambda result, steps: None
+
+
+def round10_rule(mode):
+    return assert_landing_follows
+
+
+@pytest.mark.parametrize("mutation,mode", ROUND10_CASES)
+def test_round10_mutation_fails_its_named_regression(mutation, mode, tmp_path):
+    binary, _ = compile_mutation(mutation, tmp_path)
+    result, steps, _ = landing_run(binary, tmp_path, mode)
+    round10_order(mode)(result, steps)
+    rule = round10_rule(mode)
     with pytest.raises(AssertionError) as rejected:
-        assert_landing_follows(result, steps)
-    print(f"own_send_latch_ends_at_marker killed by assert_landing_follows[regrow]: {str(rejected.value)[:300]}")
+        rule(result, steps)
+    print(f"{mutation} killed by {rule.__name__}[{mode}]: {str(rejected.value)[:300]}")

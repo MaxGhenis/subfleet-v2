@@ -1,6 +1,7 @@
 // Opening a conversation stays at its end through lazy row measurement and the
-// first events page, until the person scrolls. The later follow rule belongs to
-// ConversationView. This observer is shared by macOS 14 and 15+.
+// first events page, until the person scrolls. The person's own send keeps the end
+// the same way, until the person scrolls or a reveal starts. The later follow rule
+// belongs to ConversationView. This observer is shared by macOS 14 and 15+.
 #if !SUBFLEET_MODEL_TEST
 import AppKit
 import SwiftUI
@@ -157,9 +158,14 @@ final class OpeningPinView: NSView {
         didSet {
             guard ownSendLanding != oldValue else { return }
             landingCheck?.cancel()
-            if ownSendLanding { schedulePin(); scheduleLandingCheck() }
+            if ownSendLanding { followingOwnSend = true; schedulePin(); scheduleLandingCheck() }
         }
     }
+    /// After the person's own send, document growth is pinned to the end until the person
+    /// scrolls or a reveal starts. The landing check measuring the end does not end it
+    /// (review r8: rows above the clip grew 600 pt after a quiet landing, and the reply
+    /// was left 779 pt behind).
+    private var followingOwnSend = false
     private var landingCheck: DispatchWorkItem?
     private var landingRevision = 0
     private weak var scroll: NSScrollView?
@@ -195,6 +201,7 @@ final class OpeningPinView: NSView {
         observers.append(center.addObserver(forName: .conversationRowScroll, object: nil, queue: .main) { [weak self] note in
             guard let self, note.object as? String == self.conversationID else { return }
             self.personScrolled = true
+            self.followingOwnSend = false
             self.ownSendLanding = false
             if let request = note.userInfo?["request"] as? UUID, request != self.abandoned {
                 self.outstanding = (request, note.userInfo?["target"] as? String)
@@ -255,6 +262,7 @@ final class OpeningPinView: NSView {
         inputMonitor = nil
         scroll = nil
         outstanding = nil
+        followingOwnSend = false
         ownSendLanding = false
     }
 
@@ -320,6 +328,7 @@ final class OpeningPinView: NSView {
     private func personScrolledNow() {
         personScrolled = true
         // Cancel queued re-pins immediately, before SwiftUI publishes the new state.
+        followingOwnSend = false
         ownSendLanding = false
         onPersonInput()
         guard let request = outstanding?.request else { return }
@@ -356,7 +365,7 @@ final class OpeningPinView: NSView {
     }
 
     private func schedulePin() {
-        guard (!personScrolled || ownSendLanding), !pinScheduled else { return }
+        guard !personScrolled || followingOwnSend, !pinScheduled else { return }
         // Coalesce this SwiftUI update first, then run after the scroll work
         // queued by that update. Offset-only Review jumps schedule nothing.
         pinScheduled = true
@@ -370,7 +379,7 @@ final class OpeningPinView: NSView {
     }
 
     private func pin() {
-        guard (!personScrolled || ownSendLanding), let scroll, let document = scroll.documentView else { return }
+        guard !personScrolled || followingOwnSend, let scroll, let document = scroll.documentView else { return }
         let clip = scroll.contentView
         let end = document.isFlipped ? max(document.bounds.minY, document.bounds.maxY - clip.bounds.height)
             : document.bounds.minY
@@ -380,9 +389,11 @@ final class OpeningPinView: NSView {
         scroll.reflectScrolledClipView(clip)
     }
 
-    /// A lazy marker can appear over 100 pt from the end. Keep re-pinning growth
-    /// until presented geometry, after layout and 300 ms without a document or clip
-    /// change (including the send's 150 ms glide), confirms the settled end.
+    /// A lazy marker can appear over 100 pt from the end, and the send's move can stop
+    /// short of it. Until presented geometry, after layout and 300 ms without a document
+    /// or clip change (including the send's 150 ms glide), confirms the settled end,
+    /// re-pin a clip left short. Measuring the end ends only this check: growth after it
+    /// is still pinned while the pin follows the own send.
     private func scheduleLandingCheck() {
         guard ownSendLanding, scroll != nil else { return }
         landingRevision += 1

@@ -2239,6 +2239,11 @@ final class RevealArrivals: @unchecked Sendable {
         let oldEnd = (record.position()["content"] ?? 0) - (record.position()["viewport"] ?? 0)
         ProbePresentation.afterAnimation = { record.clipTo(offset: oldEnd) }
     }
+    let sentAt = record.at()
+    /// The send's first measured landing.
+    func landed() -> [String: Any]? {
+        record.trace.first { $0["event"] as? String == "own_send_landed" && ($0["at"] as? Double ?? 0) > sentAt }
+    }
     let text = landing == nil ? "my own reply" : (1...30).map {
         "Paragraph \($0): my own message takes more than one viewport while the lazy rows are measured."
     }.joined(separator: "\n\n")
@@ -2255,10 +2260,6 @@ final class RevealArrivals: @unchecked Sendable {
         ConversationFollowTest.inset.top += 600
     }
     if quiet {
-        let growing = record.steps.last?["at"] as? Double ?? 0
-        func landed() -> [String: Any]? {
-            record.trace.last { $0["event"] as? String == "own_send_landed" && ($0["at"] as? Double ?? 0) > growing }
-        }
         await waitReady("send.landed", view: scene.host, state: { scene.readiness() }) { landed() != nil }
         let landedAt = landed()?["at"] as? Double ?? 0
         record.step("landed", target: target, ["landed": landed() ?? [:]])

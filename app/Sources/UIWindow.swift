@@ -359,8 +359,11 @@ struct ConversationView: View {
     @State private var revealPending = false
     @State private var revealTarget: String?
     /// Until the measured end settles, the person scrolls or a reveal starts, follow
-    /// an own send and re-pin document growth: a glide stopped 208 pt short of a
-    /// document that then grew 224 pt, leaving the next reply 610 pt behind.
+    /// an own send as if the end were on screen: a glide stopped 208 pt short of a
+    /// document that then grew 224 pt, leaving the next reply 610 pt behind. The
+    /// opening pin re-pins document growth after an own send until the person scrolls
+    /// or a reveal starts, settled or not (review r8: 600 pt of growth after a quiet
+    /// landing left the reply 779 pt behind).
     @State private var ownSendLanding = false
     #if SUBFLEET_VIEW_TEST
     @State private var markerDisappearance: Task<Void, Never>?
