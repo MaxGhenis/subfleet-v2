@@ -59,8 +59,8 @@ def assert_landed_once(result, steps):
 
 
 def assert_quiet_landing_order(result, steps, mode):
-    """The regrow scene, then `own_send_landed` measuring a 0 pt gap, then 600 pt more growth above
-    the clip: 50 ms after the landing, or for `-late` at least 350 ms after it, on a main-queue
+    """The regrow scene, then `own_send_landed` and a quiet frame at 0 pt, then 600 pt more growth above
+    the clip: 50 ms after that frame, or for `-late` at least 350 ms after the callback, on a main-queue
     timer past the landing check's quiet window. (A probe slower than the window to react to the
     marker grows the rows only after the landing: then both growths follow it.)"""
     diagnostic = json.dumps(result, sort_keys=True)
@@ -68,8 +68,9 @@ def assert_quiet_landing_order(result, steps, mode):
     landings = own_send_landings(result, steps)
     assert len(landings) == 1, diagnostic
     landed = steps["landed"]["landed"]
-    assert landed == landings[0] and abs(landed["position"]["from_end"]) <= 1, diagnostic
-    assert landed["at"] < steps["regrowing"]["at"] < steps["sent"]["at"], diagnostic
+    assert landed == landings[0] and landed["position"]["from_end"] <= GAP, diagnostic
+    assert abs(steps["landed"]["position"]["from_end"]) <= 1, diagnostic
+    assert landed["at"] <= steps["landed"]["at"] < steps["regrowing"]["at"] < steps["sent"]["at"], diagnostic
     assert steps["regrowing"]["after_landing"] >= (0.35 if mode == "quiet-regrow-late" else 0.05), diagnostic
 
 

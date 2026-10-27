@@ -2207,9 +2207,10 @@ final class RevealArrivals: @unchecked Sendable {
 // Review r7's landings send a 30-paragraph message: `short` (the glide scrolls to
 // the old end), `regrow` (the rows above the clip grow 600 pt at the marker's first
 // appearance) and `person` (the person then scrolls 1,500 pt up). Review r8's
-// `quiet-regrow` lets `regrow` land: once `own_send_landed` has measured the end,
-// another 50 ms settle, then the rows above the clip grow 600 pt again before the
-// reply. `-late` grows them on a main-queue timer 350 ms after the landing instead.
+// `quiet-regrow` lets `regrow` land: after `own_send_landed`, establish an exact-zero
+// end through a quiet frame, then another 50 ms settle before the rows above the
+// clip grow 600 pt again before the reply. `-late` grows them on a main-queue timer
+// 350 ms after the landing callback instead.
 // A `-natural` scene removes both animation controls. Round 10's `stale-glide` lands
 // the glide's last frame on its stale target inside the landing check's quiet window.
 @MainActor func ownSendDuringReveal(_ root: URL, catchup: Bool, landing: String? = nil) async -> [String: Any] {
@@ -2282,7 +2283,23 @@ final class RevealArrivals: @unchecked Sendable {
     if quiet {
         await waitReady("send.landed", view: scene.host, state: { scene.readiness() }) { landed() != nil }
         let landedAt = landed()?["at"] as? Double ?? 0
-        record.step("landed", target: target, ["landed": landed() ?? [:]])
+        guard let scroll = timelineScroll(scene.host) else {
+            readinessUnmet("send.zero_end", "timeline scroll missing", state: scene.readiness())
+        }
+        // The product may validly call back at column + 1 (CI measured 24 pt).
+        // This scene needs zero before its delayed growth. Drive that setup explicitly,
+        // without a person-scroll notification or either animation control, and wait
+        // for 50 ms without a document/clip change at zero. Leave the original callback
+        // in the trace: its tolerance and timing are independent of this scene's barrier.
+        let zeroEnd = QuietMove(scroll: scroll, after: 0.05, within: 0.5) {
+            record.step("landed", target: target, ["landed": landed() ?? [:]])
+        }
+        defer { zeroEnd.stop() }
+        await waitReady("send.zero_end", view: scene.host, state: { scene.readiness() }) {
+            if record.steps.last?["step"] as? String == "landed" { return true }
+            if abs(record.position()["from_end"] ?? 1e9) > 0.5 { record.clipTo(fromEnd: 0) }
+            return false
+        }
         if landing == "quiet-regrow-late" {
             DispatchQueue.main.asyncAfter(deadline: .now() + max(0, landedAt + 0.35 - record.at())) {
                 MainActor.assumeIsolated {
@@ -2322,35 +2339,38 @@ final class RevealArrivals: @unchecked Sendable {
                                            "animated_root_transactions": ProbePresentation.animatedRootTransactions]])
 }
 
-/// Runs `move` once, the first time the clip has rested at the end of the document (within
-/// the landing check's `column + 1`) for `after` seconds with no document or clip change: the changes that restart the own-send
-/// landing check's quiet window restart this one too, on the same main-queue timers.
+/// Runs `move` once, the first time the clip has rested at the end for `after` seconds
+/// without a document or clip change. By default, use the landing check's `column + 1`
+/// tolerance; `within` instead requires an absolute gap. The same geometry changes
+/// restart this timer and the own-send landing check's quiet window.
 @MainActor final class QuietMove {
     private var observers: [NSObjectProtocol] = []
     private var pending: DispatchWorkItem?
     private var move: (() -> Void)?
 
-    init(scroll: NSScrollView, after: Double, move: @escaping () -> Void) {
+    init(scroll: NSScrollView, after: Double, within: CGFloat? = nil, move: @escaping () -> Void) {
         self.move = move
         guard let document = scroll.documentView else { return }
         let center = NotificationCenter.default
         for (name, object) in [(NSView.frameDidChangeNotification, document as NSView),
                                (NSView.boundsDidChangeNotification, scroll.contentView as NSView)] {
             observers.append(center.addObserver(forName: name, object: object, queue: nil) { [weak self] _ in
-                MainActor.assumeIsolated { self?.rearm(scroll, after: after) }
+                MainActor.assumeIsolated { self?.rearm(scroll, after: after, within: within) }
             })
         }
-        rearm(scroll, after: after)
+        rearm(scroll, after: after, within: within)
     }
 
-    private func rearm(_ scroll: NSScrollView, after: Double) {
+    private func rearm(_ scroll: NSScrollView, after: Double, within: CGFloat?) {
         pending?.cancel()
         guard move != nil else { return }
         let item = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated {
                 guard let self, let document = scroll.documentView else { return }
                 let clip = scroll.contentView.bounds
-                guard document.frame.height - clip.maxY <= Theme.space.column + 1, let move = self.move else { return }
+                let gap = document.frame.height - clip.maxY
+                let atEnd = within.map { abs(gap) <= $0 } ?? (gap <= Theme.space.column + 1)
+                guard atEnd, let move = self.move else { return }
                 self.move = nil
                 move()
             }
