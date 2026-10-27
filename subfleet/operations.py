@@ -16,6 +16,7 @@ from . import protocol, render
 from .client import DaemonError, DaemonUnavailable
 from .contracts import Exit
 from .offline import Offline, OfflineUnavailable
+from .status_json import closure_row
 
 
 def error_report(query, hours: float, *, now=None) -> dict:
@@ -31,8 +32,11 @@ def error_report(query, hours: float, *, now=None) -> dict:
                      "FROM attempts WHERE COALESCE(finished_at,started_at,reserved_at)>=? "
                      "AND (state IN ('failed','lost','quarantined') OR outcome_class IN ('limited','auth-dead')) "
                      "ORDER BY COALESCE(finished_at,started_at,reserved_at) DESC", (since,))
-    closures = query("SELECT lane_id,scope,reason,until_at,clock_source,source_event,created_at,released_at "
-                     "FROM closures WHERE created_at>=? ORDER BY created_at DESC", (since,))
+    # D-STATUS-SRC1 (review r2 of #263, P3-2): with `kind` and `note`, and a hold's
+    # stored source withheld, as `daemon.status` shows closure rows.
+    closures = [closure_row(row) for row in query(
+        "SELECT lane_id,scope,reason,until_at,clock_source,source_event,created_at,released_at "
+        "FROM closures WHERE created_at>=? ORDER BY created_at DESC", (since,))]
     probes = []
     for row in query("SELECT lane_id,ts,data_json FROM events WHERE kind='timer.verdict' AND ts>=? "
                      "AND data_json!='{}' ORDER BY event_id DESC", (since,)):

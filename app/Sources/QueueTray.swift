@@ -25,11 +25,14 @@ struct QueuedMessage: Identifiable, Equatable {
     var sending: Bool
     /// A second caption when the row is not simply waiting: "Sending", a deferral.
     var status: String?
-    /// Whether the row offers Steer: deliver it into the running turn instead of
-    /// after it. Only the head of the queue, a person's message the daemon holds,
-    /// and only while a turn is live and the daemon steers this provider
-    /// (`steer.v1`; the steer build turns it on).
-    var canSteer = false
+    /// The running turn the row's Send now steers into, as the tray shows it: set only
+    /// on the head of the queue, a person's message the daemon holds, while a turn is
+    /// live and the daemon steers this provider (`steer.v1`). Send now captures it when
+    /// it is offered and names it (`into`): one used after that turn ended is refused,
+    /// never joined to the next turn (C-24.9). Nil: the row offers no Send now.
+    var steerInto: String? = nil
+    /// Whether the row offers Send now: deliver it into the running turn instead of after it.
+    var canSteer: Bool { steerInto != nil }
     /// What Withdraw does: `message.cancel` for a message the daemon holds, the
     /// outbox's withdrawal for one with no receipt (D-22), and nothing for an
     /// unblock note, which the person does not withdraw: without it the next turn
@@ -168,8 +171,9 @@ extension Timeline {
     func layout(held: Bool, steerOffered: Bool = false, assistant: String = "Claude") -> ConversationLayout {
         var tray = queueTray(held: held, assistant: assistant)
         let live = liveMessageID != nil
-        if steerOffered, live, let head = steerCandidate(tray), turn(head)?.messageState == .queued, let index = tray.firstIndex(where: { $0.id == head }) {
-            tray[index].canSteer = true
+        if steerOffered, let host = liveMessageID, let head = steerCandidate(tray), turn(head)?.messageState == .queued,
+           let index = tray.firstIndex(where: { $0.id == head }) {
+            tray[index].steerInto = host
         }
         let inTray = Set(tray.map(\.id))
         var shown: [TimelineItem] = []
@@ -323,9 +327,9 @@ extension ConversationStoreState {
         var layout = timeline.layout(held: conversation.blocked_by != nil || conversation.live_elsewhere == true,
                                      assistant: conversation.provider == "codex" ? "Codex" : "Claude")
         if let head = layout.tray.first, timeline.queue.first == head.id,
-           canSteer(messageID: head.id, conversation: conversation, timeline: timeline,
-                    capabilities: availability.capabilities) {
-            layout.tray[0].canSteer = true
+           let host = queuedSteerHost(messageID: head.id, conversation: conversation, timeline: timeline,
+                                      capabilities: availability.capabilities) {
+            layout.tray[0].steerInto = host.messageID
         }
         return layout
     }

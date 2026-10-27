@@ -556,7 +556,11 @@ class CodexAdapter(Adapter):
         argv = [self.codex_bin, "exec", "--json"]
         if job.isolated_review:
             from .isolation import codex_args, validate_isolated_review
-            env = build_environment(credential_env)
+            # D-ENV2 (review r2 of #248, P3-2): the inspection withholds what the launch
+            # does, in or out of a helper scope; `inspect_codex` selects from this env.
+            environment = getattr(self, "provider_environment", None)
+            env = build_environment(credential_env,
+                                    withheld=environment.withheld() if environment is not None else ())
             validate_isolated_review(sandbox, job.review_root, os.environ.keys() | credential_env.keys())
             argv += ["--skip-git-repo-check"]  # The gate's required neutral cwd is not a repository.
             argv += codex_args(self.codex_bin, home=home, workdir=job.workdir, env=env,
