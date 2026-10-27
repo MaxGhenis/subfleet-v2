@@ -5559,21 +5559,8 @@ Only these four mutants ran. Every order/setup guard runs outside the expected a
 - **CI:** keep the 45-minute timeout. Separate the r219 review family from the remaining frontend tests, retain one shared review-probe compile, and refresh whole-file timings from run 40377886461. Projected shard seconds: 1536.3, 1536.3, 1536.3, 1536.2, 1536.2.
 - **Evidence:** short and regrow are red at 07d4348d5; each and the person control pass ten fresh runs on the fix. Four named mutants are killed. Both landed suite layouts used one reveal, and the replay checks outstanding state after the shrink. Two existing check failures passed targeted reruns; the palette follow-up remains separate.
 
-### Uncommitted files for the hub
+### Commits
 
-- `.github/test-shards.json`
-- `app/Sources/ConversationOpeningPin.swift`
-- `app/Sources/UIWindow.swift`
-- `docs/acceptance-contract.md`
-- `docs/desktop/design.md`
-- `docs/reports/2026-10-14-queue-tray.md`
-- `docs/reports/2026-10-26-qt-flake-r9-shards.json`
-- `docs/reports/2026-10-26-qt-flake-r9-validation.json`
-- `tests/frontend/ReviewR219Fix8ViewProbe.swift`
-- `tests/frontend/test_review_r219_fix10_view.py`
-- `tests/frontend/test_review_r219_fix13_view.py`
-- `tests/frontend/test_review_r219_fix8_mutations.py`
-- `tests/unit/test_ci_shard_plugin.py`
-- `tools/ci_shard_plugin.py`
+The lane could not write the shared git metadata, so the hub committed its tree unchanged: `4046e9f7b` (red tests), `4a0b88538` (decision 1, the shard map), `d6fcb89e6` (decision 2, the latch) and this report's commit (decisions 3 to 5's docs).
 
 Cleanup: the scratch folder and this job’s build cache are removed after recording validation; no owned run remains active.
