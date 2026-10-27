@@ -20,12 +20,16 @@ alternation, links before `..`, searchers named by path or quote, and the other 
 (2026-10-26, "r4" below) closes those of the hub's review r3 (REQUEST_CHANGES at `d9d4f355e`): a `..`
 after a glob, a `**/` after a wildcard, every script a shell or `eval` runs, searchers after keywords,
 wrapper options and quotes, brace groups across a `/`, hostile words' cost, a device on stdin,
-print-and-exit forms, `~$USER`, `$"…"` and `/Volumes/<entry>/..`. Nothing here touches the live
-guard; the hub installs it with the steps below.
+print-and-exit forms, `~$USER`, `$"…"` and `/Volumes/<entry>/..`. Round r5 (2026-10-27, "r5" below)
+closes those of the hub's review r4 (REQUEST_CHANGES at `6afb5ce19`): a long word's cost, heredoc
+bodies, a depth bound beside xargs or `-exec`, a root before a closing backtick, bash's `.*` and `.?`,
+the data volume's alias before a mount, commands too long to read, `~{…}`, `~$NAME` and `~$(…)`,
+zsh's `=cmd`, pipes into a shell, `"$@"` scripts, `eval $(…)` and `<&0`. Nothing here touches the
+live guard; the hub installs it with the steps below.
 
 ## What changed
 
-**The hook** (`private/guard/never-rules-hook.sh`, SHA-256 `1d8bc1e5…e58c` after r4v; r4's was `4b382c29…79ec`, r3c's `7a5ad79d…1a1a`, r3b's
+**The hook** (`private/guard/never-rules-hook.sh`, SHA-256 `0b00cc61…789b` after r5; r4v's was `1d8bc1e5…e58c`, r4's `4b382c29…79ec`, r3c's `7a5ad79d…1a1a`, r3b's
 was `f952fd3e…131e`, r3's `2c3fbc1a…d7cf`, r2's `dbe21e1d…041c`). Two alternations join the roots in `broad_re`:
 
 ```
@@ -63,7 +67,7 @@ region's header comments, and since r3c the prefilter's third term, `pw_cmd` in 
 (`dbe21e1d…`); then it undoes D-LANE-SCOPE1's text edits, the two `sed` edits and the `broad_re`
 line and gets the original reviewed bytes (`a60d1c51…`) back.
 
-**TRUST** (`3c7c8af8…f9bb` after r4v; r4's was `807f0e8b…7fb4`, r3c's `68936faf…c91a`, r3b's `0d5dac0f…54d8`, r3's `12b5f31a…58a2`, r2's `aa09f53d…a2f0`). It is built on the installed TRUST of 2026-09-29 (`b3193b97…`, the
+**TRUST** (`09ed48d3…17a8` after r5; r4v's was `3c7c8af8…f9bb`, r4's `807f0e8b…7fb4`, r3c's `68936faf…c91a`, r3b's `0d5dac0f…54d8`, r3's `12b5f31a…58a2`, r2's `aa09f53d…a2f0`). It is built on the installed TRUST of 2026-09-29 (`b3193b97…`, the
 `codex-cli 0.159.0` pin), not on the repository's copy at `abe117e67` (`0b9d688e…`, which still
 pins `codex-cli 0.153.3`; a TRUST built on it would refuse every Codex lane at preflight with
 VERSION, `subfleet/guard/preflight.py:649-650`). It has the same keys. `hook_sha256` is
@@ -874,6 +878,108 @@ and the fence. Every edit still matches the final hook exactly once.
 `807f0e8b…`) is superseded. The installed pair step 0 expects, and the rollback: hook `a60d1c51…`,
 TRUST `b3193b97…` (unchanged by r4 and r4v).
 
+## r5: review r4's findings closed (2026-10-27)
+
+The hub's review r4 (REQUEST_CHANGES at `6afb5ce19`) found three P2s and nine P3s; it added one test
+(`cb63c20a1`, `test_review_r4_pins_r4s_unpinned_readings`), which stays and passes. r5 builds the
+hub's eleven decisions. Every pin is review r4's input or the brief's, judged through the whole hook
+in the fixture (`test_r5_*`), and each command pin also runs in real `/bin/zsh -f` and `/bin/bash`
+3.2 over the fixture with stub searchers (`test_r5_command_pins_agree_with_real_shells`; r5's stubs
+add a `find` that records its argv and runs the real `/usr/bin/find` on the fixture, and no-op `git`
+and `python3`).
+
+**Decisions as built.**
+
+1. **`base()` is one split** (`function base(v, n, a) { n = split(v, a, "/"); return a[n] }`). It
+   was not the only quadratic piece: on a 60,000-character slash-free word the prep still took
+   3.7 s and the no-path pass 2.5 s, and a double-quoted word 6.1 s, because this BSD awk takes a
+   string's length on every `substr`, so every loop that read a long word a character at a time was
+   quadratic (`simple()`'s tokenizer, `value()`, `ansic()`, `sqend()`, `dqend()`, and the judge
+   pass's `sform()`). Each now takes a run of plain characters, or of blanks, with one anchored
+   `match` on a 512-character window, and `lits()` maps a quoted string's `{ } , ( | )` with six
+   `gsub`s. No awk `sub`, `gsub` or `match` in the hook starts with `.*` now; every unanchored one
+   (`subst()`, the judge pass's run and quote matches, the gap's redirection `gsub`, `lits()`) starts
+   with a literal or a one-character class, and the profiler below measured each pass.
+2. **Heredoc bodies are data.** `prep()` finds each `<<WORD`, `<<-WORD`, `<<'WORD'` and `<<"WORD"`
+   (several on a line, in order; a `<<<` is a here-string); the lines after the line that holds it,
+   to its delimiter line (leading tabs stripped for `<<-`), are its body. The body is left out of
+   quote and separator tracking and written out as it stands, so the text rules read it as the
+   installed hook does while the prep's own readings skip it; it is handed to `simple()` as the stdin
+   of its command, so a shell given no script judges it as its script and `cat` writes it to a pipe.
+   `simple()` never receives body text, so its tokenizer needed no change. An unterminated heredoc
+   leaves the rest read as commands.
+3. **A depth bound covers only its own command's walk.** find's own arguments end at `-exec`,
+   `-execdir`, `-ok` and `-okdir`, and only a bound among them exempts find's walk. The command each
+   runs is judged on its own (`execs()`), `{}` standing for find's roots (`.` when it names none). A
+   bounded command keeps its words for the xargs rule (`bound()`): its searcher names become `:` and
+   find's roots are written as the shell reads them, so a bounded `find X | xargs <searcher>` is
+   judged with X as the consumer's roots. A bound on the consumer still exempts it.
+4. **One copy of the overlay doc.** Its lines 236-408 (the old body, from the original pair's table
+   to r3c's list with the removed sentence) are gone, so the new pair's table follows r4's known
+   differences; no heading and no three-line block repeats (`test_r5_the_overlay_doc_holds_one_copy_of_its_body`).
+5. **A closing backtick ends a root:** the prep adds a space before it too, and `root_end` stops at a
+   backtick. *Deviation:* `` echo "`rg --files ~/.subfleet`" `` stayed allowed with both, since the
+   text rules collapse a double-quoted string as prose before reading a position (the same holds for
+   `echo "$(rg --files ~/.subfleet)"`). A command substitution inside double quotes runs, so the prep
+   now judges its command as its own lines (`spans()`). Two pins were added: `` echo `rg --files /usr` ``
+   and `echo "$(rg --files /usr)"`, a root only the path-word pass knows.
+6. **A component bash can match against `..` names its folder and its parent.** `pw_dotdot` asks
+   bash's own `[[ .. == pattern ]]` of a component with a literal leading dot (a bracket never
+   matches a leading dot in bash 3.2: `[.]*` and `?.` match nothing); `pw_alt` judges every reading
+   with each such component as itself, `.` or `..` (folded too), in every context. *Deviation:* a word
+   with more than three such components is denied unread (3^m readings otherwise). `rg foo .*rc` is
+   unchanged.
+7. **No disk call inside a stall mount.** `pw_mount` folds the data volume's alias (any letter case,
+   repeated) before the stall test, at the top of `pw_physical` and for every step, and a step under a
+   mount is taken by name. `R3C_MOUNT_WORDS` gains ten spellings (`…/Data/Volumes/Backup/x/..`,
+   `…/Data/net`, `…/Data/home`, `…/Data/Network`, two letter cases, three later globs, a glob entry),
+   and `inside_a_mount` folds the alias too; the wrapped `lstat` records no call inside a mount.
+8. **A command too long to prep fails closed:** over 64 KB and naming a searcher, it is denied with
+   "Command too long to judge"; a 65,600-character `echo` naming none is allowed.
+9. **A root spelling right before `{` is a path word** (`~`, `~name`, `$HOME`, `${HOME}`,
+   `$SUBFLEET_*`), so its brace expansion is judged; `rg foo src/{a,b}.py` and `rg foo {src,tests}`
+   stay allowed.
+10. **The wider user and volume family.** Any `~` followed by `$`, `${`, `$(` or a backtick is the
+    home (`pw_tilde` drops the user part; r4's three spellings are now this one reading), and the prep
+    reads a word that starts `~$(` or `` ~` `` from `~` on, judging the substitution's command on its
+    own (a space inside it no longer splits the word). A glob word that climbs out of a `/Volumes`
+    entry with `..` is also read from `/` (`pw_voldots` on the glob word), so
+    `/Volumes/M*/../Users/tester/.subfleet` is judged like its written form.
+11. **The unjudged forms.** `=rg`, `=find` and `=grep` pass the prefilter (a sixth term) and read as
+    the searcher in command position, after a wrapper too; a pipe carries what every earlier stage
+    writes into a shell given no script (printf's format takes its arguments in order, `%b` decoded;
+    any other stage writes its words); a `-c` script that only runs its arguments (`"$@"`, `$@`, `"$1"`,
+    `$*`) runs the words after its name operand, and under xargs such a script, or a `-c` with no
+    script, runs what xargs reads; what a command substitution in `eval`'s arguments writes, quoted or
+    not, is a script; `<&0` and `0<&0` leave rg's stdin as it was. No must-allow case moved, so
+    nothing here went to the known limits.
+
+**The hub's decisions 12 and 13.** `test_review_r4_pins_r4s_unpinned_readings` passes. TRUST changes
+only `hook_sha256` (no decision changes what the provenance says); steps 0 and 2 of the install list
+the installed pair and the new one, and the rollback pair stays `a60d1c51…`/`b3193b97…`.
+
+**Red runs at `cb63c20a1`.** Through the probe (the fixture seam, home `/Users/tester`), 56 of the 68
+fast must-deny inputs were allowed and every must-allow case was allowed; the long-word rows took
+27-83 s (four at a time, load 32-39), and both 65,600-character forms were allowed. Under the lock
+(admitted 12:44:24Z, load 54), `test_r5_*` and the mount test at the red-test commit: 12 failed (the
+timing test by the 120 s hook timeout), 2 passed (`test_review_r4_pins_r4s_unpinned_readings` and
+`test_r5_scoped_searches_stay_allowed`).
+
+**Profiling the passes** (`prof.sh` in the build's scratch: the prep, the no-path pass and the judge
+pass's pass 1, alone, one 60,000-character word beside `rg foo src`, at load 40-60):
+
+| Word | `base()` split only: prep / no-path / pass 1 | Final: prep / no-path / pass 1 |
+| --- | --- | --- |
+| `x…` | 3.65 / 2.54 / 0.12 s | 0.19 / 0.38 / 0.40 s |
+| `"x…"` | 3.97 / 5.91 / 8.61 s | 0.80 / 1.33 / 0.46 s |
+| `'x…'` | — | 0.23 / 0.30 / 0.59 s |
+| `$'x…'` | 4.06 / 2.99 / 1.23 s | 0.18 / 0.10 / 0.05 s |
+| `` `echo x…` `` | — | 0.24 / 0.11 / 0.11 s |
+| 60,000 blanks | — | 0.51 / 0.30 / 0.32 s |
+| 4,000 × `word` | — | 0.22 / 0.28 / 0.27 s |
+
+R5_RESULTS_PLACEHOLDER
+
 ## Invariants and how they were checked
 
 `tests/unit/test_guard_subfleet_root.py` states each in its docstring and checks it.
@@ -1116,9 +1222,9 @@ the first three entries below into D-LANE-SCOPE2.
   (`rg -l foo ~/*/src` passes; under a folder that is not, it is no match: `~/PolicyEngine/*/src`
   passes, as snapshot-5 has it); an unquoted depth-bound spelling used as a value still exempts
   its command (`rg -e --max-depth ~`); a nested script is judged in its shell's reading but
-  without the outer command's cd; and a top-level word is read the zsh way only, which for every
-  r3c form denies whatever bash's reading would (bash refuses `(a|b)`, leaves `/[^/]*` unmatched
-  and reads `**` and `***` as `*`), so "deny if either shell denies" holds without a second pass.
+  without the outer command's cd; and a top-level word is read the zsh way, plus (r5 decision 6) bash's
+  reading of a component bash 3.2 can match against `..`; the other bash readings known here
+  (`(a|b)` refused, `/[^/]*` unmatched, `**` and `***` read as `*`) walk no more than zsh's.
 - **r4's limits.** Shared with snapshot-5 and still open: zsh qualifiers and glob modifiers are not
   judged (`*(/)`, and `:h`: `rg foo ~/work/repo(:h:h)` walks the home and passes), nor are `<1-9>`
   and extendedglob forms; a glob in a folder that cannot hold a root is not listed, so a link inside
@@ -1133,7 +1239,25 @@ the first three entries below into D-LANE-SCOPE2.
   group read as `*` that holds a `/` or a `..` component fails closed (`rg foo src/{a,b/c}{1..9}`
   in a worktree is denied); and the cap's scanned edge (64 `{` or `[` in just under 4 KB) costs
   seconds at load ~100. The differences from snapshot-5 in either direction are listed in
-  `docs/private-guard-overlay.md`, "Known differences that remain after r4".
+  `docs/private-guard-overlay.md`, "Known differences that remain after r5".
+- **r5's limits.** Moved here rather than built, each measured on this head:
+  - a heredoc body read by something other than a shell given no script gets no prep reading:
+    `source /dev/stdin <<'EOF'⏎\rg --files ~/.subfleet⏎EOF` passes (`. /dev/stdin` and a
+    `while read` loop that runs its lines are the same form; the body's text is still read by the
+    text rules, so a plain `rg --files ~/.subfleet` in it is denied);
+  - a tilde-prefix that holds an expansion after a name (`~x$USER/.subfleet`) is no path word, as
+    before; decision 10 reads only `~` followed straight by `$` or a backtick;
+  - what a command substitution in `eval`'s arguments writes is modeled for `echo`, `print`, `printf`
+    and `cat`, and any other command contributes its words only;
+  - a hostile word made of characters the prep reads one at a time (thousands of `$`, `#` or
+    backslash pairs) still costs a pass per character; the brief's timing rows (slash-free `x` words,
+    quoted, in backticks, a 4,000-word message) are under 3 s.
+  The over-approximations r5 adds: a heredoc body no shell runs is still read by the text rules
+  (`cat > notes.md <<'EOF'⏎find / -name x⏎EOF` is denied, as by the installed hook); a command over
+  64 KB naming a searcher anywhere, prose included, is denied unread; a word with more than three
+  components bash can match against `..` is denied unread; a pipe into a shell given no script reads
+  every earlier stage's words as script lines; and, with xargs running a searcher, a bounded find's
+  root counts like any other word of the command.
 - **Over-approximations shared with every root.** With xargs running a searcher, a new root
   anywhere in the command counts (`ls -t ~/.subfleet/jobs | head -5 | xargs -I{} rg -l foo ~/.subfleet/jobs/{}/a1`
   and `… | xargs rg foo > ~/.subfleet/out.log` are denied); a `cd ~/.subfleet` (or a child) with
@@ -1162,9 +1286,9 @@ could time out).
    shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST
    # a60d1c514d3a3bcec68c246a33c849c11fd37e1bdf60d886650cd9d6651390db  …/never-rules-hook.sh
    # b3193b97d712bda6a5cc0f2447907e674f7ed90911a82d7709de8298b42aaa06  …/TRUST
-   shasum -a 256 private/guard/never-rules-hook.sh private/guard/TRUST   # the reviewed pair (r4v)
-   # 1d8bc1e54f8e1838dd21b09026119beda53e0c293c0cafb905527b701e5fe58c  private/guard/never-rules-hook.sh
-   # 3c7c8af80f34f0b8f8419355db66d654b730d08a37bc510f0bcacc8247f8f9bb  private/guard/TRUST
+   shasum -a 256 private/guard/never-rules-hook.sh private/guard/TRUST   # the reviewed pair (r5)
+   # 0b00cc6182af3cb19abdc78b74492b00c5a1b22c53e224c2ce65481e6744789b  private/guard/never-rules-hook.sh
+   # 09ed48d336d868d32ac6612035fcad272f27ff5ac81c9616cfa11841d0df17a8  private/guard/TRUST
    ```
 
 1. **Stage through the repository's staging path**, into a fresh state root on the same volume
@@ -1201,7 +1325,7 @@ could time out).
    EOF
    cmp private/guard/never-rules-hook.sh ~/.subfleet/guard/never-rules-hook.sh
    cmp private/guard/TRUST ~/.subfleet/guard/TRUST
-   shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST   # 1d8bc1e5…e58c, 3c7c8af8…f9bb
+   shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST   # 0b00cc61…789b, 09ed48d3…17a8
    ls -la ~/.subfleet/guard
    ```
 

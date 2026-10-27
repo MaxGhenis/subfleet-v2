@@ -85,7 +85,7 @@ are unchanged. The test fixture in `tests/fake/guard.py` is deliberately synthet
 and must never be staged as operator security policy. It is absent from both
 prepared distributions, and the runtime has no test-fixture fallback.
 
-## Policy revision: ~/.subfleet roots (D-LANE-SCOPE1, 2026-10-24; r2, r3 and r3b 2026-10-25; r3c 2026-10-26)
+## Policy revision: ~/.subfleet roots (D-LANE-SCOPE1, 2026-10-24; r2, r3 and r3b 2026-10-25; r3c and r4 2026-10-26; r5 2026-10-27)
 
 The table above is the original pair of 2026-09-05. It is not the rollback: its TRUST
 (`0b9d688e…`) pins `codex-cli 0.153.3`, and staging it would make preflight refuse every
@@ -178,11 +178,35 @@ no path, with a device or a closed stdin (`</dev/null`, `<&-`), searches its cwd
 home, `$"…"` is read as `"…"`, and a searcher's `/Volumes/<entry>/..` is also read with the entry as
 `/` (the boot volume's alias is a link to `/`).
 
+Its r5 (2026-10-27) closes the walk-arounds of the hub's review r4. A long word with no slash costs
+what a short one does (awk's `base()` is one split, and the command prep reads runs of plain
+characters at once). A heredoc's body (`<<WORD`, `<<-WORD`, `<<'WORD'`, `<<"WORD"`, several on a
+line in order) is data: the prep leaves it out of its quote and separator tracking, so an
+apostrophe in it hides nothing after it, and its text is read by the text rules as written; a
+heredoc that feeds a shell given no script (`bash <<EOF`, `sh -s <<'EOF'`) is that shell's script,
+and one fed to `cat` is what cat writes to a pipe. A depth bound covers only its own command's walk:
+a bounded `find X -maxdepth N … | xargs <searcher>` is judged with X as the consumer's roots, and the
+command `-exec`, `-execdir`, `-ok` or `-okdir` runs is judged on its own with `{}` as find's roots
+(`find . -maxdepth 1 -exec rg foo ~ \;` is denied). A root right before a closing backtick ends
+there, and a command substitution inside double quotes is judged on its own
+(`echo "$(rg --files ~/.subfleet)"`). A glob component bash 3.2 can match against `..` (`.*`, `.?`,
+`.[.]`, `.[!a]`) is read as its folder and as that folder's parent in every context, and more than
+three such components in one word are denied. No step through the data volume's alias into a mount
+that may stall is stat'ed (`/System/Volumes/Data/Volumes/<entry>/x/..`). A command over 64 KB that
+names a searcher is denied as too long to judge. `~`, `~name`, `$HOME` and `$SUBFLEET_*` right
+before a brace group are path words (`~{,/.subfleet}`); `~` followed by `$`, `${`, `$(` or a
+backtick is the home (`~$LOGNAME`, `~$(id -un)`); a glob word climbing out of a `/Volumes` entry
+with `..` is also read from `/`. zsh's `=rg` and `=find` are the searcher; a pipe carries what every
+earlier stage writes into a shell given no script (`… | cat | bash`, `… | tee /dev/null | bash`,
+printf's format with its arguments in order); a `-c` script that only runs its arguments (`"$@"`,
+`$@`, `"$1"`, `$*`) runs the words after its name, and under xargs what xargs reads; what a command
+substitution in `eval`'s arguments writes is a script; and `<&0` leaves rg's stdin as it was.
+
 **Against the Claude half** (`~/.claude/hooks/unscoped_search.py`, session 7f214082's snapshot-5):
 the path words follow its roots, normalization, letter case, links, stall mounts, step-by-step
 globs and computed list of folders a glob reads, and the command reading follows its keywords,
 wrapper table, shell options, `eval`, stdin scripts, stdin model and print-and-exit forms. Their
-shared limits are in the report's known limits. Known differences that remain after r4, read from
+shared limits are in the report's known limits. Known differences that remain after r5, read from
 the code as it stands:
 
 - **Forms this overlay lets through and snapshot-5 judges.**
@@ -207,6 +231,11 @@ the code as it stands:
     another option's value (`rg -e --max-depth ~`); snapshot-5 reads the options.
   - rg reading its patterns from stdin (`cat p | rg -f -` sitting in the home) counts as fed;
     snapshot-5 counts `-f -` as leaving `.` searched.
+  - A heredoc body read by something other than a shell given no script is data for the prep:
+    `source /dev/stdin <<EOF`, `. /dev/stdin`, or a `while read` loop that runs its lines, gets no
+    prep reading of its body (its text is still read by the text rules).
+  - What a command substitution in `eval`'s arguments writes is modeled for `echo`, `print`,
+    `printf` and `cat`; any other command contributes only its words (`eval "$(sed … file)"`).
 - **Places this overlay is stricter than snapshot-5.**
   - A quoted glob is judged as if unquoted (`find . -path '/tmp/*'`).
   - r3's trailing-`/*` rule runs before the glob (`rg x ~/Pol*/*` is `~/PolicyEngine`).
@@ -232,6 +261,14 @@ the code as it stands:
     a script reading (`echo bash -c 'rg --files ~/.subfleet'` is denied); a name written with a
     path, a quote or a backslash is read only in command position, as snapshot-5 reads every name.
   - ugrep's `-NUM` is no depth bound here (`ugrep -r -3 x ~/` is denied).
+  - A heredoc body no shell runs is still read by the text rules, as the installed hook reads it
+    (`cat > notes.md <<'EOF'⏎find / -name x⏎EOF` is denied); snapshot-5 reads it as data.
+  - A command over 64 KB that names a searcher anywhere, prose included, is denied unread.
+  - A component bash can match against `..` is read as its parent in zsh's reading too, and a word
+    with more than three such components is denied unread.
+  - A pipe into a shell given no script reads every earlier stage's words as its script, also for a
+    filter whose output differs from its words, and a `{}` in what find's `-exec` runs stands for all
+    of find's roots.
 
 | File | SHA-256 |
 | --- | --- |
