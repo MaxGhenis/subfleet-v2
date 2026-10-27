@@ -215,6 +215,39 @@ def test_the_retry_clock_runs_from_the_probes_reservation(routing_state, monkeyp
                                               "next_check_at": service.store.get_job(job_id)["next_check_at"]}
 
 
+@pytest.mark.parametrize("ran_s", [0, 7, 60, 75])
+def test_the_retry_clock_is_not_recomputed_after_the_wait_is_recorded(routing_state, monkeypatch, ran_s):
+    """I3 uses the reservation and one decision instant even if the pass later stalls."""
+    service, harness = routing_state
+    clock = {"now": stand_still(monkeypatch)}
+
+    def stamp(value):
+        return value.isoformat(timespec="seconds").replace("+00:00", "Z")
+
+    monkeypatch.setattr(daemon_module, "utcnow", lambda: stamp(clock["now"]))
+    monkeypatch.setattr(daemon_module, "after", lambda seconds: stamp(clock["now"] + timedelta(seconds=seconds)))
+    job_id = submit(service, harness)
+    probes = Probes(service, monkeypatch, [(CUT, ran_s)])
+    capacity_wait, decision_instants = service._capacity_wait, []
+
+    def then_the_pass_stalls(waiting_job, signature, hold, **kwargs):
+        repeat = capacity_wait(waiting_job, signature, hold, **kwargs)
+        if waiting_job == job_id and hold["reason"] == "probe-pending":
+            decision_instants.append(clock["now"])
+            clock["now"] += timedelta(seconds=125)
+        return repeat
+
+    monkeypatch.setattr(service, "_capacity_wait", then_the_pass_stalls)
+    service._admit()
+    assert len(decision_instants) == 1
+    expected = stamp(max(decision_instants[0], moment(probes.reserved[job_id]) + timedelta(seconds=PROBE_RETRY_S)))
+    assert service.store.get_job(job_id)["next_check_at"] == expected
+    assert service._holds[job_id]["next_check_at"] == expected
+    event = service.store.query("SELECT data_json FROM events WHERE kind='job.probe_waiting' "
+                                "AND data_json<>'{}'")[-1]
+    assert json.loads(event["data_json"])["next_check_at"] == expected
+
+
 def host_running_late(patch) -> dict:
     """The time as daemon.py reads it (`datetime.now`): the host's clock, `late` on, which a test
     moves on where a loaded host's pass spends seconds (D-PROBE-TEST-CLOCK1)."""
