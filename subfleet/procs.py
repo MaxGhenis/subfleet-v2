@@ -774,10 +774,10 @@ def responsible_for(root: int) -> frozenset[int]:
 def marker_unread(pid: int) -> str:
     """C-5.5: the error a census records when `pid`'s marker read fails, a buffer that may
     be cut short or a refusal while the process is there and not exiting. Measured on the
-    shared host on 2026-10-27 (load 19 to 43), every refusal was a newborn of this user
-    (a shell, python, cargo, git, gh, codex, ...) between fork and exec, refused with EIO or
-    EINVAL for at most about a second, and none filled the buffer; 2.3% of whole-host
-    passes met one (`docs/reports/2026-10-27-quar-start1-census-under-load.md`)."""
+    shared host on 2026-10-27 (load 19 to 43), every refusal was of a newborn of this user
+    (bash, zsh, sh, python, claude, codex, cargo, git, ...), refused with EIO or EINVAL in
+    its first milliseconds and read whole, or gone, soon after; none filled the buffer, and
+    20 of 900 whole-host passes met one (`docs/reports/2026-10-27-quar-start1-census-under-load.md`)."""
     return f"marker read unavailable for pid {pid}"
 
 

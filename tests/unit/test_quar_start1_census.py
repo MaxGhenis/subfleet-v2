@@ -4,9 +4,9 @@
 failed 5 of 6 runs, at `c9430763f` and at #270's head alike. In each failure the census
 at which the extension ended was unverifiable with one error, "marker read unavailable
 for pid N", N a process other than the guardian, and the guardian was KILLed while it was
-still starting. Measured the same day at load 19 to 43: every refused read was a newborn of
-this user between fork and exec (EIO or EINVAL, at most about a second old), 1 whole-host
-pass in 43 met one, and none filled the buffer
+still starting. Measured the same day at load 19 to 43: every refused read was of a newborn
+of this user (EIO or EINVAL, in its first milliseconds, read whole or gone soon after), 20 of
+900 whole-host passes met one, and none filled the buffer
 (`docs/reports/2026-10-27-quar-start1-census-under-load.md`).
 
 1. The census names the processes whose marker read failed (`markers_unread`) and stays
@@ -14,9 +14,11 @@ pass in 43 met one, and none filled the buffer
    errors.
 2. Start grace's extension is granted past such a census, and past no other: the guardian's
    own failed read, any other error, another member, a stopped guardian and the bound still
-   end it through the existing branch.
+   end it through the existing branch. (2b) The guardian's own identity readers, `sysctl`
+   and `ps`, its children in its group for a few milliseconds before `start.json`, are the
+   one kind of member admitted beside it.
 3. The premise, executed: before `start.json` the guardian starts no process that carries the
-   attempt's markers.
+   attempt's markers, and none but its identity readers.
 4. Mutants of each part fail a named test here.
 
 No real process is inspected or signalled except in 3, where the identity readers of an
@@ -68,7 +70,7 @@ def extension(daemon) -> list[dict]:
 def test_a_refused_marker_read_is_named_and_leaves_the_census_unverifiable(monkeypatch):
     world = World(ATTEMPT, "/state").install(monkeypatch)
     world.add(GUARDIAN, 1, GUARDIAN, start=STARTED, marked=True)
-    world.add(7000, 1, 7000)                            # a newborn stranger, between fork and exec
+    world.add(7000, 1, 7000)                            # a newborn stranger, in its first milliseconds
     world.add(7001, 1, 7001)                            # a stranger read whole
     world.fail_reads[7000] = ALWAYS
     census = census_of(world)
@@ -156,7 +158,7 @@ def test_no_extension_past_any_other_unread_census(daemon, world, monkeypatch, w
     if why == "guardian-unread":
         world.fail_reads[GUARDIAN] = ALWAYS
     if why == "unread-member":
-        world.add(4250, GUARDIAN, GUARDIAN)             # in the guardian's group, its read refused
+        world.add(4250, 1, GUARDIAN)                    # in the guardian's group, not its child, its read refused
         world.fail_reads[4250] = ALWAYS
     contain, first = daemon._contain, []
 
@@ -229,6 +231,97 @@ def test_extension_is_granted_exactly_while_every_condition_holds_whatever_the_c
         assert not extends
 
 
+# 2b. The guardian's own identity readers.
+
+READER = 4243
+
+
+@pytest.mark.parametrize("unread", [False, True])
+def test_the_guardians_identity_reader_does_not_end_a_slow_start(daemon, world, monkeypatch, unread):
+    """Before `start.json` the guardian runs `sysctl` and `ps` (`procs._read`), each a child
+    in its group for a few milliseconds; a census that lands on one sees two members. Taken
+    in that child's first milliseconds (`unread`), its marker read fails as well."""
+    guardian = world.add(GUARDIAN, 1, GUARDIAN, start=STARTED, marked=True, ignores_term=True, term_handler=True)
+    reader = world.add(READER, GUARDIAN, GUARDIAN)
+    if unread:
+        world.fail_reads[READER] = ALWAYS
+    starting(daemon, expired_s=1)
+    for _ in range(3):
+        daemon._inspect_next.pop(ATTEMPT, None)
+        daemon.__dict__.setdefault("_cwd_wait_next", {}).pop(ATTEMPT, None)
+        daemon._process_attempt(ATTEMPT)
+        assert attempt(daemon)["state"] == "starting" and not world.signals and guardian.alive
+    assert extension(daemon)[0] == {"guardian_pid": GUARDIAN, "start_grace_s": START_GRACE_S,
+                                    "start_grace_max_s": MAX_S, "identity_readers": [READER],
+                                    **({"markers_unread": [READER]} if unread else {})}
+    reader.alive = False                                # the reader exits; start.json lands
+    publish(daemon, "start.json", START)
+    daemon._inspect_next.pop(ATTEMPT, None)
+    daemon._process_attempt(ATTEMPT)
+    assert attempt(daemon)["state"] == "running" and not world.signals
+
+
+@pytest.mark.parametrize("member", ["marked-child", "stopped-child", "grandchild", "own-group", "marked-grandchild"])
+def test_no_extension_beside_any_member_but_an_identity_reader(daemon, world, monkeypatch, member):
+    """Only an unmarked, running direct child in the guardian's group is admitted beside it:
+    any other member still ends start grace through the group KILL, with the abandon first."""
+    guardian = world.add(GUARDIAN, 1, GUARDIAN, start=STARTED, marked=True, ignores_term=True, term_handler=True)
+    if member in ("grandchild", "marked-grandchild"):
+        world.add(READER, GUARDIAN, GUARDIAN)
+        world.add(4244, READER, GUARDIAN, marked=member == "marked-grandchild")
+    else:
+        world.add(READER, GUARDIAN, READER if member == "own-group" else GUARDIAN,
+                  marked=member == "marked-child", stopped=member == "stopped-child")
+    starting(daemon, expired_s=1)
+    seen = abandon_seen_at_each_signal(daemon, world, monkeypatch)
+    a = settle(daemon)
+    assert "attempt.start_extended" not in kinds(daemon)
+    assert seen and all(seen), seen
+    assert not guardian.alive and guardian.ended_by == KILL
+    assert world.signals[0] == ("group", GUARDIAN, KILL), world.signals
+    assert (a["state"], a["outcome_detail"]) == ("failed", "starting-no-receipt"), a
+
+
+@settings(max_examples=300, deadline=None, database=None, derandomize=True,
+          suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow])
+@given(members=st.lists(st.fixed_dictionaries({
+    "child": st.booleans(), "own_group": st.booleans(), "stat": st.sampled_from(["S", "R", "U", "T", "Z", ""]),
+    "marked": st.booleans(), "grouped": st.booleans(), "shaped": st.booleans()}), max_size=4),
+    held=st.booleans())
+@example(members=[{"child": True, "own_group": False, "stat": "S", "marked": False, "grouped": True, "shaped": True}],
+         held=False)
+def test_the_identity_readers_are_exactly_the_unmarked_running_children_in_the_guardians_group(
+        daemon, members, held):
+    """For every census: `_identity_readers` is the set of live members other than the
+    guardian whose shape has the guardian as parent and its group as group, whose state is
+    neither stopped nor zombie, that are in the group's members and not marked; and the
+    extension, every other condition holding, is granted iff every other member is one."""
+    world = World(ATTEMPT, str(daemon.root))
+    with pytest.MonkeyPatch.context() as patch:
+        world.install(patch)
+        world.add(GUARDIAN, 1, GUARDIAN, start=STARTED, marked=True)
+        daemon.store.update_attempt(ATTEMPT, state="starting", child_pid=None)
+        daemon.start_grace_s = START_GRACE_S
+        pids = [4300 + n for n in range(len(members))]
+        shapes = {GUARDIAN: {"ppid": 1, "pgid": GUARDIAN, "stat": "S"}}
+        shapes.update({pid: {"ppid": GUARDIAN if m["child"] else 4299, "pgid": pid if m["own_group"] else GUARDIAN,
+                             "stat": m["stat"]} for pid, m in zip(pids, members) if m["shaped"]})
+        census = procs.Containment(
+            group_pids=frozenset({GUARDIAN} | {pid for pid, m in zip(pids, members) if m["grouped"]}),
+            descendant_pids=frozenset(pid for pid, m in zip(pids, members) if not m["grouped"]),
+            marker_pids=frozenset({GUARDIAN} | {pid for pid, m in zip(pids, members) if m["marked"]}),
+            identities={GUARDIAN: world.identity(GUARDIAN)}, shapes=shapes,
+            held_pids=frozenset({4299}) if held else frozenset())
+        a = attempt(daemon)
+        readers = Daemon._identity_readers(a, census)
+        extends = daemon._start_extends(a, census, time.monotonic() - 1 + START_GRACE_S)
+    expected = {pid for pid, m in zip(pids, members)
+                if m["child"] and not m["own_group"] and m["grouped"] and m["shaped"] and not m["marked"]
+                and m["stat"][:1] not in ("T", "Z")}
+    assert readers == expected, (members, readers)
+    assert extends == (not held and set(pids) == expected), (members, held)
+
+
 # 3. The premise: before start.json, nothing the guardian starts carries the attempt's markers.
 
 MARKERS = ("SUBFLEET_ATTEMPT", "SUBFLEET_ROOT")
@@ -279,7 +372,9 @@ def test_before_its_start_json_the_guardian_starts_nothing_that_carries_the_atte
     assert rc == 0
     before = [(name, marked) for published, marked, name in spawned if not published]
     after = [(name, marked) for published, marked, name in spawned if published]
-    assert {name for name, _ in before} >= {"sysctl", "ps"}, spawned   # the identity readers ran, and were seen
+    # The identity readers ran, were seen, and are all it starts before start.json: the only
+    # children `_identity_readers` admits beside it (2b).
+    assert {name for name, _ in before} == {"sysctl", "ps"}, spawned
     assert not any(marked for _, marked in before), before
     assert after and all(marked for _, marked in after), after          # the provider does carry them
 
@@ -308,6 +403,23 @@ MUTANTS = {
     "unread-unrecorded": ("stranger", None,
                           [(procs, "containment", [("unread = {pid for pid in candidates if marker_unread(pid) in refused}",
                                                     "unread = set()")])]),
+    # The guardian's identity readers are not admitted: H1 is lost.
+    "no-readers": ("reader", False,
+                   [(Daemon, "_start_extends", [("census.live_pids - readers != {guardian}",
+                                                 "census.live_pids != {guardian}")])]),
+    # Any child in the group is admitted, a marked one too.
+    "readers-marked": ("beside", "marked-child",
+                       [(Daemon, "_identity_readers", [("and pid not in census.marker_pids)", "and True)")])]),
+    # A stopped child is admitted.
+    "readers-stopped": ("beside", "stopped-child",
+                        [(Daemon, "_identity_readers", [('.startswith(("T", "Z"))', '.startswith("Z")')])]),
+    # Any member of the group is admitted, a grandchild too.
+    "readers-grandchild": ("beside", "grandchild",
+                           [(Daemon, "_identity_readers", [("shape.get(\"ppid\") == guardian and ", "")])]),
+    # Any child is admitted, in a group of its own too.
+    "readers-own-group": ("beside", "own-group",
+                          [(Daemon, "_identity_readers", [("shape.get(\"pgid\") == group and pid in census.group_pids",
+                                                           "True")])]),
 }
 
 
@@ -319,6 +431,10 @@ def test_d4_mutant_fails_its_named_regression(mutant, daemon, world, monkeypatch
         replace_function(monkeypatch, owner, name, changes)
     if regression == "extension":
         test_no_extension_past_any_other_unread_census(daemon, world, monkeypatch, parameter)
+    elif regression == "reader":
+        test_the_guardians_identity_reader_does_not_end_a_slow_start(daemon, world, monkeypatch, parameter)
+    elif regression == "beside":
+        test_no_extension_beside_any_member_but_an_identity_reader(daemon, world, monkeypatch, parameter)
     else:
         test_a_strangers_refused_marker_read_does_not_end_a_slow_start(daemon, world, monkeypatch)
 
