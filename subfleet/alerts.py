@@ -15,11 +15,8 @@ from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timedelta
 from typing import Any
 
-from .status_json import CREDENTIAL_VERDICTS, closure_note, dispatchable, instant, lane_verdict, timestamp
-
-
-def _home(lane: Mapping[str, Any]) -> str:
-    return str(lane.get("home") or lane.get("credential_ref") or lane["lane_id"])
+from .render import _held_text, lane_home as _home
+from .status_json import CREDENTIAL_VERDICTS, dispatchable, instant, lane_verdict, timestamp
 
 
 def _login(lane: Mapping[str, Any]) -> str:
@@ -165,15 +162,13 @@ def fleet_empty_body(provider: str, causes: Mapping[str, list[Mapping[str, Any]]
     """D-STATUS-SRC1: the fleet-empty alert's body, naming each cause with its count.
 
     Only provider-limited lanes are called limited. Held lanes carry their
-    operators' notes, each once, and when the first of them is free again."""
+    operators' notes and latest release bounds through the shared hold renderer."""
     parts = []
     held = causes.get("held") or []
     if held:
-        notes = dict.fromkeys(note for lane in held for row in lane.get("closures", ())
-                              if (note := closure_note(row)))
-        end = _earliest(held, held=True)
-        details = [*notes, *([f"earliest end {end}"] if end else [])]
-        parts.append(f"{len(held)} held by operator" + (f" ({'; '.join(details)})" if details else ""))
+        details = [_held_text(row, home=_home(lane)) for lane in held for row in lane.get("closures", ())
+                   if row.get("reason") == "operator-hold"]
+        parts.append(f"{len(held)} held (" + "; ".join(details) + ")")
     limited = causes.get("limited") or []
     if limited:
         reset = _earliest(limited, held=False)

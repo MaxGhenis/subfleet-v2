@@ -296,6 +296,7 @@ HANDLER_MESSAGES: dict[str, tuple[str, str | None]] = {
                                "token and cannot be bound to an account (C-10.6)"),
     # Lanes: holds, releases and transfers (C-9.6, C-10.4).
     "unknown-lane": ("lanes {action}: unknown lane {lane_id}", "subfleet lanes list"),
+    "hold-until-past": ("lanes hold: --until must be in the future; hold is not in force", None),
     "hold-until": ("lanes hold: --until must be an ISO 8601 instant", None),
     # The rule a note broke (`contracts.hold_note`), never the note (review r1 of #263).
     "hold-note": ("lanes hold: {hold_rule}", None),
