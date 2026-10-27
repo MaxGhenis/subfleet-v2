@@ -156,6 +156,7 @@ class TurnRunner:
         self.replayed_message = USER_FRAME in self.sent
         self.handshake_done_once = False
         self.relay_failed = False
+        self.relay_io_ended = False             # permanent, independent of the child
         self.exit_proved_at: float | None = None
         self.handshaken = False
         self.optional_ack_lost = False         # a title write went unanswered: resynchronize first
@@ -271,7 +272,7 @@ class TurnRunner:
     def steerable(self) -> bool:
         """The request handler's fast check; handover rechecks on the runner thread."""
         return (self.replay_caught_up and not self.ended and not self.finished.is_set()
-                and not self.withheld and not self.relay_failed and self.stop_reason is None
+                and not self.withheld and not self.relay_io_ended and self.stop_reason is None
                 and self.stop_at is None and "close" not in self.sent
                 and self.driver.outcome is None and bool(getattr(self.driver, "steerable", False)))
 
@@ -686,7 +687,7 @@ class TurnRunner:
         and a frame shown `pending` a moment earlier is not mistaken for a failure.
         It also carries the relay's frame cap. A relay older than version 2 has
         no status; its log is read as before."""
-        if self.handshaken:
+        if self.relay_io_ended or self.handshaken:
             return True
         try:
             status = self.relay.status()
@@ -748,12 +749,12 @@ class TurnRunner:
 
     def _send_frames(self) -> None:
         while self.outbox:
-            if self.outbox[0].op == "close" and self._title_holds():
-                return                          # the title's answer, its budget, or anything else first
-            if self.relay_failed:
-                self._discard_steers("relay-failed")
+            if self.relay_io_ended:
+                self._discard_steers("relay-failed" if self.relay_failed else "provider-ended")
                 self.outbox.clear()
                 return
+            if self.outbox[0].op == "close" and self._title_holds():
+                return                          # the title's answer, its budget, or anything else first
             if self.resends and self.clock() < self.resend_at:
                 return                          # IR-27: the next try waits its turn
             if self.optional_ack_lost:
@@ -764,7 +765,7 @@ class TurnRunner:
             if not self._handshake():
                 return
             frame = self.outbox[0] if self.outbox else None
-            if frame is None or self.relay_failed:
+            if frame is None or self.relay_io_ended:
                 self.outbox.clear()
                 return
             if self.sent.get(frame.tag) == "written":
@@ -813,6 +814,8 @@ class TurnRunner:
 
     def _transmit(self, frame: Frame) -> bool:
         """Send the head frame and act on the answer; whether the outbox may go on."""
+        if self.relay_io_ended:
+            return False
         # C-9.2 / D-WALL1: queuing a stop is not delivery. The builder knows
         # its protocol: approval cancel/abort replies can stop just as interrupts,
         # signals and stdin close can. A lost answer leaves the intent pending.
@@ -926,7 +929,7 @@ class TurnRunner:
         runner is told of (`interrupt`) or a command it is sent (a steer, an answer).
         The rest is this thread's own state, checked at the claim and unchanged since
         (the claim and the write are one `_apply`). In-memory only, never I/O."""
-        return self.stop_reason is None and self.commands.empty()
+        return not self.relay_io_ended and self.stop_reason is None and self.commands.empty()
 
     def _send_title(self) -> bool:
         """Write the claimed title request: one line, at most TITLE_LINE_MAX bytes, to
@@ -936,7 +939,7 @@ class TurnRunner:
         it but the stdin close it holds. A refused, oversized or unanswered write is
         never retried and never fails the relay: the close resynchronizes first
         (`_send_frames`). It uses only the relay's `send`. Whether anything changed."""
-        if self.title.state != CLAIMED:
+        if self.relay_io_ended or self.title.state != CLAIMED:
             return False
         if not self.title.begin_write(self._title_may_write):
             self.end_title("not-quiescent")
@@ -1023,7 +1026,7 @@ class TurnRunner:
             self.handshaken = False
             if not self._handshake():
                 return "wait"
-            if self.relay_failed or USER_FRAME in self.sent:
+            if self.relay_io_ended or USER_FRAME in self.sent:
                 return "again"                # handed over (or lost): not this runner's to withdraw
         return "withdraw"
 
@@ -1044,7 +1047,7 @@ class TurnRunner:
             self.handshaken = False
             if not self._handshake():
                 return "wait"
-            if self.relay_failed or f"steer:{message_id}" in self.sent:
+            if self.relay_io_ended or f"steer:{message_id}" in self.sent:
                 return "again"
         row = self.store.find_message(message_id)
         host = self.store.find_message(self.message_id)
@@ -1073,7 +1076,9 @@ class TurnRunner:
         """Nothing more can be written (C-26.4). A proved child exit leaves the
         outcome to stdout and EOF. Otherwise a turn with no terminal event is
         stopped, skipping the relay steps so containment ends it (D-13, design §6)."""
+        self.relay_io_ended = True
         if child_exited or self._process_gone():
+            self.end_title("provider-ended")
             # Refusal after a proved exit is the provider's end, not a stop.
             # Keep the proof even if the guardian never publishes exit.json.
             # The stdout drain, bounded from the first proof, decides the outcome.
@@ -1083,6 +1088,7 @@ class TurnRunner:
             self.outbox.clear()
             return
         self.relay_failed = True
+        self.end_title("relay-failed")
         self._discard_steers("relay-failed")
         self.outbox.clear()
         if self.log:
