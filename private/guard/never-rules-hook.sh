@@ -1427,7 +1427,7 @@ pw_dotdot() {
   pw_pattern "$1" || return 0
   shopt -q nocasematch && nc=1
   shopt -q extglob && e=1
-  shopt -u nocasematch extglob
+  shopt -u extglob nocasematch
   [[ .. == $pw_pat ]] && r=0
   [ -z "$nc" ] || shopt -s nocasematch
   [ -z "$e" ] || shopt -s extglob
