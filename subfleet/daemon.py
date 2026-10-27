@@ -64,7 +64,7 @@ from .contracts import (
     AttestationResult, ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
     Reading, ReadingLabel, Sandbox, attempt_dir, hold_note, hold_source,
 )
-from .status_json import closure_rows, decision_rows
+from .status_json import closure_row, closure_rows, decision_rows, timestamp
 from .credentials import (env_references, ignored_hooks, reference_repair, resolve_credential, startup_lanes,
                           withheld_references)
 from .provider_env import ProviderEnvironment
@@ -1403,11 +1403,22 @@ class Daemon:
                 rule = str(refused)
                 raise protocol.ProtocolError(f"lanes hold: {rule}", Exit.INVALID_INPUT, reason="hold-note",
                                              details={"hold_rule": rule}) from None
-            until_utc = instant.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            data = {"until": until_utc} if note is None else {"until": until_utc, "note": note}
+            until_utc = timestamp(instant)
+            if until_utc <= utcnow():
+                raise protocol.ProtocolError("lanes hold: --until must be in the future; hold is not in force",
+                                             Exit.INVALID_INPUT, reason="hold-until-past")
+            # Store.put_closure may keep the existing row on an earlier/equal end.
+            # Fill the event inside this transaction from the row that actually won.
+            data = {}
             with self.store.transaction("lane.held", lane_id=a.lane_id, data=data):
-                self.store.add_closure(Closure(a.lane_id, "account", until_utc, ClosureReason.OPERATOR_HOLD,
-                                               ClockSource.REPORTED, hold_source(note)))
+                closure_id = self.store.add_closure(Closure(
+                    a.lane_id, "account", until_utc, ClosureReason.OPERATOR_HOLD,
+                    ClockSource.REPORTED, hold_source(note)))
+                applied = closure_row(self.store.one("SELECT * FROM closures WHERE closure_id=?", (closure_id,)))
+                data["until"] = applied["until_at"]
+                if applied["note"] is not None:
+                    data["note"] = applied["note"]
+                kept = applied["until_at"] != until_utc or applied["note"] != note
         else:
             with self.store.transaction("lane.released", lane_id=a.lane_id) as tx:
                 tx.execute("UPDATE closures SET released_at=? WHERE lane_id=? AND reason='operator-hold' "
@@ -1417,8 +1428,8 @@ class Daemon:
         view = closure_rows(self._capacity_view(self._desktop_identity()))
         return {"held": a.lane_id if a.action == "hold" else None,
                 "released": a.lane_id if a.action == "release" else None,
-                # D-STATUS-SRC1: the note as recorded, so a CLI can tell it was.
-                **({"note": note} if a.action == "hold" else {}),
+                # C-9.6: the applied note, including a row kept on a non-extending call.
+                **({"note": applied["note"], "kept": kept} if a.action == "hold" else {}),
                 "lanes": view["lanes"], "closures": view["closures"]}
 
     def _release_lane_limits(self, a: protocol.LanesArgs) -> dict:
