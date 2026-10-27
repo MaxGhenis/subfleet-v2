@@ -36,6 +36,10 @@ reached the held states it is there to check (`reaching`): a held job taken, a p
 backoff, a job that was reset-credit demand when its hold landed, and the reset timer's pending
 transaction run after a hold landed (`test_t7_the_reset_timer_spends_nothing_for_a_held_job`).
 
+Fix round 5 adds a separate generated interleaving: a new hold, replacement or release
+commits after the pass copies its job and before its door writes. T6 is checked against
+the unheld gap, and each ending event must name the row's end exactly once.
+
 Bounded: 25 examples per property (`TASK_HOLD_EXAMPLES` resizes them), derandomized,
 no example database, so a plain run is repeatable and leaves no `.hypothesis`.
 `TASK_HOLD_SHARD=1` allows `--hypothesis-seed` to select independent smaller runs
@@ -58,7 +62,7 @@ from subfleet import task_holds
 from subfleet.contracts import TRANSIENT_RETRY_DELAY_S, Exit
 from tests.disk_floor_model import stamp
 from tests.task_hold_mutants import MUTANTS
-from tests.task_hold_support import (attempts, configure, finalize_transient, finish, fresh_daemon, hold,
+from tests.task_hold_support import (attempts, configure, finalize_transient, finish, fresh_daemon, hold, job,
                                      legacy_retry, release, restart, submit, turn)
 
 EXAMPLES = int(os.environ.get("TASK_HOLD_EXAMPLES", "25"))
@@ -823,3 +827,77 @@ def test_the_properties_against_a_mutant(name, prop, monkeypatch):
     if report:
         with open(report, "a", encoding="utf-8") as out:
             out.write(json.dumps(cell) + "\n")
+
+
+@st.composite
+def midpass_hold_commits(draw):
+    """A command commits after the pass copies its job and before either door write."""
+    operation = draw(st.sampled_from(("new", "replacement", "release")))
+    first_end = draw(st.integers(15, 25))
+    commit_at = draw(st.integers(first_end + 1, first_end + 30))
+    expires_before_door = draw(st.booleans())
+    return operation, first_end, commit_at, expires_before_door
+
+
+@SETTINGS
+@example(command=("new", 25, 40, False))
+@example(command=("new", 25, 55, False))
+@example(command=("new", 25, 40, True))
+@example(command=("replacement", 25, 40, True))
+@example(command=("release", 25, 40, False))
+@given(command=midpass_hold_commits())
+def test_t6_time_between_holds_counts_once_when_a_hold_commits_midpass(command):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    from tests.fake.test_task_hold_clocks import events, fails_exactly_at, stuck
+
+    operation, old_end, commit_at, expires_before_door = command
+    with fresh_daemon() as (service, harness, clock, signals), pytest.MonkeyPatch.context() as patch:
+        build = stuck(service, harness, clock, "pinned")
+        clock[0] = 10
+        first_end = old_end if operation == "new" else 1000
+        hold(service, "build", stamp(first_end))
+        copied, resume = (threading.Barrier(2, timeout=20) for _ in range(2))
+        original = service._task_holds_now
+        once = [False]
+
+        def read(*args, **kwargs):
+            if not once[0]:
+                once[0] = True
+                copied.wait()
+                resume.wait()
+            return original(*args, **kwargs)
+
+        patch.setattr(service, "_task_holds_now", read)
+        clock[0] = commit_at - 2
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            passing = pool.submit(service._admit_kind, "detached")
+            copied.wait()
+            clock[0] = commit_at
+            if operation == "release":
+                release(service, "build")
+                ended_at, left = commit_at, 50
+            else:
+                second_end = commit_at + 2 if expires_before_door else 2000
+                hold(service, "build", stamp(second_end))
+                # Independent T6 model: only the unheld gap old_end..commit counts.
+                left = 50 - (commit_at - old_end) if operation == "new" else 50
+                ended_at = second_end if expires_before_door else 100
+            clock[0] = commit_at + 6
+            resume.wait()
+            passing.result(timeout=25)
+        patch.setattr(service, "_task_holds_now", original)
+        clock[0] = 100
+        if operation != "release":
+            release(service, "build")
+        expected = ended_at + left
+        row = job(service, build)
+        assert (row["wait_reason"], row["next_check_at"]) == ("capacity", stamp(expected)), (
+            "T6-midpass: time between holds counted twice", command, dict(row))
+        endings = events(service, build, "job.task_hold_ended")
+        ends = [event["ended_at"] for event in endings]
+        assert ends == ([stamp(old_end), stamp(ended_at)] if operation == "new" else [stamp(ended_at)]), (
+            "T6-midpass: a hold ending was applied more than once or at a copied clock", command, endings)
+        # Some expiries leave a deadline before the next command at 100; revisit
+        # it directly without making the model depend on when a pass notices it.
+        fails_exactly_at(service, clock, build, expected)

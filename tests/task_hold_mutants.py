@@ -256,3 +256,41 @@ MUTANTS = {
     "admission-writes-over-the-hold": admission_writes_over_the_hold,
     "retry-deadline-from-the-attempt-end": retry_deadline_from_the_attempt_end,
 }
+
+
+def legacy_fallback_from_job_clock(patch):
+    replace_method(patch, "_kept_retry", "deadline = _later(accepted[0], TRANSIENT_RETRY_DELAY_S)",
+                   "deadline = clock")
+
+
+def replacement_judged_at_request_clock(patch):
+    _request_clock_mutant(patch, "if not task_holds.in_force_now(replaced, now):",
+                         "if not task_holds.in_force_now(replaced, asked):")
+
+
+def until_validated_at_request_clock(patch):
+    _request_clock_mutant(patch, "until = task_holds.until_text(a.until, now)",
+                         "until = task_holds.until_text(a.until, asked)")
+
+
+def _request_clock_mutant(patch, old, new):
+    declaration = '    data: dict[str, Any] = {"task": task, "note": note, "replaced": None}\n'
+    source = textwrap.dedent(inspect.getsource(Daemon._hold_task))
+    assert declaration in source and old in source
+    source = source.replace(declaration, declaration + "    asked = utcnow()\n").replace(old, new)
+    namespace = {}
+    exec(source, vars(daemon_module), namespace)
+    patch.setattr(Daemon, "_hold_task", namespace["_hold_task"])
+
+
+def ending_uses_pass_clock(patch, *, explicit):
+    """R5-1: remove just one of the two row-clock ending protections."""
+    source = textwrap.dedent(inspect.getsource(Daemon._task_hold_ended))
+    if explicit:
+        old, new = "if ended_at is not None and seen != ended_at:", "if False:"
+    else:
+        old, new = "end = seen if seen and not _earlier(now, seen) else now", "end = clock if clock and not _earlier(now, clock) else now"
+    assert old in source
+    namespace = {}
+    exec(source.replace(old, new), vars(daemon_module), namespace)
+    patch.setattr(Daemon, "_task_hold_ended", namespace["_task_hold_ended"])

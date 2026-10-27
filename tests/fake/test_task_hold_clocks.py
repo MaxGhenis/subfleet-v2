@@ -23,12 +23,13 @@ Every case runs on the real daemon pass, in process, on a virtual clock.
 from __future__ import annotations
 
 import contextlib
+import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from subfleet import daemon as daemon_module
+from subfleet import daemon as daemon_module, protocol
 from subfleet.contracts import TRANSIENT_RETRY_DELAY_S, Exit
 from tests.disk_floor_model import stamp
 from tests.task_hold_support import (attempts, configure, finalize_transient, finish, fresh_daemon, hold, job,
@@ -704,3 +705,280 @@ def test_hold_and_release_clocks_are_sampled_after_finalizer_lock_wait(operation
 
         assert job(service, build)["next_check_at"] == stamp(expected), (
             f"R4-commit-clock: {operation} used its clock before the finalizer's lock wait", dict(job(service, build)))
+
+
+# Fix round 5: the review's executed inputs, on the real pass and writer.
+def events(service, job_id, kind):
+    return [json.loads(r["data_json"]) for r in service.store.query(
+        "SELECT data_json FROM events WHERE job_id=? AND kind=? ORDER BY event_id", (job_id, kind))]
+
+
+@pytest.mark.parametrize("h1_at", [40, 55], ids=["H1-at-40-restores-135", "H1-at-55-waits-until-120"])
+def test_r5_1_door_gives_an_ended_hold_back_twice(h1_at, monkeypatch):
+    with fresh_daemon() as (service, harness, clock, signals):
+        build = stuck(service, harness, clock, "pinned")            # grace 60 from 0
+        clock[0] = 10
+        hold(service, "build", stamp(25))                            # H0: 50 s left from 25
+        before_read, read_on = threading.Barrier(2, timeout=20), threading.Barrier(2, timeout=20)
+        original_read = service._task_holds_now
+        once = [False]
+
+        def read(*args, **kwargs):
+            if not once[0]:
+                once[0] = True
+                before_read.wait()
+                read_on.wait()
+            return original_read(*args, **kwargs)
+        monkeypatch.setattr(service, "_task_holds_now", read)
+        clock[0] = h1_at - 2
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            admission = pool.submit(service._admit_kind, "detached")
+            before_read.wait()                                       # rows copied: task-held, clock 25
+            clock[0] = h1_at
+            hold(service, "build", stamp(1000))                      # H1 ends H0 and takes the job
+            read_on.wait()
+            admission.result(timeout=25)
+        monkeypatch.setattr(service, "_task_holds_now", original_read)
+        takes = events(service, build, "job.task_held")
+        ended = events(service, build, "job.task_hold_ended")
+        clock[0] = 100
+        release(service, "build")
+        released = dict(job(service, build))
+        at(service, clock, 100)
+        after = dict(job(service, build))
+        correct = 175 - h1_at
+        print("R5-1", {"h1_at": h1_at, "paused": [t.get("pin_paused_s") for t in takes],
+                       "ended": [(e.get("ended_at"), e.get("pin_fail_at")) for e in ended],
+                       "released_next_check": released["next_check_at"], "correct": stamp(correct),
+                       "at_100": (after["state"], after["rc"], after["wait_reason"])})
+        assert [t.get("pin_paused_s") for t in takes] == [50.0, 75.0 - h1_at], (
+            "R5-1: the door gave H0's end back again over H1's take", takes)
+        assert (after["state"], after["wait_reason"], after["next_check_at"]) == (
+            "waiting", "capacity", stamp(correct)), ("R5-1: grace lost to a second give-back", after)
+        fails_exactly_at(service, clock, build, correct)
+
+
+def test_r5_1b_door_ends_a_later_hold_at_the_copied_clock(monkeypatch):
+    with fresh_daemon() as (service, harness, clock, signals):
+        build = stuck(service, harness, clock, "pinned")
+        clock[0] = 10
+        hold(service, "build", stamp(25))
+        before_read, read_on = threading.Barrier(2, timeout=20), threading.Barrier(2, timeout=20)
+        original_read = service._task_holds_now
+        once = [False]
+
+        def read(*args, **kwargs):
+            if not once[0]:
+                once[0] = True
+                before_read.wait()
+                read_on.wait()
+            return original_read(*args, **kwargs)
+        monkeypatch.setattr(service, "_task_holds_now", read)
+        clock[0] = 38
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            admission = pool.submit(service._admit_kind, "detached")
+            before_read.wait()
+            clock[0] = 40
+            hold(service, "build", stamp(42))
+            committed = dict(job(service, build))
+            clock[0] = 46
+            read_on.wait()
+            admission.result(timeout=25)
+        monkeypatch.setattr(service, "_task_holds_now", original_read)
+        row = dict(job(service, build))
+        ended = events(service, build, "job.task_hold_ended")
+        print("R5-1b", {"after_commit": (committed["wait_reason"], committed["next_check_at"]),
+                        "after_door": (row["wait_reason"], row["next_check_at"]),
+                        "ended": [(e.get("ended_at"), e.get("pin_fail_at")) for e in ended],
+                        "correct": stamp(77)})
+        assert (committed["wait_reason"], committed["next_check_at"]) == ("task-held", stamp(42))
+        assert (row["wait_reason"], row["next_check_at"]) == ("capacity", stamp(77)), (
+            "R5-1b: the door ended H1 at the copy's clock", row, ended)
+        fails_exactly_at(service, clock, build, 77)
+
+
+def test_a_quarantined_probes_wait_has_no_person_answer(monkeypatch):
+    """R5-4a: confirm-dead cannot resolve a probe; a person can cancel its job."""
+    from tests.fake.test_probe_recovery import reserved_probe, exit_receipts
+    with fresh_daemon() as (service, harness, clock, signals):
+        build = submit(service, harness, "build", "probe-person")
+        record = reserved_probe(service, build, state="quarantined")
+        exit_receipts(record)
+        hold(service, "build", stamp(1000))
+        from subfleet.procs import Containment, ProcessIdentity
+        census = Containment(marker_pids=frozenset({900003}), identities={
+            900003: ProcessIdentity(900003, "boot", "escaped")})
+        monkeypatch.setattr(service, "_probe_census", lambda record: census)
+        service._recover_probes()
+        assert job(service, build)["wait_reason"] == "uncertain"
+        answer = service.kill(protocol.KillArgs(job_id=build, confirm_dead=True, operator_note="checked"))
+        print("R5-PROBE-CONFIRM-DEAD", answer)
+        assert answer["status"] == "not quarantined"
+        assert job(service, build)["wait_reason"] == "uncertain"
+        cancelled = service.kill(protocol.KillArgs(job_id=build))
+        print("R5-PROBE-CANCEL", cancelled, job(service, build)["state"])
+        assert job(service, build)["state"] == "cancelled"
+
+
+def legacy_finalized(service, harness, clock, patch, *, finalized_at, stall):
+    """As legacy_retry, execute real finalization then remove only retry_due_at.
+
+    Move the wall clock after its deadline read and before its attempt.accepted
+    stamp. This pins the reviewed input without depending on Git history in CI.
+    """
+    build = submit(service, harness, "build", "legacy-stall")
+    service._admit()
+    [attempt] = attempts(service, build)
+    fake_after = daemon_module.after
+    moved = [False]
+
+    def after(seconds):
+        value = fake_after(seconds)
+        if seconds == TRANSIENT_RETRY_DELAY_S and not moved[0]:
+            moved[0] = True
+            clock[0] += stall
+        return value
+    with patch.context() as inner:
+        inner.setattr(daemon_module, "after", after)
+        finalize_transient(service, attempt, clock=clock, finalized_at=finalized_at)
+    assert moved[0]
+    evidence = json.loads(attempts(service, build)[0]["evidence_json"])
+    assert evidence.pop("retry_due_at") == stamp(finalized_at + TRANSIENT_RETRY_DELAY_S)
+    with service.store.transaction("test.legacy_attempt", attempt_id=attempt["attempt_id"]) as tx:
+        tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?",
+                   (json.dumps(evidence), attempt["attempt_id"]))
+    accepted = service.store.one("SELECT ts FROM events WHERE kind='attempt.accepted' AND attempt_id=?",
+                                 (attempt["attempt_id"],))
+    return build, accepted["ts"]
+
+
+@pytest.mark.parametrize("schedule", ["held-92-released-93", "held-92-expired-93"])
+def test_legacy_recheck_after_the_backoff_is_no_deadline(schedule):
+    """r2's F2 input on a legacy row (no `retry_due_at`): the retry's deadline passed at 60 and
+    the job's clock (121) is a C-6.10 recheck. The hold keeps nothing; the build starts at 93."""
+    with fresh_daemon(lanes=1, caps={"max_in_flight_per_lane": 1}) as (service, harness, clock, signals):
+        build, blocking = blocked_retry(service, harness, clock)
+        first = attempts(service, build)[0]
+        evidence = json.loads(first["evidence_json"])
+        evidence.pop("retry_due_at")
+        with service.store.transaction("test.legacy_attempt", attempt_id=first["attempt_id"]) as tx:
+            tx.execute("UPDATE attempts SET evidence_json=? WHERE attempt_id=?", (json.dumps(evidence), first["attempt_id"]))
+        clock[0] = 92
+        hold(service, "build", stamp(93))
+        at(service, clock, 92)
+        take = events(service, build, "job.task_held")[-1]
+        assert take["kept"] is None, ("R5-legacy-F2: the hold kept a recheck as a legacy deadline", take)
+        clock[0] = 93
+        if schedule == "held-92-released-93":
+            release(service, "build")
+        finish(service, blocking)
+        service._admit()
+        assert retried_at(service, build) == stamp(93), (
+            "R5-legacy-F2: the hold kept a recheck as a legacy deadline", dict(job(service, build)))
+
+
+def behind_finalizer(service, harness, clock, patch, kind, request, *, request_at, commit_at=50):
+    """A real finalizer of an unrelated review holds the store writer; `request()` (whose
+    transaction is `kind`) is made at `request_at` and waits for it; the finalizer lets
+    go at `commit_at`. The request's answer, or the exception it raised."""
+    review = submit(service, harness, "review", "lock-owner", pinned_lane="codex-2")
+    service._admit()
+    [attempt] = attempts(service, review)
+    inside, resume, waiting = (threading.Barrier(2, timeout=20) for _ in range(3))
+    original = service.store.transaction
+
+    @contextlib.contextmanager
+    def transaction(name="state.changed", **kwargs):
+        if name == kind:
+            waiting.wait()
+        with original(name, **kwargs) as tx:
+            if name == "attempt.accepted":
+                inside.wait()
+                resume.wait()
+            yield tx
+    patch.setattr(service.store, "transaction", transaction)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            finishing = pool.submit(finalize_transient, service, attempt)
+            inside.wait()
+            clock[0] = request_at
+            changing = pool.submit(request)
+            waiting.wait()
+            clock[0] = commit_at
+            resume.wait()
+            finishing.result(timeout=25)
+            try:
+                return changing.result(timeout=25)
+            except Exception as exc:              # noqa: BLE001
+                return exc
+    finally:
+        patch.setattr(service.store, "transaction", original)
+
+
+def test_hold_replacement_requested_before_the_first_hold_expires_commits_after(monkeypatch):
+    """Grace 60 from 0; hold to 30 at 10; a replacement to 1000 asked at 20 commits at 50,
+    after the first hold ended unseen at 30. Used: 0-10 and 30-50 (30 s); 30 s are left at
+    50, so a release at 100 restores 130 (the request's clock would say 150)."""
+    with fresh_daemon() as (service, harness, clock, signals):
+        build = stuck(service, harness, clock, "pinned")
+        clock[0] = 10
+        hold(service, "build", stamp(30))
+        answer = behind_finalizer(service, harness, clock, monkeypatch, "task.held",
+                                  lambda: hold(service, "build", stamp(1000)), request_at=20)
+        assert isinstance(answer, dict), answer
+        print("R5-EXPIRY-DURING-HOLD-WAIT", {"replaced": answer["replaced"], "since": answer["task_hold"]["since"]})
+        assert answer["replaced"] is None and answer["task_hold"]["since"] == stamp(50), (
+            "R5-hold-expiry-wait: replacement judged at the request's clock", answer)
+        clock[0] = 100
+        release(service, "build")
+        assert job(service, build)["next_check_at"] == stamp(130), (
+            "R5-hold-expiry-wait: replacement judged at the request's clock", dict(job(service, build)))
+        fails_exactly_at(service, clock, build, 130)
+
+
+def test_release_requested_before_the_hold_expires_commits_after(monkeypatch):
+    """Hold to 30 at 10; a release asked at 20 commits at 50, after the hold ended unseen at
+    30: the grace runs again from 30 with its 50 s, due 80 (the request's clock: 70)."""
+    with fresh_daemon() as (service, harness, clock, signals):
+        build = stuck(service, harness, clock, "pinned")
+        clock[0] = 10
+        hold(service, "build", stamp(30))
+        answer = behind_finalizer(service, harness, clock, monkeypatch, "task.released",
+                                  lambda: release(service, "build"), request_at=20)
+        print("R5-EXPIRY-DURING-RELEASE-WAIT", answer, dict(job(service, build))["next_check_at"])
+        assert answer["was_held"] is False and answer["woken"] == 1
+        assert job(service, build)["next_check_at"] == stamp(80), dict(job(service, build))
+        fails_exactly_at(service, clock, build, 80)
+
+
+def test_hold_whose_end_passes_during_the_writer_wait_is_refused(monkeypatch):
+    with fresh_daemon() as (service, harness, clock, signals):
+        build = stuck(service, harness, clock, "pinned")
+        answer = behind_finalizer(service, harness, clock, monkeypatch, "task.held",
+                                  lambda: hold(service, "build", stamp(40)), request_at=20)
+        print("R5-UNTIL-PASSED-DURING-WAIT", repr(answer))
+        assert isinstance(answer, protocol.ProtocolError) and answer.reason == "task-hold-until", (
+            "R5-until-wait: a hold already past its end was written", answer)
+        assert not service.store.query("SELECT 1 FROM leases WHERE lease_key LIKE 'task-hold:%'")
+        assert not service.store.query("SELECT 1 FROM events WHERE kind='task.held'")
+        fails_exactly_at(service, clock, build, 60)
+
+
+@pytest.mark.documented_limitation
+def test_legacy_clock_step_back_is_an_intended_deadline_violation(monkeypatch):
+    """R5-4b: a -5 s wall-clock step makes the legacy retry start at 155, against 160."""
+    with fresh_daemon() as (service, harness, clock, signals):
+        build, accepted = legacy_finalized(service, harness, clock, monkeypatch,
+                                           finalized_at=100, stall=-5)
+        assert accepted == stamp(95)
+        assert job(service, build)["next_check_at"] == stamp(160)
+        service = restart(service, harness)
+        clock[0] = 96
+        hold(service, "build", stamp(1000))
+        clock[0] = 97
+        release(service, "build")
+        assert job(service, build)["next_check_at"] == stamp(155)
+        at(service, clock, 154)
+        assert retried_at(service, build) is None
+        at(service, clock, 155)
+        assert retried_at(service, build) == stamp(155) < stamp(160)

@@ -8,6 +8,7 @@ one each for fix round 2's F1 and F2, and one each for fix round 3's R3-1 and
 R3-2; fix round 3 (R3-3) gave round 1's two reset-demand mutants back their
 own definitions and scenarios that reach them with the commit's take intact.
 Fix round 4 adds three direct named pairs, outside the opt-in property registry.
+Fix round 5 adds both row-clock endings and three formerly unpinned rule pairs.
 """
 
 from __future__ import annotations
@@ -358,3 +359,40 @@ def test_the_baseline_passes_and_the_mutant_fails_the_named_assertion(name, monk
         with pytest.raises(AssertionError, match=f"^{tag}:"):
             scenario()
     scenario()                                          # and as built again, once the patch is gone
+
+
+@pytest.mark.parametrize("name", ["ending-with-ended-at", "ending-without-ended-at",
+                                  "legacy-fallback-from-job-clock", "replacement-at-request",
+                                  "until-at-request"])
+def test_round_five_mutant_fails_its_named_assertion(name, monkeypatch):
+    from tests.fake import test_task_hold_clocks as clocks
+    from tests import task_hold_mutants as mutations
+
+    pairs = {
+        "ending-with-ended-at": (
+            lambda p: mutations.ending_uses_pass_clock(p, explicit=True),
+            lambda p: clocks.test_r5_1_door_gives_an_ended_hold_back_twice(40, p), "R5-1:"),
+        "ending-without-ended-at": (
+            lambda p: mutations.ending_uses_pass_clock(p, explicit=False),
+            clocks.test_r5_1b_door_ends_a_later_hold_at_the_copied_clock, "R5-1b:"),
+        "legacy-fallback-from-job-clock": (
+            mutations.legacy_fallback_from_job_clock,
+            lambda p: clocks.test_legacy_recheck_after_the_backoff_is_no_deadline("held-92-released-93"),
+            "R5-legacy-F2:"),
+        "replacement-at-request": (
+            mutations.replacement_judged_at_request_clock,
+            clocks.test_hold_replacement_requested_before_the_first_hold_expires_commits_after,
+            "R5-hold-expiry-wait:"),
+        "until-at-request": (
+            mutations.until_validated_at_request_clock,
+            clocks.test_hold_whose_end_passes_during_the_writer_wait_is_refused, "R5-until-wait:"),
+    }
+    mutate, scenario, tag = pairs[name]
+    with monkeypatch.context() as baseline:
+        scenario(baseline)
+    with monkeypatch.context() as mutated:
+        mutate(mutated)
+        with pytest.raises(AssertionError, match=tag):
+            scenario(mutated)
+    with monkeypatch.context() as restored:
+        scenario(restored)
