@@ -241,14 +241,17 @@ def _loads(text: str | None) -> dict[str, Any]:
 def legacy(read: Read) -> dict[str, list[str]]:
     """job id -> the places a job that has not ended, queued before submit
     recorded `depends`, needs (`record`, read now). Filesystem work: retention
-    calls it once a pass, outside any transaction; no such job is newer than the
+    calls it once a pass, outside any transaction, spelling the legacy workdir
+    too: release no longer caches job.folder_spelled between admission looks.
+    No such job is newer than the
     pass, since no daemon that reads this queues one."""
     found: dict[str, list[str]] = {}
     for row in read(_LIVE, ()):
         if needed(_loads(row["submitted"])) is not None or not row["workdir"]:
             continue
         depends = record(row["workdir"], review_root=row["review_root"], out_path=row["out_path"])
-        found[row["job_id"]] = [path for _, path in needed({"depends": depends}) or ()]
+        found[row["job_id"]] = [folders.canonical(row["workdir"]),
+                                *(path for _, path in needed({"depends": depends}) or ())]
     return found
 
 

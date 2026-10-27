@@ -314,13 +314,13 @@ def test_c8_4_a_pending_export_keeps_the_tree_and_a_written_one_goes_into_the_ar
                                   sha256=hashlib.sha256(contents).hexdigest(), bytes=len(contents))
         daemon.store.update_attempt(attempt, state="succeeded")
         daemon.store.update_job(job, state="succeeded", accepted_attempt_id=attempt)
-        assert lease(daemon, f"out:{out}") == job              # ended, its export not written yet
+        assert lease(daemon, f"out:{folders.identity(str(out))}") == job              # ended, its export not written yet
         result = retire(daemon)
         assert "retired" not in result["pruned"] and result["pin_reasons"].get("retired") == "worktree-in-use", result
         assert Path(tree).is_dir() and not out.exists()
         daemon._export(job)
         assert out.read_bytes() == contents and daemon._job(job)["export_error"] is None
-        assert lease(daemon, f"out:{out}") is None
+        assert lease(daemon, f"out:{folders.identity(str(out))}") is None
         result = retention.maintenance(daemon.store, daemon.root, max_jobs=0, max_bytes=0, referenced_job_ids=[job],
                                        holders=lambda watches, **_: {})
         assert result["pruned"] == ["retired"], result

@@ -1065,7 +1065,7 @@ A vouched salvage is present in every case. The oracle checks kept trees and
 registrations or imports the verified bundle into an independent repository and
 compares restored entries byte for byte.
 
-I16 tests (2026-10-06): `tests/unit/test_retention_dependencies.py` states D1 to
+I16 tests (2026-10-06): `tests/unit/test_retention_dependency_units.py` states D1 to
 D6. Generated layouts of repositories and linked checkouts check that the git
 directory and common directory git itself uses are among the recorded git
 storage; generated stores check `worktree-in-use` (pass and `only`) and the

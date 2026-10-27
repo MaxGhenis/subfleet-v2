@@ -525,3 +525,28 @@ def test_the_commit_reads_dependents_on_the_journals_spelling(world, monkeypatch
 def snapshot_of(path: Path):
     from tests.unit.retention_world import snapshot
     return snapshot(path)
+
+
+def test_a_legacy_firmlink_folder_is_spelled_before_the_pin_transaction(tmp_path):
+    """Release respells legacy folders per look, without caching folder_spelled.
+    The retention pass must spell that old workdir off the lock too, including
+    a plain folder with no nested repository to supply a git-storage dependency.
+    """
+    root = tmp_path / "state"
+    tree = root / "worktrees" / "owner"
+    tree.mkdir(parents=True)
+    canonical = folders.canonical(tree)
+    firm = Path("/System/Volumes/Data" + canonical)
+    if not firm.is_dir() or not firm.samefile(canonical):
+        pytest.skip("requires the Data volume firmlink")
+    store = Store(root / "subfleet.db")
+    try:
+        store.add_job(job_id="owner", request_id="owner", payload_digest="d", kind="dispatch", state="succeeded",
+                      workdir=str(tmp_path / "neutral"), worktree=canonical, prompt_path="/p", sandbox="workspace-write")
+        store.add_job(job_id="legacy", request_id="legacy", payload_digest="d", kind="dispatch", state="queued",
+                      workdir=str(firm), prompt_path="/p", sandbox="read-only")
+        places = dependencies.legacy(store.query)
+        with store.transaction():
+            assert retention._pin_reasons(store, set(), None, root=root, legacy=places).get("owner") == "worktree-in-use"
+    finally:
+        store.close()
