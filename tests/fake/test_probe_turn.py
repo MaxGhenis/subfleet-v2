@@ -45,7 +45,9 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
+import sys
 import tempfile
+import time
 
 from hypothesis import HealthCheck, given, settings, strategies as st
 import pytest
@@ -922,6 +924,53 @@ def test_no_sequence_of_probe_outcomes_lets_a_later_job_take_a_waiters_probe(job
         assert set(started(service)) == set(ids) - killed
 
 
+
+# --- I3 on a loaded host (D-PROBE-TEST-CLOCK1) ---------------------------------------------------
+
+#: Examples whose vehicle I3 checks after a probe that ran its whole minute or more, so the clock the
+#: pass wrote is the instant it ran at: the one Hypothesis reported from a review lane at load 39 to 61,
+#: and one of each pair that lane saw, (180, 183) on the slow lane and (60, 63).
+LOADED = {
+    "reported": dict(jobs=[("astra", None), ("terra", None), ("astra", None), ("terra", None), ("astra", None)],
+                     outcomes=[(CUT, 90), OK], steps=[("due", 0)], bad={"codex-2"}),
+    "slow-lane-180": dict(jobs=[("astra", "codex-2"), ("astra", "codex-2")], outcomes=[], steps=[("due", 0)],
+                          bad={"codex-2"}),
+    "minute-60": dict(jobs=[("astra", None), ("astra", None)], outcomes=[(CUT, 60)], steps=[("due", 0)], bad=set()),
+}
+
+
+@pytest.mark.parametrize("example", list(LOADED.values()), ids=list(LOADED))
+def test_i3_reads_the_instant_the_pass_ran_at_however_long_the_pass_takes(monkeypatch, example):
+    """D-PROBE-TEST-CLOCK1: the property above, on examples it failed on at load 39 to 61, with the
+    host's clock three seconds on each time a pass has written a vehicle's clock, as the rest of a
+    pass takes on a loaded host. I3 is about the clock the pass wrote, not how long the pass took."""
+    property_fleet = fleet
+
+    @contextmanager
+    def loaded():
+        with property_fleet() as (service, harness, patch):
+            host = {"late": timedelta(0)}
+
+            class HostClock(datetime):
+                """The time as daemon.py reads it: the host's clock, `late` on."""
+                @classmethod
+                def now(cls, tz=None):
+                    return datetime.now(tz) + host["late"]
+            patch.setattr(daemon_module, "datetime", HostClock)
+            transaction = service.store.transaction
+
+            @contextmanager
+            def then_the_rest_of_the_pass(kind="state.changed", **kwargs):
+                with transaction(kind, **kwargs) as tx:
+                    yield tx
+                if kind == "job.probe_waiting":
+                    host["late"] += timedelta(seconds=3)
+            patch.setattr(service.store, "transaction", then_the_rest_of_the_pass)
+            yield service, harness, patch
+    monkeypatch.setattr(sys.modules[__name__], "fleet", loaded)
+    test_no_sequence_of_probe_outcomes_lets_a_later_job_take_a_waiters_probe.hypothesis.inner_test(**example)
+
+
 # --- the rule itself ----------------------------------------------------------------------------
 
 WAITERS = st.lists(st.tuples(st.sampled_from(["astra", "terra", "opus"]),
@@ -943,3 +992,18 @@ def test_the_turn_is_the_first_waiter_that_could_use_the_probe(waiters, lane, mo
     # A line with nobody in it, or only waiters on other models, holds nobody.
     assert scheduler.probe_turn([], lane, model) is None
     assert scheduler.probe_turn([row for row in line if row[1] != model], lane, model) is None
+
+
+def test_the_rule_is_not_timed(monkeypatch):
+    """D-PROBE-TEST-CLOCK1: one example of the rule above took 285 ms on a review lane at load 39 to
+    61, past Hypothesis's default 200 ms deadline, and passed on replay. The rule asserts nothing
+    about time; here the host makes its first look take 300 ms."""
+    rule, looks = scheduler.probe_turn, []
+
+    def slow_first(*args):
+        if not looks:
+            time.sleep(0.3)
+        looks.append(args)
+        return rule(*args)
+    monkeypatch.setattr(scheduler, "probe_turn", slow_first)
+    test_the_turn_is_the_first_waiter_that_could_use_the_probe()
