@@ -358,10 +358,9 @@ struct ConversationView: View {
     /// target that leaves the model, or was never in it, abandons the reveal.
     @State private var revealPending = false
     @State private var revealTarget: String?
-    /// The person's own send moved the view to the end. Until the marker appears there,
-    /// the person scrolls or a reveal starts, the view follows as if the end were on
-    /// screen: the move can land short while the new row is measured, and the marker
-    /// may never appear (round 8's ordinary send: 224 pt short, the reply 610 pt behind).
+    /// Until the measured end settles, the person scrolls or a reveal starts, follow
+    /// an own send and re-pin document growth: a glide stopped 208 pt short of a
+    /// document that then grew 224 pt, leaving the next reply 610 pt behind.
     @State private var ownSendLanding = false
     #if SUBFLEET_VIEW_TEST
     @State private var markerDisappearance: Task<Void, Never>?
@@ -419,7 +418,13 @@ struct ConversationView: View {
                                                        onRevealEndVisible: resumeFollow,
                                                        onRevealLanded: revealLanded,
                                                        onPersonScroll: personScrolledDuringReveal,
-                                                       onPersonInput: { ownSendLanding = false }))
+                                                       onPersonInput: { ownSendLanding = false },
+                                                       ownSendLanding: ownSendLanding,
+                                                       onOwnSendLanded: {
+                                                           ownSendLanding = false
+                                                           atBottom = true
+                                                           traceFollow("own_send_landed")
+                                                       }))
                     .conversationColumn(conversation.conversation_id, proxy: proxy,
                                         revealIDs: Set(layout?.items.map(\.id) ?? []))
                     .frame(maxWidth: .infinity)
@@ -534,7 +539,6 @@ struct ConversationView: View {
         // into view before the reveal's row did; the opening pin releases it when
         // the row is presented beside the end, or when the person scrolls.
         atBottom = true; if !revealPending { followSuspended = false }
-        ownSendLanding = false
         traceFollow("marker_appeared")
     }
 

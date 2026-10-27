@@ -14,6 +14,8 @@ struct ConversationOpeningPin: NSViewRepresentable {
     var onPersonScroll: () -> Void = {}
     /// The person scrolled the timeline (live scroll, wheel or paging key), reveal or not.
     var onPersonInput: () -> Void = {}
+    var ownSendLanding = false
+    var onOwnSendLanded: () -> Void = {}
     func makeNSView(context: Context) -> OpeningPinView {
         let view = OpeningPinView()
         update(view)
@@ -30,6 +32,8 @@ struct ConversationOpeningPin: NSViewRepresentable {
         view.onRevealLanded = onRevealLanded
         view.onPersonScroll = onPersonScroll
         view.onPersonInput = onPersonInput
+        view.onOwnSendLanded = onOwnSendLanded
+        view.ownSendLanding = ownSendLanding
     }
 
     /// `target` is the row the reveal scrolls to; the view marks it with a
@@ -104,9 +108,9 @@ final class RevealTargetView: NSView {
 
     /// SwiftUI moves a row by moving the host it makes for this view, so the mark's
     /// own frame can stay put while its place in the document changes (review r6:
-    /// a layout moved the target from y=300 to y=1,700 with no callback). At the end
-    /// of every main run-loop pass (the last `beforeWaiting` observer, just before the
-    /// loop sleeps), the mark compares its frame in the document's coordinates with
+    /// a layout moved the target from y=300 to y=1,700 with no callback). Before the
+    /// main run loop next sleeps (the last `beforeWaiting` observer), the mark compares
+    /// its frame in the document's coordinates with
     /// the last one it reported. Every move happens on the main thread within some pass, whatever
     /// made it (the mark, an ancestor, the document's layout, a new parent), so the
     /// pass that presents it reports it.
@@ -148,6 +152,16 @@ final class OpeningPinView: NSView {
     var onRevealLanded: (UUID) -> Void = { _ in }
     var onPersonScroll: () -> Void = {}
     var onPersonInput: () -> Void = {}
+    var onOwnSendLanded: () -> Void = {}
+    var ownSendLanding = false {
+        didSet {
+            guard ownSendLanding != oldValue else { return }
+            landingCheck?.cancel()
+            if ownSendLanding { schedulePin(); scheduleLandingCheck() }
+        }
+    }
+    private var landingCheck: DispatchWorkItem?
+    private var landingRevision = 0
     private weak var scroll: NSScrollView?
     private var observers: [NSObjectProtocol] = []
     private var inputMonitor: Any?
@@ -181,6 +195,7 @@ final class OpeningPinView: NSView {
         observers.append(center.addObserver(forName: .conversationRowScroll, object: nil, queue: .main) { [weak self] note in
             guard let self, note.object as? String == self.conversationID else { return }
             self.personScrolled = true
+            self.ownSendLanding = false
             if let request = note.userInfo?["request"] as? UUID, request != self.abandoned {
                 self.outstanding = (request, note.userInfo?["target"] as? String)
             }
@@ -206,11 +221,13 @@ final class OpeningPinView: NSView {
         observers.append(center.addObserver(forName: NSView.frameDidChangeNotification, object: document,
                                              queue: .main) { [weak self] _ in
             self?.schedulePin()
+            self?.scheduleLandingCheck()
             self?.scheduleRevealCheck("document")
         })
         observers.append(center.addObserver(forName: NSView.boundsDidChangeNotification, object: found.contentView,
                                              queue: .main) { [weak self] _ in
             self?.viewportChanged()
+            self?.scheduleLandingCheck()
             self?.scheduleRevealCheck("clip")
         })
         observers.append(center.addObserver(forName: .conversationRevealTargetMoved, object: nil,
@@ -228,6 +245,7 @@ final class OpeningPinView: NSView {
             return event
         }
         schedulePin()
+        scheduleLandingCheck()
     }
 
     func detach() {
@@ -237,6 +255,7 @@ final class OpeningPinView: NSView {
         inputMonitor = nil
         scroll = nil
         outstanding = nil
+        ownSendLanding = false
     }
 
     private func confirmEndVisible(_ request: UUID) {
@@ -300,6 +319,8 @@ final class OpeningPinView: NSView {
     /// released as it was before reveals were tracked, when the end is shown.
     private func personScrolledNow() {
         personScrolled = true
+        // Cancel queued re-pins immediately, before SwiftUI publishes the new state.
+        ownSendLanding = false
         onPersonInput()
         guard let request = outstanding?.request else { return }
         outstanding = nil
@@ -335,7 +356,7 @@ final class OpeningPinView: NSView {
     }
 
     private func schedulePin() {
-        guard !personScrolled, !pinScheduled else { return }
+        guard (!personScrolled || ownSendLanding), !pinScheduled else { return }
         // Coalesce this SwiftUI update first, then run after the scroll work
         // queued by that update. Offset-only Review jumps schedule nothing.
         pinScheduled = true
@@ -349,7 +370,7 @@ final class OpeningPinView: NSView {
     }
 
     private func pin() {
-        guard !personScrolled, let scroll, let document = scroll.documentView else { return }
+        guard (!personScrolled || ownSendLanding), let scroll, let document = scroll.documentView else { return }
         let clip = scroll.contentView
         let end = document.isFlipped ? max(document.bounds.minY, document.bounds.maxY - clip.bounds.height)
             : document.bounds.minY
@@ -357,6 +378,34 @@ final class OpeningPinView: NSView {
         // Direct clip scrolling has no animation on either supported OS path.
         clip.scroll(to: NSPoint(x: clip.bounds.minX, y: end))
         scroll.reflectScrolledClipView(clip)
+    }
+
+    /// A lazy marker can appear over 100 pt from the end. Keep re-pinning growth
+    /// until presented geometry, after layout and 300 ms without a document or clip
+    /// change (including the send's 150 ms glide), confirms the settled end.
+    private func scheduleLandingCheck() {
+        guard ownSendLanding, scroll != nil else { return }
+        landingRevision += 1
+        let revision = landingRevision
+        landingCheck?.cancel()
+        let check = DispatchWorkItem { [weak self] in
+            guard let self, self.ownSendLanding, self.landingRevision == revision,
+                  let scroll = self.scroll, let document = scroll.documentView else { return }
+            (scroll.window?.contentView ?? scroll).layoutSubtreeIfNeeded()
+            // Applying layout can itself grow the document and schedule a new check.
+            guard self.ownSendLanding, self.landingRevision == revision else { return }
+            let clip = scroll.contentView.bounds
+            let distance = document.isFlipped ? document.bounds.maxY - clip.maxY : clip.minY - document.bounds.minY
+            if distance <= Theme.space.column + 1 {
+                self.ownSendLanding = false
+                self.onOwnSendLanded()
+            } else {
+                self.schedulePin()
+                self.scheduleLandingCheck()
+            }
+        }
+        landingCheck = check
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: check)
     }
 }
 #endif
