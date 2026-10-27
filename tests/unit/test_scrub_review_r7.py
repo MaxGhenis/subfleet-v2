@@ -28,7 +28,7 @@ import pytest
 from subfleet.sessions import handoff
 from tests.unit import scrub_473fe2941 as base473
 from tests.unit.test_scrub_review_r2 import PREFIX, _new_leaks, _outputs, _secrets, _splits, _unstable
-from tests.unit.test_scrub_review_r6 import CLEAN, _p3_4_failures, _pinned
+from tests.unit.test_scrub_review_r6 import CLEAN, _p3_4_failures, _pinned, _stratified_sample
 
 
 # --- P2-1: a flag after a swallowed header name, whose name is a key past its line ---------
@@ -153,11 +153,7 @@ def family_class() -> list[str]:
 
 def family_sample() -> list[str]:
     """The strata, then seeded draws from the rest of the class, 600 cells in all."""
-    cells = family_class()
-    strata = set(FAMILY_STRATA)
-    rest = [cell for index, cell in enumerate(cells) if index not in strata]
-    return [cells[index] for index in FAMILY_STRATA] + random.Random(FAMILY_SEED).sample(
-        rest, FAMILY_SAMPLE - len(FAMILY_STRATA))
+    return _stratified_sample(family_class(), FAMILY_STRATA, FAMILY_SEED, FAMILY_SAMPLE)
 
 
 def test_the_family_holds_review_r7_s_inputs_and_a_cell_of_every_shown_part_value():

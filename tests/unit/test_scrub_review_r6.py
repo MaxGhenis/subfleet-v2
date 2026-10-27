@@ -21,7 +21,14 @@ Review r6's inputs are regressions:
   isn't at the value's start. Each is pinned at today's output, so a change is seen.
 - P3-3: both halves of be6fb4330's next-line skip in `_header_sub`, which no earlier test
   told from their mutants (M4: the skip's secret-prefix redaction; M7: its `_HEADER_RE`
-  half). Each input is pinned at today's output."""
+  half). Each input is pinned at today's output.
+
+Review r7's on this module:
+- P3-1: the class's default sample missed two shapes that leak at 1ad7da99c (the run `=`,
+  the rest ` SECRET7c5'`). It now holds strata, a cover of every shape the whole class
+  leaks in there, and the review's two cells of those shapes are pinned.
+- P3-3: M6 (the skip without its `_header_name_at` half) is not equivalent: a next-line
+  name with nothing after its colon tells it from the head, and is pinned."""
 
 from __future__ import annotations
 
@@ -121,21 +128,63 @@ P3_4_SEED = 6239
 P3_4_SAMPLE = 600
 
 
-def p3_4_core() -> list[str]:
-    """6,720 cells, each holding a secret."""
-    first = [pre + header + quote + value + flag + "\n=r SECRET7c5" for pre, header, quote, value, flag in
+def _p3_4_core_parts() -> list[tuple[str, ...]]:
+    first = [(pre, header, quote, value, flag, "\n", "=r", " SECRET7c5", "") for pre, header, quote, value, flag in
              itertools.product(P3_4_PRE, P3_4_HEADERS, P3_4_QUOTES, P3_4_VALUES, P3_4_FLAGS)]
-    other = [f"\n{header}{quote}{flag}\n{run} SECRET7c5" for header, quote, flag, run in
+    other = [("\n", header, quote, "", flag, "\n", run, " SECRET7c5", "") for header, quote, flag, run in
              itertools.product(P3_4_HEADERS, P3_4_QUOTES, P3_4_FLAGS, P3_4_OTHER_RUNS)]
     return first + other
+
+
+def p3_4_core() -> list[str]:
+    """6,720 cells, each holding a secret."""
+    return ["".join(parts) for parts in _p3_4_core_parts()]
+
+
+def p3_4_parts() -> dict[str, tuple[str, ...]]:
+    """Each cell of the class, in its order, with the parts that first make it."""
+    rng = random.Random(P3_4_SEED)
+    draws = (tuple(rng.choice(part) for part in P3_4_PARTS) for _ in range(P3_4_DRAWS))
+    cells: dict[str, tuple[str, ...]] = {}
+    for parts in itertools.chain(_p3_4_core_parts(), draws):
+        if _secrets(cell := "".join(parts)):
+            cells.setdefault(cell, parts)
+    return cells
 
 
 def p3_4_class() -> list[str]:
     """The core, then 30,000 seeded draws over the whole product (8 x 10 x 4 x 3 x 6 x 5 x
     11 x 6 x 4 parts, 7,603,200 cells), each kept once and only if it holds a secret."""
-    rng = random.Random(P3_4_SEED)
-    draws = ("".join(rng.choice(part) for part in P3_4_PARTS) for _ in range(P3_4_DRAWS))
-    return list(dict.fromkeys(cell for cell in itertools.chain(p3_4_core(), draws) if _secrets(cell)))
+    return list(p3_4_parts())
+
+
+#: The cells of `p3_4_class()`, by index, that the default sample always holds: a greedy
+#: cover, over the 2,678 cells that showed a value both references hide at 1ad7da99c, of
+#: every part value (40), mode set (4) and pair of two parts' values (699) those cells
+#: hold, so the sample fails at 1ad7da99c for every shape the whole class fails for (48
+#: cells; measured against the real trees, the report's round-7 section). Review r7's P3-1:
+#: the unstratified sample failed for no cell of the run `=` or the rest ` SECRET7c5'`.
+P3_4_STRATA = (
+    0, 76, 939, 1440, 6790, 6913, 7066, 7073, 7232, 7367, 7527, 7755, 7958, 8434, 8796, 8820, 9162, 9301, 9603,
+    9822, 10441, 10518, 10714, 11178, 11941, 11952, 12194, 12625, 13631, 13759, 14016, 14021, 15839, 16584,
+    16925, 18008, 18948, 19673, 22449, 22458, 23510, 24089, 24512, 25941, 26739, 27168, 33101, 33265)
+#: The 17 part values no cell of the class showed a value with at 1ad7da99c.
+P3_4_NEVER_SHOWN = {("pre", "-H '"), ("pre", "curl -H "), ("pre", "log "), ("pre", "x "),
+                    ("header", "Proxy-Authorization:"), ("header", "X-Authorization: "), ("header", "api_key:"),
+                    ("header", "password="), ("header", "token: "), ("quote", ""), ("rest", ""), ("run", "'r"),
+                    ("run", ",r"), ("run", "-r"), ("run", ";r"), ("run", "Cookie:"), ("run", "r")}
+P3_4_PART_NAMES = ("pre", "header", "quote", "value", "flag", "gap", "run", "rest", "tail")
+
+
+def _stratified_sample(cells: list[str], strata: tuple[int, ...], seed: int, size: int) -> list[str]:
+    """The strata's cells, then seeded draws from the rest of `cells`, `size` cells in all."""
+    chosen = set(strata)
+    rest = [cell for index, cell in enumerate(cells) if index not in chosen]
+    return [cells[index] for index in strata] + random.Random(seed).sample(rest, size - len(strata))
+
+
+def p3_4_sample() -> list[str]:
+    return _stratified_sample(p3_4_class(), P3_4_STRATA, P3_4_SEED, P3_4_SAMPLE)
 
 
 def _p3_4_failures(cells) -> dict[str, list]:
@@ -165,11 +214,41 @@ def test_the_p3_4_class_holds_round_5_s_inputs_and_the_ordinary_flags():
     assert len(inline) == 7 and set(inline) <= set(core)
 
 
+def test_the_p3_4_sample_holds_a_cell_of_every_shown_part_value():
+    parts = p3_4_parts()
+    cells = list(parts)
+    sample = p3_4_sample()
+    assert len(sample) == len(set(sample)) == P3_4_SAMPLE
+    held = {(name, value) for index in P3_4_STRATA for name, value in zip(P3_4_PART_NAMES, parts[cells[index]])}
+    every = {(name, value) for name, part in zip(P3_4_PART_NAMES, P3_4_PARTS) for value in part}
+    assert held == every - P3_4_NEVER_SHOWN
+    assert all(text in parts for text, _ in SAMPLE_MISSED.values())
+
+
 def test_no_cell_of_a_p3_4_class_sample_shows_what_both_references_hide():
-    """600 of the class's 33,740 cells, seed 6239, with invariants 1 to 3 (1ad7da99c: 45 of them
-    show a value both references hide)."""
-    cells = random.Random(P3_4_SEED).sample(p3_4_class(), P3_4_SAMPLE)
-    assert _p3_4_failures(cells) == CLEAN
+    """600 of the class's 33,740 cells: the 48 strata and 552 seeded draws (seed 6239), with
+    invariants 1 to 3 (1ad7da99c: 104 of them show a value both references hide, the 48
+    strata among them; 45 of round 6's unstratified 600 did)."""
+    assert _p3_4_failures(p3_4_sample()) == CLEAN
+
+
+#: Review r7's P3-1: a cell of each shape the unstratified sample drew no failing cell of,
+#: the run `=` (`\"` quoting the value) and the rest ` SECRET7c5'`. At 1ad7da99c each showed
+#: `SECRET7c5` in the excerpt, whole and `clean` modes (and `detail_line`, where both
+#: references show it). Each pinned to both references' output in every mode.
+SAMPLE_MISSED = {
+    "run-equals": ('cookie:\\"--api-key\n  = x SECRET7c5"',
+                   _pinned('cookie:[REDACTED]', 'cookie:[REDACTED]', 'cookie:[REDACTED]', 'cookie:[REDACTED] SECRET7c5"')),
+    "rest-quote": ('cookie:"x --1_token\n\n:r SECRET7c5\'',
+                   _pinned('cookie:[REDACTED]', 'cookie:[REDACTED]', 'cookie:[REDACTED]', "cookie:[REDACTED] SECRET7c5'")),
+}
+
+
+@pytest.mark.parametrize("text,pinned", SAMPLE_MISSED.values(), ids=SAMPLE_MISSED.keys())
+def test_review_r7_s_cells_the_sample_missed_give_both_references_output_in_every_mode(text, pinned):
+    assert _outputs(base473, text) == pinned
+    assert _outputs(handoff, text) == pinned
+    assert _new_leaks(text) == {} and _splits(text) == [] and _unstable(text) == {}
 
 
 @pytest.mark.skipif(os.environ.get("SF_SCRUB_FULL_MATRIX") != "1", reason="the whole P3-4 class, on request")
