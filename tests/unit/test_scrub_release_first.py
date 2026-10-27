@@ -1,0 +1,232 @@
+"""C-23.14 (#239 round 8): every mode runs release/217's pipeline for that mode, and writes its
+output but for the runs the head's own pipeline for that mode does not hold, so no mode shows a
+`SECRET7` value that release's same mode hides, or one the head's hides.
+
+- **The frozen copy.** `subfleet/sessions/scrub_release.py` is release/217's scrubbing half at
+  `2c981cba5`, verbatim but for its imports (`test_scrub_release_frozen` pins it).
+- **The composition, mode by mode** (`handoff.shown_by_both`). Each mode's output is release's
+  output of that mode with each whitespace-free run that the head's output of the same mode,
+  of the same text, does not hold replaced by `[REDACTED]`. Each pipeline is the mode's
+  whole one, fold and second scrub included (review r8, P2-1: composing each scrub loses what
+  release's second pass reads in its own fold): the excerpt and whole scrubs, `scrub_bounded`
+  and `clean` (release's pieces, each kept for the head's scrub of the same piece of text),
+  daemon.log's folded line, `detail_line` and `suggestions.scrubbed_line` (release's line cut
+  first), a suggestion's brief (`normalize`) and daemon.log's block form. `mask_approval`
+  masks what release's masking leaves (`redact._head_mask_approval`).
+- **The argument, executed.** The second stage only replaces whole runs of release's output
+  with the placeholder, so every character it writes outside a placeholder is release's, in
+  order; and it keeps a run only if the head's output holds it, so every `SECRET7` value it
+  shows the head shows too.
+- **Measured.** Over every review's regression strings and r8's nine inputs, no mode shows a
+  value release's same mode hides, nor one the head's hides."""
+
+from __future__ import annotations
+
+import contextlib
+import functools
+import importlib
+import os
+import random
+import re
+
+from hypothesis import given, strategies as st
+import pytest
+
+from subfleet import daemon_log, refusals
+from subfleet.conversations import redact, suggestions
+from subfleet.sessions import handoff, scrub_release
+from tests.unit.test_scrub_key_order import CI, _revealed
+
+SECRET = re.compile(r"SECRET7[A-Za-z0-9_]*")
+PREFIX = "request submit refused (ValueError): "
+
+
+# --- each mode: release's output, kept for the runs the head's output holds ----------------------
+
+def _line(scrub, text: str) -> str:
+    return suggestions._twice(scrub, text, suggestions._fold)[0]
+
+
+def _block(scrub, text: str, keep_lines: bool) -> str:
+    group = bool(daemon_log._GROUP_SEPARATOR.search(text) or daemon_log._GROUP_MARGIN_LINE.search(text))
+    return daemon_log._block_form(scrub, text, group, keep_lines)
+
+
+def _bounded(text: str, limit: int | None, strip: bool) -> str:
+    pieces, outer_strip, _, heads, _ = handoff._released_pieces(text, limit, strip)
+    out = "".join(piece if kept else handoff.shown_by_both(piece, head) for (piece, kept), head in zip(pieces, heads))
+    out = out.strip() if outer_strip else out
+    return handoff.truncate(out, limit) if limit is not None and len(out) > limit else out
+
+
+def _cut_line(text: str, limit: int = 60, mark: str = "…") -> str:
+    released, head = _line(scrub_release.scrub_secrets, text), _line(handoff._head_scrub_secrets, text)
+    cut = suggestions.bounded(released, limit, mark)
+    marked = cut != released and cut.endswith(mark)
+    kept = handoff.shown_by_both(cut[:-len(mark)] if marked else cut, head) + (mark if marked else "")
+    return suggestions.bounded(kept, limit, mark)
+
+
+R, H = scrub_release.scrub_secrets, handoff._head_scrub_secrets
+
+#: Each mode: as the code runs it, release's pipeline for it, and the head's.
+MODES = {
+    "excerpt": (lambda t: handoff.scrub_secrets(t)[0], lambda t: R(t)[0], lambda t: H(t)[0]),
+    "excerpt, reminders": (lambda t: handoff.scrub_secrets(t, strip_reminders=True)[0],
+                           lambda t: R(t, strip_reminders=True)[0], lambda t: H(t, strip_reminders=True)[0]),
+    "whole": (lambda t: handoff.scrub_secrets(t, whole=True)[0], lambda t: R(t, whole=True)[0],
+              lambda t: H(t, whole=True)[0]),
+    "clean": (lambda t: handoff.clean(t, 4000)[0], lambda t: scrub_release.clean(t, 4000)[0],
+              lambda t: handoff._head_scrub_bounded(t, 4000, strip_reminders=True)[0]),
+    "daemon.log line": (lambda t: suggestions._scrub_line(t)[0], lambda t: _line(R, t), lambda t: _line(H, t)),
+    "detail_line": (lambda t: suggestions._scrub_line(PREFIX + t)[0], lambda t: _line(R, PREFIX + t),
+                    lambda t: _line(H, PREFIX + t)),
+    "scrubbed_line": (lambda t: refusals.scrubbed_line(t, 60), lambda t: suggestions.bounded(_line(R, t), 60, "…"),
+                      lambda t: suggestions.bounded(_line(H, t), 60, "…")),
+    "brief": (lambda t: suggestions._released_first(t, suggestions._line_ends)[0],
+              lambda t: suggestions._twice(R, t, suggestions._line_ends)[0],
+              lambda t: suggestions._twice(H, t, suggestions._line_ends)[0]),
+    "block": (lambda t: daemon_log.scrubbed_block(t), lambda t: _block(R, t, False), lambda t: _block(H, t, False)),
+    "kept block": (lambda t: daemon_log.scrubbed_block(t, keep_lines=True), lambda t: _block(R, t, True),
+                   lambda t: _block(H, t, True)),
+    "mask_approval": (lambda t: redact.mask_approval({"c": t})[0]["c"],
+                      lambda t: scrub_release.mask_approval({"c": t})[0]["c"],
+                      lambda t: redact._head_mask_approval({"c": t})[0]["c"]),
+}
+
+#: Each mode's composition, from release's pipeline and the head's.
+COMPOSED = {
+    **{mode: (lambda release, head: lambda t: handoff.shown_by_both(release(t), head(t)))(release, head)
+       for mode, (_, release, head) in MODES.items()},
+    "clean": lambda t: _bounded(t, 4000, True),
+    "scrubbed_line": _cut_line,
+    "mask_approval": lambda t: redact._head_mask_approval(scrub_release.mask_approval({"c": t})[0])[0]["c"],
+}
+
+#: Review r8's nine inputs (`test_scrub_review_r8`), which the head showed before this round.
+R8 = importlib.import_module("tests.unit.test_scrub_review_r8").R8
+
+
+def _strings(value):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            yield from _strings(key)
+            yield from _strings(item)
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        for item in value:
+            yield from _strings(item)
+
+
+@functools.cache
+def regression_strings() -> tuple[str, ...]:
+    """Every `SECRET7` string the review modules hold, as review r7's corpus gathers them."""
+    texts = []
+    for name in ("test_scrub_review_r2", "test_scrub_review_r3", "test_scrub_review_r4", "test_scrub_review_r5",
+                 "test_scrub_review_r6", "test_scrub_review_r7", "test_scrub_review_r8", "test_scrub_inline_headers",
+                 "test_scrub_no_new_leak"):
+        module = importlib.import_module(f"tests.unit.{name}")
+        for attr, value in vars(module).items():
+            if attr.startswith("__") or callable(value) and not isinstance(value, (dict, list, tuple)):
+                continue
+            texts += [s for s in _strings(value) if SECRET.search(s) and "{" not in s and len(s) < 4000]
+    return tuple(dict.fromkeys(texts))
+
+
+#: The default sample of the regression strings; `SF_SCRUB_FULL_MATRIX=1` reads them all.
+SAMPLE = 300
+
+
+def _texts() -> list[str]:
+    strings = list(regression_strings())
+    if os.environ.get("SF_SCRUB_FULL_MATRIX") != "1":
+        strings = random.Random(8239).sample(strings, min(SAMPLE, len(strings)))
+    return [*R8.values(), *strings]
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_each_mode_is_release_s_output_kept_for_the_runs_the_head_s_holds(mode):
+    """The code's output of each mode is the composition's, on every text."""
+    run, composed = MODES[mode][0], COMPOSED[mode]
+    assert [text for text in _texts() if run(text) != composed(text)] == []
+
+
+def _new(values, out: str, other: str) -> list[str]:
+    return sorted(value for value in values if value in out and value not in other)
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_no_mode_shows_a_value_release_s_or_the_head_s_mode_hides(mode):
+    run, release, head = MODES[mode]
+    shown = {}
+    for text in _texts():
+        values, out = set(SECRET.findall(text)), run(text)
+        if (more := _new(values, out, release(text)) + _new(values, out, head(text))):
+            shown[text] = more
+    assert shown == {}
+
+
+# --- the bounded modes: release's pieces ---------------------------------------------------------
+
+@contextlib.contextmanager
+def _bounds(chars: int):
+    """Both scrubbers' bounds with excerpts of `chars` characters, so a short text is cut."""
+    with pytest.MonkeyPatch.context() as patch:
+        for module in (handoff, scrub_release):
+            patch.setattr(module, "EXCERPT_CHARS", chars)
+            patch.setattr(module, "MAX_SCRUB_CHARS", 2 * chars)
+        yield
+
+
+PIECE_LINES = ("ordinary line", "token: SECRET7a1", "Authorization: Basic SECRET7b2", "x --password",
+               "curl -H 'Cookie: sid=SECRET7c3'", "<system-reminder>r</system-reminder>", "Bearer abcdefgh123",
+               "api_key='x", "", "   ", "token:--SECRET7d4_token SECRET7e5")
+
+
+@CI
+@given(lines=st.lists(st.sampled_from(PIECE_LINES), min_size=1, max_size=24),
+       limit=st.sampled_from((None, 30, 80, 200, 4000)), strip=st.booleans(), chars=st.sampled_from((40, 90, 400)))
+def test_release_s_pieces_join_to_release_s_output(lines, limit, strip, chars):
+    """`_released_pieces` is release's `scrub_bounded` as the pieces it joins: excerpts cut,
+    truncated, elided or whole, each as release writes it, beside the head's scrub of the
+    same text; and the bounded mode only replaces release's runs and keeps to `limit`."""
+    text = "\n".join(lines)
+    with _bounds(chars):
+        pieces, outer_strip, count, heads, _ = handoff._released_pieces(text, limit, strip)
+        joined = "".join(piece for piece, _ in pieces)
+        assert ((joined.strip() if outer_strip else joined), count) == scrub_release.scrub_bounded(
+            text, limit, strip_reminders=strip)
+        assert len(heads) == len(pieces)
+        out = handoff.scrub_bounded(text, limit, strip_reminders=strip)[0]
+        assert out == _bounded(text, limit, strip)
+        released = scrub_release.scrub_bounded(text, limit, strip_reminders=strip)[0]
+        assert _new(set(SECRET.findall(text)), out, released) == []
+        assert limit is None or len(out) <= limit
+
+
+# --- the argument: the second stage only replaces release's runs ---------------------------------
+
+ATOMS = ("token", "password", "api_key", "Authorization", "Cookie", "Set-Cookie", "Bearer", "bearer", "--password",
+         "--1_token", "secret", ":", "=", " ", "\n", "\r", "\t", "'", '"', "\\", ";", ",", "x", "SECRET7a1", "SECRET7b",
+         "abcdefgh12", "[REDACTED]", "-", "_", "a=1", "  | ", "+-+---------------- 1 ----------------",
+         "… [12 characters omitted] …", "eyJhbGciOiJI.eyJzdWIiOiIx.c2lnbmF0dXJl", "ghp_abcdefghijklmnop1234",
+         "<system-reminder>", "</system-reminder>")
+
+
+@CI
+@given(atoms=st.lists(st.sampled_from(ATOMS), max_size=40))
+def test_each_mode_only_replaces_release_s_runs_and_shows_nothing_the_head_hides(atoms):
+    """Every character a mode writes outside a placeholder is one of release's output of the
+    mode, in order (`_revealed`; a mask's own words and `bounded`'s mark aside), every
+    `SECRET7` run it writes is one that output holds, and every `SECRET7` value it shows
+    the head's output shows."""
+    text = "".join(atoms)
+    values = set(SECRET.findall(text))
+    for mode, (run, release, head) in MODES.items():
+        out, released = run(text), release(text)
+        bare = re.sub(r"\[masked [a-z-]+, \d+ chars\]", " ", out) if mode == "mask_approval" else out
+        bare = bare.replace("…", " ") if mode == "scrubbed_line" else bare
+        assert _revealed(released, bare) == "", (mode, text, out)
+        assert [found for found in SECRET.findall(bare) if found not in released] == [], (mode, text, out)
+        assert _new(values, out, head(text)) == [], (mode, text, out)
