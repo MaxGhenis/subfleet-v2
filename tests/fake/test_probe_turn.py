@@ -89,6 +89,20 @@ def moment(stamp: str) -> datetime:
     return datetime.fromisoformat(stamp.replace("Z", "+00:00"))
 
 
+def stand_still(patch) -> datetime:
+    """The daemon's clock (`utcnow`, `after`) held at one whole second, which this returns.
+
+    D-PROBE-TEST-CLOCK1: a test that bounds a clock the pass wrote by one it reads itself reads
+    both here, so a pass that takes seconds on a loaded host moves neither."""
+    instant = datetime.now(timezone.utc).replace(microsecond=0)
+
+    def stamp(value):
+        return value.isoformat(timespec="seconds").replace("+00:00", "Z")
+    patch.setattr(daemon_module, "utcnow", lambda: stamp(instant))
+    patch.setattr(daemon_module, "after", lambda seconds: stamp(instant + timedelta(seconds=seconds)))
+    return instant
+
+
 class Probes:
     """`Daemon._execute_probe`, scripted: each probe takes the next outcome, then `ok`.
 
@@ -188,7 +202,8 @@ def test_the_retry_clock_runs_from_the_probes_reservation(routing_state, monkeyp
     service, harness = routing_state
     job_id = submit(service, harness)
     probes = Probes(service, monkeypatch, [(CUT, ran_s)])
-    before = utcnow()
+    stand_still(monkeypatch)
+    before = daemon_module.utcnow()
     service._admit()
     due = moment(service.store.get_job(job_id)["next_check_at"])
     assert 0 <= (due - moment(before)).total_seconds() - left_s <= 2          # whole-second stamps
@@ -847,12 +862,7 @@ def fleet():
         root = Path(tmp).resolve() / "state"
         root.mkdir()
         harness = Harness(root)
-        instant = datetime.now(timezone.utc).replace(microsecond=0)
-
-        def stamp(value):
-            return value.isoformat(timespec="seconds").replace("+00:00", "Z")
-        patch.setattr(daemon_module, "utcnow", lambda: stamp(instant))
-        patch.setattr(daemon_module, "after", lambda seconds: stamp(instant + timedelta(seconds=seconds)))
+        stand_still(patch)
         patch.setattr(daemon_module.procs, "boot_id", lambda: "fixture-boot")
         patch.setattr(daemon_module.procs, "proc_start", lambda pid: "fixture-start")
         patch.setattr(daemon_module.capacity, "read_desktop_account", lambda: None)
