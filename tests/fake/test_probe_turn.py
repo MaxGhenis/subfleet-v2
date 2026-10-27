@@ -982,7 +982,6 @@ def test_no_sequence_of_probe_outcomes_lets_a_later_job_take_a_waiters_probe(job
         assert set(started(service)) == set(ids) - killed
 
 
-
 # --- I3 on a loaded host (D-PROBE-TEST-CLOCK1) ---------------------------------------------------
 
 #: Examples whose vehicle I3 checks after a probe that ran its whole minute or more, so the clock the
