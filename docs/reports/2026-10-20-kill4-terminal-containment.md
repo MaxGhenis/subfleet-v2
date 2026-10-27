@@ -476,9 +476,24 @@ One pytest per hold, under the shared suite lock, at the head (`bac000ac8` and t
 | H3 | `tests/fake/test_salvage_adversarial.py` | 8 passed |
 | H3 | `tests/fake/test_salvage_worktree_gone.py` | 6 passed |
 | H3 | `tests/unit/test_kill4_boot_scope_mutations.py` | 4 xfailed (strict, AssertionError only): every combination mutant detected |
+| H4 (01:06Z, load 50) | `tests/fake/test_kill4_terminal_daemon.py` | 7 passed |
+| H4 | `tests/fake/test_census_escapers_daemon.py` | 4 passed, 1 failed (load, below); stopped at 7 min by SIGINT, since at about 40 s per test the hold would have passed 10 minutes |
+| H5 (01:16Z, load 27) | `tests/fake/test_census_escapers_daemon.py` | 9 passed, H4's failure among them (rerun once) |
+| H6 (01:19Z, load 52) | `tests/fake/test_state_contract.py` | 37 passed |
+| H6 | `tests/process/test_census_parent_chain_process.py` | 3 passed |
+| H6 | `tests/process/test_kill4_fix1_process.py` | 3 passed |
+| H6 | `tests/fake/test_census_cwd_outcome.py` | 6 passed |
+| H7 (01:21Z, load 45) | `tests/fake/test_daemon_contract.py` | 21 passed, 1 failed: `test_c5_8_second_daemon_exits_69_and_stale_lock_is_taken_over` (load, below) |
+| H8 (01:25Z, load 43) | `tests/fake/test_census_recycled_pid_daemon.py` | 29 passed |
+| H8 | `tests/fake/test_daemon_contract.py::test_c5_8_second_daemon_exits_69_and_stale_lock_is_taken_over` | failed again, the same way |
+| 01:27Z and 01:28Z (load 48, 55) | `tests/fake/test_daemon_contract.py::test_c5_8_second_daemon_exits_69_and_stale_lock_is_taken_over at each parent` | `380b626cf`: fails the same way; `8fe3413ef`: fails earlier, at that line's 5 s daemon-start wait |
+| H9 (01:29Z, load 40) | `tests/fake/test_census_self_exit_daemon.py` | 3 passed (round 2b's; run because time remained) |
 
-**Not run in this round:**
-- group 3's fakes: `tests/fake/test_kill4_terminal_daemon.py`, `test_census_escapers_daemon.py`, `test_census_recycled_pid_daemon.py`, `test_census_cwd_outcome.py`, `test_daemon_contract.py`
-- the process tests: `tests/process/test_census_parent_chain_process.py`, `test_kill4_fix1_process.py`
-- `tests/fake/test_state_contract.py`
-- `tests/fake/test_census_self_exit_daemon.py` (round 2b's)
+Every file the brief lists ran.
+
+**The three failures, all timing bounds under load; none is the merge's:**
+- **H1, `test_a_stopped_escaped_member_is_continued_and_contained_and_nothing_else_is`:** #250's 2.5 s bound on `_finalize` took 15.1 s at load 173. It passed on its rerun (H2, load 67). The bound is unchanged.
+- **H4, `test_d_cen1_an_escaper_seen_through_the_guardian_stays_counted_after_the_kill_protocol`:** the attempt was quarantined with the TERM-ignoring escaper alive. The kept state root showed why. The kill protocol's first census recorded `marker read unavailable for pid 81493`, a process gone by the time the kept root was read, so that census was unverifiable. The escaper 81347 was only a responsibility member, and C-5.4 makes such a member a target only in a verifiable census, never once an unverifiable census has recorded it (`unverified_identities`, where its identity was). So the protocol signalled only the verified group (`group_signals` 9 and 15, `signalled: []`), and the escaper, in another process group (81328), outlived it. On one boot the merge leaves marker reads and that rule as `380b626cf` has them; its taint change concerns records of another boot only. It passed on its rerun (H5, load 27).
+- **H7 and H8, `test_c5_8_second_daemon_exits_69_and_stale_lock_is_taken_over`:** the second daemon did not exit 69 within the test's 3 s `subprocess.run` timeout, at load 45 and again at load 43. `python -c 'import tests.fake.run_daemon'` itself takes 0.45 s. It fails the same way at `380b626cf`, whose test file and `run_daemon.py` are the head's. At `8fe3413ef` it fails earlier, at that line's 5 s daemon-start wait, which this branch raised to 60 s on 2026-10-23 (`949d6811c`) (the lane rules list that wait as a local-only failure). So the 3 s bound fails on this host without the merge. It was not loosened, and CI runs it.
+
+Each failure root the harness kept under `/tmp/sf-failed` was read, then removed.
