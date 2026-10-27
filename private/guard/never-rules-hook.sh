@@ -1481,6 +1481,7 @@ pw_lib_awk='
   function ansic(t,   out, i, n, c, e, v, m) {
     out = ""; n = length(t); i = 1
     while (i <= n) {
+      if (match(substr(t, i, 512), /^[^\\]+/)) { out = out substr(t, i, RLENGTH); i += RLENGTH; continue }
       c = substr(t, i, 1)
       if (c != "\\" || i == n) { out = out c; i++; continue }
       e = substr(t, i + 1, 1)
@@ -1505,20 +1506,29 @@ pw_lib_awk='
     }
     return out
   }
+  # (sqend and dqend skip a run of plain characters at once: this awk takes the length of t on every substr,
+  # so a character at a time is quadratic on a long word, r5 decision 1)
   function sqend(t, i,   n, c) {
     n = length(t); i++
-    while (i <= n) { c = substr(t, i, 1); if (c == "\\") { i += 2; continue }; if (c == "\047") return i; i++ }
+    while (i <= n) {
+      if (match(substr(t, i, 512), /^[^\\\047]+/)) { i += RLENGTH; continue }
+      c = substr(t, i, 1); if (c == "\\") { i += 2; continue }; if (c == "\047") return i; i++
+    }
     return 0
   }
   function dqend(t, i,   n, c) {
     n = length(t); i++
-    while (i <= n) { c = substr(t, i, 1); if (c == "\\") { i += 2; continue }; if (c == "\"") return i; i++ }
+    while (i <= n) {
+      if (match(substr(t, i, 512), /^[^\\"]+/)) { i += RLENGTH; continue }
+      c = substr(t, i, 1); if (c == "\\") { i += 2; continue }; if (c == "\"") return i; i++
+    }
     return 0
   }
   function value(t,   out, i, n, c, j) {
     if (t !~ /[\\\047"$]/) return t
     out = ""; n = length(t); i = 1
     while (i <= n) {
+      if (match(substr(t, i, 512), /^[^\\\047"$]+/)) { out = out substr(t, i, RLENGTH); i += RLENGTH; continue }
       c = substr(t, i, 1)
       if (c == "\\") { out = out substr(t, i + 1, 1); i += 2; continue }
       if (c == "$" && substr(t, i + 1, 1) == "\047") { j = sqend(t, i + 1); if (!j) j = n + 1; out = out ansic(substr(t, i + 2, j - i - 2)); i = j + 1; continue }
@@ -1527,6 +1537,7 @@ pw_lib_awk='
       if (c == "\"") {
         i++
         while (i <= n && substr(t, i, 1) != "\"") {
+          if (match(substr(t, i, 512), /^[^"\\]+/)) { out = out substr(t, i, RLENGTH); i += RLENGTH; continue }
           c = substr(t, i, 1)
           if (c == "\\" && i < n && index("$`\"\\\n", substr(t, i + 1, 1))) { i++; c = substr(t, i, 1) }
           out = out c; i++
@@ -1640,10 +1651,11 @@ pw_prep_awk="$pw_lib_awk"'
     pin = pipein
     nt = 0; i = 1; n = length(seg); sp[0] = ""
     while (i <= n) {
-      c = substr(seg, i, 1)
-      if (c ~ /[[:space:]]/) { sp[nt] = sp[nt] c; i++; continue }
+      # (runs of blanks and of plain characters are taken at once: one at a time is quadratic on a long word)
+      if (match(substr(seg, i, 512), /^[[:space:]]+/)) { sp[nt] = sp[nt] substr(seg, i, RLENGTH); i += RLENGTH; continue }
       nt++; tk[nt] = ""; sp[nt] = ""
       while (i <= n) {
+        if (match(substr(seg, i, 512), /^[^[:space:]\\\047"$]+/)) { tk[nt] = tk[nt] substr(seg, i, RLENGTH); i += RLENGTH; continue }
         c = substr(seg, i, 1)
         if (c ~ /[[:space:]]/) break
         if (c == "\\") { tk[nt] = tk[nt] substr(seg, i, 2); i += 2; continue }
@@ -1851,7 +1863,10 @@ pw_named() {
     || printf '%s' "$1" | grep -qE "\\\$'[^']*\\\\[0-7xX]"
 }
 pw_cmd=$command
-if [ "${#command}" -le 65536 ] && pw_named "$command"; then
+if pw_named "$command"; then
+  # r5 decision 8: a command too long to prep (over 64 KB) that names a searcher fails closed, since none of
+  # the prep's readings (names, keywords, scripts, heredocs, the no-path judgment) can be made
+  [ "${#command}" -le 65536 ] || block "[unscoped-search] Command too long to judge: it is over 64 KB and names a searcher (find, rg or grep), so the guard cannot read where it searches. Split it into shorter commands, and scope each search: exact subdirectory, -maxdepth/--max-depth, or 'git ls-files' inside a repo."
   pw_cmd=$(printf '%s' "$command" | LC_ALL=C awk -v RS=$'\001' -v mode=prep "$pw_prep_awk" 2>/dev/null) || pw_cmd=""
   [ -n "$pw_cmd" ] || pw_cmd=$command
 fi
@@ -1948,10 +1963,17 @@ if [ -n "$searcher" ]; then
       if (c == "(") return "\004"; if (c == "|") return "\005"; if (c == ")") return "\006"
       return c
     }
+    # lits(s): s with each { } , ( | ) as lit() reads it, in one pass per character kind
+    function lits(s) {
+      gsub(/\{/, "\001", s); gsub(/\}/, "\002", s); gsub(/,/, "\003", s)
+      gsub(/\(/, "\004", s); gsub(/\|/, "\005", s); gsub(/\)/, "\006", s)
+      return s
+    }
     function sform(run, mode,   out, i, n, c, j, seg, k) {
       if (run !~ /[\\\047"$]/) return run
       out = ""; n = length(run); i = 1
       while (i <= n) {
+        if (match(substr(run, i, 512), /^[^\\\047"$]+/)) { out = out substr(run, i, RLENGTH); i += RLENGTH; continue }
         c = substr(run, i, 1)
         if (c == "\\") { if (i < n) out = out (mode ? lit(substr(run, i + 1, 1)) : substr(run, i + 1, 1)); i += 2; continue }
         if (c == "$" && substr(run, i + 1, 1) == "\047") {
@@ -1962,12 +1984,13 @@ if [ -n "$searcher" ]; then
         if (c == "\047") {
           j = index(substr(run, i + 1), "\047"); if (!j) j = n - i + 1
           seg = substr(run, i + 1, j - 1)
-          if (mode) for (k = 1; k <= length(seg); k++) out = out lit(substr(seg, k, 1)); else out = out seg
+          if (mode) out = out lits(seg); else out = out seg
           i += j + 1; continue
         }
         if (c == "\"") {
           i++
           while (i <= n && substr(run, i, 1) != "\"") {
+            if (match(substr(run, i, 512), /^[^"\\{},(|)]+/)) { out = out substr(run, i, RLENGTH); i += RLENGTH; continue }
             c = substr(run, i, 1)
             if (c == "\\" && i < n && index("$`\"\\\n", substr(run, i + 1, 1))) { i++; c = substr(run, i, 1) }
             out = out (mode ? lit(c) : c); i++
