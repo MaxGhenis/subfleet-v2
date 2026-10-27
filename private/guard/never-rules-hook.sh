@@ -1708,6 +1708,21 @@ pw_prep_awk="$pw_lib_awk"'
     }
     return 0
   }
+  # spans(s, ctx, depth): each command substitution in s ($(...) or a backtick pair, quotes and escapes
+  # skipped) that names a searcher is judged as its own lines
+  function spans(s, ctx, depth,   n, i, c, j, x) {
+    n = length(s); i = 1
+    while (i <= n) {
+      if (match(substr(s, i, 512), /^[^\\$`]+/)) { i += RLENGTH; continue }
+      c = substr(s, i, 1); j = 0
+      if (c == "\\") { i += 2; continue }
+      if (c == "`") { j = btend(s, i); if (j) x = substr(s, i + 1, j - i - 1) }
+      else if (substr(s, i + 1, 1) == "(") { j = parend(s, i + 1); if (j) x = substr(s, i + 2, j - i - 2) }
+      if (!j) { i++; continue }
+      if (named(x)) script(x, ctx, depth)
+      i = j + 1
+    }
+  }
   function btend(t, i,   n, c) {
     n = length(t); i++
     while (i <= n) {
@@ -1781,6 +1796,8 @@ pw_prep_awk="$pw_lib_awk"'
         if (c == "\"") {
           j = dqend(seg, i)
           if (!j) { tk[nt] = tk[nt] substr(seg, i); i = n + 1; continue }
+          # r5 (decision 5): a command substitution in double quotes runs, so its command is judged on its own
+          if (mode == "prep" && !noext) spans(substr(seg, i + 1, j - i - 1), ctx, depth)
           tk[nt] = tk[nt] "\"" inner(substr(seg, i + 1, j - i - 1), depth, ctx) "\""; i = j + 1; continue
         }
         tk[nt] = tk[nt] c; i++
@@ -1963,8 +1980,8 @@ pw_prep_awk="$pw_lib_awk"'
     if (s) { gsub(/\n\t+/, "\n", HDB); sub(/^\t+/, "", HDB) }
     return m + 1
   }
-  function prep(t, depth, noext, ctx,   n, i, c, seg, res, j, sep, piped, nextin, r, bt, x, k, sb, hf, hn, he, hl, nl, LN, LP) {
-    n = length(t); i = 1; seg = ""; res = ""; piped = 0; nextin = ""; bt = 0; sb = ""; hf = 0; hn = 0; he = 0; nl = 0
+  function prep(t, depth, noext, ctx,   n, i, c, seg, res, j, sep, piped, nextin, r, bt, x, k, sb, hf, hn, he, hl, nl, LN, LP, bto) {
+    n = length(t); i = 1; seg = ""; res = ""; piped = 0; nextin = ""; bt = 0; sb = ""; hf = 0; hn = 0; he = 0; nl = 0; bto = 0
     while (i <= n) {
       if (match(substr(t, i, 512), /^[^\\\047"#;&|()`$\n<]+/)) { seg = seg substr(t, i, RLENGTH); i += RLENGTH; continue }
       c = substr(t, i, 1)
@@ -2005,6 +2022,8 @@ pw_prep_awk="$pw_lib_awk"'
       if ((c == "|" || c == "&") && substr(t, i + 1, 1) == c) sep = c c
       else if (c == "|" && substr(t, i + 1, 1) == "&") sep = "|&"
       pipein = nextin; r = simple(seg, depth, piped, noext, ctx, bt, sb); sb = ""; nextin = (sep == "|" || sep == "|&") ? lastprod : ""
+      # r5 decision 5: a space before a closing backtick too, so a root right before it ends there
+      if (sep == "`") { if (bto) r = r " "; bto = !bto }
       res = res r sep; seg = ""; i += length(sep)
       if (sep == "\n") { if (he > i) { res = res substr(t, i, he - i); i = he }; hn = 0; he = 0 }
       piped = (sep == "|" || sep == "|&"); bt = (sep == "`")
@@ -2065,10 +2084,10 @@ if [ -n "$searcher" ]; then
   # top-level directory), `/Users`, `/Users/`, and broad_re with an optional
   # trailing slash. A root is a whole word: preceded by whitespace (or the
   # searcher itself), followed by whitespace, `|;&)`, an optional closing
-  # quote, or the end.
+  # quote, or the end; r5: also a closing backtick.
   root_core="/|/\\*|/Users/?|(${broad_re})/?"
   root_re="(${root_core})"
-  root_end="['\"]?([[:space:]|;&)]|\$)"
+  root_end="['\"]?([[:space:]|;&)\`]|\$)"
   # Shell redirections terminate a searcher's argv: a broad-looking output or
   # input file after < or > is not a search path (`rg pat src > /Users/out`).
   find_seg="(^|[[:space:];&|(])find[[:space:]]+([^|;&<>]*[[:space:]])?"

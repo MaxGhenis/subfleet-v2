@@ -103,6 +103,8 @@ MUTATIONS = {
     "r4-tilde-user-dropped": (HOOK, None, None, "test_r4_the_unlisted_forms_are_judged"),
     # r5 (the hub's decisions on review r4), one per decision
     "r5-heredoc-unread": (HOOK, None, None, "test_r5_heredoc_bodies_are_data"),
+    "r5-backtick-space-dropped": (HOOK, None, None, "test_r5_a_closing_backtick_ends_a_root"),
+    "r5-dq-substitution-unread": (HOOK, None, None, "test_r5_a_closing_backtick_ends_a_root"),
     "r5-alias-unfolded": (HOOK, None, None, "test_r3c_nothing_inside_a_mount_is_read"),
     "r5-brace-root-unread": (HOOK, None, None, "test_r5_a_root_spelling_before_a_brace_is_a_path_word"),
     "r5-voldots-glob-dropped": (HOOK, None, None, "test_r5_the_wider_user_and_volume_family"),
@@ -225,6 +227,10 @@ EDITS = {
     "r4-meta-walks": [('    if (t <= nt && ismeta(val[t], val, rd, t, nt)) return sp[0] ":" sp[nt]\n', '')],
     # retargeted in r5: decision 10 widened r4's three spellings to one reading
     "r4-tilde-user-dropped": [("""  case "$w" in '~$'*|'~`'*) pw_tilde "$w"; w=$pw_w; q=q ;; esac
+""", "")],
+    "r5-backtick-space-dropped": [("""      if (sep == "`") { if (bto) r = r " "; bto = !bto }
+""", "")],
+    "r5-dq-substitution-unread": [("""          if (mode == "prep" && !noext) spans(substr(seg, i + 1, j - i - 1), ctx, depth)
 """, "")],
     "r5-heredoc-unread": [("""      if (c == "<" && substr(t, i + 1, 1) == "<" && !hf && (j = hdword(t, i))) {
 """, """      if (0) {

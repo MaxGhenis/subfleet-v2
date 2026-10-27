@@ -447,6 +447,15 @@ R5_TEXT = [
 #     =cmd, pipes into a shell, "$@" scripts, eval $(...) and <&0.
 """, """#     $"..." and /Volumes/<entry>/.. .
 """),
+    ("""  # quote, or the end; r5: also a closing backtick.
+  root_core="/|/\\\\*|/Users/?|(${broad_re})/?"
+  root_re="(${root_core})"
+  root_end="['\\"]?([[:space:]|;&)\\`]|\\$)"
+""", """  # quote, or the end.
+  root_core="/|/\\\\*|/Users/?|(${broad_re})/?"
+  root_re="(${root_core})"
+  root_end="['\\"]?([[:space:]|;&)]|\\$)"
+"""),
 ]
 R3_TEXT = R5_TEXT + R3_TEXT
 
@@ -4389,7 +4398,9 @@ R5_BOUND_ALLOWED = [
 ]
 #: Decision 5 (review r4's P3-2): a root right before a closing backtick ...
 R5_BACKTICK_DENIED = ["echo `rg --files ~/.subfleet`", "echo `find ~/.subfleet`", "echo `rg foo /`", "x=`grep -r foo ~`",
-                      "echo `rg foo ~/PolicyEngine`", 'echo "`rg --files ~/.subfleet`"']
+                      "echo `rg foo ~/PolicyEngine`", 'echo "`rg --files ~/.subfleet`"',
+                      # a root only the path-word pass knows, which the space before the backtick lets it read
+                      "echo `rg --files /usr`", 'echo "$(rg --files /usr)"']
 #: ... and its two denied controls.
 R5_BACKTICK_CONTROLS = ["echo `rg --files ~/.subfleet | head`", "$(rg --files ~/.subfleet)"]
 R5_BACKTICK_ALLOWED = [("echo `rg foo src`", S_), ('echo "`git rev-parse HEAD`"', S_), ('git commit -m "use \\`rg\\` / here"', S_)]
