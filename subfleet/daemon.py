@@ -8951,33 +8951,55 @@ class Daemon:
     def _start_extends(self, a: dict, census: procs.Containment, deadline: float) -> bool:
         """D-QUAR-START1 (a), C-4.2: does an expired start grace wait longer for this attempt?
 
-        Only while all of these hold: the census is verifiable; its only member is the
-        attempt's guardian, by its recorded identity (pid, boot, start); that guardian is
-        not stopped (ps state `T`); and the deadline began (at launch, or at this daemon's
-        first look after a restart) less than `start_grace_max_s` ago. Python start-up,
-        the launch gate and the identity reads all come before `start.json`, and under
-        load 60 to 100 on 2026-10-26 a guardian took about 31 s to its provider: killed at
-        10 s, its attempt was lost and its job run again. A stopped guardian (2026-10-20,
-        review r2's P3-1), a census that cannot vouch for it, or anything else in the
-        census never extends, and past the bound the existing branch runs unchanged. The
-        caller looks again at the census's own pacing (C-5.12); the first extension is
-        recorded as `attempt.start_extended`."""
+        Only while all of these hold: the census is verifiable, or unverifiable only
+        because the marker reads of processes other than the guardian failed (D4, below);
+        its only member is the attempt's guardian, by its recorded identity (pid, boot,
+        start); that guardian is not stopped (ps state `T`); and the deadline began (at
+        launch, or at this daemon's first look after a restart) less than
+        `start_grace_max_s` ago. Python start-up, the launch gate and the identity reads
+        all come before `start.json`, and under load 60 to 100 on 2026-10-26 a guardian
+        took about 31 s to its provider: killed at 10 s, its attempt was lost and its job
+        run again. A stopped guardian (2026-10-20, review r2's P3-1), a census that cannot
+        vouch for it, or anything else in the census never extends, and past the bound the
+        existing branch runs unchanged. The caller looks again at the census's own pacing
+        (C-5.12); the first extension is recorded as `attempt.start_extended`.
+
+        D4 (2026-10-27): every census reads every process's marker, and on a loaded host a
+        newborn between fork and exec refuses the read for up to about a second: 1 whole-host
+        census in 43 at load 19 to 43 met one, and at load 94 to 101 the extension ended at
+        such a census in 5 of 6 runs of `test_quar_start1_daemon.py`, and the guardian, alive
+        and still starting, was KILLed. That census still vouches for the guardian: the
+        group, the walk, the responsibility source, the identities and the guardian's own
+        marker were all read; only whether the unread processes carry the attempt's marker
+        is unknown. An extension needs no more. It signals, ends and releases nothing, and
+        is bounded: it defers the branch below, which takes its own census when it runs,
+        and every verdict still takes a verifiable one. Nor should an unread process carry
+        it: before `start.json` the guardian has launched nothing, and the identity readers
+        it starts (`procs._read`'s `sysctl` and `ps`) run with the four names `_read` sets,
+        not its markers. A failed read of the guardian's own marker, or any other error,
+        never extends."""
         bound = getattr(self, "start_grace_max_s", START_GRACE_MAX_S)
         if time.monotonic() >= deadline - self.start_grace_s + bound:
             return False
         guardian = a.get("guardian_pid")
         found = census.identities.get(guardian) if guardian else None
         state = str((census.shapes.get(guardian) or {}).get("stat") or "") if guardian else ""
-        if (census.unverifiable or census.held_pids or census.live_pids != {guardian} or found is None
+        unread = census.markers_unread if census.only_markers_unread else None
+        if ((census.unverifiable and (unread is None or guardian in unread)) or census.held_pids
+                or census.live_pids != {guardian} or found is None
                 or found.proc_start != a.get("proc_start")
                 or str(found.boot_id or "").lower() != str(a.get("boot_id") or "").lower()
                 or not state or state.startswith(("T", "Z"))):
             return False
+        if unread:
+            self.log.debug("start grace of %s extended; the marker reads of pids %s failed",
+                           a["attempt_id"], sorted(unread))
         if not self.store.one("SELECT 1 FROM events WHERE attempt_id=? AND kind='attempt.start_extended'",
                               (a["attempt_id"],)):
             self.store.add_event("attempt.start_extended", job_id=a["job_id"], attempt_id=a["attempt_id"],
                                  data={"guardian_pid": guardian, "start_grace_s": self.start_grace_s,
-                                       "start_grace_max_s": bound})
+                                       "start_grace_max_s": bound,
+                                       **({"markers_unread": sorted(unread)} if unread else {})})
         return True
 
     def _abandon(self, a: dict, detail: str) -> Path:
