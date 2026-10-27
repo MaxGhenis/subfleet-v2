@@ -1756,7 +1756,7 @@ pw_prep_awk="$pw_lib_awk"'
     }
     return 0
   }
-  function simple(seg, depth, piped, noext, ctx, bt,   nt, i, n, c, j, t, b, hs, hb, out, w, tk, val, sp, qd, stdin, npos, hasE, rec, k, files, rd, hstr, st, pin, prod, pc, scr, ev, op, tg) {
+  function simple(seg, depth, piped, noext, ctx, bt, hd,   nt, i, n, c, j, t, b, hs, hb, out, w, tk, val, sp, qd, stdin, npos, hasE, rec, k, files, rd, hstr, st, pin, prod, pc, scr, ev, op, tg) {
     pin = pipein
     nt = 0; i = 1; n = length(seg); sp[0] = ""
     while (i <= n) {
@@ -1891,7 +1891,8 @@ pw_prep_awk="$pw_lib_awk"'
       st["s"] = 0
       for (k = t; k <= nt; k++) if (!rd[k] && shstep(st, val[k]) == "script") script(val[k], sx(st, val[k]), depth)
       if (st["s"] && !st["c"] && (!st["f"] || st["S"])) {
-        scr = (hstr != "") ? hstr : pin
+        # its here-string, its heredoc (r5 decision 2) or what is piped into it
+        scr = (hstr != "") ? hstr : (hd != "") ? hd : pin
         if (scr != "") script(scr, sx(st, scr), depth)
       }
     }
@@ -1906,7 +1907,7 @@ pw_prep_awk="$pw_lib_awk"'
         for (; k <= nt; k++) if (!rd[k]) prod = prod (prod == "" ? "" : "\n") val[k]
       } else if (pc == "cat") {
         for (; k <= nt; k++) if (!rd[k]) break
-        if (k > nt) prod = hstr
+        if (k > nt) prod = hstr (hstr != "" && hd != "" ? "\n" : "") hd
       }
     }
     lastprod = prod
@@ -1916,12 +1917,76 @@ pw_prep_awk="$pw_lib_awk"'
     for (t = 1; t <= nt; t++) out = out tk[t] sp[t]
     return out
   }
-  function prep(t, depth, noext, ctx,   n, i, c, seg, res, j, sep, piped, nextin, r, bt, x) {
-    n = length(t); i = 1; seg = ""; res = ""; piped = 0; nextin = ""; bt = 0
+  # r5 decision 2, heredocs. eol(t, i): where the line holding position i ends (its newline outside quotes; a
+  # comment runs to it), 0 when the text ends first.
+  function eol(t, i,   n, c, j) {
+    n = length(t)
     while (i <= n) {
-      if (match(substr(t, i, 512), /^[^\\\047"#;&|()`$\n]+/)) { seg = seg substr(t, i, RLENGTH); i += RLENGTH; continue }
+      if (match(substr(t, i, 512), /^[^\\\047"#$\n]+/)) { i += RLENGTH; continue }
+      c = substr(t, i, 1)
+      if (c == "\n") return i
+      if (c == "\\") { i += 2; continue }
+      if (c == "$" && substr(t, i + 1, 1) == "\047") { j = sqend(t, i + 1); if (!j) return 0; i = j + 1; continue }
+      if (c == "\047") { j = index(substr(t, i + 1), "\047"); if (!j) return 0; i += j + 1; continue }
+      if (c == "\"") { j = dqend(t, i); if (!j) return 0; i = j + 1; continue }
+      if (c == "#" && (i == 1 || substr(t, i - 1, 1) ~ /[[:space:]]/)) { j = index(substr(t, i), "\n"); return j ? i + j - 1 : 0 }
+      i++
+    }
+    return 0
+  }
+  # hdword(t, i): for the << at i, HDW is the operator with its word as written, HDD the delimiter (the word,
+  # quotes removed) and HDS 1 for <<-; the position after the word, 0 when no word follows.
+  function hdword(t, i,   n, k, c, j, w) {
+    n = length(t); k = i + 2; HDS = 0
+    if (substr(t, k, 1) == "-") { HDS = 1; k++ }
+    while (k <= n && substr(t, k, 1) ~ /[ \t]/) k++
+    w = ""
+    while (k <= n) {
+      if (match(substr(t, k, 512), /^[^[:space:];&|()<>`\\\047"]+/)) { w = w substr(t, k, RLENGTH); k += RLENGTH; continue }
+      c = substr(t, k, 1)
+      if (c ~ /[[:space:];&|()<>`]/) break
+      if (c == "\\") { w = w substr(t, k, 2); k += 2; continue }
+      if (c == "\047") { j = index(substr(t, k + 1), "\047"); if (!j) return 0; w = w substr(t, k, j + 1); k += j + 1; continue }
+      j = dqend(t, k); if (!j) return 0; w = w substr(t, k, j - k + 1); k = j + 1
+    }
+    if (w == "") return 0
+    HDW = substr(t, i, k - i); HDD = value(w)
+    return k
+  }
+  # hdbody(t, LN, LP, nl, k, d, s): the body of a heredoc whose delimiter is d (s: <<-, its leading tabs go) that
+  # starts at line k of t (LN its lines, LP where each starts): HDB is the body, and the line after the
+  # delimiter line is returned; 0 when no line is the delimiter.
+  function hdbody(t, LN, LP, nl, k, d, s,   m, line) {
+    for (m = k; m <= nl; m++) { line = LN[m]; if (s) sub(/^\t+/, "", line); if (line == d) break }
+    if (m > nl) return 0
+    HDB = (m > k) ? substr(t, LP[k], LP[m] - LP[k]) : ""
+    if (s) { gsub(/\n\t+/, "\n", HDB); sub(/^\t+/, "", HDB) }
+    return m + 1
+  }
+  function prep(t, depth, noext, ctx,   n, i, c, seg, res, j, sep, piped, nextin, r, bt, x, k, sb, hf, hn, he, hl, nl, LN, LP) {
+    n = length(t); i = 1; seg = ""; res = ""; piped = 0; nextin = ""; bt = 0; sb = ""; hf = 0; hn = 0; he = 0; nl = 0
+    while (i <= n) {
+      if (match(substr(t, i, 512), /^[^\\\047"#;&|()`$\n<]+/)) { seg = seg substr(t, i, RLENGTH); i += RLENGTH; continue }
       c = substr(t, i, 1)
       if (c == "\\") { seg = seg substr(t, i, 2); i += 2; continue }
+      # r5 decision 2: the body of a heredoc (the lines after this one, to its delimiter line) is data: out of
+      # the quote and separator tracking, it is written out as it stands when this line ends, and handed to
+      # simple() as the stdin of its command (sb); an unterminated one leaves the rest read as commands
+      if (c == "<" && substr(t, i, 3) == "<<<") { seg = seg "<<<"; i += 3; continue }
+      if (c == "<" && substr(t, i + 1, 1) == "<" && !hf && (j = hdword(t, i))) {
+        if (!hn && (x = eol(t, j))) {
+          hn = x + 1
+          if (!nl) { nl = split(t, LN, "\n"); x = 1; for (k = 1; k <= nl; k++) { LP[k] = x; x += length(LN[k]) + 1 }; hl = 1 }
+          while (hl <= nl && LP[hl] < hn) hl++
+        }
+        x = hn ? hdbody(t, LN, LP, nl, hl, HDD, HDS) : 0
+        if (x) {
+          if (!match(seg, /(^|[[:space:]])[0-9]+$/) || substr(seg, RSTART) ~ /^[[:space:]]*0$/) sb = sb (sb == "" ? "" : "\n") HDB
+          hl = x; hn = (x <= nl) ? LP[x] : n + 1; he = hn
+        } else hf = 1
+        seg = seg HDW; i = j; continue
+      }
+      if (c == "<") { seg = seg c; i++; continue }
       if (c == "$" && substr(t, i + 1, 1) == "\047") { j = sqend(t, i + 1); if (!j) j = n; seg = seg substr(t, i, j - i + 1); i = j + 1; continue }
       # r5 decision 10: a word that starts ~$( or ~` is read from the home, and the command its substitution
       # runs is judged on its own
@@ -1939,12 +2004,13 @@ pw_prep_awk="$pw_lib_awk"'
       sep = c
       if ((c == "|" || c == "&") && substr(t, i + 1, 1) == c) sep = c c
       else if (c == "|" && substr(t, i + 1, 1) == "&") sep = "|&"
-      pipein = nextin; r = simple(seg, depth, piped, noext, ctx, bt); nextin = (sep == "|" || sep == "|&") ? lastprod : ""
+      pipein = nextin; r = simple(seg, depth, piped, noext, ctx, bt, sb); sb = ""; nextin = (sep == "|" || sep == "|&") ? lastprod : ""
       res = res r sep; seg = ""; i += length(sep)
+      if (sep == "\n") { if (he > i) { res = res substr(t, i, he - i); i = he }; hn = 0; he = 0 }
       piped = (sep == "|" || sep == "|&"); bt = (sep == "`")
     }
     pipein = nextin
-    return res simple(seg, depth, piped, noext, ctx, bt)
+    return res simple(seg, depth, piped, noext, ctx, bt, sb)
   }
   BEGIN {
     SRCH = "(^|[[:space:];&|(\047\"\\\\/`])(find|rg|grep|egrep|fgrep|rgrep|ugrep)([[:space:]\047\")`]|$)"
