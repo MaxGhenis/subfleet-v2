@@ -4680,3 +4680,23 @@ def test_r5_command_pins_agree_with_real_shells(tmp_path):
                          "both": sum(r[3]["zsh"] and r[3]["bash"] for r in rows),
                          "neither": sum(not r[3]["zsh"] and not r[3]["bash"] for r in rows)})
     assert differ == [], differ[:10]
+
+
+# ---------------------------------------------------------------- review r5: r5's unpinned readings
+
+#: r5 readings no named test pinned (review r5's probe mutants rv5-execdir-dropped and rv5-wrapper-equals-dropped
+#: each flipped only these inputs and passed their decision's test): -execdir, -ok and -okdir end find's own
+#: arguments like -exec, a `+` terminator and a {} inside a word are read, every root of find stands for {}, and
+#: zsh's =cmd is read after a wrapper as well as first (decisions 3 and 11).
+REVIEW_R5_DENIED = [
+    r"find . -maxdepth 1 -execdir rg foo ~ \;", r"find . -maxdepth 1 -ok rg foo ~ \;",
+    r"find . -maxdepth 1 -okdir rg foo ~ \;", "find . -maxdepth 1 -exec rg foo ~ {} +",
+    r"find ~/.subfleet -maxdepth 1 -exec rg foo {}/ \;", r"find src ~/.subfleet -maxdepth 1 -exec rg foo {} \;",
+    r"find -L ~/.subfleet -maxdepth 1 -exec rg foo {} \;", "nice =rg --files ~/.subfleet", "sudo =find / -name x",
+]
+
+
+def test_review_r5_pins_r5s_unpinned_readings():
+    """Each reading's own input is denied. In review r5's probe both real shells walked a root for the -execdir,
+    `+`, {}/, two-root and -L forms; -ok and -okdir ask first, and =cmd is zsh's."""
+    assert r5_denied([(c, S_) for c in REVIEW_R5_DENIED]) == []
