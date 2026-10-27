@@ -34,8 +34,8 @@ Every terminal path that met live census members either quarantined without sign
 
 | # | Path | Before | Now |
 |---|---|---|---|
-| 1 | Start grace expired with members | quarantined, **no containment** | kill protocol (`recovery`); verified empty → `lost` (read-only retries); else quarantined |
-| 2 | Start grace expired, census empty | `failed`/`interrupted`, retry | unchanged (cwd-only waits 30 s, #240) |
+| 1 | Start grace expired with members | quarantined, **no containment** | kill protocol (`recovery`), its group KILLed at once (fix 1); verified empty → unlaunched, `failed: starting-no-receipt`, retried while attempts remain (fix round 2b, decision 1; it was `lost`); else quarantined. Before it, a live, running, verified guardian alone gets up to `START_GRACE_MAX_S` (D-QUAR-START1 (a)), and the abandon handshake precedes every signal and end (D-QUAR-START1 (b)) |
+| 2 | Start grace expired, census empty | `failed`/`interrupted`, retry | unchanged (cwd-only waits 30 s, #240), after the abandon handshake (fix round 2b) |
 | 3 | Dead guardian with members | group (refused, leader dead) + owned only: **partial** | full census |
 | 4 | Dead guardian, empty, then members at finalization | quarantined, **no containment** | C-5.9 window, then the protocol |
 | 5 | Exit receipt, members past `exit_settle_s` | quarantined, **no containment** | C-5.9 window, then the protocol; verdict from the receipt |
@@ -100,7 +100,7 @@ For jobs with an owned worktree, the cwd hold and now the parent-chain rule cove
 1. **No terminal state with live census pids.** An attempt that ends anything but `quarantined` has a verified-empty census at its end, cwd holders aside (property, regressions).
 2. **Nothing outside the census is signalled.** Every pid signalled one by one was a live member of a census the protocol took; group signals go only to the recorded group (property).
 3. **Continue follows TERM.** Every CONT delivered to a process follows a TERM delivered to that same process, pid and birth; the guardian is never continued (fix round 1; property, regressions).
-4. **Never signalled:** an operator's process in the worktree that is no ancestor of a marked member, a held parent, another user's process, the daemon, its parent, another attempt's guardian, and (fix round 1) a stranger in a leaderless group at the recorded pgid (property, regressions).
+4. **Never signalled:** an operator's process in the worktree that is no ancestor of a marked member, a held parent (by the census that held it: since fix round 2b a later census's own attribution supersedes a hold, C-5.5), another user's process, the daemon, its parent, another attempt's guardian, and (fix round 1) a stranger in a leaderless group at the recorded pgid (property, regressions).
 5. **No retry before containment.** No retry is reserved while an earlier attempt's census is not empty (regressions, in process and through a real daemon).
 6. **cwd never decides a verdict.** A cwd-only census never changes a verdict (#240; regression and mutation).
 
@@ -497,3 +497,211 @@ Every file the brief lists ran.
 - **H7 and H8, `test_c5_8_second_daemon_exits_69_and_stale_lock_is_taken_over`:** the second daemon did not exit 69 within the test's 3 s `subprocess.run` timeout, at load 45 and again at load 43. `python -c 'import tests.fake.run_daemon'` itself takes 0.45 s. It fails the same way at `380b626cf`, whose test file and `run_daemon.py` are the head's. At `8fe3413ef` it fails earlier, at that line's 5 s daemon-start wait, which this branch raised to 60 s on 2026-10-23 (`949d6811c`) (the lane rules list that wait as a local-only failure). So the 3 s bound fails on this host without the merge. It was not loosened, and CI runs it.
 
 Each failure root the harness kept under `/tmp/sf-failed` was read, then removed.
+
+## Fix round 2b (review r2 of #250, P3-1 to P3-4, and D-QUAR-START1), finished by its continuation round 2c
+
+Round 2b (job `20261026-191802-pr250-fix2b`) built the hub's rulings on r2's four P3s (decisions 1 to 4) and the start-grace defect D-QUAR-START1 (decisions 5 and 6) on `b52a63842` in nine commits. Its provider exited (rc 1) at 03:49:30Z on 2026-10-27, during hold H3 at load 205, before it had written this section, run the rest of its holds or taken its measurement past 12 samples. Its continuation, round 2c (job `20261026-210244-pr250-fix2c`), audited those commits against round 2b's brief decision by decision, finished what was missing, ran every hold, and wrote this section.
+
+Commits, on `b52a63842`:
+- round 2b: `8ce56cc2f`, `3c81bb71b` and `333f5e827` (the red tests), `08ff8ce4c` (decision 1), `05f9dc58a` (decision 2), `f2e0ab9a9` (decision 5), `690ee9e7d` (decision 6), `5e7143d54` (its hold H1's findings), `37438d1bb` (the contract, and this report's line on `--force-release`);
+- round 2c: `9e844698a` (decision 4's property, finished), `923413a34` (the orphan, below), `d02820eb4` (the handshake property forces its order), `cdfbbf5bc` and `f568ff61b` (two regressions hold E found, from `5e7143d54` and `690ee9e7d`), then this section.
+
+### The orphan that ended round 2b
+
+At 03:49:20Z round 2b's hold H3 started a fake daemon for `tests/fake/test_quar_start1_daemon.py`'s past-the-bound case (`python -m tests.fake.run_daemon --state-root /private/tmp/sf-8hn7l747 --start-delay 60 --start-grace-s 2 --start-grace-max-s 8`). The harness starts it in a session of its own (`isolated_group`). Ten seconds later the provider exited and pytest went with it, before any fixture teardown ran. The fake daemon ran on with ppid 1, the real daemon quarantined the round ("writers remain after exit receipt"), and the job ended `lost`. The hub ended the process by its exact pid. The fake daemon had nothing tying it to its test:
+- **`tests/fake/run_daemon.py`, `ParentWatch`:** the fake daemon compares `os.getppid()`, every 0.2 s, with the test process that started it. The harness passes its own pid (`--parent-pid`), so a test that is gone before the daemon could first look is caught too; without the flag it is the parent at start. Once the two differ, the daemon stops as SIGTERM stops it, then `end_attempt_groups` KILLs the group of every guardian the store or a `start.json` records that is still alive by its recorded identity (pid, boot, start). A stop that has not ended the process 10 s later ends the groups and the process. Every caller was checked: the harness (plain and rooted, whose `sh -c exec` keeps pytest as the parent) and C-5.8's second daemon in `test_daemon_contract.py` all start it straight from pytest, and none needs it to outlive its parent. `tests/e2e` imports only `audit_publication` from it.
+- **The harness's teardown** (`tests/fake/conftest.py`, the `daemon` fixture) already stopped the daemon on a failed test, and pytest runs fixture teardown on KeyboardInterrupt too, at session finish (`_pytest/runner.py`, `pytest_sessionfinish`). It ended only guardians with a `start.json`, though, so a guardian still starting outlived a failed test. It now uses the same `end_attempt_groups`.
+- **`tests/guardian_steps.py`**, the paused real guardian of the D-QUAR-START1 process tests: a pause exits once its test process is gone (`GUARDIAN_STEPS_PARENT`), not after its 120 s deadline. Each of those tests now creates its guardian inside the `try` whose `finally` stops it; two created it before.
+- **Tests** (`tests/fake/test_fake_daemon_parent_watch.py`, 5): SIGKILL the helper process that stands for the test, after it started (a) a serving daemon with a guardian still starting (`--start-delay 60`), (b) a daemon not yet answering, or (c) a paused guardian. Each must be gone within 15 s; here they went in 0.61, 0.86 and 0.23 s, and (a)'s guardian with it. A scratch pytest session's failed test and interrupted test (`raise KeyboardInterrupt`) must leave neither the daemon nor its starting guardian. With the harness of `9e844698a` all five fail: (a) to (c) outlive 15 s, and in the two teardown cases the daemon is stopped but the starting guardian outlives it.
+
+### Round 2b against its brief
+
+| Brief item | At `37438d1bb` | Commit | Test | Round 2c |
+|---|---|---|---|---|
+| Decision 1: one end for a contained start grace | done | `08ff8ce4c` | `test_kill4_fix2b.py::test_a_contained_start_grace_has_one_end_whether_or_not_a_cwd_holder_is_present` (2) | none |
+| Decision 1: C-4.2 and C-5.9, change log | done | `37438d1bb` | `test_state_contract.py` | none |
+| Decision 2: `kill` with nothing it may signal | done | `05f9dc58a`, `5e7143d54` | `test_kill_force_release_kill_kill_on_a_held_only_census_runs_no_protocol`, `test_kill_on_a_finished_job_with_a_signallable_member_still_contains_it`, boot-scope cases 1 and 11 | none |
+| Decision 2: the report's line on `--force-release` | done | `37438d1bb` | | none |
+| Decision 3: no pid signalled from a census that held it (property) | done | `8ce56cc2f` | `test_kill4_properties.py` (invariant 4) | none |
+| Decision 3: C-5.5 | done | `37438d1bb` | | none |
+| Decision 3: r2's counterexample pinned | partly: an example test pins r2's shape, but the property's CI profile never generates it (r2) | `3c81bb71b`, `333f5e827` | `test_a_pid_held_by_one_census_is_signalled_when_a_later_census_attributes_it` | added as the property's `@example` (`9e844698a`), spelled so that census 0 holds 5001 and census 1 TERMs it by lineage (traced) |
+| Decision 4: every ending in `trees()` | done | `8ce56cc2f` | the property: receipt, cancel, start grace, dead guardian, wall, `kill` on a finished job | none |
+| Decision 4: an unverifiable first census, a stranger's failed marker read | built, but did not do its job: the "marker ignored" mutant survived | `8ce56cc2f` | | invariant 6 and a strict-xfail control (`9e844698a`), below |
+| Decision 4: the joiner test on a fake clock | done | `8ce56cc2f`, `5e7143d54` | `test_kill4_fix1.py::test_self_stopping_children_born_after_the_group_term_each_get_a_term_before_any_cont` | none |
+| Decision 5: extension within `START_GRACE_MAX_S` | done | `f2e0ab9a9` | `test_kill4_fix2b.py` (running guardian; five refusals; the property), `test_quar_start1_daemon.py` (2), `test_kill4_terminal_daemon.py` (stopped) | none |
+| Decision 5: measurement, 30 or more samples | 12 samples | salvage | | 21 more, 33 in all, below |
+| Decision 6: the daemon's abandon on every path | done | `690ee9e7d`, `5e7143d54` | `test_every_ending_of_a_starting_attempt_writes_the_abandon_before_any_signal_or_end` (4), `test_unlaunched_writes_the_abandon_for_a_starting_attempt_whatever_its_caller` | `_kill_attempt` read the job row on every kill, launched ones too, and its starting check read `a["state"]` from rows that have none: three census tests failed (`cdfbbf5bc`, `f568ff61b`) |
+| Decision 6: the guardian's two checks, the abandoned receipt | done | `690ee9e7d` | `test_quar_start1_process.py` (4), `test_an_abandoned_receipt_reads_as_unlaunched_never_as_a_provider_result` (3) | the interleaving property now forces its order (`d02820eb4`) |
+| Invariants 1 to 5 | tested | | below | invariant 6 of the property added |
+| Mutants | all 9 the brief names built; at `5e7143d54` skip-abandon-unlaunched failed its control, and its fix (`37438d1bb`) never ran | `8ce56cc2f`, `5e7143d54`, `37438d1bb` | `test_kill4_fix2b_mutations.py`, `test_quar_start1_process.py` | all run, all detected (table below) |
+| The report section | not written | | | this section |
+| Holds from H3 on | cut off in H3 | | | all run, below |
+| `[stopped-turn]` alone, three times | not run | | | passed 3 of 3 |
+
+### Decisions as built
+
+1. **One end for a contained start grace (r2's P3-1).** When the kill protocol of an unlaunched attempt (no `start.json` at the abandon's last read) ends with no member left, cwd holders aside, the attempt ends through `_unlaunched(…, census=census)`: `failed`, `starting-no-receipt`, the job queued again while it has attempts left. Nothing launched, so the retry is safe. With a shell in the worktree the queued job keeps its worktree key while the shell sits there; with none the key goes, and the retry takes it again. The regression runs r2's input (a writable owned worktree, `max_attempts` 2, a guardian stopped before its `start.json`) with and without an operator's shell in the worktree and expects one state and one retry decision. Before, the case without the shell ended `lost` with no retry. Four earlier tests that expected `lost` now expect the unlaunched end.
+2. **A `kill` with nothing it may signal schedules no protocol (r2's P3-2).** `_may_signal` is true for an unverifiable census (a later read may verify it) or when `_signal_reasons` names a member. Otherwise `kill` answers `already finished` and names the members `held, never signalled`; `--confirm-dead` says none of them may be signalled. r2's sequence (`kill`, `--force-release`, `kill` twice) answers `already finished` four times in under a second: nothing scheduled, no signal, no `terminal_containment` or `recontainment` round, no `attempt.recontainment_started`.
+3. **A later attribution supersedes an earlier hold (r2's P3-3).** No product change: as r2 read it, the code held per census, and the property's oracle was wrong. The property now asserts that no pid is signalled from a census that held it (each signal is matched to the census taken before it), and C-5.5 says a hold never authorizes a signal and vetoes none. r2's counterexample is pinned twice: the example test, and the property's `@example` (pid 5000 of another uid in the guardian's group with its cwd in the worktree; its child 5001 in its own group, unmarked, cwd elsewhere, respawning marked children). Traced: census 0 holds 5001, and census 1 TERMs it.
+4. **Property coverage and a fake clock (r2's P3-4).** `trees()` draws all six endings, and draws an unverifiable first census (the first table read fails) and a stranger's failed marker read (pid 5200, whose argument buffer the first censuses cannot read). The joiner test runs on a fake clock that advances by each wait (`FakeClock`), so its 2 s grace takes 20 censuses whatever the load.
+   - **What round 2c found:** r2 named the read injection "the only injection that detects the marker-ignored mutant" (case 5's workers attributed through the parent chain only: `_signal_reasons` without its marker branch). Round 2c ran that mutant against round 2b's property: it passed, 120 derandomized examples with the injection and 120 without (04:26Z, load 54). A marked member no other source reaches is never signalled, and the attempt is quarantined with it alive, which invariant 1 allows.
+   - **Invariant 6** (below) closes that. A first form, "every process any census found marked is gone", failed on the real code: a driver of another uid, which nobody may signal, respawned a marked child into the protocol's last census, and the attempt was quarantined with that child alive. That is the design (the settle loop's last census decides and does not act: "the last census, never a guess about a pid, decides"), so the invariant excludes the last census. With it the property passes 120 derandomized and 400 random examples, and the mutant fails it with the read injection and without it. A strict-xfail control keeps it so (`test_the_marker_ignored_mutant_fails_the_kill4_property`).
+5. **D-QUAR-START1 (a): a slow, healthy start is given time.** At start grace's expiry with no receipt, `_start_extends` extends the deadline only while the census is verifiable, has no held member, and has exactly one member: the attempt's guardian by its recorded pid, start and boot, in a ps state that is neither `T` nor `Z`. The deadline is looked at again at the census's pacing (the start-grace branch runs after `_inspect_running`'s interval and `_cwd_census_due`). The bound is `START_GRACE_MAX_S` = 6 × `START_GRACE_S` = 60 s from the deadline's start: the launch, or the first look of a daemon restarted since, as the deadline lives in daemon memory. The first extension is an `attempt.start_extended` event. Past the bound, or the moment a condition fails, the existing branch runs unchanged: the group KILL, then decision 1's end. Measured below: 60 s has ample headroom.
+6. **D-QUAR-START1 (b): the abandon handshake.**
+   - **The daemon** (`_abandon_start`): publish `abandon.json` (`{"at", "reason"}`, by atomic rename, unless it is there), then read `start.json` for the last time. A marker that cannot be written raises, and nothing ends.
+   - **The guardian** (`guardian.abandoned`): it looks once its launch gate opens, and again after it publishes `start.json`, immediately before anything of the provider's is opened or spawned. Any entry at that name is a marker, readable or not; a folder it cannot look in counts as one. On finding one it spawns nothing and publishes `exit.json` with `rc` 127, `spawn_error` `abandoned before launch: <reason>` and `abandoned` {`at`, `reason`, `stage`: `gate` or `spawn`}. A reader that predates the key reads a provider that could not be spawned.
+   - **The last read:** no `start.json`, and the attempt ends unlaunched (its group KILLed first if it has members, decision 1). A `start.json`, and the attempt may have launched: a fresh census, the full protocol with the group's TERM first, and the receipt decides. An abandoned receipt reads as unlaunched in `_finalize` and `_kill_attempt`, never as a provider's result.
+   - **Every path that ends or signals a `starting` attempt** writes the marker first:
+     1. start grace with an empty census (`_process_attempt`), before its cwd wait and `_unlaunched`;
+     2. start grace with members, or with a `start.json` found by the last read: `_kill_attempt(lost=True, unlaunched=True)`, which runs the handshake at its top;
+     3. a cancel, a client kill or a wall cancel reaching `_process_attempt`'s cancel branch: `_kill_attempt`;
+     4. the wall enforced after an inspection: `_kill_attempt`;
+     5. a daemon restart's recovery: a starting attempt's deadline is set again on the restarted daemon's first look, then 1 or 2;
+     6. the launch gate's own failure (`guardian-identity-unavailable`): `_unlaunched` writes the marker for any `starting` row, though that gate is closed;
+     7. an abandoned receipt read by `_finalize` or `_kill_attempt`: `_unlaunched`, the marker already there.
+
+     The other `_unlaunched` callers (`cancelled-before-launch`, `needs a shell`, an unfinished launch-time check, `reserved-no-launch`) end `reserved` attempts, which have no guardian yet. `_enforce_wall` begins a starting attempt's finalization only on its exit receipt (path 7 when that receipt is an abandoned one) and otherwise requests the cancel of path 3, `_inspect_running` leaves a starting attempt to start grace, and a turn's `conversations.stop` takes no starting attempt, as its runner is registered only from `start.json`.
+   - **Why it is safe:** each side writes its own file before it reads the other's, and both write by atomic rename. If the daemon's read finds no `start.json`, the guardian's write came after that read, so after the daemon's abandon; the guardian's look follows its own write, finds the abandon, and spawns nothing. If the guardian's look finds no abandon, the daemon's write came after that look, so after the guardian's `start.json`; the daemon's read follows its own write, finds `start.json`, and contains the attempt as launched. Both may see each other; then the guardian spawns nothing and the abandoned receipt ends the attempt unlaunched after containment. C-4.2 states the same argument.
+   - **No live state:** the marker lives only in the attempt folder, and only the guardian and the daemon read it.
+
+### Invariants
+
+Each is executed; the property-based ones say so.
+1. **No orphan provider:** in every interleaving of the daemon's write-abandon, read-`start.json` and the guardian's gate look, write-`start.json`, look, spawn, a provider never runs once the daemon has found nothing launched. A Hypothesis property over the orders on real processes (`test_no_provider_runs_for_an_attempt_the_daemon_ended_unlaunched_in_any_interleaving`, each of the 10 orders an explicit example). Round 2c made it force its order: it released one side's step and moved on without waiting for that step to finish, so the two raced. The real code passes every order regardless, but an order mutant failed only on some runs, and Hypothesis reported it flaky (hold B). Now each released step is done before the other side moves.
+2. **A slow but healthy start is not lost:** a running, verified guardian whose `start.json` lands within the bound is never killed and never finalized for want of a receipt. Unit (`test_a_running_guardian_alone_past_start_grace_is_given_more_time_and_then_runs`) and through a real daemon: 20 s before `start.json` under a 10 s grace succeeds on its one attempt, no retry, no abandon, `attempt.start_extended` recorded, no `attempt.kill_started`.
+3. **Bounded:** no extension passes `START_GRACE_MAX_S`, and a stopped guardian or an unverifiable census never extends. A property over stopped × unverifiable × another member × elapsed time (60 derandomized examples), the five refusals as examples, and a real daemon KILLing a 60 s delay at its 8 s bound, not at its 2 s grace.
+4. **One end:** a contained start grace ends in the same state with the same retry decision whether or not a cwd holder is present (decision 1's regression, both ways).
+5. **Holds are not sticky, and never authorize:** no pid is signalled from a census that held it. The kill4 property (its invariant 4) and r2's counterexample, as an example test and as the property's `@example`.
+6. **The kill4 property's invariant 6 (round 2c):** every process that a census other than the last found carrying the attempt's markers, with the identity it captured and not held, is gone by the end, whatever the verdict (C-5.4: a marker attributes in any census; C-5.6). Property-based; detects the marker-ignored mutant.
+
+### Decision 5's measurement
+
+Round 2b's `measure.py`, run unchanged from its salvage: one guardian at a time, spawned as the daemon spawns one (`procs.spawn_disclaimed`, the daemon's identity reads, the launch gate opened), its provider `/usr/bin/true`, timed from spawn to its `start.json`, with `sysctl -n vm.loadavg` read just before each. It generates no load beyond the guardian it measures, and ran outside the suite lock, as it runs no test. Round 2b took 12 samples (03:19 and 03:32Z); round 2c took 21 in batches of three spread across its run, never during one of its own holds.
+
+- **33 samples**, load1 21.2 to 71.3; every guardian wrote its `start.json`.
+- **Spawn to `start.json`:** min 0.30 s, median 0.96 s, 90th percentile 3.32 s, max 4.54 s (load1 65.4, 03:32:37Z).
+- **Against load:** a least-squares line gives 0.044 s per unit of load1 (r = 0.61), and 3.9 s at load 100, past the 71 the samples reached.
+
+| load1 | samples | median | max |
+|---|---|---|---|
+| 0 to 30 | 12 | 0.43 s | 3.44 s |
+| 30 to 50 | 9 | 0.96 s | 1.48 s |
+| 50 to 70 | 11 | 2.01 s | 4.54 s |
+| 70 and over | 1 | 4.52 s | 4.52 s |
+
+**Against the bound.** The worst start measured, 4.54 s, is under half of `START_GRACE_S` (10 s), and `START_GRACE_MAX_S` (60 s) is about 13 times it. The samples do not reproduce the incident: by the brief's timeline its attempt started at 18:33:37.7Z, under load 60 to 100, and its guardian wrote `start.json` and launched the provider at 18:34:09Z, about 31 s later. What made that start slow is not visible here, and the host never passed load 71 while these were taken. 60 s covers the incident's 31 s about twice over and every start measured by more than ten times, so no change is proposed.
+
+| UTC | round | load1, load5 before | spawn to gate open | spawn to `start.json` |
+|---|---|---|---|---|
+| 03:19:12 | 2b | 37.54, 39.46 | 0.011 s | 0.699 s |
+| 03:19:16 | 2b | 38.38, 39.60 | 0.008 s | 0.977 s |
+| 03:19:21 | 2b | 36.34, 39.16 | 0.048 s | 1.030 s |
+| 03:19:25 | 2b | 36.32, 39.11 | 0.007 s | 0.959 s |
+| 03:19:30 | 2b | 36.29, 39.06 | 0.009 s | 1.482 s |
+| 03:19:35 | 2b | 36.51, 39.06 | 0.013 s | 1.229 s |
+| 03:32:15 | 2b | 62.71, 59.57 | 0.020 s | 2.817 s |
+| 03:32:21 | 2b | 62.25, 59.52 | 0.015 s | 2.011 s |
+| 03:32:29 | 2b | 64.07, 59.95 | 0.030 s | 3.828 s |
+| 03:32:37 | 2b | 65.42, 60.38 | 0.520 s | 4.540 s |
+| 03:32:44 | 2b | 68.91, 61.18 | 0.010 s | 2.554 s |
+| 03:32:53 | 2b | 71.30, 61.94 | 0.489 s | 4.519 s |
+| 04:12:27 | 2c | 64.02, 53.14 | 0.034 s | 1.255 s |
+| 04:12:32 | 2c | 61.05, 52.71 | 0.038 s | 1.482 s |
+| 04:12:39 | 2c | 58.57, 52.33 | 0.177 s | 2.394 s |
+| 04:42:51 | 2c | 55.42, 48.34 | 0.015 s | 0.435 s |
+| 04:42:55 | 2c | 55.31, 48.43 | 0.008 s | 0.571 s |
+| 04:42:59 | 2c | 55.31, 48.43 | 0.006 s | 0.408 s |
+| 05:11:49 | 2c | 36.72, 45.24 | 0.038 s | 0.575 s |
+| 05:11:53 | 2c | 38.03, 45.37 | 0.041 s | 0.408 s |
+| 05:11:57 | 2c | 37.87, 45.22 | 0.049 s | 0.582 s |
+| 05:36:59 | 2c | 22.58, 25.60 | 0.009 s | 0.475 s |
+| 05:37:04 | 2c | 21.81, 25.39 | 0.004 s | 1.390 s |
+| 05:37:11 | 2c | 22.39, 25.45 | 0.050 s | 3.443 s |
+| 05:55:53 | 2c | 24.71, 23.32 | 0.012 s | 0.301 s |
+| 05:55:56 | 2c | 25.37, 23.48 | 0.031 s | 0.373 s |
+| 05:56:00 | 2c | 25.37, 23.48 | 0.057 s | 0.416 s |
+| 06:00:51 | 2c | 23.91, 26.19 | 0.013 s | 0.333 s |
+| 06:00:55 | 2c | 24.88, 26.36 | 0.012 s | 0.316 s |
+| 06:00:58 | 2c | 26.89, 26.75 | 0.044 s | 0.341 s |
+| 06:05:18 | 2c | 21.25, 22.56 | 0.016 s | 0.594 s |
+| 06:05:22 | 2c | 21.25, 22.56 | 0.006 s | 0.444 s |
+| 06:05:26 | 2c | 21.31, 22.55 | 0.030 s | 1.005 s |
+
+### Mutants
+
+Strict xfail, AssertionError only; a missing mutation target raises RuntimeError and fails the test. All were run at `f568ff61b` (holds A2 and B3) and all were detected.
+
+| Mutant | The change | Named test | Detected |
+|---|---|---|---|
+| extend-stopped | extend without the stopped check | `test_start_grace_extends_for_no_guardian_but_a_live_verified_running_one[stopped]` | yes |
+| extend-unbounded | extend without the bound | `…[past-bound]` | yes |
+| guardian-checks-first | the guardian looks for the abandon before it writes `start.json`, not after (`tests/guardian_steps.py`) | the interleaving property | yes |
+| daemon-reads-first | the daemon reads `start.json` before it writes the abandon | the interleaving property | yes (in hold B, before the property forced its order, Hypothesis raised FlakyFailure) |
+| skip-abandon-start-grace-empty | start grace's empty census ends with no abandon | `test_every_ending_of_a_starting_attempt_writes_the_abandon_before_any_signal_or_end[start-grace-empty]` | yes |
+| skip-abandon-kill-attempt | `_kill_attempt` (start grace with members, a cancel, the wall) signals and ends a starting attempt with no abandon | `…[cancel]` | yes |
+| skip-abandon-unlaunched | `_unlaunched` ends a starting attempt with no marker | `test_unlaunched_writes_the_abandon_for_a_starting_attempt_whatever_its_caller` | yes |
+| recontain-no-targets | P3-2: `_recontain` scheduled with no signal reasons | `test_kill_force_release_kill_kill_on_a_held_only_census_runs_no_protocol` | yes |
+| sticky-hold | P3-3: every pid in the evidence's `held_parents` is never signalled again | `test_a_pid_held_by_one_census_is_signalled_when_a_later_census_attributes_it` | yes |
+| marker-ignored | P3-4: `_signal_reasons` without its marker branch | the kill4 property (invariant 6) | yes; round 2b's property did not detect it |
+
+The earlier rounds' controls are still detected in the same holds: the build's 8, fix round 1's 6, round 2a's 4.
+
+### Red runs
+
+- **Round 2b, 02:48Z** (the red tests over `b52a63842`'s code): 24 failed, 5 passed. 18 of `test_kill4_fix2b.py`'s 21 failed, and so did all four real-process handshake tests and both real-daemon D-QUAR-START1 tests. Three of the passes pin what the base already did: decision 1 with the operator's shell (r2: that case already ended unlaunched), decision 2's other side (a signallable member is still contained) and an abandoned receipt through the kill protocol. The other two are in files the salvaged output does not name.
+- **Round 2b, 03:07Z** (`3c81bb71b`): 5 failed. The P3-3 example failed on its own world: without the provider's owned identity census 1 was unverifiable, so taint, not a hold, kept 5001. `333f5e827` gave it that identity, as the property's world does.
+- **Round 2c:** the marker-ignored mutant against round 2b's property: not detected, with the read injection and without it (04:26Z). The new orphan tests against `9e844698a`'s harness: 5 failed (04:55Z).
+
+### Holds
+
+Round 2c's, one pytest per hold under the suite lock, in this worktree. Nothing ran outside the lock. Counts per file at the head `f568ff61b`:
+
+| Hold (UTC, load) | File | Result |
+|---|---|---|
+| A2 (05:38, 18) | `tests/unit/test_kill4_fix2b.py` | 21 passed |
+| A2 | `tests/unit/test_kill4_fix2b_mutations.py` | 8 xfailed (every mutant detected) |
+| A2 | `tests/unit/test_kill4_properties.py` | 1 passed |
+| A2 | `tests/unit/test_kill4_terminal_containment.py` | 17 passed |
+| A2 | `tests/unit/test_kill4_fix1.py` | 21 passed |
+| A2 | `tests/unit/test_kill4_mutations.py` | 8 xfailed |
+| A2 | `tests/unit/test_kill4_fix1_mutations.py` | 6 xfailed |
+| A2 | `tests/unit/test_kill4_boot_scope.py` | 46 passed |
+| A2 | `tests/unit/test_kill4_boot_scope_mutations.py` | 4 xfailed |
+| B3 (05:42, 26) | `tests/process/test_quar_start1_process.py` | 4 passed, 2 xfailed |
+| B3 | `tests/process/test_kill4_fix1_process.py` | 3 passed |
+| B3 | `tests/process/test_census_parent_chain_process.py` | 3 passed |
+| C2 (05:44, 34) | `tests/fake/test_quar_start1_daemon.py` | 2 passed |
+| C2 | `tests/fake/test_kill4_terminal_daemon.py` | 7 passed |
+| C2 | `tests/fake/test_fake_daemon_parent_watch.py` | 5 passed |
+| C2 | `tests/unit/test_failed_keep_teardown.py` | 6 passed |
+| E3 (05:35, 24) | `tests/unit/test_census_parent_chain.py` | 14 passed |
+| E3 | `tests/unit/test_census_counted.py` | 5 passed |
+| E3 | `tests/unit/test_census_recycled_pid.py` | 25 passed |
+| E3 | `tests/unit/test_census_survivors_review.py` | 14 passed |
+| E3 | `tests/unit/test_daemon_settle.py` | 68 passed |
+| E3 | `tests/unit/test_census_boot_seeds.py` | 36 passed |
+| E3 | `tests/unit/test_invariants_index.py` | 25 passed |
+| E3 | `tests/unit/test_test_module_names.py` | 1 passed |
+| F (05:47, 32) | `tests/fake/test_census_escapers_daemon.py` | 9 passed |
+| F | `tests/fake/test_census_self_exit_daemon.py` | 3 passed |
+| G (05:49, 25) | `tests/fake/test_census_recycled_pid_daemon.py` | 29 passed |
+| G | `tests/fake/test_census_cwd_outcome.py` | 6 passed |
+| G | `tests/fake/test_census_boot_seeds_daemon.py` | 5 passed |
+| G | `tests/fake/test_salvage_adversarial.py` | 8 passed |
+| G | `tests/fake/test_salvage_worktree_gone.py` | 6 passed |
+| H (05:50, 23) | `tests/fake/test_daemon_contract.py` | 22 passed, C-5.8's 3 s second-daemon test among them (it failed at load 43 to 45 in round 2a) |
+| H | `tests/fake/test_state_contract.py` | 37 passed |
+| J (05:53, 21) | `tests/fake/test_crash_matrix.py` | 9 passed |
+| J | `tests/fake/test_salvage_finalization.py` | 47 passed |
+| J | `tests/fake/test_census_inspection_finalization.py` | 3 passed |
+
+E3 ran at `cdfbbf5bc` with `f568ff61b`'s one-line change in the tree, before it was committed; every other hold above ran at `f568ff61b`.
+
+**`[stopped-turn]` alone, three times** (`test_census_self_exit_daemon.py::test_d_kill3_inspection_keeps_a_hidden_lockf_after_its_shell_provider_ends[stopped-turn]`, at `d02820eb4`): passed in 23.3 s (05:17Z, load 35), 19.0 s (05:19Z, load 27) and 12.6 s (05:24Z, load 24). r2's hold-C failure, a 60 s wait for the escaper's pid file, did not recur.
+
+**Earlier holds, and what they found:**
+- **A, B, C** (05:03 to 05:16Z, at `923413a34` and `d02820eb4`) passed as A2, B3 and C2 did, except hold B's daemon-reads-first control (FlakyFailure; invariant 1 above), fixed in `d02820eb4`. `test_kill4_fix1_process.py`'s joiner test, which failed in round 2b's H2 (4 joiners against 5, load 47 to 66), passed in B, B2 and B3.
+- **E** (05:25Z, `d02820eb4`): 3 failed, 185 passed. `test_census_recycled_pid.py::test_e_recycled_root_never_becomes_a_new_kill_target` and both `test_census_survivors_review.py::test_recorded_setsid_survivor_is_individually_signalled` cases drive `_kill_attempt` on a core with no job lookup. `5e7143d54` read the job row there on every kill, launched attempts included. `cdfbbf5bc` reads it only for an unlaunched end. E2 then failed the same three on `a["state"]`, which `690ee9e7d` had begun to read: their rows (a running attempt's identities and evidence) have no state. `_kill_attempt` already reads `killed_by` and `pgid` with `.get`, and now reads `state` so too (`f568ff61b`); a store row always has its state. Round 2b ran neither file after `690ee9e7d`: they would have failed its H1, its H2's 89 tests are six other files, and its H3 ended after one test.
+- **Scratch checks under the lock:** the marker-ignored mutant against round 2b's property (04:26Z); invariant 6 on the real code, first form failing and final form passing, and the mutant against it (04:32 to 04:39Z); the property at 400 random examples (05:56Z, passed in 174 s).
+
+**Not run here:** the rest of `tests/unit`, `tests/fake`, `tests/process` and `tests/e2e`, which CI runs. The harness change reaches every fake test; the 15 fake files above passed with it. `tests/frontend/test_core_live.py` cannot run on a lane.
