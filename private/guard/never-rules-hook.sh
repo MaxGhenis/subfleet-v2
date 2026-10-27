@@ -1281,13 +1281,11 @@ pw_word_judge() {
   pw_t=""
   # r4 decision 6: a word past the scan cap is broad, unscanned (fails closed)
   if pw_capped "$w"; then pw_sentinel "${shown:0:120}" " (not judged: more than 64 { or [, 256 components, or 4 KB)"; return 0; fi
-  # r4 decision 9: ~$USER, ~${USER} and ~$(whoami) are the home (placed even
-  # where the text rules would read ~ by name: they see the word as written)
-  case "$w" in
-    '~$USER'|'~$USER/'*) w="~${w:6}"; q=q ;;
-    '~${USER}'|'~${USER}/'*) w="~${w:8}"; q=q ;;
-    '~$(whoami)'|'~$(whoami)/'*) w="~${w:10}"; q=q ;;
-  esac
+  # r4 decision 9, widened by r5 decision 10: ~ followed by $, ${, $( or a
+  # backtick is the home, failing closed (zsh expands the parameter or the
+  # command before the ~: ~$USER, ~$LOGNAME, ~$(id -un)); placed even where
+  # the text rules would read ~ by name: they see the word as written
+  case "$w" in '~$'*|'~`'*) pw_tilde "$w"; w=$pw_w; q=q ;; esac
   # r4 decision 6: a plain absolute word (no glob, brace, alternation, $ or
   # backtick) goes straight to the written-path judgment pw_alt would give it;
   # a word with six or more slashes is no root the text rules know by name
@@ -1324,6 +1322,24 @@ pw_word_judge() {
     [ -z "$broad" ] || break
   done
   if [ -n "$broad" ]; then pw_sentinel "$shown" "${glob:+ (glob)}"; else pw_t=F; fi
+}
+# pw_tilde WORD: pw_w is WORD (~ followed by $ or a backtick) read from the home:
+# its user part (to the matching ), } or backtick, then to the first /) dropped
+# (r5 decision 10).
+pw_tilde() {
+  local rest="" d=1 k=0
+  case "$1" in
+    '~$('*) rest=${1:3}
+      while [ "$k" -lt "${#rest}" ] && [ "$d" -gt 0 ]; do
+        case "${rest:k:1}" in '(') d=$((d + 1)) ;; ')') d=$((d - 1)) ;; esac
+        k=$((k + 1))
+      done
+      rest=${rest:k} ;;
+    '~${'*) rest=${1#*\}} ;;
+    '~`'*) rest=${1:2}; rest=${rest#*\`} ;;
+    *) rest=${1:2} ;;
+  esac
+  case "$rest" in */*) pw_w="~/${rest#*/}" ;; *) pw_w="~" ;; esac
 }
 # pw_capped WORD: WORD has more than 64 { or [, or over 4 KB, or more than 256
 # components (r4 decision 6; the last: each component costs the folder walks
@@ -1375,6 +1391,15 @@ pw_alt() {
   pw_glob "$b" "$ctx" "$f"
   if [ "$pw_av" != G ] && [ "$fd" != "$b" ]; then
     sv=$pw_av; pw_glob "$fd" "$ctx" "$f"; [ "$pw_av" = G ] || pw_av=$sv
+  fi
+  # r5 decision 10: a glob word climbing out of a /Volumes entry with .. is
+  # also read from / (pw_voldots, as a written path's is), so /Volumes/M*/../x
+  # is judged like /Volumes/Macintosh HD/../x
+  if [ "$pw_av" != G ] && [ "$f" != c ]; then
+    pw_abs "$b"
+    case "$pw_p" in
+      /*) if pw_voldots "$pw_p"; then sv=$pw_av; pw_glob "$pw_vd" "$ctx" "$f"; [ "$pw_av" = G ] || pw_av=$sv; fi ;;
+    esac
   fi
 }
 # pw_fold WORD: pw_fd is WORD with each <component>/.. after its first glob
@@ -1607,6 +1632,29 @@ pw_prep_awk="$pw_lib_awk"'
     return out t
   }
   function inner(q, depth, ctx) { return (mode == "prep" && depth < 6 && q ~ SRCH) ? prep(q, depth + 1, 1, ctx) : q }
+  # parend(t, i): where the ) matching the ( at i is, quotes and escapes skipped; 0 at none. btend(t, i): where
+  # the backtick closing the one at i is; 0 at none.
+  function parend(t, i,   n, d, c, j) {
+    n = length(t); d = 0
+    while (i <= n) {
+      if (match(substr(t, i, 512), /^[^\\\047"()]+/)) { i += RLENGTH; continue }
+      c = substr(t, i, 1)
+      if (c == "\\") { i += 2; continue }
+      if (c == "\047") { j = sqend(t, i); if (!j) return 0; i = j + 1; continue }
+      if (c == "\"") { j = dqend(t, i); if (!j) return 0; i = j + 1; continue }
+      if (c == "(") d++; else if (--d == 0) return i
+      i++
+    }
+    return 0
+  }
+  function btend(t, i,   n, c) {
+    n = length(t); i++
+    while (i <= n) {
+      if (match(substr(t, i, 512), /^[^\\`]+/)) { i += RLENGTH; continue }
+      c = substr(t, i, 1); if (c == "\\") { i += 2; continue }; if (c == "`") return i; i++
+    }
+    return 0
+  }
   function named(s,   d) { d = s; gsub(/[\047"\\$]/, "", d); return s ~ SRCH || d ~ SRCH }
   function script(s, x, depth,   y) {
     if (depth >= 4) { if (named(s) || named(ansic(s))) deep = 1; return }
@@ -1807,13 +1855,19 @@ pw_prep_awk="$pw_lib_awk"'
     for (t = 1; t <= nt; t++) out = out tk[t] sp[t]
     return out
   }
-  function prep(t, depth, noext, ctx,   n, i, c, seg, res, j, sep, piped, nextin, r, bt) {
+  function prep(t, depth, noext, ctx,   n, i, c, seg, res, j, sep, piped, nextin, r, bt, x) {
     n = length(t); i = 1; seg = ""; res = ""; piped = 0; nextin = ""; bt = 0
     while (i <= n) {
       if (match(substr(t, i, 512), /^[^\\\047"#;&|()`$\n]+/)) { seg = seg substr(t, i, RLENGTH); i += RLENGTH; continue }
       c = substr(t, i, 1)
       if (c == "\\") { seg = seg substr(t, i, 2); i += 2; continue }
       if (c == "$" && substr(t, i + 1, 1) == "\047") { j = sqend(t, i + 1); if (!j) j = n; seg = seg substr(t, i, j - i + 1); i = j + 1; continue }
+      # r5 decision 10: a word that starts ~$( or ~` is read from the home, and the command its substitution
+      # runs is judged on its own
+      if ((c == "`" || (c == "$" && substr(t, i + 1, 1) == "(")) && !noext && seg ~ /(^|[[:space:]])~$/) {
+        j = (c == "`") ? btend(t, i) : parend(t, i + 1)
+        if (j) { x = (c == "`") ? substr(t, i + 1, j - i - 1) : substr(t, i + 2, j - i - 2); if (mode == "prep" && named(x)) script(x, ctx, depth); i = j + 1; continue }
+      }
       if (c == "$") { seg = seg c; i++; continue }
       if (c == "\047") { j = index(substr(t, i + 1), "\047"); if (!j) j = n - i; seg = seg substr(t, i, j + 1); i += j + 1; continue }
       if (c == "\"") { j = dqend(t, i); if (!j) j = n; seg = seg substr(t, i, j - i + 1); i = j + 1; continue }
@@ -2015,8 +2069,9 @@ if [ -n "$searcher" ]; then
         nctx = (role == "script") ? sx(st, val) : ctx
         b = run; gsub(/["\047]/, "", b)
         sf = sform(run, 1)
-        # (r5 decision 9: a root spelling right before a brace group is a path word too)
-        if (sf ~ /^(~[A-Za-z0-9._-]*|~\$USER|~\$\{USER\}|~\$\(whoami\)|\$HOME|\$SUBFLEET_(ROOT|HOME))(\/|$|\{)/ || sf ~ /^\// || (sf ~ /^\{/ && sf ~ /,|\.\./)) {
+        # (r5: a root spelling right before a brace group is a path word too, decision 9, and so is ~ followed
+        # by $ or a backtick, decision 10)
+        if (sf ~ /^(~[A-Za-z0-9._-]*|\$HOME|\$SUBFLEET_(ROOT|HOME))(\/|$|\{)/ || sf ~ /^~[$`]/ || sf ~ /^\// || (sf ~ /^\{/ && sf ~ /,|\.\./)) {
           k++
           if (pass == 1) printf "%d\t%s\t%s\t%s\t%s\t%s\n", k, ctx, (run == sf) ? "u" : "q", (cd && !cdp) ? "c" : "p", sf, b
           else if (k in tok) {

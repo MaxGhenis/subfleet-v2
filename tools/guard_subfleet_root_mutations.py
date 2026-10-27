@@ -103,6 +103,8 @@ MUTATIONS = {
     "r4-tilde-user-dropped": (HOOK, None, None, "test_r4_the_unlisted_forms_are_judged"),
     # r5 (the hub's decisions on review r4), one per decision
     "r5-alias-unfolded": (HOOK, None, None, "test_r3c_nothing_inside_a_mount_is_read"),
+    "r5-brace-root-unread": (HOOK, None, None, "test_r5_a_root_spelling_before_a_brace_is_a_path_word"),
+    "r5-voldots-glob-dropped": (HOOK, None, None, "test_r5_the_wider_user_and_volume_family"),
 }
 #: r3's and r3b's mutants: (old text, new text) pairs, each old text exactly once in the hook.
 LIST_GUARD = '      elif pw_holds "$p"; then\n'
@@ -219,8 +221,12 @@ EDITS = {
     "r4-device-is-stdin": [('          else if (op == "<&") stdin = (tg == "-") ? 0 : 1\n          else stdin = (tg ~ /^\\/dev\\//) ? 0 : 1\n',
                             '          else stdin = 1\n')],
     "r4-meta-walks": [('    if (t <= nt && ismeta(val[t], val, rd, t, nt)) return sp[0] ":" sp[nt]\n', '')],
-    "r4-tilde-user-dropped": [("""    '~$USER'|'~$USER/'*) w="~${w:6}"; q=q ;;
+    # retargeted in r5: decision 10 widened r4's three spellings to one reading
+    "r4-tilde-user-dropped": [("""  case "$w" in '~$'*|'~`'*) pw_tilde "$w"; w=$pw_w; q=q ;; esac
 """, "")],
+    "r5-voldots-glob-dropped": [("""      /*) if pw_voldots "$pw_p"; then sv=$pw_av; pw_glob "$pw_vd" "$ctx" "$f"; [ "$pw_av" = G ] || pw_av=$sv; fi ;;
+""", "")],
+    "r5-brace-root-unread": [("""(\\/|$|\\{)/ || sf ~ /^~[$`]/""", """(\\/|$)/ || sf ~ /^~[$`]/""")],
     "r3c-unescape-dropped": [('        if (c == "\\\\") { if (i < n) out = out (mode ? lit(substr(run, i + 1, 1)) : substr(run, i + 1, 1)); i += 2; continue }\n',
                               '        if (c == "\\\\") { out = out c; i++; continue }\n')],
 }
