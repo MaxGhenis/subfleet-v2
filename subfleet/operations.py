@@ -73,7 +73,7 @@ def brief(view: dict) -> str:
             if lane.get('identity_status') in ('mismatch', 'unverified'):
                 conditions.append('identity ' + lane['identity_status'])
             closures = lane.get('closures', [row for row in view.get('closures', ()) if row['lane_id'] == lane['lane_id']])
-            conditions.extend(render.closure_text(row) for row in closures)
+            conditions.extend(render.closure_text(row, home=render.lane_home(lane)) for row in closures)
             lines.append(f"  - {lane['lane_id']}: {text}" + ('; ' + '; '.join(conditions) if conditions else ''))
     return '\n'.join(lines)
 
