@@ -117,8 +117,10 @@ def test_start_grace_contains_a_stopped_guardian_before_any_retry(daemon, world,
     a, job = attempt(daemon), daemon.store.get_job(JOB)
     assert not guardian.alive and guardian.ended_by == KILL
     assert decided and all(not alive for _, alive in decided), decided
-    assert a["state"] == "lost" and a["killed_by"] == "recovery", a
-    assert job["state"] == "waiting"                    # a read-only loss retries (C-4.5), now contained
+    # Fix round 2b, decision 1 (review r2's P3-1): nothing launched, so the contained start
+    # grace ends unlaunched, and the job is queued again (C-4.5), only now that it is contained.
+    assert (a["state"], a["outcome_detail"]) == ("failed", "starting-no-receipt"), a
+    assert a["killed_by"] == "recovery" and job["state"] == "queued", (a, job)
     # Fix 1 (P2): no start.json, so its group is KILLed at once; the guardian is never
     # continued (a continue would only resume its launch) and gets no TERM it ignores.
     assert world.signals[0] == ("group", 4242, KILL), world.signals

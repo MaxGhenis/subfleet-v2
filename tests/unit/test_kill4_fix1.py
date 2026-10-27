@@ -155,7 +155,7 @@ def test_start_grace_kills_a_guardian_stopped_before_its_setsid_and_never_terms_
     daemon._process_attempt(ATTEMPT)
     assert not guardian.alive and guardian.ended_by == KILL
     assert [s for s in world.signals if s[1] == 4242] == [("pid", 4242, KILL)], world.signals
-    assert attempt(daemon)["state"] == "lost"
+    assert attempt(daemon)["state"] == "failed"         # fix round 2b, decision 1: ended unlaunched
 
 
 # P3-1: the group's TERM is credited only to the census taken before it.

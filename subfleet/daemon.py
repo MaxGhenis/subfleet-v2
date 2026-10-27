@@ -9612,6 +9612,13 @@ class Daemon:
             self._quarantine(a, census, reason)
             return
         receipt = self._read_json(adir / "exit.json")
+        if unlaunched and not receipt:
+            # Fix round 2b, decision 1 (review r2's P3-1): nothing launched, so the attempt
+            # ends unlaunched whatever is left in its worktree, as an empty start grace
+            # does: one state and one retry decision, and `_unlaunched` keeps a cwd
+            # holder's hold.
+            self._unlaunched(a, "starting-no-receipt", census=census)
+            return
         if lost and receipt is None:
             self._lost(a)
             return

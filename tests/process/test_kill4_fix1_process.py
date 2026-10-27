@@ -115,7 +115,9 @@ def test_start_grace_never_continues_a_stopped_guardian_so_its_provider_never_st
         assert real.sent[0] == ("group", guardian.pid, int(signal.SIGKILL)), real.sent
         assert not [s for s in real.sent if s[2] in (signal.SIGTERM, signal.SIGCONT)], real.sent
         a = attempt(real)
-        assert a["state"] == "lost" and json.loads(a["evidence_json"])["terminal_containment"][-1]["contained"]
+        # Fix round 2b, decision 1: a contained start grace ends unlaunched.
+        assert (a["state"], a["outcome_detail"]) == ("failed", "starting-no-receipt"), a
+        assert json.loads(a["evidence_json"])["terminal_containment"][-1]["contained"]
     finally:
         if gate_w >= 0:
             os.close(gate_w)

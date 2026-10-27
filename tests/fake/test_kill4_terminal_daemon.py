@@ -201,7 +201,7 @@ def test_a_guardian_alive_past_start_grace_is_killed_before_any_retry(daemon, st
                 assert not alive(guardian), "a retry was reserved while a1's guardian lived"
             return rows[0] if rows[0]["state"] not in ("reserved", "starting", "running") else None
         a1 = daemon.until(checked, timeout=30)
-        assert a1["state"] == "lost", a1
+        assert (a1["state"], a1["outcome_detail"]) == ("failed", "starting-no-receipt"), a1
         assert a1["killed_by"] == "recovery" and not a1["quarantine_reason"]
         assert not alive(guardian)
         assert not (daemon.root / "jobs" / job / "a1" / "start.json").exists()
