@@ -9666,13 +9666,19 @@ class Daemon:
                 self._supersede_wall_cancel(a, receipt)
                 self._begin_finalizing(a, receipt)
                 return
-        detail = "cancelled-before-launch" if self._job(a["job_id"])["cancel_requested_at"] else "starting-no-receipt"
+        def unlaunched_detail() -> str:
+            # How an attempt that launched nothing ends: a cancel's detail when its job's
+            # cancel is requested, as `_unlaunched` decides one, else start grace's. Read
+            # only for such an end: a launched attempt's kill never reads its job here.
+            return ("cancelled-before-launch" if self._job(a["job_id"])["cancel_requested_at"]
+                    else "starting-no-receipt")
+
         if a["state"] == "starting":
             # D-QUAR-START1 (b): the abandon precedes every signal, and the last read of
             # start.json decides. None: the guardian can never launch, so its group is
             # KILLed at once and the attempt ends unlaunched. One: it may have launched,
             # so the full protocol runs against a census taken now, and its receipt decides.
-            unlaunched = self._abandon_start(a, detail)
+            unlaunched = self._abandon_start(a, unlaunched_detail())
             if not unlaunched:
                 census = self._contain(a)
         evidence = json.loads(a["evidence_json"] or "{}")
@@ -9742,7 +9748,7 @@ class Daemon:
             # does: one state and one retry decision, and `_unlaunched` keeps a cwd
             # holder's hold. A receipt the guardian left on finding the abandon reads so
             # too, never as a provider's result.
-            self._unlaunched(a, abandoned_detail(receipt, detail), census=census)
+            self._unlaunched(a, abandoned_detail(receipt, unlaunched_detail()), census=census)
             return
         if lost and receipt is None:
             self._lost(a)

@@ -47,7 +47,7 @@ MUTANTS = {
     # D-QUAR-START1 (b): the kill protocol of a starting attempt (start grace, a cancel,
     # the wall) signals and ends it with no abandon written first.
     "skip-abandon-kill-attempt": [(Daemon, "_kill_attempt", [
-        ("unlaunched = self._abandon_start(a, detail)", "unlaunched = True")])],
+        ("unlaunched = self._abandon_start(a, unlaunched_detail())", "unlaunched = True")])],
     # D-QUAR-START1 (b): `_unlaunched` ends a starting attempt with no marker.
     "skip-abandon-unlaunched": [(Daemon, "_unlaunched", [
         ("self._abandon(a, detail)\n    observers", "pass\n    observers")])],
