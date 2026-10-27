@@ -64,7 +64,7 @@ from .contracts import (
     AttestationResult, ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
     Reading, ReadingLabel, Sandbox, attempt_dir, hold_note, hold_source,
 )
-from .status_json import closure_row, closure_rows, decision_rows
+from .status_json import closure_row, closure_rows, decision_rows, timestamp
 from .credentials import (env_references, ignored_hooks, reference_repair, resolve_credential, startup_lanes,
                           withheld_references)
 from .provider_env import ProviderEnvironment
@@ -1384,7 +1384,7 @@ class Daemon:
                 rule = str(refused)
                 raise protocol.ProtocolError(f"lanes hold: {rule}", Exit.INVALID_INPUT, reason="hold-note",
                                              details={"hold_rule": rule}) from None
-            until_utc = instant.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            until_utc = timestamp(instant)
             if until_utc <= utcnow():
                 raise protocol.ProtocolError("lanes hold: --until must be in the future; hold is not in force",
                                              Exit.INVALID_INPUT, reason="hold-until-past")

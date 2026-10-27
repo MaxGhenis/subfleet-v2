@@ -73,7 +73,7 @@ from .protocol import ProtocolError
 from .credentials import refused_rows, startup_lanes
 from .launch_env import build_environment, refused_reference
 from .policy import LANE_REFERENCE_FIX, PolicyError, check_lane_credentials, load_policy, startup_notes
-from .status_json import lane_verdict
+from .status_json import lane_verdict, timestamp
 from .store import notice_fingerprint
 from .home_paths import home_path
 
@@ -2364,7 +2364,7 @@ def cmd_lanes(args: argparse.Namespace) -> int:
             # #263 returns the stored row but has no kept flag and echoes the
             # requested note at the top level. The row remains the authority.
             stored_note = hold_note_of(closure.get("source_event"))
-            result["kept"] = (render.instant(closure["until_at"]) != render.instant(args.until.strip())
+            result["kept"] = (render.instant(closure["until_at"]) != render.instant(timestamp(args.until.strip()))
                               or stored_note != note)
             result["note"] = stored_note
     if args.json:

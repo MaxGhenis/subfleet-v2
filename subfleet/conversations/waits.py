@@ -92,7 +92,7 @@ def lane_summary(decision: Any) -> dict:
     resets: list[str] = []
     provider = None
     blocks: set[str] = set()
-    holds: dict[tuple[str, str, str], dict] = {}
+    holds: dict[tuple[str, str, str, str], dict] = {}
     for evaluation in evaluations:
         provider = provider or evaluation.get("provider")
         blocks.update(str(block) for block in evaluation.get("capacity_blocks") or ())
@@ -101,22 +101,33 @@ def lane_summary(decision: Any) -> dict:
             label = lane_label(reasons)
             key = ":".join(label.split(":")[:2]) if label.startswith("closed:") else label
             lane = str(row.get("lane_id"))
+            closed_labels = {reason for reason in reasons if reason.startswith("closed:")}
             matching = [closure for closure in evaluation.get("closures", ())
                         if closure.get("lane_id") == lane
-                        and label == f"closed:{closure['scope']}:{closure['until_at']}"]
+                        and f"closed:{closure['scope']}:{closure['until_at']}" in closed_labels]
             for closure in matching:
                 if closure.get("reason") == "operator-hold":
-                    holds[(lane, closure["scope"], closure["until_at"])] = closure
-            if matching and all(closure.get("reason") == "operator-hold" for closure in matching):
-                key = "operator-hold"
+                    holds[(lane, closure["scope"], closure["until_at"], str(closure.get("source_event")))] = closure
+            if label.startswith("closed:"):
+                if matching:
+                    if all(closure.get("reason") == "operator-hold" for closure in matching):
+                        key = "operator-hold"
+                    else:
+                        key = "closed:" + min(closure["scope"] for closure in matching
+                                              if closure.get("reason") != "operator-hold")
+                    # A hold's safety bound is independent of every provider reset.
+                    for closure in matching:
+                        if closure.get("reason") != "operator-hold":
+                            resets.append(closure["until_at"])
+                elif label.count(":") >= 2:
+                    resets.append(label.split(":", 2)[2])
             if lane not in lanes.setdefault(key, []):
                 lanes[key].append(lane)
-            if key != "operator-hold" and label.startswith("closed:") and label.count(":") >= 2:
-                resets.append(label.split(":", 2)[2])
-    result = {"provider": provider, "lanes": lanes, "reset": min(resets) if resets else None,
+    result = {"provider": provider, "lanes": {key: sorted(ids) for key, ids in sorted(lanes.items())},
+              "reset": min(resets) if resets else None,
               "blocks": sorted(blocks)}
     if holds:
-        result["holds"] = list(holds.values())
+        result["holds"] = [holds[key] for key in sorted(holds)]
     return result
 
 

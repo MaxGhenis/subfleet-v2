@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .capacity import ACTIVE_ATTEMPT_STATES, build_view
-from .contracts import READING_TTL_S, attempt_dir, hold_note_of
+from .contracts import READING_TTL_S, attempt_dir, hold_note_of, hold_source
 from .launch_env import refused_reference
 from .quota_projection import instant, weekly_projections
 
@@ -421,17 +421,25 @@ def pin_refusals(stuck: Mapping[str, Any]) -> str:
     for row in stuck.get("closures") or ():
         closures.setdefault(f"closed:{row['scope']}:{row['until_at']}", []).append(row)
     parts = []
-    for reason in dict.fromkeys(stuck.get("reasons") or ()):
+    reasons = list(dict.fromkeys(stuck.get("reasons") or ()))
+    # Canonicalize closure order while preserving the other standing refusals.
+    closed_reasons = iter(sorted(reason for reason in reasons if reason in closures))
+    for original in reasons:
+        reason = next(closed_reasons) if original in closures else original
         rows = closures.get(reason)
         if rows:
+            rows = sorted(rows, key=lambda row: (str(_label(row.get("reason"))), str(row.get("source_event"))))
             for row in rows:
                 if _label(row.get("reason")) == "operator-hold":
-                    parts.append(closure_text(row, home=lane_home(stuck)))
+                    # #263 pin evidence has no source field. An explicitly present
+                    # source still goes through the unchanged strict note reader.
+                    source = row if "source_event" in row else {**row, "source_event": hold_source(None)}
+                    parts.append(closure_text(source, home=lane_home(stuck)))
             rows = [row for row in rows if _label(row.get("reason")) != "operator-hold"]
             if not rows:
                 continue
-            why = ", ".join(dict.fromkeys(str(getattr(row["reason"], "value", row["reason"]))
-                                          for row in rows if row.get("reason")))
+            why = ", ".join(sorted({str(getattr(row["reason"], "value", row["reason"]))
+                                    for row in rows if row.get("reason")}))
             parts.append(f"{lane} is closed for {rows[0]['scope']}" + (f" ({why})" if why else "")
                          + f" until {rows[0]['until_at']}")
         elif str(reason).startswith("closed:"):
