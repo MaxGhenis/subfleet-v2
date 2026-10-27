@@ -529,7 +529,7 @@ At 03:49:20Z round 2b's hold H3 started a fake daemon for `tests/fake/test_quar_
 | Decision 4: an unverifiable first census, a stranger's failed marker read | built, but did not do its job: the "marker ignored" mutant survived | `8ce56cc2f` | | invariant 6 and a strict-xfail control (`9e844698a`), below |
 | Decision 4: the joiner test on a fake clock | done | `8ce56cc2f`, `5e7143d54` | `test_kill4_fix1.py::test_self_stopping_children_born_after_the_group_term_each_get_a_term_before_any_cont` | none |
 | Decision 5: extension within `START_GRACE_MAX_S` | done | `f2e0ab9a9` | `test_kill4_fix2b.py` (running guardian; five refusals; the property), `test_quar_start1_daemon.py` (2), `test_kill4_terminal_daemon.py` (stopped) | none |
-| Decision 5: measurement, 30 or more samples | 12 samples | salvage | | 21 more, 33 in all, below |
+| Decision 5: measurement, 30 or more samples | 12 samples | salvage | | 27 more, 39 in all, below |
 | Decision 6: the daemon's abandon on every path | done | `690ee9e7d`, `5e7143d54` | `test_every_ending_of_a_starting_attempt_writes_the_abandon_before_any_signal_or_end` (4), `test_unlaunched_writes_the_abandon_for_a_starting_attempt_whatever_its_caller` | `_kill_attempt` read the job row on every kill, launched ones too, and its starting check read `a["state"]` from rows that have none: three census tests failed (`cdfbbf5bc`, `f568ff61b`) |
 | Decision 6: the guardian's two checks, the abandoned receipt | done | `690ee9e7d` | `test_quar_start1_process.py` (4), `test_an_abandoned_receipt_reads_as_unlaunched_never_as_a_provider_result` (3) | the interleaving property now forces its order (`d02820eb4`) |
 | Invariants 1 to 5 | tested | | below | invariant 6 of the property added |
@@ -576,16 +576,16 @@ Each is executed; the property-based ones say so.
 
 ### Decision 5's measurement
 
-Round 2b's `measure.py`, run unchanged from its salvage: one guardian at a time, spawned as the daemon spawns one (`procs.spawn_disclaimed`, the daemon's identity reads, the launch gate opened), its provider `/usr/bin/true`, timed from spawn to its `start.json`, with `sysctl -n vm.loadavg` read just before each. It generates no load beyond the guardian it measures, and ran outside the suite lock, as it runs no test. Round 2b took 12 samples (03:19 and 03:32Z); round 2c took 21 in batches of three spread across its run, never during one of its own holds.
+Round 2b's `measure.py`, run unchanged from its salvage: one guardian at a time, spawned as the daemon spawns one (`procs.spawn_disclaimed`, the daemon's identity reads, the launch gate opened), its provider `/usr/bin/true`, timed from spawn to its `start.json`, with `sysctl -n vm.loadavg` read just before each. It generates no load beyond the guardian it measures, and ran outside the suite lock, as it runs no test. Round 2b took 12 samples (03:19 and 03:32Z); round 2c took 27 in batches of three spread across its run, never during one of its own holds.
 
-- **33 samples**, load1 21.2 to 71.3; every guardian wrote its `start.json`.
-- **Spawn to `start.json`:** min 0.30 s, median 0.96 s, 90th percentile 3.32 s, max 4.54 s (load1 65.4, 03:32:37Z).
-- **Against load:** a least-squares line gives 0.044 s per unit of load1 (r = 0.61), and 3.9 s at load 100, past the 71 the samples reached.
+- **39 samples**, load1 21.2 to 71.3; every guardian wrote its `start.json`.
+- **Spawn to `start.json`:** min 0.30 s, median 0.82 s, 90th percentile 2.94 s, max 4.54 s (load1 65.4, 03:32:37Z).
+- **Against load:** a least-squares line gives 0.044 s per unit of load1 (r = 0.63), and 3.9 s at load 100, past the 71 the samples reached.
 
 | load1 | samples | median | max |
 |---|---|---|---|
-| 0 to 30 | 12 | 0.43 s | 3.44 s |
-| 30 to 50 | 9 | 0.96 s | 1.48 s |
+| 0 to 30 | 15 | 0.44 s | 3.44 s |
+| 30 to 50 | 12 | 0.89 s | 1.48 s |
 | 50 to 70 | 11 | 2.01 s | 4.54 s |
 | 70 and over | 1 | 4.52 s | 4.52 s |
 
@@ -626,6 +626,12 @@ Round 2b's `measure.py`, run unchanged from its salvage: one guardian at a time,
 | 06:05:18 | 2c | 21.25, 22.56 | 0.016 s | 0.594 s |
 | 06:05:22 | 2c | 21.25, 22.56 | 0.006 s | 0.444 s |
 | 06:05:26 | 2c | 21.31, 22.55 | 0.030 s | 1.005 s |
+| 06:08:55 | 2c | 25.22, 25.36 | 0.029 s | 0.311 s |
+| 06:08:59 | 2c | 23.92, 25.08 | 0.022 s | 0.487 s |
+| 06:09:03 | 2c | 22.65, 24.80 | 0.010 s | 0.841 s |
+| 06:12:11 | 2c | 35.60, 29.57 | 0.083 s | 0.824 s |
+| 06:12:15 | 2c | 36.83, 29.92 | 0.007 s | 0.724 s |
+| 06:12:19 | 2c | 37.56, 30.19 | 0.013 s | 1.027 s |
 
 ### Mutants
 
@@ -695,7 +701,7 @@ Round 2c's, one pytest per hold under the suite lock, in this worktree. Nothing 
 | J | `tests/fake/test_salvage_finalization.py` | 47 passed |
 | J | `tests/fake/test_census_inspection_finalization.py` | 3 passed |
 
-E3 ran at `cdfbbf5bc` with `f568ff61b`'s one-line change in the tree, before it was committed; every other hold above ran at `f568ff61b`.
+E3 ran at `cdfbbf5bc` with `f568ff61b`'s one-line change in the tree, before it was committed; every other hold above ran at `f568ff61b`. `test_fake_daemon_parent_watch.py` changed after C2 (`70aa01224`: a 300 s start grace, so no census under load can end its guardian early), and its final form passed alone in hold orphan2 (06:10Z, load 31): 5 passed, the daemons gone 0.86 and 0.73 s and the paused guardian 0.05 s after their test process was killed.
 
 **`[stopped-turn]` alone, three times** (`test_census_self_exit_daemon.py::test_d_kill3_inspection_keeps_a_hidden_lockf_after_its_shell_provider_ends[stopped-turn]`, at `d02820eb4`): passed in 23.3 s (05:17Z, load 35), 19.0 s (05:19Z, load 27) and 12.6 s (05:24Z, load 24). r2's hold-C failure, a 60 s wait for the escaper's pid file, did not recur.
 
