@@ -73,6 +73,44 @@ def events(store, kind, lane_id=None):
             if (lane_id is None or row["lane_id"] == lane_id) and json.loads(row["data_json"])]
 
 
+@pytest.mark.parametrize("cap_s", [1, 15, 60, 300])
+@pytest.mark.parametrize("path", ["idle", "busy"])
+def test_admission_deadline_does_not_change_timer_adapter_timeouts(rig, cap_s, path):
+    """D-PROBE-DEADLINE1: both timer adapter paths still use min(15, caps.probe_timeout_s)."""
+    timer, store, clock, adapter, enroll = rig
+    timer.policy["admission"] = {"probe_deadline_s": 300}
+    timer.policy["caps"]["probe_timeout_s"] = cap_s
+    adapter.timeout = 999
+    lane = enroll()
+    if path == "idle":
+        timer.probe_cycle()
+    else:
+        timer._busy_read(lane)
+    assert adapter.calls == [lane.lane_id]
+    assert adapter.timeout == min(15, cap_s)
+
+
+@pytest.mark.parametrize("cap_s", [1, 15, 60, 300])
+def test_admission_deadline_does_not_change_timer_reader_fence(rig, monkeypatch, cap_s):
+    """D-PROBE-DEADLINE1: the timer's independent reader fence keeps the same bound."""
+    from types import SimpleNamespace
+    from subfleet import timers as module
+
+    timer, store, clock, adapter, enroll = rig
+    timer.policy["admission"] = {"probe_deadline_s": 300}
+    timer.policy["caps"]["probe_timeout_s"] = cap_s
+    additions = []
+
+    class Instant(float):
+        def __add__(self, seconds):
+            additions.append(seconds)
+            return super().__add__(seconds)
+    monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: Instant(100)))
+    result = timer._read_probe(adapter, enroll(), {})
+    assert result["status"] == "ok"
+    assert additions == [min(15, cap_s)]
+
+
 @pytest.mark.parametrize("provider", ["claude", "codex"])
 def test_probe_once_per_idle_enabled_lane_per_cycle(rig, monkeypatch, provider):
     """C-18.1, C-8.4, C-9.1: every cycle reads each enabled lane without jobs, even immediately."""

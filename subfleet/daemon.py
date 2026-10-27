@@ -6258,10 +6258,12 @@ class Daemon:
             holder = f"probe:{token}"
             directory = self.root / "lanes" / decision.chosen_lane / "probes" / token
             directory.mkdir(mode=0o700, parents=True)
+            probe_deadline_s = admission_settings(self.policy)["probe_deadline_s"]
+            created_at = utcnow()
             record = {"holder": holder, "job_id": job["job_id"], "lane_id": decision.chosen_lane,
                       "model_id": self.policy["models"][decision.chosen_model]["id"],
-                      "directory": str(directory), "state": "reserved", "created_at": utcnow(),
-                      "deadline_at": after(60), "owned_identities": {}}
+                      "directory": str(directory), "state": "reserved", "created_at": created_at,
+                      "deadline_at": _later(created_at, probe_deadline_s), "owned_identities": {}}
             reserved = False
             try:
                 with self.store.transaction("probe.reserved", job_id=job["job_id"], lane_id=decision.chosen_lane):
@@ -6292,7 +6294,8 @@ class Daemon:
                     # C-6.10, C-11.4: the probe's clocks start at its reservation, not
                     # before the wait for the store's writer lock (review of #153, P2-4:
                     # a 45 s wait left a 60 s retry clock 15 s after the reservation).
-                    record.update(created_at=utcnow(), deadline_at=after(60))
+                    created_at = utcnow()
+                    record.update(created_at=created_at, deadline_at=_later(created_at, probe_deadline_s))
                     self._save_probe(record)
                     reserved = True
             except _ProbeLaneBusy:
