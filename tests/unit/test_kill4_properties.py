@@ -19,12 +19,25 @@ cancelled attempt on a simulated host (`tests/kill4_world.py`). For every input:
    census that attributes the pid (its lineage, a marker) supersedes it (fix round
    2b, review r2's P3-3, C-5.5);
 5. every pid signalled one by one is named in the attempt's durable evidence with
-   the reason it is the attempt's (fix 1, P3-4).
+   the reason it is the attempt's (fix 1, P3-4);
+6. every process that a census other than the last found carrying the attempt's
+   markers (with the identity it captured, and not held) is gone by the end, whatever
+   the verdict: a marker attributes a member in any census, verifiable or not (C-5.4),
+   and the protocol signals what it may signal in every census it acts on (C-5.6). The
+   last census decides without acting ("the last census, never a guess about a pid,
+   decides"), so what it alone found, a child that an unsignallable driver respawned
+   since the protocol's last signal, is what a quarantine names (fix round 2c).
 
 Fix round 2b (review r2's P3-4): the endings are every path that ends an attempt or
 re-contains one: an exit receipt, a cancel, an expired start grace, a dead guardian,
 the wall, and `kill` on a finished job; and the census may be unverifiable at first
 (the first process-table read fails) or because a stranger's marker read fails.
+
+Fix round 2c: review r2's "marker ignored" mutant (case 5's workers attributed through
+the parent chain only: `_signal_reasons` without its marker branch) survived invariants
+1 to 5 with every injection, 120 derandomized examples each way, because a marked
+member no other source reaches is left alive in a quarantine, which invariant 1 allows.
+Invariant 6 detects it. Review r2's P3-3 counterexample is an explicit example.
 """
 
 from __future__ import annotations
@@ -38,7 +51,7 @@ import tempfile
 import threading
 from types import SimpleNamespace
 
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, example, given, settings, strategies as st
 import pytest
 
 from subfleet import daemon as daemon_module, folders, procs, protocol
@@ -166,6 +179,26 @@ def build_world(core, spec) -> World:
     return world
 
 
+def row(pid: int, ppid: int, pgid: str, **options) -> dict:
+    """One generated process of `trees()`, every option at its default unless given."""
+    return {"pid": pid, "ppid": ppid, "pgid": pgid, "marked": False, "hidden": False, "stopped": False,
+            "ignores_term": False, "term_handler": False, "spawns_stopped": False, "respawns": False,
+            "cwd": None, "other_uid": False, "orphaned": False, **options}
+
+
+#: Review r2's P3-3 counterexample (600 random examples under pytest): on the exit receipt,
+#: pid 5000 is another user's, in the guardian's group, with its cwd in the worktree and
+#: counted by the census; its child 5001 has its own group, no marker and its cwd elsewhere, and respawns
+#: marked children. Census 1 holds 5001 (the parent of a marked child, outside the worktree);
+#: census 2's walk from the counted 5000 reaches it, and it is TERMed by lineage. The old
+#: oracle (every pid any census held is never signalled) failed here.
+R2_P3_3 = {"guardian": True, "ending": "receipt", "operator": False, "strangers": [], "counted": [],
+           "first_unverifiable": False, "stranger_read_fails": False,
+           "rows": [row(5000, 1, "guardian", cwd="worktree", other_uid=True, orphaned=True),
+                    row(5001, 5000, "own", cwd="elsewhere", respawns=True)]}
+
+
+@example(spec=R2_P3_3)
 @settings(max_examples=120, derandomize=True, deadline=None, database=None,
           suppress_health_check=[HealthCheck.too_slow])
 @given(spec=trees())
@@ -257,6 +290,13 @@ def test_no_finalized_attempt_keeps_census_pids_and_nothing_outside_the_census_i
                      for entry in round_.get("signals", [])}
             assert individually <= named.keys(), (individually - named.keys(), evidence)
             assert all(named[pid] for pid in individually)
+            # 6. Every process a census other than the deciding last one found marked is gone,
+            # whatever the verdict (C-5.4, C-5.6).
+            for index, census in enumerate(censuses[:-1]):
+                for pid in sorted(census.marker_pids & census.live_pids - census.held_pids):
+                    found, proc = census.identities.get(pid), world.procs.get(pid)
+                    assert found is None or proc is None or not (proc.alive and proc.start == found.proc_start), (
+                        pid, index, a["state"], census.to_dict(), world.signals)
             # 1. No terminal state, nor a finalization under way, with live census pids.
             if ending != "kill-finished" and a["state"] != "quarantined" and a["state"] not in ("running", "starting"):
                 if not (a["state"] == "finalizing" and core.__dict__.get("_cwd_settle", {}).get(ATTEMPT)):

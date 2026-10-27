@@ -1,6 +1,10 @@
 """D-KILL4 fix round 2b and D-QUAR-START1: strict mutation controls; each mutant must
 fail its named regression (an AssertionError; a missing mutation target raises
-RuntimeError and fails the test)."""
+RuntimeError and fails the test).
+
+Fix round 2c adds review r2's "marker ignored" mutant against the kill4 property, which
+round 2b's P3-4 coverage (every ending, the unverifiable censuses) did not detect at its
+120 derandomized examples; the property's invariant 6 does."""
 
 from __future__ import annotations
 
@@ -9,6 +13,9 @@ import pytest
 from subfleet.daemon import Daemon
 from tests.unit.test_census_round1_mutations import replace_function
 from tests.unit.test_daemon_settle import daemon  # noqa: F401
+from tests.unit.test_kill4_properties import (
+    test_no_finalized_attempt_keeps_census_pids_and_nothing_outside_the_census_is_signalled as kill4_property,
+)
 from tests.unit.test_kill4_fix2b import (
     test_a_pid_held_by_one_census_is_signalled_when_a_later_census_attributes_it as later_attribution,
     test_every_ending_of_a_starting_attempt_writes_the_abandon_before_any_signal_or_end as abandon_first,
@@ -75,3 +82,18 @@ def test_fix2b_mutant_fails_its_named_regression(mutant, daemon, world, monkeypa
         regression(daemon, world, monkeypatch)
     else:
         regression(daemon, world, monkeypatch, parameter)
+
+
+# Review r2's P3-4 (fix round 2c, decision 4): case 5's workers attributed through the
+# parent chain only, the marker ignored. A marked member no other source reaches is never
+# signalled, and the attempt is quarantined with it alive.
+MARKER_IGNORED = [(Daemon, "_signal_reasons", [
+    ("elif pid in census.marker_pids:\n            why = f\"pid {pid}: carries this attempt's markers\"",
+     "elif False:\n            why = \"\"")])]
+
+
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="the kill4 property must detect this mutant")
+def test_the_marker_ignored_mutant_fails_the_kill4_property(monkeypatch):
+    for owner, name, replacements in MARKER_IGNORED:
+        replace_function(monkeypatch, owner, name, replacements)
+    kill4_property()
