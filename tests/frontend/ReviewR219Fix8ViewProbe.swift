@@ -5,13 +5,25 @@ import Combine
 // Position/count probes need a live view hierarchy and synchronous scroll
 // transactions. This module-local overload controls the app's unqualified
 // withAnimation calls only when this probe is compiled alongside its sources.
+// A natural scene (review r8) removes both controls, this overload and the
+// scene's root transaction, so the app's own animations run as they do in the app.
 enum ProbePresentation {
     static var animationCalls = 0
     static var mountedWindows = 0
     static var afterAnimation: (() -> Void)?
+    static var natural = false
+    /// What a natural scene handed to SwiftUI: each animation, and the root transactions it
+    /// let through unchanged (with how many carried an animation).
+    static var forwardedAnimations: [String] = []
+    static var rootTransactions = 0
+    static var animatedRootTransactions = 0
 }
 func withAnimation<Value>(_ animation: Animation? = .default, _ body: () -> Value) -> Value {
     ProbePresentation.animationCalls += 1
+    if ProbePresentation.natural {
+        ProbePresentation.forwardedAnimations.append(animation.map { String(describing: $0) } ?? "nil")
+        return SwiftUI.withAnimation(animation, body)
+    }
     var transaction = Transaction(animation: nil)
     transaction.disablesAnimations = true
     let result = SwiftUI.withTransaction(transaction, body)
@@ -22,6 +34,10 @@ func withAnimation<Value>(_ animation: Animation? = .default, _ body: () -> Valu
 func withAnimation<Value>(_ animation: Animation?, completionCriteria: AnimationCompletionCriteria,
                           _ body: () -> Value, completion: @escaping () -> Void) -> Value {
     ProbePresentation.animationCalls += 1
+    if ProbePresentation.natural {
+        ProbePresentation.forwardedAnimations.append(animation.map { String(describing: $0) } ?? "nil")
+        return SwiftUI.withAnimation(animation, completionCriteria: completionCriteria, body, completion: completion)
+    }
     var transaction = Transaction(animation: nil)
     transaction.disablesAnimations = true
     return SwiftUI.withTransaction(transaction) {
@@ -388,7 +404,15 @@ let readinessDeadline = 120.0
         }
         host = NSHostingView(rootView: AnyView(ConversationView(model: model, conversation: shown)
             .environment(\.searchPalette, palette).environment(\.textScale, ProbeLayout.textScale)
-            .transaction { $0.animation = nil; $0.disablesAnimations = true }))
+            .transaction { transaction in
+                if ProbePresentation.natural {
+                    ProbePresentation.rootTransactions += 1
+                    if transaction.animation != nil { ProbePresentation.animatedRootTransactions += 1 }
+                    return
+                }
+                transaction.animation = nil
+                transaction.disablesAnimations = true
+            }))
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: ProbeLayout.windowHeight),
                           styleMask: [.borderless],
                           backing: .buffered, defer: false)
@@ -2179,10 +2203,22 @@ final class RevealArrivals: @unchecked Sendable {
 // P2-2: the person's own send (`UIModel.send`) during a pending reveal, with
 // catch-up held (`catchup`) or after it (`ordinary`, the control). The live
 // message has ended, so the send is the timeline's last row, not a tray row.
+//
+// Review r7's landings send a 30-paragraph message: `short` (the glide scrolls to
+// the old end), `regrow` (the rows above the clip grow 600 pt at the marker's first
+// appearance) and `person` (the person then scrolls 1,500 pt up). Review r8's
+// `quiet-regrow` lets `regrow` land: once `own_send_landed` has measured the end,
+// another 50 ms settle, then the rows above the clip grow 600 pt again before the
+// reply. `-late` grows them on a main-queue timer 350 ms after the landing instead.
+// A `-natural` scene removes both animation controls.
 @MainActor func ownSendDuringReveal(_ root: URL, catchup: Bool, landing: String? = nil) async -> [String: Any] {
     let record = Fix12Record(landing ?? (catchup ? "send-catchup" : "send-ordinary"))
+    let natural = landing?.hasSuffix("-natural") == true
+    let quiet = landing?.hasPrefix("quiet-") == true
+    ProbePresentation.natural = natural
     defer {
         ProbePresentation.afterAnimation = nil
+        ProbePresentation.natural = false
         ConversationFollowTest.inset.top = 0
     }
     let target = "person:m000040"
@@ -2208,7 +2244,7 @@ final class RevealArrivals: @unchecked Sendable {
     }.joined(separator: "\n\n")
     scene.model.send(conversationID: record.name, text: text, staged: [],
                      settings: ConversationSettings(model: "claude-opus-5-5"))
-    if landing == "regrow" {
+    if landing?.contains("regrow") == true {
         // Grow above the clip on the marker's first appearance, before a settled
         // end can be measured. A lazy marker can appear over 100 pt from the end.
         await waitReady("send.marker_appeared", view: scene.host, state: { scene.readiness() }) {
@@ -2217,6 +2253,30 @@ final class RevealArrivals: @unchecked Sendable {
         }
         record.step("growing", target: target)
         ConversationFollowTest.inset.top += 600
+    }
+    if quiet {
+        let growing = record.steps.last?["at"] as? Double ?? 0
+        func landed() -> [String: Any]? {
+            record.trace.last { $0["event"] as? String == "own_send_landed" && ($0["at"] as? Double ?? 0) > growing }
+        }
+        await waitReady("send.landed", view: scene.host, state: { scene.readiness() }) { landed() != nil }
+        let landedAt = landed()?["at"] as? Double ?? 0
+        record.step("landed", target: target, ["landed": landed() ?? [:]])
+        if landing == "quiet-regrow-late" {
+            DispatchQueue.main.asyncAfter(deadline: .now() + max(0, landedAt + 0.35 - record.at())) {
+                MainActor.assumeIsolated {
+                    record.step("regrowing", target: target, ["after_landing": record.at() - landedAt])
+                    ConversationFollowTest.inset.top += 600
+                }
+            }
+            await waitReady("send.regrown_late", view: scene.host, state: { scene.readiness() }) {
+                record.steps.last?["step"] as? String == "regrowing"
+            }
+        } else {
+            await settle(scene.host, seconds: 0.05)
+            record.step("regrowing", target: target, ["after_landing": record.at() - landedAt])
+            ConversationFollowTest.inset.top += 600
+        }
     }
     await settle(scene.host, seconds: 1.0)
     record.step("sent", target: target)
@@ -2234,7 +2294,11 @@ final class RevealArrivals: @unchecked Sendable {
     await scene.stream(20)
     record.step("reply", target: target)
     return record.finish(["target": target, "catchup": catchup, "landing": landing ?? "ordinary",
-                          "held_before_reveal": scene.heldBeforeReveal])
+                          "held_before_reveal": scene.heldBeforeReveal,
+                          "presentation": ["natural": natural, "animation_calls": ProbePresentation.animationCalls,
+                                           "forwarded_animations": ProbePresentation.forwardedAnimations,
+                                           "root_transactions": ProbePresentation.rootTransactions,
+                                           "animated_root_transactions": ProbePresentation.animatedRootTransactions]])
 }
 
 // P2-3: the pin's mark check must run whenever the mark's place in the document
@@ -2369,7 +2433,8 @@ final class FlippedDocument: NSView { override var isFlipped: Bool { true } }
     case "missing-away": return await missingTarget(root, away: true)
     case "send-catchup": return await ownSendDuringReveal(root, catchup: true)
     case "send-ordinary": return await ownSendDuringReveal(root, catchup: false)
-    case "short", "regrow", "person": return await ownSendDuringReveal(root, catchup: false, landing: mode)
+    case "short", "regrow", "person", "regrow-natural", "quiet-regrow", "quiet-regrow-natural", "quiet-regrow-late":
+        return await ownSendDuringReveal(root, catchup: false, landing: mode)
     case "mark":
         var out: [String: Any] = [:]
         for kind in ["swiftui", "parent", "identity"] { out[kind] = await markScene(kind) }
