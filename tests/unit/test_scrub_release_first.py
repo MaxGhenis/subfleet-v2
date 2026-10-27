@@ -188,19 +188,26 @@ PIECE_LINES = ("ordinary line", "token: SECRET7a1", "Authorization: Basic SECRET
 @given(lines=st.lists(st.sampled_from(PIECE_LINES), min_size=1, max_size=24),
        limit=st.sampled_from((None, 30, 80, 200, 4000)), strip=st.booleans(), chars=st.sampled_from((40, 90, 400)))
 def test_release_s_pieces_join_to_release_s_output(lines, limit, strip, chars):
-    """`_released_pieces` is release's `scrub_bounded` as the pieces it joins: excerpts cut,
-    truncated, elided or whole, each as release writes it, beside the head's scrub of the
-    same text; and the bounded mode only replaces release's runs and keeps to `limit`."""
+    """`_released_pieces` is release's `scrub_bounded` as the pieces it joins (truncated,
+    elided or whole, each as release writes it), beside the head's scrub of the same text;
+    an excerpt is cut where both scrubbers allow, so the pieces join to release's output
+    wherever both cut alike. The bounded mode writes no character release's output lacks,
+    no value it hides, and keeps to `limit`."""
     text = "\n".join(lines)
     with _bounds(chars):
         pieces, outer_strip, count, heads, _ = handoff._released_pieces(text, limit, strip)
         joined = "".join(piece for piece, _ in pieces)
-        assert ((joined.strip() if outer_strip else joined), count) == scrub_release.scrub_bounded(
-            text, limit, strip_reminders=strip)
+        released, released_count = scrub_release.scrub_bounded(text, limit, strip_reminders=strip)
+        resolved = (scrub_release._resolve_blocks(text, strip, scrub_release._Tally())
+                    if len(text) > scrub_release.MAX_SCRUB_CHARS else text)
+        alike = len(resolved) <= scrub_release.MAX_SCRUB_CHARS or (
+            scrub_release._head_cut(resolved), scrub_release._tail_cut(resolved)) == (
+            handoff._head_cut(resolved), handoff._tail_cut(resolved))
+        if alike:
+            assert ((joined.strip() if outer_strip else joined), count) == (released, released_count)
         assert len(heads) == len(pieces)
         out = handoff.scrub_bounded(text, limit, strip_reminders=strip)[0]
         assert out == _bounded(text, limit, strip)
-        released = scrub_release.scrub_bounded(text, limit, strip_reminders=strip)[0]
         assert _new(set(SECRET.findall(text)), out, released) == []
         assert limit is None or len(out) <= limit
 

@@ -684,7 +684,13 @@ def _released_pieces(text: str, limit: int | None, strip_reminders: bool):
         tail = usable - cut
         return ([(scrubbed[:cut].rstrip(), False), (marker, True), (scrubbed[-tail:].lstrip() if tail else "", False)],
                 False, counts[0], [head, "", head], counts[1])
-    head_end, tail_start = release._head_cut(text), release._tail_cut(text)
+    # Each excerpt is cut where both scrubbers allow a cut: the head refuses every break
+    # release refuses, and more (a credential flag's, whose value the head's fold reads on
+    # the next line), so its head cut is at or before release's and its tail cut at or
+    # after. Release's scrub of the shorter excerpt is the start (or end) of its scrub of
+    # its own, as its excerpt cuts rest on, and the head's is its own excerpt's.
+    head_end = min(release._head_cut(text), _head_cut(text))
+    tail_start = max(release._tail_cut(text), _tail_cut(text))
     head, head_count = release._scrub(text[:head_end], False)
     tail, tail_count = release._scrub(text[tail_start:], False)
     (own_head, own_head_count), (own_tail, own_tail_count) = _scrub(text[:head_end], False), _scrub(text[tail_start:], False)
