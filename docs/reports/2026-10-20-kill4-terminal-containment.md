@@ -325,3 +325,158 @@ f-hold1, per file:
 | the other 14 `tests/unit/test_census*.py` files | 195 passed, 5 xfailed (#240's round-1 and round-2 mutants) |
 
 f-hold2, per file: `test_kill4_fix1` 21 passed; `test_kill4_fix1_mutations` 6 xfailed; `test_kill4_mutations` 8 xfailed; `test_kill4_properties` 1 passed; `test_kill4_terminal_containment` 17 passed; `test_census_recycled_pid` 25 passed; `test_census_counted` 5 passed; `test_census_parent_chain` 14 passed; `test_census_survivors_review` 14 passed; `tests/process/test_kill4_fix1_process` 3 passed; `tests/process/test_census_hidden_environment_process` 15 passed, 4 xfailed; `test_census_parent_chain_process` 3 passed; `test_census_raw_markers_process` 3 passed; `test_census_responsibility_process` 12 passed; `fake/test_census_escapers_daemon` 9 passed; `fake/test_census_recycled_pid_daemon` 29 passed; `fake/test_census_inspection_finalization` 3 passed; `fake/test_crash_matrix` 9 passed; `fake/test_salvage_finalization` 47 passed; `fake/test_daemon_contract` 20 passed, 2 failed; `fake/test_census_self_exit_daemon` 2 passed, 1 failed; `fake/test_kill4_terminal_daemon` 6 passed, 1 failed.
+
+## Fix round 2a (review r2 of #250, 2026-10-26): #240's approved head, #259, and P2-1
+
+Review r2 (REQUEST_CHANGES at `380b626cf`) found one P2 and four P3s, and its check 4 planned how #250 meets #259 (D-QUAR-REUSE1, boot-scoped census seeds). #240 was approved at `8fe3413ef` (review r7, plus its merge of `release/217` at `4a40fbe45`, which carries #259 as `33baa9cca`), and GitHub reported #250 CONFLICTING against it. This round merges that head, combines the two rules as check 4 planned, and fixes P2-1. r2's P3s and the start-grace defect D-QUAR-START1 are round 2b's.
+
+Commits, on `380b626cf`:
+- `a4568ca08`: the merge of `origin/fix/kill3-self-exit-217`, which resolved to `8fe3413ef`, with the contract and the code combined;
+- `679fde004`: #259's differentials measure against this line's census before the boot scope;
+- `e083418cc`: the combination tests (`tests/unit/test_kill4_boot_scope.py`);
+- `08c3cf82f`: #259's invariant-4 fake test asks what the kill protocol targets;
+- `cdd867e24`: P2-1;
+- `bac000ac8`: the mutation controls;
+- then this report.
+
+### The merge
+
+`git merge origin/fix/kill3-self-exit-217` conflicted in the three files r2's trial merge named: `docs/acceptance-contract.md`, `subfleet/daemon.py` and `subfleet/procs.py`. Everything else merged cleanly.
+
+**The contract.** `merge_contract.py HEAD MERGE_HEAD` resolved it against the base `4cddd7925`: 255 clauses, none duplicated, and the `uniq -d` check prints nothing.
+- **Changed on both sides:** C-5.5 and C-5.9, as expected. Every clause only one side changed equals that side's text, word for word (C-5.4, C-5.6 and C-5.7 from #250; 15 clauses from #240 and #259).
+- **C-5.9:** #250 changed its third sentence (survivors past the window are contained first) and #240 changed sentences 11, 17 and 19 (the cwd reader row at every ending, and the paced loss). The edits touch different sentences, so the tool's word merge (449 + 43 + 245 = 737 words) reads as one rule, and nothing was added.
+- **C-5.5:** the word merge is exact (2,266 + 659 + 625 = 3,550 words), but the two sides described the recorded group twice: #259's "the recorded group is excluded" once the attempt's boot is over, and #250's leader check ("group of another boot", "boot identity unavailable for group"). It now says which comes first: the boot scope, then the leader check, which decides only for an attempt on this boot or with an unknown boot. It also says that #250's keys take the boot filter (below), and that a held parent's boot is compared too.
+- **C-5.4:** an owned identity attributes a group member only when it is not of another boot than the attempt's.
+- **The change log:** both sides added entries at the top. The tool placed #250's two entries (2026-10-23 and 2026-10-22) above #240's three (2026-10-26, 2026-10-26, 2026-10-25). They are now in date order, newest first, with #250's entries beside #240's of the same dates. A new 2026-10-26 entry for this round heads the list.
+
+### Each conflict hunk
+
+**`subfleet/procs.py`, `containment`, five hunks:**
+
+| Hunk | #250 (`380b626cf`) meant | #240 / #259 (`8fe3413ef`) meant | Kept |
+|---|---|---|---|
+| 1, the signature | a `parent_chain` keyword (D-KILL4's chain rule) | an `attempt_boot` keyword (the boot the guardian identity records) | both, keyword-only: `parent_chain`, then `attempt_boot` |
+| 2, the helpers | `leader_boot()` (compare the recorded leader's boot, C-5.12's fresh read on a mismatch) and `leader_verified = False` | `attempt_boot_over()` (read once, only when a seed or a failed root check needs it) and `exclude()` (record a seed or the leader under `recycled`) | both, unchanged: they read different records and write different things |
+| 3 and 4, the group block (git split one block in two) | `compared = len(errors)`, drop a group whose present leader is proven recycled, then the leader check: verified only alive with its birth and boot, `group of another boot` for a provably other boot, `boot identity unavailable for group` when it cannot be compared; then the walk's roots | when the attempt's boot is a known UUID that is over, exclude every recorded pid the table shows (or that parents a row) and the group's leader, clear the group, and seed nothing; otherwise the base path (drop a recycled leader's group, seed the roots) | r2's plan: #259's boot-over branch first; #250's `compared`, recycled-leader drop and leader check in its else branch, before the roots. The `leader_verified and pgid in groups` guard on the return is kept. |
+| 5, the return | `chain_pids`, `held_*`, `held_fresh` and `leader_verified`, by keyword | `other_boot`, positional after `responsible_pids` | `other_boot` in its dataclass position, then #250's keywords |
+
+**Can both group rules hold at once?** Yes; there is no counterexample, so nothing was picked silently.
+- **Where both apply** (the attempt's boot is a known UUID and over, and the group has members): both drop the group. #259 records the leader under `recycled` for "different boot identity (attempt's boot)", or the reason its birth proves; #250 would have recorded `group of another boot`. They differ only in that reason, and r2's plan, like C-5.5, takes #259's. The leader is then recorded once.
+- **Where only #250's applies:** the attempt's boot is this one, or unknown (no boot recorded, legacy seconds, or a current boot that cannot be read or fell back to seconds). The leader check runs exactly as at `380b626cf`.
+- **#250 never holds what #259 drops:** #259's branch runs only when the attempt's boot provably differs from this one. There the leader's recorded identity is the guardian's, on the attempt's boot, so #250's check would find that boot provably other and drop the group too; it holds members only for a leader on this boot that is absent, or one whose boot cannot be compared. A `pgid` other than the guardian's comes from a stored identity, which #259's filter drops if it is of another boot.
+- **`group of another boot` is still reachable,** but only for an attempt whose own boot is not a UUID while its leader's identity is: for example a row recorded with no boot, or with a non-UUID boot string, as `test_a_group_recorded_in_another_boot_is_no_source_at_all` does.
+
+**`subfleet/daemon.py`, `_contain`, two hunks:**
+
+| Hunk | #250 meant | #259 meant | Kept |
+|---|---|---|---|
+| 1, the census call | pass `parent_chain` when the attempt has an id | pass `attempt_boot=boot`, then define `attempts(pid)`: a census identity of another boot than the attempt's is never kept | both arguments. `attempts(pid)` is now `on_boot(identity)` over the census identity, so the same filter serves held identities too |
+| 2, `sighted` (the counted write) | subtract chain ancestors and members only a leaderless group names | keep only `attempts(pid)` | both |
+
+**The combination, beyond the conflict hunks** (r2's plan, check 4):
+- **Reads.** #259's `attempts()` filter in `containment` also covers `parent_chain.held` (`held_marked`, or `held_parents` for an older row) and `parent_chain.recorded` (`chain_identities`). A stored chain ancestor or held parent of another boot than the attempt's is never re-added or held, and is named in `other_boot`. A new `ParentChain.carried` takes what the kill protocol's own censuses held (`_held_scope`). Those are this boot's and are not stored, so they skip that filter, and a respawning driver stays held through one protocol run on any boot, as before.
+- **Re-holding a parent** compares its boot, not only its start: `_parent_chain`'s `same_boot()`. Only a proven other boot releases it (after C-5.12's fresh read); an unknown or unreadable comparison keeps holding, which never signals.
+- **Writes.** `on_boot`/`attempts` guard every key #250 writes: `held_parents`, `chain_identities`, `held_marked` (from `_contain`, and the kill protocol's stored `fresh` set) and the taint write into `unverified_identities`.
+- **Taint.** `_tainted` never matches a record of another boot than the member's or the attempt's. Legacy seconds and a missing boot still compare by start.
+- **Ownership.** `_signal_reasons` ignores an owned identity of another boot than the attempt's (`_attempt_boot`). #259's review found no writer that can store one today; this makes invariant 1 hold by construction.
+
+### Semantic conflicts the merge needed fixed
+
+Four, besides P2-1:
+1. **#259's differentials** (`test_census_boot_seeds.py`'s `at_base`) called release/217's census (15bd8c172) with every argument `_contain` passes except `attempt_boot`. `_contain` now also passes `parent_chain`, so they raised `TypeError`. And #250's parent-chain rule and leader check change the census on every boot, so "on the attempt's own boot the census is 15bd8c172's" no longer holds on this line.
+   - **Fix:** the census #259's boot scope changes here is #250's at `380b626cf`. `tests/reference_census_380b626cf.py` keeps a verbatim copy (lines 808-1172, rebound to `procs`' globals, as the 15bd8c172 copy is), and `at_base` compares with it.
+   - Its `_parent_chain` is today's, which differs from `380b626cf`'s only for a held parent stored or carried. `at_base` asserts that the generated worlds pass none.
+2. **#259's orphaned-group test** documents what release/217 counted ("Release/217 counted both"). #250 alone already drops that group as another boot's, so its `before` now asks 15bd8c172's census (`at_release_217`).
+3. **#259's invariant-4 fake test** said "the kill protocol signals by `owned_identities` alone". Since D-KILL4 the census is the authority, so the marker process 90 is a target. `signalled == []` still held only because the fixture's `ps` answers one start for every pid (#259's review r1, P3-5). It now records what the protocol asks `procs.signal_process` for: never 83026 or 83000 (boot B's counted and responsible identities), and exactly 90.
+4. **P2-1** (below).
+
+### P2-1
+
+`test_an_uncounted_operator_process_in_the_worktree_is_never_signalled_and_the_verdict_stands` asserted the exclusive `worktree:<tree>` key after the job ended. #240's round 3 (merged at `380b626cf`) converts it when a cwd holder remains (`_export_locked` → `_keep_for_cwd`). The test now asserts that the exclusive key is gone and that `folders.turn_key(str(tree), JOB, writable=False)` is held by `folders.cwd_holder(JOB)`, as #240's `test_r3_export_converts_the_hold_and_frees_the_lifetime_row` does. Its comment says the worktree stays held as a reader row. It passes: 17 of 17 in its file at 22:14Z, and again in the holds below.
+
+### The 12 cases
+
+`tests/unit/test_kill4_boot_scope.py` runs each case on the simulated host (`tests/kill4_world.py`) with a current boot the test sets (`BootWorld`: a boot-session UUID, legacy seconds after a failed UUID read, or unreadable). C-5.3's real `same_process` and `liveness` run over it, so a signal is delivered only when its captured identity, boot included, is the live process's. `world.tried` records every signal asked for, delivered or refused.
+
+**How each parent was run.** Each parent ran from a `git archive` tree in scratch, holding the head's test file and the parent's product code. The holds checked that `subfleet` was imported from that tree.
+- `380b626cf` needed nothing else: its test helpers are the head's.
+- `8fe3413ef` lacks `tests/kill4_world.py` and `tests/unit/test_kill4_terminal_containment.py` (for `owned_worktree`), so the head's copies were added. The head's `tests/fake_kernel.py` was added too, with a two-line shim, because `8fe3413ef`'s `KernelProcess` has no `uid`. Its product code was not touched.
+
+Results per case. "API" means the test failed because the parent lacks something #250 added; that failure says nothing about behaviour.
+
+| Case | Tests | `380b626cf` (#250 alone) | `8fe3413ef` (#240 with #259) | Head |
+|---|---|---|---|---|
+| 1. A leaderless group at the recorded pgid, same boot: held, never signalled | 3 (census, `kill`, dead guardian) | pass 3 | fail 3: `kill` answers "already finished" (it never re-contains a finished job); the dead-guardian path keeps the stranger 5600 in `counted_identities`, a walk seed from then on; the census has no `leader_verified` (API) | pass 3 |
+| 2. The same with the attempt's boot over: no group, no hold, recycled once with #259's reason, `--confirm-dead` releases | 1 | fail: the leader is recorded as `group of another boot` | fail (API: `leader_verified`); #259's reason is right there | pass |
+| 3. A legacy or unreadable boot: members hold with "boot identity unavailable for group", never signalled | 3 (legacy attempt boot; unreadable and legacy current boot) | pass 3 | fail 3: no group error, so the uncomparable leader leaves the census verifiable in two of them | pass 3 |
+| 4. A live process at the guardian pid with the recorded start after a reboot: excluded, leader not verified | 3 (census, `kill`, dead guardian) | pass 3 | fail 3 (API: `leader_verified`) | pass 3 |
+| 5. An owned identity from another boot: never a seed, never a target | 1 seed test, 1 attribution test | fail 2: 5700 and its child 5701 are walk members, and the protocol asks a TERM for each (both live with that identity, so the world delivers it); `_signal_targets` attributes the member by that owned identity | seed test passes; attribution test fails (API: `_signal_targets`) | pass 2 |
+| 6. A counted or responsible identity from another boot: never a seed | 2 | fail 2: a TERM asked for 5700 and 5701 | pass 2 | pass 2 |
+| 7. A chain identity or held parent from another boot: never re-added, never held | 1 chain, 5 held (on the attempt's boot A and stored on B and C), 3 guards | fail 6: a TERM asked for the chain ancestor 5900; 6000 held by its start in all five; guards pass 3 | fail 9 (API: no chain or held keys) | pass 9 |
+| 8. A marked process on a later boot: a member and a target; chain ancestors persisted? | 1 | fail: 6100 kept in `counted_identities`, the first key the test checks | fail (API: `chain_pids`); there the protocol would not target 6100 at all | pass. Pinned: 6100, its chain ancestor 6099 and its held parent 6098 are in no stored key. 6100 and 6099 are TERMed; 6098 is never signalled |
+| 9. A taint record from another boot never matches | 6 unit, 1 write | unit fail 6 (API: `_tainted` takes no boot); the write fails: 7100 written to `unverified_identities` from boot B's record | fail 7 (API) | pass 7 |
+| 10. #259's trackb shape through #250's protocol | 2 (`--confirm-dead` then `kill`; the receipt) | fail 2: stays quarantined (`recorded identity unavailable for pid 4243`), and the receipt path quarantines | pass 2 | pass 2 |
+| 11. r1's six P1 shapes, same boot and after a reboot | 12 | same boot: pass 6; after a reboot: fail 6 (`group of another boot`) | fail 8: `kill` and `--confirm-dead` never re-contain or take a census, the uncomparable-boot shape (API), and the non-UUID recorded boot has no `group of another boot`; pass 4 (both dead-guardian shapes, the UUID recorded boot after a reboot, another attempt's provider on the same boot) | pass 12 |
+| 12. The property: attempt boot (UUID, legacy, none) x current boot (same, other UUID, legacy, unreadable) x every stored key, 60 derandomized examples | 1 | fail: a held parent stored on boot A held again on boot B by its start; a `held_parents` write of boot B | fail (API: `held_pids`) | pass |
+
+Totals: `380b626cf` 28 failed, 19 passed (the 22:29Z hold); `8fe3413ef` 37 failed, 10 passed (the 22:57Z hold); head 46 passed (hold H2, below). In each parent run a scratch-only check passed: `subfleet` was imported from that parent's tree.
+
+**Why some cases pass at a parent:**
+- **Cases 1, 3 and 4 pass at `380b626cf`.** Each is the same-boot (or uncomparable-boot) ground #250 already covered (r1's P1 shapes, and C-5.3's uncomparable-boot cases); #259 adds nothing there. They are guards that the merge keeps #250's rule where #259 does not apply.
+- **Case 4's behaviour is the same at both parents:** a live process at the guardian pid whose boot differs is proven recycled by `is_recycled` at `380b626cf`, and by the boot scope at `8fe3413ef`. At `8fe3413ef` it fails only because `Containment.leader_verified` does not exist there.
+- **The order of the two group rules** shows only where both apply, so cases 2 and 11 (after a reboot) are the ones that fail at `380b626cf`: there the leader is recorded as `group of another boot`, not for the attempt's boot.
+- **At `8fe3413ef`** the census is not the signal authority (no `_signal_targets`, no `leader_verified`, no chain or held keys), so the cases that ask about #250's protocol fail there for that reason; the behaviour #259 alone gives is noted in the table.
+
+### Invariants
+
+1. **No stranger is signalled, on any boot.** Nothing stored on another boot than the attempt's, or recorded on another boot than the current one, seeds the walk, holds the attempt or is a signal target. Executed by the property (every stored key, every attempt boot and current boot) and cases 5 to 9 and 11.
+2. **#259 cannot add a signal.** With the attempt's boot over, the group, walk and responsibility sources are empty; the only members are marked processes and the worktree ancestors the chain adds for them. Executed by the property and cases 2, 4, 8, 10 and 11.
+3. **#250 cannot weaken #259.** No key #250 stores (`chain_identities`, `held_parents`, `held_marked`, the taint in `unverified_identities`) gains an identity of another boot than the attempt's. Executed by the property and cases 8 and 9.
+4. **Each side's own regressions still pass:** #250's must-checks (r2's table: the six P1 shapes, cases 3 to 5 of r2's must-check table, stranger reuse) and #259's tests. Executed by the holds below.
+
+The property found no counterexample at the head. At `380b626cf` it found two:
+- a parent stored in `held_marked` on the attempt's boot A, held again on boot B by its start alone (invariant 1);
+- a `held_parents` write of boot B (invariant 3).
+
+### Mutants
+
+`tests/unit/test_kill4_boot_scope_mutations.py` holds the brief's three mutants as strict xfails (each must fail its named regression with an `AssertionError`). The first is split into its read and write halves, so each half is shown detected on its own. All four are detected (in H1, 4 xfailed; H3 reruns the file at its committed text). r2's earlier mutants are detected too: the build's 8 and fix round 1's 6, 14 xfailed in H1.
+
+| Mutant | The change | Named regression | Detected |
+|---|---|---|---|
+| unscoped-reads | drop #250's keys from the boot filter on read: `containment` no longer filters `parent_chain.held` and `.recorded` | `test_case_7_a_chain_ancestor_stored_on_another_boot_is_never_re_added` | yes |
+| unscoped-writes | drop #250's keys from the boot filter on write: `held_parents`, `chain_identities`, `held_marked`, the taint write, and the protocol's stored `fresh` set | `test_case_8_a_marked_process_on_a_later_boot_is_a_target_and_nothing_is_kept` | yes |
+| start-only-rehold | compare the start time only when re-holding a parent (`_parent_chain` without `same_boot`) | `test_case_7_a_held_parent_from_another_boot_is_never_held[attempt-boot-marked]` | yes |
+| leader-first | move #250's leader block before #259's boot-over branch | `test_case_2_with_the_attempts_boot_over_the_group_is_no_source_and_confirm_dead_releases` | yes |
+
+
+### Fix round 2a holds
+
+One pytest per hold, under the shared suite lock, at the head (`bac000ac8` and this report). Counts per file:
+
+| Hold | File | Result |
+|---|---|---|
+| H1 (23:06Z, load 173) | `tests/unit/test_kill4_terminal_containment.py` | 16 passed, 1 failed: `test_a_stopped_escaped_member_is_continued_and_contained_and_nothing_else_is`'s 2.5 s bound took 15.1 s at load 173. It passed on its rerun in H2 (load 67); the bound is unchanged |
+| H1 | `tests/unit/test_kill4_properties.py` | 1 passed |
+| H1 | `tests/unit/test_kill4_fix1.py` | 21 passed |
+| H1 | `tests/unit/test_kill4_mutations.py` | 8 xfailed (the build's mutants, each detected) |
+| H1 | `tests/unit/test_kill4_fix1_mutations.py` | 6 xfailed (fix round 1's mutants, each detected) |
+| H1 | `tests/unit/test_census_parent_chain.py` | 14 passed |
+| H1 | `tests/unit/test_census_counted.py` | 5 passed |
+| H2 (23:17Z, load 67) | `tests/unit/test_census_recycled_pid.py` | 25 passed |
+| H2 | `tests/unit/test_census_survivors_review.py` | 14 passed |
+| H2 | `tests/unit/test_daemon_settle.py` | 68 passed |
+| H2 | `tests/unit/test_census_boot_seeds.py` (#259) | 36 passed |
+| H2 | `tests/unit/test_kill4_boot_scope.py` (the combination) | 46 passed |
+| H2 | `tests/unit/test_invariants_index.py` | 25 passed |
+| H2 | `tests/unit/test_test_module_names.py` | 1 passed |
+| H2 | H1's failing test, rerun | passed |
+
+
+**Not run in this round:**
+- #259's fakes: `tests/fake/test_census_boot_seeds_daemon.py`, `test_salvage_adversarial.py`, `test_salvage_worktree_gone.py` (H3, queued)
+- group 3's fakes: `tests/fake/test_kill4_terminal_daemon.py`, `test_census_escapers_daemon.py`, `test_census_recycled_pid_daemon.py`, `test_census_cwd_outcome.py`, `test_daemon_contract.py`
+- the process tests: `tests/process/test_census_parent_chain_process.py`, `test_kill4_fix1_process.py`
+- `tests/fake/test_state_contract.py`
+- `tests/fake/test_census_self_exit_daemon.py` (round 2b's)
