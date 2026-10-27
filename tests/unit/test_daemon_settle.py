@@ -846,7 +846,8 @@ def test_c4_2_start_grace_reads_the_receipts_again_after_its_census(daemon, monk
                          [(EMPTY, "failed", "starting-no-receipt"), (GUARDIAN_ONLY, "quarantined", None)],
                          ids=["empty", "guardian-alive"])
 def test_c4_2_start_grace_without_a_receipt_still_decides_from_its_census(daemon, monkeypatch, census, state, detail):
-    """C-4.2 no receipt after the census: an empty census releases and retries, anything else quarantines."""
+    """C-4.2 no receipt after the census: an empty census releases and retries; anything else is contained
+    first (D-KILL4), and a census that never empties quarantines with start grace's reason."""
     with_launch(daemon, monkeypatch)
     daemon.store.update_attempt(ATTEMPT, state="starting")
     daemon.start_grace_s, daemon._starting_deadlines[ATTEMPT] = 10, 0.0
@@ -899,17 +900,24 @@ def test_c4_2_start_grace_takes_only_a_receipt_the_tick_would_take(daemon, monke
     adir, censuses = attempt_dir(daemon.root, JOB, 1), []
 
     def contain(a):
-        censuses.append(1)
+        # Which census this is: start grace's own, or one the kill protocol took after it.
+        started = daemon.store.one("SELECT 1 FROM events WHERE kind='attempt.kill_started'")
+        censuses.append("protocol" if started else "start grace")
         atomic_publish(adir / "start.json", empty.encode())
         atomic_publish(adir / "exit.json", empty.encode())
         return census
     daemon._contain = contain
     daemon._process_attempt(ATTEMPT)
     a = attempt(daemon)
-    assert censuses == [1]
     if census is EMPTY:
+        assert censuses == ["start grace"]
         assert a["state"] == "failed" and a["outcome_detail"] == "starting-no-receipt"
     else:
+        # D-KILL4: the one census start grace takes decides at once, to contain (fix 1: the
+        # kill protocol starts from that census); every other census is the protocol's own,
+        # in the same pass, none on a later tick.
+        assert censuses[0] == "start grace" and len(censuses) > 1
+        assert censuses == ["start grace"] + ["protocol"] * (len(censuses) - 1), censuses
         assert a["state"] == "quarantined"
         assert json.loads(a["quarantine_reason"])["reason"] == "start grace expired without a receipt"
 
