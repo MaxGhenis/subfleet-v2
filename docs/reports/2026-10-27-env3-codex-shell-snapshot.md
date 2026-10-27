@@ -30,32 +30,61 @@ The `codex exec` rows were run with the model slugs `mock-model` and `gpt-6.1-so
 
 ## Claude lanes
 
-Claude lanes have no matching hole today, for two reasons.
+Claude lanes have no matching *snapshot* hole, for two reasons.
 
 - **Process environment.** The same `_launch_environment` removes `OPENAI_API_KEY` and `CODEX_API_KEY` from every launch, Claude's included, and the backstop drops every other credential word.
 - **Bash tool.** Claude Code's shell snapshots export only `PATH`. Of 534 snapshots in `~/.claude/shell-snapshots`, 469 export `PATH` and none exports any other name. The same mock-API experiment ran the real Claude Code 2.1.284 binary against a Messages server: its Bash tool printed neither a `.zshrc`-only dummy `OPENAI_API_KEY` nor a second `.zshrc` sentinel.
 
-D-ENV3's vendor rule (below) makes this explicit for `env.pass` and launch additions. `tests/process/test_provider_shell_environment.py` pins Claude Code's behaviour, so a later Claude Code that starts to replay exports fails the suite.
+D-ENV3's vendor rule (below) makes this explicit for `env.pass` and launch additions. `tests/process/test_provider_shell_environment.py` pins Claude Code's `.zshrc` behaviour, so a later Claude Code that starts to replay `.zshrc` exports fails the suite.
+
+Claude Code does inject variables after the launch through two other channels: its settings' `env` block, and a `CLAUDE_ENV_FILE`. Review r1 ran both against Claude Code 2.1.284, and the dummies reached Bash. A writable Claude launch loads the user's settings, so whatever that `env` names reaches its commands, and no Subfleet selection removes it. On this host the user settings' `env` names credential-word variables (checked by name), including another vendor's key. Moving them out is the person's step; see "Not covered".
 
 ## Change
 
-1. **Codex shell configuration.** `launch_env.CODEX_SHELL_CONFIG` holds `features.shell_snapshot=false`, `features.shell_snapshot_v2=false` and `shell_environment_policy.experimental_use_profile=false`. It is passed as `-c` pairs on every Codex launch that runs a model turn: `codex exec`, `codex exec resume`, and the `app-server` a conversation turn runs. An isolated review's `CODEX_CONFIG` includes the same keys, once each. `shell_snapshot_v2` is the snapshot's successor, under development and off in 0.159.0, and Codex accepts a `features.*` key it does not know (`codex -c features.no_such_feature_xyz=false features list` exits 0). The guard preflight's `app-server` and the isolation inspection start no thread and run no command, so they are unchanged.
-2. **Vendor rule (D-ENV3).** A name is a vendor's credential when it holds that vendor's word (`OPENAI` or `CODEX` for Codex, `ANTHROPIC` or `CLAUDE` for Claude, in any case) and a credential word. `ProviderEnvironment.assemble(..., provider=P)` drops every other vendor's credential last, even one `env.pass` or the launch's own additions name. Without a provider, it keeps a vendor credential only as the caller's own addition, never from the parent or `env.pass`. `Daemon._launch_environment`, `ProviderEnvironment.build` and the three guard-preflight environments pass the lane's provider. Homes (`CODEX_HOME`, `CLAUDE_CONFIG_DIR`) hold no credential word, so a test session's children keep inheriting them (D-ST1). No allowlisted, test-session or launch-owned name is a vendor credential, and a test holds that.
+1. **Codex shell configuration.** `launch_env.CODEX_SHELL_CONFIG` holds `features.shell_snapshot=false`, `features.shell_snapshot_v2=false` and `shell_environment_policy.experimental_use_profile=false`. It is passed as `-c` pairs on every Codex launch that runs a model turn: `codex exec`, `codex exec resume`, and the `app-server` a conversation turn runs. An isolated review's `CODEX_CONFIG` includes the same keys, once each. `shell_snapshot_v2` is the snapshot's successor, under development and off in 0.159.0, and Codex accepts a `features.*` key it does not know (`codex -c features.no_such_feature_xyz=false features list` exits 0). The guard preflight's `app-server` and the isolation inspection start no thread and run no command. The preflight is unchanged. The inspection's shared configuration gains the v2 key, through `CODEX_CONFIG`. Review r1 started both against the real binary under a throwaway `CODEX_HOME`, with and without the keys, and found no snapshot file either way.
+2. **Vendor rule (D-ENV3).** A name is a vendor's credential when it holds that vendor's word (`OPENAI` or `CODEX` for Codex, `ANTHROPIC` or `CLAUDE` for Claude, in any case) and a credential word. A name holding any vendor's word other than the launch's own is foreign, so a name holding both vendors' words reaches neither (review r1, P2-1). Three places drop foreign credentials:
+   - `ProviderEnvironment.assemble(..., provider=P)` drops every other vendor's credential last, even one `env.pass` or the launch's own additions name. Without a provider, it keeps a vendor credential only as one of the caller's own additions.
+   - `ProviderEnvironment.additions(P, ...)` drops them at the source (review r1, P2-2), so nothing selected from a provider's additions can carry one, including a later provider-less assembly.
+   - The isolated review's metadata inspection, both the adapter's environment and `isolation.inspect_codex`'s own, selects as a Codex process (P2-2).
+
+   `Daemon._launch_environment`, `ProviderEnvironment.build` and the three guard-preflight environments pass the lane's provider. Homes (`CODEX_HOME`, `CLAUDE_CONFIG_DIR`) hold no credential word, so a test session's children keep inheriting them (D-ST1). No allowlisted, test-session or launch-owned name is a vendor credential, and a test holds that.
 
 The process environment already had an explicit allowlist (D-ENV1), so this change adds no second allowlist. The gap was that Codex rebuilt the command's environment from the person's startup files after the allowlist had run. Turning that off makes D-ENV1's allowlist the environment a command sees.
 
 ## Invariants
 
 - **I1.** For every parent environment, `env.pass` list and launch path (detached, resume, turn, probe, isolated; both providers), the launch environment equals D-ENV1's selection plus the launch's additions, minus mandatory removals and minus every other vendor's credential. An oracle independent of `launch_env` decides the expected set. Hypothesis checks this: `test_property_every_launch_is_the_allowlist_minus_foreign_vendors`, plus the updated `test_bounded_property_all_lane_launches`.
-- **I2.** `foreign_credentials` equals the oracle on every name list, for a known provider and for an unknown one. Hypothesis checks this.
-- **I3.** Every `codex exec` launch carries each `CODEX_SHELL_CONFIG` key among its options, before `resume`, with no later `-c` setting that key or a table holding it. Checked exhaustively over sandbox × review task × network × resume × unified-exec switch (32 cases), plus the isolated review and both conversation-turn forms. The checker has its own refusal tests.
+- **I2.** `foreign_credentials` equals the oracle on every name list, for a known provider and for an unknown one. Hypothesis checks this. Since review r1, both generators also draw names holding both vendors' words, which r1's counterexample showed they had missed.
+- **I3.** Every `codex exec` launch carries each `CODEX_SHELL_CONFIG` key among its options, before `resume`. No later `-c` sets that key or a table holding it, and no `--enable` anywhere names a shell feature: review r1 showed with the real binary that `--enable shell_snapshot` beats a `-c ...=false` from either side. Checked exhaustively over sandbox × review task × network × resume × unified-exec switch (32 cases), plus the isolated review and both conversation-turn forms. The checker has its own refusal tests.
 - **I4.** Differential, against the real binaries. With Subfleet's argv minus `CODEX_SHELL_CONFIG`, the `.zshrc` dummy reaches the command whenever the installed Codex has the snapshot on by default. With the launch's argv, neither the `.zshrc` dummy nor the daemon parent's `ANTHROPIC_API_KEY` reaches a command of `codex exec`, its resume, or `app-server`.
 
 ## Not covered
 
 - **Login-shell startup files.** Codex still runs commands as a login shell (`zsh -lc`), which reads `~/.zshenv`, `~/.zprofile` and `~/.zlogin`. On this host they export no credential (checked by name): Homebrew's variables and `PATH`. A credential exported from any of them would reach lane commands again. Credential exports belong in `~/.zshrc`, which a non-interactive shell does not read.
 - **Reads outside the environment.** This change governs the environment a command inherits. It does not stop a command from reading files or stores the sandbox lets it read; that boundary is C-14.4's.
+- **Claude Code's own injection.** A writable Claude launch loads the user's settings, and Claude Code adds its `env` block and a `CLAUDE_ENV_FILE`'s exports after the launch (review r1).
+- **`--enable` flags and the PATH shim.** No managed launch passes `--enable`. The repository's `bin/codex` PATH shim forwards its caller's argv unchanged and lies outside the daemon's launches. A person's own interactive `codex` keeps Codex's defaults, snapshot included.
+- **Name heuristics.** The vendor rule reads names, so a few cases fall outside it:
+   - a vendor word split by a separator (`OPEN_AI_API_KEY`) is not recognized;
+   - a generic alias (`MY_LLM_KEY`) belongs to no vendor;
+   - a value stored under a non-credential name is not caught.
+
+   D-ENV1's word list also matches `PAT` inside `PATH`, so a vendor-named path such as `CODEX_CACHE_PATH` counts as that vendor's credential. It then leaves only the other vendor's launches, and no current lane needs one there.
 - **Leftover snapshot files.** Snapshots written before this change stay in each Codex lane home's `shell_snapshots/` until removed, and they hold the exported values in plain text (mode 0600). The fix stops new ones. Removing the old ones is the person's step.
+
+## Review r1 (GPT-6.1 Sol, `20261027-050331-pr270-review-r1`, REQUEST_CHANGES)
+
+| Finding | Disposition |
+| --- | --- |
+| P2-1: a name holding both vendors' words passed either provider's filter | Fixed in `foreign_credentials`. The reviewer's regression is in `test_a_both_vendor_credential_reaches_neither_vendor`, run through pass and addition for both providers. Both Hypothesis generators now draw such names. |
+| P2-2: the isolated review's inspection selected from unfiltered additions | Fixed at the source (`ProviderEnvironment.additions`), in the adapter and in `inspect_codex`. Tests cover each layer on its own, and a mutant that drops only `inspect_codex`'s filter fails. |
+| P3: C-12.3 said a command's environment equals the launch's | Reworded. Login-shell startup files still run, which the reviewer showed with a `.zprofile` dummy. |
+| P3: the PR body's stopgap appended a second `[features]` table | Reworded to merge keys into an existing table. The stopgap script refuses to touch a file that already has one. |
+| Check 2: `--enable shell_snapshot` beats the pins | The argv checker now refuses it anywhere; no managed launch passes one. Listed under "Not covered". |
+| Check 4: Claude settings `env` and `CLAUDE_ENV_FILE` | The Claude claim is now confined to `.zshrc`; the channel is listed under "Not covered". |
+| Check 6: other wording | The isolation-inspection sentence and the PATH-shim scope are corrected. |
+
+All 25 new regressions fail at `4179f7c94`, the head r1 reviewed, and pass now.
 
 ## Verification
 
@@ -68,4 +97,5 @@ All runs were local, serial, under the hub's suite lock, with a private `TMPDIR`
   - `test_launch_env_policy`'s exact-pass case now uses the name's own vendor, and checks that the other vendor's build drops a vendor credential;
   - the two `test_codex_turn` argv tests now expect the shell keys at the end.
 - **A names-only scan of 10,315 retained Codex job stdouts.** It found one environment printout that holds a credential name: the incident job's. Other hits were code or diffs that mention a name.
+- **After fix round r1:** the related suite again, plus the contract guards (`test_state_contract`, `test_test_module_names`, `test_invariants_index`) and `test_claude_adapter`. Result: 4,363 passed, 4 xfailed, 2 failed. Both failures were `test_launch_env_mutations`' withheld-name mutant, which rewrote `additions`' body; that body is now `_additions`. Retargeted, the file passes (70). `test_launch_env_vendor_shell.py` alone: 104 passed.
 - **CI** runs on the pull request.

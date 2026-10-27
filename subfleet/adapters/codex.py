@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Callable, Iterator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from ..launch_env import build_environment, codex_shell_args
+from ..launch_env import build_environment, codex_shell_args, foreign_credentials
 from .base import Adapter, AdapterError, open_stream, stream_path
 from ..guardian import atomic_publish
 from ..sessions.transcripts import NotRegularFile, open_regular, read_regular
@@ -561,6 +561,9 @@ class CodexAdapter(Adapter):
             environment = getattr(self, "provider_environment", None)
             env = build_environment(credential_env,
                                     withheld=environment.withheld() if environment is not None else ())
+            # D-ENV3 (review r1 of #270, P2-2): the inspection is a Codex process too.
+            for name in foreign_credentials("codex", tuple(env)):
+                del env[name]
             validate_isolated_review(sandbox, job.review_root, os.environ.keys() | credential_env.keys())
             argv += ["--skip-git-repo-check"]  # The gate's required neutral cwd is not a repository.
             argv += codex_args(self.codex_bin, home=home, workdir=job.workdir, env=env,

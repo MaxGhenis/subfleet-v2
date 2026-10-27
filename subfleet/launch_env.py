@@ -172,15 +172,16 @@ def foreign_credentials(provider: str | None, names: Iterable[str],
                         additions: Iterable[str] = ()) -> tuple[str, ...]:
     """D-ENV3: the names among `names` that a launch for `provider` may not carry.
 
-    A vendor's credential reaches only its own provider's launches; an unknown
-    provider has no vendor, so it carries none. Without a provider, a vendor's
-    credential is kept only as one of the caller's own `additions` (a lane's
-    resolved credential), never from the parent or `env.pass`.
+    A vendor's credential reaches only its own provider's launches: a name that
+    holds any other vendor's word is foreign, even when it holds the
+    provider's own too (review r1 of #270, P2-1). An unknown provider has no
+    vendor, so it carries none. Without a provider, a vendor's credential is
+    kept only as one of the caller's own `additions`, never from the parent.
     """
     kept = frozenset(additions) if provider is None else frozenset()
     return tuple(name for name in names
                  if (vendors := credential_vendors(name))
-                 and (provider not in vendors if provider is not None else name not in kept))
+                 and (vendors - {provider} if provider is not None else name not in kept))
 
 
 def session_name(name: str) -> bool:

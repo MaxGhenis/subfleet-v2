@@ -38,6 +38,7 @@ ANTHROPIC = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOK
              "CLAUDE_CODE_OAUTH_REFRESH_TOKEN", "CLAUDE_API_KEY")
 OPENAI = ("OPENAI_API_KEY", "CODEX_API_KEY", "AZURE_OPENAI_API_KEY", "CODEX_ACCESS_TOKEN", "OPENAI_ADMIN_KEY")
 FOREIGN = {"codex": ANTHROPIC, "claude": OPENAI}
+BOTH = ("CLAUDE_TO_OPENAI_TOKEN", "OPENAI_ANTHROPIC_KEY", "codex_claude_auth")
 
 
 def _daemon(policy=POLICY):
@@ -97,6 +98,9 @@ def test_vendor_classification_examples():
         assert credential_vendors(name) == frozenset(), name
     assert foreign_credentials("codex", ANTHROPIC + OPENAI) == ANTHROPIC
     assert foreign_credentials("claude", ANTHROPIC + OPENAI) == OPENAI
+    # A name holding both vendors' words is foreign to both (review r1 of #270, P2-1).
+    for provider in ("codex", "claude"):
+        assert foreign_credentials(provider, BOTH) == BOTH, provider
     # A provider with no vendor here carries neither vendor's credential.
     assert foreign_credentials("gemini", ANTHROPIC + OPENAI) == ANTHROPIC + OPENAI
     # Without a provider, only the caller's own additions keep a vendor credential.
@@ -126,6 +130,94 @@ def test_build_drops_foreign_vendor_credentials(provider):
     assert not set(FOREIGN[provider]) & set(actual)
 
 
+@pytest.mark.parametrize("provider", ["codex", "claude"])
+@pytest.mark.parametrize("source", ["pass", "addition"])
+@pytest.mark.parametrize("name", BOTH)
+def test_a_both_vendor_credential_reaches_neither_vendor(provider, source, name):
+    """Review r1 of #270, P2-1: the reviewer's counterexample, through `env.pass` and an addition."""
+    environment = ProviderEnvironment({**POLICY, "env": {"pass": [name]}})
+    parent = {"PATH": "/usr/bin:/bin", **({name: DUMMY} if source == "pass" else {})}
+    addition = {name: DUMMY} if source == "addition" else {}
+    assert name not in environment.assemble(addition, environ=parent, provider=provider)
+    assert name not in environment.additions(provider, addition, environ=parent)
+    assert name not in environment.build(provider, addition, environ=parent)
+
+
+@pytest.mark.parametrize("provider", ["codex", "claude"])
+def test_additions_drop_foreign_credentials_at_the_source(provider):
+    """Review r1 of #270, P2-2 and the Rule B note: a provider's additions never hold
+    another vendor's credential, so a provider-less assembly of them cannot keep one."""
+    parent = {"PATH": "/usr/bin:/bin", **dict.fromkeys((*ANTHROPIC, *OPENAI), DUMMY)}
+    environment = ProviderEnvironment({**POLICY, "env": {"pass": sorted(parent)}})
+    own = {"codex": OPENAI, "claude": ANTHROPIC}[provider]
+    added = environment.additions(provider, dict.fromkeys(FOREIGN[provider], "added"), environ=parent)
+    assert not set(FOREIGN[provider]) & set(added)
+    assert set(own) <= set(added)
+    assert not set(FOREIGN[provider]) & set(environment.assemble(added, environ=parent))
+
+
+def _isolated_review(tmp_path, monkeypatch, credential, *, policy=POLICY, inspector=None):
+    """An isolated Codex review's build, with its inspection's environments captured."""
+    from subfleet.adapters import isolation
+    from subfleet.adapters.base import AdapterError
+    captured = {}
+
+    def popen(argv, **kwargs):
+        captured["app-server"] = dict(kwargs["env"])
+        raise OSError("captured, not launched")
+    monkeypatch.setattr(isolation.subprocess, "Popen", popen)
+    adapter, lane = CodexAdapter(), _codex_lane(tmp_path)
+    adapter.provider_environment = ProviderEnvironment(policy)
+    if inspector is not None:
+        adapter.isolation_inspector = inspector
+    job = _codex_job(tmp_path, Sandbox.READ_ONLY, task="review", isolated=True)
+    try:
+        adapter.build_launch(job, "shell/a1", tmp_path / "a1", lane, {"CODEX_HOME": lane.home, **credential},
+                             "gpt-6.1-sol", None, tmp_path / "prompt.md", None)
+    except AdapterError as exc:
+        assert "inspect" in str(exc), str(exc)
+    return captured
+
+
+@pytest.mark.parametrize("name", [*ANTHROPIC, *BOTH])
+def test_isolated_review_inspection_carries_no_foreign_credential(name, tmp_path, monkeypatch):
+    """Review r1 of #270, P2-2: the inspection's app-server (and the MCP inventory,
+    which shares its environment) is a Codex process, whatever the policy passes."""
+    parent = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), name: DUMMY}
+    monkeypatch.setattr(os, "environ", parent)
+    policy = {**POLICY, "env": {"pass": [name]}}
+    via_additions = ProviderEnvironment(policy).additions("codex", {}, environ=parent)
+    captured = _isolated_review(tmp_path, monkeypatch, via_additions, policy=policy)
+    assert "app-server" in captured and name not in captured["app-server"]
+    # A credential environment that names it directly (not built by `additions`).
+    captured = _isolated_review(tmp_path, monkeypatch, {name: DUMMY}, policy=policy)
+    assert "app-server" in captured and name not in captured["app-server"]
+    seen = {}
+
+    def inspector(*args, env, **kwargs):
+        seen.update(env)
+        return {"requirements": None}, {"layers": [{"name": {"type": "user"}, "config": {}}]}, []
+    _isolated_review(tmp_path, monkeypatch, {name: DUMMY}, policy=policy, inspector=inspector)
+    assert seen and name not in seen
+
+
+@pytest.mark.parametrize("name", [*ANTHROPIC, *BOTH])
+def test_inspect_codex_selects_as_a_codex_process(name, tmp_path, monkeypatch):
+    """`inspect_codex` filters on its own, for a caller that hands it a foreign name."""
+    from subfleet.adapters import isolation
+    captured = {}
+
+    def popen(argv, **kwargs):
+        captured.update(kwargs["env"])
+        raise OSError("captured, not launched")
+    monkeypatch.setattr(isolation.subprocess, "Popen", popen)
+    (tmp_path / "home").mkdir()
+    with pytest.raises(OSError, match="captured"):
+        isolation.inspect_codex("codex", home=tmp_path / "home", workdir=str(tmp_path),
+                                env={"PATH": "/usr/bin:/bin", name: DUMMY}, pass_names=(name,))
+    assert captured and name not in captured
+
+
 # Names that carry a vendor's word and a credential word in any case and
 # position, beside the allowlist's own names and arbitrary ones.
 VENDOR_WORD = st.sampled_from(["ANTHROPIC", "CLAUDE", "OPENAI", "CODEX", "anthropic", "Claude", "openai", "codex"])
@@ -133,8 +225,11 @@ CREDENTIAL_WORD = st.sampled_from(["_API_KEY", "_TOKEN", "_OAUTH_TOKEN", "_SECRE
 AFFIX = st.from_regex(r"[A-Z_]{0,6}", fullmatch=True)
 VENDOR_NAMES = st.builds(lambda pre, word, cred, post: pre + word + cred + post, AFFIX, VENDOR_WORD,
                          CREDENTIAL_WORD, AFFIX).filter(lambda name: name[0].isalpha() or name[0] == "_")
-PARENT = st.dictionaries(st.one_of(NAMES, VENDOR_NAMES, st.sampled_from(sorted(ALLOWED)),
-                                   st.sampled_from([*ANTHROPIC, *OPENAI])),
+# Both vendors' words in one name (review r1 of #270, P2-1), or one vendor's twice.
+BOTH_VENDOR_NAMES = st.builds(lambda first, second, cred: first + "_TO_" + second + cred,
+                              VENDOR_WORD, VENDOR_WORD, CREDENTIAL_WORD)
+PARENT = st.dictionaries(st.one_of(NAMES, VENDOR_NAMES, BOTH_VENDOR_NAMES, st.sampled_from(sorted(ALLOWED)),
+                                   st.sampled_from([*ANTHROPIC, *OPENAI, *BOTH])),
                          VALUES, max_size=30).map(ParentEnvironment)
 
 
@@ -164,7 +259,7 @@ def test_property_every_launch_is_the_allowlist_minus_foreign_vendors(parent, da
 
 
 @settings(max_examples=200, deadline=None, derandomize=True)
-@given(names=st.lists(st.one_of(NAMES, VENDOR_NAMES), max_size=12, unique=True),
+@given(names=st.lists(st.one_of(NAMES, VENDOR_NAMES, BOTH_VENDOR_NAMES), max_size=12, unique=True),
        provider=st.sampled_from(["codex", "claude", "gemini"]))
 def test_property_foreign_credentials_matches_the_oracle(names, provider):
     """`foreign_credentials` is the oracle's set, in input order, for every name list."""
@@ -180,10 +275,18 @@ def _key(config):
     return config.split("=", 1)[0]
 
 
+SHELL_FEATURES = ("shell_snapshot", "shell_snapshot_v2")
+
+
 def assert_shell_pinned(argv):
     """Each `CODEX_SHELL_CONFIG` key is set to its pinned value by a `-c` among the
-    options (before any `resume`), and no later `-c` sets it or a table holding it."""
+    options (before any `resume`), and no later `-c` sets it or a table holding it.
+    No `--enable` names a shell feature anywhere: real codex 0.159.0 lets it beat a
+    `-c ...=false`, before or after it (review r1 of #270, check 2)."""
     argv = list(argv)
+    enabled = [argv[at + 1] for at in range(len(argv) - 1) if argv[at] == "--enable"]
+    enabled += [arg.split("=", 1)[1] for arg in argv if arg.startswith("--enable=")]
+    assert not set(enabled) & set(SHELL_FEATURES), f"a shell feature is enabled: {enabled}"
     stop = argv.index("resume") if "resume" in argv else len(argv)
     pairs = [(at, argv[at + 1]) for at in range(stop - 1) if argv[at] == "-c"]
     for config in CODEX_SHELL_CONFIG:
@@ -273,3 +376,8 @@ def test_assert_shell_pinned_refuses_a_missing_or_overridden_key():
         assert_shell_pinned(["codex", "exec", *codex_shell_args(), "-c", "features={shell_snapshot=true}"])
     with pytest.raises(AssertionError, match="missing"):
         assert_shell_pinned(["codex", "exec", "resume", "t", *codex_shell_args()])
+    for enable in (["--enable", "shell_snapshot"], ["--enable=shell_snapshot_v2"]):
+        with pytest.raises(AssertionError, match="enabled"):
+            assert_shell_pinned(["codex", "exec", *enable, *codex_shell_args()])
+        with pytest.raises(AssertionError, match="enabled"):
+            assert_shell_pinned(["codex", "exec", *codex_shell_args(), *enable])

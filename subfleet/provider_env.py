@@ -66,7 +66,19 @@ class ProviderEnvironment:
 
     def additions(self, provider: str, env_add: Mapping[str, str] | None = None, *,
                   environ: Mapping[str, str] | None = None) -> dict[str, str]:
-        """Build Launch.env_add without mutating the daemon's environment."""
+        """Build Launch.env_add without mutating the daemon's environment.
+
+        D-ENV3 (review r1 of #270, P2-2): another vendor's credential is dropped
+        here, at the source, so no helper that selects from these additions
+        (an isolated review's inspection, a provider-less assembly) can carry it.
+        """
+        result = self._additions(provider, env_add, environ=environ)
+        for name in foreign_credentials(provider, tuple(result)):
+            del result[name]
+        return result
+
+    def _additions(self, provider: str, env_add: Mapping[str, str] | None = None, *,
+                   environ: Mapping[str, str] | None = None) -> dict[str, str]:
         environ = os.environ if environ is None else environ
         withheld = self.withheld()
         # A withheld name is rejected before its membership test, which on a

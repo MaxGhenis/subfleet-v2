@@ -11,7 +11,7 @@ import time
 
 from .base import AdapterError
 from ..contracts import Sandbox
-from ..launch_env import CODEX_SHELL_CONFIG, build_environment
+from ..launch_env import CODEX_SHELL_CONFIG, build_environment, foreign_credentials
 
 MANAGED_ENV = ("CLAUDE_CODE_MANAGED_SETTINGS_PATH", "CLAUDE_CODE_REMOTE_SETTINGS_PATH",
                "CLAUDE_CODE_MOCK_REMOTE_SETTINGS")
@@ -61,6 +61,10 @@ def inspect_codex(codex_bin, *, home, workdir, env, timeout_s=20, pass_names=())
 
     clean_env = build_environment(removals=("CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"),
                                   environ=env, pass_names=pass_names)
+    # D-ENV3 (review r1 of #270, P2-2): the app-server and the MCP inventory are
+    # Codex processes, so no other vendor's credential reaches them.
+    for name in foreign_credentials("codex", tuple(clean_env)):
+        del clean_env[name]
     clean_env["CODEX_HOME"] = str(Path(home).expanduser().resolve(strict=True))
     messages = [
         {"id": 1, "method": "initialize", "params": {
