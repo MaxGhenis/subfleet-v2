@@ -441,7 +441,7 @@ The property found no counterexample at the head. At `380b626cf` it found two:
 
 ### Mutants
 
-`tests/unit/test_kill4_boot_scope_mutations.py` holds the brief's three mutants as strict xfails (each must fail its named regression with an `AssertionError`). The first is split into its read and write halves, so each half is shown detected on its own. All four are detected (in H1, 4 xfailed; H3 reruns the file at its committed text). r2's earlier mutants are detected too: the build's 8 and fix round 1's 6, 14 xfailed in H1.
+`tests/unit/test_kill4_boot_scope_mutations.py` holds the brief's three mutants as strict xfails (each must fail its named regression with an `AssertionError`). The first is split into its read and write halves, so each half is shown detected on its own. All four are detected (H3, at the committed text: 4 xfailed). r2's earlier mutants are detected too: the build's 8 and fix round 1's 6, 14 xfailed in H1.
 
 | Mutant | The change | Named regression | Detected |
 |---|---|---|---|
@@ -472,10 +472,12 @@ One pytest per hold, under the shared suite lock, at the head (`bac000ac8` and t
 | H2 | `tests/unit/test_invariants_index.py` | 25 passed |
 | H2 | `tests/unit/test_test_module_names.py` | 1 passed |
 | H2 | H1's failing test, rerun | passed |
-
+| H3 (00:45Z, load 136) | `tests/fake/test_census_boot_seeds_daemon.py` | 5 passed (#259's fakes) |
+| H3 | `tests/fake/test_salvage_adversarial.py` | 8 passed |
+| H3 | `tests/fake/test_salvage_worktree_gone.py` | 6 passed |
+| H3 | `tests/unit/test_kill4_boot_scope_mutations.py` | 4 xfailed (strict, AssertionError only): every combination mutant detected |
 
 **Not run in this round:**
-- #259's fakes: `tests/fake/test_census_boot_seeds_daemon.py`, `test_salvage_adversarial.py`, `test_salvage_worktree_gone.py` (H3, queued)
 - group 3's fakes: `tests/fake/test_kill4_terminal_daemon.py`, `test_census_escapers_daemon.py`, `test_census_recycled_pid_daemon.py`, `test_census_cwd_outcome.py`, `test_daemon_contract.py`
 - the process tests: `tests/process/test_census_parent_chain_process.py`, `test_kill4_fix1_process.py`
 - `tests/fake/test_state_contract.py`
