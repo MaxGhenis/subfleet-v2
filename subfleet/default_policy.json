@@ -199,7 +199,8 @@
     "pin_grace_s": 1800,
     "pin_hold_far_s": 604800,
     "prove_idle_s": 900,
-    "prove_wait_s": 300
+    "prove_wait_s": 300,
+    "probe_deadline_s": 180
   },
   "conversations": {
     "approval_wait_s": null,

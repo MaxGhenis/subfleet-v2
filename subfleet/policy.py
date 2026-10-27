@@ -249,6 +249,12 @@ def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
 #: not answered keeps its lane to itself; after it the lane takes one more
 #: attempt, the next pilot (C-6.14); null waits for the pilot however long. Five
 #: minutes: the incident's refusals took 78 to 181 s to arrive under its load.
+#: `probe_deadline_s` bounds an admission probe's model turn from its reservation
+#: (C-11.4). Default 180 s: on 2026-10-26, 86 of 174 gpt-6.1-sol probes and
+#: 28 of 134 claude-opus-5-5 probes ran to the old 60 s deadline; Sol successes
+#: were clipped there (p90 60 s; 23 of 87 took at least 50 s). Timers and
+#: enrollment use their own timeouts and do not read this key.
+#: Fractional seconds use the durable datetime's microsecond precision.
 MACHINE_GUARD_PROPOSAL: dict[str, dict[str, Any]] = {
     "background": {"cpu_idle_min": .15, "memory_pressure": "warn"},
     "session": {"cpu_idle_min": .05, "memory_pressure": "critical"},
@@ -291,6 +297,7 @@ ADMISSION_DEFAULTS: dict[str, Any] = {
     "pin_hold_far_s": 7 * 86400,
     "prove_idle_s": 900,
     "prove_wait_s": 300,
+    "probe_deadline_s": 180,
 }
 
 
@@ -734,6 +741,10 @@ def load_policy(path: str | Path) -> dict[str, Any]:
                              or not math.isfinite(wait) or wait <= 0):
         fail("admission.prove_wait_s", "must be a positive finite number of seconds, or null to wait for a "
                                        "pilot's answer however long (C-6.14)")
+    deadline = settings["probe_deadline_s"]
+    if (not isinstance(deadline, (int, float)) or isinstance(deadline, bool)
+            or not 0 < deadline <= 900 or not math.isfinite(deadline)):
+        fail("admission.probe_deadline_s", "must be a positive finite number of seconds, at most 900")
     value["admission"] = settings
 
     floor = value.get("headroom_floor", HEADROOM_FLOOR)
