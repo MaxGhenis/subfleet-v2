@@ -8,12 +8,15 @@ import Combine
 enum ProbePresentation {
     static var animationCalls = 0
     static var mountedWindows = 0
+    static var afterAnimation: (() -> Void)?
 }
 func withAnimation<Value>(_ animation: Animation? = .default, _ body: () -> Value) -> Value {
     ProbePresentation.animationCalls += 1
     var transaction = Transaction(animation: nil)
     transaction.disablesAnimations = true
-    return SwiftUI.withTransaction(transaction, body)
+    let result = SwiftUI.withTransaction(transaction, body)
+    ProbePresentation.afterAnimation?()
+    return result
 }
 
 func withAnimation<Value>(_ animation: Animation?, completionCriteria: AnimationCompletionCriteria,
@@ -2176,8 +2179,12 @@ final class RevealArrivals: @unchecked Sendable {
 // P2-2: the person's own send (`UIModel.send`) during a pending reveal, with
 // catch-up held (`catchup`) or after it (`ordinary`, the control). The live
 // message has ended, so the send is the timeline's last row, not a tray row.
-@MainActor func ownSendDuringReveal(_ root: URL, catchup: Bool) async -> [String: Any] {
-    let record = Fix12Record(catchup ? "send-catchup" : "send-ordinary")
+@MainActor func ownSendDuringReveal(_ root: URL, catchup: Bool, landing: String? = nil) async -> [String: Any] {
+    let record = Fix12Record(landing ?? (catchup ? "send-catchup" : "send-ordinary"))
+    defer {
+        ProbePresentation.afterAnimation = nil
+        ConversationFollowTest.inset.top = 0
+    }
     let target = "person:m000040"
     let scene = await Scene(record.name, root: root, prior: 120,
                             priorText: { "person message \($0) asks something" }, tray: [],
@@ -2192,10 +2199,32 @@ final class RevealArrivals: @unchecked Sendable {
     // the send in one turn.
     record.clipTo(fromEnd: 2000)
     record.step("pending", target: target)
-    scene.model.send(conversationID: record.name, text: "my own reply", staged: [],
+    if landing == "short" || landing == "person" {
+        let oldEnd = (record.position()["content"] ?? 0) - (record.position()["viewport"] ?? 0)
+        ProbePresentation.afterAnimation = { record.clipTo(offset: oldEnd) }
+    }
+    let text = landing == nil ? "my own reply" : (1...30).map {
+        "Paragraph \($0): my own message takes more than one viewport while the lazy rows are measured."
+    }.joined(separator: "\n\n")
+    scene.model.send(conversationID: record.name, text: text, staged: [],
                      settings: ConversationSettings(model: "claude-opus-5-5"))
+    if landing == "regrow" {
+        // Grow above the clip on the marker's first appearance, before a settled
+        // end can be measured. A lazy marker can appear over 100 pt from the end.
+        await waitReady("send.marker_appeared", view: scene.host, state: { scene.readiness() }) {
+            record.trace.contains { $0["event"] as? String == "marker_appeared"
+                && ($0["at"] as? Double ?? 0) > (record.steps.last?["at"] as? Double ?? 0) }
+        }
+        record.step("growing", target: target)
+        ConversationFollowTest.inset.top += 600
+    }
     await settle(scene.host, seconds: 1.0)
     record.step("sent", target: target)
+    ProbePresentation.afterAnimation = nil
+    if landing == "person" {
+        await scene.personScroll(toEnd: false, offset: max(0, (record.position()["offset"] ?? 0) - 1500))
+        record.step("person_scrolled", target: target)
+    }
     if catchup {
         scene.daemon.resumeCatchup()
         await scene.waitFolded(scene.daemon.lastSeq, "send.caught_up")
@@ -2204,7 +2233,8 @@ final class RevealArrivals: @unchecked Sendable {
     }
     await scene.stream(20)
     record.step("reply", target: target)
-    return record.finish(["target": target, "catchup": catchup, "held_before_reveal": scene.heldBeforeReveal])
+    return record.finish(["target": target, "catchup": catchup, "landing": landing ?? "ordinary",
+                          "held_before_reveal": scene.heldBeforeReveal])
 }
 
 // P2-3: the pin's mark check must run whenever the mark's place in the document
@@ -2339,6 +2369,7 @@ final class FlippedDocument: NSView { override var isFlipped: Bool { true } }
     case "missing-away": return await missingTarget(root, away: true)
     case "send-catchup": return await ownSendDuringReveal(root, catchup: true)
     case "send-ordinary": return await ownSendDuringReveal(root, catchup: false)
+    case "short", "regrow", "person": return await ownSendDuringReveal(root, catchup: false, landing: mode)
     case "mark":
         var out: [String: Any] = [:]
         for kind in ["swiftui", "parent", "identity"] { out[kind] = await markScene(kind) }

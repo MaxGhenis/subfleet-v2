@@ -1,5 +1,6 @@
 """Distant search reveals with both gated output and overlapping streams."""
 import json
+import os
 
 import pytest
 
@@ -139,6 +140,7 @@ def shrink_replay(binary, root, mode, layout="default"):
     """Round 7's schedule (`shrinkReplay` in the probe), with its own steps and trace, its shrink
     measured since round 8's continuation. A failed wait's whole report (steps, traces, layout)
     is printed, so CI's log keeps it."""
+    load = os.getloadavg()[0]
     try:
         result = run_probe(binary, root, f"fix10-shrink-{mode}", env=LAYOUTS[layout], timeout=240)
     except AssertionError:
@@ -152,6 +154,8 @@ def shrink_replay(binary, root, mode, layout="default"):
     assert result["visible_windows"] == 0, diagnostic
     assert result["held_before_reveal"], diagnostic
     steps = {step["step"]: step for step in result["steps"]}
+    if mode == "landed":
+        print(f"landed layout={layout}, reveals={steps['landed']['reveals']}, load={load:.2f}")
     assert steps["opened"]["position"]["from_end"] <= END, diagnostic
     # Catch-up stays held until the settling tick.
     for name, step in steps.items():
@@ -207,6 +211,7 @@ def assert_replayed_shrink_order(result, steps):
     assert steps["early_completion"]["position"]["from_end"] <= END, diagnostic
     assert steps["scrolled"]["position"]["from_end"] > DISTANT, diagnostic
     assert steps["shrinking"]["reveal"]["outstanding"], diagnostic
+    assert steps["shrunk"]["reveal"]["outstanding"], diagnostic
     assert_measured_shrinks(result, steps)
     assert steps["shrunk"]["position"]["from_end"] <= END, diagnostic
     assert any(e["event"] == "marker_appeared" and steps["shrinking"]["at"] <= e["at"] <= steps["shrunk"]["at"]
@@ -279,7 +284,8 @@ def assert_landed_shrink_releases(result, steps):
 def test_document_shrink_after_a_distant_reveal_lands_releases(fix8_view_binary, tmp_path, layout):
     """Round 7's control: once the reveal has landed on its row, none is outstanding, and an end
     shown by the same shrink releases suspension through the marker, as before."""
-    result, steps, _ = shrink_replay(fix8_view_binary, tmp_path, "landed", layout)
+    result, steps, diagnostic = shrink_replay(fix8_view_binary, tmp_path, "landed", layout)
+    assert steps["landed"]["reveals"] == 1, diagnostic
     assert_landed_shrink_order(result, steps)
     assert_landed_shrink_releases(result, steps)
 

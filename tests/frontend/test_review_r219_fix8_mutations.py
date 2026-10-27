@@ -36,6 +36,7 @@ from tests.frontend.test_review_r219_fix12_view import (
     assert_own_send_releases,
     fix12_run,
 )
+from tests.frontend.test_review_r219_fix13_view import landing_run, assert_landing_follows
 
 pytestmark = needs_swift
 MUTATIONS = {
@@ -71,6 +72,9 @@ MUTATIONS = {
     "mark_local_frame_only": ("ConversationOpeningPin.swift", [
         ("watchPlacement(window != nil)", "watchPlacement(false)"),
         ("var itemID: String? { didSet { if itemID != oldValue { placeAgain() } } }", "var itemID: String?")]),
+    "own_send_latch_ends_at_marker": ("UIWindow.swift", [
+        ('        traceFollow("marker_appeared")',
+         '        ownSendLanding = false\n        traceFollow("marker_appeared")')]),
 }
 # Each round-7 mutant, the replay mode it runs, the order that mode must show (checked
 # outside `raises`, so a broken schedule cannot pass as a kill) and the rule it must fail.
@@ -89,7 +93,7 @@ ROUND8 = {
                               lambda result, _: assert_mark_probes_run_the_check(result)),
 }
 VIEW = {"notice_sets_at_bottom_false", "key_on_all_rows", "uimodel_drops_known_receipts",
-        "settling_stops_follow_at_end", *ROUND7, *ROUND8}
+        "settling_stops_follow_at_end", "own_send_latch_ends_at_marker", *ROUND7, *ROUND8}
 
 
 def mutant_source(mutation, filename, text):
@@ -125,7 +129,7 @@ def compile_mutation(mutation, tmp_path):
 
 @pytest.mark.parametrize("mutation", [name for name in MUTATIONS
                                       if name != "settling_stops_follow_at_end" and name not in ROUND7
-                                      and name not in ROUND8])
+                                      and name not in ROUND8 and name != "own_send_latch_ends_at_marker"])
 def test_mutation_fails_its_named_regression(mutation, tmp_path):
     binary, view = compile_mutation(mutation, tmp_path)
     if mutation == "uimodel_drops_known_receipts":
@@ -196,3 +200,12 @@ def test_round8_mutation_fails_its_named_regression(mutation, tmp_path):
     with pytest.raises(AssertionError) as rejected:
         rule(result, steps)
     print(f"{mutation} killed by {getattr(rule, 'func', rule).__name__}: {str(rejected.value)[:300]}")
+
+
+def test_round9_marker_latch_mutation_fails_regrow(tmp_path):
+    binary, _ = compile_mutation("own_send_latch_ends_at_marker", tmp_path)
+    result, steps, _ = landing_run(binary, tmp_path, "regrow")
+    assert "growing" in steps
+    with pytest.raises(AssertionError) as rejected:
+        assert_landing_follows(result, steps)
+    print(f"own_send_latch_ends_at_marker killed by assert_landing_follows[regrow]: {str(rejected.value)[:300]}")
