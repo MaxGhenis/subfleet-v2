@@ -178,7 +178,7 @@ def test_a_pid_held_by_one_census_is_signalled_when_a_later_census_attributes_it
     tree = owned_worktree(daemon, monkeypatch, world)
     world.add(4242, 1, 4242, start=STARTED, marked=True, ignores_term=True, term_handler=True, exits_childless=True)
     world.add(4243, 4242, 4242, start=STARTED, marked=True)
-    other = world.add(5000, 4242, 4242, cwd=str(tree), uid=0)
+    other = world.add(5000, 1, 4242, cwd=str(tree), uid=0)         # reparented: no walk reaches it
     child = world.add(5001, 5000, 5001, cwd="/elsewhere", respawns=True)
     publish(daemon, "exit.json", {"rc": 0, "signal": None, "finished_at": "2026-09-05T14:01:00Z", "wall_s": 1,
                                   "child_pid": 4243})
@@ -335,8 +335,7 @@ def test_a_start_json_found_after_the_abandon_is_contained_as_possibly_launched(
     abandon: the last read finds it, so the attempt is treated as launched. The full
     protocol runs (the group's TERM first, never the unlaunched KILL), and with no exit
     receipt it is a loss, never an unlaunched end that would release a retry."""
-    guardian = world.add(4242, 1, 4242, start=STARTED, marked=True, ignores_term=True, term_handler=True,
-                         exits_childless=True)
+    guardian = world.add(4242, 1, 4242, start=STARTED, marked=True, ignores_term=True, term_handler=True)
     starting(daemon)
     publishing = daemon._publish
 
@@ -349,7 +348,7 @@ def test_a_start_json_found_after_the_abandon_is_contained_as_possibly_launched(
     daemon.store.update_job(JOB, max_attempts=1)
     a = settle(daemon)
     assert world.signals[0] == ("group", 4242, TERM), world.signals
-    assert not world.procs[4243].alive and not guardian.alive
+    assert world.procs[4243].ended_by == TERM and guardian.ended_by == KILL       # it ignores TERM by design
     assert a["state"] == "lost" and a["outcome_detail"] != "starting-no-receipt", a
 
 
@@ -367,16 +366,16 @@ def test_an_abandoned_receipt_reads_as_unlaunched_never_as_a_provider_result(dae
         daemon.store.update_attempt(ATTEMPT, state="finalizing", rc=127)
         daemon._finalize(attempt(daemon))
     else:
-        world.add(4242, 1, 4242, start=STARTED, marked=True, ignores_term=True, term_handler=True,
-                  exits_childless=True)
+        world.add(4242, 1, 4242, start=STARTED, marked=True, ignores_term=True, term_handler=True)
         starting(daemon)
         publishing = daemon._publish
 
         def racing(role, path, contents):
             result = publishing(role, path, contents)
-            if role == "abandon":                    # the guardian saw it after writing start.json
+            if role == "abandon":                    # the guardian saw it after writing start.json, and exits
                 publish(daemon, "start.json", START)
                 publish(daemon, "exit.json", with_receipt)
+                world.procs[4242].alive = False
             return result
         daemon._publish = racing
         daemon._process_attempt(ATTEMPT)
