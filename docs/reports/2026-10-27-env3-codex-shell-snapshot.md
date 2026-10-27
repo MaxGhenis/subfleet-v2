@@ -49,13 +49,13 @@ Claude Code does inject variables after the launch through two other channels: i
 
    `Daemon._launch_environment`, `ProviderEnvironment.build` and the three guard-preflight environments pass the lane's provider. Homes (`CODEX_HOME`, `CLAUDE_CONFIG_DIR`) hold no credential word, so a test session's children keep inheriting them (D-ST1). No allowlisted, test-session or launch-owned name is a vendor credential, and a test holds that.
 
-The process environment already had an explicit allowlist (D-ENV1), so this change adds no second allowlist. The gap was that Codex rebuilt the command's environment from the person's startup files after the allowlist had run. Turning that off makes D-ENV1's allowlist the environment a command sees.
+The process environment already had an explicit allowlist (D-ENV1), so this change adds no second allowlist. The gap was that Codex rebuilt the command's environment from the person's startup files after the allowlist had run. Turning that off stops the `~/.zshrc` replay. A command still sees D-ENV1's selection plus whatever the login-shell startup files export (see "Not covered").
 
 ## Invariants
 
 - **I1.** For every parent environment, `env.pass` list and launch path (detached, resume, turn, probe, isolated; both providers), the launch environment equals D-ENV1's selection plus the launch's additions, minus mandatory removals and minus every other vendor's credential. An oracle independent of `launch_env` decides the expected set. Hypothesis checks this: `test_property_every_launch_is_the_allowlist_minus_foreign_vendors`, plus the updated `test_bounded_property_all_lane_launches`.
 - **I2.** `foreign_credentials` equals the oracle on every name list, for a known provider and for an unknown one. Hypothesis checks this. Since review r1, both generators also draw names holding both vendors' words, which r1's counterexample showed they had missed.
-- **I3.** Every `codex exec` launch carries each `CODEX_SHELL_CONFIG` key among its options, before `resume`. No later `-c` sets that key or a table holding it, and no `--enable` anywhere names a shell feature: review r1 showed with the real binary that `--enable shell_snapshot` beats a `-c ...=false` from either side. Checked exhaustively over sandbox × review task × network × resume × unified-exec switch (32 cases), plus the isolated review and both conversation-turn forms. The checker has its own refusal tests.
+- **I3.** Every `codex exec` launch carries each `CODEX_SHELL_CONFIG` key among its options, before `resume`. No later `-c` or `--config`, in any spelling the CLI accepts (`-c V`, `-cV`, `-c=V`, `--config V`, `--config=V`) and wherever it stands, `resume`'s own options included, sets that key or a table holding it. No `--enable` anywhere names a shell feature: review r1 showed with the real binary that `--enable shell_snapshot` beats a `-c ...=false` from either side. Checked exhaustively over sandbox × review task × network × resume × unified-exec switch (32 cases), plus the isolated review and both conversation-turn forms. The checker has its own refusal tests.
 - **I4.** Differential, against the real binaries. With Subfleet's argv minus `CODEX_SHELL_CONFIG`, the `.zshrc` dummy reaches the command whenever the installed Codex has the snapshot on by default. With the launch's argv, neither the `.zshrc` dummy nor the daemon parent's `ANTHROPIC_API_KEY` reaches a command of `codex exec`, its resume, or `app-server`.
 
 ## Not covered
@@ -63,7 +63,7 @@ The process environment already had an explicit allowlist (D-ENV1), so this chan
 - **Login-shell startup files.** Codex still runs commands as a login shell (`zsh -lc`), which reads `~/.zshenv`, `~/.zprofile` and `~/.zlogin`. On this host they export no credential (checked by name): Homebrew's variables and `PATH`. A credential exported from any of them would reach lane commands again. Credential exports belong in `~/.zshrc`, which a non-interactive shell does not read.
 - **Reads outside the environment.** This change governs the environment a command inherits. It does not stop a command from reading files or stores the sandbox lets it read; that boundary is C-14.4's.
 - **Claude Code's own injection.** A writable Claude launch loads the user's settings, and Claude Code adds its `env` block and a `CLAUDE_ENV_FILE`'s exports after the launch (review r1).
-- **`--enable` flags and the PATH shim.** No managed launch passes `--enable`. The repository's `bin/codex` PATH shim forwards its caller's argv unchanged and lies outside the daemon's launches. A person's own interactive `codex` keeps Codex's defaults, snapshot included.
+- **`--enable` flags, later overrides and the PATH shim.** No managed launch passes `--enable` or a later `-c`/`--config` that sets a shell key; the tests' argv checker refuses both. The repository's `bin/codex` PATH shim forwards its caller's argv unchanged and lies outside the daemon's launches. A person's own interactive `codex` keeps Codex's defaults, snapshot included.
 - **Name heuristics.** The vendor rule reads names, so a few cases fall outside it:
    - a vendor word split by a separator (`OPEN_AI_API_KEY`) is not recognized;
    - a generic alias (`MY_LLM_KEY`) belongs to no vendor;
@@ -79,12 +79,27 @@ The process environment already had an explicit allowlist (D-ENV1), so this chan
 | P2-1: a name holding both vendors' words passed either provider's filter | Fixed in `foreign_credentials`. The reviewer's regression is in `test_a_both_vendor_credential_reaches_neither_vendor`, run through pass and addition for both providers. Both Hypothesis generators now draw such names. |
 | P2-2: the isolated review's inspection selected from unfiltered additions | Fixed at the source (`ProviderEnvironment.additions`), in the adapter and in `inspect_codex`. Tests cover each layer on its own, and a mutant that drops only `inspect_codex`'s filter fails. |
 | P3: C-12.3 said a command's environment equals the launch's | Reworded. Login-shell startup files still run, which the reviewer showed with a `.zprofile` dummy. |
-| P3: the PR body's stopgap appended a second `[features]` table | Reworded to merge keys into an existing table. The stopgap script refuses to touch a file that already has one. |
+| P3: the PR body's stopgap appended a second `[features]` table | Reworded to set the keys inside an existing `[features]` table, and to add the table only where none exists. |
 | Check 2: `--enable shell_snapshot` beats the pins | The argv checker now refuses it anywhere; no managed launch passes one. Listed under "Not covered". |
 | Check 4: Claude settings `env` and `CLAUDE_ENV_FILE` | The Claude claim is now confined to `.zshrc`; the channel is listed under "Not covered". |
 | Check 6: other wording | The isolation-inspection sentence and the PATH-shim scope are corrected. |
 
-All 25 new regressions fail at `4179f7c94`, the head r1 reviewed, and pass now.
+The four new test families hold 30 cases. Against `4179f7c94`'s code, the head r1 reviewed, 29 fail and both amended properties fail (31 failed). The one that passes, `test_inspect_codex_selects_as_a_codex_process[ANTHROPIC_API_KEY]`, is a control: the mandatory removal already dropped that name. All pass now. Review r2 found the count first; the run was repeated here.
+
+## Review r2 (GPT-6.1 Sol, `20261027-060221-pr270-review-r2`, APPROVE)
+
+r2 found every r1 finding closed. It found no P1 or P2 defect in the delta, and two P3s, both fixed:
+
+| Finding | Disposition |
+| --- | --- |
+| P3-1: the argv checker read only `-c V`, so `--config V`, `--config=V`, `-cV` and `-c=V` slipped past it, though real codex 0.159.0 accepts each and lets it turn the snapshot back on | The checker now parses every spelling, and reads options after `resume` too: `codex exec resume --help` lists `-c, --config` and `--enable`. No managed launch passes an override, so this was a test gap. The previous checker accepts 9 of the 10 new refusal cases (each spelling at the tail and after `resume`); the new one refuses all 10. A companion test checks that other keys, in every spelling, still pass. |
+| P3-2: wrong claims in this report and the PR body | The regression count above is corrected. The "Change" section no longer says the allowlist is the whole environment a command sees, and the r1 table no longer cites a stopgap script that is not in the repository. |
+
+r2 also confirmed the following:
+
+- Every caller of `ProviderEnvironment.additions` passes the launching lane's own provider. `codex` and `claude` are the only production providers.
+- A Claude token lane's `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CONFIG_DIR` and `CODEX_HOME` survive.
+- An env-kind credential reference is renamed to the canonical token name before the filter runs.
 
 ## Verification
 
@@ -98,4 +113,5 @@ All runs were local, serial, under the hub's suite lock, with a private `TMPDIR`
   - the two `test_codex_turn` argv tests now expect the shell keys at the end.
 - **A names-only scan of 10,315 retained Codex job stdouts.** It found one environment printout that holds a credential name: the incident job's. Other hits were code or diffs that mention a name.
 - **After fix round r1:** the related suite again, plus the contract guards (`test_state_contract`, `test_test_module_names`, `test_invariants_index`) and `test_claude_adapter`. Result: 4,363 passed, 4 xfailed, 2 failed. Both failures were `test_launch_env_mutations`' withheld-name mutant, which rewrote `additions`' body; that body is now `_additions`. Retargeted, the file passes (70). `test_launch_env_vendor_shell.py` alone: 104 passed.
+- **After review r2's P3s:** `test_launch_env_vendor_shell.py` alone, 105 passed. The previous checker against the new refusal cases: 9 of 10 accepted. The head test file against `4179f7c94`'s code: 31 failed, 1 passed (the control above).
 - **CI** runs on the pull request.

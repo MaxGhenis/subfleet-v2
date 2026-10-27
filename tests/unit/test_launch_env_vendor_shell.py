@@ -278,20 +278,38 @@ def _key(config):
 SHELL_FEATURES = ("shell_snapshot", "shell_snapshot_v2")
 
 
+def _options(argv, long, short=None):
+    """(position, value) of each `long`/`short` option, in every spelling real codex 0.159.0
+    accepts: `--config V`, `--config=V`, `-c V`, `-cV` and `-c=V` (review r2 of #270, P3-1)."""
+    found, at = [], 0
+    while at < len(argv):
+        arg = argv[at]
+        if arg in (long, short) and at + 1 < len(argv):
+            found.append((at, argv[at + 1]))
+            at += 2
+            continue
+        if arg.startswith(long + "="):
+            found.append((at, arg[len(long) + 1:]))
+        elif short and arg.startswith(short) and not arg.startswith("--") and len(arg) > len(short):
+            found.append((at, arg[len(short):].removeprefix("=")))
+        at += 1
+    return found
+
+
 def assert_shell_pinned(argv):
     """Each `CODEX_SHELL_CONFIG` key is set to its pinned value by a `-c` among the
-    options (before any `resume`), and no later `-c` sets it or a table holding it.
-    No `--enable` names a shell feature anywhere: real codex 0.159.0 lets it beat a
-    `-c ...=false`, before or after it (review r1 of #270, check 2)."""
+    options (before any `resume`), and no later `-c`/`--config`, however spelled and
+    wherever it stands, sets it or a table holding it. No `--enable` names a shell
+    feature anywhere: real codex 0.159.0 lets it beat a `-c ...=false`, before or after
+    it (review r1 of #270, check 2)."""
     argv = list(argv)
-    enabled = [argv[at + 1] for at in range(len(argv) - 1) if argv[at] == "--enable"]
-    enabled += [arg.split("=", 1)[1] for arg in argv if arg.startswith("--enable=")]
+    enabled = [value for _, value in _options(argv, "--enable")]
     assert not set(enabled) & set(SHELL_FEATURES), f"a shell feature is enabled: {enabled}"
     stop = argv.index("resume") if "resume" in argv else len(argv)
-    pairs = [(at, argv[at + 1]) for at in range(stop - 1) if argv[at] == "-c"]
+    pairs = _options(argv, "--config", "-c")
     for config in CODEX_SHELL_CONFIG:
         key = _key(config)
-        ours = [at for at, value in pairs if value == config]
+        ours = [at for at, value in pairs if value == config and at < stop]
         assert ours, f"{config} missing from the launch options"
         later = [value for at, value in pairs if at > ours[-1]
                  and (_key(value) == key or key.startswith(_key(value) + "."))]
@@ -381,3 +399,18 @@ def test_assert_shell_pinned_refuses_a_missing_or_overridden_key():
             assert_shell_pinned(["codex", "exec", *enable, *codex_shell_args()])
         with pytest.raises(AssertionError, match="enabled"):
             assert_shell_pinned(["codex", "exec", *codex_shell_args(), *enable])
+    # Review r2 of #270, P3-1: each spelling real codex 0.159.0 accepted, and which it let win.
+    override = "features.shell_snapshot=true"
+    for spelling in (["--config", override], [f"--config={override}"], [f"-c{override}"], [f"-c={override}"]):
+        with pytest.raises(AssertionError, match="overridden"):
+            assert_shell_pinned(["codex", "exec", *codex_shell_args(), *spelling])
+        with pytest.raises(AssertionError, match="overridden"):
+            assert_shell_pinned(["codex", "exec", *codex_shell_args(), "resume", "t", *spelling, "-"])
+
+
+def test_assert_shell_pinned_accepts_other_keys_in_every_spelling():
+    """Only a shell key counts as an override: other keys, in each spelling, pass."""
+    other = 'model="m"'
+    for spelling in (["-c", other], ["--config", other], [f"--config={other}"], [f"-c{other}"], [f"-c={other}"],
+                     ["--enable", "unified_exec"], ["--enable=unified_exec"]):
+        assert_shell_pinned(["codex", "exec", *spelling, *codex_shell_args(), *spelling, "resume", "t", "-"])
