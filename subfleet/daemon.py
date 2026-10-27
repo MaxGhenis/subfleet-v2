@@ -9666,7 +9666,7 @@ class Daemon:
                 self._supersede_wall_cancel(a, receipt)
                 self._begin_finalizing(a, receipt)
                 return
-        detail = "cancelled-before-launch" if request else "starting-no-receipt"
+        detail = "cancelled-before-launch" if self._job(a["job_id"])["cancel_requested_at"] else "starting-no-receipt"
         if a["state"] == "starting":
             # D-QUAR-START1 (b): the abandon precedes every signal, and the last read of
             # start.json decides. None: the guardian can never launch, so its group is

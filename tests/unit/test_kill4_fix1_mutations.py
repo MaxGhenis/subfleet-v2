@@ -54,7 +54,7 @@ def test_d_kill4_fix1_mutant_fails_its_named_regression(mutant, daemon, world, m
     regression = NAMED[mutant]
     if regression is chain_evidence:
         regression(daemon, world, monkeypatch, "exit-receipt")
-    elif regression in (recycled_group, held_release, chain_not_seed):
+    elif regression in (recycled_group, held_release, chain_not_seed, joiners):
         regression(daemon, world, monkeypatch)
     else:
         regression(daemon, world)

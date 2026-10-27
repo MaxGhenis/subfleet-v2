@@ -175,8 +175,11 @@ def test_case_1_a_leaderless_group_on_the_attempts_boot_holds_and_is_never_signa
     elif path == "kill":
         finished(daemon)
         inline(daemon, monkeypatch)
-        assert daemon.kill(protocol.KillArgs(job_id=JOB))["status"] == "containment requested"
-        assert evidence(daemon)["recontainment"][-1]["contained"] is False
+        # Fix round 2b, decision 2 (review r2's P3-2): nothing in the census may be signalled,
+        # so no protocol runs; the answer names the member as held, never signalled.
+        answer = daemon.kill(protocol.KillArgs(job_id=JOB))
+        assert answer["status"] == "already finished" and "held, never signalled" in answer["detail"], answer
+        assert "recontainment" not in evidence(daemon)
     else:
         daemon.store.update_job(JOB, max_attempts=1)
         daemon._process_attempt(ATTEMPT)                         # running, its guardian dead
@@ -510,8 +513,9 @@ def shape_another_attempts_provider(daemon, world, monkeypatch, reboot):
 
 
 SHAPES = {
-    "kill": (shape_kill, "containment requested", "already finished"),
-    "confirm-dead-then-kill": (shape_confirm_dead_then_kill, ("not quarantined", "containment requested"),
+    # Fix round 2b, decision 2: a census of held members only runs no protocol on the same boot either.
+    "kill": (shape_kill, "already finished", "already finished"),
+    "confirm-dead-then-kill": (shape_confirm_dead_then_kill, ("not quarantined", "already finished"),
                                ("already finished", "already finished")),
     "dead-guardian": (shape_dead_guardian, "quarantined", "lost"),
     "recorded-boot": (shape_recorded_boot, ("group of another boot", "already finished"),

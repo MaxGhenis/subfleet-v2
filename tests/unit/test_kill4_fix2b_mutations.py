@@ -27,11 +27,12 @@ MUTANTS = {
         ("if time.monotonic() >= deadline - self.start_grace_s + bound:", "if False:")])],
     # D-QUAR-START1 (b): the daemon reads start.json before it writes the abandon.
     "daemon-reads-first": [(Daemon, "_abandon_start", [
-        ("""        adir = self._abandon(a, detail)
-        return not self._read_json(adir / "start.json")""",
-         """        launched = self._read_json(attempt_dir(self.root, a["job_id"], a["seq"]) / "start.json")
-        self._abandon(a, detail)
-        return not launched""")])],
+        # (`replace_function` dedents the method: its body is at four spaces.)
+        ("""    adir = self._abandon(a, detail)
+    return not self._read_json(adir / "start.json")""",
+         """    launched = self._read_json(attempt_dir(self.root, a["job_id"], a["seq"]) / "start.json")
+    self._abandon(a, detail)
+    return not launched""")])],
     # D-QUAR-START1 (b): start grace's empty census ends with no abandon written first.
     "skip-abandon-start-grace-empty": [(Daemon, "_process_attempt", [
         ('if census.containment_empty and self._abandon_start(a, "starting-no-receipt"):',
@@ -42,7 +43,7 @@ MUTANTS = {
         ("unlaunched = self._abandon_start(a, detail)", "unlaunched = True")])],
     # D-QUAR-START1 (b): `_unlaunched` ends a starting attempt with no marker.
     "skip-abandon-unlaunched": [(Daemon, "_unlaunched", [
-        ("            self._abandon(a, detail)\n", "            pass\n")])],
+        ("self._abandon(a, detail)\n    observers", "pass\n    observers")])],
     # Decision 2 (P3-2): schedule the protocol for a held-only census again.
     "recontain-no-targets": [(Daemon, "kill", [
         ("contain = self._may_signal(a, census)", "contain = True")])],

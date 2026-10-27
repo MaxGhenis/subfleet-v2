@@ -118,10 +118,15 @@ def test_a_contained_start_grace_has_one_end_whether_or_not_a_cwd_holder_is_pres
     assert (a["state"], a["outcome_detail"], a["outcome_class"]) == ("failed", "starting-no-receipt", "unknown"), a
     assert job["state"] == "queued" and job["rc"] is None, job          # nothing launched: it retries (C-4.5)
     assert a["killed_by"] == "recovery" and not a["quarantine_reason"]
-    # Queued again, the job is still the writer there and keeps its own key (C-5.9).
-    assert daemon.store.one("SELECT holder FROM leases WHERE lease_key=?", (key,))["holder"] in (JOB, ATTEMPT)
+    kept = daemon.store.one("SELECT holder FROM leases WHERE lease_key=?", (key,))
     if shell is not None:
+        # Queued again, the job is still the writer there and keeps its own key while a
+        # process sits in it (C-5.9); with none, the key goes and its retry takes it again.
+        assert kept and kept["holder"] in (JOB, ATTEMPT), kept
         assert shell.alive and shell.pid not in world.signalled()
+    else:
+        assert kept is None, kept
+    if shell is not None:
         assert json.loads(a["evidence_json"])["cwd_holders"] == [f"pid {shell.pid}: cwd in worktree"]
     assert world.signals[0] == ("group", 4242, KILL), world.signals
 
@@ -230,7 +235,8 @@ def test_a_running_guardian_alone_past_start_grace_is_given_more_time_and_then_r
 
 @pytest.mark.parametrize("why", ["stopped", "past-bound", "unverifiable", "another-member", "reborn"])
 def test_start_grace_extends_for_no_guardian_but_a_live_verified_running_one(daemon, world, monkeypatch, why):
-    guardian = world.add(4242, 1, 4242, start=STARTED if why != "reborn" else None, marked=True,
+    # "reborn": pid 4242 is a stranger's now, born later and without the attempt's markers.
+    guardian = world.add(4242, 1, 4242, start=STARTED if why != "reborn" else None, marked=why != "reborn",
                          ignores_term=True, term_handler=True, stopped=why == "stopped")
     if why == "another-member":
         world.add(4250, 4242, 4242, marked=True)
@@ -253,7 +259,7 @@ def test_start_grace_extends_for_no_guardian_but_a_live_verified_running_one(dae
     if why == "reborn":
         # The pid is a stranger's now: not the attempt's guardian, so never signalled.
         assert guardian.alive and 4242 not in world.signalled()
-        assert a["state"] in ("failed", "quarantined"), a
+        assert (a["state"], a["outcome_detail"]) == ("failed", "starting-no-receipt"), a
         return
     assert seen and all(seen), seen                      # the abandon precedes every signal
     assert not guardian.alive and guardian.ended_by == KILL
