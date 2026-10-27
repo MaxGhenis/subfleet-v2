@@ -420,7 +420,7 @@ Results per case. "API" means the test failed because the parent lacks something
 | 11. r1's six P1 shapes, same boot and after a reboot | 12 | same boot: pass 6; after a reboot: fail 6 (`group of another boot`) | fail 8: `kill` and `--confirm-dead` never re-contain or take a census, the uncomparable-boot shape (API), and the non-UUID recorded boot has no `group of another boot`; pass 4 (both dead-guardian shapes, the UUID recorded boot after a reboot, another attempt's provider on the same boot) | pass 12 |
 | 12. The property: attempt boot (UUID, legacy, none) x current boot (same, other UUID, legacy, unreadable) x every stored key, 60 derandomized examples | 1 | fail: a held parent stored on boot A held again on boot B by its start; a `held_parents` write of boot B | fail (API: `held_pids`) | pass |
 
-Totals: `380b626cf` 28 failed, 19 passed (the 22:29Z hold); `8fe3413ef` 37 failed, 10 passed (the 22:57Z hold); head 46 passed (hold H2, below). In each parent run a scratch-only check passed: `subfleet` was imported from that parent's tree.
+Totals over the 46 tests: `380b626cf` 28 failed, 18 passed (the 22:29Z hold); `8fe3413ef` 37 failed, 9 passed (the 22:57Z hold); head 46 passed (hold H2, below). Each parent run also held one scratch-only check, which passed: `subfleet` was imported from that parent's tree (so those holds report 19 and 10 passed).
 
 **Why some cases pass at a parent:**
 - **Cases 1, 3 and 4 pass at `380b626cf`.** Each is the same-boot (or uncomparable-boot) ground #250 already covered (r1's P1 shapes, and C-5.3's uncomparable-boot cases); #259 adds nothing there. They are guards that the merge keeps #250's rule where #259 does not apply.
