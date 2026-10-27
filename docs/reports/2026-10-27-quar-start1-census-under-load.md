@@ -221,7 +221,42 @@ were one at a time, under `suite_hold.sh`:
 | base `46ab44d72`, alternating with head | 6 | 45 to 78 | 1 (load 78) |
 | head, D4 only (`60751b478`, some alternating) | 8 | 28 to 88 | 0 |
 | head, D4 and readers (working tree, alternating) | 4 | 48 to 63 | 0 |
-| head, D4 and readers (HEAD_SHA) | HEAD_RUNS | HEAD_LOAD | HEAD_FAILED |
+| head, D4 and readers (`58ea5083e`) | 10 | 53 to 71 | 0 |
+| base, under churn, alternating | 4 | 66 to 74 | 1 |
+| head `58ea5083e`, under churn, alternating | 4 | 59 to 71 | 0 |
+
+"Under churn" means `churn.py` (in the evidence folder) started about 100 short-lived
+`/usr/bin/true` processes a second for the length of the run. It barely moved base's
+rate at this load.
+
+Pooled at the load this host gave during this work (28 to 88):
+
+- **Base failed 2 runs of 10.**
+- **Head failed none of 26:** 18 with the readers and 8 with D4 only.
+
+If head failed at base's rate, 26 passes in a row would happen with probability
+0.8^26, about 0.003. The deterministic evidence is the unit tests: the 2026-10-27 shape
+ends `quarantined` at base and extends at head.
+
+The base failures leave no record of which census ended their extension. Head now logs
+it at INFO (`start grace of … not extended: errors …, members …`), so a failure at head
+under load would name its cause.
+
+All run logs, summaries, kept roots, probes and the churn helper are in
+`~/reviews/subfleet-quar-start1-census-2026-10-27/runs/`.
+
+### The broad suite
+
+A broad run covered 42 files: the kill4, census, quar, guardian and daemon-settle unit
+files, `tests/fake/test_state_contract.py`, `tests/fake/test_quar_start1_daemon.py`,
+`tests/fake/test_kill4_terminal_daemon.py`, two process tests and the module-name and
+invariants-index guards. It gave 610 passed, 50 xfailed and 2 failed.
+
+Both failures were `tests/fake/test_kill4_terminal_daemon.py::test_a_counted_loop_driver_is_contained_with_its_children`,
+on its assertion that the loop driver is among the attempt's counted identities. That
+test does not reach start grace: its attempt is `running` within a second. Run
+alternately at load 67 to 74, it failed 5 of 6 cases at base and 3 of 6 at head, on the
+same assertion. It is a failure under load that predates this change (see Residuals).
 
 ## Residuals
 
@@ -235,3 +270,9 @@ were one at a time, under `suite_hold.sh`:
   refused newborn, inside the census and for every consumer, would remove the transient
   at its source. That is a separate change: it alters every verdict's evidence, not only
   the extension.
+- **The counted loop-driver test fails under load at base.** In
+  `tests/fake/test_kill4_terminal_daemon.py::test_a_counted_loop_driver_is_contained_with_its_children`,
+  the driver is recorded as owned, but only its child had been counted when the wall or
+  the receipt ended the attempt. Evidence is in
+  `~/reviews/subfleet-quar-start1-census-2026-10-27/counted-driver-flake/`. It is out of
+  this change's scope.
