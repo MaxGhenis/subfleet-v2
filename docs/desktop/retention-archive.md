@@ -635,8 +635,8 @@ the selecting and commit transactions read it again for their job, also on
 the fence's spelling, with database reads alone: each job's first
 `job.submitted` by job id (`events_job`) and the `out:` leases by a range of
 their key. The self-join it replaces compared every finished job's tree with
-every job not yet ended by `LIKE`; measured in
-`docs/reports/2026-10-06-retention-dependency-pins.md`. A job queued before
+every job not yet ended by `LIKE`; new timing measurements remain pending; validation status is in
+`docs/reports/2026-10-27-retention-dependency-pins.md`. A job queued before
 `depends` was recorded has those places read once a pass, before any
 transaction (`dependencies.legacy`). Admission reads retention's fence on each
 place in `depends` as on a job's folder (C-6.5, C-6.11). A written export keeps

@@ -1,0 +1,21 @@
+Contract changelog hunk: required helper combined independent entries against the merge base, without duplicating clauses.
+Contract C-6.5 hunk: keep release refusal and resource-identity rules; add dependency recording once (the old branch duplicated that sentence).
+Contract C-6.11 hunk: keep release hold taxonomy and output identities; add the dependency needs role.
+Contract C-8.4 hunk: keep release cwd, rediscovery, job-directory, nested-lease and retention scheduling guarantees; replace the obsolete ASCII pin limit with folded dependency rules.
+retention-archive hunk 1: dependency places and pending exports supersede ASCII-only pin text.
+service hunk 1: keep release job-directory/worktree wording and folded folder comparison, add git-storage explanation.
+daemon hunk 1: union dependency and release imports.
+daemon hunk 2: retain depends and release unspelled metadata.
+daemon hunk 3: retain release early-look signature and semantics; add keyword needs.
+daemon hunk 4: retain release actual cwd/absent/source fence reads; append dependency fence reads.
+daemon hunk 5: combine early fence results and name first dependency role when applicable.
+daemon hunk 6: retain release rediscovery/current-folder flow and compute needs before it.
+daemon hunk 7: retain all release reservation blockers and cwd reader rows; append dependency blockers, excluding own key.
+daemon hunk 8: retain release source-folder attribution; otherwise name folded dependency and needs role.
+folders hunk 1: keep release threading import.
+folders hunk 2: keep release under_git and folded retiring API.
+retention hunk 1: union dependency and release process/TMPDIR imports.
+retention hunk 2: use Python dependency pin instead of both SQL self-joins.
+retention hunk 3: keep release nested worktree leases and jobs-directory turn pins; omit superseded SQL unrecorded pin.
+retention hunk 4: retain both legacy dependencies and orphan-retention lease state.
+retention_archive hunk 1: retain both canonical dependency recheck and release nested exclusive-lease recheck.
