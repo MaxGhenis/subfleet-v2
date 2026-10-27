@@ -719,6 +719,20 @@ pw_stall() {
   esac
   return 1
 }
+# pw_mount P: P (absolute, not normalized) is a mount that may stall, or under one, once the data volume's
+# alias (/System/Volumes/Data, any letter case) is folded: r5 decision 7, so no step through the alias
+# (/System/Volumes/Data/Volumes/<entry>, .../Data/net, .../Data/home, .../Data/Network) is stat'ed.
+pw_mount() {
+  local p=$1
+  while :; do
+    case "$p" in
+      /[Ss][Yy][Ss][Tt][Ee][Mm]/[Vv][Oo][Ll][Uu][Mm][Ee][Ss]/[Dd][Aa][Tt][Aa]) p=/ ;;
+      /[Ss][Yy][Ss][Tt][Ee][Mm]/[Vv][Oo][Ll][Uu][Mm][Ee][Ss]/[Dd][Aa][Tt][Aa]/*) p=${p:20} ;;
+      *) break ;;
+    esac
+  done
+  pw_stall "$p"
+}
 # pw_child S: S (a path below a home, or below /Users/<any>) is one of its
 # broad children, or a folder directly in its .subfleet. Caller has nocasematch.
 pw_child() {
@@ -794,11 +808,13 @@ pw_isfile() { pw_stall "$1" && return 1; pw_nondir "$1"; }
 # realpath resolves them (a missing part is kept as written); P itself under
 # a mount that may stall, or when the links loop. r4 decision 6: P's folder is
 # resolved first and kept (pw_pcd, pw_pcr), so the words of one folder (300
-# files on one line) resolve it once.
+# files on one line) resolve it once. r5 decision 7: the stall test folds the
+# data volume's alias first (pw_mount), and a step under a mount that may
+# stall is taken by name, never stat'ed.
 pw_physical() {
   local path="" rest="" name="" hops=0 d=${1%/*} top=""
   pw_r=$1
-  pw_stall "$1" && return 0
+  pw_mount "$1" && return 0
   rest=${1#/}
   if [ -n "$d" ] && [ "$d" = "${pw_pcd-}" ]; then path=${pw_pcr%/}; rest=${1##*/}
   elif [ -n "$d" ] && [ -n "${1##*/}" ]; then top=${1##*/}; rest=${d#/}
@@ -807,6 +823,7 @@ pw_physical() {
     while [ -n "$rest" ]; do
       case "$rest" in */*) name=${rest%%/*}; rest=${rest#*/} ;; *) name=$rest; rest="" ;; esac
       case "$name" in ''|.) continue ;; ..) path=${path%/*}; continue ;; esac
+      if pw_mount "$path/$name"; then path="$path/$name"; continue; fi
       if pw_islink "$path/$name"; then
         hops=$((hops + 1))
         [ "$hops" -le 40 ] || { pw_r=$1; return 0; }

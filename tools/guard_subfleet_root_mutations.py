@@ -101,6 +101,8 @@ MUTATIONS = {
     "r4-device-is-stdin": (HOOK, None, None, "test_r4_a_device_or_a_closed_stdin_is_no_pipe"),
     "r4-meta-walks": (HOOK, None, None, "test_r4_print_and_exit_forms_walk_nothing"),
     "r4-tilde-user-dropped": (HOOK, None, None, "test_r4_the_unlisted_forms_are_judged"),
+    # r5 (the hub's decisions on review r4), one per decision
+    "r5-alias-unfolded": (HOOK, None, None, "test_r3c_nothing_inside_a_mount_is_read"),
 }
 #: r3's and r3b's mutants: (old text, new text) pairs, each old text exactly once in the hook.
 LIST_GUARD = '      elif pw_holds "$p"; then\n'
@@ -186,8 +188,13 @@ EDITS = {
     "r3c-basename-dropped": [('    if (t <= nt) { b = base(val[t]); if (isname(b) && tk[t] != canon(b)) { tk[t] = canon(b); val[t] = tk[t] } }\n', "")],
     "r3c-wrappers-env-only": [('    while (t <= nt && (base(val[t]) in WRAP)) {\n', '    while (t <= nt && base(val[t]) == "env") {\n')],
     "r3c-unbalanced-brace-allows": [('    k=$((k + 1))\n  done\n  k=0; d=0\n', '    k=$((k + 1))\n  done\n  [ "$top" -eq 0 ] || exit 0\n  k=0; d=0\n')],
-    "r3c-physical-stall-guard-dropped": [('  local path="" rest="" name="" hops=0 d=${1%/*} top=""\n  pw_r=$1\n  pw_stall "$1" && return 0\n',
-                                          '  local path="" rest="" name="" hops=0 d=${1%/*} top=""\n  pw_r=$1\n')],
+    # retargeted in r5: pw_physical's stall test, and the per-step one decision 7 added beside it
+    "r3c-physical-stall-guard-dropped": [('  local path="" rest="" name="" hops=0 d=${1%/*} top=""\n  pw_r=$1\n  pw_mount "$1" && return 0\n',
+                                          '  local path="" rest="" name="" hops=0 d=${1%/*} top=""\n  pw_r=$1\n'),
+                                         ('      if pw_mount "$path/$name"; then path="$path/$name"; continue; fi\n', '')],
+    "r5-alias-unfolded": [("""      /[Ss][Yy][Ss][Tt][Ee][Mm]/[Vv][Oo][Ll][Uu][Mm][Ee][Ss]/[Dd][Aa][Tt][Aa]) p=/ ;;
+      /[Ss][Yy][Ss][Tt][Ee][Mm]/[Vv][Oo][Ll][Uu][Mm][Ee][Ss]/[Dd][Aa][Tt][Aa]/*) p=${p:20} ;;
+""", "")],
     "r3c-in-mount-glob-lists": [('      if pw_stall "$p" && ! pw_volumes "$p"; then\n', '      if false; then\n')],
     "r3c-eval-unwrap-dropped": [('        if (scr != "") script(scr, ctx, depth)\n', '')],
     "r4-fold-dropped": [('  local -a st\n  pw_fd=$1\n', '  local -a st\n  pw_fd=$1\n  return 0\n')],
