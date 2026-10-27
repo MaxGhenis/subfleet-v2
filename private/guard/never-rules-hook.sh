@@ -2015,7 +2015,8 @@ if [ -n "$searcher" ]; then
         nctx = (role == "script") ? sx(st, val) : ctx
         b = run; gsub(/["\047]/, "", b)
         sf = sform(run, 1)
-        if (sf ~ /^(~[A-Za-z0-9._-]*|~\$USER|~\$\{USER\}|~\$\(whoami\)|\$HOME|\$SUBFLEET_(ROOT|HOME))(\/|$)/ || sf ~ /^\// || (sf ~ /^\{/ && sf ~ /,|\.\./)) {
+        # (r5 decision 9: a root spelling right before a brace group is a path word too)
+        if (sf ~ /^(~[A-Za-z0-9._-]*|~\$USER|~\$\{USER\}|~\$\(whoami\)|\$HOME|\$SUBFLEET_(ROOT|HOME))(\/|$|\{)/ || sf ~ /^\// || (sf ~ /^\{/ && sf ~ /,|\.\./)) {
           k++
           if (pass == 1) printf "%d\t%s\t%s\t%s\t%s\t%s\n", k, ctx, (run == sf) ? "u" : "q", (cd && !cdp) ? "c" : "p", sf, b
           else if (k in tok) {
