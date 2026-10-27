@@ -524,12 +524,26 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
                     end = text.find("\n", value_start)
                     end = len(text) if end < 0 else end
                     item, fold = owned_before(value_start, visible_end(end))
+                    # A flag there whose name is a key with its separator on the next line
+                    # ends nothing, as for an unclosed value (#239 review r7, P2-1).
+                    if item is not None or fold is not None:
+                        if (last := visible_end(end)) not in keyed:
+                            keyed[last] = _key_past_line(text, 0, last)
+                        if keyed[last] is not None and keyed[last] >= value_start:
+                            item = fold = None
                 elif quoted:
                     # A key in a quoted match whose plain value is past the match: a
                     # `Bearer` ending the value is an item too, whose token the union
                     # would otherwise take from the `Bearer` rule (#239 review r2, P2-2).
                     item = _owned_item(text, value_start, end)
                     fold = None if item is not None else _secret_flag(text, value_start, end)
+                    # And a flag there whose name is such a key ends nothing either (#239
+                    # review r7, P2-1).
+                    if item is not None or fold is not None:
+                        if (last := visible_end(end)) not in keyed:
+                            keyed[last] = _key_past_line(text, 0, last)
+                        if keyed[last] is not None and keyed[last] >= value_start:
+                            item = fold = None
                 else:
                     # A credential flag that ends the value (`api_key=x--password …`)
                     # keeps its own value: the value ends before it (C-23.14).
