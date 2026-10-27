@@ -95,7 +95,9 @@ class Probes:
     An outcome may come with how long its probe ran, `(outcome, seconds)`; the
     default is its policy deadline, as a probe its deadline stopped runs. Nothing
     waits: the probe's reservation is moved that far into the past before it
-    returns. `line` is who waited on a probe each time one was carried (I1).
+    returns, on the daemon's clock (`daemon_module.after`, so a test that sets
+    that clock moves the reservation with it). `line` is who waited on a probe
+    each time one was carried (I1).
     """
 
     def __init__(self, service, monkeypatch, outcomes=(), bad=()):
@@ -112,7 +114,7 @@ class Probes:
         self.vehicles.append((job["job_id"], lane.lane_id, MODELS[model["id"]]))
         self.line.append(list(getattr(self.service, "_probe_line", ())))   # none before the fix
         record = self.service._probe_record(holder)
-        record["created_at"] = self.reserved[job["job_id"]] = after(-ran_s)
+        record["created_at"] = self.reserved[job["job_id"]] = daemon_module.after(-ran_s)
         self.service._save_probe(record)
         return outcome
 
@@ -126,9 +128,10 @@ def started(service) -> list[str]:
 
 
 def make_due(service, *job_ids):
+    """Due now on the daemon's clock, whichever clock a test gave it."""
     for job_id in job_ids or [row["job_id"] for row in service.store.list_jobs()]:
         if service.store.get_job(job_id)["state"] == "waiting":
-            service.store.update_job(job_id, next_check_at=utcnow())
+            service.store.update_job(job_id, next_check_at=daemon_module.utcnow())
 
 
 # --- the incident ---------------------------------------------------------------------------------
@@ -801,11 +804,25 @@ def test_the_deadline_is_in_the_probes_evidence(routing_state, monkeypatch, rece
 
 @contextmanager
 def fleet():
-    """A daemon over two unmeasured Codex lanes, as `routing_state` builds one, for one example."""
+    """A daemon over two unmeasured Codex lanes, as `routing_state` builds one, for one example.
+
+    Its clock stands still (D-PROBE-TEST-CLOCK1): the daemon's `utcnow` and `after`, which write
+    and read every clock I3 compares, and the helpers above that read them, see one instant for
+    the whole example. On the host's clock a pass that wrote a vehicle's clock at its start was
+    checked against the time at its end: seconds later at load 39 to 61, (180, 183) for a clock
+    that was right. Nothing the property checks waits for time to pass; `make_due` and the
+    probes' own lengths move the clocks it is about.
+    """
     with tempfile.TemporaryDirectory(prefix="probe-turn-") as tmp, pytest.MonkeyPatch.context() as patch:
         root = Path(tmp).resolve() / "state"
         root.mkdir()
         harness = Harness(root)
+        instant = datetime.now(timezone.utc).replace(microsecond=0)
+
+        def stamp(value):
+            return value.isoformat(timespec="seconds").replace("+00:00", "Z")
+        patch.setattr(daemon_module, "utcnow", lambda: stamp(instant))
+        patch.setattr(daemon_module, "after", lambda seconds: stamp(instant + timedelta(seconds=seconds)))
         patch.setattr(daemon_module.procs, "boot_id", lambda: "fixture-boot")
         patch.setattr(daemon_module.procs, "proc_start", lambda pid: "fixture-start")
         patch.setattr(daemon_module.capacity, "read_desktop_account", lambda: None)
@@ -879,10 +896,11 @@ def test_no_sequence_of_probe_outcomes_lets_a_later_job_take_a_waiters_probe(job
                     assert could_use(wants[hold["behind"]], hold["lane"], hold["model"])
                     assert service._holds[hold["behind"]]["reason"] == "probe-pending"
                 elif job_id in probes.jobs()[first:]:
-                    # I3: due PROBE_RETRY_S after its probe was reserved, or now if that has passed.
+                    # I3: due PROBE_RETRY_S after its probe was reserved, or now if that has passed,
+                    # "now" being the instant the pass ran at, on the clock it wrote (`fleet`).
                     reserved = moment(probes.reserved[job_id])
                     waited = (moment(job["next_check_at"]) - reserved).total_seconds()
-                    ran = (moment(utcnow()) - reserved).total_seconds()
+                    ran = (moment(daemon_module.utcnow()) - reserved).total_seconds()
                     assert abs(waited - max(PROBE_RETRY_S, ran)) <= 2, (waited, ran)
             assert not service.store.query("SELECT 1 FROM leases WHERE holder LIKE 'probe:%'")
 
@@ -978,6 +996,10 @@ WAITERS = st.lists(st.tuples(st.sampled_from(["astra", "terra", "opus"]),
                    max_size=6)
 
 
+# A pure rule: nothing in it is timed, so a loaded host's pause is no failure (D-PROBE-TEST-CLOCK1:
+# one example took 285 ms against the default 200 ms deadline at load 39 to 61, and at load 156 one
+# draw took 5.8 s, which the slow-input health check reads as slow generation).
+@settings(deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(waiters=WAITERS, lane=st.sampled_from(["a", "b", "c"]), model=st.sampled_from(["astra", "terra", "opus"]))
 def test_the_turn_is_the_first_waiter_that_could_use_the_probe(waiters, lane, model):
     line = [(f"job-{index}", wanted, lanes) for index, (wanted, lanes) in enumerate(waiters)]
