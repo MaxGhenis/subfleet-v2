@@ -23,6 +23,7 @@ import pytest
 
 from subfleet.adapters.base import AdapterError
 from subfleet.contracts import Exit
+from subfleet.daemon import Daemon as RealDaemon
 from subfleet.conversations import service as service_module
 from subfleet.conversations.service import CLAIMED, ConversationService
 from subfleet.conversations.store import ConversationError
@@ -36,7 +37,20 @@ CODEX = {"model": "gpt-6-astra", "effort": None, "fast": False, "permission": "r
 
 
 class Daemon:
-    """The daemon seams the service calls, without a control loop."""
+    """Real main-store cancellation, with no pools or control loop. What the borrowed
+    methods read is checked by tests/unit/test_fake_daemon_borrowed_methods.py."""
+
+    _job = RealDaemon._job
+    _running_s = RealDaemon._running_s
+    _request_cancel = RealDaemon._request_cancel
+    _cancel_info = RealDaemon._cancel_info
+    _cancel_requester = staticmethod(RealDaemon._cancel_requester)
+    _notice = RealDaemon._notice
+    _earlier_attempt = RealDaemon._earlier_attempt
+    _scan_observers = RealDaemon._scan_observers
+    _release_ending = RealDaemon._release_ending
+    _keep_for_cwd = RealDaemon._keep_for_cwd
+    _cwd_notice = staticmethod(RealDaemon._cwd_notice)
 
     def __init__(self, root: Path):
         self.root = root
@@ -56,6 +70,7 @@ class Daemon:
 @pytest.fixture
 def world(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "user-home"))         # no real ~/.codex or ~/.claude
+    monkeypatch.setenv("SUBFLEET_CODEX_APP_HOME", str(tmp_path / "user-home" / ".codex"))
     home = fx.claude_home(tmp_path, monkeypatch)
     workspace = tmp_path / "work"
     workspace.mkdir()
@@ -215,7 +230,8 @@ def test_a_waiting_message_moves_only_while_its_job_has_no_attempt(world):
     assert world.daemon.store.get_job(job_id)["state"] == "cancelled"
     event = world.daemon.store.one("SELECT data_json FROM events WHERE kind='job.cancel_requested' AND job_id=?",
                                    (job_id,))
-    assert json.loads(event["data_json"]) == {"by": "conversation.handoff", "request_id": "h-1"}
+    assert json.loads(event["data_json"]) == {"by": "daemon", "reason": "conversation.handoff",
+                                             "running_s": 0.0, "request_id": "h-1"}
     assert world.store.message(waiting)["state"] == "cancelled"
 
 

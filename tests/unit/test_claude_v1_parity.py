@@ -12,6 +12,8 @@ they run, and they are the thing that fails when either side drifts.
 from __future__ import annotations
 
 import re
+import os
+import pwd
 import shlex
 from pathlib import Path
 
@@ -22,7 +24,7 @@ from subfleet.adapters.claude import (
 )
 from subfleet.contracts import Sandbox
 
-V1_RUNNER = Path.home() / "chief-of-staff" / "subfleet" / "bin" / "subfleet-claude"
+V1_RUNNER = Path(pwd.getpwuid(os.getuid()).pw_dir) / "chief-of-staff" / "subfleet" / "bin" / "subfleet-claude"
 
 pytestmark = pytest.mark.skipif(
     not V1_RUNNER.is_file(), reason=f"the v1 runner is not present at {V1_RUNNER}"

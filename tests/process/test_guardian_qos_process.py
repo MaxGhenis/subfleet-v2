@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from subfleet import guardian, procs
+from subfleet.launch_env import build_environment, guardian_pass_args
 
 REPO = Path(__file__).resolve().parents[2]
 FAKEPROV = REPO / "tests" / "bin" / "fakeprov"
@@ -41,12 +42,13 @@ def own_priority() -> int:
 
 def run(tmp_path: Path, **env) -> tuple[dict, dict]:
     """The guardian as the daemon starts it, with the fake provider's `qos` scenario."""
-    command = [sys.executable, "-m", "subfleet.guardian", "--attempt-dir", str(tmp_path),
-               "--cwd", str(tmp_path), "--stdout-path", str(tmp_path / "stdout"),
-               "--stderr-path", str(tmp_path / "stderr"), "--", sys.executable, str(FAKEPROV)]
-    environment = {k: v for k, v in os.environ.items() if k != guardian.PROVIDER_QOS_ENV}
+    environment = build_environment(removals=(guardian.PROVIDER_QOS_ENV,))
     environment.update(PYTHONPATH=str(REPO), SUBFLEET_FAKE_SCENARIO="qos", SUBFLEET_ATTEMPT="qos/a1",
                        SUBFLEET_JOB="qos", **env)
+    command = [sys.executable, "-m", "subfleet.guardian", "--attempt-dir", str(tmp_path),
+               "--cwd", str(tmp_path), "--stdout-path", str(tmp_path / "stdout"),
+               "--stderr-path", str(tmp_path / "stderr"), *guardian_pass_args(environment),
+               "--", sys.executable, str(FAKEPROV)]
     done = subprocess.run(command, env=environment, stdin=subprocess.DEVNULL, capture_output=True, timeout=60)
     assert done.returncode == 0, (tmp_path / "stderr").read_text()
     return json.loads((tmp_path / "stdout").read_text()), json.loads((tmp_path / "exit.json").read_text())

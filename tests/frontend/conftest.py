@@ -19,6 +19,9 @@ needs_swift = pytest.mark.skipif(sys.platform != "darwin" or shutil.which("xcrun
                                  reason="native Swift frontend validation requires macOS developer tools")
 # The ⌘K palette's matching and the text scale (C-29.12, C-29.13).
 CORE_PROBE.append(ROOT / "tests/frontend/CoreProbeSearch.swift")
+CORE_PROBE.extend([ROOT / "tests/frontend/CoreProbeQueue.swift", ROOT / "tests/frontend/CoreProbeQueueEngine.swift"])
+# Suggested conversations: the Suggested section and the timeline's card (C-29.14).
+CORE_PROBE.append(ROOT / "tests/frontend/CoreProbeSuggestions.swift")
 
 
 @pytest.fixture(scope="session")
@@ -27,6 +30,16 @@ def core_probe(tmp_path_factory) -> Path:
     if sys.platform != "darwin" or shutil.which("xcrun") is None:
         pytest.skip("native Swift frontend validation requires macOS developer tools")
     return compile_probe(tmp_path_factory.mktemp("subfleet-core") / "probe", CORE_PROBE, "SUBFLEET_MODEL_TEST")
+
+
+# A test's failure is not raised into its fixtures: a fixture that keeps a failed run's
+# state (test_core_live.py's `dev_daemon`) reads the phase's report from the item, as the
+# e2e and fake harnesses' fixtures do (tests/e2e/conftest.py, tests/fake/conftest.py).
+@pytest.hookimpl(tryfirst=True, hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    report = outcome.get_result()
+    setattr(item, "rep_" + report.when, report)
 
 
 @pytest.fixture(scope="session")
@@ -54,3 +67,17 @@ def run_probe(probe: Path, *args, env: dict | None = None, timeout: float = 60, 
 def write_json(path: Path, value) -> Path:
     path.write_text(json.dumps(value))
     return path
+
+
+@pytest.fixture(scope="session")
+def r2_models(tmp_path_factory):
+    probe = compile_probe(tmp_path_factory.mktemp("r2-models") / "probe",
+                          ROOT / "tests/frontend/R2PresentationProbe.swift", "SUBFLEET_MODEL_TEST")
+    return run_probe(probe, ROOT / "tests/fixtures/visual/codex-commands.json",
+                     ROOT / "tests/fixtures/visual/approval-schema-requests.json")
+
+
+@pytest.fixture(scope="session")
+def queue_tray_view_probe(tmp_path_factory) -> Path:
+    return compile_probe(tmp_path_factory.mktemp("subfleet-queue-view") / "probe",
+                         ROOT / "tests/frontend/QueueTrayViewProbe.swift", "SUBFLEET_VIEW_TEST")

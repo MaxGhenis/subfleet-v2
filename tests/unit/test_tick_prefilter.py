@@ -35,7 +35,9 @@ LONG_AGO = "2026-09-01T00:00:00Z"
 
 
 @pytest.fixture
-def core(tmp_path):
+def core(tmp_path, monkeypatch):
+    monkeypatch.setattr(procs, "boot_id", lambda: "prefilter-fixture-boot")
+    monkeypatch.setattr(procs, "proc_start", lambda pid: "prefilter-fixture-start")
     daemon = Daemon(tmp_path / "state")
     procs.forget_boot_id()
     home = tmp_path / "home"
@@ -57,7 +59,7 @@ def arrange(core, *, state="running", receipt=None, cancelled=False, started=Non
             inspect_in=3600.0, retry=False, failed=False, kind="run"):
     """Put the one attempt in a given situation; `inspect_in` is seconds until its next inspection (None: never set)."""
     with core.store.transaction("fixture.arrange") as tx:
-        tx.execute("UPDATE attempts SET state=? WHERE attempt_id=?", (state, ATTEMPT))
+        tx.execute("UPDATE attempts SET state=?,started_at=? WHERE attempt_id=?", (state, started or utcnow(), ATTEMPT))
         tx.execute("UPDATE jobs SET cancel_requested_at=?,started_at=?,max_wall_s=?,kind=? WHERE job_id=?",
                    (utcnow() if cancelled else None, started or utcnow(), max_wall_s, kind, JOB))
     path = attempt_dir(core.root, JOB, 1) / "exit.json"
@@ -238,9 +240,9 @@ def test_the_ticks_statement_reads_no_evidence_and_finds_the_same_attempts(core)
     arrange(core, cancelled=True, started=LONG_AGO, max_wall_s=77)
     row = tick_row(core)
     job = core.store.get_job(JOB)
-    assert set(row) == {"attempt_id", "job_id", "seq", "state", "cancel_requested_at", "job_started_at", "max_wall_s"}
+    assert set(row) == {"attempt_id", "job_id", "seq", "state", "cancel_requested_at", "started_at", "reserved_at", "prior_running_s", "max_wall_s"}
     assert (row["job_id"], row["seq"], row["state"]) == (JOB, 1, "running")
-    assert (row["cancel_requested_at"], row["job_started_at"], row["max_wall_s"]) == (
+    assert (row["cancel_requested_at"], row["started_at"], row["max_wall_s"]) == (
         job["cancel_requested_at"], job["started_at"], job["max_wall_s"])
 
 
@@ -258,7 +260,7 @@ def test_an_attempt_whose_job_row_is_missing_is_offered(core):
             tx.execute("PRAGMA defer_foreign_keys=ON")
             tx.execute("DELETE FROM jobs WHERE job_id=?", (JOB,))
             rows = [dict(row) for row in tx.execute(LIVE_TICK).fetchall() if row["attempt_id"] == ATTEMPT]
-            assert rows and rows[0]["max_wall_s"] is None and rows[0]["job_started_at"] is None
+            assert rows and rows[0]["max_wall_s"] is None
             assert core._has_work(rows[0]) is True
             raise Undo
     assert core.store.get_job(JOB) is not None

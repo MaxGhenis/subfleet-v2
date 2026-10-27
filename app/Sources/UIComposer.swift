@@ -20,6 +20,24 @@ class ComposerNSTextView: NSTextView {
     var onEscape: (() -> Void)?
     var onImage: (Data) -> Void = { _ in }
 
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        updateFocusRing()
+        return accepted
+    }
+    override func resignFirstResponder() -> Bool {
+        let accepted = super.resignFirstResponder()
+        enclosingScrollView?.layer?.borderWidth = 0
+        return accepted
+    }
+    func updateFocusRing() {
+        guard let scroll = enclosingScrollView else { return }
+        scroll.wantsLayer = true
+        scroll.layer?.cornerRadius = Theme.radius.control
+        scroll.layer?.borderColor = Theme.accentNS.cgColor
+        scroll.layer?.borderWidth = window?.firstResponder === self ? 2 : 0
+    }
+
     override func keyDown(with event: NSEvent) {
         let isReturn = event.keyCode == 36 || event.keyCode == 76
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -89,6 +107,11 @@ struct ComposerTextView: NSViewRepresentable {
         let scroll = NSTextView.scrollableTextView()
         let textView = ComposerNSTextView()
         textView.isRichText = false
+        textView.drawsBackground = false
+        textView.textColor = Theme.text.primary.nsColor
+        textView.updateFocusRing()
+        textView.insertionPointColor = Theme.accentNS
+        textView.setAccessibilityLabel("Message")
         textView.allowsUndo = true
         textView.font = ReadingStyle.body.nsFont(scale: context.environment.textScale)
         textView.isAutomaticQuoteSubstitutionEnabled = false
@@ -108,6 +131,8 @@ struct ComposerTextView: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let textView = scroll.documentView as? ComposerNSTextView else { return }
+        textView.textColor = Theme.text.primary.nsColor
+        textView.updateFocusRing()
         textView.onSubmit = onSubmit
         textView.onQueue = onQueue
         textView.onEscape = onEscape
@@ -160,7 +185,7 @@ struct ComposerView: View {
                                     Image(nsImage: image).resizable().scaledToFit().frame(height: 48)
                                 }
                                 Button { staged.removeAll { $0 == attachment } } label: { Image(systemName: "xmark.circle.fill") }
-                                    .buttonStyle(.borderless).help("Remove this image")
+                                    .buttonStyle(.borderless).help("Remove this image").accessibilityLabel("Remove this image")
                             }
                         }
                     }
@@ -178,38 +203,18 @@ struct ComposerView: View {
                     Text(steerHost != nil ? "Steer the running turn · ⌘⏎ queues for later"
                          : live == nil ? "Message \(assistant)"
                          : "Queue a follow-up while this turn runs")
-                        .readingFont(.body).foregroundStyle(.tertiary).padding(.leading, 9).padding(.top, 6)
+                        .readingFont(.body).foregroundStyle(Theme.text.tertiary.color).padding(.leading, 9).padding(.top, 6)
                         .allowsHitTesting(false)
                 }
             }
-            .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .textBackgroundColor)))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.3)))
+
             if let steerHost, let hint = steerSettingsHint(picked: outgoing(current), host: steerHost) {
-                Label(hint, systemImage: "info.circle").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Label(hint, systemImage: "info.circle").font(.caption).foregroundStyle(Theme.text.secondary.color).lineLimit(1)
             }
             HStack(spacing: 10) {
                 if let options {
-                    Picker("Model", selection: Binding(get: { current.model }, set: { value in
-                        var next = current
-                        next.model = value
-                        let entry = options.models.first { $0.value == value }?.model
-                        if let effort = next.effort, let efforts = entry?.efforts, !efforts.contains(effort) { next.effort = nil }
-                        if entry?.fast.supported == false { next.fast = false }   // the toggle is disabled there
-                        settings = next
-                    })) {
-                        ForEach(options.models) { choice in Text(choice.label).tag(choice.value) }
-                        if !options.models.contains(where: { $0.value == current.model }) {
-                            Text(current.model).tag(current.model)
-                        }
-                    }.labelsHidden().frame(maxWidth: 190).help("Model")
-                    Picker("Effort", selection: Binding(get: { current.effort ?? "" }, set: { value in
-                        var next = current
-                        next.effort = value.isEmpty ? nil : value
-                        settings = next
-                    })) {
-                        Text(options.defaultEffort.map { "Default (\($0.capitalized))" } ?? "Default effort").tag("")
-                        ForEach(options.efforts, id: \.self) { Text($0.capitalized).tag($0) }
-                    }.labelsHidden().frame(maxWidth: 140).help("Reasoning effort")
+                    ModelEffortControl(provider: conversation.provider, settings: Binding(
+                        get: { current }, set: { settings = $0 }), options: options)
                     Toggle(isOn: Binding(get: { current.fast }, set: { value in
                         var next = current
                         next.fast = value
@@ -217,26 +222,25 @@ struct ComposerView: View {
                     })) {
                         Label("Fast", systemImage: "hare")
                     }
-                    .toggleStyle(.button)
+                    .toggleStyle(.button).buttonStyle(.borderless)
                     .disabled(options.fastSupported == false)
                     .help(options.fastSupported == false ? "This model offers no Fast mode" : options.fastNote)
-                    Picker("Permission", selection: Binding(get: { conversation.settings.permission }, set: { value in
+                    PermissionControl(value: conversation.settings.permission, options: options) { value in
                         if PermissionPolicy.widens(from: conversation.settings.permission, to: value) {
                             widenTo = value
-                        } else {
-                            applyPermission(value, confirmed: false)
-                        }
-                    })) {
-                        ForEach(options.permissions) { choice in
-                            Text(choice.policy.label).tag(choice.policy.rawValue)
-                                .foregroundStyle(choice.enabled ? .primary : .tertiary)
-                        }
-                    }.labelsHidden().frame(maxWidth: 130).help("What the agent may do without asking")
+                        } else { applyPermission(value, confirmed: false) }
+                    }
                 }
                 Spacer()
                 if let live, let timeline {
                     if steerHost != nil {
                         // Claude Code's send button while a turn runs: Steer, with Queue for later and Stop.
+                        Button { submit() } label: {
+                            Image(systemName: "arrow.up").frame(width: 32, height: 32)
+                                .foregroundStyle(Theme.onAccent).background(Circle().fill(Theme.accent))
+                        }
+                        .buttonStyle(QuietButtonStyle()).disabled(empty)
+                        .help("Steer the running turn ⏎").accessibilityLabel("Steer the running turn")
                         Menu {
                             Button("Queue for later") { submit(queue: true) }
                                 .keyboardShortcut(.return, modifiers: .command)
@@ -248,13 +252,11 @@ struct ComposerView: View {
                             }
                             .accessibilityLabel("Stop the running turn")
                         } label: {
-                            Label("Steer", systemImage: "arrow.up.circle.fill")
-                        } primaryAction: {
-                            submit()
+                            Image(systemName: "chevron.down")
                         }
-                        .fixedSize()
-                        .help("Send ⏎")
-                        .accessibilityLabel("Steer the running turn")
+                        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                        .help("Queue for later or stop the running turn")
+                        .accessibilityLabel("Running turn actions")
                         .accessibilityHint("Its menu queues the message for later or stops the turn")
                     } else {
                         Button {
@@ -264,14 +266,23 @@ struct ComposerView: View {
                     }
                 }
                 if steerHost == nil {
-                    Button { submit() } label: { Label("Send", systemImage: "arrow.up.circle.fill") }
+                    Button { submit() } label: {
+                        Image(systemName: "arrow.up").frame(width: 32, height: 32)
+                           .foregroundStyle(Theme.onAccent).background(Circle().fill(Theme.accent))
+                    }
+                        .buttonStyle(QuietButtonStyle()).accessibilityLabel("Send").help("Send message")
                         .keyboardShortcut(.return, modifiers: .command)
                         .disabled(empty)
                 }
             }
-            .controlSize(.small)
+            .controlSize(.small).windowFont(.control).foregroundStyle(Theme.text.secondary.color)
         }
-        .padding(10)
+        .padding(Theme.space.inset * 1.5)
+        .background(RoundedRectangle(cornerRadius: Theme.radius.container).fill(Theme.surface.raised.color))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radius.container).stroke(Theme.line.hairline))
+        .readingColumn()
+        .padding(.horizontal, Theme.space.column).padding(.vertical, Theme.space.inset)
+        .frame(maxWidth: .infinity)
         .onAppear { takeRecall() }
         .onChange(of: conversation.conversation_id) { _, _ in takeRecall() }
         .onChange(of: text) { _, _ in saveDraft() }

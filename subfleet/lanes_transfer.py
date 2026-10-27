@@ -65,6 +65,8 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import Exit
+from .home_paths import home_path
+from .launch_env import lane_reference, refused_reference
 from .sessions.transcripts import NotRegularFile, read_regular
 from .store import Store, utc_now
 
@@ -86,15 +88,24 @@ V1_STATE_DIR = Path("~/chief-of-staff/state/subfleet").expanduser()
 #: home moves here on `--to v2` so v1's directory glob cannot find it anywhere.
 LANE_HOMES_DIR = "lanes"
 V2_LIVE_STATES = ("reserved", "starting", "running", "finalizing", "quarantined")
+#: D-ENV2: a held lane (C-10.5) is repaired before it moves.
+HELD_LANE_FIX = ("point the lane at a daemon variable no launch inherits in lanes.json (same lane id, "
+                 "provider and account), restart the daemon, then transfer it")
 
 
 class TransferError(Exception):
-    """A transfer that must not proceed; carries the CLI's exit code (C-17.3)."""
+    """A transfer that must not proceed; carries the CLI's exit code (C-17.3).
 
-    def __init__(self, message: str, code: Exit = Exit.INVALID_INPUT, fix: str | None = None):
+    `reason` and `details` select its public text (`refusals`); the message,
+    which can name roster paths, is for the operator's terminal and the log."""
+
+    def __init__(self, message: str, code: Exit = Exit.INVALID_INPUT, fix: str | None = None,
+                 *, reason: str | None = None, details: dict | None = None):
         super().__init__(message)
         self.code = code
         self.fix = fix
+        self.reason = reason
+        self.details = details
 
 
 @dataclass
@@ -164,7 +175,8 @@ def _read_text(path: Path) -> str:
     try:
         data = read_regular(path)
     except NotRegularFile:
-        raise TransferError(f"{path} is not a regular file; refusing to edit it", Exit.OPERATIONAL) from None
+        raise TransferError(f"{path} is not a regular file; refusing to edit it", Exit.OPERATIONAL,
+                            reason="transfer-roster") from None
     except OSError:
         return ""
     return data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
@@ -279,7 +291,8 @@ def v1_codex_scope(home: Path, roster_dir: Path,
     has to be written for it to bite. Returns `{agent label: [home, …]}` for every
     agent that runs v1.
     """
-    agents = Path(agents_dir) if agents_dir is not None else LAUNCH_AGENTS
+    agents = (Path(agents_dir) if agents_dir is not None else
+              Path(home_path("SUBFLEET_V1_LAUNCH_AGENTS", lambda: LAUNCH_AGENTS, test_only=True)))
     discovered = [str(home / f".codex-{index}") for index in CODEX_HOME_RANGE
                   if (home / f".codex-{index}").is_dir()]
     scope: dict[str, list[str]] = {}
@@ -302,12 +315,37 @@ def v1_codex_scope(home: Path, roster_dir: Path,
 
 # --- the v2 roster ------------------------------------------------------------
 
+def _repair_refused_row(row: dict[str, Any], lane: dict[str, Any], home: str | None) -> None:
+    """D-ENV2 (review r1 of #248, P3-3): a lanes.json row for the transferred
+    lane whose env-kind variable is refused (`launch_env.refused_reference`) takes
+    the store's own credential, which `plan_transfer` has already accepted: a held
+    lane is refused before this (`transfer-held`).
+
+    Startup ignores such a row while the store holds the lane (C-10.5), but a
+    store rebuilt from the file would refuse it, so a transfer, which writes the
+    file for exactly that rebuild, never leaves one behind. The credential is
+    written in the row's own shape: a `credential` object, or the flat fields.
+    """
+    found = lane_reference(row)
+    if not found or not refused_reference(found[1]):
+        return
+    credential = {"kind": lane["credential_kind"], "ref": home if home is not None else lane["credential_ref"],
+                  "epoch": lane["credential_epoch"]}
+    if isinstance(row.get("credential"), dict):
+        row["credential"] = {**row["credential"], **credential}
+    else:
+        row.update({f"credential_{key}": value for key, value in credential.items()})
+
+
 def _v2_roster_edit(state_root: Path, lane: dict[str, Any], to_owner: str,
                     home: str | None = None) -> RosterEdit:
     """`<state root>/lanes.json` is the daemon's seed file (`daemon._seed_lanes`).
 
     A store rebuilt from it must come back with the ownership the transfer set,
-    so the lane's row is added when the file does not name it yet.
+    so the lane's row is added when the file does not name it yet. Each of its
+    rows that names a refused variable is repaired to the store's credential
+    (`_repair_refused_row`), so no transfer leaves a row that would refuse that
+    rebuild.
     """
     path = state_root / V2_ROSTER
     before = _read_text(path)
@@ -315,17 +353,20 @@ def _v2_roster_edit(state_root: Path, lane: dict[str, Any], to_owner: str,
         roster = json.loads(before) if before.strip() else []
     except ValueError:
         raise TransferError(f"{path} is not valid JSON; refusing to edit it",
-                            Exit.OPERATIONAL, "repair lanes.json or remove it") from None
+                            Exit.OPERATIONAL, "repair lanes.json or remove it",
+                            reason="transfer-lanes-json") from None
     rows = roster.get("lanes", []) if isinstance(roster, dict) else roster
     if not isinstance(rows, list):
-        raise TransferError(f"{path} does not hold a lane list", Exit.OPERATIONAL)
+        raise TransferError(f"{path} does not hold a lane list", Exit.OPERATIONAL, reason="transfer-roster")
     rows = [dict(row) for row in rows if isinstance(row, dict)]
-    for row in rows:
-        if row.get("lane_id") == lane["lane_id"]:
-            row["owner"] = to_owner
-            if home is not None:
-                row["home"] = row["credential_ref"] = home
-            break
+    own = [row for row in rows if row.get("lane_id") == lane["lane_id"]]
+    for row in own:
+        _repair_refused_row(row, lane, home)
+    if own:
+        row = own[0]
+        row["owner"] = to_owner
+        if home is not None:
+            row["home"] = row["credential_ref"] = home
     else:
         rows.append({
             "lane_id": lane["lane_id"], "provider": lane["provider"],
@@ -354,14 +395,15 @@ def _claude_roster_edit(roster_dir: Path, lane: dict[str, Any], to_owner: str) -
     before = _read_text(path)
     if not before.strip():
         raise TransferError(f"{path} is missing or empty; refusing to write a v1 roster "
-                            "this process did not read", Exit.OPERATIONAL)
+                            "this process did not read", Exit.OPERATIONAL, reason="transfer-roster")
     try:
         roster = json.loads(before)
     except ValueError:
         raise TransferError(f"{path} is not valid JSON; refusing to edit it",
-                            Exit.OPERATIONAL) from None
+                            Exit.OPERATIONAL, reason="transfer-roster") from None
     if not isinstance(roster, dict):
-        raise TransferError(f"{path} does not hold a roster object", Exit.OPERATIONAL)
+        raise TransferError(f"{path} does not hold a roster object", Exit.OPERATIONAL,
+                            reason="transfer-roster")
     email = lane["account_key"].split(":", 1)[-1]
     enrolled = dict(roster.get("enrolled") or {})
     parked = dict(roster.get(TRANSFERRED_KEY) or {})
@@ -391,14 +433,15 @@ def _codex_roster_edit(roster_dir: Path, lane: dict[str, Any], to_owner: str,
     before = _read_text(path)
     if not before.strip():
         raise TransferError(f"{path} is missing or empty; refusing to write a v1 roster "
-                            "this process did not read", Exit.OPERATIONAL)
+                            "this process did not read", Exit.OPERATIONAL, reason="transfer-roster")
     try:
         roster = json.loads(before)
     except ValueError:
         raise TransferError(f"{path} is not valid JSON; refusing to edit it",
-                            Exit.OPERATIONAL) from None
+                            Exit.OPERATIONAL, reason="transfer-roster") from None
     if not isinstance(roster, dict):
-        raise TransferError(f"{path} does not hold a roster object", Exit.OPERATIONAL)
+        raise TransferError(f"{path} does not hold a roster object", Exit.OPERATIONAL,
+                            reason="transfer-roster")
     lane_home = lane.get("home") or lane.get("credential_ref")
     parked = [dict(row) for row in (roster.get(TRANSFERRED_KEY) or []) if isinstance(row, dict)]
     # A parked row names the lane and its original `~/.codex-<n>` path; after the
@@ -506,19 +549,31 @@ def plan_transfer(store: Store, state_root: Path, lane_id: str, to_owner: str, *
                   agents_dir: Path | None = None, v1_state: Path | None = None) -> TransferPlan:
     """Build the whole edit without touching anything (C-19.1: `--dry-run` never acts)."""
     if to_owner not in ("v1", "v2"):
-        raise TransferError("lanes transfer: --to must be v1 or v2")
+        raise TransferError("lanes transfer: --to must be v1 or v2", reason="transfer-owner")
     row = store.one("SELECT * FROM lanes WHERE lane_id=?", (lane_id,))
     if row is None:
         raise TransferError(f"unknown lane {lane_id}", Exit.INVALID_INPUT,
-                            "subfleet lanes list")
-    roster_dir = Path(roster_dir) if roster_dir else V1_ROSTER_DIR
-    home = Path(home) if home else Path.home()
+                            "subfleet lanes list", reason="unknown-lane",
+                            details={"action": "transfer", "lane_id": lane_id})
+    if (held := lane_reference(row)) and refused_reference(held[1]):
+        # D-ENV2 (review r5, P3-1): a held lane holds no credential either owner
+        # could use, and its row would put a refused variable into lanes.json
+        # (or, left out, lose the transfer from a rebuilt store). Repair it first.
+        raise TransferError(f"lanes transfer: lane {lane_id} is held (credential-refused="
+                            f"{held[1]}): it holds no credential to move",
+                            Exit.REFUSED, HELD_LANE_FIX, reason="transfer-held",
+                            details={"lane_id": lane_id, "lane_variable": held[1]})
+    roster_dir = (Path(roster_dir) if roster_dir else
+                  Path(home_path("SUBFLEET_V1_ROSTER_DIR", lambda: V1_ROSTER_DIR, test_only=True)))
+    from .home_paths import provider_home
+    home = Path(home) if home else provider_home()
     plan = TransferPlan(lane_id, row["provider"], row["account_key"], row["owner"], to_owner)
     if to_owner == "v1":
         plan.blocker = _rollback_blocker(store, lane_id)
     if row["provider"] == "claude":
         if to_owner == "v2":
-            plan.live_v1_runs = v1_live_runs_on_claude_lane(v1_state or V1_STATE_DIR, row)
+            legacy_state = v1_state or home_path("SUBFLEET_V1_STATE", lambda: V1_STATE_DIR, test_only=True)
+            plan.live_v1_runs = v1_live_runs_on_claude_lane(legacy_state, row)
             if plan.live_v1_runs:
                 plan.blocker = (f"v1 run(s) {', '.join(plan.live_v1_runs)} are live on {lane_id}; "
                                 "wait for them or `subfleet kill` them, then run this again")
@@ -536,7 +591,8 @@ def plan_transfer(store: Store, state_root: Path, lane_id: str, to_owner: str, *
         # all of them at once is moving the directory out of the glob (C-10.4).
         src = Path(lane_home).expanduser()
         dst = Path(state_root) / LANE_HOMES_DIR / lane_id
-        plan.live_v1_runs = v1_live_runs_on_home(v1_state or V1_STATE_DIR, str(src))
+        legacy_state = v1_state or home_path("SUBFLEET_V1_STATE", lambda: V1_STATE_DIR, test_only=True)
+        plan.live_v1_runs = v1_live_runs_on_home(legacy_state, str(src))
         if plan.live_v1_runs:
             plan.blocker = (f"v1 run(s) {', '.join(plan.live_v1_runs)} are live on {src}; "
                             "wait for them or `subfleet kill` them, then run this again")
@@ -609,13 +665,14 @@ def apply_transfer(store: Store, plan: TransferPlan, *, confirm_v1_edit: bool) -
     """Flip ownership, record the event, and publish both rosters in the safe order."""
     if plan.blocker:
         raise TransferError(plan.blocker, Exit.REFUSED,
-                            "subfleet lanes transfer <lane> --to v2 --dry-run shows the plan")
+                            "subfleet lanes transfer <lane> --to v2 --dry-run shows the plan",
+                            reason="transfer-blocked")
     v1_edits = [edit for edit in plan.edits if edit.owner == "v1" and edit.changed]
     if v1_edits and not confirm_v1_edit:
         raise TransferError(
             "this transfer edits " + ", ".join(str(edit.path) for edit in v1_edits)
             + ", a v1 file", Exit.REFUSED,
-            "re-run with --i-understand-v1-edit (a backup is written beside it)")
+            "re-run with --i-understand-v1-edit (a backup is written beside it)", reason="transfer-v1-edit")
     v2_edits = [edit for edit in plan.edits if edit.owner == "v2" and edit.changed]
 
     def publish(edits: list[RosterEdit]) -> None:
@@ -635,7 +692,8 @@ def apply_transfer(store: Store, plan: TransferPlan, *, confirm_v1_edit: bool) -
         except OSError as exc:
             raise TransferError(f"could not relocate {src} to {dst}: {exc}", Exit.OPERATIONAL,
                                 f"move it by hand (`mv {src} {dst}`) and run this again; the re-run "
-                                "sees the home already in place and finishes the record and the flip") from exc
+                                "sees the home already in place and finishes the record and the flip",
+                                reason="transfer-relocate") from exc
 
     def flip() -> None:
         """C-10.4: ownership changes here and records an event.
@@ -657,7 +715,7 @@ def apply_transfer(store: Store, plan: TransferPlan, *, confirm_v1_edit: bool) -
                 # us (and blocks rollback) or sees owner=v1. Partial retries and
                 # roster-only repairs must pass the same guard before any move.
                 if blocker := _rollback_blocker(store, plan.lane_id):
-                    raise TransferError(blocker, Exit.REFUSED)
+                    raise TransferError(blocker, Exit.REFUSED, reason="transfer-live")
             if plan.changed:
                 # Reaffirm ownership on a roster-only repair too. This records
                 # the transfer once through the enclosing transaction.
@@ -688,7 +746,7 @@ def transfer(store: Store, state_root: Path, lane_id: str | None, to_owner: str 
              agents_dir: Path | None = None, v1_state: Path | None = None) -> dict[str, Any]:
     """The daemon op behind `subfleet lanes transfer` (C-16.2 `lanes`)."""
     if not lane_id:
-        raise TransferError("lanes transfer: name a lane")
+        raise TransferError("lanes transfer: name a lane", reason="transfer-lane")
     plan = plan_transfer(store, state_root, lane_id, to_owner or "", roster_dir=roster_dir,
                          home=home, agents_dir=agents_dir, v1_state=v1_state)
     if dry_run:

@@ -222,16 +222,23 @@ def test_c6_5_a_lease_above_held_by_anything_but_retention_holds_no_writer(tmp_p
             assert lease(daemon, folders.exclusive_key(outer)) == holder
 
 
-def test_c8_4_retentions_fence_on_a_writers_own_folder_is_named_once(tmp_path):
+@pytest.mark.parametrize("where", ["top", "subdirectory"])
+def test_c8_4_retentions_fence_on_a_writers_own_folder_is_named_once(tmp_path, where):
     """A detached writer queued in place in a checkout waits while retention's fence holds
     the checkout itself (its own `worktree:<target>`, contested, as before), and its hold
     names that key once: the fence on its own folder is not also counted as one above
-    (`folders.retiring` reads the folder itself too). It runs once the fence goes."""
+    (`folders.retiring` reads the folder itself too). Submitted from a subdirectory, its
+    folder is still the checkout's top level, the write target, not the workdir (C-6.5):
+    reading the fences above the workdir would count its own key again. It runs once the
+    fence goes."""
     with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
         measured(daemon, harness)
         patch.setattr(daemon, "_workspace", lambda job: (job["workdir"], None, None, []))
-        writer = writer_in(daemon, harness, harness.workdir)
-        target = daemon._write_target(daemon._job(writer), str(harness.workdir))
+        workdir = harness.workdir if where == "top" else harness.workdir / "pkg"
+        workdir.mkdir(exist_ok=True)
+        writer = writer_in(daemon, harness, workdir)
+        target = daemon._write_target(daemon._job(writer), str(workdir))
+        assert target == folders.canonical(harness.workdir)
         assert daemon.store.acquire_lease(folders.exclusive_key(target), "retention:old-job")
         hold = look(daemon, writer)
         assert not _live(daemon, writer)
@@ -317,6 +324,8 @@ def test_c8_4_c6_5_writer_reservation_agrees_with_an_oracle_on_any_leases(tmp_pa
                              max_size=4, unique_by=lambda pair: pair[0]))
         def agrees(where, held):
             count[0] += 1
+            for lane in CODEX:          # fresh readings each example: aged past reading_ttl_s, a placement probes
+                measure(daemon, lane)
             folder = writers[where]
             writer = writer_in(daemon, harness, folder, caller_session=f"session-{count[0]}")
             try:
@@ -449,6 +458,7 @@ def test_c6_11_a_writer_on_its_clock_never_queues_the_fence_above_it(tmp_path):
         patch.setattr(daemon, "_workspace", lambda job: (job["workdir"], None, None, []))
         tree = str(harness.root / "worktrees" / "retired")
         nested, fence = tree + "/vendor/lib", folders.exclusive_key(tree)
+        Path(nested).mkdir(parents=True)        # admission reserves rows only on folders that are there
 
         def add(job_id, folder):
             daemon.store.add_job(job_id=job_id, request_id=job_id, payload_digest=job_id, kind="dispatch",
@@ -464,15 +474,15 @@ def test_c6_11_a_writer_on_its_clock_never_queues_the_fence_above_it(tmp_path):
         daemon.store.update_job(older, next_check_at=after(3600))
         newer = add("newer", tree)
 
-        real = daemon._detached_folder
+        real = daemon._detached_folders
 
-        def finishes(job):          # retention lets go after the older's look, before the newer's
+        def finishes(job, **options):  # retention lets go after the older's look, before the newer's
             if job["job_id"] == newer:
                 daemon.store.release_leases("retention:retired")
-            return real(job)
+            return real(job, **options)
 
         # The newer's first look at the fence is the one before its workspace (C-8.4).
-        patch.setattr(daemon, "_detached_folder", finishes)
+        patch.setattr(daemon, "_detached_folders", finishes)
         daemon._admit()
         assert lease(daemon, fence) == newer, daemon._holds.get(newer)
         assert not _live(daemon, older) and daemon._holds[older]["leases"] == [fence]

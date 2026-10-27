@@ -38,6 +38,8 @@ from subfleet.daemon import Daemon
 from subfleet.guardian import atomic_publish
 from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
 from subfleet.store import Store
+from tests.fake.conftest import process_inspection_available  # noqa: F401 - shared host prerequisite
+
 from tests.legacy_fixtures import outbox_row, write_outbox, write_transcript
 
 SESSION = "5e551011-0000-4000-8000-0000000000c1"
@@ -122,9 +124,24 @@ class FakeDaemon:
         self.store = FakeJobStore()
         self.policy = load_policy(DEFAULT_POLICY_PATH)
         self.submitted: list[str] = []
+        self.cancels: list[tuple] = []
+        self.stop_deliveries: list[dict] = []
 
     def _notify(self):
         pass
+
+    def _request_cancel(self, job_id, data, **options):
+        self.cancels.append((job_id, data, options))
+        return True
+
+    def _start_stop_delivery(self, attempt, frame, seq):
+        # This fixture's job store is a dictionary. Record the audit boundary;
+        # durable SQL and restart ordering use real stores in the wall tests.
+        delivery = {"attempt_id": attempt["attempt_id"], "tag": frame.tag, "seq": seq, "sent": None}
+        self.stop_deliveries.append(delivery)
+        def record(sent):
+            delivery["sent"] = sent
+        return runner_mod.StopDelivery(before_send=lambda: None, record=record)
 
     def submit(self, args, *, turn=None):
         job_id = f"job-{len(self.submitted) + 1}"
@@ -460,7 +477,9 @@ class RecordingRelay:
     def __init__(self, path, timeout_s=30):
         pass
 
-    def send(self, seq, op, line=None, tag=None, sig=None):
+    def send(self, seq, op, line=None, tag=None, sig=None, before_send=None):
+        if before_send is not None:
+            before_send()
         from subfleet.relay import Ack
         RecordingRelay.frames.append((seq, op, tag))
         return Ack(seq=seq, ok=True)
@@ -521,6 +540,7 @@ def test_an_adopted_turn_on_a_held_conversation_never_writes_its_message(world, 
         else:
             assert tags == ["close"] and runner.driver.outcome.reason == "stopped-before-send"   # stdin closed
             assert json.loads((adir / "turn.json").read_text())["stop_reason"] == "legacy-owner"
+        assert [(d["tag"], d["sent"]) for d in daemon.stop_deliveries] == [(tags[0], True)]
     finally:
         svc.close()
 
@@ -850,7 +870,7 @@ def test_registration_setup_failure_reaps_its_child(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("subfleet", [False, True])
-def test_a_live_claude_process_outside_subfleet_is_a_dispatch_wait(core, monkeypatch, subfleet):
+def test_a_live_claude_process_outside_subfleet_is_a_dispatch_wait(core, monkeypatch, subfleet, process_inspection_available):
     """C-26.3, D-17 (review M3), as the desktop line checks it: a Claude turn whose
     session a live process outside Subfleet holds (a registry row whose
     `procStart` is its pid's, without `SUBFLEET_ATTEMPT`) waits at dispatch,
@@ -883,7 +903,7 @@ def test_a_live_claude_process_outside_subfleet_is_a_dispatch_wait(core, monkeyp
 @pytest.mark.parametrize("direction, subfleet", [("same", False), ("same", True), ("upper-stored", False),
                                                  ("lower-stored", False)])
 def test_a_live_claude_process_that_takes_the_session_after_its_job_is_made_is_a_launch_wait(
-        core, monkeypatch, direction, subfleet):
+        core, monkeypatch, direction, subfleet, process_inspection_available):
     """C-26.3, D-17 (review M3's second case, dropped by the merge and restored
     after the review of 3c1a34e): the turn job is made, and only then does a live
     Claude process outside Subfleet register for the session (the Claude app took
@@ -1173,7 +1193,9 @@ def test_a_stop_acknowledged_before_the_provider_answered_initialize_keeps_the_m
     tags, receipts = [], []
 
     class Relay(RecordingRelay):
-        def send(self, seq, op, line=None, tag=None, sig=None):
+        def send(self, seq, op, line=None, tag=None, sig=None, before_send=None):
+            if before_send is not None:
+                before_send()
             from subfleet.relay import Ack
             tags.append(tag)
             if tag == "init":
@@ -1223,7 +1245,9 @@ def test_a_stop_that_comes_while_the_message_is_handed_over_waits_for_it(world, 
         events["recorded"].set()
 
     class Relay(RecordingRelay):
-        def send(self, seq, op, line=None, tag=None, sig=None):
+        def send(self, seq, op, line=None, tag=None, sig=None, before_send=None):
+            if before_send is not None:
+                before_send()
             from subfleet.relay import Ack
             tags.append(tag)
             if tag == "user-message":
@@ -1475,7 +1499,9 @@ def test_a_relay_slow_to_take_one_message_holds_up_no_other_message_s_stop(world
     handing, release = threading.Event(), threading.Event()
 
     class Relay(RecordingRelay):
-        def send(self, seq, op, line=None, tag=None, sig=None):
+        def send(self, seq, op, line=None, tag=None, sig=None, before_send=None):
+            if before_send is not None:
+                before_send()
             from subfleet.relay import Ack
             if tag == "user-message":
                 handing.set()
@@ -1539,7 +1565,9 @@ class _Race:
         monkeypatch.setattr(svc.store, "transaction", transaction)
 
         class Relay(RecordingRelay):
-            def send(self, seq, op, line=None, tag=None, sig=None):
+            def send(self, seq, op, line=None, tag=None, sig=None, before_send=None):
+                if before_send is not None:
+                    before_send()
                 from subfleet.relay import Ack
                 race.tags.append(tag)
                 race.first_frame.set()

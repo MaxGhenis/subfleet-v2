@@ -52,10 +52,13 @@ class FakeAdapter(Adapter):
                 except ValueError:
                     pass
             offset += len(line)
-        env_add = {**credential_env, "SUBFLEET_LANE": lane.lane_id}
+        env_add = {**credential_env, "SUBFLEET_LANE": lane.lane_id,
+                   "SUBFLEET_FAKE_STREAM": str(attempt_dir / "stream.jsonl")}
         for key, variable in (("scenario", "SUBFLEET_FAKE_SCENARIO"),
                               ("delay_s", "SUBFLEET_FAKE_DELAY_S"),
-                              ("marker", "SUBFLEET_FAKE_MARKER")):
+                              ("marker", "SUBFLEET_FAKE_MARKER"),
+                              ("node", "SUBFLEET_FAKE_NODE"),
+                              ("ignore_term", "SUBFLEET_FAKE_IGNORE_TERM")):
             if key in settings:
                 env_add[variable] = str(settings[key])
         scenario = env_add.get("SUBFLEET_FAKE_SCENARIO",
@@ -63,13 +66,28 @@ class FakeAdapter(Adapter):
         binary = Path(__file__).parent / "bin" / "fakeprov"
         argv = ((str(attempt_dir / "intentionally-missing-provider"),)
                 if scenario == "spawn-fail" else (sys.executable, str(binary)))
+        if scenario == "lockf-self-exit":
+            # D-KILL3: a shell provider, with a separately grouped lockf child.
+            # The test releases the provider only after witnessing an inspection.
+            argv = ("/bin/sh", "-c", 'trap "exit 0" INT; '
+                    '"$1" "$2" --escaper lockf --new-session & '
+                    'while [ ! -e "$SUBFLEET_FAKE_MARKER.release" ]; do /bin/sleep .05; done; '
+                    'exit 0', "shell-provider", sys.executable, str(binary))
+        if scenario in ("loop-driver", "loop-driver-detached"):
+            # D-KILL4: a shell provider that leaves a hidden-marker loop respawning a
+            # marked child. It ends by itself once the test releases it.
+            flags = "--driver --detached" if scenario.endswith("detached") else "--driver"
+            argv = ("/bin/sh", "-c", 'trap "exit 0" INT; '
+                    f'"$1" "$2" {flags} & '
+                    'while [ ! -e "$SUBFLEET_FAKE_MARKER.release" ]; do /bin/sleep .05; done; '
+                    'exit 0', "shell-provider", sys.executable, str(binary))
         return Launch(
             argv=argv, env_add=env_add,
             env_remove=("CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"),
             cwd=job.workdir, stdin_path=str(prompt_path),
             stdout_path=str(attempt_dir / "stdout"),
             stderr_path=str(attempt_dir / "stderr"),
-            raw_stream_path=None, native_session_id=None,
+            raw_stream_path=str(attempt_dir / "stream.jsonl"), native_session_id=None,
         )
 
     def classify(self, attempt_dir: Path, launch: Launch, exit_info: ExitInfo) -> Outcome:
@@ -88,6 +106,8 @@ class FakeAdapter(Adapter):
             )
             return Outcome(OutcomeClass.LIMITED, "fake provider hard limit",
                            evidence={**evidence, "quota": quota}, closure=closure)
+        if exit_info.rc == 3:
+            return Outcome(OutcomeClass.CONTENT_FILTER, "fake provider refused the prompt", evidence=evidence)
         return Outcome(OutcomeClass.UNKNOWN, exit_info.spawn_error or "fake provider failed",
                        evidence=evidence)
 

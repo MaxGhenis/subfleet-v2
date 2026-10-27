@@ -220,7 +220,7 @@ class ClaudeTurn(SteerTracking):
         self.phase = "initializing"
         request = {"type": "control_request", "request_id": INIT_REQUEST_ID,
                    "request": {"subtype": "initialize"}}
-        return Step(frames=[Frame("init", "write", _line(request))],
+        return Step(frames=[Frame("init", "write", _line(request), stops=False)],
                     events=[Event("status", {"phase": "starting-provider"}, "cmd:start")])
 
     def interrupt(self) -> Step:
@@ -233,7 +233,7 @@ class ClaudeTurn(SteerTracking):
             return self._end(INTERRUPTED, "stopped-before-send", source="cmd:interrupt")
         request = {"type": "control_request", "request_id": INTERRUPT_REQUEST_ID,
                    "request": self._interrupt_request()}
-        return Step(frames=[Frame("interrupt", "write", _line(request))],
+        return Step(frames=[Frame("interrupt", "write", _line(request), stops=True)],
                     events=[Event("status", {"phase": "stopping"}, "cmd:interrupt")])
 
     def _interrupt_request(self) -> dict:
@@ -261,7 +261,7 @@ class ClaudeTurn(SteerTracking):
         message = {"type": "user", "uuid": message_id, "priority": "next", "parent_tool_use_id": None,
                    "session_id": self.spec.native_session_id or self.spec.new_session_id,
                    "message": {"role": "user", "content": content}}
-        return Step(frames=[Frame(f"steer:{message_id}", "write", _line(message))],
+        return Step(frames=[Frame(f"steer:{message_id}", "write", _line(message), stops=False)],
                     events=[Event("steer.sent", {"message_id": message_id}, f"cmd:steer:{message_id}")])
 
     def drop_steer(self, message_id: str, detail: str) -> Step:
@@ -308,7 +308,7 @@ class ClaudeTurn(SteerTracking):
     def _cancel_frame(mid: str) -> Frame:
         request = {"type": "control_request", "request_id": f"cancel-steer:{mid}",
                    "request": {"subtype": "cancel_async_message", "message_uuid": mid}}
-        return Frame(f"cancel-steer:{mid}", "write", _line(request))
+        return Frame(f"cancel-steer:{mid}", "write", _line(request), stops=False)
 
     def interrupted_earlier(self) -> None:
         """Replay (C-26.6): the relay's log shows an interrupt an earlier runner
@@ -322,6 +322,23 @@ class ClaudeTurn(SteerTracking):
             return Step()
         self.interrupt_requested = True
         return self._end(INTERRUPTED, "stopped-before-send", source="cmd:interrupt")
+
+    def restore_answer(self, request_id: str, decision: str) -> Step:
+        """Replay a recorded answer whose reply was written, without rebuilding it."""
+        if self.pending.pop(request_id, None) is None:
+            return Step()
+        step = Step(resolved=[request_id],
+                    events=[Event("approval.resolved", {"request_id": request_id, "decision": decision},
+                                  f"cmd:approval:{request_id}")])
+        if decision == "cancel-turn":
+            self.interrupt_requested = True
+            if self._steer_pending:
+                # The reply can have been written before the separate interrupt
+                # that sweeps queued steers. Its own tag still deduplicates it.
+                step.frames.append(Frame("interrupt", "write", _line({
+                    "type": "control_request", "request_id": INTERRUPT_REQUEST_ID,
+                    "request": self._interrupt_request()}), stops=True))
+        return step
 
     def respond(self, request_id: str, decision: str, message: str | None = None,
                 answers: dict | None = None) -> Step:
@@ -348,13 +365,13 @@ class ClaudeTurn(SteerTracking):
             result["toolUseID"] = request["tool_use_id"]
         response = {"type": "control_response",
                     "response": {"subtype": "success", "request_id": request_id, "response": result}}
-        frames = [Frame(f"approval:{request_id}", "write", _line(response))]
+        frames = [Frame(f"approval:{request_id}", "write", _line(response), stops=decision == "cancel-turn")]
         if decision == "cancel-turn" and self._steer_pending:
             # The permission reply aborts only the active turn. A separate SDK
             # interrupt must sweep queued messages, or the CLI runs them next.
             frames.append(Frame("interrupt", "write", _line({
                 "type": "control_request", "request_id": INTERRUPT_REQUEST_ID,
-                "request": self._interrupt_request()})))
+                "request": self._interrupt_request()}), stops=True))
         return Step(frames=frames,
                     resolved=[request_id],
                     events=[Event("approval.resolved", {"request_id": request_id, "decision": decision},
@@ -378,6 +395,11 @@ class ClaudeTurn(SteerTracking):
                                accepted=self.accepted, answered=self.answered,
                                limited=self.limited, served_model=self.served_model, ended_by="eof", steers=self.steers)
         self.phase = "ended"
+        # A request still pending went with the process (C-27.3), as at `_end`: the
+        # store withdraws it and says so in the log. No `turn.completed`: whether the
+        # turn was delivered is reconciliation's to say (C-24.6).
+        step.resolved = sorted(self.pending)
+        self.pending.clear()
         step.outcome = self.outcome
         return step
 
@@ -503,13 +525,13 @@ class ClaudeTurn(SteerTracking):
             message = {"type": "user", "uuid": self.spec.message_id, "parent_tool_use_id": None,
                        "session_id": self.spec.native_session_id or self.spec.new_session_id,
                        "message": {"role": "user", "content": content}}
-            frames.append(Frame("user-message", "write", _line(message)))
+            frames.append(Frame("user-message", "write", _line(message), stops=False))
         # Replay the state transition and events without reconstructing a payload
         # the relay already wrote. Its attachment may have been removed since.
         # C-26.8: `get_settings` follows the message; the runner drops it when an
         # earlier runner sent the message.
         ask = {"type": "control_request", "request_id": SETTINGS_REQUEST_ID, "request": {"subtype": "get_settings"}}
-        frames.append(Frame(SETTINGS_FRAME, "write", _line(ask)))
+        frames.append(Frame(SETTINGS_FRAME, "write", _line(ask), stops=False))
         return Step(frames=frames,
                     events=[Event("served", served, source.next()),
                             Event("status", {"phase": "sent"}, source.next())])
@@ -568,7 +590,7 @@ class ClaudeTurn(SteerTracking):
         # Anything else (authentication refreshes, hooks, MCP messages) is refused (C-27.4).
         response = {"type": "control_response",
                     "response": {"subtype": "error", "request_id": request_id, "error": UNSUPPORTED}}
-        return Step(frames=[Frame(f"refuse:{request_id}", "write", _line(response))] if request_id else [],
+        return Step(frames=[Frame(f"refuse:{request_id}", "write", _line(response), stops=False)] if request_id else [],
                     events=[Event("error", {"message": f"refused unsupported provider request {subtype!r}"},
                                   source.next())])
 
@@ -850,7 +872,7 @@ class ClaudeTurn(SteerTracking):
             return Step()
         # C-26.8: stop at once; a turn on the wrong model is not the turn asked for.
         step = Step(frames=[] if self.interrupt_requested else [Frame("interrupt", "write", _line(
-            {"type": "control_request", "request_id": INTERRUPT_REQUEST_ID, "request": self._interrupt_request()}))])
+            {"type": "control_request", "request_id": INTERRUPT_REQUEST_ID, "request": self._interrupt_request()}), stops=True)])
         self.interrupt_requested = True
         return step.extend(self._end(FAILED, "model-mismatch", detail=f"asked for {self.spec.model_id}, served {model}",
                                      source=source.next()))
@@ -866,7 +888,7 @@ class ClaudeTurn(SteerTracking):
         self.pending.clear()
         data = {"state": state, "reason": reason, "detail": detail, "served_model": self.served_model,
                 **(extra or {})}
-        return Step(frames=[Frame("close", "close")], resolved=withdrawn, outcome=self.outcome,
+        return Step(frames=[Frame("close", "close", stops=True)], resolved=withdrawn, outcome=self.outcome,
                     events=[Event("turn.completed", data, source)])
 
 

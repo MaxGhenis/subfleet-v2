@@ -35,7 +35,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from ..launch_env import build_environment
 from ..sessions import transcripts
+from ..home_paths import codex_app_home as default_codex_app_home
 from ..state_files import open_state
 from .redact import scrub
 from .store import PROVIDERS, canonical_native
@@ -174,6 +176,7 @@ def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None,
         cache = {}
     started, complete, fresh = clock(), True, {}
     items: list[dict] = []
+    native_records: dict[str, dict] = {}
     # The run is its own process, capped at `wall_s` and stopped by its service after
     # 60 s (C-30.1), so it opens sessions plainly: a FIFO among them holds this run,
     # never the daemon. Readers in the daemon default to `transcripts.open_regular`.
@@ -209,6 +212,9 @@ def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None,
             complete = False
             continue
         sid = path.stem
+        if record and str(path) in fresh:
+            native_records[f"claude:{canonical_native(sid)}"] = {"path": str(path), "mtime": fresh[str(path)]["mtime"],
+                                                                "size": fresh[str(path)]["size"]}
         if record.get("headless") or sid in known_attempts or not record:
             continue
         cwd = record.get("workspace") or ""
@@ -219,9 +225,10 @@ def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None,
                       "mtime": fresh[str(path)]["mtime"], "continuable": blocker is None,
                       "continue_blocker": blocker, "archived": False})
     # Codex
-    names = _codex_names(codex_app_home or Path.home() / ".codex", opener=open)
+    app_home = codex_app_home or default_codex_app_home()
+    names = _codex_names(app_home, opener=open)
     homes = [(Path(row["home"]), row["lane_id"]) for row in lanes if row.get("provider") == "codex" and row.get("home")]
-    homes.append((codex_app_home or Path.home() / ".codex", None))
+    homes.append((app_home, None))
     for home, lane_id in homes:
         for sub, archived in (("sessions", False), ("archived_sessions", True)):
             base = home / sub
@@ -232,6 +239,9 @@ def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None,
                 if record is None:
                     complete = False
                     continue
+                if record.get("id") and str(path) in fresh:
+                    native_records[f"codex:{record['id']}"] = {"path": str(path), "mtime": fresh[str(path)]["mtime"],
+                                                             "size": fresh[str(path)]["size"]}
                 if not record or record.get("excluded") or not record.get("id") or record["id"] in known_attempts:
                     continue
                 items.append({"provider": "codex", "native_session_id": record["id"], "path": str(path),
@@ -248,7 +258,8 @@ def build(root: Path, *, lanes: list[dict], claude_projects: Path | None = None,
     items.sort(key=lambda i: i["mtime"], reverse=True)
     # Every live session, listed or not: a conversation born in Subfleet and
     # resumed in a terminal is no catalog item but is still held (C-26.3).
-    catalog = {"generated_at": _utc(), "complete": complete, "items": items, "live_claude": sorted(live)}
+    catalog = {"generated_at": _utc(), "complete": complete, "items": items, "live_claude": sorted(live),
+               "native_records": native_records}
     for path, value in ((root / "catalog.json", catalog), (cache_path, fresh if complete else {**cache, **fresh})):
         if may_write is not None and not may_write():
             break
@@ -334,7 +345,7 @@ def _outside_claude(row) -> bool:
         return False
     try:
         out = subprocess.run(["/bin/ps", "-p", str(row.pid), "-o", "lstart=,comm="], capture_output=True, text=True,
-                             timeout=5, env={**os.environ, "TZ": "UTC"})
+                             timeout=5, env=build_environment({"TZ": "UTC"}))
     except (OSError, subprocess.SubprocessError):
         return True
     line = out.stdout.strip()
@@ -355,7 +366,7 @@ def _subfleet_owned(pid: int | None) -> bool:
         return False
     try:
         out = subprocess.run(["/bin/ps", "-Ewwp", str(pid), "-o", "command="], capture_output=True, text=True,
-                             timeout=5).stdout
+                             timeout=5, env=build_environment()).stdout
     except (OSError, subprocess.SubprocessError):
         return False
     return "SUBFLEET_ATTEMPT=" in out
@@ -476,6 +487,17 @@ def _load(path: Path) -> tuple[dict, str]:
     return catalog, state
 
 
+def transcript_record(root: Path, provider: str, session_id: str | None) -> dict | None:
+    """The catalog's exact path; no native-store discovery in the daemon."""
+    catalog, _ = _load(Path(root) / "catalog.json")
+    record = catalog.get("native_records", {}).get(f"{provider}:{canonical_native(session_id)}")
+    if record:
+        return record
+    # Catalogs from older daemons still resolve imported sessions.
+    return next((i for i in catalog.get("items", []) if i.get("provider") == provider
+                 and canonical_native(i.get("native_session_id")) == canonical_native(session_id)), None)
+
+
 def read_catalog(root: Path, *, query: str | None = None, exclude: set | None = None, limit: int = 200,
                  before: str | None = None, include_archived: bool = False, stale_after_s: float | None = None,
                  now: datetime | None = None) -> dict:
@@ -589,7 +611,7 @@ def spawn_refresh(root: Path, *, fence_fd: int | None = None) -> subprocess.Pope
     if refresh_running(root) is not False:
         return None
     package_root = str(Path(__file__).resolve().parent.parent.parent)
-    env = {**os.environ, "PYTHONPATH": package_root}
+    env = build_environment({"PYTHONPATH": package_root})
     argv = [sys.executable, "-m", "subfleet.conversations.catalog", "--state-root", str(root)]
     if fence_fd is not None:
         argv += ["--fence-fd", str(fence_fd)]
@@ -606,14 +628,14 @@ def native_session(provider: str, session_id: str, *, home: str | None, root: Pa
             return None
         return claude_session(path)
     homes =[(Path(r["home"]), r["lane_id"]) for r in lanes if r.get("provider") == "codex" and r.get("home")]
-    for base, lane_id in homes + [(Path(home) if home else Path.home() / ".codex", None)]:
+    for base, lane_id in homes + [(Path(home) if home else default_codex_app_home(), None)]:
         matches = list((base / "sessions").rglob(f"rollout-*{session_id}.jsonl")) if (base / "sessions").is_dir() else []
         if len(matches) != 1:
             continue
         record = _codex_record(matches[0])
         if lane_id is None:
             return {"continuable": False, "continue_blocker": "codex-app thread: continue by handoff"}
-        return {"cwd": record.get("cwd"), "title": _codex_names(Path.home() / ".codex", only=session_id).get(session_id)
+        return {"cwd": record.get("cwd"), "title": _codex_names(default_codex_app_home(), only=session_id).get(session_id)
                 or record.get("first_prompt"), "model_value": record.get("model") or "",
                 "permission": "read-only", "continuable": True, "lane_id": lane_id}
     return None

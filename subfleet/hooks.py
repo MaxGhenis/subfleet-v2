@@ -79,7 +79,8 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 from . import render
-from .client import Client, DaemonError, DaemonUnavailable, busy_pause, refused_while_busy, state_root
+from .client import (Client, DEFAULT_TIMEOUT_S, DaemonError, DaemonUnavailable,
+                     busy_pause, refused_while_busy, state_root)
 from .contracts import Exit, JobState, WAIT_POLL_MAX_S
 from .protocol import ProtocolError, service_notice_on_wire
 
@@ -162,9 +163,8 @@ def launched_by_subfleet(env: Any = None) -> str | None:
 
 
 def settings_path() -> Path:
-    override = os.environ.get(SETTINGS_ENV)
-    return (Path(override).expanduser() if override
-            else Path("~/.claude/settings.json").expanduser())
+    from .home_paths import home_path
+    return Path(home_path(SETTINGS_ENV, lambda: "~/.claude/settings.json")).expanduser()
 
 
 def hook_command() -> str:
@@ -372,25 +372,27 @@ def job_summary(job: dict[str, Any], root: Path) -> str:
     and it is named only when the file is there (a job imported from v1 keeps
     its deliverable in the v1 run directory).
     """
-    return (render.notice_header(job, Path(root).resolve(), require_file=True) + "\n"
-            f"no notice row for this job — subfleet runs show {job.get('job_id')}")
+    return render.notice_text(job, Path(root).resolve(),
+                              f"no notice row for this job — subfleet runs show {job.get('job_id')}",
+                              require_file=True)
 
 
 # --- talking to the daemon ----------------------------------------------------
 
-def _pending(client: Client, session: str) -> list[dict[str, Any]]:
-    result = client.call("notice.pending", {"session_id": session})
+def _pending(client: Client, session: str, *, timeout: float | None = None
+             ) -> list[dict[str, Any]]:
+    result = client.call("notice.pending", {"session_id": session}, timeout=timeout)
     rows = result.get("notices")
     return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
 
 
 def _mark(client: Client, session: str, notice_ids: Iterable[int], state: str,
-          transport: str | None = None) -> None:
+          transport: str | None = None, *, timeout: float | None = None) -> None:
     ids = [int(item) for item in notice_ids]
     if not ids:
         return
     client.call("notice.mark", {"session_id": session, "notice_ids": ids,
-                                "state": state, "transport": transport})
+                                "state": state, "transport": transport}, timeout=timeout)
 
 
 def _offline_pending(root: Path, session: str) -> list[dict[str, Any]]:
@@ -437,6 +439,29 @@ def names_a_job(row: dict[str, Any]) -> bool:
     return isinstance(job_id, str) and bool(job_id.strip())
 
 
+#: C-25.7: what a conversation turn's agent is told about suggesting a conversation.
+#: One stable line, on a new session (and after a clear or a compaction, which drop
+#: what the session was told); a resumed turn's session already holds it.
+SUGGEST_HINT = (
+    "Subfleet: this session is a conversation in the Subfleet app. When you find an out-of-scope follow-up "
+    "worth a conversation of its own, propose it with `subfleet suggest --title \"...\" --tldr \"...\" "
+    "--brief-file BRIEF.md [--worktree]` (the brief is its self-contained first message; `subfleet suggest "
+    "--help` has the rest). The owner starts or dismisses it in the app; nothing starts until they do.")
+SUGGEST_HINT_SOURCES = ("startup", "clear", "compact")
+
+
+def suggest_hint(event: str, payload: dict[str, Any], env: Any = None) -> str | None:
+    """C-25.7: `SUGGEST_HINT`, for a `SessionStart` inside a conversation turn (the
+    turn's job is in `SUBFLEET_TURN_JOB`, C-26.13) from a new, cleared or compacted
+    session; otherwise nothing. The hook's own `additionalContext` is the channel:
+    it leaves a turn's command line, environment and frames as they were."""
+    values = os.environ if env is None else env
+    if event != "SessionStart" or not str(values.get("SUBFLEET_TURN_JOB") or "").strip():
+        return None
+    source = payload.get("source") if isinstance(payload, dict) else None
+    return SUGGEST_HINT if source in SUGGEST_HINT_SOURCES else None
+
+
 def session_event(event: str, payload: dict[str, Any], root: Path,
                   *, client: Client | None = None,
                   stdout: Any = None, env: Any = None) -> int:
@@ -473,13 +498,14 @@ def session_event(event: str, payload: dict[str, Any], root: Path,
         rows, marked = _offline_pending(root, session), False
     if launched:
         rows = [row for row in rows if names_a_job(row)]
-    if not rows:
-        return int(Exit.OK)
-    context = render_pending(rows)
+    notices = render_pending(rows) if rows else ""
+    context = "\n\n".join(part for part in (notices, suggest_hint(event, payload, env)) if part)
     if not context:
         return int(Exit.OK)
     stdout.write(json.dumps({"hookSpecificOutput": {
         "hookEventName": event, "additionalContext": context}}) + "\n")
+    if not notices:
+        return int(Exit.OK)
     if marked:
         try:
             _mark(client, session, [row["notice_id"] for row in rows
@@ -524,10 +550,10 @@ def wake_worker(session: str, payload: dict[str, Any], root: Path,
         return None
 
 
-def _candidates(client: Client, session: str, payload: dict[str, Any]
-                ) -> list[dict[str, Any]]:
+def _candidates(client: Client, session: str, payload: dict[str, Any], *,
+                timeout: float | None = None) -> list[dict[str, Any]]:
     """This session's unfinished jobs, narrowed by what the Bash call printed."""
-    result = client.call("list", {"mine": session, "running": True})
+    result = client.call("list", {"mine": session, "running": True}, timeout=timeout)
     rows = result.get("jobs")
     jobs = [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
     if not jobs or not ran_subfleet_run(tool_command(payload)):
@@ -562,7 +588,9 @@ def post_tool_use(payload: dict[str, Any], root: Path, *,
     deadline = now() + (timeout_s() - HOOK_MARGIN_S if budget_s is None else budget_s)
     try:
         client = Client(root, verify_lock=False) if client is None else client     # C-15.6
-        jobs = _candidates(client, session, payload)
+        jobs = _candidates(client, session, payload,
+                           timeout=min(getattr(client, "timeout", DEFAULT_TIMEOUT_S),
+                                       max(0.0, deadline - now())))
     except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
         return int(Exit.OK)
     for job in jobs:
@@ -583,60 +611,67 @@ def post_tool_use(payload: dict[str, Any], root: Path, *,
 #: when it does not — and then it is the difference between one call a second
 #: and a hook spinning on the socket for its whole 600 s budget.
 _RETRY_FLOOR_S = 0.25
+#: Leave two seconds for notice.pending and notice.mark, or half the budget
+#: remaining after candidates when it is shorter. Pending gets at most half
+#: the delivery time left, so it cannot consume mark's allocation.
+_NOTICE_RESERVE_S = 2.0
 
 
 def _wait_and_deliver(client: Client, session: str, job_id: str, deadline: float,
                       *, stderr: Any, now, sleep) -> int:
+    reserve = min(_NOTICE_RESERVE_S, max(0.0, deadline - now()) / 2)
+    poll_deadline = deadline - reserve
     busy = 0
     while True:
-        remaining = deadline - now()
+        remaining = poll_deadline - now()
         if remaining <= 0:
             return int(Exit.OK)                         # silent timeout
         poll = min(remaining, float(WAIT_POLL_MAX_S))
         started = now()
         try:
             result = client.call("wait", {"job_ids": [job_id], "deadline_s": poll},
-                                 timeout=poll + 10, retry_busy=False)
+                                 timeout=min(poll + 10, remaining), retry_busy=False)
         except (DaemonError, DaemonUnavailable) as exc:
             # C-16.7: busy is an empty poll; ask again within the budget, and the
             # next poll has its whole deadline (as #55 on main). A connect refused
             # after a busy answer is that busy daemon's full backlog, not an
             # absent daemon (review r2, P1).
             # An unverifiable lock counts as busy here: the hook's own deadline bounds it.
-            if not ((busy and refused_while_busy(client, exc) is not False)
+            if not ((busy and refused_while_busy(client, exc, deadline_at=poll_deadline) is not False)
                     if isinstance(exc, DaemonUnavailable) else exc.busy):
                 return int(Exit.OK)
             busy += 1
-            sleep(min(busy_pause(busy), max(0.0, deadline - now())))
+            sleep(min(busy_pause(busy), max(0.0, poll_deadline - now())))
             continue
         except (ProtocolError, OSError):
             return int(Exit.OK)
         busy = 0
+        if not result.get("timeout"):
+            jobs = result.get("jobs")
+            rows = ([row for row in jobs if isinstance(row, dict)] if isinstance(jobs, list)
+                    else [row for row in jobs.values() if isinstance(row, dict)]
+                    if isinstance(jobs, dict) else [])
+            job = next((row for row in rows if row.get("job_id") == job_id),
+                       rows[0] if rows else None)
+            if job is not None and job.get("state") in TERMINAL_STATES:
+                return _deliver(client, session, job, stderr=stderr, deadline=deadline, now=now)
         # A `wait` that returns early — a shorter server-side cap, a job the
         # daemon no longer has — must not turn this loop into a busy wait on
         # the socket. C-15.4 makes the deadline a server-side maximum, not a
         # promise about how long the call takes.
         idle = poll - (now() - started)
         if idle > 0:
-            sleep(min(max(idle, _RETRY_FLOOR_S), max(0.0, deadline - now())))
-        if result.get("timeout"):
-            continue
-        jobs = result.get("jobs")
-        rows = ([row for row in jobs if isinstance(row, dict)] if isinstance(jobs, list)
-                else [row for row in jobs.values() if isinstance(row, dict)]
-                if isinstance(jobs, dict) else [])
-        job = next((row for row in rows if row.get("job_id") == job_id),
-                   rows[0] if rows else None)
-        if job is None or job.get("state") not in TERMINAL_STATES:
-            continue                        # not a finish; the pause above ran
-        return _deliver(client, session, job, stderr=stderr)
+            sleep(min(max(idle, _RETRY_FLOOR_S), max(0.0, poll_deadline - now())))
 
 
-def _deliver(client: Client, session: str, job: dict[str, Any], *, stderr: Any) -> int:
+def _deliver(client: Client, session: str, job: dict[str, Any], *, stderr: Any,
+             deadline: float, now) -> int:
     """Show the notice to Claude: stderr plus exit 2 (`claude-hooks.md` §3)."""
     job_id = job.get("job_id")
     try:
-        rows = [row for row in _pending(client, session)
+        rows = [row for row in _pending(
+            client, session, timeout=min(getattr(client, "timeout", DEFAULT_TIMEOUT_S),
+                                         max(0.0, deadline - now()) / 2))
                 if row.get("job_id") == job_id]
     except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
         rows = []
@@ -650,7 +685,9 @@ def _deliver(client: Client, session: str, job: dict[str, Any], *, stderr: Any) 
         try:
             _mark(client, session, [row["notice_id"] for row in rows
                                     if row.get("notice_id") is not None],
-                  "offered", "hook:PostToolUse")
+                  "offered", "hook:PostToolUse",
+                  timeout=min(getattr(client, "timeout", DEFAULT_TIMEOUT_S),
+                              max(0.0, deadline - now())))
         except (DaemonUnavailable, DaemonError, ProtocolError, OSError):
             pass
     return int(Exit.INVALID_INPUT)          # 2: the harness's "show this to Claude"
@@ -718,7 +755,19 @@ def attached_runner(command: str) -> str | None:
     return None
 
 
-def pre_tool_use(payload: dict[str, Any], *, stdout=None) -> int:
+def pre_tool_use(payload: dict[str, Any], *, stdout=None, env: Any = None) -> int:
+    """Deny attached runner launches; in a review launch, deny publishing too.
+
+    The publish rule (C-12.4) applies only where the launch marker is set: the
+    hook runs with the provider's environment, which the job cannot change.
+    """
+    from .publish_rule import PUBLISH_MARKER, denial, payload_refusal
+    values = os.environ if env is None else env
+    if values.get(PUBLISH_MARKER) == '1':
+        refused = payload_refusal(payload)
+        if refused:
+            print(json.dumps(denial(refused)), file=stdout or sys.stdout)
+            return 0
     if payload.get('tool_name', 'Bash') != 'Bash':
         return 0
     offender = attached_runner(tool_command(payload))

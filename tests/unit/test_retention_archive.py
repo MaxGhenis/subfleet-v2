@@ -638,7 +638,6 @@ def test_an_unmeasurable_job_is_decided_and_backs_off(world):
     pass reported more work and the daemon ran one every 5 seconds. Its size is
     now unknown, which decides it; it is measured again only after a backoff
     that doubles."""
-    import time as _time
     w = world
     w.job("ok-job", worktree=False)
     w.job("odd-job", worktree=False)
@@ -651,7 +650,7 @@ def test_an_unmeasurable_job_is_decided_and_backs_off(world):
 
         def one_pass():
             return run(w, max_jobs=100, max_bytes=1 << 30, state=state, clock=clock,
-                       deadline=_time.monotonic() + 180)
+                       deadline=clock() + 180)       # on the pass's clock, not the machine's uptime
 
         first = one_pass()
         assert first["more"] is False, first["pools"]
@@ -857,9 +856,9 @@ def test_a_crash_at_any_step_is_recovered_by_the_next_pass(world, monkeypatch, s
 
 
 def test_a_published_archive_keeps_no_progress_log(world, monkeypatch):
-    """N6 (final review of e50716e8): the progress log only makes a build
-    resumable, and a published archive never resumes; it goes at publish, also
-    when a crash came between the rename and its removal."""
+    """N6: published archives keep no progress log. Publish moves it beside
+    the journal for per-file reclamation checks, including after a crash
+    between the archive rename and the progress-log move."""
     w = world
     make_dirty_detached(w, "job-log")
     w.job("job-log-2")
@@ -1503,11 +1502,15 @@ def test_byte_copy_path_when_clones_are_unavailable(world, monkeypatch):
 
 @pytest.mark.real_lsof
 @pytest.mark.skipif(not os.access("/usr/sbin/lsof", os.X_OK), reason="needs lsof")
-def test_real_lsof_sees_a_process_whose_cwd_is_in_the_tree(world):
+def test_real_lsof_sees_a_process_whose_cwd_is_in_the_tree(world, monkeypatch):
     """E3: after the rename into quarantine, lsof still names the holder."""
     w = world
     wt = w.job("job-cwd")
-    holder = subprocess.Popen(["/bin/sleep", "600"], cwd=wt)
+    from subfleet import procs
+    # Exercise the existing lsof path after the rename. The independent native
+    # pre-move hold is covered by test_retention_worktree_cwd.py.
+    monkeypatch.setattr(procs, "worktree_cwd_pids", lambda *a: frozenset())
+    holder = subprocess.Popen(["/bin/sleep", "600"], cwd=wt, start_new_session=True)
     try:
         result = retention.maintenance(w.store, w.root, max_jobs=0, max_bytes=0)
         assert result["pruned"] == [] and "busy" in result["deferred"]["job-cwd"], result

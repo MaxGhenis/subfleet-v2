@@ -22,8 +22,10 @@ from typing import Any
 from .alerts import LATCH_QUERY, active_alerts, load_latches
 from .client import same_process
 from .contracts import READING_TTL_S, Exit, JobState
+from .quota_projection import weekly_projections
+from .status_json import closure_row, decision_rows
 from .store import SCHEMA_VERSION as KNOWN_SCHEMA_VERSION
-from .store import notice_rows
+from .store import WEEKLY_HISTORY_SQL, cancel_info, notice_rows, shell_flags, weekly_history_params
 
 STORE_NAME = "state.sqlite3"
 RECEIPTS = ("start", "exit")            # C-5.2 receipts beside the store (C-17.5)
@@ -72,7 +74,7 @@ def _duration_s(started: Any, finished: Any) -> float | None:
     return max(0.0, (end - begin).total_seconds())
 
 
-def age_adjusted_label(label: Any, observed_at: Any) -> Any:
+def age_adjusted_label(label: Any, observed_at: Any, *, now: datetime | None = None) -> Any:
     """C-9.1: a `provider` reading beyond `reading_ttl_s` is `stale-provider`.
 
     The stored label records what the reading was when the daemon wrote it.
@@ -83,7 +85,7 @@ def age_adjusted_label(label: Any, observed_at: Any) -> Any:
     observed = _parse_ts(observed_at)
     if observed is None:
         return "stale-provider"
-    age = (datetime.now(timezone.utc) - observed).total_seconds()
+    age = ((now if now is not None else datetime.now(timezone.utc)) - observed).total_seconds()
     return "provider" if age <= READING_TTL_S else "stale-provider"
 
 
@@ -250,7 +252,12 @@ class Offline:
             if row is None:
                 raise LookupError(f"no job {job_id!r} in {self.store_path}")
             job = self._job_dict(row)
-            job["attempts"] = [dict(item) for item in conn.execute(
+            cancel = conn.execute("SELECT ts,data_json FROM events WHERE job_id=? "
+                                  "AND kind='job.cancel_requested' AND event_id>COALESCE((SELECT MAX(event_id) "
+                                  "FROM events WHERE job_id=? AND kind='job.wall_cancel_superseded'),0) "
+                                  "ORDER BY event_id DESC LIMIT 1", (job_id, job_id)).fetchone()
+            job["cancel"] = cancel_info(cancel["ts"], cancel["data_json"]) if cancel and job["cancel_requested_at"] else None
+            job["attempts"] = [shell_flags(item) for item in conn.execute(
                 "SELECT * FROM attempts WHERE job_id = ? ORDER BY seq", (job_id,))]
             ids = [attempt["attempt_id"] for attempt in job["attempts"]]
             job["artifacts"] = []
@@ -267,6 +274,15 @@ class Offline:
                 key=lambda item: item.get("attempt_id") != accepted)
             job["notices"] = [dict(item) for item in conn.execute(
                 "SELECT * FROM notices WHERE job_id = ? ORDER BY notice_id", (job_id,))]
+            submitted = conn.execute("SELECT data_json FROM events WHERE job_id=? AND +kind='job.submitted' "
+                                     "ORDER BY event_id LIMIT 1", (job_id,)).fetchone()
+            try:
+                job["uncommitted"] = json.loads(submitted["data_json"] or "{}").get("uncommitted") if submitted else None
+            except (json.JSONDecodeError, TypeError, AttributeError):
+                job["uncommitted"] = None
+            job["pushes"] = ([dict(item) for item in conn.execute(
+                "SELECT * FROM job_pushes WHERE job_id=?", (job_id,))]
+                if conn.execute("SELECT 1 FROM sqlite_master WHERE name='job_pushes'").fetchone() else [])
             decisions = conn.execute(
                 "SELECT decision_json FROM decisions WHERE job_id = ?"
                 " ORDER BY evaluated_at DESC, decision_id DESC LIMIT 1",
@@ -274,7 +290,8 @@ class Offline:
         job["decision"] = None
         if decisions is not None:
             try:
-                job["decision"] = json.loads(decisions["decision_json"])
+                # C-9.6 (review r2 of #263, P3-2): a hold's source as every reader shows it.
+                job["decision"] = decision_rows(json.loads(decisions["decision_json"]))
             except (json.JSONDecodeError, TypeError):
                 job["decision"] = None
         for attempt in job["attempts"]:
@@ -298,7 +315,9 @@ class Offline:
 
     @staticmethod
     def _job_dict(row: sqlite3.Row) -> dict[str, Any]:
-        job = {key: row[key] for key in row.keys()}
+        # The daemon's boolean launch fields (C-12.4), for `show` and `list` alike
+        # (#221 review r1b, P3-4): offline JSON gave 1 where the daemon gave true.
+        job = shell_flags({key: row[key] for key in row.keys()})
         job["duration_s"] = _duration_s(job.get("started_at"), job.get("finished_at"))
         job["model"] = job.get("model_served") or job.get("model_requested")
         job["family"] = job.get("provider")
@@ -321,6 +340,7 @@ class Offline:
                 "SELECT * FROM lanes ORDER BY lane_id")]
 
     def status(self) -> dict[str, Any]:
+        at = datetime.now(timezone.utc)
         with self.reading() as conn:
             tables = self._tables(conn)
             lanes = [dict(row) for row in conn.execute(
@@ -335,9 +355,12 @@ class Offline:
                                                     x.reading_id DESC
                                            LIMIT 1)
                     ORDER BY r.lane_id, r.window""")] if "readings" in tables else []
-            closures = [dict(row) for row in conn.execute(
+            # D-STATUS-SRC1: with `kind` and `note`, as `daemon.status` shows them.
+            closures = [closure_row(dict(row)) for row in conn.execute(
                 "SELECT * FROM closures WHERE released_at IS NULL"
                 " ORDER BY lane_id, until_at")] if "closures" in tables else []
+            weekly_samples = [dict(row) for row in conn.execute(
+                WEEKLY_HISTORY_SQL, weekly_history_params(at))] if "readings" in tables else []
             in_flight: dict[str, int] = {}
             if "attempts" in tables:
                 marks = ",".join("?" for _ in LIVE_ATTEMPT_STATES)
@@ -346,6 +369,10 @@ class Offline:
                         f" WHERE state IN ({marks}) GROUP BY lane_id",
                         LIVE_ATTEMPT_STATES):
                     in_flight[row["lane_id"]] = row["n"]
+            restricted = []
+            if "attempts" in tables and "capability" in {row["name"] for row in conn.execute("PRAGMA table_info(attempts)")}:
+                from .store import RESTRICTED_RUNS_SQL, restricted_window
+                restricted = [row["job_id"] for row in conn.execute(RESTRICTED_RUNS_SQL, restricted_window(at))]
             version = self.schema_version(conn)
             # C-18.4: the alerts in force, from their latches, in the words they
             # last fired with (no cycle runs without the daemon).
@@ -355,19 +382,41 @@ class Offline:
             lane["in_flight"] = in_flight.get(lane.get("lane_id"), 0)
         for reading in readings:
             reading["label"] = age_adjusted_label(reading.get("label"),
-                                                  reading.get("observed_at"))
+                                                  reading.get("observed_at"), now=at)
+        for lane in lanes:
+            lane["weekly_projections"] = weekly_projections(
+                {**lane, "readings": [row for row in readings if row["lane_id"] == lane["lane_id"]]},
+                now=at, samples=weekly_samples)
         return {
             "offline": True,
+            "now": at.isoformat().replace("+00:00", "Z"),
             "state_root": str(self.root),
             "schema_version": version,
+            "restricted_runs_24h": restricted,
             "lanes": lanes,
             "readings": readings,
+            "weekly_samples": weekly_samples,
             "closures": closures,
             "running": self.list_jobs(running=True, last=50),
             # C-26.12: conversations' turns, counted apart from detached work.
             "turns": self.list_jobs(running=True, last=50, kind="turn"),
             "alerts": active_alerts(latches),
+            "claude_cards": self._cards_view(),     # C-9.10: the last snapshot the daemon wrote
         }
+
+    def _cards_view(self) -> dict[str, Any]:
+        from . import claude_cards
+        from .policy import PolicyError, load_policy
+        try:
+            policy = load_policy(self.root / "policy.json")
+        except (PolicyError, OSError):
+            policy = {}
+        if not claude_cards.settings(policy)["enabled"]:
+            return {"read_at": None, "accounts": [], "warnings": [], "disabled": True}
+        try:
+            return claude_cards.load_view(self.root, policy, datetime.now(timezone.utc))
+        except Exception as exc:                    # noqa: BLE001 - status never fails on this section
+            return {"read_at": None, "accounts": [], "warnings": [], "error_type": type(exc).__name__}
 
     def notices(self, session_id: str | None = None, *, resolved: bool = False) -> list[dict[str, Any]]:
         """C-15.8: `notices` with no daemon; the same rows `notice.list` returns."""

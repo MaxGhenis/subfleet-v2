@@ -33,15 +33,54 @@ import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from .contracts import Closure, Credential, Decision, IdentityStatus, Lane, LaneOwner, Reading
 from .lockwatch import WatchedLock, thread_name
 
-SCHEMA_VERSION = 6
+SHELL_REQUIREMENT_MIGRATION = 8
+LAUNCH_CAPABILITY_MIGRATION = 9
+SCHEMA_VERSION = LAUNCH_CAPABILITY_MIGRATION
+#: C-12.4: jobs whose attempts in the last 24 h had no shell or no writes. A
+#: range on `reserved_at`, which `attempts_reserved` indexes, in the stored
+#: spelling (`restricted_window`): `julianday(reserved_at)` could use no index and
+#: scanned every attempt (#221 review r1b, P3-9).
+RESTRICTED_RUNS_SQL = (
+    "SELECT DISTINCT job_id FROM attempts WHERE reserved_at >= ? AND reserved_at <= ? "
+    "AND capability IN ('none','commands') ORDER BY job_id"
+)
+
+
+def restricted_window(now: datetime | str) -> tuple[str, str]:
+    """`RESTRICTED_RUNS_SQL`'s bounds: 24 h back from `now`, spelled as the daemon
+    stores `reserved_at` (`2026-10-18T21:00:00Z`)."""
+    at = (datetime.fromisoformat(now.replace("Z", "+00:00")) if isinstance(now, str) else now)
+    at = at.astimezone(timezone.utc)
+    spell = lambda moment: moment.isoformat(timespec="seconds").replace("+00:00", "Z")  # noqa: E731
+    return spell(at - timedelta(days=1)), spell(at)
+#: C-9.6: closure reasons that each keep a row of their own (`Store.put_closure`).
+HOLD_REASONS = ("operator-hold", "auth-dead")
 Row = dict[str, Any]
+
+# Canonical observations use the partial time index; offset/fractional clocks
+# use the parsed-time expression index. Both UNION branches search time bounds.
+WEEKLY_HISTORY_SQL = (
+    "SELECT * FROM readings WHERE window='seven_day' AND label IN ('provider','stale-provider') "
+    "AND observed_at BETWEEN ? AND ? AND observed_at GLOB ? "
+    "UNION ALL SELECT * FROM readings WHERE window='seven_day' "
+    "AND label IN ('provider','stale-provider') AND NOT observed_at GLOB ? "
+    "AND julianday(observed_at) BETWEEN julianday(?) AND julianday(?)"
+)
+
+
+def weekly_history_params(now: str | datetime | None = None) -> tuple[str, ...]:
+    from .quota_projection import instant
+    at = instant(now) if now is not None else datetime.now(timezone.utc)
+    end = at.isoformat(timespec="seconds").replace("+00:00", "Z")
+    start = (at - timedelta(hours=24)).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return start, end, Store.CANONICAL_TS, Store.CANONICAL_TS, start, at.isoformat()
 
 #: C-3.7: read connections no snapshot may hold, kept for one-statement reads.
 STATEMENT_RESERVE = 2
@@ -73,7 +112,26 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
     5: ("ALTER TABLE jobs ADD COLUMN unmeasured_reserve_reason TEXT",),
     # C-12.9, d714: the MCP servers a job named; an older job named none.
     6: ("ALTER TABLE jobs ADD COLUMN mcp_servers TEXT NOT NULL DEFAULT '[]'",),
+    7: tuple(f"ALTER TABLE jobs ADD COLUMN {column} TEXT" for column in
+             ("push_branch", "push_remote", "push_default_branch", "push_sha", "push_error")),
+    SHELL_REQUIREMENT_MIGRATION: (
+        "ALTER TABLE jobs ADD COLUMN needs_shell INTEGER NOT NULL DEFAULT 0 CHECK (needs_shell IN (0,1))",
+        "ALTER TABLE attempts ADD COLUMN has_shell INTEGER CHECK (has_shell IN (0,1))",
+    ),
+    LAUNCH_CAPABILITY_MIGRATION: (
+        "ALTER TABLE attempts ADD COLUMN capability TEXT CHECK (capability IN ('none','commands','writable'))",
+        "ALTER TABLE attempts ADD COLUMN publish_denied INTEGER CHECK (publish_denied IN (0,1))",
+    ),
 }
+
+
+def shell_flags(row: Mapping[str, Any]) -> Row:
+    """Boolean launch fields for domain records, never arbitrary SQL results."""
+    value = dict(row)
+    for key in ("needs_shell", "has_shell", "publish_denied"):
+        if key in value and value[key] is not None:
+            value[key] = bool(value[key])
+    return value
 
 
 def utc_now() -> str:
@@ -82,6 +140,14 @@ def utc_now() -> str:
 
 def _json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def cancel_info(at: str, data_json: str) -> dict[str, Any]:
+    """D-KILL1: display attribution without implying a client stated session is verified."""
+    data = {"at": at, **json.loads(data_json)}
+    if data.get("by") == "client":
+        data.update(session_id_source="client-stated", pid_source="socket-peer-audit-token")
+    return data
 
 
 def _pin_notice_key(data_json: str | None) -> tuple | None:
@@ -189,7 +255,13 @@ class SnapshotWriteError(RuntimeError):
 
 class Store:
     def __init__(self, path: str | Path, read_only: bool = False, *, readonly: bool | None = None,
-                 readers: int = 0, read_wait_s: float = READ_WAIT_S):
+                 readers: int = 0, read_wait_s: float = READ_WAIT_S, initialize: bool = True):
+        """Open a store, optionally without applying any schema DDL.
+
+        `initialize=False` requires an existing, current-version database. It
+        lets maintenance back up and prove the original store without repairing
+        tables or indexes before taking its baseline.
+        """
         self.path = Path(path)
         self.read_only = read_only if readonly is None else readonly
         # C-3.7: read connections, opened on first use, at most `readers` of them.
@@ -221,9 +293,10 @@ class Store:
         # A reader compares it without taking `_lock` (an int read is atomic)
         # to learn whether anything it derived from the store can have changed.
         self.generation = 0
-        if not self.read_only:
+        if not self.read_only and initialize:
             self.path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
-        uri = self.path.resolve().as_uri() + ("?mode=ro" if self.read_only else "?mode=rwc")
+        mode = "ro" if self.read_only else ("rwc" if initialize else "rw")
+        uri = self.path.resolve().as_uri() + f"?mode={mode}"
         self.connection = sqlite3.connect(uri, uri=True, isolation_level=None,
                                           check_same_thread=False, timeout=5)
         self.connection.row_factory = sqlite3.Row
@@ -234,14 +307,19 @@ class Store:
             version = self.connection.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] if exists else 0
             if version and version > SCHEMA_VERSION:
                 raise SchemaVersionError(f"store schema {version} is newer than supported schema {SCHEMA_VERSION}")
+            if not self.read_only and not initialize and version != SCHEMA_VERSION:
+                raise SchemaVersionError(
+                    f"store schema {version or 0} requires initialization or migration; "
+                    f"supported schema {SCHEMA_VERSION}")
             if self.read_only:
                 if not version:
                     raise SchemaVersionError(f"store schema {version or 0} is uninitialized; supported schema {SCHEMA_VERSION}")
                 self.connection.execute("PRAGMA query_only=ON")
-            else:
+            if not self.read_only:
                 self.connection.execute("PRAGMA journal_mode=WAL")
                 self.connection.execute("PRAGMA synchronous=FULL")
                 self.connection.execute(f"PRAGMA journal_size_limit={int(WAL_SIZE_LIMIT)}")
+            if not self.read_only and initialize:
                 # Columns first, then the schema file: `store_schema.sql` always
                 # describes the newest version, and its indexes cannot be created
                 # over an older table until that table has caught up (C-3.1).
@@ -290,9 +368,16 @@ class Store:
                     _alter, _table_kw, table, _add, _column_kw, column, *_rest = statement.split()
                     present = {row[1] for row in
                                self.connection.execute(f'PRAGMA table_info("{table}")')}
-                    if column in present:
+                    # The schema file creates any table absent from an old store.
+                    if not present or column in present:
                         continue
                 self.connection.execute(statement)
+            if step == LAUNCH_CAPABILITY_MIGRATION and self.connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='attempts'").fetchone():
+                self.connection.execute(
+                    "UPDATE attempts SET capability=CASE WHEN has_shell=0 THEN 'none' "
+                    "WHEN has_shell=1 AND (SELECT sandbox FROM jobs WHERE jobs.job_id=attempts.job_id)="
+                    "'workspace-write' THEN 'writable' WHEN has_shell=1 THEN 'commands' ELSE NULL END")
             self.connection.execute("INSERT INTO schema_version VALUES (?,?)", (step, utc_now()))
             self.connection.execute("INSERT INTO events(ts,kind,data_json) VALUES (?,?,?)",
                                     (utc_now(), "schema.migrated", _json({"version": step})))
@@ -674,6 +759,27 @@ class Store:
                 raise ValueError("a mismatched lane is released only by re-enrolment")
         self._update("lanes", "lane_id", lane_id, {**values, "updated_at": utc_now()})
 
+    def repair_lane_reference(self, lane_id: str, old: str, new: str) -> int:
+        """D-ENV1 (review r4, P2-1): point a held env-kind lane at the variable lanes.json names.
+
+        The one change to a binding outside re-enrolment (C-1.3). The stored
+        variable is one every launch inherits, so the lane never held a
+        credential this release could resolve; its id, provider and account stay
+        and its credential epoch moves on. The caller (`credentials.reference_repair`)
+        decides that it may; this changes the row only while it still names `old`.
+        Returns the new epoch, or 0 when nothing changed.
+        """
+        with self.transaction("lane.reference_repaired", lane_id=lane_id) as conn:
+            row = self.one("SELECT credential_epoch FROM lanes WHERE lane_id=? AND credential_kind='env' "
+                           "AND credential_ref=?", (lane_id, old))
+            if row is None:
+                return 0
+            epoch = int(row["credential_epoch"]) + 1
+            self.add_event("lane.reference_repaired", lane_id=lane_id, data={"from": old, "to": new, "epoch": epoch})
+            conn.execute("UPDATE lanes SET credential_ref=?, credential_epoch=?, updated_at=? WHERE lane_id=? "
+                         "AND credential_kind='env' AND credential_ref=?", (new, epoch, utc_now(), lane_id, old))
+        return epoch
+
     def get_lane(self, lane_id: str) -> Lane | None:
         row = self.one("SELECT * FROM lanes WHERE lane_id=?", (lane_id,))
         return self.lane_from_row(row) if row else None
@@ -690,10 +796,12 @@ class Store:
         return data["job_id"]
 
     def get_job(self, job_id: str) -> Row | None:
-        return self.one("SELECT * FROM jobs WHERE job_id=?", (job_id,))
+        row = self.one("SELECT * FROM jobs WHERE job_id=?", (job_id,))
+        return shell_flags(row) if row is not None else None
 
     def get_job_by_request(self, request_id: str) -> Row | None:
-        return self.one("SELECT * FROM jobs WHERE request_id=?", (request_id,))
+        row = self.one("SELECT * FROM jobs WHERE request_id=?", (request_id,))
+        return shell_flags(row) if row is not None else None
 
     def list_jobs(self, *, state: str | None = None, session_id: str | None = None, limit: int | None = None) -> list[Row]:
         clauses, values = [], []
@@ -705,7 +813,7 @@ class Store:
         if limit is not None:
             sql += " LIMIT ?"
             values.append(limit)
-        return self.query(sql, values)
+        return [shell_flags(row) for row in self.query(sql, values)]
 
     def update_job(self, job_id: str, **values: Any) -> None:
         self._update("jobs", "job_id", job_id, values)
@@ -716,10 +824,13 @@ class Store:
         return data["attempt_id"]
 
     def get_attempt(self, attempt_id: str) -> Row | None:
-        return self.one("SELECT * FROM attempts WHERE attempt_id=?", (attempt_id,))
+        row = self.one("SELECT * FROM attempts WHERE attempt_id=?", (attempt_id,))
+        return shell_flags(row) if row is not None else None
 
     def list_attempts(self, job_id: str | None = None) -> list[Row]:
-        return self.query("SELECT * FROM attempts" + (" WHERE job_id=?" if job_id else "") + " ORDER BY reserved_at,seq", (job_id,) if job_id else ())
+        return [shell_flags(row) for row in self.query(
+            "SELECT * FROM attempts" + (" WHERE job_id=?" if job_id else "") + " ORDER BY reserved_at,seq",
+            (job_id,) if job_id else ())]
 
     def update_attempt(self, attempt_id: str, **values: Any) -> None:
         if set(values) & {"attempt_id", "job_id", "seq", "lane_id", "model_requested"}:
@@ -815,8 +926,22 @@ class Store:
     def list_readings(self, lane_id: str | None = None) -> list[Row]:
         return self.query("SELECT * FROM readings" + (" WHERE lane_id=?" if lane_id else "") + " ORDER BY observed_at DESC,reading_id DESC", (lane_id,) if lane_id else ())
 
+    def weekly_projection_samples(self, *, now: str | datetime | None = None) -> list[Row]:
+        """Read only 24 hours of weekly provider history, apart from newest evidence."""
+        return self.query(WEEKLY_HISTORY_SQL, weekly_history_params(now))
+
     def put_closure(self, closure: Closure) -> int:
-        """One open closure per lane and scope: a later end extends the row in place.
+        """One open closure per lane, scope and kind: a later end extends the row in place.
+
+        C-9.6 (D-HOLD1): a hold (`operator-hold`, `auth-dead`) keeps a row of its
+        own, apart from the limits (`provider-limit`, `credits`, `cooldown`),
+        which share one. A limit never extends or replaces a hold's row, so a
+        reset, a reset credit or `lanes release --limits`, which release limit
+        rows, never end a hold; and a hold never swallows a limit that ends
+        sooner, so `lanes release` leaves the limit in force. Before, a weekly
+        limit reported on a held lane rewrote the hold's row as its own, and the
+        usage read that saw the window reset then opened the lane hours before
+        the hold's end.
 
         Every call leaves a `closure.recorded` event for the lane, including a
         limit reported again that ends no later than the open row's and so
@@ -825,8 +950,12 @@ class Store:
         the closure. The row is rewritten as it is so that the transaction has a
         change to record.
         """
+        reason = str(getattr(closure.reason, "value", closure.reason))
+        kind, values = (("reason=?", (reason,)) if reason in HOLD_REASONS else
+                        (f"reason NOT IN ({','.join('?' * len(HOLD_REASONS))})", HOLD_REASONS))
         with self.transaction("closure.recorded", lane_id=closure.lane_id) as conn:
-            existing = self.one("SELECT * FROM closures WHERE lane_id=? AND scope=? AND released_at IS NULL ORDER BY until_at DESC LIMIT 1", (closure.lane_id, closure.scope))
+            existing = self.one(f"SELECT * FROM closures WHERE lane_id=? AND scope=? AND released_at IS NULL AND {kind} "
+                                "ORDER BY until_at DESC LIMIT 1", (closure.lane_id, closure.scope, *values))
             if existing:
                 if closure.until_at > existing["until_at"]:
                     self._update("closures", "closure_id", existing["closure_id"], asdict(closure))

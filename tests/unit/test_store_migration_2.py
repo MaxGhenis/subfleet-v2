@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from subfleet.contracts import Credential, Lane, LaneOwner
+from subfleet import store as store_module
 from subfleet.store import MIGRATIONS, SCHEMA_VERSION, Store
 
 #: `lanes` exactly as schema version 1 declared it, so the migration is proved
@@ -98,7 +99,7 @@ def test_the_migration_is_numbered_and_recorded(version_1_store):
         assert versions == list(range(1, SCHEMA_VERSION + 1))
         migrated = [row for row in store.list_events() if row["kind"] == "schema.migrated"]
         assert [json.loads(r["data_json"])["version"] for r in migrated] == list(range(2, SCHEMA_VERSION + 1))
-    assert set(MIGRATIONS) == {4, 5, 6}
+    assert set(MIGRATIONS) == set(range(4, SCHEMA_VERSION + 1))
 
 
 def test_reopening_a_migrated_store_changes_nothing(version_1_store):
@@ -203,3 +204,107 @@ def test_an_unknown_identity_status_is_refused_in_words_at_the_seam(version_1_st
                            identity_status="probably-fine")
         assert store.get_lane("claude-2") is None
         assert lane.lane_id == "claude-1"
+
+
+
+def _migration_adding(column):
+    return next(version for version, statements in store_module.MIGRATIONS.items()
+                if any(statement.startswith('ALTER TABLE ') and statement.split()[5] == column
+                       for statement in statements))
+
+
+def _schema_before_migration(conn, migration):
+    """Undo additive migrations from the current DDL, using the migration table."""
+    conn.executescript((Path(__file__).parents[2] / 'subfleet/store_schema.sql').read_text())
+    for version, statements in sorted(store_module.MIGRATIONS.items(), reverse=True):
+        if version >= migration:
+            for statement in reversed(statements):
+                parts = statement.split()
+                assert parts[:2] == ['ALTER', 'TABLE'] and parts[3:5] == ['ADD', 'COLUMN']
+                conn.execute(f'ALTER TABLE "{parts[2]}" DROP COLUMN "{parts[5]}"')
+    conn.execute("INSERT INTO schema_version VALUES (?,'2026-10-14T00:00:00Z')", (migration - 1,))
+
+
+def test_d_sh1_historical_rows_survive_with_unknown_shell(tmp_path):
+    path = tmp_path / 'old.sqlite3'
+    with sqlite3.connect(path) as conn:
+        _schema_before_migration(conn, _migration_adding('needs_shell'))
+        conn.execute("INSERT INTO lanes(lane_id,provider,account_key,credential_ref,credential_kind,created_at,updated_at) "
+                     "VALUES ('claude-1','claude','claude:fixture','/fake','home','now','now')")
+        conn.execute("INSERT INTO jobs(job_id,request_id,payload_digest,kind,state,workdir,prompt_path,sandbox,created_at) "
+                     "VALUES ('old','old','digest','dispatch','queued','/work','/prompt','read-only','now')")
+        conn.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at) "
+                     "VALUES ('old/a1','old',1,'claude-1','opus','succeeded','now')")
+    with Store(path) as store:
+        assert store.get_job('old')['needs_shell'] is False
+        assert store.get_attempt('old/a1')['has_shell'] is None
+        assert store.one('SELECT MAX(version) AS version FROM schema_version')['version'] == SCHEMA_VERSION
+    with Store(path) as store:
+        assert store.get_attempt('old/a1')['has_shell'] is None
+
+
+@pytest.mark.parametrize('flag,sandbox,expected', [(0, 'read-only', 'none'),
+    (1, 'read-only', 'commands'), (1, 'workspace-write', 'writable'), (None, 'read-only', None)])
+@pytest.mark.parametrize('renumber', [False, True])
+def test_d_sh1_capabilities_migrate_without_inventing_publish_denial(tmp_path, monkeypatch,
+                                                                  flag, sandbox, expected, renumber):
+    if renumber:
+        # A competing release migration takes the first slot; shift both D-SH1 steps.
+        first = _migration_adding('needs_shell')
+        capability = _migration_adding('capability')
+        shifted = {version + (version >= first): statements
+                   for version, statements in store_module.MIGRATIONS.items()}
+        shifted[first] = ()
+        monkeypatch.setattr(store_module, 'MIGRATIONS', shifted)
+        monkeypatch.setattr(store_module, 'SCHEMA_VERSION', SCHEMA_VERSION + 1)
+        monkeypatch.setattr(store_module, 'SHELL_REQUIREMENT_MIGRATION', first + 1, raising=False)
+        monkeypatch.setattr(store_module, 'LAUNCH_CAPABILITY_MIGRATION', capability + 1, raising=False)
+    path = tmp_path / 'previous.sqlite3'
+    with sqlite3.connect(path) as conn:
+        _schema_before_migration(conn, _migration_adding('capability'))
+        conn.execute("INSERT INTO lanes(lane_id,provider,account_key,credential_ref,credential_kind,created_at,updated_at) "
+                     "VALUES ('lane','codex','fixture','/fake','home','now','now')")
+        conn.execute("INSERT INTO jobs(job_id,request_id,payload_digest,kind,state,workdir,prompt_path,sandbox,created_at) "
+                     "VALUES ('old','old','digest','dispatch','queued','/work','/prompt',?,'now')", (sandbox,))
+        conn.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at,has_shell) "
+                     "VALUES ('old/a1','old',1,'lane','fixture','succeeded','now',?)", (flag,))
+    with Store(path) as store:
+        attempt = store.get_attempt('old/a1')
+        assert attempt['capability'] == expected and attempt['publish_denied'] is None
+
+
+@pytest.mark.parametrize('readers', [0, 4])
+def test_launch_flags_preserve_sql_aggregates_and_archive_snapshot_bytes(tmp_path, readers):
+    """Raw SQL and a transaction describe identical rows; domain reads expose booleans."""
+    from subfleet.retention_archive import job_rows
+    from tests.conftest import make_lane
+
+    with Store(tmp_path / 'flags.sqlite3', readers=readers) as store:
+        store.put_lane(make_lane())
+        for index in range(2):
+            identity = f'job-{index}'
+            store.add_job(job_id=identity, request_id=identity, payload_digest='digest',
+                          kind='dispatch', workdir='/work', prompt_path='/prompt',
+                          sandbox='read-only', needs_shell=True)
+            store.add_attempt(attempt_id=identity + '/a1', job_id=identity, seq=1,
+                              lane_id='claude-1', model_requested='fixture',
+                              has_shell=True if index == 0 else None,
+                              publish_denied=True if index == 0 else None)
+
+        assert store.one('SELECT SUM(needs_shell) AS needs_shell FROM jobs')['needs_shell'] == 2
+        assert type(store.query('SELECT needs_shell FROM jobs')[0]['needs_shell']) is int
+        raw = store.one("SELECT has_shell,publish_denied FROM attempts WHERE job_id='job-0'")
+        assert type(raw['has_shell']) is type(raw['publish_denied']) is int
+        before = json.dumps(job_rows(store, 'job-0'), sort_keys=True)
+        with store.transaction('fixture.archive_snapshot') as conn:
+            assert json.dumps(job_rows(conn, 'job-0'), sort_keys=True) == before
+
+        assert store.get_job('job-0')['needs_shell'] is True
+        assert store.get_job_by_request('job-0')['needs_shell'] is True
+        assert all(job['needs_shell'] is True for job in store.list_jobs())
+        attempt = store.get_attempt('job-0/a1')
+        assert attempt['has_shell'] is attempt['publish_denied'] is True
+        assert store.list_attempts('job-0')[0]['publish_denied'] is True
+        assert store.get_attempt('job-1/a1')['publish_denied'] is None
+        assert store.get_job('missing') is store.get_job_by_request('missing') is None
+        assert store.get_attempt('missing') is None

@@ -1,6 +1,9 @@
 """Codex subscription adapter (C-9, C-10, C-12); no store or process ownership."""
 from __future__ import annotations
 
+from ..contracts import launch_capability
+from ..review_publish import codex_environment_overrides, protect_launch, publishing_denied
+
 import base64
 import json
 import math
@@ -14,7 +17,8 @@ from pathlib import Path
 from typing import Callable, Iterator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from .base import Adapter, AdapterError
+from ..launch_env import build_environment
+from .base import Adapter, AdapterError, open_stream, stream_path
 from ..guardian import atomic_publish
 from ..sessions.transcripts import NotRegularFile, open_regular, read_regular
 from ..contracts import (
@@ -53,13 +57,25 @@ LIMIT_RE = re.compile(
     r"hit your usage limit|usage limit reached|usage_limit_reached|"
     r"(?:model|account).{0,60}(?:quota|usage limit)|quota exceeded|" + CREDITS_RE.pattern, re.I,
 )
-CONTENT_RE = re.compile(r"content[ _-]filter|trusted access|can('|’)t (help|assist) with", re.I)
+# The provider's safety refusals. "This content was flagged for possible cybersecurity risk
+# ... apply for Daybreak access" is gpt-6.1-sol's wording on 2026-10-09; "trusted access" is
+# the older one. The new phrases need their refusal context, so a CLI diagnostic that merely
+# names a path like ".../daybreak access/config.toml" is not a refusal.
+CONTENT_RE = re.compile(r"content[ _-]filter|trusted access|apply for daybreak access|"
+                        r"this (?:content|request) was flagged for possible [\w -]{0,40}risk|"
+                        r"can('|’)t (help|assist) with", re.I)
 OLD_CLI_RE = re.compile(
     r"cli.{0,45}(?:too old|outdated)|"
     r"(?:upgrade|update)\s+(?:(?:your|the)\s+)?(?:codex|cli)\b|"
     r"(?:unsupported|unrecognized|unexpected|unknown) (?:argument|option|flag)|"
     r"minimum.{0,30}(?:codex|cli|version)|requires? (?:codex )?version", re.I,
 )
+#: C-9.5, D-CAP1: the provider refusing the model itself for want of capacity: "Selected model is
+#: at capacity. Please try a different model." (gpt-6.1-sol, an `error` event and then the
+#: `turn.failed` that ended the turn, 84 attempts from 2026-10-01 to 2026-10-13). Still
+#: `transient`, never a closure: the account and the lane are fine, and so is the model for most
+#: jobs meanwhile. A server's or a gateway's capacity is not the model's.
+MODEL_CAPACITY_RE = re.compile(r"\bmodel(?:[ _](?:is|was))?(?:[ _]currently)?[ _]at[ _]capacity\b", re.I)
 TRANSIENT_RE = re.compile(
     r"\b5\d\d\b|capacity|disconnect|overloaded|timed? ?out|temporarily|"
     r"rate limit|too many requests|\b429\b|\b401\b|unauthorized|"
@@ -67,6 +83,51 @@ TRANSIENT_RE = re.compile(
     r"\bTLS\b|\bSSL\b|certificate verify|connection (?:reset|refused|closed)|"
     r"error sending request|stream.{0,30}(?:closed|ended|failed)", re.I,
 )
+
+
+# Capacity must be the message itself, not a phrase inside captured tool output.
+MODEL_CAPACITY_MESSAGE_RE = re.compile(
+    r"^\s*(?:ERROR:\s*)?(?:(?:Selected |The )?" + MODEL_CAPACITY_RE.pattern
+    + r"|error code:\s*model_at_capacity\b)", re.I,
+)
+# Codex tracing records delimit multiline diagnostic payloads. A plain ERROR:
+# inside a tool record remains quoted; a separate provider record ends it.
+CODEX_RECORD_RE = re.compile(
+    r"^\s*(?:\d{4}-\d{2}-\d{2}T\S+\s+)?(?:TRACE|DEBUG|INFO|WARN|ERROR)\s+"
+    r"(?P<target>codex_core::[\w:]+):\s*(?P<message>.*)$",
+)
+TOOL_OUTPUT_PREFIX_RE = re.compile(r"^\s*(?:ERROR:\s*)?(?:Tool\b|Captured\b|Quoted output\b)", re.I)
+
+
+def _capacity_signals(failures: list[dict], stderr: str) -> Iterator[tuple[dict, str]]:
+    """C-9.5: refusal at message start; tool payload stays within its own record."""
+    for event in failures:
+        message = event.get("message")
+        error = event.get("error")
+        if not isinstance(message, str) and isinstance(error, dict):
+            message = error.get("message")
+        if isinstance(message, str) and MODEL_CAPACITY_MESSAGE_RE.match(message):
+            yield event, message
+    tool_diagnostic = False
+    for line in stderr.splitlines():
+        record = CODEX_RECORD_RE.match(line)
+        if record:
+            tool_diagnostic = record["target"].startswith("codex_core::tools::") or bool(
+                TOOL_OUTPUT_PREFIX_RE.match(record["message"]))
+            if not tool_diagnostic and MODEL_CAPACITY_MESSAGE_RE.match(record["message"]):
+                yield {}, line
+            continue
+        if "codex_core::tools::" in line or TOOL_OUTPUT_PREFIX_RE.match(line):
+            tool_diagnostic = True
+        if not tool_diagnostic and MODEL_CAPACITY_MESSAGE_RE.match(line):
+            yield {}, line
+
+
+class _NoConsumeRedirect(urllib.request.HTTPRedirectHandler):
+    """Keep the consume POST's response; a later request cannot prove refusal."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
 def _utcnow() -> datetime:
@@ -142,11 +203,12 @@ def _identity(raw: dict) -> dict:
     }
 
 
-def _events(path: Path) -> Iterator[dict]:
+def _events(path: Path, *, frozen: bool = False) -> Iterator[dict]:
     """Stream complete JSONL records, tolerating truncated/malformed lines. Only a
     regular file is read: a FIFO where a rollout or a stream belongs is none."""
     try:
-        with open_regular(path, "r", encoding="utf-8", errors="replace") as stream:
+        reader = open_stream if frozen else open_regular
+        with reader(path, "r", encoding="utf-8", errors="replace") as stream:
             for line in stream:
                 try:
                     event = json.loads(line)
@@ -186,10 +248,19 @@ def model_answered(event: object) -> bool:
 
 
 def _stream_path(attempt_dir: Path, launch: Launch) -> Path:
-    for path in (launch.raw_stream_path, str(attempt_dir / "stream.jsonl"), launch.stdout_path):
-        if path and Path(path).is_file() and Path(path).stat().st_size:
-            return Path(path)
-    return attempt_dir / "stdout"
+    # An empty or non-regular frozen stream is authoritative evidence of no events.
+    # Only an absent artifact permits fallback to legacy stdout.
+    return stream_path(attempt_dir, launch)
+
+
+def completion_evidence(attempt_dir: Path, launch: Launch) -> dict:
+    """Completion proof from this attempt's stream, including legacy replays."""
+    completed, failed, last_type = False, False, None
+    for event in _events(_stream_path(attempt_dir, launch), frozen=True):
+        last_type = event.get("type")
+        completed = completed or last_type == "turn.completed"
+        failed = failed or last_type == "turn.failed"
+    return {"turn_completed": completed, "turn_failed": failed, "last_event_type": last_type}
 
 
 def _objects(value: object) -> Iterator[dict]:
@@ -308,24 +379,24 @@ class CodexAdapter(Adapter):
 
     def enroll(self, credential: Credential) -> LaneInfo:
         if credential.provider != self.provider or credential.kind != "home":
-            raise AdapterError("Codex enrollment requires a subscription home", fix="Use a Codex home signed into a paid ChatGPT subscription.")
+            raise AdapterError("Codex enrollment requires a subscription home", fix="Use a Codex home signed into a paid ChatGPT subscription.", reason="codex-enroll-home")
         home = Path(credential.ref).expanduser().resolve()
         raw = _read_auth(home)
         fix = f"Sign into a paid ChatGPT subscription in CODEX_HOME={home} and enroll again."
         if _api_key(raw):
-            raise AdapterError("API-key Codex homes are refused", code=7, fix=fix)
+            raise AdapterError("API-key Codex homes are refused", code=7, fix=fix, reason="codex-api-key")
         identity = _identity(raw)
         if not identity["token"]:
-            raise AdapterError("Codex home has no readable subscription token", fix=fix)
+            raise AdapterError("Codex home has no readable subscription token", fix=fix, reason="codex-token-missing")
         if str(identity["plan"]).strip().lower() == "free":
-            raise AdapterError("Free ChatGPT plans are refused", code=7, fix=fix)
+            raise AdapterError("Free ChatGPT plans are refused", code=7, fix=fix, reason="codex-free-plan")
         payload = self._payload(raw)
         plan = payload.get("plan_type") or identity["plan"]
         if str(plan).strip().lower() == "free":
-            raise AdapterError("Free ChatGPT plans are refused", code=7, fix=fix)
+            raise AdapterError("Free ChatGPT plans are refused", code=7, fix=fix, reason="codex-free-plan")
         account = identity["account_id"] or identity["email"] or payload.get("email")
         if not account:
-            raise AdapterError("Codex home has no account id or email", fix=fix)
+            raise AdapterError("Codex home has no account id or email", fix=fix, reason="codex-account-missing")
         # Enrollment precedes lane allocation; the daemon rebinds these readings to its lane id.
         return LaneInfo(f"codex:{account}", plan, str(home), self._readings(payload, ""))
 
@@ -397,7 +468,10 @@ class CodexAdapter(Adapter):
             if self._opener:
                 status, body = self._opener(request, timeout)
             else:
-                with urllib.request.urlopen(request, timeout=timeout) as response:
+                opener = urllib.request.urlopen
+                if url == WHAM_RESET_CREDITS_CONSUME_URL:
+                    opener = urllib.request.build_opener(_NoConsumeRedirect()).open
+                with opener(request, timeout=timeout) as response:
                     status, body = response.status, response.read()
         except urllib.error.HTTPError as exc:
             status, body = exc.code, exc.read()
@@ -415,7 +489,17 @@ class CodexAdapter(Adapter):
         if not 200 <= status < 300:
             error = decoded.get("error")
             error = error if isinstance(error, dict) else {}
-            return {"status": "network-error" if status >= 500 else "http-error",
+            outcome = "network-error" if status >= 500 else "http-error"
+            if url == WHAM_RESET_CREDITS_CONSUME_URL:
+                # C-23.16 (d): an HTTP error alone does not prove this POST
+                # spent nothing. Only these explicit refusals do; redirects,
+                # unfamiliar 4xx and server errors may follow a spent credit.
+                refused = ((status == 409 and error.get("code") in ("already_redeemed", "already_consumed"))
+                           or (status == 429 and error.get("code") == "rate_limited"))
+                refused = (refused and set(decoded) == {"error"} and set(error) <= {"code", "message"}
+                           and ("message" not in error or isinstance(error["message"], str)))
+                outcome = "refused" if refused else "unknown"
+            return {"status": outcome,
                     "http_status": status, "error_code": error.get("code"),
                     "detail": error.get("message", f"HTTP {status}")}
         return {"status": "ok", "payload": decoded}
@@ -457,18 +541,30 @@ class CodexAdapter(Adapter):
                 model_id: str | None, effort: str | None, session_id: str | None) -> Launch:
         sandbox = Sandbox(job.sandbox)
         if sandbox == Sandbox.WORKSPACE_WRITE and not guard_override:
-            raise AdapterError("Writable Codex jobs require the never-rules guard", fix="Run the guard trust preflight and supply its hooks override.")
+            raise AdapterError("Writable Codex jobs require the never-rules guard", fix="Run the guard trust preflight and supply its hooks override.", reason="codex-guard-required")
+        from ..guard.preflight import PUBLISH_HOOK_KEY
+        if (sandbox == Sandbox.WORKSPACE_WRITE and publishing_denied(job) and not job.isolated_review
+                and PUBLISH_HOOK_KEY not in guard_override):
+            # C-12.3: zsh startup puts Homebrew ahead of the PATH wrappers, so the
+            # hook is the layer that refuses a writable review's gh writes.
+            raise AdapterError("Writable Codex reviews require the review publish hook",
+                               fix="Run the guard trust preflight with the publish hook and supply its hooks override.",
+                               reason="codex-publish-hook-required")
         home = lane.home or lane.credential.ref
         if not home or (credential_env.get("CODEX_HOME") and Path(credential_env["CODEX_HOME"]).expanduser().resolve() != Path(home).expanduser().resolve()):
-            raise AdapterError("Codex credential home does not match the lane", fix="Resolve CODEX_HOME from this lane's original home.")
+            raise AdapterError("Codex credential home does not match the lane", fix="Resolve CODEX_HOME from this lane's original home.", reason="codex-home-mismatch")
         argv = [self.codex_bin, "exec", "--json"]
         if job.isolated_review:
             from .isolation import codex_args, validate_isolated_review
-            env = {**os.environ, **credential_env}
-            validate_isolated_review(sandbox, job.review_root, env)
+            # D-ENV2 (review r2 of #248, P3-2): the inspection withholds what the launch
+            # does, in or out of a helper scope; `inspect_codex` selects from this env.
+            environment = getattr(self, "provider_environment", None)
+            env = build_environment(credential_env,
+                                    withheld=environment.withheld() if environment is not None else ())
+            validate_isolated_review(sandbox, job.review_root, os.environ.keys() | credential_env.keys())
             argv += ["--skip-git-repo-check"]  # The gate's required neutral cwd is not a repository.
             argv += codex_args(self.codex_bin, home=home, workdir=job.workdir, env=env,
-                               inspector=getattr(self, "isolation_inspector", None))
+                               inspector=getattr(self, "isolation_inspector", None), pass_names=tuple(credential_env))
         elif sandbox == Sandbox.READ_ONLY:
             # A read-only job may read a directory that is not a repository (a
             # folder of repositories, a review folder). Without this, `codex exec`
@@ -496,6 +592,10 @@ class CodexAdapter(Adapter):
             argv += ["-c", "features.unified_exec=false"]
         if guard_override and not job.isolated_review:
             argv += ["-c", guard_override if guard_override.startswith("hooks=") else f"hooks={guard_override}"]
+        if publishing_denied(job):
+            # C-12.4, #221 review r2 P3-3: the git denial and the marker, pinned in
+            # Codex's own shell environment so a lane's policy cannot drop them.
+            argv += codex_environment_overrides()
         argv += ["--output-last-message", str(attempt_dir / "last.md")]
         if session_id:
             argv += ["resume", session_id, "-"]
@@ -506,9 +606,9 @@ class CodexAdapter(Adapter):
         attempt_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         sent_path = attempt_dir / "prompt.sent.md"
         atomic_publish(sent_path, read_regular(prompt_path))
-        return Launch(tuple(argv), env, ("CODEX_API_KEY", "OPENAI_API_KEY"), job.workdir,
+        return protect_launch(job, Launch(tuple(argv), env, ("CODEX_API_KEY", "OPENAI_API_KEY"), job.workdir,
                       str(sent_path), str(attempt_dir / "stdout"), str(attempt_dir / "stderr"),
-                      str(attempt_dir / "stream.jsonl"), session_id, lane.lane_id)
+                      str(attempt_dir / "stream.jsonl"), session_id, lane.lane_id, notes={"capability": launch_capability("codex", sandbox).value, "sandbox": sandbox.value}), attempt_dir)
 
     def build_launch(self, job: JobSpec, attempt_id: str, attempt_dir: Path, lane: Lane,
                      credential_env: dict[str, str], model_id: str, effort: str | None,
@@ -524,9 +624,9 @@ class CodexAdapter(Adapter):
         # thread already holds its resolved model (see below).
         if job.isolated_review:
             raise AdapterError("isolated review cannot resume a contextual Codex thread",
-                               fix="submit a fresh isolated review job")
+                               fix="submit a fresh isolated review job", reason="isolation-resume-codex")
         if not native_session_id or native_session_id.startswith("-"):
-            raise AdapterError("Codex resume requires a thread id", fix="Use the original attempt's native_session_id and lane.")
+            raise AdapterError("Codex resume requires a thread id", fix="Use the original attempt's native_session_id and lane.", reason="codex-thread-id")
         # Job pins are policy aliases; the native thread already holds its resolved model.
         return self._launch(job, attempt_id, attempt_dir, lane, credential_env, prompt_path,
                             guard_override, None, None, native_session_id)
@@ -539,7 +639,7 @@ class CodexAdapter(Adapter):
         except (FileNotFoundError, NotRegularFile):
             pass
         last = None
-        for event in _events(_stream_path(attempt_dir, launch)):
+        for event in _events(_stream_path(attempt_dir, launch), frozen=True):
             item = event.get("item")
             if (event.get("type") == "item.completed" and isinstance(item, dict)
                     and item.get("type") == "agent_message" and isinstance(item.get("text"), str)):
@@ -550,8 +650,11 @@ class CodexAdapter(Adapter):
         session_id = launch.native_session_id
         failures = []
         answered, read = False, 0
-        for event in _events(_stream_path(attempt_dir, launch)):
+        turn_completed, last_event_type = False, None
+        for event in _events(_stream_path(attempt_dir, launch), frozen=True):
             read += 1
+            last_event_type = event.get("type")
+            turn_completed = turn_completed or last_event_type == "turn.completed"
             if event.get("type") == "thread.started" and isinstance(event.get("thread_id"), str):
                 session_id = event["thread_id"]
             if event.get("type") in ("turn.failed", "error"):
@@ -565,24 +668,28 @@ class CodexAdapter(Adapter):
         # writable attempt to have answered).
         evidence = {"rc": exit_info.rc, "signal": exit_info.signal,
                     "authentication": None, "admission": None, "quota": None,
-                    "model_answered": answered if read else None}
+                    "model_answered": answered if read else None,
+                    "turn_completed": turn_completed, "last_event_type": last_event_type}
         if exit_info.spawn_error:
             evidence["spawn_error"] = exit_info.spawn_error
         def result(cls: OutcomeClass, detail: str, closure: Closure | None = None) -> Outcome:
             return Outcome(cls, detail, evidence=dict(evidence), closure=closure, native_session_id=session_id)
+        # A completed admission can recover a nonterminal stream error. A terminal
+        # turn.failed always wins over a leftover last.md or earlier assistant text.
+        terminal = any(event.get("type") == "turn.failed" for event in failures)
+        if exit_info.rc == 0 and turn_completed and not terminal and not exit_info.spawn_error:
+            if self.deliverable(attempt_dir, launch, result(OutcomeClass.UNKNOWN, "")):
+                evidence["admission"] = "deliverable with exit 0"
+                return result(OutcomeClass.OK, "Codex completed with a deliverable")
+        # Agent messages and last.md never enter these patterns. A verified
+        # success also supersedes recovered CLI authentication diagnostics.
         for event, text in signals:
             if AUTH_RE.search(text):
                 evidence["authentication"] = event or text
                 return result(OutcomeClass.AUTH_DEAD, "Subscription authentication rejected")
-        # A completed admission can recover a nonterminal stream error. A terminal
-        # turn.failed always wins over a leftover last.md or earlier assistant text.
-        terminal = any(event.get("type") == "turn.failed" for event in failures)
-        if exit_info.rc == 0 and not terminal and not exit_info.spawn_error:
-            if self.deliverable(attempt_dir, launch, result(OutcomeClass.UNKNOWN, "")):
-                evidence["admission"] = "deliverable with exit 0"
-                return result(OutcomeClass.OK, "Codex completed with a deliverable")
         for regex, cls, detail in ((OLD_CLI_RE, OutcomeClass.CLI_TOO_OLD, "Codex CLI must be upgraded"),
-                                   (CONTENT_RE, OutcomeClass.CONTENT_FILTER, "Content-filter rejection; prompt reconciliation required")):
+                                   (CONTENT_RE, OutcomeClass.CONTENT_FILTER,
+                                    "The provider's content filter refused the prompt; reword it and resubmit (not retried)")):
             for event, text in signals:
                 if regex.search(text):
                     evidence["admission"] = event or text
@@ -617,6 +724,18 @@ class CodexAdapter(Adapter):
                               source, json.dumps(event, ensure_ascii=False) if event else text)
             evidence.update(scope=scope, clock_source=source.value, resets_at=until)
             return result(OutcomeClass.LIMITED, "Codex subscription limit reached", closure)
+        # C-9.5, D-CAP1: the model's capacity refusal before any other transient text, so the
+        # failure that ended the turn answers admission, not a reconnect it recovered from first.
+        for event, text in _capacity_signals(failures, stderr):
+            if MODEL_CAPACITY_RE.search(text):
+                evidence["admission"] = event or text
+                evidence["model_capacity"] = True
+                return result(OutcomeClass.TRANSIENT, "Codex model at capacity: the provider asked for a different model")
+        # Exit 0 and even last.md can survive a cut-off turn (C-9.2, D-SHUT1).
+        # Keep terminal failures and the signal classes above as before.
+        if exit_info.rc == 0 and not turn_completed and not terminal and not exit_info.spawn_error:
+            evidence["admission"] = failures[-1] if failures else "exit 0 without turn.completed"
+            return result(OutcomeClass.TRANSIENT, "Codex exited before its turn completed")
         for event, text in signals:
             if TRANSIENT_RE.search(text):
                 evidence["admission"] = event or text

@@ -31,9 +31,10 @@ from unittest import mock
 import hypothesis
 import pytest
 
-from subfleet import protocol
+from subfleet import protocol, refusals
 from subfleet.adapters.base import AdapterError
 from subfleet.contracts import Credential, Lane, LaneOwner
+from subfleet.daemon import Daemon
 from subfleet.conversations import attachments as attachment_module
 from subfleet.conversations import catalog as catalog_module
 from subfleet.conversations import service as service_module
@@ -56,6 +57,21 @@ POLICY = {"models": {"opus": {"provider": "claude", "id": "claude-opus-5-5"}},
 
 
 class FakeDaemon:
+    """What the borrowed methods read is checked by tests/unit/test_fake_daemon_borrowed_methods.py."""
+
+    _job = Daemon._job
+    _running_s = Daemon._running_s
+    _request_cancel = Daemon._request_cancel
+    _cancel_info = Daemon._cancel_info
+    _cancel_requester = staticmethod(Daemon._cancel_requester)
+    _notice = Daemon._notice
+    _earlier_attempt = Daemon._earlier_attempt
+    _scan_observers = Daemon._scan_observers
+    _release_ending = Daemon._release_ending
+    _keep_for_cwd = Daemon._keep_for_cwd
+    _cwd_notice = staticmethod(Daemon._cwd_notice)
+    _start_stop_delivery = Daemon._start_stop_delivery
+
     def __init__(self, root: Path):
         self.root = root
         self.log = logging.getLogger("test-conversations")
@@ -711,8 +727,8 @@ def test_a_real_catalog_run_writes_the_catalog_the_list_reads(svc, monkeypatch, 
 # --- compaction (C-25.4, review IR-6) --------------------------------------------
 
 
-def turn_attempt(svc, message_id: str, *, state: str, n: int) -> str:
-    job_id = f"turn-job-{n}"
+def turn_attempt(svc, message_id: str, *, state: str, n: int, job_id: str | None = None) -> str:
+    job_id = job_id or f"turn-job-{n}"
     svc.daemon.store.add_job(job_id=job_id, request_id=f"turn:{message_id}:{n}", payload_digest="d", kind="turn",
                              workdir="/w", prompt_path="/p", sandbox="read-only", state="running")
     attempt_id = f"{job_id}/a1"
@@ -810,14 +826,16 @@ def test_events_reset_a_client_whose_cursor_is_below_the_floor(svc):
 def test_a_refusal_that_may_pass_keeps_the_message_waiting_with_a_reason_and_a_backoff(svc):
     """C-26.1, C-24.3: an operational refusal (exit 1) before any provider saw the
     message leaves it queued with `deferred: <why>`; it is not submitted again every
-    tick, but after 2 s, then 4 s, and goes on normally once submit accepts it."""
+    tick, but after 2 s, then 4 s, and goes on normally once submit accepts it. `why`
+    is the refusal's template (C-25.7): its own words are for daemon.log."""
     cid = conversation(svc)
     mid = submit(svc, cid)
-    svc.daemon.refuse = AdapterError("could not inspect the workdir: git rev-parse timed out after 60 s", code=1)
+    svc.daemon.refuse = AdapterError("could not inspect the workdir: git rev-parse timed out after 60 s", code=1,
+                                     reason="inspect-workdir")
     svc._dispatch()
     message = svc.store.message(mid)
     assert message["state"] == "queued"
-    assert message["state_reason"] == "deferred: could not inspect the workdir: git rev-parse timed out after 60 s"
+    assert message["state_reason"] == "deferred: could not inspect the workdir"
     for _ in range(5):
         svc._dispatch()
     assert len(svc.daemon.submits) == 1
@@ -841,23 +859,32 @@ def test_the_backoff_is_capped(svc):
     """C-26.1: the wait doubles up to five minutes."""
     cid = conversation(svc)
     submit(svc, cid)
-    svc.daemon.refuse = OSError("disk full")
+    svc.daemon.refuse = OSError(28, "No space left on device", "/a/file")
     for _ in range(12):
         svc._dispatch()
         svc.clock.now += service_module.DEFER_MAX_S + 0.1
     count, due = next(iter(svc._deferred.values()))
     assert count == 12 and due - svc.clock.now <= service_module.DEFER_MAX_S
-    assert svc.store.message(next(iter(svc._deferred)))["state_reason"] == "deferred: OSError: disk full"
+    # An OS error by its class, errno and `os.strerror` text, never its filename (C-25.7).
+    assert svc.store.message(next(iter(svc._deferred)))["state_reason"] == (
+        f"deferred: OSError: [Errno 28] {os.strerror(28)}")
 
 
 @pytest.mark.parametrize("refusal, reason", [
-    (AdapterError("writable job refused on main", code=7), "not-delivered: writable job refused on main"),
-    (protocol.ProtocolError("workdir must be a directory"), "not-delivered: workdir must be a directory"),
+    (AdapterError("writable job refused on main: own words", code=7, reason="writable-branch",
+                  details={"branch": "main"}), "not-delivered: writable job refused on main"),
+    (protocol.ProtocolError("workdir must be a directory", reason="invalid-args"),
+     f"not-delivered: {protocol.REFUSAL_MESSAGES['invalid-args']}"),
+    (AdapterError("refused for a reason the vocabulary lacks", code=7),
+     f"not-delivered: {refusals.FALLBACK[0]}"),
     (ConversationError("attachment-missing", "attachment abc is gone"), "not-delivered: attachment-missing"),
 ])
 def test_a_permanent_refusal_fails_the_message_with_its_reason(svc, refusal, reason):
     """C-26.1, design §9: the daemon's own refusal of the message as it is (exit 2 or 7)
-    fails it, never delivered, with the reason; it is not tried again."""
+    fails it, never delivered, with the reason; it is not tried again. The reason is the
+    refusal's template, as on the wire (C-25.7): a handler's by its reason and checked
+    values, an argument check's the argument template, one with no known reason the
+    operation fallback."""
     cid = conversation(svc)
     mid = submit(svc, cid)
     svc.daemon.refuse = refusal
@@ -891,6 +918,8 @@ def test_a_persisted_writable_conversation_refuses_an_unspellable_protected_home
     home = sealed / "User-Home"
     (home / ".claude").mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home / ".claude"))
+    monkeypatch.setenv("SUBFLEET_CODEX_APP_HOME", str(home / ".codex"))
     writable = {**SETTINGS, "permission": "accept-edits"}
     cid = conversation(svc, settings=writable)
     mid = str(uuid.uuid4())
@@ -930,7 +959,7 @@ def test_a_readmitted_message_is_deferred_and_submitted_again_as_waiting(svc):
     cid = conversation(svc)
     mid = submit(svc, cid)
     svc.store.set_state(mid, "waiting", reason="readmit:external-writer", turn_seq=1, job_id=None)
-    svc.daemon.refuse = AdapterError("could not inspect the workdir", code=1)
+    svc.daemon.refuse = AdapterError("could not inspect the workdir", code=1, reason="inspect-workdir")
     svc._dispatch()
     message = svc.store.message(mid)
     assert (message["state"], message["state_reason"]) == ("waiting", "deferred: could not inspect the workdir")
@@ -1128,11 +1157,12 @@ def test_a_worktree_conversation_without_its_worktree_never_runs_in_the_source(s
     assert svc.daemon.submits == []
 
 
-def test_a_worktree_add_that_quotes_a_name_that_is_not_utf8_fails_with_it(svc, repo, monkeypatch):
+def test_a_worktree_add_that_quotes_a_name_that_is_not_utf8_fails_with_it(svc, repo, monkeypatch, caplog):
     """Review of 43b8bf29, F6: `git worktree add` prints a file it could not check out in
     its own bytes; read as strict UTF-8 that raised `UnicodeDecodeError` out of
-    `conversation.create`, not the `worktree-failed` refusal naming the file. The call is
-    faked (APFS refuses such names) and decodes as `subprocess` would."""
+    `conversation.create`, not the `worktree-failed` refusal. The call is faked (APFS
+    refuses such names) and decodes as `subprocess` would. What git printed (a hook's
+    output too) is in daemon.log only, as valid UTF-8 (C-25.7); the refusal is fixed."""
     real = subprocess.run
 
     def run(cmd, *args, **kwargs):
@@ -1142,11 +1172,13 @@ def test_a_worktree_add_that_quotes_a_name_that_is_not_utf8_fails_with_it(svc, r
             return subprocess.CompletedProcess(cmd, 128, "" if kwargs.get("text") else b"", decoded)
         return real(cmd, *args, **kwargs)
     monkeypatch.setattr(service_module.subprocess, "run", run)
-    with pytest.raises(ConversationError) as err:
+    with caplog.at_level(logging.WARNING, logger="test-conversations"), pytest.raises(ConversationError) as err:
         create_worktree(svc, repo)
-    assert err.value.reason == "worktree-failed"
-    assert str(err.value) == "error: unable to create file caf\\xe9.txt: Permission denied\nfatal: could not reset"
-    str(err.value).encode("utf-8")                                     # a reply can carry it
+    assert (err.value.reason, str(err.value)) == ("worktree-failed", "git worktree add failed")
+    logged = [r.getMessage() for r in caplog.records if "git worktree add diagnostic" in r.getMessage()]
+    assert logged == ["git worktree add diagnostic: error: unable to create file caf\\xe9.txt: Permission denied "
+                      "fatal: could not reset"]
+    logged[0].encode("utf-8")
 
 
 def test_a_worktree_needs_a_repository_and_creates_nothing_without_one(svc, tmp_path):
@@ -1412,6 +1444,40 @@ def launched_turn(svc, tmp_path, stdout=(), *, n=0) -> str:
             "cwd": svc.test_workspace, "new_session_id": str(uuid.uuid4())}
     (job / "manifest.json").write_text(json.dumps({TURN_MANIFEST_KEY: turn}))
     return attempt_id
+
+
+@pytest.mark.parametrize("source", ["client", "replay"])
+def test_adoption_audits_stops_before_starting_the_runner(svc, tmp_path, monkeypatch, source):
+    """C-26.6 / C-9.2: client and replayed interrupts share the delivery audit,
+    which is installed before the runner can send anything."""
+    from subfleet.conversations.runner import TurnRunner
+    from subfleet.conversations.turn import Frame
+    from subfleet.relay import Ack
+
+    aid = launched_turn(svc, tmp_path)
+    monkeypatch.setattr(TurnRunner, "start", lambda runner: None)
+    svc._adopt_runners()
+    runner = svc.runners[aid]
+    if source == "client":
+        svc.op_turn_interrupt({"message_id": runner.message_id}, None)
+        assert runner.commands.get_nowait() == ("interrupt",)
+    else:
+        svc.store.request_stop(runner.message_id, stop_at="2026-10-19T00:00:00Z", requester=None)
+        runner.interrupt("stopped")             # the catch-up replay's command
+    frame = Frame("interrupt", "write", '{"type":"control_request"}')
+    runner.outbox.append(frame)
+    def send(seq, op, **kwargs):
+        event = svc.daemon.store.one("SELECT data_json FROM events WHERE attempt_id=? "
+                                    "AND kind='attempt.stop_delivery'", (aid,))
+        assert json.loads(event["data_json"])["signal_pending"] is True
+        if kwargs.get("before_send") is not None:
+            kwargs["before_send"]()
+        return Ack(seq=seq, ok=True)
+    monkeypatch.setattr(runner.relay, "send", send)
+    assert runner._transmit(frame)
+    event = svc.daemon.store.one("SELECT data_json FROM events WHERE attempt_id=? "
+                                "AND kind='attempt.stop_delivery'", (aid,))
+    assert json.loads(event["data_json"])["signal_sent"] is True
 
 
 class Hold:

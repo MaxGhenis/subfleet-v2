@@ -78,7 +78,7 @@ struct SubfleetApp: App {
 private struct OpenMainRegistrar: View {
     @Environment(\.openWindow) private var openWindow
     var body: some View {
-        Color.clear.onAppear {
+        Theme.clear.onAppear {
             let open = openWindow
             SubfleetAppDelegate.openMain = {
                 open(id: "main")

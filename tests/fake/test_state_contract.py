@@ -37,6 +37,16 @@ def state_daemon(tmp_path, monkeypatch):
     monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "unit-test-boot")
     monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "unit-test-start")
     monkeypatch.setattr(daemon_module.procs, "same_process", lambda *args: False)
+    # All process reads share a synthetic table. The caller running a registry
+    # fixture is live; unlisted guardians are absent. Keep real three-way
+    # liveness so tests overriding identity can exercise writer protection.
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda:
+                        daemon_module.procs.ProcessTable({
+                            os.getpid(): (1, os.getpgrp(), "S", "unit-test-start")
+                        }, "unit-test-boot"))
+    monkeypatch.setattr(daemon_module.procs, "identity",
+                        lambda pid: daemon_module.procs.snapshot().identity(pid))
+    monkeypatch.setattr(daemon_module.procs, "group_members", lambda *args: {})
     monkeypatch.setattr(daemon_module.procs, "containment", lambda *args, **kwargs: Containment())
     register("codex", FakeAdapter)
     daemon = Daemon(harness.root)
@@ -94,6 +104,29 @@ def test_c6_4_a_parent_has_no_child_budget_unless_a_policy_sets_one(state_daemon
     with pytest.raises(AdapterError, match="max_child_jobs"):
         daemon.dispatch("submit", harness.submit_args(parent_job_id=parent))
 
+
+
+def test_c7_3_a_family_cancel_has_one_instant_however_slow_the_clock(state_daemon, monkeypatch):
+    """C-7.3: the family is cancelled atomically, so every member carries the same
+    `cancel_requested_at` and `finished_at` even when the clock ticks between rows
+    (a loaded CI runner did, 2026-10-06: two cancel times in one family)."""
+    from subfleet import daemon as daemon_module
+    daemon, harness = state_daemon
+
+    def submit(**extra):
+        return daemon.dispatch("submit", harness.submit_args(**extra))["job_id"]
+
+    parent = submit()
+    child = submit(parent_job_id=parent)
+    grandchild = submit(parent_job_id=child)
+    ticks = iter(range(1000))
+    real = daemon_module.utcnow
+    monkeypatch.setattr(daemon_module, "utcnow", lambda: real()[:-3] + f"{next(ticks) % 60:02d}Z")   # a new second every call
+    daemon.dispatch("kill", {"job_id": parent})
+    family = [daemon.store.get_job(job) for job in (parent, child, grandchild)]
+    assert {job["state"] for job in family} == {"cancelled"}
+    assert len({job["cancel_requested_at"] for job in family}) == 1
+    assert len({job["finished_at"] for job in family}) == 1
 
 def test_c7_3_state_parent_cancel_covers_descendants_except_independent_branches(state_daemon):
     """C-7.3, C-7.4 cancelling a queued parent atomically cancels dependent descendants only."""
@@ -159,7 +192,7 @@ def test_c15_3_state_notice_ack_is_session_scoped_and_show_is_read_only(state_da
     ("sandbox", "unrestricted", 2), ("allow_tmp", False, 7),
     ("prompt_path", "/a-nonexistent-subfleet-test-prompt", 2),
     ("out_path", "/a-nonexistent-subfleet-test-directory/result", 2),
-    ("pinned_model", "no-such-model", 2),
+    ("pinned_model", "no-such-model", 7),
 ])
 def test_c6_1_state_validation_rejects_before_job_rows(state_daemon, bad_field, bad_value, code):
     """C-6.1, C-6.5 validation rejects invalid inputs before creating any job or attempt rows."""
@@ -187,10 +220,12 @@ def test_c5_8_state_exclusive_flock_and_reacquisition(state_daemon):
 
 def admitted_reader(daemon, conn):
     """A reader thread for `conn`, held as `_hold_connection` holds one (C-16.7), so
-    `_connection` lets it go when its last reply is out."""
+    `_connection` lets it go when its last reply is out. Its peer is read from the
+    socket as the accept loop reads it (C-25.6), before the reader starts."""
+    from subfleet.conversations.peers import peer_token
     with daemon._connection_lock:
         daemon._connections.add(conn)
-    return threading.Thread(target=daemon._connection, args=(conn,))
+    return threading.Thread(target=daemon._connection, args=(conn, peer_token(conn)))
 
 
 def test_c16_1_state_socket_handler_recovers_after_malformed_line(state_daemon):
@@ -226,14 +261,33 @@ def reserve(daemon, harness, **submit_overrides):
     return job_id, attempt, adir
 
 
+def launched(daemon, attempt):
+    """Record the launch evidence `_launch` writes for an attempt that ran (C-12.4).
+
+    An exited provider was launched; a fixture that skips the launch records
+    what that launch would have got, from the attempt's lane and its job."""
+    current = daemon.store.get_attempt(attempt["attempt_id"])
+    if current.get("capability") is not None:
+        return
+    job = daemon.store.get_job(current["job_id"])
+    lane = daemon.store.get_lane(current["lane_id"])
+    daemon._record_launch(current["attempt_id"], lane.provider, job["sandbox"],
+                          job.get("task") == "review" or job["kind"] == "gate-review")
+
+
 def receipt_fixture(daemon, attempt, adir, *, rc=0, stdout=b"fixture result\n"):
     """Make already-exited-provider evidence without starting a process."""
     (adir / "stdout").write_bytes(stdout)
     (adir / "stderr").write_bytes(b"")
     (adir / "lane.log").write_bytes(b"")
+    if not (adir / "launch.json").exists():
+        # No real adapter launch was staged: this is an exited generic fake,
+        # whose success must carry the daemon's detached Codex completion proof.
+        (adir / "stream.jsonl").write_text('{"type":"turn.completed"}\n' if rc == 0 else '')
     receipt = {"rc": rc, "signal": None, "wall_s": .1, "child_pid": None,
                "finished_at": daemon_module.utcnow()}
     (adir / "exit.json").write_text(json.dumps(receipt))
+    launched(daemon, attempt)
     daemon._begin_finalizing(attempt, receipt)
     return daemon.store.get_attempt(attempt["attempt_id"])
 
@@ -312,9 +366,11 @@ def test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace(state_
     assert "unverifiable" in json.dumps(daemon.dispatch("show", {"job_id": job_id}))
 
 
-def test_c4_4_state_missing_exit_receipt_never_accepts_success(state_daemon):
+def test_c4_4_state_missing_exit_receipt_never_accepts_success(state_daemon, monkeypatch):
     """C-4.2 running, C-4.4 loss without a receipt remains lost with no accepted attempt or rc."""
     daemon, harness = state_daemon
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: daemon_module.procs.ProcessTable({}))
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
     job_id, attempt, _ = reserve(daemon, harness, max_attempts=1)
     daemon.store.update_attempt(attempt["attempt_id"], state="running", guardian_pid=42001,
                                 pgid=42001, boot_id="unit-test-boot", proc_start="unit-test-start")
@@ -347,7 +403,10 @@ def test_c7_2_state_acceptance_and_cancellation_commit_order(state_daemon, cance
     notice, = daemon.store.list_notices()
     # C-15.1: the header is the job's state and rc, not the attempt's `ok; rc=0`
     # (incident: 2026-09-24); the summary names the attempt's class and rc.
-    header, summary, *kept = notice["text"].splitlines()
+    header, summary, *kept, capability = notice["text"].splitlines()
+    assert capability == (
+        "ran read-only on codex-1 (astra): commands ran, but nothing could be written, "
+        "temp files included, so pytest could not run")
     if cancel_first:
         assert header == f"{job_id}: cancelled; rc=130; deliverable=-; out=-"
         assert kept == [f"output kept, not accepted: {adir / 'deliverable.md'}"]
@@ -355,6 +414,7 @@ def test_c7_2_state_acceptance_and_cancellation_commit_order(state_daemon, cance
         assert header == f"{job_id}: succeeded; rc=0; deliverable={adir / 'deliverable.md'}; out=-"
         assert kept == []
     assert summary.startswith("attempt a1: ok, rc=0: ")
+    assert (adir / "deliverable.md").read_bytes() == b"fixture result\n"
     if not cancel_first:
         result = daemon.dispatch("kill", {"job_id": job_id})
         assert result["status"] == "already finished"
@@ -485,7 +545,7 @@ def test_c5_6_state_kill_escalation_signals_only_owned_survivors(state_daemon, m
     monkeypatch.setattr(daemon_module.procs, "signal_group",
                         lambda pgid, sig, **identity: signals.append(("group", pgid, sig)))
     monkeypatch.setattr(daemon_module.procs, "signal_process",
-                        lambda identity, sig: signals.append(("process", identity.pid, sig)))
+                        lambda identity, sig, **kwargs: signals.append(("process", identity.pid, sig)))
     daemon.term_grace_s = 0
     daemon.dispatch("kill", {"job_id": job_id})
     daemon._kill_attempt(attempt)
@@ -659,8 +719,8 @@ def test_c4_5_state_transient_retries_same_lane_once_then_another(state_daemon):
     assert [row["lane_id"] for row in daemon.store.list_attempts(job_id)] == ["codex-2", "codex-2", "codex-1"]
 
 
-def test_c6_4_state_wall_limit_cancels_a_job_waiting_for_retry(state_daemon):
-    """C-6.4 max_wall_s also bounds a job waiting between attempts and preserves terminal notice."""
+def test_c6_4_state_wall_does_not_cancel_a_held_retry(state_daemon):
+    """D-WALL1: a transient retry waits through a hold beyond the wall, then runs."""
     daemon, harness = state_daemon
     job_id, attempt, adir = reserve(daemon, harness)
 
@@ -670,8 +730,15 @@ def test_c6_4_state_wall_limit_cancels_a_job_waiting_for_retry(state_daemon):
 
     register("codex", TransientAdapter)
     daemon._finalize(receipt_fixture(daemon, attempt, adir, rc=1))
-    daemon.store.update_job(job_id, started_at="2000-01-01T00:00:00Z")
+    daemon.store.update_job(job_id, started_at="2000-01-01T00:00:00Z", max_wall_s=10, next_check_at=None)
+    daemon.store.update_lane(attempt["lane_id"], enabled=False)
     daemon._admit()
-    assert daemon.store.get_job(job_id)["state"] == "cancelled"
-    assert len(daemon.store.list_notices()) == 1
+    assert daemon.store.get_job(job_id)["state"] == "waiting"
+    assert daemon.store.get_job(job_id)["cancel_requested_at"] is None
+    assert daemon.store.list_notices() == []
     assert len(daemon.store.list_attempts(job_id)) == 1
+    daemon.store.update_lane(attempt["lane_id"], enabled=True)
+    daemon.store.update_job(job_id, next_check_at=None)
+    daemon._admit()
+    assert daemon.store.get_job(job_id)["state"] == "running"
+    assert len(daemon.store.list_attempts(job_id)) == 2

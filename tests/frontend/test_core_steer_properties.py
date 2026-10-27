@@ -28,10 +28,12 @@ a `/` command, or a steer of the running message itself):
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 import tempfile
 import uuid
 
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, example, given, settings, strategies as st
+import pytest
 
 from tests.frontend.conftest import needs_swift, run_probe, write_json
 from tests.frontend.daemon_harness import (
@@ -124,6 +126,9 @@ def check_timeline(snapshot: dict) -> None:
 
 
 @settings(max_examples=150, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@example(history=[("local", (MESSAGES[3], False)),
+                  ("events", [("steer.delivered", MESSAGES[0], MESSAGES[1]),
+                              ("steer.delivered", MESSAGES[3], MESSAGES[0])])])
 @given(history=st.lists(step, min_size=1, max_size=14))
 def test_t1_t4_a_message_is_drawn_once_whatever_the_daemon_says(core_probe, history):
     with tempfile.TemporaryDirectory(prefix="sf-steer-t-") as directory:
@@ -164,14 +169,16 @@ def expected_refusal(kind: str, live: bool, host: bool) -> str | None:
 @given(ops=st.lists(op, min_size=1, max_size=16), fates=st.lists(fate, min_size=16, max_size=16),
        b_live=st.booleans())
 def test_o1_o4_the_outbox_sends_in_order_and_steers_exactly_once(core_probe, ops, fates, b_live):
-    root = Path(tempfile.mkdtemp(prefix="sf-steer-o-", dir="/tmp"))
-    harness = ServiceHarness(root / "daemon")
-    server = ServiceServer(harness)
-    try:
-        run_outbox_history(core_probe, root, harness, server, ops, fates, b_live)
-    finally:
-        server.close()
-        harness.close()
+    # Each example's root (about 256 KiB) is removed when it ends, also when it fails (#265 review r1).
+    with tempfile.TemporaryDirectory(prefix="sf-steer-o-", dir="/tmp") as scratch:
+        root = Path(scratch)
+        harness = ServiceHarness(root / "daemon")
+        server = ServiceServer(harness)
+        try:
+            run_outbox_history(core_probe, root, harness, server, ops, fates, b_live)
+        finally:
+            server.close()
+            harness.close()
 
 
 def run_outbox_history(core_probe, root: Path, harness, server, ops, fates, b_live) -> None:
@@ -269,3 +276,30 @@ def run_outbox_history(core_probe, root: Path, harness, server, ops, fates, b_li
                 "SELECT after_message_id FROM messages WHERE conversation_id=? ORDER BY seq",
                 (harness.store.message(mids[0])["conversation_id"],))]
             assert chain == [None, *mids[:-1]]
+
+
+def test_the_property_harness_leaves_no_root_after_each_example(monkeypatch):
+    """#265 review r1 (P3): the root each example makes (about 256 KiB) is gone when the
+    example ends, also when its body raises. The example's body is replaced by one that
+    checks the root exists, then returns or raises; the harness around it is the test's own."""
+    made: list[Path] = []
+    real = tempfile.mkdtemp
+
+    def mkdtemp(*args, **kwargs):
+        path = real(*args, **kwargs)
+        if Path(path).name.startswith("sf-"):
+            made.append(Path(path))
+        return path
+
+    def body(core_probe, root, harness, server, ops, fates, b_live):
+        assert root.is_dir() and server.path.exists()
+        if b_live:
+            raise RuntimeError("the example's body raises")
+    monkeypatch.setattr(tempfile, "mkdtemp", mkdtemp)
+    monkeypatch.setattr(sys.modules[__name__], "run_outbox_history", body)
+    run_example = test_o1_o4_the_outbox_sends_in_order_and_steers_exactly_once.hypothesis.inner_test
+    run_example(None, ops=[], fates=[], b_live=False)
+    with pytest.raises(RuntimeError, match="body raises"):
+        run_example(None, ops=[], fates=[], b_live=True)
+    assert len([path for path in made if path.name.startswith("sf-steer-o-")]) == 2, made
+    assert [path for path in made if path.exists()] == []

@@ -130,12 +130,24 @@ def project_files(directory: str | Path) -> list[Path]:
 def global_config_path(env: Mapping[str, str] | None = None, home: str | Path | None = None) -> Path:
     """The file Claude Code keeps user- and local-scope servers in (`Lo`, `M7n`)."""
     env = os.environ if env is None else env
-    home = Path(home) if home is not None else Path.home()
-    configured = env.get("CLAUDE_CONFIG_DIR")
-    legacy = (Path(configured) if configured else home / ".claude") / ".config.json"
+    from ..home_paths import checked_override, home_path, under_pytest
+    home = Path(home) if home is not None else None
+    # Release resolves HOME eagerly, even with CLAUDE_CONFIG_DIR. Keep its
+    # exceptions outside tests; under pytest, refuse implicit HOME before use.
+    if home is None and not under_pytest():
+        home = Path.home()
+    # D-ST3: the override takes every refusal a `home_path` override takes.
+    configured = checked_override("CLAUDE_CONFIG_DIR", env.get("CLAUDE_CONFIG_DIR"))
+    if configured:
+        base = Path(configured)
+    elif home is not None:
+        base = home / ".claude"
+    else:
+        base = Path(home_path("CLAUDE_CONFIG_DIR", lambda: Path.home() / ".claude", env=env))
+    legacy = base / ".config.json"
     if legacy.exists():
         return legacy
-    return (Path(configured) if configured else home) / ".claude.json"
+    return (base if configured else base.parent) / ".claude.json"
 
 
 def _git_root(directory: Path) -> Path | None:

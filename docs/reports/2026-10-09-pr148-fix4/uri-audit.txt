@@ -1,0 +1,47 @@
+tools/audit_recorded_usage.py-19-    started = time.monotonic()
+tools/audit_recorded_usage.py:20:    with sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True, timeout=1) as db:
+tools/audit_recorded_usage.py-21-        db.execute('PRAGMA query_only=ON')
+--
+tools/soak_report.py-26-def connect(root: Path) -> sqlite3.Connection:
+tools/soak_report.py:27:    db = sqlite3.connect((root / 'state.sqlite3').resolve().as_uri() + "?mode=ro", uri=True)
+tools/soak_report.py-28-    db.row_factory = sqlite3.Row
+--
+subfleet/offline.py-129-        try:
+subfleet/offline.py:130:            conn = sqlite3.connect(uri, uri=True, timeout=5.0)
+subfleet/offline.py-131-        except sqlite3.Error as exc:
+--
+subfleet/store.py-244-        uri = self.path.resolve().as_uri() + ("?mode=ro" if self.read_only else "?mode=rwc")
+subfleet/store.py:245:        self.connection = sqlite3.connect(uri, uri=True, isolation_level=None,
+subfleet/store.py-246-                                          check_same_thread=False, timeout=5)
+--
+subfleet/store.py-394-    def _open_reader(self) -> sqlite3.Connection:
+subfleet/store.py:395:        conn = sqlite3.connect(self.path.resolve().as_uri() + "?mode=rw", uri=True, isolation_level=None,
+subfleet/store.py-396-                               check_same_thread=False, timeout=5)
+--
+tools/prepare_identity_rollback.py-67-            raise ValueError("daemon is running; stop it before preparing rollback") from None
+tools/prepare_identity_rollback.py:68:        with contextlib.closing(sqlite3.connect(database.as_uri() + "?mode=rw", uri=True)) as conn, conn:
+tools/prepare_identity_rollback.py-69-            conn.row_factory = sqlite3.Row
+--
+subfleet/conversations/store.py-1798-            raise NotRegularFile(errno.EINVAL, "not a regular file", str(path))
+subfleet/conversations/store.py:1799:        db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=timeout_s,
+subfleet/conversations/store.py-1800-                             isolation_level=None)
+--
+tools/store_contention_repro.py-497-        """When each job's terminal state becomes visible to a read-only reader."""
+tools/store_contention_repro.py:498:        db = sqlite3.connect(f"file:{self.root / 'state.sqlite3'}?mode=ro", uri=True, timeout=30)
+tools/store_contention_repro.py-499-        while not self.stop.wait(.01):
+--
+subfleet/conversations/catalog.py-377-    try:
+subfleet/conversations/catalog.py:378:        db = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2)
+subfleet/conversations/catalog.py-379-        try:
+--
+subfleet/conversations/catalog.py-720-        import sqlite3
+subfleet/conversations/catalog.py:721:        db = sqlite3.connect(f"file:{args.state_root / 'state.sqlite3'}?mode=ro", uri=True, timeout=2)
+subfleet/conversations/catalog.py-722-        db.row_factory = sqlite3.Row
+--
+tools/canary_check.py-46-        raise ValueError("expect must be positive and min-success must be between 1 and expect")
+tools/canary_check.py:47:    db = sqlite3.connect((state_root / 'state.sqlite3').resolve().as_uri() + "?mode=ro", uri=True)
+tools/canary_check.py-48-    db.row_factory = sqlite3.Row
+--
+tools/replay_weekly_ranking.py-102-            raise ValueError("Pass a temporary SQLite backup; reading a live .subfleet store is refused")
+tools/replay_weekly_ranking.py:103:        self.db = sqlite3.connect(f"file:{database.resolve()}?mode=ro", uri=True)
+tools/replay_weekly_ranking.py-104-        self.db.row_factory = sqlite3.Row

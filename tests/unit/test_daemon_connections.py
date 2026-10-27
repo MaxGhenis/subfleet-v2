@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from subfleet import daemon as daemon_module
+from subfleet import daemon as daemon_module, client as client_module
 from subfleet.client import SEND_MET_CLOSE_ERRNOS, Client, DaemonError, OutcomeUnknown, ResponseLost
 from subfleet.daemon import Daemon
 
@@ -35,6 +35,9 @@ def serve(monkeypatch):
     """Start a daemon core with the given connection settings; yields a starter."""
     monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "fake-boot")
     monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "fake-start")
+    # C-5.13 checks identity on every send; both sides observe this fixture's identity.
+    monkeypatch.setattr(client_module, "boot_id", lambda: "fake-boot")
+    monkeypatch.setattr(client_module, "proc_status", lambda pid: ("S", "fake-start"))
     started = []
     with tempfile.TemporaryDirectory(prefix="sfc-", dir="/tmp") as directory:
         root = Path(directory)
@@ -96,7 +99,8 @@ def send(sock, op, **args):
     # A connection over the cap may be answered and closed before the request is
     # sent (C-16.7); the answer is still there to read, whichever errno the send met.
     try:
-        sock.sendall((json.dumps({"v": 1, "id": op, "op": op, "args": args}) + "\n").encode())
+        # The op names the request; C-25.7's correlation token has no `.` (`daemon.status`).
+        sock.sendall((json.dumps({"v": 1, "id": op.replace(".", "-"), "op": op, "args": args}) + "\n").encode())
     except OSError as exc:
         if exc.errno not in SEND_MET_CLOSE_ERRNOS:
             raise
@@ -126,6 +130,14 @@ def test_c16_7_more_long_waits_than_the_old_reader_pool_still_leave_a_ping_answe
     """C-16.7 the incident: 40 clients in `wait` held all 32 readers and no ping was answered."""
     service = serve()
     assert service.max_connections >= 64            # this test process has a generous limit
+    real, in_wait, lock = service.dispatch, [], threading.Lock()
+
+    def dispatch(op, args, **kw):
+        if op == "wait":
+            with lock:
+                in_wait.append(args)
+        return real(op, args, **kw)
+    service.dispatch = dispatch
     holders = []
     for _ in range(40):
         sock = connect(service)
@@ -137,6 +149,9 @@ def test_c16_7_more_long_waits_than_the_old_reader_pool_still_leave_a_ping_answe
     until(lambda: counts(service)["connections"] >= 40, timeout=30)
     # Every held connection has a reader thread of its own (review of #43, F1).
     assert len(service._readers) == counts(service)["connections"] >= 40
+    # A connection counts before its reader has read its request: the ping must
+    # come only once all 40 waits are dispatched and holding, or it proves nothing.
+    until(lambda: len(in_wait) >= 40, timeout=30)
     started = time.monotonic()
     assert call(service, "ping")["result"]["pong"] is True
     assert time.monotonic() - started < 2
@@ -161,7 +176,6 @@ def test_c16_7_over_the_cap_a_client_is_answered_busy_at_once_and_served_after(s
     # The CLI's client reads the refusal even when its request met a closed socket,
     # sends the request again in the first half of its deadline, then reports busy.
     client = Client(service.root, timeout=.6)
-    client._checked = True                  # the lock records this fixture's fake boot identity
     refused = counts(service)["refused"]
     started = time.monotonic()
     with pytest.raises(DaemonError) as caught:
@@ -196,7 +210,6 @@ def test_c16_7_the_client_reads_busy_whichever_errno_its_send_met(serve, monkeyp
             raise OSError(code, os.strerror(code))
         return real_sendall(sock, data, *flags)
     client = Client(service.root, timeout=5)
-    client._checked = True                  # the lock records this fixture's fake boot identity
     client.timeout = .2                     # the busy retries end with the deadline
     with monkeypatch.context() as patch:
         patch.setattr(socket.socket, "sendall", sendall)
@@ -217,7 +230,6 @@ def test_c16_7_any_other_send_error_is_still_a_lost_answer(serve, monkeypatch):
             raise OSError(errno.ENOBUFS, os.strerror(errno.ENOBUFS))
         return real_sendall(sock, data, *flags)
     client = Client(service.root, timeout=5)
-    client._checked = True
     with monkeypatch.context() as patch:
         patch.setattr(socket.socket, "sendall", sendall)
         with pytest.raises(ResponseLost, match="daemon connection failed"):
@@ -341,7 +353,6 @@ def test_c16_7_a_busy_answer_is_retried_until_the_daemon_has_room(serve):
     until(lambda: counts(service)["connections"] == 1)
     threading.Timer(.4, idle.close).start()
     client = Client(service.root, timeout=5)
-    client._checked = True
     started = time.monotonic()
     assert client.call("ping")["pong"] is True
     assert .3 < time.monotonic() - started < 3
@@ -415,11 +426,11 @@ def test_c16_7_shutdown_leaves_no_client_connection_open(serve, monkeypatch):
     wedged = threading.Event()
     real = service._connection
 
-    def connection(conn):
+    def connection(conn, peer):
         if len(service._readers) > 5:           # the last five readers never return
             wedged.wait(10)
             return
-        real(conn)
+        real(conn, peer)
     service._connection = connection
     held = [connect(service) for _ in range(10)]
     until(lambda: counts(service)["connections"] == 10)
@@ -516,7 +527,6 @@ def test_c16_3_a_lost_answer_names_the_callers_deadline_even_on_a_slow_machine(s
     real = service.dispatch
     service.dispatch = lambda op, args, **kw: (time.sleep(1.5), real(op, args, **kw))[1]
     client = Client(service.root, timeout=1)
-    client._checked = True
     from subfleet import client as client_module
     clock = client_module._clock
     calls = [0]
@@ -589,7 +599,6 @@ def test_c16_7_a_caller_can_take_busy_at_once(serve):
     idle = connect(service)
     until(lambda: counts(service)["connections"] == 1)
     client = Client(service.root, timeout=5, retry_busy=False)
-    client._checked = True
     started = time.monotonic()
     with pytest.raises(DaemonError) as caught:
         client.call("ping")
@@ -627,19 +636,33 @@ def test_c16_7_a_connection_without_a_reader_is_answered_busy(serve, monkeypatch
     assert answer["ok"] is False and answer["error"]["code"] == 69 and "thread" in answer["error"]["message"]
 
 
-def test_c16_7_a_stopping_daemon_does_not_count_its_own_shutdown_as_departures(serve):
+@pytest.mark.parametrize("late", [0.0, 0.5], ids=["prompt", "late-blocker"])
+def test_c16_7_a_stopping_daemon_does_not_count_its_own_shutdown_as_departures(serve, late):
     """C-16.7 close()'s SHUT_RDWR makes getpeername fail as a departed client's
-    would; queued reads are then close()'s to cancel, not 'client hung up'."""
+    would; queued reads are then close()'s to cancel, not 'client hung up'.
+
+    `late` holds the blocker's request back after its connection is counted, as a
+    slow reader thread can (CI, Python 3.12, 10/18): the reads must still queue
+    behind it."""
     service = serve()
     service.requests.shutdown(wait=True)
     service.requests = ThreadPoolExecutor(max_workers=1, thread_name_prefix="subfleet-api")
-    release = threading.Event()
+    release, started = threading.Event(), threading.Event()
     real = service.dispatch
-    service.dispatch = lambda op, args, **kw: (release.wait(10), {"held": True})[1] if op == "readings" \
-        else real(op, args, **kw)
+    service.dispatch = lambda op, args, **kw: (started.set(), release.wait(10), {"held": True})[2] \
+        if op == "readings" else real(op, args, **kw)
+    real_start = service._start_request
+
+    def start(conn, write_lock, req, *rest):
+        if req.op == "readings":
+            time.sleep(late)
+        return real_start(conn, write_lock, req, *rest)
+    service._start_request = start
     blocker = connect(service)
     send(blocker, "readings")
-    until(lambda: counts(service)["connections"] == 1)
+    # Wait for the blocker's request to hold the single worker, not for its
+    # connection to be counted: a connection counts before its reader has read.
+    until(started.is_set)
     waiting = [connect(service) for _ in range(3)]
     for sock in waiting:
         send(sock, "daemon.status")

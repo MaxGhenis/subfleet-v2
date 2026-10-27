@@ -49,17 +49,17 @@ def test_a_failing_release_step_does_not_hide_why_construction_failed(monkeypatc
     monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "fake-boot")
     monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "fake-start")
 
-    def seed(self):
+    def seed(self, *roster):           # round 5 of #222: seeding takes the roster it checked
         raise RuntimeError("the lane roster is unreadable")
-    monkeypatch.setattr(Daemon, "_seed_lanes", seed)
-    monkeypatch.setattr(daemon_module.Store, "close", lambda self: (_ for _ in ()).throw(OSError("close failed")))
     with tempfile.TemporaryDirectory(prefix="sfi-", dir="/tmp") as directory:
         before = open_descriptors()
-        with pytest.raises(RuntimeError, match="lane roster"):
-            Daemon(Path(directory))
-        # The store's own close failed, so its descriptors may stay: the writer's three
-        # and, on this line, two for each read connection it had opened (C-3.7). The
-        # log and the lock did not.
-        assert open_descriptors() <= before + 3 + 2 * daemon_module.READ_CONNECTIONS
-        monkeypatch.undo()
+        with monkeypatch.context() as failures:
+            failures.setattr(Daemon, "_seed_lanes", seed)
+            failures.setattr(daemon_module.Store, "close", lambda self: (_ for _ in ()).throw(OSError("close failed")))
+            with pytest.raises(RuntimeError, match="lane roster"):
+                Daemon(Path(directory))
+            # The store's own close failed, so its descriptors may stay: the writer's three
+            # and, on this line, two for each read connection it had opened (C-3.7). The
+            # log and the lock did not.
+            assert open_descriptors() <= before + 3 + 2 * daemon_module.READ_CONNECTIONS
         Daemon(Path(directory)).close()                    # the lock was released

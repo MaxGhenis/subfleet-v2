@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import tempfile
 from pathlib import Path
 
@@ -54,7 +55,7 @@ def test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent(skippe
                 if entry["p"] != rel:
                     return
                 if archive == "missing":
-                    entry.pop("store")
+                    (self.files / entry["store"]).unlink()
                 elif archive == "corrupt":
                     copy = self.files / entry["store"]
                     # Same size: readback must check bytes, not just size.
@@ -84,9 +85,148 @@ def test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent(skippe
                     p: e for p, e in before.items() if p != ".git"}
             else:
                 assert outcome["protected"] == ["job"] and w.store.get_job("job") is not None
-                reason = "unarchived path" if archive == "missing" else "archive did not read back"
+                reason = "archive did not read back"
                 assert outcome["deferred"]["job"].startswith(reason + ":"), outcome
                 assert rel in outcome["deferred"]["job"]
+                assert snapshot(wt) == before and path.read_bytes() == data
+                assert str(wt) in git(w.repo, "worktree", "list", "--porcelain")
+                assert w.store.list_leases() == []
+        finally:
+            w.close()
+
+
+KINDS = ["file", "empty", "hardlink", "symlink"]
+
+
+def _tamper_copy(copy, archive):
+    """Damage the named copy without weakening the manifest's coverage claim."""
+    if archive == "verified":
+        return
+    before = copy.stat()
+    data = copy.read_bytes()
+    changed = bytes([data[0] ^ 1]) + data[1:] if data else b"\x01"
+    if archive == "missing":
+        copy.unlink()
+    elif archive == "hardlink":
+        replacement = copy.parent / (copy.name + ".replacement")
+        replacement.write_bytes(changed)
+        copy.unlink()
+        os.link(replacement, copy)
+    else:
+        copy.write_bytes(changed)
+        if archive == "mtime":
+            os.utime(copy, ns=(before.st_atime_ns, before.st_mtime_ns))
+            assert copy.stat().st_mtime_ns == before.st_mtime_ns
+
+
+def _tamper_saved(retirement, rel, archive):
+    entry = next(e for e in retirement.manifest()["trees"]["worktree"]["entries"] if e["p"] == rel)
+    if entry.get("store"):
+        _tamper_copy(retirement.building / "files" / entry["store"], archive)
+
+
+@settings(max_examples=24, deadline=None, database=None)
+@example(after_check=False, kind="empty", resume=False, skipped=True, present=True, archive="missing", data=b"x")
+@example(after_check=False, kind="hardlink", resume=False, skipped=True, present=True, archive="missing", data=b"x")
+@example(after_check=False, kind="symlink", resume=False, skipped=True, present=True, archive="missing", data=b"x")
+@example(after_check=False, kind="file", resume=True, skipped=True, present=True, archive="missing", data=b"x")
+@example(after_check=False, kind="file", resume=True, skipped=True, present=True, archive="verified", data=b"x")
+@example(after_check=False, kind="file", resume=True, skipped=True, present=True, archive="corrupt", data=b"x")
+@example(after_check=True, kind="file", resume=True, skipped=True, present=True, archive="missing", data=b"x")
+@example(after_check=True, kind="hardlink", resume=False, skipped=False, present=True, archive="hardlink", data=b"x")
+@example(after_check=True, kind="file", resume=False, skipped=False, present=True, archive="mtime", data=b"x")
+@given(after_check=st.booleans(), kind=st.sampled_from(KINDS), resume=st.booleans(), skipped=st.booleans(), present=st.booleans(),
+       archive=st.sampled_from(["missing", "corrupt", "hardlink", "mtime", "verified"]),
+       data=st.binary(min_size=1, max_size=256))
+def test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes(after_check, kind, resume, skipped, present, archive, data):
+    """The property above over every entry type, and over a restart between the
+    archive and its final check (the recovery path that skips the builder)."""
+    with tempfile.TemporaryDirectory(prefix="retention-salvage-") as temporary, pytest.MonkeyPatch.context() as patch:
+        base = Path(temporary)
+        w = World(base)
+        try:
+            wt = w.job("job")
+            (wt / "src" / "main.py").write_bytes(b"provider progress\n")
+            root = wt / ("nested repo " if skipped else "out")
+            root.mkdir()
+            if skipped:
+                git(root, "init", "--quiet")
+            if kind == "empty":
+                data = b""
+            path = root / "private.bin"
+            if kind == "symlink":
+                (root / "target.bin").write_bytes(data)
+                os.symlink("target.bin", path)
+            else:
+                path.write_bytes(data)
+                if kind == "hardlink":
+                    # Sorts first, so it is stored and `path` is archived as its link ("hl").
+                    os.link(path, root / "private-link.bin")
+            result = salvage(wt, w.head(), 1, timestamp="2026-10-04T12:00:00Z")
+            assert result is not None and bool(result.skipped) == skipped
+            w.store.add_artifact(w.attempt("job"), "salvage", result.ref,
+                                 hashlib.sha256(result.commit.encode()).hexdigest(), 0)
+            rel = str(path.relative_to(wt))
+            assert not git(w.repo, "ls-tree", "-r", "--name-only", result.commit, "--", rel)
+            if not present:
+                path.unlink()
+            before = snapshot(wt)
+            run = dict(max_jobs=0, clock=Clock(), holders=lambda watches, **_: {},
+                       salvage_referenced_elsewhere=lambda artifact: True)
+            if resume:
+                def interrupt(self):
+                    raise rarch.Interrupted("restart before the final check")
+
+                with pytest.MonkeyPatch.context() as once:
+                    once.setattr(rarch.Retirement, "final_check", interrupt)
+                    first = retention.maintenance(w.store, w.root, **run)
+                assert first["pruned"] == [] and first.get("interrupted"), first
+                retirement = rarch.Retirement(rarch.Context(w.root, w.store), "job")
+                assert retirement.state == "archived"
+                if present and not after_check:
+                    _tamper_saved(retirement, rel, archive)
+                patch.setattr(rarch.Retirement, "archive",
+                              lambda *a, **k: pytest.fail("recovery of an archived journal does not rebuild"))
+            elif not after_check:
+                original = rarch._Builder._file
+
+                def archive_file(self, entry, *args, **kwargs):
+                    original(self, entry, *args, **kwargs)
+                    if entry["p"] != rel:
+                        return
+                    _tamper_copy(self.files / entry["store"], archive)
+
+                patch.setattr(rarch._Builder, "_file", archive_file)
+            if after_check:
+                original_check = rarch.Retirement._check_copies
+                def check_then_damage(self, manifest):
+                    original_check(self, manifest)
+                    if present:
+                        _tamper_saved(self, rel, archive)
+                patch.setattr(rarch.Retirement, "_check_copies", check_then_damage)
+            outcome = retention.maintenance(w.store, w.root, **run)
+            # A link's bytes are its target, which the manifest holds.
+            safe = not present or archive == "verified" or kind == "symlink"
+            assert outcome["pruned"] == (["job"] if safe or after_check else []), (kind, resume, archive, outcome)
+            if safe:
+                assert outcome["protected"] == [] and not wt.exists()
+                assert rarch.check_archive(w.root, "job")["ok"]
+                fresh = base / "fresh"
+                git(base, "clone", "--quiet", str(w.remote), str(fresh))
+                rarch.restore(w.root, "job", to=base / "restored", repository=fresh)
+                restored = base / "restored" / "worktree"
+                assert {p: e for p, e in snapshot(restored).items() if p != ".git"} == {
+                    p: e for p, e in before.items() if p != ".git"}
+            elif after_check:
+                assert {c["job_id"] for c in outcome["conflicts"]} == {"job"}, outcome
+                assert (w.root / "retention-conflicts/job/worktree" / rel).read_bytes() == data
+                assert not wt.exists() and w.store.get_job("job") is None
+                assert w.store.list_leases() == []
+            else:
+                assert outcome["protected"] == ["job"] and w.store.get_job("job") is not None
+                if not resume:
+                    reason = "archive did not read back"
+                    assert outcome["deferred"]["job"].startswith(reason + ":"), outcome
                 assert snapshot(wt) == before and path.read_bytes() == data
                 assert str(wt) in git(w.repo, "worktree", "list", "--porcelain")
                 assert w.store.list_leases() == []

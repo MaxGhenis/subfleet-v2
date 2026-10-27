@@ -11,6 +11,7 @@ from __future__ import annotations
 import ast
 import json
 import os
+import pwd
 import re
 import subprocess
 import sys
@@ -20,6 +21,7 @@ import pytest
 
 from subfleet import cli, compat
 from subfleet.contracts import Exit
+from subfleet.home_paths import PYTEST_MARKER
 
 CASES_PATH = Path(__file__).resolve().parents[1] / "fixtures" / "compat" / "cases.json"
 CASES = json.loads(CASES_PATH.read_text())["cases"]
@@ -239,7 +241,7 @@ def test_no_v1_mirror_flag_is_unaccounted_for():
     `add_argument` lines instead, and each one must be on `sessions mirror` or
     in `V1_ONLY_FLAGS["mirror"]`.
     """
-    script = Path("~/chief-of-staff/subfleet/bin/subfleet-mirror").expanduser()
+    script = Path(pwd.getpwuid(os.getuid()).pw_dir) / "chief-of-staff/subfleet/bin/subfleet-mirror"
     if not script.exists():
         pytest.skip("the v1 install is not present on this machine")
     options = set(re.findall(r'add_argument\(\s*"(--[a-z-]+)"', script.read_text()))
@@ -268,7 +270,7 @@ def _v2_option_map() -> dict[str, set[str]]:
 
 def _v1_option_map() -> dict[str, list[str]] | None:
     """C-17.1: inspect v1 source as data; never import or invoke its commands."""
-    root = Path("~/chief-of-staff/subfleet/subfleet").expanduser()
+    root = Path(pwd.getpwuid(os.getuid()).pw_dir) / "chief-of-staff/subfleet/subfleet"
     if not (root / "cli.py").is_file():
         return None
     tree = ast.parse((root / "cli.py").read_text())
@@ -504,15 +506,19 @@ def test_delegation_says_so_when_the_v1_install_is_gone(monkeypatch, capsys):
     assert "SUBFLEET_V1_BIN" in capsys.readouterr().err
 
 
-def test_the_v1_binary_is_never_this_process(monkeypatch, tmp_path):
+def test_the_v1_binary_is_never_this_process(monkeypatch, tmp_path, production_process):
     """C-5.3's reasoning applied to a binary: after the flip `which subfleet`
     is v2, and delegating to it would recurse until the process table gave out,
     so identity is checked before the call and not after."""
     binary = tmp_path / "subfleet"
     binary.write_text("#!/bin/sh\n")
     binary.chmod(0o755)
-    monkeypatch.delenv(compat.V1_BIN_ENV, raising=False)
-    monkeypatch.setattr(compat, "V1_BIN_DEFAULT", str(tmp_path / "absent"))
+    # D-ST3: PATH's `subfleet` is a production default, which a test process
+    # refuses; this test means production, under its own HOME and no markers.
+    for name in (PYTEST_MARKER, "PYTEST_CURRENT_TEST"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv(compat.V1_BIN_ENV, str(tmp_path / "absent"))
     monkeypatch.setattr(compat.shutil, "which", lambda name: str(binary))
     monkeypatch.setattr(sys, "argv", [str(binary)])
     assert compat.v1_binary() is None

@@ -1,0 +1,58 @@
+Using CPython 3.14.4 interpreter at: /Users/maxghenis/.local/bin/python3.14
+Creating virtual environment at: /var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/venv314
+Installed 8 packages in 131ms
+FFFliteral root changes=[('out:/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/t/sf-pr148-fix4.0kwn8g/pytest-of-maxghenis/pytest-1/test_rollback_percent_encoded_0/peer-result.md', 'out:/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-1/test_rollback_percent_encoded_0/Peer-Result.md')]; requested_unchanged=True; live_peer_modified=True
+F
+=================================== FAILURES ===================================
+_________ test_missing_component_before_loop_is_clean_refusal[parent] __________
+subfleet/daemon.py:1889: in submit
+    raise ValueError("output directory must exist")
+E   ValueError: output directory must exist
+
+The above exception was the direct cause of the following exception:
+/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/test_output_loop_r4.py:16: in test_missing_component_before_loop_is_clean_refusal
+    submit(service,harness,out_path=str(path),caller_session=None)
+tests/fake/test_admission_latency.py:55: in submit
+    return service.dispatch("submit", harness.submit_args(**changes))["job_id"]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:2671: in dispatch
+    return self.submit(protocol.coerce_args(protocol.SubmitArgs, args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+subfleet/daemon.py:1984: in submit
+    raise protocol.ProtocolError(str(exc)) from exc
+E   subfleet.protocol.ProtocolError: output directory must exist
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4502860336:daemon.py:644 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+__________ test_missing_component_before_loop_is_clean_refusal[file] ___________
+/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/test_output_loop_r4.py:15: in test_missing_component_before_loop_is_clean_refusal
+    with pytest.raises(AdapterError) as refused:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE AdapterError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4502861680:daemon.py:644 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-1/test_missing_component_before_1/loop: [Errno 62] Too many levels of symbolic links: '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-1/test_missing_component_before_1/loop'; using exact string
+______ test_missing_component_before_loop_when_nonstrict_suppresses_eloop ______
+/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/test_output_loop_r4.py:36: in test_missing_component_before_loop_when_nonstrict_suppresses_eloop
+    with pytest.raises(AdapterError) as refused:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE AdapterError
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4505165104:daemon.py:644 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+WARNING  subfleet.folders:folders.py:77 resource identity unavailable for /private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-1/test_missing_component_before_2/loop: [Errno 62] Too many levels of symbolic links: '/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-1/test_missing_component_before_2/loop'; using exact string
+_______ test_rollback_percent_encoded_root_repairs_only_the_locked_store _______
+/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/test_rollback_r4.py:259: in test_rollback_percent_encoded_root_repairs_only_the_locked_store
+    assert changes == [("out:" + folders.identity(intended_stored),
+E   AssertionError: assert [('out:/priva...r-Result.md')] == [('out:/priva...d-Result.md')]
+E     
+E     At index 0 diff: ('out:/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/t/sf-pr148-fix4.0kwn8g/pytest-of-maxghenis/pytest-1/test_rollback_percent_encoded_0/peer-result.md', 'out:/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/pytest-of-maxghenis/pytest-1/test_rollback_percent_encoded_0/Peer-Result.md') != ('out:/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/t/sf-pr148-fix4.0kwn8g/pytest-of-maxghenis/pytest-1/test_rollback_percent_encoded_0/intended-result.md', 'out:/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr...
+E     
+E     ...Full output truncated (2 lines hidden), use '-vv' to show
+------------------------------ Captured log call -------------------------------
+INFO     subfleet.daemon.4503435120:daemon.py:644 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+INFO     subfleet.daemon.4502862016:daemon.py:644 open-file limit 1048575 (hard unlimited); up to 512 client connections with no turn running, idle ones closed after 60 s
+=========================== short test summary info ============================
+FAILED ../../../../../var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/test_output_loop_r4.py::test_missing_component_before_loop_is_clean_refusal[parent]
+FAILED ../../../../../var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/test_output_loop_r4.py::test_missing_component_before_loop_is_clean_refusal[file]
+FAILED ../../../../../var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/test_output_loop_r4.py::test_missing_component_before_loop_when_nonstrict_suppresses_eloop
+FAILED ../../../../../var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-pr148-fix4.0KWn8G/test_rollback_r4.py::test_rollback_percent_encoded_root_repairs_only_the_locked_store
+4 failed in 17.56s

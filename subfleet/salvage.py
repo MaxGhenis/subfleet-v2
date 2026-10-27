@@ -15,6 +15,7 @@ from pathlib import Path
 
 from .adapters.base import AdapterError
 from .contracts import GIT_LOCATION_ENV, GIT_PATHSPEC_ENV
+from .launch_env import build_environment
 from .sessions.transcripts import open_regular
 
 #: One git call's wall-clock cap when the caller names none. The 15 s this
@@ -36,7 +37,8 @@ TRANSIENT_ERRNOS = frozenset({
 #: `strerror`, and sometimes omits the errno: an index or ref lock file it
 #: could not finish writing, an allocation failure, or a held reftable lock.
 #: These all get bounded retries (C-6.8, C-13.1). `cannot lock ref` alone also
-#: covers a ref that exists or a name that conflicts, which no retry changes.
+#: covers existing refs or conflicting names, not host pressure. `_hold` handles
+#: a create-only write losing a race to another snapshot separately.
 #: Read only under the C locale (`_git_env`), on git's own `error:` and `fatal:`
 #: lines, and at a line's end, so a file name quoted earlier in a line or
 #: ending a `hint:` or `warning:` line is not read as an error. `strerror`
@@ -67,12 +69,27 @@ class SalvageError(RuntimeError):
 
     The message is valid UTF-8 (`utf8_text`) whatever git quoted in it: it
     reaches receipts, the evidence, notices and replies.
+
+    ``public`` is the message without what it quotes that is not our own: what
+    git printed (a repository's own hooks and filters print there too) or an OS
+    error's text, keeping git's verb, how it ended and the errno. An error that
+    quotes such text names it; one that does not leaves it None, its message
+    being our own words. Admission's records read it (C-6.8, C-25.7).
     """
 
-    def __init__(self, message: str, *, transient: bool = False, timed_out: bool = False):
+    def __init__(self, message: str, *, transient: bool = False, timed_out: bool = False,
+                 public: str | None = None):
         super().__init__(utf8_text(message))
         self.transient = transient or timed_out
         self.timed_out = timed_out
+        self.public = utf8_text(public) if public is not None else None
+
+
+def os_error_text(exc: BaseException) -> str:
+    """An OS or subprocess error as `public` names it: its errno and `os.strerror`
+    text, or its class name; never its message or filename."""
+    from .refusals import class_name, errno_text
+    return errno_text(exc) or class_name(exc)
 
 
 def utf8_text(text: str) -> str:
@@ -112,6 +129,11 @@ def transient_os_error(exc: BaseException) -> bool:
     return isinstance(exc, OSError) and exc.errno in TRANSIENT_ERRNOS
 
 
+#: Git's Trace2 targets. Each set to `0` is off, and the variable is read before the
+#: matching `trace2.*Target` config (git's api-trace2 documentation).
+GIT_TRACE2_TARGETS = ("GIT_TRACE2", "GIT_TRACE2_EVENT", "GIT_TRACE2_PERF")
+
+
 def _transient_git(stderr: str | bytes) -> bool:
     """Whether git's stderr names a failure another try may not meet (`_TRANSIENT_GIT`)."""
     return bool(_TRANSIENT_GIT.search(os.fsdecode(stderr) if isinstance(stderr, bytes) else stderr))
@@ -129,11 +151,25 @@ def _git_env(env: dict[str, str] | None) -> dict[str, str]:
     of c1f95838: under `de_DE.UTF-8` a nested repository with no commit was
     reported in German and not recognised). `LANGUAGE` is removed too, since
     gettext reads it before `LC_ALL` everywhere but under the C locale.
+
+    Git's diagnostic traces (`GIT_TRACE`, `GIT_TRACE2_EVENT` and every other
+    `GIT_TRACE*`) are removed: inherited from whoever started the daemon, they
+    make git write wherever they name, and a read-only lookup in a tree
+    retention has fenced then wrote a file inside it (review of #141 at
+    708d6557, P3). The three Trace2 targets are then set to `0`, which git reads
+    as "off" ahead of any `trace2.normalTarget`, `trace2.eventTarget` or
+    `trace2.perfTarget` in the global or system config: dropping an inherited
+    `GIT_TRACE2_EVENT=0` alone let such a config write there (review of #141 at
+    c20ee3d0, P3).
     """
     own = env is None
-    env = dict(os.environ if own else env)
+    env = build_environment() if own else dict(env)
     for name in GIT_LOCATION_ENV + GIT_PATHSPEC_ENV + (("GIT_INDEX_FILE",) if own else ()):
         env.pop(name, None)
+    for name in [name for name in env if name.startswith("GIT_TRACE")]:
+        env.pop(name)
+    for name in GIT_TRACE2_TARGETS:
+        env[name] = "0"
     env["LC_ALL"] = "C"
     env.pop("LANGUAGE", None)
     return env
@@ -157,7 +193,8 @@ def _failure(verb: str, result: subprocess.CompletedProcess) -> SalvageError | N
             name = f"signal {-result.returncode}"
         return SalvageError(f"git {verb} was killed by {name}", transient=True)
     return SalvageError(f"git {verb} failed: {os.fsdecode(result.stderr).strip()}",
-                        transient=_transient_git(result.stderr))
+                        transient=_transient_git(result.stderr),
+                        public=f"git {verb} failed (exit {result.returncode}); daemon.log has its output")
 
 
 def _git(workdir: str | Path, *args: str, env: dict[str, str] | None = None,
@@ -177,10 +214,12 @@ def _git(workdir: str | Path, *args: str, env: dict[str, str] | None = None,
         raise SalvageError(f"git {args[0]} timed out after {cap:g} s", timed_out=True) from exc
     except (OSError, subprocess.SubprocessError) as exc:
         if transient_os_error(exc):
-            raise SalvageError(f"git {args[0]} could not run: {exc}", transient=True) from exc
+            raise SalvageError(f"git {args[0]} could not run: {exc}", transient=True,
+                               public=f"git {args[0]} could not run: {os_error_text(exc)}") from exc
         if optional:
             return None
-        raise SalvageError(f"git {args[0]} unavailable: {type(exc).__name__}: {exc}") from exc
+        raise SalvageError(f"git {args[0]} unavailable: {type(exc).__name__}: {exc}",
+                           public=f"git {args[0]} unavailable: {os_error_text(exc)}") from exc
     failure = _failure(args[0], result)
     if failure is None:
         return os.fsdecode(result.stdout).strip()
@@ -203,7 +242,8 @@ def _git_bytes(workdir: str | Path, *args: str, env: dict[str, str] | None = Non
         raise SalvageError(f"git {args[0]} timed out after {cap:g} s", timed_out=True) from exc
     except (OSError, subprocess.SubprocessError) as exc:
         if transient_os_error(exc):
-            raise SalvageError(f"git {args[0]} could not run: {exc}", transient=True) from exc
+            raise SalvageError(f"git {args[0]} could not run: {exc}", transient=True,
+                               public=f"git {args[0]} could not run: {os_error_text(exc)}") from exc
         return None
     failure = _failure(args[0], result)
     if failure is None:
@@ -294,13 +334,13 @@ def snapshot_tree(workdir: str | Path, baseline_commit: str, *,
     gitdir = _git(workdir, "rev-parse", "--absolute-git-dir", timeout_s=timeout_s)
     with tempfile.TemporaryDirectory(prefix="subfleet-salvage-", dir=gitdir) as temporary:
         index = Path(temporary) / "index"
-        env = {**os.environ, "GIT_INDEX_FILE": str(index)}
+        env = build_environment({"GIT_INDEX_FILE": str(index)})
         if _seeded(workdir, index, env, baseline_commit, timeout_s=timeout_s):
             return _record(workdir, env, timeout_s=timeout_s)
     # A fresh directory: whatever a failed seeding step left (the copy, a
     # crashed git's `index.lock`) is gone with the first.
     with tempfile.TemporaryDirectory(prefix="subfleet-salvage-", dir=gitdir) as temporary:
-        env = {**os.environ, "GIT_INDEX_FILE": str(Path(temporary) / "index")}
+        env = build_environment({"GIT_INDEX_FILE": str(Path(temporary) / "index")})
         _git(workdir, "read-tree", baseline_commit, env=env, timeout_s=timeout_s)
         return _record(workdir, env, timeout_s=timeout_s)
 
@@ -380,7 +420,8 @@ def _add(workdir: str | Path, env: dict[str, str], pathspec: bytes | None,
     except subprocess.TimeoutExpired as exc:
         raise SalvageError(f"git add timed out after {cap:g} s", timed_out=True) from exc
     except (OSError, subprocess.SubprocessError) as exc:
-        raise SalvageError(f"git add could not run: {exc}", transient=transient_os_error(exc)) from exc
+        raise SalvageError(f"git add could not run: {exc}", transient=transient_os_error(exc),
+                           public=f"git add could not run: {os_error_text(exc)}") from exc
     failure = _failure("add", result)
     if failure is not None and result.returncode < 0:
         raise failure
@@ -434,7 +475,8 @@ def _head_status(gitdir: bytes, env: dict[str, str], timeout_s: float | None) ->
     except subprocess.TimeoutExpired as exc:
         raise SalvageError(f"git rev-parse timed out after {cap:g} s", timed_out=True) from exc
     except (OSError, subprocess.SubprocessError) as exc:
-        raise SalvageError(f"git rev-parse could not run: {exc}", transient=transient_os_error(exc)) from exc
+        raise SalvageError(f"git rev-parse could not run: {exc}", transient=transient_os_error(exc),
+                           public=f"git rev-parse could not run: {os_error_text(exc)}") from exc
     failure = _failure("rev-parse", result)
     if failure is not None and failure.transient:
         raise failure
@@ -522,7 +564,8 @@ def validate_writable_workdir(workdir: str | Path, *, timeout_s: float | None = 
     branch = git_branch(workdir, timeout_s=timeout_s)
     if branch in {"main", "master"}:
         raise AdapterError(f"writable job refused on {branch}", code=7,
-                           fix="Check out a task branch before submitting a writable job.")
+                           fix="Check out a task branch before submitting a writable job.",
+                           reason="writable-branch", details={"branch": branch})
 
 
 @dataclass(frozen=True)
@@ -621,23 +664,34 @@ def _hold(workdir: str | Path, ref: str, tree: str, parent: str, message: str, *
 
     A ref that already holds `tree` on `parent` (a replay) is reused. One that
     holds other bytes is never overwritten: the snapshot goes beside it, under
-    `<ref>-<first 12 of the tree>`, and `update-ref` creates only (its old value
-    is all zeros), so a ref another writer made meanwhile fails the call."""
-    previous = _git(workdir, "rev-parse", "--verify", ref, optional=True, timeout_s=timeout_s)
-    if previous:
+    `<ref>-<first 12 of the tree>`. Each name is created only (the old value is
+    all zeros). If another writer creates it first, read it once more and apply
+    the same replay/conflict rule. A collision at the sibling can only replay;
+    a different snapshot there, or any other git failure, still raises."""
+    commit = None
+    for candidate in (ref, f"{ref}-{tree[:12]}"):
+        previous = _git(workdir, "rev-parse", "--verify", candidate,
+                        optional=True, timeout_s=timeout_s)
+        if not previous:
+            if commit is None:
+                commit = _git(workdir, "-c", "user.name=subfleet", "-c", "user.email=subfleet@localhost",
+                              "commit-tree", tree, "-p", parent, "-m", message, timeout_s=timeout_s)
+            try:
+                _git(workdir, "update-ref", candidate, commit, "0" * 40, timeout_s=timeout_s)
+            except SalvageError as exc:
+                # `_git` fixes the locale. Only a lost create race permits this
+                # reread; timeouts, held lock files and I/O errors still raise.
+                if exc.transient or not str(exc).endswith(": reference already exists"):
+                    raise
+                previous = _git(workdir, "rev-parse", "--verify", candidate,
+                                optional=True, timeout_s=timeout_s)
+                if not previous:
+                    raise
+            else:
+                return candidate, commit
         previous_tree = _git(workdir, "rev-parse", f"{previous}^{{tree}}", timeout_s=timeout_s)
         previous_parent = _git(workdir, "rev-parse", f"{previous}^", optional=True, timeout_s=timeout_s)
         if previous_tree == tree and previous_parent == parent:
-            return ref, previous
-        # Never overwrite a previous snapshot with different bytes.
-        ref = f"{ref}-{tree[:12]}"
-    commit = _git(workdir, "-c", "user.name=subfleet", "-c", "user.email=subfleet@localhost",
-                  "commit-tree", tree, "-p", parent, "-m", message, timeout_s=timeout_s)
-    existing = _git(workdir, "rev-parse", "--verify", ref, optional=True, timeout_s=timeout_s)
-    if existing:
-        if (_git(workdir, "rev-parse", f"{existing}^{{tree}}", timeout_s=timeout_s) == tree
-                and _git(workdir, "rev-parse", f"{existing}^", timeout_s=timeout_s) == parent):
-            return ref, existing
-        raise SalvageError("salvage reference already names a different snapshot")
-    _git(workdir, "update-ref", ref, commit, "0" * 40, timeout_s=timeout_s)
-    return ref, commit
+            return candidate, previous
+        if candidate != ref:
+            raise SalvageError("salvage reference already names a different snapshot")

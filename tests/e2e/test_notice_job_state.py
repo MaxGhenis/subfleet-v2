@@ -23,7 +23,7 @@ def job_id(result):
 
 def test_c9_2_c15_1_a_codex_job_cancelled_while_running_is_announced_cancelled(e2e):
     """C-5.6, C-7.2, C-8.3, C-9.2, C-15.1, C-17.3: the attempt that exited 0 on the
-    daemon's SIGTERM is `unknown`, the job `cancelled` with rc 130, no `-o` file and no
+    daemon's SIGTERM is `transient`, the job `cancelled` with rc 130, no `-o` file and no
     export, and the notice header says `cancelled; rc=130` with no paths."""
     e2e.start(scenario="sigterm-exit-0")
     submitted = e2e.cli(*e2e.run_args("astra", "-o", e2e.out))
@@ -40,18 +40,21 @@ def test_c9_2_c15_1_a_codex_job_cancelled_while_running_is_announced_cancelled(e
     assert (job["state"], job["rc"], job["accepted_attempt_id"]) == ("cancelled", 130, None)
     attempt, = e2e.attempts(identity)
     assert (attempt["state"], attempt["rc"], attempt["killed_by"]) == ("interrupted", 0, "operator")
-    assert attempt["outcome_class"] == "unknown"
-    assert attempt["outcome_detail"].startswith("stopped by operator: exit 0 after the daemon's signal")
-    verdict = json.loads(attempt["evidence_json"])["provider_verdict"]
-    assert verdict == {"class": "ok", "detail": "Codex completed with a deliverable",
-                       "killed_by": "operator"}
+    assert attempt["outcome_class"] == "transient"
+    assert attempt["outcome_detail"] == "Codex exited before its turn completed"
+    evidence = json.loads(attempt["evidence_json"])
+    assert evidence["classification"]["turn_completed"] is False
+    assert "provider_verdict" not in evidence
 
     assert not e2e.out.exists()
     assert not e2e.rows("SELECT 1 FROM events WHERE kind='job.exported' AND job_id=?", (identity,))
     notice, = e2e.rows("SELECT * FROM notices WHERE job_id=?", (identity,))
-    header, summary, kept = notice["text"].splitlines()
+    header, summary, kept, capability = notice["text"].splitlines()
     assert header == f"{identity}: cancelled; rc=130; deliverable=-; out=-"
-    assert summary.startswith("attempt a1: unknown, rc=0: stopped by operator")
+    assert capability == (
+        "ran read-only on codex-1 (astra): commands ran, but nothing could be written, "
+        "temp files included, so pytest could not run")
+    assert summary.startswith("attempt a1: transient, rc=0: Codex exited before its turn completed")
     assert kept.startswith("output kept, not accepted: ") and kept.endswith(
         f"; -o {e2e.out} was not written")
     deliverable = next(row for row in e2e.show(identity)["artifacts"] if row["role"] == "deliverable")

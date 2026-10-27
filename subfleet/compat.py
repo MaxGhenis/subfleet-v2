@@ -57,6 +57,8 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from .contracts import Exit
+from .home_paths import PersonalPathRefused, home_path, under_pytest
+from .launch_env import build_environment
 
 PROG = "subfleet"
 
@@ -123,6 +125,8 @@ PERMANENT: dict[tuple[str, ...], list[str]] = {
     ("jobs",): ["runs"],                                # C-17.1, not v1
     ("show",): ["runs", "show"],                        # C-17.1, not v1
     ("wait",): ["wait"],
+    ("wake",): ["wake"],
+    ("suggest",): ["suggest"],                          # C-25.7, not v1
     ("kill",): ["kill"],
     ("resume",): ["resume"],
     ("resume-codex",): ["resume"],
@@ -507,13 +511,21 @@ def v1_binary(env: dict[str, str] | None = None) -> str | None:
     the process table gave out.
     """
     env = os.environ if env is None else env
-    candidates = [env.get(V1_BIN_ENV), V1_BIN_DEFAULT]
+    # The default is the person's v1 install, which runs against their v1
+    # state: a pytest process names its own or refuses (D-ST3).
+    candidates = [env.get(V1_BIN_ENV), home_path(V1_BIN_ENV, lambda: V1_BIN_DEFAULT, env=env, test_only=True)]
     for candidate in candidates:
         if not candidate:
             continue
         path = Path(candidate).expanduser()
         if path.is_file() and os.access(path, os.X_OK):
             return str(path)
+    if under_pytest():
+        # D-ST3: PATH's `subfleet` is a default too, and on the person's PATH it
+        # is their own install, so a test names its v1 binary or refuses.
+        raise PersonalPathRefused(f"Refusing personal path fallback under pytest; {V1_BIN_ENV} names no v1 "
+                                  "binary here, and PATH's subfleet is not a test's; set it to an isolated "
+                                  "test binary")
     found = shutil.which("subfleet")
     if found and not _is_self(found):
         return found
@@ -782,7 +794,7 @@ def delegate(argv: Sequence[str], *, stderr: Any = None,
               f"milestone that brings this verb to v2", file=stderr)
         return int(Exit.REFUSED)
     try:
-        done = runner([binary, *argv])
+        done = runner([binary, *argv], env=build_environment())
     except OSError as exc:
         print(f"{PROG}: cannot run {binary}: {exc}", file=stderr)
         return int(Exit.OPERATIONAL)

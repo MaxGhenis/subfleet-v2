@@ -24,6 +24,7 @@ from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any, Callable
 
+from .. import refusals
 from ..policy import CONVERSATION_DEFAULTS
 from ..relay import FrameTooLarge, RelayClient, RelayError, read_log
 from ..state_files import open_state
@@ -91,6 +92,14 @@ class Clocks:
                                     else float(section["approval_wait_s"])))
 
 
+@dataclass(frozen=True)
+class StopDelivery:
+    """A durable intent's pre-transmission clock and acknowledgement recorder."""
+
+    before_send: Callable[[], None]
+    record: Callable[[bool], None]
+
+
 def make_driver(spec: TurnSpec, read_bytes: Callable[[Image], bytes], *,
                 frame_recorded: Callable[[str], bool] = lambda tag: False,
                 image_path: Callable[[Image], str] = lambda image: image.path):
@@ -106,7 +115,8 @@ class TurnRunner:
                  clocks: Clocks = Clocks(), clock: Callable[[], float] = time.monotonic,
                  log=None, on_catalog: Callable[[str, str | None, list], None] | None = None,
                  handover: threading.Lock | None = None, ended: bool = False,
-                 handover_for: Callable[[str], Any] | None = None):
+                 handover_for: Callable[[str], Any] | None = None,
+                 on_stop_delivery: Callable[[Frame, int], StopDelivery] | None = None):
         self.store = store
         # A replay of an attempt the job store has ended (`ConversationService._replay_unsettled`):
         # its provider is gone whether or not it left an exit receipt.
@@ -120,6 +130,7 @@ class TurnRunner:
         self.control_socket = control_socket
         self.on_outcome = on_outcome
         self.on_contain = on_contain
+        self.on_stop_delivery = on_stop_delivery
         self.on_catalog = on_catalog
         self.catalog_reported = False
         self.clocks = clocks
@@ -155,6 +166,11 @@ class TurnRunner:
         self.batch_bytes = 0
         self.last_flush = clock()
         self.served: dict[str, Any] = {}
+        # Answers already durable when this runner was built belong to replay.
+        # Answers recorded later are live commands, even during the first read.
+        self._replay_answers = {row["provider_request_id"] for row in self.store.query(
+            "SELECT provider_request_id FROM approvals WHERE attempt_id=? AND state='answered'",
+            (self.attempt_id,))}
         self.stop_at: float | None = None
         self.ended_at: float | None = None
         self.escalated: set[str] = set()
@@ -302,7 +318,7 @@ class TurnRunner:
                 self.stop_reason = self.recorded.get("stop_reason") or self.stop_reason
                 for name in ("accepted", "answered", "limited", "served_model"):
                     setattr(self.driver, name, getattr(self.driver.outcome, name))
-                self._apply(Step(frames=[Frame("close", "close")], outcome=self.driver.outcome))
+                self._apply(Step(frames=[Frame("close", "close", stops=True)], outcome=self.driver.outcome))
             else:
                 self._apply(self.driver.start())
             withhold_pending = self.withheld
@@ -386,7 +402,7 @@ class TurnRunner:
             # attempt live or replays it ended (`ConversationService._replay_unsettled`).
             self.log.info("turn runner %s stopped: its service closed", self.attempt_id)
         else:
-            self.log.error("turn runner %s failed: %s: %s", self.attempt_id, type(exc).__name__, exc)
+            self.log.error("turn runner %s failed: %s", self.attempt_id, refusals.scrubbed_words(exc))
 
     def _process_gone(self) -> bool:
         return self.ended or (self.adir / "exit.json").exists()
@@ -440,18 +456,22 @@ class TurnRunner:
                 self._apply(self.driver.interrupt())
             elif command[0] == "respond":
                 _, request_id, decision, message, answers = command
-                try:
-                    if isinstance(self.driver, ClaudeTurn):
-                        step = self.driver.respond(request_id, decision, message, answers=answers)
-                    else:
-                        step = self.driver.respond(request_id, decision, message)
-                except ValueError as exc:
-                    if self.log:
-                        self.log.warning("approval %s on %s refused by the driver: %s", request_id, self.attempt_id, exc)
-                    continue
-                self._apply(step)
+                self._respond(request_id, decision, message, answers)
             elif command[0] == "steer":
                 self._steer(command[1])
+
+    def _respond(self, request_id: str, decision: str, message: str | None, answers: dict | None) -> None:
+        try:
+            if isinstance(self.driver, ClaudeTurn):
+                step = self.driver.respond(request_id, decision, message, answers=answers)
+            else:
+                step = self.driver.respond(request_id, decision, message)
+        except ValueError as exc:
+            if self.log:
+                self.log.warning("approval %s on %s refused by the driver: %s", request_id, self.attempt_id,
+                                 refusals.scrubbed_words(exc))
+            return
+        self._apply(step)
 
     def _restore_steers(self) -> None:
         """Prime written commands before stdout replay, and defer unwritten ones.
@@ -514,9 +534,11 @@ class TurnRunner:
             # It never takes its host's runner down: Stop, Esc and the queue behind
             # the host all go through this thread.
             if self.log and not isinstance(exc, (OSError, ValueError, ConversationError)):
-                self.log.warning("steer %s on %s failed: %s: %s", message_id, self.attempt_id,
-                                 type(exc).__name__, exc)
-            self._miss_steer(message_id, f"input-unavailable: {str(exc) or type(exc).__name__}")
+                self.log.warning("steer %s on %s failed: %s", message_id, self.attempt_id,
+                                 refusals.scrubbed_words(exc))
+            # The reason is the message's `state_reason`, its `steer.missed` events and
+            # the receipt clients read: the class and errno only, never its words (C-25.7).
+            self._miss_steer(message_id, f"input-unavailable: {refusals.fixed_error(exc)}")
             return
         self._apply(step)
 
@@ -554,15 +576,26 @@ class TurnRunner:
             self._discarding_steers = False
 
     def _sync_answers(self) -> None:
-        """Replay: an approval a person already answered is answered again in the
-        driver; its frame is already in the relay log and is not sent twice."""
+        """Restore recorded answers before the next replayed stdout line.
+
+        A written reply needs only driver state; a missing reply is rebuilt under
+        the usual relay and terminal-outcome guards. Live answers stay queued,
+        including the first runner's initial read before it catches up.
+        """
         for request_id in list(getattr(self.driver, "pending", {})):
             row = self.store.one("SELECT decision_json FROM approvals WHERE attempt_id=? AND provider_request_id=? "
                                  "AND state='answered'", (self.attempt_id, request_id))
             if row and row["decision_json"]:
                 decision = json.loads(row["decision_json"])
-                self.commands.put(("respond", request_id, decision.get("decision"), decision.get("message"),
-                                   decision.get("answers")))
+                if not self.replay_caught_up and request_id in self._replay_answers:
+                    if self.sent.get(f"approval:{request_id}") == "written":
+                        self._apply(self.driver.restore_answer(request_id, decision.get("decision")), send=False)
+                    else:
+                        self._respond(request_id, decision.get("decision"), decision.get("message"),
+                                      decision.get("answers"))
+                else:
+                    self.respond(request_id, decision.get("decision"), decision.get("message"),
+                                 decision.get("answers"))
 
     # --- applying a driver step ------------------------------------------------
 
@@ -596,17 +629,19 @@ class TurnRunner:
                 # C-26.9: a question (AskUserQuestion) waits for the person with no
                 # limit; a tool approval stops its turn only if policy sets a limit.
                 self.approval_seen.setdefault(approval.provider_request_id, self.clock())
-        if step.resolved:
-            self.store.withdraw_approvals(attempt_id=self.attempt_id, provider_request_ids=list(step.resolved))
+        if step.resolved or step.outcome is not None:
+            # C-27.3: the requests no longer pending are withdrawn (each with its
+            # `approval.resolved`, unless the provider's own is in the batch), and
+            # the message moves back to running while the turn goes on, in the commit
+            # that writes the batch saying so. The batch that records the turn's
+            # result also claims the conversation's title, when the first turn ended
+            # quiescent (titles.py): no transaction of its own, so no stop, steer or
+            # message ever waits on the claim.
+            self._flush(resolved=step.resolved, resume=self.driver.outcome is None,
+                        claim_title=step.outcome is not None and self._title_quiescent())
             for rid in step.resolved:
                 self.approval_seen.pop(rid, None)
-            if not self.store.approvals(message_id=self.message_id) and self.driver.outcome is None:
-                self.store.set_state(self.message_id, RUNNING, expect=("approval-needed",))
         if step.outcome is not None:
-            # The batch that records the turn's result also claims the conversation's
-            # title, when the first turn ended quiescent (titles.py): no transaction of
-            # its own, so no stop, steer or message ever waits on the claim.
-            self._flush(claim_title=self._title_quiescent())
             self.ended_at = self.clock()
             self._write_outcome()
         catalog = getattr(self.driver, "catalog", None)
@@ -616,7 +651,8 @@ class TurnRunner:
                 self.on_catalog(self.spec.provider, self.attempt.get("lane_id"), catalog)
             except Exception as exc:         # a catalog record never stops a turn
                 if self.log:
-                    self.log.warning("model catalog from %s not recorded: %s", self.attempt_id, exc)
+                    self.log.warning("model catalog from %s not recorded: %s", self.attempt_id,
+                                     refusals.scrubbed_words(exc))
         if send:
             self._send_outbox()
 
@@ -642,7 +678,7 @@ class TurnRunner:
         try:
             status = self.relay.status()
         except RelayError as exc:
-            self._unacknowledged(f"relay status: {exc}")
+            self._unacknowledged(f"relay status: {refusals.fixed_error(exc)}")
             return False                    # asked again later; nothing is sent meanwhile
         self.resends = 0
         unwritten = self._load_log()
@@ -762,12 +798,23 @@ class TurnRunner:
 
     def _transmit(self, frame: Frame) -> bool:
         """Send the head frame and act on the answer; whether the outbox may go on."""
+        # C-9.2 / D-WALL1: queuing a stop is not delivery. The builder knows
+        # its protocol: approval cancel/abort replies can stop just as interrupts,
+        # signals and stdin close can. A lost answer leaves the intent pending.
+        audit = (self.on_stop_delivery(frame, self.next_seq)
+                 if self.on_stop_delivery is not None
+                 and frame.stops else None)
+        before_send = audit.before_send if audit is not None else None
         try:
             if frame.op == "signal":
-                ack = self.relay.send(self.next_seq, "signal", tag=frame.tag, sig=frame.line)
+                ack = self.relay.send(self.next_seq, "signal", tag=frame.tag, sig=frame.line,
+                                      before_send=before_send)
             else:
-                ack = self.relay.send(self.next_seq, frame.op, line=frame.line, tag=frame.tag)
+                ack = self.relay.send(self.next_seq, frame.op, line=frame.line, tag=frame.tag,
+                                      before_send=before_send)
         except FrameTooLarge as exc:
+            if audit is not None:
+                audit.record(False)            # refused locally, never transmitted
             self._refuse_frame(frame, exc)
             return True
         except RelayError as exc:
@@ -775,8 +822,14 @@ class TurnRunner:
                 self.handover_tried = True    # the relay may have logged it: `_handover_verdict` asks
             if frame.tag.startswith("steer:"):
                 self._steer_tried.add(frame.tag.removeprefix("steer:"))
-            self._unacknowledged(f"frame {frame.tag}: {exc}")
+            self._unacknowledged(f"frame {frame.tag}: {refusals.fixed_error(exc)}")
             return False
+        if audit is not None:
+            if ack.ok:
+                audit.record(True)
+            elif (ack.error == "closed" and frame.op == "close") or (ack.error == "no-child" and frame.op == "signal"):
+                audit.record(False)            # the relay proves nothing was delivered
+            # Other failures can follow a partial write: keep the intent pending.
         self.resends = 0
         if ack.ok:
             self.sent[frame.tag] = "written"
@@ -981,7 +1034,7 @@ class TurnRunner:
         be sent in order either, so stdin is closed: the provider ends at EOF and
         the turn is reconciled from what the relay log shows (C-24.6)."""
         if self.log:
-            self.log.warning("turn %s frame %s not sent: %s", self.attempt_id, frame.tag, exc)
+            self.log.warning("turn %s frame %s not sent: %s", self.attempt_id, frame.tag, refusals.scrubbed_words(exc))
         if frame.tag.startswith("steer:"):
             self.outbox.pop(0)
             self._miss_steer(frame.tag.removeprefix("steer:"), "frame-too-large")
@@ -989,7 +1042,7 @@ class TurnRunner:
         self.frame_refused = self.frame_refused or frame.tag
         self.outbox.clear()
         self._discard_steers("host-frame-refused")
-        self.outbox[:] = [] if frame.op == "close" else [Frame("close", "close")]
+        self.outbox[:] = [] if frame.op == "close" else [Frame("close", "close", stops=True)]
 
     def _relay_lost(self, why: str) -> None:
         """Nothing more can be written (C-26.4). A turn with no terminal event is
@@ -1032,17 +1085,17 @@ class TurnRunner:
             waited = now - self.stop_at
             if waited >= clocks.sigint_after_s and "sigint" not in self.escalated:
                 self.escalated.add("sigint")
-                self.outbox.append(Frame("signal:int", "signal", "INT"))
+                self.outbox.append(Frame("signal:int", "signal", "INT", stops=True))
             if waited >= clocks.close_after_s and "close" not in self.escalated:
                 self.escalated.add("close")
-                self.outbox.append(Frame("close", "close"))
+                self.outbox.append(Frame("close", "close", stops=True))
             if waited >= clocks.contain_after_s and "contain" not in self.escalated:
                 self.escalated.add("contain")
                 self.on_contain(self.attempt_id)
         if self.ended_at is not None and now - self.ended_at >= clocks.after_result_s and "late" not in self.escalated:
             # D-15: background work outlived the ceiling; stop it the same way.
             self.escalated.add("late")
-            self.outbox.append(Frame("signal:int:late", "signal", "INT"))
+            self.outbox.append(Frame("signal:int:late", "signal", "INT", stops=True))
             self.late_stop_at = now
         late = self.late_stop_at
         if (late is not None and now - late >= clocks.contain_after_s - clocks.sigint_after_s
@@ -1065,13 +1118,16 @@ class TurnRunner:
         return (bool(self.batch) and (self.batch_bytes >= FLUSH_BYTES or self.clock() - self.last_flush >= FLUSH_S)
                 or self.title.pending)
 
-    def _flush(self, approvals: list[Approval] | None = None, *, claim_title: bool = False) -> None:
+    def _flush(self, approvals: list[Approval] | None = None, *, claim_title: bool = False,
+               resolved: list[str] | None = None, resume: bool = False) -> None:
         """One events batch and the watermark (C-25.4), in one transaction with what rides
         on it: with `approvals`, those approvals and the message's move to approval-needed
-        (C-27.1); and the title's work (titles.py): its claim, only in the batch that
-        records the first turn's result, and a generated title the provider answered."""
+        (C-27.1); with `resolved`, the withdrawal of those still pending and, with
+        `resume`, the move back to running (C-27.3); and the title's work (titles.py):
+        its claim, only in the batch that records the first turn's result, and a
+        generated title the provider answered."""
         answer = self.title.take()
-        if not self.batch and answer is None and not claim_title and not approvals:
+        if not self.batch and answer is None and not claim_title and not approvals and not resolved:
             self.last_flush = self.clock()
             return
         title = (TitleUpdate(claim_at=self.title.clock() if claim_title else None, answer=answer)
@@ -1087,7 +1143,8 @@ class TurnRunner:
         else:
             self.store.append_events(conversation_id=self.conversation_id, message_id=self.message_id,
                                      attempt_id=self.attempt_id, events=batch, stdout_offset=self.offset,
-                                     stdin_seq=self.next_seq - 1, title=title)
+                                     stdin_seq=self.next_seq - 1, title=title, resolved=resolved or (),
+                                     resume=resume)
         self.last_flush = self.clock()
         if title is None:
             return

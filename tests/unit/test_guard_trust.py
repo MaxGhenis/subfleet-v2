@@ -16,7 +16,22 @@ import pytest
 
 guard = importlib.import_module("subfleet.guard.preflight")
 
-from tests.fake.guard import install_guard
+from tests.fake.guard import install_guard as _install_guard
+from subfleet.launch_env import build_environment
+from subfleet.policy import DEFAULT_POLICY_PATH
+
+GUARD_TEST_NAMES = ("GUARD_TEST_REPORT", "GUARD_TEST_MODE", "GUARD_TEST_VERSION_MODE",
+                    "GUARD_TEST_VERSION", "GUARD_TEST_CA_VERSION_REPORT")
+
+
+def install_guard(root):
+    """The fake's controls are explicit policy inputs under D-ENV1."""
+    result = _install_guard(root)
+    path = Path(root) / "policy.json"
+    policy = json.loads(path.read_text() if path.exists() else DEFAULT_POLICY_PATH.read_text())
+    policy["env"] = {"pass": list(GUARD_TEST_NAMES)}
+    path.write_text(json.dumps(policy))
+    return result
 
 
 @pytest.fixture(autouse=True)
@@ -26,6 +41,14 @@ def isolated_overlay(tmp_path, monkeypatch):
     monkeypatch.setenv("SUBFLEET_HOME", str(root))
     monkeypatch.delenv("SUBFLEET_GUARD_TRUST", raising=False)
     return install_guard(root)
+
+
+#: The deadline the hung-probe tests give the preflight (#221 review r4, P3-2). At 0.5 s, a host at load
+#: ~87 had not started the fake's Python before the deadline, so no report.json existed and the tests
+#: failed on scheduling, not on the timeout path. The fake's hung probes sleep 300 s, far past it, and
+#: are reaped at the deadline; REAP_MARGIN_S bounds the refusal's own work after it.
+HUNG_DEADLINE_S = 10.0
+REAP_MARGIN_S = 20.0
 
 
 @pytest.fixture
@@ -41,9 +64,12 @@ import sys
 import time
 
 if sys.argv[1:] == ["--version"]:
+    if os.environ.get("GUARD_TEST_CA_VERSION_REPORT"):
+        Path(os.environ["GUARD_TEST_CA_VERSION_REPORT"]).write_text(json.dumps(
+            {k: os.environ[k] for k in ("SSL_CERT_FILE", "SSL_CERT_DIR") if k in os.environ}))
     if os.environ.get("GUARD_TEST_VERSION_MODE") == "hang":
         Path(os.environ["GUARD_TEST_REPORT"]).write_text(json.dumps({"version_pid": os.getpid()}))
-        time.sleep(30)
+        time.sleep(300)
         raise SystemExit(1)
     if os.environ.get("GUARD_TEST_VERSION_MODE") == "fail":
         print("fake launcher: node not found", file=sys.stderr)
@@ -53,6 +79,7 @@ if sys.argv[1:] == ["--version"]:
 assert sys.argv[1] == "app-server", sys.argv
 home = Path(os.environ["CODEX_HOME"])
 report = {"argv": sys.argv[1:], "home": str(home), "cwd": os.getcwd(),
+          "ca": {k: os.environ[k] for k in ("SSL_CERT_FILE", "SSL_CERT_DIR") if k in os.environ},
           "files": {p.name: p.read_text() for p in home.iterdir()},
           "api_keys": [key for key in ("CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")
                        if key in os.environ], "pid": os.getpid()}
@@ -60,7 +87,7 @@ Path(os.environ["GUARD_TEST_REPORT"]).write_text(json.dumps(report))
 mode = os.environ.get("GUARD_TEST_MODE", "trusted")
 print("fake app-server starting in mode " + mode, file=sys.stderr, flush=True)
 if mode == "hang":
-    time.sleep(30)
+    time.sleep(300)
     raise SystemExit(1)
 if mode == "launcher-exits":
     # The npm launcher shape: spawn the "native" child in the same session and
@@ -102,6 +129,16 @@ for line in sys.stdin:
     hooks = [] if mode == "missing" else [entry]
     if mode == "duplicate":
         hooks.append(entry.copy())
+    # C-12.3: every further trusted state entry (a review's publish hook) is listed too.
+    for key, trusted in re.findall(r'"(/<session-flags>/config\.toml:pre_tool_use:\d+:\d+)"=\{trusted_hash="([^"]+)"',
+                                   sys.argv[-1])[1:]:
+        if mode == "publish-missing":
+            continue
+        hooks.append({"key": key, "enabled": mode != "publish-disabled",
+                      "trustStatus": "untrusted" if mode == "publish-untrusted" else "trusted",
+                      "currentHash": "sha256:" + "1" * 64 if mode == "publish-hash-mismatch" else trusted})
+        if mode == "publish-duplicate":
+            hooks.append(dict(hooks[-1]))
     data = [{"cwd": os.getcwd(), "hooks": hooks,
              "warnings": ["fixture warning"] if mode == "warning" else [],
              "errors": ["fixture error"] if mode == "error" else []}]
@@ -288,8 +325,8 @@ def test_preflight_bounds_and_reaps_hung_probe(fake_codex, monkeypatch):
     fake, report_path = fake_codex
     monkeypatch.setenv("GUARD_TEST_MODE", "hang")
     started = time.monotonic()
-    result = guard.preflight(fake, timeout_s=0.5)
-    assert time.monotonic() - started < 3
+    result = guard.preflight(fake, timeout_s=HUNG_DEADLINE_S)
+    assert time.monotonic() - started < HUNG_DEADLINE_S + REAP_MARGIN_S
     assert not result.ok and result.code == 7 and "deadline" in result.message
     assert result.override is None
     assert "daemon scheduling" in result.fix and "trust remains unverified" in result.fix
@@ -303,7 +340,7 @@ def test_preflight_bounds_and_reaps_hung_probe(fake_codex, monkeypatch):
 def test_version_timeout_does_not_claim_version_drift(fake_codex, monkeypatch):
     fake, report_path = fake_codex
     monkeypatch.setenv("GUARD_TEST_VERSION_MODE", "hang")
-    result = guard.preflight(fake, timeout_s=0.5)
+    result = guard.preflight(fake, timeout_s=HUNG_DEADLINE_S)
     assert not result.ok and result.code == 7 and result.override is None
     assert result.version is None and "daemon scheduling" in result.fix
     assert "Restore" not in result.fix
@@ -362,7 +399,17 @@ def test_preflight_default_deadline_is_sixty_seconds(monkeypatch):
 
 def test_preflight_deadline_comes_from_v1_environment_variable(fake_codex, monkeypatch):
     """CODEX_GUARD_PREFLIGHT_TIMEOUT (v1's name) bounds the daemon's probe."""
-    fake, report_path = fake_codex
+    fake, _ = fake_codex
+    # This case bounds hooks/list. Version startup has its own deadline tests.
+    monkeypatch.setattr(guard, "_version", lambda *args, **kwargs: (0, "codex-cli 0.153.3", ""))
+    stopped = []
+    real_stop = guard._stop_probe
+
+    def stop(process):
+        stopped.append(process.pid)
+        real_stop(process)
+
+    monkeypatch.setattr(guard, "_stop_probe", stop)
     monkeypatch.setenv(guard.TIMEOUT_ENV, "0.5")
     monkeypatch.setenv("GUARD_TEST_MODE", "hang")
     started = time.monotonic()
@@ -371,9 +418,9 @@ def test_preflight_deadline_comes_from_v1_environment_variable(fake_codex, monke
     assert not result.ok and result.code == 7 and result.kind == guard.TIMEOUT
     assert result.timeout_s == 0.5 and "0.5s deadline" in result.message
     assert guard.TIMEOUT_ENV in result.fix
-    report = json.loads(report_path.read_text())
+    assert stopped == [result.probe_pid]
     with pytest.raises(ProcessLookupError):
-        os.kill(report["pid"], 0)
+        os.kill(result.probe_pid, 0)
 
 
 @pytest.mark.parametrize("value", ["", "  ", None])
@@ -411,7 +458,7 @@ def test_timeout_refusal_is_a_timeout_not_a_trust_mismatch(fake_codex, monkeypat
     probe pid, elapsed time, deadline, transcript and stderr tail kept for diagnosis."""
     fake, report_path = fake_codex
     monkeypatch.setenv("GUARD_TEST_MODE", "hang")
-    result = guard.preflight(fake, timeout_s=0.5)
+    result = guard.preflight(fake, timeout_s=HUNG_DEADLINE_S)
     assert result.kind == guard.TIMEOUT and result.override is None
     assert result.message.startswith("Guard preflight timed out")
     assert "unverified, not mismatched" in result.message
@@ -419,8 +466,8 @@ def test_timeout_refusal_is_a_timeout_not_a_trust_mismatch(fake_codex, monkeypat
     report = json.loads(report_path.read_text())
     assert result.probe_pid == report["pid"]
     assert f"probe pid {report['pid']}" in result.message
-    assert result.elapsed_s is not None and 0.5 <= result.elapsed_s < 4
-    assert result.timeout_s == 0.5
+    assert result.elapsed_s is not None and HUNG_DEADLINE_S <= result.elapsed_s < HUNG_DEADLINE_S + REAP_MARGIN_S
+    assert result.timeout_s == HUNG_DEADLINE_S
     assert result.executable == str(fake.resolve())
     assert "fake app-server starting in mode hang" in result.stderr_tail
     sent = [line for line in result.transcript if line.startswith("> ")]
@@ -433,7 +480,7 @@ def test_timeout_refusal_is_a_timeout_not_a_trust_mismatch(fake_codex, monkeypat
 def test_version_timeout_is_reported_as_a_timeout(fake_codex, monkeypatch):
     fake, report_path = fake_codex
     monkeypatch.setenv("GUARD_TEST_VERSION_MODE", "hang")
-    result = guard.preflight(fake, timeout_s=0.5)
+    result = guard.preflight(fake, timeout_s=HUNG_DEADLINE_S)
     assert result.kind == guard.TIMEOUT and result.message.startswith("Guard preflight timed out")
     assert "--version" in result.message and "unverified, not mismatched" in result.message
     assert "argv" not in json.loads(report_path.read_text())
@@ -545,6 +592,8 @@ def test_reap_failure_never_hides_the_probe_diagnostics(fake_codex, monkeypatch,
     """Finding 1: a launcher that outlives its SIGKILL wait, or a reap that errors,
     must not replace the timeout refusal or drop its diagnostics."""
     fake, report_path = fake_codex
+    # Exercise reaping an app-server, independently of the version subprocess.
+    monkeypatch.setattr(guard, "_version", lambda *args, **kwargs: (0, "codex-cli 0.153.3", ""))
     monkeypatch.setenv("GUARD_TEST_MODE", "hang")
     real_stop = guard._stop_probe
 
@@ -567,7 +616,7 @@ def test_reap_failure_never_hides_the_probe_diagnostics(fake_codex, monkeypatch,
         raise PermissionError(1, "Operation not permitted")
 
     monkeypatch.setattr(guard, "_stop_probe", stop)
-    result = guard.preflight(fake, timeout_s=0.5)
+    result = guard.preflight(fake, timeout_s=2)
     assert result.kind == guard.TIMEOUT and "deadline" in result.message
     assert "unverified, not mismatched" in result.message
     report = json.loads(report_path.read_text())
@@ -864,7 +913,8 @@ def test_answer_already_in_the_pipe_beats_an_expired_deadline(fake_codex, monkey
     ok, diagnostics = guard._hooks_list(
         str(fake), home=_scratch(fake), workdir=fake.parent,
         override=guard.override_string(guard.guard_paths()[0].resolve()),
-        env=dict(os.environ), timeout_s=5)
+        env=build_environment({name: os.environ[name] for name in GUARD_TEST_NAMES if name in os.environ}),
+        timeout_s=5, pass_names=GUARD_TEST_NAMES)
     assert ok.get("id") == 2 and not diagnostics["timed_out"]
 
 
@@ -915,3 +965,126 @@ def test_relative_cache_override_may_not_leave_the_state_root(fake_codex, tmp_pa
     assert not result.ok and result.kind == guard.CONFIG
     assert guard.CACHE_ENV in result.message and guard.CACHE_ENV in result.fix
     assert not report.exists() and not (tmp_path / "shared").exists()
+
+
+@pytest.mark.parametrize('choice', ['default', 'custom', 'null', 'operator-file', 'operator-dir', 'operator-empty'])
+def test_c14_2_preflight_version_and_app_server_use_lane_ca_environment(fake_codex, tmp_path, monkeypatch, choice):
+    from types import SimpleNamespace
+    from subfleet.contracts import Credential, Lane, LaneOwner
+    from subfleet.daemon import Daemon
+    from subfleet.provider_env import CA_SOURCES, ProviderEnvironment
+
+    for name in CA_SOURCES:
+        monkeypatch.delenv(name, raising=False)
+    fake, report = fake_codex
+    home = tmp_path / 'lane'
+    home.mkdir()
+    bundle = tmp_path / 'ca.pem'
+    bundle.write_bytes((Path(__file__).parents[1] / 'fixtures/codex-ca.pem').read_bytes())
+    policy = {} if choice == 'default' else {'providers': {'codex': {'ca_bundle': None if choice == 'null' else str(bundle)}}}
+    policy['env'] = {'pass': list(GUARD_TEST_NAMES)}
+    if choice.startswith('operator'):
+        key = 'SSL_CERT_DIR' if choice == 'operator-dir' else 'SSL_CERT_FILE'
+        monkeypatch.setenv(key, '' if choice == 'operator-empty' else str(tmp_path / 'operator-choice'))
+    version_report = tmp_path / 'version-ca.json'
+    monkeypatch.setenv('GUARD_TEST_CA_VERSION_REPORT', str(version_report))
+    environment = ProviderEnvironment(policy)
+    lane_env = environment.build('codex', {'CODEX_HOME': str(home)})
+    lane = Lane('codex-1', 'codex', 'codex:test', Credential('codex', str(home), 'home'),
+                str(home), LaneOwner.V2, False)
+    verdict = Daemon._guard_override(SimpleNamespace(codex_bin=str(fake)), lane, str(tmp_path),
+                                     state_root=Path(os.environ['SUBFLEET_HOME']), full=True, env=lane_env,
+                                     env_pass=(*environment.pass_names, 'CODEX_HOME'))
+    expected = {name: lane_env[name] for name in CA_SOURCES if name in lane_env}
+    assert verdict.ok and not verdict.cached
+    assert json.loads(report.read_text())['ca'] == expected
+    assert json.loads(version_report.read_text()) == expected
+
+
+def test_c14_2_ca_selection_change_invalidates_cached_preflight(fake_codex, tmp_path, monkeypatch):
+    from subfleet.provider_env import ProviderEnvironment
+    for name in ('SSL_CERT_FILE', 'SSL_CERT_DIR'):
+        monkeypatch.delenv(name, raising=False)
+    fake, _ = fake_codex
+    home = tmp_path / 'lane'
+    home.mkdir()
+    bundle = tmp_path / 'ca.pem'
+    bundle.write_bytes((Path(__file__).parents[1] / 'fixtures/codex-ca.pem').read_bytes())
+    environment = ProviderEnvironment({'providers': {'codex': {'ca_bundle': str(bundle)}},
+                                       'env': {'pass': list(GUARD_TEST_NAMES)}})
+    selected = environment.build('codex')
+    first = guard.preflight(fake, home=home, workdir=tmp_path, env=selected, env_pass=environment.pass_names)
+    assert first.ok and not first.cached
+    assert guard.preflight(fake, home=home, workdir=tmp_path, env=selected, env_pass=environment.pass_names).cached
+    changed = {key: value for key, value in selected.items() if key != 'SSL_CERT_FILE'}
+    changed['SSL_CERT_DIR'] = str(tmp_path / 'operator-dir')
+    second = guard.preflight(fake, home=home, workdir=tmp_path, env=changed, env_pass=environment.pass_names)
+    assert second.ok and not second.cached and second.cache_key != first.cache_key
+
+
+@pytest.mark.parametrize('configured', [None, 'custom'])
+def test_c14_2_standalone_preflight_reads_state_root_ca_policy(fake_codex, tmp_path, monkeypatch, configured):
+    from subfleet.policy import DEFAULT_POLICY_PATH
+    for key in ('SSL_CERT_FILE', 'SSL_CERT_DIR'):
+        monkeypatch.delenv(key, raising=False)
+    fake, report = fake_codex
+    home = tmp_path / 'lane'
+    home.mkdir()
+    bundle = tmp_path / 'ca.pem'
+    bundle.write_bytes((Path(__file__).parents[1] / 'fixtures/codex-ca.pem').read_bytes())
+    policy = json.loads(DEFAULT_POLICY_PATH.read_text())
+    policy['providers'] = {'codex': {'ca_bundle': str(bundle) if configured == 'custom' else None}}
+    policy['env'] = {'pass': list(GUARD_TEST_NAMES)}
+    root = Path(os.environ['SUBFLEET_HOME'])
+    (root / 'policy.json').write_text(json.dumps(policy))
+    result = guard.preflight(fake, home=home, workdir=tmp_path, state_root=root)
+    assert result.ok
+    assert json.loads(report.read_text())['ca'] == ({'SSL_CERT_FILE': str(bundle)} if configured == 'custom' else {})
+
+
+PUBLISH = "/state/publish-guard/review-publish-hook"
+
+
+def test_preflight_verifies_the_publish_hook_beside_the_guard(fake_codex, tmp_path):
+    """C-12.3, C-14.2: a review's override adds the publish hook as a second
+    group with its own trusted state; the guard's group, key and hash are v1's."""
+    fake, report_path = fake_codex
+    result = guard.preflight(fake, workdir=tmp_path, publish_command=PUBLISH)
+    assert result.ok and result.kind == guard.VERIFIED, result.message
+    table = tomllib.loads(result.override)["hooks"]
+    assert [group["matcher"] for group in table["PreToolUse"]] == [guard.HOOK_MATCHER, guard.PUBLISH_HOOK_MATCHER]
+    assert table["PreToolUse"][1]["hooks"] == [{"type": "command", "command": PUBLISH, "timeout": guard.HOOK_TIMEOUT,
+                                                 "statusMessage": guard.PUBLISH_HOOK_STATUS}]
+    assert table["state"][guard.PUBLISH_HOOK_KEY] == {"trusted_hash": guard.publish_trust_hash(PUBLISH), "enabled": True}
+    plain = guard.override_string(guard.guard_paths()[0].resolve())
+    assert tomllib.loads(plain)["hooks"]["PreToolUse"] == table["PreToolUse"][:1]
+    assert json.loads(report_path.read_text())["argv"][-1] == result.override
+    # A launch without the publish hook keeps v1's string, which TRUST pins.
+    assert guard.preflight(fake, workdir=tmp_path).override == plain
+
+
+@pytest.mark.parametrize("mode", ["publish-missing", "publish-untrusted", "publish-disabled",
+                                  "publish-hash-mismatch", "publish-duplicate"])
+def test_preflight_refuses_a_publish_hook_codex_does_not_trust(fake_codex, tmp_path, monkeypatch, mode):
+    """C-12.3: a publish hook Codex would skip fails the launch closed, never runs it without the rule.
+    C-14.2 (D-SH1 round 8): the guard verified, so the verdict is `publish`, with its own fix, which
+    names neither the TRUST pins nor `subfleet doctor` as the repair (doctor never checks this hook)."""
+    fake, _ = fake_codex
+    monkeypatch.setenv("GUARD_TEST_MODE", mode)
+    result = guard.preflight(fake, workdir=tmp_path, publish_command=PUBLISH)
+    assert not result.ok and result.kind == guard.PUBLISH and result.override is None
+    assert "review publish hook" in result.message
+    assert result.fix == guard._PUBLISH_FIX and "rerun subfleet doctor" not in result.fix
+    # The guard alone still verifies in the same mode: only the publish entry is wrong.
+    assert guard.preflight(fake, workdir=tmp_path).ok
+
+
+def test_publish_hook_identity_hash_matches_codex_0159_hooks_list():
+    """Codex 0.159.0's own hooks/list answer for a second group (2026-10-18
+    probe, network denied, scratch CODEX_HOME): key `pre_tool_use:1:0`,
+    enabled, trusted, currentHash equal to this identity hash."""
+    command = ("/opt/homebrew/opt/python@3.14/bin/python3.14 -I -c 'import sys;sys.path.insert(0,sys.argv[1]);"
+               "from subfleet.publish_rule import hook_main;sys.exit(hook_main())' '/a b/pkg'")
+    assert guard.publish_trust_hash(command) == (
+        "sha256:bf3a2b579effbc3343fd547d5cfc1f7c1f74b82918023682edd09e18b8ef3ab7")
+    assert guard.PUBLISH_HOOK_KEY == "/<session-flags>/config.toml:pre_tool_use:1:0"

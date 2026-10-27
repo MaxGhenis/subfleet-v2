@@ -8,7 +8,8 @@ answered as the app would answer them. The probe (`CoreProbeLive.swift`)
 drives the daemon through the app's own engine, outbox and store state and
 records every exchange; this test checks its results, the daemon's store,
 and that every answer decodes into the app's models without losing a field.
-Nothing here touches ~/.subfleet.
+Nothing here touches ~/.subfleet. A failed run's state root and the probe's
+record are kept under /tmp/sf-failed/<pid>/, which CI uploads.
 """
 
 from __future__ import annotations
@@ -34,7 +35,7 @@ PNG = bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001
 
 
 @pytest.fixture
-def dev_daemon(core_probe, tmp_path):
+def dev_daemon(request, core_probe, tmp_path):
     from subfleet.procs import InspectionError, boot_id, proc_start
     try:
         boot_id()
@@ -62,17 +63,57 @@ def dev_daemon(core_probe, tmp_path):
                                                               "content": [{"type": "text", "text": "Here are the files."}]}},
     ]
     (project / f"{session}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
-    failed = True
+    # D-STEER-PUMP1's reproduction, off unless this session's environment asks for it: the
+    # fake Claude's `slow` turns hold back `system init` that long, so step 14's turn is
+    # running and accepted but answers a steer `not-steerable` (tests/fake/interactive_claude.py).
+    late_init = os.environ.get("SUBFLEET_FAKE_LATE_INIT_S")
+    started = closed = False
     try:
-        harness.start(env={"SUBFLEET_DEV_APP_EXECUTABLE": str(core_probe.resolve())})
+        harness.start(env={"SUBFLEET_DEV_APP_EXECUTABLE": str(core_probe.resolve()),
+                           **({"SUBFLEET_FAKE_LATE_INIT_S": late_init} if late_init else {})})
+        started = True
         yield harness, session
-        failed = False
     finally:
-        harness.close()
-        if not failed:
-            shutil.rmtree(root, ignore_errors=True)
-        else:
-            print(f"\n[frontend live] kept state root at {root}", file=sys.stderr)
+        try:
+            harness.close()
+            closed = True
+        finally:
+            # A test's failure is not raised into its fixture: pytest resumes this
+            # generator normally, so a flag cleared after the yield read every run as
+            # passed and deleted a failed run's root. The phase reports (conftest.py's
+            # hook) say whether it failed, and a failed run's root is kept under
+            # /tmp/sf-failed, as the e2e and fake harnesses keep theirs, for CI to upload.
+            from tests.failed_keep import setup_or_call_failed
+            if not (started and closed) or setup_or_call_failed(request.node):
+                keep_failed_root(request.node.name, root, tmp_path)
+            else:
+                shutil.rmtree(root, ignore_errors=True)
+
+
+def keep_failed_root(name: str, root: Path, record: Path) -> Path | None:
+    """Copy a failed run's state root to /tmp/sf-failed/<pid>/<test>, with the probe's record
+    beside it under probe/ (its checks, its stopped state, every exchange, the app's
+    outbox and staged attachments), and delete the original. Sockets are left out, as
+    the other harnesses leave them out. A copy that fails leaves the original in place."""
+    from tests.e2e.conftest import _sockets
+    from tests.failed_keep import failed_keep_dir
+    keep = failed_keep_dir(name)
+    try:
+        shutil.rmtree(keep, ignore_errors=True)
+        shutil.copytree(root, keep, symlinks=True, ignore_dangling_symlinks=True, ignore=_sockets)
+        for item in ("live-checks.json", "live-state.json", "exchanges.jsonl", "app"):
+            source = record / item
+            if source.is_dir():
+                shutil.copytree(source, keep / "probe" / item, symlinks=True, ignore=_sockets)
+            elif source.exists():
+                (keep / "probe").mkdir(exist_ok=True)
+                shutil.copy2(source, keep / "probe" / item)
+    except OSError as error:
+        print(f"\n[frontend live] could not copy the state root ({error}); kept it at {root}", file=sys.stderr)
+        return None
+    shutil.rmtree(root, ignore_errors=True)
+    print(f"\n[frontend live] kept state root at {keep}", file=sys.stderr)
+    return keep
 
 
 def test_the_app_core_drives_a_development_daemon(core_probe, tmp_path, dev_daemon):
@@ -127,4 +168,4 @@ def test_the_app_core_drives_a_development_daemon(core_probe, tmp_path, dev_daem
     assert {"capabilities", "models.list", "conversation.create", "message.submit", "conversation.open",
             "conversation.events", "conversation.watch", "message.status", "turn.interrupt", "approval.list",
             "approval.get", "approval.respond", "message.cancel", "attachment.add", "conversation.history",
-            "conversation.list", "catalog.refresh"} <= set(seen)
+            "conversation.list", "conversation.status", "catalog.refresh"} <= set(seen)

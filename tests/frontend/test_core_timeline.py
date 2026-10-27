@@ -276,7 +276,8 @@ def test_legacy_approval_list_without_request_ids_keeps_its_own_immutable_card(c
 
 
 def test_c27_3_a_turn_that_ends_withdraws_its_pending_card(core_probe, tmp_path, harness):
-    """The driver withdraws pending requests at the end without an approval.resolved event."""
+    """The provider's own end while a card is pending: the store withdraws the request
+    and says so, `approval.resolved {withdrawn}` ahead of `turn.completed` in one commit."""
     cid = harness.create()["conversation_id"]
     mid = harness.submit(cid, "ask")["message_id"]
     turn = harness.attempt(cid, mid)
@@ -284,10 +285,72 @@ def test_c27_3_a_turn_that_ends_withdraws_its_pending_card(core_probe, tmp_path,
     claude_approval(turn, mid, "perm-2")
     turn.feed(claude_result(ok=False, subtype="error_during_execution"))
     events = page(harness, cid)
-    assert "approval.resolved" not in [e["kind"] for e in events["events"]]
+    kinds = [e["kind"] for e in events["events"]]
+    assert kinds.index("approval.resolved") < kinds.index("turn.completed") == len(kinds) - 1, kinds
+    assert [e["data"] for e in events["events"] if e["kind"] == "approval.resolved"] == [
+        {"request_id": "perm-2", "decision": "withdrawn"}]
     result = fold(core_probe, tmp_path, cid, [{"page": events}])
     assert items_of(result, mid, "approval")[0]["card"]["state"] == "withdrawn"
-    assert result["turns"][mid]["outcome"]["state"] == "failed"
+    assert result["turns"][mid]["outcome"]["state"] == "failed" and result["pending_cards"] == []
+
+
+def codex_asks(turn, cwd: str, request_id: int) -> None:
+    """A Codex turn past its handshake (the rows `codex app-server` sends), then a
+    command approval request."""
+    turn.feed({"id": 1, "result": {"userAgent": "codex"}},
+              {"id": 2, "result": {"data": [{"cwd": cwd, "hooks": [{"key": HOOK_KEY, "enabled": True,
+                                                                  "trustStatus": "trusted"}], "errors": []}]}},
+              {"id": 3, "result": {"data": [{"id": "gpt-6-astra", "model": "gpt-6-astra",
+                                             "supportedReasoningEfforts": [{"reasoningEffort": "high"}],
+                                             "serviceTiers": [{"id": "priority"}], "inputModalities": ["text"]}]}},
+              {"id": 4, "result": {"thread": {"id": "th-1", "status": {"type": "idle"}}, "model": "gpt-6-astra",
+                                   "reasoningEffort": "high", "serviceTier": None, "approvalPolicy": "never"}},
+              {"id": 5, "result": {"turn": {"id": "turn-1"}}},
+              {"id": request_id, "method": "item/commandExecution/requestApproval", "params": {
+                  "threadId": "th-1", "turnId": "turn-1", "itemId": "it-1", "command": "echo hi", "cwd": cwd,
+                  "reason": "fake: asks every time"}})
+
+
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_c27_3_a_provider_that_exits_without_a_result_withdraws_its_card(core_probe, tmp_path, harness, provider):
+    """The provider exits (stdout ends) without a result while a card is pending. Its
+    withdrawal is in the log: the events alone clear the card, so an app that clears
+    cards only on `approval.resolved` or `turn.completed` shows none; a client that
+    opens the conversation afterwards shows none; and the watch feed carried the
+    withdrawal as it happened, the pending count back to 0."""
+    cid = harness.create()["conversation_id"]
+    mid = harness.submit(cid, "ask")["message_id"]
+    turn = harness.attempt(cid, mid, provider=provider)
+    if provider == "claude":
+        turn.feed(claude_init(), replay(mid))
+        claude_approval(turn, mid, "perm-3")
+        request_id = "perm-3"
+    else:
+        codex_asks(turn, str(harness.workspace), 9)
+        request_id = "9"
+    asked = page(harness, cid)
+    approvals = harness.call("approval.list", conversation_id=cid)["approvals"]
+    fed = harness.call("conversation.watch", after=0)["next"]
+    turn.eof()
+    after = page(harness, cid, after=asked["next"])
+    assert [(e["kind"], e["data"]) for e in after["events"]] == [
+        ("approval.resolved", {"request_id": request_id, "decision": "withdrawn"})]
+    changes = harness.call("conversation.watch", after=fed)["changes"]
+    assert [(c["state"], c["pending_approvals"]) for c in changes] == [(None, 0), ("failed", 0)], changes
+
+    events_only = fold(core_probe, tmp_path, cid, [{"page": asked, "snapshot": True}, {"approvals": approvals},
+                                                   {"page": after}])
+    [card] = events_only["snapshots"][0]["pending_cards"]
+    assert card["request_id"] == request_id
+    assert [i["card"]["state"] for i in items_of(events_only, mid, "approval")] == ["withdrawn"]
+    assert events_only["pending_cards"] == []
+
+    opened = harness.call("conversation.open", conversation_id=cid)
+    assert opened["pending_approvals"] == []
+    later = fold(core_probe, tmp_path, cid, [{"receipts": opened["messages"]}, {"approvals": opened["pending_approvals"]},
+                                             {"page": page(harness, cid)}])
+    assert later["pending_cards"] == [] and later["turns"][mid]["state"] == "failed"
+    assert [i["card"]["state"] for i in items_of(later, mid, "approval")] == ["withdrawn"]
 
 
 def test_c25_4_a_reset_reads_the_log_again_from_zero(core_probe, tmp_path, harness):
@@ -430,6 +493,9 @@ def test_c29_8_history_shows_only_what_came_before_subfleet(core_probe, tmp_path
     project = claude / "projects" / "-w"
     project.mkdir(parents=True)
     (project / f"{session}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    transcript = project / f"{session}.jsonl"
+    (harness.root / "catalog.json").write_text(json.dumps({"native_records": {
+        f"claude:{session}": {"path": str(transcript), "mtime": transcript.stat().st_mtime}}}))
     history = harness.call("conversation.history", conversation_id=cid)
     assert [i["text"] for i in history["items"]][0] == "Doing it."        # newest first, all rows
     result = fold(core_probe, tmp_path, cid, [
@@ -438,19 +504,38 @@ def test_c29_8_history_shows_only_what_came_before_subfleet(core_probe, tmp_path
     ])
     shown = [(i["type"], i.get("role"), i.get("text") or i.get("summary"), i.get("state"), i.get("preview"))
              for i in result["items"]]
-    assert shown == [("history", "user", "native question", None, None),
+    assert shown == [("notice", None, "Made in another app", None, None),
+                     ("history", "user", "native question", None, None),
                      ("thinking", None, "look at a first", None, None),
                      ("history", "assistant", "native answer", None, None),
                      ("tool", None, "file_path: /w/a", "succeeded", "contents of a"),
                      ("tool", None, "false", "failed", "exit 1"),
                      ("tool", None, "sleep 99", "unfinished", None),          # no result: interrupted
                      ("person", None, "and now this", "complete", None), ("text", None, "Doing it.", None, None)]
-    assert result["items"][3]["name"] == "Read" and result["history_complete"] is True
+    assert result["items"][4]["name"] == "Read" and result["history_complete"] is True
+
+
+def test_outside_turns_after_binding_survive_event_replay_and_are_newest_at_bottom(core_probe, tmp_path):
+    cid, mid = "conversation", str(uuid.uuid4())
+    receipt = {"message_id": mid, "conversation_id": cid, "seq": 1, "origin": "person", "state": "complete",
+               "text": "Subfleet question", "created_at": "2026-09-28T00:00:00Z"}
+    native = {"items": [
+        {"role": "assistant", "kind": "text", "text": "Newest outside answer", "ts": "2026-10-04T05:00:10Z", "cursor": 300, "source": "other-app"},
+        {"role": "user", "kind": "text", "text": "Outside question", "ts": "2026-10-04T05:00:00Z", "cursor": 200, "source": "other-app"},
+        {"role": "assistant", "kind": "text", "text": "Duplicate native answer", "ts": "2026-09-28T00:00:10Z", "cursor": 100, "source": "subfleet"},
+    ], "next_before": None}
+    events = {"events": [{"seq": 1, "conversation_id": cid, "message_id": mid, "kind": "text", "ts": "2026-09-28T00:00:10Z",
+                          "data": {"block": "answer", "text": "Subfleet answer"}}], "next": 1, "reset": False}
+    result = fold(core_probe, tmp_path, cid, [{"receipts": [receipt]}, {"history": native}, {"page": events}, {"history": native}])
+    assert [i.get("text") for i in result["items"]] == ["Subfleet question", "Subfleet answer", "Made in another app", "Outside question", "Newest outside answer"]
+    assert result["items"][-1]["text"] == "Newest outside answer"
 
 
 def test_design_12_messages_order_by_sequence_with_labels(core_probe, tmp_path):
     """Receipts order the timeline; a failover continuation and an unblock note read as
-    notices; a tombstone is not shown; a local message shows before its receipt."""
+    notices; a tombstone shows one withdrawn line (C-29.7, the queue tray: a message
+    withdrawn before it was sent keeps a line, with its text when known); a local
+    message shows before its receipt."""
     cid = "cv-1"
     ids = [str(uuid.uuid4()) for _ in range(5)]
     receipt = lambda i, seq, origin, state="complete", **extra: {  # noqa: E731
@@ -464,8 +549,9 @@ def test_design_12_messages_order_by_sequence_with_labels(core_probe, tmp_path):
     assert result["order"] == [ids[0], ids[1], ids[2], ids[3], ids[4]]
     shown = [(i["type"], i.get("text"), i.get("state")) for i in result["items"]]
     assert shown == [("person", None, "failed"), ("notice", "Continued after a usage limit on b@example.invalid", None),
+                     ("notice", "Withdrawn before it was sent: (message text not available)", None),
                      ("person", None, "queued"), ("person", "typed just now", "sending")]
-    assert result["turns"][ids[3]]["status_text"] == "Queued behind the current turn"
+    assert result["turns"][ids[3]]["status_text"] == "Queued for the next turn"
     assert result["turns"][ids[0]]["status_text"] == "Failed: limited"
     assert result["turns"][ids[4]]["status_text"] == "Sending"
 

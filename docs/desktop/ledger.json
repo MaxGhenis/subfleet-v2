@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "updated": "2026-09-28",
+  "updated": "2026-10-04",
   "statuses": [
     "open",
     "recovered",
@@ -69,7 +69,7 @@
       ],
       "status": "open",
       "evidence": [],
-      "notes": "History plus labelled handoff; in-place continuation only if the Stage 3 relocation test passes (design §15, §16). Daemon side: a `~/.codex` thread hands off with `from.native` (C-30.3)."
+      "notes": "History plus labelled handoff; in-place continuation only if the Stage 3 relocation test passes (design \u00a715, \u00a716). Daemon side: a `~/.codex` thread hands off with `from.native` (C-30.3)."
     },
     {
       "id": "M-5",
@@ -214,7 +214,7 @@
     },
     {
       "id": "M-15",
-      "requirement": "A keyboard shortcut to search, like ⌘K",
+      "requirement": "A keyboard shortcut to search, like \u2318K",
       "source": "Max, 2026-09-27",
       "clauses": [
         "C-29.12"
@@ -278,7 +278,7 @@
       ],
       "status": "open",
       "evidence": [],
-      "notes": "Daemon side done: tests/e2e/test_conversations.py approval, question, deny, person-only refusal, duplicate answer, restart mid-approval. App side pending. C-27.5 (2026-09-27): a pending card is reachable from the pinned strip's Review and scrolled into view (tests/frontend/test_core_approval_reach.py, tests/frontend/test_conversation_view.py)."
+      "notes": "Daemon side done: tests/e2e/test_conversations.py approval, question, deny, person-only refusal, duplicate answer, restart mid-approval. App side pending. C-27.5 (2026-09-27): a pending card is reachable from the pinned strip's Review and scrolled into view (tests/frontend/test_core_approval_reach.py, tests/frontend/test_conversation_view.py). C-27.3 (2026-10-10): every withdrawal and answer writes its approval.resolved and a change-feed row in the commit that makes it, including a provider that exited without a result (tests/unit/test_approval_resolution.py, tests/frontend/test_core_timeline.py). C-25.6 (2026-10-11, D-PB1): a terminal is no longer a person; only the app, or the development build on a development root (D-21), answers or reads an approval (tests/unit/test_person_boundary.py; the end-to-end person is tests/e2e/dev_app.py, and a script(1) terminal is refused)."
     },
     {
       "id": "P-4",
@@ -485,7 +485,7 @@
       ],
       "status": "open",
       "evidence": [],
-      "notes": "design §11 Recovery: drain turn jobs before a daemon rollback."
+      "notes": "design \u00a711 Recovery: drain turn jobs before a daemon rollback."
     },
     {
       "id": "R-8",
@@ -548,6 +548,71 @@
         "~/subfleet-desktop-recovery/20260924T121841Z/legacy-state/INVENTORY.md: 6 messages, all finished; pending journal {}; 0 attachments"
       ],
       "notes": "The import itself is R-9."
+    },
+    {
+      "id": "R-11",
+      "requirement": "Durable unattended check-backs wait for meaningful changes and respect person input",
+      "source": "continuation amendment",
+      "clauses": [
+        "C-24.10"
+      ],
+      "status": "implemented",
+      "evidence": [
+        "tests/unit/test_conversation_wakes.py; tests/fake/test_conversation_wakes_fake.py; tests/e2e/test_conversation_wakes_e2e.py"
+      ],
+      "notes": "Review follow-up validation is recorded in docs/reports/2026-10-04-continuation.md."
+    },
+    {
+      "id": "R-12",
+      "requirement": "Superseded Claude blocks clear only after the outside writer has ended",
+      "source": "continuation amendment",
+      "clauses": [
+        "C-24.11"
+      ],
+      "status": "implemented",
+      "evidence": [
+        "tests/unit/test_conversation_wakes.py: moot-block differential and lease cases"
+      ],
+      "notes": "The criterion is catalog mtime after blocked_at, not a count of gained turns."
+    },
+    {
+      "id": "R-13",
+      "requirement": "Native history remains available and does not duplicate Subfleet turns",
+      "source": "continuation amendment",
+      "clauses": [
+        "C-24.12"
+      ],
+      "status": "implemented",
+      "evidence": [
+        "tests/unit/test_conversation_history.py; tests/frontend/test_core_timeline.py"
+      ],
+      "notes": "Exact known transcript paths bridge the first catalog pass without scanning trees."
+    },
+    {
+      "id": "R-14",
+      "requirement": "An agent can suggest a separate conversation that only a person starts, in one click, with the agent's brief as its first message",
+      "source": "suggested conversations, 2026-10-11",
+      "clauses": [
+        "C-25.7"
+      ],
+      "status": "implemented",
+      "evidence": [
+        "tests/unit/test_suggestions.py; tests/unit/test_suggestion_properties.py; tests/unit/test_suggestion_secret_properties.py; tests/unit/test_suggestions_r1b_adversarial.py; tests/unit/test_suggest_cli.py; tests/unit/test_suggest_hint.py; tests/fake/test_suggestions_fake.py; tests/e2e/test_suggestions_e2e.py; tests/e2e/test_suggestions_r1b_peer_e2e.py"
+      ],
+      "notes": "The e2e test's person half needs a terminal (C-25.6) and skips inside a Subfleet lane; docs/reports/2026-10-11-suggestions/REPORT.md records what ran."
+    },
+    {
+      "id": "R-15",
+      "requirement": "Suggestions show as a card in the conversation that made them and in the sidebar's Suggested section, live from the feed",
+      "source": "suggested conversations, 2026-10-11",
+      "clauses": [
+        "C-29.14"
+      ],
+      "status": "implemented",
+      "evidence": [
+        "tests/frontend/test_core_suggestions.py; tests/frontend/test_core_suggestions_r1b.py; tests/frontend/test_core_protocol.py; tests/frontend/test_visual_suggestions.py"
+      ],
+      "notes": "Screenshots: docs/reports/2026-10-11-suggestions/."
     }
   ]
 }

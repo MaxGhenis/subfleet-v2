@@ -17,6 +17,7 @@ its text; `[fake:write]` combines with any other:
                       lines) and appends `edited by <those 8>` to `tracked.txt` in its
                       working directory, as a turn that edits files does (C-26.14)
     approval          asks to run a Bash command; allow runs it, deny says so
+    approval-exit     asks to run a Bash command, then exits with no result while it is pending
     question          AskUserQuestion; the chosen answers are echoed back
     questions         AskUserQuestion with several questions, including multiSelect
     slow              streams until interrupted; the interrupt ends the turn
@@ -67,6 +68,15 @@ Environment:
                               probes.md, "Hooks inside a Subfleet launch"). Each
                               run is logged to SUBFLEET_FAKE_TURN_LOG with its rc
                               and stdout.
+    SUBFLEET_FAKE_LATE_INIT_S
+                              seconds a `slow` turn holds back its `system init`
+                              row after replaying its message (default 0; an
+                              interrupt cuts it short). The turn is running and
+                              accepted meanwhile, but the Claude turn driver takes
+                              no steer before that row names `msg_lifecycle_v1`
+                              (`ClaudeTurn.steerable`), so the daemon answers
+                              `message.steer` with `not-steerable`, as it does for
+                              a runner that lags under load (D-STEER-PUMP1)
 """
 
 from __future__ import annotations
@@ -350,6 +360,8 @@ class Fake:
         self.record({"type": "user", "uuid": row.get("uuid"), "message": {"role": "user", "content": text}})
         self.emit({"type": "user", "uuid": row.get("uuid"), "message": message, "parent_tool_use_id": None,
                    "isReplay": True})
+        if scenario == "slow":
+            self.interrupted.wait(float(os.environ.get("SUBFLEET_FAKE_LATE_INIT_S") or 0))
         model = served_model(self.model_value)
         if scenario == "wrong-model":
             model = "claude-haiku-4-5-20251001"
@@ -466,8 +478,8 @@ class Fake:
         self.say(model, "Background task finished.", stream=False)
         return None
 
-    def ask(self, model: str, tool: str, tool_input: dict) -> dict | None:
-        """A tool_use, its `can_use_tool` request, and the host's answer."""
+    def request(self, model: str, tool: str, tool_input: dict) -> tuple[str, str]:
+        """A tool_use and its `can_use_tool` request; returns their ids."""
         tool_id = f"toolu_{uuid.uuid4().hex[:10]}"
         request_id = f"perm-{uuid.uuid4().hex[:8]}"
         self.emit({"type": "assistant", "parent_tool_use_id": None, "message": {
@@ -476,6 +488,11 @@ class Fake:
         self.emit({"type": "control_request", "request_id": request_id, "request": {
             "subtype": "can_use_tool", "tool_name": tool, "input": tool_input, "tool_use_id": tool_id,
             "permission_suggestions": [], "decision_reason": "fake: asks every time"}})
+        return tool_id, request_id
+
+    def ask(self, model: str, tool: str, tool_input: dict) -> dict | None:
+        """A tool_use, its `can_use_tool` request, and the host's answer."""
+        tool_id, request_id = self.request(model, tool, tool_input)
         while True:
             if self.interrupted.is_set():
                 self.emit({"type": "control_cancel_request", "request_id": request_id})
@@ -487,6 +504,11 @@ class Fake:
                 answer = (row["response"].get("response") or {})
                 answer["_tool_id"] = tool_id
                 return answer
+
+    def scenario_approval_exit(self, model: str, reply: str):
+        """The process ends while its request waits for the person: no result (C-27.3)."""
+        self.request(model, "Bash", {"command": "echo approved-by-person", "description": "Say hello"})
+        return 1
 
     def scenario_approval(self, model: str, reply: str):
         answer = self.ask(model, "Bash", {"command": "echo approved-by-person", "description": "Say hello"})
@@ -577,9 +599,30 @@ class Fake:
             {"type": "tool_result", "tool_use_id": tool_id, "content": stdout or stderr,
              "is_error": rc != 0}]}})
         self.tool_boundary(model)
-        self.say(model, "The command ran." if rc == 0 else f"The command failed (rc={rc}).")
-        return self.result(rc == 0, "success" if rc == 0 else "error_during_execution",
-                           text="The command ran.")
+        final = "The command ran." if rc == 0 else f"The command failed (rc={rc})."
+        if os.environ.get("SUBFLEET_FAKE_BASH_WAKE") and rc == 0:
+            final += "\nWAKE-ME: runs=" + stdout.strip() + ' note="Inspect the finished run"'
+        # REVIEW R2 (not for merge): a Bash call with run_in_background, as the
+        # global CLAUDE.md asks ("keep a background `subfleet wait <id>` armed").
+        # D-15: Claude -p stays alive after `result` while a background task runs,
+        # up to CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS (120 s for a turn).
+        background = None
+        if os.environ.get("SUBFLEET_FAKE_BG_COMMAND") and rc == 0:
+            background = subprocess.Popen(
+                ["/bin/sh", "-c", os.environ["SUBFLEET_FAKE_BG_COMMAND"] + " " + shlex.quote(stdout.strip())],
+                env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.say(model, final)
+        outcome = self.result(rc == 0, "success" if rc == 0 else "error_during_execution",
+                              text=final)
+        if background is not None:
+            try:
+                out, err = background.communicate(timeout=120)
+            except subprocess.TimeoutExpired:
+                background.kill()
+                out, err = background.communicate()
+            self.log({"background": os.environ["SUBFLEET_FAKE_BG_COMMAND"], "rc": background.returncode,
+                      "stdout": out, "stderr": err[-4000:], "pid": os.getpid()})
+        return outcome
 
 
     def scenario_stubborn_result(self, model: str, reply: str):

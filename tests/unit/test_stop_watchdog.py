@@ -10,7 +10,7 @@ Invariants, for every way a stop can fail to finish (`STUCK`):
 - bounded: the process ends no earlier than the grace after the stop was
   armed, and no later than the grace plus scheduling slack;
 - named: in the ordinary-write cases, `daemon.log` gets one stopping line before
-  faulthandler dumps up to 100 Python thread stacks, newest first;
+  a managed Python snapshot, or the independent C fallback, names the worker;
 - robust: a kernel SIGALRM timer ends the process after a short margin if
   faulthandler cannot arm or finish its dump, without a thread or the GIL;
 - the timer is armed only by a stop. A process that is never stopped is
@@ -40,6 +40,14 @@ REPO = Path(__file__).resolve().parents[2]
 #: covers the kernel fallback margin, dump, and parent scheduling.
 SLACK_S = 5.0
 ALARM_MARGIN_S = 3.0
+
+
+@pytest.fixture(autouse=True)
+def fixture_process_identity(monkeypatch):
+    """In-process close wiring owns its identities; child watchdogs stay real."""
+    monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "stop-watchdog-fixture-boot")
+    monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "stop-watchdog-fixture-start")
+
 
 CHILD = r'''
 import json, os, re, resource, signal, sys, threading, time
@@ -132,6 +140,31 @@ if kind == "nested-signals":
         return real_later(*args, **kwargs)
 
     faulthandler.dump_traceback_later = later
+if kind == "invalid-frame":
+    # Force the C fallback to provide no usable worker frames, as 3.14 can.
+    # Its real exit timer still runs, but its output goes to /dev/null.
+    import faulthandler
+    real_later = faulthandler.dump_traceback_later
+    null_fd = os.open(os.devnull, os.O_WRONLY)
+
+    def invalid_later(*args, **kwargs):
+        os.write(kwargs["file"], b"Timeout (injected C dump)!\n  <invalid frame>\n")
+        kwargs["file"] = null_fd
+        return real_later(*args, **kwargs)
+
+    faulthandler.dump_traceback_later = invalid_later
+if kind == "slow-arm":
+    # The old kernel timer started before C watchdog creation. A start delayed
+    # beyond the dump margin made the kernel kill an otherwise working dump.
+    import faulthandler
+    from subfleet.contracts import STOP_DUMP_MARGIN_S
+    real_later = faulthandler.dump_traceback_later
+
+    def slow_later(*args, **kwargs):
+        time.sleep(STOP_DUMP_MARGIN_S + 0.25)
+        return real_later(*args, **kwargs)
+
+    faulthandler.dump_traceback_later = slow_later
 if kind == "hog-during-write":
     # The stopping line's write gives up the GIL and a C loop takes it for
     # good: only a timer started before the write can still fire.
@@ -164,6 +197,11 @@ if kind == "blocked-dump":
         return real_later(*args, **kwargs)
 
     faulthandler.dump_traceback_later = blocked_later
+    # Inject the same blocked sink into the new primary diagnostic path too.
+    # The invariant is a blocked dump, regardless of which dumper reaches it.
+    import subfleet.daemon as daemon_module
+    real_snapshot = daemon_module._dump_stop_stacks
+    daemon_module._dump_stop_stacks = lambda _fd, grace: real_snapshot(write_fd, grace)
 
 
 def report(**fields):
@@ -210,7 +248,15 @@ if kind == "unstopped":
     report(done=True)
     sys.exit(0)
 
-if kind == "descriptors":
+if kind == "descriptors-cold-codecs":
+    # A fresh daemon need not have loaded a diagnostic-only codec. Force that
+    # cold state even if an unrelated import happened to populate the cache.
+    import codecs, encodings
+    codecs.unregister(encodings.search_function)
+    codecs.register(encodings.search_function)
+    encodings._cache.clear()
+    sys.modules.pop("encodings.unicode_escape", None)
+if kind in ("descriptors", "descriptors-cold-codecs"):
     # A stop that follows running out of descriptors (the EMFILE crashes):
     # nothing can be opened any more, so the dump must use what was opened at start.
     soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
@@ -231,7 +277,7 @@ held = threading.Lock()
 if kind in ("lock", "descriptors", "set-only", "arm-fails", "rearm", "nested-signals",
             "nested-signals-arm-fails", "arm-fails-no-thread", "overlap-cancel-fails",
             "overlap-rearm", "blocked-dump", "nested-before-kernel", "kernel-arm-fails",
-            "rearm-arm-fails"):
+            "rearm-arm-fails", "invalid-frame", "slow-arm", "descriptors-cold-codecs"):
     held.acquire()                     # and never released
     worker = threading.Thread(target=stuck_behind_lock, args=(held,), name="subfleet-api_11")
 elif kind in ("gil", "hog-during-write", "arm-fails-gil"):
@@ -365,17 +411,20 @@ def test_c5_8a_a_stop_that_finishes_in_time_exits_with_its_own_status(tmp_path):
                                  "overlap-cancel-fails", "arm-fails-gil", "rearm-arm-fails"])
 def test_c5_8a_a_stop_still_ends_when_faulthandler_cannot_arm(tmp_path, kind):
     """The kernel bound survives an unset/deadlocked stop event, reentrant
-    cancellation, a permanent GIL hog, and later arms that keep coming: with no
-    faulthandler timer to exit first, only an ITIMER_REAL that a later `arm`
-    leaves alone ends the process on time (round-4 review, low 1)."""
+    cancellation, a permanent GIL hog, and later arms that keep coming. The
+    Python watcher exits where it can progress; otherwise only an ITIMER_REAL
+    that a later `arm` leaves alone ends the process (round-4 review, low 1)."""
     rc, lines, elapsed, text = run_child(tmp_path, kind, grace=1.0)
-    assert rc == -signal.SIGALRM, text
-    assert 1.0 + ALARM_MARGIN_S - 0.05 <= elapsed <= 1.0 + SLACK_S, (elapsed, text)
+    # C-5.8a promises the bound, not that a missing C timer prevents the
+    # preexisting Python watcher from exiting first. A deadlocked stop event
+    # or permanent GIL hog still requires the independent kernel timer.
+    kernel_only = kind in {"nested-signals-arm-fails", "arm-fails-gil"}
+    assert rc == (-signal.SIGALRM if kernel_only else 1), text
+    earliest = 1.0 + ALARM_MARGIN_S if kernel_only else 1.0
+    assert earliest - 0.05 <= elapsed <= 1.0 + SLACK_S, (elapsed, text)
     assert text.count("stopping:") == 1, text
-    assert stopping_line(1.0) + (
-        f"SIGALRM ends it in {1.0 + ALARM_MARGIN_S:g} s without a stack dump "
-        "(faulthandler: RuntimeError)") in text
-    assert "Timeout (" not in text
+    assert "C stack fallback unavailable (faulthandler: RuntimeError)" in text
+    assert ("Python thread stacks" in text) is not kernel_only
     if kind == "arm-fails-gil":
         assert {"gil_enabled": True} in lines, lines
     elif kind == "overlap-cancel-fails":
@@ -392,7 +441,8 @@ def test_c5_8a_fallback_needs_no_new_thread_at_stop_time(tmp_path):
     assert {"thread_start_attempted": True} not in lines, lines
     assert text.count("stopping:") == 1, text
     assert "faulthandler: RuntimeError" in text, text
-    assert "Timeout (" not in text
+    if rc == 1:
+        assert "Python thread stacks" in text
 
 
 def test_c5_8a_overlapping_arms_cannot_replace_the_first_watchdog(tmp_path):
@@ -546,3 +596,24 @@ def test_c5_8a_the_grace_outlasts_probe_containment_and_the_backstops_outlast_th
     assert cli.DAEMON_STOP_WAIT_S == STOP_GRACE_S + STOP_BACKSTOP_S
     default = inspect.signature(daemon_module.Daemon).parameters["stop_grace_s"].default
     assert default == STOP_GRACE_S
+
+
+@pytest.mark.parametrize("kind", ["invalid-frame", "slow-arm"])
+def test_c5_8a_python_snapshot_names_the_held_frame_before_the_backstop(tmp_path, kind):
+    """A missing C frame or slow watchdog creation cannot lose a parked worker."""
+    rc, _lines, elapsed, text = run_child(tmp_path, kind, grace=1.0)
+    assert rc == 1, (rc, text)
+    assert 1.0 <= elapsed <= 1.0 + SLACK_S, (elapsed, text)
+    snapshot = text[text.index("Python thread stacks"):]
+    assert "[subfleet-api_11]" in snapshot
+    assert " in stuck_behind_lock\n" in snapshot
+
+
+def test_c5_8a_the_managed_snapshot_needs_no_new_descriptor_or_codec(tmp_path):
+    """The descriptor reserved at startup suffices for managed frame names too."""
+    rc, lines, elapsed, text = run_child(tmp_path, "descriptors-cold-codecs", grace=1.0)
+    assert rc == 1, (rc, text)
+    assert {"exhausted": 24} in lines
+    assert 1.0 - 0.05 <= elapsed <= 1.0 + SLACK_S, (elapsed, text)
+    assert "Python thread stacks" in text, text
+    assert " in stuck_behind_lock\n" in text, text

@@ -81,6 +81,20 @@ def history(core_probe, tmp_path, text, *, role="user", provider="claude"):
     }))["items"][0]
 
 
+
+@pytest.mark.parametrize("provider,expected", [("codex", "history"), ("claude", "task_notification")])
+def test_the_opened_history_page_is_read_with_the_conversations_provider(core_probe, tmp_path, provider, expected):
+    """`conversation.open`'s newest page (#127) folds like a `conversation.history`
+    page (#124): only a Claude conversation turns a user task block into a notice.
+    Later loads fetch only older pages, so a wrong fold here stays on screen."""
+    row = conversation("native", "2026-10-03T12:00:00Z", provider=provider)
+    page = {"items": [{"role": "user", "kind": "text", "text": notice(), "cursor": 1}], "next_before": None}
+    opened = {"conversation": row, "messages": [], "events_cursor": 0, "pending_approvals": [], "history": page}
+    out = store(core_probe, tmp_path, [{"list": {"conversations": [row]}}, {"open": opened}])
+    [shown] = out["timeline"]["native"]
+    assert shown["type"] == expected
+    assert shown["type"] == history(core_probe, tmp_path, notice(), provider=provider)["type"]
+
 def test_claude_task_completion_is_a_system_notice_with_summary_status_and_exit(core_probe, tmp_path):
     shown = history(core_probe, tmp_path, "  " + notice() + "\n")
     assert shown["type"] == "task_notification"

@@ -1,4 +1,5 @@
--- subfleet v2 store schema, version 4 (2: jobless operator notices; 3: gate job fields; 4: lane identity columns). See docs/acceptance-contract.md section 3.
+-- subfleet v2 store schema, version 9 (three launch capabilities and review publish denial).
+-- See docs/acceptance-contract.md section 3.
 -- Applied by subfleet/store.py with journal_mode=WAL, synchronous=FULL, foreign_keys=ON.
 -- Version 2 (C-3.1, additive and numbered) adds identity, label, and
 -- identity_status to `lanes`; store.py migrates a version-1 database in place.
@@ -47,6 +48,11 @@ CREATE TABLE IF NOT EXISTS readings (
   attempt_id TEXT
 );
 CREATE INDEX IF NOT EXISTS readings_latest ON readings(lane_id, scope, window, observed_at DESC);
+CREATE INDEX IF NOT EXISTS readings_weekly_history ON readings(observed_at)
+  WHERE window='seven_day' AND label IN ('provider','stale-provider');
+-- Offset/fractional timestamps use parsed-time bounds in the fallback UNION.
+CREATE INDEX IF NOT EXISTS readings_weekly_history_parsed ON readings(julianday(observed_at))
+  WHERE window='seven_day' AND label IN ('provider','stale-provider');
 
 -- C-9.6
 CREATE TABLE IF NOT EXISTS closures (
@@ -78,9 +84,15 @@ CREATE TABLE IF NOT EXISTS jobs (
   unmeasured_reserve_reason TEXT,
   workdir TEXT NOT NULL,
   workdir_head TEXT,
+  push_branch TEXT,
+  push_remote TEXT,
+  push_default_branch TEXT,
+  push_sha TEXT,
+  push_error TEXT,
   worktree TEXT,
   prompt_path TEXT NOT NULL,
   out_path TEXT,
+  needs_shell INTEGER NOT NULL DEFAULT 0 CHECK (needs_shell IN (0,1)),
   sandbox TEXT NOT NULL CHECK (sandbox IN ('read-only','workspace-write')),
   exclusions TEXT NOT NULL DEFAULT '[]',
   allow_desktop INTEGER NOT NULL DEFAULT 0,
@@ -109,6 +121,40 @@ CREATE TABLE IF NOT EXISTS jobs (
 CREATE INDEX IF NOT EXISTS jobs_state ON jobs(state, created_at DESC);
 CREATE INDEX IF NOT EXISTS jobs_caller ON jobs(caller_session, created_at DESC);
 CREATE INDEX IF NOT EXISTS jobs_parent ON jobs(parent_job_id);
+-- C-3.7: the capacity snapshot reads every job in this order; without an index
+-- SQLite sorts the table in a temp file (about 3 MB a snapshot on the live store).
+CREATE INDEX IF NOT EXISTS jobs_created ON jobs(created_at);
+
+-- C-8.5: these audit/ownership rows survive job retention. A claim is durable
+-- before network I/O; one job can attempt a push only once, including replay.
+-- Ownership is keyed on the repository however its URL is spelled
+-- (`host_push.ownership_key`) and on the branch casefolded and NFC-normalized
+-- (`host_push.fold`); `branch` and `remote` keep the spellings pushed.
+CREATE TABLE IF NOT EXISTS job_owned_branches (
+  remote_key TEXT NOT NULL,
+  branch_key TEXT NOT NULL,
+  branch TEXT NOT NULL,
+  remote TEXT NOT NULL,
+  family_job_id TEXT NOT NULL,
+  job_id TEXT NOT NULL,
+  sha TEXT,
+  claimed_at TEXT NOT NULL,
+  PRIMARY KEY (remote_key, branch_key)
+);
+-- `pushing_at` is committed immediately before `git push`: a pending row
+-- without it sent nothing and is verified again (`intakes` times at most 3).
+CREATE TABLE IF NOT EXISTS job_pushes (
+  job_id TEXT PRIMARY KEY,
+  branch TEXT NOT NULL,
+  remote TEXT NOT NULL,
+  sha TEXT,
+  started_at TEXT NOT NULL,
+  intakes INTEGER NOT NULL DEFAULT 1,
+  pushing_at TEXT,
+  finished_at TEXT,
+  result TEXT NOT NULL CHECK (result IN ('pending','succeeded','failed')),
+  error TEXT
+);
 
 -- C-4.2, C-5
 CREATE TABLE IF NOT EXISTS attempts (
@@ -117,6 +163,9 @@ CREATE TABLE IF NOT EXISTS attempts (
   seq INTEGER NOT NULL,
   lane_id TEXT NOT NULL REFERENCES lanes(lane_id),
   model_requested TEXT NOT NULL,
+  has_shell INTEGER CHECK (has_shell IN (0,1)),
+  capability TEXT CHECK (capability IN ('none','commands','writable')),
+  publish_denied INTEGER CHECK (publish_denied IN (0,1)),
   model_served TEXT,
   attestation TEXT NOT NULL DEFAULT 'unattested' CHECK (attestation IN ('attested','mismatch','unattested')),
   state TEXT NOT NULL CHECK (state IN ('reserved','starting','running','finalizing','succeeded','failed','interrupted','lost','cancelled','quarantined')),
@@ -142,7 +191,14 @@ CREATE TABLE IF NOT EXISTS attempts (
   UNIQUE (job_id, seq)
 );
 CREATE INDEX IF NOT EXISTS attempts_live ON attempts(state) WHERE state IN ('reserved','starting','running','finalizing');
+-- C-17.4: operator snapshots include quarantine through its own indexed branch,
+-- leaving attempts_live and admission's definition of in-flight unchanged.
+CREATE INDEX IF NOT EXISTS attempts_quarantined ON attempts(state) WHERE state='quarantined';
 CREATE INDEX IF NOT EXISTS attempts_lane ON attempts(lane_id, state);
+-- C-3.7: `list_attempts` reads every attempt in this order; without an index each
+-- capacity snapshot sorted the table (39 MB with its evidence on 2026-10-06) in a
+-- temp file, and the 2.1.10 daemon wrote about 30 MB/s to the disk doing it.
+CREATE INDEX IF NOT EXISTS attempts_reserved ON attempts(reserved_at, seq);
 
 -- C-8.2, C-13.1
 CREATE TABLE IF NOT EXISTS artifacts (
@@ -171,6 +227,7 @@ CREATE TABLE IF NOT EXISTS notices (
   acknowledged_at TEXT
 );
 CREATE INDEX IF NOT EXISTS notices_session ON notices(session_id, state);
+CREATE INDEX IF NOT EXISTS notices_job ON notices(job_id, state);
 
 -- C-11.5
 CREATE TABLE IF NOT EXISTS decisions (

@@ -8,16 +8,19 @@ struct BlockedConversationBanner: View {
     let perform: (BlockedChoice) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            StatusBanner(title: banner.title, detail: banner.detail, symbol: "exclamationmark.octagon")
-            HStack {
-                ForEach(Array(banner.choices.enumerated()), id: \.offset) { _, choice in
-                    Button(choice.label) { perform(choice) }
-                        .buttonStyle(.borderless)
-                        .help(choice.detail)
+        NoticeRow(symbol: "exclamationmark.octagon") {
+            VStack(alignment: .leading, spacing: Theme.space.inset) {
+                Text(banner.title).readingFont(.body)
+                Text(banner.detail).readingFont(.secondary).foregroundStyle(Theme.text.secondary.color)
+                HStack(spacing: Theme.space.inset * 2) {
+                    ForEach(Array(banner.choices.enumerated()), id: \.offset) { _, choice in
+                        Button(choice.label) { perform(choice) }
+                            .buttonStyle(.borderless).help(choice.detail)
+                    }
                 }
-            }.padding(.horizontal, 10).padding(.bottom, 8)
-        }
+            }
+        }.padding(Theme.space.inset)
+
     }
 }
 
@@ -26,17 +29,14 @@ struct TaskNotificationView: View {
     let notice: TaskNotification
 
     var body: some View {
-        HStack(alignment: .top, spacing: 6) {
-            Image(systemName: notice.status == "completed" ? "checkmark.circle" : "info.circle")
-            VStack(alignment: .leading, spacing: 2) {
+        NoticeRow(symbol: notice.status == "completed" ? "checkmark.circle" : "info.circle") {
+            VStack(alignment: .leading, spacing: Theme.space.step) {
                 Text(notice.summary).lineLimit(2).textSelection(.enabled)
-                Text(notice.detail).readingFont(.footnote)
+                Text(notice.detail).readingFont(.footnote).foregroundStyle(Theme.text.secondary.color)
             }
         }
-        .readingFont(.caption)
-        .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
+
     }
 }
 #endif

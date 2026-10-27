@@ -9,6 +9,7 @@ ref and the worktree is kept.
 """
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 import os
 
@@ -22,6 +23,7 @@ from subfleet.adapters.registry import register
 from subfleet.contracts import Outcome, OutcomeClass
 from subfleet.daemon import SALVAGE_SKIPPED_SHOWN, SALVAGE_TRIES
 from subfleet.salvage import SalvageError, SalvageResult
+from tests.fake.notice_invariant import notice_without_capability
 from tests.fake.test_state_contract import receipt_fixture, reserve, state_daemon  # noqa: F401 (a fixture)
 from tests.fake_adapter import FakeAdapter
 from tests.fake.test_workspace_contract import repository
@@ -35,8 +37,12 @@ from tests.unit.test_salvage_unindexable import (
 #: (Linux allows such names; APFS refuses them, so `add -A` is faked for these).
 NOT_UTF8_STDERR = (b'error: open("caf\xe9.txt"): Permission denied\n'
                    b"error: unable to index file 'caf\xe9.txt'\nfatal: adding files failed\n")
-NOT_UTF8_ERROR = ('salvage failed: git add failed: error: open("caf\\xe9.txt"): Permission denied\n'
-                  "error: unable to index file 'caf\\xe9.txt'\nfatal: adding files failed")
+#: The receipt, the evidence and the notice say how git ended; what it printed (a
+#: repository's own clean filters print there too) is in daemon.log only (C-25.7).
+NOT_UTF8_ERROR = "salvage failed: git add failed (exit 128); daemon.log has its output"
+#: That line in daemon.log: valid UTF-8, scrubbed whole and folded.
+NOT_UTF8_LOGGED = ('salvage failed: SalvageError: git add failed: error: open("caf\\xe9.txt"): Permission denied '
+                   "error: unable to index file 'caf\\xe9.txt' fatal: adding files failed")
 
 
 def lane_leases(daemon):
@@ -50,8 +56,14 @@ def empty_repository(path):
     (path / "inside.txt").write_text("never committed\n")
 
 
+def log_text(daemon):
+    daemon._log_handler.flush()
+    return (daemon.root / "daemon.log").read_text()
+
+
 def job_notices(daemon, job_id):
-    return [row["text"] for row in daemon.store.list_notices() if row["job_id"] == job_id]
+    return [notice_without_capability(row["text"])
+            for row in daemon.store.list_notices() if row["job_id"] == job_id]
 
 
 def events(daemon, job_id, kind):
@@ -224,6 +236,7 @@ def test_c13_1_a_failure_that_quotes_a_name_that_is_not_utf8_is_recorded(state_d
     assert evidence["salvage_error"] == NOT_UTF8_ERROR
     [notice] = job_notices(daemon, job_id)
     assert notice.endswith(f"\n{NOT_UTF8_ERROR}; the worktree is kept: {workdir}")
+    assert NOT_UTF8_LOGGED in log_text(daemon)
 
 
 def test_c13_1_a_quarantine_release_records_a_failure_that_quotes_such_a_name(state_daemon, monkeypatch):
@@ -246,6 +259,7 @@ def test_c13_1_a_quarantine_release_records_a_failure_that_quotes_such_a_name(st
     _, released = job_notices(daemon, job_id)
     assert released.split("\n", 2)[1:] == ["released from quarantine (attempt a1)",
                                             f"{NOT_UTF8_ERROR}; the worktree is kept: {workdir}"]
+    assert NOT_UTF8_LOGGED in log_text(daemon)
 
 
 def test_c13_1_a_job_on_a_branch_whose_name_is_not_utf8_is_admitted_and_salvaged(state_daemon):
@@ -860,6 +874,10 @@ def test_c13_1_a_retry_whose_own_salvage_failed_says_where_its_work_is(state_dae
     workdir, job_id = a2_ran_and_its_salvage_failed(daemon, harness, monkeypatch)
     a2_ref, a3_ref = (f"refs/subfleet-salvage/{job_id}-a{seq}-baseline" for seq in (2, 3))
     if held:
+        # Two transient attempts excluded codex-1. Keep a candidate so this
+        # case reaches snapshot preparation and waits only for the fleet cap.
+        daemon.store.put_lane(replace(daemon.store.get_lane("codex-1"),
+                                      lane_id="codex-2", account_key="codex:retry-spare"))
         with monkeypatch.context() as full:
             full.setitem(daemon.policy["caps"], "max_active_attempts", 0)
             daemon._admit()
@@ -1080,7 +1098,9 @@ def test_c13_1_live_a_file_git_cannot_read_is_recorded_at_once(state_daemon):
     finally:
         locked.chmod(0o600)
     error = json.loads((adir / "salvage.json").read_text())["error"]
-    assert error.startswith("salvage failed: git add failed: error: open(") and "Permission denied" in error
+    assert error == "salvage failed: git add failed (exit 128); daemon.log has its output"
+    assert "salvage failed: SalvageError: git add failed: error: open(" in log_text(daemon)
+    assert "Permission denied" in log_text(daemon)
     assert daemon.store.get_job(job_id)["state"] == "succeeded" and lane_leases(daemon) == []
     assert (workdir / "tracked.txt").read_text() == "provider progress\n"
 
@@ -1119,7 +1139,8 @@ def test_c13_1_live_a_worktree_whose_repository_was_deleted_is_recorded_at_once(
         (workdir / ".git").unlink()
         (workdir.parent / "moved-away.git").rename(workdir / ".git")
     error = json.loads((adir / "salvage.json").read_text())["error"]
-    assert error.startswith("salvage failed: git rev-parse failed: fatal: not a git repository")
+    assert error == "salvage failed: git rev-parse failed (exit 128); daemon.log has its output"
+    assert "salvage failed: SalvageError: git rev-parse failed: fatal: not a git repository" in log_text(daemon)
     assert daemon.store.get_job(job_id)["state"] == "succeeded" and lane_leases(daemon) == []
     assert (workdir / "tracked.txt").read_text() == "provider progress\n"
 

@@ -57,11 +57,15 @@ def claude_launch(turn: dict[str, Any], *, attempt_id: str, attempt_dir: Path, l
     spec = spec_from_manifest(turn, lane_email=lane_email(lane), model_ref=model_id)
     read_only = adapter.permission_args(Sandbox.READ_ONLY)
     argv = claude_turn.argv(spec, claude_bin=adapter.claude_bin, read_only_flags=read_only)
+    # D-TMP1: ask/acceptEdits keep their normal approval policy while treating
+    # private scratch as a working directory, including on resumed sessions.
+    if spec.permission != "read-only" and credential_env.get("TMPDIR"):
+        argv += ["--add-dir", credential_env["TMPDIR"]]
     session_id = spec.native_session_id or spec.new_session_id
     env_remove: tuple[str, ...] = ENV_REMOVE
     if spec.permission == "read-only":
         from ..adapters.isolation import claude_env_remove
-        env_remove = (*ENV_REMOVE, *claude_env_remove({**os.environ, **credential_env}))
+        env_remove = (*ENV_REMOVE, *claude_env_remove(os.environ.keys() | credential_env.keys()))
     transcript = adapter.expected_transcript_path(spec.cwd, session_id, credential_env)
     notes = adapter._launch_notes(lane=lane, attempt_id=attempt_id, model_id=model_id, session_id=session_id,
                                   workdir=spec.cwd, transcript=transcript,
@@ -70,7 +74,9 @@ def claude_launch(turn: dict[str, Any], *, attempt_id: str, attempt_dir: Path, l
     notes.update(turn=True, conversation_id=turn["conversation_id"], message_id=turn["message_id"],
                  provider="claude")
     return Launch(
-        argv=tuple(argv), env_add={**credential_env, **claude_turn.environment()}, env_remove=env_remove,
+        argv=tuple(argv), env_add={**credential_env, **claude_turn.environment(),
+                                  "SUBFLEET_TURN_JOB": attempt_id.rsplit("/", 1)[0],
+                                  "SUBFLEET_SESSION_ID": session_id}, env_remove=env_remove,
         cwd=spec.cwd, stdin_path=None, stdout_path=str(attempt_dir / "stdout"),
         stderr_path=str(attempt_dir / "stderr"), raw_stream_path=None, native_session_id=session_id,
         lane_id=lane.lane_id, notes=notes)
@@ -85,13 +91,16 @@ def codex_launch(turn: dict[str, Any], *, attempt_id: str, attempt_dir: Path, la
     argv = codex_turn.argv(executable, override, unified_exec_off=unified_exec_off)
     env = dict(credential_env)
     env["CODEX_HOME"] = str(Path(home).expanduser())
+    env["SUBFLEET_TURN_JOB"] = attempt_id.rsplit("/", 1)[0]
+    if spec.native_session_id:
+        env["SUBFLEET_SESSION_ID"] = spec.native_session_id
     notes = {"turn": True, "conversation_id": turn["conversation_id"], "message_id": turn["message_id"],
              "provider": "codex", "lane_id": lane.lane_id, "attempt_id": attempt_id, "model_id": model_id,
              "identity": lane.identity, "label": lane.label, "codex_home": env["CODEX_HOME"],
              "thread_id": spec.native_session_id, "workdir": spec.cwd}
     return Launch(
         argv=tuple(argv), env_add=env, env_remove=("CODEX_API_KEY", "OPENAI_API_KEY", "CODEX_THREAD_ID",
-                                                     "CODEX_SESSION_ID"),
+                                                     "CODEX_SESSION_ID", *(() if spec.native_session_id else ("SUBFLEET_SESSION_ID",))),
         cwd=spec.cwd, stdin_path=None, stdout_path=str(attempt_dir / "stdout"),
         stderr_path=str(attempt_dir / "stderr"), raw_stream_path=None, native_session_id=spec.native_session_id,
         lane_id=lane.lane_id, notes=notes)

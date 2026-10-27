@@ -31,7 +31,8 @@ def test_guardian_receipts_stdout_stdin_environment(tmp_path, monkeypatch, guard
     command = [sys.executable, "-c", "import os,sys; assert os.getenv('SUBFLEET_TEST_TOKEN'); "
                "print(sys.stdin.read()); print('diagnostic',file=sys.stderr); raise SystemExit(4)"]
     assert guardian.run_guardian(command, attempt_dir=tmp_path, cwd=str(tmp_path),
-        stdin_path=str(prompt), stdout_path=str(tmp_path / "stdout"), stderr_path=str(tmp_path / "stderr")) == 4
+        stdin_path=str(prompt), stdout_path=str(tmp_path / "stdout"), stderr_path=str(tmp_path / "stderr"),
+        env_pass=("SUBFLEET_TEST_TOKEN",)) == 4
     assert (tmp_path / "stdout").read_bytes() == b"hello provider\n"
     assert (tmp_path / "stderr").read_bytes() == b"diagnostic\n"
     start = json.loads((tmp_path / "start.json").read_bytes())
@@ -148,3 +149,69 @@ def test_atomic_publication_enospc_never_leaves_partial_output(tmp_path, monkeyp
     assert error.value.errno == errno.ENOSPC
     assert path.read_bytes() == (b"new complete bytes" if boundary == "directory-fsync" else b"old")
     assert list(tmp_path.iterdir()) == [path]
+
+
+@pytest.mark.parametrize("failure", ["relay-serve", "exit-receipt"])
+def test_d_cen1_provider_exceptions_always_linger(tmp_path, monkeypatch, guardian_identity, failure):
+    from types import SimpleNamespace
+    from subfleet import relay
+
+    events = []
+    child = SimpleNamespace(pid=77, wait=lambda: 0)
+    monkeypatch.setattr(guardian, "provider_qos", lambda: None)
+    monkeypatch.setattr(guardian.subprocess, "Popen", lambda *args, **kwargs: child)
+    monkeypatch.setattr(guardian, "linger", lambda: events.append("linger"))
+    original = guardian._receipt
+
+    def receipt(path, value):
+        if path.name == "exit.json" and failure == "exit-receipt":
+            raise OSError(errno.ENOSPC, "receipt disk full")
+        original(path, value)
+
+    class Relay:
+        def __init__(self, *args, **kwargs):
+            pass
+        def bind(self):
+            pass
+        def serve(self, fd, **kwargs):
+            os.close(fd)
+            raise RuntimeError("relay failed with a provider alive")
+        def stop(self):
+            events.append("relay.stop")
+
+    monkeypatch.setattr(guardian, "_receipt", receipt)
+    monkeypatch.setattr(relay, "RelayServer", Relay)
+    with pytest.raises(RuntimeError if failure == "relay-serve" else OSError):
+        guardian.run_guardian(["provider"], attempt_dir=tmp_path, cwd=str(tmp_path), stdin_path=None,
+            stdout_path=str(tmp_path / "stdout"), stderr_path=str(tmp_path / "stderr"),
+            control_socket=str(tmp_path / "control.sock") if failure == "relay-serve" else None)
+    assert events == (["relay.stop", "linger"] if failure == "relay-serve" else ["linger"])
+
+
+def test_guardian_exit_time_has_milliseconds_and_precedes_output_cleanup(tmp_path, monkeypatch, guardian_identity):
+    from contextlib import contextmanager
+    from datetime import datetime, timedelta, timezone
+
+    finished = datetime(2026, 10, 18, 12, 0, 0, 123456, tzinfo=timezone.utc)
+    clock = [finished]
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return clock[0]
+    class Child:
+        pid = 424242
+        def wait(self):
+            return 0
+    output = guardian._output
+    @contextmanager
+    def slow_close(path):
+        with output(path) as stream:
+            yield stream
+        clock[0] += timedelta(seconds=2)
+    monkeypatch.setattr(guardian, "datetime", Clock)
+    monkeypatch.setattr(guardian, "_output", slow_close)
+    monkeypatch.setattr(guardian.subprocess, "Popen", lambda *args, **kwargs: Child())
+    assert guardian.run_guardian(["fixture"], attempt_dir=tmp_path, cwd=str(tmp_path), stdin_path=None,
+                                stdout_path=str(tmp_path / "stdout"), stderr_path=str(tmp_path / "stderr")) == 0
+    receipt = json.loads((tmp_path / "exit.json").read_text())
+    assert receipt["finished_at"] == "2026-10-18T12:00:00.123Z"

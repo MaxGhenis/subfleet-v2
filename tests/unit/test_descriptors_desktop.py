@@ -26,16 +26,18 @@ DAEMON_WRITES = {"submit", "kill", "notice.ack", "notice.mark", "gate.start", "g
                  "sessions", "operations"}
 #: C-16.7: every conversation op (C-25.2) that only reads. `conversation.open` reads
 #: only when it names a conversation; opened by native session it may create one.
-CONVERSATION_READS = {"capabilities", "models.list", "conversation.list", "conversation.history",
+CONVERSATION_READS = {"capabilities", "models.list", "conversation.list", "conversation.status", "conversation.history",
                       "conversation.events", "conversation.watch", "conversation.runs", "message.status",
-                      "approval.list", "approval.get", "turn.diff", "conversation.diff", "workspace.check"}
+                      "approval.list", "approval.get", "turn.diff", "conversation.diff", "workspace.check",
+                      "suggestion.list"}
 #: The conversation ops that write something a caller relies on: a conversation,
 #: its title, a message, a steer, a stop, an answer, an attachment, a catalog run,
 #: a handoff.
 CONVERSATION_WRITES = {"conversation.create", "conversation.settings", "conversation.unblock",
                        "conversation.rename", "message.submit", "message.steer", "message.cancel",
                        "turn.interrupt", "message.resolve", "approval.respond", "attachment.add",
-                       "catalog.refresh", "conversation.handoff"}
+                       "catalog.refresh", "conversation.handoff", "conversation.wake",
+                       "suggestion.create", "suggestion.start", "suggestion.dismiss", "suggestion.withdraw"}
 
 
 def test_c16_7_every_conversation_op_is_classified_once():

@@ -16,7 +16,7 @@ from hypothesis import given, strategies as st
 import pytest
 
 from subfleet import protocol
-from subfleet.conversations import catalog
+from subfleet.conversations import catalog, suggestions
 from subfleet.conversations.service import ConversationService
 from subfleet.conversations.store import ConversationError
 from subfleet.policy import DEFAULT_POLICY_PATH, load_policy
@@ -39,7 +39,10 @@ def accepted(service, args):
     try:
         service.handle("conversation.create", args, None)
     except ConversationError as exc:
-        return False, f"{exc.reason}: {exc}", exc.fix
+        # The protected-folder exception keeps raw paths for direct callers.
+        # The preview publishes only its checked name, as suggestion.start does.
+        reason = suggestions.scrub_error(exc) if exc.reason == "protected-workspace" else f"{exc.reason}: {exc}"
+        return False, reason, exc.fix
     return True, None, None
 
 
@@ -88,9 +91,13 @@ def test_workspace_check_and_create_refuse_writable_protected_branch(svc, tmp_pa
 
 def test_workspace_check_and_create_agree_on_invalid_folder_and_worktree(svc, monkeypatch):
     monkeypatch.setattr(svc, "_person", lambda *args: None)
+    # TMPDIR may be inside a checkout. Stop Git at this fixture's boundary so
+    # the deliberately non-repository workspace cannot inherit that checkout.
+    Path(svc.test_workspace, ".git").write_text("gitdir: ./missing-test-git-directory\n")
     for args in (create_args(Path(svc.test_workspace) / "missing"),
                  create_args(svc.test_workspace, workspace_kind="worktree")):
         check = svc.handle("workspace.check", check_args(args), None)
+        assert check["ok"] is False
         assert (check["ok"], check["reason"], check["fix"]) == accepted(svc, args)
 
 

@@ -6,11 +6,13 @@ live daemon is launched. Readers and writers are checked independently.
 from __future__ import annotations
 
 import json
+import shutil
 import tempfile
+import unicodedata
 from pathlib import Path
 
 import pytest
-from hypothesis import event, example, given, settings, strategies as st
+from hypothesis import HealthCheck, event, example, given, settings, strategies as st
 
 from subfleet import folders, retention, scheduler
 from subfleet import retention_archive as rarch
@@ -29,6 +31,25 @@ def world(tmp_path):
     w = World(tmp_path)
     yield w
     w.close()
+
+
+@pytest.fixture
+def begun(monkeypatch):
+    """The jobs whose retirement began (`Retirement.begin`). The selecting
+    transaction keeps a job before its tree is quarantined; the commit's own
+    checks also keep it, but only by rolling back a tree that was moved from
+    under the live turn meanwhile. So a test of the selection layer asserts
+    this stays empty, not just that the tree survived (8a112986's commit check
+    otherwise hides the selection check's removal)."""
+    started = []
+    real = rarch.Retirement.begin
+
+    def begin(retirement, job, pool):
+        started.append(retirement.job_id)
+        return real(retirement, job, pool)
+
+    monkeypatch.setattr(rarch.Retirement, "begin", begin)
+    return started
 
 
 def nested_repository(wt: Path, branch: str = "main") -> str:
@@ -72,9 +93,10 @@ def test_live_turn_folder_protects_job_through_full_pass(world, writable):
 
 @pytest.mark.parametrize("where", ["tree", "nested"])
 @pytest.mark.parametrize("writable", [True, False], ids=["TURN", "READER"])
-def test_turn_between_selection_and_transaction_stops_retirement(world, monkeypatch, writable, where):
+def test_turn_between_selection_and_transaction_stops_retirement(world, monkeypatch, begun, writable, where):
     """`nested`: the selecting transaction also reads rows on a folder inside
-    the tree (review of 599af189, P3-1); the census is blinded below."""
+    the tree (review of 599af189, P3-1); the census is blinded below. The
+    retirement never begins, so the tree is never moved from under the turn."""
     wt = world.job("job")
     folder = turn_folder(wt, where)
     before = snapshot(wt)
@@ -93,6 +115,7 @@ def test_turn_between_selection_and_transaction_stops_retirement(world, monkeypa
     assert snapshot(wt) == before and world.admin("job").is_dir()
     assert world.store.get_job("job")
     assert {r["holder"] for r in world.store.list_leases()} == {"late"}
+    assert begun == [], "the selecting transaction let the retirement begin under a live turn"
 
 
 @pytest.mark.parametrize("where", ["tree", "nested"])
@@ -120,9 +143,11 @@ def test_archive_commit_rechecks_turn_rows_and_rolls_back(world, monkeypatch, wr
 def test_retirement_fence_blocks_actual_turn_reservation(tmp_path, writable):
     """Admission and retirement agree on APFS case aliases of a recorded folder.
 
-    Start admission after retention has acquired its fence but before it moves
-    the worktree. No live turn row exists at selection, so only the canonical
-    fence, not a turn pin, can prevent this reservation.
+    Submit and admit the turn after retention has acquired its fence but before it
+    moves the worktree. No live turn row exists at selection, so only the canonical
+    fence, not a turn pin, can prevent this reservation. (Submitted before
+    selection, its queued job kept the tree there, `worktree-in-use`, now also for
+    a tree recorded in another case: review of 8a112986, finding 1.)
     """
     from tests.fake.test_admission_latency import fleet_daemon, measure
     from tests.fake.test_admission_liveness import CODEX, _checkout, _live
@@ -144,11 +169,11 @@ def test_retirement_fence_blocks_actual_turn_reservation(tmp_path, writable):
         directory.mkdir(parents=True)
         (directory / "stdout").write_text("retired output")
         options = {**SETTINGS, "permission": "accept-edits" if writable else "read-only"}
-        _, _, turn = message_in(daemon, harness, "During retirement", workspace=wt, settings=options)
         patch.setattr(daemon, "_workspace", lambda job: (job["workdir"], None, None, []))
         observed = []
 
         def begin(retirement, job, pool):
+            _, _, turn = message_in(daemon, harness, "During retirement", workspace=wt, settings=options)
             daemon._admit_turns()
             observed.append(turn)
             assert not _live(daemon, turn), "turn reserved while retirement held its folder"
@@ -161,7 +186,8 @@ def test_retirement_fence_blocks_actual_turn_reservation(tmp_path, writable):
         patch.setattr(rarch.Retirement, "begin", begin)
         result = retention.maintenance(daemon.store, daemon.root, max_jobs=0, max_bytes=0,
                                        holders=lambda watches, **_: {})
-        assert observed == [turn], result
+        assert len(observed) == 1, result
+        turn = observed[0]
         daemon.store.update_job(turn, next_check_at=None)
         daemon._admit_turns()
         assert _live(daemon, turn), daemon._holds
@@ -393,7 +419,7 @@ def admitted(daemon, turn, mid, prepared) -> dict:
             "reason": reason(daemon, mid), "prepared": prepared.count(turn)}
 
 
-@pytest.mark.parametrize("where", ["nested", "tree", "subdirectory"])
+@pytest.mark.parametrize("where", ["nested", "tree", "subdirectory", "external"])
 @pytest.mark.parametrize("writable", [True, False], ids=["TURN", "READER"])
 def test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it(tmp_path, writable, where):
     """Differential (C-8.4, C-6.10, C-6.11): a turn whose folder is in a tree retention
@@ -401,8 +427,9 @@ def test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it(
     the admitting transaction holds it when that look is left out: the same hold but
     its clock, the same capacity wait (its signature, so its backoff, and what `why`
     reads), the same `waiting` row and the same message reason. Only the start
-    snapshot is spared. `subdirectory`: a turn submitted in a folder inside the tree
-    keys its row, and so its hold, on the tree, not on the folder it was opened in."""
+    snapshot is spared. `subdirectory`: its Git row stays on the tree, while its
+    hold names its actual cwd. `external`: persisted core.worktree puts its Git
+    folder outside the tree; both folders' fences still spare its start snapshot."""
     from tests.fake.test_admission_latency import fleet_daemon, measure
     from tests.fake.test_admission_liveness import CODEX, _checkout
     from tests.fake.test_turn_wait_reasons import message_in, SETTINGS
@@ -412,22 +439,30 @@ def test_a_fenced_turn_is_held_before_its_workspace_as_the_transaction_holds_it(
         for lane in CODEX:
             measure(daemon, lane)
         tree, nested = retiring_tree(daemon, harness)
-        folder = nested if where == "nested" else tree
+        folder = nested if where in ("nested", "external") else tree
         workspace = Path(tree) / "pkg" if where == "subdirectory" else folder
         Path(workspace).mkdir(exist_ok=True)
+        fence = [folders.exclusive_key(tree)]
+        if where == "external":
+            external = tmp_path / "external"
+            external.mkdir()
+            (external / "f.txt").write_text("nested\n")
+            git(Path(nested), "config", "core.worktree", str(external))
+            key = folders.exclusive_key(folders.canonical(external))
+            assert daemon.store.acquire_lease(key, "retention:external")
+            fence.insert(0, key)
         assert daemon.store.acquire_lease(folders.exclusive_key(tree), "retention:retired")
         options = {**SETTINGS, "permission": "accept-edits" if writable else "read-only"}
         prepare, fence_hold, prepared = daemon._workspace, daemon._fence_hold, []
         patch.setattr(daemon, "_workspace", lambda job: prepared.append(job["job_id"]) or prepare(job))
         seen = {}
         for path in ("transaction", "look"):
-            patch.setattr(daemon, "_fence_hold", fence_hold if path == "look" else lambda *args: False)
+            patch.setattr(daemon, "_fence_hold", fence_hold if path == "look" else lambda *args, **kwargs: False)
             _, mid, turn = message_in(daemon, harness, path, workspace=workspace, settings=options)
             daemon._admit_turns()
             seen[path] = admitted(daemon, turn, mid, prepared)
-        fence = [folders.exclusive_key(tree)]
         assert seen["transaction"]["hold"] == {"reason": "lease-held", "leases": fence, "retiring": fence,
-                                               "folder": folder}, seen
+                                                "folder": folders.canonical(workspace)}, seen
         assert seen["transaction"]["prepared"] == 1 and seen["transaction"]["row"] == ("waiting", "capacity", True)
         assert seen["look"] == {**seen["transaction"], "prepared": 0}, seen
 
@@ -455,7 +490,7 @@ def test_a_fenced_turn_names_the_fence_whatever_else_holds_it(tmp_path):
         patch.setattr(daemon, "_workspace", lambda job: prepared.append(job["job_id"]) or prepare(job))
         seen = {}
         for path in ("transaction", "look"):
-            patch.setattr(daemon, "_fence_hold", fence_hold if path == "look" else lambda *args: False)
+            patch.setattr(daemon, "_fence_hold", fence_hold if path == "look" else lambda *args, **kwargs: False)
             _, mid, turn = message_in(daemon, harness, path, workspace=nested)
             daemon._admit_turns()
             seen[path] = admitted(daemon, turn, mid, prepared) | {"turn": turn, "mid": mid}
@@ -595,6 +630,188 @@ def test_fence_hold_against_a_model_of_the_fence(tmp_path):
         check()
 
 
+def test_early_fences_equal_reservation_before_and_after_quarantine(tmp_path):
+    """Differential C-8.4: real spelling, lease reads and reservation. Generate
+    present/absent folders, case and NFC/NFD aliases, nested folders, separate
+    Git/cwd trees and arbitrary fence sets, on two kinds of submitted row:
+
+    - `spelled`, a folder submit spelled in full, stubbed (`_submitted`) with the
+      workspace snapshot stubbed too, so absent folders reach the reservation guard;
+    - `unspelled`, the row submit wrote while retention had both trees in
+      quarantine, by the real `_row_folder`; the trees are then put back (the
+      retirement rolled back) before admission looks. Its trees are real
+      repositories, `separate` gives the cwd a repository of its own whose
+      persisted `core.worktree` names the Git tree (an external top), and
+      admission's rediscovery (`_rediscovered`) and workspace snapshot
+      (`_workspace`) run for real.
+
+    Each example runs once with its trees there and once with both moved aside
+    again. The look is the admission pass's own (`_admit_turns` with the real
+    `_fence_hold`), compared with the reserving transaction when that look is left
+    out: the same fences and the same folder named, and the look holds exactly the
+    turns the fences hold, before any workspace is prepared. An independent caseless
+    path model of the folder each row names and of the fences checks both, so a
+    shared helper bug cannot make both paths pass together. Failed on 2cbf6fca for
+    `unspelled` rows with a separate cwd fenced on the Git tree: the look read the
+    folder submit recorded, and the workspace was prepared (review of #141, P2-A).
+    """
+    from tests.fake.test_admission_latency import fleet_daemon, measure, submit_turn
+    from tests.fake.test_admission_liveness import CODEX, _checkout
+
+    names = st.lists(st.sampled_from(["Job", "Café", "Ünï", "Σ", "ﬁ", "A:B", "A%_", "Space here"]),
+                     min_size=1, max_size=3)
+    places = ("git", "git-tree", "git-parent", "cwd", "cwd-tree", "cwd-parent",
+              "child", "sibling", "prefix", "unrelated")
+    fold = lambda path: unicodedata.normalize("NFD", unicodedata.normalize("NFD", path).casefold())
+
+    with fleet_daemon(tmp_path / "state") as (daemon, harness, patch):
+        _checkout(harness)
+        for lane in CODEX:
+            measure(daemon, lane)
+        turn = submit_turn(daemon, harness, "fence-differential")
+        daemon.policy["caps"]["reading_ttl_s"] = 3600   # Keep routing stable throughout the generated cases.
+        fence_hold, present, workspace = daemon._fence_hold, folders.present, daemon._workspace
+        prepared, submitted = [], {}
+        patch.setattr(daemon, "_submitted", lambda job_id: submitted)
+        workspaces = {"spelled": lambda job: prepared.append(job["job_id"]) or (job["workdir"], None, None, []),
+                      "unspelled": lambda job: prepared.append(job["job_id"]) or workspace(job)}
+
+        def spell(path):
+            assert not daemon.store._holds_writer(), "filesystem spelling under the store lock"
+            return present(path)
+
+        patch.setattr(folders, "present", spell)
+
+        @settings(max_examples=400, deadline=None, derandomize=True)
+        @example(parts=["Job"], alias="swap", missing="none", separate=False, writable=True,
+                 fenced={"git-tree"}, row="spelled")
+        @example(parts=["Job"], alias="swap", missing="none", separate=True, writable=True,
+                 fenced={"git-tree"}, row="spelled")
+        @example(parts=["Café", "Ünï"], alias="nfd-swap", missing="none", separate=True, writable=False,
+                 fenced={"cwd-tree"}, row="spelled")
+        @example(parts=["Café"], alias="nfc", missing="git", separate=True, writable=True,
+                 fenced={"git-parent", "cwd-tree"}, row="spelled")
+        @example(parts=["Job", "A:B"], alias="swap", missing="both", separate=False, writable=False,
+                 fenced={"child", "sibling", "prefix"}, row="spelled")
+        @example(parts=["Ünï"], alias="nfd", missing="cwd", separate=True, writable=True,
+                 fenced={"git-tree", "cwd-tree", "git-parent", "cwd-parent"}, row="spelled")
+        # The review's case: a cwd whose core.worktree names a fenced top elsewhere.
+        @example(parts=["Job"], alias="swap", missing="none", separate=True, writable=True,
+                 fenced={"git-tree"}, row="unspelled")
+        @example(parts=["Job"], alias="nfc", missing="none", separate=True, writable=False,
+                 fenced={"git-tree"}, row="unspelled")
+        @example(parts=["Café", "Space here"], alias="nfd-swap", missing="none", separate=True, writable=True,
+                 fenced={"git-tree", "cwd-tree"}, row="unspelled")
+        # Submitted from a subdirectory: its row is on the checkout's top, found again.
+        @example(parts=["Job", "Space here"], alias="swap", missing="none", separate=False, writable=False,
+                 fenced={"git-tree"}, row="unspelled")
+        @example(parts=["Σ", "A:B"], alias="nfd", missing="cwd", separate=False, writable=True,
+                 fenced={"cwd-parent", "child"}, row="unspelled")
+        @example(parts=["Job"], alias="swap", missing="none", separate=True, writable=True,
+                 fenced=set(), row="unspelled")
+        @given(parts=names, alias=st.sampled_from(["nfc", "nfd", "swap", "nfd-swap"]),
+               missing=st.sampled_from(["none", "git", "cwd", "both"]), separate=st.booleans(), writable=st.booleans(),
+               fenced=st.sets(st.sampled_from(places)), row=st.sampled_from(["unspelled", "spelled"]))
+        def check(parts, alias, missing, separate, writable, fenced, row):
+            base = tmp_path / "folders"
+            shutil.rmtree(base, ignore_errors=True)
+            git_tree = base / "Git" / parts[0]
+            cwd_tree = base / "Run" / parts[0] if separate else git_tree
+            git_path = git_tree.joinpath(*parts[1:])
+            cwd_path = cwd_tree.joinpath(*parts[1:])
+            for path in {git_path, cwd_path}:
+                path.mkdir(parents=True, exist_ok=True)
+            if row == "unspelled":
+                # The cwd's checkout, on a task branch (C-13.2) with a commit to snapshot.
+                git(cwd_tree, "init", "--quiet", "-b", "task/fence")
+                if separate:
+                    git(cwd_tree, "config", "core.worktree", str(git_tree))
+                git(cwd_tree, "commit", "--quiet", "--allow-empty", "-m", "baseline")
+            if missing in ("git", "both"):
+                git_path /= "Absent"
+            if missing in ("cwd", "both"):
+                cwd_path /= "Absent"
+            actual_git, actual_cwd = folders.canonical(git_path), folders.canonical(cwd_path)
+            tree, cwd_root = folders.canonical(git_tree), folders.canonical(cwd_tree)
+
+            def typed(path):
+                head, tail = path.split("/folders/", 1)
+                if "swap" in alias:
+                    tail = tail.swapcase()
+                return head + "/folders/" + unicodedata.normalize("NFD" if "nfd" in alias else "NFC", tail)
+
+            def quarantine(away):
+                for path in {git_tree, cwd_tree}:
+                    aside = path.with_name(path.name + ".quarantine")
+                    source, target = (path, aside) if away else (aside, path)
+                    source.rename(target)
+
+            git_folder, run_folder = typed(actual_git), typed(actual_cwd)
+            spots = {"git": actual_git, "git-tree": tree, "git-parent": str(Path(tree).parent),
+                     "cwd": actual_cwd, "cwd-tree": cwd_root, "cwd-parent": str(Path(cwd_root).parent),
+                     "child": actual_git + "/child", "sibling": str(Path(actual_git).parent / "Other"),
+                     "prefix": actual_git + "x", "unrelated": str(base / "Elsewhere")}
+            keys = list(dict.fromkeys(folders.exclusive_key(spots[place]) for place in sorted(fenced)))
+            submitted.clear()
+            if row == "unspelled":
+                # Submit spells the cwd's folder while retention has the trees in quarantine.
+                quarantine(True)
+                recorded, unspelled = daemon._row_folder(run_folder)
+                quarantine(False)
+                assert unspelled, (recorded, run_folder)
+                submitted.update({"write_target" if writable else "folder": recorded, "unspelled": True})
+            else:
+                submitted["write_target" if writable else "folder"] = git_folder
+            patch.setattr(daemon, "_workspace", workspaces[row])
+
+            for moved in (False, True):
+                if moved:
+                    quarantine(True)
+                # The model's Git folder: submit's for a spelled row. For an unspelled one,
+                # the checkout's top while the cwd is there (git finds it, through
+                # core.worktree when separate), else the cwd itself (git finds no checkout).
+                git_named = (git_folder if row == "spelled" else
+                             tree if not moved and missing in ("none", "git") else run_folder)
+                spelled = [present(path) for path in (git_named, run_folder)]
+                expected, named = [], spelled[0][0]
+                for index, (path, absent) in enumerate(spelled):
+                    comparable = fold(path) if absent is not None else path
+                    found = [key for key in keys
+                             if comparable == (parent := fold(key[len(folders.EXCLUSIVE):])
+                                               if absent is not None else key[len(folders.EXCLUSIVE):])
+                             or comparable.startswith(parent.rstrip("/") + "/")]
+                    expected.extend(sorted(found, key=lambda key: (-key.count("/"), key)))
+                    if index and found:
+                        named = path                 # the cwd names the hold when it is fenced
+                expected = list(dict.fromkeys(expected))
+                seen = {}
+                for path in ("look", "transaction"):
+                    with daemon.store.transaction("test.reset") as tx:
+                        tx.execute("DELETE FROM leases")
+                        tx.execute("DELETE FROM attempts WHERE job_id=?", (turn,))
+                        tx.executemany("INSERT INTO leases(lease_key,holder,acquired_at) VALUES(?,?,?)",
+                                       [(key, "retention:generated", "now") for key in keys])
+                    daemon.store.update_job(turn, state="queued", wait_reason=None, next_check_at=None,
+                                            workdir=run_folder, worktree=None,
+                                            sandbox="workspace-write" if writable else "read-only")
+                    daemon._capacity_waits.pop(turn, None)
+                    daemon._workspace_deferrals.pop(turn, None)
+                    prepared.clear()
+                    patch.setattr(daemon, "_fence_hold", fence_hold if path == "look" else lambda *args: False)
+                    daemon._admit_turns()
+                    hold = daemon._holds.get(turn, {})
+                    # The look holds a fenced turn before its workspace; otherwise it is prepared.
+                    assert prepared == ([] if path == "look" and expected else [turn]), (path, hold, expected)
+                    seen[path] = ((hold.get("leases", []), hold.get("folder")) if hold.get("reason") == "lease-held"
+                                  else ([], None))
+                assert seen["look"] == seen["transaction"] == (expected, named if expected else None), \
+                    (parts, alias, missing, row, moved, seen)
+                event(f"row={row}, missing={missing}, moved={moved}, "
+                      f"{'separate' if separate else 'shared'}, {'fenced' if expected else 'free'}")
+
+        check()
+
+
 def test_a_fence_let_go_after_the_look_read_it_starts_the_turn_on_that_pass(tmp_path):
     """C-8.4, C-6.10: the look before the workspace reads the fence again in the
     transaction that would hold the turn. Let go between the two reads, nothing is
@@ -612,8 +829,8 @@ def test_a_fence_let_go_after_the_look_read_it_starts_the_turn_on_that_pass(tmp_
         _, _, turn = message_in(daemon, harness, "Raced", workspace=nested)
         real, reads = folders.retiring, []
 
-        def raced(read, folder):
-            found = real(read, folder)
+        def raced(read, folder, *, folded=False):
+            found = real(read, folder, folded=folded)
             if not reads:
                 daemon.store.release_leases("retention:retired")
             reads.append(found)
@@ -645,8 +862,8 @@ def test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold(tmp_
         patch.setattr(daemon, "_workspace", lambda job: prepared.append(job["job_id"]) or prepare(job))
         real, reads = folders.retiring, []
 
-        def taken(read, folder):
-            found = real(read, folder)
+        def taken(read, folder, *, folded=False):
+            found = real(read, folder, folded=folded)
             if not reads:
                 assert daemon.store.acquire_lease(folders.exclusive_key(tree), "retention:retired")
             reads.append(found)
@@ -659,17 +876,22 @@ def test_a_fence_taken_after_the_look_read_none_is_the_transactions_to_hold(tmp_
         assert not _live(daemon, turn)
         hold = dict(daemon._holds[turn])
         hold.pop("next_check_at")
-        assert hold == {"reason": "lease-held", "leases": [folders.exclusive_key(tree)], "folder": nested}, hold
+        assert hold == {"reason": "lease-held", "leases": [folders.exclusive_key(tree)],
+                        "retiring": [folders.exclusive_key(tree)], "folder": nested}, hold
         assert prepared == [turn] and any(ran_in(spawn, tree) for spawn in spawned), (prepared, spawned)
 
 
-def test_a_fenced_turn_holds_later_turns_back_as_its_transaction_did_under_a_turn_cap(tmp_path):
+def test_a_fenced_turn_holds_no_later_turn_back_and_keeps_its_slot_as_its_transaction_did(tmp_path):
     """C-6.9, C-26.9, differential with 9e159ec9: with a turn cap set
-    (`conversations.max_active_turns`), an older turn held on the fence is a waiter of
-    its turns' class (`<tier>#turn`) with its demand, so a later turn on the same lane
-    and model is held `behind-older-job`, and one on another lane is placed, as when
-    the transaction held the older turn. Pins what the call site hands `_fence_hold`
-    (`tier`, `models`, `lanes`), which its own property test cannot."""
+    (`conversations.max_active_turns` 2), an older turn held on the fence is a waiter of
+    its turns' class (`<tier>#turn`) on the fence's key, as when the transaction held it.
+    A waiter on a lease waits for no slot, so it holds no later turn back: a later turn
+    on its lane and model is placed (on 0812d5c5 it was held `behind-older-job` for the
+    whole retirement, fenced-turn-precheck review P3-4). And the last turn slot is kept
+    for it, so a turn on another lane after that one is held `slot-kept` for it. Pins the
+    class the call site hands `_fence_hold` (`tier`): in another class the waiter would
+    keep no turn slot. Its demand (`models`, `lanes`) decides nothing, now that a lease
+    waiter holds no job back."""
     import tests.fake.test_turn_wait_reasons as reasons
     from tests.fake.test_admission_latency import fleet_daemon, measure
     from tests.fake.test_admission_liveness import CODEX, _checkout, _end, _live
@@ -680,7 +902,7 @@ def test_a_fenced_turn_holds_later_turns_back_as_its_transaction_did_under_a_tur
         for lane in CODEX:
             measure(daemon, lane)
         patch.setitem(daemon.policy, "conversations", {**(daemon.policy.get("conversations") or {}),
-                                                       "max_active_turns": 5})
+                                                       "max_active_turns": 2})
         tree, nested = retiring_tree(daemon, harness)
         assert daemon.store.acquire_lease(folders.exclusive_key(tree), "retention:retired")
         elsewhere = tmp_path / "Elsewhere"
@@ -688,7 +910,7 @@ def test_a_fenced_turn_holds_later_turns_back_as_its_transaction_did_under_a_tur
         seen = {}
         fence_hold = daemon._fence_hold
         for path in ("transaction", "look"):
-            patch.setattr(daemon, "_fence_hold", fence_hold if path == "look" else lambda *args: False)
+            patch.setattr(daemon, "_fence_hold", fence_hold if path == "look" else lambda *args, **kwargs: False)
             _, _, older = message_in(daemon, harness, f"older-{path}", workspace=nested)
             reader = {**SETTINGS, "permission": "read-only"}
             _, _, later = message_in(daemon, harness, f"later-{path}", workspace=elsewhere, settings=reader)
@@ -696,17 +918,15 @@ def test_a_fenced_turn_holds_later_turns_back_as_its_transaction_did_under_a_tur
             _, _, beside = message_in(daemon, harness, f"beside-{path}", workspace=elsewhere, settings=reader)
             patch.setattr(reasons, "CODEX", CODEX)
             daemon._admit_turns()
-            assert not _live(daemon, later) and daemon._holds[older]["reason"] == "lease-held", \
-                (path, {job: daemon._holds.get(job) for job in (older, later)})
-            held = dict(daemon._holds[later])
-            held["behind"] = held["behind"] == older
-            seen[path] = {"later": held, "beside": _live(daemon, beside)}
-            _end(daemon, beside)
+            assert daemon._holds[older]["reason"] == "lease-held", \
+                (path, {job: daemon._holds.get(job) for job in (older, later, beside)})
+            held = dict(daemon._holds.get(beside) or {})
+            seen[path] = {"later": _live(daemon, later), "beside": (held.get("reason"), held.get("kept_for") == older)}
+            _end(daemon, later)
             with daemon.store.transaction("test.settle") as tx:      # out of the next path's way
                 tx.execute("UPDATE jobs SET state='cancelled',cancel_requested_at=? WHERE job_id IN (?,?)",
-                           ("2026-10-05T00:00:00Z", older, later))
-        assert seen["transaction"] == {"later": {"reason": "behind-older-job", "behind": True, "tier": "standard#turn"},
-                                       "beside": True}, seen
+                           ("2026-10-05T00:00:00Z", older, beside))
+        assert seen["transaction"] == {"later": True, "beside": ("slot-kept", True)}, seen
         assert seen["look"] == seen["transaction"], seen
 
 
@@ -714,7 +934,7 @@ phase = st.sampled_from(["select", "begin", "lock", "archive", "verify", "delete
 operation = st.tuples(phase, st.sampled_from(["start", "end"]), st.booleans(), st.sampled_from(["tree", "nested"]))
 
 
-@settings(max_examples=40, deadline=None, derandomize=True)
+@settings(max_examples=40, deadline=None, derandomize=True, suppress_health_check=[HealthCheck.too_slow])
 @example([("select", "start", True, "tree")])
 @example([("select", "start", False, "tree")])
 @example([("begin", "start", True, "tree"), ("archive", "end", True, "tree"), ("delete", "start", False, "tree")])
@@ -854,10 +1074,12 @@ def test_turn_pin_recheck_does_no_filesystem_work_in_transaction(world, monkeypa
 
 
 @pytest.mark.parametrize("writable", [True, False], ids=["TURN", "READER"])
-def test_a_differently_spelt_recording_is_kept_by_the_selection_check(world, writable):
+def test_a_differently_spelt_recording_is_kept_by_the_selection_check(world, begun, writable):
     """The census compares recorded spellings, so only the selecting
     transaction's canonical turn_holds keeps a job whose jobs.worktree is spelt
-    in another case while a turn row (canonical, as admission keys it) is live."""
+    in another case while a turn row (canonical, as admission keys it) is live.
+    It keeps it before the retirement begins (the commit's check would keep it
+    too, but only after quarantining the tree)."""
     wt = world.job("Job")
     alias = wt.with_name(wt.name.swapcase())
     if not alias.exists() or not alias.samefile(wt):
@@ -868,6 +1090,7 @@ def test_a_differently_spelt_recording_is_kept_by_the_selection_check(world, wri
     result = run(world)
     assert result["pruned"] == [] and "Job" in result["protected"], result
     assert snapshot(wt) == before and world.store.get_job("Job") and world.admin("Job").is_dir()
+    assert begun == [], "the selecting transaction let the retirement begin under a live turn"
 
 
 def test_a_restart_mid_retirement_keeps_the_canonical_fence(world):

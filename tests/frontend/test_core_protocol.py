@@ -62,6 +62,11 @@ def test_c25_2_the_app_knows_every_conversation_op(core_probe):
     assert run_probe(core_probe, "ops") == list(protocol.CONVERSATION_OPS)
 
 
+def test_c25_2_every_conversation_op_has_a_probe_codec(core_probe):
+    """Check the codecs actually used, as well as the app's advertised names."""
+    assert run_probe(core_probe, "codec-ops") == sorted(protocol.CONVERSATION_OPS)
+
+
 def populated(harness: ServiceHarness) -> dict:
     """A conversation with a finished turn, an approval turn and a queued follow-up."""
     conversation = harness.create(title="Fixture")
@@ -92,6 +97,14 @@ def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path,
     """C-25.2: each op's real result survives the Swift model unchanged."""
     fixture = populated(harness)
     cid = fixture["cid"]
+    # Exercise the import hold too: null stripping must not hide a missing
+    # optional Conversation field in the Swift model.
+    harness.store.set_legacy_hold(cid, "legacy-owner")
+    status = harness.call("conversation.status", conversation_id=cid)
+    # Reach the shared Conversation decoder through an already registered op,
+    # so a missing status codec cannot conceal a lost conversation field.
+    assert_lossless(core_probe, tmp_path, "conversation.open", harness.call("conversation.open", conversation_id=cid))
+    harness.store.set_legacy_hold(cid, None)
     approval = harness.call("approval.list", conversation_id=cid)["approvals"][0]
     # A catalog with one native session, as catalog.build writes it.
     (harness.root / "catalog.json").write_text(json.dumps({"generated_at": "2026-09-24T12:00:00.000Z", "complete": True,
@@ -105,6 +118,7 @@ def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path,
         "models.list": harness.call("models.list", provider="claude"),
         "workspace.check": harness.call("workspace.check", workspace=str(harness.workspace), permission="ask"),
         "conversation.list": harness.call("conversation.list", limit=2),
+        "conversation.status": status,
         "conversation.open": harness.call("conversation.open", conversation_id=cid),
         "conversation.create": harness.call("conversation.create", request_id="fixed-id", provider="claude",
                                             workspace=str(harness.workspace), settings=harness.settings()),
@@ -166,12 +180,15 @@ def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path,
     runner = SimpleNamespace(driver=SimpleNamespace(outcome=None), respond=lambda *a: None,
                              interrupt=lambda reason: None, end_title=lambda why: None,
                              stop=lambda: None, join=lambda timeout: True,
-                             message_id=fixture["second"]["message_id"], finished=threading.Event())
+                             message_id=fixture["second"]["message_id"], finished=threading.Event(),
+                             attempt_id=harness.store.approval(approval["approval_id"])["attempt_id"])
     harness.service.runners[harness.store.approval(approval["approval_id"])["attempt_id"]] = runner
     detail = results["approval.get"]
     results["approval.respond"] = harness.call("approval.respond", approval_id=approval["approval_id"], decision="allow",
                                                nonce=detail["nonce"], request_sha256=detail["request_sha256"])
     results["turn.interrupt"] = harness.call("turn.interrupt", message_id=fixture["second"]["message_id"])
+    assert harness.cancels[-1][1] == {"by": "client", "session_id": None,
+                                      "pid": harness.peer.pid, "reason": "stopped"}
     # The diff ops' unavailable shapes; tests/frontend/test_core_diff.py has the real diffs.
     results["turn.diff"] = harness.call("turn.diff", message_id=fixture["third"]["message_id"])
     results["conversation.diff"] = harness.call("conversation.diff", conversation_id=cid)
@@ -199,9 +216,32 @@ def test_c25_2_every_result_decodes_without_losing_a_field(core_probe, tmp_path,
     harness.store.set_state(steered["message_id"], "steered", reason=f"steered:{fixture['first']['message_id']}",
                             served={"steered_into": fixture["first"]["message_id"]})
     results["message.steer"] = harness.call("message.steer", message_id=steered["message_id"])
-    assert set(results) == set(protocol.CONVERSATION_OPS)
-    for op, result in results.items():
-        assert_lossless(core_probe, tmp_path, op, result)
+    results["conversation.wake"] = harness.call("conversation.wake", session_id="s-runs", request_id=str(uuid.uuid4()),
+                                                prs=["owner/repo#1"], note="Inspect the merge")
+    # C-25.7: suggestions made from the conversation bound to "s-runs"; one started,
+    # one dismissed, one withdrawn by its creator, and the list after.
+    def suggest(title):
+        return harness.call("suggestion.create", request_id=str(uuid.uuid4()), title=title, tldr="Out of scope here",
+                            brief="Port the importer.\n\nRun its tests.", workspace=str(harness.workspace),
+                            session_id="s-runs")
+    results["suggestion.create"] = suggest("Port the importer")
+    results["suggestion.start"] = harness.call(
+        "suggestion.start", suggestion_id=results["suggestion.create"]["suggestion"]["suggestion_id"])
+    results["suggestion.dismiss"] = harness.call("suggestion.dismiss",
+                                                 suggestion_id=suggest("Dismiss me")["suggestion"]["suggestion_id"])
+    results["suggestion.withdraw"] = harness.call("suggestion.withdraw", session_id="s-runs",
+                                                  suggestion_id=suggest("Withdraw me")["suggestion"]["suggestion_id"])
+    suggest("Still open")
+    results["suggestion.list"] = harness.call("suggestion.list")
+    status = results["conversation.status"]
+    assert set(status) == {"conversation", "message_ids"}
+    assert status["conversation"]["conversation_id"] == cid
+    assert status["conversation"]["legacy_hold"] == "legacy-owner"
+    assert status["message_ids"] == [fixture[key]["message_id"] for key in ("first", "second", "third")]
+    ops = run_probe(core_probe, "ops")
+    assert set(results) == set(ops) == set(protocol.CONVERSATION_OPS)
+    for op in ops:
+        assert_lossless(core_probe, tmp_path, op, results[op])
 
     # Spot checks on what the app reads from them.
     assert results["capabilities"]["capabilities"] == list(CAPABILITIES)
@@ -230,6 +270,7 @@ def test_c25_2_requests_the_app_encodes_are_the_daemons_requests(core_probe, tmp
         "conversation.watch": {"after": 0, "wait_s": 0},
         "message.status": {"message_ids": [mid]},
         "conversation.open": {"conversation_id": cid},
+        "conversation.status": {"conversation_id": cid},
         "conversation.list": {"query": "fix", "limit": 5, "include_catalog": True},
         "models.list": {"provider": "claude"},
         "workspace.check": {"workspace": str(harness.workspace), "provider": "claude", "permission": "ask"},

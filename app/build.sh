@@ -65,16 +65,21 @@ else
 fi
 
 ARCH=$(uname -m)
+# Swift's optional inner sandbox cannot start inside some managed sandboxes.
+# This opt-in only affects compiler plugins; the caller's outer sandbox remains.
+if [ "${SUBFLEET_SWIFT_NESTED_SANDBOX:-on}" = off ]; then
+  FLAGS="$FLAGS -Xfrontend -disable-sandbox"
+fi
 SDK=${SDKROOT:-$(xcrun --sdk macosx --show-sdk-path)}
 STAGING=$(mktemp -d "$OUTPUT/.subfleet-build.XXXXXX")
-trap 'rm -rf "$STAGING"' EXIT HUP INT TERM
+trap 'python3 -c '"'"'import shutil,sys; shutil.rmtree(sys.argv[1], ignore_errors=True)'"'"' "$STAGING"' EXIT HUP INT TERM
 APP="$STAGING/$NAME.app"
 mkdir -p "$APP/Contents/MacOS"
 # Every source under app/Sources (including subdirectories such as Views/) in
 # one compilation. xargs appends the file list after the options.
 # shellcheck disable=SC2086 # FLAGS is a word list on purpose.
 find "$ROOT/app/Sources" -name '*.swift' -print0 | sort -z | \
-  xargs -0 xcrun swiftc -O -parse-as-library -sdk "$SDK" -target "$ARCH-apple-macos14.0" $FLAGS \
+  xargs -0 xcrun swiftc -O -whole-module-optimization -parse-as-library -sdk "$SDK" -target "$ARCH-apple-macos14.0" $FLAGS \
     -o "$APP/Contents/MacOS/$NAME"
 cp "$ROOT/app/Info.plist" "$APP/Contents/Info.plist"
 if [ "$DEV" -eq 1 ]; then
@@ -86,7 +91,7 @@ fi
 plutil -lint "$APP/Contents/Info.plist"
 codesign --force --sign - "$APP"
 if [ -e "$OUTPUT/$NAME.app" ]; then
-  rm -rf "$OUTPUT/$NAME.app"
+  python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1])' "$OUTPUT/$NAME.app"
 fi
 mv "$APP" "$OUTPUT/$NAME.app"
 printf 'Built: %s/%s.app (%s)\n' "$OUTPUT" "$NAME" "$BUNDLE_ID"

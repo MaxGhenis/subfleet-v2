@@ -10,6 +10,13 @@ its work bound, and to the old behavior within the budget. The blocks that span
 lines are resolved over the whole text, since a key or reminder longer than any
 lookbehind had shown through a first design's tail (review of the fix, F1, F2).
 
+`test_wrapper_flag_runs_are_matched_in_linear_time` compares the matcher's CPU on
+two input sizes (`tests.cpu_scaling`). It detects super-linear growth, a quadratic
+regression, and not a constant-factor slowdown (#230 review r1;
+`tests/unit/test_cpu_scaling.py` pins that scope). Its one absolute bound, the
+original 0.5 s of CPU at 64 KiB, is far above what the call costs, so it catches
+only a gross slowdown.
+
 `Zq…` strings are made-up values shaped like secrets; none is, or was, a credential.
 """
 
@@ -28,6 +35,7 @@ import pytest
 from subfleet.conversations import redact
 from subfleet.policy import DEFAULT_POLICY_PATH, HANDOFF_BRIEF_MAX_CHARS, PolicyError, load_policy
 from subfleet.sessions import handoff
+from tests.cpu_scaling import GROWTH_RATIO_MAX
 
 BUDGET = handoff.MAX_SCRUB_CHARS
 HEAD = handoff.EXCERPT_CHARS
@@ -399,16 +407,19 @@ def test_wrapper_flag_runs_are_matched_in_linear_time(run):
     16 KiB on 7da13417, about two minutes for 256 KiB, while the scrubber's bound
     let such an input through."""
     measured = _probe(f"run = {run!r}\n" + '''
-import json, time
-samples = {}
-for size in (16384, 65536):
+import json
+from tests.cpu_scaling import best_cpu_samples
+
+def make_call(size):
     text = run * (size // len(run))
-    start = time.thread_time()
-    assert not sensitive_tool_call("Bash", {"command": text})
-    samples[size] = time.thread_time() - start
-print(json.dumps(samples))
+    def call():
+        assert not sensitive_tool_call("Bash", {"command": text})
+    return call
+
+print(json.dumps(best_cpu_samples(make_call, (65536, 262144))))
 ''')
-    assert measured["65536"] < max(measured["16384"], 0.001) * 8, measured
+    assert measured["ratio"] < GROWTH_RATIO_MAX, measured
+    # Retain the original absolute CPU bound at its original input size.
     assert measured["65536"] < 0.5, measured
 
 

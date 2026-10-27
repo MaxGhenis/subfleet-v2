@@ -8,7 +8,8 @@ and session stores are never copied or modified.
 
 A verified verdict is cached the way v1 cached it (C-23.5, invariant 52): the
 marker is keyed on the installed Codex version, the lane home, the override
-string, and a fingerprint of the seeded ``config.toml`` and ``hooks.json``, it
+string, a fingerprint of the seeded ``config.toml`` and ``hooks.json``, and
+the selected CA environment (C-10.8), it
 is discarded after 30 days, and only the app-server probe is skipped on a hit —
 the hook bytes, the TRUST pins, ``jq`` and the Codex version are checked on
 every call. A refusal is never cached.
@@ -21,6 +22,8 @@ diagnosed from the attempt directory alone (2026-09-20 incident).
 """
 
 from __future__ import annotations
+
+from collections.abc import Mapping
 
 import collections
 from dataclasses import dataclass, field
@@ -39,6 +42,10 @@ import tempfile
 import time
 from typing import Any
 
+from ..policy import PolicyError, load_policy
+from ..provider_env import CA_SOURCES, ProviderEnvironment
+from ..launch_env import build_environment
+
 from ..sessions.transcripts import NotRegularFile, read_regular
 
 
@@ -46,6 +53,13 @@ HOOK_KEY = "/<session-flags>/config.toml:pre_tool_use:0:0"
 HOOK_MATCHER = "Bash|apply_patch"
 HOOK_STATUS = "never-rules guard"
 HOOK_TIMEOUT = 60
+#: C-12.3, C-14.2: a review launch's publish hook (`subfleet.publish_rule`), the
+#: second PreToolUse group of the same override. Codex 0.159.0's hooks/list keys
+#: it `pre_tool_use:1:0` and trusts it with the same identity hash as the guard
+#: (probe, 2026-10-18). The guard's bytes, TRUST and its key are unchanged.
+PUBLISH_HOOK_KEY = "/<session-flags>/config.toml:pre_tool_use:1:0"
+PUBLISH_HOOK_MATCHER = "Bash"
+PUBLISH_HOOK_STATUS = "review publish guard"
 #: v1's variable, v1's meaning: seconds to wait for the hooks/list answer.
 TIMEOUT_ENV = "CODEX_GUARD_PREFLIGHT_TIMEOUT"
 DEFAULT_TIMEOUT_S = 60.0
@@ -70,6 +84,11 @@ _CACHE_CONFIG_FIX = (f"Set {CACHE_ENV} to an absolute path or to a relative path
 _PROBE_FIX = ("Read stderr_tail and exit_status in the attempt's guard-preflight.json (or run "
               "`subfleet doctor --live`) for the app-server's own error; trust remains unverified.")
 _ENVIRONMENT_FIX = "Put back the missing directory or binary named in the message, then rerun subfleet doctor."
+#: C-14.2 (D-SH1 round 8): the guard verified, so neither its TRUST pins nor
+#: `subfleet doctor`, which never runs the preflight with the publish hook, repair this.
+_PUBLISH_FIX = ("Read the hooks/list answer in the attempt's guard-preflight.json: it must list "
+                "<state root>/publish-guard/review-publish-hook once, enabled and trusted. subfleet doctor does "
+                "not check this hook. Until it verifies, run the review on a Claude model (for example -m opus).")
 
 # Refusal kinds (PreflightResult.kind): what the verdict rests on.
 VERIFIED = "verified"        # hooks/list answered and matched
@@ -80,6 +99,7 @@ VERSION = "version"          # installed Codex differs from the pinned version
 CONFIG = "config"            # the preflight itself was misconfigured (deadline)
 ENVIRONMENT = "environment"  # jq, the binary, the home, the workdir or the scratch root is missing
 PROBE = "probe"              # app-server died, could not be started, or answered unusably
+PUBLISH = "publish"          # the guard verified; hooks/list did not trust a review's publish hook
 
 
 @dataclass(frozen=True)
@@ -147,27 +167,52 @@ def _hook_command(hook_path: str | Path) -> str:
     return "'" + path.replace("'", "'\\''") + "'"
 
 
-def hooks_trust_hash(hook_path: str | Path, *, timeout: int = HOOK_TIMEOUT) -> str:
-    """Codex's normalized identity hash, with v1's jq -cnS byte encoding."""
+def _identity_hash(command: str, matcher: str, status: str, timeout: int) -> str:
     identity = {
         "event_name": "pre_tool_use",
-        "matcher": HOOK_MATCHER,
-        "hooks": [{"type": "command", "command": _hook_command(hook_path),
-                   "timeout": timeout, "async": False, "statusMessage": HOOK_STATUS}],
+        "matcher": matcher,
+        "hooks": [{"type": "command", "command": command,
+                   "timeout": timeout, "async": False, "statusMessage": status}],
     }
     encoded = json.dumps(identity, ensure_ascii=False, sort_keys=True,
                          separators=(",", ":")).encode("utf-8")
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
-def override_string(hook_path: str | Path) -> str:
-    """Return v1's complete ``-c`` argument, including the ``hooks=`` prefix."""
-    command = _hook_command(hook_path).replace("\\", "\\\\").replace('"', '\\"')
-    return (
-        f'hooks={{PreToolUse=[{{matcher="{HOOK_MATCHER}",hooks=[{{type="command",'
-        f'command="{command}",timeout={HOOK_TIMEOUT},statusMessage="{HOOK_STATUS}"}}]}}],'
-        f'state={{"{HOOK_KEY}"={{trusted_hash="{hooks_trust_hash(hook_path)}",enabled=true}}}}}}'
-    )
+def hooks_trust_hash(hook_path: str | Path, *, timeout: int = HOOK_TIMEOUT) -> str:
+    """Codex's normalized identity hash, with v1's jq -cnS byte encoding."""
+    return _identity_hash(_hook_command(hook_path), HOOK_MATCHER, HOOK_STATUS, timeout)
+
+
+def publish_trust_hash(command: str) -> str:
+    """The same identity hash for the publish hook's group (`PUBLISH_HOOK_KEY`)."""
+    return _identity_hash(command, PUBLISH_HOOK_MATCHER, PUBLISH_HOOK_STATUS, HOOK_TIMEOUT)
+
+
+def _toml_text(text: str) -> str:
+    return text.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def override_string(hook_path: str | Path, *, publish_command: str | None = None) -> str:
+    """Return v1's complete ``-c`` argument, including the ``hooks=`` prefix.
+
+    With ``publish_command`` (a review launch, C-12.3) the publish hook follows
+    the guard as a second group with its own trusted state; without it the
+    string is v1's, byte for byte, which TRUST pins.
+    """
+    command = _toml_text(_hook_command(hook_path))
+    groups = (f'{{matcher="{HOOK_MATCHER}",hooks=[{{type="command",'
+              f'command="{command}",timeout={HOOK_TIMEOUT},statusMessage="{HOOK_STATUS}"}}]}}')
+    state = f'"{HOOK_KEY}"={{trusted_hash="{hooks_trust_hash(hook_path)}",enabled=true}}'
+    if publish_command is not None:
+        if any(ord(char) < 32 for char in publish_command):
+            raise ValueError("publish hook command must contain no control characters")
+        groups += (f',{{matcher="{PUBLISH_HOOK_MATCHER}",hooks=[{{type="command",'
+                   f'command="{_toml_text(publish_command)}",timeout={HOOK_TIMEOUT},'
+                   f'statusMessage="{PUBLISH_HOOK_STATUS}"}}]}}')
+        state += (f',"{PUBLISH_HOOK_KEY}"={{trusted_hash="{publish_trust_hash(publish_command)}",'
+                  'enabled=true}')
+    return f'hooks={{PreToolUse=[{groups}],state={{{state}}}}}'
 
 
 def guard_paths(state_root: str | Path | None = None, *,
@@ -178,10 +223,12 @@ def guard_paths(state_root: str | Path | None = None, *,
     There is deliberately no bundled or test-fixture fallback. The legacy
     TRUST override remains supported; an explicit argument takes precedence.
     """
+    from ..home_paths import checked_override
     directory = Path(state_root if state_root is not None else _state_root()).expanduser() / "guard"
     return (Path(hook_path) if hook_path is not None else directory / "never-rules-hook.sh",
             Path(trust_path if trust_path is not None else
-                 os.environ.get("SUBFLEET_GUARD_TRUST") or directory / "TRUST"))
+                 checked_override("SUBFLEET_GUARD_TRUST", os.environ.get("SUBFLEET_GUARD_TRUST"))
+                 or directory / "TRUST"))
 
 
 def load_guard(state_root: str | Path | None = None, *,
@@ -272,7 +319,8 @@ def seed_fingerprint(home: str | Path | None = None, *, seeds: dict[str, bytes] 
 
 
 def cache_key(version: str, home: str | Path, override: str, fingerprint: str,
-              *, overlay: dict[str, Any] | None = None) -> str:
+              *, overlay: dict[str, Any] | None = None,
+              ca_sources: Mapping[str, str] | None = None) -> str:
     """Key the runtime verdict on the launch inputs and reviewed overlay pins.
 
     The overlay includes its hook SHA, so even an approved replacement at the
@@ -281,6 +329,8 @@ def cache_key(version: str, home: str | Path, override: str, fingerprint: str,
     material = f"{version}|{home}|{override}|{fingerprint}"
     if overlay is not None:
         material += "|" + json.dumps(overlay, sort_keys=True, separators=(",", ":"))
+    if ca_sources is not None:
+        material += "|ca=" + json.dumps(dict(ca_sources), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(material.encode()).hexdigest()
 
 
@@ -291,8 +341,9 @@ def cache_dir(state_root: str | Path | None = None) -> Path:
     (C-2.1). ``state_root`` is the daemon's root when it has one; otherwise
     ``$SUBFLEET_HOME``.
     """
+    from ..home_paths import checked_override
     root = Path(state_root) if state_root is not None else Path(_state_root())
-    override = os.environ.get(CACHE_ENV)
+    override = checked_override(CACHE_ENV, os.environ.get(CACHE_ENV), relative_to=root)
     if override:
         path = Path(os.path.expanduser(override))
         if path.is_absolute():
@@ -411,14 +462,14 @@ def _stderr_tail(stream) -> str:
         return ""
 
 
-def _version(executable: str, *, env: dict[str, str], timeout_s: float) -> tuple[int | None, str, str]:
+def _version(executable: str, *, env: dict[str, str], timeout_s: float, pass_names=()) -> tuple[int | None, str, str]:
     """``codex --version`` in its own session, TERM then KILL at the deadline.
 
     Returns (exit status, stdout, stderr tail); a None status means the deadline
     passed and the launcher and its native child were reaped.
     """
     process = subprocess.Popen([executable, "--version"], stdin=subprocess.DEVNULL,
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=build_environment(environ=env, pass_names=pass_names),
                                start_new_session=True)
     try:
         stdout, stderr = process.communicate(timeout=timeout_s)
@@ -434,7 +485,7 @@ def _version(executable: str, *, env: dict[str, str], timeout_s: float) -> tuple
 
 
 def _hooks_list(codex_bin: str, *, home: Path, workdir: Path,
-                override: str, env: dict[str, str], timeout_s: float) -> tuple[dict[str, Any], dict[str, Any]]:
+                override: str, env: dict[str, str], timeout_s: float, pass_names=()) -> tuple[dict[str, Any], dict[str, Any]]:
     """Ask app-server for hooks/list; return (response, diagnostics).
 
     Diagnostics: the probe pid, elapsed seconds, the request lines sent and the
@@ -448,7 +499,7 @@ def _hooks_list(codex_bin: str, *, home: Path, workdir: Path,
         {"jsonrpc": "2.0", "method": "initialized", "params": {}},
         {"jsonrpc": "2.0", "id": 2, "method": "hooks/list", "params": {"cwds": [str(workdir)]}},
     ]
-    probe_env = dict(env, CODEX_HOME=str(home))
+    probe_env = build_environment({"CODEX_HOME": str(home)}, environ=env, pass_names=pass_names)
     sent: list[str] = []
     # The lines just before a hang, and the hooks/list answer after a chatty
     # start, are the useful ones: keep the last responses, not the first.
@@ -527,7 +578,9 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
               workdir: str | Path | None = None, hook_path: str | Path | None = None,
               trust_path: str | Path | None = None, timeout_s: float | None = None,
               use_cache: bool = True, cache_directory: str | Path | None = None,
-              state_root: str | Path | None = None) -> PreflightResult:
+              state_root: str | Path | None = None,
+              env: Mapping[str, str] | None = None, env_pass=(),
+              publish_command: str | None = None) -> PreflightResult:
     """Fail closed on file, version, override, or runtime hooks trust drift.
 
     Callers should pass the lane home and job workdir. Omitting ``home`` uses
@@ -541,6 +594,11 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
     ``state_root`` (the daemon's root) places the scratch home and the markers;
     it defaults to ``$SUBFLEET_HOME``. Every refusal has code 7, a ``kind`` and an
     actionable fix. No provider work is run.
+    ``publish_command`` (a review launch, C-12.3) adds the publish hook to the
+    override, and hooks/list must then list it enabled and trusted too.
+    ``env`` is the daemon's provider launch environment (C-10.8); an omitted
+    environment reads the selected state root's policy (or uses defaults when
+    there is no policy yet) and keeps operator overrides.
     """
     version = None
     hooks_hash = None
@@ -566,8 +624,19 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
         if found is None:
             raise _Refusal(ENVIRONMENT, "Codex binary was not found or is not executable", _ENVIRONMENT_FIX)
         executable = str(Path(found).resolve())
-        env = {key_name: value for key_name, value in os.environ.items() if key_name not in _SECRET_ENV}
-        status, stdout, stderr_text = _version(executable, env=env, timeout_s=deadline)
+        source_env = env
+        if source_env is None:
+            root = Path(state_root).expanduser() if state_root is not None else Path(_state_root())
+            policy_path = root / "policy.json"
+            try:
+                policy = load_policy(policy_path) if policy_path.exists() else {}
+            except PolicyError as exc:
+                raise _Refusal(CONFIG, str(exc), "Correct policy.json, then rerun subfleet doctor.") from None
+            environment = ProviderEnvironment(policy)
+            source_env = environment.build("codex")
+            env_pass = environment.pass_names
+        env = build_environment(removals=_SECRET_ENV, environ=source_env, pass_names=env_pass)
+        status, stdout, stderr_text = _version(executable, env=env, timeout_s=deadline, pass_names=env_pass)
         if status is None:
             said = f"; stderr: {_clip(stderr_text.strip(), 400)}" if stderr_text.strip() else ""
             raise _Refusal(TIMEOUT, f"Codex --version did not answer before the {deadline:g}s deadline "
@@ -585,14 +654,14 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
             raise _Refusal(ENVIRONMENT, f"preflight workdir is missing: {exc}", _ENVIRONMENT_FIX) from None
         if not cwd.is_dir():
             raise _Refusal(ENVIRONMENT, "preflight workdir must be an existing directory", _ENVIRONMENT_FIX)
-        lane_home = home if home is not None else os.environ.get("CODEX_HOME")
+        lane_home = _lane_home(home)
         try:
             source_home = Path(lane_home).resolve(strict=True) if lane_home is not None else None
         except OSError as exc:
             raise _Refusal(ENVIRONMENT, f"preflight Codex home is missing: {exc}", _ENVIRONMENT_FIX) from None
         if source_home is not None and not source_home.is_dir():
             raise _Refusal(ENVIRONMENT, "preflight Codex home must be an existing directory", _ENVIRONMENT_FIX)
-        override = override_string(hook)
+        override = override_string(hook, publish_command=publish_command)
         hooks_hash = hooks_trust_hash(hook)
         try:
             markers = Path(cache_directory) if cache_directory is not None else cache_dir(state_root)
@@ -606,7 +675,8 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
                 raise _Refusal(ENVIRONMENT, f"preflight cannot read the lane's seed files: {exc}",
                                _ENVIRONMENT_FIX) from None
             fingerprint = seed_fingerprint(seeds=seeds)
-            key = cache_key(version, source_home, override, fingerprint, overlay=trust)
+            key = cache_key(version, source_home, override, fingerprint, overlay=trust,
+                            ca_sources={name: env[name] for name in CA_SOURCES if name in env})
             if use_cache and read_cached_verdict(markers, key) is not None:
                 return PreflightResult(True, 0, "Codex never-rules guard trust verified (cached verdict)",
                                        version=version, hooks_hash=hooks_hash, override=override,
@@ -625,7 +695,7 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
                 (scratch_home / name).chmod(0o600)
             try:
                 response, diagnostics = _hooks_list(executable, home=scratch_home, workdir=cwd,
-                                                    override=override, env=env, timeout_s=deadline)
+                                                    override=override, env=env, timeout_s=deadline, pass_names=env_pass)
             except _ProbeError as exc:
                 diagnostics = exc.diagnostics
                 if exc.timed_out:
@@ -650,6 +720,14 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
         if (entry.get("enabled") is not True or entry.get("trustStatus") != "trusted"
                 or entry.get("currentHash") != hooks_hash):
             raise _Refusal(TRUST, "Codex hooks/list guard is disabled, untrusted, or has a mismatched hash")
+        if publish_command is not None:
+            published = [item for item in data[0].get("hooks", [])
+                         if isinstance(item, dict) and item.get("key") == PUBLISH_HOOK_KEY]
+            if (len(published) != 1 or published[0].get("enabled") is not True
+                    or published[0].get("trustStatus") != "trusted"
+                    or published[0].get("currentHash") != publish_trust_hash(publish_command)):
+                raise _Refusal(PUBLISH, "Codex hooks/list did not list the review publish hook "
+                                        "exactly once, enabled and trusted with its hash", _PUBLISH_FIX)
         if data[0].get("errors"):
             raise _Refusal(TRUST, "Codex hooks/list reported errors")
         warnings = tuple(str(warning) for warning in data[0].get("warnings", []))
@@ -695,8 +773,17 @@ def preflight(codex_bin: str | Path, *, home: str | Path | None = None,
                                exit_status=diagnostics.get("exit_status"))
 
 
+def _lane_home(home: str | Path | None) -> str | Path | None:
+    """The lane's Codex home: `home`, else `CODEX_HOME`, whose value takes the
+    override refusals in a test process (D-ST3)."""
+    from ..home_paths import checked_override
+    return home if home is not None else checked_override("CODEX_HOME", os.environ.get("CODEX_HOME"))
+
+
 def _state_root() -> str:
-    return os.path.expanduser(os.environ.get("SUBFLEET_HOME", "~/.subfleet"))
+    from ..home_paths import home_path
+    return os.path.expanduser(str(home_path("SUBFLEET_HOME", lambda: "~/.subfleet",
+                                           accept_empty=True)))
 
 
 def _scratch_root(state_root: str | Path | None = None) -> str:

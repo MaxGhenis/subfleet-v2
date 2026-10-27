@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.fake.conftest import REPO
+from tests.fake.conftest import REPO, process_inspection_available  # noqa: F401 - fixture
 
 #: A process that records its identity in daemon.lock exactly as a daemon does
 #: (C-5.3), with SIGUSR1 at its default action, as every daemon before the flag.
@@ -101,7 +101,7 @@ def test_daemon_stacks_without_a_daemon_says_so():
     assert "not running" in result.stderr
 
 
-def test_a_daemon_without_the_flag_is_never_signalled(root):
+def test_a_daemon_without_the_flag_is_never_signalled(root, process_inspection_available):
     """Review of 5841d8b, finding 1: SIGUSR1 ends a daemon built before the flag."""
     control = spawn(OLD_DAEMON, root)                     # the fixture is what it claims to be
     os.kill(control.pid, signal.SIGUSR1)
@@ -121,7 +121,7 @@ def test_a_daemon_without_the_flag_is_never_signalled(root):
         old.wait(10)
 
 
-def test_a_daemon_whose_lock_says_stack_dumps_is_dumped_and_lives(root):
+def test_a_daemon_whose_lock_says_stack_dumps_is_dumped_and_lives(root, process_inspection_available):
     child = spawn(NEW_DAEMON, root)
     try:
         result = stacks(root)
@@ -133,7 +133,8 @@ def test_a_daemon_whose_lock_says_stack_dumps_is_dumped_and_lives(root):
         child.wait(10)
 
 
-def test_a_lock_that_changes_between_the_two_reads_is_not_signalled(root, monkeypatch, capsys):
+def test_a_lock_that_changes_between_the_two_reads_is_not_signalled(
+        root, monkeypatch, capsys, process_inspection_available):
     """C-3.6: the CLI reads the lock again just before the signal. A daemon that
     began to stop after the first read has dropped the flag and may have let its
     handler go; the fixture is such a daemon, SIGUSR1 at its default action, whose
@@ -157,9 +158,13 @@ def test_a_lock_that_changes_between_the_two_reads_is_not_signalled(root, monkey
         stopping.wait(10)
 
 
-def test_a_daemon_writes_the_flag_after_the_handler_and_drops_it_before(tmp_path, monkeypatch):
+def test_a_daemon_writes_the_flag_after_the_handler_and_drops_it_before(
+        tmp_path, monkeypatch, process_inspection_available):
     """The order that makes the flag true whenever it is read (C-3.6)."""
     from subfleet import daemon as daemon_module
+    # This unit checks handler/flag ordering, independent of host identity access.
+    monkeypatch.setattr(daemon_module.procs, "boot_id", lambda: "fixture-boot")
+    monkeypatch.setattr(daemon_module.procs, "proc_start", lambda pid: "fixture-start")
     seen = []
     register, unregister = faulthandler.register, faulthandler.unregister
 

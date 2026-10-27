@@ -14,7 +14,7 @@ import pytest
 
 
 @contextmanager
-def wire(provider, tmp_path):
+def wire(provider, tmp_path, extra_env=None):
     from subfleet.guard.preflight import HOOK_KEY
     module = f"tests.fake.interactive_{provider}"
     args = ["--session-id", "00000000-0000-4000-8000-000000000001"] if provider == "claude" else [
@@ -23,6 +23,7 @@ def wire(provider, tmp_path):
            if not key.startswith(("CLAUDE", "CODEX", "ANTHROPIC", "SUBFLEET_FAKE_"))}
     env["PYTHONPATH"] = str(Path(__file__).resolve().parents[2])
     env["CODEX_HOME"] = str(tmp_path)
+    env.update(extra_env or {})
     process = subprocess.Popen([sys.executable, "-c", f"import sys; from {module} import main; "
                                 "sys.exit(main(sys.argv[1:]))", *args], cwd=tmp_path, env=env,
                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -167,8 +168,8 @@ def test_runner_and_fake_settle_one_steer_across_boundaries_and_restart(tmp_path
 
     with world() as w, wire(provider, tmp_path) as (send, until, seen):
         class PipeRelay(JournalRelay):
-            def send(self, seq, op, *, line=None, tag=None, sig=None):
-                ack = super().send(seq, op, line=line, tag=tag, sig=sig)
+            def send(self, seq, op, *, line=None, tag=None, sig=None, before_send=None):
+                ack = super().send(seq, op, line=line, tag=tag, sig=sig, before_send=before_send)
                 if op == "write":
                     send(json.loads(line))
                 return ack
@@ -226,3 +227,69 @@ def test_runner_and_fake_settle_one_steer_across_boundaries_and_restart(tmp_path
         events = w.service.store.events_after(w.cid, 0)["events"]
         assert len([e for e in events if e["kind"] == "steer.delivered" and e["data"]["message_id"] == mid]) == (
             0 if scenario == "steer-refuse" else 1)
+
+
+@pytest.mark.parametrize("interrupted", [False, True])
+def test_a_late_system_init_leaves_an_accepted_claude_turn_unsteerable_until_it_arrives(tmp_path, interrupted):
+    """D-STEER-PUMP1's reproduction knob, through the real driver, runner and steer op:
+    with SUBFLEET_FAKE_LATE_INIT_S, a `slow` turn replays its message (the turn is
+    accepted), then holds `system init` back that long. Until the row names
+    msg_lifecycle_v1 the turn takes no steer, and `message.steer` answers `not-steerable`
+    (C-24.9); once it arrives the turn takes steers. An interrupt cuts the wait short."""
+    from subfleet.conversations.peers import Verdict
+    from subfleet.conversations.runner import TurnRunner
+    from subfleet.conversations.turn import TurnSpec
+    from subfleet.conversations.store import ConversationError
+    from tests.unit.test_conversation_service import submit
+    from tests.unit.test_steer_invariants import JournalRelay, world
+
+    late = 30.0 if interrupted else 2.0
+    with world() as w, wire("claude", tmp_path, {"SUBFLEET_FAKE_LATE_INIT_S": str(late)}) as (send, until, seen):
+        class PipeRelay(JournalRelay):
+            def send(self, seq, op, *, line=None, tag=None, sig=None, before_send=None):
+                ack = super().send(seq, op, line=line, tag=tag, sig=sig, before_send=before_send)
+                if op == "write":
+                    send(json.loads(line))
+                return ack
+
+        spec = TurnSpec(provider="claude", message_id=w.host, text="steer into me [fake:slow]", model_id="opus[1m]",
+                        permission="ask", native_session_id="00000000-0000-4000-8000-000000000001",
+                        cwd=str(tmp_path), guard_hash="sha256:fake")
+        runner = TurnRunner(store=w.service.store, attempt={"attempt_id": "job/a1", "lane_id": "claude-1"},
+                            spec=spec, conversation_id=w.cid, attempt_dir=w.adir,
+                            control_socket=str(w.adir / "unused.sock"), on_outcome=lambda _: None,
+                            on_contain=lambda _: None)
+        runner.relay = PipeRelay(w.adir)
+        runner.handshaken = runner.handshake_done_once = runner.replay_caught_up = True
+        runner._apply(runner.driver.start())
+        w.service.runners["job/a1"] = runner
+        w.service._person = lambda peer, what: Verdict(True, "test", peer)
+
+        def feed_until(predicate):
+            def consume(row):
+                with (w.adir / "stdout").open("a") as stream:
+                    stream.write(json.dumps(row) + "\n")
+                runner._read_stdout()
+                return predicate(row)
+            return until(consume)
+
+        feed_until(lambda row: row.get("type") == "user" and row.get("uuid") == w.host)
+        replayed = time.monotonic()
+        assert runner.driver.accepted and not runner.driver.steerable and not runner.steerable
+        steered = submit(w.service, w.cid, "also say steered", after=w.host)
+        with pytest.raises(ConversationError) as refused:
+            w.service.op_message_steer({"message_id": steered}, None)
+        assert (refused.value.reason, refused.value.code, str(refused.value)) == (
+            "not-steerable", 7, "the provider cannot take a steer now")
+        if interrupted:
+            send({"type": "control_request", "request_id": "stop", "request": {"subtype": "interrupt"}})
+        # Held back until then: without the interrupt the row comes `late` seconds after the
+        # replay (less only this test's lag reading the replay); with it, well inside `until`'s 5 s.
+        feed_until(lambda row: row.get("subtype") == "init")
+        if not interrupted:
+            assert time.monotonic() - replayed >= late - 0.5
+        assert runner.driver.steerable and runner.steerable
+        if interrupted:
+            result = until(lambda row: row.get("type") == "result")
+            assert result["subtype"] == "error_during_execution" and result["user_message_uuids"] == [w.host]
+        assert w.service.store.message(steered)["state"] == "queued"

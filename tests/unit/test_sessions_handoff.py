@@ -3,6 +3,11 @@
 Every test names the clause it proves (C-20.5). `sessions_fixtures.FAKE_SECRET`
 is a token shaped like the ones the scrub list catches and is not, and has never
 been, a key; no test here reads a real credential from anywhere.
+
+`test_scrubber_work_scales_linearly_for_long_ordinary_identifiers` compares the
+scrubber's CPU on two input sizes (`tests.cpu_scaling`). It detects super-linear
+growth, a quadratic regression, and not a constant-factor slowdown, which no test
+here bounds (#230 review r1; `tests/unit/test_cpu_scaling.py` pins that scope).
 """
 
 from __future__ import annotations
@@ -14,9 +19,10 @@ from pathlib import Path
 
 import pytest
 
-from subfleet.contracts import Sandbox
+from subfleet.contracts import Exit, Sandbox
 from subfleet.sessions import handoff
 from tests import sessions_fixtures as fx
+from tests.cpu_scaling import GROWTH_RATIO_MAX
 
 SESSION = "3f9c1a2e-7b40-4d51-9a8e-2c6f0b1d4e77"
 CODE = "def total(rows):\n    return sum(row.amount for row in rows)\n"
@@ -419,6 +425,39 @@ def test_the_sandbox_comes_from_the_tasks_policy_permission(policy):
     assert handoff.sandbox_for(policy, "build", "read-only") == "read-only"
 
 
+@pytest.mark.parametrize("permission", ["task", "fallback"])
+@pytest.mark.parametrize("committed", [False, True])
+@pytest.mark.parametrize("override", [None, "policy", "read-only", "workspace-write"])
+def test_handoff_resolves_conditional_permissions(policy, permission, committed, override):
+    policy["permissions"] = {"review" if permission == "task" else "*": "worktree-write"}
+    expected = ("workspace-write" if committed else "read-only") if override in (None, "policy") else override
+    assert handoff.sandbox_for(policy, "review", override, git=committed) == expected
+
+
+@pytest.mark.parametrize("mode", ["committed", "unborn", "non-git"])
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_review_handoff_uses_its_actual_repository(home, repo, policy, tmp_path, mode, dry_run):
+    fx.transcript(home, SESSION, conversation())
+    target = repo
+    if mode != "committed":
+        target = tmp_path / mode
+        target.mkdir()
+        if mode == "unborn":
+            subprocess.run(["git", "-C", str(target), "init", "-q"], check=True, capture_output=True)
+    staged = tmp_path / "prompt.md"
+    daemon = fx.FakeSessions()
+    result = handoff.handoff(
+        daemon, policy, session_id=SESSION, last=False, model="opus", task="review",
+        stage_prompt=lambda text: (staged.write_text(text), staged)[1],
+        workdir=target, dry_run=dry_run)
+    expected = "workspace-write" if mode == "committed" else "read-only"
+    assert result.sandbox == expected
+    if dry_run:
+        assert daemon.submits == []
+    else:
+        assert daemon.submits[0].sandbox == expected
+
+
 def test_a_dry_run_prints_the_brief_and_dispatches_nothing(home, repo, policy):
     """C-17.4: the brief is the thing to inspect before it is sent anywhere."""
     fx.transcript(home, SESSION, conversation())
@@ -702,17 +741,20 @@ def _scrubber_probe(script: str) -> dict:
 def test_scrubber_work_scales_linearly_for_long_ordinary_identifiers(identifier):
     """C-23.14 / C-25.5: four times the input must not take quadratic CPU."""
     measured = _scrubber_probe(f"identifier = {identifier!r}\n" + '''
-import json, time
-samples = {}
-for size in (1024, 4096):
-    text = identifier * (size // 2)
-    start = time.thread_time()
-    for _ in range(8):
+import json
+from tests.cpu_scaling import best_cpu_samples
+
+def make_call(size):
+    text = identifier * (size // len(identifier))
+    def call():
         assert scrub_secrets(text) == (text, 0)
-    samples[size] = (time.thread_time() - start) / 8
-print(json.dumps(samples))
+    return call
+
+print(json.dumps(best_cpu_samples(make_call, (65536, 262144))))
 ''')
-    assert measured["4096"] < max(measured["1024"], 0.0001) * 8, measured
+    # Both sizes are inside MAX_SCRUB_CHARS: four times the text is really
+    # scrubbed. Equal CPU-sized batches and minima retain 4x versus 16x growth.
+    assert measured["ratio"] < GROWTH_RATIO_MAX, measured
 
 
 def test_scrubber_keeps_other_python_threads_responsive():
@@ -752,6 +794,52 @@ def test_assignment_scanner_retains_sensitive_suffixes_and_escaped_quotes(key):
     scrubbed, count = handoff.scrub_secrets(text)
     assert scrubbed == f'''ordinary_code(); "{key}" = "[REDACTED]"; done()'''
     assert count == 1
+
+
+def _lines_of_length(length: int) -> str:
+    """Ordinary lines, `length` characters in all, ending in a line break."""
+    line = "ordinary line\n"
+    count, extra = divmod(length, len(line))
+    return line * count + ("." * (extra - 1) + "\n" if extra else "")
+
+
+@pytest.mark.parametrize("text,scrubbed", [
+    ("export PASSWORD='SECRET7aa TOKEN='SECRET8bb", "export PASSWORD='[REDACTED]'"),
+    ("password='SECRET7aa token='SECRET8bb' ok", "password='[REDACTED]' ok"),
+])
+def test_an_excerpt_hides_a_second_assignment_whose_quote_closed_the_first(text, scrubbed):
+    """Review r1 of #225, P2: with no closing quote of its own, the first value pairs
+    with the second's opening quote. An excerpt merges the overlapping assignments as
+    the whole-text scrub does, within their one line, so neither value survives."""
+    excerpt, count = handoff.clean(text, 4000)
+    assert excerpt == scrubbed and count >= 1
+    assert handoff.scrub_secrets(text, whole=True)[0] == scrubbed
+    # The same line in a long text's head and tail excerpts; the lines after it stay.
+    long_text = text + "\nkept after it\n" + _lines_of_length(handoff.MAX_SCRUB_CHARS) + text + "\nkept at the end"
+    bounded, _ = handoff.scrub_bounded(long_text, None)
+    assert "characters omitted" in bounded and "SECRET7aa" not in bounded and "SECRET8bb" not in bounded
+    assert bounded.startswith(scrubbed + "\nkept after it\n")
+    assert bounded.endswith(scrubbed + "\nkept at the end")
+
+
+@pytest.mark.parametrize("assignment", [
+    "\\'password\\'\n: \\'{secret}\\'",
+    "\\'password\\' :\n \\'{secret}\\'",
+    '\\\\\\"api_key\\\\\\"\n= \\\\\\"{secret}\\\\\\"',
+], ids=["before-colon", "after-colon", "double-encoded"])
+def test_a_long_text_is_never_cut_between_a_repr_quoted_key_and_its_value(assignment):
+    """Review r1 of #225, P2: a cut skips the backslashes before a key's closing quote
+    (`\\'password\\'`) as the separator does, so the tail excerpt never starts with a
+    value whose key it cut off."""
+    secret = "SECRET7tailcut9"
+    key_line, value_line = assignment.format(secret=secret).split("\n")
+    # The tail's first line break, `EXCERPT_CHARS` from the end, is the one after the key.
+    rest = value_line + "\n" + _lines_of_length(handoff.EXCERPT_CHARS - 3 - len(value_line) - 1)
+    text = _lines_of_length(handoff.MAX_SCRUB_CHARS) + key_line + "\n" + rest
+    assert text.find("\n", len(text) - handoff.EXCERPT_CHARS - 1) == len(text) - len(rest) - 1
+    assert secret not in handoff.scrub_secrets(text, whole=True)[0]
+    bounded, _ = handoff.scrub_bounded(text, None)
+    assert "characters omitted" in bounded and secret not in bounded
 
 
 def test_scrubber_bounds_input_before_matching_without_exposing_cut_credentials(monkeypatch):
@@ -859,3 +947,34 @@ def test_a_bounded_read_is_bounded_by_the_file_it_reads(tmp_path, monkeypatch):
     text = handoff_module._read_bounded(path, max_bytes=1_000)
     assert grew, "the file never grew: the test checked nothing"
     assert len(text) <= 1_000 + len("\n... [middle omitted] ...\n"), len(text)
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+@pytest.mark.parametrize("override", [None, "read-only", "workspace-write"])
+def test_handoff_git_probe_failure_is_actionable_and_explicit_sandboxes_need_no_probe(
+        home, repo, policy, tmp_path, monkeypatch, dry_run, override):
+    from subfleet.salvage import SalvageError
+
+    fx.transcript(home, SESSION, conversation())
+    daemon = fx.FakeSessions()
+    staged = tmp_path / "prompt.md"
+
+    def unavailable(*args, **kwargs):
+        raise SalvageError("private fixture Git output", transient=True)
+
+    monkeypatch.setattr(handoff, "git_head", unavailable)
+    args = dict(session_id=SESSION, last=False, model="opus", task="review",
+                sandbox=override, workdir=repo, dry_run=dry_run,
+                stage_prompt=lambda text: (staged.write_text(text), staged)[1])
+    if override is None:
+        with pytest.raises(handoff.HandoffError) as caught:
+            handoff.handoff(daemon, policy, **args)
+        assert caught.value.code == Exit.OPERATIONAL
+        assert str(caught.value) == "could not check the handoff workdir's Git commit"
+        assert caught.value.fix == "retry the handoff, or pass -s read-only"
+        assert daemon.submits == [] and not staged.exists()
+    else:
+        result = handoff.handoff(daemon, policy, **args)
+        assert result.sandbox == override
+        assert staged.exists() is not dry_run
+        assert len(daemon.submits) == (0 if dry_run else 1)

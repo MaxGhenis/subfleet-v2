@@ -8,19 +8,157 @@ call adapter methods on fixture directories directly.
 from __future__ import annotations
 
 import json
+import logging
+import os
+import pwd
+import secrets
 import shutil
+import sys
+import tempfile
+import threading
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
+from subfleet.home_paths import (
+    PYTEST_MARKER, PYTEST_SENTINEL, PYTEST_SESSION, PYTEST_SESSION_ID,
+    SAFE_ENV_REMOVALS, SAFE_HOME_PATHS, credential_shaped, remove_credentials,
+    restore_credentials,
+)
 from subfleet.contracts import (
     Credential, ExitInfo, JobSpec, Lane, LaneOwner, Launch, Sandbox,
 )
+from subfleet.credentials import install_keychain_exec_guard
 
 TESTS = Path(__file__).resolve().parent
 FIXTURES = TESTS / "fixtures" / "claude"
 FAKE_CLAUDE = TESTS / "bin" / "claude"
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_configure(config):
+    """Install safe baselines before collection, independently of monkeypatch.
+
+    The 2026-10-12 mirror incident undid an autouse fixture's patches and wrote
+    to the real desktop store. Keep the safe baseline through teardown, even
+    when individual tests undo their patches; restore it only at unconfigure.
+    """
+    # A credential-shaped name (`CLAUDE_LANE_AGENT_SECRET`, `SUBFLEET_AGENT_SECRET`)
+    # is snapshotted as absent: its value is kept only in the store below, which
+    # shows names, and which puts it back after this snapshot's restore (D-PRR1).
+    config._subfleet_original_home_env = {
+        name: None if credential_shaped(name) else os.environ.get(name)
+        for name in ("HOME", "PATH", "UV_CACHE_DIR", PYTEST_MARKER, PYTEST_SESSION, PYTEST_SESSION_ID,
+                     *SAFE_HOME_PATHS, *SAFE_ENV_REMOVALS)
+    }
+    # D-PRR1: the credentials the session inherited leave its environment, and
+    # every child's that inherits it, until unconfigure; the store that keeps
+    # them prints their names only.
+    config._subfleet_removed_credentials = remove_credentials(os.environ)
+    base = Path(tempfile.mkdtemp(prefix="sf-test-homes-"))
+    token = secrets.token_hex(32)
+    with (base / PYTEST_SENTINEL).open("x", encoding="ascii") as sentinel:
+        sentinel.write(token)
+        found = os.fstat(sentinel.fileno())
+    os.environ[PYTEST_MARKER] = "1"
+    os.environ[PYTEST_SESSION] = str(base)
+    os.environ[PYTEST_SESSION_ID] = f"{found.st_dev}:{found.st_ino}:{token}"
+    for name in SAFE_ENV_REMOVALS:
+        os.environ.pop(name, None)
+    config._subfleet_safe_home_base = base
+    os.environ.update({name: str(base / relative)
+                       for name, relative in SAFE_HOME_PATHS.items()})
+    # No runner identity tells a stub from a wrapper around the real
+    # subprocess.run (review r6, 2026-10-13). Refuse by the file a launch would
+    # start, for this whole session; an audit hook cannot be undone.
+    install_keychain_exec_guard()
+    # D-21 compares against HOME/.subfleet. Even a development-build test that
+    # does not select HOME must never resolve the account's production store.
+    # uv's cache is a non-store path: keep it available after HOME is isolated.
+    original_home = Path(os.environ.get("HOME") or pwd.getpwuid(os.getuid()).pw_dir)
+    os.environ.setdefault("UV_CACHE_DIR", str(original_home / ".cache" / "uv"))
+    os.environ["HOME"] = str(base / "home")
+    # An OS shell's child exec has no Python audit event. Bare-name shell/env
+    # delegation that keeps the session PATH therefore lands on a recording
+    # fixture for the whole session; the exec guard refuses a listed wrapper
+    # whose child PATH reaches a system directory first (C-20.6).
+    from tests.keychain_standin import StandIn
+    recorder = StandIn(base / "keychain-bin")
+    config._subfleet_keychain_standin = recorder
+    os.environ["PATH"] = recorder.search_path(os.environ.get("PATH", os.defpath))
+    # D-TMP1: a permanent baseline survives fixture undo and tests replacing
+    # os.environ wholesale. Nothing in this session allocates in user scratch.
+    from subfleet import attempt_tmp
+    config._subfleet_original_attempt_temp_root = attempt_tmp.user_temp_root
+    scratch_root = base / "attempt-temp"
+    scratch_root.mkdir(mode=0o700)
+    attempt_tmp.user_temp_root = lambda: scratch_root
+
+
+def pytest_sessionstart(session):
+    """Before any test runs, remove the kept state roots of test processes that are gone and in
+    which nothing has been kept for 24 hours (tests/failed_keep.py's `prune`, D-KR1)."""
+    from tests.failed_keep import ROOT, prune
+    removed = prune()
+    reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+    if removed and reporter is not None:
+        reporter.write_line(f"pruned {len(removed)} kept state roots of finished test processes under {ROOT}: "
+                            + " ".join(sorted(path.name for path in removed)))
+
+
+def pytest_unconfigure(config):
+    original_temp_root = getattr(config, "_subfleet_original_attempt_temp_root", None)
+    if original_temp_root is not None:
+        from subfleet import attempt_tmp
+        attempt_tmp.user_temp_root = original_temp_root
+    # Expire captured children even if store directories survive or are recreated.
+    base = getattr(config, "_subfleet_safe_home_base", None)
+    if base is not None:
+        (base / PYTEST_SENTINEL).unlink(missing_ok=True)
+    original = getattr(config, "_subfleet_original_home_env", None)
+    if original is not None:
+        for name, value in original.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+        del config._subfleet_original_home_env
+    removed = getattr(config, "_subfleet_removed_credentials", None)
+    if removed is not None:
+        restore_credentials(os.environ, removed)
+        del config._subfleet_removed_credentials
+    if base is not None:
+        shutil.rmtree(base, ignore_errors=True)
+
+
+def waive_process_rule(patch):
+    """D-ST3's one seam, for a test that means production behaviour.
+
+    Whatever os.environ holds, this process refuses the person's stores,
+    because pytest is loaded in it (`home_paths.pytest_process`). A test of
+    production behaviour (`under_pytest()` returning False, a `test_only`
+    default) waives that rule on `patch`, for as long as `patch` holds. The
+    waiver holds only while HOME is not the account's own: production code
+    reads HOME again at every call, so the account's HOME, or none, keeps the
+    rule. Child processes that load no pytest never had it.
+    """
+    from subfleet import home_paths
+    patch.setattr(home_paths, "_process_rule_waived", lambda: True)
+
+
+@pytest.fixture
+def production_process(monkeypatch):
+    """D-ST3: this test means production behaviour (`waive_process_rule`)."""
+    waive_process_rule(monkeypatch)
+
+
+def isolated_paths(*names):
+    """This test's own isolated store paths for `names`, to keep in an
+    os.environ a test replaces with a plain dict (D-ST3). Without them a pytest
+    process refuses the fallback; release resolved the person's store there."""
+    return {name: os.environ[name] for name in names}
 
 #: The instant every fixture-driven assertion is pinned to. Matches `NOW_ISO` in
 #: `tests/fixtures/claude/make_fixtures.py`; all experiment-0 reset epochs are later,
@@ -152,6 +290,31 @@ def exit_info(rc: int, *, wall_s: float = 4.2, spawn_error: str | None = None) -
 
 
 @pytest.fixture(autouse=True)
+def private_attempt_temp_root(request, tmp_path_factory, monkeypatch):
+    """D-TMP1 allocations in fixture daemons stay in this test's own tree."""
+    from subfleet import attempt_tmp
+    original = request.config._subfleet_original_attempt_temp_root
+    # Keep this beside each test's own tmp_path: filesystem assertions in a
+    # test must not see an unrelated directory created by an autouse fixture.
+    root = tmp_path_factory.mktemp("attempt-user-temp")
+    monkeypatch.setattr(attempt_tmp, "user_temp_root", lambda: root)
+    return original
+
+
+@pytest.fixture(autouse=True)
+def process_hooks_restored():
+    """`daemon.main` installs the daemon's scrubbing process hooks for the life of its
+    process (C-25.7), as a real daemon must. Run in-process (`test_daemon_accept`,
+    `test_stop_watchdog`), it replaced pytest's own thread and unraisable-exception
+    collectors for the rest of the session, so pytest stopped reporting either
+    (review r1 of #233, P3). Each test ends with the hooks it started with."""
+    saved = (sys.excepthook, threading.excepthook, sys.unraisablehook, warnings.showwarning, logging.lastResort)
+    yield
+    (sys.excepthook, threading.excepthook, sys.unraisablehook, warnings.showwarning,
+     logging.lastResort) = saved
+
+
+@pytest.fixture(autouse=True)
 def no_process_listing(request, monkeypatch):
     """Retention lists every process on the machine (`lsof`, design d635) before
     it deletes; under load one listing takes seconds to minutes, and what it
@@ -162,6 +325,9 @@ def no_process_listing(request, monkeypatch):
         return
     from subfleet import retention
     monkeypatch.setattr(retention, "lsof_holders", lambda watches, **_: {})
+    if not request.node.get_closest_marker("real_cwd"):
+        from subfleet import procs
+        monkeypatch.setattr(procs, "worktree_cwd_pids", lambda *a, **k: frozenset(), raising=False)
 
 
 @pytest.fixture(autouse=True)
@@ -218,13 +384,13 @@ def no_desktop_store(tmp_path_factory, monkeypatch):
     The sidebar mirror copies into the store, reads the log, and reads
     `~/.claude` (its saved options and the transcripts), and a daemon under test
     runs the mirror on a 2 s timer, so no test may reach any of them by
-    accident (C-23.28). All three point at paths that do not exist; a test that
-    wants one says where it is, and its `setenv` wins.
+    accident (C-23.28). All personal paths point at paths that do not exist; a
+    test that wants one says where it is, and its `setenv` wins. Undoing these
+    patches restores the session's safe baseline, never the person's values.
     """
     base = tmp_path_factory.mktemp("desktop")
-    monkeypatch.setenv("SUBFLEET_SESSION_STORE", str(base / "claude-code-sessions"))
-    monkeypatch.setenv("SUBFLEET_DESKTOP_LOG", str(base / "logs" / "main.log"))
-    monkeypatch.setenv("SUBFLEET_CLAUDE_DIR", str(base / "claude"))
+    for name, relative in SAFE_HOME_PATHS.items():
+        monkeypatch.setenv(name, str(base / relative))
 
 
 #: C-6.13: a machine with nothing to do, which no guard holds anything for.
@@ -279,3 +445,20 @@ def adapter(tmp_path):
         new_session_id=lambda: "00000000-0000-4000-8000-000000000000",
         projects_dir=projects,
     )
+
+
+@pytest.fixture(autouse=True)
+def guardian_launch_standins(monkeypatch):
+    """Keep existing Popen stand-ins at the single guardian launch boundary.
+    They receive the same command, gate, credentials and descriptor options that
+    production passes, including when this host permits disclaimed spawning.
+    Real launches and explicit replacements of spawn_guardian keep their path."""
+    from subfleet import daemon
+    popen, spawn = daemon.subprocess.Popen, daemon.spawn_guardian
+
+    def launch(command, *, disclaim, **options):
+        if daemon.subprocess.Popen is not popen:
+            return daemon.subprocess.Popen(command, **options)
+        return spawn(command, disclaim=disclaim, **options)
+
+    monkeypatch.setattr(daemon, "spawn_guardian", launch)

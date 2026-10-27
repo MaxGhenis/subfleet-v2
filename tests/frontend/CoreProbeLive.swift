@@ -39,6 +39,99 @@ final class LiveRun {
     }
 }
 
+/// A journaled steer as a check's detail, every field with a missing one as null: a failed
+/// steer check then says whether its steer was refused, is waiting to be asked again, or
+/// was never journaled (its receipt alone read null for all three, D-STEER-PUMP1).
+func steerDetail(_ steer: OutboxSteer?) -> Any {
+    guard let steer else { return "no steer journaled" }
+    return project(steer)
+}
+
+/// Step 14's check (C-24.9): the daemon took the steer. The outbox holds its receipt and
+/// the message is steering or steered; a steer refused or given up never passes.
+func steerTaken(_ steer: OutboxSteer?) -> Bool {
+    steer?.state == .acknowledged && ["steering", "steered"].contains(steer?.receipt?.state ?? "")
+}
+
+/// What waiting for a steer's answer came to: the steer then, how many pumps it took, and
+/// how long it waited on its clock.
+struct SteerSettling {
+    var steer: OutboxSteer?
+    var pumps: Int
+    var waited: TimeInterval
+}
+
+/// How long step 14 may take, from its start to judging its steer: an elapsed bound,
+/// counting everything the step does first. The prerequisite itself runs without it, so a
+/// prerequisite that alone runs past it is judged when it ends. With the client's 15 s
+/// answer deadline:
+/// - 15 s for the prerequisite: the host's submit and the wait for its turn to run and
+///   be accepted (a second or two on CI; run 40273357312 reached step 14 within 15 s of
+///   the probe's start);
+/// - 15 s for the steered message's own submit, which the step's first pump sends ahead
+///   of its steer;
+/// - 82.5 s for the steer itself: at most `Outbox.steerAttempts` (5) tries, 0.5 s doubling
+///   between them (7.5 s), each waiting up to the answer deadline (75 s);
+/// - 7.5 s of margin for the pumps' journal writes.
+/// 120 s. Inside it the outbox gets every try it is entitled to whenever the prerequisite
+/// takes 15 s or less; a slower one leaves the steer less, and the check's detail says how
+/// many tries it had. A steer still open at the deadline is stuck, not slow; one answered
+/// for good ends the wait as soon as the pump that answered it returns.
+func steerStepDeadline(answerTimeout: TimeInterval) -> TimeInterval {
+    let backoffs = (1..<Outbox.steerAttempts).map { Outbox.backoff(attempts: $0) }.reduce(0, +)
+    let margin: TimeInterval = 7.5
+    return answerTimeout + answerTimeout + backoffs + Double(Outbox.steerAttempts) * answerTimeout + margin
+}
+
+/// A transport that, while `deadline` is set, lets no exchange wait past it: each one waits
+/// for its answer at most the client's own timeout or the time left, whichever is less,
+/// and one that would begin at or after the deadline is not sent and reads as unanswered.
+/// A pump through it therefore ends by the deadline however many calls it makes, give or
+/// take its own journal writes (step 14's hard bound, #265 review r1).
+final class DeadlineTransport: DaemonTransport {
+    let inner: DaemonTransport
+    let now: () -> Date
+    var deadline: Date?
+
+    init(_ inner: DaemonTransport, now: @escaping () -> Date = Date.init) {
+        self.inner = inner
+        self.now = now
+    }
+
+    func exchange(_ line: Data, timeout: TimeInterval) throws -> Data {
+        guard let deadline else { return try inner.exchange(line, timeout: timeout) }
+        let left = deadline.timeIntervalSince(now())
+        guard left > 0 else { throw DaemonClientError.timedOut(op: "", seconds: 0) }
+        return try inner.exchange(line, timeout: min(timeout, left))
+    }
+}
+
+/// Pump until the steer of `messageID` is answered for good (taken, or closed: refused,
+/// given up or withdrawn) or `deadline` passes, as the app's pump timer would (C-29.7: a
+/// steer that names its turn and hears `not-steerable` is asked again briefly). Between
+/// pumps it waits until the steer's own retry time (`nextAttemptAt`), or 0.5 s (the
+/// outbox's shortest backoff) while none is due, so it never spins (D-STEER-PUMP1).
+///
+/// The deadline is checked before every pump and before every wait, and each wait is cut
+/// to the time left, so nothing starts at or after it. `pump` is given the deadline and
+/// must not run past it (the live step pumps through a `DeadlineTransport`): the wait then
+/// ends by the deadline, a hard bound, give or take the pump's own journal writes.
+func settleSteer(_ messageID: String, outbox: Outbox, deadline: Date, now: () -> Date,
+                 pause: (TimeInterval) -> Void, pump: (_ deadline: Date) -> Void) -> SteerSettling {
+    let started = now()
+    var pumps = 0
+    while now() < deadline {
+        pump(deadline)
+        pumps += 1
+        guard let open = outbox.steer(messageID), open.isOpen else { break }
+        let left = deadline.timeIntervalSince(now())
+        guard left > 0 else { break }
+        let retry = (open.nextAttemptAt ?? 0) - now().timeIntervalSince1970
+        pause(min(left, retry > 0 ? retry : Outbox.backoff(attempts: 1)))
+    }
+    return SteerSettling(steer: outbox.steer(messageID), pumps: pumps, waited: now().timeIntervalSince(started))
+}
+
 func runLive(_ arguments: [String]) throws -> Any {
     let run = LiveRun()
     do {
@@ -70,7 +163,9 @@ private func driveLive(_ arguments: [String], _ run: LiveRun) throws {
         return
     }
     run.check("endpoint resolves for the development build", true, endpoint.root.path)
-    let client = DaemonClient(endpoint: endpoint)
+    // Step 14 bounds its pumps' exchanges by its deadline; elsewhere this passes them through.
+    let bounded = DeadlineTransport(UnixSocketTransport(path: endpoint.socketURL.path))
+    let client = DaemonClient(transport: bounded)
     let exchangeLock = NSLock()
     client.onExchange = { op, request, response in
         var row: [String: Any] = ["op": op, "request": String(decoding: request, as: UTF8.self)]
@@ -129,6 +224,13 @@ private func driveLive(_ arguments: [String], _ run: LiveRun) throws {
             Thread.sleep(forTimeInterval: 0.2)
         }
         return nil
+    }
+
+    /// What one `approval.list` returned, for a check on the card it should have joined:
+    /// a card left without an id shows what the daemon listed when the app read it.
+    func listing(_ approvals: [ApprovalView]) -> [[String: Any]] {
+        approvals.map { ["approval_id": $0.approval_id, "message_id": $0.message_id,
+                         "request_id": $0.requestID ?? NSNull(), "kind": $0.kind, "state": $0.state] }
     }
 
     func finalText(_ timeline: Timeline, _ messageID: String) -> String? {
@@ -230,12 +332,14 @@ private func driveLive(_ arguments: [String], _ run: LiveRun) throws {
     _ = engine.pump()
     let carded = follow(cid) { !($0.turn(approvalMessage.key)?.pendingApprovals.isEmpty ?? true) }
     try run.require("the approval card appears from approval.requested", carded)
+    // Read at once: the daemon commits an approval with its event (C-27.1), so the list
+    // read right after the card appears already has it, and the card's id comes from it.
     let pending = try engine.approvals(conversationID: cid)
     state.apply(approvals: pending, conversationID: cid)
     let card = state.timelines[cid]?.turn(approvalMessage.key)?.pendingApprovals.first
     run.check("the Dock badge counts it", state.pendingApprovalCount == 1, state.pendingApprovalCount)
     try run.require("the card joins its approval id", card?.approvalID != nil && card?.approvalID == pending.first?.approval_id,
-                    card.map(project) ?? NSNull())
+                    ["card": card.map(project) ?? NSNull(), "listed": listing(pending)] as [String: Any])
     if let approvalID = card?.approvalID {
         do {
             let detail = try engine.approvalDetail(approvalID)
@@ -277,17 +381,26 @@ private func driveLive(_ arguments: [String], _ run: LiveRun) throws {
     _ = engine.pump()
     let asked = follow(cid) { !($0.turn(question.key)?.pendingApprovals.isEmpty ?? true) }
     try run.require("the question card appears from approval.requested", asked)
+    // Read at once, as for the tool approval (C-27.1).
     let questions = try engine.approvals(conversationID: cid)
     state.apply(approvals: questions, conversationID: cid)
     let questionCard = state.timelines[cid]?.turn(question.key)?.pendingApprovals.first
     try run.require("the question card joins its approval id", questionCard?.approvalID != nil
-                    && questionCard?.approvalID == questions.first?.approval_id, questionCard.map(project) ?? NSNull())
+                    && questionCard?.approvalID == questions.first?.approval_id,
+                    ["card": questionCard.map(project) ?? NSNull(), "listed": listing(questions)] as [String: Any])
     try run.require("the question card lists its questions", questionCard?.kind == "question"
               && questionCard?.questions.first?.question == "Which color?"
               && questionCard?.questions.first?.options?.map(\.label) == ["Blue", "Red"], questionCard.map(project) ?? NSNull())
     if let id = questionCard?.approvalID {
-        let detail = try engine.approvalDetail(id)
-        _ = try engine.respond(to: detail, decision: "answer", answers: ["Which color?": "Blue"])
+        do {
+            let detail = try engine.approvalDetail(id)
+            let answer = try engine.respond(to: detail, decision: "answer", answers: ["Which color?": "Blue"])
+            try run.require("the question is answered as the app", answer.approval.state == "answered", answer.approval.state)
+        } catch let stop as LiveStop {
+            throw stop
+        } catch {
+            try run.require("the question is answered as the app", false, describe(error))
+        }
     }
     _ = untilState(question.key, ["complete", "failed"])
     _ = follow(cid, timeout: 20) { $0.turn(question.key)?.outcome != nil }
@@ -444,6 +557,10 @@ private func driveLive(_ arguments: [String], _ run: LiveRun) throws {
     // turn runs goes into that turn. Whether the provider takes it at a step or it misses
     // the turn and runs next (DESIGN.md section 4), it settles once and is drawn once.
     if state.availability.capabilities?.canSteer("claude") == true {
+        // The step's deadline counts from here: the prerequisite and the steer's submit
+        // are inside it (`steerStepDeadline`, #265 review r1).
+        let stepStarted = Date()
+        let stepBudget = steerStepDeadline(answerTimeout: client.baseTimeout)
         state.focus(cid)
         let host = try engine.send(conversation: cid, text: "steer into me [fake:slow]", settings: settings)
         _ = engine.pump()
@@ -455,13 +572,23 @@ private func driveLive(_ arguments: [String], _ run: LiveRun) throws {
         }
         run.check("steer: the composer steers into the running turn", running != nil && composer?.messageID == host.key,
                   composer?.messageID ?? NSNull())
-        let steered = try engine.send(conversation: cid, text: "also say steered", settings: settings, steer: true)
-        let report = engine.pump()
-        state.apply(outbox: report, outbox: outbox)
-        let answer = outbox.steer(steered.key)
-        run.check("steer: the daemon takes the steer", answer?.state == .acknowledged
-                  && ["steering", "steered"].contains(answer?.receipt?.state ?? ""),
-                  answer.map { jsonObject($0.receipt) } ?? NSNull())
+        // Sent as the app sends it, naming the turn it steers into (C-29.7), and pumped until
+        // answered for good. A turn whose runner cannot take a steer yet (still catching up
+        // under load, or the provider's capabilities not read yet) answers `not-steerable`: a
+        // steer that names its turn is asked again at 0.5 s doubling, where one sent without
+        // `into` and read after one pump was refused at once (D-STEER-PUMP1).
+        let steered = try engine.send(conversation: cid, text: "also say steered", settings: settings, steer: true,
+                                      into: host.key)
+        let settling = settleSteer(steered.key, outbox: outbox, deadline: stepStarted.addingTimeInterval(stepBudget),
+                                   now: Date.init, pause: { Thread.sleep(forTimeInterval: $0) },
+                                   pump: { until in
+                                       bounded.deadline = until
+                                       defer { bounded.deadline = nil }
+                                       state.apply(outbox: engine.pump(), outbox: outbox)
+                                   })
+        run.check("steer: the daemon takes the steer", steerTaken(settling.steer),
+                  ["steer": steerDetail(settling.steer), "pumps": settling.pumps, "waited_s": settling.waited,
+                   "step_s": Date().timeIntervalSince(stepStarted), "deadline_s": stepBudget])
         // A slow turn ends only when stopped; a steer it has not taken by then runs next.
         Thread.sleep(forTimeInterval: 3)
         _ = try? engine.stop(.interrupt(messageID: host.key))

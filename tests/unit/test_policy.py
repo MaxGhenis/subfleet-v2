@@ -2,12 +2,15 @@
 
 import hashlib
 import json
+import tempfile
+from pathlib import Path
 
 import pytest
+from hypothesis import given, settings, strategies as st
 
 from subfleet.contracts import DEFAULT_CAPS, HEADROOM_FLOOR, READING_TTL_S, Exit
 from subfleet.policy import (
-    DEFAULT_POLICY_PATH, PolicyError, load_policy, policy_hash, resolve_model,
+    DEFAULT_POLICY_PATH, PolicyError, admission_settings, load_policy, policy_hash, resolve_model,
 )
 
 
@@ -20,6 +23,62 @@ def write_policy(tmp_path, value):
     path = tmp_path / "custom-policy.json"
     path.write_text(json.dumps(value), encoding="utf-8")
     return path
+
+
+#: D-PROBE-DEADLINE1 r2: what the loader says for every refused `probe_deadline_s`.
+WHOLE_SECONDS = "must be a whole number of seconds from 1 to 900"
+
+
+@pytest.mark.parametrize("value", [0, -1, True, False, "180", float("nan"), None,
+                                   float("inf"), float("-inf"), 901, 10**1000,
+                                   0.5, 1.25, 1/3, 0.999, 900.5, 1.0, 180.0, 900.0])
+def test_probe_deadline_rejects_invalid_seconds(tmp_path, policy_data, value):
+    """D-PROBE-DEADLINE1: a whole number of seconds, 1 to 900; every float is refused,
+    integral ones too, because a durable deadline is compared at whole seconds (#269 r1, P2)."""
+    policy_data["admission"]["probe_deadline_s"] = value
+    with pytest.raises(PolicyError) as caught:
+        load_policy(write_policy(tmp_path, policy_data))
+    assert caught.value.key == "admission.probe_deadline_s"
+    assert str(caught.value).endswith(f"admission.probe_deadline_s: {WHOLE_SECONDS}")
+
+
+@pytest.mark.parametrize("value", [1, 2, 59, 60, 180, 899, 900])
+def test_probe_deadline_accepts_whole_seconds_from_1_through_900(tmp_path, policy_data, value):
+    policy_data["admission"]["probe_deadline_s"] = value
+    loaded = load_policy(write_policy(tmp_path, policy_data))
+    assert loaded["admission"]["probe_deadline_s"] == value
+    assert type(loaded["admission"]["probe_deadline_s"]) is int
+
+
+@settings(max_examples=150, deadline=None, derandomize=True, database=None)
+@given(value=st.one_of(st.integers(-2000, 2000), st.integers(), st.booleans(), st.floats(), st.none(),
+                       st.text(max_size=4), st.integers(1, 900).map(float)))
+def test_probe_deadline_loads_exactly_the_whole_seconds_from_1_to_900(value):
+    """D-PROBE-DEADLINE1: the loader keeps exactly the `int` values 1 to 900, never a bool or
+    a float (integral ones included), and refuses everything else naming the key."""
+    data = json.loads(DEFAULT_POLICY_PATH.read_bytes())
+    data["admission"]["probe_deadline_s"] = value
+    whole = isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 900
+    with tempfile.TemporaryDirectory(prefix="probe-deadline-") as tmp:
+        path = write_policy(Path(tmp), data)
+        if whole:
+            assert load_policy(path)["admission"]["probe_deadline_s"] == value
+        else:
+            with pytest.raises(PolicyError) as caught:
+                load_policy(path)
+            assert (caught.value.key, str(caught.value).rsplit(": ", 1)[-1]) == (
+                "admission.probe_deadline_s", WHOLE_SECONDS)
+
+
+def test_probe_deadline_defaults_in_bundled_loaded_and_raw_policies(tmp_path, policy_data):
+    assert policy_data["admission"]["probe_deadline_s"] == 180
+    for admission in ({}, None):
+        if admission is None:
+            policy_data.pop("admission")
+        else:
+            policy_data["admission"] = admission
+        assert admission_settings(policy_data)["probe_deadline_s"] == 180
+        assert load_policy(write_policy(tmp_path, policy_data))["admission"]["probe_deadline_s"] == 180
 
 
 @pytest.mark.parametrize("key", [
@@ -420,9 +479,26 @@ def test_invalid_caps_name_the_key(tmp_path, policy_data, key, value):
     assert caught.value.key == f"caps.{key}"
 
 
+@pytest.mark.parametrize("callers,expected", [
+    (None, None), ([], []), (["92EC8BE9-ABCD", "  Other  "], ["92ec8be9-abcd", "other"]),
+])
+def test_priority_callers_validate_and_canonicalize(tmp_path, policy_data, callers, expected):
+    policy_data["admission"] = {"priority_callers": callers}
+    loaded = load_policy(write_policy(tmp_path, policy_data))
+    assert loaded["admission"]["priority_callers"] == expected
+
+
+@pytest.mark.parametrize("callers", ["session", {}, True, 12, [""], [" "], [None], [1], [True], [[], "ok"]])
+def test_priority_callers_reject_invalid_values(tmp_path, policy_data, callers):
+    policy_data["admission"] = {"priority_callers": callers}
+    with pytest.raises(PolicyError) as caught:
+        load_policy(write_policy(tmp_path, policy_data))
+    assert caught.value.key == "admission.priority_callers"
+
+
 def test_admission_settings_default_and_validate(tmp_path, policy_data):
     """C-6.13, C-10.3, C-11.3: the `admission` section's defaults, and what it keeps."""
-    from subfleet.policy import ADMISSION_DEFAULTS, admission_settings
+    from subfleet.policy import ADMISSION_DEFAULTS, DISK_DEFAULTS, admission_settings
 
     policy_data.pop("admission", None)
     loaded = load_policy(write_policy(tmp_path, policy_data))
@@ -430,6 +506,7 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
     assert admission_settings({})["lane_spread"] == 2
     assert admission_settings({})["weekly_reserve"] == .02
     assert admission_settings({})["five_hour_reserve"] == .10
+    assert admission_settings({})["priority_callers"] is None
     assert admission_settings({})["pin_grace_s"] == 1800 and admission_settings({})["pin_hold_far_s"] == 7 * 86400
     assert admission_settings({})["prove_idle_s"] == 900          # C-6.14: on unless a policy turns it off
     assert admission_settings({})["prove_wait_s"] == 300          # C-6.14: how long a silent pilot holds its lane
@@ -439,7 +516,10 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
     loaded = load_policy(write_policy(tmp_path, policy_data))
     assert loaded["admission"] == {"lane_spread": None, "machine_guard": None, "desktop_recent_s": 0,
                                    "pin_grace_s": None, "pin_hold_far_s": 3600, "prove_idle_s": None,
-                                   "prove_wait_s": None, "weekly_reserve": .02, "five_hour_reserve": .10}
+                                   "prove_wait_s": None, "weekly_reserve": .02, "five_hour_reserve": .10,
+                                   "probe_deadline_s": 180,
+                                   "priority_callers": None, "disk": DISK_DEFAULTS,
+                                   "ramp": {"enabled": False, "per_minute": 12, "window_s": 60}}
     policy_data["admission"] = {"prove_idle_s": 0.5, "prove_wait_s": 0.25}     # C-6.14: any positive spans
     loaded = load_policy(write_policy(tmp_path, policy_data))["admission"]
     assert (loaded["prove_idle_s"], loaded["prove_wait_s"]) == (0.5, 0.25)
@@ -447,6 +527,38 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
     assert load_policy(write_policy(tmp_path, policy_data))["admission"]["pin_grace_s"] == 0
     policy_data["admission"] = {"machine_guard": {"background": {"memory_pressure": "critical"}, "session": None}}
     assert load_policy(write_policy(tmp_path, policy_data))["admission"]["machine_guard"]["session"] is None
+
+
+@pytest.mark.parametrize("key,value", [
+    ("cpu_idle_min", -1), ("cpu_idle_min", 1.01), ("cpu_idle_min", True),
+    ("cpu_idle_min", None), ("cpu_idle_min", "0.15"), ("cpu_idle_min", []),
+    ("cpu_idle_min", float("nan")), ("cpu_idle_min", float("inf")),
+    ("disk_busy_max", 0), ("disk_busy_max", -1), 
+    ("disk_busy_max", False), ("disk_busy_max", None), ("disk_busy_max", "0.8"),
+    ("disk_busy_max", {}), ("disk_busy_max", float("nan")), ("disk_busy_max", float("inf")),
+])
+def test_machine_signal_thresholds_reject_bad_values_naming_the_key(tmp_path, policy_data, key, value):
+    policy_data["admission"] = {"machine_guard": {"background": {key: value}}}
+    with pytest.raises(PolicyError) as caught:
+        load_policy(write_policy(tmp_path, policy_data))
+    assert caught.value.key == f"admission.machine_guard.background.{key}"
+
+
+@pytest.mark.parametrize("thresholds", [
+    {"cpu_idle_min": 0}, {"cpu_idle_min": 1}, {"disk_busy_max": 1}, {"disk_busy_max": 25}, {"disk_busy_max": 1e100},
+    {"cpu_idle_min": .15, "disk_busy_max": .8, "load_per_cpu": 6, "memory_pressure": "warn"},
+])
+def test_machine_signals_accept_fraction_boundaries_and_mixed_legacy_keys(tmp_path, policy_data, thresholds):
+    policy_data["admission"] = {"machine_guard": {"background": thresholds}}
+    assert load_policy(write_policy(tmp_path, policy_data))["admission"]["machine_guard"]["background"] == thresholds
+
+
+@pytest.mark.parametrize("key", ["cpu_idle_min", "disk_busy_max", "load_per_cpu"])
+def test_machine_signal_thresholds_reject_oversized_integers(tmp_path, policy_data, key):
+    policy_data["admission"] = {"machine_guard": {"background": {key: 10**1000}}}
+    with pytest.raises(PolicyError) as caught:
+        load_policy(write_policy(tmp_path, policy_data))
+    assert caught.value.key == f"admission.machine_guard.background.{key}"
 
 
 @pytest.mark.parametrize("section,error_key", [
@@ -480,6 +592,7 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
     ({"prove_wait_s": False}, "admission.prove_wait_s"),
     ({"machine_guard": []}, "admission.machine_guard"),
     ({"machine_guard": {"attended": {"load_per_cpu": 2}}}, "admission.machine_guard.attended"),
+    ({"machine_guard": {"priority": {"load_per_cpu": 2}}}, "admission.machine_guard.priority"),
     ({"machine_guard": {"background": {}}}, "admission.machine_guard.background"),
     ({"machine_guard": {"background": {"load_per_cpu": 0}}}, "admission.machine_guard.background.load_per_cpu"),
     ({"machine_guard": {"session": {"memory_pressure": "normal"}}}, "admission.machine_guard.session.memory_pressure"),
@@ -492,3 +605,29 @@ def test_invalid_admission_settings_name_the_key(tmp_path, policy_data, section,
     with pytest.raises(PolicyError) as caught:
         load_policy(write_policy(tmp_path, policy_data))
     assert caught.value.key == error_key
+
+
+@pytest.mark.parametrize('requires,key', [
+    ([], 'requires'), ({'missing': ['shell']}, 'requires.missing'),
+    ({'review': 'shell'}, 'requires.review'),
+    ({'review': ['network']}, 'requires.review[0]'),
+    ({'review': [True]}, 'requires.review[0]'),
+    ({'review': ['shell', 'shell']}, 'requires.review[1]'),
+])
+def test_c11_1_requires_refuses_unknown_or_malformed_requirements(tmp_path, policy_data, requires, key):
+    policy_data['requires'] = requires
+    with pytest.raises(PolicyError) as refused:
+        load_policy(write_policy(tmp_path, policy_data))
+    assert refused.value.key == key
+
+
+def test_c11_1_requires_optional_and_reviews_do_not_require_shell_by_default(tmp_path, policy_data):
+    assert load_policy(DEFAULT_POLICY_PATH).get('requires', {}) == {}
+    policy_data.pop('requires', None)
+    assert 'requires' not in load_policy(write_policy(tmp_path, policy_data))
+
+
+def test_d_sh1_default_reviews_write_only_in_job_worktrees_and_shell_is_opt_in():
+    policy = load_policy(DEFAULT_POLICY_PATH)
+    assert policy['permissions']['review'] == 'worktree-write'
+    assert policy.get('requires', {}) == {}

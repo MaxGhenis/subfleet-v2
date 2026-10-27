@@ -10,8 +10,8 @@ struct FailedConversationDraftView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Label("Conversation could not start", systemImage: "exclamationmark.triangle").font(.title2)
-            Text(draft.failure.message).foregroundStyle(.orange).textSelection(.enabled)
-            Text(abbreviatedPath(draft.create.workspace)).foregroundStyle(.secondary)
+            NoticeRow(symbol: "exclamationmark.triangle") { Text(draft.failure.message).textSelection(.enabled) }
+            Text(abbreviatedPath(draft.create.workspace)).foregroundStyle(Theme.text.secondary.color)
             if !draft.text.isEmpty { Text(draft.text).textSelection(.enabled) }
             HStack {
                 Button("Change folder and retry", action: changeFolder).buttonStyle(.borderedProminent)

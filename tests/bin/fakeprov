@@ -45,7 +45,128 @@ def qos_report() -> dict:
     return report
 
 
+#: D-CEN1 (incident 2026-10-13): processes no census source saw. Each is
+#: born outside the attempt's group (its parent called setsid and exits at
+#: once), so its ppid is 1, and each then hides from `ps -E`: node's
+#: `process.title` and the stand-in fill the argv area with the title and
+#: NULs, which ends `ps`'s environment list; perl, a platform binary, shows
+#: `ps` no environment at all, and `$0` renames it. The pid is published
+#: (by rename) only after the title is set, and each exits within a minute
+#: whatever happens to the test that started it.
+ESCAPE_S = 60
+NODE_ESCAPER = ("const fs = require('fs'); process.title = 'node (vitest)';"
+                "const marker = process.env.SUBFLEET_FAKE_MARKER;"
+                "fs.writeFileSync(marker + '.tmp', String(process.pid)); fs.renameSync(marker + '.tmp', marker);"
+                f"setTimeout(() => {{}}, {ESCAPE_S * 1000});")
+NUL_ESCAPER = f"""
+import ctypes, os, time
+libc = ctypes.CDLL(None)
+libc._NSGetArgv.restype = ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))
+libc._NSGetArgc.restype = ctypes.POINTER(ctypes.c_int)
+argc, argv = libc._NSGetArgc().contents.value, libc._NSGetArgv().contents
+start, last = argv[0], argv[argc - 1]
+end = last + len(ctypes.string_at(last)) + 1
+title = b"node (vitest 1)"
+ctypes.memset(start, 0, end - start)
+ctypes.memmove(start, title, min(len(title), end - start - 1))
+marker = os.environ["SUBFLEET_FAKE_MARKER"]
+with open(marker + ".tmp", "w") as stream:
+    stream.write(str(os.getpid()))
+os.rename(marker + ".tmp", marker)
+time.sleep({ESCAPE_S})
+"""
+PERL_ESCAPER = ('$0 = "renamed-escaper"; my $marker = $ENV{SUBFLEET_FAKE_MARKER};'
+                'open(my $out, ">", "$marker.tmp") or die; print $out $$; close($out);'
+                f'rename("$marker.tmp", $marker) or die; sleep {ESCAPE_S};')
+ESCAPERS = {"retitled-node": "node", "retitled-nul": "nul", "perl-escape": "perl",
+            "lockf-escape": "lockf"}
+#: D-KILL2 (incidents 2026-10-16 and 2026-10-18): a provider's command ran
+#: `/usr/bin/lockf -k <suite lock> ...` as the leader of a session of its own,
+#: and the lockf outlived the cancelled attempt waiting for its lock, ppid 1
+#: once the provider was gone. lockf is an Apple platform binary that runs with
+#: the hardened runtime, and on macOS 26 the argument buffer of such a process
+#: holds its argv and no environment (observed 2026-10-18), so the markers it
+#: inherits show neither in `ps -E` nor in the raw buffer. This escaper is
+#: that lockf, markers inherited unchanged. Its lock is `<marker>.lock`, which
+#: the test holds (never the suite lock), and it waits at most LOCKF_WAIT_S.
+LOCKF_WAIT_S = 120
+
+
+def lockf_escaper() -> int:
+    """Publish this pid, then become lockf in place: the session leader that the
+    provider's Popen made, as the incident's lockf led its own session."""
+    marker = os.environ["SUBFLEET_FAKE_MARKER"]
+    with open(marker + ".tmp", "w") as stream:
+        stream.write(str(os.getpid()))
+    os.rename(marker + ".tmp", marker)
+    os.execv("/usr/bin/lockf", ["/usr/bin/lockf", "-k", "-t", str(LOCKF_WAIT_S), marker + ".lock",
+                                "/bin/sleep", str(ESCAPE_S)])
+    return 1
+
+
+def escaper(kind: str) -> int:
+    """The escaper's parent: started in a new session, it forks and exits.
+    `lockf` is the exception: it stays the session's leader (`lockf_escaper`).
+    With SUBFLEET_FAKE_IGNORE_TERM the escaper ignores TERM (SIG_IGN survives exec, and
+    lockf sets its own handler only once it holds its lock), so a test can watch the
+    kill protocol count it between the TERM and the KILL (D-KILL4 fix 1)."""
+    if os.environ.get("SUBFLEET_FAKE_IGNORE_TERM"):
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    if kind == "lockf":
+        return lockf_escaper()
+    if os.fork():
+        return 0
+    if kind == "node":
+        node = os.environ["SUBFLEET_FAKE_NODE"]
+        os.execv(node, [node, "-e", NODE_ESCAPER])
+    if kind == "nul":
+        os.execv(sys.executable, [sys.executable, "-c", NUL_ESCAPER])
+    # macOS versions differ in how much of a platform binary's argument area
+    # remains readable after $0 changes. Erase the markers explicitly so this
+    # fixture proves responsibility discovery on either kernel.
+    env = {k: v for k, v in os.environ.items()
+           if k not in {"SUBFLEET_ATTEMPT", "SUBFLEET_ROOT", "SUBFLEET_JOB"}}
+    os.execve("/usr/bin/perl", ["/usr/bin/perl", "-e", PERL_ESCAPER], env)
+    return 1
+
+
+#: D-KILL4 (incident 2026-10-20, walled `us10299-review-shell-b`): an agent's
+#: `/bin/sh` loop respawning a marked runner. The loop is a shell, an Apple platform
+#: binary whose environment macOS 26 hides, so only its children show the markers;
+#: it outlives the provider in a session of its own (`--driver`), reparented to
+#: launchd once the provider ends (`--detached`: at once, by a fork that exits).
+#: It ends by itself within DRIVER_S, and each child within CHILD_S (long enough that a census
+#: sees one: a census landing between two children sees nothing of an uncounted loop).
+DRIVER_S = 90
+CHILD_S = 5.0
+DRIVER_LOOP = ('end=$(( $(/bin/date +%s) + {limit} )); '
+               'while [ "$(/bin/date +%s)" -lt "$end" ]; do "$0" "$1" --marked-child; done')
+
+
+def driver(detached: bool) -> int:
+    """Lead a new session, publish this pid, then become the shell loop in place."""
+    os.setsid()
+    if detached and os.fork():
+        return 0
+    marker = os.environ["SUBFLEET_FAKE_MARKER"]
+    with open(marker + ".tmp", "w") as stream:
+        stream.write(str(os.getpid()))
+    os.rename(marker + ".tmp", marker)
+    os.execv("/bin/sh", ["/bin/sh", "-c", DRIVER_LOOP.format(limit=DRIVER_S),
+                         sys.executable, str(Path(__file__).resolve())])
+    return 1
+
+
 def main() -> int:
+    if "--driver" in sys.argv:
+        return driver("--detached" in sys.argv)
+    if "--marked-child" in sys.argv:
+        time.sleep(CHILD_S)          # the markers it inherited show in its buffer
+        return 0
+    if "--escaper" in sys.argv:
+        if "--new-session" in sys.argv:
+            os.setsid()
+        return escaper(sys.argv[sys.argv.index("--escaper") + 1])
     if "--escaped-child" in sys.argv:
         # Popen gave this process its own session, but it belonged to the
         # attempt's group between fork() and setsid(), and a census landing
@@ -76,8 +197,32 @@ def main() -> int:
             start_new_session=True,
             stdin=subprocess.DEVNULL,
         )
+    if scenario in ESCAPERS:
+        # The provider ends as soon as its escaper is ready, so the exit receipt
+        # is written with the escaper still running in the attempt's workspace.
+        marker = Path(os.environ["SUBFLEET_FAKE_MARKER"])
+        subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--escaper", ESCAPERS[scenario]],
+                         start_new_session=True, stdin=subprocess.DEVNULL)
+        until = time.monotonic() + 30
+        while not marker.exists() and time.monotonic() < until:
+            time.sleep(.02)
+        print(f"fake provider ready: {scenario}", flush=True)
+        if delay:
+            time.sleep(delay)              # still running, for a test that kills the attempt
+        return 0 if marker.exists() else 1
     if scenario == "qos":
         print(json.dumps(qos_report()), flush=True)
+        completed()
+        return 0
+    if scenario == "ca-environment":
+        keys = ("SSL_CERT_FILE", "SSL_CERT_DIR")
+        child = subprocess.run(
+            [sys.executable, "-c", "import json, os; print(json.dumps({k: os.environ[k] "
+             "for k in ('SSL_CERT_FILE', 'SSL_CERT_DIR') if k in os.environ}))"],
+            text=True, capture_output=True, check=True)
+        print(json.dumps({"provider": {k: os.environ[k] for k in keys if k in os.environ},
+                          "tool": json.loads(child.stdout)}), flush=True)
+        completed()
         return 0
     print(f"fake provider ready: {scenario}", flush=True)
     if scenario in {"ignore-sigterm", "nested-setsid"}:
@@ -91,6 +236,9 @@ def main() -> int:
         print(json.dumps({"event": "rate_limit", "scope": "account",
                           "resets_at": int(time.time()) + 3600}), file=sys.stderr, flush=True)
         return 4
+    if scenario == "rc3-content-filter":
+        print("This content was flagged for possible cybersecurity risk.", file=sys.stderr, flush=True)
+        return 3
     if scenario == "rc1-crash-after-output":
         print("partial result before provider crash", flush=True)
         return 1
@@ -98,7 +246,14 @@ def main() -> int:
         # The adapter maps this scenario to a missing executable before launch.
         raise RuntimeError("spawn-fail must be selected by FakeAdapter")
     print("fake deliverable: " + prompt.strip(), flush=True)
+    completed()
     return 0
+
+
+def completed() -> None:
+    """The generic fake's success also satisfies the Codex acceptance rule."""
+    if stream := os.environ.get("SUBFLEET_FAKE_STREAM"):
+        Path(stream).write_text('{"type":"turn.completed"}\n')
 
 
 if __name__ == "__main__":

@@ -25,7 +25,7 @@ from subfleet import daemon as daemon_module
 from subfleet import hooks, render
 from subfleet.procs import Containment
 from tests.fake.notice_invariant import notice_mismatches
-from tests.fake.test_state_contract import receipt_fixture, reserve, state_daemon  # noqa: F401
+from tests.fake.test_state_contract import launched, receipt_fixture, reserve, state_daemon  # noqa: F401
 
 #: What Codex left in `last.md` when the daemon stopped it on 2026-09-24.
 INTERIM = b"I am checking the newer validation code before finalizing the review.\n"
@@ -34,6 +34,10 @@ INTERIM = b"I am checking the newer validation code before finalizing the review
 def notice_lines(daemon, job_id: str) -> list[str]:
     notice, = daemon.store.query("SELECT text FROM notices WHERE job_id=?", (job_id,))
     return notice["text"].splitlines()
+
+
+COMMANDS = ("ran read-only on codex-1 (astra): commands ran, but nothing could be written, "
+            "temp files included, so pytest could not run")
 
 
 def dashes(job_id: str, state: str, rc: int) -> str:
@@ -49,7 +53,8 @@ def test_c15_1_c7_2_acceptance_first_names_the_deliverable_and_out(state_daemon)
     out = harness.root / "export.md"
     job_id, attempt, adir = reserve(daemon, harness, out_path=str(out))
     daemon._finalize(receipt_fixture(daemon, attempt, adir))
-    header, summary = notice_lines(daemon, job_id)
+    header, summary, capability = notice_lines(daemon, job_id)
+    assert capability == COMMANDS
     assert header == (f"{job_id}: succeeded; rc=0; deliverable={adir / 'deliverable.md'}; "
                       f"out={out}")
     assert summary == "attempt a1: ok, rc=0: fake provider succeeded; unattested"
@@ -70,6 +75,7 @@ def test_c15_1_c7_2_cancel_first_names_no_file_and_says_the_output_was_not_accep
         dashes(job_id, "cancelled", 130),
         "attempt a1: ok, rc=0: fake provider succeeded; unattested",
         f"output kept, not accepted: {adir / 'deliverable.md'}; -o {out} was not written",
+        COMMANDS,
     ]
     assert not out.exists()
 
@@ -85,19 +91,25 @@ def test_c15_1_a_failed_attempt_names_its_class_and_rc_under_the_jobs(state_daem
         dashes(job_id, "failed", 1),
         "attempt a1: unknown, rc=1: fake provider failed; unattested",
         f"output kept, not accepted: {adir / 'deliverable.md'}",
+        COMMANDS,
     ]
 
 
-def test_c15_1_a_lost_attempt_is_announced_lost_with_the_jobs_rc(state_daemon):
+def test_c15_1_a_lost_attempt_is_announced_lost_with_the_jobs_rc(state_daemon, monkeypatch):
     """C-4.4, C-15.1 a loss without a receipt: `lost; rc=125`, the attempt's rc unknown."""
     daemon, harness = state_daemon
+    # The fixture guardian is absent; don't inspect the host's real process table.
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: daemon_module.procs.ProcessTable({}))
+    monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "dead")
     job_id, attempt, _ = reserve(daemon, harness, max_attempts=1)
+    launched(daemon, attempt)                       # a running attempt's launch was built
     daemon.store.update_attempt(attempt["attempt_id"], state="running", guardian_pid=42001,
                                 pgid=42001, boot_id="unit-test-boot", proc_start="unit-test-start")
     daemon._process_attempt(attempt["attempt_id"])
     assert notice_lines(daemon, job_id) == [
         dashes(job_id, "lost", 125),
         "attempt a1: unknown, rc=-: guardian lost without exit receipt; unattested",
+        COMMANDS,
     ]
 
 
@@ -126,13 +138,17 @@ def test_c15_1_c6_12_a_job_refused_at_admission(state_daemon, cancel):
 
 
 def test_c15_1_c6_8_a_workspace_that_cannot_be_prepared(state_daemon):
-    """C-6.8, C-15.1 a non-transient workspace failure: `failed; rc=1` and git's own words."""
+    """C-6.8, C-15.1 a non-transient workspace failure: `failed; rc=1` and how it failed.
+    An exception's own words go to daemon.log only (C-25.7); git's are C-6.8's record's."""
     daemon, harness = state_daemon
     job_id = daemon.dispatch("submit", harness.submit_args())["job_id"]
     daemon._workspace_failed(daemon.store.get_job(job_id), ValueError("fixture: not a repository"))
     assert notice_lines(daemon, job_id) == [
         dashes(job_id, "failed", 1),
-        "workspace preparation failed: ValueError: fixture: not a repository"]
+        "workspace preparation failed: ValueError: its text is in daemon.log"]
+    daemon._log_handler.flush()
+    assert "workspace preparation failed: ValueError: fixture: not a repository" in (
+        daemon.root / "daemon.log").read_text()
 
 
 def test_c15_1_c23_55_a_skipped_revive_is_announced_failed_with_rc_7(state_daemon):
@@ -155,7 +171,9 @@ def test_c15_1_c4_2_an_attempt_that_never_launched(state_daemon, cancel):
         daemon.store.update_job(job_id, cancel_requested_at=daemon_module.utcnow())
     daemon._process_attempt(attempt["attempt_id"])
     state, rc = ("cancelled", 130) if cancel else ("failed", 1)
+    # #221 review r1b P3-2: it never launched, so it claims no capability.
     assert notice_lines(daemon, job_id) == [dashes(job_id, state, rc), "reserved-no-launch"]
+    assert daemon.store.get_attempt(attempt["attempt_id"])["capability"] is None
 
 
 @pytest.mark.parametrize("cancel", [False, True])
@@ -167,6 +185,7 @@ def test_c15_1_c5_7_a_quarantined_attempt_names_the_jobs_state_not_the_attempts_
     job_id, attempt, _ = reserve(daemon, harness)
     if cancel:
         daemon.store.update_job(job_id, cancel_requested_at=daemon_module.utcnow())
+    launched(daemon, attempt)                       # a starting attempt's launch was built
     daemon.store.update_attempt(attempt["attempt_id"], state="starting", guardian_pid=42001)
     daemon._starting_deadlines[attempt["attempt_id"]] = 0
     # A cancelled attempt is killed first, and an uninspectable group ends that
@@ -175,7 +194,8 @@ def test_c15_1_c5_7_a_quarantined_attempt_names_the_jobs_state_not_the_attempts_
     monkeypatch.setattr(daemon_module.procs, "containment",
                         lambda *args, **kwargs: Containment(unverifiable=True))
     daemon._process_attempt(attempt["attempt_id"])
-    header, summary = notice_lines(daemon, job_id)
+    header, summary, capability = notice_lines(daemon, job_id)
+    assert capability == COMMANDS
     assert header == (dashes(job_id, "cancelled", 130) if cancel else dashes(job_id, "lost", 125))
     assert summary.startswith("quarantined: ") and "unverifiable" in summary
 
@@ -234,6 +254,7 @@ def _codex_exits_zero_on_sigterm(monkeypatch, adir: Path) -> list[int]:
 
 
 def _running(daemon, attempt) -> None:
+    launched(daemon, attempt)
     daemon.store.update_attempt(attempt["attempt_id"], state="running", guardian_pid=42001,
                                 pgid=42001, child_pid=42002, boot_id="unit-test-boot",
                                 proc_start="unit-test-start", started_at=daemon_module.utcnow())
@@ -256,7 +277,11 @@ def test_c9_2_c15_1_an_attempt_the_daemon_signalled_is_never_ok(state_daemon, mo
     if stopped_by == "operator":
         assert daemon.dispatch("kill", {"job_id": job_id})["status"] == "cancel requested"
     else:
+        monkeypatch.setattr(daemon, "_inspect_running", lambda *args: True)  # The simulated provider is live.
+        # D-WALL1 round 5: the wall re-reads the guardian's identity just before it signals.
+        monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: "alive")
         daemon.store.update_job(job_id, started_at="2026-09-24T07:00:00Z", max_wall_s=60)
+        daemon.store.update_attempt(attempt["attempt_id"], started_at="2026-09-24T07:00:00Z")
     daemon._process_attempt(attempt["attempt_id"])            # the kill: SIGTERM, receipt, finalizing
     assert sent == [int(signal.SIGTERM)]
     daemon._process_attempt(attempt["attempt_id"])            # finalization
@@ -281,6 +306,8 @@ def test_c9_2_c15_1_an_attempt_the_daemon_signalled_is_never_ok(state_daemon, mo
         dashes(job_id, "cancelled", 130),
         f"attempt a1: unknown, rc=0: {detail}; unattested",
         f"output kept, not accepted: {adir / 'deliverable.md'}; -o {out} was not written",
+        *(["cancel requested by max_wall_s"] if stopped_by == "max_wall_s" else []),
+        COMMANDS,
     ]
 
 
@@ -351,7 +378,8 @@ def test_c12_6_the_empty_deliverable_override_keeps_the_adapters_verdict_too(sta
         "class": "ok", "detail": "fake provider succeeded", "killed_by": None}
     assert notice_lines(daemon, job_id) == [
         dashes(job_id, "failed", 0),
-        "attempt a1: unknown, rc=0: empty deliverable with rc 0; unattested"]
+        "attempt a1: unknown, rc=0: empty deliverable with rc 0; unattested",
+        COMMANDS]
 
 
 # --- the invariant the harness now checks at close ---------------------------
@@ -374,3 +402,16 @@ def test_c15_1_the_close_check_catches_a_notice_that_disagrees_with_its_job(stat
     with daemon.store.transaction("fixture.imported_notice", job_id=other) as tx:
         tx.execute("UPDATE notices SET text=? WHERE job_id=?", ("run finished", other))
     assert notice_mismatches(harness.rows) == []
+
+
+def test_export_failure_keeps_existing_lines_and_capability_last(state_daemon):
+    daemon, harness = state_daemon
+    job_id, attempt, adir = reserve(daemon, harness)
+    daemon._finalize(receipt_fixture(daemon, attempt, adir))
+    before = notice_lines(daemon, job_id)
+    assert before[-1] == COMMANDS
+    error = "export failed: OSError (errno=13)"
+    for _ in range(2):
+        with daemon.store.transaction("test.export-error") as tx:
+            daemon._export_error(tx, job_id, error)
+    assert notice_lines(daemon, job_id) == [*before[:-1], error, COMMANDS]

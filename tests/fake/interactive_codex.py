@@ -1,7 +1,10 @@
 """A fake `codex app-server` for the guard preflight and conversation turns (C-14.2, C-26, C-27 tests).
 
 `tests/bin/codex app-server …` hands over to `main` here. It answers the
-guard preflight's `hooks/list` exactly as the previous fixture did, and speaks
+guard preflight's `hooks/list` with every hook the `-c hooks=` override's
+`state` trusts, each enabled and trusted with its own hash: the never-rules
+guard, and on a review launch the publish hook beside it (C-12.3, C-14.2),
+as Codex 0.159.0 lists a second trusted group. It speaks
 enough of the stable 0.153.3 JSON-RPC surface for a turn: `initialize`,
 `model/list`, `thread/start`, `thread/resume`, `turn/start`,
 `turn/steer`, `turn/interrupt`, one command approval, and the notifications the Codex turn
@@ -15,6 +18,7 @@ Each turn picks its behaviour with a `[fake:<scenario>]` directive in its text:
 
     (none)            streamed text, then `completed`
     approval          asks to run a command; accept runs it, decline says so, cancel interrupts
+    approval-exit     asks to run a command, then exits while the request is pending
     slow              streams until `turn/interrupt`, then `interrupted`
     limit             a full rate-limit window and a `usageLimitExceeded` failure
     exit-after-ack    `turn/started`, then exits
@@ -29,6 +33,7 @@ sends `turn/completed` only for a turn that used no tool: after a command ran
 or was declined, `idle` is the last word.
 
 Environment: `SUBFLEET_FAKE_TURN_LOG` appends argv and every stdin line.
+`SUBFLEET_FAKE_PUBLISH_UNTRUSTED=1` lists every hook after the guard untrusted.
 `SUBFLEET_FAKE_THREAD_ACTIVE=1` answers `thread/resume` with an active thread.
 """
 
@@ -66,7 +71,7 @@ class Server:
         self.argv = argv
         override = next(arg for arg in argv if arg.startswith("hooks="))
         hooks = tomllib.loads(override)["hooks"]
-        self.hook_key, self.hook_state = next(iter(hooks["state"].items()))
+        self.hook_states = list(hooks["state"].items())
         self.home = Path(os.environ.get("CODEX_HOME") or ".")
         self.inbox: "queue.Queue[dict | None]" = queue.Queue()
         self.interrupts: "queue.Queue[dict]" = queue.Queue()
@@ -151,9 +156,12 @@ class Server:
     def on_hooks_list(self, rid, params):
         self.send({"id": rid, "result": {"data": [{
             "cwd": params["cwds"][0], "errors": [], "hooks": [{
-                "key": self.hook_key, "enabled": self.hook_state["enabled"],
-                "trustStatus": "trusted", "currentHash": self.hook_state["trusted_hash"],
-            }],
+                "key": key, "enabled": state["enabled"],
+                # SUBFLEET_FAKE_PUBLISH_UNTRUSTED=1: every group after the guard is
+                # listed untrusted, as Codex lists a hook whose hash it does not trust.
+                "trustStatus": "untrusted" if index and os.environ.get("SUBFLEET_FAKE_PUBLISH_UNTRUSTED") == "1"
+                else "trusted", "currentHash": state["trusted_hash"],
+            } for index, (key, state) in enumerate(self.hook_states)],
         }]}})
 
     def on_model_list(self, rid, params):
@@ -300,7 +308,8 @@ class Server:
     scenario_steer_refuse = scenario_steer
     scenario_steer_unanswered = scenario_steer
 
-    def scenario_approval(self, thread_id, turn_id, reply):
+    def request_approval(self, thread_id, turn_id) -> tuple[dict, int]:
+        """A command item and its approval request; returns the item and the request id."""
         item_id = f"cmd-{uuid.uuid4().hex[:8]}"
         command = "echo approved-by-person"
         self.tool_used = True
@@ -311,6 +320,15 @@ class Server:
         self.send({"id": request_id, "method": "item/commandExecution/requestApproval", "params": {
             "threadId": thread_id, "turnId": turn_id, "itemId": item_id, "startedAtMs": now_ms(),
             "command": command, "cwd": self.thread["cwd"], "reason": "fake: asks every time"}})
+        return item, request_id
+
+    def scenario_approval_exit(self, thread_id, turn_id, reply):
+        """The process ends while its request waits for the person: no `turn/completed` (C-27.3)."""
+        self.request_approval(thread_id, turn_id)
+        return 1
+
+    def scenario_approval(self, thread_id, turn_id, reply):
+        item, request_id = self.request_approval(thread_id, turn_id)
         while True:
             if self.interrupted():
                 self.notify("serverRequest/resolved", {"threadId": thread_id, "requestId": request_id})
