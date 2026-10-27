@@ -4543,12 +4543,24 @@ class Daemon:
                 if args.confirm_dead and job["state"] in TERMINAL:
                     # D-KILL4, C-5.7: never "dead" while the last attempt's census
                     # is not verified empty, quarantined or not.
-                    live = self._terminal_census(args.job_id)
-                    if live is not None:
-                        a, census = live
-                        return {"job_id": args.job_id, "status": "not quarantined",
-                                "detail": f"attempt a{a['seq']} still has {self._census_words(census)}; nothing "
-                                          f"was released; `subfleet kill {args.job_id}` contains them"}
+            live = self._terminal_census(args.job_id)
+            if live is not None:
+                a, census = live
+                # Fix round 2b, decision 2 (review r2's P3-2): a census whose members no source
+                # may signal (a stranger's leaderless group at the recorded pgid, held parents)
+                # schedules no protocol, which could only spend a TERM grace and push the
+                # attempt's real round out of its evidence.
+                contain = self._may_signal(a, census)
+                if contain:
+                    self._schedule("recontain:" + args.job_id, self._recontain, a, census)
+                if job["cancel_requested_at"]:
+                    # A cancelled parent's kill still cascades to live dependents (C-7.3).
+                    self._request_cancel(args.job_id, {"by": "client", "session_id": args.session_id,
+                                                       "pid": pid, "reason": args.reason or "client-request"},
+                                         family=True)
+                if not contain:
+                    return {"job_id": args.job_id, "status": "already finished",
+                            "detail": f"attempt a{a['seq']}: {self._held_words(census)}"}
                 return {"job_id": args.job_id, "status": "already finished" if job["state"] in TERMINAL else "not quarantined"}
             self._schedule("resolve:" + args.job_id, self._resolve_quarantine, quarantine, args)
             return {"job_id": args.job_id, "status": "resolution requested"}
@@ -4559,12 +4571,21 @@ class Daemon:
             live = self._terminal_census(args.job_id)
             if live is not None:
                 a, census = live
-                self._schedule("recontain:" + args.job_id, self._recontain, a, census)
+                # Fix round 2b, decision 2 (review r2's P3-2): a census whose members no source
+                # may signal (a stranger's leaderless group at the recorded pgid, held parents)
+                # schedules no protocol, which could only spend a TERM grace and push the
+                # attempt's real round out of its evidence.
+                contain = self._may_signal(a, census)
+                if contain:
+                    self._schedule("recontain:" + args.job_id, self._recontain, a, census)
                 if job["cancel_requested_at"]:
                     # A cancelled parent's kill still cascades to live dependents (C-7.3).
                     self._request_cancel(args.job_id, {"by": "client", "session_id": args.session_id,
                                                        "pid": pid, "reason": args.reason or "client-request"},
                                          family=True)
+                if not contain:
+                    return {"job_id": args.job_id, "status": "already finished",
+                            "detail": f"attempt a{a['seq']}: {self._held_words(census)}"}
                 return {"job_id": args.job_id, "status": "containment requested",
                         "detail": f"attempt a{a['seq']}: {self._census_words(census)}; the kill protocol "
                                   f"runs now; `subfleet runs show {args.job_id}` and the next kill report its result"}
@@ -4593,6 +4614,22 @@ class Daemon:
             return None
         census = self._contain(dict(a))
         return None if census.containment_empty else (dict(a), census)
+
+    def _may_signal(self, a: dict, census: procs.Containment) -> bool:
+        """Fix round 2b, decision 2: would C-5.6's protocol have anything to signal in this
+        census? An unverifiable census may yet verify, and contain, on a later read; a
+        verifiable one with no member C-5.4 allows (`_signal_reasons`) has only held
+        members, which no protocol may signal."""
+        return census.unverifiable or bool(Daemon._signal_reasons(self, a, census))
+
+    @staticmethod
+    def _held_words(census: procs.Containment) -> str:
+        """Fix round 2b, decision 2: `kill`'s answer for a census of held members only."""
+        pids = sorted(census.live_pids | census.held_pids)
+        named = ", ".join(f"pid {pid}" for pid in pids[:12]) + (", ..." if len(pids) > 12 else "")
+        many = len(pids) != 1
+        return (f"{len(pids)} census process{'es' if many else ''} held, never signalled ({named}): no source "
+                f"attributes {'them' if many else 'it'} to the attempt (C-5.4), so no kill protocol ran")
 
     @staticmethod
     def _census_words(census: procs.Containment) -> str:
