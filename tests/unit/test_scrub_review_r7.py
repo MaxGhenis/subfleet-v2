@@ -65,10 +65,10 @@ def test_review_r7_s_p2_1_inputs_give_both_references_output_in_every_mode(text,
 
 
 #: The two of review r7's 15,000 seeded joins (seed 7241, its `gen.py`) that showed the
-#: family's value at 36590532c, in the excerpt and `clean` modes (and the whole text, in the
-#: second). This scrubber now gives both references' output in four modes; in
-#: `detail_line` it hides more (the quotes the references keep, and in the second
-#: `SECRET7c5`, which both references show there).
+#: family's value at 36590532c, in the excerpt and `clean` modes (at 1ad7da99c the second
+#: shows it in the whole text too). This scrubber now gives both references' output in
+#: four modes; in `detail_line` it hides more (the quotes the references keep, and in the
+#: second `SECRET7c5`, which both references show there).
 JOINS = {
     "join-after-a-bearer-line": (
         'Authorization:"Authorization:\ny token: Bearer SECRET7un186x rest x Set-Cookie:\'a=1 --db2-password\n'
