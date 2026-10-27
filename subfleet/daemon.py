@@ -3468,9 +3468,11 @@ class Daemon:
         return self._provider_environment.additions(lane.provider, resolve_credential(lane.credential))
 
     def _launch_environment(self, lane: Lane, launch: Launch) -> dict[str, str]:
+        """Every provider launch's environment: no other vendor's credential (D-ENV3)."""
         return self._provider_environment.assemble(
             launch.env_add,
-            (*launch.env_remove, "CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"))
+            (*launch.env_remove, "CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"),
+            provider=lane.provider)
 
     @staticmethod
     def _guard_override(adapter, lane: Lane, workdir: str, recorder: Callable | None = None,
@@ -6169,7 +6171,7 @@ class Daemon:
                                       self._guard_override(adapter, lane, str(directory),
                                                            self._guard_recorder(lane, str(directory), directory),
                                                            self.root,
-                                                           env=self._provider_environment.assemble(credential_env), env_pass=credential_env))
+                                                           env=self._provider_environment.assemble(credential_env, provider=lane.provider), env_pass=credential_env))
         safe_launch = dataclasses.asdict(launch)
         safe_launch.pop("env_add")
         self._publish("probe-launch", directory / "launch.json", json_bytes(safe_launch))
@@ -8668,7 +8670,7 @@ class Daemon:
             from .review_publish import publish_hook, publishing_denied
             guard_override = None if spec.isolated_review or job["kind"] == "turn" else self._guard_override(
                 adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir), self.root,
-                env=self._provider_environment.assemble(credential_env), env_pass=credential_env,
+                env=self._provider_environment.assemble(credential_env, provider=lane.provider), env_pass=credential_env,
                 # C-12.3: a review's Codex launch judges every command with the publish rule.
                 publish_command=(publish_hook(self.root) if publishing_denied(spec)
                                  and lane.provider == "codex" else None))
@@ -8678,7 +8680,7 @@ class Daemon:
                 if lane.provider == "codex":
                     guard = self._guard_override(adapter, lane, spec.workdir, self._guard_recorder(lane, spec.workdir, adir),
                                                  self.root, full=True,
-                                                 env=self._provider_environment.assemble(credential_env), env_pass=credential_env)
+                                                 env=self._provider_environment.assemble(credential_env, provider=lane.provider), env_pass=credential_env)
                 launch = self.conversations.launch(job, a, lane, credential_env, adir, model["id"], guard)
             elif job["kind"] == "resume":
                 manifest = self._read_json(self.root / "jobs" / job["job_id"] / "manifest.json") or {}
