@@ -244,7 +244,7 @@ def test_a_scrubber_that_raises_writes_the_fixed_marker(written, monkeypatch):
     def broken(*args, **kwargs):
         raise RecursionError("scrubber broke on password=SECRET7broke9")
     monkeypatch.setattr(daemon_log.refusals, "scrubbed_line", broken)
-    monkeypatch.setattr(daemon_log, "scrub_secrets", broken)
+    monkeypatch.setattr(daemon_log, "_head_scrub_secrets", broken)   # the block form's head pass (#239 round 8)
     exc = raised("token=SECRET7carried9")
     written.log.error("job %s failed: %s", "j1", "password=SECRET7message9",
                       exc_info=(type(exc), exc, exc.__traceback__))
@@ -329,7 +329,7 @@ def test_write_scrubbed_with_a_scrubber_that_raises_writes_the_fixed_marker(monk
     def broken(*args, **kwargs):
         raise RecursionError("scrubber broke on password=SECRET7broke9")
     monkeypatch.setattr(daemon_log.refusals, "scrubbed_line", broken)
-    monkeypatch.setattr(daemon_log, "scrub_secrets", broken)
+    monkeypatch.setattr(daemon_log, "_head_scrub_secrets", broken)   # the block form's head pass (#239 round 8)
     daemon_log.write_scrubbed(REFUSAL)
     assert capsys.readouterr().err == "[scrub failed] ERROR record from subfleet.daemon left out: RecursionError\n"
     assert daemon_log.scrubbed(REFUSAL) == "[scrub failed] INFO record from subfleet.daemon left out: RecursionError"

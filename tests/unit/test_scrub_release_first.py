@@ -34,6 +34,7 @@ import pytest
 
 from subfleet import daemon_log, refusals
 from subfleet.conversations import redact, suggestions
+from subfleet.conversations.store import ConversationError
 from subfleet.sessions import handoff, scrub_release
 from tests.unit.test_scrub_key_order import CI, _revealed
 
@@ -67,6 +68,15 @@ def _cut_line(text: str, limit: int = 60, mark: str = "…") -> str:
     return suggestions.bounded(kept, limit, mark)
 
 
+def _brief(text: str) -> str:
+    """A suggestion's brief as `normalize` keeps it; "" where nothing of it is left."""
+    try:
+        return suggestions.normalize("title", "summary", text)[0]["brief"]
+    except ConversationError as error:
+        assert error.reason == "bad-brief", error
+        return ""
+
+
 R, H = scrub_release.scrub_secrets, handoff._head_scrub_secrets
 
 #: Each mode: as the code runs it, release's pipeline for it, and the head's.
@@ -83,7 +93,7 @@ MODES = {
                     lambda t: _line(H, PREFIX + t)),
     "scrubbed_line": (lambda t: refusals.scrubbed_line(t, 60), lambda t: suggestions.bounded(_line(R, t), 60, "…"),
                       lambda t: suggestions.bounded(_line(H, t), 60, "…")),
-    "brief": (lambda t: suggestions._released_first(t, suggestions._line_ends)[0],
+    "brief": (lambda t: _brief(t),
               lambda t: suggestions._twice(R, t, suggestions._line_ends)[0],
               lambda t: suggestions._twice(H, t, suggestions._line_ends)[0]),
     "block": (lambda t: daemon_log.scrubbed_block(t), lambda t: _block(R, t, False), lambda t: _block(H, t, False)),
@@ -100,6 +110,8 @@ COMPOSED = {
        for mode, (_, release, head) in MODES.items()},
     "clean": lambda t: _bounded(t, 4000, True),
     "scrubbed_line": _cut_line,
+    "brief": lambda t: (lambda kept: kept if kept.strip() else "")(handoff.shown_by_both(
+        suggestions._twice(R, t, suggestions._line_ends)[0], suggestions._twice(H, t, suggestions._line_ends)[0])),
     "mask_approval": lambda t: redact._head_mask_approval(scrub_release.mask_approval({"c": t})[0])[0]["c"],
 }
 
@@ -237,3 +249,14 @@ def test_each_mode_only_replaces_release_s_runs_and_shows_nothing_the_head_hides
         assert _revealed(released, bare) == "", (mode, text, out)
         assert [found for found in SECRET.findall(bare) if found not in released] == [], (mode, text, out)
         assert _new(values, out, head(text)) == [], (mode, text, out)
+
+
+def test_an_approval_keeps_the_mask_release_writes():
+    """Release masks the whole `Bearer` run that ends in a flag with nothing after it; the
+    head's masking alone leaves the flag's name (`--secret`) shown, so the approval keeps
+    release's mask."""
+    request = {"command": "Bearer SECRET7--secret"}
+    assert scrub_release.mask_approval(request)[0] == {"command": "[masked bearer, 22 chars]"}
+    assert redact._head_mask_approval(request)[0] == {"command": "[masked bearer, 14 chars]--secret"}
+    masked, spans = redact.mask_approval(request)
+    assert masked == {"command": "[masked bearer, 22 chars]"} and [span["length"] for span in spans] == [22]

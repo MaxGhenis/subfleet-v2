@@ -521,7 +521,8 @@ def normalize(title: Any, tldr: Any, brief: Any) -> tuple[dict, int]:
     # and sent is the same text, so the first message is exactly the brief.
     # A bare CR can become a header boundary: scrub shapes normalization creates,
     # just as _scrub_line scrubs the shapes whitespace folding creates. Release's two
-    # passes run first, then the head's, as the line's do (`_released_first`).
+    # passes and the head's both read the brief, and release's output is kept for the
+    # runs the head's holds, as the line's is (`_released_first`).
     clean, count = _released_first(brief, _line_ends)
     brief = _line_ends(brief)
     if len(brief.encode("utf-8")) > BRIEF_MAX_BYTES:
