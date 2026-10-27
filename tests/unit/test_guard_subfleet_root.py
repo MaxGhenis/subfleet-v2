@@ -4246,3 +4246,24 @@ def test_r4_words_agree_with_real_shells():
     differ = [(w, rule(outs[commands[w]]), r4_real("zsh", w), r4_real("bash", w)) for w in R4_SHELL_WORDS
               if (rule(outs[commands[w]]) == "unscoped-search") != (r4_real("zsh", w) or r4_real("bash", w))]
     assert differ == []
+
+
+# ---------------------------------------------------------------- review r4: r4's unpinned readings
+
+#: Four r4 readings no named test pinned (review r4's mutants rv4-otherfd-is-stdin, rv4-grep-meta-walks,
+#: rv4-backtick-space-dropped and rv4-function-keyword-dropped each survived its decision's test): a
+#: redirect on another fd leaves rg's stdin alone (decision 7's deviation), grep's print-and-exit forms
+#: walk nothing (decision 8's deviation), a searcher right after an opening backtick is read (decision 4's
+#: prep), and a `function name {` body is past its keyword (decision 4).
+REVIEW_R4_DENIED = [("rg foo 3<notes.txt", H_), ("rg foo 3</dev/null", H_),
+                    ("echo `\\rg --files ~/.subfleet | head`", S_), ("function f { /usr/bin/find / -name x; }; f", S_)]
+REVIEW_R4_ALLOWED = [("grep -r -V x", H_), ("grep -r --version x", H_), ("grep -r --help x", H_),
+                     ("grep -rV x", "/")]
+
+
+def test_review_r4_pins_r4s_unpinned_readings():
+    """Each reading's own input: denied ones walk a root (both shells ran the stub with it), allowed ones
+    print and exit."""
+    outs = judge_all(HOOK, REVIEW_R4_DENIED + REVIEW_R4_ALLOWED)
+    assert [case for case in REVIEW_R4_DENIED if rule(outs[case]) != "unscoped-search"] == []
+    assert [case for case in REVIEW_R4_ALLOWED if rule(outs[case]) is not None] == []
