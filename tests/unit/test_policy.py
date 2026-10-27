@@ -7,7 +7,7 @@ import pytest
 
 from subfleet.contracts import DEFAULT_CAPS, HEADROOM_FLOOR, READING_TTL_S, Exit
 from subfleet.policy import (
-    DEFAULT_POLICY_PATH, PolicyError, load_policy, policy_hash, resolve_model,
+    DEFAULT_POLICY_PATH, PolicyError, admission_settings, load_policy, policy_hash, resolve_model,
 )
 
 
@@ -20,6 +20,33 @@ def write_policy(tmp_path, value):
     path = tmp_path / "custom-policy.json"
     path.write_text(json.dumps(value), encoding="utf-8")
     return path
+
+
+@pytest.mark.parametrize("value", [0, -1, True, False, "180", float("nan"), None,
+                                   float("inf"), float("-inf"), 901, 10**1000])
+def test_probe_deadline_rejects_invalid_seconds(tmp_path, policy_data, value):
+    """D-PROBE-DEADLINE1: seconds must be numeric, finite, positive and at most 900."""
+    policy_data["admission"]["probe_deadline_s"] = value
+    with pytest.raises(PolicyError) as caught:
+        load_policy(write_policy(tmp_path, policy_data))
+    assert caught.value.key == "admission.probe_deadline_s"
+
+
+@pytest.mark.parametrize("value", [1, 900, 1.25, 1/3])
+def test_probe_deadline_accepts_positive_seconds_through_900(tmp_path, policy_data, value):
+    policy_data["admission"]["probe_deadline_s"] = value
+    assert load_policy(write_policy(tmp_path, policy_data))["admission"]["probe_deadline_s"] == value
+
+
+def test_probe_deadline_defaults_in_bundled_loaded_and_raw_policies(tmp_path, policy_data):
+    assert policy_data["admission"]["probe_deadline_s"] == 180
+    for admission in ({}, None):
+        if admission is None:
+            policy_data.pop("admission")
+        else:
+            policy_data["admission"] = admission
+        assert admission_settings(policy_data)["probe_deadline_s"] == 180
+        assert load_policy(write_policy(tmp_path, policy_data))["admission"]["probe_deadline_s"] == 180
 
 
 @pytest.mark.parametrize("key", [
@@ -458,6 +485,7 @@ def test_admission_settings_default_and_validate(tmp_path, policy_data):
     assert loaded["admission"] == {"lane_spread": None, "machine_guard": None, "desktop_recent_s": 0,
                                    "pin_grace_s": None, "pin_hold_far_s": 3600, "prove_idle_s": None,
                                    "prove_wait_s": None, "weekly_reserve": .02, "five_hour_reserve": .10,
+                                   "probe_deadline_s": 180,
                                    "priority_callers": None, "disk": DISK_DEFAULTS,
                                    "ramp": {"enabled": False, "per_minute": 12, "window_s": 60}}
     policy_data["admission"] = {"prove_idle_s": 0.5, "prove_wait_s": 0.25}     # C-6.14: any positive spans

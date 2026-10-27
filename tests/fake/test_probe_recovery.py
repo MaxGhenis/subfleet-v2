@@ -10,6 +10,7 @@ import pytest
 from subfleet import daemon as daemon_module, procs
 from subfleet.contracts import Launch, Outcome, OutcomeClass
 from subfleet.daemon import after, utcnow
+from subfleet.policy import admission_settings
 from tests.caps import capped
 from tests.fake.test_routing_end_to_end import routing_state
 from tests.fake_adapter import FakeAdapter
@@ -20,7 +21,7 @@ def reserved_probe(service, job_id, *, state="starting"):
     directory.mkdir(parents=True)
     record = {"holder": "probe:fixture", "job_id": job_id, "lane_id": "codex-1",
               "model_id": "gpt-6-astra", "directory": str(directory), "state": state,
-              "created_at": utcnow(), "deadline_at": after(60), "guardian_pid": 900001,
+              "created_at": utcnow(), "deadline_at": after(admission_settings(service.policy)["probe_deadline_s"]), "guardian_pid": 900001,
               "pgid": 900001, "boot_id": "boot", "proc_start": "start", "owned_identities": {}}
     service.store.acquire_lease("lane:codex-1:slot:0", record["holder"])
     service._save_probe(record)
