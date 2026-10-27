@@ -48,7 +48,7 @@ from .contracts import (
     TURN_RETENTION_MAX_BYTES, TURN_RETENTION_MAX_JOBS,
 )
 from . import folders
-from .attempt_tmp import job_tmpdirs, probe_tmpdir_rows
+from .attempt_tmp import cleared_tmpdirs, job_tmpdirs, probe_tmpdir_rows
 from .retention_holders import ScanFailed, lsof_holders
 from .store import Store
 
@@ -438,7 +438,8 @@ def maintenance(store: Store, state_root: str | Path, *, max_jobs: int = RETENTI
     clock = clock or time.monotonic
     progress: dict[str, Any] = {"pruned": [], "errors": [], "bytes_before": None, "bytes_after": None,
                                 "deferred": {}, "in_flight": [], "reclaimed": [], "conflicts": [],
-                                "progressed": False, "holder_scan_failed": False, **dict.fromkeys(FREED_KEYS, 0)}
+                                "progressed": False, "holder_scan_failed": False, "tmpdir_left": [],
+                                **dict.fromkeys(FREED_KEYS, 0)}
     try:
         _checkpoint(cancel, deadline, clock=clock)
     except _Interrupted as exc:
@@ -925,6 +926,9 @@ class _Pass:
         job_id = retirement.job_id
         try:
             retirement.final_check()
+            # C-12.10 (P3-2): a cleared allocation pins nothing, so a job can go
+            # while removal of its TMPDIR keeps failing; its record goes with it.
+            left = cleared_tmpdirs(self.store, job_id)
             why = retirement.commit(self.sizes.get(job_id, 0))
         except rarch.Defer as exc:
             self._rollback(retirement, exc.reason, exc.seconds, exc.detail)
@@ -941,6 +945,8 @@ class _Pass:
             return
         self.acted += 1
         self.progress["pruned"].append(job_id)
+        if left:
+            self.progress["tmpdir_left"].append({"job_id": job_id, "paths": left})
         self.state.sizes.pop(job_id, None)
         self.state.sliced.pop(job_id, None)
         self._complete(retirement)

@@ -425,7 +425,10 @@ class WakeEngine:
         return result
 
     def _poll_prs(self, pending: list[dict]) -> None:
-        with helper_policy(getattr(self.service.daemon, "policy", {})):
+        # The poller thread inherits no helper scope: `gh` gets the daemon's policy
+        # and its withheld names here (D-ENV2, review r2 of #248, P3-2).
+        daemon = self.service.daemon
+        with helper_policy(getattr(daemon, "policy", {}), withheld=getattr(daemon, "_helper_withheld", None)):
             return self._query_pending_prs(pending)
 
     def _query_pending_prs(self, pending: list[dict]) -> None:

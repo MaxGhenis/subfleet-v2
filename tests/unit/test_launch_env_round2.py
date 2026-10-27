@@ -241,7 +241,10 @@ def test_timer_helpers_use_owning_policy_across_threads(tmp_path, monkeypatch, e
                 monkeypatch.setattr(timer, "keepalive_cycle", lambda: seen.append(build_environment()))
                 timer.start()
             elif entry == "lane":
-                lane = SimpleNamespace(provider="claude", enabled=True, owner="v2", desktop=False)
+                # A home-kind lane: the timers' scope reads the stored lanes'
+                # withheld names (D-ENV2, review r2 of #248, P3-2), as their launches do.
+                lane = SimpleNamespace(lane_id="claude-1", provider="claude", enabled=True, owner="v2", desktop=False,
+                                       credential=SimpleNamespace(kind="home", ref=str(tmp_path / "claude-home")))
                 monkeypatch.setattr(store, "list_lanes", lambda: [lane])
                 monkeypatch.setattr(timer, "_keepalive_lane", lambda lane: seen.append(build_environment()))
             with helper_policy({"env": {"pass": ["OTHER_TOKEN"]}}):

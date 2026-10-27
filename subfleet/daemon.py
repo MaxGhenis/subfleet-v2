@@ -62,8 +62,9 @@ from .contracts import (
     OWNED_CENSUS_INTERVAL_S, PROBE_RETRY_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
     WAIT_POLL_MAX_S, WAIT_RECHECK_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
     AttestationResult, ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
-    Reading, ReadingLabel, Sandbox, attempt_dir,
+    Reading, ReadingLabel, Sandbox, attempt_dir, hold_note, hold_source,
 )
+from .status_json import closure_rows, decision_rows
 from .credentials import (env_references, ignored_hooks, reference_repair, resolve_credential, startup_lanes,
                           withheld_references)
 from .provider_env import ProviderEnvironment
@@ -99,7 +100,7 @@ def spawn_guardian(command: list[str], *, disclaim: bool, **options):
 def _helper_environment(function):
     @functools.wraps(function)
     def scoped(self, *args, **kwargs):
-        with helper_policy(getattr(self, "policy", {})):
+        with helper_policy(getattr(self, "policy", {}), withheld=self._helper_withheld):
             return function(self, *args, **kwargs)
     return scoped
 
@@ -347,12 +348,12 @@ def _evidence_key(evidence_json: str | None, key: str) -> Any:
     return evidence.get(key) if isinstance(evidence, dict) else None
 
 
-#: C-12.10: every path an allocation record names, released or not: each
-#: attempt's evidence and each probe's newest record.
-TMPDIR_PATHS = (
-    "SELECT json_extract(evidence_json,'$.tmpdir.path') AS path FROM attempts "
+#: C-12.10: every allocation record, released or not: each attempt's evidence
+#: and each probe's newest record.
+TMPDIR_RECORDS = (
+    "SELECT json_extract(evidence_json,'$.tmpdir') AS tmpdir FROM attempts "
     "WHERE json_valid(evidence_json) AND json_type(evidence_json,'$.tmpdir')='object' "
-    "UNION SELECT json_extract(data_json,'$.tmpdir.path') FROM events WHERE event_id IN ("
+    "UNION ALL SELECT json_extract(data_json,'$.tmpdir') FROM events WHERE event_id IN ("
     "SELECT MAX(event_id) FROM events WHERE kind='probe.state' AND json_valid(data_json) "
     "GROUP BY json_extract(data_json,'$.holder')) AND json_type(data_json,'$.tmpdir')='object'")
 
@@ -1355,7 +1356,13 @@ class Daemon:
         timer reads it while the hold is in force (C-18.1); an attempt already
         running on it can still report a limit. The hold keeps a row of its own
         (`Store.put_closure`): no limit, reset or reset credit ends it before its
-        `until`, and its release leaves any limit on the lane in force."""
+        `until`, and its release leaves any limit on the lane in force.
+
+        D-STATUS-SRC1: `--note` gives the operator's reason. It is stored in the
+        closure's `source_event` (`operator: <note>`; `operator` with none) and in
+        the `lane.held` event, and is refused, before anything is written, unless
+        it is one line of at most 160 printable characters (`hold_note`)."""
+        note = None
         if not a.lane_id or not self.store.get_lane(a.lane_id):
             raise protocol.ProtocolError(f"lanes {a.action}: unknown lane {a.lane_id!r}",
                                          Exit.INVALID_INPUT, "subfleet lanes list", reason="unknown-lane",
@@ -1369,18 +1376,30 @@ class Daemon:
                                              Exit.INVALID_INPUT, reason="hold-until") from None
             if instant.tzinfo is None:
                 instant = instant.replace(tzinfo=timezone.utc)
+            try:
+                note = hold_note(a.note)
+            except ValueError as refused:
+                # The rule broken (`HOLD_NOTE_RULE` or `HOLD_NOTE_CREDENTIAL_RULE`),
+                # never the note: the wire, the log and the store never see it.
+                rule = str(refused)
+                raise protocol.ProtocolError(f"lanes hold: {rule}", Exit.INVALID_INPUT, reason="hold-note",
+                                             details={"hold_rule": rule}) from None
             until_utc = instant.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            with self.store.transaction("lane.held", lane_id=a.lane_id, data={"until": until_utc}):
+            data = {"until": until_utc} if note is None else {"until": until_utc, "note": note}
+            with self.store.transaction("lane.held", lane_id=a.lane_id, data=data):
                 self.store.add_closure(Closure(a.lane_id, "account", until_utc, ClosureReason.OPERATOR_HOLD,
-                                               ClockSource.REPORTED, "operator"))
+                                               ClockSource.REPORTED, hold_source(note)))
         else:
             with self.store.transaction("lane.released", lane_id=a.lane_id) as tx:
                 tx.execute("UPDATE closures SET released_at=? WHERE lane_id=? AND reason='operator-hold' "
                            "AND released_at IS NULL", (utcnow(), a.lane_id))
         self._notify()
-        view = self._capacity_view(self._desktop_identity())
+        # D-STATUS-SRC1: closure rows, the fleet's and each lane's, as `daemon.status` shows them.
+        view = closure_rows(self._capacity_view(self._desktop_identity()))
         return {"held": a.lane_id if a.action == "hold" else None,
                 "released": a.lane_id if a.action == "release" else None,
+                # D-STATUS-SRC1: the note as recorded, so a CLI can tell it was.
+                **({"note": note} if a.action == "hold" else {}),
                 "lanes": view["lanes"], "closures": view["closures"]}
 
     def _release_lane_limits(self, a: protocol.LanesArgs) -> dict:
@@ -1410,7 +1429,8 @@ class Daemon:
                        "AND reason IN ('provider-limit','credits') AND clock_source='guessed' "
                        "AND released_at IS NULL AND until_at>?", (now, a.lane_id, now))
         self._notify()
-        view = self._capacity_view(self._desktop_identity())
+        # D-STATUS-SRC1 (review r2 of #263, P3-2): closure rows as `daemon.status` shows them.
+        view = closure_rows(self._capacity_view(self._desktop_identity()))
         return {"released": a.lane_id, "limits_released": data["closure_ids"],
                 "limits_reported": data["reported_closure_ids"],
                 "lanes": view["lanes"], "closures": view["closures"]}
@@ -2575,7 +2595,8 @@ class Daemon:
                           mcp_servers=json.dumps(list(mcp_servers)))
             values["review_root"] = review_root
             if args.dry_run:
-                return {"dry_run": True, "decision": dataclasses.asdict(self._pick(values, desktop=self._desktop_identity()))}
+                return {"dry_run": True, "decision": decision_rows(       # C-9.6 (review r2 of #263, P3-2)
+                    dataclasses.asdict(self._pick(values, desktop=self._desktop_identity())))}
             # C-3.3: the instance and worktree questions need `ps` and `git`, so
             # they are answered here, under the submit lock and outside the
             # transaction; the transaction below re-checks with SQL alone.
@@ -3366,6 +3387,15 @@ class Daemon:
         and the hooks of the lanes.json rows startup ignored (`credentials.ignored_hooks`)."""
         return withheld_references(self.store.list_lanes()) | self._ignored_hooks
 
+    def _helper_withheld(self) -> frozenset[str]:
+        """D-ENV2 (review r2 of #248, P3-2): what every helper subprocess withholds,
+        read at each `build_environment` in this daemon's helper scopes: exactly what
+        its launches withhold (`_withheld_references`, through `_provider_environment`).
+        A Daemon assembled without `__init__` (unit tests build one by hand) withholds
+        what the `_provider_environment` it was given does, and nothing without one."""
+        environment = getattr(self, "_provider_environment", None)
+        return environment.withheld() if environment is not None else frozenset()
+
     def _credential_environment(self, lane: Lane) -> dict[str, str]:
         return self._provider_environment.additions(lane.provider, resolve_credential(lane.credential))
 
@@ -3586,16 +3616,19 @@ class Daemon:
                 return self._hold_lane(a)
             if a.action == "release-limits":
                 return self._release_lane_limits(a)
-            return {"lanes": self._capacity_view(self._desktop_identity())["lanes"],
+            # D-STATUS-SRC1 (review r2 of #263, P3-2): each lane's closure rows as `daemon.status` shows them.
+            return {"lanes": closure_rows(self._capacity_view(self._desktop_identity()))["lanes"],
                     "leases": self.store.query("SELECT * FROM leases WHERE lease_key LIKE 'lane:%'")}
         if op == "readings":
-            view = self._capacity_view(self._desktop_identity())
+            view = closure_rows(self._capacity_view(self._desktop_identity()))
             return {"readings": view["readings"], "closures": view["closures"], "status": render.status(view)}
         if op == "why":
             a = protocol.coerce_args(protocol.WhyArgs, args)
             if a.job_id:
                 return self._why_job(self._job(a.job_id))
-            decision = dataclasses.asdict(self._pick(dataclasses.asdict(a), desktop=self._desktop_identity()))
+            # C-9.6 (review r2 of #263, P3-2): a hold's source as every reader shows it.
+            decision = decision_rows(dataclasses.asdict(self._pick(dataclasses.asdict(a),
+                                                                   desktop=self._desktop_identity())))
             return {"decision": decision, "text": render.why(decision)}
         if op == "notice.list":
             a = protocol.coerce_args(protocol.NoticeListArgs, args)
@@ -3692,7 +3725,8 @@ class Daemon:
         if op == "sessions":
             return self.sessions(protocol.coerce_args(protocol.SessionsArgs, args))
         if op == "daemon.status":
-            view = self._capacity_view(self._desktop_identity())
+            # D-STATUS-SRC1: each closure says what it is (`kind`) and, for a hold, why (`note`).
+            view = closure_rows(self._capacity_view(self._desktop_identity()))
             view["disk"] = self._disk_status()
             from .store import RESTRICTED_RUNS_SQL, restricted_window
             view["restricted_runs_24h"] = [row["job_id"] for row in self.store.query(
@@ -3853,6 +3887,7 @@ class Daemon:
                 # "No decision recorded." for five jobs that stopped admission.
                 route_error = f"{type(exc).__name__}: {exc}"
                 self.log.debug("why %s: evaluation failed: %s", job["job_id"], type(exc).__name__)
+        decision = decision_rows(decision)          # C-9.6 (review r2 of #263, P3-2)
         hold = self._holds.get(job["job_id"]) if pending else None
         wait = self._capacity_waits.get(job["job_id"]) if pending else None
         recheck = ({key: wait[key] for key in ("rechecks", "since", "checked_at", "label")} if wait else None)
@@ -4832,6 +4867,10 @@ class Daemon:
                              cancel=self.timers.cancel, deadline=time.monotonic() + RETENTION_PASS_S,
                              state=self._retention_state,
                              remote_less_history_bytes=int(budget["remote_less_history_bytes"]))
+        for left in result.get("tmpdir_left") or ():
+            # C-12.10 (P3-2): the folder is no longer any record's; only the log names it.
+            self.log.warning("retention: retired %s with its TMPDIR cleared but not removed: %s",
+                             left["job_id"], ", ".join(left["paths"]))
         pruned = len(result.get("pruned") or ())
         progressed = bool(pruned or result.get("progressed"))
         interrupted = result.get("interrupted")
@@ -5481,9 +5520,7 @@ class Daemon:
             self.log.warning("TMPDIR sweep deferred: %s", type(exc).__name__)
             return
         try:
-            # Every path an allocation record names, released or not: such a
-            # folder follows its record, and is never aged as unknown.
-            named = {row["path"] for row in self.store.query(TMPDIR_PATHS) if isinstance(row["path"], str)}
+            named = self._tmpdir_named()
             for a in self.store.query(
                     "SELECT * FROM attempts WHERE state IN ('succeeded','failed','interrupted','lost','cancelled','quarantined') "
                     "AND json_valid(evidence_json) AND json_type(evidence_json,'$.tmpdir')='object' "
@@ -5494,11 +5531,49 @@ class Daemon:
                 if probe:
                     self._cleanup_probe_tmpdir(probe)
             self._attempt_temp.sweep_unknown(named.__contains__, self._tmpdir_first_seen,
-                                             self._tmpdir_seen, self._tmpdir_unknown_removed)
+                                             self._tmpdir_seen, self._tmpdir_unknown_removed,
+                                             tombstoned=self._tmpdir_tombstones().get)
         except Exception as exc:
             self.log.warning("TMPDIR sweep deferred: %s", type(exc).__name__)
         finally:
             self._tmpdir_sweeping.release()
+
+    def _tmpdir_named(self) -> set[str]:
+        """Every path an allocation record names, released or not: such a folder
+        follows its record, and is never aged as unknown. So does the tombstone
+        the store recorded for an allocation not yet released, which a crash
+        during its removal can leave and its record's cleanup finishes (P3-1)."""
+        named = set()
+        for row in self.store.query(TMPDIR_RECORDS):
+            try:
+                record = json.loads(row["tmpdir"])
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(record, dict) or not isinstance(record.get("path"), str):
+                continue
+            named.add(record["path"])
+            tomb = None if record.get("removed_at") else self._attempt_temp.tombstone_path(record)
+            if tomb is not None:
+                named.add(tomb)
+        return named
+
+    def _tmpdir_tombstones(self) -> dict[str, dict]:
+        """The tombstone of each unknown folder's current sighting, which a crash
+        during its removal can leave (P3-1): the sweep finishes it."""
+        rows = self.store.query(
+            "SELECT kind,data_json FROM events WHERE event_id IN ("
+            "SELECT MAX(event_id) FROM events WHERE kind IN ('tmpdir.unknown_seen','tmpdir.unknown_removed') "
+            "AND json_valid(data_json) AND json_type(data_json,'$.path')='text' "
+            "GROUP BY json_extract(data_json,'$.path'))")
+        tombs = {}
+        for row in rows:
+            if row["kind"] != "tmpdir.unknown_seen":
+                continue
+            sighting = json.loads(row["data_json"])
+            tomb = self._attempt_temp.tombstone_path(sighting)
+            if tomb is not None:
+                tombs[tomb] = sighting
+        return tombs
 
     def _tmpdir_first_seen(self, path: str) -> dict | None:
         """The store's first sighting of an unknown folder, or None (C-12.10, P3-4)."""
