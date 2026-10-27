@@ -55,6 +55,9 @@ HELPER = textwrap.dedent('''
     from tests.fake.conftest import Harness
 
     root, out, stage = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+    # The guardian sleeps 60 s before its start.json, inside a 300 s start grace: it is still
+    # starting when the test ends, whatever a census under load reads.
+    SLOW_START = ("--start-delay", "60", "--start-grace-s", "300")
 
     def identity(pid):
         found = procs.identity(pid)
@@ -65,7 +68,7 @@ HELPER = textwrap.dedent('''
         harness = Harness(root)
         if stage == "starting":
             harness.until = lambda *args, **kwargs: True      # back as soon as it is spawned
-        harness.start("--start-delay", "60", isolated_group=True)
+        harness.start(*SLOW_START, isolated_group=True)
         record["daemon"] = identity(harness.process.pid)
         if stage == "serving":
             job = harness.submit("ok", max_attempts=1)
@@ -173,7 +176,8 @@ from subfleet import procs
 
 
 def serving(harness):
-    harness.start("--start-delay", "60", isolated_group=True)
+    # The guardian sleeps 60 s before its start.json, inside a 300 s start grace.
+    harness.start("--start-delay", "60", "--start-grace-s", "300", isolated_group=True)
     job = harness.submit("ok", max_attempts=1)
     row = harness.until(lambda: next((a for a in harness.attempts(job) if a["guardian_pid"]), None), timeout=60)
     found = procs.identity(harness.process.pid)
