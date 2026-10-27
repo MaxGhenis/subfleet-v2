@@ -223,14 +223,20 @@ def test_no_provider_runs_for_an_attempt_the_daemon_ended_unlaunched_in_any_inte
             guardian = GuardianSteps(real, adir, scratch, ["/bin/sh", "-c", f'touch "{ran}"'], scratch / "steps",
                                      marked=False)
             worker.start()
+            # Each released step is done before the other side moves: a side's next pause (or
+            # its end) comes only after the step it was released for. Without this wait the
+            # other side's step raced the released one, so an order mutant failed only on some
+            # runs, and Hypothesis's replay reported it flaky (fix round 2c, hold B).
             for actor in order:
                 if actor == "guardian":
                     if guardian.wait_for_step() is not None:
                         guardian.release()
+                        guardian.wait_for_step()
                 else:
                     until(lambda: daemon.waiting() or not worker.is_alive(), timeout=STEP_S)
                     if daemon.waiting():
                         daemon.release()
+                        until(lambda: daemon.waiting() or not worker.is_alive(), timeout=STEP_S)
             daemon.run_free()
             guardian.run_free()
             worker.join(timeout=STEP_S)
