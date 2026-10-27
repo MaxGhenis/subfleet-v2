@@ -2210,7 +2210,8 @@ final class RevealArrivals: @unchecked Sendable {
 // `quiet-regrow` lets `regrow` land: once `own_send_landed` has measured the end,
 // another 50 ms settle, then the rows above the clip grow 600 pt again before the
 // reply. `-late` grows them on a main-queue timer 350 ms after the landing instead.
-// A `-natural` scene removes both animation controls.
+// A `-natural` scene removes both animation controls. Round 10's `stale-glide` lands
+// the glide's last frame on its stale target inside the landing check's quiet window.
 @MainActor func ownSendDuringReveal(_ root: URL, catchup: Bool, landing: String? = nil) async -> [String: Any] {
     let record = Fix12Record(landing ?? (catchup ? "send-catchup" : "send-ordinary"))
     let natural = landing?.hasSuffix("-natural") == true
@@ -2239,6 +2240,18 @@ final class RevealArrivals: @unchecked Sendable {
         let oldEnd = (record.position()["content"] ?? 0) - (record.position()["viewport"] ?? 0)
         ProbePresentation.afterAnimation = { record.clipTo(offset: oldEnd) }
     }
+    var staleGlide: QuietMove?
+    if landing == "stale-glide", let scroll = timelineScroll(scene.host) {
+        // The glide's last frame lands on its stale target, the old end: 150 ms (the
+        // glide's length) after the clip came to rest at the new end, inside the landing
+        // check's 300 ms quiet window.
+        let oldEnd = (record.position()["content"] ?? 0) - (record.position()["viewport"] ?? 0)
+        staleGlide = QuietMove(scroll: scroll, after: 0.15) {
+            record.step("stale_glide", target: target)
+            record.clipTo(offset: oldEnd)
+        }
+    }
+    defer { staleGlide?.stop() }
     let sentAt = record.at()
     /// The send's first measured landing.
     func landed() -> [String: Any]? {
@@ -2258,6 +2271,13 @@ final class RevealArrivals: @unchecked Sendable {
         }
         record.step("growing", target: target)
         ConversationFollowTest.inset.top += 600
+    }
+    if landing == "stale-glide" {
+        await waitReady("send.stale_landed", view: scene.host, state: { scene.readiness() }) {
+            landed() != nil && record.steps.contains { $0["step"] as? String == "stale_glide" }
+        }
+        await settle(scene.host, seconds: 0.5)
+        record.step("rested", target: target)
     }
     if quiet {
         await waitReady("send.landed", view: scene.host, state: { scene.readiness() }) { landed() != nil }
@@ -2300,6 +2320,51 @@ final class RevealArrivals: @unchecked Sendable {
                                            "forwarded_animations": ProbePresentation.forwardedAnimations,
                                            "root_transactions": ProbePresentation.rootTransactions,
                                            "animated_root_transactions": ProbePresentation.animatedRootTransactions]])
+}
+
+/// Runs `move` once, the first time the clip has rested at the end of the document (within
+/// the landing check's `column + 1`) for `after` seconds with no document or clip change: the changes that restart the own-send
+/// landing check's quiet window restart this one too, on the same main-queue timers.
+@MainActor final class QuietMove {
+    private var observers: [NSObjectProtocol] = []
+    private var pending: DispatchWorkItem?
+    private var move: (() -> Void)?
+
+    init(scroll: NSScrollView, after: Double, move: @escaping () -> Void) {
+        self.move = move
+        guard let document = scroll.documentView else { return }
+        let center = NotificationCenter.default
+        for (name, object) in [(NSView.frameDidChangeNotification, document as NSView),
+                               (NSView.boundsDidChangeNotification, scroll.contentView as NSView)] {
+            observers.append(center.addObserver(forName: name, object: object, queue: nil) { [weak self] _ in
+                MainActor.assumeIsolated { self?.rearm(scroll, after: after) }
+            })
+        }
+        rearm(scroll, after: after)
+    }
+
+    private func rearm(_ scroll: NSScrollView, after: Double) {
+        pending?.cancel()
+        guard move != nil else { return }
+        let item = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, let document = scroll.documentView else { return }
+                let clip = scroll.contentView.bounds
+                guard document.frame.height - clip.maxY <= Theme.space.column + 1, let move = self.move else { return }
+                self.move = nil
+                move()
+            }
+        }
+        pending = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + after, execute: item)
+    }
+
+    func stop() {
+        pending?.cancel()
+        move = nil
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        observers = []
+    }
 }
 
 // P2-3: the pin's mark check must run whenever the mark's place in the document
@@ -2434,7 +2499,8 @@ final class FlippedDocument: NSView { override var isFlipped: Bool { true } }
     case "missing-away": return await missingTarget(root, away: true)
     case "send-catchup": return await ownSendDuringReveal(root, catchup: true)
     case "send-ordinary": return await ownSendDuringReveal(root, catchup: false)
-    case "short", "regrow", "person", "regrow-natural", "quiet-regrow", "quiet-regrow-natural", "quiet-regrow-late":
+    case "short", "regrow", "person", "regrow-natural", "quiet-regrow", "quiet-regrow-natural", "quiet-regrow-late",
+         "stale-glide":
         return await ownSendDuringReveal(root, catchup: false, landing: mode)
     case "mark":
         var out: [String: Any] = [:]

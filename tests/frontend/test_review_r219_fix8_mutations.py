@@ -40,6 +40,8 @@ from tests.frontend.test_review_r219_fix13_view import (
     assert_landed_once,
     assert_landing_follows,
     assert_quiet_landing_order,
+    assert_rests_at_the_end,
+    assert_stale_glide_order,
     landing_run,
 )
 
@@ -80,7 +82,7 @@ MUTATIONS = {
     "own_send_latch_ends_at_marker": ("UIWindow.swift", [
         ('        traceFollow("marker_appeared")',
          '        ownSendLanding = false\n        traceFollow("marker_appeared")')]),
-    # Round 10: following after an own send outlasts its landing check.
+    # Round 10: following after an own send outlasts its landing check, whose quiet window stays.
     "quiet_landing_ends_following": ("ConversationOpeningPin.swift", [
         ("                self.ownSendLanding = false\n                self.onOwnSendLanded()",
          "                self.followingOwnSend = false\n                self.ownSendLanding = false\n"
@@ -89,6 +91,9 @@ MUTATIONS = {
         ("                                             queue: .main) { [weak self] _ in\n            self?.schedulePin()",
          "                                             queue: .main) { [weak self] _ in\n"
          "            if self?.followingOwnSend != true { self?.schedulePin() }")]),
+    "quiet_window_0ms": ("ConversationOpeningPin.swift", [
+        ("DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: check)",
+         "DispatchQueue.main.asyncAfter(deadline: .now(), execute: check)")]),
 }
 # Each round-7 mutant, the replay mode it runs, the order that mode must show (checked
 # outside `raises`, so a broken schedule cannot pass as a kill) and the rule it must fail.
@@ -113,6 +118,7 @@ ROUND10_CASES = [
     ("quiet_landing_ends_following", "quiet-regrow-natural"),
     ("quiet_landing_ends_following", "quiet-regrow-late"),
     ("growth_repins_dropped", "quiet-regrow"),
+    ("quiet_window_0ms", "stale-glide"),
 ]
 ROUND10 = {mutation for mutation, _ in ROUND10_CASES}
 VIEW = {"notice_sets_at_bottom_false", "key_on_all_rows", "uimodel_drops_known_receipts",
@@ -245,10 +251,14 @@ def test_round9_marker_latch_mutation_fails_regrow(tmp_path):
 def round10_order(mode):
     if mode.startswith("quiet-"):
         return lambda result, steps: assert_quiet_landing_order(result, steps, mode)
+    if mode == "stale-glide":
+        return assert_stale_glide_order
     return lambda result, steps: None
 
 
 def round10_rule(mode):
+    if mode == "stale-glide":
+        return assert_rests_at_the_end
     return assert_landing_follows
 
 
