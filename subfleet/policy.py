@@ -253,8 +253,10 @@ def lane_slot_cap(caps: Mapping[str, Any] | None, measured: bool) -> int | None:
 #: (C-11.4). Default 180 s: on 2026-10-26, 86 of 174 gpt-6.1-sol probes and
 #: 28 of 134 claude-opus-5-5 probes ran to the old 60 s deadline; Sol successes
 #: were clipped there (p90 60 s; 23 of 87 took at least 50 s). Timers and
-#: enrollment use their own timeouts and do not read this key.
-#: Fractional seconds use the durable datetime's microsecond precision.
+#: enrollment use their own timeouts and do not read this key. It is a whole
+#: number of seconds from 1 to 900, never a float: `deadline_at` is compared as
+#: a string with `utcnow()`'s whole seconds, and 0.5 s (`...00.500000Z`) sorted
+#: before `...00Z`, so its probe stopped at its reservation (review of #269).
 MACHINE_GUARD_PROPOSAL: dict[str, dict[str, Any]] = {
     "background": {"cpu_idle_min": .15, "memory_pressure": "warn"},
     "session": {"cpu_idle_min": .05, "memory_pressure": "critical"},
@@ -742,9 +744,8 @@ def load_policy(path: str | Path) -> dict[str, Any]:
         fail("admission.prove_wait_s", "must be a positive finite number of seconds, or null to wait for a "
                                        "pilot's answer however long (C-6.14)")
     deadline = settings["probe_deadline_s"]
-    if (not isinstance(deadline, (int, float)) or isinstance(deadline, bool)
-            or not 0 < deadline <= 900 or not math.isfinite(deadline)):
-        fail("admission.probe_deadline_s", "must be a positive finite number of seconds, at most 900")
+    if not isinstance(deadline, int) or isinstance(deadline, bool) or not 1 <= deadline <= 900:
+        fail("admission.probe_deadline_s", "must be a whole number of seconds from 1 to 900")
     value["admission"] = settings
 
     floor = value.get("headroom_floor", HEADROOM_FLOOR)
