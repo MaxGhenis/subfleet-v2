@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TEST = "tests/unit/test_guard_subfleet_root.py"
 HOOK = "private/guard/never-rules-hook.sh"
 TRUST = "private/guard/TRUST"
+DOC = "docs/private-guard-overlay.md"
 #: The original reviewed pair's commit (release/217 at abe117e67). Its TRUST still pins codex-cli 0.153.3,
 #: behind the installed TRUST (0.159.0) that this revision's TRUST is built on.
 BASE = "abe117e676b042b0cc8b4208dc25da52820221e2"
@@ -102,6 +103,7 @@ MUTATIONS = {
     "r4-meta-walks": (HOOK, None, None, "test_r4_print_and_exit_forms_walk_nothing"),
     "r4-tilde-user-dropped": (HOOK, None, None, "test_r4_the_unlisted_forms_are_judged"),
     # r5 (the hub's decisions on review r4), one per decision
+    "r5-base-quadratic": (HOOK, None, None, "test_r5_a_long_word_without_a_slash_costs_what_the_installed_hook_does"),
     "r5-heredoc-unread": (HOOK, None, None, "test_r5_heredoc_bodies_are_data"),
     "r5-too-long-allowed": (HOOK, None, None, "test_r5_a_command_too_long_to_prep_fails_closed"),
     "r5-pipe-stages-dropped": (HOOK, None, None, "test_r5_the_unjudged_forms_are_judged"),
@@ -111,6 +113,15 @@ MUTATIONS = {
     "r5-alias-unfolded": (HOOK, None, None, "test_r3c_nothing_inside_a_mount_is_read"),
     "r5-brace-root-unread": (HOOK, None, None, "test_r5_a_root_spelling_before_a_brace_is_a_path_word"),
     "r5-voldots-glob-dropped": (HOOK, None, None, "test_r5_the_wider_user_and_volume_family"),
+    # r5 decision 4: the overlay doc's body twice again (a second copy of a section)
+    "r5-doc-duplicated": (DOC, "\n## Verification\n",
+                          "\n## First installation over the existing private release\n\n## Verification\n",
+                          "test_r5_the_overlay_doc_holds_one_copy_of_its_body"),
+    # review r4's four (rv4-*), each killed by the test its review commit added (cb63c20a1)
+    "rv4-otherfd-is-stdin": (HOOK, None, None, "test_review_r4_pins_r4s_unpinned_readings"),
+    "rv4-grep-meta-walks": (HOOK, None, None, "test_review_r4_pins_r4s_unpinned_readings"),
+    "rv4-backtick-space-dropped": (HOOK, None, None, "test_review_r4_pins_r4s_unpinned_readings"),
+    "rv4-function-keyword-dropped": (HOOK, None, None, "test_review_r4_pins_r4s_unpinned_readings"),
     "r5-dotdot-parent-dropped": (HOOK, None, None, "test_r5_a_component_bash_can_match_against_dotdot_names_its_parent"),
 }
 #: r3's and r3b's mutants: (old text, new text) pairs, each old text exactly once in the hook.
@@ -244,6 +255,21 @@ EDITS = {
     "r5-too-long-allowed": [("""if pw_named "$command"; then
 """, """if [ "${#command}" -le 65536 ] && pw_named "$command"; then
 """)],
+    "rv4-otherfd-is-stdin": [("""          if (op !~ /^0?(<|<<|<<-|<<<|<&|<>)$/) continue
+          sub(/^0/, "", op)
+""", """          if (op !~ /^[0-9]*(<|<<|<<-|<<<|<&|<>)$/) continue
+          sub(/^[0-9]*/, "", op)
+""")],
+    "rv4-grep-meta-walks": [("""        if (c == "grep" && v ~ /^--(help|version)$/) return 1
+""", ""), ("""          if (c == "grep" && substr(v, j, 1) == "V") return 1
+""", "")],
+    "rv4-backtick-space-dropped": [("""    if (bt && t == 1 && sp[0] == "" && isname(base(val[1]))) sp[0] = " "
+""", "")],
+    "rv4-function-keyword-dropped": [("""      if (!qd[t] && val[t] == "function" && t < nt) { t += 2; continue }
+""", "")],
+    "r5-base-quadratic": [("""  function base(v, n, a) { n = split(v, a, "/"); return a[n] }
+""", """  function base(v,   x) { x = v; sub(/.*\\//, "", x); return x }
+""")],
     "r5-heredoc-unread": [("""      if (c == "<" && substr(t, i + 1, 1) == "<" && !hf && (j = hdword(t, i))) {
 """, """      if (0) {
 """)],
@@ -263,7 +289,7 @@ REVIEW_R3 = {"r3c-wrappers-env-only", "r3c-unbalanced-brace-allows", "r3c-physic
 
 #: What the named tests need of HEAD (the rest of the tree, the app and the docs, is a sixth of
 #: the export's bytes and none of its use).
-EXPORTED = ["subfleet", "tests", "tools", "private", "bin", "pyproject.toml"]
+EXPORTED = ["subfleet", "tests", "tools", "private", "bin", "pyproject.toml", DOC]
 
 
 def export(destination: Path) -> None:
@@ -338,8 +364,10 @@ def main() -> int:
     # r4's and review r3's mutants first, then r3c's, r3b's and r3's: a run its hold cuts short still
     # reports the newest decisions.
     edited = [name for name in MUTATIONS if name in EDITS]
-    newest = [name for name in edited if name.startswith("r4-")] + [name for name in edited if name in REVIEW_R3]
-    order = newest + [name for name in reversed(edited) if name not in newest] + [name for name in MUTATIONS if name not in EDITS]
+    newest = ([name for name in MUTATIONS if name.startswith(("r5-", "rv4-"))]
+              + [name for name in edited if name.startswith("r4-")] + [name for name in edited if name in REVIEW_R3])
+    order = (newest + [name for name in reversed(edited) if name not in newest]
+             + [name for name in MUTATIONS if name not in EDITS and name not in newest])
     parser.add_argument("--only", nargs="*", default=order)
     args = parser.parse_args()
     if "/sf-" not in str(args.scratch.resolve()):
