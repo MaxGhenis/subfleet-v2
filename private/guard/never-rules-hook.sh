@@ -1771,7 +1771,7 @@ pw_prep_awk="$pw_lib_awk"'
     }
     return 0
   }
-  function simple(seg, depth, piped, noext, ctx, bt, hd,   nt, i, n, c, j, t, b, hs, hb, out, w, tk, val, sp, qd, stdin, npos, hasE, rec, k, files, rd, hstr, st, pin, prod, pc, scr, ev, op, tg) {
+  function simple(seg, depth, piped, noext, ctx, bt, hd,   ex, isfr, fw, xe, nt, i, n, c, j, t, b, hs, hb, out, w, tk, val, sp, qd, stdin, npos, hasE, rec, k, files, rd, hstr, st, pin, prod, pc, scr, ev, op, tg) {
     pin = pipein
     nt = 0; i = 1; n = length(seg); sp[0] = ""
     while (i <= n) {
@@ -1838,10 +1838,29 @@ pw_prep_awk="$pw_lib_awk"'
     if (t <= nt) { b = base(val[t]); if (isname(b) && tk[t] != canon(b)) { tk[t] = canon(b); val[t] = tk[t] } }
     # a searcher right after an opening backtick gets a space before it, so the rules see its name
     if (bt && t == 1 && sp[0] == "" && isname(base(val[1]))) sp[0] = " "
+    # r5 decision 3: find arguments end at -exec, -execdir, -ok or -okdir (ex: 1 for the operator and its
+    # terminator, 2 for the command it runs), and its roots (isfr; fw as written) are the words before its
+    # expression
+    fw = ""
+    if (t <= nt && val[t] == "find") {
+      for (k = t + 1; k <= nt; k++) {
+        if (rd[k] || val[k] !~ /^-(exec|execdir|ok|okdir)$/) continue
+        ex[k] = 1
+        for (k++; k <= nt && val[k] != ";" && !(val[k] == "+" && val[k - 1] == "{}"); k++) if (!rd[k]) ex[k] = 2
+        if (k <= nt) ex[k] = 1
+      }
+      k = t + 1
+      while (k <= nt && (rd[k] || val[k] ~ /^-([HLPEXdsx]|O[0-9]*)$/)) k++
+      for (; k <= nt; k++) {
+        if (rd[k]) continue
+        if (val[k] ~ /^-./ || val[k] == "(" || val[k] == "!") break
+        fw = fw (fw == "" ? "" : " ") tk[k]; isfr[k] = 1
+      }
+    }
     hs = 0; hb = 0
     for (k = 1; k <= nt; k++) {
       if (isname(base(val[k])) || val[k] == "grep -r") hs = 1
-      if (!qd[k] && (tk[k] ~ /^--?max-?depth(=.*)?$/ || tk[k] ~ /^-d[0-9]+$/ || (tk[k] == "-d" && k < nt && tk[k + 1] ~ /^[0-9]+$/))) hb = 1
+      if (!ex[k] && !qd[k] && (tk[k] ~ /^--?max-?depth(=.*)?$/ || tk[k] ~ /^-d[0-9]+$/ || (tk[k] == "-d" && k < nt && tk[k + 1] ~ /^[0-9]+$/))) hb = 1
     }
     if (mode == "nopath") {
       if (hb || t > nt) return ""
@@ -1892,7 +1911,28 @@ pw_prep_awk="$pw_lib_awk"'
       if (npos - (hasE ? 0 : 1) <= 0 && (files || !stdin)) found = 1
       return ""
     }
-    if (hs && hb) return sp[0] ":" sp[nt]
+    # what this command writes to a pipe after it, when it is an echo, print, printf or cat <<<
+    prod = ""
+    if (t <= nt) {
+      pc = base(val[t]); k = t + 1
+      if (pc == "echo" || pc == "print") {
+        while (k <= nt && (rd[k] || val[k] ~ /^-[neErRl]+$/)) k++
+        for (; k <= nt; k++) if (!rd[k]) prod = prod (prod == "" ? "" : " ") val[k]
+      } else if (pc == "printf") {
+        for (; k <= nt; k++) if (!rd[k]) prod = prod (prod == "" ? "" : "\n") val[k]
+      } else if (pc == "cat") {
+        for (; k <= nt; k++) if (!rd[k]) break
+        if (k > nt) prod = hstr (hstr != "" && hd != "" ? "\n" : "") hd
+      }
+    }
+    # r5 decision 3: the command find runs with -exec, -execdir, -ok or -okdir is judged on its own, each {}
+    # standing for the roots of find (. when it names none), and leaves this line
+    if (t <= nt && val[t] == "find" && mode == "prep" && !noext) xe = execs(tk, val, ex, t, nt, (fw == "") ? "." : fw, ctx, depth)
+    # r5 decision 3: a depth bound covers the walk of its own command only: its words stay for the xargs rule
+    # (its searcher names made :, the roots of find as the shell reads them), and what find runs was judged
+    # on its own above
+    if (hs && hb) { out = bound(tk, val, ex, isfr, sp, nt); lastprod = prod; return out }
+    lastprod = prod
     if (t <= nt && ismeta(val[t], val, rd, t, nt)) return sp[0] ":" sp[nt]
     # the scripts a shell or eval runs (r4 decision 3), each judged as its own lines
     if (!noext) {
@@ -1913,26 +1953,39 @@ pw_prep_awk="$pw_lib_awk"'
         if (scr != "") script(scr, sx(st, scr), depth)
       }
     }
-    # what this command writes to a pipe after it, when it is an echo, print, printf or cat <<<
-    prod = ""
-    if (t <= nt) {
-      pc = base(val[t]); k = t + 1
-      if (pc == "echo" || pc == "print") {
-        while (k <= nt && (rd[k] || val[k] ~ /^-[neErRl]+$/)) k++
-        for (; k <= nt; k++) if (!rd[k]) prod = prod (prod == "" ? "" : " ") val[k]
-      } else if (pc == "printf") {
-        for (; k <= nt; k++) if (!rd[k]) prod = prod (prod == "" ? "" : "\n") val[k]
-      } else if (pc == "cat") {
-        for (; k <= nt; k++) if (!rd[k]) break
-        if (k > nt) prod = hstr (hstr != "" && hd != "" ? "\n" : "") hd
-      }
-    }
     lastprod = prod
     if (nt == 1 && tk[1] == "cd") tk[1] = "cd ~"
     else if (nt == 2 && tk[1] == "cd" && tk[2] == "--") tk[2] = "~"
     out = sp[0]
-    for (t = 1; t <= nt; t++) out = out tk[t] sp[t]
+    for (t = 1; t <= nt; t++) out = out ((xe && ex[t] == 2) ? "" : tk[t]) sp[t]
     return out
+  }
+  # execs(tk, val, ex, t, nt, roots, ctx, depth): each command the find at t runs (ex 2) judged as its own lines,
+  # {} as roots (a {} inside a word as the first root); 1 when there was one (r5 decision 3).
+  function execs(tk, val, ex, t, nt, roots, ctx, depth,   k, cmd, q, x, any) {
+    cmd = ""; x = roots; sub(/ .*/, "", x); x = value(x); gsub(/&/, "\\\\&", x)
+    for (k = t + 1; k <= nt + 1; k++) {
+      if (k <= nt && ex[k] == 2) {
+        q = tk[k]
+        if (val[k] == "{}") q = roots; else if (index(q, "{}")) gsub(/\{\}/, x, q)
+        cmd = cmd (cmd == "" ? "" : " ") q; any = 1; continue
+      }
+      if (cmd != "") { script(cmd, ctx, depth); cmd = "" }
+    }
+    return any
+  }
+  # bound(tk, val, ex, isfr, sp, nt): a bounded simple command as the rules read it (r5 decision 3): : and its
+  # words, its searcher names made :, find roots as the shell reads them, what find runs left out.
+  function bound(tk, val, ex, isfr, sp, nt,   k, out, q) {
+    out = sp[0] ":"
+    for (k = 1; k <= nt; k++) {
+      if (ex[k]) continue
+      q = tk[k]
+      if (isname(base(val[k])) || val[k] == "grep -r") q = ":"
+      else if (isfr[k] && val[k] !~ /[[:space:]]/) q = val[k]
+      out = out " " q
+    }
+    return out sp[nt]
   }
   # r5 decision 2, heredocs. eol(t, i): where the line holding position i ends (its newline outside quotes; a
   # comment runs to it), 0 when the text ends first.
