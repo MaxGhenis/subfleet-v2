@@ -105,6 +105,7 @@ MUTATIONS = {
     "r5-alias-unfolded": (HOOK, None, None, "test_r3c_nothing_inside_a_mount_is_read"),
     "r5-brace-root-unread": (HOOK, None, None, "test_r5_a_root_spelling_before_a_brace_is_a_path_word"),
     "r5-voldots-glob-dropped": (HOOK, None, None, "test_r5_the_wider_user_and_volume_family"),
+    "r5-dotdot-parent-dropped": (HOOK, None, None, "test_r5_a_component_bash_can_match_against_dotdot_names_its_parent"),
 }
 #: r3's and r3b's mutants: (old text, new text) pairs, each old text exactly once in the hook.
 LIST_GUARD = '      elif pw_holds "$p"; then\n'
@@ -224,6 +225,9 @@ EDITS = {
     # retargeted in r5: decision 10 widened r4's three spellings to one reading
     "r4-tilde-user-dropped": [("""  case "$w" in '~$'*|'~`'*) pw_tilde "$w"; w=$pw_w; q=q ;; esac
 """, "")],
+    "r5-dotdot-parent-dropped": [("""  case "$1" in .*[*?[]*) ;; *) return 1 ;; esac
+  pw_pattern "$1" || return 0
+""", "  return 1\n")],
     "r5-voldots-glob-dropped": [("""      /*) if pw_voldots "$pw_p"; then sv=$pw_av; pw_glob "$pw_vd" "$ctx" "$f"; [ "$pw_av" = G ] || pw_av=$sv; fi ;;
 """, "")],
     "r5-brace-root-unread": [("""(\\/|$|\\{)/ || sf ~ /^~[$`]/""", """(\\/|$)/ || sf ~ /^~[$`]/""")],

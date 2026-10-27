@@ -3170,8 +3170,30 @@ dotfold() {
   out=${out%/}
   R=${out:-/}
 }
+# r5 decision 6: every reading of a word in which each component bash 3.2 matches against .. (a literal leading
+# dot, then a pattern [[ .. == c ]] takes) is itself, . or .., into MIXES
+dotdot_mixes() {
+  local w=$1 lead="" tail="" part="" r="" i=0
+  local IFS=/
+  local -a parts acc nacc
+  case "$w" in /*) lead=/; w=${w#/} ;; esac
+  case "$w" in */) tail=/; w=${w%/} ;; esac
+  set -f; parts=( $w ); set +f
+  acc=( "$lead" )
+  for part in ${parts[@]+"${parts[@]}"}; do
+    nacc=()
+    for r in "${acc[@]}"; do
+      [ "$i" -eq 0 ] || r="$r/"
+      nacc[${#nacc[@]}]="$r$part"
+      if [[ $part == .* && $part == *[*?[]* && .. == $part ]]; then nacc[${#nacc[@]}]="$r."; nacc[${#nacc[@]}]="$r.."; fi
+    done
+    acc=( "${nacc[@]}" ); i=$((i + 1))
+  done
+  MIXES=()
+  for r in "${acc[@]}"; do MIXES[${#MIXES[@]}]="$r$tail"; done
+}
 judge_alt() {
-  local w=$1 b="" f=""
+  local w=$1 b="" f="" m="" l="" rest=""
   case "$w" in
     *[*?[]*) ;;
     *) abs_of "$w"; case "$R" in *'$'*) return 1 ;; esac
@@ -3183,7 +3205,21 @@ judge_alt() {
   b=${b//\[\^\/\]/[^$'\a']}; b=${b//\[\!\/\]/[!$'\a']}
   judge_glob "$b" && return 0
   dotfold "$b"; f=$R
-  [ "$f" != "$b" ] && judge_glob "$f"
+  [ "$f" != "$b" ] && judge_glob "$f" && return 0
+  # r5 decision 10: a glob word that climbs out of a /Volumes entry with .. is read from / as well
+  abs_of "$b"
+  case "$R" in
+    /*) l=$R; lc "$l"
+      case "$R" in /volumes/*/*) rest=${l#/*/*/}; case "/$rest/" in */../*) normalize "/$rest"; judge_glob "$R" && return 0 ;; esac ;; esac ;;
+  esac
+  # r5 decision 6: a component bash matches against .. reads as its folder and its parent too
+  dotdot_mixes "$b"
+  for m in "${MIXES[@]}"; do
+    [ "$m" != "$b" ] || continue
+    judge_glob "$m" && return 0
+    dotfold "$m"; [ "$R" != "$m" ] && judge_glob "$R" && return 0
+  done
+  return 1
 }
 judge_glob() {
   local b=$1 walk="" c="" x=""

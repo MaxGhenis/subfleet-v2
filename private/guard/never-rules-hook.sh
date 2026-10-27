@@ -1375,7 +1375,7 @@ pw_count() {
 # <component>/.. after the first glob component folded away (pw_fold) is, as
 # well as when the unfolded reading (pw_glob) is.
 pw_alt() {
-  local w=$1 ctx=$2 f=$3 b="" fd="" sv=""
+  local w=$1 ctx=$2 f=$3 b="" fd="" sv="" r=""
   pw_av=T
   case "$w" in
     '/*') return 0 ;;
@@ -1401,6 +1401,67 @@ pw_alt() {
       /*) if pw_voldots "$pw_p"; then sv=$pw_av; pw_glob "$pw_vd" "$ctx" "$f"; [ "$pw_av" = G ] || pw_av=$sv; fi ;;
     esac
   fi
+  # r5 decision 6: a component bash can match against .. (.*, .?, .[.], .[!a])
+  # also reads as its folder and as that folder's parent, in every context;
+  # each reading is judged as the word is (folded too), and more than three
+  # such components fail closed
+  if [ "$pw_av" != G ]; then
+    pw_dotdots "$b"
+    if [ -n "$pw_ddc" ]; then pw_av=G; return 0; fi
+    sv=$pw_av
+    for r in ${pw_dd[@]+"${pw_dd[@]}"}; do
+      pw_glob "$r" "$ctx" "$f"; [ "$pw_av" != G ] || return 0
+      pw_fold "$r"
+      if [ "$pw_fd" != "$r" ]; then pw_glob "$pw_fd" "$ctx" "$f"; [ "$pw_av" != G ] || return 0; fi
+    done
+    pw_av=$sv
+  fi
+}
+# pw_dotdot COMP: bash 3.2 can match the glob component COMP against the name
+# .. (r5 decision 6): COMP starts with a literal dot (a bracket never matches a
+# leading one) and, as a pattern, matches ..; a form pw_pattern cannot express
+# counts (fails closed). zsh never matches .., so this is bash's reading.
+pw_dotdot() {
+  local nc="" e="" r=1
+  case "$1" in .*[*?[]*) ;; *) return 1 ;; esac
+  pw_pattern "$1" || return 0
+  shopt -q nocasematch && nc=1
+  shopt -q extglob && e=1
+  shopt -u nocasematch extglob
+  [[ .. == $pw_pat ]] && r=0
+  [ -z "$nc" ] || shopt -s nocasematch
+  [ -z "$e" ] || shopt -s extglob
+  return $r
+}
+# pw_dotdots WORD: pw_dd is every reading of WORD with each component bash can
+# match against .. as itself, . (its folder) or .. (its parent), the word as
+# written left out; pw_ddc is set when more than three components can (each
+# reading is then not made: the word fails closed).
+pw_dotdots() {
+  local rest="$1/" c="" n=0 m=0 i=0 x=1 k=1 d=0 r=""
+  local -a cs at ws
+  pw_dd=(); pw_ddc=""
+  case "/$1" in */.*[*?[]*) ;; *) return 0 ;; esac
+  while [ -n "$rest" ]; do
+    c=${rest%%/*}; rest=${rest#*/}
+    cs[$n]=$c
+    if pw_dotdot "$c"; then at[$m]=$n; m=$((m + 1)); fi
+    n=$((n + 1))
+  done
+  [ "$m" -gt 0 ] || return 0
+  if [ "$m" -gt 3 ]; then pw_ddc=1; return 0; fi
+  while [ "$i" -lt "$m" ]; do x=$((x * 3)); i=$((i + 1)); done
+  while [ "$k" -lt "$x" ]; do
+    ws=( "${cs[@]}" ); d=$k; i=0
+    while [ "$i" -lt "$m" ]; do
+      case $((d % 3)) in 1) ws[${at[$i]}]=. ;; 2) ws[${at[$i]}]=.. ;; esac
+      d=$((d / 3)); i=$((i + 1))
+    done
+    r=${ws[0]}; i=1
+    while [ "$i" -lt "$n" ]; do r="$r/${ws[$i]}"; i=$((i + 1)); done
+    pw_dd[${#pw_dd[@]}]=$r
+    k=$((k + 1))
+  done
 }
 # pw_fold WORD: pw_fd is WORD with each <component>/.. after its first glob
 # component folded away by name (r4 decision 1); a .. that reaches back into
