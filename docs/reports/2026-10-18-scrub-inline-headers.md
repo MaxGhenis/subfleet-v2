@@ -1780,7 +1780,7 @@ Each mutant is one edit in a copy of the code head's `subfleet/` (`mut9.py`). Th
 | 5a | 15:31Z, 106 | `test_scrub_inline_headers`, `-k a_swallowed_flag_or_key_still_owns` | 100 | passed |
 | 5b | 15:39Z, 142 | the same, `-k an_unclosed_quote_does_not_take` | 72 | passed |
 | 5c | 15:45Z, 122 | the same, the rest but the bound and cost tests | 73 | passed |
-| 5d | 15:5xZ | the same, the bound and cost tests | 28 | 27 passed; the 1 MiB refusal's probe passed its 60 s timeout (load, below) |
+| 5d | after 5c, about 130 | the same, the bound and cost tests | 28 | 27 passed; the 1 MiB refusal's probe passed its 60 s timeout (load, below) |
 | 6 | 15:31Z, 105 | `test_daemon_log_cut_windows` | 177 | passed |
 | 7 | 15:43Z, 110 | `test_daemon_log_handler` | 128 | 123 passed; 2 patch-target failures, fixed after (below); the three 4 MiB time-bound cases at load (below) |
 | 8 | 16:00Z, 107 | `test_scrub_no_new_leak`, `test_cpu_scaling` | 8 | passed |
