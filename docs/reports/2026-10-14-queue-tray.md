@@ -5444,7 +5444,7 @@ Each commit carries the co-author trailer.
 ### Decisions built
 
 - **P2-1:** review files use the first prefix `tests/frontend/test_review_r219_`, before `tests/frontend/`, including mutations. The validator permits ordered narrow prefixes and rejects shadowed ones. The workflow remains at 45 minutes; its map guard reserves ten minutes, capped at 35 projected minutes.
-- **P2-2:** the latch feeds the opening pin. Document growth re-pins while it is on. After 300 ms without document or clip changes, layout is applied and a measured gap within `column + 1` ends it. The marker’s first appearance does not. Person input cancels pending pins immediately; a new reveal cancels the latch too.
+- **P2-2:** the latch feeds the opening pin. Document growth re-pins while it is on. After 300 ms without document or clip changes, layout is applied and a measured gap within `column + 1` ends it. The marker’s first appearance does not. Person input cancels pending pins immediately; a new reveal cancels the latch too. *(Corrected in round 10: that measured gap ends only the landing check. Following, and with it the re-pinning of document growth, lasts until the person scrolls or a reveal starts; review r8 found growth after a quiet landing left unfollowed.)*
 - **P3-1:** the landed step already recorded `reveals`; the suite now asserts one at both layouts and prints counts with loads. Both were one. The palette was not changed.
 - **P3-2:** the change log, source comment and replacement PR lines say “stopped 208 pt short of a document that then grew 224 pt.” Design §12 says “before the main run loop next sleeps.” C-27.5 and the design describe measured settlement.
 - **P3-3:** the replay order gate also checks `steps["shrunk"]["reveal"]["outstanding"]`.
@@ -5554,6 +5554,8 @@ Only these four mutants ran. Every order/setup guard runs outside the expected a
 
 ### Replacement PR body lines
 
+*(Superseded by round 10's lines below: following does not end when the measured end settles.)*
+
 - **Own send:** the person’s own send ends a reveal before choosing its move, catch-up included. After an own send, document growth re-pins the clip and following stays engaged until the measured end settles, the person scrolls or another reveal starts. The earlier glide stopped 208 pt short of a document that then grew 224 pt, leaving a reply 610 pt behind.
 - **The mark:** its document placement is checked before the main run loop next sleeps, and when its identity changes.
 - **CI:** keep the 45-minute timeout. Separate the r219 review family from the remaining frontend tests, retain one shared review-probe compile, and refresh whole-file timings from run 40377886461. Projected shard seconds: 1536.3, 1536.3, 1536.3, 1536.2, 1536.2.
@@ -5564,3 +5566,114 @@ Only these four mutants ran. Every order/setup guard runs outside the expected a
 The lane could not write the shared git metadata, so the hub committed its tree unchanged: `4046e9f7b` (red tests), `4a0b88538` (decision 1, the shard map), `d6fcb89e6` (decision 2, the latch) and this report's commit (decisions 3 to 5's docs).
 
 Cleanup: the scratch folder and this job’s build cache are removed after recording validation; no owned run remains active.
+
+## Round 10 (review r8 at ac8145646): following outlasts the landing check
+
+**Base:** `ac8145646` (round 9 plus the merge of `release/217`). Commits: `d118a69a1` (red tests), `87386a74e` (decision 1), `8becec06c` (decision 2), `88ee0d223` (decision 3) and this report's commit (decision 4). No network, fetch, merge or push.
+
+### Decisions built
+
+- **1 (review r8's P2-1): after an own send, following lasts until the person scrolls or a reveal starts.** `OpeningPinView` keeps the two states apart. `ownSendLanding` is the landing check: after 300 ms without a clip or document change it applies layout, re-pins a clip left more than `column + 1` short, and at the measured end clears itself and calls `onOwnSendLanded()` once, at the same point as before. The new `followingOwnSend` is set with it and is not cleared by that measurement; `schedulePin` and `pin` follow while it is on (`!personScrolled || followingOwnSend`), so a document frame change re-pins the clip to the end as during the opening. Only `personScrolledNow` (live scroll, wheel or paging key), a new reveal (`conversationRowScroll`) or `detach` clear it. The view's `onOwnSendLanded` closure is unchanged.
+  - **Scene change:** the quiet scenes wait for the send's first landing rather than a landing after the regrow scene's first growth. When the landing comes first, the earlier wait expired: 2 runs under the 0 ms mutant, which lands sooner. The probe can also be slow enough on its own: in one run it took 1.7 s to react to the marker (load 39.58). Either way the 600 pt growth follows a measured 0 pt landing; the order check still requires that.
+  - **The marker mutant:** with following outlasting the check, ending the check at the marker's first appearance (`own_send_latch_ends_at_marker`) no longer leaves regrow's reply behind (24.5 pt, followed). The landing is then never measured, so regrow's tests now also assert `own_send_landed` once per send (`assert_landed_once`), which kills it.
+- **2 (r8's surviving mutant): the window stays, and a scene now earns it.** With decision 1 built, the 0 ms window survived every reply check. `short`, `regrow`, natural `regrow` and the three quiet cases followed the reply (24–25 pt), and `person` stayed. It does change when the send is said to have settled: once it measured a natural regrow's landing at −86 pt, mid-layout. The new `stale-glide` scene shows the cost. The glide's last frame lands on its stale target, the old end, 150 ms (the glide's length) after the clip came to rest at the new end. The move runs on main-queue timers that the same document and clip changes restart, so it always falls inside the 300 ms window.
+  - **With the window:** the check restarts, re-pins, and measures the end after that frame. From the landing on, the clip stays at the end (4/4 native runs at loads 28.27–30.99, and the hold run).
+  - **At 0 ms:** the landing came first, and the frame then took the clip 1,662–1,676 pt from the end after the check had ended (4/4). Following brought it back at the next document change in these runs, so the reply was still followed. At `ac8145646` the same 0 ms window left the send resting 1,816–1,883 pt short and the reply 643–721 pt behind (2/2, loads 33.19 and 34.56).
+  - **Regression:** `test_send_rests_at_the_end_after_its_glides_last_frame` (`assert_rests_at_the_end`) kills `quiet_window_0ms`.
+  - **Tried first:** timing the stale frame 150 ms after the glide's call did not separate the two. The probe's busy main thread fired it 0.49–0.88 s after the glide, later than the 0 ms check's landing too (3/3 survived).
+- **3: CI time.** `test_review_r219_fix13_view.py` gets its first entry and the mutation file grows; see the projection below. `timeout-minutes` is unchanged at 45.
+- **4: text.** The source comments (`ConversationOpeningPin.swift` header, `followingOwnSend`, `scheduleLandingCheck`; `UIWindow.swift`'s `ownSendLanding`), design §12, the change-log line and round 9's two latch sentences in this report now say that a quiet landing ends the check, not following.
+
+### Red runs
+
+The scene code was compiled against `ac8145646`'s product sources. Every order check passed before the behavioral one failed: the reply's move was `stay` with `landing: false, at_bottom: false`.
+
+| Case | Red commit's scene: reply gap (load) | Final scene: reply gaps (loads) |
+| --- | --- | --- |
+| `quiet-regrow` (controlled animation) | 850 pt (36.04) | 820, 846 pt (24.54, 22.02) |
+| `quiet-regrow-natural` (both controls removed) | 804 pt (33.45) | 825, 822 pt (19.87, 20.52) |
+| `quiet-regrow-late` (growth 350 ms after the landing) | 814 pt, growth at 386 ms (32.97) | 819, 827 pt, growth at 371 and 393 ms (20.48, 19.40) |
+
+At `ac8145646`, `regrow-natural` passed (25 pt, load 39.43). `stale-glide` passed 3/3 (loads 31.71, 32.34, 20.74): that commit already had the window it guards.
+
+### Probe counts on the fix
+
+Ten fresh native runs per scene, each judged by the tests' own order and behavioral assertions. Loads were taken before each run, in run order. [The validation record](2026-10-26-qt-flake-r10-validation.json) keeps every native run in this section and in decision 2.
+
+| Scene | Passes | Loads | Result |
+| --- | ---: | --- | --- |
+| `short` | 10/10 | 30.58, 29.82, 29.15, 27.86, 26.27, 25.97, 27.58, 33.36, 32.85, 32.54 | replies 24–25 pt |
+| natural-glide `regrow` | 10/10 | 36.42, 34.14, 30.97, 29.85, 29.41, 29.21, 28.08, 27.51, 30.70, 29.20 | replies 24–24.5 pt; glide forwarded with its animation |
+| `person` | 10/10 | 24.54, 23.46, 22.94, 23.99, 23.44, 23.64, 21.41, 19.56, 19.75, 24.94 | `stay` every time; offsets exactly unchanged |
+| `quiet-regrow` | 10/10 | 24.55, 29.42, 29.23, 26.03, 24.67, 22.03, 20.99, 22.91, 24.99, 23.13 | replies 24–25 pt; growth 162–593 ms after the landing |
+| `quiet-regrow-natural` | 10/10 | 22.00, 20.72, 18.85, 21.26, 19.94, 26.85, 26.46, 26.81, 23.85, 21.32 | replies 24–25 pt; growth 76–805 ms after |
+| `quiet-regrow-late` | 10/10 | 20.10, 19.05, 19.98, 21.23, 23.50, 21.36, 20.37, 21.12, 22.63, 20.46 | replies 24–25 pt; growth 353–508 ms after |
+
+The natural scenes record what they handed to SwiftUI: the glide's `BezierAnimation(duration: 0.15)` through `withAnimation` (one call per run), and 12–19 root transactions passed through unchanged. No root transaction carried an animation, and the clip's geometry log shows no intermediate glide frames in the off-screen window. So "natural" here means that neither control intervened. It does not show a rendered animation.
+
+### Holds and counts
+
+One pytest per hold, all under the suite lock.
+
+| Hold | Selection | Passed | Pytest time |
+| --- | --- | ---: | ---: |
+| 1a | fix10 shrink and person | 5 | 52.7 s |
+| 1b | fix10 distant and completion | 9 | 93.9 s |
+| 1c | fix10 stream arrival and bursts | 14 | 162.5 s |
+| 1d | fix10 background, trailing and stale marker | 8 | 226.5 s |
+| 1e | fix11 | 6 | 115.0 s |
+| 2a | mutation file, round 8 | 3 (16 deselected) | 530.4 s |
+| 2b | mutation file, round 9 and `quiet_landing_ends_following` | 4 (15 deselected) | 373.0 s |
+| 2c | mutation file, `growth_repins_dropped` and `quiet_window_0ms` | 2 (17 deselected) | 397.4 s |
+| 3 | fix12 and fix13 | 17 | 158.3 s |
+| 4 | shard plugin and the three guards | 113 | 53.4 s |
+
+| File | Passed |
+| --- | ---: |
+| `tests/frontend/test_review_r219_fix10_view.py` | 36 |
+| `tests/frontend/test_review_r219_fix11_view.py` | 6 |
+| `tests/frontend/test_review_r219_fix12_view.py` | 9 |
+| `tests/frontend/test_review_r219_fix13_view.py` | 8 (3 before this round) |
+| `tests/frontend/test_review_r219_fix8_mutations.py` | 9 named (10 unnamed deselected) |
+| `tests/unit/test_ci_shard_plugin.py` | 50 |
+| `tests/fake/test_state_contract.py` | 37 |
+| `tests/unit/test_test_module_names.py` | 1 |
+| `tests/unit/test_invariants_index.py` | 25 |
+
+**181 checks passed;** none failed or needed a rerun. Probe builds, the experiments, the red runs and the counts ran natively under the same lock, one process per hold. Builds peaked at 1.29 GB RSS.
+
+### CI time and the shard projection
+
+Measured here: fix13's whole file in 83.06 s, the round-9 marker item in 115.53 s and round 10's five mutant items in 651.88 s. On their own, these local seconds would project the review shard at **2,275.6 s**, over the 2,100 s guard. The excess is this host's speed. The same round-8 mutant items took 529.0 s here and 183.1 s in run 40377886461 (the slower Python): compile-bound work runs 2.89× slower here. fix12's view probes took 71.1 s here and 105.8 s in CI: probe-bound work runs 1.49× faster here. Each new value is therefore scaled by its file's own ratio. fix13 gets 123.6 s. The mutation file gets 893.2 s, which is 627.6 s plus 265.6 s and includes the round-9 item the map lacked. This is a deviation from adding raw measured seconds; the map's `source` says so.
+
+| Shard | Projected seconds |
+| --- | ---: |
+| 1/5 (the review group alone, 1,814.3 s) | 1814.3 |
+| 2/5 | 1564.1 |
+| 3/5 | 1564.1 |
+| 4/5 | 1564.0 |
+| 5/5 | 1564.0 |
+
+`test_the_checked_in_map_fits_the_workflow_limit` passes (hold 4).
+
+### Named mutants
+
+| Mutant | Killing pytest case | Behavioral rule and result |
+| --- | --- | --- |
+| `abandon_keeps_pending` | `test_round8_mutation_fails_its_named_regression[abandon_keeps_pending]` | `assert_missing_away_releases` |
+| `own_send_after_catchup_guard` | `test_round8_mutation_fails_its_named_regression[own_send_after_catchup_guard]` | `assert_own_send_releases` |
+| `mark_local_frame_only` | `test_round8_mutation_fails_its_named_regression[mark_local_frame_only]` | `assert_mark_probes_run_the_check` |
+| `own_send_latch_ends_at_marker` | `test_round9_marker_latch_mutation_fails_regrow` | `assert_landed_once[regrow]`: never landed; reply followed (24.5 pt) |
+| `growth_repins_dropped` (review r8's) | `test_round10_mutation_fails_its_named_regression[growth_repins_dropped-quiet-regrow]` | `assert_landing_follows[quiet-regrow]`: 823 pt (964 pt in development) |
+| `quiet_landing_ends_following` (decision 1 reverted) | `test_round10_mutation_fails_its_named_regression[quiet_landing_ends_following-quiet-regrow]`, `[…-quiet-regrow-natural]`, `[…-quiet-regrow-late]` | `assert_landing_follows`: 808, 788, 816 pt |
+| `quiet_window_0ms` (review r8's) | `test_round10_mutation_fails_its_named_regression[quiet_window_0ms-stale-glide]` | `assert_rests_at_the_end[stale-glide]`: landed before the stale frame |
+
+`growth_repins_dropped` stops the frame-change re-pin while following an own send; the landing check's own re-pin stays. On the fix it no longer fails `short`: 1 run in development and 2 native runs, all followed by the view's own jump (24–25 pt). One native run's `sent` sample read 1,609 pt; round 9 saw a transient of that size on the fix too. Round 9's `regrow` does not fail it either (2 native runs, 24 and 25 pt): its growth comes while the landing check still runs. The regrow-family scene that kills it is `quiet-regrow`, where the growth follows the landing. Every order check runs outside the expected failure.
+
+**Not run:** the full suite or CI; `tests/frontend/test_core_live.py` (the daemon's person-only check stops it on a lane); the mutation file's ten unnamed items; the live app's rendered animation; a macOS 15 runner.
+
+### Replacement PR body lines
+
+- **Own send:** the person’s own send ends a reveal before choosing its move, catch-up included. After an own send, the opening pin follows the end until the person scrolls or a reveal starts: document growth re-pins the clip whether or not the landing has settled. A landing check waits for 300 ms without a clip or document change. It then re-pins a clip left short, or fires `own_send_landed` once at the measured end. An earlier glide stopped 208 pt short of a document that then grew 224 pt, leaving a reply 610 pt behind. After a quiet landing, 600 pt of growth above the clip left a reply 779–850 pt behind.
+- **Evidence:** short and regrow are red at 07d4348d5, and review r8's three quiet-landing cases are red at ac8145646, with replies 804–850 pt behind (`stay`). The cases are controlled animation, both animation controls removed, and growth 350 ms after the landing. On the fix, short, natural-glide regrow, the person control and the three quiet cases each pass ten fresh runs. The stale-glide scene keeps the 300 ms window: measured on the next turn, the landing came before the glide's last frame took the clip 1,662–1,676 pt from the end. Seven named mutants are killed. Both landed suite layouts used one reveal, and the replay checks outstanding state after the shrink. The palette follow-up remains separate.
+- **CI** (projection only): keep the 45-minute timeout. The r219 review family is its own shard at a projected 1,814.3 s; the others project 1,564.0–1,564.1 s.

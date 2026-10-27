@@ -1171,11 +1171,18 @@ Built new in SwiftUI (Max, 2026-09-24). Structure:
   catch-up included: it glides to the end, or during catch-up the settling
   move jumps there. The send's move can land short while its row is measured,
   so until the measured end settles, the person scrolls or a reveal starts,
-  later changes follow as if the end were on screen. While this latch is active,
-  document frame changes also re-pin the clip. After 300 ms without a clip or
-  document change, pending layout is applied and a measured gap within
-  `column + 1` ends the latch; layout changes restart that check. The marker’s
-  first appearance does not end it. Person input cancels queued pins immediately. Release does not scroll;
+  later changes follow as if the end were on screen. A landing check settles
+  it: after 300 ms without a clip or document change, pending layout is
+  applied, and a measured gap within `column + 1` ends the check; a wider gap
+  re-pins the clip, and layout changes restart the wait. The marker’s first
+  appearance does not end it. The wait outlasts the 150 ms glide: in round 10's
+  stale-glide scene, where the glide's last frame lands on the old end 150 ms
+  after the clip rests at the new one, a check on the next turn ended before
+  that frame took the clip 1,662–1,676 pt from the end. Following lasts longer
+  than the check: from the send until the person scrolls or a reveal starts, document
+  frame changes re-pin the clip to the end, as the opening pin does, so growth
+  after a quiet landing is followed too (review r8: 600 pt above the clip had
+  left the reply 779 pt behind). Person input cancels queued pins immediately. Release does not scroll;
   catch-up resumes on the next changed key. Other changes follow only with the
   end on screen. Remote event-only turns do not count as the person's own
   send.
