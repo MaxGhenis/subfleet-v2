@@ -1,8 +1,12 @@
-"""Standalone fake daemon; all fault injection stays in the test harness."""
+"""Standalone fake daemon; all fault injection stays in the test harness.
+
+It never outlives the test process that started it (`ParentWatch`).
+"""
 
 from __future__ import annotations
 
 import argparse
+from contextlib import suppress
 import json
 import os
 from pathlib import Path
@@ -11,6 +15,69 @@ import sqlite3
 import stat
 import threading
 import time
+
+#: A fake daemon a test started must not outlive that test (#250 fix round 2c). On
+#: 2026-10-27 round 2b's provider exited during a hold at load 205 and its pytest went
+#: with it, before any teardown ran. The fake daemon it had started for
+#: `test_quar_start1_daemon.py`, in a session of its own (`isolated_group`), ran on with
+#: ppid 1 until the hub stopped it by pid. It looks at its parent this often, and once
+#: the parent is gone it has this long to stop before it ends itself.
+PARENT_POLL_S = 0.2
+PARENT_GONE_EXIT_S = 10.0
+EX_PARENT_GONE = 75
+
+
+def end_attempt_groups(root: Path) -> None:
+    """KILL the group of every attempt guardian recorded under `root` (the store's rows
+    and the guardians' `start.json` receipts) that is still alive by its recorded
+    identity (pid, boot, start), as the test harness's teardown does: the test that
+    started them is over. A starting guardian (no `start.json`) is ended too."""
+    from subfleet.procs import same_process
+    found: set[tuple] = set()
+    with suppress(sqlite3.Error, OSError):
+        with sqlite3.connect(f"file:{root / 'state.sqlite3'}?mode=ro", uri=True) as db:
+            found.update(db.execute("SELECT guardian_pid, pgid, boot_id, proc_start FROM attempts "
+                                    "WHERE guardian_pid IS NOT NULL AND pgid IS NOT NULL").fetchall())
+    for receipt in root.glob("jobs/*/a*/start.json"):
+        with suppress(OSError, ValueError, KeyError, TypeError):
+            start = json.loads(receipt.read_text())
+            found.add((start["guardian_pid"], start["pgid"], start["boot_id"], start["proc_start"]))
+    for guardian, pgid, boot, started in found:
+        with suppress(OSError, ValueError, TypeError):
+            if same_process(int(guardian), boot, started):
+                os.killpg(int(pgid), signal.SIGKILL)
+
+
+class ParentWatch:
+    """Stop this daemon when the process that started it is gone.
+
+    `parent` is the pid the harness passed (`--parent-pid`, its own) or, without it, this
+    process's parent when it began. The kernel reparents an orphan, so once `os.getppid()`
+    differs the parent has exited, whatever its pid is used for later; a harness that died
+    before this process could look is caught the same way, as its pid was passed. The
+    daemon is then stopped as SIGTERM stops it, and `end_attempt_groups` runs after its
+    close. A stop that has not ended the process within `PARENT_GONE_EXIT_S` (a worker that
+    will not finish, a hold hook nobody releases) ends the groups and the process."""
+
+    def __init__(self, parent: int, root: Path):
+        self.parent, self.root = parent, root
+        self.daemon = None
+        self.gone = threading.Event()
+        threading.Thread(target=self._watch, name="fake-daemon-parent-watch", daemon=True).start()
+
+    def _watch(self) -> None:
+        while os.getppid() == self.parent:
+            time.sleep(PARENT_POLL_S)
+        self.gone.set()
+        daemon = self.daemon
+        if daemon is None:
+            os._exit(EX_PARENT_GONE)                   # gone before the daemon existed: nothing launched
+        with suppress(Exception):
+            daemon.log.warning("fake daemon: parent pid %d is gone; stopping", self.parent)
+        daemon.stopping.set()
+        time.sleep(PARENT_GONE_EXIT_S)                 # a clean stop has ended the process by now
+        end_attempt_groups(self.root)
+        os._exit(EX_PARENT_GONE)
 
 
 def audit_publication(path: Path) -> None:
@@ -56,11 +123,21 @@ def main() -> int:
     parser.add_argument("--connection-idle-s", type=float)
     parser.add_argument("--inspection-witness", type=Path)
     parser.add_argument("--inspect-interval-s", type=float, default=1.0)
+    # D-KILL4 fix 1: a start grace longer than a short --start-delay, and a TERM grace
+    # long enough to observe a TERM-ignoring escaper between the TERM and the KILL.
+    parser.add_argument("--start-grace-s", type=float, default=.65)
+    parser.add_argument("--term-grace-s", type=float, default=.08)
+    # D-QUAR-START1 (a): the bound on start grace's extension for a live, running guardian.
+    parser.add_argument("--start-grace-max-s", type=float)
     parser.add_argument("--hide-environment-of", type=Path, action="append", default=[],
                         help="a file a test's process writes its pid to; the census reads that "
                              "pid's argument buffer without its environment (D-KILL2)")
+    parser.add_argument("--parent-pid", type=int,
+                        help="the test process that started this daemon (default: its parent at start); "
+                             "the daemon stops once that process is gone (ParentWatch)")
     args = parser.parse_args()
     root = args.state_root
+    watch = ParentWatch(args.parent_pid or os.getppid(), root)
     if args.publication_audit:
         audit_publication(root / "publication.jsonl")
 
@@ -121,7 +198,7 @@ def main() -> int:
         ("max_connections", args.max_connections),
         ("connection_idle_s", args.connection_idle_s)) if value is not None}
     try:
-        daemon = Daemon(root, tick_s=.02, start_grace_s=.65, term_grace_s=.08,
+        daemon = Daemon(root, tick_s=.02, start_grace_s=args.start_grace_s, term_grace_s=args.term_grace_s,
                         kill_settle_s=1.0, exit_settle_s=1.0,
                         guardian_start_delay_s=args.start_delay, crash_hook=hook,
                         inspect_interval_s=args.inspect_interval_s,
@@ -129,6 +206,8 @@ def main() -> int:
     except DaemonUnavailable:
         return 69
     log_open_file_limit(daemon.log, *limits)
+    if args.start_grace_max_s is not None:
+        daemon.start_grace_max_s = args.start_grace_max_s
     if args.inspection_witness:
         original = daemon._record_owned
 
@@ -143,10 +222,15 @@ def main() -> int:
         daemon._record_owned = witnessed
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: daemon.stopping.set())
+    watch.daemon = daemon
+    if watch.gone.is_set():
+        daemon.stopping.set()                          # the watch saw no daemon yet; it may be exiting
     try:
         daemon.serve_forever()
     finally:
         daemon.close()
+        if watch.gone.is_set():
+            end_attempt_groups(root)
     return 0
 
 
