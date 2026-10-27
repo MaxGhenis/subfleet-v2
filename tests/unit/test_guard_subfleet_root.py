@@ -436,6 +436,19 @@ R4_TEXT = [
 """, ""),
 ]
 R3_TEXT = R4_TEXT + R3C_TEXT + R3_TEXT
+#: r5 (2026-10-27): the edits outside the path-word blocks, as (r5 text, r4 text): the header's r5 sentence, the
+#: prefilter's sixth term (zsh's =cmd) with its comment, and root_end's closing backtick. Undone before R4_TEXT.
+R5_TEXT = [
+    ("""#     $"..." and /Volumes/<entry>/.. .
+#     r5 (2026-10-27) closed those of review r4: a long word's cost,
+#     heredoc bodies, a depth bound beside xargs or -exec, a root before a
+#     closing backtick, bash's .* and .?, the data volume's alias before a
+#     mount, commands too long to read, ~{...}, ~$NAME and $(...), zsh's
+#     =cmd, pipes into a shell, "$@" scripts, eval $(...) and <&0.
+""", """#     $"..." and /Volumes/<entry>/.. .
+"""),
+]
+R3_TEXT = R5_TEXT + R3_TEXT
 
 
 def rebuild_r2(text: str) -> str:

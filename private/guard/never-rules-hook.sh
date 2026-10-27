@@ -46,6 +46,11 @@
 #     keywords, wrapper options and quotes, brace groups across a / or a ..,
 #     hostile words' cost, a device on stdin, print-and-exit forms, ~$USER,
 #     $"..." and /Volumes/<entry>/.. .
+#     r5 (2026-10-27) closed those of review r4: a long word's cost,
+#     heredoc bodies, a depth bound beside xargs or -exec, a root before a
+#     closing backtick, bash's .* and .?, the data volume's alias before a
+#     mount, commands too long to read, ~{...}, ~$NAME and $(...), zsh's
+#     =cmd, pipes into a shell, "$@" scripts, eval $(...) and <&0.
 #     Change a root on both sides in one reviewed step: here, and in
 #     unscoped_search.py (BROAD_RE, HOME_SUBDIRS, expand()).
 #
@@ -1452,7 +1457,7 @@ pw_glob() {
 # script, or the script file (- and /dev/stdin name stdin); rdop is the length of the redirection operator
 # a word starts with.
 pw_lib_awk='
-  function base(v,   x) { x = v; sub(/.*\//, "", x); return x }
+  function base(v, n, a) { n = split(v, a, "/"); return a[n] }
   function isname(v) { return v ~ /^(find|rg|grep|egrep|fgrep|rgrep|ugrep)$/ }
   function canon(v) { if (v ~ /^(egrep|fgrep|ugrep)$/) return "grep"; if (v == "rgrep") return "grep -r"; return v }
   function hexv(c) { return index("0123456789abcdef", tolower(c)) - 1 }
