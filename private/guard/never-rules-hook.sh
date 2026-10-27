@@ -304,12 +304,13 @@ fi
 # a backslash, through $(which …), or as egrep, fgrep, rgrep or ugrep reach the
 # unscoped-search rule; the fourth and fifth (r4) one with a quote or a
 # backslash inside its name (r''g, f\ind, $'rg'), and a $'...' holding an
-# escape, which may spell one.
+# escape, which may spell one; the sixth (r5) zsh's =rg, =find and =grep.
 printf '%s' "$command" | grep -qE 'stash|AXIOM_|getUpdates|get_updates|dump-keychain|checkout[[:space:]]+-b|switch[[:space:]]+-c|pr[[:space:]]+merge|git[[:space:]]+push|(^|[[:space:];&|(])(find|rg|grep)[[:space:]]' \
   || printf '%s' "$command" | grep -qE '\*\*\* Begin Patch' \
   || printf '%s' "$command" | grep -qE "(^|[[:space:];&|(/\\\\'\"\`])(find|rg|[efru]?grep)[\`'\")]?([[:space:]]|\$)" \
   || printf '%s' "$command" | LC_ALL=C tr -d "\\\\'\"\$" | grep -qE "(^|[[:space:];&|(/\`])(find|rg|[efru]?grep)[\`)]?([[:space:]]|\$)" \
   || printf '%s' "$command" | grep -qE "\\\$'[^']*\\\\[0-7xX]" \
+  || printf '%s' "$command" | grep -qE "(^|[[:space:];&|(])=(find|rg|[efru]?grep)([[:space:]]|\$)" \
   || exit 0
 
 # --- tg-getupdates: Telegram polling steals updates from the OpenClaw gateway ---
@@ -1708,9 +1709,9 @@ pw_prep_awk="$pw_lib_awk"'
     }
     return 0
   }
-  # spans(s, ctx, depth): each command substitution in s ($(...) or a backtick pair, quotes and escapes
-  # skipped) that names a searcher is judged as its own lines
-  function spans(s, ctx, depth,   n, i, c, j, x) {
+  # spans(s, ctx, depth, ev): each command substitution in s ($(...) or a backtick pair, quotes and escapes
+  # skipped) that names a searcher is judged as its own lines; with ev, what it writes is (r5 decision 11)
+  function spans(s, ctx, depth, ev,   n, i, c, j, x) {
     n = length(s); i = 1
     while (i <= n) {
       if (match(substr(s, i, 512), /^[^\\$`]+/)) { i += RLENGTH; continue }
@@ -1719,9 +1720,40 @@ pw_prep_awk="$pw_lib_awk"'
       if (c == "`") { j = btend(s, i); if (j) x = substr(s, i + 1, j - i - 1) }
       else if (substr(s, i + 1, 1) == "(") { j = parend(s, i + 1); if (j) x = substr(s, i + 2, j - i - 2) }
       if (!j) { i++; continue }
-      if (named(x)) script(x, ctx, depth)
+      if (ev) { x = subout(x, depth, ctx); if (x != "") script(x, ctx, depth) }
+      else if (named(x)) script(x, ctx, depth)
       i = j + 1
     }
+  }
+  # subout(s, depth, ctx): what the commands of s write, each read as a pipe producer is (r5 decision 11)
+  function subout(s, depth, ctx,   sv, o) {
+    if (depth >= 4) { if (named(s)) deep = 1; return "" }
+    sv = coll; coll = ""; collect++
+    prep(s, depth + 1, 1, ctx)
+    collect--; o = coll; coll = sv
+    return o
+  }
+  # pfmt(val, rd, k, nt): what printf writes for its format (the first word from k) and the words after it: each
+  # conversion takes the next word (%b with its escapes decoded), the format repeating while words remain (r5
+  # decision 11)
+  function pfmt(val, rd, k, nt,   f, o, i, n, a, m, j, used, r) {
+    while (k <= nt && rd[k]) k++
+    if (k > nt) return ""
+    f = ansic(val[k]); n = length(f); m = 0
+    for (j = k + 1; j <= nt; j++) if (!rd[j]) a[++m] = val[j]
+    j = 1; o = ""; r = 0
+    do {
+      used = 0; i = 1
+      while (i <= n) {
+        if (match(substr(f, i, 512), /^[^%]+/)) { o = o substr(f, i, RLENGTH); i += RLENGTH; continue }
+        if (substr(f, i + 1, 1) == "%") { o = o "%"; i += 2; continue }
+        if (match(substr(f, i + 1, 32), /^[-+ #0-9.]*[a-zA-Z]/)) {
+          o = o (j > m ? "" : (substr(f, i + RLENGTH, 1) == "b") ? ansic(a[j]) : a[j]); j++; used = 1; i += 1 + RLENGTH; continue
+        }
+        o = o "%"; i++
+      }
+    } while (used && j <= m && ++r < 64)
+    return o
   }
   function btend(t, i,   n, c) {
     n = length(t); i++
@@ -1821,8 +1853,10 @@ pw_prep_awk="$pw_lib_awk"'
       if (val[t] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { t++; continue }
       break
     }
+    # r5 decision 11: zsh reads =cmd in command position as cmd (its path), after a wrapper too
+    if (t <= nt && !qd[t] && val[t] ~ /^=[A-Za-z_.\/]/) val[t] = substr(val[t], 2)
     while (t <= nt && (base(val[t]) in WRAP)) {
-      w = base(val[t]); t++
+      w = base(val[t]); t++; if (w == "xargs") st["a"] = 1
       while (t <= nt) {
         if (rd[t]) { t++; continue }
         if (val[t] == "--") { t++; break }
@@ -1834,6 +1868,7 @@ pw_prep_awk="$pw_lib_awk"'
         t++
       }
       t += WPOS[w]
+      if (t <= nt && !qd[t] && val[t] ~ /^=[A-Za-z_.\/]/) val[t] = substr(val[t], 2)
     }
     if (t <= nt) { b = base(val[t]); if (isname(b) && tk[t] != canon(b)) { tk[t] = canon(b); val[t] = tk[t] } }
     # a searcher right after an opening backtick gets a space before it, so the rules see its name
@@ -1882,6 +1917,8 @@ pw_prep_awk="$pw_lib_awk"'
           j = rdop(w); op = substr(w, 1, j); tg = (j < length(w)) ? value(substr(w, j + 1)) : val[k + 1]
           if (op !~ /^0?(<|<<|<<-|<<<|<&|<>)$/) continue
           sub(/^0/, "", op)
+          # r5 decision 11: <&0 leaves stdin as it was
+          if (op == "<&" && tg == "0") continue
           if (op ~ /^<</) stdin = 1
           else if (op == "<&") stdin = (tg == "-") ? 0 : 1
           else stdin = (tg ~ /^\/dev\//) ? 0 : 1
@@ -1919,10 +1956,15 @@ pw_prep_awk="$pw_lib_awk"'
         while (k <= nt && (rd[k] || val[k] ~ /^-[neErRl]+$/)) k++
         for (; k <= nt; k++) if (!rd[k]) prod = prod (prod == "" ? "" : " ") val[k]
       } else if (pc == "printf") {
-        for (; k <= nt; k++) if (!rd[k]) prod = prod (prod == "" ? "" : "\n") val[k]
-      } else if (pc == "cat") {
-        for (; k <= nt; k++) if (!rd[k]) break
-        if (k > nt) prod = hstr (hstr != "" && hd != "" ? "\n" : "") hd
+        # r5 decision 11: the format with its arguments in order, then each word (r4)
+        prod = pfmt(val, rd, k, nt)
+        for (; k <= nt; k++) if (!rd[k]) prod = prod "\n" val[k]
+      } else if (pc == "cat" && hstr hd != "") {
+        prod = hstr (hstr != "" && hd != "" ? "\n" : "") hd
+      } else {
+        # r5 decision 11: any other command (cat, tee, a filter) writes its words, failing closed, and passes
+        # on what it reads (the pipe carries every earlier stage)
+        for (; k <= nt; k++) if (!rd[k]) prod = prod (prod == "" ? "" : " ") val[k]
       }
     }
     # r5 decision 3: the command find runs with -exec, -execdir, -ok or -okdir is judged on its own, each {}
@@ -1931,7 +1973,7 @@ pw_prep_awk="$pw_lib_awk"'
     # r5 decision 3: a depth bound covers the walk of its own command only: its words stay for the xargs rule
     # (its searcher names made :, the roots of find as the shell reads them), and what find runs was judged
     # on its own above
-    if (hs && hb) { out = bound(tk, val, ex, isfr, sp, nt); lastprod = prod; return out }
+    if (hs && hb) { out = bound(tk, val, ex, isfr, sp, nt); lastprod = prod; if (collect) coll = coll "\n" prod; return out }
     lastprod = prod
     if (t <= nt && ismeta(val[t], val, rd, t, nt)) return sp[0] ":" sp[nt]
     # the scripts a shell or eval runs (r4 decision 3), each judged as its own lines
@@ -1944,16 +1986,30 @@ pw_prep_awk="$pw_lib_awk"'
           ev = 1; scr = scr (scr == "" ? "" : " ") val[k]
         }
         if (scr != "") script(scr, ctx, depth)
+        # r5 decision 11: what a command substitution in eval arguments writes is a script too
+        if (scr ~ /\$\(|`/) spans(scr, ctx, depth, 1)
       }
-      st["s"] = 0
-      for (k = t; k <= nt; k++) if (!rd[k] && shstep(st, val[k]) == "script") script(val[k], sx(st, val[k]), depth)
+      st["s"] = 0; st["g"] = 0
+      for (k = t; k <= nt; k++) if (!rd[k] && shstep(st, val[k]) == "script") { st["g"] = k; script(val[k], sx(st, val[k]), depth) }
       if (st["s"] && !st["c"] && (!st["f"] || st["S"])) {
-        # its here-string, its heredoc (r5 decision 2) or what is piped into it
+        # its here-string, its heredoc (r5 decision 2) or what every earlier stage of its pipeline writes
+        # (r5 decision 11)
         scr = (hstr != "") ? hstr : (hd != "") ? hd : pin
         if (scr != "") script(scr, sx(st, scr), depth)
       }
+      # r5 decision 11: a -c script that only runs its arguments ("$@", $@, "$1", $*) runs the words after its
+      # name operand; under xargs such a script, or a -c with no script, runs what xargs reads
+      # (st["g"]: the script word; st["a"]: xargs runs the shell)
+      k = st["g"]
+      if (k && val[k] ~ /^"?\$\{?[@*1]\}?"?$/) {
+        scr = ""; for (k += 2; k <= nt; k++) if (!rd[k]) scr = scr (scr == "" ? "" : " ") tk[k]
+        if (scr != "") script(scr, sx(st, scr), depth)
+      }
+      k = st["g"]
+      if (st["a"] && st["s"] && pin != "" && (k ? val[k] ~ /^"?\$\{?[@*1]\}?"?$/ : st["c"])) script(pin, sx(st, pin), depth)
     }
     lastprod = prod
+    if (collect) coll = coll "\n" prod
     if (nt == 1 && tk[1] == "cd") tk[1] = "cd ~"
     else if (nt == 2 && tk[1] == "cd" && tk[2] == "--") tk[2] = "~"
     out = sp[0]
@@ -2033,7 +2089,7 @@ pw_prep_awk="$pw_lib_awk"'
     if (s) { gsub(/\n\t+/, "\n", HDB); sub(/^\t+/, "", HDB) }
     return m + 1
   }
-  function prep(t, depth, noext, ctx,   n, i, c, seg, res, j, sep, piped, nextin, r, bt, x, k, sb, hf, hn, he, hl, nl, LN, LP, bto) {
+  function prep(t, depth, noext, ctx,   n, i, c, seg, res, j, sep, piped, nextin, r, bt, x, k, sb, hf, hn, he, hl, nl, LN, LP, bto, pi) {
     n = length(t); i = 1; seg = ""; res = ""; piped = 0; nextin = ""; bt = 0; sb = ""; hf = 0; hn = 0; he = 0; nl = 0; bto = 0
     while (i <= n) {
       if (match(substr(t, i, 512), /^[^\\\047"#;&|()`$\n<]+/)) { seg = seg substr(t, i, RLENGTH); i += RLENGTH; continue }
@@ -2064,6 +2120,11 @@ pw_prep_awk="$pw_lib_awk"'
         j = (c == "`") ? btend(t, i) : parend(t, i + 1)
         if (j) { x = (c == "`") ? substr(t, i + 1, j - i - 1) : substr(t, i + 2, j - i - 2); if (mode == "prep" && named(x)) script(x, ctx, depth); i = j + 1; continue }
       }
+      # r5 decision 11: what a command substitution in the arguments of eval writes is a script too
+      if ((c == "`" || (c == "$" && substr(t, i + 1, 1) == "(")) && mode == "prep" && !noext && seg ~ /^[[:space:]]*eval[[:space:]]/) {
+        j = (c == "`") ? btend(t, i) : parend(t, i + 1)
+        if (j) { x = subout((c == "`") ? substr(t, i + 1, j - i - 1) : substr(t, i + 2, j - i - 2), depth, ctx); if (x != "") script(x, ctx, depth) }
+      }
       if (c == "$") { seg = seg c; i++; continue }
       if (c == "\047") { j = index(substr(t, i + 1), "\047"); if (!j) j = n - i; seg = seg substr(t, i, j + 1); i += j + 1; continue }
       if (c == "\"") { j = dqend(t, i); if (!j) j = n; seg = seg substr(t, i, j - i + 1); i = j + 1; continue }
@@ -2074,7 +2135,9 @@ pw_prep_awk="$pw_lib_awk"'
       sep = c
       if ((c == "|" || c == "&") && substr(t, i + 1, 1) == c) sep = c c
       else if (c == "|" && substr(t, i + 1, 1) == "&") sep = "|&"
-      pipein = nextin; r = simple(seg, depth, piped, noext, ctx, bt, sb); sb = ""; nextin = (sep == "|" || sep == "|&") ? lastprod : ""
+      # r5 decision 11: a pipe carries what every earlier stage writes
+      pi = nextin; pipein = pi; r = simple(seg, depth, piped, noext, ctx, bt, sb); sb = ""
+      nextin = (sep == "|" || sep == "|&") ? pi (pi == "" ? "" : "\n") lastprod : ""
       # r5 decision 5: a space before a closing backtick too, so a root right before it ends there
       if (sep == "`") { if (bto) r = r " "; bto = !bto }
       res = res r sep; seg = ""; i += length(sep)
@@ -2108,12 +2171,13 @@ pw_prep_awk="$pw_lib_awk"'
 # pw_nopath CMD: CMD (prepped) holds a recursive searcher given no path.
 pw_nopath() { [ "$(printf '%s' "$1" | LC_ALL=C awk -v RS=$'\001' -v mode=nopath "$pw_prep_awk" 2>/dev/null)" = 1 ]; }
 # pw_named CMD: CMD names a searcher where the prep reads one: plainly, after a quote, a backslash, a / or
-# a backtick, once its quote marks, backslashes and $ are gone (r4 decision 4), or in a $'...' holding an
-# escape (decision 3).
+# a backtick, once its quote marks, backslashes and $ are gone (r4 decision 4), in a $'...' holding an
+# escape (decision 3), or as zsh's =cmd (r5 decision 11).
 pw_named() {
   printf '%s' "$1" | grep -qE "(^|[[:space:];&|(/\\\\'\"\`])(find|rg|[efru]?grep)[\`'\")]?([[:space:]]|\$)" \
     || printf '%s' "$1" | LC_ALL=C tr -d "\\\\'\"\$" | grep -qE "(^|[[:space:];&|(/\`])(find|rg|[efru]?grep)[\`)]?([[:space:]]|\$)" \
-    || printf '%s' "$1" | grep -qE "\\\$'[^']*\\\\[0-7xX]"
+    || printf '%s' "$1" | grep -qE "\\\$'[^']*\\\\[0-7xX]" \
+    || printf '%s' "$1" | grep -qE "(^|[[:space:];&|(])=(find|rg|[efru]?grep)([[:space:]]|\$)"
 }
 pw_cmd=$command
 if pw_named "$command"; then

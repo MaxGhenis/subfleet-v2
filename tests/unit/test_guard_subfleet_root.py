@@ -457,6 +457,13 @@ R5_TEXT = [
   root_end="['\\"]?([[:space:]|;&)]|\\$)"
 """),
 ]
+R5_TEXT += [
+    ("""# escape, which may spell one; the sixth (r5) zsh's =rg, =find and =grep.
+""", """# escape, which may spell one.
+"""),
+    ("""  || printf '%s' "$command" | grep -qE "(^|[[:space:];&|(])=(find|rg|[efru]?grep)([[:space:]]|\\$)" \\
+""", ""),
+]
 R3_TEXT = R5_TEXT + R3_TEXT
 
 

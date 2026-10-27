@@ -103,6 +103,8 @@ MUTATIONS = {
     "r4-tilde-user-dropped": (HOOK, None, None, "test_r4_the_unlisted_forms_are_judged"),
     # r5 (the hub's decisions on review r4), one per decision
     "r5-heredoc-unread": (HOOK, None, None, "test_r5_heredoc_bodies_are_data"),
+    "r5-too-long-allowed": (HOOK, None, None, "test_r5_a_command_too_long_to_prep_fails_closed"),
+    "r5-pipe-stages-dropped": (HOOK, None, None, "test_r5_the_unjudged_forms_are_judged"),
     "r5-bound-hides-producer": (HOOK, None, None, "test_r5_a_depth_bound_covers_only_its_own_walk"),
     "r5-backtick-space-dropped": (HOOK, None, None, "test_r5_a_closing_backtick_ends_a_root"),
     "r5-dq-substitution-unread": (HOOK, None, None, "test_r5_a_closing_backtick_ends_a_root"),
@@ -233,8 +235,14 @@ EDITS = {
 """, "")],
     "r5-dq-substitution-unread": [("""          if (mode == "prep" && !noext) spans(substr(seg, i + 1, j - i - 1), ctx, depth)
 """, "")],
-    "r5-bound-hides-producer": [("""    if (hs && hb) { out = bound(tk, val, ex, isfr, sp, nt); lastprod = prod; return out }
+    "r5-bound-hides-producer": [("""    if (hs && hb) { out = bound(tk, val, ex, isfr, sp, nt); lastprod = prod; if (collect) coll = coll "\\n" prod; return out }
 """, """    if (hs && hb) return sp[0] ":" sp[nt]
+""")],
+    "r5-pipe-stages-dropped": [("""      nextin = (sep == "|" || sep == "|&") ? pi (pi == "" ? "" : "\\n") lastprod : ""
+""", """      nextin = (sep == "|" || sep == "|&") ? lastprod : ""
+""")],
+    "r5-too-long-allowed": [("""if pw_named "$command"; then
+""", """if [ "${#command}" -le 65536 ] && pw_named "$command"; then
 """)],
     "r5-heredoc-unread": [("""      if (c == "<" && substr(t, i + 1, 1) == "<" && !hf && (j = hdword(t, i))) {
 """, """      if (0) {
