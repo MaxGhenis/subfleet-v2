@@ -200,6 +200,36 @@ def test_the_retry_clock_runs_from_the_probes_reservation(routing_state, monkeyp
                                               "next_check_at": service.store.get_job(job_id)["next_check_at"]}
 
 
+def host_running_late(patch) -> dict:
+    """The time as daemon.py reads it (`datetime.now`): the host's clock, `late` on, which a test
+    moves on where a loaded host's pass spends seconds (D-PROBE-TEST-CLOCK1)."""
+    host = {"late": timedelta(0)}
+
+    class HostClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.now(tz) + host["late"]
+    patch.setattr(daemon_module, "datetime", HostClock)
+    return host
+
+
+@pytest.mark.parametrize("ran_s, left_s", [(60, 0), (75, 0), (7, 53), (0, 60)])
+def test_the_retry_clock_holds_however_long_the_pass_takes_to_reserve(routing_state, monkeypatch, ran_s, left_s):
+    """D-PROBE-TEST-CLOCK1: the test above with the host's clock three seconds on by the time the
+    pass reserves the probe, as the start of a pass took at load 130 (its (7, 53) case failed)."""
+    service, _ = routing_state
+    host, transaction = host_running_late(monkeypatch), service.store.transaction
+
+    @contextmanager
+    def after_the_start_of_the_pass(kind="state.changed", **kwargs):
+        if kind == "probe.reserved":
+            host["late"] += timedelta(seconds=3)
+        with transaction(kind, **kwargs) as tx:
+            yield tx
+    monkeypatch.setattr(service.store, "transaction", after_the_start_of_the_pass)
+    test_the_retry_clock_runs_from_the_probes_reservation(routing_state, monkeypatch, ran_s, left_s)
+
+
 def test_a_vehicle_whose_clock_runs_keeps_its_place(routing_state, monkeypatch):
     """I1, I3: a probe that failed in a second leaves its vehicle on a clock for the rest of the
     minute; the job behind it is looked at meanwhile and still waits for it, rather than probing the
@@ -967,15 +997,7 @@ def test_i3_reads_the_instant_the_pass_ran_at_however_long_the_pass_takes(monkey
     @contextmanager
     def loaded():
         with property_fleet() as (service, harness, patch):
-            host = {"late": timedelta(0)}
-
-            class HostClock(datetime):
-                """The time as daemon.py reads it: the host's clock, `late` on."""
-                @classmethod
-                def now(cls, tz=None):
-                    return datetime.now(tz) + host["late"]
-            patch.setattr(daemon_module, "datetime", HostClock)
-            transaction = service.store.transaction
+            host, transaction = host_running_late(patch), service.store.transaction
 
             @contextmanager
             def then_the_rest_of_the_pass(kind="state.changed", **kwargs):
