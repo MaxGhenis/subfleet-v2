@@ -327,6 +327,9 @@ private func laneDisplay(
     else if unverified { status = "Identity unverified"; tone = .warning }
     else if offline { status = "Offline · cached"; tone = .warning }
     else if snapshotStale { status = "Snapshot stale"; tone = .warning }
+    // D-STATUS-SRC1: an operator's hold is not a provider limit. A held lane is
+    // never read, so its usage going stale is expected and does not hide it.
+    else if verdict == "held" { status = "Held"; tone = .neutral }
     else if evidenceStale { status = "Stale usage"; tone = .warning }
     else if verdict == "limited" { status = "Limited"; tone = .warning }
     else if dispatchable != true { status = "Unavailable"; tone = .neutral }

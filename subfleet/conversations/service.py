@@ -1269,8 +1269,10 @@ class ConversationService:
 
     def _resume_start(self, sid: str, tries: int, began: float) -> None:
         # D-ENV1: a file-pool thread inherits no helper scope, so the worktree's git
-        # must establish the daemon's policy here, as `_run_worker` does for the rest.
-        with helper_policy(getattr(self.daemon, "policy", {})):
+        # must establish the daemon's policy here, as `_run_worker` does for the rest,
+        # and its withheld names (D-ENV2, review r2 of #248, P3-2).
+        with helper_policy(getattr(self.daemon, "policy", {}),
+                           withheld=getattr(self.daemon, "_helper_withheld", None)):
             self._resume_start_scoped(sid, tries, began)
 
     def _resume_start_scoped(self, sid: str, tries: int, began: float) -> None:

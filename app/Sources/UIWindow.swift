@@ -474,10 +474,7 @@ struct ConversationView: View {
                     .padding(.horizontal, 14).padding(.top, 6)
             }
             if let layout, let title = layout.trayTitle {
-                QueueTray(title: title, rows: layout.tray, withdrawing: model.withdrawingMessages,
-                          withdraw: { model.withdrawQueued($0, conversationID: conversation.conversation_id) },
-                          steer: { model.steer(messageID: $0.id, conversationID: conversation.conversation_id) },
-                          conversationID: conversation.conversation_id)
+                QueueTray(model: model, conversationID: conversation.conversation_id, title: title, rows: layout.tray)
                     .padding(.horizontal, 14).padding(.top, 6)
             }
             ComposerView(model: model, conversation: conversation)
