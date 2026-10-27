@@ -450,6 +450,15 @@ class RelayServer:
                 **advertisement(), "applied": len(self._records), "closed": self._closed,
                 "child": "none" if child is None else "running" if child.poll() is None else "exited"}}
 
+    def _refusal(self, seq: int, error: str, **details) -> dict:
+        # A broken/closed pipe alone does not prove exit: a live child can close
+        # stdin too. Preserve the guardian's reaped-child evidence in the reply,
+        # since shutdown may close the socket before a follow-up status arrives.
+        child = self._child
+        exited = child is not None and child.poll() is not None
+        return {"seq": seq, "ok": False, "error": error, **details,
+                **({"child_exited": True} if exited else {})}
+
     def apply(self, frame: dict) -> dict:
         """Apply one frame. Public so the unit tests can drive it without a socket."""
         if isinstance(frame, dict) and frame.get("op") == "status" and "seq" not in frame:
@@ -474,7 +483,7 @@ class RelayServer:
                 if logged["sha256"] != frame["sha256"] or logged["op"] != op:
                     return {"seq": seq, "ok": False, "error": "conflict"}
                 if logged["status"] != "written":
-                    return {"seq": seq, "ok": False, "error": "no-child" if op == "signal" else "failed"}
+                    return self._refusal(seq, "no-child" if op == "signal" else "failed")
                 return {"seq": seq, "ok": True, "dup": True}
             if seq != len(self._records) + 1:
                 return {"seq": seq, "ok": False, "error": "gap", "last": len(self._records)}
@@ -497,7 +506,7 @@ class RelayServer:
                 self._append({"kind": "written" if delivered else "failed", "seq": seq})
                 return {"seq": seq, "ok": delivered, **({} if delivered else {"error": "no-child"})}
             if self._closed or self._pipe is None:
-                return {"seq": seq, "ok": False, "error": "closed"}
+                return self._refusal(seq, "closed")
             intent = _intent(frame)
             self._append(intent)
             record = {**intent, "status": "pending"}
@@ -522,7 +531,7 @@ class RelayServer:
                     self._append({"kind": "failed", "seq": seq, "errno": exc.errno})
                 except OSError:
                     pass
-                return {"seq": seq, "ok": False, "error": "failed", "errno": exc.errno}
+                return self._refusal(seq, "failed", errno=exc.errno)
             self._append({"kind": "written", "seq": seq})
             record["status"] = "written"
             return {"seq": seq, "ok": True}
@@ -562,6 +571,7 @@ class Ack:
     ok: bool
     dup: bool = False
     error: str | None = None
+    child_exited: bool = False
 
 
 class RelayError(Exception):
@@ -665,4 +675,4 @@ class RelayClient:
             raise FrameTooLarge(len(payload), self.frame_max)
         body = self._exchange(payload, before_send=before_send)
         return Ack(seq=body.get("seq", seq), ok=bool(body.get("ok")), dup=bool(body.get("dup")),
-                   error=body.get("error"))
+                   error=body.get("error"), child_exited=body.get("child_exited") is True)

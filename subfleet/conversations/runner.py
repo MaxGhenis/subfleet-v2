@@ -712,8 +712,9 @@ class TurnRunner:
                 return True
         if unwritten:
             # A frame the log shows unwritten ended relaying for good (C-26.4); a
-            # runner rebuilt after a restart stops the turn as its predecessor did.
-            self._relay_lost("the relay log shows a frame that was not written")
+            # runner rebuilt after a restart makes the same child-exit distinction.
+            self._relay_lost("the relay log shows a frame that was not written",
+                             child_exited=status is not None and status.get("child") == "exited")
         return True
 
     def _unacknowledged(self, why: str) -> None:
@@ -847,7 +848,17 @@ class TurnRunner:
             self.outbox.pop(0)
             return True
         # conflict, failed, closed, gap, peer-refused: nothing more is written.
-        self._relay_lost(f"relay refused frame {frame.tag}: {ack.error}")
+        child_exited = ack.child_exited or self._process_gone()
+        if not child_exited:
+            # Older guardians do not include exit evidence in refusals. Ask for
+            # their current child state; a missing answer proves no exit. The
+            # receipt may arrive while this exchange discovers shutdown.
+            try:
+                status = self.relay.status()
+            except RelayError:
+                status = None
+            child_exited = status is not None and status.get("child") == "exited"
+        self._relay_lost(f"relay refused frame {frame.tag}: {ack.error}", child_exited=child_exited)
         return False
 
     # --- the first turn's title (titles.py) ---------------------------------------
@@ -1044,10 +1055,16 @@ class TurnRunner:
         self._discard_steers("host-frame-refused")
         self.outbox[:] = [] if frame.op == "close" else [Frame("close", "close", stops=True)]
 
-    def _relay_lost(self, why: str) -> None:
-        """Nothing more can be written (C-26.4). A turn with no terminal event is
-        then stopped as a stop request would stop it; the steps that need the
-        relay are skipped, so containment ends it (D-13, design §6)."""
+    def _relay_lost(self, why: str, *, child_exited: bool = False) -> None:
+        """Nothing more can be written (C-26.4). A proved child exit leaves the
+        outcome to stdout and EOF. Otherwise a turn with no terminal event is
+        stopped, skipping the relay steps so containment ends it (D-13, design §6)."""
+        if child_exited or self._process_gone():
+            # Refusal after a proved exit is the provider's end, not a stop.
+            # Drain stdout and let EOF decide the outcome once exit.json arrives.
+            self._discard_steers("provider-ended")
+            self.outbox.clear()
+            return
         self.relay_failed = True
         self._discard_steers("relay-failed")
         self.outbox.clear()
