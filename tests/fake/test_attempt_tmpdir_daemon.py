@@ -251,7 +251,8 @@ def _probe(service, job_id, holder, *, state, tmpdir):
     directory.mkdir(parents=True)
     record = {"holder": holder, "job_id": job_id, "lane_id": "codex-1", "model_id": "gpt-6-astra",
               "directory": str(directory), "state": state, "created_at": "2026-10-23T00:00:00Z",
-              "deadline_at": "2026-10-23T00:01:00Z", "owned_identities": {}, "tmpdir": tmpdir}
+              "deadline_at": daemon_module._later("2026-10-23T00:00:00Z", service.policy["admission"]["probe_deadline_s"]),
+              "owned_identities": {}, "tmpdir": tmpdir}
     service._save_probe(record)
     return record
 
