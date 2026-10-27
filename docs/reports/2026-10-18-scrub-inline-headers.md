@@ -1345,6 +1345,7 @@ The two regressions added later were run at `8fde0c4ad` as plain calls:
 - **M7** (the `_HEADER_RE` half out): `Authorization:`, `Cookie`, `: --api-key` and `SECRET7c3` on four lines then shows `SECRET7c3` in the same three modes; the head hides it.
 - Both references show each value, so only a pin of today's output sees either mutant (`test_the_next_line_skip_s_halves_are_pinned`). Each pin fails under its mutant and passes at the head, before and after the fix.
 - **M6** (the `_header_name_at` half out) survives every test, round 6's included. It is probably equivalent, for review r6's reason: the quoted pass takes quoted names on the next line first. No input found tells it from the head.
+  - *Correction (fix round 7, 2026-10-26):* M6 is not equivalent (review r7, P3-3). `_HEADER_RE` needs a value after the colon (`.+$`) and `_header_name_at` doesn't, so the halves differ where the next line is a name with nothing after its colon: `Cookie:` and `SECRET7ab1Cookie :` on two lines give `Cookie:` and `[REDACTED] :` at the head, and `Cookie:` and `[REDACTED]` under M6, in the excerpt, whole and `clean` modes. Neither shows a secret. Round 7 pins that output (`test_the_next_line_skip_s_halves_are_pinned[next-line-name-with-nothing-after-its-colon]`), which kills M6.
 
 **Decision 5: the folded-line trade's scale, per corpus.** Round 5 called it "3 of 243,680", which is its own corpus only. Per corpus:
 - **Round 5's corpus:** 3 of 243,680 texts, against `8fde0c4ad`.
@@ -1359,6 +1360,7 @@ Each holds for every input, with its stated exceptions and scope.
 1. **No new leak:** in no mode does the head show a `SECRET7` value that 473fe2941 or `c2e080e44` hides.
    - **One stated exception:** round 2's converse (`invalid Bearer SECRET7_token: expired`, a value only `3fbc4b7c5` hid). P3-4's join is fixed.
    - **Scope:** every generator of rounds 1 to 6 (the holds below) and this round's corpus: 0 of 48,758 show a value both references hide, and 0 show a value `3fbc4b7c5` hides.
+   - *Correction (fix round 7, 2026-10-26):* the invariant did not hold at this head beyond that scope. Review r7's P2-1 family showed a value both references and release hide in 5,095 of its 51,371 texts (and 2 of its 15,000 joins), so the converse was not yet the one stated exception. Round 7 closes the family; its section states the invariant's new scope.
 2. **Monotone:** no second scrub reveals anything over the corpus (0 of 48,758).
 3. **Excerpts agree with the whole** at every cut `_neutral_break` allows (0 of 48,758 split).
 4. **Ownership:** round 3's twin matrices pass unchanged (hold 1b).
@@ -1390,7 +1392,7 @@ Each change was made on its own in a copy of `6d7e4ada9`'s tree (M4 and M7 also 
 | The `keyed` memo removed (`_key_past_line` read per candidate) | no test (its output is the head's); the cost row: the excerpt row at 1.353× (min) in run 1 and 1.172× in run 2, against the head's 1.103× and 1.098× |
 | M4: the skip's secret-prefix redaction out | `test_the_next_line_skip_s_halves_are_pinned[secret-prefix-goes]` (1) |
 | M7: the skip's `_HEADER_RE` half out | `test_the_next_line_skip_s_halves_are_pinned[line-start-header-read-across-its-colon]` (1) |
-| M6: the skip's `_header_name_at` half out (not in the brief) | none; probably equivalent (P3-3, above) |
+| M6: the skip's `_header_name_at` half out (not in the brief) | none this round. *Correction (fix round 7):* not equivalent, and round 7's pin `next-line-name-with-nothing-after-its-colon` kills it (P3-3, above) |
 
 ### Cost
 
@@ -1445,4 +1447,178 @@ In total, 897 passed, 3 were skipped (the opt-in full forms) and none failed.
   - a sweep of the mutation driver (the Budget hold).
 - **Follow-ups for the hub:** round 5's, less P3-4's join, with these.
   - **The lone-flag sentence's two named cases** (P3-1), stated and pinned, not closed; both references show them.
-  - **M6** survives, probably equivalent (P3-3).
+  - **M6** survives, probably equivalent (P3-3). *Correction (fix round 7):* it is not equivalent; round 7 pins the input that tells it from the head, and that pin kills it.
+
+## Fix round 7 (#239 review r7, 2026-10-26)
+
+**Brief:** `~/reviews/subfleet-hub/scrub-inline-2026-10-18/brief-fix7.md`. **Review:** that folder's `review-r7.md`, REQUEST_CHANGES at `36590532c`. It found one P2 (P2-1, a family the PR shows and release hides, with a measured fix, `p34h`) and three P3s. The review's generators and scripts are in `review-r7-tools/`, and this round rebuilt every corpus with its `gen.py`. This round built the hub's five decisions as given. One proved impossible as worded, and the smallest change that keeps its intent is described below (the strata). The job ran in two attempts in its own worktree (job `20261026-192232-pr239-fix7`). Attempt a1, from 02:22Z, committed the red tests, the fix and the three P3s' tests. Attempt a2, from 04:00Z, ran the holds, the full generator, the corpora, the mutants and the cost rows, and wrote C-23.14 and this section. There were no Git remote operations and no sub-agents, and nothing was pushed. All test values are dummy `SECRET7…` strings.
+
+**Names in this section.**
+- **`407ff5010`** is this branch's head before this round: round 6's `36590532c` plus the hub's merge of `release/217` at `7b1251693`. Its scrubber is `36590532c`'s: the merge changes nothing in `handoff.py` or `suggestions.py` (it changes `refusals.py`).
+- **`95420ecaf`** is the code head; no later commit changes `subfleet/`.
+- **The references** stay `473fe2941` and `c2e080e44`, and the tests use the frozen `scrub_473fe2941` for both. **Release** is the live `be0c2a311`. The corpora ran each commit's own `subfleet/` tree.
+
+### Findings: cause and fix
+
+**P2-1: a credential flag after a header name that an unclosed quoted value swallows.**
+- **The inputs,** both minimized by review r7:
+  - (A) `Authorization:"Authorization:`, `--password` and `:r SECRET7c5` on three lines;
+  - (B) `Set-Cookie:"Authorization`, `:--1_token` and `=r SECRET7c5`.
+  - At `407ff5010` (A) gave `Authorization:[REDACTED]`, `--password` and `:[REDACTED] SECRET7c5`, and (B) gave `Set-Cookie:[REDACTED]` and `[REDACTED] SECRET7c5`, in the excerpt, whole and `clean` modes. Both references and release give `Authorization:[REDACTED]` and `Set-Cookie:[REDACTED]` there.
+- **The cause, as review r7 traced it:** `p34f` added round 6's check at only one of the quoted pass's three item sites, the unclosed-quote branch. The other two sites still ended the value before the flag:
+  - the swallowed header name's value (`owned_before`), in (A);
+  - a key's plain value within a quoted match (`_owned_item` and `_secret_flag`), in (B).
+  - In both, the flag's name is a key whose separator is on the next line. The references join the three lines, and the header takes the rest of the joined line.
+- **Fix (`95420ecaf`, review r7's `p34h` as given):** after each of the two sites, the same `_key_past_line` check, run only when there is an item or fold to clear, and read through the `keyed` memo. A flag whose name is such a key, at or after the value's start, ends nothing there. The union then takes the flag with the key's value.
+- **The pins:** (A), (B) and review r7's two seeded joins (seed 7241) give both references' output in every mode, with no split and no reveal (`test_review_r7_s_p2_1_inputs_give_both_references_output_in_every_mode`, `test_review_r7_s_two_joins_show_nothing_both_references_hide`).
+  - (A) and (B) show `SECRET7c5` in `detail_line` only, as both references do.
+  - In `detail_line` the joins hide more than the references: the quotes the references keep, and in the second join also `SECRET7c5`, which both references show there.
+- **Both sites are needed** (Mutations, below): without site 1, (A) and both joins fail; without site 2, (B) does.
+- **The family as a property (`family_class`):** review r7's generator, lead × quote × inner name × gap × separator × flag × gap × run × rest × tail (11 × 4 × 10 × 4 × 4 × 7 × 3 × 6 × 5 × 4, 2,217,600 cells). Its 24,640-cell core and 30,000 draws at seed 7243 give 51,371 texts, the review's `fam2` corpus text for text.
+  - **By default** it runs a 600-cell sample: 69 strata and 531 seeded draws (`family_sample`). At `407ff5010`, 117 of the 600 show a value both references hide, all 69 strata among them.
+  - **With `SF_SCRUB_FULL_MATRIX=1`** it runs all 51,371. This round ran it once, foreground, as a plain script in three worker processes (`_p3_4_failures` over three interleaved slices, 206 s). **0 texts show a value both references hide, with 0 splits and 0 reveals.** The corpus run below adds release: 0 there too.
+- **The strata (the decision that could not be built as worded).** The brief asked that every part value contribute at least one cell that leaks at `36590532c`. In the whole family, 12 of the 58 part values have no leaking cell (`FAMILY_NEVER_SHOWN`: eight leads, the empty quote, `x --password`, the run `r` and the empty rest). So the strata are a greedy cover of every part value that does leak (46), each mode set (2) and each pair of two parts' values (916) that the family's 5,095 leaking cells hold. That is every shape the whole class fails for. The test checks that the strata hold every part value but those 12.
+- **Every round's head shows the family,** by review r7's runs (`8ed254385` to `1ad7da99c`); this round ran only `407ff5010` and `1ad7da99c`, and each shows it in 5,095 texts.
+
+**P3-1: the P3-4 sample holds a cell of every shape that leaked.**
+- `P3_4_STRATA` is now a greedy cover, built the same way, of every part value, mode set and pair of values that the class's 2,678 cells failing at `1ad7da99c` hold: 48 strata, then 552 seeded draws. 17 part values have no failing cell in the whole class (`P3_4_NEVER_SHOWN`), for the reason given under P2-1.
+- **Review r7's two missed cells are pinned** in every mode against both references (`test_review_r7_s_cells_the_sample_missed_give_both_references_output_in_every_mode`): `cookie:\"--api-key` and `  = x SECRET7c5"` (RUN `=`), and `cookie:"x --1_token`, an empty line and `:r SECRET7c5'` (REST `" SECRET7c5'"`). Each passes at the head. At `1ad7da99c` each shows `SECRET7c5` in the excerpt, whole and `clean` modes, where both references hide it.
+- **Coverage, as review r7 measured it** (its `coverage.py`, against the shapes its own 93,521-text P3-4 corpus leaks at `1ad7da99c`):
+
+  | | Mode sets | Part values | Pairs of values | Cells failing at `1ad7da99c` |
+  |---|---|---|---|---|
+  | The whole class (33,740) | 4 / 4 | 40 / 40 | 699 / 699 | 2,678 |
+  | Round 6's sample (600) | 4 / 4 | 38 / 40 | 468 / 699 | 45 |
+  | This round's sample (600) | 4 / 4 | **40 / 40** | **699 / 699** | **104** (all 48 strata among them) |
+
+- **The family's sample, the same way** (against the whole family's leaking cells at `407ff5010`): 2 / 2 mode sets, 46 / 46 part values and 916 / 916 pairs.
+
+**P3-2: the `keyed` memo is tested.**
+- **The probe:** review r7's input, `_adversary(300)` with its last word replaced by ` --` + 40,000 × `a` + `_password` and `=x SECRET7c5` on the next line (88,474 characters). Its 300 unclosed values share one line end. Both references also show `SECRET7c5` in every mode here, so no mode shows a new leak.
+- **The count test** (`test_unclosed_values_sharing_a_line_end_read_the_key_past_it_once`), in the excerpt, whole and `detail_line` modes: `handoff._key_past_line`, monkeypatched with a counter, is called once per line end. The head makes 1 call in each mode. With the memo removed at all three sites, 300.
+- **The linear pairs** (`test_the_memo_s_probe_scrubs_in_linear_time`): twice the values (to 226,924 characters) and twice the identifier (to 128,474), each through `_assert_linear`. The identifier walk also stays under the text's length in every mode.
+  - **The head** walks the identifier once: 40,012 `_identifier_char` calls, and 80,012 at twice the identifier, at 16 to 39 ms.
+  - **Without the memo** it walks it once per value: 12,003,600 calls on 88,474 characters (2.2 to 2.3 s), 24,007,200 at twice the values and 24,003,600 at twice the identifier.
+  - Each pair grows one factor of that product, so `_assert_linear`'s 4× bound passes it. Only the walk bound sees the quadratic.
+- **The count holds with `p34h`'s two sites in place:** they read through the same memo, and the memo-off mutant removes it at all three.
+
+**P3-3: M6 is not equivalent.**
+- `_HEADER_RE` needs a value after the colon (`.+$`), and `_header_name_at` needs only the name and `[ \t]*:`. So the skip's two halves differ when the next line is a name with nothing after its colon.
+- `Cookie:` and `SECRET7ab1Cookie :` on two lines give `Cookie:` and `[REDACTED] :` at the head, and `Cookie:` and `[REDACTED]` under M6, in the excerpt, whole and `clean` modes. Neither shows a secret.
+- The input is pinned at today's output in the five modes (`test_the_next_line_skip_s_halves_are_pinned[next-line-name-with-nothing-after-its-colon]`), which kills M6. Round 6's three lines that called M6 probably equivalent now each carry a dated correction.
+
+### C-23.14
+
+- **The rule `p34h` adds,** with (A) and (B) as executed examples: a flag that ends the value of a header's name that a quoted match swallows, or a key's plain value within a quoted match, and whose name is a key whose separator is on the next line, ends nothing.
+- **The converse sentence** ("the one value a reference hides that this scrubber is known to show") was false at `36590532c`. It is true at the head on every text this round ran, as measured below: the head shows nothing that 473fe2941, `c2e080e44` or release hides. Against `3fbc4b7c5` (run on the regression inputs, the joins and the family) it shows only the converse (41 texts, in each only the `SECRET7_token` of a key after `invalid Bearer` or `token_type: Bearer`). The sentence now names this section.
+- **The change log** gains round 7's entry, and round 6's entry says its claim held only from this round.
+
+### Invariants
+
+Each holds for every input, with its stated exceptions and scope.
+1. **No new leak:** in no mode does the head show a `SECRET7` value that 473fe2941 or `c2e080e44` hides.
+   - **One stated exception:** round 2's converse (`invalid Bearer SECRET7_token: expired`, a value only `3fbc4b7c5` hid). Review r7's P2-1 family is closed.
+   - **Scope:** every generator of rounds 1 to 7 (the holds below), the whole family (51,371 cells, run in full), and review r7's eight corpora (311,789 texts). 0 of them show a value either reference or release hides, and 0 show a value `3fbc4b7c5` hides on the 69,024 texts it ran (the regression inputs, the joins and the family) but the converse.
+2. **Monotone:** no second scrub reveals anything over the corpora (0 of 311,789), nor over the whole family.
+3. **Excerpts agree with the whole** at every cut `_neutral_break` allows (0 of 311,789 split).
+4. **Ownership:** round 3's twin matrices pass unchanged (hold 2b).
+5. **Cost:** review r7's three rows stay within 1.3× of `c2e080e44` on the median in three runs, and the quadratic shape stays linear (Cost, below). The `keyed` memo is needed, and a test now counts it (P3-2).
+6. **A lone flag survives whatever takes its header's line,** but for the two cases C-23.14 names (round 6's P3-1); their pins pass unchanged.
+
+### The corpora
+
+These are review r7's eight sets, rebuilt with its `gen.py`. They ran as plain scripts (its `drive.py`, `worker.py` and `analyze.py`) in three worker processes, outside the lock, through every tree in all five modes. The head's rows also check every allowed excerpt cut and a second scrub.
+
+| Set | Texts | Head: what both references hide | Head: what release hides | `1ad7da99c`: what both references hide | Head: splits / reveals | Head shows what `1ad7da99c` hid |
+|---|---|---|---|---|---|---|
+| Regression inputs | 2,653 | 0 | 0 | 9 | 0 / 0 | 0 |
+| Builder's P3-4 class | 33,740 | 0 | 0 | 2,678 | 0 / 0 | 365 |
+| Review r7's P3-4 generator | 93,521 | 0 | 0 | 9,865 | 0 / 0 | 1,252 |
+| Adversarial texts aimed at `p34f` | 55,404 | 0 | 0 | 1,455 | 0 / 0 | 2,701 |
+| Line-start | 56,275 | 0 | 0 | 0 | 0 / 0 | 0 |
+| Refused `Bearer` | 3,825 | 0 | 0 | 0 | 0 / 0 | 0 |
+| Seeded joins | 15,000 | 0 | 0 | 1,026 | 0 / 0 | 86 |
+| P2-1's family | 51,371 | 0 | 0 | 5,095 | 0 / 0 | 0 |
+| **Total** | **311,789** | **0** | **0** | **20,128** | **0 / 0** | **4,404** |
+
+- **The references** give the same output on every text, and release gives `c2e080e44`'s on every text.
+- **Against `407ff5010`** (round 6's scrubber), the head hides more in 6,508 texts: 6,506 of the family and the 2 joins. It shows nothing `407ff5010` hid. `407ff5010` shows the family's value in 5,095 texts, by mode: 4,704 in the excerpt, whole and `clean` modes, and 391 in the excerpt and `clean` modes. Those are review r7's counts.
+- **What the head shows that `1ad7da99c` hid** is round 6's folded-line trade, unchanged by this round. It totals 4,404 texts, each a value that both references and release show.
+  - 4,318 are in both line modes and 86 are joins. Of the joins, 68 are in both line modes and 18 in `detail_line` alone.
+  - Per set they are review r7's counts exactly (365, 1,252, 2,701 and 86).
+
+### Mutations
+
+Each mutant is one edit in a copy of `95420ecaf`'s tree. The named test modules ran against each as plain calls, outside the lock (the Budget hold: the brief's named mutants only). The head, the control, passes every case.
+
+| Mutant | Cases run | Killing tests |
+|---|---|---|
+| `p34h`'s site 1 removed (the swallowed header name's value) | `_r7` (11) | 4: (A), both joins, the family sample |
+| `p34h`'s site 2 removed (a key's plain value within a quoted match) | `_r7` (11) | 2: (B), the family sample |
+| `p34f`'s check removed (round 6's) | `_r7`, `_r6`, `_r5` (54) | 17: both joins; 8 of r6's 9 inputs, the P3-4 sample and its two missed cells; `_r5`'s four P3-4 pins |
+| The `keyed` memo removed, at all three sites | `_r7` (11) | 5: the three count tests and the two linear pairs |
+| M4: the skip's secret-prefix redaction out | `_r6` (19) | 1: `secret-prefix-goes` |
+| M6: the skip's `_header_name_at` half out | `_r6` (19) | 1: `next-line-name-with-nothing-after-its-colon` |
+| M7: the skip's `_HEADER_RE` half out | `_r6` (19) | 1: `line-start-header-read-across-its-colon` |
+
+With `p34f` removed, r6's ninth input (`Authorization:`, `'Cookie: --api-key` and `=r SECRET7c5`) still passes, so one of `p34h`'s sites now hides it too. This round did not trace which.
+
+### Cost
+
+These are review r7's three rows with its `cost.py`: head ÷ `c2e080e44`, min / median, CPU `thread_time`. The three trees run in persistent processes, interleaved with the order alternating, 9 samples a row (4 for the quadratic shape). `36590532c` ran alongside as the old head. The runs were outside the lock: run 1 at 05:22Z (load 30 to 34), run 2 at 05:24Z (load 22 to 30) and run 3 at 05:25Z (load 31 to 33).
+
+| Row | Run 1 | Run 2 | Run 3 | `36590532c`, runs 1 / 2 / 3 |
+|---|---|---|---|---|
+| Excerpt, 261,666 characters | 1.380 / 1.122 | 1.080 / 1.067 | 1.071 / 1.056 | 1.352 / 0.923; 0.862 / 1.017; 1.121 / 1.058 |
+| 1 MiB `detail_line`, adversary | 0.808 / 0.940 | 0.922 / 1.001 | 1.042 / 1.017 | 1.084 / 0.947; 0.795 / 0.932; 1.026 / 1.054 |
+| 1 MiB `detail_line`, headers | 1.220 / 1.207 | 1.249 / 1.224 | 1.306 / 1.257 | 1.165 / 1.216; 1.109 / 1.163; 1.244 / 1.234 |
+
+- **Every median is within 1.3×;** the worst is 1.257 (headers, run 3). Two minimums are above it:
+  - excerpt, run 1: 1.380 (`36590532c` read 1.352 on the same samples);
+  - headers, run 3: 1.306 (`36590532c` read 1.244).
+- **The excerpt row,** going by the code (not measured), reaches neither new site: its values are all quoted (review r7's reading).
+- **The quadratic shape** (round 4's shape at 20,010, 40,010, 80,010 and 160,010 characters; head, min, ms):
+  - **Head:** 16.2, 33.9, 73.1 and 160.4 in run 1; 22.0, 59.1, 123.2 and 204.9 in run 2; 15.4, 38.8, 45.6 and 161.5 in run 3.
+  - **`c2e080e44`:** 6.6, 16.6, 27.4 and 59.7; 10.9, 22.6, 39.1 and 80.6; 7.0, 9.4, 29.9 and 47.4.
+  - The head grows 9.3 to 10.5 times over an 8 times larger input, and `c2e080e44` 6.8 to 9.0 times. The head stays 1.5 to 4.1 times `c2e080e44` at every size, as `36590532c` does (1.8 to 3.3). That is linear.
+
+### Tests
+
+**Red, as plain calls** (review r7's `runcases.py`, the test modules against a tree's `subfleet`):
+- **At `407ff5010`,** `test_scrub_review_r7`'s P2-1 cases: 5 of 5 failed. They are (A), (B), both joins, and the family sample (117 of its 600 cells, the 69 strata among them). Each input shows `SECRET7c5` where both references hide it: (A) and (B) in the excerpt, whole and `clean` modes, and the two joins in the excerpt and `clean` modes.
+- **At `1ad7da99c`** (read-only), `test_scrub_review_r6`'s two missed cells and the P3-4 sample: 3 of 3 failed. The sample's 104 failing cells include all 48 strata.
+- **The count test and the linear pairs:** 5 of 5 pass at the head and fail with the memo removed (300 calls; 12,003,600 walk steps).
+- **M6's pin** passes at the head and fails under M6 (`[REDACTED] :` against `[REDACTED]`).
+- At the head all of these pass.
+
+**Holds, at `95420ecaf`'s code,** under the lock. These are review r7's eight holds plus the new `_r7`. Hold 2 is split with `-k` into its two files, and hold 4 into four parts, so no pytest passes 10 minutes. Hold 8's guards ran after the C-23.14 commit (`c68fb1f08`). Each hold ran under `suite_hold.sh`'s two-slot lock, entered by a bounded-wait wrapper (`hold.py`, the same `lockf -s -k -t 0` try) so that no wait outlived the tool's window. A wait that was not admitted was retried.
+
+| Hold | Lock, load | Duration (pytest) | Files and results |
+|---|---|---|---|
+| 1, 04:05:09Z | slot B, 32 | 84 s | `_r6` 19 and 1 opt-in skip; `_r5` 24 and 1 opt-in skip |
+| new, 04:07:21Z | slot A, 40 | 24 s | `_r7` 11 and 1 opt-in skip |
+| 2a, 04:08:17Z | slot A, 38 | 117 s | `_r4` 36 (`-k test_scrub_review_r4`) |
+| 2b, 04:11:06Z | slot A, 44 | 165 s | `_r3` 29 and 1 opt-in skip (`-k "not test_scrub_review_r4"`) |
+| 3, 04:14:40Z | slot A, 63 | 68 s | `_r2` 75 |
+| 4a, 04:35:00Z | slot B, 38 | 19 s | `test_scrub_inline_headers`, `-k a_swallowed_flag_or_key_still_owns`: 100 |
+| 4b, 04:36:22Z | slot A, 37 | 39 s | `test_scrub_inline_headers`, `-k an_unclosed_quote_does_not_take`: 72 |
+| 4c, 04:49:00Z | slot B, 36 | 13 s | `test_scrub_inline_headers`, the rest but the bound and cost tests: 73 |
+| 4d, 05:09:36Z | slot A, 43 | 65 s | `test_scrub_inline_headers`, the bound and cost tests (`linear`, `costs`, `responsive`, `real_bound`): 28 |
+| 5, 05:12:01Z | slot B, 39 | 83 s | `test_daemon_log_cut_windows` 177 |
+| 6, 05:15:03Z | slot A, 48 | 51 s | `test_daemon_log_handler` 128 |
+| 7, 05:20:23Z | slot B, 25 | 115 s | `test_scrub_no_new_leak` 4, `test_cpu_scaling` 3 |
+| 8, 05:34:01Z | slot A, 31 | 37 s | `test_scrub_key_order` 70, `fake/test_state_contract` 37, `test_test_module_names` 1, `test_invariants_index` 25 |
+
+In total, 912 passed, 4 were skipped (the opt-in full forms) and none failed.
+
+### Status
+
+- **Done:** the five decisions, with the strata as described above, the red runs, the full family run, review r7's eight corpora, the seven named mutants, three cost runs and every hold.
+- **Not run:**
+  - the other opt-in full forms as tests: the P3-4 class, P2-1's 95,040-cell class and round 3's rules matrix. The P3-4 class ran in full as corpus texts.
+  - `3fbc4b7c5` beyond the regression inputs, the joins and the family;
+  - the rest of `tests/unit` and `tests/fake` beyond the brief's files, Python 3.12 and CI;
+  - the cost rows under the lock;
+  - mutants beyond the seven named, and any mutant against `_r2` to `_r5` but `p34f`'s against `_r5`.
+- **Follow-ups for the hub:** round 6's, less M6.
+  - **The lone-flag sentence's two named cases** (round 6's P3-1), stated and pinned, not closed; both references show them.
