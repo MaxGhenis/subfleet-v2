@@ -24,6 +24,7 @@ from subfleet.conversations import suggestions
 from subfleet.conversations.redact import mask_approval
 from subfleet.sessions import handoff, scrub_release
 from subfleet.sessions.handoff import scrub_bounded, scrub_secrets
+from tests.cpu_scaling import COST_RATIO_MAX
 from tests.unit import scrub_473fe2941 as base473
 from tests.unit import scrub_release217 as release217
 from tests.unit.test_scrub_key_order import SECRET, _assert_kept_out, _cut_through, _lines_of_length, _modes, _revealed
@@ -582,56 +583,69 @@ print(json.dumps(best_cpu_ratio(head, reference)))
     assert measured["ratio"] < 4, measured
 
 
-def test_a_mebibyte_refusal_costs_daemon_log_what_release_217_did():
+def test_a_mebibyte_refusal_costs_daemon_log_at_most_the_cost_bound_over_release_s():
     """#231 review r1: a 1,048,576-character refusal held the GIL 241 ms through
-    `detail_line`, against 48.6 ms at release/217 (requests are capped at 1 MiB, and
-    daemon.log scrubs a refusal whole before any bound)."""
+    `detail_line`, against 48.6 ms at release/217 before #231 (requests are capped at
+    1 MiB, and daemon.log scrubs a refusal whole before any bound). Since #239 round 8
+    `detail_line` runs release/217's own line first (`scrub_release`, which has #231's
+    lookahead), then the head's, so the reference is release's line through the frozen
+    copy and the bound `COST_RATIO_MAX`."""
     measured = _scrubber_probe('''
 import json
 from subfleet import refusals
+from subfleet.conversations import suggestions
+from subfleet.sessions import scrub_release
 from tests.cpu_scaling import best_cpu_ratio
-from tests.unit import scrub_release217 as base
 text = "Bearer " + "--s" * ((1 << 20) // 3)
 error = ValueError(text)
 def head():
     refusals.detail_line("submit", error)
 def reference():
-    base.scrubbed_line("request submit refused (ValueError): " + text)
+    suggestions.bounded(suggestions._twice(scrub_release.scrub_secrets, "request submit refused (ValueError): " + text,
+                                           suggestions._fold)[0], refusals.LOG_LINE_MAX, "…")
 print(json.dumps(best_cpu_ratio(head, reference, rounds=3)))
 ''')
-    assert measured["ratio"] < 3, measured
+    assert measured["ratio"] < COST_RATIO_MAX, measured
 
 
 @pytest.mark.parametrize("unit", ["~--a_", "--s"])
 def test_the_bearer_rule_keeps_other_threads_responsive_at_the_bound(unit):
     """#231 review r1: the heartbeat gap under a whole `scrub_secrets` reached 84.9 ms
-    on `~--a_` repeated (13 to 30 ms at release/217); the responsiveness bound is
-    0.1 s of CPU. The best of three runs is kept, as the gap is one sample's maximum."""
+    on `~--a_` repeated (13 to 30 ms at release/217 before #231); the responsiveness
+    bound is 0.1 s of CPU. The best of three runs is kept, as the gap is one sample's
+    maximum. Since #239 round 8 the scrub runs release/217's own first (`scrub_release`),
+    whose `Bearer` lookahead (#231's) is one regex call of about 80 to 100 ms here: the
+    head's own pass keeps the 50 ms gap, and the whole scrub's gap is within
+    `COST_RATIO_MAX` of release's own."""
     measured = _scrubber_probe(f"unit = {unit!r}\n" + '''
 import json, threading, time
-from subfleet.sessions import handoff
+from subfleet.sessions import handoff, scrub_release
 text = "Bearer " + unit * ((handoff.MAX_SCRUB_CHARS - 7) // len(unit))
-gaps = []
-for _ in range(3):
-    ready, stopped, samples = threading.Event(), threading.Event(), []
-    def heartbeat():
-        samples.append(time.process_time())
-        ready.set()
-        while not stopped.wait(0.001):
+def longest_gap(scrub):
+    gaps = []
+    for _ in range(3):
+        ready, stopped, samples = threading.Event(), threading.Event(), []
+        def heartbeat():
             samples.append(time.process_time())
-        samples.append(time.process_time())
-    thread = threading.Thread(target=heartbeat)
-    thread.start()
-    ready.wait()
-    try:
-        scrub_secrets(text)
-    finally:
-        stopped.set()
-        thread.join()
-    gaps.append(max(b - a for a, b in zip(samples, samples[1:])))
-print(json.dumps({"longest_cpu_gap": min(gaps), "gaps": gaps}))
+            ready.set()
+            while not stopped.wait(0.001):
+                samples.append(time.process_time())
+            samples.append(time.process_time())
+        thread = threading.Thread(target=heartbeat)
+        thread.start()
+        ready.wait()
+        try:
+            scrub(text)
+        finally:
+            stopped.set()
+            thread.join()
+        gaps.append(max(b - a for a, b in zip(samples, samples[1:])))
+    return min(gaps)
+print(json.dumps({"head": longest_gap(handoff._head_scrub_secrets), "whole": longest_gap(scrub_secrets),
+                  "release": longest_gap(scrub_release.scrub_secrets)}))
 ''')
-    assert measured["longest_cpu_gap"] < 0.05, measured
+    assert measured["head"] < 0.05, measured
+    assert measured["whole"] < COST_RATIO_MAX * max(measured["release"], 0.05), measured
 
 
 #: Inputs that would make an inline-header or `Bearer` scan quadratic if a candidate

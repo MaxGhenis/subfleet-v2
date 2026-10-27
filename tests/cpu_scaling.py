@@ -14,6 +14,12 @@ from collections.abc import Callable
 #: The growth criterion: `ratio` below this for inputs four times apart. Linear
 #: work grows about 4×, quadratic about 16×; 8 sits between them.
 GROWTH_RATIO_MAX = 8
+#: The constant-factor bound against release/217's own scrub on one input
+#: (`best_cpu_ratio`, C-23.14). Since #239 round 8 every mode runs release's pipeline
+#: first and the head's on what it leaves, so the head's scrub does release's work and
+#: then its own: 2.5 leaves the head's own pass up to 1.5 times release's, and catches
+#: a pass that does several times that.
+COST_RATIO_MAX = 2.5
 
 
 def best_cpu_samples(make_call: Callable[[int], Callable[[], None]],

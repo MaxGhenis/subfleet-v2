@@ -66,3 +66,14 @@ def test_the_cpu_ratio_sees_a_constant_factor_against_its_reference():
     four = best_cpu_ratio(linear(SIZES[1], times=4), linear(SIZES[1]))
     assert same["ratio"] < 2, same
     assert four["ratio"] > 2, four
+
+
+def test_the_cost_bound_admits_release_s_work_and_the_head_s_and_no_more():
+    """C-23.14 (#239 round 8): `COST_RATIO_MAX`, the scrubber's cost guards' bound against
+    release/217's own scrub, reads the composed shape (release's work, then the head's
+    about as much again) under it, and four times the reference's work over it."""
+    from tests.cpu_scaling import COST_RATIO_MAX, best_cpu_ratio
+    composed = best_cpu_ratio(linear(SIZES[1], times=2), linear(SIZES[1]))
+    four = best_cpu_ratio(linear(SIZES[1], times=4), linear(SIZES[1]))
+    assert composed["ratio"] < COST_RATIO_MAX, composed
+    assert four["ratio"] > COST_RATIO_MAX, four
