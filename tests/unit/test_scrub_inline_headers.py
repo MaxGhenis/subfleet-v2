@@ -22,56 +22,62 @@ import pytest
 from subfleet import refusals
 from subfleet.conversations import suggestions
 from subfleet.conversations.redact import mask_approval
-from subfleet.sessions import handoff
+from subfleet.sessions import handoff, scrub_release
 from subfleet.sessions.handoff import scrub_bounded, scrub_secrets
 from tests.unit import scrub_473fe2941 as base473
 from tests.unit import scrub_release217 as release217
-from tests.unit.test_scrub_key_order import SECRET, _assert_kept_out, _cut_through, _lines_of_length, _modes
+from tests.unit.test_scrub_key_order import SECRET, _assert_kept_out, _cut_through, _lines_of_length, _modes, _revealed
 from tests.unit.test_sessions_handoff import _scrubber_probe
 
 
 def _assert_stable(text: str, scrubbed: str) -> None:
-    """Scrubbing a scrubbed text changes nothing, in either mode or daemon.log's."""
-    assert scrub_secrets(scrubbed) == (scrubbed, 0)
-    assert scrub_secrets(scrubbed, whole=True) == (scrubbed, 0)
+    """Scrubbing a scrubbed text shows nothing the first scrub hid, in either mode or
+    daemon.log's (C-23.14: monotone, not idempotent). Since #239 round 8 a second scrub
+    can join placeholders the first wrote, as release's header rule reads
+    `Cookie: [REDACTED] [REDACTED]` as one value (`handoff.shown_by_both`)."""
+    for whole in (False, True):
+        again = scrub_secrets(scrubbed, whole=whole)[0]
+        assert _revealed(scrubbed, again) == "" and SECRET.findall(again) == SECRET.findall(scrubbed)
     line = refusals.scrubbed_line(text)
-    assert refusals.scrubbed_line(line) == line
+    assert _revealed(line, refusals.scrubbed_line(line)) == ""
 
 
 # --- section 1: inline credential headers --------------------------------------
 
 #: #231 review r1's inline headers, every quoting form, the names that end in
 #: `authorization` or `cookie`, and a value on the next line.
+#: Since #239 round 8, pinned as every mode writes them: release/217's output, kept for the
+#: runs the head's output holds (`handoff.shown_by_both`).
 INLINE_HEADERS = {
     "curl-basic": ("curl -H 'Authorization: Basic SECRET7inlnaa1' https://x",
-                   "curl -H 'Authorization: [REDACTED]' https://x"),
+                   "curl -H 'Authorization: [REDACTED] [REDACTED] https://x"),
     "curl-token": ('curl -H "Authorization: Token SECRET7inlnaa2" https://x',
-                   'curl -H "Authorization: [REDACTED]" https://x'),
+                   'curl -H "Authorization: [REDACTED] [REDACTED] https://x'),
     "wget-header": ("wget --header='Authorization: Basic SECRET7inlnaa3' https://x",
-                    "wget --header='Authorization: [REDACTED]' https://x"),
-    "curl-cookie": ("curl -H 'Cookie: a=1; sid=SECRET7inlnaa4' https://x", "curl -H 'Cookie: [REDACTED]' https://x"),
-    "prose": ("upstream sent Authorization: Basic SECRET7inlnaa5 and failed", "upstream sent Authorization: [REDACTED]"),
-    "proxy-line-start": ("Proxy-Authorization: Basic SECRET7inlnaa6", "Proxy-Authorization: [REDACTED]"),
+                    "wget --header='Authorization: [REDACTED] [REDACTED] https://x"),
+    "curl-cookie": ("curl -H 'Cookie: a=1; sid=SECRET7inlnaa4' https://x", "curl -H 'Cookie: [REDACTED] [REDACTED] https://x"),
+    "prose": ("upstream sent Authorization: Basic SECRET7inlnaa5 and failed", 'upstream sent Authorization: [REDACTED] [REDACTED] [REDACTED] [REDACTED]'),
+    "proxy-line-start": ("Proxy-Authorization: Basic SECRET7inlnaa6", 'Proxy-Authorization: [REDACTED] [REDACTED]'),
     "proxy-inline": ("curl -H 'Proxy-Authorization: Basic SECRET7inlnaa7' -v",
-                     "curl -H 'Proxy-Authorization: [REDACTED]' -v"),
-    "x-authorization": ("sent X-Authorization: SECRET7inlnaa8 ok", "sent X-Authorization: [REDACTED]"),
-    "set-cookie": ("got Set-Cookie: id=SECRET7inlnaa9; Path=/; HttpOnly", "got Set-Cookie: [REDACTED]"),
+                     "curl -H 'Proxy-Authorization: [REDACTED] [REDACTED] -v"),
+    "x-authorization": ("sent X-Authorization: SECRET7inlnaa8 ok", 'sent X-Authorization: [REDACTED] [REDACTED]'),
+    "set-cookie": ("got Set-Cookie: id=SECRET7inlnaa9; Path=/; HttpOnly", 'got Set-Cookie: [REDACTED] [REDACTED] [REDACTED]'),
     # An escaped closing quote ends the value at its backslashes; the plain rule, which
     # then reads the header's name as a key, takes those as its value's end, as it
     # always took a backslash (`api_key=x\\"` scrubs to `api_key=[REDACTED]"`).
     "json-escaped": ('{"cmd": "curl -H \\"Authorization: Basic SECRET7inlnab1\\" https://x"}',
-                     '{"cmd": "curl -H \\"Authorization: [REDACTED]" https://x"}'),
+                     '{"cmd": "curl -H \\"Authorization: [REDACTED] [REDACTED] https://x"}'),
     "repr-escaped": ("'curl -H \\'Cookie: sid=SECRET7inlnab2\\' https://x'",
                      "'curl -H \\'Cookie: [REDACTED]' https://x'"),
     "json-twice": ('"curl -H \\\\\\"Authorization: Basic SECRET7inlnab3\\\\\\" x"',
-                   '"curl -H \\\\\\"Authorization: [REDACTED]" x"'),
-    "inner-escaped-quote": ("-H 'Cookie: a=\\'SECRET7inlnab4\\' b' tail", "-H 'Cookie: [REDACTED]' tail"),
-    "unclosed-quote": ("curl -H 'Authorization: Basic SECRET7inlnab5 -v\nnext", "curl -H 'Authorization: [REDACTED]\nnext"),
-    "value-next-line": ("sent Authorization:\n  Basic SECRET7inlnab6 tail", "sent Authorization:\n  [REDACTED]"),
+                   '"curl -H \\\\\\"Authorization: [REDACTED] [REDACTED] x"'),
+    "inner-escaped-quote": ("-H 'Cookie: a=\\'SECRET7inlnab4\\' b' tail", "-H 'Cookie: [REDACTED] [REDACTED] tail"),
+    "unclosed-quote": ("curl -H 'Authorization: Basic SECRET7inlnab5 -v\nnext", "curl -H 'Authorization: [REDACTED] [REDACTED] [REDACTED]\nnext"),
+    "value-next-line": ("sent Authorization:\n  Basic SECRET7inlnab6 tail", 'sent Authorization:\n  [REDACTED] [REDACTED] [REDACTED]'),
     "tab-before-colon": ("sent Cookie\t: sid=SECRET7inlnab7", "sent Cookie\t: [REDACTED]"),
     "lowercase": ("headers: cookie: sid=SECRET7inlnab8", "headers: cookie: [REDACTED]"),
     "two-on-a-line": ("-H 'Cookie: SECRET7inlnab9' -H 'Authorization: Basic SECRET7inlnac1' x",
-                      "-H 'Cookie: [REDACTED]' -H 'Authorization: [REDACTED]' x"),
+                      "-H 'Cookie: [REDACTED]' -H 'Authorization: [REDACTED] [REDACTED] x"),
 }
 
 
@@ -92,19 +98,20 @@ def test_a_line_start_header_is_inline_once_detail_line_prefixes_it():
     text = "Authorization: Basic SECRET7inlnac2"
     found = _assert_kept_out(text)
     assert found["whole"] == "Authorization: [REDACTED]"
-    assert found["daemon.log"] == "request submit refused (ValueError): Authorization: [REDACTED]"
+    assert found["daemon.log"] == "request submit refused (ValueError): Authorization: [REDACTED] [REDACTED]"
 
 
 @pytest.mark.parametrize("text,count", [
     ("curl -H 'Authorization: Basic SECRET7cntaa1' x", 1),
     ("curl -H 'Cookie: a=SECRET7cntaa2; b=SECRET7cntaa3' x", 2),
-    ("curl -H 'Authorization: Bearer SECRET7cntaa4' x", 1),
+    ("curl -H 'Authorization: Bearer SECRET7cntaa4' x", 2),   # release's count (`Bearer`, then the key)
     ("sent Cookie: [REDACTED] then SECRET7cntaa5", 0),
 ], ids=["one", "two-values", "bearer-inside", "already-redacted"])
 def test_an_inline_header_counts_as_a_line_start_one(text, count):
     """Once per secret-looking run the value held (`_Tally`'s header rule). A value
     that already starts with `[REDACTED]` is left alone: the guard that keeps a
-    scrubbed text stable (the last case's own secret is the documented cost)."""
+    scrubbed text stable (the last case's own secret is the documented cost). Since #239
+    round 8 the count is release's or the head's, whichever replaced more."""
     assert scrub_secrets(text)[1] == count
 
 
@@ -112,8 +119,8 @@ def test_daemon_logs_folded_line_keeps_the_words_after_a_redacted_header():
     """The guard: a folded line puts the next line's words after a redacted header,
     no longer at a line start; they are not the header's value."""
     text = "refused: upstream\nsent Authorization: Basic SECRET7foldaa1\nwhile reading job 20261020-a1b2c3"
-    assert refusals.scrubbed_line(text) == (
-        "refused: upstream sent Authorization: [REDACTED] while reading job 20261020-a1b2c3")
+    assert refusals.scrubbed_line(text) == (          # since #239 round 8 (`handoff.shown_by_both`)
+        "refused: upstream sent Authorization: [REDACTED] [REDACTED] while reading job 20261020-a1b2c3")
 
 
 #: What an inline header must leave: a quoted key (the quoted rule's), a name that does
@@ -150,15 +157,17 @@ def test_an_inline_header_leaves_a_key_whose_value_is_past_its_line(text, scrubb
 #: #231 review r1's P3-1: #231 read these secrets as keys, so they showed where
 #: release/217 hid them. The header keeps only the credential word for the
 #: named-value rules; `Bearer` redacts the token before it.
+#: Since #239 round 8, pinned as every mode writes them: release/217's output, kept for the
+#: runs the head's output holds (`handoff.shown_by_both`).
 CREDENTIAL_WORD_ENDINGS = {
     "bearer-token-colon": ("invalid Bearer SECRET7a1b2c3d4_token: expired",
-                           "invalid Bearer [REDACTED]_token: [REDACTED]"),
-    "header-equals-underline": ("Cookie: sid=SECRET7abc123token\n====", "Cookie: [REDACTED] token\n=[REDACTED]"),
+                           'invalid Bearer [REDACTED] [REDACTED]'),
+    "header-equals-underline": ("Cookie: sid=SECRET7abc123token\n====", 'Cookie: [REDACTED] [REDACTED]\n=[REDACTED]'),
     "header-pseudo-header": ("Authorization: Basic SECRET7abc123secret\n:authority: example.com",
-                             "Authorization: [REDACTED] secret\n:[REDACTED] example.com"),
+                             'Authorization: [REDACTED] [REDACTED]\n:[REDACTED] example.com'),
     "bearer-flag": ("auth: Bearer SECRET7abcdef12--password hunter2x tail",
-                    "auth: Bearer [REDACTED]--password [REDACTED] tail"),
-    "inline-header-glued": ("sent Cookie: sid=SECRET7abc123token\n= next", "sent Cookie: [REDACTED] token\n= [REDACTED]"),
+                    'auth: Bearer [REDACTED] [REDACTED] tail'),
+    "inline-header-glued": ("sent Cookie: sid=SECRET7abc123token\n= next", 'sent Cookie: [REDACTED]\n= [REDACTED]'),
 }
 
 
@@ -238,8 +247,8 @@ def test_a_swallowed_flag_or_key_still_owns_its_next_line_value(text, twin, flag
 
 
 @pytest.mark.parametrize("text,scrubbed", [
-    ("api_key=xyz--password SECRET7ownaa1 rest", "api_key=[REDACTED]--password [REDACTED] rest"),
-    ("Authorization: Bearer --client-secret\nSECRET7ownaa2", "Authorization: [REDACTED] --client-secret\nSECRET7ownaa2"),
+    ("api_key=xyz--password SECRET7ownaa1 rest", "[REDACTED] [REDACTED] rest"),
+    ("Authorization: Bearer --client-secret\nSECRET7ownaa2", "Authorization: [REDACTED]\nSECRET7ownaa2"),
     ("Cookie: --auth-token\nSECRET7ownaa3", "Cookie: [REDACTED]\n[REDACTED]"),
 ], ids=["plain-value-same-line", "header-and-bearer", "header-holding-only-the-flag"])
 def test_a_flag_left_by_its_enclosure_is_read_by_the_flag_rule(text, scrubbed):
@@ -249,7 +258,9 @@ def test_a_flag_left_by_its_enclosure_is_read_by_the_flag_rule(text, scrubbed):
     same-line value (the first case leaked in every mode at the base). Since round 2
     a header whose whole value is the flag takes it, and the value daemon.log's
     folded line gives it: kept, daemon.log's folded line read the header's value to
-    the record's end, past any cut `handoff.cut_whole` makes (C-25.7)."""
+    the record's end, past any cut `handoff.cut_whole` makes (C-25.7). Since #239
+    round 8, pinned as every mode writes them: release/217's output, kept for the runs
+    the head's output holds (`handoff.shown_by_both`)."""
     assert scrub_secrets(text, whole=True)[0] == scrub_secrets(text)[0] == scrubbed
     assert SECRET.search(text).group() not in refusals.scrubbed_line(text)
     _assert_stable(text, scrubbed)
@@ -298,7 +309,7 @@ PREFIX = "request submit refused (ValueError): "
 def _all_excerpts_of(chars: int):
     """`_excerpts_of` for every tree at once, so that one set of cut blocks serves all."""
     with pytest.MonkeyPatch.context() as patch:
-        for scrubber in TREES.values():
+        for scrubber in (*TREES.values(), scrub_release):   # release's copy cuts the head's excerpts
             patch.setattr(scrubber, "EXCERPT_CHARS", chars)
             patch.setattr(scrubber, "MAX_SCRUB_CHARS", 2 * chars)
         yield
@@ -342,13 +353,15 @@ def _new_leaks(text: str, *, cuts: bool = True) -> set[tuple[str, str, str]]:
 #: the inline rule's second scan skipped a name that starts its line, and the plain
 #: rule took one word of the name's own value. The first two leaked from D-SCR2's
 #: wider header names; the third already leaked at 473fe2941 (#231).
+#: Since #239 round 8, pinned as every mode writes them: release/217's output, kept for the
+#: runs the head's output holds (`handoff.shown_by_both`).
 SWALLOWED_HEADER_NAMES = {
     "x-authorization": ("X-Authorization:\nAuthorization:\n  Basic SECRET7xa1",
                         "X-Authorization:\n[REDACTED]\n  [REDACTED]"),
     "proxy-then-cookie": ("Proxy-Authorization:\nCookie:\n  sid=1; s2=SECRET7lone2",
                           "Proxy-Authorization:\n[REDACTED]\n  [REDACTED]"),
     "authorization-then-cookie": ("Authorization:\nCookie:\n  sid=1; s2=SECRET7lone3",
-                                  "Authorization:\n[REDACTED]\n  [REDACTED]"),
+                                  'Authorization:\n[REDACTED]\n  [REDACTED] [REDACTED]'),
     "yaml-proxy-authorization": ("proxy_authorization:\n  cookie:\n    sid=1; s2=SECRET7yml1",
                                  "proxy_authorization:\n  [REDACTED]\n    [REDACTED]"),
     "yaml-session-cookie": ("session_cookie:\n  cookie:\n    a=1; b=SECRET7yml2",
@@ -398,11 +411,13 @@ def test_a_bearer_or_flag_ending_a_swallowed_headers_line_keeps_its_value(text, 
 #: P3-2: the plain rule leaves a value that is a credential flag to the flag rule, and
 #: the flag rule's value swallowed a credential flag glued to its end, so that flag's
 #: own value showed. The third also leaked at 473fe2941; release/217 hid it.
+#: Since #239 round 8, pinned as every mode writes them: release/217's output, kept for the
+#: runs the head's output holds (`handoff.shown_by_both`).
 GLUED_FLAGS = {
-    "plain-value-is-a-flag": ("api_key=--password x--token SECRET7l4d", "api_key=--password [REDACTED]--token [REDACTED]"),
-    "tab": ("token:--passwd 1--token\tSECRET7b1", "token:--passwd [REDACTED]--token\t[REDACTED]"),
+    "plain-value-is-a-flag": ("api_key=--password x--token SECRET7l4d", '[REDACTED] [REDACTED] [REDACTED]'),
+    "tab": ("token:--passwd 1--token\tSECRET7b1", '[REDACTED] [REDACTED]\t[REDACTED]'),
     "bearer-then-two-flags": ("BEARER SECRET7i8b11q0credentials--password z--client-secret  SECRET7qq1api-key",
-                              "BEARER [REDACTED]--password [REDACTED]--client-secret  [REDACTED]"),
+                              'BEARER [REDACTED] [REDACTED]  [REDACTED]'),
 }
 
 
@@ -440,7 +455,7 @@ def test_a_header_name_a_partial_bearer_cut_exposes_is_read_in_the_same_scrub():
     text = "Bearer\nabc1pi_keyAuthorization:--secret x"
     for whole in (False, True):
         once = scrub_secrets(text, whole=whole)[0]
-        assert once == "Bearer\n[REDACTED]Authorization:[REDACTED]"
+        assert once == "Bearer\n[REDACTED] [REDACTED]"     # since #239 round 8 (`handoff.shown_by_both`)
         assert scrub_secrets(once, whole=whole) == (once, 0)
     line = refusals.scrubbed_line(text)
     assert refusals.scrubbed_line(line) == line
@@ -458,13 +473,22 @@ UNCLOSED = {
 }
 
 
+def _new(out: str, other: str) -> list[str]:
+    """The whitespace-free runs `out` shows that `other` does not."""
+    return sorted(set(out.split()) - set(other.split()) - {"[REDACTED]"})
+
+
 @pytest.mark.parametrize("text,twin", UNCLOSED.values(), ids=UNCLOSED.keys())
 def test_an_unclosed_quoted_value_leaves_a_line_ending_bearer_or_flag_its_value(text, twin):
     """The unclosed value ends before the `Bearer` or flag at its line's last visible
     character (`_owned_item`), so the item's own rule reads it, and every mode gives
     what the twin gives."""
+    # Since #239 round 8 each mode writes release's output kept for the runs the head's
+    # holds (`handoff.shown_by_both`), and release's unclosed value takes the item with the
+    # line, so the twin may show the item's name where the text hides it; the secret shows
+    # in the same modes in both.
     for whole in (False, True):
-        assert scrub_secrets(text, whole=whole)[0] == scrub_secrets(twin, whole=whole)[0]
+        assert _new(scrub_secrets(text, whole=whole)[0], scrub_secrets(twin, whole=whole)[0]) == []
     secret = SECRET.search(text).group()
     found, bare = _modes(text, excerpt=4096), _modes(twin, excerpt=4096)
     assert {mode: secret in out for mode, out in found.items()} == {mode: secret in out for mode, out in bare.items()}

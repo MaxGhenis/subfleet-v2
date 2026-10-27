@@ -47,16 +47,18 @@ from tests.unit.test_scrub_review_r2 import (_assert_hidden, _new_leaks, _output
 #: P2-A: a span `_kept_span` bounds (a fold, a refused `Bearer`'s line) that ends in a
 #: secret-named flag took the flag's name but not the value daemon.log's fold gives it,
 #: and the flag rule, whose cursor was past the flag, never read it.
+#: Since #239 round 8, pinned as every mode writes them: release/217's output, kept for the
+#: runs the head's output holds (`handoff.shown_by_both`).
 P2_A = {
     "fold-of-a-bare-flag": ("--SECRET7a1_token\nKEY=--db3-password SECRET7c3",
-                            "[REDACTED]\n[REDACTED][REDACTED] [REDACTED]"),
-    "digit-named-flags": ("--db2-password\nx--db3-password SECRET7c3", "[REDACTED]\n[REDACTED][REDACTED] [REDACTED]"),
+                            '[REDACTED]\n[REDACTED] [REDACTED]'),
+    "digit-named-flags": ("--db2-password\nx--db3-password SECRET7c3", '[REDACTED]\n[REDACTED] [REDACTED]'),
     "header-s-lone-flag": ("Authorization: --db2-password\nx--db3-password SECRET7c3",
-                           "Authorization: [REDACTED]\n[REDACTED][REDACTED] [REDACTED]"),
+                           'Authorization: [REDACTED]\n[REDACTED] [REDACTED]'),
     "refused-bearer-line": ("x cookie: Bearer\nclient_secret=x --SECRET7a1_token\nSECRET7b2",
                             "x cookie: [REDACTED]\n[REDACTED] [REDACTED]\n[REDACTED]"),
     "refused-bearer-detail-line": ("Cookie:Bearer\n--password\t--2-apikey\nSECRET7821",
-                                   "Cookie:[REDACTED]\n[REDACTED]\t[REDACTED]\n[REDACTED]"),
+                                   'Cookie:[REDACTED]\n[REDACTED]'),
 }
 #: P2-B: a fold whose run starts at a header's name, its value glued to the colon,
 #: took the name; nothing then read the rest of that line as a header.
@@ -67,7 +69,9 @@ P2_B = {
 }
 #: P3-B: a header name whose part before its header word is a secret, glued to a
 #: closing quote; the inline rule kept the name.
-P3_B = ('secret:"x"SECRET7abcAuthorization: B', 'secret:"[REDACTED]"[REDACTED]Authorization: [REDACTED]')
+#: Since #239 round 8, pinned as every mode writes them: release/217's output, kept for the
+#: runs the head's output holds (`handoff.shown_by_both`).
+P3_B = ('secret:"x"SECRET7abcAuthorization: B', '[REDACTED]')
 #: P3-C: a quoted inline header whose value ends at the quote that opens a flag's
 #: quoted value; the header took the flag and left its value.
 P3_C = ("curl -H 'Cookie: a=1 --password 'SECRET7c3'", "curl -H 'Cookie: [REDACTED] --password [REDACTED]")
@@ -77,7 +81,9 @@ P3_C = ("curl -H 'Cookie: a=1 --password 'SECRET7c3'", "curl -H 'Cookie: [REDACT
 #: line, and P3-B takes the secret from the name, so either hides it; with both dropped it
 #: shows. It is hidden at 902cfe90a too, whose fold took the name's run. The pin is the
 #: output P3-B gives, the name's secret gone and its header word kept.
-NARROW = ("deploy --SECRET7abc1_token\nSECRET7nxt9Authorization: Basic x", "deploy [REDACTED]\n[REDACTED]Authorization: [REDACTED]")
+#: Since #239 round 8, pinned as every mode writes them: release/217's output, kept for the
+#: runs the head's output holds (`handoff.shown_by_both`).
+NARROW = ("deploy --SECRET7abc1_token\nSECRET7nxt9Authorization: Basic x", 'deploy [REDACTED]\n[REDACTED] [REDACTED] [REDACTED]')
 #: Fail closed (the hub's ruling, round 2, decision 2): a flag whose name holds a digit
 #: reads as secret-named, so it goes with the value the fold gives it. Stated
 #: over-redaction (C-23.14), pinned.

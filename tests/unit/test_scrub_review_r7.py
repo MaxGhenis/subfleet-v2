@@ -75,13 +75,13 @@ JOINS = {
         '  :r SECRET7c5"',
         _pinned('Authorization:[REDACTED]', 'Authorization:[REDACTED]', 'Authorization:[REDACTED]',
                 'Authorization:"[REDACTED]"'),
-        PREFIX + 'Authorization:[REDACTED]'),
+        PREFIX + '[REDACTED]'),
     "join-of-three-headers": (
         'Set-Cookie:\r\n"Authorization :\n\nSECRET7t5\tx Authorization:"x x--1_token\n  = x SECRET7c5\'\r\n'
         "cookie:'a=1 --1_token\n\n=r SECRET7c5''",
         _pinned('Set-Cookie:\r\n[REDACTED]\ncookie:[REDACTED]', 'Set-Cookie:\r\n[REDACTED]\ncookie:[REDACTED]',
                 'Set-Cookie: [REDACTED]', 'Set-Cookie: "[REDACTED]" SECRET7c5\' cookie:[REDACTED]'),
-        PREFIX + 'Set-Cookie: [REDACTED] cookie:[REDACTED]'),
+        PREFIX + 'Set-Cookie: [REDACTED] [REDACTED] cookie:[REDACTED]'),
 }
 
 

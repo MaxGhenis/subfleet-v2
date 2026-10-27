@@ -14,8 +14,11 @@ from pathlib import Path
 
 import pytest
 
+from subfleet.sessions import scrub_release
+
 REPO = Path(__file__).resolve().parents[2]
-FROZEN = REPO / "subfleet" / "sessions" / "scrub_release.py"
+#: The module as imported, so a run against another tree reads that tree's copy.
+FROZEN = Path(scrub_release.__file__)
 
 #: Release/217's two files at `2c981cba5`, and what the frozen copy keeps of each.
 HANDOFF_BLOB = "f78955e05a90300fa3414394b3548020739cbaa4"

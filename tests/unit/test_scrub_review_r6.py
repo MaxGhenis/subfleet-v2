@@ -264,17 +264,18 @@ def test_no_cell_of_the_whole_p3_4_class_shows_what_both_references_hide():
 #: at the value's start, which the inline rule takes as the first header's value, up to the
 #: flag. `SECRET7c3` shows in the excerpt, whole and `clean` modes; both references show it
 #: in four or five modes, and so do 8fde0c4ad and c469f44b6 (review r6, P3-1). Pinned at
-#: today's output, mode by mode.
+#: today's output, mode by mode: since #239 round 8, release/217's output kept for the runs
+#: the head's holds (`handoff.shown_by_both`).
 LONE_FLAG_EXCEPTIONS = {
     "quoted-next-line-header": ("Authorization:\n'Cookie: --api-key\nSECRET7c3",
-                                _pinned('Authorization:\n[REDACTED] --api-key\nSECRET7c3',
-                                        'Authorization:\n[REDACTED] --api-key\nSECRET7c3', 'Authorization: [REDACTED]',
-                                        'Authorization: [REDACTED] --api-key [REDACTED]')),
+                                _pinned('Authorization:\n[REDACTED]\nSECRET7c3',
+                                        'Authorization:\n[REDACTED]\nSECRET7c3', 'Authorization: [REDACTED]',
+                                        'Authorization: [REDACTED] [REDACTED]')),
     "next-line-header-not-at-the-value-s-start": ("x Cookie:\nx Cookie: --api-key\nSECRET7c3",
-                                                  _pinned('x Cookie:\n[REDACTED] --api-key\nSECRET7c3',
-                                                          'x Cookie:\n[REDACTED] --api-key\nSECRET7c3',
-                                                          'x Cookie: [REDACTED] --api-key [REDACTED]',
-                                                          'x Cookie: [REDACTED] --api-key [REDACTED]')),
+                                                  _pinned('x Cookie:\n[REDACTED] Cookie: [REDACTED]\nSECRET7c3',
+                                                          'x Cookie:\n[REDACTED] Cookie: [REDACTED]\nSECRET7c3',
+                                                          'x Cookie: [REDACTED] Cookie: [REDACTED] [REDACTED]',
+                                                          'x Cookie: [REDACTED] Cookie: [REDACTED] [REDACTED]')),
 }
 
 
@@ -297,20 +298,23 @@ def test_a_lone_flag_the_sentence_does_not_reach_shows_its_value_as_stated(text,
 #: review r7, P3-3): a next-line name with nothing after its colon, which `_HEADER_RE` does
 #: not read (it needs a value after the colon) and `_header_name_at` does, loses its ` :`
 #: in the excerpt, whole and `clean` modes, as both references' outputs do; no secret
-#: shows either way. Pinned at today's output, mode by mode.
+#: shows either way. Pinned at today's output, mode by mode. Since #239 round 8 every mode
+#: writes release/217's output, kept for the runs the head's holds (`handoff.shown_by_both`):
+#: release's `[REDACTED]` for `SECRET7ab1Cookie` and for the next line's name (M4's and M6's
+#: excerpt outputs alike), while `detail_line` keeps the ` :` both hold.
 NEXT_LINE_SKIP = {
     "secret-prefix-goes": ("x\nSECRET7ab1Cookie\n:\nCookie: v SECRET7c3",
-                           _pinned('x\n[REDACTED]Cookie\n:\n[REDACTED] [REDACTED]',
-                                   'x\n[REDACTED]Cookie\n:\n[REDACTED] [REDACTED]',
-                                   'x [REDACTED]Cookie : [REDACTED] [REDACTED]',
-                                   'x [REDACTED]Cookie : [REDACTED] [REDACTED]')),
+                           _pinned('x\n[REDACTED]\n:\n[REDACTED] [REDACTED]',
+                                   'x\n[REDACTED]\n:\n[REDACTED] [REDACTED]',
+                                   'x [REDACTED] : [REDACTED] [REDACTED]',
+                                   'x [REDACTED] : [REDACTED] [REDACTED]')),
     "line-start-header-read-across-its-colon": ("Authorization:\nCookie\n: --api-key\nSECRET7c3",
                                                 _pinned('Authorization:\n[REDACTED]\n: [REDACTED]\n[REDACTED]',
                                                         'Authorization:\n[REDACTED]\n: [REDACTED]\n[REDACTED]',
                                                         'Authorization: [REDACTED]',
                                                         'Authorization: [REDACTED] : [REDACTED] [REDACTED]')),
     "next-line-name-with-nothing-after-its-colon": ("Cookie:\nSECRET7ab1Cookie :",
-                                                    _pinned('Cookie:\n[REDACTED] :', 'Cookie:\n[REDACTED] :',
+                                                    _pinned('Cookie:\n[REDACTED]', 'Cookie:\n[REDACTED]',
                                                             'Cookie: [REDACTED]', 'Cookie: [REDACTED] :')),
 }
 

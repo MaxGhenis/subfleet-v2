@@ -55,7 +55,7 @@ from ..launch_env import build_environment
 from ..policy import resolve_sandbox
 from ..protocol import POLICY_SANDBOX, SubmitArgs
 from ..salvage import SalvageError, git_head
-from . import registry, transcripts
+from . import registry, scrub_release, transcripts
 
 REDACTED = "[REDACTED]"
 OMITTED_BINARY = "[binary/base64 tool result omitted]"
@@ -594,7 +594,116 @@ def _scrub_named_values(text: str, replace: Callable[[str, str], str],
 
 
 def scrub_secrets(text: str, *, strip_reminders: bool = False, whole: bool = False) -> tuple[str, int]:
-    """Remove credential values and encoded binary; retain ordinary text. The
+    """Remove credential values and encoded binary; retain ordinary text (C-23.14). The
+    count is of values replaced: release's or the head's, whichever replaced more.
+
+    Release/217's scrub for the same mode runs first (`scrub_release`, frozen at
+    `2c981cba5`), and its output is what this returns, but for each whitespace-free run
+    of it that the head's own scrub of the text (`_head_scrub_secrets`) does not hold,
+    which becomes `[REDACTED]` (`shown_by_both`, #239 round 8). That only replaces runs of
+    release's output, so no character release hides comes back; and a run shows only if
+    the head's output holds it too, so no value the head hides shows. A text longer than
+    MAX_SCRUB_CHARS keeps a scrubbed head and tail with a marker between them, as
+    release cuts it (`scrub_bounded`). `whole` scrubs all of it, for a text whose length
+    its caller bounds: the assembled handoff brief, whose section caps policy keeps
+    within the same bound (C-23.36)."""
+    if len(text) > scrub_release.MAX_SCRUB_CHARS and not whole:
+        return scrub_bounded(text, None, strip_reminders=strip_reminders)
+    released, count = scrub_release.scrub_secrets(text, strip_reminders=strip_reminders, whole=whole)
+    head, head_count = _head_scrub_secrets(text, strip_reminders=strip_reminders, whole=whole)
+    return shown_by_both(released, head), max(count, head_count)
+
+
+def scrub_bounded(text: str, limit: int | None, *, strip_reminders: bool = False) -> tuple[str, int]:
+    """`truncate(scrub_secrets(text), limit)`: scrubbed, then bounded to `limit`
+    characters keeping the head and the tail (C-23.14, C-23.36, C-25.5); with `limit`
+    None, not bounded further.
+
+    Release/217's pipeline for the mode makes the pieces (`_released_pieces`: its block
+    resolution, excerpts, scrub and bound, as `scrub_release.scrub_bounded` joins them,
+    each excerpt cut where both scrubbers allow a cut), and each scrubbed piece keeps
+    only the runs that the head's own scrub of the same text holds (`shown_by_both`): of
+    the text release scrubbed whole, or of the same excerpt, before release scrubbed it. Release's markers are kept as it wrote
+    them. Where the replacements make the result longer than `limit`, it is bounded
+    again (`truncate`), which only cuts. The count is release's or the head's, whichever
+    replaced more."""
+    pieces, outer_strip, count, heads, head_count = _released_pieces(text, limit, strip_reminders)
+    out = "".join(piece if kept else shown_by_both(piece, head) for (piece, kept), head in zip(pieces, heads))
+    out = out.strip() if outer_strip else out
+    return (truncate(out, limit) if limit is not None and len(out) > limit else out), max(count, head_count)
+
+
+#: A whitespace-free run, as `shown_by_both` keeps or replaces one.
+_SHOWN_RUN_RE = re.compile(r"\S+")
+
+
+def shown_by_both(released: str, head: str) -> str:
+    """`released` (release/217's output of a mode) with each whitespace-free run that
+    `head` (the head's output of the same mode, of the same text) does not hold
+    replaced by `[REDACTED]` (C-23.14, #239 round 8). A run of `released` is kept only if
+    it is one of `head`'s runs, so neither scrubber's hidden values show: what release
+    hides is not in `released`, and the replacement writes no character but the
+    placeholder's; what the head hides is in no run of `head`. The lines, and the
+    whitespace between runs, are release's."""
+    shown = set(_SHOWN_RUN_RE.findall(head))
+    return _SHOWN_RUN_RE.sub(lambda run: run.group() if run.group() in shown else REDACTED, released)
+
+
+def _released_pieces(text: str, limit: int | None, strip_reminders: bool):
+    """Release/217's `scrub_bounded` (`scrub_release`), as the pieces it joins: each
+    scrubbed piece with False and each marker with True, whether the join is stripped,
+    release's count; then for each piece the head's own scrub of the same text (`_scrub`
+    of the text release scrubbed, whole or the same excerpt of it; "" for a marker), and
+    the head's count. The steps are release's, in its order, by its helpers, and the
+    blocks it resolves first are the head's too (`_resolve_blocks`); a text that needs no
+    excerpt, or whose cuts both scrubbers make alike, joins to release's output exactly,
+    which a test checks. Where the head's cut is the more cautious, each excerpt is the
+    head's, and its pieces the start and end of release's own."""
+    release = scrub_release
+    original, count = len(text), 0
+    if original > release.MAX_SCRUB_CHARS:
+        tally = release._Tally()
+        text, strip_reminders = release._resolve_blocks(text, strip_reminders, tally), False
+        count = tally.total
+    if len(text) <= release.MAX_SCRUB_CHARS:
+        scrubbed, found = release._scrub(text, strip_reminders)
+        head, head_found = _scrub(text, strip_reminders)
+        heads, counts = [head], (count + found, count + head_found)
+        if limit is None:
+            return [(scrubbed, False)], False, counts[0], heads, counts[1]
+        # `release.truncate(scrubbed, limit)`, as its pieces.
+        scrubbed = scrubbed.strip()
+        if len(scrubbed) <= limit:
+            return [(scrubbed, False)], False, counts[0], heads, counts[1]
+        marker = f"\n… [{len(scrubbed) - limit:,} characters omitted] …\n"
+        usable = limit - len(marker)
+        if usable <= 0:
+            elided = release.ELIDED[:limit] if limit < len(release.ELIDED) else release.ELIDED
+            return [(elided, True)], False, counts[0], [""], counts[1]
+        cut = int(usable * 0.6)
+        tail = usable - cut
+        return ([(scrubbed[:cut].rstrip(), False), (marker, True), (scrubbed[-tail:].lstrip() if tail else "", False)],
+                False, counts[0], [head, "", head], counts[1])
+    head_end, tail_start = release._head_cut(text), release._tail_cut(text)
+    head, head_count = release._scrub(text[:head_end], False)
+    tail, tail_count = release._scrub(text[tail_start:], False)
+    (own_head, own_head_count), (own_tail, own_tail_count) = _scrub(text[:head_end], False), _scrub(text[tail_start:], False)
+    heads, own = [own_head, "", own_tail], count + own_head_count + own_tail_count
+    head, tail, count = head.strip(), tail.strip(), count + head_count + tail_count
+    if limit is not None:
+        usable = limit - len(f"\n… [{original:,} characters omitted] …\n")   # the longest marker
+        if usable <= 0:
+            return [(release.ELIDED[:limit] if limit < len(release.ELIDED) else release.ELIDED, True)], False, \
+                count, [""], own
+        head = head[:int(usable * 0.6)].rstrip()
+        room = usable - len(head)
+        tail = tail[max(0, len(tail) - room):].lstrip() if room > 0 else ""
+    marker = f"\n… [{max(0, original - len(head) - len(tail)):,} characters omitted] …\n"
+    return [(head, False), (marker, True), (tail, False)], True, count, heads, own
+
+
+def _head_scrub_secrets(text: str, *, strip_reminders: bool = False, whole: bool = False) -> tuple[str, int]:
+    """The head's own scrub, which `scrub_secrets` runs beside release's: remove credential values and encoded binary; retain ordinary text. The
     count is of values replaced: one credential two rules match counts once, and
     a header that held several values (`Cookie: a=...; b=...`) counts each.
 
@@ -605,12 +714,12 @@ def scrub_secrets(text: str, *, strip_reminders: bool = False, whole: bool = Fal
     mask quoted assignment values across line breaks, before any folding or cut;
     excerpts retain their within-line rules so no match crosses an excerpt cut."""
     if len(text) > MAX_SCRUB_CHARS and not whole:
-        return scrub_bounded(text, None, strip_reminders=strip_reminders)
+        return _head_scrub_bounded(text, None, strip_reminders=strip_reminders)
     return _scrub(text, strip_reminders, multiline=whole)
 
 
-def scrub_bounded(text: str, limit: int | None, *, strip_reminders: bool = False) -> tuple[str, int]:
-    """`truncate(scrub_secrets(text), limit)`: scrubbed, then bounded to `limit`
+def _head_scrub_bounded(text: str, limit: int | None, *, strip_reminders: bool = False) -> tuple[str, int]:
+    """`truncate(_head_scrub_secrets(text), limit)`: scrubbed, then bounded to `limit`
     characters keeping the head and the tail (C-23.14, C-23.36, C-25.5); with
     `limit` None, not bounded further.
 

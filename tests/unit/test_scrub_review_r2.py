@@ -106,8 +106,10 @@ P2_1 = {
     "A-swallowed-header": "secret:'Cookie: x --SECRET7abc1_token",
 }
 #: P2-1's partial input with a dummy value: the value before the glued flag is hidden;
-#: the flag's name, `--super-secret`, is a flag's (C-23.14) and shows.
-P2_1_PARTIAL = ("token: SECRET7h2--super-secret", "token: [REDACTED]--super-secret")
+#: the flag's name, `--super-secret`, is a flag's (C-23.14) and the head's rules show it.
+#: Since #239 round 8 every mode writes release/217's output kept for the runs the head's
+#: holds (`handoff.shown_by_both`), and release's key rule takes the whole run.
+P2_1_PARTIAL = ("token: SECRET7h2--super-secret", 'token: [REDACTED]')
 #: P2-2: a `Bearer` a quoted range's union took from the `Bearer` rule.
 P2_2 = {
     "A-next-line": "secret:'Cookie:\nx token:Bearer\nSECRET7un361x rest",
@@ -170,12 +172,14 @@ def test_p3_2_s_quoted_value_scrubs_as_its_twin_hides():
 
 #: What the fix makes of the inputs, pinned (fail closed: a secret-named flag goes with
 #: the value the fold gives it; the header a refused `Bearer` ends takes its next line).
+#: Since #239 round 8, pinned as every mode writes them: release/217's output, kept for the
+#: runs the head's output holds (`handoff.shown_by_both`).
 PINNED = {
-    "sent Cookie: x --SECRET7abc1_token\nSECRET7nxt9": "sent Cookie: [REDACTED]\n[REDACTED]",
+    "sent Cookie: x --SECRET7abc1_token\nSECRET7nxt9": 'sent Cookie: [REDACTED] [REDACTED]\n[REDACTED]',
     "token:--SECRET7abc1_token SECRET7nxt9": "token:[REDACTED] [REDACTED]",
-    "Bearer SECRET7--secret x": "Bearer [REDACTED]--secret [REDACTED]",
+    "Bearer SECRET7--secret x": 'Bearer [REDACTED] [REDACTED]',
     "Bearer --passwordSECRET7a1_token tail": "Bearer [REDACTED] [REDACTED]",
-    "Authorization: Bearer\nclient_secret=x SECRET7abc13 tail": "Authorization: [REDACTED]\n[REDACTED]",
+    "Authorization: Bearer\nclient_secret=x SECRET7abc13 tail": 'Authorization: [REDACTED]\n[REDACTED] [REDACTED] [REDACTED]',
     'curl -H "Cookie:\nCookie: sid=1" SECRET7abc124 -v': 'curl -H "Cookie:\n[REDACTED] [REDACTED]',
     "sent Cookie: --password\nSECRET7a1 x": "sent Cookie: [REDACTED]\n[REDACTED] x",
     # The stated converse (C-23.14): a run before a refused key that is not a token.

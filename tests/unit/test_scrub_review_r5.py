@@ -153,15 +153,18 @@ def test_no_drawn_cell_of_the_p2_1_class_shows_what_both_references_hide(text):
 #: `_refused_bearer` (the refused `Bearer`'s line at a header's name takes nothing where
 #: it would end early); the second: a line-start header whose value would start on the
 #: next line leaves that line's own header to it, as an inline one does.
+#: Pinned as every mode writes them since #239 round 8: release/217's output, kept for the
+#: runs the head's output holds (`handoff.shown_by_both`), so a run either scrubber hides
+#: reads `[REDACTED]` (`[REDACTED]Cookie` and `--api-key` here).
 P3_1 = {
     "refused-bearer-before-a-secret-name": ("Authorization: Bearer\nSECRET7ab1Set-Cookie : --password\nSECRET7c3",
-                                            "Authorization: [REDACTED]\n[REDACTED]Cookie : [REDACTED]\n[REDACTED]"),
+                                            "Authorization: [REDACTED]\n[REDACTED] : [REDACTED]\n[REDACTED]"),
     "line-start-next-line": ("Cookie: --password\nSet-Cookie:\nCookie: --api-key\nSECRET7m1",
-                             "Cookie: [REDACTED]\nSet-Cookie:\n[REDACTED] [REDACTED]\n[REDACTED]"),
+                             "Cookie: [REDACTED]\nSet-Cookie:\n[REDACTED]\n[REDACTED]"),
     # Review r5's two open cases of the lone-flag sentence, closed.
     "refused-bearer-lone-flag": ("Authorization: Bearer\nSet-Cookie: --api-key\nSECRET7c3",
-                                 "Authorization: [REDACTED]\n[REDACTED]\n[REDACTED]"),
-    "line-start-lone-flag": ("Authorization:\nCookie: --api-key\nSECRET7c3", "Authorization:\n[REDACTED] [REDACTED]\n[REDACTED]"),
+                                 "Authorization: [REDACTED]\n[REDACTED] [REDACTED]\n[REDACTED]"),
+    "line-start-lone-flag": ("Authorization:\nCookie: --api-key\nSECRET7c3", "Authorization:\n[REDACTED]\n[REDACTED]"),
 }
 
 
@@ -180,7 +183,7 @@ def test_review_r5_s_p3_1_inputs_are_hidden_in_every_mode(text, scrubbed):
 #: references show it. The rule applies at a header's name only, as the fold's does, so
 #: the line is taken up to the flag as before, and round 3's two refused-`Bearer` pins hold.
 NOT_A_HEADER_LINE = ("Authorization: Bearer\nclient_secret=x SECRET7abc13 --password",
-                     "Authorization: [REDACTED]\n[REDACTED] --password")
+                     "Authorization: [REDACTED]\n[REDACTED] [REDACTED] --password")   # as `P3_1`'s
 
 
 def test_a_refused_bearer_s_line_that_is_no_header_s_keeps_its_redaction():
@@ -223,20 +226,22 @@ def test_a_header_s_lone_flag_takes_the_next_line_s_value_whatever_took_its_line
 #: The prefix rule keeps a name's leading `-`, so the whole text's last fold still refuses
 #: the run, as the cut's does (8fde0c4ad: the whole text gave `[REDACTED]\n[REDACTED]`,
 #: the cut after the first line `[REDACTED]\n` and `[REDACTED]Cookie:`).
-P3_2 = ("--1_token\n-1_kenCookie:", "[REDACTED]\n-[REDACTED]Cookie:")
+#: The third is what every mode writes since #239 round 8 (`handoff.shown_by_both`):
+#: release's output, `[REDACTED]` for the run the head writes as `-[REDACTED]Cookie:`.
+P3_2 = ("--1_token\n-1_kenCookie:", "[REDACTED]\n-[REDACTED]Cookie:", "[REDACTED]\n[REDACTED]")
 P3_2_LEADS = ("--1_token", "--SECRET7a1_token", "--db2-password", "x --1_token", "Cookie: --password")
 P3_2_NAMES = ("-1_kenCookie:", "--1_kenCookie:", "-SECRET7ab1Authorization:", " -1_kenCookie:", "-SECRET7ab1Set-Cookie\n:")
 P3_2_TAILS = ("", " v", "\nSECRET7c3", " SECRET7c3\nx")
 
 
 def test_an_excerpt_cut_before_a_dash_led_name_scrubs_as_the_whole():
-    text, scrubbed = P3_2
+    text, scrubbed, written = P3_2
     cuts = _neutral_breaks(text)
     assert cuts == [len("--1_token\n")]
     for cut in cuts:
         assert handoff._scrub(text[:cut], False)[0] + handoff._scrub(text[cut:], False)[0] == scrubbed
     assert handoff._scrub(text, False)[0] == scrubbed and _splits(text) == []
-    assert handoff.scrub_secrets(text)[0] == handoff.scrub_secrets(text, whole=True)[0] == scrubbed
+    assert handoff.scrub_secrets(text)[0] == handoff.scrub_secrets(text, whole=True)[0] == written
 
 
 def test_no_dash_led_name_after_a_fold_splits_or_shows_what_a_reference_hides():
@@ -251,7 +256,9 @@ def test_no_dash_led_name_after_a_fold_splits_or_shows_what_a_reference_hides():
 #: scan still reads `-[REDACTED]Cookie:` at a line start as a name that starts its line, so
 #: daemon.log's line keeps nothing of the header's line, as 8fde0c4ad's did with the `-`
 #: gone (`[REDACTED]Cookie: [REDACTED]`). Both references show `SECRET7c3` there.
-DASH_LED_LINE = ("-SECRET7ab1Cookie: x\nSECRET7c3", "-[REDACTED]Cookie: [REDACTED]")
+#: Since #239 round 8 the line is release's, kept for the runs the head's holds: neither
+#: holds `-[REDACTED]Cookie:` and release's line, so it reads `[REDACTED]` throughout.
+DASH_LED_LINE = ("-SECRET7ab1Cookie: x\nSECRET7c3", "[REDACTED] [REDACTED] [REDACTED]")
 
 
 def test_daemon_log_s_line_for_a_dash_led_secret_name_keeps_none_of_its_line():

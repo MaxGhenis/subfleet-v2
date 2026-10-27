@@ -53,11 +53,16 @@ P3_1 = {lead: (lead + "\nCookie: --api-key\nSECRET7c3", scrubbed + "\nCookie: [R
                                                "api_key=[REDACTED]", "secret:[REDACTED]",
                                                "Authorization: [REDACTED]"))}
 #: P3-4 (a): a name parted from its colon by a line break, `\x0b`, `\x0c`, `\xa0` or `\r`.
-P3_4_A = {repr(gap): (f"x\nSECRET7ab1Cookie{gap}: v", f"x\n[REDACTED]Cookie{gap}: [REDACTED]")
+#: Since #239 round 8 every mode writes release/217's output kept for the runs the head's
+#: holds (`handoff.shown_by_both`): release's `[REDACTED]` for the name, which the head writes
+#: as `[REDACTED]Cookie`.
+P3_4_A = {repr(gap): (f"x\nSECRET7ab1Cookie{gap}: v", f"x\n[REDACTED]{gap}: [REDACTED]")
           for gap in ("\n", "\x0b", "\x0c", "\xa0", "\r")}
 #: P3-4 (b): daemon.log's line, as 902cfe90a gave it with the name whole, now with the
 #: name's secret part gone too; the other modes keep the next line, as both references do.
-P3_4_B = ("SECRET7ab1Cookie: x\nSECRET7c3", "[REDACTED]Cookie: [REDACTED]", "[REDACTED]Cookie: [REDACTED]\nSECRET7c3")
+#: Since #239 round 8, release's line and scrub kept for the runs the head's hold: no run of
+#: the header's line survives, the name's `Cookie` included.
+P3_4_B = ("SECRET7ab1Cookie: x\nSECRET7c3", "[REDACTED] [REDACTED] [REDACTED]", "[REDACTED] [REDACTED]\nSECRET7c3")
 
 REGRESSIONS = {**{f"P3-1-{lead}": pair for lead, pair in P3_1.items()},
                **{f"P3-4-a-{gap}": pair for gap, pair in P3_4_A.items()}}
@@ -92,6 +97,8 @@ def test_daemon_log_s_line_for_a_header_name_holding_a_secret_keeps_none_of_its_
 
 #: Each kind review r4 found beyond the two round 3 pinned (`test_scrub_review_r3`'s
 #: `OVER_REDACTED`): stated in C-23.14 as the cost of failing closed, not narrowed.
+#: Since #239 round 8, pinned as every mode writes them: release/217's output, kept for the
+#: runs the head's output holds (`handoff.shown_by_both`).
 OVER_REDACTED = {
     # A fold that starts at a header's name takes the name with its line (round 3's line
     # fold, a follow-up since; daemon.log's line is the line-start header's whole).
@@ -99,15 +106,15 @@ OVER_REDACTED = {
     # The line fold at a quoted header's name takes the rest of the line past the name's
     # closing quote: a digit-named flag's fold, and a secret-named flag's, which takes the
     # name of the `--password` flag after the quote with it.
-    'curl --oauth2-token "Authorization: Bearer abc" -X POST https://api.example.com': "curl [REDACTED] [REDACTED]",
-    'deploy --SECRET7a1_token "Cookie:x" --password SECRET7p9': "deploy [REDACTED] [REDACTED]",
+    'curl --oauth2-token "Authorization: Bearer abc" -X POST https://api.example.com': 'curl [REDACTED] [REDACTED] [REDACTED] [REDACTED] [REDACTED] [REDACTED] [REDACTED]',
+    'deploy --SECRET7a1_token "Cookie:x" --password SECRET7p9': 'deploy [REDACTED] [REDACTED] [REDACTED] [REDACTED]',
     # P3-B's prefix rule takes a name prefix that holds a digit, secret or not.
-    "X-Auth0-Authorization: Basic x": "[REDACTED]Authorization: [REDACTED]",
-    "curl -H 'X-Amz1-Cookie: a=b' https://example.com": "curl -H '[REDACTED]Cookie: [REDACTED]' https://example.com",
-    "session_v2_cookie: abc123": "[REDACTED]cookie: [REDACTED]",
+    "X-Auth0-Authorization: Basic x": '[REDACTED] [REDACTED] [REDACTED]',
+    "curl -H 'X-Amz1-Cookie: a=b' https://example.com": "curl -H [REDACTED] [REDACTED]' https://example.com",
+    "session_v2_cookie: abc123": '[REDACTED] [REDACTED]',
     # Round 3's decision 4 (a digit-named flag is secret-named) chained through P2-A's
     # stop: the second flag's fold takes the third line's first word.
-    "--SECRET7a1_token\nKEY=--db3-password\necho done": "[REDACTED]\n[REDACTED][REDACTED]\n[REDACTED] done",
+    "--SECRET7a1_token\nKEY=--db3-password\necho done": '[REDACTED]\n[REDACTED]\n[REDACTED] done',
 }
 
 
@@ -199,6 +206,8 @@ def test_no_cell_of_p3_1_s_class_shows_what_a_reference_hides():
 #: the same way, a value the plain rule does not read (`;v …`) lost the whole name, and
 #: the `Bearer` rule took the part of the name before its credential word when that read
 #: as a token (`SECRET7…Set-Cookie`).
+#: Since #239 round 8, pinned as every mode writes them: release/217's output, kept for the
+#: runs the head's output holds (`handoff.shown_by_both`).
 FOLD_AT_LINE_START = {
     "lone-flag": ("Cookie: --password\nSet-Cookie\n: v SECRET7v2", "Cookie: [REDACTED]\nSet-Cookie\n: [REDACTED]"),
     "secret-flag": ("Cookie: x --SECRET7a1_token\nSet-Cookie \n: v SECRET7v2", "Cookie: [REDACTED]\nSet-Cookie \n: [REDACTED]"),
@@ -208,9 +217,9 @@ FOLD_AT_LINE_START = {
     "refused-bearer": ("Authorization: Bearer\nSet-Cookie\n: v SECRET7v2", "Authorization: [REDACTED]\nSet-Cookie\n: [REDACTED]"),
     "inline-refused-bearer": ("x Cookie: Bearer\nSet-Cookie\n: v SECRET7v2", "x Cookie: [REDACTED]\nSet-Cookie\n: [REDACTED]"),
     "bearer-token-like-name": ("Authorization: Bearer\nSECRET7ab1Set-Cookie\n: v SECRET7v2",
-                               "Authorization: [REDACTED]\n[REDACTED]Cookie\n: [REDACTED]"),
+                               'Authorization: [REDACTED]\n[REDACTED]\n: [REDACTED] [REDACTED]'),
     "bearer-token-like-name-same-line": ("Authorization: Bearer\nSECRET7ab1Set-Cookie\x0b: v SECRET7v2",
-                                         "Authorization: [REDACTED]\n[REDACTED]"),
+                                         'Authorization: [REDACTED]\n[REDACTED]\x0b[REDACTED] [REDACTED] [REDACTED]'),
 }
 ROUTED = ("api_key='xyz --SECRET7a1_token\n  Proxy-Authorization:Basic SECRET7c3'\xa0--SECRET7a1_token\n"
           "SECRET7ab1Set-Cookie \n: v SECRET7v2\n\nSECRET7c3")

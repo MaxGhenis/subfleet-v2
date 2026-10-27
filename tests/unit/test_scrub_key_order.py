@@ -20,7 +20,7 @@ from hypothesis import given, settings, strategies as st
 import pytest
 
 from subfleet import refusals
-from subfleet.sessions import handoff
+from subfleet.sessions import handoff, scrub_release
 from subfleet.sessions.handoff import scrub_bounded, scrub_secrets
 from tests.unit import scrub_release217 as release217
 from tests.unit.test_sessions_handoff import _scrubber_probe
@@ -42,10 +42,12 @@ def _lines_of_length(length: int) -> str:
 def _excerpts_of(chars: int):
     """The scrubber's bound with excerpts of `chars` characters (EXCERPT_CHARS is half
     of MAX_SCRUB_CHARS), so that a short text can be cut through quickly. The rules
-    and the cuts are the same code; only the two constants are smaller."""
+    and the cuts are the same code; only the two constants are smaller, in the head and
+    in release's frozen copy, which cuts the excerpts the head then scrubs (#239 round 8)."""
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(handoff, "EXCERPT_CHARS", chars)
-        patch.setattr(handoff, "MAX_SCRUB_CHARS", 2 * chars)
+        for module in (handoff, scrub_release):
+            patch.setattr(module, "EXCERPT_CHARS", chars)
+            patch.setattr(module, "MAX_SCRUB_CHARS", 2 * chars)
         yield
 
 
@@ -136,7 +138,7 @@ BEARER_TAKES_A_KEY = {
     "flag": ("auth=bearer --client-secret SECRET7bearaa8", "auth=bearer --client-secret [REDACTED]"),
     # Since #239 round 2 the run before a refused flag goes too, token or not (the flag
     # form of the refused-`Bearer` converse, `Bearer SECRET7--secret x`).
-    "flag-after-path": ("Bearer x/--api-key SECRET7bearaa9", "Bearer [REDACTED]/--api-key [REDACTED]"),
+    "flag-after-path": ("Bearer x/--api-key SECRET7bearaa9", "Bearer [REDACTED] [REDACTED]"),   # since #239 round 8
     "prefixed-key": ("Bearer okPASSWORD=SECRET7bearab1", "Bearer okPASSWORD=[REDACTED]"),
 }
 
@@ -155,8 +157,12 @@ def test_bearer_never_takes_a_credential_key(text, scrubbed):
 #: release/217's plain rule read `Authorization` as a key and `Bearer` as its value.
 INLINE_BEARER = {
     "header": ("Authorization: Bearer SECRET7tokenabc124", "Authorization: [REDACTED]"),
-    "curl": ("curl -H 'Authorization: Bearer SECRET7tokenabc123' https://x", "curl -H 'Authorization: [REDACTED]' https://x"),
-    "inline-header": ("sent Authorization: Bearer SECRET7tokenabc125 upstream", "sent Authorization: [REDACTED]"),
+    # Since #239 round 8 (`handoff.shown_by_both`): release's `Bearer [REDACTED]`, then a run
+    # for each the head's inline value takes.
+    "curl": ("curl -H 'Authorization: Bearer SECRET7tokenabc123' https://x",
+             "curl -H 'Authorization: [REDACTED] [REDACTED]' https://x"),
+    "inline-header": ("sent Authorization: Bearer SECRET7tokenabc125 upstream",
+                      "sent Authorization: [REDACTED] [REDACTED] [REDACTED]"),
     "headers-dict": ("headers={'Authorization': 'Bearer SECRET7hdrdict9'}", "headers={'Authorization': '[REDACTED]'}"),
     "padded": ("auth: Bearer SECRET7padded0abc== then", "auth: Bearer [REDACTED] then"),
     "token-before-a-colon": ("Bearer SECRET7tokenabc126: unauthorized", "Bearer [REDACTED]: unauthorized"),
@@ -225,8 +231,10 @@ def test_a_header_redacts_what_precedes_the_key_and_counts_each_value():
     Only the word is kept (D-SCR2, #231 review P3-1), so a secret glued to it stays
     hidden; a compound key's own name before its word (`session_`) is redacted with
     the rest, and one that is itself a word (`client_secret`) is kept whole."""
+    # Since #239 round 8 each mode writes release's output kept for the runs the head's
+    # holds (`handoff.shown_by_both`): release's header takes `token=` too.
     assert scrub_secrets("Cookie: a=SECRET7cookaa1; session_token=\nSECRET7cookaa2") == (
-        "Cookie: [REDACTED] token=\n[REDACTED]", 2)
+        "Cookie: [REDACTED] [REDACTED]\n[REDACTED]", 2)
     assert scrub_secrets("Authorization: Basic SECRET7cookaa3 client_secret\n= SECRET7cookaa4") == (
         "Authorization: [REDACTED] client_secret\n= [REDACTED]", 2)
     # A header holding only the key is left to those rules whole: its own name is a
@@ -401,8 +409,13 @@ def test_no_credential_value_survives_and_excerpts_agree_with_the_whole(text):
         for block in _cut_through(text):
             head, _, tail = scrub_bounded(block, None)[0].partition(" characters omitted] …\n")
             head = head.rpartition("\n… [")[0]
-            scrubbed = handoff._scrub(block, False)[0]
-            assert scrubbed.lstrip().startswith(head) and scrubbed.rstrip().endswith(tail)
+            # Since #239 round 8 the excerpts are release's, kept for the runs the head's
+            # scrub of the same excerpt holds (`handoff.shown_by_both`), cut where both
+            # allow: each shows nothing the same composition over the whole block hides
+            # (a run either excerpt's scrub hides goes, so it may hide more).
+            scrubbed = handoff.shown_by_both(scrub_release._scrub(block, False)[0], handoff._scrub(block, False)[0])
+            assert _revealed(scrubbed, head) == "" and _revealed(scrubbed, tail) == ""
+            assert [v for v in SECRET.findall(block) if v in head + tail and v not in scrubbed] == []
 
 
 # --- the differential against release/217 ------------------------------------------

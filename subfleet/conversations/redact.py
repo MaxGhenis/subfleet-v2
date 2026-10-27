@@ -122,6 +122,18 @@ _SHELL_META = ("$(", "`", "|", ";", "&", ">", "<", "\n")
 
 
 def mask_approval(request: Any) -> tuple[Any, list[dict]]:
+    """`_head_mask_approval` after release/217's masking (`scrub_release.mask_approval`,
+    frozen at `2c981cba5`), on what release leaves (C-23.14, C-27.1, #239 round 8). The
+    head's pass only replaces a span with its mask, so it shows nothing release masks,
+    and it reads every token shape release leaves unmasked as it would without release's
+    pass; the spans are release's, then the head's."""
+    from ..sessions import scrub_release
+    released, spans = scrub_release.mask_approval(request)
+    masked, more = _head_mask_approval(released)
+    return masked, spans + more
+
+
+def _head_mask_approval(request: Any) -> tuple[Any, list[dict]]:
     """Mask value-shaped secrets in an approval request, and nothing else.
 
     A person must see what they are allowing. Only token-shaped values (PEM
