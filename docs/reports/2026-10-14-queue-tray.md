@@ -5436,3 +5436,144 @@ Hold 2 killed all three at the default layout as well.
 
 The product (`app/Sources`) is unchanged, so design §12 and C-27.5 are too.
 Each commit carries the co-author trailer.
+
+## Round 9 (review r7 at 07d4348d5): settled own sends and balanced CI
+
+**Head:** `07d4348d5b15f9cfc92ef28281b3da4169731854` (unchanged, detached). All changes are uncommitted: staging named files failed because the sandbox cannot create the shared Git `index.lock`. The hub must commit them. No network, fetch, merge or push was used.
+
+### Decisions built
+
+- **P2-1:** review files use the first prefix `tests/frontend/test_review_r219_`, before `tests/frontend/`, including mutations. The validator permits ordered narrow prefixes and rejects shadowed ones. The workflow remains at 45 minutes; its map guard reserves ten minutes, capped at 35 projected minutes.
+- **P2-2:** the latch feeds the opening pin. Document growth re-pins while it is on. After 300 ms without document or clip changes, layout is applied and a measured gap within `column + 1` ends it. The marker’s first appearance does not. Person input cancels pending pins immediately; a new reveal cancels the latch too.
+- **P3-1:** the landed step already recorded `reveals`; the suite now asserts one at both layouts and prints counts with loads. Both were one. The palette was not changed.
+- **P3-2:** the change log, source comment and replacement PR lines say “stopped 208 pt short of a document that then grew 224 pt.” Design §12 says “before the main run loop next sleeps.” C-27.5 and the design describe measured settlement.
+- **P3-3:** the replay order gate also checks `steps["shrunk"]["reveal"]["outstanding"]`.
+
+### Shards and the placement counterexample
+
+The duration tool read all ten artifacts from run 40377886461: eight whole reports covered 459 files and both cancelled reports were skipped. A collect-only pass produced 1,710 test IDs across their 84 files. Only files with exactly that complete teardown-ID set were supplemented: 83 complete partial-file measurements, taking the larger Python phase sum. Twenty-four old values remain. [The audit](2026-10-26-qt-flake-r9-shards.json) lists every file without a whole report, per-Python sums and collection counts.
+
+| Shard | Projected seconds |
+| --- | ---: |
+| 1/5 | 1536.3 |
+| 2/5 | 1536.3 |
+| 3/5 | 1536.3 |
+| 4/5 | 1536.2 |
+| 5/5 | 1536.2 |
+
+**Placement deviation:** the requested split leaves the 1,425.1 s review group on shard 1 and moves the 1,203.9 s remaining frontend group to shard 2. The greedy planner puts its largest unit first. Keeping the requested prefixes and planner is the smallest change that preserves the timeout intent; all projections are below 2,100 s.
+
+The real map guard was run with the new seconds and old grouping: **failed as required**, 2,629,000 ms > 2,100,000 ms (1 failed, 49 deselected, 43.77 s). The final map and all 50 shard-plugin tests passed.
+
+These files had no complete file measurement and kept their previous seconds (all are under `tests/unit/`):
+
+| File | Kept seconds |
+| --- | ---: |
+| `test_daemon_qos_tools.py` | 0.3 |
+| `test_daemon_settle.py` | 1.8 |
+| `test_doctor.py` | 1.5 |
+| `test_gate_revision.py` | 0.1 |
+| `test_guardian.py` | 0.2 |
+| `test_host_push_cli.py` | 0.8 |
+| `test_host_push_storage_recovery.py` | 0.6 |
+| `test_host_push_storage_retry_budget.py` | 1.3 |
+| `test_policy_support.py` | 1.1 |
+| `test_pr124_fixes.py` | 0.4 |
+| `test_prune_decision_fingerprints.py` | 1.7 |
+| `test_quota_projection.py` | 0.8 |
+| `test_render.py` | 0.1 |
+| `test_retention_ordinary_trees.py` | 2.6 |
+| `test_review_pr127_fixes.py` | 0.5 |
+| `test_review_r3_repro.py` | 1.5 |
+| `test_review_r6_restart.py` | 0.2 |
+| `test_sessions_mirror_hot_health.py` | 0.1 |
+| `test_sessions_mirror_hot_regressions.py` | 0.7 |
+| `test_sessions_revive_reads.py` | 1.0 |
+| `test_status_json.py` | 1.8 |
+| `test_store_migration_2.py` | 0.4 |
+| `test_wake_cli.py` | 0.1 |
+| `test_weekly_rank_vs_base.py` | 0.6 |
+
+`tests/unit/test_daemon_log_handler.py` finished only 104/127 collected tests, so its partial sum was excluded; it had no old map entry and remains unmeasured. The new `test_review_r219_fix13_view.py` has no CI measurement or prior value and belongs to the review group.
+
+### Red runs and repeated probes
+
+The final scene code was compiled against the original product sources at the supplied head and run natively. Setup/order checks passed before the behavioral assertion. The saved traces were also rejected by the final reply-only assertion.
+
+| Scene | Load | Sent gap | Reply gap at the base |
+| --- | ---: | ---: | ---: |
+| short | 126.47 | 505 pt | 1683 pt |
+| regrow | 102.54 | 741 pt | 761 pt |
+
+On the fix, ten fresh runs per scene passed. Loads below are recorded before each individual run, in run order.
+
+| Scene | Passes | Loads | Result |
+| --- | ---: | --- | --- |
+| short | 10/10 | 130.12, 47.27, 23.90, 56.62, 132.18, 83.30, 159.94, 162.83, 177.52, 183.34 | reply gaps 0–25 pt |
+| regrow | 10/10 | 130.12, 47.27, 23.90, 76.68, 132.18, 83.30, 159.94, 162.83, 186.14, 181.72 | reply gaps 24–25 pt |
+| person | 10/10 | 177.05, 147.54, 134.22, 108.00, 113.15, 61.83, 113.09, 101.03, 98.21, 103.45 | `stay` every time; all offsets exactly unchanged |
+
+19 measured latch completions were recorded at gaps within 25 pt; the last short run closed its window before the quiet timer completed. An extra preliminary assertion on the immediate `sent` snapshot was removed: it sampled a new layout 1,605 pt before its queued re-pin, but the reply was followed to 24 pt. The requested reply bound was retained.
+
+Landed controls: default **one reveal**, load **108.87**; 1.728× text **one reveal**, load **87.65**. Both single-reveal assertions remain enabled.
+
+### Counts and reruns
+
+**171 unique requested checks eventually passed.** [Validation data](2026-10-26-qt-flake-r9-validation.json) retains each hold’s cases, initial failures, loads and probe results.
+
+| File | Unique passes |
+| --- | ---: |
+| `tests/frontend/test_review_r219_fix10_view.py` | 36 |
+| `tests/frontend/test_review_r219_fix11_view.py` | 6 |
+| `tests/frontend/test_review_r219_fix12_view.py` | 9 |
+| `tests/frontend/test_review_r219_fix13_view.py` | 3 |
+| `tests/frontend/test_review_r219_fix8_mutations.py` | 4 |
+| `tests/unit/test_ci_shard_plugin.py` | 50 |
+| `tests/fake/test_state_contract.py` | 37 |
+| `tests/unit/test_test_module_names.py` | 1 |
+| `tests/unit/test_invariants_index.py` | 25 |
+
+- The initial mark-mutant scene had clip y=0 and its row already visible. Its order guard rejected that setup, so this was not counted as a kill. The sole targeted rerun passed the guard at y=1,450 and killed the mutant.
+- The delayed-text interval check first measured a 1,540 pt approach against its 1,200 pt bound, with suspended `stay` moves. Its sole targeted rerun passed (starting load 44.58). The bound and palette were unchanged.
+- The combined fix12/new hold was stopped before ten minutes after two passing cases. The first direct replay/fix11 selection was stopped before ten minutes after nine passing cases; the remaining three fix11 cases passed separately. Each pytest process stayed below ten minutes; each hold contained one pytest.
+- Two waiters exceeded 30 minutes without admission (1,823 and 1,822 s), were stopped, and their files ran directly under the lane fallback: `direct1a` and `direct1d`. Their unfinished-case continuation and one targeted retry (`direct1a-rest`, `retry-delayed-text`) also ran directly. Other pytest runs used the lock. All runs stayed attached; no shell background operators or detached drivers were used.
+- Two initial baseline prebuilds timed out at 540 and 900 s; the subsequent foreground build completed. Final product/mutant prebuilds reported peak RSS no higher than 1.27 GB. Stored scratch plus build cache was about 610 MB before cleanup.
+
+### Named mutants
+
+| Mutant | Killing pytest case | Behavioral rule |
+| --- | --- | --- |
+| `abandon_keeps_pending` | `test_round8_mutation_fails_its_named_regression[abandon_keeps_pending]` | `assert_missing_away_releases` |
+| `own_send_after_catchup_guard` | `test_round8_mutation_fails_its_named_regression[own_send_after_catchup_guard]` | `assert_own_send_releases` |
+| `mark_local_frame_only` | `test_round8_mutation_fails_its_named_regression[mark_local_frame_only]` | `assert_mark_probes_run_the_check` |
+| `own_send_latch_ends_at_marker` | `test_round9_marker_latch_mutation_fails_regrow` | `assert_landing_follows[regrow]` |
+
+Only these four mutants ran. Every order/setup guard runs outside the expected assertion failure. The mutation file’s ten unnamed items were deselected.
+
+**Not run:** the full suite or CI; `test_core_live.py` (the daemon’s person-only check prevents lane execution); the ten unnamed mutation items; the live app’s animation and a macOS 15 runner. The probe retains its established animation control.
+
+### Replacement PR body lines
+
+- **Own send:** the person’s own send ends a reveal before choosing its move, catch-up included. After an own send, document growth re-pins the clip and following stays engaged until the measured end settles, the person scrolls or another reveal starts. The earlier glide stopped 208 pt short of a document that then grew 224 pt, leaving a reply 610 pt behind.
+- **The mark:** its document placement is checked before the main run loop next sleeps, and when its identity changes.
+- **CI:** keep the 45-minute timeout. Separate the r219 review family from the remaining frontend tests, retain one shared review-probe compile, and refresh whole-file timings from run 40377886461. Projected shard seconds: 1536.3, 1536.3, 1536.3, 1536.2, 1536.2.
+- **Evidence:** short and regrow are red at 07d4348d5; each and the person control pass ten fresh runs on the fix. Four named mutants are killed. Both landed suite layouts used one reveal, and the replay checks outstanding state after the shrink. Two existing check failures passed targeted reruns; the palette follow-up remains separate.
+
+### Uncommitted files for the hub
+
+- `.github/test-shards.json`
+- `app/Sources/ConversationOpeningPin.swift`
+- `app/Sources/UIWindow.swift`
+- `docs/acceptance-contract.md`
+- `docs/desktop/design.md`
+- `docs/reports/2026-10-14-queue-tray.md`
+- `docs/reports/2026-10-26-qt-flake-r9-shards.json`
+- `docs/reports/2026-10-26-qt-flake-r9-validation.json`
+- `tests/frontend/ReviewR219Fix8ViewProbe.swift`
+- `tests/frontend/test_review_r219_fix10_view.py`
+- `tests/frontend/test_review_r219_fix13_view.py`
+- `tests/frontend/test_review_r219_fix8_mutations.py`
+- `tests/unit/test_ci_shard_plugin.py`
+- `tools/ci_shard_plugin.py`
+
+Cleanup: the scratch folder and this job’s build cache are removed after recording validation; no owned run remains active.
