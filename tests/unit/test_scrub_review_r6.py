@@ -293,7 +293,11 @@ def test_a_lone_flag_the_sentence_does_not_reach_shows_its_value_as_stated(text,
 #: M4 (the skip leaves the name's secret part): `SECRET7ab1` showed in the excerpt, whole
 #: and `clean` modes; C-23.14's prefix sentence says it goes. M7 (the skip without its
 #: `_HEADER_RE` half): `SECRET7c3` showed in three modes. Both references show each value,
-#: so no leak check sees either mutant. Pinned at today's output, mode by mode.
+#: so no leak check sees either mutant. M6 (the skip without its `_header_name_at` half;
+#: review r7, P3-3): a next-line name with nothing after its colon, which `_HEADER_RE` does
+#: not read (it needs a value after the colon) and `_header_name_at` does, loses its ` :`
+#: in the excerpt, whole and `clean` modes, as both references' outputs do; no secret
+#: shows either way. Pinned at today's output, mode by mode.
 NEXT_LINE_SKIP = {
     "secret-prefix-goes": ("x\nSECRET7ab1Cookie\n:\nCookie: v SECRET7c3",
                            _pinned('x\n[REDACTED]Cookie\n:\n[REDACTED] [REDACTED]',
@@ -305,6 +309,9 @@ NEXT_LINE_SKIP = {
                                                         'Authorization:\n[REDACTED]\n: [REDACTED]\n[REDACTED]',
                                                         'Authorization: [REDACTED]',
                                                         'Authorization: [REDACTED] : [REDACTED] [REDACTED]')),
+    "next-line-name-with-nothing-after-its-colon": ("Cookie:\nSECRET7ab1Cookie :",
+                                                    _pinned('Cookie:\n[REDACTED] :', 'Cookie:\n[REDACTED] :',
+                                                            'Cookie: [REDACTED]', 'Cookie: [REDACTED] :')),
 }
 
 
