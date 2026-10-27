@@ -54,6 +54,8 @@ def main() -> int:
     parser.add_argument("--gate-peer", action="store_true")
     parser.add_argument("--max-connections", type=int)
     parser.add_argument("--connection-idle-s", type=float)
+    parser.add_argument("--inspection-witness", type=Path)
+    parser.add_argument("--inspect-interval-s", type=float, default=1.0)
     parser.add_argument("--hide-environment-of", type=Path, action="append", default=[],
                         help="a file a test's process writes its pid to; the census reads that "
                              "pid's argument buffer without its environment (D-KILL2)")
@@ -122,10 +124,23 @@ def main() -> int:
         daemon = Daemon(root, tick_s=.02, start_grace_s=.65, term_grace_s=.08,
                         kill_settle_s=1.0, exit_settle_s=1.0,
                         guardian_start_delay_s=args.start_delay, crash_hook=hook,
+                        inspect_interval_s=args.inspect_interval_s,
                         **connections)
     except DaemonUnavailable:
         return 69
     log_open_file_limit(daemon.log, *limits)
+    if args.inspection_witness:
+        original = daemon._record_owned
+
+        def witnessed(attempt, table):
+            original(attempt, table)
+            try:
+                pid = int(args.inspection_witness.read_text())
+            except (OSError, ValueError):
+                return
+            if table.live(pid):
+                Path(str(args.inspection_witness) + ".inspected").touch()
+        daemon._record_owned = witnessed
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: daemon.stopping.set())
     try:

@@ -177,6 +177,9 @@ def test_e_recycled_root_never_becomes_a_new_kill_target(monkeypatch, generated,
     saved, signalled = {}, []
 
     class Store:
+        def get_job(self, job_id):
+            return None
+
         def one(self, *args):
             return {"id": 1}
 
