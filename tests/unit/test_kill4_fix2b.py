@@ -401,5 +401,6 @@ def test_unlaunched_writes_the_abandon_for_a_starting_attempt_whatever_its_calle
     written anyway, so no ending of a starting attempt lacks it."""
     daemon.store.update_attempt(ATTEMPT, state="starting", child_pid=None)
     daemon._unlaunched(attempt(daemon), "guardian-identity-unavailable: OSError(EBADF)")
+    assert (adir(daemon) / "abandon.json").exists(), "a starting attempt ended with no abandon marker"
     marker = json.loads((adir(daemon) / "abandon.json").read_text())
     assert marker["reason"].startswith("guardian-identity-unavailable")

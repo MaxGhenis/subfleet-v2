@@ -71,7 +71,7 @@ Every terminal path that met live census members either quarantined without sign
 - **The accepted operator case.** An operator process whose cwd is in the job's own worktree and which is an ancestor of a marked member is signalled by design.
 - **Probes and offline kills** keep their containment (group and owned only). They are not job attempts, and run no parent chain.
 - **Markers are signal authority wherever a process runs.** A process that inherited the attempt's environment is signalled even outside the attempt's lineage, for example a pane of a tmux server the agent started (review r1, check 2, read only). Accepted; C-5.5 says so.
-- **A stranger's leaderless group at the recorded pgid holds the attempt.** Since fix round 1 its members are never signalled, but they are census members: `kill` on the finished job answers `containment requested` and its protocol ends with them as survivors, and `--confirm-dead` refuses while they live. `--force-release` resolves it.
+- **A stranger's leaderless group at the recorded pgid holds the attempt.** Since fix round 1 its members are never signalled, but they are census members. Since fix round 2b `kill` on the finished job runs no protocol for them and answers `already finished`, naming them as held, never signalled; `--confirm-dead` refuses while they live. `--force-release` resolves only a quarantine: on a finished job that is not quarantined it answers `already finished` and releases nothing, so the hold lasts until they exit (corrected in fix round 2b, review r2's P3-2).
 
 ## Decision 6: does every guardian record a responsibility root?
 
