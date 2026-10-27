@@ -4,6 +4,7 @@ import json
 import os
 import plistlib
 from pathlib import Path
+import re
 import subprocess
 from types import SimpleNamespace
 
@@ -40,6 +41,16 @@ POLLUTION = {"FOO_API_KEY": "dummy", "AXIOM_TEST_SIGNING_KEY": "dummy",
 POLICY = {"providers": {"codex": {"ca_bundle": None}}}
 PATHS = [(provider, mode) for provider in ("codex", "claude")
          for mode in ("detached", "resume", "turn", "probe", "isolated")]
+# Independent D-ENV3 oracle: a vendor's word and a credential word make that
+# vendor's credential, which no other provider's launch carries.
+VENDOR_ORACLE = {"codex": re.compile("OPENAI|CODEX", re.I), "claude": re.compile("ANTHROPIC|CLAUDE", re.I)}
+CREDENTIAL_ORACLE = re.compile("TOKEN|KEY|SECRET|PASS|PWD|CRED|AUTH|BEARER|COOKIE|JWT|PAT|WEBHOOK", re.I)
+
+
+def vendor_foreign(provider, name):
+    """Whether a `provider` launch may not carry `name` (D-ENV3)."""
+    return CREDENTIAL_ORACLE.search(name) is not None and any(
+        pattern.search(name) for vendor, pattern in VENDOR_ORACLE.items() if vendor != provider)
 
 
 def assert_environment(actual, expected):
@@ -139,6 +150,7 @@ def test_bounded_property_all_lane_launches(parent, passed, tmp_path, monkeypatc
             expected.update(launch.env_add)
             for name in (*launch.env_remove, "CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
                 expected.pop(name, None)
+            expected = {k: v for k, v in expected.items() if not vendor_foreign(provider, k)}
             assert_environment(actual, expected)
 
 

@@ -16,6 +16,7 @@ from subfleet.conversations.codex_turn import (
 )
 from subfleet.conversations.turn import Image, TurnSpec
 from subfleet.guard.preflight import HOOK_KEY
+from subfleet.launch_env import codex_shell_args
 from tests.schema_check import errors
 
 SCHEMAS = Path(__file__).resolve().parents[1] / "fixtures" / "codex" / "app-server-0.153.3"
@@ -104,7 +105,8 @@ def to_running(turn, thread_id="thr-1"):
 
 def test_argv_requires_the_verified_override():
     """D-11 a turn server never starts without the verified hooks override."""
-    assert argv("/bin/codex", "hooks={x}") == ["/bin/codex", "app-server", "--listen", "stdio://", "-c", "hooks={x}"]
+    assert argv("/bin/codex", "hooks={x}") == ["/bin/codex", "app-server", "--listen", "stdio://", "-c", "hooks={x}",
+                                                *codex_shell_args()]
     with pytest.raises(ValueError):
         argv("/bin/codex", "")
 
@@ -478,7 +480,9 @@ def test_c23_6_a_turn_whose_shell_reaches_the_network_has_unified_exec_off():
     assert codex_turn.unified_exec_off("accept-edits", True, environ={}) is False
     assert codex_turn.unified_exec_off("bypass", False, environ={}) is False
     assert codex_turn.unified_exec_off("ask", False, environ={"SUBFLEET_CODEX_UNIFIED_EXEC": "off"}) is True
-    assert codex_turn.argv("codex", "hooks={x}", unified_exec_off=True)[-2:] == ["-c", "features.unified_exec=false"]
+    shell = codex_turn.codex_shell_args()
+    command = codex_turn.argv("codex", "hooks={x}", unified_exec_off=True)
+    assert command[-2 - len(shell):] == ["-c", "features.unified_exec=false", *shell]
 
 
 def test_c23_6_the_service_launches_network_turns_with_unified_exec_off(tmp_path, monkeypatch):
