@@ -27,7 +27,8 @@ import SwiftUI
     return (size, all(hosting).compactMap { $0 as? NSButton }, window)
 }
 
-/// What the queue tray's closures were asked to do, in order: "withdraw:<id>" and "steer:<id>".
+/// What the queue tray's closures were asked to do, in order: "withdraw:<id>" and
+/// "steer:<id> into <turn>", the turn being the one the row's Send now names.
 @MainActor final class TrayLog {
     var events: [String] = []
 }
@@ -91,9 +92,9 @@ import SwiftUI
 }
 
 /// A person's message the daemon holds, built with the memberwise initializer.
-func queued(_ id: String, _ preview: String, status: String? = nil, canSteer: Bool = false) -> QueuedMessage {
+func queued(_ id: String, _ preview: String, status: String? = nil, steerInto: String? = nil) -> QueuedMessage {
     QueuedMessage(id: id, origin: "person", preview: preview, text: preview, attachments: 0, sending: false,
-                  status: status, canSteer: canSteer, withdraw: .cancel(messageID: id))
+                  status: status, steerInto: steerInto, withdraw: .cancel(messageID: id))
 }
 
 /// `count` short queued messages, q01 first.
@@ -153,7 +154,7 @@ struct HostedTray: View {
                                 attachments: 0, sending: true, status: "Sending", withdraw: .withdraw(messageID: "q2"))
     let first = queued("q1", "Fix the failing test"), second = queued("q2", "And the tests too")
     var head = first
-    head.canSteer = true
+    head.steerInto = "host-a"
     var configurations = [
         TrayConfiguration(name: "one", rows: [first]),
         TrayConfiguration(name: "long", rows: [queued("q1", String(repeating: "abcdefghi ", count: 500))]),
@@ -182,7 +183,7 @@ struct HostedTray: View {
         func hostedTray(_ rows: [QueuedMessage]) -> HostedTray {
             HostedTray(tray: QueueTray(title: title, rows: rows, withdrawing: configuration.withdrawing,
                                        withdraw: { log.events.append("withdraw:" + $0.id) },
-                                       steer: configuration.steer ? { log.events.append("steer:" + $0.id) } : nil,
+                                       steer: configuration.steer ? { log.events.append("steer:\($0.id) into \($1)") } : nil,
                                        notice: configuration.notice ? { id in
                                            guard id == "q1" else { return nil }
                                            return AnyView(VStack(alignment: .leading) {
@@ -275,10 +276,131 @@ struct HostedTray: View {
     ]
 }
 
+/// Writes nothing: the model's remembered picks stay out of the probe's own defaults.
+final class SendNowDefaults: UserDefaults, @unchecked Sendable {
+    override func string(forKey key: String) -> String? { nil }
+    override func set(_ value: Any?, forKey key: String) {}
+    override func removeObject(forKey key: String) {}
+}
+
+/// Turn the run loop and yield the main actor for `seconds`: the model's tasks
+/// (its steer, its pump) and SwiftUI's updates run meanwhile.
+@MainActor func settleMain(_ seconds: Double) async {
+    let end = Date().addingTimeInterval(seconds)
+    while Date() < end {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        try? await Task.sleep(nanoseconds: 5_000_000)
+    }
+}
+
+/// The steer of `messageID` as the app's outbox journal holds it, read from the file
+/// without opening the journal (an `Outbox` may repair what it loads).
+func journaledSteer(_ url: URL, _ messageID: String) -> OutboxSteer? {
+    guard let data = try? Data(contentsOf: url),
+          let journal = try? JSONDecoder().decode(OutboxJournal.self, from: data) else { return nil }
+    return journal.steers.first { $0.messageID == messageID }
+}
+
+func steerRow(_ steer: OutboxSteer?) -> Any {
+    guard let steer else { return NSNull() }
+    return ["state": steer.state.rawValue, "attempts": steer.attempts, "into": steer.into as Any? ?? NSNull(),
+            "failure": steer.failure.map { ["code": $0.code as Any? ?? NSNull(), "reason": $0.reason as Any? ?? NSNull(),
+                                            "retryable": $0.retryable] } as Any? ?? NSNull(),
+            "receipt_state": steer.receipt?.state as Any? ?? NSNull()]
+}
+
+/// `send-now <spec.json>` (#265 review r1, P2): the queue tray's "Send now" through the
+/// real `UIModel`, against the daemon socket the spec names. The model opens the
+/// conversation (`UIModel.open`); the tray is hosted from the model's layout and wired as
+/// the conversation view wires it, and its Send now button is kept. The model then reads
+/// the conversation again (a second `UIModel.open`), and the kept button is clicked: with
+/// `offer_after_reopen`, the tray is hosted after that second read instead (the control).
+/// The model's pump runs until the steer is answered for good, and the result is what the
+/// person saw at each point, the journaled steer, and the message as the model shows it.
+@MainActor func sendNow(_ spec: JSONValue) async throws -> [String: Any] {
+    let cid = spec["conversation_id"]?.string ?? "", queued = spec["queued"]?.string ?? ""
+    var initial = ConversationStoreState()
+    initial.availability = .ready(try spec["capabilities"]!.decode(Capabilities.self))
+    let root = URL(fileURLWithPath: spec["app"]?.string ?? "")
+    let paths = AppPaths.rooted(at: root)
+    let client = DaemonClient(transport: UnixSocketTransport(path: spec["socket"]?.string ?? ""))
+    let model = UIModel(paths: paths, client: client, defaults: SendNowDefaults(), state: initial)
+    var windows: [NSWindow] = []
+    let sendNowWidth = labelWidths(hidden: [], windows: &windows)["Send now"] ?? 0
+    var out: [String: Any] = [:]
+
+    /// Host the tray from the model's layout now, as the conversation view builds it, and
+    /// keep its Send now button: the one button that is not a row's Withdraw (each
+    /// Withdraw carries its message id), as wide as a link labelled "Send now". The tray
+    /// holds only the queued message here.
+    func offer() -> NSButton? {
+        let layout = model.state.layout(conversationID: cid)
+        var shown: [String: Any] = ["live": model.state.timelines[cid]?.liveMessageID as Any? ?? NSNull(),
+                                    "rows": layout?.tray.map(\.id) ?? [],
+                                    "steer_into": layout?.tray.map { $0.steerInto as Any? ?? NSNull() } ?? []]
+        guard let layout, let title = layout.trayTitle else { out["offered"] = shown; return nil }
+        let tray = QueueTray(model: model, conversationID: cid, title: title, rows: layout.tray)
+        let hosted = FixedWidthHost(tray, width: 480)
+        windows.append(hosted.window)
+        let buttons = hosted.layout().buttons
+        let others = buttons.filter { !($0.identifier?.rawValue ?? "").hasPrefix("queue-tray-withdraw-") }
+        shown["buttons"] = buttons.count
+        shown["send_now"] = others.count == 1 && others[0].frame.width == sendNowWidth
+        out["offered"] = shown
+        return others.count == 1 ? others[0] : nil
+    }
+
+    await model.open(.conversation(cid))
+    var kept = spec["offer_after_reopen"]?.bool == true ? nil : offer()
+    await model.open(.conversation(cid))
+    if spec["offer_after_reopen"]?.bool == true { kept = offer() }
+    out["live_at_click"] = model.state.timelines[cid]?.liveMessageID as Any? ?? NSNull()
+    out["offered_at_click"] = model.state.layout(conversationID: cid)?.tray.first { $0.id == queued }?.canSteer ?? false
+    guard let button = kept else {
+        out["clicked"] = false
+        return out
+    }
+    button.performClick(nil)
+    out["clicked"] = true
+    // The click journals the steer and pumps once; the app's pump timer would go on every
+    // 2 s, so pump every 0.5 s until the steer is answered for good and the model has it.
+    let deadline = Date().addingTimeInterval(60)
+    var pumped = Date()
+    while Date() < deadline {
+        await settleMain(0.05)
+        let steer = journaledSteer(paths.outboxURL, queued)
+        if let steer, !steer.isOpen, model.state.timelines[cid]?.turn(queued)?.steerRequested == false { break }
+        if Date().timeIntervalSince(pumped) >= 0.5 { model.pump(); pumped = Date() }
+    }
+    await settleMain(0.2)
+    out["steer"] = steerRow(journaledSteer(paths.outboxURL, queued))
+    let turn = model.state.timelines[cid]?.turn(queued)
+    out["queued"] = ["state": turn?.state as Any? ?? NSNull(), "status": turn?.statusText as Any? ?? NSNull(),
+                     "in_tray": model.state.layout(conversationID: cid)?.tray.contains { $0.id == queued } ?? false]
+    out["problem"] = model.problem as Any? ?? NSNull()
+    out["visible_windows"] = NSApp.windows.filter(\.isVisible).count
+    withExtendedLifetime(windows) {}
+    return out
+}
+
 @main
 struct QueueTrayViewProbe {
     @MainActor static func main() throws {
         NSApplication.shared.setActivationPolicy(.prohibited)
+        if CommandLine.arguments.count > 2, CommandLine.arguments[1] == "send-now" {
+            // The model's work is asynchronous: run it as a main-actor task, turning the run
+            // loop (which serves the main actor) until it is done. The layouts below stay as
+            // they were, synchronous.
+            let spec = try JSONValue.parse(Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[2])))
+            var finished: Result<[String: Any], Error>?
+            Task { @MainActor in
+                do { finished = .success(try await sendNow(spec)) } catch { finished = .failure(error) }
+            }
+            while finished == nil { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+            let result = try finished!.get()
+            print(String(data: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), encoding: .utf8)!)
+            return
+        }
         var windows: [NSWindow] = []
         let trays = trayConfigurations(windows: &windows)
         let hidden = trays.compactMap { $0["hidden"] as? Int }.filter { $0 > 0 }

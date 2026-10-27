@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .capacity import desktop_excluded, identity_blocked
+from .contracts import hold_note_of, hold_source_shown
 from .guardian import atomic_publish
 from .quota_projection import weekly_projections
 
@@ -25,17 +26,25 @@ def timestamp(value: str | datetime | None = None) -> str:
     return instant(value).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def lane_verdict(lane: Mapping[str, Any]) -> str:
-    """Keep the cycle's post-heal verdict, falling back to durable evidence."""
+#: C-9.6: the closures that hold a lane (an operator's hold, a dead credential)
+#: rather than say its quota is spent.
+HOLD_REASONS = ("operator-hold", "auth-dead")
+#: C-23.52: the cycle verdicts that name a credential fault. Each outranks any
+#: closure (D-STATUS-SRC1): its alert names the login to run, and the menu says
+#: "Sign-in required".
+CREDENTIAL_VERDICTS = frozenset({"auth-dead", "auth-revoked", "revoked", "no-auth", "auth-suspect",
+                                 "token-invalid", "secret-missing", "no-token", "expired-token", "free-plan"})
+#: The verdicts `dispatchable` accepts, as before D-STATUS-SRC1.
+READY_VERDICTS = frozenset({"ok", "ready", "provider", "stale-provider", "admission-observed"})
+
+
+def _explicit_verdict(lane: Mapping[str, Any]) -> str | None:
+    """The cycle's post-heal verdict, when the lane carries one."""
     explicit = lane.get("verdict") or lane.get("outcome")
-    if isinstance(explicit, str):
-        return explicit
-    if any(row.get("reason") == "auth-dead" for row in lane.get("closures", ())):
-        return "auth-dead"
-    if not lane.get("enabled", True):
-        return "disabled"
-    if any(row.get("scope") == "account" for row in lane.get("closures", ())):
-        return "limited"
+    return explicit if isinstance(explicit, str) else None
+
+
+def _readings_verdict(lane: Mapping[str, Any]) -> str:
     readings = lane.get("readings", ())
     if any(row.get("label") == "provider" for row in readings):
         return "ok"
@@ -43,6 +52,66 @@ def lane_verdict(lane: Mapping[str, Any]) -> str:
         if any(row.get("label") == label for row in readings):
             return label
     return "unknown"
+
+
+def provider_limited(lane: Mapping[str, Any]) -> bool:
+    """C-9.6: an open account-scope limit (`provider-limit`, `credits`, `cooldown`), not a hold."""
+    return any(row.get("scope") == "account" and row.get("reason") not in HOLD_REASONS
+               for row in lane.get("closures", ()))
+
+
+def operator_held(lane: Mapping[str, Any]) -> bool:
+    """C-9.6: an open `operator-hold` closure, of any scope."""
+    return any(row.get("reason") == "operator-hold" for row in lane.get("closures", ()))
+
+
+def lane_verdict(lane: Mapping[str, Any]) -> str:
+    """What a lane's state is, as `status.json`, `status` and the alerts name it (D-STATUS-SRC1).
+
+    The lane's `closures` are the ones in force. In order: a credential fault the
+    cycle found (its verdict); `auth-dead` from a closure, or `disabled`, each
+    keeping the cycle's verdict when it has one; `limited`, an open account-scope
+    limit; `held`, an open operator hold and no such limit; then the cycle's
+    post-heal verdict, falling back to the readings. A cycle's `limited` (or
+    `held`) is read from the closures, never kept: a held lane is not read
+    (C-18.1), so its last verdict says nothing of the hold, and a limit whose
+    closure has ended or been released is over. `dispatchable` does not read
+    this verdict (`_admission_verdict`)."""
+    explicit = _explicit_verdict(lane)
+    if explicit in CREDENTIAL_VERDICTS:
+        return explicit
+    if explicit in ("limited", "held"):
+        explicit = None
+    dead = any(row.get("reason") == "auth-dead" for row in lane.get("closures", ()))
+    if dead or not lane.get("enabled", True):
+        return explicit if explicit is not None else "auth-dead" if dead else "disabled"
+    if provider_limited(lane):
+        return "limited"
+    if operator_held(lane):
+        return "held"
+    return explicit if explicit is not None else _readings_verdict(lane)
+
+
+def _admission_verdict(lane: Mapping[str, Any]) -> str:
+    """The verdict `dispatchable` judges a lane by, as release/217's `lane_verdict`
+    gave it: the cycle's, else `auth-dead` from a closure, `disabled`, `limited`
+    for any open account closure (held or limited alike, never shown: status
+    reads `lane_verdict`), or the readings'.
+
+    The account closure is tested before the readings are read, in release's
+    order (review r1 of #263, P3-1), so a closed lane with malformed evidence
+    (no readings list, or a row that is not a mapping) answers False as it did,
+    and every lane answers or raises exactly as release's function did."""
+    explicit = _explicit_verdict(lane)
+    if explicit is not None:
+        return explicit
+    if any(row.get("reason") == "auth-dead" for row in lane.get("closures", ())):
+        return "auth-dead"
+    if not lane.get("enabled", True):
+        return "disabled"
+    if any(row.get("scope") == "account" for row in lane.get("closures", ())):
+        return "limited"
+    return _readings_verdict(lane)
 
 
 def dispatchable(lane: Mapping[str, Any]) -> bool:
@@ -56,8 +125,64 @@ def dispatchable(lane: Mapping[str, Any]) -> bool:
         return False
     if "dispatchable" in lane:
         return bool(lane["dispatchable"])
-    return (lane_verdict(lane) in {"ok", "ready", "provider", "stale-provider", "admission-observed"}
+    return (_admission_verdict(lane) in READY_VERDICTS
             and not any(row.get("scope") == "account" for row in lane.get("closures", ())))
+
+
+def closure_kind(row: Mapping[str, Any]) -> str:
+    """D-STATUS-SRC1: `hold` (an operator's), `auth` (a dead credential) or `limit` (the provider's)."""
+    reason = row.get("reason")
+    return "hold" if reason == "operator-hold" else "auth" if reason == "auth-dead" else "limit"
+
+
+def closure_note(row: Mapping[str, Any]) -> str | None:
+    """The operator's note on a hold (C-9.6, `lanes hold --note`); None for any other closure."""
+    return hold_note_of(row.get("source_event")) if closure_kind(row) == "hold" else None
+
+
+def withheld_source(row: Mapping[str, Any]) -> Mapping[str, Any]:
+    """C-9.6: a closure row with a hold's `source_event` as a reader shows it
+    (`hold_source_shown`): as stored when it is exactly what `lanes hold` writes
+    (`operator`, or `operator: <note>` with a note `hold_note` accepts as it
+    stands), else `operator: [note withheld: …]` (review r2 of #263, P3-3). Any
+    other row is returned as it is."""
+    if closure_kind(row) == "hold" and "source_event" in row:
+        return {**row, "source_event": hold_source_shown(row["source_event"])}
+    return row
+
+
+def closure_row(row: Mapping[str, Any]) -> dict[str, Any]:
+    """D-STATUS-SRC1: a closure as `status --json` shows it: every field it had, with `kind` and `note`.
+
+    A hold whose stored source is not exactly what `lanes hold` writes shows
+    its note and its `source_event` withheld (`hold_note_of`, `withheld_source`),
+    so the stored text reaches no reader."""
+    return {**withheld_source(row), "kind": closure_kind(row), "note": closure_note(row)}
+
+
+def closure_rows(view: dict[str, Any]) -> dict[str, Any]:
+    """D-STATUS-SRC1: a capacity view's closure rows, the fleet's and each lane's, as
+    `closure_row` shows them. `daemon.status` and the `lanes hold` answer both show
+    theirs through this one helper (review r1 of #263, P3-2)."""
+    view["closures"] = [closure_row(row) for row in view["closures"]]
+    for lane in view["lanes"]:
+        lane["closures"] = [closure_row(row) for row in lane.get("closures", ())]
+    return view
+
+
+def decision_rows(decision: Any) -> Any:
+    """C-9.6 (review r2 of #263, P3-2): a route decision as `why`, `run --dry-run`
+    and `runs show` show it. Each evaluation's `closures` and `stranding_closures`
+    are the rows the scheduler read, recorded as they were; each hold's
+    `source_event` is shown as `closure_row` shows it (`withheld_source`), and
+    nothing else changes, so a decision whose holds `lanes hold` wrote reads
+    exactly as recorded (C-11.5: `why` answers with the recorded walk)."""
+    for evaluation in (decision.get("evaluations") or ()) if isinstance(decision, dict) else ():
+        for key in ("closures", "stranding_closures"):
+            if isinstance(evaluation, dict) and isinstance(evaluation.get(key), list):
+                evaluation[key] = [withheld_source(row) if isinstance(row, Mapping) else row
+                                   for row in evaluation[key]]
+    return decision
 
 
 def _windows(lane: Mapping[str, Any]) -> dict[str, dict[str, Any]]:

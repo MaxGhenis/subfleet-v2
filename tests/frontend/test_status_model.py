@@ -241,6 +241,28 @@ def test_c18_1_frontend_reads_a_lane_a_probe_holds_as_unavailable(probe, tmp_pat
         assert row["percentage"] == 25 and row["weekly_percentage"] == 60
 
 
+def closure(provider, reason, source_event):
+    return {"lane_id": f"{provider}-1", "scope": "account", "until_at": (NOW + timedelta(hours=5)).isoformat(),
+            "reason": reason, "clock_source": "reported", "source_event": source_event}
+
+
+def test_d_status_src1_frontend_says_held_for_a_hold_and_limited_for_a_limit(probe, tmp_path):
+    """D-STATUS-SRC1, C-18.1 an operator hold reads "Held" in a neutral tone, distinct from a provider
+    limit's "Limited"; a held lane is never read, so its usage goes stale, and it still reads "Held"."""
+    def rows(reason, source, label="provider"):
+        return [lane(provider, label=label, closures=[closure(provider, reason, source)])
+                for provider in ("codex", "claude")]
+    held = display(probe, tmp_path, rows("operator-hold", "operator: codex-open: disk brake"))
+    limited = display(probe, tmp_path, rows("provider-limit", "wham"))
+    stale = display(probe, tmp_path, rows("operator-hold", "operator", label="stale-provider"))
+    for provider in ("codex", "claude"):
+        assert (held[provider][0]["status"], held[provider][0]["tone"]) == ("Held", "neutral")
+        assert "Not dispatchable" in held[provider][0]["detail"]
+        assert (limited[provider][0]["status"], limited[provider][0]["tone"]) == ("Limited", "warning")
+        assert (stale[provider][0]["status"], stale[provider][0]["tone"]) == ("Held", "neutral")
+        assert "Usage stale" in stale[provider][0]["detail"]
+
+
 ALERTS = [
     {"key": "claude-lane-auth:a@example.invalid", "severity": "critical",
      "subject": "claude credentials: claude-1 is auth-dead",
