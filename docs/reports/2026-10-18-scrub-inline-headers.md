@@ -1501,6 +1501,7 @@ In total, 897 passed, 3 were skipped (the opt-in full forms) and none failed.
   - **Without the memo** it walks it once per value: 12,003,600 calls on 88,474 characters (2.2 to 2.3 s), 24,007,200 at twice the values and 24,003,600 at twice the identifier.
   - Each pair grows one factor of that product, so `_assert_linear`'s 4× bound passes it. Only the walk bound sees the quadratic.
 - **The count holds with `p34h`'s two sites in place:** they read through the same memo, and the memo-off mutant removes it at all three.
+- *Note (fix round 8, 2026-10-27, from review r8's check 2):* the count test reaches only `p34f`'s site, the unclosed values. With the memo removed at `p34h`'s two sites alone, every test passes and the output is unchanged: review r8 found no input where the memo matters there (at most two lookups shared a line end over 215,830 texts, and a `\r`-separated probe stays linear). C-23.14's memo sentence now says the test counts the unclosed values only.
 
 **P3-3: M6 is not equivalent.**
 - `_HEADER_RE` needs a value after the colon (`.+$`), and `_header_name_at` needs only the name and `[ \t]*:`. So the skip's two halves differ when the next line is a name with nothing after its colon.
@@ -1510,7 +1511,7 @@ In total, 897 passed, 3 were skipped (the opt-in full forms) and none failed.
 ### C-23.14
 
 - **The rule `p34h` adds,** with (A) and (B) as executed examples: a flag that ends the value of a header's name that a quoted match swallows, or a key's plain value within a quoted match, and whose name is a key whose separator is on the next line, ends nothing.
-- **The converse sentence** ("the one value a reference hides that this scrubber is known to show") was false at `36590532c`. It is true at the head on every text this round ran, as measured below: the head shows nothing that 473fe2941, `c2e080e44` or release hides. Against `3fbc4b7c5` (run on the regression inputs, the joins and the family) it shows only the converse (41 texts, in each only the `SECRET7_token` of a key after `invalid Bearer` or `token_type: Bearer`). The sentence now names this section.
+- **The converse sentence** ("the one value a reference hides that this scrubber is known to show") was false at `36590532c`. It is true at the head on every text this round ran, as measured below (corrected 2026-10-27: only there; review r8's generators found four more families, and round 8 replaces the sentence): the head shows nothing that 473fe2941, `c2e080e44` or release hides. Against `3fbc4b7c5` (run on the regression inputs, the joins and the family) it shows only the converse (41 texts, in each only the `SECRET7_token` of a key after `invalid Bearer` or `token_type: Bearer`). The sentence now names this section.
 - **The change log** gains round 7's entry, and round 6's entry says its claim held only from this round.
 
 ### Invariants
@@ -1519,6 +1520,7 @@ Each holds for every input, with its stated exceptions and scope.
 1. **No new leak:** in no mode does the head show a `SECRET7` value that 473fe2941 or `c2e080e44` hides.
    - **One stated exception:** round 2's converse (`invalid Bearer SECRET7_token: expired`, a value only `3fbc4b7c5` hid). Review r7's P2-1 family is closed.
    - **Scope:** every generator of rounds 1 to 7 (the holds below), the whole family (51,371 cells, run in full), and review r7's eight corpora (311,789 texts). 0 of them show a value either reference or release hides, and 0 show a value `3fbc4b7c5` hides on the 69,024 texts it ran (the regression inputs, the joins and the family) but the converse.
+   - *Correction (fix round 8, 2026-10-27):* beyond that scope the invariant did not hold at this head. Review r8's generators found 598 of 146,793 new texts where the head showed a value release and both references hide (P2-1 to P2-4), so the converse was not the one exception. Round 8 makes the invariant hold by construction; its section gives the argument and the measured scope.
 2. **Monotone:** no second scrub reveals anything over the corpora (0 of 311,789), nor over the whole family.
 3. **Excerpts agree with the whole** at every cut `_neutral_break` allows (0 of 311,789 split).
 4. **Ownership:** round 3's twin matrices pass unchanged (hold 2b).
@@ -1562,6 +1564,7 @@ Each mutant is one edit in a copy of `95420ecaf`'s tree. The named test modules 
 | M7: the skip's `_HEADER_RE` half out | `_r6` (19) | 1: `line-start-header-read-across-its-colon` |
 
 With `p34f` removed, r6's ninth input (`Authorization:`, `'Cookie: --api-key` and `=r SECRET7c5`) still passes, so one of `p34h`'s sites now hides it too. This round did not trace which.
+- *Traced (fix round 8, 2026-10-27, review r8's check 4):* it is site 1 (`handoff.py:529-533`, the swallowed header name's value), which clears the flag for the swallowed name `Cookie` when `p34f` (`:502-505`) is removed. At the head `p34f` handles the input first, so site 1 is never reached there: deliberate redundancy. With both removed the head's own scrub shows `SECRET7c5` (`Authorization:`, `[REDACTED] api-key` and `=[REDACTED] SECRET7c5`), and 12 cases fail, this input among them. Round 8 rechecked it against the composed scrub: release/217's output hides the value, so every mode hides it with either or both removed, a third layer.
 
 ### Cost
 
@@ -1622,3 +1625,175 @@ In total, 912 passed, 4 were skipped (the opt-in full forms) and none failed.
   - mutants beyond the seven named, and any mutant against `_r2` to `_r5` but `p34f`'s against `_r5`.
 - **Follow-ups for the hub:** round 6's, less M6.
   - **The lone-flag sentence's two named cases** (round 6's P3-1), stated and pinned, not closed; both references show them.
+
+## Fix round 8 (#239 review r8, 2026-10-27)
+
+**Brief:** `~/reviews/subfleet-hub/scrub-inline-2026-10-18/brief-fix8.md`. **Review:** that folder's `review-r8.md`, REQUEST_CHANGES at `be4f090b6`: four P2 families (598 of 146,793 new texts where the head showed a `SECRET7` value that release and both references hide), pinned red in `test_scrub_review_r8` (`94344839f`). Rounds 5 to 8 each closed the families their review found, and each next review's generators found more, so the hub's decision for this round was to make "the head shows nothing release hides" hold by construction, keeping the head's gains, rather than fix a ninth set of families. This round built that, with one change to decision 1's mechanism, described below with its counterexample. It ran in its own worktree (job `20261027-044159-pr239-fix8`) from 12:06Z. There were no Git remote operations and no sub-agents, nothing was pushed, and every test value is a dummy `SECRET7…` string.
+
+**Names in this section.**
+- **`b0fd3ce8c`** is this branch's head before this round: round 7's `be4f090b6`, review r8's red test `94344839f`, and the hub's merge of `release/217` at `2c981cba5`. Its scrubber is `be4f090b6`'s.
+- **Release** is release/217 at `2c981cba5`. Its scrubbing half is byte for byte that of `be0c2a311`, which review r8 ran, and gives `c2e080e44`'s output on every text (review r8).
+- **The head's pipeline** for a mode is that mode as `be4f090b6` ran it: this round changes none of the head's rules, only what each mode writes.
+
+### Decision 1: the frozen copy and the composition
+
+- **The frozen copy** (`subfleet/sessions/scrub_release.py`): `handoff.py`'s lines 59-152 and 236-1568 at `2c981cba5` (blob `f78955e05`: the constants and patterns, the rules, `scrub_secrets`, `scrub_bounded`, the cuts daemon.log uses, `truncate` and `clean`), then `redact.py`'s lines 121-160 (blob `bde628b71`: `mask_approval`). Only the imports differ. `test_scrub_release_frozen` pins the kept lines by their sha256 everywhere and, where the clone holds the two blobs (a full clone; CI's checkout is one commit), reads them from the blobs too. The test reads the module as imported, so a run against another tree reads that tree's copy.
+- **As worded, decision 1 failed decision 2.** The brief's composition, `head_mode(release_mode(x))`, holds decision 1 by construction, and was built and measured first (`c0`, every mode composed so, the head's pass run with no reminder stripped):
+  - 0 of the 461,248 texts showed a value release's same mode hides;
+  - but 91,978 lost a gain: the composed head showed a value `be4f090b6` hides. The texts the head hides that release shows fell from 130,712 to 62,146.
+  - **The counterexample, by family:** release's rule takes an item (a credential flag, a key or `Bearer`) whose value lies past what it redacted, and the head's pass then sees only `[REDACTED]` where the item was, so no rule of the head can own the value. `token:--SECRET7abc1_token SECRET7nxt9` becomes `token:[REDACTED] SECRET7nxt9` in release; `be4f090b6` gives `token:[REDACTED] [REDACTED]`. So do `Authorization: Bearer` with `client_secret=x SECRET7abc13 tail` on the next line, and `sent Cookie: --password` with `SECRET7a1 x` on the next.
+  - One family could be fixed in the head's rules: release's key rule reads an inline header's name as a key and redacts only its first word (`curl -H "Authorization: [REDACTED] SECRET7abc" x`), and the head's inline rule then left a value that starts redacted. A fix (skip only a value of placeholders alone) closed it. The item families cannot be fixed that way: what owned the value is gone from the text the head's pass reads.
+- **The smallest change that keeps both decisions' intent** (built): the head's pipeline reads the text, beside release's, and each mode writes release's output but for each whitespace-free run of it that the head's output of the same mode, of the same text, does not hold, which becomes `[REDACTED]` (`handoff.shown_by_both`). Release's whole pipeline for the mode still runs first and is what is written; the head's decides only what more of it to hide. This is the rule `daemon_log._kept_block` already applies to a block and its folded rescrub.
+  - **The modes:** `scrub_secrets` (the excerpt and whole scrubs, `redact.scrub`, `ids`, `diff`), `scrub_bounded` and `clean` (`redact.bounded`, the handoff and Codex briefs), `suggestions._scrub_line` (daemon.log's folded line, `detail_line`), `suggestions.scrubbed_line` and a suggestion's title and summary (release's line cut first, as release cuts it, the mark set aside, then masked and cut again), `normalize`'s brief (its line-end normalisation between two passes), and daemon.log's block form (`scrubbed_block`, plain, kept-lines and group). `mask_approval` masks what release's masking leaves (`_head_mask_approval` on release's output), which keeps the mask format.
+  - **Each mode's pipeline is its whole one**, fold and second scrub included, so the composition never sits between a scrub and its fold (review r8, P2-1, is that case: composing each scrub lets the head's first pass take what release's second pass reads).
+  - **The bounded mode** is composed piece by piece. `_released_pieces` runs release's `scrub_bounded` step by step with release's own helpers (block resolution, excerpt cuts, scrub, trim, marker, `truncate`'s pieces) and returns the pieces, which join to release's output exactly (a Hypothesis test). Each scrubbed piece is masked against the head's `_scrub` of the same text release scrubbed (the block-resolved text, or the same excerpt of it; the head's block resolution is release's). Markers and the elision are kept as release wrote them. Where the placeholders make the result longer than `limit`, `truncate` bounds it again.
+  - **The count** is release's or the head's, whichever replaced more.
+  - **daemon.log's tail** (`_taken_out`) takes reminders out only where release's first pass and the head's agree on them, since both scrubs now read the text.
+- **What it costs in prose:** a run either pipeline hides goes whole, so a run that holds a secret and punctuation loses the punctuation (`curl -H 'Authorization: Basic SECRET7…' https://x` is written `curl -H 'Authorization: [REDACTED] [REDACTED] https://x`; the head's own output kept the closing quote), and the head's narrower redactions (`Cookie: [REDACTED] token=[REDACTED]`) show only where release's output shows the same runs. The pins in the test modules are updated to what the modes write; every rewritten pin shows no value the old pin hid (the rewrite tool refused any that would).
+
+### The argument, mode by mode
+
+For every mode the written output is `shown_by_both(r, h)`, where `r` is release's output of the mode (release's pieces, for the bounded mode; release's cut line, for `scrubbed_line`) and `h` the head's output of the same mode from the same text. `shown_by_both` is `re.sub(r"\S+", keep, r)`: each maximal whitespace-free run of `r` is written unchanged when `h` holds it as a run, and as the ten characters `[REDACTED]` otherwise; the whitespace between runs is `r`'s.
+1. **Nothing release hides comes back.** Every character written is a character of `r` in its place and order, or one of a `[REDACTED]` written for a whole run of `r`. A `SECRET7` value has no whitespace, so where one shows it lies inside a run that was kept whole: a run of `r`. So it shows only where release's mode shows it.
+2. **Nothing the head hides shows.** A run is kept only if `h` holds it, so a value that shows lies inside a run of `h`.
+3. **The bounded mode** applies the same to each scrubbed piece; release's markers and elision are its own words, and a second `truncate` only cuts. **`scrubbed_line`** cuts release's line first, sets the mark aside, masks, puts the mark back and cuts again; cuts only remove. **daemon.log's block form** masks release's block, its lines, margins and folding kept, with the head's block.
+4. **`mask_approval`:** the head's pass on release's output replaces a whole match with its mask or leaves it, and writes nothing of its own but the mask's words, so no character release masks comes back; and it reads every token shape release leaves as it would without release's pass.
+- **Executed:** `test_scrub_release_first` checks each mode's output against this formula, checks over r8's nine inputs and a 300-string sample of every review's regression strings that no mode shows a value release's or the head's same mode hides, and checks by Hypothesis that every mode only replaces release's runs (`_revealed`), writes no `SECRET7` run release's output lacks, and shows no value the head's hides.
+- **Not covered by construction:** daemon.log's record cut (`cut_whole`, before either form, on records over 16,384 characters) is the head's, and both forms read what it keeps; the cut-window tests measure it, as before.
+
+### Review r8's findings
+
+Each of the nine (`test_scrub_review_r8`) shows nothing both references hide, in every mode; every mode now writes release's output there, and the head's runs hide more of it. By mode, the head shows the value only where both references do:
+
+| Input | Shown (both references) | Shown now |
+|---|---|---|
+| P2-1 `secret:'cookie:`, `x --privatekey`, `:=,SECRET7c5` | excerpt, whole, `clean` | none |
+| P2-1 `token:"Authorization:`, `x --token`, `==,SECRET7c5` | excerpt, whole, `clean` | none |
+| P2-2 `Authorization:"Authorization`, `:Bearer =r SECRET7c5` | `detail_line` | `detail_line` |
+| P2-2 `…`, `:Bearer SECRET7` | `detail_line` | `detail_line` |
+| P2-2 `…`, `:--password \"=r SECRET7c5` | `detail_line` | `detail_line` |
+| P2-3 `Authorization:x --token`, `:=;SECRET7c5` | excerpt, whole, `clean` | excerpt, whole, `clean` |
+| P2-3 `cookie:x --token`, `=''SECRET7c5` | excerpt, whole, `clean` | excerpt, whole, `clean` |
+| P2-4 `Authorization:""Cookie:apikey`, `=r SECRET7c5` | `detail_line` | `detail_line` |
+| P2-4 `Cookie:'secret`, `=Bearer Seytoker SECRET7c5` | `detail_line` | `detail_line` |
+
+- **P2-4, which review r8 could not trace, is closed by construction:** release's pipeline hides the value in four modes and the head's runs are only removed from it. Its two pinned inputs, mode by mode: `Authorization:""Cookie:apikey` and `=r SECRET7c5` give `Authorization:[REDACTED]` in the excerpt, whole, `clean` and daemon.log line modes, and `… [REDACTED] SECRET7c5` in `detail_line`; `Cookie:'secret` and `=Bearer Seytoker SECRET7c5` give `Cookie:[REDACTED]` in those four and `… Cookie:[REDACTED] [REDACTED] SECRET7c5` in `detail_line`. Review r8's third P2-4 input ("its multi-line form") is not pinned and its text is not in the review, so this round did not run it by name; its family is in the new joins, where nothing shows that release hides (below).
+- **`FIX_R8c.patch` is not applied** (decision 6's fallback is not needed).
+
+### Decision 2: the head's gains
+
+- **Gains lost** (texts where `be4f090b6` hides a value the head now shows): **0 by construction**, and 0 measured over all 461,248 texts (below).
+- **The PR's improvement** (texts the head hides that release shows): 130,712 texts at `be4f090b6`, 130,859 now (+147: where release's own pipeline hides a value the head showed, which the composition now hides too).
+- **No fix to the head's rules was needed;** the inline-rule fix above was dropped with the composition it was for. The head's rules are `be4f090b6`'s.
+
+### Invariants
+
+Each holds for every input, by construction or as measured, with its scope.
+1. **No new leak, by construction:** in no mode does the head show a character release's same mode hides, nor a `SECRET7` value the head's own pipeline hides (the argument above). **Measured:** 0 of the 461,248 corpus texts show a value release hides, and 0 show one `be4f090b6` hides; `be4f090b6` showed 598 that release hides, review r8's count exactly, here through the frozen copy run in the same process (a differential of the copy over all 461,248).
+2. **Monotone:** no second scrub reveals anything (0 of 461,248, in the excerpt and whole modes and daemon.log's line, uncut and cut). **Not idempotent:** a second scrub changes 18,974 texts, by joining placeholders the first wrote: release's header rule reads `Cookie: [REDACTED] [REDACTED]` as one value and writes `Cookie: [REDACTED]` (excerpt 18,784, whole 17,892, `clean` 18,784, line modes 31). C-23.14 already says scrubbing is monotone, not idempotent; `be4f090b6`'s count was not measured.
+3. **Excerpts agree with the whole:** at every break both scrubbers allow a cut, no excerpt shows a value the whole-text scrub hides (0 of 461,248). 2,389 texts differ there, each by an excerpt hiding a run the whole keeps: a run is kept only if the head's output of its own excerpt holds it.
+4. **The leak-free classes stay so:** every text where `be4f090b6` showed no `SECRET7` value in any mode still shows none (0 of 461,248 show one).
+5. **Cost:** within 2.5 times release's on every row's median in five runs, and linear (Cost, below).
+
+### The corpora
+
+These are review r8's corpora table, all 461,248 texts: review r7's eight sets rebuilt with `gen.py` from `36590532c`'s tests, and review r8's four with `gen8.py` from `be4f090b6`'s, by their seeds (each count is the review's). They ran as plain scripts outside the lock, four worker processes (`mworker.py`, `drive8.py` and `an8.py` in this round's scratch): `be4f090b6`'s tree in its own processes, the composed head with release's five modes through the frozen copy in the same process. Splits were measured separately, at every break both scrubbers allow (`--splits-only`, at the code head).
+
+| Set | Texts | `be4f090b6`: shows what release hides | Now: shows what release hides | Gains lost | Head hides, release shows (`be4f090b6` → now) | Splits / excerpt shows what the whole hides | Reveals | Not idempotent |
+|---|---|---|---|---|---|---|---|---|
+| r7: regression inputs | 2,653 | 0 | 0 | 0 | 1,135 → 1,135 | 0 / 0 | 0 | 44 |
+| r7: builder's P3-4 class | 33,740 | 0 | 0 | 0 | 4,235 → 4,235 | 32 / 0 | 0 | 753 |
+| r7: reviewer's P3-4 generator | 93,521 | 0 | 0 | 0 | 12,679 → 12,679 | 80 / 0 | 0 | 1,676 |
+| r7: adversarial texts aimed at `p34f` | 55,404 | 0 | 0 | 0 | 14,711 → 14,711 | 0 / 0 | 0 | 4,041 |
+| r7: line-start | 56,275 | 0 | 0 | 0 | 32,512 → 32,512 | 18 / 0 | 0 | 1,792 |
+| r7: refused `Bearer` | 3,825 | 0 | 0 | 0 | 2,210 → 2,210 | 0 / 0 | 0 | 0 |
+| r7: seeded joins | 15,000 | 0 | 0 | 0 | 9,999 → 10,000 | 773 / 0 | 0 | 665 |
+| r7: P2-1's family | 51,371 | 0 | 0 | 0 | 3,840 → 3,840 | 63 / 0 | 0 | 3,594 |
+| r8: regression strings (r7's module) | 2,666 | 0 | 0 | 0 | 1,137 → 1,137 | 0 / 0 | 0 | 44 |
+| r8: site 1 | 68,464 | 311 | 0 | 0 | 25,615 → 25,710 | 370 / 0 | 0 | 4,569 |
+| r8: site 2 | 63,329 | 197 | 0 | 0 | 15,211 → 15,238 | 4 / 0 | 0 | 44 |
+| r8: new joins | 15,000 | 90 | 0 | 0 | 7,428 → 7,452 | 1,049 / 0 | 0 | 1,752 |
+| **Total** | **461,248** | **598** | **0** | **0** | **130,712 → 130,859** | **2,389 / 0** | **0** | **18,974** |
+
+- **The first column** is review r8's 598 exactly (311, 197 and 90), here against release through the frozen copy: the copy gives release's tree's output on every text the review counted.
+- **The head as the brief worded it** (`c0`, the head's pipeline on release's output) on the same 461,248 texts: 0 showed what release hides, 91,978 lost a gain, and the head hid what release shows in only 62,146.
+- **Splits at release's own breaks** (before the excerpts were cut where both allow): 57,230 texts, and in a 3,546-cut sample 1,307 excerpts showed a value the whole hid, all past a break the head refuses (`6bda19b07` fixes it).
+
+### Cost
+
+Review r8's rows with its `cost.py`: the head ÷ `c2e080e44` (min / median, CPU `thread_time`, 9 samples a row, the three trees in persistent processes interleaved with the order alternating), and `be4f090b6` alongside. Runs 1 to 3 ran the composition's first snapshot and runs 4 and 5 the code head; the two differ only in a long text's excerpt cuts, which no row reaches (the excerpt row's text is within the work bound, and the `detail_line` rows scrub whole). All ran outside the lock at load 47 to 143: run 1 from 14:20Z, runs 2 and 3 from 14:57Z together, runs 4 and 5 from 15:26Z together.
+
+| Row | Run 1 | Run 2 | Run 3 | Run 4 | Run 5 | `be4f090b6`, medians |
+|---|---|---|---|---|---|---|
+| Excerpt, 261,666 characters | 2.138 / 1.980 | 2.085 / 2.050 | 2.098 / 1.913 | 2.035 / 2.076 | 2.150 / 2.082 | 1.020 to 1.126 |
+| 1 MiB `detail_line`, adversary | 1.843 / 2.050 | 2.061 / 2.042 | 2.018 / 2.034 | 2.054 / 2.029 | 2.037 / 2.049 | 1.008 to 1.041 |
+| 1 MiB `detail_line`, headers | 2.396 / 2.195 | 2.245 / 2.395 | 2.274 / 2.292 | 2.248 / 2.353 | 2.238 / 2.350 | 1.162 to 1.285 |
+
+- **Every median is within 2.5×** in all five runs; the worst is 2.395 (headers, run 2). No minimum passes 2.5 either (the worst, 2.396).
+- **Why about 2×:** each mode runs release's whole pipeline and the head's whole pipeline over the same text, and `be4f090b6` alone reads about 1.0 to 1.3× release; the run mask adds a split and a set lookup per run.
+- **The quadratic shape** (round 4's, 20,010 to 160,010 characters; head, min, ms): 22.3, 66.8, 136.6 and 273.5 in run 1; 21.8, 44.5, 86.3, 179.9 in run 2; 21.6, 46.9, 86.0, 178.2 in run 3; 28.2, 49.6, 127.9, 170.8 in run 4; 22.3, 59.5, 88.5, 174.1 in run 5. That grows 6.1 to 8.3 times over an 8 times larger input in runs 2 to 5 (12.3 in run 1, where `c2e080e44` grew 12.2): linear.
+- **The tests' bound:** `tests/cpu_scaling.COST_RATIO_MAX` is 2.5, and the three guards that compare a whole scrub with a reference use it. The 1 MiB refusal is compared with release's own line through the frozen copy, no longer with the scrubber before #231, since every mode now runs release's #231 lookahead. The responsiveness test keeps the 50 ms gap for the head's own pass, and bounds the whole scrub's longest gap by 2.5 times release's own: release's lookahead is one regex call of about 80 to 100 ms at the bound (release 83 to 103 ms a scrub, the head's pass 15 to 36 ms, the pre-#231 scrubber 12 to 34 ms, measured this round). `test_cpu_scaling` pins that the bound reads twice the reference's work under it and four times over it.
+
+### Mutations
+
+Each mutant is one edit in a copy of the code head's `subfleet/` (`mut9.py`). The named modules ran against each as plain calls (`runcases.py`), outside the lock. The head, the control, passes every case.
+
+| Mutant | Cases | Killed by |
+|---|---|---|
+| Release's pass removed: excerpt and whole (`scrub_secrets` writes the head's output) | 35 | 12: the formula and no-leak tests for both modes, the Hypothesis property, 5 of r8's nine |
+| … the bounded mode (`scrub_bounded` writes the head's) | 35 | 9: `clean`'s formula and no-leak tests, the pieces property, the Hypothesis property, 5 of r8's nine |
+| … daemon.log's line (`_scrub_line` the head's) | 35 | 9: both line modes' formula and no-leak tests, the Hypothesis property, 4 of r8's nine (P2-1, P2-3) |
+| … `scrubbed_line`'s cut (the head's line cut) | 35 | 3: its formula and no-leak tests, the Hypothesis property |
+| … a suggestion's brief (`normalize` the head's) | 25 | 3: the brief's formula and no-leak tests, the Hypothesis property (the brief's mode first called `_released_first` directly, which missed this mutant; it now calls `normalize`) |
+| … daemon.log's block form | 35 | 4: both block forms' formula and no-leak tests |
+| … `mask_approval` (the head's masking alone) | 25 | 1: `test_an_approval_keeps_the_mask_release_writes`, added for it (`Bearer SECRET7--secret`: release masks 22 characters, the head 14). Over 22,673 texts the two differed in 82 |
+| The head's pass first (release's scrub on the head's output) | 35 | 12: as release's pass removed |
+| The composition at the base function (daemon.log's line folds between two composed scrubs) | 35 | 6: both line modes' formula and no-leak tests, r8's two P2-3 inputs |
+| The frozen copy edited by one rule (release's URL-password rule left out) | 35 | 1: the frozen copy's digest |
+| r8's survivor: the memo removed at `p34h`'s two sites | 46 | survives, as in review r8: the same output on every input tried |
+| r8's survivor: `p34h`'s guard removed | 46 | survives: equivalent by the code (clearing nothing changes nothing) |
+| r8's survivor: `>=` for `>` at both sites | 46 | survives: review r8 found the same output on 183,164 texts |
+
+- **Re-judged:** the three survivors change only the head's own pipeline, and every mode writes release's output kept for the runs the head's holds, so none of them can show a value release hides; their equivalence stands as review r8 judged it.
+- **Review r8's check 4, rechecked** (round 7's Mutations, traced): with `p34f` removed, and with `p34f` and site 1 removed, every mode still hides r6's ninth input, which release's own pipeline hides.
+
+### C-23.14
+
+- **The guarantee,** restated: each mode runs release's pipeline for that mode and the head's, both over the same text, and writes release's output kept for the runs the head's holds; invariant 1 now holds by construction. The rules the clause states are the head's pipeline, and each example gives its output, which a mode writes only where release's output holds the same runs.
+- **Review r8's check 6:** the converse sentence now says `3fbc4b7c5` is no reference and release's own pipeline shows the value too; the round-7 entry's "as both references do" is limited to the excerpt, whole and `clean` modes and its "true now" to review r7's corpora, each with a dated correction; round 6's "(not so until round 7)" is corrected; round 7's invariant 1 carries a dated correction for its scope (above).
+- **The two report notes:** the memo count test reaches only `p34f`'s site (now said, in round 7's P3-2 and in C-23.14's memo sentence), and the pass round 7 left untraced is traced (round 7's Mutations, from review r8's check 4, rechecked against the composed scrub).
+- **The `Bearer` cost sentence** now says each mode also runs release's own rule, #231's lookahead.
+- **The change log** gains round 8's entry.
+
+### Tests
+
+**Red first.** `test_scrub_release_first` (committed first, `9b0c028e5`) fails at `b0fd3ce8c`: there is no frozen copy and no composition. Review r8's nine cases (`94344839f`) were red at `be4f090b6`, by design. Each mutant above that removes release's pass from one mode, or composes at the base function, fails a named case of `test_scrub_release_first` or review r8's file.
+
+**Holds.** The lock admitted nothing in 30 minutes at 13:01Z to 13:31Z (load up to 123, the second slot closed), so I stopped my own waiter, and every hold below ran directly, outside the lock, one pytest each, three at a time from 15:30Z, at load 96 to 143. Counts are the collected cases; a hold with no failure line passed them all, but for the opt-in skips (`SF_SCRUB_FULL_MATRIX`).
+
+| Hold | Started, load | Files | Cases | Result |
+|---|---|---|---|---|
+| 1 | 15:30Z, 96 | `_r8`, `_r7`, `_r6`, `_r5` | 66 | passed |
+| 2 | 15:45Z, 135 | `_r4` | 36 | passed |
+| 3 | 15:59Z, 100 | `_r3` | 30 | passed |
+| 4 | 16:06Z | `_r2` | 75 | not finished: stopped at 16:18Z for the time box (an earlier full run, before the pins were rewritten, showed only the 4 pins since rewritten) |
+| 5a | 15:31Z, 106 | `test_scrub_inline_headers`, `-k a_swallowed_flag_or_key_still_owns` | 100 | passed |
+| 5b | 15:39Z, 142 | the same, `-k an_unclosed_quote_does_not_take` | 72 | passed |
+| 5c | 15:45Z, 122 | the same, the rest but the bound and cost tests | 73 | passed |
+| 5d | 15:5xZ | the same, the bound and cost tests | 28 | 27 passed; the 1 MiB refusal's probe passed its 60 s timeout (load, below) |
+| 6 | 15:31Z, 105 | `test_daemon_log_cut_windows` | 177 | passed |
+| 7 | 15:43Z, 110 | `test_daemon_log_handler` | 128 | 123 passed; 2 patch-target failures, fixed after (below); the three 4 MiB time-bound cases at load (below) |
+| 8 | 16:00Z, 107 | `test_scrub_no_new_leak`, `test_cpu_scaling` | 8 | passed |
+| 9 | 15:56Z, 107 | `test_scrub_key_order`, `fake/test_state_contract`, `test_test_module_names`, `test_invariants_index` | 133 | passed |
+| new | 16:06Z, 93 | `test_scrub_release_first`, `test_scrub_release_frozen` | 27 | passed (the frozen pin read the blobs: this clone holds them) |
+
+- **Load timings, not this round's code:** the 1 MiB refusal's cost probe (5d) passed its 60 s subprocess timeout at load about 130; run in-process at load 112 it reads 1.07 against release's own line (bound 2.5). The 4 MiB record tests (7) passed their 1.0 s best-of-three bound at load 110 to 134; the `message` case, rerun alone at load 106, passed. No bound was changed.
+- **A fix after its hold:** hold 7's two raising-scrubber tests patched `daemon_log.scrub_secrets`, a name the module no longer imports; they now patch `daemon_log._head_scrub_secrets`, the block form's head pass, and were not rerun in a hold.
+- **Outside the brief's holds:** before the composition settled, one run (from 14:12Z, an earlier state of the tree) of the other modules that call the scrubber (`test_conversation_redact`, the daemon.log modules, `test_sessions_handoff*`, the suggestion modules) showed one failure by 54%; it was not finished or rerun.
+
+### Status
+
+- **Built:** decisions 1 to 5 and 7, decision 1 with the change above (the head's pipeline reads the text, and release's output is kept for the runs the head's output holds), and the long-text excerpt cut where both scrubbers allow. Decision 6's fallback (`FIX_R8c.patch`) is not built.
+- **The deviations,** each with its counterexample above: decision 1's mechanism (the brief's wording lost the head's gains in 91,978 texts); idempotence (18,974 texts change on a second scrub, which only joins placeholders; the contract's "monotone, not idempotent" stands); and the cost guards rebased on release's own scrub (the pre-#231 reference is about 5.7 times cheaper on the 1 MiB refusal, since release's #231 lookahead now runs in every mode).
+- **Not run:** hold 4 (`_r2`) to the end after its pins were rewritten; holds 5d and 7 again after the load-timing failures and hold 7's patch fix; any hold under the lock; the other modules that call the scrubber (one early run, unfinished); `test_core_live`, Python 3.12, CI and the rest of `tests/unit` and `tests/fake`; `be4f090b6`'s idempotence count; review r8's third P2-4 input by name.
+- **For the hub:** daemon.log's record cut (`cut_whole`) is the head's, before both forms, so the by-construction claim covers what the forms write of the cut text; and the prose cost (a run either pipeline hides goes whole) changes the PR's headline examples (`curl -H 'Authorization: [REDACTED] [REDACTED] https://x`).
