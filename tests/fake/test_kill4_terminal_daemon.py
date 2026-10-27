@@ -171,15 +171,17 @@ def test_an_uncounted_detached_loop_in_an_in_place_workdir_is_held_and_quarantin
                          ids=["sleeping", "stopped", "stopped-short-delay"])
 def test_a_guardian_alive_past_start_grace_is_killed_before_any_retry(daemon, stopped, delay, grace):
     """The guardian is alive past start grace without a start.json: sleeping before it
-    (`--start-delay`), or also stopped, as Fleet ops' governor or the clamshell guard
-    stop processes. The kill protocol KILLs its group at once (fix 1: its TERM is a
-    no-op by design, and a continue would only resume its launch); the attempt is
-    lost, and the read-only job's retry is reserved only once that guardian is dead.
+    (`--start-delay`) past D-QUAR-START1's bound (2 s here), or stopped, as Fleet ops'
+    governor or the clamshell guard stop processes, which is never given more time. The
+    kill protocol KILLs its group at once (fix 1: its TERM is a no-op by design, and a
+    continue would only resume its launch); the attempt ends unlaunched (fix round 2b,
+    decision 1), and the job's retry is reserved only once that guardian is dead.
     With a short `--start-delay` (2 s, under a 4 s start grace) the stopped guardian's
     delay has run out by the time start grace expires, so a continue would start its
     provider at once (review r1's P2): it never starts. Before D-KILL4 it was
     quarantined alive, and would have started its provider when continued."""
-    options = ["--start-delay", str(delay), *(["--start-grace-s", str(grace)] if grace else [])]
+    options = ["--start-delay", str(delay), *(["--start-grace-s", str(grace)] if grace else []),
+               *([] if stopped else ["--start-grace-max-s", "2"])]
     start(daemon, *options, isolated_group=True)
     job = daemon.submit("ok", max_attempts=2)
     first = daemon.until(lambda: next((a for a in daemon.attempts(job) if a["seq"] == 1 and a["guardian_pid"]), None))

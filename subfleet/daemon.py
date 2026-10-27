@@ -59,7 +59,7 @@ from .adapters.registry import get_adapter
 from .alerts import operator_session
 from .contracts import (
     CAPACITY_RECHECK_CEILING_S, EXIT_SETTLE_S, MODEL_CAPACITY_STEER_S, PIN_NOTICE_AFTER_S, TRANSIENT_RETRY_DELAY_S, Exit, HEADLESS_MARKER, IDENTITY_STATUS_BY_EVIDENCE, INSPECT_INTERVAL_S, KILL_SETTLE_S,
-    OWNED_CENSUS_INTERVAL_S, PROBE_RETRY_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
+    OWNED_CENSUS_INTERVAL_S, PROBE_RETRY_S, START_GRACE_MAX_S, START_GRACE_S, STOP_DUMP_MARGIN_S, STOP_GRACE_S, TERM_GRACE_S,
     WAIT_POLL_MAX_S, WAIT_RECHECK_S, WORKSPACE_RETRY_BASE_S, WORKSPACE_RETRY_CEILING_S, Attestation, ClockSource, Closure, ClosureReason, Credential,
     AttestationResult, ExitInfo, IdentityStatus, JobSpec, Lane, LaneOwner, Launch, Outcome, OutcomeClass,
     Reading, ReadingLabel, Sandbox, attempt_dir, hold_note, hold_source,
@@ -768,6 +768,7 @@ class Daemon:
     def __init__(self, state_root: str | Path, *, tick_s: float = .05,
                  start_grace_s: float = START_GRACE_S, term_grace_s: float = TERM_GRACE_S,
                  kill_settle_s: float = KILL_SETTLE_S, exit_settle_s: float = EXIT_SETTLE_S,
+                 start_grace_max_s: float = START_GRACE_MAX_S,
                  inspect_interval_s: float = INSPECT_INTERVAL_S,
                  guardian_start_delay_s: float = 0,
                  stop_grace_s: float = STOP_GRACE_S,
@@ -780,6 +781,7 @@ class Daemon:
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(self.root, 0o700)
         self.tick_s, self.start_grace_s, self.term_grace_s = tick_s, start_grace_s, term_grace_s
+        self.start_grace_max_s = start_grace_max_s        # D-QUAR-START1 (a), C-4.2
         self.kill_settle_s, self.exit_settle_s = kill_settle_s, exit_settle_s
         self.inspect_interval_s = inspect_interval_s
         # C-5.9: attempt id -> when a post-receipt census first found the table
@@ -8899,6 +8901,11 @@ class Daemon:
             # every tick.
             if self._read_json(adir / "start.json") or self._read_json(adir / "exit.json"):
                 return
+            # D-QUAR-START1 (a): a guardian alive, running and verified by its recorded
+            # identity, the census's only member, is slow, not lost (2026-10-26, under load):
+            # it has until `start_grace_max_s`, looked at again at the census's pacing.
+            if self._start_extends(a, census, deadline):
+                return
             if census.containment_empty:
                 if self._cwd_wait(a, census, began=began):
                     return
@@ -8917,6 +8924,38 @@ class Daemon:
                                    census=census, unlaunched=True)
             return
         return None if inspected else DEFERRED if retry else None
+
+    def _start_extends(self, a: dict, census: procs.Containment, deadline: float) -> bool:
+        """D-QUAR-START1 (a), C-4.2: does an expired start grace wait longer for this attempt?
+
+        Only while all of these hold: the census is verifiable; its only member is the
+        attempt's guardian, by its recorded identity (pid, boot, start); that guardian is
+        not stopped (ps state `T`); and the deadline began (at launch, or at this daemon's
+        first look after a restart) less than `start_grace_max_s` ago. Python start-up,
+        the launch gate and the identity reads all come before `start.json`, and under
+        load 60 to 100 on 2026-10-26 a guardian took about 31 s to its provider: killed at
+        10 s, its attempt was lost and its job run again. A stopped guardian (2026-10-20,
+        review r2's P3-1), a census that cannot vouch for it, or anything else in the
+        census never extends, and past the bound the existing branch runs unchanged. The
+        caller looks again at the census's own pacing (C-5.12); the first extension is
+        recorded as `attempt.start_extended`."""
+        bound = getattr(self, "start_grace_max_s", START_GRACE_MAX_S)
+        if time.monotonic() >= deadline - self.start_grace_s + bound:
+            return False
+        guardian = a.get("guardian_pid")
+        found = census.identities.get(guardian) if guardian else None
+        state = str((census.shapes.get(guardian) or {}).get("stat") or "") if guardian else ""
+        if (census.unverifiable or census.held_pids or census.live_pids != {guardian} or found is None
+                or found.proc_start != a.get("proc_start")
+                or str(found.boot_id or "").lower() != str(a.get("boot_id") or "").lower()
+                or not state or state.startswith(("T", "Z"))):
+            return False
+        if not self.store.one("SELECT 1 FROM events WHERE attempt_id=? AND kind='attempt.start_extended'",
+                              (a["attempt_id"],)):
+            self.store.add_event("attempt.start_extended", job_id=a["job_id"], attempt_id=a["attempt_id"],
+                                 data={"guardian_pid": guardian, "start_grace_s": self.start_grace_s,
+                                       "start_grace_max_s": bound})
+        return True
 
     def _inspect_running(self, a: dict, adir: Path, due: float) -> bool:
         """The paced half of `_process_attempt` (C-5.12): is the guardian still ours?
