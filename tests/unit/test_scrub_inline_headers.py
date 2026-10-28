@@ -35,10 +35,12 @@ def _assert_stable(text: str, scrubbed: str) -> None:
     """Scrubbing a scrubbed text shows nothing the first scrub hid, in either mode or
     daemon.log's (C-23.14: monotone, not idempotent). Since #239 round 8 a second scrub
     can join placeholders the first wrote, as release's header rule reads
-    `Cookie: [REDACTED] [REDACTED]` as one value (`handoff.shown_by_both`)."""
+    `Cookie: [REDACTED] [REDACTED]` as one value (`handoff.shown_by_both`), and can hide a
+    `SECRET7` run the first showed (`x Cookie:\nx Cookie:\n;v SECRET7c3`, review r9b), so
+    its runs are a subset of the first's."""
     for whole in (False, True):
         again = scrub_secrets(scrubbed, whole=whole)[0]
-        assert _revealed(scrubbed, again) == "" and SECRET.findall(again) == SECRET.findall(scrubbed)
+        assert _revealed(scrubbed, again) == "" and set(SECRET.findall(again)) <= set(SECRET.findall(scrubbed))
     line = refusals.scrubbed_line(text)
     assert _revealed(line, refusals.scrubbed_line(line)) == ""
 

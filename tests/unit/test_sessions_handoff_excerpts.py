@@ -124,8 +124,10 @@ def test_within_the_budget_ci_40545353102_password_thrice_at_30_is_scrub_then_tr
 # --- over the budget: what the excerpts keep ------------------------------------------
 
 def test_an_oversized_text_keeps_a_scrubbed_head_and_tail_within_the_work_bound(monkeypatch):
-    """C-23.14, C-25.5: the head and the tail of a long block survive, scrubbed, and no
-    matcher is given more than one excerpt."""
+    """C-23.14, C-25.5: the head and the tail of a long block survive, scrubbed, joined by one
+    marker that gives release's count of the characters left out (until #239 round 10 a second
+    cut wrote one that counted 6 or 13, review r9b P2-1), and no matcher is given more than
+    one excerpt."""
     seen: list[int] = []
     real = handoff._scrub
     monkeypatch.setattr(handoff, "_scrub", lambda text, strip: (seen.append(len(text)), real(text, strip))[1])
@@ -136,7 +138,9 @@ def test_an_oversized_text_keeps_a_scrubbed_head_and_tail_within_the_work_bound(
     assert out.startswith('first line, api_key = "[REDACTED]"')
     assert 'last lines, password = "[REDACTED]"' in out
     assert "Zq1" not in out and "Zq2" not in out and count == 2
-    assert re.search(r"\n… \[[\d,]+ characters omitted\] …\n", out)
+    released = scrub_release.scrub_bounded(text, redact.TEXT_EVENT_MAX, strip_reminders=True)[0]
+    marker = re.compile(r"\n… \[([\d,]+) characters omitted\] …\n")
+    assert marker.findall(out) == marker.findall(released) and len(marker.findall(out)) == 1   # release's count
     assert seen and max(seen) <= HEAD and sum(seen) <= BUDGET
 
 

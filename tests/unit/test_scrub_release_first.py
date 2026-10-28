@@ -9,11 +9,17 @@ output but for the runs the head's own pipeline for that mode does not hold, so 
   of the same text, does not hold replaced by `[REDACTED]`. Each pipeline is the mode's
   whole one, fold and second scrub included (review r8, P2-1: composing each scrub loses what
   release's second pass reads in its own fold): the excerpt and whole scrubs, `scrub_bounded`
-  and `clean` (release's pieces, each kept for the head's scrub of the same piece of text;
-  within the budget one piece, the whole-text scrub, which `truncate` then cuts, C-23.36),
-  daemon.log's folded line, `detail_line` and `suggestions.scrubbed_line` (release's line cut
-  first), a suggestion's brief (`normalize`) and daemon.log's block form. `mask_approval`
-  masks what release's masking leaves (`redact._head_mask_approval`).
+  and `clean` (release's pieces, each kept for the head's scrub of the same piece of text,
+  then cut: within the budget one piece, the whole-text scrub, which `truncate` then cuts,
+  C-23.36; past it each excerpt, cut as release cuts its own, review r9b P2-1), daemon.log's
+  folded line, `detail_line` and `suggestions.scrubbed_line` (release's line kept for the
+  head's, then cut, review r9b P2-2), a suggestion's brief (`normalize`) and daemon.log's
+  block form. `mask_approval` masks what release's masking leaves
+  (`redact._head_mask_approval`).
+- **Bounded modes compose first, then cut** (#239 rounds 9 and 10). A cut piece holds the
+  start or end of a run the head's scrub holds only whole, which the composition would hide,
+  so each bounded mode keeps release's output for the head's runs before it cuts. Its cut
+  can keep a character release's own cut left out, but none either scrub hides.
 - **The argument, executed.** The second stage only replaces whole runs of release's output
   with the placeholder, so every character it writes outside a placeholder is release's, in
   order; and it keeps a run only if the head's output holds it, so every `SECRET7` value it
@@ -62,11 +68,10 @@ def _bounded(text: str, limit: int | None, strip: bool) -> str:
 
 
 def _cut_line(text: str, limit: int = 60, mark: str = "…") -> str:
+    """`scrubbed_line`'s rule: release's line kept for the runs the head's line holds, then
+    cut (`bounded(shown_by_both(released, head), limit, mark)`, #239 review r9b, P2-2)."""
     released, head = _line(scrub_release.scrub_secrets, text), _line(handoff._head_scrub_secrets, text)
-    cut = suggestions.bounded(released, limit, mark)
-    marked = cut != released and cut.endswith(mark)
-    kept = handoff.shown_by_both(cut[:-len(mark)] if marked else cut, head) + (mark if marked else "")
-    return suggestions.bounded(kept, limit, mark)
+    return suggestions.bounded(handoff.shown_by_both(released, head), limit, mark)
 
 
 def _brief(text: str) -> str:
@@ -80,7 +85,9 @@ def _brief(text: str) -> str:
 
 R, H = scrub_release.scrub_secrets, handoff._head_scrub_secrets
 
-#: Each mode: as the code runs it, release's pipeline for it, and the head's.
+#: Each mode: as the code runs it, release's pipeline for it, and the head's. `scrubbed_line`'s
+#: are the two lines it composes before its cut (#239 review r9b, P2-2), so a value it shows
+#: is one both lines show; a character past release's own cut may show.
 MODES = {
     "excerpt": (lambda t: handoff.scrub_secrets(t)[0], lambda t: R(t)[0], lambda t: H(t)[0]),
     "excerpt, reminders": (lambda t: handoff.scrub_secrets(t, strip_reminders=True)[0],
@@ -92,8 +99,7 @@ MODES = {
     "daemon.log line": (lambda t: suggestions._scrub_line(t)[0], lambda t: _line(R, t), lambda t: _line(H, t)),
     "detail_line": (lambda t: suggestions._scrub_line(PREFIX + t)[0], lambda t: _line(R, PREFIX + t),
                     lambda t: _line(H, PREFIX + t)),
-    "scrubbed_line": (lambda t: refusals.scrubbed_line(t, 60), lambda t: suggestions.bounded(_line(R, t), 60, "…"),
-                      lambda t: suggestions.bounded(_line(H, t), 60, "…")),
+    "scrubbed_line": (lambda t: refusals.scrubbed_line(t, 60), lambda t: _line(R, t), lambda t: _line(H, t)),
     "brief": (lambda t: _brief(t),
               lambda t: suggestions._twice(R, t, suggestions._line_ends)[0],
               lambda t: suggestions._twice(H, t, suggestions._line_ends)[0]),
@@ -115,6 +121,9 @@ COMPOSED = {
         suggestions._twice(R, t, suggestions._line_ends)[0], suggestions._twice(H, t, suggestions._line_ends)[0])),
     "mask_approval": lambda t: redact._head_mask_approval(scrub_release.mask_approval({"c": t})[0])[0]["c"],
 }
+
+#: Each bounded mode's limit.
+LIMITS = {"clean": 4000, "scrubbed_line": 60}
 
 #: Review r8's nine inputs (`test_scrub_review_r8`), which the head showed before this round.
 R8 = importlib.import_module("tests.unit.test_scrub_review_r8").R8
@@ -160,9 +169,13 @@ def _texts() -> list[str]:
 
 @pytest.mark.parametrize("mode", MODES)
 def test_each_mode_is_release_s_output_kept_for_the_runs_the_head_s_holds(mode):
-    """The code's output of each mode is the composition's, on every text."""
+    """The code's output of each mode is the composition's, on every text; a bounded mode's is
+    the composition cut (`scrubbed_line`: `bounded(shown_by_both(released, head), limit,
+    mark)`), within its limit."""
     run, composed = MODES[mode][0], COMPOSED[mode]
     assert [text for text in _texts() if run(text) != composed(text)] == []
+    if mode in LIMITS:
+        assert [text for text in _texts() if len(run(text)) > LIMITS[mode]] == []
 
 
 def _new(values, out: str, other: str) -> list[str]:
@@ -196,19 +209,44 @@ PIECE_LINES = ("ordinary line", "token: SECRET7a1", "Authorization: Basic SECRET
                "curl -H 'Cookie: sid=SECRET7c3'", "<system-reminder>r</system-reminder>", "Bearer abcdefgh123",
                "api_key='x", "", "   ", "token:--SECRET7d4_token SECRET7e5")
 
+#: A written marker, whose count `_uncounted` sets aside.
+MARKER = re.compile(r"… \[([\d,]+) characters omitted\] …")
+
+
+def _uncounted(out: str) -> str:
+    return MARKER.sub("… [N characters omitted] …", out)
+
+
+def _composed_release(text: str, limit: int | None, strip: bool) -> str:
+    """Release's own `scrub_bounded`, each text it scrubs kept for the runs the head's scrub of
+    that text holds (`shown_by_both`), each excerpt cut where both scrubbers allow: the bounded
+    mode's rule, composed first, then cut as release cuts (#239 rounds 9 and 10). Release's
+    code counts its marker from what it writes, the composed excerpts, so only that count can
+    differ from the mode's, which is release's own."""
+    scrub, head_cut, tail_cut = scrub_release._scrub, scrub_release._head_cut, scrub_release._tail_cut
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(scrub_release, "_scrub", lambda part, strip_reminders: (handoff.shown_by_both(
+            scrub(part, strip_reminders)[0], handoff._scrub(part, strip_reminders)[0]), 0))
+        patch.setattr(scrub_release, "_head_cut", lambda part: min(head_cut(part), handoff._head_cut(part)))
+        patch.setattr(scrub_release, "_tail_cut", lambda part: max(tail_cut(part), handoff._tail_cut(part)))
+        return scrub_release.scrub_bounded(text, limit, strip_reminders=strip)[0]
+
 
 @CI
 @given(lines=st.lists(st.sampled_from(PIECE_LINES), min_size=1, max_size=24),
        limit=st.sampled_from((None, 30, 80, 200, 4000)), strip=st.booleans(), chars=st.sampled_from((40, 90, 400)))
 def test_release_s_pieces_join_to_release_s_output(lines, limit, strip, chars):
-    """`_released_pieces` is release's `scrub_bounded` as the pieces it joins (excerpts
-    elided or whole, each as release writes it; within the budget, release's scrub before
-    its `truncate`), beside the head's scrub of the same text; an excerpt is cut where both
-    scrubbers allow, so the pieces, bounded as `scrub_bounded` bounds them, join to
-    release's output wherever both cut alike. Within the budget the bounded mode is the
-    whole-text mode, cut (C-23.36, #239 round 9): it writes a head and a tail of that mode's
-    output, so no value release's scrub of the text hides. Past it, the mode writes no value
-    release's output hides. Either way it keeps to `limit`."""
+    """`_released_pieces` is release's `scrub_bounded` as the pieces it joins, beside the head's
+    scrub of the same text; an excerpt is cut where both scrubbers allow. Each piece is kept
+    for the runs the head's scrub of the same text holds, then cut (#239 rounds 9 and 10):
+    within the budget the bounded mode is the whole-text mode, cut (C-23.36); past it each
+    excerpt is cut as release cuts its own, with release's marker between them, the count of
+    what release's own cut of the same excerpts leaves out. So the mode writes release's own
+    `scrub_bounded` with its scrubs composed first (`_composed_release`), and release's marker
+    wherever both scrubbers cut alike; it shows no value that release's scrub of the text
+    hides, or the head's; and it keeps to `limit`. Where both cut alike, the pieces join to
+    release's output if nothing cuts them (within the budget, or no limit) or if both
+    scrubbers scrub each excerpt alike."""
     text = "\n".join(lines)
     with _bounds(chars):
         pieces, outer_strip, count, heads, _ = handoff._released_pieces(text, limit, strip)
@@ -220,19 +258,24 @@ def test_release_s_pieces_join_to_release_s_output(lines, limit, strip, chars):
         within = len(resolved) <= scrub_release.MAX_SCRUB_CHARS
         alike = within or (scrub_release._head_cut(resolved), scrub_release._tail_cut(resolved)) == (
             handoff._head_cut(resolved), handoff._tail_cut(resolved))
-        if alike:
+        uncut, _, _, uncut_heads, _ = handoff._released_pieces(text, None, strip)
+        scrubbed_alike = all(kept or handoff.shown_by_both(piece, head) == piece
+                             for (piece, kept), head in zip(uncut, uncut_heads))
+        if alike and (within or limit is None or scrubbed_alike):
             bounded = joined if limit is None or len(joined) <= limit else handoff.truncate(joined, limit)
             assert (bounded, count) == (released, released_count)
         assert len(heads) == len(pieces)
         out = handoff.scrub_bounded(text, limit, strip_reminders=strip)[0]
         assert out == _bounded(text, limit, strip)
+        assert _uncounted(out) == _uncounted(_composed_release(text, limit, strip))
+        if alike and not within:
+            assert MARKER.findall(out) == MARKER.findall(released)
         values = set(SECRET.findall(text))
         if within:
             whole = handoff.scrub_bounded(text, None, strip_reminders=strip)[0]
             assert out == (whole if limit is None else handoff.truncate(whole, limit))
-            assert _new(values, out, scrub_release.scrub_bounded(text, None, strip_reminders=strip)[0]) == []
-        else:
-            assert _new(values, out, released) == []
+        assert _new(values, out, scrub_release.scrub_bounded(text, None, strip_reminders=strip)[0]) == []
+        assert _new(values, out, handoff._head_scrub_bounded(text, None, strip_reminders=strip)[0]) == []
         assert limit is None or len(out) <= limit
 
 
@@ -251,7 +294,9 @@ def test_each_mode_only_replaces_release_s_runs_and_shows_nothing_the_head_hides
     """Every character a mode writes outside a placeholder is one of release's output of the
     mode, in order (`_revealed`; a mask's own words and `bounded`'s mark aside), every
     `SECRET7` run it writes is one that output holds, and every `SECRET7` value it shows
-    the head's output shows."""
+    the head's output shows. `scrubbed_line`'s are the lines it composes and then cuts, as
+    `bounded(shown_by_both(released, head), limit, mark)`, within its limit (#239 review
+    r9b, P2-2)."""
     text = "".join(atoms)
     values = set(SECRET.findall(text))
     for mode, (run, release, head) in MODES.items():
@@ -261,6 +306,8 @@ def test_each_mode_only_replaces_release_s_runs_and_shows_nothing_the_head_hides
         assert _revealed(released, bare) == "", (mode, text, out)
         assert [found for found in SECRET.findall(bare) if found not in released] == [], (mode, text, out)
         assert _new(values, out, head(text)) == [], (mode, text, out)
+        if mode in LIMITS:
+            assert out == COMPOSED[mode](text) and len(out) <= LIMITS[mode], (mode, text, out)
 
 
 def test_an_approval_keeps_the_mask_release_writes():
