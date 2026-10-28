@@ -15,7 +15,7 @@ import json
 from pathlib import Path
 import tempfile
 
-from hypothesis import given, settings, strategies as st
+from hypothesis import example, given, settings, strategies as st
 import pytest
 
 from subfleet.conversations import runner as runner_module
@@ -335,11 +335,21 @@ def _play(s, seen):
             assert final.driver.outcome.reason == turn["reason"] == (None if result_read else "ended-without-result")
 
 
+# Review r2's P2-1: a `closed` refusal proves the exit and logs nothing, no receipt
+# ever comes, and the daemon restarts. Only the rebuilt runner's status can end it.
+_ANSWER = json.dumps({"type": "assistant", "message": {"id": "answer", "content": [
+    {"type": "text", "text": "[a]"}]}}) + "\n"
+P2_1 = Schedule(text="[a]", result=False, chunks=(_ANSWER.encode(),),
+                events=(("exit",), ("refusal", 0, "closed"), ("restart", 0, False), ("chunk", 0), ("eof",)),
+                evidence=True, read_chunk=1 << 20, read_cost=0.01, forced_receipt=False)
+
+
 def test_loss_interleavings_keep_one_outcome_and_all_stdout():
     seen = Counter()
 
     @settings(max_examples=150, deadline=None, derandomize=True, database=None)
     @given(schedule=schedules())
+    @example(schedule=P2_1)
     def check(schedule):
         _play(schedule, seen)
 
