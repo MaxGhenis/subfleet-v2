@@ -164,7 +164,13 @@ def test_d_qos_booked1_a_probe_for_an_honoured_job_stays_clamped(routing_state, 
 def test_d_qos_booked1_a_re_enrolment_stays_clamped(launch_state, monkeypatch):  # noqa: F811
     daemon, harness, calls = launch_state
     daemon.policy["admission"]["priority_callers"] = [CHOSEN]
-    monkeypatch.setattr(daemon, "_await_probe", lambda record, child: (True, {"rc": 0, "signal": None}))
+
+    def awaited(record, child):
+        # What a guardian that ran would have left: its provider's two streams.
+        for name in ("stdout.txt", "stderr.txt"):
+            (Path(record["directory"]) / name).write_text("")
+        return True, {"rc": 0, "signal": None}
+    monkeypatch.setattr(daemon, "_await_probe", awaited)
     result = daemon._enrollment_turn("codex-1", "enroll:fixture", ["codex", "login"], cwd=str(harness.workdir),
                                      env={}, timeout=5)
     assert result.returncode == 0

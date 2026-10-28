@@ -69,7 +69,7 @@ from .credentials import (env_references, ignored_hooks, reference_repair, resol
                           withheld_references)
 from .provider_env import ProviderEnvironment
 from .launch_env import environment_report, guardian_pass_args, helper_policy
-from .guardian import ABANDON_NAME, atomic_publish, stream_digest
+from .guardian import ABANDON_NAME, INHERIT, PROVIDER_QOS_CHOICES, atomic_publish, stream_digest
 from .frozen_stream import InvalidFrozenStream, freeze_stream, read_freeze_receipt, restore_stream
 from .lockwatch import LockWatch
 from .waits import WaitHub
@@ -87,6 +87,15 @@ from .sessions.registry import CONVERSATION_FIX
 from .sessions.transcripts import NotRegularFile, open_regular, read_regular
 from .store import Store, _pin_notice_key, cancel_info, notice_fingerprint, notice_rows, pin_notice_jobs, shell_flags
 from . import uncommitted
+
+
+def guardian_qos_args(qos: str) -> list[str]:
+    """C-5.1, D-QOS-BOOKED1: the guardian's `--provider-qos` for one attempt's launch.
+
+    Only an honoured request asks (`scheduler.launch_qos`); every other launch asks
+    nothing, so the guardian's own default, the `utility` clamp, applies. Probes and
+    re-enrolments never call this: their guardians always clamp."""
+    return ["--provider-qos", INHERIT] if qos == INHERIT else []
 
 
 def spawn_guardian(command: list[str], *, disclaim: bool, **options):
@@ -1956,6 +1965,27 @@ class Daemon:
                         pending.add(row["parent_job_id"])
         return family
 
+    def _launch_qos(self, job: dict) -> tuple[str, str]:
+        """C-5.1, D-QOS-BOOKED1: `scheduler.launch_qos` with the job's caller ancestry read
+        now (C-6.16). Only a `default` request reads it, and `_priority_jobs` reads nothing
+        while no priority callers are set."""
+        family = self._priority_jobs([job]) if scheduler.requested_qos(job) == "default" else {}
+        return scheduler.launch_qos(job, policy=self.policy, jobs=family)
+
+    def _why_qos(self, job: dict) -> dict:
+        """D-QOS-BOOKED1, for `why`: what the job requested, what a launch now asks the
+        guardian for and why, and what its latest attempt's provider was given, as that
+        attempt's guardian recorded it (`start.json`; None before any started)."""
+        qos, reason = self._launch_qos(job)
+        last = self.store.one("SELECT seq FROM attempts WHERE job_id=? ORDER BY seq DESC LIMIT 1", (job["job_id"],))
+        started = None
+        if last:
+            given = (self._read_json(attempt_dir(self.root, job["job_id"], last["seq"]) / "start.json")
+                     or {}).get("provider_qos")
+            if given in PROVIDER_QOS_CHOICES:
+                started = {"seq": last["seq"], "provider_qos": given}
+        return {"requested": scheduler.requested_qos(job), "provider_qos": qos, "reason": reason, "started": started}
+
     def _liveness(self, jobs: list[dict]) -> scheduler.Liveness | None:
         """C-6.9: who is waiting on these jobs now (`scheduler.priority_class`).
 
@@ -2539,6 +2569,9 @@ class Daemon:
                                            reason="unknown-pinned-model", details={"model": model}) from exc
                 if args.needs_shell is not None and type(args.needs_shell) is not bool:
                     raise ValueError("needs_shell must be true or false")
+                if args.provider_qos is not None and (type(args.provider_qos) is not str
+                                                      or args.provider_qos not in protocol.PROVIDER_QOS_REQUESTS):
+                    raise ValueError("provider_qos must be " + " or ".join(protocol.PROVIDER_QOS_REQUESTS))
                 needs_shell = job_needs_shell(self.policy, dataclasses.asdict(args))
                 if args.task and args.task not in self.policy["chains"]:
                     raise ValueError(f"unknown task {args.task}")
@@ -2595,7 +2628,8 @@ class Daemon:
                     isolated_review=args.isolated_review, review_root=review_root,
                     round_lease=args.round_lease, resume=resume,
                     unmeasured_reserve_reason=reason, mcp_servers=mcp_servers,
-                    push_branch=args.push_branch, push_remote=push_remote, needs_shell=needs_shell)
+                    push_branch=args.push_branch, push_remote=push_remote, needs_shell=needs_shell,
+                    provider_qos=args.provider_qos)
                 if turn is not None:
                     # C-6.2 for turns: the message digest, not HEAD or the policy
                     # hash, so a restart can always re-bind the job (review IR-1).
@@ -3955,7 +3989,8 @@ class Daemon:
                                         and str(job["name"] or "").startswith("turn-") else None),
                     "wait_reason": job["wait_reason"], "next_check_at": job["next_check_at"],
                     "hold": hold, "recheck": recheck, "decision_source": source,
-                    "decided_at": row["evaluated_at"] if row else None}
+                    "decided_at": row["evaluated_at"] if row else None,
+                    "qos": self._why_qos(job)}
         queue = render.why_queue(standing)
         # C-6.12: a refusal comes first; a decision recorded before it is the last walk it had.
         lines = [*queue, *([f"Refused at admission: {refused}"] if refused else [])]
@@ -8725,7 +8760,12 @@ class Daemon:
                         "--relay-peer-lock", str(self.root / "daemon.lock")]
         if self.guardian_start_delay_s:
             command += ["--start-delay-s", str(self.guardian_start_delay_s)]
-        command += [*provider_env_args, "--", *launch.argv]
+        # C-5.1, D-QOS-BOOKED1: decided at this launch, from the policy and the caller
+        # ancestry as they are now; only an honoured request asks for `inherit`.
+        qos, qos_reason = self._launch_qos(job)
+        if scheduler.requested_qos(job) == "default":
+            self.log.info("attempt %s: %s", a["attempt_id"], qos_reason)
+        command += [*guardian_qos_args(qos), *provider_env_args, "--", *launch.argv]
         child = None
         try:
             child, root = self._spawn_guardian(command, env, read_fd, package_root)
