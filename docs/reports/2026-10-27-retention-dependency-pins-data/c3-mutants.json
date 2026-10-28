@@ -1,0 +1,98 @@
+[
+  {
+    "name": "submit-records-nothing",
+    "verdict": "KILLED",
+    "rc": 1,
+    "hold": "c3-mutant-submit-records-nothing",
+    "observed_killers": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]"
+    ]
+  },
+  {
+    "name": "live-ignores-depends",
+    "verdict": "KILLED",
+    "rc": 1,
+    "hold": "c3-mutant-live-ignores-depends",
+    "observed_killers": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+    ]
+  },
+  {
+    "name": "live-ignores-row-places",
+    "verdict": "KILLED",
+    "rc": 1,
+    "hold": "c3-mutant-live-ignores-row-places",
+    "observed_killers": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+    ]
+  },
+  {
+    "name": "live-ignores-recorded-folder",
+    "verdict": "KILLED",
+    "rc": 1,
+    "hold": "c3-mutant-live-ignores-recorded-folder",
+    "observed_killers": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+    ]
+  },
+  {
+    "name": "live-ignores-spelled-folder",
+    "verdict": "SURVIVED",
+    "rc": 0,
+    "hold": "c3-mutant-live-ignores-spelled-folder",
+    "observed_killers": []
+  },
+  {
+    "name": "live-ignores-exports",
+    "verdict": "KILLED",
+    "rc": 1,
+    "hold": "c3-mutant-live-ignores-exports",
+    "observed_killers": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not"
+    ]
+  },
+  {
+    "name": "exports-only-recorded-path",
+    "verdict": "KILLED",
+    "rc": 1,
+    "hold": "c3-mutant-exports-only-recorded-path",
+    "observed_killers": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not"
+    ]
+  },
+  {
+    "name": "no-fold",
+    "verdict": "KILLED",
+    "rc": 1,
+    "hold": "c3-mutant-no-fold",
+    "observed_killers": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+    ]
+  },
+  {
+    "name": "within-not-prefix-boundary",
+    "verdict": "KILLED",
+    "rc": 1,
+    "hold": "c3-mutant-within-not-prefix-boundary",
+    "observed_killers": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+    ]
+  },
+  {
+    "name": "pin-ignores-unrecorded-tree",
+    "verdict": "KILLED",
+    "rc": 1,
+    "hold": "c3-mutant-pin-ignores-unrecorded-tree",
+    "observed_killers": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification"
+    ]
+  },
+  {
+    "name": "pin-counts-own-places",
+    "verdict": "INTENDED EQUIVALENT",
+    "rc": 0,
+    "hold": "c3-mutant-pin-counts-own-places",
+    "observed_killers": [],
+    "reason": "On a consistent census, own live evidence already gives active and own exporting evidence already gives job-lease; add preserves the earlier reason. Transactional dependents are unchanged."
+  }
+]

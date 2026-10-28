@@ -4,6 +4,18 @@
 
 Original build (2026-10-27): the lane started at approximately 14:51Z; new holds/steps stop at 17:49:00Z, conservatively before its three-hour start cutoff. Lock waits count toward that wall. The final update is 2026-10-27T18:08:30Z.
 
+## Continuation 3 (in progress), 2026-10-28
+
+Started at approximately **19:43Z**; **23:42Z** is the conservative cutoff for new holds and steps. Shared metadata rejected `index.lock`, so commits use private scratch metadata on `fix/retention-dependency-pins-217`; the assigned worktree's `.git` file stays unchanged. A verified `rdp217c3.bundle` will deliver the ordered commits. No fetch, push, real provider, live store or production CLI is used.
+
+The three imported firmlink assertions now check recorded canonical identity and the fixture's canonical folded identity. **TURN, READER and writer all pass their behavioral assertions (3 passed).** The other **34 cases pass**, with **500 passing / 217 invalid** string examples and **150 passing / 17 invalid** real-volume examples. **WIP `454ed9528` is subsumed; its production change is not ported.** The imported file has no other change.
+
+The mutation table below is observed evidence, with unrun rows still explicit. The first four mutation holds used normal Hypothesis settings; later mutation holds retain the same strategies, seed 217 and configured example counts but use explicit/generate phases with no shrinking and stop at the first counterexample. Head-only correctness keeps normal settings. `live-ignores-spelled-folder` survived its planned property: a deterministic test isolating `job.folder_spelled` is prepared, not yet validated. `pin-counts-own-places` is an intended equivalent on a consistent pin census: own live evidence is already `active`, and own pending-export evidence is already `job-lease`; `add()` keeps that earlier reason. The transactional checks are unchanged.
+
+Head-only holds completed so far include **17 dependency units**, **44 dependency/spelling cases**, and the **37 imported folded-pin cases**. A combined property hold reached its **1,140 s cap**: selection safety completed with passing teardown; the independent-reference case was incomplete and is being rerun alone. Its completed safety result is preserved; no generated-example count is claimed for that capped hold because its terminal statistics were not retained. The properties and neighbouring batches are split into separate holds; detached and shared basic cases are split further by `-k`.
+
+The supplied environment sync ran once. Holds use that locked Python 3.14.7 environment, private TMPDIR/Hypothesis roots and the supplied suite lock. Early holds invoked the installed environment's Python directly; later holds use `uv run --no-sync` with the same explicit environment/cache. This changes no dependencies. At most two pytest workers run concurrently (one serial mutant, one head-only hold). Completed results and failures are saved as compact JSON; passing logs are not committed. Scratch was sampled at **200 MiB**. The two pin-query timing runs and contract audit remain unstarted at this checkpoint.
+
 ## Continuation 2 correctness, 2026-10-28
 
 The lane began at approximately **17:02Z**. A conservative **21:01Z** cutoff stops new holds and steps before four hours. This is a serial build using Python 3.14.7, the locked dev environment, the supplied test-lock script and fixture-owned roots. No fetch, push, real provider, live store, production CLI, mutation sweep or performance measurement was started. Test runtime and host load below describe correctness holds, not query measurements. The contract is unchanged.
@@ -208,10 +220,9 @@ The required contract helper refused C-6.5, C-6.11 and C-8.4. Its non-overlappin
 
 ## Unbuilt and unrun: continuation 3
 
-- **33 mutants:** none ran in continuation 2. Run the 29 original definitions and four additions, adapt stale selectors to the final implementation, and report each killing test. The plan below is not kill evidence.
-- **Measurement:** install/revalidate the pending tool and run the requested 3,000/100 and 6,000/600 comparison once inside the test lock, with the host load. No query-time numbers are claimed by this continuation.
-- **Contract audit:** audit C-8.4 and the merged clauses and decision notes against the final code, including obsolete statements about exact dependency-fence lookups. This correctness round does not perform that audit or edit the contract.
-- **Imported firmlink fixture:** resolve the import-only constraint before replacing its obsolete prefix assertion, then rerun its TURN, READER and writer cases through their remaining behavioral assertions. The original cases ran and failed; those later assertions are still unrun. The WIP verdict remains qualified.
+- Mutation work remains in progress: the table records completed holds; unrun rows are still open. The legacy-spelled-folder survivor has a prepared deterministic test, with its red/green holds still pending.
+- The requested measurement and contract audit have not started.
+- The firmlink fixture is resolved (all 37 imported cases pass). Remaining correctness holds, the unfinished independent-reference property and the three guards are still open in this continuation.
 
 The full suite and Python 3.12 were not run on this lane. `tests/frontend/test_core_live.py` remains CI-only under the lane rules because its person-only probe cannot run here; these are CI scope, not extra local continuation 3 holds.
 
@@ -222,23 +233,23 @@ The full suite and Python 3.12 were not run on this lane. `tests/frontend/test_c
 
 The pending property and spelling sketches are superseded by continuation 2's committed tests. Remaining mutation and measurement preparation still references old scratch helpers and requires revalidation and adaptation; it is not executed evidence.
 
-## Mutation plan: all unrun
+## Mutation results: continuation 3 in progress
 
-“Planned test” names the first selected test, not an observed killing test. The original runner's secondary cross-file selections would need separate holds to retain the one-file-per-mutant rule.
+“Planned test” names the first selection. Observed results below come from separate serial holds; only selections from the first test file run together. Definitions and exact failures are retained in `c3-mutant-definitions.json`, `c3-mutants.json` and the per-hold JSON files in the data folder.
 
 | Mutant | Planned test | Observed result / killing test |
 |---|---|---|
-| `submit-records-nothing` | `tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]` | not run / none |
-| `live-ignores-depends` | `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` | not run / none |
-| `live-ignores-row-places` | `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` | not run / none |
-| `live-ignores-recorded-folder` | `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` | not run / none |
-| `live-ignores-spelled-folder` | `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` | not run / none |
-| `live-ignores-exports` | `tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not` | not run / none |
-| `exports-only-recorded-path` | `tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not` | not run / none |
-| `no-fold` | `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` | not run / none |
-| `within-not-prefix-boundary` | `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` | not run / none |
-| `pin-ignores-unrecorded-tree` | `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` | not run / none |
-| `pin-counts-own-places` | `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` | not run / none |
+| `submit-records-nothing` | `tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]` | killed by `tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[linked]` |
+| `live-ignores-depends` | `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` | killed by `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` |
+| `live-ignores-row-places` | `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` | killed by `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` |
+| `live-ignores-recorded-folder` | `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` | killed by `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` |
+| `live-ignores-spelled-folder` | `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` | survived the planned property; deterministic legacy-folder test prepared, red/green pending |
+| `live-ignores-exports` | `tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not` | killed by `tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not` |
+| `exports-only-recorded-path` | `tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not` | killed by `tests/unit/test_retention_dependency_units.py::test_d2_a_pending_export_pins_and_a_written_one_does_not` |
+| `no-fold` | `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` | killed by `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` |
+| `within-not-prefix-boundary` | `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` | killed by `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` |
+| `pin-ignores-unrecorded-tree` | `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` | killed by `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` |
+| `pin-counts-own-places` | `tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification` | intended equivalent: earlier `active` / `job-lease` protection wins (consistent census) |
 | `selection-no-dependents` | `tests/unit/test_retention_dependency_units.py::test_the_selecting_transaction_reads_dependents_on_the_fences_spelling` | not run / none |
 | `commit-no-dependents` | `tests/unit/test_retention_dependency_units.py::test_the_commit_reads_dependents_on_the_journals_spelling` | not run / none |
 | `no-legacy-evidence` | `tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]` | not run / none |
