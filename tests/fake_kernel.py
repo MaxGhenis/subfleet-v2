@@ -48,7 +48,8 @@ class FakeKernel:
     `uids` maps a pid to its effective uid (absent: this test's own) and `cwds`
     to its cwd (absent: none), for D-KILL4's parent-chain rule.
     `fail` names reads that raise `InspectionError`: "pids", or ("process" |
-    "responsible" | "cwd", pid)."""
+    "responsible" | "cwd" | "arguments", pid); an "arguments" one is a buffer that fills
+    the read, so it may be cut short."""
 
     readable = True
 
@@ -99,6 +100,8 @@ class FakeKernel:
 
     def arguments(self, pid: int, buffer=None) -> bytes | None:
         self.calls.append(("arguments", pid))
+        if ("arguments", pid) in self.fail:
+            raise procs.InspectionError(f"argument buffer of pid {pid} fills the read")
         return self.processes.get(pid)
 
     def responsible(self, pid: int) -> int | None:

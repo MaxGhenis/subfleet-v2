@@ -9021,10 +9021,12 @@ class Daemon:
     @staticmethod
     def _identity_readers(a: dict, census: procs.Containment) -> frozenset[int]:
         """D-QUAR-START1 (D4): the census members a starting guardian's own identity readers
-        could be: its direct children (by the table's ppid) in its recorded group, neither
-        stopped nor a zombie, that the census did not find marked. A child with a marked
-        descendant is not one of the guardian's members alone: that descendant is a member
-        no rule here admits. Only start grace's extension asks."""
+        could be: its direct children (by the table's ppid) in its recorded group and among
+        the census's group members, with a state that is neither stopped nor a zombie, that
+        the census did not find marked. A child with no state is refused, as the guardian
+        with none is: `ps` prints one for every row, so an empty one is a row not read. A
+        child with a marked descendant is not one of the guardian's members alone: that
+        descendant is a member no rule here admits. Only start grace's extension asks."""
         guardian = a.get("guardian_pid")
         group = a.get("pgid") or guardian
         if not guardian:
@@ -9033,7 +9035,7 @@ class Daemon:
             pid for pid in census.live_pids - {guardian}
             if (shape := census.shapes.get(pid)) is not None
             and shape.get("ppid") == guardian and shape.get("pgid") == group and pid in census.group_pids
-            and not str(shape.get("stat") or "").startswith(("T", "Z"))
+            and (stat := str(shape.get("stat") or "")) and not stat.startswith(("T", "Z"))
             and pid not in census.marker_pids)
 
     def _abandon(self, a: dict, detail: str) -> Path:

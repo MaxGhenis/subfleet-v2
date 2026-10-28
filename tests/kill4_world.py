@@ -75,9 +75,12 @@ class World:
     tables: int = 0
     #: Fix round 2b (P3-4): the first `fail_tables` process-table reads raise, so the census
     #: they belong to is unverifiable; and each pid in `fail_reads` has its argument buffer
-    #: refused (a failed marker read) while `tables` is at most its value.
+    #: refused (a failed marker read) while `tables` is at most its value. Each pid in
+    #: `cut_reads` has a buffer that fills the read, so it may be cut short (also a failed
+    #: marker read; #274 review r1's P3-2).
     fail_tables: int = 0
     fail_reads: dict[int, int] = field(default_factory=dict)
+    cut_reads: set[int] = field(default_factory=set)
 
     def add(self, pid: int, ppid: int, pgid: int | None = None, *, start: str | None = None, **options) -> Proc:
         self.births += 1
@@ -138,7 +141,8 @@ class World:
                           others=[pid for pid, proc in live.items() if proc.uid != UID],   # EPERM: unreadable
                           starts={pid: proc.start for pid, proc in live.items()},
                           uids={pid: proc.uid for pid, proc in live.items()},
-                          cwds={pid: proc.cwd for pid, proc in live.items() if proc.cwd})
+                          cwds={pid: proc.cwd for pid, proc in live.items() if proc.cwd},
+                          fail={("arguments", pid) for pid in self.cut_reads})
 
     # The signalling calls (C-5.3's identity check included).
     def signal_process(self, recorded: procs.ProcessIdentity, sig, *, before_signal=None) -> bool:

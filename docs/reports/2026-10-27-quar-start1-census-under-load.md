@@ -63,7 +63,8 @@ at most.
 A census that lands while one is alive finds two members in the guardian's group, walk
 and responsibility set. So `live_pids != {guardian}`, and the extension ended for a
 healthy guardian here as well. If the census lands in that child's first milliseconds,
-its marker read is refused too.
+its marker read can be refused too. The probes did not record `sysctl` or `ps` among the
+refused names, and most newborns were not refused.
 
 ## Decision
 
@@ -98,9 +99,11 @@ Before `start.json` nothing should carry it:
 The guardian's environment is marked. A child is unmarked only because `_read` replaces
 its environment, or because its read was refused.
 
-The daemon also runs hook processes with the markers in `_publish_self_test`. That
-happens synchronously, before the guardian is spawned, so none is alive at a start
-census. The argument does not rest on it: the extension's safety comes from deciding
+The daemon also runs hook processes with the markers in `_publish_self_test`, before
+the guardian is spawned. `subprocess.run` waits for each hook's `sh`, and on a timeout
+kills only that `sh` (`review_publish.py`), so a process a hook leaves in the background
+can outlive it. Once readable, such a process carries the markers: it is in
+`marker_pids`, and it ends the extension as at base. The argument does not rest on this: the extension's safety comes from deciding
 nothing, and the premise is supporting evidence.
 
 ### The rule (C-4.2, `Daemon._start_extends`)
@@ -143,12 +146,13 @@ ended its extension.
 These hold for every input. The tests below execute each one.
 
 1. **Naming is exact.** `markers_unread` is the set of live same-user processes whose
-   marker read was refused.
+   marker read failed: refused, or with a buffer that fills the read, so that it may be
+   cut short (`procs.py`'s `InspectionError` branch).
 2. **Verifiability is unchanged.** A census is unverifiable iff it has an error.
 3. **The narrowing is exact.** `only_markers_unread` holds iff the census's errors are
    exactly those reads' errors.
-4. **A refused read is never treated as marked.** A process whose read was refused is
-   never in `marker_pids`.
+4. **A failed read is never treated as marked.** A process whose read failed is never
+   in `marker_pids`.
 5. **The readers are exact.** `_identity_readers` is the set of live members, other than
    the guardian, that the reader rule above admits.
 6. **The extension is exact.** It is granted iff every condition of the rule holds, and
@@ -179,7 +183,8 @@ These hold for every input. The tests below execute each one.
   and the stranger never signalled.
 - **The extension property** (invariant 6): stopped guardian, another member, elapsed
   0–120 s, any set of eight error kinds, named or not, and a bare unverifiable census
-  (200 examples and 3 pinned).
+  (200 examples and 7 pinned, one for each error kind that is not a failed marker read,
+  beside a stranger's).
 - **The guardian's identity reader does not end a slow start**, read whole or refused.
   The event names it, it exits, and `start.json` lands.
 - **No extension beside any other member:**
@@ -205,7 +210,10 @@ These hold for every input. The tests below execute each one.
   - a stopped child is admitted;
   - a grandchild is admitted;
   - a child in another group is admitted;
-  - `only_markers_unread` holds whenever any read failed.
+  - `only_markers_unread` holds whenever any read failed;
+  - `only_markers_unread` tolerates one more error kind, for each of the five that are
+    not a failed marker read;
+  - a child with no state is admitted.
 
 At base (`46ab44d72`), the stranger test ends `quarantined` instead of extending.
 
@@ -276,3 +284,28 @@ same assertion. It is a failure under load that predates this change (see Residu
   the receipt ended the attempt. Evidence is in
   `~/reviews/subfleet-quar-start1-census-2026-10-27/counted-driver-flake/`. It is out of
   this change's scope.
+
+## Review r1 follow-up (2026-10-28)
+
+The Opus lane review of #274 (job `20261028-002037-pr274-review-r1-opus`) approved at
+`f017ef1f9` with no P1 or P2, and #274 merged as `676a34bf1`. Its six P3s are
+addressed in the follow-up PR:
+
+1. **Every error kind is pinned.** The extension property pinned only the `table`
+   error beside a stranger's. A mutant whose `only_markers_unread` also tolerated
+   `marker enumeration unavailable` passed it. The property now has an explicit example
+   for each of the five non-marker kinds, and five strict-xfail mutants, one per kind,
+   each tolerating one more.
+2. **Reads cut short are tested.** A buffer that fills the read lands in
+   `markers_unread` as a refusal does. The test world models it (`cut_reads`). The
+   census property draws it, and the stranger test runs it.
+3. **The hook claim is narrower.** The publish hooks' `sh` is waited for, but nothing
+   it leaves in the background is.
+4. **The readers can be refused, not are.** The probes did not measure the readers'
+   reads being refused.
+5. **A reader with no state is refused,** as the guardian with none is. The reader
+   property pins it, and a strict-xfail mutant restores the old admit.
+6. **The premise test runs the relay path.** The guardian binds its control socket and
+   builds a turn job's daemon peer check before `start.json`, and still starts only
+   `sysctl` and `ps` before it.
+
