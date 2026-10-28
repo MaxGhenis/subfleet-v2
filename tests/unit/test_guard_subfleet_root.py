@@ -466,6 +466,18 @@ R5_TEXT += [
 """, ""),
 ]
 R3_TEXT = R5_TEXT + R3_TEXT
+#: r6 (2026-10-28): the edits outside the path-word blocks, as (r6 text, r5 text): the prefilter's sixth term also
+#: after a backtick (decision 6) with its comment. Undone before R5_TEXT.
+R6_TEXT = [
+    ("""# escape, which may spell one; the sixth (r5) zsh's =rg, =find and =grep,
+# also right after a backtick (r6).
+""", """# escape, which may spell one; the sixth (r5) zsh's =rg, =find and =grep.
+"""),
+    ("""  || printf '%s' "$command" | grep -qE "(^|[[:space:];&|(\\`])=(find|rg|[efru]?grep)([[:space:]]|\\$)" \\
+""", """  || printf '%s' "$command" | grep -qE "(^|[[:space:];&|(])=(find|rg|[efru]?grep)([[:space:]]|\\$)" \\
+"""),
+]
+R3_TEXT = R6_TEXT + R3_TEXT
 
 
 def rebuild_r2(text: str) -> str:

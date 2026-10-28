@@ -304,13 +304,14 @@ fi
 # a backslash, through $(which …), or as egrep, fgrep, rgrep or ugrep reach the
 # unscoped-search rule; the fourth and fifth (r4) one with a quote or a
 # backslash inside its name (r''g, f\ind, $'rg'), and a $'...' holding an
-# escape, which may spell one; the sixth (r5) zsh's =rg, =find and =grep.
+# escape, which may spell one; the sixth (r5) zsh's =rg, =find and =grep,
+# also right after a backtick (r6).
 printf '%s' "$command" | grep -qE 'stash|AXIOM_|getUpdates|get_updates|dump-keychain|checkout[[:space:]]+-b|switch[[:space:]]+-c|pr[[:space:]]+merge|git[[:space:]]+push|(^|[[:space:];&|(])(find|rg|grep)[[:space:]]' \
   || printf '%s' "$command" | grep -qE '\*\*\* Begin Patch' \
   || printf '%s' "$command" | grep -qE "(^|[[:space:];&|(/\\\\'\"\`])(find|rg|[efru]?grep)[\`'\")]?([[:space:]]|\$)" \
   || printf '%s' "$command" | LC_ALL=C tr -d "\\\\'\"\$" | grep -qE "(^|[[:space:];&|(/\`])(find|rg|[efru]?grep)[\`)]?([[:space:]]|\$)" \
   || printf '%s' "$command" | grep -qE "\\\$'[^']*\\\\[0-7xX]" \
-  || printf '%s' "$command" | grep -qE "(^|[[:space:];&|(])=(find|rg|[efru]?grep)([[:space:]]|\$)" \
+  || printf '%s' "$command" | grep -qE "(^|[[:space:];&|(\`])=(find|rg|[efru]?grep)([[:space:]]|\$)" \
   || exit 0
 
 # --- tg-getupdates: Telegram polling steals updates from the OpenClaw gateway ---
@@ -2178,12 +2179,12 @@ pw_prep_awk="$pw_lib_awk"'
 pw_nopath() { [ "$(printf '%s' "$1" | LC_ALL=C awk -v RS=$'\001' -v mode=nopath "$pw_prep_awk" 2>/dev/null)" = 1 ]; }
 # pw_named CMD: CMD names a searcher where the prep reads one: plainly, after a quote, a backslash, a / or
 # a backtick, once its quote marks, backslashes and $ are gone (r4 decision 4), in a $'...' holding an
-# escape (decision 3), or as zsh's =cmd (r5 decision 11).
+# escape (decision 3), or as zsh's =cmd (r5 decision 11; r6 decision 6: also right after a backtick).
 pw_named() {
   printf '%s' "$1" | grep -qE "(^|[[:space:];&|(/\\\\'\"\`])(find|rg|[efru]?grep)[\`'\")]?([[:space:]]|\$)" \
     || printf '%s' "$1" | LC_ALL=C tr -d "\\\\'\"\$" | grep -qE "(^|[[:space:];&|(/\`])(find|rg|[efru]?grep)[\`)]?([[:space:]]|\$)" \
     || printf '%s' "$1" | grep -qE "\\\$'[^']*\\\\[0-7xX]" \
-    || printf '%s' "$1" | grep -qE "(^|[[:space:];&|(])=(find|rg|[efru]?grep)([[:space:]]|\$)"
+    || printf '%s' "$1" | grep -qE "(^|[[:space:];&|(\`])=(find|rg|[efru]?grep)([[:space:]]|\$)"
 }
 pw_cmd=$command
 if pw_named "$command"; then
