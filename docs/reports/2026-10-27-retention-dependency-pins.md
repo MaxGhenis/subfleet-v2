@@ -1,56 +1,63 @@
 # Retention dependency pins: partial integration, 2026-10-27
 
-**Not ready to land.** Code checkpoint `6997e21273687ab2afdb340f2132f14282e42225` integrates release/217 at `c9430763f` and fixes the compatibility issues found so far. Wider step 2 validation is incomplete. Steps 3–7 have not been completed. No new pin-query timings or mutation kills are claimed.
+**Not ready to land.** Continuation 1 validates production checkpoint `6ca8f4b0bc36` (including release/217 at `46ab44d72`). The resumed corrections affect integration tests and their reference expectations. Wider step 2 validation is incomplete; the folded-pin verdict, spelling-gap red/green and new properties remain unbuilt. No production source, contract, timing or mutation changes are claimed in this continuation.
 
 The lane started at approximately 14:51Z; new holds/steps stop at 17:49:00Z, conservatively before its three-hour start cutoff. Lock waits count toward that wall. The final update is 2026-10-27T18:08:30Z.
 
 ## Continuation 1 recovery, 2026-10-28 (in progress)
 
-The preserved replacement attempt started at 06:56Z. This resumed process started at **07:47Z**; it stops starting holds and steps at **11:46Z**. The lost job's 27 salvaged files were verified byte for byte (the original node list is preserved separately). Its `c1-reconstruct.py` correctly reproduces **761** unfinished nodes from **1,104** unique planned nodes and **343** completed planned nodes. `c1b-reconstruct.py` independently verifies every saved plan against pytest's saved collection and keyword matcher. Two additional complete salvaged results leave **759** nodes in `remaining-nodes.txt`; `c1-original-remaining-nodes.txt` preserves the original 761. Lost batches 01 and 03 contain only setup results and count as incomplete.
+This process started at **07:47Z** and stops starting holds and steps at **11:46Z**. Accounting snapshot: **2026-10-28T10:56:39+00:00**. It has completed **715 of 732** starting nodes with successful full phase evidence; **17 remain** in `c1c-current-remaining.txt`. Incomplete nodes count as unfinished even when earlier nodes in their hold passed. Release-comparison results never count toward branch coverage. The JSONL ledgers and per-hold collection/results/log files preserve the exact evidence.
 
-The preserved replacement attempt completed another **27** nodes in three holds (20 + 6 + 1). Their complete setup/call/teardown evidence is reused. This process therefore starts with **732** unfinished nodes, saved in `c1c-start-remaining.txt`. Its batches and foreground driver resume only nodes without complete successful results.
+The lost job's 27 salvaged files were verified byte for byte (its original list is preserved separately). Its `c1-reconstruct.py` correctly reproduces **761** unfinished nodes from **1,104** unique planned nodes and **343** completed planned nodes. `c1b-reconstruct.py` independently verifies every saved plan against pytest's saved collection and keyword matcher. Two additional complete salvaged results leave **759** nodes in `remaining-nodes.txt`; `c1-original-remaining-nodes.txt` preserves the original 761. Lost batches 01 and 03 contain only setup results and count as incomplete. The preserved replacement attempt completed another **27** nodes (20 + 6 + 1); this process reuses their complete results and starts with **732**, saved in `c1c-start-remaining.txt`.
 
-At unchanged code checkpoint `6ca8f4b0bc36`, the salvage also proves **80 passed, 3 skipped** for dependency units, all three guards and provider shell environment, and **37 passed** for dependency fakes and daemon launch. These are reused. All three provider shell cases were collected and skipped with real provider executables absent from PATH; fake daemon-launch cases executed. No real provider, CLI, store, fetch, push or timing run is used. Each hold has one serial pytest, with at most four such workers, its own lock request, complete phase results, admission/end loads and peak Python RSS. An interrupted node is never counted as complete.
+At unchanged production checkpoint `6ca8f4b0bc36`, the salvage also proves **80 passed, 3 skipped** for dependency units, all three guards and provider shell environment, and **37 passed** for dependency fakes and daemon launch. These results are reused. All three provider-shell cases were collected and skipped with real provider executables absent from PATH; fake daemon-launch cases executed. No real provider, CLI, store, fetch, push or timing run is used. Each hold has one serial pytest, at most four workers, a separate lock request and a cap below 20 minutes. Queued holds use the authorized direct fallback only after 30 minutes without admission.
 
-Shared metadata rejects `index.lock` with `Operation not permitted`. The preserved bundle's recovery checkpoint **`4319e7b0c`** is retained unchanged as an ancestor. Further ordered commits use private scratch Git metadata on `fix/retention-dependency-pins-217`; the workspace's `.git` file is unchanged. The delivery bundle is `rdp217c1.bundle`. This process owns only `sf-rdp217c1/recovery-0747` within the named scratch folder and will remove that subtree with guarded cleanup. Its initial scratch footprint was approximately 23 MB.
+Shared metadata rejects `index.lock` with `Operation not permitted`. The preserved bundle's recovery checkpoint **`4319e7b0c`** remains an unchanged ancestor. Ordered commits use private scratch Git metadata on `fix/retention-dependency-pins-217`; the workspace's `.git` file is unchanged. The verified delivery artifact is **`rdp217c1.bundle`**. Only this process's `sf-rdp217c1/recovery-0747` scratch subtree is owned here; its initial footprint was approximately 23 MB and its largest sampled footprint was approximately 182 MiB. The release comparison checkout was removed after use. Final guarded cleanup is recorded below when complete.
 
-| Continuation hold | Result | Lock | Admission load | Pytest time |
+### Integration corrections
+
+- The detached-fence oracle omitted recorded dependency evidence, including a linked checkout's external Git storage. Its red hold had 49 passed and 1 failed, outside the lock at load 93.1. Its corrected independent comparison retains both counterexamples. The first rerun encountered stale fixture readings and `no-slot`; the original test at detached release **`46ab44d72` passed (1 passed, 81.28 s, load 23.5)**, so that failure is **not classified as pre-existing**. Fixture readings now refresh per example, retaining the normal 120-second freshness bound. The corrected oracle passed in `04-resume-4` (47.31 s call; its at-least-80-example assertion completed).
+- The writer oracle omitted the same Git-storage evidence. Its corrected independent comparison and both explicit counterexamples passed in isolated hold `47`: **1 passed in 106.30 s**, outside the lock at load **110.0**. Its at-least-60-example assertion completed. These corrections change reference expectations, not production admission.
+- Three old `_fence_hold` stubs now accept the `needs` keyword. The rediscovery comparison passed in `11-resume-2`. Full 400-example early/reservation differential coverage is assigned to isolated slice 58; its completion status is given by the table and exact residual list.
+- The transaction interleaving previously injected its fence after the first early query. The new dependency query correctly caught it before preparation. Injection now happens after the entire early look so the test exercises the reserving transaction; the focused regression passed in `11-resume-2`.
+- `11-resume-2` completed the admission state machine and salvage property (9 passed overall, load 94.8). `13-resume-2` completed the sweep property (**40 observed generated passing examples**, plus explicit examples) and all seven combined admission cases (8 passed, load 80.0). These are existing properties, separate from the unbuilt new dependency properties.
+
+No production source or contract was changed in this continuation. Step 3's folded-pin test is **unassessed**, with **0 observed real-volume examples**; its WIP implementation was not ported. The spelling gap has **no red or green run** yet. The new safety, differential, monotonicity and fence properties each have **0 observed examples**. Their unexecuted preparation is preserved under `pending/c1-*`; it requires validation before use.
+
+### Continuation holds
+
+Loads are observed 1-minute admission loads. Counts below describe each hold, including completed prefixes of interrupted holds; they must not be summed as unique coverage. Failed nodes are resolved only by a later complete passing result. The exact current unresolved failure list is `c1c-accounting.json`.
+
+| Hold | Result | Lock | Admission load | Pytest time / cap |
 |---|---|---|---:|---:|
-| c1 core-units | 80 passed, 3 skipped | locked | 115.3 | see salvaged log |
-| c1 core-fake | 37 passed | locked | 110.9 | see salvaged log |
-| c1 remaining-02 | 1 passed | locked | 62.7 | see salvaged log |
-| c1 remaining-04 | 1 passed | outside after 30-minute wait | 115.1 | see salvaged log |
-| c1b remaining-01 | 20 passed | locked | 50.3 | 158.1 s admission-to-finish |
-| c1b remaining-02 | 6 passed | locked | 122.7 | 107.5 s admission-to-finish |
-| c1b remaining-03 | 1 passed | locked | 136.9 | 274.2 s admission-to-finish |
-| c1c remaining-02 | 50 passed | locked | 104.6 | 262.39 s |
+| c1 core-units | 80 passed, 3 skipped | locked | 115.3 | salvaged log |
+| c1 core-fake | 37 passed | locked | 110.9 | salvaged log |
+| c1 remaining-02 | 1 passed | locked | 62.7 | salvaged log |
+| c1 remaining-04 | 1 passed | outside after 30 min | 115.1 | salvaged log |
+| c1b remaining-01 | 20 passed | locked | 50.3 | 158.1 s wall |
+| c1b remaining-02 | 6 passed | locked | 122.7 | 107.5 s wall |
+| c1b remaining-03 | 1 passed | locked | 136.9 | 274.2 s wall |
+| [c1c-remaining-02](2026-10-27-retention-dependency-pins-data/c1c-remaining-02.log) | 50 passed | locked | 104.6 | 289.50 s |
+| [c1c-remaining-03](2026-10-27-retention-dependency-pins-data/c1c-remaining-03.log) | 50 passed | locked | 93.4 | 552.95 s |
+| [c1c-remaining-01](2026-10-27-retention-dependency-pins-data/c1c-remaining-01.log) | 7 passed, 1 incomplete | locked | 106.3 | interrupted before 20 min |
+| [c1c-remaining-05](2026-10-27-retention-dependency-pins-data/c1c-remaining-05.log) | 50 passed | locked | 86.8 | 537.80 s |
+| [c1c-remaining-07](2026-10-27-retention-dependency-pins-data/c1c-remaining-07.log) | 50 passed | locked | 74.6 | 795.48 s |
+| [c1c-remaining-04](2026-10-27-retention-dependency-pins-data/c1c-remaining-04.log) | 49 passed, 1 failed | outside after 30 min | 93.1 | 780.95 s |
+| [c1c-remaining-09](2026-10-27-retention-dependency-pins-data/c1c-remaining-09.log) | 52 passed, 4 skipped, 1 incomplete | locked | 77.5 | interrupted before 20 min |
+| [c1c-remaining-04-resume-2](2026-10-27-retention-dependency-pins-data/c1c-remaining-04-resume-2.log) | 1 failed | locked | 18.3 | 472.81 s |
+| [c1c-remaining-14](2026-10-27-retention-dependency-pins-data/c1c-remaining-14.log) | 49 passed, 1 incomplete | locked | 79.6 | interrupted before 20 min |
+| [c1c-release-oracle](2026-10-27-retention-dependency-pins-data/c1c-release-oracle.log) | 1 passed | locked | 23.5 | 106.11 s |
+| [c1c-remaining-11](2026-10-27-retention-dependency-pins-data/c1c-remaining-11.log) | 51 passed, 2 failed | outside after 30 min | 177.6 | 800.02 s |
+| [c1c-remaining-14-resume-2](2026-10-27-retention-dependency-pins-data/c1c-remaining-14-resume-2.log) | 59 passed, 1 failed | locked | 84.1 | 1022.28 s |
+| [c1c-remaining-13](2026-10-27-retention-dependency-pins-data/c1c-remaining-13.log) | 43 passed, 1 incomplete | outside after 30 min | 130.1 | interrupted before 20 min |
+| [c1c-remaining-11-resume-2](2026-10-27-retention-dependency-pins-data/c1c-remaining-11-resume-2.log) | 9 passed | locked | 94.8 | 797.99 s |
+| [c1c-remaining-13-resume-2](2026-10-27-retention-dependency-pins-data/c1c-remaining-13-resume-2.log) | 8 passed | locked | 80.0 | 880.46 s |
+| [c1c-remaining-04-resume-4](2026-10-27-retention-dependency-pins-data/c1c-remaining-04-resume-4.log) | 53 passed, 1 failed, 1 incomplete | outside after 30 min | 93.0 | 1128.66 s |
+| [c1c-remaining-14-resume-3](2026-10-27-retention-dependency-pins-data/c1c-remaining-14-resume-3.log) | 21 passed, 1 incomplete | locked | 94.3 | interrupted before 20 min |
+| [c1c-remaining-47](2026-10-27-retention-dependency-pins-data/c1c-remaining-47.log) | 1 passed | outside after 30 min | 110.0 | 136.88 s |
+| [c1c-remaining-48](2026-10-27-retention-dependency-pins-data/c1c-remaining-48.log) | 53 passed | outside after 30 min | 54.9 | 702.59 s |
 
-The JSONL hold ledgers and matching collection/results/log files in the data folder are the detailed evidence. All other continuation holds remain in progress or unstarted at this checkpoint.
-
-### Resumed coverage checkpoint, 09:36Z (still step 2)
-
-This process has complete successful phase evidence for **506** of its 732 starting nodes; **226** remain. Finished and interrupted holds are distinguished in `c1c-accounting.json`; `c1c-current-remaining.txt` is the exact continuation list. Release-comparison results never count toward branch coverage.
-
-Integration findings so far (corrections prepared in the working tree; their green reruns are pending):
-
-- The detached-fence oracle omitted recorded dependencies. Its red hold produced **49 passed, 1 failed** at load **93.1**, outside the lock after its 30-minute wait. It now compares durable dependency evidence independently and retains both discovered external-Git-storage counterexamples explicitly.
-- Its first rerun failed `no-slot` once the shared fixture's readings aged beyond the normal **120 seconds**. The original test at detached release **`46ab44d72` passed (1 passed, 81.28 s, load 23.5)**, so this is **not classified as a pre-existing failure**. The correction refreshes fixture readings per example and leaves the production freshness bound unchanged. The release worktree was removed after the comparison.
-- Three old `_fence_hold` stubs need to accept the new `needs` keyword. The affected generated and explicit comparisons retain their intended assertions.
-- An interleaving injected its fence after only the first early query; the dependency query then correctly held the job before preparation. The injection is moved after the entire early check so the test still exercises the reserving transaction.
-
-The unverified corrections are preserved as `c1c-integration-fixes-in-progress.diff`; this evidence checkpoint does not assert they are green. No production source or contract change has been made in this resumed process. Steps 3, the spelling gap and step 4 remain unstarted pending completion of the required coverage.
-
-### Integration corrections checkpoint, 10:20Z
-
-The corrected detached dependency oracle passed in `c1c-remaining-04-resume-4` (47.31 s call; its 80-example assertion completed). The rediscovery comparison and full-early-look interleaving passed in `c1c-remaining-11-resume-2` (9 passed overall, load 94.8). That hold also completed the admission state machine and salvage property. `c1c-remaining-13-resume-2` completed the previously interrupted sweep property (40 generated passing examples, plus explicit examples) and all seven combined admission cases: 8 passed at load 80.0.
-
-The writer oracle has now exposed the same omitted Git-storage evidence as the detached oracle. Its equivalent correction and both counterexamples are prepared, with its node assigned to an isolated worker; it is not yet claimed green. Full 400-example fence differential coverage still remains after its keyword-stub correction. The required step 3, spelling-gap red/green and new step 4 properties remain unstarted in the required order.
-
-### Writer oracle green
-
-The writer oracle's red hold omitted its linked checkout's external Git storage. Its matching independent dependency comparison and both explicit counterexamples now pass: **1 passed in 106.30 s**, outside the lock after the 30-minute wait, at admission load **110.0** (`c1c-remaining-47`). It retains the 60-example assertion and refreshes readings per example as before. This correction changes the reference expectation, not production admission.
-
-The still-uncompleted 400-example early/reservation differential is assigned to isolated slice 58; other workers exclude that node to avoid duplicate retries.
+Queued-only cancellations run no tests. Active holds are recorded as they finish; successful complete phase results from active holds contribute to the snapshot above.
 
 ## Checkpoints and recovery
 
@@ -121,7 +128,7 @@ The required contract helper refused C-6.5, C-6.11 and C-8.4. Its non-overlappin
 
 ## Unbuilt and unrun
 
-- Step 2's remaining retention, admission and salvage coverage is recorded in the saved plans and collected-node lists. A partial or interrupted run is not a substitute for the missing cases.
+- Step 2's exact remaining coverage is **17 nodes**, saved in `c1c-current-remaining.txt` with complete accounting in `c1c-accounting.json`. Finish these nodes and resolve every remaining failure before starting the later build steps. A partial or interrupted run is not a substitute for a missing case.
 - Step 3: `454ed9528`'s folded-pin test file was inspected but not added or run. The WIP is **unassessed**; **0 of its 150 real-volume examples were observed**. Its retention implementation was not ported.
 - Step 4: the generated selection safety, independent differential, monotonicity and admission-fence properties were prepared only as an unexecuted sketch. No new property example counts are claimed. The selection sketch asserts that unpinned fixtures reach retirement, so it must not pass vacuously; its fixture still needs validation. The sketch also targets exact dependency-fence lookups when quarantine leaves an aliased output-path tail unspellable.
 - Step 5: **0/33 mutants ran**. The 29 original definitions and four additions are retained below as a plan, not as kill evidence. The copied runner adapts `early-look-folder-only` to the merged early-look structure; unit selectors use the new basename. No evidence file outside this workspace was changed. Its reusable snapshot was designed to reduce disk writes; that runner was not exercised.
