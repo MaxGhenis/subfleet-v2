@@ -342,6 +342,16 @@ _ANSWER = json.dumps({"type": "assistant", "message": {"id": "answer", "content"
 P2_1 = Schedule(text="[a]", result=False, chunks=(_ANSWER.encode(),),
                 events=(("exit",), ("refusal", 0, "closed"), ("restart", 0, False), ("chunk", 0), ("eof",)),
                 evidence=True, read_chunk=1 << 20, read_cost=0.01, forced_receipt=False)
+# A writer outliving the bound after each kind of drain entry: a proof (a `closed`
+# refusal's evidence), the receipt, and an owner-ended replay with no other proof.
+_LINGER = tuple(("tick", index) for index in range(70))
+BOUND_AFTER = {entry: Schedule(text="[a]", result=False, chunks=(_ANSWER.encode(),),
+                               events=(*start, *_LINGER, ("chunk", 0), ("eof",)), evidence=evidence,
+                               read_chunk=1 << 20, read_cost=1.0, forced_receipt=False)
+               for entry, start, evidence in (
+                   ("proof", (("exit",), ("refusal", 0, "closed")), True),
+                   ("receipt", (("exit",), ("receipt",)), False),
+                   ("owner-ended", (("exit",), ("restart", 0, True)), False))}
 
 
 def test_loss_interleavings_keep_one_outcome_and_all_stdout():
@@ -350,6 +360,9 @@ def test_loss_interleavings_keep_one_outcome_and_all_stdout():
     @settings(max_examples=150, deadline=None, derandomize=True, database=None)
     @given(schedule=schedules())
     @example(schedule=P2_1)
+    @example(schedule=BOUND_AFTER["proof"])
+    @example(schedule=BOUND_AFTER["receipt"])
+    @example(schedule=BOUND_AFTER["owner-ended"])
     def check(schedule):
         _play(schedule, seen)
 
@@ -357,7 +370,8 @@ def test_loss_interleavings_keep_one_outcome_and_all_stdout():
     print("relay-exit schedules exercised:", json.dumps(dict(sorted(seen.items()))))
     # The widened generator must reach what the properties are for: a restart
     # (one after a `closed` refusal, which logs nothing), a backlog on disk at a
-    # drain's entry, and a writer outliving the bound after each kind of entry.
+    # drain's entry, and (pinned above too) a writer outliving the bound after
+    # each kind of entry.
     assert seen["restarts"] and seen["backlog"], dict(seen)
     assert seen["restart-after-closed"], dict(seen)
     assert all(seen[f"contained-after-{entry}"] for entry in ("proof", "receipt", "owner-ended")), dict(seen)
