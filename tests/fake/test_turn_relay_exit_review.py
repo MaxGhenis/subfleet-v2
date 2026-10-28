@@ -212,3 +212,32 @@ def test_a_backlog_on_disk_at_the_proof_is_read_in_full(recovery, monkeypatch):
                                      "stop_reason": r.runner.stop_reason}
     assert r.reported == [r.runner] and not r.contained
     assert r.runner.driver.outcome.reason is None  # the provider's result decides
+
+
+# Fix r2 (hub decision 1): a fresh status naming the child exited is exit proof on
+# every handshake, a first runner's (asked again after a lost answer) and a rebuilt
+# one's, whatever the log shows. Here no frame is refused and no receipt arrives.
+@pytest.mark.parametrize("which", ["first", "rebuilt"])
+def test_a_status_naming_the_child_exited_proves_the_exit_on_every_handshake(recovery, monkeypatch, which):
+    r = recovery
+
+    def relay(payload, **kwargs):
+        return r.server.apply(json.loads(payload))   # the real relay; the child exits only below
+
+    monkeypatch.setattr(r.runner.relay, "_exchange", relay)
+    r.runner._apply(r.runner.driver.start())
+    assert r.runner._read_stdout()  # initialize, message and settings all written
+    assert r.runner.exit_proved_at is None and not r.runner.relay_io_ended
+    r.child.returncode = 1  # the guardian never publishes a receipt
+    r.now[0] += 15
+    runner = r.runner if which == "first" else rebuild(r)
+    if which == "rebuilt":
+        monkeypatch.setattr(runner.relay, "_exchange", relay)
+    runner.handshaken = False  # a lost answer asks again (`_handover_verdict`); a rebuilt runner asks first
+    started = r.now[0]
+    runner._run()
+    assert runner.exit_proved_at is not None
+    assert r.reported == [runner], {"elapsed": r.now[0] - started, "polls": len(r.polls)}
+    assert runner.driver.outcome.reason == "ended-without-result"
+    assert not runner.relay_failed and runner.stop_reason is None and not r.contained
+    assert not (r.adir / "exit.json").exists()

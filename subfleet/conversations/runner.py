@@ -720,6 +720,11 @@ class TurnRunner:
                 self._replay_steers[:] = [pending for pending in self._replay_steers if pending != mid]
         if status is not None:
             self.relay_version = status.get("version")
+            if status.get("child") == "exited" and self.exit_proved_at is None:
+                # A fresh status naming the child exited is exit proof whatever the
+                # log shows (C-26.4). A runner rebuilt after a restart needs it: a
+                # `closed` refusal logs nothing, and the receipt may never come.
+                self.exit_proved_at = self.clock()
             if status["applied"] != self.logged:
                 # The log and the relay disagree: nothing is sent on a guess.
                 self._relay_lost(f"the relay applied {status['applied']} frames, its log shows {self.logged}",
