@@ -32,6 +32,8 @@ case = contextmanager(_recovery.__wrapped__)
 # report assertion fails. The longest legal runner reads about 1.2 kB at 8 bytes a
 # fake second, then waits out `after_result_s` (135 s) and its late containment.
 ESCAPE_S = 1000.0
+# The fake clock sums 0.01 s steps: the oracle's upper bounds allow its rounding.
+EPSILON = 1e-6
 
 
 class Restart(Exception):
@@ -75,9 +77,10 @@ def schedules(draw):
     Refusals, restarts, the exit, the receipt and EOF come in any order, EOF
     included before all the others. A block of reads with the writer still open
     and nothing new (ticks; at 0.5 s or more a read, longer than the bound) can
-    come anywhere. Byte splits include partial JSON lines and UTF-8 sequences. A
-    receipt may never arrive, unless nothing else could end the turn: a runner
-    with no proof treats the child as live (C-26.4).
+    come anywhere, often just before EOF or just after a restart. Byte splits
+    include partial JSON lines and UTF-8 sequences. A receipt may never arrive,
+    unless nothing else could end the turn: a runner with no proof treats the
+    child as live (C-26.4).
     """
     # Display text is stripped at its edges by the existing scrubber. Keep
     # generated whitespace inside sentinels so loss checks compare exact text.
@@ -116,7 +119,12 @@ def schedules(draw):
     forced = not publishes and not _ends_without_a_receipt(events, result, evidence)
     if forced:
         events.append(("receipt",))
-    at, linger = draw(st.integers(0, len(events))), draw(st.sampled_from([0, 70]))
+    # Anywhere, or where it outlasts a drain: just before EOF, or just after the
+    # last restart (an owner-ended replay drains from its start).
+    spots = [events.index(("eof",)), *[index + 1 for index, event in enumerate(events)
+                                       if event[0] == "restart"][-1:]]
+    at = draw(st.one_of(st.sampled_from(spots), st.integers(0, len(events))))
+    linger = draw(st.sampled_from([0, 70]))
     events[at:at] = [("tick", index) for index in range(linger)]
     return Schedule(text=text, result=result, chunks=chunks, events=tuple(events), evidence=evidence,
                     read_chunk=draw(st.sampled_from([8, 64, 1 << 20])),
@@ -183,7 +191,9 @@ def _play(s, seen):
                 def drained():
                     size = stdout.stat().st_size
                     record = {"runner": runner, "entered": r.now[0], "size": size, "position": _position(runner),
-                              "caught_up": r.now[0] if _position(runner) >= size else None, "interrupted": True}
+                              "caught_up": r.now[0] if _position(runner) >= size else None, "interrupted": True,
+                              "entry": ("proof" if runner.exit_proved_at is not None
+                                        else "receipt" if (r.adir / "exit.json").exists() else "owner-ended")}
                     drains.append(record)
                     try:
                         drain()
@@ -267,6 +277,8 @@ def _play(s, seen):
             exercised["refusals"] = len(kinds)
             exercised["backlog"] = sum(record["size"] > record["position"] for record in drains)
             exercised["contained"] = sum(record["contained"] for record in drains)
+            for record in drains:
+                exercised[f"contained-after-{record['entry']}"] += record["contained"]
             exercised["owner-ended"] = sum(runner.ended for runner in runners)
             seen.update(name for name, count in exercised.items() if count)
             seen.update([f"refusals={min(len(kinds), 2)}", f"restarts={exercised['restarts']}",
@@ -285,7 +297,7 @@ def _play(s, seen):
             assert outcomes[-1][1] <= last["left"]
             for record in drains:
                 if record["caught_up"] is not None:
-                    assert record["left"] - record["caught_up"] <= DRAIN_S + s.read_cost, record
+                    assert record["left"] - record["caught_up"] <= DRAIN_S + s.read_cost + EPSILON, record
                 if record["contained"]:
                     # Never before the backlog on disk at entry was read in full,
                     # and then only once a writer outlived the bound.
@@ -300,8 +312,10 @@ def _play(s, seen):
                 bound = lost_at + clocks.contain_after_s + step
                 if result_at is not None and result_at < bound:
                     late = clocks.after_result_s + clocks.contain_after_s - clocks.sigint_after_s
-                    bound = max(bound, result_at + late + step)
-                assert last["entered"] <= bound
+                    # Two timer thresholds, the late SIGINT and its containment,
+                    # each crossed up to one loop pass late.
+                    bound = max(bound, result_at + late + 2 * step)
+                assert last["entered"] <= bound + EPSILON
             # 2. No frame after a runner's relay I/O ended.
             assert frames_after_loss == []
             # 3. relay_failed iff that runner's loss was unproved: the mandatory
@@ -332,10 +346,11 @@ def test_loss_interleavings_keep_one_outcome_and_all_stdout():
     check()
     print("relay-exit schedules exercised:", json.dumps(dict(sorted(seen.items()))))
     # The widened generator must reach what the properties are for: a restart
-    # (one after a `closed` refusal, which logs nothing) and a backlog on disk at
-    # a drain's entry, and a writer outliving the bound.
+    # (one after a `closed` refusal, which logs nothing), a backlog on disk at a
+    # drain's entry, and a writer outliving the bound after each kind of entry.
     assert seen["restarts"] and seen["backlog"], dict(seen)
-    assert seen["restart-after-closed"] and seen["contained"], dict(seen)
+    assert seen["restart-after-closed"], dict(seen)
+    assert all(seen[f"contained-after-{entry}"] for entry in ("proof", "receipt", "owner-ended")), dict(seen)
 
 
 @pytest.mark.parametrize("reaches_eof", [True, False], ids=["before-bound", "at-bound"])
