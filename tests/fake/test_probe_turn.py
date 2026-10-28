@@ -283,10 +283,11 @@ def test_a_vehicle_whose_clock_runs_keeps_its_place(routing_state, monkeypatch):
     minute; the job behind it is looked at meanwhile and still waits for it, rather than probing the
     lane the moment its own clock comes due."""
     service, harness = routing_state
+    stand_still(monkeypatch)
     oldest, later = submit(service, harness), submit(service, harness)
     probes = Probes(service, monkeypatch, [(CUT, 1)])
     service._admit()
-    assert service.store.get_job(oldest)["next_check_at"] > after(30)
+    assert service.store.get_job(oldest)["next_check_at"] > daemon_module.after(30)
     for _ in range(3):
         make_due(service, later)
         service._admit()
@@ -300,6 +301,7 @@ def test_a_vehicle_whose_clock_runs_keeps_its_place(routing_state, monkeypatch):
 def test_a_wait_on_a_probe_is_not_brought_forward_by_a_release(routing_state, monkeypatch):
     """C-6.10, unchanged: freed capacity never re-probes the provider before the clock."""
     service, harness = routing_state
+    stand_still(monkeypatch)
     job_id = submit(service, harness)
     probes = Probes(service, monkeypatch, [(CUT, 1)])
     service._admit()
@@ -345,6 +347,7 @@ def test_a_job_that_needs_no_probe_is_never_held_for_one(routing_state, monkeypa
 def test_a_measured_lane_takes_the_waiter_without_a_probe(routing_state, monkeypatch):
     """I4: what the waiter waits for is a look at the lane; a fresh reading is one."""
     service, harness = routing_state
+    service.policy["caps"]["reading_ttl_s"] = 86400       # the route view ages readings on the host's clock (daemon.py:2115)
     oldest, second = submit(service, harness), submit(service, harness)
     probes = Probes(service, monkeypatch, [CUT])
     service._admit()
@@ -452,6 +455,7 @@ def test_rotation_never_promotes_at_the_reservation(routing_state, monkeypatch):
     Astra. It looks again instead, and the next round goes back to claude-1."""
     from tests.fake.test_routing_end_to_end import claude_lane
     service, harness = routing_state
+    service.policy["caps"]["reading_ttl_s"] = 86400       # the route view ages readings on the host's clock (daemon.py:2115)
     for identity in ("claude-1", "claude-2"):
         service.store.put_lane(claude_lane(identity))
     service.store.add_reading(Reading("codex-1", "account", "seven_day", .1, after(3600),
@@ -632,6 +636,7 @@ def test_a_check_that_walks_back_to_the_jobs_own_model_is_reserved(routing_state
     is no promotion. It is reserved there, not held as if promoted."""
     from tests.fake.test_routing_end_to_end import claude_lane
     service, harness = routing_state
+    service.policy["caps"]["reading_ttl_s"] = 86400       # the route view ages readings on the host's clock (daemon.py:2115)
     service.store.put_lane(codex_lane(service.root, "codex-2"))
     service.store.put_lane(claude_lane("claude-1"))
     service.store.add_reading(Reading("claude-1", "account", "seven_day", .1, after(86400),
