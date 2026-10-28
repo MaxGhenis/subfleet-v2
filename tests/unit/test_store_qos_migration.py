@@ -14,7 +14,7 @@ import pytest
 
 from subfleet import store as store_module
 from subfleet.offline import Offline
-from subfleet.store import SCHEMA_VERSION, Store
+from subfleet.store import SCHEMA_VERSION, Store, job_flags, shell_flags
 
 from test_store_migration_2 import _migration_adding, _schema_before_migration
 
@@ -69,6 +69,34 @@ def test_d_qos_booked1_runs_show_offline_reads_utility_on_an_old_store_too(tmp_p
     with Store(path):
         pass
     assert Offline(tmp_path).show_job("old-dispatch")["provider_qos"] == "utility"
+
+
+def test_d_qos_booked1_a_job_record_reads_null_and_a_missing_column_as_utility():
+    """#277 review r1, P2: `job_flags` makes every job reader's record; `shell_flags`,
+    which attempt rows take, adds no job field."""
+    assert job_flags({"job_id": "j"}) == {"job_id": "j", "provider_qos": "utility"}
+    assert job_flags({"job_id": "j", "provider_qos": None})["provider_qos"] == "utility"
+    assert job_flags({"provider_qos": "default", "needs_shell": 1}) == {"provider_qos": "default", "needs_shell": True}
+    assert shell_flags({"attempt_id": "j/a1", "has_shell": 0}) == {"attempt_id": "j/a1", "has_shell": False}
+
+
+@pytest.mark.parametrize("read_only", [False, True], ids=["migrated", "read-only-schema9"])
+def test_d_qos_booked1_attempt_rows_gain_no_job_field(tmp_path, read_only):
+    """#277 review r1, P2: a read-only Store leaves a schema-9 file unmigrated, so its job
+    readers supply `utility` for the missing column; its attempt readers add nothing."""
+    path = old_store(tmp_path / "state.sqlite3")
+    with sqlite3.connect(path) as conn:
+        conn.execute("INSERT INTO attempts(attempt_id,job_id,seq,lane_id,model_requested,state,reserved_at) "
+                     "VALUES ('old-dispatch/a1','old-dispatch',1,'codex-1','gpt-fixture','succeeded',"
+                     "'2026-10-27T00:00:00Z')")
+    with Store(path, read_only=read_only) as store:
+        version = store.one("SELECT MAX(version) AS v FROM schema_version")["v"]
+        assert version == (SCHEMA_VERSION - 1 if read_only else SCHEMA_VERSION)
+        assert store.get_job("old-dispatch")["provider_qos"] == "utility"
+        assert "provider_qos" not in store.get_attempt("old-dispatch/a1")
+        assert [row for row in store.list_attempts("old-dispatch") if "provider_qos" in row] == []
+    attempts = Offline(tmp_path).show_job("old-dispatch")["attempts"]
+    assert len(attempts) == 1 and "provider_qos" not in attempts[0]
 
 
 @pytest.mark.parametrize("value", ["utility", "default", None])

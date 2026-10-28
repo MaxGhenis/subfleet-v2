@@ -229,6 +229,10 @@ def test_d_qos_booked1_runs_show_carries_the_request(launch_state):  # noqa: F81
     assert daemon.dispatch("show", {"job_id": asked})["job"]["provider_qos"] == "default"
     assert daemon.dispatch("show", {"job_id": plain})["job"]["provider_qos"] == "utility"
     assert daemon.store.get_job(asked)["provider_qos"] == "default"
+    # `runs` reads every job as `show` does (#277 review r1, P2); raw SQL keeps NULL.
+    listed = {row["job_id"]: row["provider_qos"] for row in daemon.dispatch("list", {})["jobs"]}
+    assert listed == {asked: "default", plain: "utility"}
+    assert daemon.store.one("SELECT provider_qos FROM jobs WHERE job_id=?", (plain,))["provider_qos"] is None
 
 
 def test_d_qos_booked1_why_says_an_unhonoured_request_and_why(launch_state):  # noqa: F811

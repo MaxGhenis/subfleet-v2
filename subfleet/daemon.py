@@ -85,7 +85,8 @@ from .salvage import (
 from .sessions import registry
 from .sessions.registry import CONVERSATION_FIX
 from .sessions.transcripts import NotRegularFile, open_regular, read_regular
-from .store import Store, _pin_notice_key, cancel_info, notice_fingerprint, notice_rows, pin_notice_jobs, shell_flags
+from .store import (Store, _pin_notice_key, cancel_info, job_flags, notice_fingerprint, notice_rows,
+                    pin_notice_jobs, shell_flags)
 from . import uncommitted
 
 
@@ -1607,7 +1608,7 @@ class Daemon:
                     "attempts": self.store.query(ROUTE_ATTEMPTS if route else STATUS_ATTEMPTS),
                     "jobs": self.store.query(ROUTE_JOBS if route else STATUS_JOBS)}
             if not route:
-                rows["jobs"] = [shell_flags(row) for row in rows["jobs"]]
+                rows["jobs"] = [job_flags(row) for row in rows["jobs"]]
             if scheduler.provider_caps_on(self.policy):
                 quarantines = self.store.query(PROVIDER_QUARANTINES)
                 if route:
@@ -3652,7 +3653,7 @@ class Daemon:
                 if not isinstance(a.last, int) or a.last < 0:
                     raise protocol.ProtocolError("last must be a nonnegative integer", reason="list-last")
                 sql += " LIMIT ?"; params.append(a.last)
-            jobs = [shell_flags(row) for row in self.store.query(sql, params)]
+            jobs = [job_flags(row) for row in self.store.query(sql, params)]
             batches = self._batches([row["job_id"] for row in jobs])
             return {"jobs": [{**row, "batch": batches[row["job_id"]]} if row["job_id"] in batches else row
                              for row in jobs]}
