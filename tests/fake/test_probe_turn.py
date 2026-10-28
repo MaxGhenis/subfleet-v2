@@ -1053,6 +1053,83 @@ def test_i3_reads_the_instant_the_pass_ran_at_however_long_the_pass_takes(monkey
     test_no_sequence_of_probe_outcomes_lets_a_later_job_take_a_waiters_probe.hypothesis.inner_test(**example)
 
 
+# --- the other tests on a loaded host (D-PROBE-TEST-CLOCK1, review r2 of #273) -------------------
+
+def late_after_the_wait(seconds):
+    """The rest of the first pass, after its vehicle's clock is written, takes `seconds`."""
+    def install(service, patch):
+        host, transaction, waits = host_running_late(patch), service.store.transaction, []
+
+        @contextmanager
+        def then_the_rest_of_the_pass(kind="state.changed", **kwargs):
+            with transaction(kind, **kwargs) as tx:
+                yield tx
+            if kind == "job.probe_waiting" and not waits:
+                waits.append(kind)
+                host["late"] += timedelta(seconds=seconds)
+        patch.setattr(service.store, "transaction", then_the_rest_of_the_pass)
+    return install
+
+
+def late_before_passes(seconds, passes):
+    """Each pass numbered in `passes` (the first is 1) starts `seconds` later than it would."""
+    def install(service, patch):
+        host, admit, count = host_running_late(patch), service._admit, []
+
+        def a_slow_start():
+            count.append(1)
+            if len(count) in passes:
+                host["late"] += timedelta(seconds=seconds)
+            return admit()
+        patch.setattr(service, "_admit", a_slow_start)
+    return install
+
+
+def late_after_the_reading(seconds):
+    """Everything after a provider reading is added takes `seconds`."""
+    def install(service, patch):
+        host, add = host_running_late(patch), service.store.add_reading
+
+        def then_time_passes(reading):
+            added = add(reading)
+            host["late"] += timedelta(seconds=seconds)
+            return added
+        patch.setattr(service.store, "add_reading", then_time_passes)
+    return install
+
+
+#: Review r2 of #273: the tests above that bounded how long the host takes, each with the host's
+#: clock moved past its bound where a loaded host spends that time: about 29 s from the reservation
+#: to the vehicle test's check of its clock, about 59 s from the probe to the last pass of the vehicle
+#: and release tests, and a reading's 120 s. `measured` is the lane a test's reading measures.
+LATE = {
+    "vehicle-30s-after-the-wait": (test_a_vehicle_whose_clock_runs_keeps_its_place, late_after_the_wait(30), None),
+    "vehicle-20s-before-passes-2-to-4": (test_a_vehicle_whose_clock_runs_keeps_its_place,
+                                         late_before_passes(20, {2, 3, 4}), None),
+    "release-60s-before-the-third-pass": (test_a_wait_on_a_probe_is_not_brought_forward_by_a_release,
+                                          late_before_passes(60, {3}), None),
+    "measured-lane-121s-after-the-reading": (test_a_measured_lane_takes_the_waiter_without_a_probe,
+                                             late_after_the_reading(121), "codex-1"),
+    "rotation-121s-after-the-reading": (test_rotation_never_promotes_at_the_reservation,
+                                        late_after_the_reading(121), "codex-1"),
+    "walk-back-121s-after-the-reading": (test_a_check_that_walks_back_to_the_jobs_own_model_is_reserved,
+                                         late_after_the_reading(121), "claude-1"),
+}
+
+
+@pytest.mark.parametrize("test, late, measured", list(LATE.values()), ids=list(LATE))
+def test_no_test_here_bounds_how_long_the_host_takes(routing_state, monkeypatch, test, late, measured):
+    """D-PROBE-TEST-CLOCK1: what a test checks is the clocks the daemon wrote and the readings it
+    was given, not how long the host took. A reading's lane is still measured at the end, on the
+    clock the route view reads (daemon.py:2115), so a test that needs it measured kept it so."""
+    service, _ = routing_state
+    late(service, monkeypatch)
+    test(routing_state, monkeypatch)
+    if measured:
+        view = service._capacity_view(now=daemon_module.datetime.now(timezone.utc))
+        assert {lane["lane_id"]: lane["measured"] for lane in view["lanes"]}[measured]
+
+
 # --- the rule itself ----------------------------------------------------------------------------
 
 WAITERS = st.lists(st.tuples(st.sampled_from(["astra", "terra", "opus"]),
