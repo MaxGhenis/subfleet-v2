@@ -124,6 +124,15 @@ ROUND10_CASES = [
     ("quiet_window_0ms", "stale-glide"),
 ]
 ROUND10 = {mutation for mutation, _ in ROUND10_CASES}
+# A fixture mutant, separate from product mutations: omit this write from the
+# barrier's corrected-gap trace so only the independent clipTo counter sees it.
+FIXTURE_MUTATIONS = {
+    "untraced_partial_correction": [
+        ('            if record.steps.last?["step"] as? String == "landed" { return true }',
+         '            if abs(gap) > correctionTolerance { record.clipTo(fromEnd: 26) }\n'
+         '            if record.steps.last?["step"] as? String == "landed" { return true }'),
+    ],
+}
 VIEW = {"notice_sets_at_bottom_false", "key_on_all_rows", "uimodel_drops_known_receipts",
         "settling_stops_follow_at_end", "own_send_latch_ends_at_marker", *ROUND7, *ROUND8, *ROUND10}
 
@@ -321,3 +330,28 @@ def test_ci_landing_gap_reaches_the_behavioural_mutant_check(tmp_path):
         assert_landing_follows(result, steps)
     print(f"CI replay reached behavioural check: callback={gap}, "
           f"quiet={steps['landed']['position']['from_end']}, reply={steps['reply']['position']['from_end']}")
+
+
+@pytest.mark.parametrize("mutation", FIXTURE_MUTATIONS)
+def test_round13_fixture_mutation_fails_the_full_view_counter(mutation, tmp_path, monkeypatch):
+    from tests.frontend import test_review_r219_fix14_setup as setup
+
+    source = setup.setup_source()
+    for before, after in FIXTURE_MUTATIONS[mutation]:
+        assert source.count(before) == 1, (mutation, before)
+        source = source.replace(before, after)
+    probe = mutant_source(mutation, "Probe.swift", source)
+    binary = compile_probe(tmp_path / "probe", probe, "SUBFLEET_VIEW_TEST")
+    run, result = setup.setup_run(binary, tmp_path, 650)
+    # A compiler failure, another readiness failure, invalid callback/input or
+    # broken zero-gap order must fail this test, never count as a counter kill.
+    writes = setup.assert_distant_setup_input(run, result)
+    assert writes and writes[0]["gap"] == 650, result
+    context = result if run.returncode == 0 else result["context"]
+    state = (next(step for step in context["steps"] if step["step"] == "landed")
+             if run.returncode == 0 else result["state"])
+    assert 650 not in state["zero_end_corrected_gaps"], result
+    monkeypatch.setattr(setup, "setup_run", lambda *_: (run, result))
+    with pytest.raises(AssertionError, match="fixture clipTo write outside 25 pt"):
+        setup.test_quiet_setup_rejects_a_clip_650_pt_behind_after_valid_callback(binary, tmp_path)
+    print(f"{mutation} killed by independent full-view counter: {writes}")
