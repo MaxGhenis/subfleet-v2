@@ -1644,19 +1644,19 @@ In total, 912 passed, 4 were skipped (the opt-in full forms) and none failed.
   - **The counterexample, by family:** release's rule takes an item (a credential flag, a key or `Bearer`) whose value lies past what it redacted, and the head's pass then sees only `[REDACTED]` where the item was, so no rule of the head can own the value. `token:--SECRET7abc1_token SECRET7nxt9` becomes `token:[REDACTED] SECRET7nxt9` in release; `be4f090b6` gives `token:[REDACTED] [REDACTED]`. So do `Authorization: Bearer` with `client_secret=x SECRET7abc13 tail` on the next line, and `sent Cookie: --password` with `SECRET7a1 x` on the next.
   - One family could be fixed in the head's rules: release's key rule reads an inline header's name as a key and redacts only its first word (`curl -H "Authorization: [REDACTED] SECRET7abc" x`), and the head's inline rule then left a value that starts redacted. A fix (skip only a value of placeholders alone) closed it. The item families cannot be fixed that way: what owned the value is gone from the text the head's pass reads.
 - **The smallest change that keeps both decisions' intent** (built): the head's pipeline reads the text, beside release's, and each mode writes release's output but for each whitespace-free run of it that the head's output of the same mode, of the same text, does not hold, which becomes `[REDACTED]` (`handoff.shown_by_both`). Release's whole pipeline for the mode still runs first and is what is written; the head's decides only what more of it to hide. This is the rule `daemon_log._kept_block` already applies to a block and its folded rescrub.
-  - **The modes:** `scrub_secrets` (the excerpt and whole scrubs, `redact.scrub`, `ids`, `diff`), `scrub_bounded` and `clean` (`redact.bounded`, the handoff and Codex briefs), `suggestions._scrub_line` (daemon.log's folded line, `detail_line`), `suggestions.scrubbed_line` and a suggestion's title and summary (release's line cut first, as release cuts it, the mark set aside, then masked and cut again), `normalize`'s brief (its line-end normalisation between two passes), and daemon.log's block form (`scrubbed_block`, plain, kept-lines and group). `mask_approval` masks what release's masking leaves (`_head_mask_approval` on release's output), which keeps the mask format.
+  - **The modes:** `scrub_secrets` (the excerpt and whole scrubs, `redact.scrub`, `ids`, `diff`), `scrub_bounded` and `clean` (`redact.bounded`, the handoff and Codex briefs), `suggestions._scrub_line` (daemon.log's folded line, `detail_line`), `suggestions.scrubbed_line` and a suggestion's title and summary (release's line cut first, as release cuts it, the mark set aside, then masked and cut again; corrected 2026-10-28, round 10: the cut's part-word became `[REDACTED]`, so release's line is now masked first, then cut once, review r9b P2-2, see Fix round 10), `normalize`'s brief (its line-end normalisation between two passes), and daemon.log's block form (`scrubbed_block`, plain, kept-lines and group). `mask_approval` masks what release's masking leaves (`_head_mask_approval` on release's output), which keeps the mask format.
   - **Each mode's pipeline is its whole one**, fold and second scrub included, so the composition never sits between a scrub and its fold (review r8, P2-1, is that case: composing each scrub lets the head's first pass take what release's second pass reads).
-  - **The bounded mode** is composed piece by piece. `_released_pieces` runs release's `scrub_bounded` step by step with release's own helpers (block resolution, excerpt cuts, scrub, trim, marker, `truncate`'s pieces) and returns the pieces, which join to release's output exactly (a Hypothesis test). Each scrubbed piece is masked against the head's `_scrub` of the same text release scrubbed (the block-resolved text, or the same excerpt of it; the head's block resolution is release's). Markers and the elision are kept as release wrote them. Where the placeholders make the result longer than `limit`, `truncate` bounds it again. (Corrected 2026-10-28, round 9: within the budget, `truncate`'s pieces broke C-23.36, since a cut through a run leaves a piece the head's scrub holds only whole; such a text is now one piece, and `truncate` cuts the composed scrub. See Fix round 9.)
+  - **The bounded mode** is composed piece by piece. `_released_pieces` runs release's `scrub_bounded` step by step with release's own helpers (block resolution, excerpt cuts, scrub, trim, marker, `truncate`'s pieces) and returns the pieces, which join to release's output exactly (a Hypothesis test). Each scrubbed piece is masked against the head's `_scrub` of the same text release scrubbed (the block-resolved text, or the same excerpt of it; the head's block resolution is release's). Markers and the elision are kept as release wrote them. Where the placeholders make the result longer than `limit`, `truncate` bounds it again. (Corrected 2026-10-28, round 9: within the budget, `truncate`'s pieces broke C-23.36, since a cut through a run leaves a piece the head's scrub holds only whole; such a text is now one piece, and `truncate` cuts the composed scrub. See Fix round 9.) (Corrected 2026-10-28, round 10: past the budget the same held for release's cut excerpts, and the second `truncate` cut through release's marker, review r9b P2-1. Each excerpt is now masked whole, then cut as release cuts its own, with release's marker, so the result fits `limit` and nothing cuts it again. See Fix round 10.)
   - **The count** is release's or the head's, whichever replaced more.
   - **daemon.log's tail** (`_taken_out`) takes reminders out only where release's first pass and the head's agree on them, since both scrubs now read the text.
 - **What it costs in prose:** a run either pipeline hides goes whole, so a run that holds a secret and punctuation loses the punctuation (`curl -H 'Authorization: Basic SECRET7…' https://x` is written `curl -H 'Authorization: [REDACTED] [REDACTED] https://x`; the head's own output kept the closing quote), and the head's narrower redactions (`Cookie: [REDACTED] token=[REDACTED]`) show only where release's output shows the same runs. The pins in the test modules are updated to what the modes write; every rewritten pin shows no value the old pin hid (the rewrite tool refused any that would).
 
 ### The argument, mode by mode
 
-For every mode the written output is `shown_by_both(r, h)`, where `r` is release's output of the mode (release's pieces, for the bounded mode; release's cut line, for `scrubbed_line`) and `h` the head's output of the same mode from the same text. `shown_by_both` is `re.sub(r"\S+", keep, r)`: each maximal whitespace-free run of `r` is written unchanged when `h` holds it as a run, and as the ten characters `[REDACTED]` otherwise; the whitespace between runs is `r`'s.
+For every mode the written output is `shown_by_both(r, h)`, where `r` is release's output of the mode (release's pieces, for the bounded mode; release's cut line, for `scrubbed_line`; since round 10, release's uncut excerpts and line, which the mode cuts after) and `h` the head's output of the same mode from the same text. `shown_by_both` is `re.sub(r"\S+", keep, r)`: each maximal whitespace-free run of `r` is written unchanged when `h` holds it as a run, and as the ten characters `[REDACTED]` otherwise; the whitespace between runs is `r`'s.
 1. **Nothing release hides comes back.** Every character written is a character of `r` in its place and order, or one of a `[REDACTED]` written for a whole run of `r`. A `SECRET7` value has no whitespace, so where one shows it lies inside a run that was kept whole: a run of `r`. So it shows only where release's mode shows it.
 2. **Nothing the head hides shows.** A run is kept only if `h` holds it, so a value that shows lies inside a run of `h`.
-3. **The bounded mode** applies the same to each scrubbed piece; release's markers and elision are its own words, and a second `truncate` only cuts. (Round 9: within the budget it is now the whole-text mode, cut by `truncate`, whose cut can fall elsewhere than release's; see Fix round 9.) **`scrubbed_line`** cuts release's line first, sets the mark aside, masks, puts the mark back and cuts again; cuts only remove. **daemon.log's block form** masks release's block, its lines, margins and folding kept, with the head's block.
+3. **The bounded mode** applies the same to each scrubbed piece; release's markers and elision are its own words, and a second `truncate` only cuts. (Round 9: within the budget it is now the whole-text mode, cut by `truncate`, whose cut can fall elsewhere than release's; see Fix round 9.) (Corrected 2026-10-28, round 10: a second `truncate` did not only cut; on the excerpt path it cut through release's marker, and wrote placeholder fragments, review r9b P2-1. Every piece is now masked before it is cut, and only once; see Fix round 10.) **`scrubbed_line`** cuts release's line first, sets the mark aside, masks, puts the mark back and cuts again; cuts only remove. (Round 10: it now masks release's line, then cuts it once, `bounded(shown_by_both(released, head), limit, mark)`; see Fix round 10.) **daemon.log's block form** masks release's block, its lines, margins and folding kept, with the head's block.
 4. **`mask_approval`:** the head's pass on release's output replaces a whole match with its mask or leaves it, and writes nothing of its own but the mask's words, so no character release masks comes back; and it reads every token shape release leaves as it would without release's pass.
 - **Executed:** `test_scrub_release_first` checks each mode's output against this formula, checks over r8's nine inputs and a 300-string sample of every review's regression strings that no mode shows a value release's or the head's same mode hides, and checks by Hypothesis that every mode only replaces release's runs (`_revealed`), writes no `SECRET7` run release's output lacks, and shows no value the head's hides.
 - **Not covered by construction:** daemon.log's record cut (`cut_whole`, before either form, on records over 16,384 characters) is the head's, and both forms read what it keeps; the cut-window tests measure it, as before.
@@ -1816,7 +1816,7 @@ Each mutant is one edit in a copy of the code head's `subfleet/` (`mut9.py`). Th
 ### The fix
 
 - **`_released_pieces`** returns a text release scrubs whole (within the budget, or a longer text once its blocks are resolved) as one piece: release's scrub before its `truncate`, stripped first when there is a limit, as `truncate` strips. `scrub_bounded` already bounds what it writes with `truncate` where that is past the limit. So within the budget the bounded mode is exactly `truncate(scrub_secrets(text), limit)`, and it is release's output wherever the two scrubbers write the same, as on CI's case.
-- **Nothing else changes:** the excerpts of a longer text, the composition and every other mode are round 8's.
+- **Nothing else changes:** the excerpts of a longer text, the composition and every other mode are round 8's. (Round 10 changed the excerpts' bound and `scrubbed_line` to the same order; see Fix round 10.)
 
 ### The argument for the bounded mode, within the budget
 
@@ -1913,3 +1913,180 @@ Each mutant is one edit in a copy of `58b5e0eb2`'s `subfleet/`, with this round'
   - the cut study over all 461,248 texts (it ran on 105,515: six sets whole, and the first 2,500 of each other);
   - `be4f090b6` in the cut study;
   - the mutants under pytest: they ran as plain calls of the named tests.
+
+## Fix round 10 (#239 review r9b, 2026-10-28)
+
+**Brief:** `~/reviews/subfleet-hub/scrub-inline-2026-10-18/brief-fix10.md`. **Review:** r9b, REQUEST_CHANGES at `f5cbd1df7`. It upheld round 9's ruling within the budget and found two P2s from the same cut-before-compose order on the paths round 9 left alone, and three P3s; its pins (`tests/unit/test_scrub_review_r9b.py`) and `FIX_R9b.patch` came with it. This round ran in its own worktree (job `20261028-154036-pr239-fix10`) from 19:45Z on `b34ba3b2a`: round 9's `f5cbd1df7`, the hub's merge of release/217 (`5fb178278`) and the pins. There were no Git remote operations and no sub-agents, and every test value is a dummy.
+
+### The findings, executed at `b34ba3b2a`
+
+- **P2-1, the excerpt path with a limit** (`_released_pieces`). Release's excerpts were cut to the limit first, then each was kept for the runs of the head's scrub of the whole excerpt. That scrub holds no part-word, so the part-word at each cut became `[REDACTED]`, the result passed the limit, and `truncate` cut it again, through release's marker. Review r9b's four inputs (its marker probe, run on both trees):
+
+| Input (review r9b's) | Limit | Round 9's code (`b34ba3b2a`) | Release | Now |
+|---|---|---|---|---|
+| the excerpts module's oversized text | 60,000 (`TEXT_EVENT_MAX`) | `[REDACTE`, then `… [6 characters omitted] …` | 342,115 | 342,115 |
+| 300,000 characters of prose | 4,000 | `… [`, then `… [6 characters omitted] …`, then `ACTED]` | 296,034 | 296,034 |
+| the same | 8,000 (`recent_excerpt`'s cap for a tool result) | `[REDA`, then `… [13 characters omitted] …`, then `DACTED]` | 292,034 | 292,034 |
+| the same | 600 | `[REDACTE`, then `… [6 characters omitted] …` | 299,434 | 299,434 |
+
+Each output was within its limit, and each written marker counted what the second cut took from the first result. Now each output is release's own, character for character, and holds one marker.
+
+- **P2-2, `scrubbed_line`** (`_line_bounded`: daemon.log's lines, a refusal's words, a suggestion's title and summary). Release's folded line was cut first, then kept for the runs of the head's uncut line, so the part-word at the cut became `[REDACTED]` or was dropped:
+
+| Line (review r9b's pins) | Limit | Round 9's code wrote | Release's cut, and now |
+|---|---|---|---|
+| `OSError: [Errno 2] No such file or directory: '/Users/someone/…'` | 60 | `…directory: [REDACTED]…` | `…directory: '/Users/someo…` |
+| seventy `x`s | 60 | `[REDACTED]…` | 59 `x`s and `…` |
+| `the scheduler refused to start because the configuration file was missing` | 60 | `…the configuration …` | `…the configuration fi…` |
+| `job 1234 failed: ` and a path, sixty times | 2,000 | `job 1234 failed: [REDACTED]…` | the line's first 1,999 characters and `…` |
+
+Both scrubbers write each of these lines alike, so release's own cut is what the mode should write; it now does.
+
+### The fix
+
+- **`FIX_R9b.patch`, its code lines unchanged** (`978615669`):
+  - `_released_pieces`, past the budget with a limit: each excerpt is kept for the runs the head's scrub of it holds (`shown_by_both`), then cut as release cuts its own. Its pieces are returned already written, so `scrub_bounded` joins them as they are.
+  - `_line_bounded`: `bounded(shown_by_both(released, head), limit, mark)`, round 9's rule for `clean`.
+  - The patch's tag comments are replaced by comments and docstrings that say what the code does.
+- **One deviation, for the hub's "every over-budget marker gives release's own count"** (`6adaa6ae7`). The patch counted the marker from the composed excerpts. Where the head's scrub of an excerpt hides more than release's, that is release's rule applied to a longer or shorter text, so the count differs from release's. The counterexample, with both scrubbers' excerpts shrunk to 90 characters at limit 4,000: a text whose head excerpt holds `x Cookie:` above `password = SECRET7f6 and more words`, which the head's scrub hides whole and release's shows in part, wrote `… [94 characters omitted] …` where release writes 121. Of 1,562 such over-budget texts whose cuts both scrubbers make alike, 315 differed, by 1 to 38 characters. The smallest change that keeps the decision's intent: the marker is what release's own cut of the same excerpts leaves out, as it already was without a limit, and the written excerpts are still composed first, then cut. Release's three cut lines are now one helper, `_cut_excerpts`, used for both. Measured on the same texts: 0 of 1,562 differ.
+- **Where "no output contains a split `[REDACTED]`" holds, and where it can't.** On review r9b's inputs, no output holds one, and none holds a cut marker or a second marker. A single cut can still fall inside a placeholder, as release's own cut and C-23.36's `truncate` can. Both are kept: equality with release's output, and C-23.36's equality, require that cut. So the claim holds as: no fragment comes from a second cut, and where both scrubbers write the same excerpt, every fragment is release's own. Measured at small bounds (below): 0 new fragments where both scrub each excerpt alike; 55 where the head hides more or cuts more cautiously (round 9's code: 356); release itself writes one in 285 of the 2,141.
+
+### The argument for the bounded modes
+
+**Past the budget, with a limit,** the written output is `h′ + m + t′`, stripped:
+- `h′` and `t′` are `_cut_excerpts(shown_by_both(R_h, H_h).strip(), shown_by_both(R_t, H_t).strip(), usable)`;
+- `R_*` and `H_*` are release's and the head's scrubs of the same excerpt;
+- `m` is release's marker, counting what `_cut_excerpts(R_h.strip(), R_t.strip(), usable)` leaves out.
+
+The four claims:
+1. **Nothing release hides comes back, and nothing the head hides shows:** round 8's argument holds for each composed excerpt, and `h′` and `t′` are a prefix and a suffix of them.
+2. **The length holds:** `h′` is at most 60% of `usable`, and `t′` at most the rest. `m` is no longer than the longest marker, since its count is at most the text's length. So the result is within `limit`, and nothing cuts it again.
+3. **The marker is release's:** it is release's own count wherever both scrubbers cut alike, whatever the head's scrub hides.
+4. **The trade:** the cut is made in the composed text, so it can keep a character release's own cut left out, but never one either scrub takes out, as round 9's cut within the budget.
+
+**`scrubbed_line`** is `bounded(shown_by_both(released, head), limit, mark)`. `bounded` keeps a prefix, retreats from a placeholder the cut would split and from a fragment that still holds a secret's shape, then adds the mark. So it shows nothing either line hides, splits no `[REDACTED]`, and keeps to `limit`. Where both lines agree, it is release's own cut exactly.
+
+### Measured
+
+**Review r9b's corpora, rebuilt** with review r8's `gen.py`: `r7_line_start` (seed 7240, 56,275 texts) and `r7_bearer` (3,825), 60,100 in all, as review r9b had them. Review r9b's `cw9.py` and `an9.py` ran unchanged on them, with "before" at round 8's `67674bb14` as in review r9b's table, and a third tree at round 9's `b34ba3b2a`:
+
+| Limit | Now ≠ `truncate(composed whole)` | Shows what any whole scrub hides | Round 8 ≠ now | Shows what release's `clean` cut out | Now = release's `clean` (round 8) | Round 9 ≠ now |
+|---|---|---|---|---|---|---|
+| 48 | 0 | 0 | 31,829 | 858 (all 858 are values release's whole scrub shows) | 25,798 (16,420) | 0 |
+| 4,000 | 0 | 0 | 0 | 0 | 25,649 (25,649) | 0 |
+
+Every column review r9b reported as 0 is 0, and every other cell is review r9b's. Each corpus text scrubs within the budget, where this round changed nothing, so `clean` is round 9's on every text.
+
+**`scrubbed_line` on the same 60,100 texts** (`sl10.py`, `an10.py`; new this round, with round 9's tree beside it), at 60 characters and at `ERROR_MAX`, 500:
+- **At 60** (release's folded line is longer in 7,567 texts):
+  - **0 everywhere it must be:** outputs other than `bounded(shown_by_both(released, head), 60, "…")`, outputs over the limit, outputs that show a value release's line or the head's hides, and outputs with a `[REDACTED]` fragment (release's own cut has none either).
+  - **Where both lines agree** (30,120 texts): 0 outputs differ from release's own cut, and 0 write a `[REDACTED]` it lacks. Round 9's code differed in 328 of them (P2-2).
+  - **The trade:** 826 outputs show a value release's own cut left out, each one release's line shows. Round 9's showed none, since it kept only what release's cut kept.
+  - **Against round 9:** round 9's output differs from now in 5,094 texts, and shows nothing now hides.
+  - **Release's own cut, matched exactly:** now in 31,865 texts, round 9 in 33,471. Where the lines differ, round 9 kept release's cut whenever the head's line held its runs, while the cut now falls in the composed line.
+- **At 500** no corpus line is cut, and now and round 9 write the same.
+
+**Excerpts at small bounds** (`probe_excerpt2.py`, seed 10239): 3,000 random texts of 16 secret-bearing and ordinary line shapes, both scrubbers' excerpts shrunk to 40, 90 or 400 characters, limits 30 to 4,000, either strip. 2,141 are over the budget. Each case is classed by whether both scrubbers cut alike and whether they scrub both excerpts alike:
+
+| Class (texts) | Equal to release's output: round 9 → now | Marker ≠ release's: round 9 → now | A `[REDACTED]` fragment release's output lacks: round 9 → now |
+|---|---|---|---|
+| both cut alike, both excerpts scrubbed alike (1,045) | 737 → 1,045 | 251 → 0 | 137 → 0 |
+| both cut alike, the head hides more (813) | 142 → 316 | 330 → 0 (315 with `FIX_R9b.patch`'s count) | 180 → 50 |
+| the two cut differently, the head's cut the more cautious (283) | 48 → 114 | 221 → 142 (different excerpts) | 39 → 5 |
+
+- **Every class, now:** 0 outputs over the limit, 0 with two markers (round 9: 2), and 0 that show a value release's whole scrub or the head's hides.
+- **The fragments left** are single cuts falling inside a placeholder the head's scrub added. Release's own output holds a fragment in 285 of these texts.
+
+**Holds and corpora ran on this round's head, `c2289e05b`'s code** (the text commits change no code).
+
+### Tests
+
+- **Red, then green.** Review r9b's eight pins failed at `b34ba3b2a`, as they should (hold red: 19:59:30Z, slot B, load 64, 8 failed in 39 s), and pass at the fix (hold g: 21:01:59Z, slot A, load 112, 8 passed in 66 s).
+- **The three cut-first cases** (decision 2) now assert the rule: the output is the composition cut, it shows nothing either scrub hides, and it keeps to its limit. None was deleted.
+  - **`[scrubbed_line]` of the mode test:** its composition, `_cut_line`, is `bounded(shown_by_both(released, head), limit, mark)`. The mode's release and head pipelines are now the two uncut lines, so the hiding test compares it with the scrubs, not release's cut. The test now also checks each bounded mode's length.
+  - **The pieces property** compares the mode with release's own `scrub_bounded`, its scrubs composed first and its cuts both scrubbers' (`_composed_release`), the marker's count set aside, and checks release's marker wherever both scrubbers cut alike past the budget. It keeps the join to release's output where nothing cuts the pieces, or where both scrub each excerpt alike, and checks that no value either whole scrub hides shows, and the length.
+  - **The order check** reads `scrubbed_line` against release's uncut line, and checks the composition and the length.
+- **The excerpts module's oversized-text test** reads one marker with release's count, where it accepted any marker (`test_sessions_handoff_excerpts.py:139`; it had passed with `… [6 characters omitted] …`).
+- **`_assert_stable`** (P3-2) is monotone: a second scrub's `SECRET7` runs are a subset of the first's, as review r9b's `x Cookie:\nx Cookie:\n;v SECRET7c3` needs.
+- **At 2,000 examples** (hold long, review r9b's module and two more):
+  - C-23.36's property: 1,445 not cut, 234 cut, 321 elided;
+  - the cut property: 569 cut, 1,431 elided;
+  - the excerpt property with both scrubbers' bounds shrunk: 2,000, all over the budget (633, 719 and 648 at 40, 90 and 400);
+  - the pieces property: 1,453 within the budget and 547 past it;
+  - the order check: 818 with `scrubbed_line` cut, 1,182 not.
+
+**Holds** (one pytest each, at most one worker; loads are 1-minute averages at the start). The host ran at loads 45 to 144, so the second slot was often closed. Each lane's driver ran its holds in turn, and two lanes ran side by side. Two holds waited the full 30 minutes and then ran directly, outside the lock, as the rules allow; they are marked direct.
+
+| Hold | Started, slot, load | Files | Cases | Result |
+|---|---|---|---|---|
+| red | 19:59:30Z, B, 64 | `test_scrub_review_r9b`, at `b34ba3b2a` | 8 | 8 failed, as they should (39 s) |
+| g | 21:01:59Z, A, 112 | `test_scrub_review_r9b` | 8 | passed (66 s) |
+| s1 | 21:19:47Z, A, 113 | `test_scrub_release_first`, `test_scrub_release_frozen` | 27 | passed (7 min) |
+| h3 | 21:28:26Z, A, 144 | `test_daemon_log_cut_windows` | 177 | passed (17 min) |
+| long | 21:48:27Z, A, 69 | the 2,000-example module (scratch, not committed) | 6 | passed (7 min 49 s) |
+| h4a | 21:56:35Z, A, 103 | `test_daemon_log_handler` but its 4 MiB, parts and group tests | 56 | passed (5 min) |
+| guards | 22:02:14Z, A, 94 | `tests/fake/test_state_contract.py`, `test_test_module_names`, `test_invariants_index` | 63 | passed (5 min 24 s), after the long module was removed |
+| h4b | 22:08:23Z, A, 140 | `test_daemon_log_handler`'s five 4 MiB bound tests | 5 | passed (81 s) |
+| s2a | 22:10:46Z, A, 105 | `test_sessions_handoff_excerpts` but its excerpt property and its 84 name-above-the-tail cases | 74 | passed (13 min 31 s) |
+| s3a2 | 22:29:05Z, B, 78 | `test_scrub_inline_headers` but its swallowed-item matrix and its 28 bound and cost tests (every `_assert_stable` caller is here) | 145 | passed (3 min 56 s) |
+| h4c | 22:38:49Z, B, 80 | `test_daemon_log_handler`'s 4 MiB cost-shape tests | 18 | passed (2 min 49 s) |
+| h4d1 | 22:45:49Z, B, 115 | five of `test_a_cut_never_parts_what_a_rule_or_folding_joins` | 5 | passed (3 min 43 s) |
+| h4d2 | 22:52:46Z, A, 123 | four more | 4 | passed (6 min 58 s) |
+| s3b | 23:03:56Z, direct, 104 | `test_scrub_inline_headers`'s bound and cost tests | 24 of 28 | 16 passed, 8 failed; stopped at the 25-minute cap, before pytest printed the failures; rerun as s3b-rerun |
+| h7 | 23:34:39Z, direct, 56 | `test_conversation_handoff_briefs`, `test_conversation_redact`, `test_store_ids` | 64 | passed (33 s) |
+| s2b | 23:36:56Z, A, 61 | `test_sessions_handoff_excerpts`'s name-above-the-tail cases | 84 | passed (6 min 8 s) |
+| h8a | 23:41:37Z, B, 64 | `test_suggestions_r1b_adversarial`, `test_suggestion_secret_properties` but its two slow tests | 34 | passed (2 min 25 s) |
+| s3b-rerun | 23:56:55Z, A, 28 (queued 23:41:52Z) | `test_scrub_inline_headers`'s `Bearer` cost, 1 MiB refusal and linear tests: every case `s3b` failed or did not reach, with their siblings | 25 | passed (1 min 42 s) |
+
+- **`s3b`'s failures, by position** (the run was stopped before pytest's summary, so the ids are read from the collection order): `test_the_bearer_rule_costs_what_release_217s_did[~--a_]`, `test_a_mebibyte_refusal_costs_daemon_log_at_most_the_cost_bound_over_release_s`, and 6 of 13 `test_inline_headers_and_bearer_keep_scrubbing_linear` cases; 4 more of those did not run.
+  - **All of them passed on the rerun at load 28,** with the 4 that had not run; with `s3b`'s own 16 passes, all 28 of those cases have passed on this head.
+  - **Two of the three tests run no code this round changed.** The `Bearer` cost test times one rule on a text within the budget. The linear test times `scrub_secrets` within the budget, where this round changed nothing.
+  - **The refusal test reaches `_line_bounded`.** So its test body ran by hand on round 9's tree and the head's, alternating, three times each, from 23:36Z at loads 59 to 108: head 1.07, 1.18 and 1.19, against round 9's 1.16, 1.18 and 1.25 (`COST_RATIO_MAX` is 2.5). Composing the whole line before the cut costs nothing measurable here.
+- **Over 10 minutes:** `h3`, `s2a` and `s3b` ran longer than 10 minutes at these loads; each was split no further.
+
+### Mutations
+
+Each mutant is one edit in a copy of the head's `subfleet/` (the tests are the head's). The named tests ran against each as plain calls (`runcases.py`), outside the lock, from 21:26Z at loads 66 to 131.
+
+| Mutant | Killed by |
+|---|---|
+| M0: round 9's code (`b34ba3b2a`'s `handoff.py` and `suggestions.py`) | review r9b's 8 pins, the 3 restated `test_scrub_release_first` cases, and the oversized-text test's marker |
+| M1: the excerpt path scrubs every text whole | 3 of 3: the oversized-text test, the line-longer-than-an-excerpt test, the pieces property |
+| M2: an excerpt keeps one value the head hides (with a limit, and without) | the pieces property, and the two `Cookie` cases of `test_an_excerpt_hides_what_only_the_head_s_scrub_hides` (2 of 4) |
+| M3: the within-budget path skips the scrub | the property, the cut property, CI's pin (3 of 4), and the pieces property |
+| M4 (review r9b's): a run kept if it appears anywhere in the head's text | **survives**, as for review r9b: 25 of 25 `test_scrub_release_first` cases, 8 of 8 pins, 9 excerpt cases. **Equivalent under C-23.14's "per value, not per place"** (P3-1): every run it keeps is a substring of the head's output, so every value it shows the head's output holds; what it changes is where, which the clause now allows. |
+| M5: runs split on ASCII spaces only | the pieces property |
+| M6: the head's mask before release's | `test_an_approval_keeps_the_mask_release_writes` |
+| M7: the within-budget piece not stripped | the property |
+| M8 (new): cut before compose in `_line_bounded` (round 9's code there) | review r9b's 4 P2-2 pins, `test_each_mode_is_…[scrubbed_line]`, the order check |
+| M9 (mine): `FIX_R9b.patch`'s marker count | the pieces property only; review r9b's pins and the oversized-text test pass, since on prose both scrubbers write each excerpt alike |
+| M10 (mine): round 9's excerpt path alone | review r9b's 4 P2-1 pins, the pieces property, the oversized-text test |
+
+### C-23.14 and C-23.36
+
+- **Review r9b's corrections, as its check 6 gives them:**
+  - the excerpts are cut "where both scrubbers allow a cut (the head's, which refuses every break release refuses)" (P3-3);
+  - the head's hiding holds per value, not per place, with review r9b's example as each scrub writes it (P3-1).
+- **The mode sentence** now says each bound writes its text kept for the head's runs before it cuts it: within the budget, `truncate` of the whole-text scrub; past it, each excerpt cut as release cuts its own, with release's marker and count; a suggestion's line, masked, then cut. The trade, a cut that can keep a character release's own cut left out but none either scrub hides, now covers every bound.
+- **The rules' marker sentence** ("joined by a marker giving the characters left out") is true again after the fix, and is unchanged.
+- **C-23.36** is unchanged.
+- **The change log** gains round 10's entry. Round 8's sentences here that describe the cut-first order (its modes list, its bounded-mode bullet, and its argument's item 3, "a second `truncate` only cuts") each carry a dated note, as does round 9's "Nothing else changes".
+
+### Status
+
+- **Built:** the hub's five decisions, with one deviation in decision 1.
+  - **The excerpt path and `scrubbed_line` now compose first, then cut,** as `clean` within the budget did since round 9 (`FIX_R9b.patch`, its code lines unchanged).
+  - **The deviation:** the over-budget marker is release's own count, not the composed excerpts', because the hub's "every over-budget marker gives release's own count" failed in 315 of 1,562 texts at small bounds with the patch alone.
+  - **Review r9b's eight pins** went from red to green.
+- **What it gives up, as round 9 did:** a bound can keep a value release's own cut left out, but never one either scrub hides. On the corpora that is 858 texts for `clean` at 48 (unchanged from round 9) and 826 for `scrubbed_line` at 60 (new). Each value is one release's own whole-text scrub, or its own line, shows.
+- **What it doesn't claim:** a single cut can still fall inside a placeholder the head's scrub added (55 of 2,141 over-budget texts at small bounds, against 356 at round 9's code). Release's own cut and C-23.36's `truncate` cut the same way, and both equalities need that cut. No output holds a cut marker or a second marker.
+- **M4 is equivalent** under C-23.14's "per value, not per place" (P3-1), as the clause now says.
+- **Not run** (the brief's 4-hour mark for starting holds came at 23:45Z):
+  - review r9b's holds `test_daemon_log_sites` (83), `test_status_hold_source` (135), and of `test_daemon_log_handler` its group tests (34) and six of its parts tests (`_SYSTEM_REMINDER_RE`, `_URL_PASSWORD_RE`, `flags`, `inline`, `plain`, `quoted`); 88 of `test_daemon_log_handler`'s 128 cases ran;
+  - `test_suggestion_secret_properties`'s two slow tests (`…any_start_failure…`, `…shaped_like_a_secret…`), as in review r9b;
+  - `test_scrub_inline_headers`'s swallowed-item matrix (100 cases). It reaches `scrubbed_line` only on lines within its 2,000-character limit and `scrub_bounded` only without a limit, where this round's code writes what round 9's did by construction (the changes are a cut line's order and the excerpt path with a limit);
+  - `test_sessions_handoff_excerpts`'s excerpt property at its own size (14 minutes in round 9). Its body ran at 2,000 examples with both scrubbers' bounds shrunk (hold long), which reaches the changed path;
+  - CI, Python 3.12, `test_core_live` (it can't run on a lane), and the rest of `tests/unit` and `tests/fake`;
+  - the mutants under pytest: they ran as plain calls of the named tests;
+  - review r8's 461,248-text corpora beyond the two sets rebuilt here, and a cost table like review r9b's.
+- **Kept:** the study tools, the logs of every hold and probe, and the mutants' diffs are in `~/reviews/subfleet-hub/scrub-inline-2026-10-18/fix10-tools/`.
