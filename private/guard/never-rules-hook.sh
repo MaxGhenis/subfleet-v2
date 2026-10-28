@@ -2092,23 +2092,44 @@ pw_prep_awk="$pw_lib_awk"'
     if (s) { gsub(/\n\t+/, "\n", HDB); sub(/^\t+/, "", HDB) }
     return m + 1
   }
-  function prep(t, depth, noext, ctx,   n, i, c, seg, res, j, sep, piped, nextin, r, bt, x, k, sb, hf, hn, he, hl, nl, LN, LP, bto, pi) {
-    n = length(t); i = 1; seg = ""; res = ""; piped = 0; nextin = ""; bt = 0; sb = ""; hf = 0; hn = 0; he = 0; nl = 0; bto = 0
+  # arith(t, i, AO, AD, na, AV): 1 when the << at i is inside $((...)) or ((...)): one of the na open (( (AO their
+  # first ( and AD the depth before it, innermost last) that is arithmetic, its inner ( closing right before its
+  # outer one, as the shells read them (AV keeps each verdict: the end, or -1). Past 64 looks, with r6 decision 9,
+  # the command is too complex to judge (cplx) (r6 decision 4).
+  function arith(t, i, AO, AD, na, AV,   m, k, j) {
+    for (m = na; m >= 1; m--) {
+      k = AO[m]
+      if (!(k in AV)) {
+        if (++nar > 64) { cplx = 1; return 0 }
+        AV[k] = ((j = parend(t, k)) && parend(t, k + 1) == j - 1) ? j : -1
+      }
+      if (AV[k] > i) return 1
+    }
+    return 0
+  }
+  function prep(t, depth, noext, ctx,   n, i, c, seg, res, j, sep, piped, nextin, r, bt, x, k, sb, hz, hn, he, hl, nl, LN, LP, bto, pi, pd, na, AO, AD, AV, HZ) {
+    n = length(t); i = 1; seg = ""; res = ""; piped = 0; nextin = ""; bt = 0; sb = ""; hz = 0; hn = 0; he = 0; nl = 0; bto = 0
+    pd = 0; na = 0
     while (i <= n) {
       if (match(substr(t, i, 512), /^[^\\\047"#;&|()`$\n<]+/)) { seg = seg substr(t, i, RLENGTH); i += RLENGTH; continue }
       c = substr(t, i, 1)
       if (c == "\\") { seg = seg substr(t, i, 2); i += 2; continue }
       # r5 decision 2: the body of a heredoc (the lines after this one, to its delimiter line) is data: out of
       # the quote and separator tracking, it is written out as it stands when this line ends, and handed to
-      # simple() as the stdin of its command (sb); an unterminated one leaves the rest read as commands
+      # simple() as the stdin of its command (sb); an unterminated one leaves the rest read as commands (r6
+      # decision 4: a << whose body never ends disables only itself; hz and HZ remember a line end or a
+      # delimiter already not found)
       if (c == "<" && substr(t, i, 3) == "<<<") { seg = seg "<<<"; i += 3; continue }
-      if (c == "<" && substr(t, i + 1, 1) == "<" && !hf && (j = hdword(t, i))) {
-        if (!hn && (x = eol(t, j))) {
-          hn = x + 1
-          if (!nl) { nl = split(t, LN, "\n"); x = 1; for (k = 1; k <= nl; k++) { LP[k] = x; x += length(LN[k]) + 1 }; hl = 1 }
-          while (hl <= nl && LP[hl] < hn) hl++
+      if (c == "<" && substr(t, i + 1, 1) == "<" && (j = hdword(t, i)) && !(na && arith(t, i, AO, AD, na, AV))) {
+        if (!hn && !hz) {
+          if (x = eol(t, j)) {
+            hn = x + 1
+            if (!nl) { nl = split(t, LN, "\n"); x = 1; for (k = 1; k <= nl; k++) { LP[k] = x; x += length(LN[k]) + 1 }; hl = 1 }
+            while (hl <= nl && LP[hl] < hn) hl++
+          } else hz = 1
         }
-        x = hn ? hdbody(t, LN, LP, nl, hl, HDD, HDS) : 0
+        x = (hn && !((HDS, HDD) in HZ)) ? hdbody(t, LN, LP, nl, hl, HDD, HDS) : 0
+        if (!x && hn) HZ[HDS, HDD] = 1
         if (x) {
           if (!match(seg, /(^|[[:space:]])[0-9]+$/) || substr(seg, RSTART) ~ /^[[:space:]]*0$/) sb = sb (sb == "" ? "" : "\n") HDB
           hl = x; hn = (x <= nl) ? LP[x] : n + 1; he = hn
@@ -2116,7 +2137,7 @@ pw_prep_awk="$pw_lib_awk"'
           # substitutions of the body, so each $(...) and backtick span in it is judged as a command; the rest of
           # the body stays data (HDW is kept across the reading of those scripts)
           if (mode == "prep" && !noext && HDW !~ /[\\\047"]/) { x = HDW; spans(HDB, ctx, depth); HDW = x }
-        } else hf = 1
+        }
         seg = seg HDW; i = j; continue
       }
       if (c == "<") { seg = seg c; i++; continue }
@@ -2147,7 +2168,11 @@ pw_prep_awk="$pw_lib_awk"'
       nextin = (sep == "|" || sep == "|&") ? pi (pi == "" ? "" : "\n") lastprod : ""
       # r5 decision 5: a space before a closing backtick too, so a root right before it ends there
       if (sep == "`") { if (bto) r = r " "; bto = !bto }
-      res = res r sep; seg = ""; i += length(sep)
+      res = res r sep; seg = ""
+      # r6 decision 4: the open (( a << may sit in (pd the depth of ( as read here)
+      if (sep == "(") { if (substr(t, i + 1, 1) == "(") { AO[++na] = i; AD[na] = pd }; pd++ }
+      else if (sep == ")") { pd--; while (na && AD[na] >= pd) na-- }
+      i += length(sep)
       if (sep == "\n") { if (he > i) { res = res substr(t, i, he - i); i = he }; hn = 0; he = 0 }
       piped = (sep == "|" || sep == "|&"); bt = (sep == "`")
     }
@@ -2173,7 +2198,7 @@ pw_prep_awk="$pw_lib_awk"'
   mode == "nopath" { prep($0, 0, 1, "z") }
   END {
     if (mode == "nopath") print (found ? 1 : 0)
-    if (mode == "prep") printf "%s%s", xlines, (deep ? "\n\003D\003" : "")
+    if (mode == "prep") printf "%s%s%s", xlines, (deep ? "\n\003D\003" : ""), (cplx ? "\n\003C\003" : "")
   }'
 # pw_nopath CMD: CMD (prepped) holds a recursive searcher given no path.
 pw_nopath() { [ "$(printf '%s' "$1" | LC_ALL=C awk -v RS=$'\001' -v mode=nopath "$pw_prep_awk" 2>/dev/null)" = 1 ]; }
@@ -2280,7 +2305,7 @@ if [ -n "$searcher" ]; then
   pw_root_re="^(${root_core})\$"
   pw_normalize "$HOME"; pw_home=$pw_n
   case "$pw_home" in /*/*/*/*) pw_hfast="" ;; *) pw_hfast=1 ;; esac
-  pw_nt=0 pw_nd=0 pw_dec="" pw_deep=""
+  pw_nt=0 pw_nd=0 pw_dec="" pw_deep="" pw_cplx=""
   pw_awk="$pw_lib_awk"'
     function lit(c) {
       if (c == "{") return "\001"; if (c == "}") return "\002"; if (c == ",") return "\003"
@@ -2369,6 +2394,7 @@ if [ -n "$searcher" ]; then
     }
     pass == 2 && NR <= nb { split($0, f, "\t"); tok[f[1]] = f[2]; next }
     $0 == "\003D\003" { if (pass == 1) print "0\tdeep"; else print; next }
+    $0 == "\003C\003" { if (pass == 1) print "0\tcomplex"; else print; next }
     substr($0, 1, 1) == "\003" && substr($0, 3, 2) == "\003 " { line = substr($0, 1, 4) walk(substr($0, 5), substr($0, 2, 1)); if (pass == 2) print line; next }
     { line = walk($0, "z"); if (pass == 2) print line }'
   # (pass 1's lines are split in memory: read takes a pipe a byte at a time)
@@ -2386,6 +2412,7 @@ if [ -n "$searcher" ]; then
     if [ -n "$pw_ifs_set" ]; then IFS=$pw_ifs; else unset IFS; fi
     if [ "${pw_fl[0]-}" = 0 ]; then
       [ "${pw_fl[1]-}" != deep ] || pw_deep=1
+      [ "${pw_fl[1]-}" != complex ] || pw_cplx=1
       continue
     fi
     [ "${#pw_fl[@]}" -eq 6 ] || continue
@@ -2396,6 +2423,11 @@ if [ -n "$searcher" ]; then
   done
   if [ "$pw_nd" -gt 0 ]; then
     pw_j=$( { printf '%s' "$pw_dec"; printf '%s\n' "$judged"; } | LC_ALL=C awk -v pass=2 -v nb="$pw_nd" "$pw_awk" 2>/dev/null) && [ -n "$pw_j" ] && judged=$pw_j
+  fi
+  # More than 64 arithmetic or process-substitution forms read by the prep is too complex to judge (r6
+  # decisions 4 and 9: each read walks the rest of the command once).
+  if [ -n "$pw_cplx" ]; then
+    block "[unscoped-search] Command too complex to judge: it names a searcher (find, rg or grep) beside more than 64 arithmetic \$((...)) or process-substitution <(...) forms, so the guard cannot read where it searches. Split it into shorter commands, and scope each search: an exact subdirectory or -maxdepth/--max-depth."
   fi
   # A searcher nested deeper than 4 shells is denied (r3c decision 6).
   if [ -n "$pw_deep" ]; then
