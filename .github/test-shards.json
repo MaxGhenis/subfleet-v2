@@ -1,7 +1,9 @@
 {
  "comment": "CI seconds per test file (all phases), for tools/ci_shard_plugin.py; regenerate with tools/ci_shard_durations.py.",
- "source": "run 40377886461: slower Python whole-file seconds; complete files in cancelled shard 1 supplemented separately; #254 mutation additions use that file's measured CI:local ratio (183.1/529.0); fix13 borrows fix12's view-probe ratio (105.8/71.09), not a measured fix13 ratio; round 11 remeasured fix13 locally and added the CI-landing replay",
+ "source": "run 40377886461: slower Python whole-file seconds; complete files in cancelled shard 1 supplemented separately; #254 mutation additions use that file's measured CI:local ratio (183.1/529.0); fix13 borrows fix12's view-probe ratio (105.8/71.09), not a measured fix13 ratio; round 11 remeasured fix13 locally and added the CI-landing replay; round 13: setup cold-file allowance (487.96 s cold setup + 61.817 s cached whole-file phases) * borrowed view ratio 105.8/71.09 = 818.2 s; charge the new independent fixture mutant the same conservative 818.2 s in addition to 939.5 s; isolate these two files before the shared review prefix to keep each predicted shard under 2100 s; estimates, not measured CI times",
  "groups": [
+  "tests/frontend/test_review_r219_fix14_setup.py",
+  "tests/frontend/test_review_r219_fix8_mutations.py",
   "tests/frontend/test_review_r219_",
   "tests/frontend/"
  ],
@@ -186,10 +188,11 @@
   "tests/frontend/test_review_r219_fix11_view.py": 71.5,
   "tests/frontend/test_review_r219_fix12_view.py": 105.8,
   "tests/frontend/test_review_r219_fix13_view.py": 182.3,
+  "tests/frontend/test_review_r219_fix14_setup.py": 818.2,
   "tests/frontend/test_review_r219_fix4.py": 17.6,
   "tests/frontend/test_review_r219_fix6.py": 50.9,
   "tests/frontend/test_review_r219_fix8_engine.py": 17.5,
-  "tests/frontend/test_review_r219_fix8_mutations.py": 939.5,
+  "tests/frontend/test_review_r219_fix8_mutations.py": 1757.7,
   "tests/frontend/test_review_r219_fix8_view.py": 86.8,
   "tests/frontend/test_review_r219_fix9_view.py": 26.2,
   "tests/frontend/test_review_r219_probes.py": 59.2,

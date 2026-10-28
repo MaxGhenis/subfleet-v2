@@ -138,12 +138,19 @@ def test_review_probes_share_a_group_before_the_other_frontend_tests():
     data = json.loads(MAP.read_text(encoding="utf-8"))
     groups = data["groups"]
     prefix = "tests/frontend/test_review_r219_"
+    # Each has a distinct cold source variant. Keeping either in the common
+    # review group would hide its compile cost or exceed the prediction guard.
+    separate = {prefix + "fix14_setup.py", prefix + "fix8_mutations.py"}
+    assert all(groups.index(path) < groups.index(prefix) for path in separate)
     assert groups.index(prefix) < groups.index("tests/frontend/")
     millis, groups = shard_plugin.validate_map(data)
     shards = shard_plugin.plan(millis, groups, len(workflow_shards()))
     files = [path.relative_to(REPO).as_posix() for path in (REPO / "tests/frontend").glob("test_review_r219_*.py")]
-    assert files and all(shard_plugin.group_of(path, groups) == prefix for path in files)
-    assert len({shard_plugin.shard_of(path, shards, groups, len(workflow_shards())) for path in files}) == 1
+    assert separate <= set(files)
+    shared = set(files) - separate
+    assert shared and all(shard_plugin.group_of(path, groups) == prefix for path in shared)
+    assert all(shard_plugin.group_of(path, groups) == path and path in millis for path in separate)
+    assert len({shard_plugin.shard_of(path, shards, groups, len(workflow_shards())) for path in shared}) == 1
 
 
 def test_a_narrow_file_prefix_can_precede_its_directory_group():
