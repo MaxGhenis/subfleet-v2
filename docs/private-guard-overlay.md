@@ -263,7 +263,19 @@ the code as it stands, with review r5's check 8 forms marked (snapshot-5 read fr
   - Loop shapes other than a `for` list or a piped `while read` whose variable is a searcher's whole
     operand: `while read d; do …; done < list`, `until`, `select`, a loop variable in a nested
     script, `for d in $(…)` (the prep splits the word at its `(`), and `xargs -a <(…)` or a `>(…)`;
-    unjudged here, and snapshot-5's `read` variable is unknown (`:2192-2197`).
+    unjudged here, and snapshot-5's `read` variable is unknown (`:2192-2197`). Two of them by name,
+    both walked by the real shells (r7 decision 4, `test_r7_known_differences_name_the_open_forms`):
+    - the common bash form of a fed loop, `while read d; do rg foo "$d"; done < <(find ~/.subfleet
+      -maxdepth 1)`: the prep reads left to right, and the `< <(…)` that feeds the `read` comes
+      after the loop's `done`, so `$d` stands for nothing when `rg` is read;
+    - nested loops, `find ~/.subfleet -maxdepth 1 | while read d; do for f in "$d"/*; do rg foo
+      "$f"; done; done`: the inner `for` list is taken as written (`"$d"/*`), not as the outer
+      loop's roots.
+  - zsh's `=(…)`, `source =(echo 'rg --files ~/.subfleet')` and `zsh =(…)`: zsh writes what the
+    substitution prints to a temporary file and passes its name, and no script reading follows a
+    file name (only a `<(…)` read by a shell, `source` or `.` is a script here, r6 decision 9);
+    snapshot-5 runs no script from a shell's or `source`'s file argument either (`:2245-2252`). Open
+    at this head (r7 decision 4).
   - *Fixed at this head:* the filter-heredoc pipe (`tee <<'EOF' | bash`, review r5's P3-1, decision 3;
     snapshot-5 models only echo, printf and cat there, so this overlay is now the stricter);
     arithmetic `<<` (P3-2, decision 4); the lone `"` in `"$(cat <<'EOF' … EOF)"` (P3-3, decision 5);

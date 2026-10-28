@@ -5304,9 +5304,10 @@ def test_r7_a_filter_passes_on_its_process_substitution():
 
 def test_r7_known_differences_name_the_open_forms(tmp_path):
     """Decision 4: each open form is allowed at this head, a real shell walks a root on it, and the overlay doc's
-    "Known differences" names it."""
+    "Known differences" names it (its text with runs of blanks and line breaks read as one space)."""
     doc = (REPO / "docs/private-guard-overlay.md").read_text(encoding="utf-8")
-    known = doc[doc.index("Known differences that remain"):doc.index("| File | SHA-256 |")]
+    start = doc.index("Known differences that remain")
+    known = " ".join(doc[start:doc.index("| File | SHA-256 |", start)].split())
     outs = judged(HOOK, list(R7_KNOWN_OPEN), S_)
     for command, named in R7_KNOWN_OPEN.items():
         assert rule(outs[command]) is None, command
