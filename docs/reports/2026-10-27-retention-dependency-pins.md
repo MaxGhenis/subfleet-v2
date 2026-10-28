@@ -4,6 +4,14 @@
 
 The lane started at approximately 14:51Z; new holds/steps stop at 17:49:00Z, conservatively before its three-hour start cutoff. Lock waits count toward that wall. The final update is 2026-10-27T18:08:30Z.
 
+## Continuation 1 recovery, 2026-10-28 (in progress)
+
+This replacement job started at 06:56Z; new holds and steps stop conservatively at 10:54Z. The lost job's salvaged files have been copied unchanged into this report's data folder. Its `c1-reconstruct.py` reproduces **761** unfinished nodes from **1,104** unique planned nodes and **343** completed planned nodes. `c1b-reconstruct.py` independently verifies every saved plan against pytest's saved collection and its keyword matcher, then accounts for complete per-phase salvaged results. Two more planned nodes completed in the lost continuation (`remaining-02` and `remaining-04`), leaving **759** nodes in `remaining-nodes.txt`. The original 761-node list is preserved as `c1-original-remaining-nodes.txt`. Batches 01 and 03 have only setup results and remain uncompleted.
+
+At unchanged head `6ca8f4b0bc36`, the salvage proves **80 passed, 3 skipped** for dependency units, the three guards and provider shell environment, and **37 passed** for dependency fakes and daemon launch. Those nodes are reused, not rerun. All three provider shell cases were collected and skipped with real provider executables absent from PATH, honoring the no-real-provider rule. The fake daemon-launch cases executed. Remaining coverage is running in foreground-only holds, at most two serial pytest processes under the host's two suite-lock slots. Each hold records collection, per-phase results, admission/end loads and Python peak RSS, with an interrupt before 19 minutes.
+
+Shared metadata again refuses `index.lock` (`Operation not permitted`). Ordered commits therefore use private scratch Git metadata on `fix/retention-dependency-pins-217`; the workspace's `.git` file is unchanged. Delivery will include a verified incremental `rdp217c1.bundle`. No fetch, push, real CLI, live store or real provider is used. Scratch currently occupies approximately 23 MB, well below 2 GB.
+
 ## Checkpoints and recovery
 
 Shared Git metadata rejected `ORIG_HEAD.lock` with `Operation not permitted`. The original workspace metadata remains at `8f106c64595c`; checkpoints were committed in scratch Git metadata on `fix/retention-dependency-pins-217`. The delivery bundle contains those ordered commits and requires the already-present `8f106c645` and `c9430763f` histories. No shared branch update was possible.

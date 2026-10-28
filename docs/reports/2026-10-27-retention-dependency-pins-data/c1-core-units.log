@@ -1,0 +1,15 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 22:18:21Z slot B load 
+ADMITTED {"utc": "2026-10-27T22:18:23.412198+00:00", "time": 1793139503.412334, "load": [115.326171875, 108.5390625, 130.5556640625], "pid": 84166}
+........................................................................ [ 86%]
+........sss                                                              [100%]
+============================= slowest 5 durations ==============================
+92.67s call     tests/unit/test_retention_dependency_units.py::test_d5_fences_reads_what_retiring_reads_place_by_place
+61.33s call     tests/unit/test_retention_dependency_units.py::test_d2_d3_worktree_in_use_is_exactly_the_specification
+45.47s call     tests/unit/test_retention_dependency_units.py::test_d4_a_job_that_has_not_ended_never_releases_a_pin_and_ending_one_never_adds_one
+30.38s call     tests/fake/test_state_contract.py::test_c4_2_state_unverifiable_starting_quarantines_and_keeps_workspace
+16.98s call     tests/unit/test_retention_dependency_units.py::test_d1_git_storage_includes_what_git_uses_for_any_layout
+80 passed, 3 skipped in 418.75s (0:06:58)
+FINISHED {"rc": 0, "utc": "2026-10-27T22:25:42.803177+00:00", "load": [93.32958984375, 94.919921875, 115.427734375], "rss": 119062528}

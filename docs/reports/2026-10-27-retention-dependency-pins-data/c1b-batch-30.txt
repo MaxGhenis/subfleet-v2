@@ -1,0 +1,1 @@
+tests/fake/test_admission_stateful.py::test_r4_simulated_finish_preserves_provider_outcome[limited-limited-claude-sonnet]

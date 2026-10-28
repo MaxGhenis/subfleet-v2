@@ -1,0 +1,16 @@
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+hold 22:20:27Z slot A load 
+ADMITTED {"utc": "2026-10-27T22:20:27.843423+00:00", "time": 1793139627.843714, "load": [110.87841796875, 109.46044921875, 127.90966796875], "pid": 18601}
+.....................................                                    [100%]
+============================= slowest 5 durations ==============================
+99.70s call     tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[output]
+42.44s call     tests/fake/test_retention_dependencies.py::test_c8_4_the_commit_keeps_a_tree_a_job_submitted_after_selection_needs[linked]
+35.38s call     tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[case]
+32.33s call     tests/fake/test_retention_dependencies.py::test_c8_4_a_pending_export_keeps_the_tree_and_a_written_one_goes_into_the_archive
+29.92s call     tests/fake/test_retention_dependencies.py::test_c8_4_a_queued_job_that_needs_a_place_in_a_tree_keeps_it_until_it_ends[output]
+37 passed in 534.92s (0:08:54)
+FINISHED {"rc": 0, "utc": "2026-10-27T22:29:33.664447+00:00", "load": [92.54638671875, 88.65771484375, 107.7021484375], "rss": 126763008}

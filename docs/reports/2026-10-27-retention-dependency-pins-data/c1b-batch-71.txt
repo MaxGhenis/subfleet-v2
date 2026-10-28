@@ -1,0 +1,1 @@
+tests/unit/test_retention_salvage_properties.py::test_every_kind_of_entry_and_a_resume_keep_unarchived_bytes
