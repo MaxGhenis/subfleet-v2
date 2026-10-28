@@ -837,7 +837,8 @@ class Daemon:
         self._disclaim_guardians = procs.guardian_disclaim_allowed()
         self._starting_deadlines: dict[str, float] = {}
         # Review r3 of #250, check 5: the starting attempts whose deadline began at this
-        # daemon's first look, not at their launch (`_start_landed`).
+        # daemon's first look, not at their launch (`_start_landed`). Read through
+        # `__dict__`, as cores built without `__init__` (test fixtures) lack it.
         self._starting_first_look: set[str] = set()
         self._pending_launches: set[str] = set()
         self._export_locks: dict[str, threading.Lock] = {}
@@ -8799,7 +8800,7 @@ class Daemon:
                 os.close(write_fd)
         now = time.monotonic()
         self._starting_deadlines[a["attempt_id"]] = now + self.start_grace_s
-        self._starting_first_look.discard(a["attempt_id"])
+        self.__dict__.setdefault("_starting_first_look", set()).discard(a["attempt_id"])
         # C-5.12: first inspected with a table read after its guardian started,
         # which shows the guardian. Due as it first asked, it was usually given
         # a table another attempt had read before the guardian existed, and paid
@@ -8873,7 +8874,7 @@ class Daemon:
                            (start["guardian_pid"], start["pgid"], start["boot_id"], start["proc_start"], start["started_at"], aid))
             self._start_landed(a)
             self._starting_deadlines.pop(aid, None)
-            self._starting_first_look.discard(aid)
+            self.__dict__.setdefault("_starting_first_look", set()).discard(aid)
             self._boundary("running", a["job_id"], aid)
             a = self.store.get_attempt(aid)
         if job["kind"] != "turn" and a["state"] in ("starting", "running"):
@@ -8927,7 +8928,7 @@ class Daemon:
                 return  # The fresh wall preflight may itself have found the exit.
         if a["state"] == "starting":
             if aid not in self._starting_deadlines:
-                self._starting_first_look.add(aid)      # a restarted daemon's first look
+                self.__dict__.setdefault("_starting_first_look", set()).add(aid)    # a restarted daemon's first look
             deadline = self._starting_deadlines.setdefault(aid, time.monotonic() + self.start_grace_s)
             if time.monotonic() < deadline:
                 return
@@ -9053,10 +9054,9 @@ class Daemon:
             return
         deadline = self._starting_deadlines.get(aid)
         seconds = 0.0 if deadline is None else time.monotonic() - (deadline - self.start_grace_s)
+        restarted = deadline is None or aid in self.__dict__.get("_starting_first_look", ())
         self.store.add_event("attempt.start_landed", job_id=a["job_id"], attempt_id=aid,
-                             data={"seconds": round(seconds, 3),
-                                   "deadline_start": ("restart" if deadline is None or aid in self._starting_first_look
-                                                      else "launch"),
+                             data={"seconds": round(seconds, 3), "deadline_start": "restart" if restarted else "launch",
                                    "start_grace_s": self.start_grace_s,
                                    "start_grace_max_s": getattr(self, "start_grace_max_s", START_GRACE_MAX_S)})
 

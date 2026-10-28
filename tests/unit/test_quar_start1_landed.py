@@ -31,8 +31,9 @@ LAUNCH = 1000.0
 
 
 def landed(daemon) -> list[dict]:
-    return [json.loads(row["data_json"]) for row in daemon.store.list_events(JOB)
-            if row["kind"] == "attempt.start_landed"]
+    """The records, without `add_event`'s bare audit row of the same kind."""
+    return [data for row in daemon.store.list_events(JOB) if row["kind"] == "attempt.start_landed"
+            if (data := json.loads(row["data_json"] or "{}"))]
 
 
 def record(seconds: float, deadline_start: str = "launch") -> dict:
