@@ -145,6 +145,7 @@ import os
 from pathlib import Path
 import random
 import re
+import resource
 import shlex
 import subprocess
 import threading
@@ -4126,17 +4127,36 @@ def test_r4_hostile_words_fail_closed_fast():
     assert rule(run_hook(HOOK, f"rg foo {S_}/src" + "/a" * 200, LANE_W)) is None
 
 
+def hook_cpu(hook: Path, command: str, cwd: str = S_) -> tuple[float, float, str]:
+    """(child CPU seconds, wall seconds, stdout) of one hook run: the RUSAGE_CHILDREN user and system time
+    the run added (r6 decision 10: the host's load moves wall time, not the hook's own work)."""
+    before = resource.getrusage(resource.RUSAGE_CHILDREN)
+    started = time.perf_counter()
+    out = run_hook(hook, command, cwd)
+    wall = time.perf_counter() - started
+    after = resource.getrusage(resource.RUSAGE_CHILDREN)
+    return (after.ru_utime - before.ru_utime) + (after.ru_stime - before.ru_stime), wall, out
+
+
 def test_r4_absolute_paths_cost_at_most_twice_the_installed_hook(hooks):
     """Decision 6: 300 absolute paths, judged five times by each hook, interleaved: the new hook's median
-    is at most twice the installed hook's (the installed hook, a60d1c51..., rebuilt as hooks["old"])."""
+    is at most twice the installed hook's (the installed hook, a60d1c51..., rebuilt as hooks["old"]). r6
+    decision 10: the cost is child CPU (RUSAGE_CHILDREN deltas), the same 2x bound on a steadier measure;
+    wall time is reported."""
     command = "rg foo " + " ".join(f"{S_}/src/f{i}.py" for i in range(300))
-    new, old = [], []
+    new, old, new_wall, old_wall = [], [], [], []
     for _ in range(5):
-        t, out = hook_seconds(HOOK, command)
+        cpu, wall, out = hook_cpu(HOOK, command)
         assert rule(out) is None
-        new.append(t)
-        old.append(hook_seconds(hooks["old"], command)[0])
-    report("abs300-r4", {"new": sorted(new), "old": sorted(old)})
+        new.append(cpu)
+        new_wall.append(wall)
+        cpu, wall, _ = hook_cpu(hooks["old"], command)
+        old.append(cpu)
+        old_wall.append(wall)
+    report("abs300-r4", {"cpu": {"new": sorted(new), "old": sorted(old),
+                                 "ratio": round(sorted(new)[2] / sorted(old)[2], 2)},
+                         "wall": {"new": sorted(new_wall), "old": sorted(old_wall)},
+                         "load": round(os.getloadavg()[0], 1)})
     assert sorted(new)[2] <= 2 * sorted(old)[2], (new, old)
 
 
@@ -4700,3 +4720,303 @@ def test_review_r5_pins_r5s_unpinned_readings():
     """Each reading's own input is denied. In review r5's probe both real shells walked a root for the -execdir,
     `+`, {}/, two-root and -L forms; -ok and -okdir ask first, and =cmd is zsh's."""
     assert r5_denied([(c, S_) for c in REVIEW_R5_DENIED]) == []
+
+
+# ---------------------------------------------------------------- r6: review r5's findings
+
+# Round r6 (2026-10-28) builds the hub's decisions on review r5 (REQUEST_CHANGES at e02a22fb6). Each pin below is
+# one of review r5's inputs (or the brief's), judged through the whole hook in the fixture:
+#   1. the $(...) and backtick spans of a heredoc body whose delimiter word holds no quote and no backslash run,
+#      so each is judged as a command; a quoted or escaped delimiter keeps the whole body data;
+#   2. xargs running sh, bash, zsh or dash with a -c script that names a searcher is judged by the xargs rule;
+#   3. any producer's heredoc or here-string piped into a shell given no script is that shell's script;
+#   4. a << inside $((...)) or ((...)) is a shift, and a << whose body never ends disables only itself;
+#   5. a $( inside double quotes ends where a heredoc-aware parend says;
+#   6. zsh's =cmd right after a backtick passes the prefilter and pw_named;
+#   7. a searcher in a markdown code span in a body no shell runs stays denied: an intended over-block;
+#   8. a searcher beside more than 4,096 of one of $, # or \ is denied unread, fast;
+#   9. a <(...) read as a shell's script, and a for or while-read loop variable as a searcher's path operand.
+R6_DQ_HD = "git commit -m \"$(cat <<'EOF'\nsay \"hi\nEOF\n)\""
+#: Decision 1 (review r5's P2-1): an unquoted delimiter, so each substitution in the body runs. (command, cwd).
+R6_BODY_DENIED = [
+    "cat > x.md <<EOF\n$(/usr/bin/find / -name x)\nEOF", "cat > x.md <<EOF\n$(\\rg --files ~/.subfleet)\nEOF",
+    "cat > x.md <<EOF\n`/usr/bin/find / -name x`\nEOF", "git commit -F - <<EOF\nfix: $(sudo /usr/bin/find / -name x)\nEOF",
+    "x=$(cat <<EOF\n$(/usr/bin/find / -name x)\nEOF\n)", "cat <<EOF > x.md\n${HOME}\n$(timeout 60 /usr/bin/find / -name x)\nEOF",
+]
+#: ... <<- with tabs is unquoted too ...
+R6_BODY_MORE_DENIED = ["cat > x.md <<-EOF\n\t$(/usr/bin/find / -name x)\n\tEOF"]
+#: ... and a quoted or escaped delimiter keeps the body data: each of the six with <<'EOF', the other quotings, and
+#: an unquoted body holding only parameter expansions or a substitution that names no searcher.
+R6_BODY_ALLOWED = ([c.replace("<<EOF", "<<'EOF'") for c in R6_BODY_DENIED]
+                   + ["cat > x.md <<\"EOF\"\n$(/usr/bin/find / -name x)\nEOF",
+                      "cat > x.md <<\\EOF\n$(/usr/bin/find / -name x)\nEOF",
+                      "cat > x.md <<E\"O\"F\n$(/usr/bin/find / -name x)\nEOF",
+                      "cat > x.md <<EOF\nit's $HOME and ${USER}\nEOF",
+                      "git commit -F - <<EOF\nfix: $(git rev-parse --short HEAD)\nEOF",
+                      "cat > x.md <<EOF\nit's $(git rev-parse HEAD)\nEOF\nrg foo src"])
+#: Decision 2 (review r5's P2-2), and a root right before the xargs in quotes.
+R6_XARGS_DENIED = [
+    "find ~/.subfleet/jobs -maxdepth 1 -type d | xargs -I{} sh -c 'rg -l foo {}'",
+    "find ~/.subfleet/jobs -maxdepth 1 -type d | xargs -I{} bash -c 'cd {} && rg foo'",
+    "echo ~/.subfleet | xargs -I{} sh -c 'rg --files \"$1\"' _ {}",
+    "find ~/.subfleet -maxdepth 1 -type d -print0 | xargs -0 -n1 sh -c 'rg foo \"$0\"'",
+    "echo \"$HOME/.subfleet\" | xargs -I{} zsh -c 'rg --files {}'",
+    "printf '%s\\n' ~/.subfleet | xargs -n1 dash -c 'find \"$0\" -name x'",
+]
+R6_XARGS_ALLOWED = ["find src -type f | xargs -I{} sh -c 'rg -l foo \"$1\"' _ {}",
+                    "find src -type f | xargs -I{} sh -c 'rg -l foo {}'",
+                    "git ls-files | xargs -n1 sh -c 'echo \"$0\"'"]
+#: Decision 3 (review r5's P3-1).
+R6_FILTER_DENIED = ["tee <<'EOF' | bash\n/usr/bin/find / -name x\nEOF", "sed -n p <<'EOF' | bash\n\\rg --files ~/.subfleet\nEOF",
+                    "tee <<< '/usr/bin/find / -name x' | bash"]
+R6_FILTER_ALLOWED = ["tee <<'EOF' | bash\nrg foo src\nEOF", "sed -n p <<'EOF' | sort\n\\rg --files ~/.subfleet\nEOF"]
+#: Decision 4 (review r5's P3-2), a shift whose right operand is also a later line, and the (( )) command.
+R6_ARITH_PRE = "cat > /dev/null <<'EOF'\nit's\nEOF\n/usr/bin/find / -name x"
+R6_ARITH_DENIED = ["echo $((1<<2)); " + R6_ARITH_PRE, "x=$((1 << 3)); " + R6_ARITH_PRE, "((y = 1<<2)); " + R6_ARITH_PRE,
+                   "echo $((1<<X))\n\\rg --files ~/.subfleet\nX"]
+R6_ARITH_ALLOWED = ["echo $((1<<2))", "echo $((1<<2)); rg foo src", "x=$((1 << 3)); " + R6_ARITH_PRE.replace("/usr/bin/find /", "find src")]
+#: Decision 5 (review r5's P3-3): the standard commit idiom with a lone " in its body, then a crawl; and a crawl
+#: inside the substitution after its heredoc.
+R6_DQ_DENIED = [R6_DQ_HD + "\n/usr/bin/find / -name x",
+                "echo \"$(cat <<'EOF'\nsay \"hi\nEOF\n\\rg --files ~/.subfleet)\""]
+R6_DQ_ALLOWED = [R6_DQ_HD, "git commit -m \"$(cat <<'EOF'\nsay \"quoted\" word\nEOF\n)\"", R6_DQ_HD + "\nrg foo src",
+                 "git commit -m \"$(cat <<'EOF'\nsay \"quoted\" word\nEOF\n)\"\nrg foo src"]
+#: Decision 6 (review r5's P3-4).
+R6_EQ_DENIED = ["echo `=rg --files ~/.subfleet`", "x=`=find / -name x`"]
+#: Decision 7 (review r5's P3-5): an INTENDED over-block. Neither shell runs a body under a quoted delimiter, but a
+#: searcher in a markdown code span there is read by the text rules, and r5's decision 5 ends its root at the
+#: closing backtick. Review r5's rescoping edit does not rescope it: without the backticks (or with the path quoted)
+#: the text rules still read rg --files ~/.subfleet in the body. What does: the root outside the searcher's span.
+R6_SPAN_DENIED = ["cat > notes.md <<'EOF'\nRun `cd repo && rg --files ~/.subfleet` to see\nEOF"]
+R6_SPAN_STILL_DENIED = ["cat > notes.md <<'EOF'\nRun cd repo && rg --files ~/.subfleet to see\nEOF",
+                        "cat > notes.md <<'EOF'\nRun `cd repo && rg --files '~/.subfleet'` to see\nEOF"]
+R6_SPAN_ALLOWED = ["cat > notes.md <<'EOF'\nRun `rg --files` in `~/.subfleet` to see\nEOF"]
+#: Decision 8 (review r5's P3-6): beside a crawl, each is denied unread, fast; the cap's edges and two controls.
+R6_HOSTILE = {
+    "60,000 $": "rg --files ~/.subfleet " + "$" * 60000,
+    "60,000 #": "rg --files ~/.subfleet x" + "#" * 60000,
+    "30,000 backslash pairs": "rg --files ~/.subfleet " + "\\\\" * 30000,
+}
+R6_CAP_DENIED = ["rg foo src " + "$" * 4097, "rg foo src x" + "#" * 4097, "rg foo src " + "\\" * 4097]
+R6_CAP_ALLOWED = ["echo " + "$" * 5000, "rg '" + "\\" * 200 + "' src", "rg foo src " + "$" * 4096,
+                  "rg foo src x" + "#" * 4096, "rg '" + "\\" * 4096 + "' src"]
+#: Decision 9 (review r5's P3-7): a process substitution a shell or source reads ...
+R6_PSUB_DENIED = ["bash <(echo 'rg --files ~/.subfleet')", "source <(echo '/usr/bin/find / -name x')",
+                  "sh <(echo 'rg --files ~/.subfleet')", ". <(printf '%s\\n' '/usr/bin/find / -name x')",
+                  "bash < <(echo 'rg --files ~/.subfleet')"]
+R6_PSUB_ALLOWED = ["bash <(echo 'rg foo src')", "diff <(rg foo src) <(rg foo tests)", "source <(echo 'export X=1')"]
+#: ... and a loop variable that is a searcher's path operand.
+R6_LOOP_DENIED = ["for d in ~/.subfleet/*; do rg foo \"$d\"; done",
+                  "find ~/.subfleet -maxdepth 1 | while read d; do rg foo \"$d\"; done",
+                  "for d in ~/.subfleet/jobs; do rg --files ${d}; done",
+                  "echo ~/.subfleet | while read -r d; do grep -r x $d; done"]
+R6_LOOP_ALLOWED = ["for f in src/*.py; do rg -n foo \"$f\"; done",
+                   "find src -name '*.py' | while read f; do rg -n foo \"$f\"; done",
+                   "for d in src tests; do rg --files \"$d\"; done"]
+#: Review r5's check 3 kept 18 lane commands (17 allowed); its list went with its scratch folder, so these are 18
+#: of the same kinds, from a lane worktree: commits and a PR body by heredoc, cat > file <<EOF then a scoped rg,
+#: find ... -exec rg -l ... +, xargs, loops and arithmetic. The one denial is decision 7's intended over-block.
+R6_LANE_ALLOWED = [
+    "git status --short && git log --oneline -5",
+    "git commit -F - <<'EOF'\nfix: guard heredoc reading\n\nIt's the r6 round.\nEOF",
+    "git commit -m \"$(cat <<'EOF'\nfix: read \"quoted\" words\nEOF\n)\"",
+    "gh pr create --title 'guard r6' --body \"$(cat <<'EOF'\n## Summary\n- it's the r6 round\nEOF\n)\"",
+    "cat > notes.md <<EOF\nHead: $(git rev-parse --short HEAD)\nEOF\nrg -n heredoc src",
+    "cat > plan.md <<'EOF'\nit's done\nEOF\nrg -l foo subfleet tests",
+    "find . -name '*.py' -exec rg -l pw_named {} +",
+    "rg -n 'def test_r6' tests/unit/test_guard_subfleet_root.py",
+    "grep -rn hdbody private/guard/",
+    "find tests -maxdepth 2 -name '*.py' | xargs rg -l guard",
+    "git ls-files | xargs rg -l never-rules",
+    "uv run --no-sync pytest -q tests/unit/test_guard_trust.py",
+    "for f in tests/unit/test_guard_*.py; do rg -c def \"$f\"; done",
+    "git diff --stat origin/main...HEAD | tail -1",
+    "rg --files subfleet | head -20",
+    "echo $((3 + 4)); rg -n 'x <<' private/guard/never-rules-hook.sh",
+    "python3 - <<'EOF'\nimport json\nprint(json.dumps({'a': 1}))\nEOF",
+]
+R6_LANE_DENIED = R6_SPAN_DENIED
+
+
+def test_r6_an_unquoted_heredoc_bodys_substitutions_are_judged():
+    """Decision 1: review r5's six P2-1 inputs (and <<-) are denied; with a quoted or escaped delimiter, or with
+    only parameter expansions or a substitution that names no searcher, the body is data and they are allowed."""
+    assert r5_denied([(c, S_) for c in R6_BODY_DENIED + R6_BODY_MORE_DENIED]) == []
+    assert r5_allowed([(c, S_) for c in R6_BODY_ALLOWED]) == []
+
+
+def test_r6_xargs_into_a_shell_whose_script_names_a_searcher():
+    """Decision 2: the xargs rule judges the whole command, a bounded producer's roots included; scoped producers
+    and a script that names no searcher stay allowed."""
+    assert r5_denied([(c, S_) for c in R6_XARGS_DENIED]) == []
+    assert r5_allowed([(c, S_) for c in R6_XARGS_ALLOWED]) == []
+
+
+def test_r6_any_producers_heredoc_piped_into_a_shell_is_its_script():
+    """Decision 3: tee's and sed's heredoc (and a here-string) piped into bash are bash's script."""
+    assert r5_denied([(c, S_) for c in R6_FILTER_DENIED]) == []
+    assert r5_allowed([(c, S_) for c in R6_FILTER_ALLOWED]) == []
+
+
+def test_r6_an_arithmetic_shift_starts_no_heredoc():
+    """Decision 4: a << inside $((...)) or ((...)) is a shift, so a later heredoc is still read (and a shift's
+    operand that matches a later line hides nothing); a scoped search beside one stays allowed."""
+    assert r5_denied([(c, S_) for c in R6_ARITH_DENIED]) == []
+    assert r5_allowed([(c, S_) for c in R6_ARITH_ALLOWED]) == []
+
+
+def test_r6_a_substitution_in_double_quotes_reads_its_heredoc():
+    """Decision 5: the commit idiom's body may hold a lone \" without hiding what follows."""
+    assert r5_denied([(c, S_) for c in R6_DQ_DENIED]) == []
+    assert r5_allowed([(c, S_) for c in R6_DQ_ALLOWED]) == []
+
+
+def test_r6_zsh_equals_cmd_after_a_backtick_is_read():
+    """Decision 6: =rg and =find right after an opening backtick."""
+    assert r5_denied([(c, S_) for c in R6_EQ_DENIED]) == []
+
+
+def test_r6_a_markdown_code_span_in_a_quoted_body_is_an_intended_over_block():
+    """Decision 7: INTENDED. No shell runs the body, but the text rules read the span's searcher and its root ends
+    at the closing backtick (r5's decision 5), so it is denied, as it is without the backticks or with the path
+    quoted (the text rules read the body); with the root outside the searcher's span it is allowed."""
+    assert r5_denied([(c, S_) for c in R6_SPAN_DENIED + R6_SPAN_STILL_DENIED]) == []
+    assert r5_allowed([(c, S_) for c in R6_SPAN_ALLOWED]) == []
+
+
+def test_r6_hostile_words_fail_closed_fast(hooks):
+    """Decision 8: each hostile word beside a crawl is denied as too complex to judge in under 3 s, or within twice
+    the installed hook's time (one run each, at the host's load, reported); 4,097 of one character beside a scoped
+    search is denied too, and 4,096, a 5,000-$ echo and a 200-backslash pattern are allowed."""
+    rows = {}
+    for name, command in R6_HOSTILE.items():
+        t, out = hook_seconds(HOOK, command)
+        assert rule(out) == "unscoped-search", name
+        assert "too complex to judge" in json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"], name
+        old = hook_seconds(hooks["old"], command)[0]
+        rows[name] = {"new": round(t, 2), "installed": round(old, 2), "load": round(os.getloadavg()[0], 1)}
+        assert t < R5_TIMING_S or t <= 2 * old, (name, rows[name])
+    report("hostile-r6", rows)
+    outs = judge_all(HOOK, [(c, S_) for c in R6_CAP_DENIED + R6_CAP_ALLOWED])
+    for c in R6_CAP_DENIED:
+        assert "too complex to judge" in json.loads(outs[(c, S_)])["hookSpecificOutput"]["permissionDecisionReason"]
+    assert [c[:40] for c in R6_CAP_ALLOWED if rule(outs[(c, S_)]) is not None] == []
+
+
+def test_r6_process_substitutions_and_loops_are_judged():
+    """Decision 9: a <(...) a shell, source or . reads is judged as its script; a for loop's words and a piped
+    while-read's producer roots stand for the loop variable as a searcher's operand; scoped forms stay allowed."""
+    assert r5_denied([(c, S_) for c in R6_PSUB_DENIED + R6_LOOP_DENIED]) == []
+    assert r5_allowed([(c, S_) for c in R6_PSUB_ALLOWED + R6_LOOP_ALLOWED]) == []
+
+
+def test_r6_scoped_searches_stay_allowed():
+    """The must-allow lists (r5's, with review r4's allowed forms and the routine commit), each r6 decision's allowed
+    forms, the print-and-exit forms from any cwd, and 18 lane commands from a lane worktree (17 allowed; the one
+    denial is decision 7's intended over-block)."""
+    cases = ([(c, cwd) for cwd in R4_SCOPED_CWDS for c in R4_SCOPED] + [(c, LANE_W) for c in R4_PATTERN_ROOTS]
+             + R4_MUST_ALLOW + R4_ALLOWED + REVIEW_R4_ALLOWED + [("git commit -F - <<'EOF'\nIt's fixed\nEOF", LANE_W)]
+             + R5_HEREDOC_ALLOWED + R5_BOUND_ALLOWED + R5_BACKTICK_ALLOWED + R5_DOTDOT_ALLOWED + R5_BRACE_ALLOWED
+             + R5_FAMILY_ALLOWED + R5_FORMS_ALLOWED + [(c, cwd) for cwd in (H_, "/", S_) for c in R4_META]
+             + [(c, LANE_W) for c in R6_LANE_ALLOWED])
+    assert len(R6_LANE_ALLOWED) + len(R6_LANE_DENIED) == 18
+    assert r5_allowed(cases) == []
+    assert r5_denied([(c, LANE_W) for c in R6_LANE_DENIED]) == []
+
+
+# ---------------------------------------------------------------- r6: the real shells
+
+#: r6's find stub: it records its argv and runs the real /usr/bin/find only when every start path is a folder inside
+#: the fixture (R6_FS), so no run lists a real folder; git and python3 do nothing.
+R6_FIND = r"""#!/bin/sh
+f=$(/usr/bin/mktemp "$R4_CALLS/call.XXXXXX")
+printf '%s\0' find "$PWD" none "$@" > "$f"
+lead=1
+for a in "$@"; do
+  if [ "$lead" = 1 ]; then case "$a" in -[HLPEXdsx]|-O*) continue ;; esac; lead=0; fi
+  case "$a" in -*|'('|'!') break ;; esac
+  r=$(cd "$a" 2>/dev/null && pwd -P) || exit 0
+  case "$r" in "$R6_FS"|"$R6_FS"/*) ;; *) exit 0 ;; esac
+done
+r=$(pwd -P)
+case "$r" in "$R6_FS"|"$R6_FS"/*) ;; *) exit 0 ;; esac
+exec /usr/bin/find "$@"
+"""
+
+
+def r6_shell_walks(shell: str, command: str, cwd: str, tmp: Path) -> bool:
+    """r5_shell_walks with R6_FIND: whether ``command``, run by the real shell over the fixture with HOME the
+    fixture's home, would have walked a root."""
+    fs = str(_FS["root"])
+    stubs = tmp / "stubs-r6"
+    if not stubs.exists():
+        stubs.mkdir()
+        for name in R4_SEARCHERS:
+            (stubs / name).write_text(R6_FIND if name == "find" else R4_STUB)
+        for name in ("timeout", "gtimeout", "doas", "sudo"):
+            (stubs / name).write_text(R4_WRAP)
+        for name in ("git", "python3", "gh"):
+            (stubs / name).write_text(R5_NOOP)
+        for p in stubs.iterdir():
+            p.chmod(0o755)
+    calls = tmp / f"calls-r6-{shell}-{next(R4_RUNS)}"
+    calls.mkdir()
+    text = command.replace("/usr/bin/find", f"{stubs}/find").replace("/usr/bin/grep", f"{stubs}/grep")
+    text = text.replace("/opt/homebrew/bin/rg", f"{stubs}/rg").replace("/usr/bin/rg", f"{stubs}/rg")
+    text = re.sub(r"(?<![\w./~-])/Users/tester", fs + "/Users/tester", text)
+    text = re.sub(r"(?<![\w./~-])/(tmp|Volumes)/", fs + r"/\1/", text)
+    text = re.sub(r"(?<=\s)/(?=\s|$)", fs + "/", text)
+    env = {"PATH": f"{stubs}:{os.environ['PATH']}", "HOME": fs + FAKE_HOME, "R4_CALLS": str(calls),
+           "R6_FS": os.path.realpath(fs), "USER": os.environ.get("USER", "nobody"),
+           "LOGNAME": os.environ.get("USER", "nobody"), "LC_ALL": "C", "TMPDIR": str(tmp)}
+    argv = ["/bin/bash", "--noprofile", "--norc", "-c", text] if shell == "bash" else ["/bin/zsh", "-f", "-c", text]
+    here = Path(fs + cwd)
+    before = set(os.listdir(here))
+    try:
+        with open(os.devnull) as devnull:
+            subprocess.run(argv, stdin=devnull, capture_output=True, env=env, cwd=here, timeout=120)
+    finally:
+        for new in set(os.listdir(here)) - before:
+            if (here / new).is_file() and not (here / new).is_symlink():
+                (here / new).unlink()
+    walked = []
+    for f in sorted(calls.iterdir()):
+        name, at, stdin, *args = f.read_bytes().decode().split("\0")[:-1]
+        walked += [r4_canonical(p, at) for p in r5_walked_paths(name, at, stdin, args)]
+    walked = [p for p in walked if "\n" not in p]
+    return any(reference_cached(walked, FAKE_HOME)) if walked else False
+
+
+#: Every r6 command pin and control a shell can run (the hostile words and the cap's edges are left out: their
+#: verdicts are the cost cap's, not a walk's), from the scoped cwd.
+R6_SHELL_COMMANDS = [(c, S_) for c in (
+    R6_BODY_DENIED + R6_BODY_MORE_DENIED + R6_BODY_ALLOWED + R6_XARGS_DENIED + R6_XARGS_ALLOWED + R6_FILTER_DENIED
+    + R6_FILTER_ALLOWED + R6_ARITH_DENIED + R6_ARITH_ALLOWED + R6_DQ_DENIED + R6_DQ_ALLOWED + R6_EQ_DENIED
+    + R6_SPAN_DENIED + R6_SPAN_STILL_DENIED + R6_SPAN_ALLOWED + R6_PSUB_DENIED + R6_PSUB_ALLOWED + R6_LOOP_DENIED + R6_LOOP_ALLOWED)]
+#: The runs the hook judges by design, not by what the shells walk: (command, the hook's verdict).
+R6_SHELL_EXCEPTIONS = {
+    # decision 7: no shell runs a body under a quoted delimiter; the text rules' reading denies it (intended)
+    R6_SPAN_DENIED[0]: True, R6_SPAN_STILL_DENIED[0]: True, R6_SPAN_STILL_DENIED[1]: True,
+}
+
+
+def test_r6_command_pins_agree_with_real_shells(tmp_path):
+    """Each r6 command pin and control, run by /bin/zsh -f and /bin/bash over the fixture with r6's stubs and the
+    fixture's HOME: the hook denies it exactly when either shell's run would have walked a root."""
+    outs = judge_all(HOOK, R6_SHELL_COMMANDS)
+    rows, differ = [], []
+    for command, cwd in R6_SHELL_COMMANDS:
+        denied = rule(outs[(command, cwd)]) == "unscoped-search"
+        shells = {sh: r6_shell_walks(sh, command, cwd, tmp_path) for sh in ("zsh", "bash")}
+        rows.append((command, cwd, denied, shells))
+        if command in R6_SHELL_EXCEPTIONS:
+            if denied != R6_SHELL_EXCEPTIONS[command]:
+                differ.append(("exception", command, denied, shells))
+        elif denied != any(shells.values()):
+            differ.append((command[:200], cwd, denied, shells))
+    report("shells-r6", {"cases": len(rows), "denied": sum(r[2] for r in rows),
+                         "zsh": sum(r[3]["zsh"] for r in rows), "bash": sum(r[3]["bash"] for r in rows),
+                         "both": sum(r[3]["zsh"] and r[3]["bash"] for r in rows),
+                         "neither": sum(not r[3]["zsh"] and not r[3]["bash"] for r in rows),
+                         "rows": [(c[:120], d, s) for c, _, d, s in rows]})
+    assert differ == [], differ[:10]
