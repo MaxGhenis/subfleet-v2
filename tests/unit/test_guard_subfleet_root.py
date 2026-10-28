@@ -4109,7 +4109,9 @@ def test_r4_scoped_searches_stay_allowed():
 # ---------------------------------------------------------------- r4: cost (decision 6)
 
 #: Hostile words beside a crawl: each must finish in R4_HOSTILE_S and stay denied. The time is the best
-#: of three runs (the host's load is not the hook's cost; the bound is not loosened).
+#: of three runs (the host's load is not the hook's cost; the bound is not loosened). r7 decision 6: the time is
+#: child CPU (hook_cpu, r6 decision 10's measure), the same 2.0 s: review r6 saw 3.39, 3.72 and 2.21 s of wall at
+#: load 44-52 on rows that took 0.23-0.28 s of CPU.
 R4_HOSTILE_S = 2.0
 R4_HOSTILE = {
     "1,000 unclosed {": "rg --files ~/.subfleet ~/" + "{" * 1000,
@@ -4141,18 +4143,21 @@ def hook_seconds(hook: Path, command: str, cwd: str = S_) -> tuple[float, str]:
 def test_r4_hostile_words_fail_closed_fast():
     """Decision 6: 1,000 unclosed {, /[ x1,000, 10,000 commas and 2,040 components each finish under 2 s
     beside a crawl and stay denied; the scanned edge (64 { or [ in 4 KB) stays denied, its time reported; a
-    word past the cap (more than 64 { or [, more than 256 components, or over 4 KB) is broad on its own."""
-    rows = {}
+    word past the cap (more than 64 { or [, more than 256 components, or over 4 KB) is broad on its own. r7
+    decision 6: the 2 s is child CPU (best of three), with wall time and the load reported."""
+    rows, walls = {}, {}
     for name, command in R4_HOSTILE.items():
-        runs = [hook_seconds(HOOK, command) for _ in range(3)]
-        assert all(rule(out) == "unscoped-search" for _, out in runs), name
-        rows[name] = min(t for t, _ in runs)
+        runs = [hook_cpu(HOOK, command) for _ in range(3)]
+        assert all(rule(out) == "unscoped-search" for _, _, out in runs), name
+        rows[name] = min(cpu for cpu, _, _ in runs)
+        walls[name] = min(wall for _, wall, _ in runs)
     edge = {}
     for name, command in R4_CAP_EDGE.items():
-        t, out = hook_seconds(HOOK, command)
+        cpu, wall, out = hook_cpu(HOOK, command)
         assert rule(out) == "unscoped-search", name
-        edge[name] = t
-    report("hostile-r4", {**rows, "cap edge (not bounded)": edge})
+        edge[name] = {"cpu": cpu, "wall": wall}
+    report("hostile-r4", {"cpu": rows, "wall": walls, "cap edge (not bounded)": edge,
+                          "load": round(os.getloadavg()[0], 1)})
     assert {name: t for name, t in rows.items() if t >= R4_HOSTILE_S} == {}
     for name, command in R4_CAPPED.items():
         assert rule(run_hook(HOOK, command, LANE_W)) == "unscoped-search", name
