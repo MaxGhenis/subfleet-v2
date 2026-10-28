@@ -449,6 +449,13 @@ MUTANTS = {
     "readers-stateless": ("readers", None,
                           [(Daemon, "_identity_readers", [('(stat := str(shape.get("stat") or "")) and not stat',
                                                            'not (stat := str(shape.get("stat") or ""))')])]),
+    # A read cut short is an error under another name, so it is not in `markers_unread`
+    # (#275 review r1's OM-A).
+    "cut-unnamed": ("stranger", "cut-short",
+                    [(procs, "_kernel_sources", [(
+                        "# a buffer that may be cut short\n                errors.append(marker_unread(pid))",
+                        "# a buffer that may be cut short\n                errors.append("
+                        "f\"argument read unavailable for pid {pid}\")")])]),
 }
 
 
@@ -486,3 +493,14 @@ def test_a_mutant_tolerating_one_more_error_kind_fails_the_extension_property(da
     monkeypatch.setattr(procs.Containment, "only_markers_unread", property(lambda self: bool(self.markers_unread) and (
         set(self.errors) - {tolerated}) == {procs.marker_unread(pid) for pid in self.markers_unread}))
     test_extension_is_granted_exactly_while_every_condition_holds_whatever_the_census_could_not_read(daemon)
+
+
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="the relay case must detect this mutant")
+def test_a_relay_that_starts_a_process_before_start_json_fails_the_premise(tmp_path, monkeypatch, root):
+    """The relay's `bind`, which runs before `start.json`, starts `/usr/bin/true` with the
+    guardian's marked environment (#275 review r1's OM-B). Only the `relay` case binds."""
+    from subfleet.relay import RelayServer
+    replace_function(monkeypatch, RelayServer, "bind", [(
+        "directory = self.path.parent", "__import__('subprocess').run(['/usr/bin/true']); directory = self.path.parent")])
+    test_before_its_start_json_the_guardian_starts_nothing_that_carries_the_attempts_markers(
+        tmp_path, monkeypatch, root, True)
