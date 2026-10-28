@@ -40,6 +40,12 @@ Integration findings so far (corrections prepared in the working tree; their gre
 
 The unverified corrections are preserved as `c1c-integration-fixes-in-progress.diff`; this evidence checkpoint does not assert they are green. No production source or contract change has been made in this resumed process. Steps 3, the spelling gap and step 4 remain unstarted pending completion of the required coverage.
 
+### Integration corrections checkpoint, 10:20Z
+
+The corrected detached dependency oracle passed in `c1c-remaining-04-resume-4` (47.31 s call; its 80-example assertion completed). The rediscovery comparison and full-early-look interleaving passed in `c1c-remaining-11-resume-2` (9 passed overall, load 94.8). That hold also completed the admission state machine and salvage property. `c1c-remaining-13-resume-2` completed the previously interrupted sweep property (40 generated passing examples, plus explicit examples) and all seven combined admission cases: 8 passed at load 80.0.
+
+The writer oracle has now exposed the same omitted Git-storage evidence as the detached oracle. Its equivalent correction and both counterexamples are prepared, with its node assigned to an isolated worker; it is not yet claimed green. Full 400-example fence differential coverage still remains after its keyword-stub correction. The required step 3, spelling-gap red/green and new step 4 properties remain unstarted in the required order.
+
 ## Checkpoints and recovery
 
 Shared Git metadata rejected `ORIG_HEAD.lock` with `Operation not permitted`. The original workspace metadata remains at `8f106c64595c`; checkpoints were committed in scratch Git metadata on `fix/retention-dependency-pins-217`. The delivery bundle contains those ordered commits and requires the already-present `8f106c645` and `c9430763f` histories. No shared branch update was possible.

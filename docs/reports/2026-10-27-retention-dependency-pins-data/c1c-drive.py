@@ -49,7 +49,7 @@ def main(numbers):
                 print(f'{label}: stopped for review, rc={result.returncode}, unfinished={len(now_remaining)}', flush=True)
                 return result.returncode
             if len(now_remaining) >= len(remaining):
-                print(f'{label}: no completed node; leaving {len(now_remaining)} unfinished and continuing other slices', flush=True)
+                print(f'{label}: no completed original node in this slice; leaving {len(now_remaining)} unfinished and continuing other slices', flush=True)
                 break
     return 0
 

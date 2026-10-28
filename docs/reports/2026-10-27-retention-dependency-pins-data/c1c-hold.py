@@ -1,6 +1,7 @@
 """Foreground-only hold runner with complete per-phase results and a 19m cap."""
 from __future__ import annotations
 import collections
+import ast
 import ctypes
 import json
 import os
@@ -26,9 +27,10 @@ def stamp():
 def child(label, args):
     sys.path.insert(0, str(Path.cwd()))
     import pytest
-    if label == "c1c-remaining-46":
-        import faulthandler
+    import faulthandler
+    if label.startswith("c1c-remaining-"):
         faulthandler.dump_traceback_later(240, repeat=True)
+    if label == "c1c-remaining-46":
         args = [*args, "--capture=no", "--hypothesis-verbosity=verbose"]
     from tests import failed_keep
     failed_keep.ROOT = SCRATCH / "failed"
@@ -39,11 +41,26 @@ def child(label, args):
     class Evidence:
         def pytest_collection_modifyitems(self, items):
             if label.startswith('c1c-remaining-'):
+                generated = {}
+                for item in items:
+                    path = str(item.path)
+                    if path not in generated:
+                        tree = ast.parse(Path(path).read_text())
+                        generated[path] = {node.name for node in tree.body
+                            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                            and any(isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+                                    and any(isinstance(decorator, ast.Call)
+                                            and isinstance(decorator.func, ast.Name)
+                                            and decorator.func.id == 'given' for decorator in child.decorator_list)
+                                    for child in ast.walk(node))}
                 def cost(item):
                     if item.nodeid.endswith('::runTest') or any(name in item.nodeid for name in (
-                            'test_no_schedule_of_sweep_moves', 'test_c6_3_c26_9_admission_places')):
+                            'test_no_schedule_of_sweep_moves', 'test_c6_3_c26_9_admission_places',
+                            'test_early_fences_equal_reservation_before_and_after_quarantine',
+                            'test_the_snapshot_is_what_git_itself_can_index')):
                         return 2
-                    return int(bool(getattr(item.obj, 'is_hypothesis_test', False)))
+                    return int(bool(getattr(item.obj, 'is_hypothesis_test', False))
+                               or item.name.split('[')[0] in generated[str(item.path)])
                 items.sort(key=cost)
         def pytest_collection_finish(self, session):
             (DATA / f'{label}-collected.json').write_text(json.dumps([i.nodeid for i in session.items], indent=2) + '\n')
@@ -58,6 +75,7 @@ def child(label, args):
             if time.monotonic() - start > 1000:
                 pytest.exit('Hold budget: resume uncompleted nodes in another foreground hold', returncode=2)
     rc = pytest.main(['-q', '-p', 'no:cacheprovider', '--durations=5', '--hypothesis-show-statistics', *args], plugins=[Evidence()])
+    faulthandler.cancel_dump_traceback_later()
     print('FINISHED ' + json.dumps({**stamp(), 'rc': rc, 'seconds': time.monotonic() - start,
                                     'rss': resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}), flush=True)
     return rc
@@ -101,7 +119,7 @@ def stop(proc):
 def grouped_nodes(label, args):
     """Combine future short slices belonging to this same foreground worker."""
     match = re.fullmatch(r'c1c-remaining-(\d+)(?:-resume-\d+)?', label)
-    groups = ([4, 6, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44],
+    groups = ([48, 50, 52, 54, 56], [49, 51, 53, 55, 57], [4, 6, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44],
               [7, 11, 15, 19, 23, 27, 31, 35, 39, 43],
               [5, 9, 13, 17, 21, 25, 29, 33, 37, 41],
               [14, 12, 10, 8, 45, 46])
@@ -127,6 +145,11 @@ def main(label, args):
     if args[:1] == ['--nodes']:
         args = Path(args[1]).read_text().splitlines() + args[2:]
         args = grouped_nodes(label, args)
+        owner_file = DATA / 'c1c-node-owners.json'
+        match = re.fullmatch(r'c1c-remaining-(\d+)(?:-resume-\d+)?', label)
+        if owner_file.exists() and match:
+            owners = json.loads(owner_file.read_text())
+            args = [node for node in args if owners.get(node, int(match[1])) == int(match[1])]
         if not args:
             print(label + ': consolidated into another batch; no pytest started', flush=True)
             return 0
