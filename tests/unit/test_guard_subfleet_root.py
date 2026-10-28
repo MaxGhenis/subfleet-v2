@@ -4941,7 +4941,9 @@ def test_r6_hostile_words_fail_closed_fast(hooks):
 
 #: The step budget decisions 4 and 5 share (a deviation, see the report): a dense run of $( or (( made each read
 #: walk the rest of the command (r5's own hook passed 90 s on 2,000 $( in double quotes). Each is denied as too
-#: complex to judge, beside a scoped search, in under 3 s or within twice the installed hook's time.
+#: complex to judge, beside a scoped search, in under 3 s of wall time or within twice the installed hook's child
+#: CPU (decision 10's measure: in round r6's hold H1 one row took 3.5 s of wall against the installed hook's 1.5 s
+#: at load 110, while r6, r5 and the installed hook took 0.19, 0.21 and 0.15 s of CPU on it).
 R6_DENSE = {
     "2,000 $( in double quotes": "rg foo src; echo \"" + "$(" * 2000 + "\"",
     "2,000 ( before a <<": "(" * 2000 + " <<x; rg foo src",
@@ -4950,15 +4952,17 @@ R6_DENSE = {
 
 
 def test_r6_dense_substitutions_fail_closed_fast(hooks):
-    """The shared step budget: each dense form is denied as too complex to judge, fast (one run each, reported)."""
+    """The shared step budget: each dense form is denied as too complex to judge, fast: under 3 s of wall time or
+    within twice the installed hook's child CPU (one run each, both reported)."""
     rows = {}
     for name, command in R6_DENSE.items():
-        t, out = hook_seconds(HOOK, command)
+        cpu, wall, out = hook_cpu(HOOK, command)
         assert rule(out) == "unscoped-search", name
         assert "too complex to judge" in json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"], name
-        old = hook_seconds(hooks["old"], command)[0]
-        rows[name] = {"new": round(t, 2), "installed": round(old, 2), "load": round(os.getloadavg()[0], 1)}
-        assert t < R5_TIMING_S or t <= 2 * old, (name, rows[name])
+        old_cpu, old_wall, _ = hook_cpu(hooks["old"], command)
+        rows[name] = {"cpu": [round(cpu, 2), round(old_cpu, 2)], "wall": [round(wall, 2), round(old_wall, 2)],
+                      "load": round(os.getloadavg()[0], 1)}
+        assert wall < R5_TIMING_S or cpu <= 2 * old_cpu, (name, rows[name])
     report("dense-r6", rows)
 
 
