@@ -33,7 +33,7 @@ from .claude_turn import ClaudeTurn
 from .codex_turn import CodexTurn
 from .reconcile import SETTINGS_FRAME, USER_FRAME
 from .store import ConversationError, ConversationStore, TitleUpdate
-from .turn import COMPLETE, RUNNING, Approval, Event, Frame, Image, Outcome, Step, TurnSpec
+from .turn import COMPLETE, FAILED, RUNNING, Approval, Event, Frame, Image, Outcome, Step, TurnSpec
 from .titles import CLAIMED, OPEN, PIPE_FLOOR, SessionTitle, TITLE_CANCEL_FRAME, TITLE_FRAME, request_line
 
 FLUSH_S = 0.25
@@ -398,6 +398,7 @@ class TurnRunner:
                     time.sleep(POLL_S)
         except Exception as exc:          # a runner defect must not take the daemon down
             self._failed(exc)
+            self._settle_failed(exc)
         finally:
             try:
                 self._flush()
@@ -418,6 +419,52 @@ class TurnRunner:
             self.log.info("turn runner %s stopped: its service closed", self.attempt_id)
         else:
             self.log.error("turn runner %s failed: %s", self.attempt_id, refusals.scrubbed_words(exc))
+
+    def _settle_failed(self, exc: Exception) -> None:
+        """A runner that ends on an exception still settles its turn (fix r3 of
+        #271), as an unproved loss settles (`_relay_lost`): no frame is written
+        after it, unwritten steers are missed, and the stop reason is
+        `relay-failed` unless the turn already had an outcome or a stop reason.
+        Nothing escalates a stop from now on, so containment is requested at once
+        unless the guardian is known to be done (its receipt, or an attempt the
+        job store ended). Then the outcome from the stdout read so far, as at the
+        end of the exit drain, and the report. Not once its service is closing
+        (`stop`, or a `store-closed` refusal): a later daemon adopts or replays
+        the attempt (C-26.6). A step that fails is logged and the next is tried."""
+        if (self.outcome_reported or self._stopping.is_set()
+                or isinstance(exc, ConversationError) and exc.reason == "store-closed"):
+            return
+        if self.log:
+            self.log.warning("turn %s settles as an unproved loss: its runner failed", self.attempt_id)
+        self.relay_io_ended = self.relay_failed = True
+        self.outbox.clear()
+        if self.driver.outcome is None:
+            self.stop_reason = self.stop_reason or "relay-failed"
+
+        def contain() -> None:
+            if not (self.contained or self.ended or (self.adir / "exit.json").exists()):
+                self.contained = True
+                self.on_contain(self.attempt_id)
+
+        def end() -> None:
+            try:
+                if self.driver.outcome is None:
+                    self._apply(self.driver.eof(self.offset), send=False)
+            finally:
+                driver = self.driver
+                if driver.outcome is None:          # the driver failed too: the outcome EOF would give
+                    driver.outcome = Outcome(FAILED, "ended-without-result", ended_by="eof",
+                                             accepted=bool(getattr(driver, "accepted", False)),
+                                             answered=bool(getattr(driver, "answered", False)),
+                                             limited=bool(getattr(driver, "limited", False)),
+                                             served_model=getattr(driver, "served_model", None))
+
+        for step in (lambda: self.end_title("relay-failed"), lambda: self._discard_steers("relay-failed"),
+                     contain, end, self._flush, self._report):
+            try:
+                step()
+            except Exception as again:
+                self._failed(again)
 
     def _process_gone(self) -> bool:
         return self.exit_proved_at is not None or self.ended or (self.adir / "exit.json").exists()

@@ -2,6 +2,7 @@
 
 import errno
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -13,6 +14,7 @@ import pytest
 
 from subfleet.conversations import runner as runner_module
 from subfleet.conversations.reconcile import Evidence, settle
+from subfleet.conversations.store import ConversationError
 from tests.fake.test_turn_relay_exit_recovery import recovery  # noqa: F401
 from tests.fake.test_turn_relay_exit_review import rebuild
 
@@ -302,3 +304,109 @@ def test_an_unknown_entry_size_still_bounds_a_writer_that_never_pauses(recovery,
     assert r.runner.offset >= on_disk
     assert r.runner.drain_caught_up_at == r.now[0] - runner_module.EXIT_DRAIN_S
     assert r.contained == [r.runner.attempt_id]
+
+
+# Fix r3 (hub decision 3): a runner that ends on an unexpected exception still
+# settles its turn, with the reason an unproved loss gets, and logs the exception.
+def _failing_read(runner, monkeypatch, *, after, error=None):
+    read, calls = runner._read_stdout, []
+
+    def failing():
+        calls.append(True)
+        if len(calls) > after:
+            raise error or OSError(errno.EIO, "SECRET7 stdout read failure")
+        return read()
+
+    monkeypatch.setattr(runner, "_read_stdout", failing)
+    return calls
+
+
+def _settled(r):
+    turn = json.loads((r.adir / "turn.json").read_text())
+    return turn, settle(turn, provider="claude", turn_seq=1, gather=lambda: Evidence(
+        acknowledged=True, native="found", frame="written", process_gone=True))
+
+
+@pytest.mark.parametrize("where", ["live", "proof", "receipt", "owner-ended"])
+def test_a_runner_that_fails_still_settles_its_turn(recovery, monkeypatch, caplog, where):
+    r = recovery
+    runner = r.runner
+    if where == "live":
+        # The real relay, and a child that neither exits nor closes its stdin.
+        monkeypatch.setattr(runner.relay, "_exchange", lambda payload, **kwargs: r.server.apply(json.loads(payload)))
+        _failing_read(runner, monkeypatch, after=1)
+    elif where == "proof":
+        _failing_read(runner, monkeypatch, after=1)   # the drain's first read, after the refusal proves exit
+    else:
+        runner._apply(runner.driver.start())
+        assert runner._read_stdout()
+        if where == "receipt":
+            (r.adir / "exit.json").write_text('{"rc":1}')
+        runner = rebuild(r, ended=where == "owner-ended")
+        monkeypatch.setattr(runner.relay, "_exchange", r.exchange)
+        _failing_read(runner, monkeypatch, after=0)
+    runner.log = logging.getLogger("tests.fix-r3")
+    with caplog.at_level(logging.WARNING, logger="tests.fix-r3"):
+        runner._run()
+    assert runner.finished.is_set() and r.reported == [runner]
+    assert r.contained == ([runner.attempt_id] if where in ("live", "proof") else [])
+    turn, outcome = _settled(r)
+    assert (turn["state"], turn["stop_reason"], turn["relay_failed"]) == ("failed", "relay-failed", True)
+    assert outcome.reason == "relay-failed"
+    assert "turn runner job/a1 failed: OSError" in caplog.text
+    assert "turn job/a1 settles as an unproved loss" in caplog.text
+
+
+@pytest.mark.parametrize("why", ["stopping", "store-closed"])
+def test_a_runner_failing_while_its_service_closes_is_left_for_replay(recovery, monkeypatch, why):
+    r = recovery
+    error = (ConversationError("store-closed", "the conversation store is closed", code=1)
+             if why == "store-closed" else None)
+    _failing_read(r.runner, monkeypatch, after=1, error=error)
+    if why == "stopping":
+        monkeypatch.setattr(r.runner, "_drain_stdout", lambda: (r.runner.stop(), r.runner._read_stdout()))
+    r.runner._run()
+    assert r.runner.finished.is_set()
+    assert r.reported == [] and r.contained == []      # a later daemon adopts or replays it (C-26.6)
+    assert not r.runner.outcome_reported
+
+
+def test_a_driver_that_fails_at_eof_still_settles_as_an_unproved_loss(recovery, monkeypatch):
+    r = recovery
+    _failing_read(r.runner, monkeypatch, after=2)     # the drain reads the acknowledgement, then fails
+
+    def eof(offset):
+        raise RuntimeError("SECRET7 driver defect at eof")
+
+    monkeypatch.setattr(r.runner.driver, "eof", eof)
+    r.runner._run()
+    assert r.reported == [r.runner] and r.contained == [r.runner.attempt_id]
+    turn, outcome = _settled(r)
+    assert (turn["state"], turn["reason"], turn["ended_by"], turn["accepted"]) == (
+        "failed", "ended-without-result", "eof", True)
+    assert outcome.reason == "relay-failed"
+
+
+def test_a_result_read_before_the_runner_fails_still_decides_the_turn(recovery, monkeypatch):
+    r = recovery
+
+    def exchange(payload, **kwargs):
+        # The real relay; the child acknowledges the message and answers it, and
+        # stays alive (its background work, C-26.5).
+        frame = json.loads(payload)
+        answer = r.server.apply(frame)
+        if frame.get("tag") == "user-message":
+            with (r.adir / "stdout").open("a") as stream:
+                stream.write(json.dumps({"type": "command_lifecycle", "command_uuid": r.runner.message_id,
+                                         "state": "started"}) + "\n")
+                stream.write(json.dumps({"type": "result", "subtype": "success", "is_error": False,
+                                         "result": "[done]"}) + "\n")
+        return answer
+
+    monkeypatch.setattr(r.runner.relay, "_exchange", exchange)
+    _failing_read(r.runner, monkeypatch, after=2)     # the read after the result fails
+    r.runner._run()
+    assert r.reported == [r.runner]
+    turn, outcome = _settled(r)
+    assert (turn["state"], turn["stop_reason"], outcome.state) == ("complete", None, "complete")
+    assert r.contained == [r.runner.attempt_id]       # no runner is left to bound its background work
