@@ -157,8 +157,12 @@ def test_proved_exit_drain_is_bounded_on_the_fake_clock(reaches_eof, step):
             r.runner._relay_lost("proved exit", child_exited=True)
             started = r.now[0]
             reads = []
+            read = r.runner._read_stdout
 
             def still_writing():
+                # Fix r2: a reader that reports a chunk has read what is on disk,
+                # so the drain's clock, which starts once it catches up, can start.
+                read()
                 reads.append(r.now[0])
                 r.now[0] += step
                 if reaches_eof:

@@ -68,8 +68,12 @@ def test_every_exit_drain_entry_arms_the_bound(recovery, monkeypatch, boundary):
     monkeypatch.setattr(again.relay, "_exchange", r.exchange)
     monkeypatch.setattr(again.relay, "status", lambda: None)  # version 1: no status proof
     started = r.now[0]
+    read = again._read_stdout
 
     def continuous_stdout():
+        # Fix r2: a reader that reports a chunk has read what is on disk, so the
+        # drain's clock, which starts once it catches up, can start (C-26.4).
+        read()
         r.now[0] += 1
         # A model of a descendant holding stdout continuously nonempty; escape
         # after three budgets so the regression cannot hang the test process.
@@ -92,8 +96,12 @@ def test_a_receipt_after_the_drain_bound_does_not_extend_it(recovery, monkeypatc
     monkeypatch.setattr(r.runner, "on_contain", r.contained.append)
     r.runner._relay_lost("proved exit", child_exited=True)
     started = r.now[0]
+    read = r.runner._read_stdout
 
     def continuous_stdout():
+        # Fix r2: a reader that reports a chunk has read what is on disk, so the
+        # drain's clock, which starts once it catches up, can start (C-26.4).
+        read()
         r.now[0] += 1
         if r.now[0] - started == runner_module.EXIT_DRAIN_S + 5:
             (r.adir / "exit.json").write_text('{"rc":0}')
@@ -158,8 +166,12 @@ def test_restart_in_the_active_drain_rearms_from_available_proof(recovery, monke
     r.runner._apply(r.runner.driver.start())
     assert r.runner._read_stdout()
     first_proof = r.now[0]
+    read = r.runner._read_stdout
 
     def before_restart():
+        # Fix r2: a reader that reports a chunk has read what is on disk, so the
+        # drain's clock, which starts once it catches up, can start (C-26.4).
+        read()
         r.now[0] += 1
         if r.now[0] - first_proof >= 15:
             raise RuntimeError("SECRET7 simulated daemon restart during stdout drain")
@@ -172,8 +184,12 @@ def test_restart_in_the_active_drain_rearms_from_available_proof(recovery, monke
     again = rebuild(r)
     monkeypatch.setattr(again.relay, "_exchange", r.exchange)
     restarted = r.now[0]
+    read_again = again._read_stdout
 
     def after_restart():
+        # Fix r2: a reader that reports a chunk has read what is on disk, so the
+        # drain's clock, which starts once it catches up, can start (C-26.4).
+        read_again()
         r.now[0] += 1
         return r.now[0] - restarted < 3 * runner_module.EXIT_DRAIN_S
 
@@ -241,3 +257,34 @@ def test_a_status_naming_the_child_exited_proves_the_exit_on_every_handshake(rec
     assert runner.driver.outcome.reason == "ended-without-result"
     assert not runner.relay_failed and runner.stop_reason is None and not r.contained
     assert not (r.adir / "exit.json").exists()
+
+
+# Fix r2 (hub decision 2): a runner rebuilt after a restart replays stdout from the
+# start and records its own entry size, so everything already on disk is read,
+# however slowly, before its own bound starts. Release had no bound here at all.
+def test_a_rebuilt_runner_reads_its_whole_backlog_before_the_bound(recovery, monkeypatch):
+    r = recovery
+    r.runner._apply(r.runner.driver.start())
+    assert r.runner._read_stdout()  # a real refused settings frame proves exit
+    rows = [{"type": "assistant", "message": {"id": "answer", "content": [
+        {"type": "text", "text": f"[part-{index}]"}]}} for index in range(100)]
+    rows.append({"type": "result", "subtype": "success", "is_error": False, "result": "[done]"})
+    with (r.adir / "stdout").open("a") as stream:
+        stream.writelines(json.dumps(row) + "\n" for row in rows)
+    size = (r.adir / "stdout").stat().st_size
+    r.now[0] += 15  # the daemon restarts before the first runner drains anything
+    again = rebuild(r)
+    monkeypatch.setattr(again.relay, "_exchange", r.exchange)
+    monkeypatch.setattr(runner_module, "READ_CHUNK", 256)
+    read = again._read_stdout
+
+    def slow_read():
+        r.now[0] += 1  # one fake second per chunk read and applied: ~42 s for the backlog
+        return read()
+
+    monkeypatch.setattr(again, "_read_stdout", slow_read)
+    again._run()
+    assert again.exit_proved_at is not None and again.drain_entry_size == size
+    assert again.offset == size, {"read": again.offset, "size": size, "stop_reason": again.stop_reason}
+    assert r.reported == [again] and not r.contained
+    assert again.driver.outcome.reason is None  # the provider's result decides

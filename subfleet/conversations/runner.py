@@ -158,6 +158,8 @@ class TurnRunner:
         self.relay_failed = False
         self.relay_io_ended = False             # permanent, independent of the child
         self.exit_proved_at: float | None = None
+        self.drain_entry_size: int | None = None      # stdout's size on disk when this runner's exit drain began
+        self.drain_caught_up_at: float | None = None  # when the drain had read that much: EXIT_DRAIN_S runs from it
         self.handshaken = False
         self.optional_ack_lost = False         # a title write went unanswered: resynchronize first
         self.wrote_bytes: dict[str, int] = {}  # tag → bytes of each stdin line this runner wrote
@@ -375,16 +377,7 @@ class TurnRunner:
                 if self._flush_due():
                     self._flush()
                 if self._process_gone():
-                    while self._read_stdout():      # all of it: a replay can be far behind (C-26.6)
-                        if (self.exit_proved_at is not None
-                                and self.clock() - self.exit_proved_at >= EXIT_DRAIN_S):
-                            # A reaped direct child does not rule out a descendant
-                            # still writing. Containment needs no working relay or
-                            # guardian receipt. Preserve everything read so far.
-                            self.stop_reason = self.stop_reason or "stdout-drain-timeout"
-                            self.contained = True
-                            self.on_contain(self.attempt_id)
-                            break
+                    self._drain_stdout()
                     # Ended-attempt replay may never reach an empty read in the main
                     # loop. Its unwritten claims must still settle as missed.
                     self._discard_steers("provider-ended")
@@ -420,6 +413,37 @@ class TurnRunner:
 
     def _process_gone(self) -> bool:
         return self.exit_proved_at is not None or self.ended or (self.adir / "exit.json").exists()
+
+    def _drain_stdout(self) -> None:
+        """Read stdout to an empty read once the provider is gone (C-26.4, C-26.6).
+
+        However the drain is entered (a proved relay loss, the exit receipt or an
+        owner-ended attempt), it records the size stdout has on disk then, and all
+        of that is read however long it takes: a replay can be far behind. Only
+        output written after the entry is bounded. From the read that catches up
+        with the entry size, EXIT_DRAIN_S is checked after each chunk; a writer
+        still going at the deadline (a reaped child does not rule out a
+        descendant) gets containment, which needs no working relay or guardian
+        receipt, and the turn settles from everything read so far. A runner
+        rebuilt after a restart records its own entry and starts its own clock."""
+        self.drain_entry_size = self._stdout_size()
+        while True:
+            now = self.clock()
+            if self.drain_caught_up_at is None and self.offset + len(self.partial) >= self.drain_entry_size:
+                self.drain_caught_up_at = now
+            if self.drain_caught_up_at is not None and now - self.drain_caught_up_at >= EXIT_DRAIN_S:
+                self.stop_reason = self.stop_reason or "stdout-drain-timeout"
+                self.contained = True
+                self.on_contain(self.attempt_id)
+                return
+            if not self._read_stdout():
+                return
+
+    def _stdout_size(self) -> int:
+        try:
+            return (self.adir / "stdout").stat().st_size
+        except FileNotFoundError:
+            return 0
 
     def _read_stdout(self) -> bool:
         path = self.adir / "stdout"
@@ -1086,7 +1110,7 @@ class TurnRunner:
             self.end_title("provider-ended")
             # Refusal after a proved exit is the provider's end, not a stop.
             # Keep the proof even if the guardian never publishes exit.json.
-            # The stdout drain, bounded from the first proof, decides the outcome.
+            # The stdout drain (`_drain_stdout`) decides the outcome.
             if self.exit_proved_at is None:
                 self.exit_proved_at = self.clock()
             self._discard_steers("provider-ended")
