@@ -1,0 +1,49 @@
+{
+  "start": "2026-10-28T21:46:43.663816+00:00",
+  "load": [
+    91.3115234375,
+    112.6357421875,
+    118.67919921875
+  ],
+  "pid": 2919,
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_the_selecting_transaction_reads_dependents_on_the_fences_spelling",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 10.311401999999362
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_the_selecting_transaction_reads_dependents_on_the_fences_spelling",
+      "phase": "call",
+      "outcome": "failed",
+      "seconds": 8.518112917001417,
+      "failure": "world = World(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rdp217c3/hold-c3-mutant-selection-no...test-of-maxghenis/pytest-0/test_the_selecting_transaction0/state'), store=<subfleet.store.Store object at 0x109f8cad0>)\n\n    def test_the_selecting_transaction_reads_dependents_on_the_fences_spelling(world):\n        \"\"\"The pass compares a job's recorded worktree as recorded (folded); a spelling\n        through a symlink is not the canonical one the fence is on. The selecting\n        transaction reads the dependents again on the fence's spelling, so a job that\n        needs the tree keeps it there: nothing is moved and nothing is rolled back.\"\"\"\n        wt = world.job(\"job\")\n        respelled(world, \"job\")\n        before = snapshot_of(wt)\n        needing_git(world, \"needs\", folders.canonical(wt) + \"/lib/.git\")\n        result = run(world)\n        assert \"job\" in result[\"protected\"] and \"job\" not in result[\"pruned\"], result\n>       assert \"job\" not in result[\"deferred\"] and result[\"pin_reasons\"].get(\"job\") is None, result\nE       AssertionError: {'pruned': [], 'errors': [], 'bytes_before': 20117, 'bytes_after': 20117, ...}\nE       assert ('job' not in {'job': 'pinned: worktree-in-use'})\n\ntests/unit/test_retention_dependency_units.py:501: AssertionError"
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_the_selecting_transaction_reads_dependents_on_the_fences_spelling",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.09581374999834225
+    }
+  ],
+  "hypothesis_profile": "explicit and generate; no shrinking; first failure",
+  "all_collected": [
+    "tests/unit/test_retention_dependency_units.py::test_the_selecting_transaction_reads_dependents_on_the_fences_spelling"
+  ],
+  "collected": [
+    "tests/unit/test_retention_dependency_units.py::test_the_selecting_transaction_reads_dependents_on_the_fences_spelling"
+  ],
+  "exit": 1,
+  "seconds": 38.79830154099909,
+  "maxrss": 114278400,
+  "lock": "locked",
+  "command": [
+    "-x",
+    "--hypothesis-seed=217",
+    "tests/unit/test_retention_dependency_units.py::test_the_selecting_transaction_reads_dependents_on_the_fences_spelling"
+  ],
+  "admission_utc": "2026-10-28T21:46:36.732542+00:00",
+  "wall_seconds": 1190.764,
+  "queue_seconds": 1139.768
+}

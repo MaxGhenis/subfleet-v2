@@ -37,10 +37,20 @@
   },
   {
     "name": "live-ignores-spelled-folder",
-    "verdict": "SURVIVED",
+    "verdict": "KILLED",
     "rc": 0,
     "hold": "c3-mutant-live-ignores-spelled-folder",
-    "observed_killers": []
+    "observed_killers": [
+      "tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends"
+    ],
+    "resolution": {
+      "name": "live-ignores-spelled-folder",
+      "hold": "c3-mutant-live-ignores-spelled-folder-red",
+      "observed_killers": [
+        "tests/unit/test_retention_dependency_units.py::test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends"
+      ],
+      "green_hold": "c3-killing-tests-green"
+    }
   },
   {
     "name": "live-ignores-exports",
@@ -94,5 +104,41 @@
     "hold": "c3-mutant-pin-counts-own-places",
     "observed_killers": [],
     "reason": "On a consistent census, own live evidence already gives active and own exporting evidence already gives job-lease; add preserves the earlier reason. Transactional dependents are unchanged."
+  },
+  {
+    "name": "selection-no-dependents",
+    "verdict": "KILLED",
+    "rc": 1,
+    "hold": "c3-mutant-selection-no-dependents",
+    "observed_killers": [
+      "tests/unit/test_retention_dependency_units.py::test_the_selecting_transaction_reads_dependents_on_the_fences_spelling"
+    ]
+  },
+  {
+    "name": "commit-no-dependents",
+    "verdict": "KILLED",
+    "rc": 1,
+    "hold": "c3-mutant-commit-no-dependents",
+    "observed_killers": [
+      "tests/unit/test_retention_dependency_units.py::test_the_commit_reads_dependents_on_the_journals_spelling"
+    ]
+  },
+  {
+    "name": "no-legacy-evidence",
+    "verdict": "KILLED",
+    "rc": 1,
+    "hold": "c3-mutant-no-legacy-evidence",
+    "observed_killers": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_job_queued_before_dependencies_were_recorded_keeps_the_tree[linked]"
+    ]
+  },
+  {
+    "name": "legacy-admission-reads-nothing",
+    "verdict": "KILLED",
+    "rc": 1,
+    "hold": "c3-mutant-legacy-admission-reads-nothing",
+    "observed_killers": [
+      "tests/fake/test_retention_dependencies.py::test_c8_4_a_legacy_job_submitted_under_the_fence_waits_on_its_git_storage"
+    ]
   }
 ]

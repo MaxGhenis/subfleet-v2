@@ -342,6 +342,29 @@ def test_d2_a_pending_export_pins_and_a_written_one_does_not(tmp_path):
         store.close()
 
 
+
+def test_d2_a_legacy_admission_folder_alone_pins_until_the_job_ends(tmp_path):
+    """An older admission's spelled folder is independent evidence, even when
+    the row and original submit name no place inside the owned tree."""
+    store = Store(tmp_path / "s.sqlite3")
+    try:
+        store.add_job(job_id="tree", request_id="tree", payload_digest="d", kind="dispatch",
+                      workdir="/src", worktree="/s/worktrees/tree", prompt_path="/p",
+                      sandbox="workspace-write", state="succeeded")
+        store.add_job(job_id="legacy", request_id="legacy", payload_digest="d", kind="dispatch",
+                      workdir="/outside", prompt_path="/p", sandbox="read-only", state="queued")
+        store.add_event("job.submitted", job_id="legacy", data={})
+        store.add_event("job.folder_spelled", job_id="legacy", data={"folder": "/s/worktrees/TREE/pkg"})
+        assert retention._pin_reasons(store, set(), None)["tree"] == "worktree-in-use"
+        with store.transaction() as tx:
+            assert dependencies.dependents(lambda sql, params: tx.execute(sql, params).fetchall(),
+                                           "/s/worktrees/tree") == ["legacy"]
+        store.update_job("legacy", state="cancelled")
+        assert "tree" not in retention._pin_reasons(store, set(), None)
+    finally:
+        store.close()
+
+
 def test_d2_legacy_places_count_only_while_their_job_has_not_ended(tmp_path):
     """What `legacy` read for a job queued before `depends` was recorded counts like
     `depends` while that job has not ended, and not after."""

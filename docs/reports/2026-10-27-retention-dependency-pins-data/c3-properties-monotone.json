@@ -1,0 +1,39 @@
+{
+  "start": "2026-10-28T21:51:03.174069+00:00",
+  "load": [
+    71.88671875,
+    88.95166015625,
+    106.3525390625
+  ],
+  "pid": 42158,
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 0.6277839169997605
+    }
+  ],
+  "hypothesis_profile": "normal",
+  "all_collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_selection_never_retires_a_tree_any_live_job_needs",
+    "tests/unit/test_retention_dependency_properties.py::test_python_pins_and_transaction_agree_with_independent_reference",
+    "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement",
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted"
+  ],
+  "collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_live_dependents_are_monotone_and_the_last_ending_allows_retirement"
+  ],
+  "capped": true,
+  "cap_seconds": 1140,
+  "lock": "locked",
+  "command": [
+    "tests/unit/test_retention_dependency_properties.py",
+    "-k",
+    "monotone",
+    "--hypothesis-show-statistics"
+  ],
+  "admission_utc": "2026-10-28T21:50:54.028210+00:00",
+  "wall_seconds": 1276.298,
+  "queue_seconds": 135.882
+}

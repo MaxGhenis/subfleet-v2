@@ -1,0 +1,49 @@
+{
+  "start": "2026-10-28T21:47:40.146557+00:00",
+  "load": [
+    78.3046875,
+    105.83203125,
+    115.7919921875
+  ],
+  "pid": 12744,
+  "phases": [
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_the_commit_reads_dependents_on_the_journals_spelling",
+      "phase": "setup",
+      "outcome": "passed",
+      "seconds": 10.254266250005458
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_the_commit_reads_dependents_on_the_journals_spelling",
+      "phase": "call",
+      "outcome": "failed",
+      "seconds": 10.634766167000635,
+      "failure": "world = World(base=PosixPath('/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-rdp217c3/hold-c3-mutant-commit-no-de...test-of-maxghenis/pytest-0/test_the_commit_reads_dependen0/state'), store=<subfleet.store.Store object at 0x10a764ad0>)\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10a1a1a70>\n\n    def test_the_commit_reads_dependents_on_the_journals_spelling(world, monkeypatch):\n        \"\"\"A job that needs the tree, submitted after selection, keeps it at the commit,\n        which reads the dependents on the journal's (the fence's) spelling: the\n        retirement is rolled back and the tree comes back as it was.\"\"\"\n        from subfleet import retention_archive as rarch\n        wt = world.job(\"job\")\n        respelled(world, \"job\")\n        before = snapshot_of(wt)\n        real = rarch.Retirement.begin\n    \n        def begin(self, *args, **kwargs):\n            needing_git(world, \"needs\", folders.canonical(wt) + \"/lib/.git\")\n            return real(self, *args, **kwargs)\n    \n        monkeypatch.setattr(rarch.Retirement, \"begin\", begin)\n        result = run(world)\n>       assert \"job\" not in result[\"pruned\"] and result[\"deferred\"][\"job\"] == \"pinned: worktree-in-use\", result\nE       AssertionError: {'pruned': ['job'], 'errors': [], 'bytes_before': 20114, 'bytes_after': 0, ...}\nE       assert ('job' not in ['job'])\n\ntests/unit/test_retention_dependency_units.py:521: AssertionError"
+    },
+    {
+      "node": "tests/unit/test_retention_dependency_units.py::test_the_commit_reads_dependents_on_the_journals_spelling",
+      "phase": "teardown",
+      "outcome": "passed",
+      "seconds": 0.19491629100230057
+    }
+  ],
+  "hypothesis_profile": "explicit and generate; no shrinking; first failure",
+  "all_collected": [
+    "tests/unit/test_retention_dependency_units.py::test_the_commit_reads_dependents_on_the_journals_spelling"
+  ],
+  "collected": [
+    "tests/unit/test_retention_dependency_units.py::test_the_commit_reads_dependents_on_the_journals_spelling"
+  ],
+  "exit": 1,
+  "seconds": 43.110008083996945,
+  "maxrss": 113901568,
+  "lock": "locked",
+  "command": [
+    "-x",
+    "--hypothesis-seed=217",
+    "tests/unit/test_retention_dependency_units.py::test_the_commit_reads_dependents_on_the_journals_spelling"
+  ],
+  "admission_utc": "2026-10-28T21:47:31.470464+00:00",
+  "wall_seconds": 57.368,
+  "queue_seconds": 2.17
+}
