@@ -53,13 +53,12 @@ QUEUED = {"job_id": "j", "state": "queued", "kind": "dispatch"}
 
 
 def test_d_qos_booked1_why_says_an_unhonoured_request_and_why():
-    lines = render.why_queue({**QUEUED, "qos": {
-        "requested": "default", "provider_qos": "utility",
-        "reason": "qos default requested; caller is not in admission.priority_callers; "
-                  "provider clamped to utility"}})
-    assert lines == ["Job: j is queued",
-                     "qos default requested; caller is not in admission.priority_callers; "
-                     "provider clamped to utility"]
+    reason = "qos default requested; caller is not in admission.priority_callers; provider clamped to utility"
+    lines = render.why_queue({**QUEUED, "qos": {"requested": "default", "provider_qos": "utility",
+                                                "reason": reason}})
+    # Beside the job's line; every line it said before is still there, in order.
+    plain = render.why_queue(QUEUED)
+    assert lines == [plain[0], reason, *plain[1:]]
 
 
 def test_d_qos_booked1_why_names_what_the_last_attempt_was_given():
@@ -78,4 +77,5 @@ def test_d_qos_booked1_why_says_nothing_new_for_a_utility_job():
     standing = {**QUEUED, "qos": {"requested": "utility", "provider_qos": "utility",
                                   "reason": "qos utility requested; provider clamped to utility",
                                   "started": {"seq": 1, "provider_qos": "utility"}}}
-    assert render.why_queue(standing) == render.why_queue(QUEUED) == ["Job: j is queued"]
+    assert render.why_queue(standing) == render.why_queue(QUEUED)
+    assert not [line for line in render.why_queue(standing) if "qos" in line]
