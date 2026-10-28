@@ -5088,3 +5088,67 @@ def test_r6_command_pins_agree_with_real_shells(tmp_path):
                          "neither": sum(not r[3]["zsh"] and not r[3]["bash"] for r in rows),
                          "rows": [(c[:120], d, s) for c, _, d, s in rows]})
     assert differ == [], differ[:10]
+
+
+# ---------------------------------------------------------------- review r6: r6's unpinned readings
+
+#: r6 readings no test pinned, from review r6's checks 2 and 5. In review r6's real-shell run over the fixture
+#: (/bin/zsh -f and /bin/bash 3.2, r6's stubs) each denied form walked a root in one shell or both, and each allowed
+#: form walked nothing. Decision 1: an unquoted body's substitution nested, holding a backtick, after an apostrophe,
+#: inside single or double quotes, under a delimiter word holding a $, as a second heredoc of a line, and around a
+#: heredoc of its own; $'EOF' is a quoted delimiter and \$( no substitution. Decision 2: xargs -J, -I%, -P, env and
+#: an ls or printf producer. Decision 4: $[...], let, for ((...)), nested $((...)) and (( and ( ( subshells.
+#: Decision 9: bash <(printf ...), bash -s < <(...), a piped while IFS= read -r -d '' and a loop after sort.
+REVIEW_R6_DENIED = [
+    "cat > x.md <<EOF\n$(echo $(/usr/bin/find / -name x))\nEOF",
+    "cat > x.md <<EOF\n$(echo `\\rg --files ~/.subfleet`)\nEOF",
+    "cat > x.md <<EOF\nit's\n$(/usr/bin/find / -name x)\nit's\nEOF",
+    "cat > x.md <<EOF\nrun '$(/usr/bin/find / -name x)'\nEOF",
+    "cat > x.md <<EOF\nrun \"$(/usr/bin/find / -name x)\n\nEOF",
+    "cat > x.md <<E$X\n$(/usr/bin/find / -name x)\nE$X",
+    "cat > x.md <<${D}\n$(/usr/bin/find / -name x)\n${D}",
+    "cat <<A > a.md; cat <<B > b.md\nfirst\nA\n$(/usr/bin/find / -name x)\nB",
+    "cat <<'A' > a.md; cat <<B > b.md\n$(echo hi)\nA\n$(/usr/bin/find / -name x)\nB",
+    "cat > x.md <<EOF\n$(cat <<'X'\nit's\nX\n/usr/bin/find / -name x)\nEOF",
+    "find ~/.subfleet/jobs -maxdepth 1 -type d | xargs -J % sh -c 'rg -l foo \"$0\"' %",
+    "find ~/.subfleet/jobs -maxdepth 1 -type d | xargs -I% sh -c 'rg -l foo %'",
+    "find ~/.subfleet -maxdepth 1 -type d | xargs -P4 -n1 bash -c 'rg foo \"$1\"' _",
+    "ls -d ~/.subfleet/* | xargs -n1 sh -c 'rg foo \"$0\"'",
+    "find ~/.subfleet -maxdepth 1 | xargs -n1 env sh -c 'rg foo \"$0\"'",
+    "printf '%s\\n' \"$HOME/.subfleet\" | xargs -I{} sh -c 'rg --files {}'",
+    "echo $[1<<2]; cat > /dev/null <<'EOF'\nit's\nEOF\n/usr/bin/find / -name x",
+    "let 'x=1<<2'; cat > /dev/null <<'EOF'\nit's\nEOF\n/usr/bin/find / -name x",
+    "for ((i=1<<1; i<2; i++)); do :; done; cat > /dev/null <<'EOF'\nit's\nEOF\n/usr/bin/find / -name x",
+    "echo $(( (1<<2) + $((3<<1)) )); cat > /dev/null <<'EOF'\nit's\nEOF\n/usr/bin/find / -name x",
+    "( (cat <<EOF\nhi\nEOF\n) ); /usr/bin/find / -name x",
+    "((cat <<EOF\nhi\nEOF\n) ); /usr/bin/find / -name x",
+    "bash <(printf '%s\\n' 'rg --files ~/.subfleet')",
+    "bash -s < <(echo 'rg --files ~/.subfleet')",
+    "find ~/.subfleet -maxdepth 1 -print0 | while IFS= read -r -d '' d; do rg foo \"$d\"; done",
+    "find ~/.subfleet -maxdepth 1 | sort | while read -r d; do rg -l foo \"$d\"; done",
+]
+REVIEW_R6_ALLOWED = [
+    "cat > x.md <<$'EOF'\n$(/usr/bin/find / -name x)\nEOF",
+    "cat > x.md <<EOF\n\\$(/usr/bin/find / -name x)\nEOF",
+    "cat > x.md <<EOF\n$(rg -c foo src)\nEOF",
+    "cat > notes.md <<EOF\nsee ~/.subfleet and $HOME/.subfleet\nEOF\nrg -n foo src",
+    "git ls-files -z | xargs -0 sh -c 'rg -l foo \"$@\"' _",
+    "cd src && git ls-files | xargs -n1 sh -c 'rg -c foo \"$0\"'",
+    "git ls-files | while read -r f; do rg -n foo \"$f\"; done",
+    "n=$((1<<4)); echo \"$n\"; rg -c foo src",
+]
+#: The shared step budget's edge: each $(:) inside double quotes costs 9 parend steps (three reads of 3), and an
+#: empty $() 6, so 2,222 of the first are 19,998 steps, read, and 2,221 with two of the second 20,001, too complex.
+REVIEW_R6_STEP_EDGE = {"read": "rg foo src; echo \"" + "$(:)" * 2222 + "\"",
+                       "unread": "rg foo src; echo \"" + "$(:)" * 2221 + "$()" * 2 + "\""}
+
+
+def test_review_r6_pins_r6s_unpinned_readings():
+    """Each reading's own input: the denied forms are denied, the allowed ones allowed, and the step budget's edge
+    reads 19,998 steps and denies 20,001 as too complex to judge."""
+    assert r5_denied([(c, S_) for c in REVIEW_R6_DENIED]) == []
+    assert r5_allowed([(c, S_) for c in REVIEW_R6_ALLOWED]) == []
+    outs = judged(HOOK, list(REVIEW_R6_STEP_EDGE.values()), S_)
+    assert rule(outs[REVIEW_R6_STEP_EDGE["read"]]) is None
+    unread = json.loads(outs[REVIEW_R6_STEP_EDGE["unread"]])["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "too complex to judge" in unread
