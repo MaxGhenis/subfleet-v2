@@ -1806,6 +1806,14 @@ pw_prep_awk="$pw_lib_awk"'
     return 0
   }
   function named(s,   d) { d = s; gsub(/[\047"\\$]/, "", d); return s ~ SRCH || d ~ SRCH }
+  # pwn(s): s names a searcher as pw_named reads one, its four tests (r6 decision 2)
+  function pwn(s,   d) {
+    if (s ~ /(^|[[:space:];&|(\/\\\047"`])(find|rg|[efru]?grep)[`\047")]?([[:space:]]|$)/) return 1
+    d = s; gsub(/[\\\047"$]/, "", d)
+    if (d ~ /(^|[[:space:];&|(\/`])(find|rg|[efru]?grep)[`)]?([[:space:]]|$)/) return 1
+    if (s ~ /\$\047[^\047]*\\[0-7xX]/) return 1
+    return s ~ /(^|[[:space:];&|(`])=(find|rg|[efru]?grep)([[:space:]]|$)/
+  }
   function script(s, x, depth,   y) {
     if (depth >= 4) { if (named(s) || named(ansic(s))) deep = 1; return }
     y = prep(subst(s), depth + 1, 0, x)
@@ -2035,6 +2043,9 @@ pw_prep_awk="$pw_lib_awk"'
       }
       st["s"] = 0; st["g"] = 0
       for (k = t; k <= nt; k++) if (!rd[k] && shstep(st, val[k]) == "script") { st["g"] = k; script(val[k], sx(st, val[k]), depth) }
+      # r6 decision 2: xargs running a shell whose -c script names a searcher (as pw_named reads it) puts the whole
+      # command under the xargs rule (xsh: the prep ends with \003X\003)
+      if (mode == "prep" && st["a"] && st["s"] && st["c"] && st["g"] && pwn(val[st["g"]])) xsh = 1
       if (st["s"] && !st["c"] && (!st["f"] || st["S"])) {
         # its here-string, its heredoc (r5 decision 2) or what every earlier stage of its pipeline writes
         # (r5 decision 11)
@@ -2238,7 +2249,7 @@ pw_prep_awk="$pw_lib_awk"'
   mode == "nopath" { prep($0, 0, 1, "z") }
   END {
     if (mode == "nopath") print ((found || cplx) ? 1 : 0)
-    if (mode == "prep") printf "%s%s%s", xlines, (deep ? "\n\003D\003" : ""), (cplx ? "\n\003C\003" : "")
+    if (mode == "prep") printf "%s%s%s%s", xlines, (xsh ? "\n\003X\003" : ""), (deep ? "\n\003D\003" : ""), (cplx ? "\n\003C\003" : "")
   }'
 # pw_nopath CMD: CMD (prepped) holds a recursive searcher given no path.
 pw_nopath() { [ "$(printf '%s' "$1" | LC_ALL=C awk -v RS=$'\001' -v mode=nopath "$pw_prep_awk" 2>/dev/null)" = 1 ]; }
@@ -2251,7 +2262,7 @@ pw_named() {
     || printf '%s' "$1" | grep -qE "\\\$'[^']*\\\\[0-7xX]" \
     || printf '%s' "$1" | grep -qE "(^|[[:space:];&|(\`])=(find|rg|[efru]?grep)([[:space:]]|\$)"
 }
-pw_cmd=$command
+pw_cmd=$command pw_xsh=""
 if pw_named "$command"; then
   # r5 decision 8: a command too long to prep (over 64 KB) that names a searcher fails closed, since none of
   # the prep's readings (names, keywords, scripts, heredocs, the no-path judgment) can be made
@@ -2265,6 +2276,8 @@ if pw_named "$command"; then
   # its step budget (parend, shared) is too complex to judge; the prep stops there and ends with \003C\003
   case "$pw_cmd" in *$'\003C\003') block "[unscoped-search] Command too complex to judge: it names a searcher (find, rg or grep) beside more nested \$(...), \$((...)), <(...) and heredoc forms than the guard reads, so the guard cannot read where it searches. Split it into shorter commands, and scope each search: an exact subdirectory or -maxdepth/--max-depth." ;; esac
   [ -n "$pw_cmd" ] || pw_cmd=$command
+  # r6 decision 2: the xargs rule below also judges xargs running a shell whose -c script names a searcher
+  case "$pw_cmd" in *$'\n\003X\003'*) pw_xsh=1 ;; esac
 fi
 # <<< r3 path words: end <<<
 
@@ -2487,9 +2500,13 @@ rg --files $pw_t"
   # — judged on the all-Q view (built on demand), so `git ls-files | xargs rg
   # "/Users"` keeps its quotes as the documented escape. xargs running
   # something else (`| xargs -n1 dirname`) does not fire.
-  if printf '%s' "$stripped" | grep -qE "$xargs_re"; then
-    if printf '%s' "$stripped" | grep -qE "$xargs_feed_re"; then
-      hit=1; matched=$(first_match "$stripped" "$xargs_feed_re" | sed 's/[[:space:]]*$//')
+  # r6: so does xargs running a shell whose -c script names a searcher
+  # (pw_xsh, from the command prep), a root right before an xargs included.
+  xfeed_re=$xargs_feed_re
+  [ -z "${pw_xsh-}" ] || xfeed_re="(^|[[:space:]])${root_re}['\"]?[[:space:]]*\|[[:space:]]*xargs[[:space:]]"
+  if [ -n "${pw_xsh-}" ] || printf '%s' "$stripped" | grep -qE "$xargs_re"; then
+    if printf '%s' "$stripped" | grep -qE "$xfeed_re"; then
+      hit=1; matched=$(first_match "$stripped" "$xfeed_re" | sed 's/[[:space:]]*$//')
     else
       stripped_q=$(collapse_quotes "$judged" q) || stripped_q=""
       [ -n "$stripped_q" ] || stripped_q=$judged

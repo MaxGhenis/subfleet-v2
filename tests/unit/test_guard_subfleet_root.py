@@ -467,8 +467,20 @@ R5_TEXT += [
 ]
 R3_TEXT = R5_TEXT + R3_TEXT
 #: r6 (2026-10-28): the edits outside the path-word blocks, as (r6 text, r5 text): the prefilter's sixth term also
-#: after a backtick (decision 6) with its comment. Undone before R5_TEXT.
+#: after a backtick (decision 6) with its comment, and the xargs rule reading pw_xsh (decision 2). Undone before
+#: R5_TEXT.
 R6_TEXT = [
+    ("""  # r6: so does xargs running a shell whose -c script names a searcher
+  # (pw_xsh, from the command prep), a root right before an xargs included.
+  xfeed_re=$xargs_feed_re
+  [ -z "${pw_xsh-}" ] || xfeed_re="(^|[[:space:]])${root_re}['\\"]?[[:space:]]*\\|[[:space:]]*xargs[[:space:]]"
+  if [ -n "${pw_xsh-}" ] || printf '%s' "$stripped" | grep -qE "$xargs_re"; then
+    if printf '%s' "$stripped" | grep -qE "$xfeed_re"; then
+      hit=1; matched=$(first_match "$stripped" "$xfeed_re" | sed 's/[[:space:]]*$//')
+""", """  if printf '%s' "$stripped" | grep -qE "$xargs_re"; then
+    if printf '%s' "$stripped" | grep -qE "$xargs_feed_re"; then
+      hit=1; matched=$(first_match "$stripped" "$xargs_feed_re" | sed 's/[[:space:]]*$//')
+"""),
     ("""# escape, which may spell one; the sixth (r5) zsh's =rg, =find and =grep,
 # also right after a backtick (r6).
 """, """# escape, which may spell one; the sixth (r5) zsh's =rg, =find and =grep.
