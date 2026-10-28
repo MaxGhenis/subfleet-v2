@@ -4590,7 +4590,8 @@ class Daemon:
                 # Fix round 2b, decision 2 (review r2's P3-2): a census whose members no source
                 # may signal (a stranger's leaderless group at the recorded pgid, held parents)
                 # schedules no protocol, which could only spend a TERM grace and push the
-                # attempt's real round out of its evidence.
+                # attempt's real round out of its evidence; an unverifiable one too, unless a
+                # verifiable read could attribute a member (review r3's P3-1).
                 contain = self._may_signal(a, census)
                 if contain:
                     self._schedule("recontain:" + args.job_id, self._recontain, a, census)
@@ -4633,10 +4634,28 @@ class Daemon:
 
     def _may_signal(self, a: dict, census: procs.Containment) -> bool:
         """Fix round 2b, decision 2: would C-5.6's protocol have anything to signal in this
-        census? An unverifiable census may yet verify, and contain, on a later read; a
-        verifiable one with no member C-5.4 allows (`_signal_reasons`) has only held
-        members, which no protocol may signal."""
-        return census.unverifiable or bool(Daemon._signal_reasons(self, a, census))
+        census? A verifiable one with no member C-5.4 allows (`_signal_reasons`) has only
+        held members, which no protocol may signal.
+
+        Review r3 of #250, P3-1: an unverifiable census runs the protocol only when a
+        verifiable read could attribute a member: one the walk or the responsibility
+        source names, which only this census's unverifiability keeps from being a target,
+        or no member at all, as when the listing failed and could have missed any. The
+        protocol's own censuses may verify. A member only a leaderless group at the
+        recorded pgid names, and a held parent, are attributed by no read; nor is a
+        member `_never_signalled`, or one an unverifiable census first recorded or that
+        sits below one (`_tainted`). A census that cannot verify those (a legacy attempt
+        boot: the group's boot never compares) ran a protocol on every `kill` that could
+        signal nothing, and its "next `kill`" never reported the last result."""
+        if Daemon._signal_reasons(self, a, census):
+            return True
+        if not census.unverifiable:
+            return False
+        if not census.live_pids and not census.held_pids:
+            return True
+        never = Daemon._never_signalled(self, a)
+        tainted = Daemon._tainted(json.loads(a.get("evidence_json") or "{}"), census, Daemon._attempt_boot(self, a))
+        return bool((census.descendant_pids | census.responsible_pids) - census.held_pids - never - tainted)
 
     @staticmethod
     def _held_words(census: procs.Containment) -> str:
