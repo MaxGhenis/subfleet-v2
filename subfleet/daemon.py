@@ -836,6 +836,9 @@ class Daemon:
         self._unrooted_logged = False        # D-CEN1: said once that guardians start without a root
         self._disclaim_guardians = procs.guardian_disclaim_allowed()
         self._starting_deadlines: dict[str, float] = {}
+        # Review r3 of #250, check 5: the starting attempts whose deadline began at this
+        # daemon's first look, not at their launch (`_start_landed`).
+        self._starting_first_look: set[str] = set()
         self._pending_launches: set[str] = set()
         self._export_locks: dict[str, threading.Lock] = {}
         # C-5.12: attempt id -> when its processes are next inspected, and the
@@ -8796,6 +8799,7 @@ class Daemon:
                 os.close(write_fd)
         now = time.monotonic()
         self._starting_deadlines[a["attempt_id"]] = now + self.start_grace_s
+        self._starting_first_look.discard(a["attempt_id"])
         # C-5.12: first inspected with a table read after its guardian started,
         # which shows the guardian. Due as it first asked, it was usually given
         # a table another attempt had read before the guardian existed, and paid
@@ -8867,7 +8871,9 @@ class Daemon:
             with self.store.transaction("attempt.running", job_id=a["job_id"], attempt_id=aid) as tx:
                 tx.execute("UPDATE attempts SET state='running',guardian_pid=?,pgid=?,boot_id=?,proc_start=?,started_at=COALESCE(started_at,?) WHERE attempt_id=? AND state='starting'",
                            (start["guardian_pid"], start["pgid"], start["boot_id"], start["proc_start"], start["started_at"], aid))
+            self._start_landed(a)
             self._starting_deadlines.pop(aid, None)
+            self._starting_first_look.discard(aid)
             self._boundary("running", a["job_id"], aid)
             a = self.store.get_attempt(aid)
         if job["kind"] != "turn" and a["state"] in ("starting", "running"):
@@ -8920,6 +8926,8 @@ class Daemon:
             if a["state"] not in ("starting", "running"):
                 return  # The fresh wall preflight may itself have found the exit.
         if a["state"] == "starting":
+            if aid not in self._starting_deadlines:
+                self._starting_first_look.add(aid)      # a restarted daemon's first look
             deadline = self._starting_deadlines.setdefault(aid, time.monotonic() + self.start_grace_s)
             if time.monotonic() < deadline:
                 return
@@ -8935,7 +8943,10 @@ class Daemon:
             # receipt that reads as a value (as above): one that merely exists,
             # holding `{}` or `null`, left the attempt here, taking a census on
             # every tick.
-            if self._read_json(adir / "start.json") or self._read_json(adir / "exit.json"):
+            landed = self._read_json(adir / "start.json")
+            if landed or self._read_json(adir / "exit.json"):
+                if landed:
+                    self._start_landed(a)
                 return
             # D-QUAR-START1 (a): a guardian alive, running and verified by its recorded
             # identity, the census's only member, is slow, not lost (2026-10-26, under load):
@@ -9022,7 +9033,32 @@ class Daemon:
         there is one: it may have launched, and is contained as launched. Each side
         writes its own file before it reads the other's, so at least one sees the other."""
         adir = self._abandon(a, detail)
-        return not self._read_json(adir / "start.json")
+        start = self._read_json(adir / "start.json")
+        if start:
+            self._start_landed(a)
+        return not start
+
+    def _start_landed(self, a: dict) -> None:
+        """Review r3 of #250, check 5: `START_GRACE_MAX_S` rests on one incident, so the
+        first read that finds the `start.json` of an attempt start grace extended
+        (`attempt.start_extended`) is recorded, once, as `attempt.start_landed`: the
+        `seconds` from the deadline's start to that read, and `deadline_start`, `launch`
+        or `restart` when the deadline began at this daemon's first look after a restart
+        (it lives in daemon memory; found at that first look, 0 s). The daemon keeps no
+        count of extensions. An attempt never extended records nothing, and nothing the
+        daemon does depends on the record."""
+        aid = a["attempt_id"]
+        if (not self.store.one("SELECT 1 FROM events WHERE attempt_id=? AND kind='attempt.start_extended'", (aid,))
+                or self.store.one("SELECT 1 FROM events WHERE attempt_id=? AND kind='attempt.start_landed'", (aid,))):
+            return
+        deadline = self._starting_deadlines.get(aid)
+        seconds = 0.0 if deadline is None else time.monotonic() - (deadline - self.start_grace_s)
+        self.store.add_event("attempt.start_landed", job_id=a["job_id"], attempt_id=aid,
+                             data={"seconds": round(seconds, 3),
+                                   "deadline_start": ("restart" if deadline is None or aid in self._starting_first_look
+                                                      else "launch"),
+                                   "start_grace_s": self.start_grace_s,
+                                   "start_grace_max_s": getattr(self, "start_grace_max_s", START_GRACE_MAX_S)})
 
     def _inspect_running(self, a: dict, adir: Path, due: float) -> bool:
         """The paced half of `_process_attempt` (C-5.12): is the guardian still ours?
