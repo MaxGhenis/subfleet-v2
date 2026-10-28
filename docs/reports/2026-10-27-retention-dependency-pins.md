@@ -6,7 +6,7 @@ The lane started at approximately 14:51Z; new holds/steps stop at 17:49:00Z, con
 
 ## Continuation 1 recovery, 2026-10-28 (in progress)
 
-This process started at **07:47Z** and stops starting holds and steps at **11:46Z**. Accounting snapshot: **2026-10-28T11:39:45+00:00**. It has completed **728 of 732** starting nodes with successful full phase evidence; **4 remain** in `c1c-current-remaining.txt`. Incomplete nodes count as unfinished even when earlier nodes in their hold passed. Release-comparison results never count toward branch coverage. The JSONL ledgers and per-hold collection/results/log files preserve the exact evidence. `c1c-verify-coverage.py` independently joins every planned node to its saved evidence in `c1c-planned-status.json`; it agrees with the residual list.
+This process started at **07:47Z** and stops starting holds and steps at **11:46Z**. Accounting snapshot: **2026-10-28T11:45:38+00:00**. It has completed **729 of 732** starting nodes with successful full phase evidence; **3 remain** in `c1c-current-remaining.txt`. Incomplete nodes count as unfinished even when earlier nodes in their hold passed. Release-comparison results never count toward branch coverage. The JSONL ledgers and per-hold collection/results/log files preserve the exact evidence. `c1c-verify-coverage.py` independently joins every planned node to its saved evidence in `c1c-planned-status.json`; it agrees with the residual list.
 
 The lost job's 27 salvaged files were verified byte for byte (its original list is preserved separately). Its `c1-reconstruct.py` correctly reproduces **761** unfinished nodes from **1,104** unique planned nodes and **343** completed planned nodes. `c1b-reconstruct.py` independently verifies every saved plan against pytest's saved collection and keyword matcher. Two additional complete salvaged results leave **759** nodes in `remaining-nodes.txt`; `c1-original-remaining-nodes.txt` preserves the original 761. Lost batches 01 and 03 contain only setup results and count as incomplete. The preserved replacement attempt completed another **27** nodes (20 + 6 + 1); this process reuses their complete results and starts with **732**, saved in `c1c-start-remaining.txt`.
 
@@ -62,6 +62,8 @@ Loads are observed 1-minute admission loads. Counts below describe each hold, in
 | [c1c-remaining-06](2026-10-27-retention-dependency-pins-data/c1c-remaining-06.log) | 9 passed, 1 incomplete | outside after 30 min | 23.9 | interrupted before 20 min |
 | [c1c-remaining-58](2026-10-27-retention-dependency-pins-data/c1c-remaining-58.log) | 1 passed | outside after 30 min | 57.5 | 936.37 s |
 | [c1c-remaining-51](2026-10-27-retention-dependency-pins-data/c1c-remaining-51.log) | 3 passed | outside after 30 min | 98.6 | 354.19 s |
+| [c1c-remaining-32](2026-10-27-retention-dependency-pins-data/c1c-remaining-32.log) | 2 passed, 1 incomplete | locked | 69.0 | interrupted before 20 min |
+| [c1c-remaining-50](2026-10-27-retention-dependency-pins-data/c1c-remaining-50.log) | 2 passed, 1 incomplete | outside after 30 min | 64.4 | 1123.44 s |
 
 Queued-only cancellations run no tests. Active holds are recorded as they finish; successful complete phase results from active holds contribute to the snapshot above.
 
@@ -134,7 +136,7 @@ The required contract helper refused C-6.5, C-6.11 and C-8.4. Its non-overlappin
 
 ## Unbuilt and unrun: continuation 2
 
-- Step 2's exact remaining coverage is **4 nodes**, saved in `c1c-current-remaining.txt` with complete accounting in `c1c-accounting.json`. Finish these nodes and resolve every remaining failure before starting the later build steps. A partial or interrupted run is not a substitute for a missing case.
+- Step 2's exact remaining coverage is **3 nodes**, saved in `c1c-current-remaining.txt` with complete accounting in `c1c-accounting.json`. Finish these nodes and resolve every remaining failure before starting the later build steps. A partial or interrupted run is not a substitute for a missing case.
 - Step 3: `454ed9528`'s folded-pin test file was inspected but not added or run. The WIP is **unassessed**; **0 of its 150 real-volume examples were observed**. Its retention implementation was not ported.
 - Spelling gap: write and run the required red output/review-root alias tests (including the absent output tail during quarantine), then fold the one dependency-fence query and transaction needs blockers, and record the green runs. No new red/green evidence exists yet; no intended xfail or contract exception has been added.
 - Step 4: the generated selection safety, independent differential, monotonicity and admission-fence properties were prepared only as an unexecuted sketch. No new property example counts are claimed. The selection sketch asserts that unpinned fixtures reach retirement, so it must not pass vacuously; its fixture still needs validation. The sketch also targets exact dependency-fence lookups when quarantine leaves an aliased output-path tail unspellable.

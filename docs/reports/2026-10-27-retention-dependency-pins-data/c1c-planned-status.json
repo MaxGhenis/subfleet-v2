@@ -1,8 +1,8 @@
 {
   "summary": {
     "planned": 1104,
-    "completed": 1100,
-    "remaining": 4
+    "completed": 1101,
+    "remaining": 3
   },
   "nodes": [
     {
@@ -17664,7 +17664,13 @@
           "retention-salvage_properties"
         ]
       ],
-      "completion_evidence": []
+      "completion_evidence": [
+        {
+          "source": "c1c-remaining-32-results.jsonl",
+          "outcome": "passed",
+          "xfail": null
+        }
+      ]
     },
     {
       "nodeid": "tests/unit/test_retention_shared_folders.py::test_a_detached_writer_above_a_nested_repository_holds_none_of_its_turns[READER]",

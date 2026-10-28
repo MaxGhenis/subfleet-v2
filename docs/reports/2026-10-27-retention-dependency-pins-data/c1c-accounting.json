@@ -5,8 +5,8 @@
   "lost_salvage_remaining": 759,
   "reused_replacement": 27,
   "process_start_remaining": 732,
-  "completed_this_process": 728,
-  "remaining": 4,
+  "completed_this_process": 729,
+  "remaining": 3,
   "unresolved_failures": [],
   "holds": [
     {
@@ -2078,6 +2078,107 @@
         "passed": 3
       },
       "partial": [],
+      "coverage": true
+    },
+    {
+      "label": "c1c-remaining-32",
+      "args": [
+        "tests/fake/test_admission_stateful.py::TestAdmissionPassProviderCaps::runTest",
+        "tests/unit/test_retention_regenerable_properties.py::test_only_and_all_regenerable_output_is_dropped_and_the_rest_restored",
+        "tests/unit/test_retention_salvage_properties.py::test_retention_prunes_only_when_unbundled_unarchived_bytes_are_absent"
+      ],
+      "queued": {
+        "utc": "2026-10-28T11:01:38.284194+00:00",
+        "load": [
+          62.02001953125,
+          101.69677734375,
+          95.18017578125
+        ]
+      },
+      "outside_lock": false,
+      "rc": -9,
+      "wall_s": 2507.7,
+      "end": {
+        "utc": "2026-10-28T11:43:26.033236+00:00",
+        "load": [
+          83.685546875,
+          74.55908203125,
+          75.7900390625
+        ]
+      },
+      "admitted": {
+        "utc": "2026-10-28T11:24:29.587016+00:00",
+        "load": [
+          68.98046875,
+          68.11083984375,
+          72.5888671875
+        ],
+        "pid": 92838
+      },
+      "finished": null,
+      "counts": {
+        "passed": 2,
+        "incomplete": 1
+      },
+      "partial": [
+        "tests/fake/test_admission_stateful.py::TestAdmissionPassProviderCaps::runTest"
+      ],
+      "coverage": true
+    },
+    {
+      "label": "c1c-remaining-50",
+      "args": [
+        "tests/fake/test_admission_liveness.py::test_c6_3_c26_9_admission_places_what_e053b2c_placed_pass_for_pass",
+        "tests/fake/test_admission_ramp.py::test_generated_enabled_daemon_windows_liveness_order_and_restart",
+        "tests/unit/test_retention_case_alias.py::test_interleavings_with_case_aliases_never_delete_a_folder_a_row_names",
+        "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn"
+      ],
+      "queued": {
+        "utc": "2026-10-28T10:55:28.568706+00:00",
+        "load": [
+          74.62841796875,
+          72.9013671875,
+          77.33740234375
+        ]
+      },
+      "outside_lock": true,
+      "rc": 2,
+      "wall_s": 2936.09,
+      "end": {
+        "utc": "2026-10-28T11:44:24.719942+00:00",
+        "load": [
+          81.42529296875,
+          75.52294921875,
+          76.06005859375
+        ]
+      },
+      "admitted": {
+        "utc": "2026-10-28T11:25:38.780685+00:00",
+        "load": [
+          64.35986328125,
+          67.61865234375,
+          72.09130859375
+        ],
+        "pid": 30133
+      },
+      "finished": {
+        "utc": "2026-10-28T11:44:22.237261+00:00",
+        "load": [
+          82.85546875,
+          75.70068359375,
+          76.12548828125
+        ],
+        "rc": 2,
+        "seconds": 1123.4385523749988,
+        "rss": 156696576
+      },
+      "counts": {
+        "passed": 2,
+        "incomplete": 1
+      },
+      "partial": [
+        "tests/unit/test_retention_shared_folders.py::test_interleavings_never_delete_a_folder_named_by_a_turn"
+      ],
       "coverage": true
     }
   ]
