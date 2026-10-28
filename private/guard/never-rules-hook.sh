@@ -1710,8 +1710,10 @@ pw_prep_awk="$pw_lib_awk"'
   # arithmetic (arend) is passed over whole, and so is a $[...]: in them a << is a shift, never a heredoc, and the
   # span may cross lines, while a $( or a backtick in them is still a command (parend(t, i, ar): ar 1 reads such a
   # span to the ) closing the ( at i, PAI keeping where its first inner ( closed, and ar 2 to the ] closing the [
-  # at i).
-  function parend(t, i, ar,   n, d, c, j, np, PD, PS, PF, m, e, s, f, line, ai) {
+  # at i). r7 decision 2: a heredoc body is read a line at a time, the end of each line found 512 bytes at a time
+  # (lnend, never a copy of the rest of the command) and kept in LE for the reading of the next delimiter, and each
+  # line read costs a step.
+  function parend(t, i, ar,   n, d, c, j, np, PD, PS, PF, m, e, s, f, L, LE, ai) {
     n = length(t); d = 0; np = 0; ai = 0
     while (i <= n) {
       if (++pst > 20000) { cplx = 1; return 0 }
@@ -1737,7 +1739,7 @@ pw_prep_awk="$pw_lib_awk"'
       if (c == "<") {
         if (substr(t, i, 3) == "<<<") { i += 3; continue }
         if (substr(t, i + 1, 1) == "<" && (j = hdword(t, i))) {
-          if (!((HDS, HDD) in PF) && index(substr(t, j), HDD)) { PD[++np] = HDD; PS[np] = HDS }
+          if (!((HDS, HDD) in PF)) { PD[++np] = HDD; PS[np] = HDS }
           i = j; continue
         }
         i++; continue
@@ -1745,11 +1747,15 @@ pw_prep_awk="$pw_lib_awk"'
       if (c == "\n") {
         i++
         for (m = 1; m <= np; m++) {
-          s = i; f = 0
+          s = i; f = 0; L = length(PD[m])
           while (i <= n) {
-            e = index(substr(t, i), "\n"); line = e ? substr(t, i, e - 1) : substr(t, i); i = e ? i + e : n + 1
-            if (PS[m]) sub(/^\t+/, "", line)
-            if (line == PD[m]) { f = 1; break }
+            if (++pst > 20000) { cplx = 1; return 0 }
+            if (!(i in LE)) { LE[i] = lnend(t, i, n); if (cplx) return 0 }
+            e = LE[i]
+            if (!PS[m]) f = (e - i == L && substr(t, i, L) == PD[m])
+            else f = (e - i >= L && substr(t, e - L, L) == PD[m] && (e - L == i || substr(t, i, e - L - i) !~ /[^\t]/))
+            i = e + 1
+            if (f) break
           }
           if (!f) { i = s; PF[PS[m], PD[m]] = 1 }
         }
@@ -1765,6 +1771,15 @@ pw_prep_awk="$pw_lib_awk"'
   # arend(t, i): for the (( at i, the ) closing it when the shells read it as arithmetic (its inner ( closing right
   # before its outer one, read in the arithmetic mode of parend), 0 when they read a subshell (r7 decision 1)
   function arend(t, i,   j) { j = parend(t, i, 1); return (j && PAI == j - 1) ? j : 0 }
+  # lnend(t, i, n): where the line starting at i ends (its newline, or n + 1), read 512 bytes at a time, each window
+  # past the first a step of the budget (r7 decision 2)
+  function lnend(t, i, n,   k, e) {
+    for (k = i; k <= n; k += 512) {
+      if (e = index(substr(t, k, 512), "\n")) return k + e - 1
+      if (k > i && ++pst > 20000) { cplx = 1; return n + 1 }
+    }
+    return n + 1
+  }
   # dqhend(t, i): dqend, but a $( inside the double quotes runs to the ) parend finds, its heredocs read, so a lone
   # " in one hides nothing (r6 decision 5); a $( with no end is read as dqend reads it
   function dqhend(t, i,   n, c, j) {
@@ -2193,9 +2208,10 @@ pw_prep_awk="$pw_lib_awk"'
   }
   # hdbody(t, LN, LP, nl, k, d, s): the body of a heredoc whose delimiter is d (s: <<-, its leading tabs go) that
   # starts at line k of t (LN its lines, LP where each starts): HDB is the body, and the line after the
-  # delimiter line is returned; 0 when no line is the delimiter.
+  # delimiter line is returned; 0 when no line is the delimiter. r7 decision 2: each line read is a step of the
+  # shared budget, so delimiters that are never found cannot each read every later line for free.
   function hdbody(t, LN, LP, nl, k, d, s,   m, line) {
-    for (m = k; m <= nl; m++) { line = LN[m]; if (s) sub(/^\t+/, "", line); if (line == d) break }
+    for (m = k; m <= nl; m++) { if (++pst > 20000) { cplx = 1; return 0 }; line = LN[m]; if (s) sub(/^\t+/, "", line); if (line == d) break }
     if (m > nl) return 0
     HDB = (m > k) ? substr(t, LP[k], LP[m] - LP[k]) : ""
     if (s) { gsub(/\n\t+/, "\n", HDB); sub(/^\t+/, "", HDB) }
