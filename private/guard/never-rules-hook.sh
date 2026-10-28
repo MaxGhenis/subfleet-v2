@@ -1706,16 +1706,34 @@ pw_prep_awk="$pw_lib_awk"'
   # remembers it), and a double-quoted string ends where dqhend says. Every call shares one budget of 20,000
   # steps: past it, no end is found and the command is too complex to judge (cplx), since a dense run of ( or $(
   # costs a step each and each $( or (( read walks the rest of the command once. (A special character is taken
-  # without the window match, which costs its whole window when it fails.)
-  function parend(t, i,   n, d, c, j, np, PD, PS, PF, m, e, s, f, line) {
-    n = length(t); d = 0; np = 0
+  # without the window match, which costs its whole window when it fails.) r7 decision 1: a (( the shells read as
+  # arithmetic (arend) is passed over whole, and so is a $[...]: in them a << is a shift, never a heredoc, and the
+  # span may cross lines, while a $( or a backtick in them is still a command (parend(t, i, ar): ar 1 reads such a
+  # span to the ) closing the ( at i, PAI keeping where its first inner ( closed, and ar 2 to the ] closing the [
+  # at i).
+  function parend(t, i, ar,   n, d, c, j, np, PD, PS, PF, m, e, s, f, line, ai) {
+    n = length(t); d = 0; np = 0; ai = 0
     while (i <= n) {
       if (++pst > 20000) { cplx = 1; return 0 }
       c = substr(t, i, 1)
-      if (c !~ /[\\\047"()<\n]/ && match(substr(t, i, 512), /^[^\\\047"()<\n]+/)) { i += RLENGTH; continue }
+      if (ar) {
+        if (c !~ /[]\\\047"()$`[]/ && match(substr(t, i, 512), /^[^]\\\047"()$`[]+/)) { i += RLENGTH; continue }
+        if (c == "\\") { i += 2; continue }
+        if (c == "\047") { j = sqend(t, i); if (!j) return 0; i = j + 1; continue }
+        if (c == "\"") { j = dqhend(t, i); if (!j) return 0; i = j + 1; continue }
+        if (c == "`") { j = btend(t, i); if (!j) return 0; i = j + 1; continue }
+        if (c == "$" && substr(t, i + 1, 1) == "(" && substr(t, i + 2, 1) != "(") { j = parend(t, i + 1); if (!j) return 0; i = j + 1; continue }
+        if (ar == 1 && c == "(") d++
+        else if (ar == 1 && c == ")") { if (--d == 0) { PAI = ai; return i }; if (d == 1 && !ai) ai = i }
+        else if (ar == 2 && c == "[") d++
+        else if (ar == 2 && c == "]" && --d == 0) return i
+        i++; continue
+      }
+      if (c !~ /[\\\047"()<\n$]/ && match(substr(t, i, 512), /^[^\\\047"()<\n$]+/)) { i += RLENGTH; continue }
       if (c == "\\") { i += 2; continue }
       if (c == "\047") { j = sqend(t, i); if (!j) return 0; i = j + 1; continue }
       if (c == "\"") { j = dqhend(t, i); if (!j) return 0; i = j + 1; continue }
+      if (c == "$") { if (substr(t, i + 1, 1) == "[" && (j = parend(t, i + 1, 2))) i = j + 1; else i++; continue }
       if (c == "<") {
         if (substr(t, i, 3) == "<<<") { i += 3; continue }
         if (substr(t, i + 1, 1) == "<" && (j = hdword(t, i))) {
@@ -1737,11 +1755,16 @@ pw_prep_awk="$pw_lib_awk"'
         }
         np = 0; continue
       }
+      if (c == "(" && substr(t, i + 1, 1) == "(" && (j = arend(t, i))) { if (!d) return j; i = j + 1; continue }
+      if (cplx) return 0
       if (c == "(") d++; else if (--d == 0) return i
       i++
     }
     return 0
   }
+  # arend(t, i): for the (( at i, the ) closing it when the shells read it as arithmetic (its inner ( closing right
+  # before its outer one, read in the arithmetic mode of parend), 0 when they read a subshell (r7 decision 1)
+  function arend(t, i,   j) { j = parend(t, i, 1); return (j && PAI == j - 1) ? j : 0 }
   # dqhend(t, i): dqend, but a $( inside the double quotes runs to the ) parend finds, its heredocs read, so a lone
   # " in one hides nothing (r6 decision 5); a $( with no end is read as dqend reads it
   function dqhend(t, i,   n, c, j) {
@@ -2180,19 +2203,19 @@ pw_prep_awk="$pw_lib_awk"'
   }
   # arith(t, i, AO, AD, na, AV): 1 when the << at i is inside $((...)) or ((...)): one of the na open (( (AO their
   # first ( and AD the depth before it, innermost last) that is arithmetic, its inner ( closing right before its
-  # outer one, as the shells read them (AV keeps each verdict: the end, or -1; parend bounds the cost) (r6
-  # decision 4).
+  # outer one, as the shells read them (AV keeps each verdict: the end, or -1; the step budget bounds the cost)
+  # (r6 decision 4; r7 decision 1: read by arend, so a << inside it is a shift and the span may cross lines).
   function arith(t, i, AO, AD, na, AV,   m, k, j) {
     for (m = na; m >= 1; m--) {
       k = AO[m]
-      if (!(k in AV)) AV[k] = ((j = parend(t, k)) && parend(t, k + 1) == j - 1) ? j : -1
+      if (!(k in AV)) AV[k] = (j = arend(t, k)) ? j : -1
       if (AV[k] > i) return 1
     }
     return 0
   }
-  function prep(t, depth, noext, ctx,   n, i, c, seg, res, j, sep, piped, nextin, r, bt, x, k, sb, hz, hn, he, hl, nl, LN, LP, bto, pi, pd, na, AO, AD, AV, HZ, psb, nextroots, ri) {
+  function prep(t, depth, noext, ctx,   n, i, c, seg, res, j, sep, piped, nextin, r, bt, x, k, sb, hz, hn, he, hl, nl, LN, LP, bto, pi, pd, na, AO, AD, AV, HZ, psb, nextroots, ri, abe) {
     n = length(t); i = 1; seg = ""; res = ""; piped = 0; nextin = ""; bt = 0; sb = ""; hz = 0; hn = 0; he = 0; nl = 0; bto = 0
-    pd = 0; na = 0
+    pd = 0; na = 0; abe = 0
     while (i <= n) {
       # (a command past the step budget is denied as too complex to judge: nothing more need be read)
       if (cplx) return res
@@ -2205,7 +2228,7 @@ pw_prep_awk="$pw_lib_awk"'
       # decision 4: a << whose body never ends disables only itself; hz and HZ remember a line end or a
       # delimiter already not found)
       if (c == "<" && substr(t, i, 3) == "<<<") { seg = seg "<<<"; i += 3; continue }
-      if (c == "<" && substr(t, i + 1, 1) == "<" && (j = hdword(t, i)) && !(na && arith(t, i, AO, AD, na, AV))) {
+      if (c == "<" && substr(t, i + 1, 1) == "<" && (j = hdword(t, i)) && i > abe && !(na && arith(t, i, AO, AD, na, AV))) {
         if (!hn && !hz) {
           if (x = eol(t, j)) {
             hn = x + 1
@@ -2243,6 +2266,8 @@ pw_prep_awk="$pw_lib_awk"'
         j = (c == "`") ? btend(t, i) : parend(t, i + 1)
         if (j) { x = subout((c == "`") ? substr(t, i + 1, j - i - 1) : substr(t, i + 2, j - i - 2), depth, ctx); if (x != "") script(x, ctx, depth) }
       }
+      # r7 decision 1: a << inside $[...] is a shift too (abe: where the outermost open one ends)
+      if (c == "$" && substr(t, i + 1, 1) == "[" && i > abe && (j = parend(t, i + 1, 2))) abe = j
       if (c == "$") { seg = seg c; i++; continue }
       if (c == "\047") { j = index(substr(t, i + 1), "\047"); if (!j) j = n - i; seg = seg substr(t, i, j + 1); i += j + 1; continue }
       if (c == "\"") { j = dqhend(t, i); if (!j) j = n; seg = seg substr(t, i, j - i + 1); i = j + 1; continue }
