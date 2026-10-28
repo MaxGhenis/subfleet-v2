@@ -177,7 +177,7 @@ R3B_HOOK_SHA256 = "f952fd3e9648df1783cec96327b66a84a21082ba63469ef56d41749d23a51
 R3C_HOOK_SHA256 = "7a5ad79d3f7db4c3c08bf07b8455344a4bdae3e66224218094b398cdf1091a1a"
 #: The overlay's hook after r4 (review r3's walk-arounds closed; 4b382c29... at r4's end) and r4v (the
 #: decision-6 fast path's lstat goes through pw_islink): TRUST's hook_sha256.
-NEW_HOOK_SHA256 = "0b00cc6182af3cb19abdc78b74492b00c5a1b22c53e224c2ce65481e6744789b"
+NEW_HOOK_SHA256 = "6671496ba743cfcd18decbec3f92594f0af5022614cae4a6a0acc76f838caea3"
 
 FAKE_HOME = "/Users/tester"
 SCOPED_CWD = FAKE_HOME + "/work/repo"
@@ -466,10 +466,18 @@ R5_TEXT += [
 """, ""),
 ]
 R3_TEXT = R5_TEXT + R3_TEXT
-#: r6 (2026-10-28): the edits outside the path-word blocks, as (r6 text, r5 text): the prefilter's sixth term also
-#: after a backtick (decision 6) with its comment, and the xargs rule reading pw_xsh (decision 2). Undone before
-#: R5_TEXT.
+#: r6 (2026-10-28): the edits outside the path-word blocks, as (r6 text, r5 text): the header's r6 sentence, the
+#: prefilter's sixth term also after a backtick (decision 6) with its comment, and the xargs rule reading pw_xsh
+#: (decision 2). Undone before R5_TEXT.
 R6_TEXT = [
+    ("""#     =cmd, pipes into a shell, "$@" scripts, eval $(...) and <&0.
+#     r6 (2026-10-28) closed those of review r5: substitutions in an
+#     unquoted heredoc body, xargs into a shell -c script, any producer's
+#     heredoc into a shell, an arithmetic <<, the commit idiom's lone ",
+#     =cmd after a backtick, hostile $ # \\ words and dense substitutions,
+#     <(...) scripts and loop variables.
+""", """#     =cmd, pipes into a shell, "$@" scripts, eval $(...) and <&0.
+"""),
     ("""  # r6: so does xargs running a shell whose -c script names a searcher
   # (pw_xsh, from the command prep), a root right before an xargs included.
   xfeed_re=$xargs_feed_re
@@ -4799,6 +4807,10 @@ R6_ARITH_PRE = "cat > /dev/null <<'EOF'\nit's\nEOF\n/usr/bin/find / -name x"
 R6_ARITH_DENIED = ["echo $((1<<2)); " + R6_ARITH_PRE, "x=$((1 << 3)); " + R6_ARITH_PRE, "((y = 1<<2)); " + R6_ARITH_PRE,
                    "echo $((1<<X))\n\\rg --files ~/.subfleet\nX"]
 R6_ARITH_ALLOWED = ["echo $((1<<2))", "echo $((1<<2)); rg foo src", "x=$((1 << 3)); " + R6_ARITH_PRE.replace("/usr/bin/find /", "find src")]
+#: ... and decision 4's second half: a << whose body never ends disables only itself, so a later heredoc is still
+#: read. (No shell walks this one: the unterminated body swallows the rest, so nothing after it runs. Reading the
+#: rest as commands is r5's fail-closed reading of an unterminated heredoc.)
+R6_UNTERMINATED_DENIED = ["cat <<NOPE; " + R6_ARITH_PRE]
 #: Decision 5 (review r5's P3-3): the standard commit idiom with a lone " in its body, then a crawl; and a crawl
 #: inside the substitution after its heredoc.
 R6_DQ_DENIED = [R6_DQ_HD + "\n/usr/bin/find / -name x",
@@ -4885,7 +4897,7 @@ def test_r6_any_producers_heredoc_piped_into_a_shell_is_its_script():
 def test_r6_an_arithmetic_shift_starts_no_heredoc():
     """Decision 4: a << inside $((...)) or ((...)) is a shift, so a later heredoc is still read (and a shift's
     operand that matches a later line hides nothing); a scoped search beside one stays allowed."""
-    assert r5_denied([(c, S_) for c in R6_ARITH_DENIED]) == []
+    assert r5_denied([(c, S_) for c in R6_ARITH_DENIED + R6_UNTERMINATED_DENIED]) == []
     assert r5_allowed([(c, S_) for c in R6_ARITH_ALLOWED]) == []
 
 
@@ -4912,6 +4924,10 @@ def test_r6_hostile_words_fail_closed_fast(hooks):
     """Decision 8: each hostile word beside a crawl is denied as too complex to judge in under 3 s, or within twice
     the installed hook's time (one run each, at the host's load, reported); 4,097 of one character beside a scoped
     search is denied too, and 4,096, a 5,000-$ echo and a 200-backslash pattern are allowed."""
+    outs = judge_all(HOOK, [(c, S_) for c in R6_CAP_DENIED + R6_CAP_ALLOWED])
+    for c in R6_CAP_DENIED:
+        assert "too complex to judge" in json.loads(outs[(c, S_)])["hookSpecificOutput"]["permissionDecisionReason"]
+    assert [c[:40] for c in R6_CAP_ALLOWED if rule(outs[(c, S_)]) is not None] == []
     rows = {}
     for name, command in R6_HOSTILE.items():
         t, out = hook_seconds(HOOK, command)
@@ -4921,10 +4937,29 @@ def test_r6_hostile_words_fail_closed_fast(hooks):
         rows[name] = {"new": round(t, 2), "installed": round(old, 2), "load": round(os.getloadavg()[0], 1)}
         assert t < R5_TIMING_S or t <= 2 * old, (name, rows[name])
     report("hostile-r6", rows)
-    outs = judge_all(HOOK, [(c, S_) for c in R6_CAP_DENIED + R6_CAP_ALLOWED])
-    for c in R6_CAP_DENIED:
-        assert "too complex to judge" in json.loads(outs[(c, S_)])["hookSpecificOutput"]["permissionDecisionReason"]
-    assert [c[:40] for c in R6_CAP_ALLOWED if rule(outs[(c, S_)]) is not None] == []
+
+
+#: The step budget decisions 4 and 5 share (a deviation, see the report): a dense run of $( or (( made each read
+#: walk the rest of the command (r5's own hook passed 90 s on 2,000 $( in double quotes). Each is denied as too
+#: complex to judge, beside a scoped search, in under 3 s or within twice the installed hook's time.
+R6_DENSE = {
+    "2,000 $( in double quotes": "rg foo src; echo \"" + "$(" * 2000 + "\"",
+    "2,000 ( before a <<": "(" * 2000 + " <<x; rg foo src",
+    "1,000 (( after a search": "rg foo src; " + "((" * 1000 + " <<x",
+}
+
+
+def test_r6_dense_substitutions_fail_closed_fast(hooks):
+    """The shared step budget: each dense form is denied as too complex to judge, fast (one run each, reported)."""
+    rows = {}
+    for name, command in R6_DENSE.items():
+        t, out = hook_seconds(HOOK, command)
+        assert rule(out) == "unscoped-search", name
+        assert "too complex to judge" in json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"], name
+        old = hook_seconds(hooks["old"], command)[0]
+        rows[name] = {"new": round(t, 2), "installed": round(old, 2), "load": round(os.getloadavg()[0], 1)}
+        assert t < R5_TIMING_S or t <= 2 * old, (name, rows[name])
+    report("dense-r6", rows)
 
 
 def test_r6_process_substitutions_and_loops_are_judged():
@@ -5015,12 +5050,15 @@ def r6_shell_walks(shell: str, command: str, cwd: str, tmp: Path) -> bool:
 #: verdicts are the cost cap's, not a walk's), from the scoped cwd.
 R6_SHELL_COMMANDS = [(c, S_) for c in (
     R6_BODY_DENIED + R6_BODY_MORE_DENIED + R6_BODY_ALLOWED + R6_XARGS_DENIED + R6_XARGS_ALLOWED + R6_FILTER_DENIED
-    + R6_FILTER_ALLOWED + R6_ARITH_DENIED + R6_ARITH_ALLOWED + R6_DQ_DENIED + R6_DQ_ALLOWED + R6_EQ_DENIED
+    + R6_FILTER_ALLOWED + R6_ARITH_DENIED + R6_UNTERMINATED_DENIED + R6_ARITH_ALLOWED + R6_DQ_DENIED + R6_DQ_ALLOWED + R6_EQ_DENIED
     + R6_SPAN_DENIED + R6_SPAN_STILL_DENIED + R6_SPAN_ALLOWED + R6_PSUB_DENIED + R6_PSUB_ALLOWED + R6_LOOP_DENIED + R6_LOOP_ALLOWED)]
 #: The runs the hook judges by design, not by what the shells walk: (command, the hook's verdict).
 R6_SHELL_EXCEPTIONS = {
     # decision 7: no shell runs a body under a quoted delimiter; the text rules' reading denies it (intended)
     R6_SPAN_DENIED[0]: True, R6_SPAN_STILL_DENIED[0]: True, R6_SPAN_STILL_DENIED[1]: True,
+    # decision 4's second half: the unterminated heredoc swallows the rest in both shells; the rest is read as
+    # commands (r5's fail-closed reading)
+    R6_UNTERMINATED_DENIED[0]: True,
 }
 
 

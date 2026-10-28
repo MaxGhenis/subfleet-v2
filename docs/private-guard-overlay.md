@@ -85,7 +85,7 @@ are unchanged. The test fixture in `tests/fake/guard.py` is deliberately synthet
 and must never be staged as operator security policy. It is absent from both
 prepared distributions, and the runtime has no test-fixture fallback.
 
-## Policy revision: ~/.subfleet roots (D-LANE-SCOPE1, 2026-10-24; r2, r3 and r3b 2026-10-25; r3c and r4 2026-10-26; r5 2026-10-27)
+## Policy revision: ~/.subfleet roots (D-LANE-SCOPE1, 2026-10-24; r2, r3 and r3b 2026-10-25; r3c and r4 2026-10-26; r5 2026-10-27; r6 2026-10-28)
 
 The table above is the original pair of 2026-09-05. It is not the rollback: its TRUST
 (`0b9d688e…`) pins `codex-cli 0.153.3`, and staging it would make preflight refuse every
@@ -202,12 +202,29 @@ printf's format with its arguments in order); a `-c` script that only runs its a
 `$@`, `"$1"`, `$*`) runs the words after its name, and under xargs what xargs reads; what a command
 substitution in `eval`'s arguments writes is a script; and `<&0` leaves rg's stdin as it was.
 
+Its r6 (2026-10-28) closes the findings of the hub's review r5. Under a heredoc delimiter word with
+no quote and no backslash (`<<EOF`, `<<-EOF`) the shell runs the body's command substitutions, so each
+`$(…)` and backtick span in the body is judged as a command; a quoted or escaped delimiter keeps the
+whole body data. xargs running `sh`, `bash`, `zsh` or `dash` with a `-c` script that names a searcher
+puts the whole command under the xargs rule, a bounded producer's roots and a root right before the
+xargs included. Any producer's heredoc or here-string piped into a shell given no script is its script
+(`tee <<'EOF' | bash`). A `<<` inside `$((…))` or `((…))` is a shift, and a `<<` whose body never ends
+disables only itself. A `$(` inside double quotes ends where a heredoc-aware `parend` says, so the
+commit idiom `"$(cat <<'EOF' … EOF)"` with a lone `"` in its body hides nothing after it. zsh's `=rg`
+and `=find` right after a backtick reach the rule. A command that names a searcher and holds more
+than 4,096 of one of `$`, `#` or `\` is denied as too complex to judge, and so is one whose `$(…)`,
+`$((…))`, `<(…)` and heredoc forms take the prep past its shared budget of 20,000 steps. What a
+`<(…)` writes is the script of the shell or `source` that reads it, and a `for` loop variable (its
+words) or a piped `while read` variable (the producer's roots) that is a searcher's whole operand is
+read as what it stands for.
+
 **Against the Claude half** (`~/.claude/hooks/unscoped_search.py`, session 7f214082's snapshot-5):
 the path words follow its roots, normalization, letter case, links, stall mounts, step-by-step
 globs and computed list of folders a glob reads, and the command reading follows its keywords,
 wrapper table, shell options, `eval`, stdin scripts, stdin model and print-and-exit forms. Their
-shared limits are in the report's known limits. Known differences that remain after r5, read from
-the code as it stands:
+shared limits are in the report's known limits. Known differences that remain after r6, read from
+the code as it stands, with review r5's check 8 forms marked (snapshot-5 read from its frozen
+`.ref`: `for` at `:2179-2187`, `read` at `:2192-2197`, shells at `:2227-2252`):
 
 - **Forms this overlay lets through and snapshot-5 judges.**
   - Relative paths and the cwd: a relative path is never judged (`rg --files ..` from a worktree),
@@ -215,15 +232,19 @@ the code as it stands:
     knows only its fixed list (`rg --files .` or `rg foo` sitting in `~/.subfleet` or in `/usr`);
     snapshot-5 follows the cwd. These are D-LANE-SCOPE2's.
   - Variables: a searcher named through a variable (`RG=rg; $RG …`), a root held in any variable but
-    `$HOME`, `$SUBFLEET_ROOT` and `$SUBFLEET_HOME` (`d=~/.subfleet; rg --files $d`), and a parameter
-    form other than `$NAME` and `${NAME}` (`${SUBFLEET_ROOT:-~/.subfleet}`, `${HOME%/}/.subfleet`);
-    snapshot-5 tracks assignments and expands these forms.
+    `$HOME`, `$SUBFLEET_ROOT`, `$SUBFLEET_HOME` and a loop variable read as below (`d=~/.subfleet;
+    rg --files $d`), and a parameter form other than `$NAME` and `${NAME}`
+    (`${SUBFLEET_ROOT:-~/.subfleet}`, `${HOME%/}/.subfleet`); snapshot-5 tracks assignments and
+    expands these forms.
+  - A `for` loop variable inside a word or after a `cd` (`for d in ~/.subfleet/*; do rg foo
+    "$d/x"; done`, `…; do cd "$d" && rg foo; done`), and zsh's `for d (…)`; snapshot-5 expands the
+    variable wherever it is used. (Its whole-operand form is judged, r6 decision 9.)
   - Searchers snapshot-5 knows and this overlay does not: fd, fdfind, bfs, gfind and ggrep.
   - Wrappers that move or run something: `env -C <root> rg …` and `sudo -D <root> rg …` (the cwd
     they set is not followed) and `env -S '<command>'` (its string is not run); snapshot-5 follows
     the first two and runs the third.
-  - A quoted for-loop list (`for d in "$HOME/.subfleet"; do find $d …; done`); the unquoted form is
-    denied.
+  - A quoted for-loop list feeding find through a variable inside a word (`for d in
+    "$HOME/.subfleet"; do find $d/x …; done`); the whole-operand form is judged (r6 decision 9).
   - A `$'…'` inside a path word is read as `*`, which matches no leading dot
     (`rg --files ~/$'.subfleet'/jobs` passes), and a word that starts with one
     (`$'/Users/me/.subfleet'`) is no path word; snapshot-5 decodes both.
@@ -236,6 +257,20 @@ the code as it stands:
     prep reading of its body (its text is still read by the text rules).
   - What a command substitution in `eval`'s arguments writes is modeled for `echo`, `print`,
     `printf` and `cat`; any other command contributes only its words (`eval "$(sed … file)"`).
+  - *Fixed at this head:* the substitutions of an unquoted heredoc body (review r5's P2-1, r6
+    decision 1): snapshot-5 runs them (`read_heredocs` and `expansions`), and so does this overlay now.
+- **Forms both let through, or not checked against snapshot-5.**
+  - Loop shapes other than a `for` list or a piped `while read` whose variable is a searcher's whole
+    operand: `while read d; do …; done < list`, `until`, `select`, a loop variable in a nested
+    script, `for d in $(…)` (the prep splits the word at its `(`), and `xargs -a <(…)` or a `>(…)`;
+    unjudged here, and snapshot-5's `read` variable is unknown (`:2192-2197`).
+  - *Fixed at this head:* the filter-heredoc pipe (`tee <<'EOF' | bash`, review r5's P3-1, decision 3;
+    snapshot-5 models only echo, printf and cat there, so this overlay is now the stricter);
+    arithmetic `<<` (P3-2, decision 4); the lone `"` in `"$(cat <<'EOF' … EOF)"` (P3-3, decision 5);
+    `` `=cmd` `` (P3-4, decision 6); xargs into a shell `-c` script (P2-2, decision 2); `<(…)` scripts
+    and `for`/piped `while read` loops feeding a searcher (P3-7, decision 9: snapshot-5 runs no
+    script from a shell given a `<(…)` file, `:2247-2252`, and leaves a `read` variable unknown, so
+    those two readings are the stricter here; its `for` reading is shared).
 - **Places this overlay is stricter than snapshot-5.**
   - A quoted glob is judged as if unquoted (`find . -path '/tmp/*'`).
   - r3's trailing-`/*` rule runs before the glob (`rg x ~/Pol*/*` is `~/PolicyEngine`).
@@ -263,17 +298,31 @@ the code as it stands:
   - ugrep's `-NUM` is no depth bound here (`ugrep -r -3 x ~/` is denied).
   - A heredoc body no shell runs is still read by the text rules, as the installed hook reads it
     (`cat > notes.md <<'EOF'⏎find / -name x⏎EOF` is denied); snapshot-5 reads it as data.
-  - A command over 64 KB that names a searcher anywhere, prose included, is denied unread.
+  - A searcher in a markdown code span in such a body is denied, its root ending at the closing
+    backtick (review r5's P3-5; r6 decision 7 keeps it as an intended over-block:
+    ``cat > notes.md <<'EOF'⏎Run `cd repo && rg --files ~/.subfleet` to see⏎EOF``). Review r5's
+    suggested rescoping, dropping the backticks, does not rescope it (the text rules still read
+    `rg --files ~/.subfleet` in the body), nor does quoting the path; naming the root outside the
+    searcher's span does (`` Run `rg --files` in `~/.subfleet` ``), as does naming a scoped path.
+  - A command over 64 KB that names a searcher anywhere, prose included, is denied unread, and so
+    is one that holds more than 4,096 of one of `$`, `#` or `\` (r6 decision 8), or whose `$(…)`,
+    `$((…))`, `((…))`, `<(…)` and heredoc forms take the prep past its 20,000-step budget (r6).
   - A component bash can match against `..` is read as its parent in zsh's reading too, and a word
     with more than three such components is denied unread.
   - A pipe into a shell given no script reads every earlier stage's words as its script, also for a
-    filter whose output differs from its words, and a `{}` in what find's `-exec` runs stands for all
-    of find's roots.
+    filter whose output differs from its words (and a filter's heredoc, here-string or `<(…)`), and
+    a `{}` in what find's `-exec` runs stands for all of find's roots.
+  - xargs running a shell whose `-c` script names a searcher is judged by the xargs rule: a root
+    anywhere in the command denies, also one the script never reads (r6 decision 2).
+  - A loop variable that is a searcher's whole operand stands for all its words or roots at once,
+    and a piped `while read` takes any producer's words as roots (`ls ~/.subfleet | while read d;
+    do rg foo "$d"; done` is denied, though ls writes names relative to `~/.subfleet`).
+  - An unterminated heredoc leaves the rest read as commands; the shells read it all as the body.
 
 | File | SHA-256 |
 | --- | --- |
-| `never-rules-hook.sh` | `0b00cc6182af3cb19abdc78b74492b00c5a1b22c53e224c2ce65481e6744789b` |
-| `TRUST` | `09ed48d336d868d32ac6612035fcad272f27ff5ac81c9616cfa11841d0df17a8` |
+| `never-rules-hook.sh` | `6671496ba743cfcd18decbec3f92594f0af5022614cae4a6a0acc76f838caea3` |
+| `TRUST` | `955bc7fa641afdf90ae76a29443404e268e5e316b0c486be7b2ee13599513d2f` |
 
 TRUST is the installed TRUST of 2026-09-29 (`b3193b97…`), changing only `hook_sha256` and
 appending four dated provenance additions (D-LANE-SCOPE1's three sentences, r2's one, r3's one

@@ -35,7 +35,7 @@ NEW_ROOTS = "|\\.subfleet(/[^/[:space:]'\\\"]+)?"
 ENV_ROOTS = "|\\\\\\$SUBFLEET_(ROOT|HOME)(/[^/[:space:]'\\\"]+)?"
 ENV_SED = " s/\\$[{]SUBFLEET_ROOT[}]/$SUBFLEET_ROOT/g; s/\\$[{]SUBFLEET_HOME[}]/$SUBFLEET_HOME/g'"
 OLD_HOOK_SHA256 = "a60d1c514d3a3bcec68c246a33c849c11fd37e1bdf60d886650cd9d6651390db"
-NEW_HOOK_SHA256 = "0b00cc6182af3cb19abdc78b74492b00c5a1b22c53e224c2ce65481e6744789b"
+NEW_HOOK_SHA256 = "6671496ba743cfcd18decbec3f92594f0af5022614cae4a6a0acc76f838caea3"
 ROOT_CORE = 'root_core="/|/\\\\*|/Users/?|(${broad_re})/?"'
 
 # name -> (file, old text, new text, the named test that must kill it)
@@ -123,6 +123,25 @@ MUTATIONS = {
     "rv4-backtick-space-dropped": (HOOK, None, None, "test_review_r4_pins_r4s_unpinned_readings"),
     "rv4-function-keyword-dropped": (HOOK, None, None, "test_review_r4_pins_r4s_unpinned_readings"),
     "r5-dotdot-parent-dropped": (HOOK, None, None, "test_r5_a_component_bash_can_match_against_dotdot_names_its_parent"),
+    # review r5's two probe mutants, each killed by the test its review commit added (9487a0f59)
+    "rv5-execdir-dropped": (HOOK, None, None, "test_review_r5_pins_r5s_unpinned_readings"),
+    "rv5-wrapper-equals-dropped": (HOOK, None, None, "test_review_r5_pins_r5s_unpinned_readings"),
+    # r6 (the hub's decisions on review r5), one per decision 1-9 (two for 9: substitutions and loops), and the
+    # step budget decisions 4 and 5 share
+    "r6-body-unread": (HOOK, None, None, "test_r6_an_unquoted_heredoc_bodys_substitutions_are_judged"),
+    "r6-xargs-shell-unread": (HOOK, None, None, "test_r6_xargs_into_a_shell_whose_script_names_a_searcher"),
+    "r6-filter-heredoc-dropped": (HOOK, None, None, "test_r6_any_producers_heredoc_piped_into_a_shell_is_its_script"),
+    "r6-arith-unread": (HOOK, None, None, "test_r6_an_arithmetic_shift_starts_no_heredoc"),
+    "r6-unterminated-disables-rest": (HOOK, None, None, "test_r6_an_arithmetic_shift_starts_no_heredoc"),
+    "r6-dq-parend-plain": (HOOK, None, None, "test_r6_a_substitution_in_double_quotes_reads_its_heredoc"),
+    "r6-equals-backtick-dropped": (HOOK, None, None, "test_r6_zsh_equals_cmd_after_a_backtick_is_read"),
+    # decision 7 keeps r5's closing backtick in root_end (a fenced line, so the fence fails with this one too)
+    "r6-span-backtick-dropped": (HOOK, None, None,
+                                 "test_r6_a_markdown_code_span_in_a_quoted_body_is_an_intended_over_block"),
+    "r6-cap-dropped": (HOOK, None, None, "test_r6_hostile_words_fail_closed_fast"),
+    "r6-psub-unread": (HOOK, None, None, "test_r6_process_substitutions_and_loops_are_judged"),
+    "r6-loop-words-dropped": (HOOK, None, None, "test_r6_process_substitutions_and_loops_are_judged"),
+    "r6-budget-dropped": (HOOK, None, None, "test_r6_dense_substitutions_fail_closed_fast"),
 }
 #: r3's and r3b's mutants: (old text, new text) pairs, each old text exactly once in the hook.
 LIST_GUARD = '      elif pw_holds "$p"; then\n'
@@ -246,7 +265,8 @@ EDITS = {
 """, "")],
     "r5-dq-substitution-unread": [("""          if (mode == "prep" && !noext) spans(substr(seg, i + 1, j - i - 1), ctx, depth)
 """, "")],
-    "r5-bound-hides-producer": [("""    if (hs && hb) { out = bound(tk, val, ex, isfr, sp, nt); lastprod = prod; if (collect) coll = coll "\\n" prod; return out }
+    # retargeted in r6: decision 9 keeps the roots a bounded producer writes too
+    "r5-bound-hides-producer": [("""    if (hs && hb) { out = bound(tk, val, ex, isfr, sp, nt); lastprod = prod; lastroots = proots(val[t], fw, prod); if (collect) coll = coll "\\n" prod; return out }
 """, """    if (hs && hb) return sp[0] ":" sp[nt]
 """)],
     "r5-pipe-stages-dropped": [("""      nextin = (sep == "|" || sep == "|&") ? pi (pi == "" ? "" : "\\n") lastprod : ""
@@ -270,9 +290,45 @@ EDITS = {
     "r5-base-quadratic": [("""  function base(v, n, a) { n = split(v, a, "/"); return a[n] }
 """, """  function base(v,   x) { x = v; sub(/.*\\//, "", x); return x }
 """)],
-    "r5-heredoc-unread": [("""      if (c == "<" && substr(t, i + 1, 1) == "<" && !hf && (j = hdword(t, i))) {
+    # retargeted in r6: decision 4 replaced the !hf test with the arithmetic one
+    "r5-heredoc-unread": [("""      if (c == "<" && substr(t, i + 1, 1) == "<" && (j = hdword(t, i)) && !(na && arith(t, i, AO, AD, na, AV))) {
 """, """      if (0) {
 """)],
+    "rv5-execdir-dropped": [("""        if (rd[k] || val[k] !~ /^-(exec|execdir|ok|okdir)$/) continue
+""", """        if (rd[k] || val[k] !~ /^-(exec|ok|okdir)$/) continue
+""")],
+    "rv5-wrapper-equals-dropped": [("""      if (t <= nt && !qd[t] && val[t] ~ /^=[A-Za-z_.\\/]/) val[t] = substr(val[t], 2)
+""", "")],
+    "r6-body-unread": [("""          if (mode == "prep" && !noext && HDW !~ /[\\\\\\047"]/) { x = HDW; spans(HDB, ctx, depth); HDW = x }
+""", "")],
+    "r6-xargs-shell-unread": [("""      if (mode == "prep" && st["a"] && st["s"] && st["c"] && st["g"] && pwn(val[st["g"]])) xsh = 1
+""", "")],
+    "r6-filter-heredoc-dropped": [("""        if (hstr hd != "") prod = prod (prod == "" ? "" : "\\n") hstr (hstr != "" && hd != "" ? "\\n" : "") hd
+""", "")],
+    "r6-arith-unread": [("""(j = hdword(t, i)) && !(na && arith(t, i, AO, AD, na, AV))) {
+""", """(j = hdword(t, i))) {
+""")],
+    # a body that never ends turns heredoc reading off for every later line, as r5's hf did
+    "r6-unterminated-disables-rest": [("""        if (!x && hn) HZ[HDS, HDD] = 1
+""", """        if (!x) hz = 1
+""")],
+    "r6-dq-parend-plain": [("""      if (c == "\\"") { j = dqhend(t, i); if (!j) j = n; seg = seg substr(t, i, j - i + 1); i = j + 1; continue }
+""", """      if (c == "\\"") { j = dqend(t, i); if (!j) j = n; seg = seg substr(t, i, j - i + 1); i = j + 1; continue }
+""")],
+    "r6-equals-backtick-dropped": [("""    || printf '%s' "$1" | grep -qE "(^|[[:space:];&|(\\`])=(find|rg|[efru]?grep)([[:space:]]|\\$)"
+""", """    || printf '%s' "$1" | grep -qE "(^|[[:space:];&|(])=(find|rg|[efru]?grep)([[:space:]]|\\$)"
+""")],
+    "r6-span-backtick-dropped": [("""  root_end="['\\"]?([[:space:]|;&)\\`]|\\$)"
+""", """  root_end="['\\"]?([[:space:]|;&)]|\\$)"
+""")],
+    "r6-cap-dropped": [("""  [ "$pw_many" = 0 ] || block""", """  [ "$pw_many" = 0 ] || true""")],
+    "r6-psub-unread": [("""      if (c == "<" && substr(t, i + 1, 1) == "(" && mode == "prep" && !noext && (j = parend(t, i + 1))) {
+""", """      if (0) {
+""")],
+    "r6-loop-words-dropped": [("""          if (w in LVAR) { tk[k] = LVAR[w]; val[k] = value(tk[k]); qd[k] = (tk[k] ~ /["\\047\\\\]/) }
+""", "")],
+    "r6-budget-dropped": [("""      if (++pst > 20000) { cplx = 1; return 0 }
+""", "")],
     "r5-dotdot-parent-dropped": [("""  case "$1" in .*[*?[]*) ;; *) return 1 ;; esac
   pw_pattern "$1" || return 0
 """, "  return 1\n")],
@@ -364,7 +420,8 @@ def main() -> int:
     # r4's and review r3's mutants first, then r3c's, r3b's and r3's: a run its hold cuts short still
     # reports the newest decisions.
     edited = [name for name in MUTATIONS if name in EDITS]
-    newest = ([name for name in MUTATIONS if name.startswith(("r5-", "rv4-"))]
+    newest = ([name for name in MUTATIONS if name.startswith(("r6-", "rv5-"))]
+              + [name for name in MUTATIONS if name.startswith(("r5-", "rv4-"))]
               + [name for name in edited if name.startswith("r4-")] + [name for name in edited if name in REVIEW_R3])
     order = (newest + [name for name in reversed(edited) if name not in newest]
              + [name for name in MUTATIONS if name not in EDITS and name not in newest])

@@ -29,7 +29,7 @@ live guard; the hub installs it with the steps below.
 
 ## What changed
 
-**The hook** (`private/guard/never-rules-hook.sh`, SHA-256 `0b00cc61…789b` after r5; r4v's was `1d8bc1e5…e58c`, r4's `4b382c29…79ec`, r3c's `7a5ad79d…1a1a`, r3b's
+**The hook** (`private/guard/never-rules-hook.sh`, SHA-256 `6671496b…aea3` after r6; r5's was `0b00cc61…789b`, r4v's `1d8bc1e5…e58c`, r4's `4b382c29…79ec`, r3c's `7a5ad79d…1a1a`, r3b's
 was `f952fd3e…131e`, r3's `2c3fbc1a…d7cf`, r2's `dbe21e1d…041c`). Two alternations join the roots in `broad_re`:
 
 ```
@@ -67,7 +67,7 @@ region's header comments, and since r3c the prefilter's third term, `pw_cmd` in 
 (`dbe21e1d…`); then it undoes D-LANE-SCOPE1's text edits, the two `sed` edits and the `broad_re`
 line and gets the original reviewed bytes (`a60d1c51…`) back.
 
-**TRUST** (`09ed48d3…17a8` after r5; r4v's was `3c7c8af8…f9bb`, r4's `807f0e8b…7fb4`, r3c's `68936faf…c91a`, r3b's `0d5dac0f…54d8`, r3's `12b5f31a…58a2`, r2's `aa09f53d…a2f0`). It is built on the installed TRUST of 2026-09-29 (`b3193b97…`, the
+**TRUST** (`955bc7fa…3d2f` after r6; r5's was `09ed48d3…17a8`, r4v's `3c7c8af8…f9bb`, r4's `807f0e8b…7fb4`, r3c's `68936faf…c91a`, r3b's `0d5dac0f…54d8`, r3's `12b5f31a…58a2`, r2's `aa09f53d…a2f0`). It is built on the installed TRUST of 2026-09-29 (`b3193b97…`, the
 `codex-cli 0.159.0` pin), not on the repository's copy at `abe117e67` (`0b9d688e…`, which still
 pins `codex-cli 0.153.3`; a TRUST built on it would refuse every Codex lane at preflight with
 VERSION, `subfleet/guard/preflight.py:649-650`). It has the same keys. `hook_sha256` is
@@ -1067,6 +1067,83 @@ and folded code points (the r3c mount test ran in the mutant control); the overl
 (`test_guard_overlay.py`) and the three guards; `test_guard_trust.py`; S4's two items (they need the
 operator's Claude hook); and `tests/frontend/test_core_live.py`, which cannot run on a lane.
 
+## r6: review r5's findings closed (2026-10-28)
+
+The hub's review r5 (REQUEST_CHANGES at `e02a22fb6`) found two P2s and seven P3s that needed code (an
+eighth, two unpinned r5 readings, it pinned itself in `9487a0f59`, `test_review_r5_pins_r5s_unpinned_readings`,
+which stays and passes). r6 builds on `809346708` (that test plus the hub's merge of `release/217`). Every pin is
+review r5's input or the brief's, judged through the whole hook in the fixture (`test_r6_*`), and each command
+pin and control also runs in real `/bin/zsh -f` and `/bin/bash` 3.2 over the fixture with stub searchers and
+the fixture's HOME (`test_r6_command_pins_agree_with_real_shells`; r6's find stub runs the real `/usr/bin/find`
+only when every start path, and the cwd, is a folder inside the fixture, and `git`, `python3` and `gh` are
+no-ops).
+
+**Decisions as built.**
+
+1. **An unquoted heredoc body's substitutions are judged.** When the delimiter word holds no quote and no
+   backslash (`<<EOF`, `<<-EOF`), `prep()` runs `spans()` over the body (`HDB`), so each `$(…)` and backtick
+   span in it that names a searcher is judged as a command; the rest of the body stays data. `<<'EOF'`,
+   `<<"EOF"`, `<<E"O"F` and `<<\EOF` keep the whole body data. (`HDW` is saved across the nested reading,
+   which reuses the heredoc globals.)
+2. **xargs into a shell whose `-c` script names a searcher.** `simple()` sets `xsh` when xargs runs `sh`,
+   `bash`, `zsh`, `dash` (or `ksh`, shstep's set) with `-c` and the script names a searcher as `pw_named` reads
+   it (`pwn()`, its four tests in awk); the prep then ends with `\003X\003`, and the xargs rule judges the
+   whole command (`pw_xsh`): a root anywhere, a bounded producer's roots included (`bound()` keeps them), and a
+   root right before an xargs, quoted or not. The rule's edit is outside the path-word blocks (`R6_TEXT`).
+3. **Any producer's heredoc or here-string piped into a shell is its script:** `simple()`'s generic producer
+   branch passes on its `hstr` and `hd` as the `cat` branch does.
+4. **An arithmetic `<<` starts no heredoc.** The prep keeps the open `((` it has read (by its own `(` and `)`
+   separators) and, only at a `<<` it would read as a heredoc, `arith()` asks whether one of them, innermost
+   first, is arithmetic: its inner `(` closing right before its outer one, as the shells read them. A `<<`
+   whose body never ends disables only itself (r5's `hf` is gone; `hz` and `HZ` remember a line end or a
+   delimiter already not found). *Deviation from a literal "skip `$((…))`":* skipping the text whole would
+   hide a `$(…)` inside an arithmetic expression from the prep, so only the `<<` is reinterpreted, lazily;
+   an eager look at every `((` cost about 10 s more than r5 on 2,000 `(`.
+5. **A `$(` inside double quotes ends where a heredoc-aware `parend` says.** `parend()` reads heredocs (the
+   lines after the line holding a `<<`, to its delimiter line; a body that never ends disables only its
+   `<<`), and `dqhend()` is `dqend()` with each `$(` inside the quotes run to `parend()`'s `)`; the prep's
+   double quotes, `eol()` and `simple()`'s tokenizer use it.
+6. **zsh's `=cmd` after a backtick:** the prefilter's sixth term and `pw_named`'s `=cmd` test take a
+   backtick before the `=` (the prefilter edit is outside the path-word blocks: `R6_TEXT`).
+7. **The markdown code span over-block is intended.** r5's behaviour is kept and pinned as denied
+   (`test_r6_a_markdown_code_span_in_a_quoted_body_is_an_intended_over_block`). *Counterexample to review r5's
+   rescoping edit:* without the backticks the span is still denied, and so it is with the path quoted, since
+   the text rules read `rg --files ~/.subfleet` in the body (the installed hook, which does not know
+   `~/.subfleet`, allows all three). What rescopes it: naming the root outside the searcher's span
+   (`` Run `rg --files` in `~/.subfleet` ``), or a scoped path. Both pinned.
+8. **Hostile words fail closed fast.** A command that names a searcher and holds more than 4,096 of any one
+   of `$`, `#` or `\` is denied before the prep, as too complex to judge (one awk pass counts the three).
+9. **Process substitutions and loops.** What a `<(…)` writes (`subout()`, the pipe model of r5's decision 11)
+   goes to the command it is a word of: the script of a shell given no script (`bash <(…)`,
+   `bash < <(…)`) or of `source`/`.` (run in this shell), and what `cat` or any producer passes on. A `for`
+   loop variable stands for its words, and a variable a piped `while read` reads for the roots of what the
+   pipe carries (find: its roots, `.` when it names none; any other command: its words), as `{}` does for
+   `-exec`: a searcher operand that is only `$V`, `"$V"`, `${V}` or `"${V}"` is read as them. Any other
+   loop shape stays unjudged. (This awk allows 50 arguments and locals per call, so `simple()` keeps the
+   new state in `st["ps"]` and `st["pr"]` and reuses `w`.)
+10. **The 300-path cost test measures child CPU** (`resource.getrusage(RUSAGE_CHILDREN)` deltas around each
+    run, interleaved, the same 2× bound on the median); it reports the wall times beside.
+
+**The step budget (a deviation shared by decisions 4, 5 and 9).** A dense run of `$(` or `((` made every
+`parend()` read walk the rest of the command; r5's own hook already ran past 90 s on 2,000 `$(` inside
+double quotes (23.8 s on 500), and Codex's hook timeout is 60 s. Every `parend()` call now shares one budget
+of 20,000 steps, and a special character is taken without the 512-character window match (which costs its
+whole window when it fails); past the budget the prep stops, its last line is `\003C\003`, and the hook
+denies the command as too complex to judge right after the prep (the no-path pass fails closed on it too).
+`test_r6_dense_substitutions_fail_closed_fast` pins three dense forms.
+
+**The hub's decisions 11 to 13.** "Known differences" in `docs/private-guard-overlay.md` lists every form of
+review r5's check 8, each marked fixed at this head with its decision or left open with its reason, sorted
+into overlay-only, shared or unchecked against snapshot-5, and stricter. `test_review_r4_pins_r4s_unpinned_readings`
+and `test_review_r5_pins_r5s_unpinned_readings` stay and pass. TRUST changes only `hook_sha256` (no decision
+changes what the provenance says); step 0 of the install lists the installed pair and the new one, and the
+rollback pair stays `a60d1c51…`/`b3193b97…`.
+
+**Red runs at `809346708`** (the probe: the fixture seam, home `/Users/tester`, four at a time, load ~217): of
+the 90 r6 pins, 35 must-deny inputs were allowed and one control I first wrote (the span without backticks)
+was denied, which is decision 7's counterexample above; the three hostile rows each ran past 30 s and were
+stopped.
+
 ## Invariants and how they were checked
 
 `tests/unit/test_guard_subfleet_root.py` states each in its docstring and checks it.
@@ -1373,9 +1450,9 @@ could time out).
    shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST
    # a60d1c514d3a3bcec68c246a33c849c11fd37e1bdf60d886650cd9d6651390db  …/never-rules-hook.sh
    # b3193b97d712bda6a5cc0f2447907e674f7ed90911a82d7709de8298b42aaa06  …/TRUST
-   shasum -a 256 private/guard/never-rules-hook.sh private/guard/TRUST   # the reviewed pair (r5)
-   # 0b00cc6182af3cb19abdc78b74492b00c5a1b22c53e224c2ce65481e6744789b  private/guard/never-rules-hook.sh
-   # 09ed48d336d868d32ac6612035fcad272f27ff5ac81c9616cfa11841d0df17a8  private/guard/TRUST
+   shasum -a 256 private/guard/never-rules-hook.sh private/guard/TRUST   # the reviewed pair (r6)
+   # 6671496ba743cfcd18decbec3f92594f0af5022614cae4a6a0acc76f838caea3  private/guard/never-rules-hook.sh
+   # 955bc7fa641afdf90ae76a29443404e268e5e316b0c486be7b2ee13599513d2f  private/guard/TRUST
    ```
 
 1. **Stage through the repository's staging path**, into a fresh state root on the same volume
@@ -1412,7 +1489,7 @@ could time out).
    EOF
    cmp private/guard/never-rules-hook.sh ~/.subfleet/guard/never-rules-hook.sh
    cmp private/guard/TRUST ~/.subfleet/guard/TRUST
-   shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST   # 0b00cc61…789b, 09ed48d3…17a8
+   shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST   # 6671496b…aea3, 955bc7fa…3d2f
    ls -la ~/.subfleet/guard
    ```
 

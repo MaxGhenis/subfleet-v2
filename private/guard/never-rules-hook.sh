@@ -51,6 +51,11 @@
 #     closing backtick, bash's .* and .?, the data volume's alias before a
 #     mount, commands too long to read, ~{...}, ~$NAME and $(...), zsh's
 #     =cmd, pipes into a shell, "$@" scripts, eval $(...) and <&0.
+#     r6 (2026-10-28) closed those of review r5: substitutions in an
+#     unquoted heredoc body, xargs into a shell -c script, any producer's
+#     heredoc into a shell, an arithmetic <<, the commit idiom's lone ",
+#     =cmd after a backtick, hostile $ # \ words and dense substitutions,
+#     <(...) scripts and loop variables.
 #     Change a root on both sides in one reviewed step: here, and in
 #     unscoped_search.py (BROAD_RE, HOME_SUBDIRS, expand()).
 #
