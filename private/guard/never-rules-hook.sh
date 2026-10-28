@@ -2256,6 +2256,10 @@ if pw_named "$command"; then
   # r5 decision 8: a command too long to prep (over 64 KB) that names a searcher fails closed, since none of
   # the prep's readings (names, keywords, scripts, heredocs, the no-path judgment) can be made
   [ "${#command}" -le 65536 ] || block "[unscoped-search] Command too long to judge: it is over 64 KB and names a searcher (find, rg or grep), so the guard cannot read where it searches. Split it into shorter commands, and scope each search: an exact subdirectory or -maxdepth/--max-depth."
+  # r6 decision 8: so does one holding more than 4,096 of any one of $, # or \ (the prep reads each of them a
+  # step at a time, so hostile words of them cost minutes), counted in one pass
+  pw_many=$(printf '%s' "$command" | LC_ALL=C awk -v RS=$'\001' '{ s = $0; a += gsub(/\$/, "", s); s = $0; b += gsub(/#/, "", s); s = $0; c += gsub(/\\/, "", s) } END { print (a > 4096 || b > 4096 || c > 4096) ? 1 : 0 }' 2>/dev/null) || pw_many=1
+  [ "$pw_many" = 0 ] || block "[unscoped-search] Command too complex to judge: it holds more than 4,096 of one of \$, # or \\ and names a searcher (find, rg or grep), so the guard cannot read where it searches. Split it into shorter commands, and scope each search: an exact subdirectory or -maxdepth/--max-depth."
   pw_cmd=$(printf '%s' "$command" | LC_ALL=C awk -v RS=$'\001' -v mode=prep "$pw_prep_awk" 2>/dev/null) || pw_cmd=""
   # r6 decisions 4, 5 and 9: a command whose $(...), $((...)), ((...)), <(...) and heredoc forms take the prep past
   # its step budget (parend, shared) is too complex to judge; the prep stops there and ends with \003C\003
