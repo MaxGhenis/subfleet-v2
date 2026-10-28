@@ -1206,6 +1206,36 @@ markdown span, is decision 7's denial); each decision's test holds 31 allowed fo
 controls. None comes near decision 8's cap: the most of any one of `$`, `#` or `\` in a must-allow case is 2
 (``x=$(cat <<'EOF' …``, the PR-body heredoc's `##`, `` git commit -m "use \`rg\` / here" ``).
 
+**Mutants** (`tools/guard_subfleet_root_mutations.py`, one `git archive` of HEAD each, the named test and the
+fence, under the lock): M1 admitted 09:14:50Z (A, load 192), M2b 10:02:10Z (A, load 80). Each control passed every
+named test and the fence.
+
+| Decision | Mutant | Killing test |
+| --- | --- | --- |
+| 1 | `r6-body-unread` | `test_r6_an_unquoted_heredoc_bodys_substitutions_are_judged` |
+| 2 | `r6-xargs-shell-unread` | `test_r6_xargs_into_a_shell_whose_script_names_a_searcher` |
+| 3 | `r6-filter-heredoc-dropped` | `test_r6_any_producers_heredoc_piped_into_a_shell_is_its_script` |
+| 4 | `r6-arith-unread`; `r6-unterminated-disables-rest` (survived M1, killed in M2b after `cba2d56e7` pinned the form across lines) | `test_r6_an_arithmetic_shift_starts_no_heredoc` |
+| 5 | `r6-dq-parend-plain` | `test_r6_a_substitution_in_double_quotes_reads_its_heredoc` |
+| 6 | `r6-equals-backtick-dropped` | `test_r6_zsh_equals_cmd_after_a_backtick_is_read` |
+| 7 | `r6-span-backtick-dropped` (root_end is a fenced line, so the fence fails too) | `test_r6_a_markdown_code_span_in_a_quoted_body_is_an_intended_over_block` |
+| 8 | `r6-cap-dropped` | `test_r6_hostile_words_fail_closed_fast` |
+| 9 | `r6-psub-unread`, `r6-loop-words-dropped` | `test_r6_process_substitutions_and_loops_are_judged` |
+| budget | `r6-budget-dropped` | `test_r6_dense_substitutions_fail_closed_fast` |
+| review r5 | `rv5-execdir-dropped`, `rv5-wrapper-equals-dropped` | `test_review_r5_pins_r5s_unpinned_readings` |
+| r5 (retargeted) | `r5-heredoc-unread`, `r5-bound-hides-producer` | `test_r5_heredoc_bodies_are_data`, `test_r5_a_depth_bound_covers_only_its_own_walk` |
+
+**Unrun at this head:**
+- r5's other 14 mutants (`r5-base-quadratic`, `r5-backtick-space-dropped`, `r5-dq-substitution-unread`,
+  `r5-pipe-stages-dropped`, `r5-too-long-allowed`, `r5-brace-root-unread`, `r5-voldots-glob-dropped`,
+  `r5-dotdot-parent-dropped`, `r5-alias-unfolded`, `r5-doc-duplicated` and review r4's four): their batch could
+  not finish inside the job's wall once the lock had held it 16 minutes. Each one's edit still matches the hook
+  exactly once, and each named test passed at this head (H2-H4, HB, HC).
+- Holds: the r3, r3b and r3c examples, shells, mount and folded-code-point tests; the three properties (r3, r3b,
+  r3c); S1, S1-r3, S2, S3 ×2, S5 and the cwd list. The lock admitted my holds 7 times in 2 h 45 m at load 63-192
+  (two more ran outside it after 34 and 40 minutes queued); these are what I would run first.
+- Not runnable here: S4's two items (they need the operator's Claude hook) and `tests/frontend/test_core_live.py`.
+
 ## Invariants and how they were checked
 
 `tests/unit/test_guard_subfleet_root.py` states each in its docstring and checks it.
