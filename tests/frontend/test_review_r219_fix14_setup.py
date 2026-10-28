@@ -1,4 +1,4 @@
-"""Round 12: quiet setup may normalize a valid landing, never a distant clip.
+"""Rounds 12–13: quiet setup may normalize a valid landing, never a distant clip.
 
 The full view replays r10's valid 24 pt callback followed by a 650 pt clip.
 The smaller AppKit diagnostic executes the checked-in barrier on an isolated clip.
@@ -21,8 +21,7 @@ from tests.frontend.test_review_r219_fix13_view import (
 pytestmark = needs_swift
 
 
-@pytest.fixture(scope="module")
-def setup_probe(tmp_path_factory):
+def setup_source():
     source = (ROOT / "tests/frontend/ReviewR219Fix8ViewProbe.swift").read_text()
     old = '            self.trace.append(entry.merging(["at": self.at(), "position": self.position()]) { _, new in new })'
     assert source.count(old) == 1
@@ -34,18 +33,25 @@ def setup_probe(tmp_path_factory):
     assert source.count(old) == 1
     source = source.replace(old, old + '''
         ProbeWaits.failureFile = root.appendingPathComponent("probe-failure.json")
-        ProbeWaits.context = { ["steps": record.steps, "trace": record.trace] }
+        ProbeWaits.context = { ["steps": record.steps, "trace": record.trace,
+                               "fixture_clip_writes": record.fixtureClipWrites ?? []] }
         if let text = ProcessInfo.processInfo.environment["R254_SETUP_GAP"], let gap = Double(text) {
             record.clipTo(fromEnd: gap)
+            record.fixtureClipWrites = []
             record.step("before_zero", target: target)
         }
 ''')
-    # Keep this deterministic rejection diagnostic short; the checked-in scene
-    # retains its existing readiness budget. Both use the same correction loop.
+    # Retain round 12's diagnostic budget. Either legal product recovery or a
+    # readiness expiry is acceptable; the independent write counter decides policy.
     old = 'await waitReady("send.zero_end", view:'
     assert source.count(old) == 1
     source = source.replace(old, 'await waitReady("send.zero_end", seconds: 1, view:')
-    probe = mutant_source("r12_setup_gap", "Probe.swift", source)
+    return source
+
+
+@pytest.fixture(scope="module")
+def setup_probe(tmp_path_factory):
+    probe = mutant_source("r12_setup_gap", "Probe.swift", setup_source())
     return compile_probe(tmp_path_factory.mktemp("setup-gap") / "probe", probe,
                          "SUBFLEET_VIEW_TEST")
 
@@ -67,6 +73,7 @@ def setup_run(binary, root, gap):
                       "before_zero": steps["before_zero"]["position"]["from_end"],
                       "quiet": steps.get("landed", {}).get("position", {}).get("from_end"),
                       "reply": steps.get("reply", {}).get("position", {}).get("from_end"),
+                      "fixture_clip_writes": context["fixture_clip_writes"],
                       "barrier": result.get("state", {})}))
     return run, result
 
@@ -90,22 +97,45 @@ def test_valid_callback_24_pt_reaches_quiet_zero_and_reply_assertion(setup_probe
     assert_landing_follows(result, steps)
 
 
-def test_quiet_setup_rejects_a_clip_650_pt_behind_after_valid_callback(setup_probe, tmp_path):
-    run, result = setup_run(setup_probe, tmp_path, 650)
-    with pytest.raises(AssertionError, match="send.zero_end"):
-        accept_setup(run, result)
-    assert run.returncode == 70 and result["wait"] == "send.zero_end", result
-    assert result["state"]["zero_end_first_gap"] == 650, result
-    # Lazy measurement can move the end while readiness waits. The fixture must
-    # leave the gap outside its correction tolerance, rather than hold it at 650.
-    assert abs(result["state"]["zero_end_gap"]) > result["state"]["zero_end_correction_tolerance"], result
-    assert result["state"]["zero_end_corrected_gaps"] == [], result
-    context = result["context"]
+def assert_distant_setup_input(run, result):
+    """Validate the native scene before a fixture mutation can count as a kill."""
+    assert run.returncode in (0, 70), run.stderr
+    context = result if run.returncode == 0 else result["context"]
     steps = {step["step"]: step for step in context["steps"]}
     [callback] = own_send_landings(context, steps)
     assert callback["position"]["from_end"] == 24, result
     assert steps["before_zero"]["position"]["from_end"] == 650, result
-    assert "landed" not in steps and "regrowing" not in steps, result
+    if run.returncode == 0:
+        accept_setup(run, result)
+        state = steps["landed"]
+        outcome = "product recovered legally"
+    else:
+        assert result["wait"] == "send.zero_end", result
+        state = result["state"]
+        assert state["zero_end_correction_tolerance"] == 25, result
+        # Lazy measurement may grow the gap, or the product may recover too
+        # late to establish the quiet frame. Only fixture writes decide policy.
+        assert isinstance(state["zero_end_gap"], (int, float)), result
+        assert "landed" not in steps and "regrowing" not in steps, result
+        outcome = "readiness expired naming the gap"
+    assert state["zero_end_first_gap"] == 650, result
+    writes = context["fixture_clip_writes"]
+    assert isinstance(writes, list), result
+    print(json.dumps({"outcome": outcome, "fixture_write_count": len(writes),
+                      "fixture_clip_writes": writes, "barrier": state}, sort_keys=True))
+    return writes
+
+
+def assert_fixture_correction_policy(writes):
+    # Same product tolerance as the barrier: Theme.space.column + 1.
+    outside = [write for write in writes if abs(write["gap"]) > 25]
+    assert not outside, f"fixture clipTo write outside 25 pt: {outside}"
+
+
+def test_quiet_setup_rejects_a_clip_650_pt_behind_after_valid_callback(setup_probe, tmp_path):
+    run, result = setup_run(setup_probe, tmp_path, 650)
+    writes = assert_distant_setup_input(run, result)
+    assert_fixture_correction_policy(writes)
 
 
 @pytest.fixture(scope="module")

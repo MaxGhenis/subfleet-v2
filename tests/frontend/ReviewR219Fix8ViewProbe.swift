@@ -2033,6 +2033,9 @@ final class RevealArrivals: @unchecked Sendable {
     var trace: [[String: Any]] = []
     var geometry: [[String: Any]] = []
     var steps: [[String: Any]] = []
+    // Armed after the setup diagnostic injects its input. Count at the write
+    // itself, independently of the barrier's corrected-gap trace.
+    var fixtureClipWrites: [[String: Double]]?
     var scene: Scene?
     var host: NSView?
     private var boundsObserver: NSObjectProtocol?
@@ -2080,6 +2083,7 @@ final class RevealArrivals: @unchecked Sendable {
         guard let host, let scroll = timelineScroll(host), let document = scroll.documentView else { return }
         let clip = scroll.contentView
         let y = offset ?? max(0, document.frame.height - clip.bounds.height - (fromEnd ?? 0))
+        fixtureClipWrites?.append(["at": at(), "gap": position()["from_end"] ?? 1e9])
         clip.scroll(to: NSPoint(x: 0, y: y))
         scroll.reflectScrolledClipView(clip)
     }
@@ -2089,6 +2093,7 @@ final class RevealArrivals: @unchecked Sendable {
         if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
         scene?.close()
         return extra.merging(["steps": steps, "trace": trace, "geometry": geometry,
+                              "fixture_clip_writes": fixtureClipWrites ?? [],
                               "readiness_waits": ProbeWaits.log,
                               "visible_windows": NSApp.windows.filter(\.isVisible).count]) { _, new in new }
     }
