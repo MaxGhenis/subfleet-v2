@@ -629,8 +629,9 @@ def scrub_bounded(text: str, limit: int | None, *, strip_reminders: bool = False
     `truncate`, and `truncate` bounds what is written of it, as release bounds its own
     scrub: so within the budget this is exactly `truncate(scrub_secrets(text), limit)`
     (#239 round 9). Past it, each excerpt is kept so, then cut as release cuts its own,
-    with release's marker between them giving the characters it left out; those pieces
-    fit `limit`, so nothing cuts them again (#239 review r9b, P2-1). Either way the cut,
+    with release's marker between them, the characters release's own cut of the same
+    excerpts leaves out; those pieces fit `limit`, so nothing cuts them again (#239 review
+    r9b, P2-1). Either way the cut,
     made in the written text, can fall elsewhere than release's cut of its own: it can
     keep a character release's cut left out, but none either scrub hides. The count is
     release's or the head's, whichever replaced more."""
@@ -707,15 +708,24 @@ def _released_pieces(text: str, limit: int | None, strip_reminders: bool):
         # cuts its own, so the pieces are written as they are and fit the limit. Cut first, the
         # part-word at each cut would become `[REDACTED]`, which the head's scrub holds only
         # whole, and `truncate` would cut the longer result again, through the marker (#239
-        # review r9b, P2-1).
-        head, tail = shown_by_both(head, own_head).strip(), shown_by_both(tail, own_tail).strip()
-        head = head[:int(usable * 0.6)].rstrip()
-        room = usable - len(head)
-        tail = tail[max(0, len(tail) - room):].lstrip() if room > 0 else ""
-        marker = f"\n… [{max(0, original - len(head) - len(tail)):,} characters omitted] …\n"
+        # review r9b, P2-1). The marker is release's, as without a limit: what its own cut of
+        # the same excerpts leaves out (#239 round 10).
+        omitted = original - sum(map(len, _cut_excerpts(head, tail, usable)))
+        head, tail = _cut_excerpts(shown_by_both(head, own_head).strip(), shown_by_both(tail, own_tail).strip(),
+                                   usable)
+        marker = f"\n… [{max(0, omitted):,} characters omitted] …\n"
         return [(head, True), (marker, True), (tail, True)], True, count, ["", "", ""], own
     marker = f"\n… [{max(0, original - len(head) - len(tail)):,} characters omitted] …\n"
     return [(head, False), (marker, True), (tail, False)], True, count, heads, own
+
+
+def _cut_excerpts(head: str, tail: str, usable: int) -> tuple[str, str]:
+    """Release's cut of a bounded text's two scrubbed excerpts (`scrub_release.scrub_bounded`):
+    the start of the head within 60% of `usable`, then as much of the end of the tail as
+    the rest of it holds."""
+    head = head[:int(usable * 0.6)].rstrip()
+    room = usable - len(head)
+    return head, (tail[max(0, len(tail) - room):].lstrip() if room > 0 else "")
 
 
 def _head_scrub_secrets(text: str, *, strip_reminders: bool = False, whole: bool = False) -> tuple[str, int]:
