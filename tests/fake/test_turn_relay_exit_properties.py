@@ -20,6 +20,7 @@ import pytest
 
 from subfleet.conversations import runner as runner_module
 from subfleet.conversations.runner import TurnRunner
+from subfleet.conversations.store import ConversationError
 from subfleet.conversations.turn import Frame
 from subfleet.conversations.titles import CLAIMED
 from subfleet.relay import Ack
@@ -36,8 +37,13 @@ ESCAPE_S = 1000.0
 EPSILON = 1e-6
 
 
-class Restart(Exception):
-    """A daemon restart: the runner's thread ends with nothing reported."""
+class Restart(ConversationError):
+    """A daemon restart: the runner's thread ends with nothing reported. It is the
+    refusal a closing service's runner meets (`store-closed`), which a runner that
+    ends on an exception leaves to a later daemon rather than settling (fix r3)."""
+
+    def __init__(self, message: str):
+        super().__init__("store-closed", message, code=1)
 
 
 @dataclass(frozen=True)

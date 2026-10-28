@@ -6,6 +6,7 @@ import pytest
 
 from subfleet.conversations import runner as runner_module
 from subfleet.conversations.runner import TurnRunner
+from subfleet.conversations.store import ConversationError
 from subfleet.relay import frame_sha256
 from tests.fake.test_turn_relay_exit_recovery import recovery  # noqa: F401
 
@@ -174,7 +175,9 @@ def test_restart_in_the_active_drain_rearms_from_available_proof(recovery, monke
         read()
         r.now[0] += 1
         if r.now[0] - first_proof >= 15:
-            raise RuntimeError("SECRET7 simulated daemon restart during stdout drain")
+            # Fix r3: the refusal a closing service's runner meets, which the runner
+            # leaves to a later daemon; any other exception now settles the turn.
+            raise ConversationError("store-closed", "SECRET7 simulated daemon restart during stdout drain", code=1)
         return True
 
     monkeypatch.setattr(r.runner, "_read_stdout", before_restart)
