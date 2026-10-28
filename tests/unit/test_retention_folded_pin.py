@@ -309,7 +309,8 @@ def test_a_job_typed_through_the_firmlink_during_a_retirement_keeps_the_tree(tmp
             patch.setattr(rarch.Retirement, "begin", begin)
         result = retire(daemon)
         job_id = seen["job"]
-        assert daemon._job(job_id)["workdir"].startswith("/System/Volumes/Data/"), daemon._job(job_id)
+        assert daemon._job(job_id)["workdir"] == folders.canonical(firm), daemon._job(job_id)
+        assert folders.fold(folders.canonical(firm)) == folders.fold(str(place))
         if who != "writer":
             assert not seen["live"] and seen["hold"].get("reason") == "lease-held", seen
             assert folders.exclusive_key(tree) in seen["hold"]["leases"], seen
