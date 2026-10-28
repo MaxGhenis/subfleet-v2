@@ -5152,3 +5152,215 @@ def test_review_r6_pins_r6s_unpinned_readings():
     assert rule(outs[REVIEW_R6_STEP_EDGE["read"]]) is None
     unread = json.loads(outs[REVIEW_R6_STEP_EDGE["unread"]])["hookSpecificOutput"]["permissionDecisionReason"]
     assert "too complex to judge" in unread
+
+
+# ---------------------------------------------------------------- r7: review r6's findings
+
+# Round r7 (2026-10-28) builds the hub's decisions on review r6 (REQUEST_CHANGES at 2bd5b3199, all P3). Each pin is
+# review r6's input or the brief's, judged through the whole hook in the fixture:
+#   1. parend reads arithmetic: in $((...)), ((...)), $[...] and let '...' a << is a shift, never a heredoc, and the
+#      span may cross lines, while a $( or backtick in it is still a command (review r6's P3-1 and P3-2);
+#   2. a heredoc body is read a line at a time with no copy of the rest of the command, each line read a step of
+#      the shared 20,000-step budget (P3-3);
+#   3. what a <(...) writes, a cat, tee or other filter it is a word of passes down the pipe after it, into a shell
+#      given no script (P3-4);
+#   4. "Known differences" names zsh's =(...), while ... done < <(...) and nested loops, open (P3-6);
+#   5. a plain assignment that lasts, after a loop's done, ends the loop variable's reading (P3-5);
+#   6. test_r4_hostile_words_fail_closed_fast measures child CPU (P3-7).
+R7_F = "/usr/bin/find / -name x"
+#: Decision 1: review r6's P3-1 (a loosening against r5) and P3-2 inputs; a shift inside a substitution, inside double
+#: quotes, in $[...] and in let '...'; and a $( inside arithmetic, still a command whose heredoc is read.
+R7_ARITH_DENIED = [
+    "echo \"$((1<<X\n))\"\n" + R7_F + "\nX\ncase x in x) : ;; y) : ;; esac; echo \"a\"",
+    "echo $((1<<X\n))\n" + R7_F + "\nX",
+    "((y = 1<<X\n))\n" + R7_F + "\nX",
+    "x=$(echo $((1<<X\n))\n" + R7_F + "\nX\n)",
+    "echo \"$(echo $((1<<X\n)))\"\n" + R7_F + "\nX",
+    "echo $[1<<X\n]\n" + R7_F + "\nX",
+    "let 'y=1<<X\n'\n" + R7_F + "\nX",
+    "echo $(( $(cat <<'EOF'\n1\nEOF\n) << 1 ))\n" + R7_F,
+]
+R7_ARITH_ALLOWED = ["n=$((1<<4)); echo \"$n\"; rg -c foo src", "echo $((1<<2))", "echo $((1<<X\n))\nrg foo src\nX",
+                    "echo $[1<<2]; rg foo src", "x=$(( (1<<2) + $(cat <<EOF\n3\nEOF\n) ))\nrg foo src",
+                    "git commit -m \"$(cat <<'EOF'\nfix $((1<<2)) here\nEOF\n)\""]
+
+
+def r7_heredocs(delimiters: int, lines: int) -> str:
+    """Review r6's P3-3 shape: delimiters heredocs on one line inside "$(...)", the first one's body lines, each
+    delimiter on its own line after, then a crawl."""
+    return ("rg foo src; echo \"$(cat " + " ".join(f"<<D{i}" for i in range(delimiters)) + "\n" + "a\n" * lines
+            + "".join(f"D{i}\n" for i in range(delimiters)) + ")\"; " + R7_F)
+
+
+#: Decision 2's rows: review r6's (43,431 characters; r6 took 17.4 s of CPU on it in review r6, r5 0.5 s), its
+#: smaller shape, and the same cost at the top level, where each of 300 delimiters that is never found read every
+#: later line (r6 4.8 s of CPU against r5's 1.5 s and the installed hook's 0.55 s, in this round's probe at load 54).
+#: Each is denied as too complex to judge, in at most R7_SCAN_CPU_S of child CPU (twice r5's 0.5 s).
+R7_SCAN = {
+    "300 delimiters, 20,000 lines": r7_heredocs(300, 20000),
+    "40 delimiters, 8,000 lines": r7_heredocs(40, 8000),
+    "300 missing delimiters, 20,000 lines, top level": ("rg foo src; cat " + " ".join(f"<<N{i}" for i in range(300))
+                                                       + "\n" + "a\n" * 20000 + R7_F),
+}
+R7_SCAN_CPU_S = 1.0
+#: ... and the budget's edges for body lines: inside "$(...)" the prep reads a body three times (18 steps and 3 a
+#: line), so 6,660 lines are 19,998 steps, read, and 6,661 are 20,001, too complex; at the top level hdbody reads it
+#: once (1 step and 1 a line), so 19,999 lines are 20,000 steps, read, and 20,000 are 20,001.
+R7_STEP_EDGE = {
+    "read": ["rg foo src; echo \"$(cat <<'A'\n" + "a\n" * 6660 + "A\n)\"", "rg foo src; cat <<'A'\n" + "a\n" * 19999 + "A\n"],
+    "unread": ["rg foo src; echo \"$(cat <<'A'\n" + "a\n" * 6661 + "A\n)\"", "rg foo src; cat <<'A'\n" + "a\n" * 20000 + "A\n"],
+}
+#: Decision 3: review r6's three P3-4 inputs and r7's fourth (sort; review r6 names three forms), a second <(...),
+#: an earlier stage, a later filter, and a nested <(...).
+R7_PSUB_DENIED = [
+    "cat <(echo 'rg --files ~/.subfleet') | bash", "cat <(printf '%s\\n' '" + R7_F + "') | sh",
+    "tee < <(echo 'rg --files ~/.subfleet') | bash", "sort <(echo 'rg --files ~/.subfleet') | bash",
+    "cat <(echo hi) <(echo 'rg --files ~/.subfleet') | bash", "echo x | cat <(echo '" + R7_F + "') | sh",
+    "cat <(echo 'rg --files ~/.subfleet') | sort | bash", "cat <(cat <(echo 'rg --files ~/.subfleet')) | bash",
+]
+R7_PSUB_ALLOWED = ["cat <(git ls-files) | wc -l", "cat <(echo 'rg foo src') | bash",
+                   "diff <(rg foo src) <(rg foo tests) | head", "paste <(echo a) <(echo b) | wc -l"]
+#: Decision 4: forms the shells walk and this head lets through, listed open in "Known differences" (each with the
+#: text the doc names it by): zsh's =(...) (a temporary file, not a <(...)); a while-read loop fed by < <(...) after
+#: its done (the read comes before the redirection that feeds it); nested loops (a for list built from a while-read
+#: variable).
+R7_KNOWN_OPEN = {
+    "source =(echo 'rg --files ~/.subfleet')": "source =(echo 'rg --files ~/.subfleet')",
+    "zsh =(echo 'rg --files ~/.subfleet')": "zsh =(…)",
+    "while read d; do rg foo \"$d\"; done < <(find ~/.subfleet -maxdepth 1)": "done < <(find ~/.subfleet -maxdepth 1)",
+    "find ~/.subfleet -maxdepth 1 | while read d; do for f in \"$d\"/*; do rg foo \"$f\"; done; done":
+        "for f in \"$d\"/*; do rg foo \"$f\"; done; done",
+}
+#: Decision 5: review r6's P3-5 over-block, allowed, and where an assignment lasts: a newline, &&, an if around the
+#: loop, and a piped while-read's variable ...
+R7_LOOPVAR_ALLOWED = [
+    "for d in ~/.subfleet/*; do echo \"$d\"; done; d=src; rg foo \"$d\"",
+    "for d in ~/.subfleet/*; do :; done\nd=src\nrg foo \"$d\"",
+    "for d in ~/.subfleet/*; do :; done; d=src && rg foo \"$d\"",
+    "if true; then for d in ~/.subfleet/*; do :; done; fi; d=src; rg foo \"$d\"",
+    "find ~/.subfleet -maxdepth 1 | while read d; do :; done; d=src; rg foo \"$d\"",
+]
+#: ... and the brief's two denied pins (no assignment; assigned back to a root), a root assigned after a scoped loop,
+#: and assignments that do not last or do not come first: after &&, in a subshell or a substitution, before a pipe,
+#: before & and as a prefix of the search itself.
+R7_LOOPVAR_DENIED = [
+    "for d in ~/.subfleet/*; do echo \"$d\"; done; rg foo \"$d\"",
+    "for d in ~/.subfleet/*; do :; done; rg foo \"$d\"",
+    "for d in ~/.subfleet/*; do :; done; d=src; rg foo \"$d\"; d=~/.subfleet; rg foo \"$d\"",
+    "for d in src; do :; done; d=~/.subfleet; rg foo \"$d\"",
+    "for d in ~/.subfleet/*; do :; done; false && d=src; rg foo \"$d\"",
+    "for d in ~/.subfleet/*; do :; done; (d=src); rg foo \"$d\"",
+    "for d in ~/.subfleet/*; do :; done; x=$(d=src); rg foo \"$d\"",
+    "for d in ~/.subfleet/*; do :; done; d=src | cat; rg foo \"$d\"",
+    "for d in ~/.subfleet/*; do :; done; d=src & rg foo \"$d\"",
+    "for d in ~/.subfleet/*; do :; done; d=src rg foo \"$d\"",
+]
+#: Decision 5's remaining over-blocks, denied though no shell walks a root, listed "stricter" in "Known differences":
+#: an assignment inside a compound command (if, a brace group), after a case statement, of a value holding $, and
+#: inside a nested script.
+R7_LOOPVAR_STRICTER = [
+    "for d in ~/.subfleet/*; do if true; then d=src; fi; done; rg foo \"$d\"",
+    "for d in ~/.subfleet/*; do :; done; { d=src; }; rg foo \"$d\"",
+    "case x in x) ;; esac; for d in ~/.subfleet/*; do :; done; d=src; rg foo \"$d\"",
+    "for d in ~/.subfleet/*; do :; done; d=$PWD/src; rg foo \"$d\"",
+    "bash -c 'for d in ~/.subfleet/*; do :; done; d=src; rg foo \"$d\"'",
+]
+
+
+def test_r7_an_arithmetic_shift_crosses_lines():
+    """Decision 1: a << inside $((...)), ((...)), $[...] or let '...' is a shift even when the span crosses lines, so
+    review r6's P3-1 and P3-2 inputs (and the same shapes in a substitution, double quotes, $[...] and let) are
+    denied; a $( inside arithmetic is still a command, its heredoc read; scoped forms stay allowed."""
+    assert r5_denied([(c, S_) for c in R7_ARITH_DENIED]) == []
+    assert r5_allowed([(c, S_) for c in R7_ARITH_ALLOWED]) == []
+
+
+def test_r7_heredoc_bodies_count_against_the_step_budget(hooks):
+    """Decision 2: each row is denied as too complex to judge in at most R7_SCAN_CPU_S of child CPU (decision 10's
+    measure; one run each, the installed hook's CPU and the load reported), and the budget's body-line edges are
+    exact: read below, too complex above."""
+    rows = {}
+    for name, command in R7_SCAN.items():
+        cpu, wall, out = hook_cpu(HOOK, command)
+        assert rule(out) == "unscoped-search", name
+        assert "too complex to judge" in json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"], name
+        old_cpu, old_wall, _ = hook_cpu(hooks["old"], command)
+        rows[name] = {"cpu": [round(cpu, 2), round(old_cpu, 2)], "wall": [round(wall, 2), round(old_wall, 2)],
+                      "load": round(os.getloadavg()[0], 1)}
+        assert cpu <= R7_SCAN_CPU_S, (name, rows[name])
+    report("scan-r7", rows)
+    outs = judged(HOOK, R7_STEP_EDGE["read"] + R7_STEP_EDGE["unread"], S_)
+    assert [c[:40] for c in R7_STEP_EDGE["read"] if rule(outs[c]) is not None] == []
+    for c in R7_STEP_EDGE["unread"]:
+        assert "too complex to judge" in json.loads(outs[c])["hookSpecificOutput"]["permissionDecisionReason"], c[:40]
+
+
+def test_r7_a_filter_passes_on_its_process_substitution():
+    """Decision 3: what a <(...) writes goes down the pipe after the cat, tee, sort or other filter it is a word of,
+    into a shell given no script; a pipe into no shell, and a script that names no root, stay allowed."""
+    assert r5_denied([(c, S_) for c in R7_PSUB_DENIED]) == []
+    assert r5_allowed([(c, S_) for c in R7_PSUB_ALLOWED]) == []
+
+
+def test_r7_known_differences_name_the_open_forms(tmp_path):
+    """Decision 4: each open form is allowed at this head, a real shell walks a root on it, and the overlay doc's
+    "Known differences" names it."""
+    doc = (REPO / "docs/private-guard-overlay.md").read_text(encoding="utf-8")
+    known = doc[doc.index("Known differences that remain"):doc.index("| File | SHA-256 |")]
+    outs = judged(HOOK, list(R7_KNOWN_OPEN), S_)
+    for command, named in R7_KNOWN_OPEN.items():
+        assert rule(outs[command]) is None, command
+        assert any(r6_shell_walks(sh, command, S_, tmp_path) for sh in ("zsh", "bash")), command
+        assert named in known, named
+
+
+def test_r7_a_loop_variable_reassigned_after_its_loop_is_read_as_assigned():
+    """Decision 5: a plain assignment that lasts (the top of the command, after ;, a newline, & or nothing and
+    before ;, a newline, && or ||, no compound command open) ends a loop variable's reading, and a literal value is
+    read in its place; any other assignment leaves the loop's words; the remaining over-blocks are listed."""
+    assert r5_allowed([(c, S_) for c in R7_LOOPVAR_ALLOWED]) == []
+    assert r5_denied([(c, S_) for c in R7_LOOPVAR_DENIED + R7_LOOPVAR_STRICTER]) == []
+
+
+def test_r7_scoped_searches_stay_allowed():
+    """The must-allow lists (r6's test's cases, with review r4's allowed forms, the print-and-exit forms, the routine
+    commit and r6's 17 allowed lane commands), review r6's allowed forms, and each r7 decision's allowed forms."""
+    cases = ([(c, cwd) for cwd in R4_SCOPED_CWDS for c in R4_SCOPED] + [(c, LANE_W) for c in R4_PATTERN_ROOTS]
+             + R4_MUST_ALLOW + R4_ALLOWED + REVIEW_R4_ALLOWED + [("git commit -F - <<'EOF'\nIt's fixed\nEOF", LANE_W)]
+             + R5_HEREDOC_ALLOWED + R5_BOUND_ALLOWED + R5_BACKTICK_ALLOWED + R5_DOTDOT_ALLOWED + R5_BRACE_ALLOWED
+             + R5_FAMILY_ALLOWED + R5_FORMS_ALLOWED + [(c, cwd) for cwd in (H_, "/", S_) for c in R4_META]
+             + [(c, LANE_W) for c in R6_LANE_ALLOWED] + [(c, S_) for c in REVIEW_R6_ALLOWED]
+             + [(c, S_) for c in R7_ARITH_ALLOWED + R7_PSUB_ALLOWED + R7_LOOPVAR_ALLOWED])
+    assert r5_allowed(cases) == []
+
+
+# ---------------------------------------------------------------- r7: the real shells
+
+#: Every r7 command pin and control a shell can run (the cost rows and the budget's edges are left out: their verdicts
+#: are the budget's), from the scoped cwd; decision 5's listed over-blocks are denied by design.
+R7_SHELL_COMMANDS = [(c, S_) for c in (R7_ARITH_DENIED + R7_ARITH_ALLOWED + R7_PSUB_DENIED + R7_PSUB_ALLOWED
+                                      + R7_LOOPVAR_ALLOWED + R7_LOOPVAR_DENIED + R7_LOOPVAR_STRICTER)]
+R7_SHELL_EXCEPTIONS = {c: True for c in R7_LOOPVAR_STRICTER}
+
+
+def test_r7_command_pins_agree_with_real_shells(tmp_path):
+    """Each r7 command pin and control, run by /bin/zsh -f and /bin/bash over the fixture with r6's stubs and the
+    fixture's HOME: the hook denies it exactly when either shell's run would have walked a root, but for decision
+    5's listed over-blocks (denied, and no shell walks)."""
+    outs = judge_all(HOOK, R7_SHELL_COMMANDS)
+    rows, differ = [], []
+    for command, cwd in R7_SHELL_COMMANDS:
+        denied = rule(outs[(command, cwd)]) == "unscoped-search"
+        shells = {sh: r6_shell_walks(sh, command, cwd, tmp_path) for sh in ("zsh", "bash")}
+        rows.append((command, cwd, denied, shells))
+        if command in R7_SHELL_EXCEPTIONS:
+            if denied != R7_SHELL_EXCEPTIONS[command] or any(shells.values()):
+                differ.append(("exception", command, denied, shells))
+        elif denied != any(shells.values()):
+            differ.append((command[:200], cwd, denied, shells))
+    report("shells-r7", {"cases": len(rows), "denied": sum(r[2] for r in rows),
+                         "zsh": sum(r[3]["zsh"] for r in rows), "bash": sum(r[3]["bash"] for r in rows),
+                         "both": sum(r[3]["zsh"] and r[3]["bash"] for r in rows),
+                         "neither": sum(not r[3]["zsh"] and not r[3]["bash"] for r in rows),
+                         "rows": [(c[:120], d, s) for c, _, d, s in rows]})
+    assert differ == [], differ[:10]
