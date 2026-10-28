@@ -155,3 +155,5 @@
 {"nodeid": "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[READER-nested]", "when": "call", "outcome": "passed", "xfail": null}
 {"nodeid": "tests/unit/test_retention_rediscovery.py::test_finding_an_unspelled_turns_folder_again_writes_nothing_where_it_looks[READER-nested]", "when": "teardown", "outcome": "passed", "xfail": null}
 {"nodeid": "tests/unit/test_salvage_unindexable.py::test_the_snapshot_is_what_git_itself_can_index_and_leaves_out_only_what_it_refuses", "when": "setup", "outcome": "passed", "xfail": null}
+{"nodeid": "tests/unit/test_salvage_unindexable.py::test_the_snapshot_is_what_git_itself_can_index_and_leaves_out_only_what_it_refuses", "when": "call", "outcome": "passed", "xfail": null}
+{"nodeid": "tests/unit/test_salvage_unindexable.py::test_the_snapshot_is_what_git_itself_can_index_and_leaves_out_only_what_it_refuses", "when": "teardown", "outcome": "passed", "xfail": null}
