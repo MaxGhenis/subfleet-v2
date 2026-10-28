@@ -1,0 +1,233 @@
+{
+  "head": "e798ddc9fb1f9d9430f11d98fcbf78db00fd514a",
+  "recorded_utc": "2026-10-28T15:06:24.133686+00:00",
+  "status": "implementation complete; requested native and pytest validation not obtained",
+  "git": "named staging denied shared index.lock creation; no commits",
+  "constraints": {
+    "no_network": true,
+    "no_subagents": true,
+    "no_overlapping_pytest": true,
+    "long_foreground_runs": "shell yields running sessions after 30 s; user exception requested asynchronously, not received"
+  },
+  "checks": {
+    "python_ast_parse": [
+      "tests/frontend/test_review_r219_fix14_setup.py",
+      "tests/frontend/test_review_r219_fix8_mutations.py",
+      "tests/unit/test_ci_shard_plugin.py"
+    ],
+    "swift_syntax_parse": "passed via direct CLT compiler; no typecheck or native run",
+    "fresh_pytest_passes": 0,
+    "fresh_native_runs": 0,
+    "fresh_mutant_kills": 0,
+    "generated_swift_sources": "all replacement anchors unique; combined syntax parse stopped at 20 s without result",
+    "git_diff_check": "passed",
+    "final_head": "e798ddc9fb1f9d9430f11d98fcbf78db00fd514a",
+    "late_recovery_expiry": "final Python assertion accepts any measured gap; fixture-write policy alone controls rejection"
+  },
+  "holds": [
+    {
+      "label": "small-guards",
+      "queued_utc": "2026-10-28T14:46:01.327195+00:00",
+      "load": null,
+      "stopped": "interrupted before pytest; supervisor initially misread proc_listchildpids count; fixed for later attempts",
+      "returncode": 130,
+      "live_owned": [],
+      "pytest_phases": [],
+      "output": "sysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\n"
+    },
+    {
+      "label": "module-names",
+      "queued_utc": "2026-10-28T14:52:43.015006+00:00",
+      "load": 123.87060546875,
+      "args": [
+        "tests/unit/test_test_module_names.py"
+      ],
+      "foreground_budget": 20.0,
+      "stopped": "foreground deadline",
+      "returncode": -15,
+      "seconds": 20.21291229200142,
+      "owned_identities": {
+        "89224": "3b0ce26a00000000103c000000000000",
+        "89263": "3b0ce26a00000000e8cb090000000000",
+        "89279": "3b0ce26a0000000011870c0000000000",
+        "89290": "3b0ce26a00000000b0f10e0000000000",
+        "89316": "3c0ce26a000000004af1040000000000",
+        "89445": "3c0ce26a00000000439f0d0000000000",
+        "89519": "3d0ce26a00000000cb530a0000000000",
+        "89534": "3d0ce26a00000000c3040b0000000000",
+        "89572": "3d0ce26a00000000f1960d0000000000",
+        "89577": "3d0ce26a0000000021dd0d0000000000",
+        "89916": "3f0ce26a000000003c3a040000000000",
+        "89972": "3f0ce26a000000004d680a0000000000",
+        "89973": "3f0ce26a00000000346b0a0000000000",
+        "90420": "430ce26a000000001973050000000000"
+      },
+      "live_owned": [],
+      "pytest_phases": [],
+      "output": "sysctl: sysctl fmt -1 1024 1: Operation not permitted\nhold 14:52:47Z slot A load \n"
+    },
+    {
+      "label": "map-guard",
+      "queued_utc": "2026-10-28T14:56:35.327065+00:00",
+      "load": 99.94580078125,
+      "args": [
+        "tests/unit/test_ci_shard_plugin.py",
+        "-k",
+        "checked_in_map_fits or review_probes_share"
+      ],
+      "foreground_budget": 20.0,
+      "stopped": "foreground deadline",
+      "returncode": -15,
+      "seconds": 20.12890620899998,
+      "owned_identities": {
+        "29675": "230de26a00000000b4ff040000000000",
+        "29712": "230de26a00000000c774070000000000",
+        "29807": "230de26a00000000a83c0a0000000000",
+        "29842": "230de26a00000000ed790c0000000000",
+        "29987": "240de26a00000000e249030000000000",
+        "29995": "240de26a00000000d881030000000000",
+        "30004": "240de26a00000000fc08040000000000",
+        "30033": "240de26a000000006b81040000000000",
+        "30110": "240de26a00000000cb13080000000000",
+        "30112": "240de26a00000000b3a2080000000000",
+        "30287": "240de26a00000000dc0c0d0000000000",
+        "30152": "240de26a000000006e590a0000000000",
+        "30379": "250de26a000000007d6a010000000000",
+        "30479": "250de26a000000000b84060000000000",
+        "30543": "250de26a0000000035c9080000000000",
+        "31999": "2a0de26a000000006ec80d0000000000",
+        "32078": "2b0de26a00000000a776020000000000",
+        "32092": "2b0de26a00000000bd96030000000000",
+        "32110": "2b0de26a00000000661a050000000000",
+        "32106": "2b0de26a0000000091f6040000000000",
+        "32131": "2b0de26a00000000e2a4060000000000",
+        "32303": "2c0de26a00000000eb26040000000000",
+        "32321": "2c0de26a00000000a189060000000000",
+        "32336": "2c0de26a00000000029d080000000000",
+        "33285": "310de26a000000005b610b0000000000",
+        "33298": "310de26a00000000dc970d0000000000",
+        "33300": "310de26a00000000d1e90d0000000000",
+        "33302": "310de26a0000000056000e0000000000",
+        "33327": "320de26a000000004bdd030000000000",
+        "33427": "330de26a000000008f4a000000000000",
+        "33435": "330de26a000000009c56020000000000"
+      },
+      "live_owned": [],
+      "pytest_phases": [],
+      "output": "sysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\nsysctl: sysctl fmt -1 1024 1: Operation not permitted\n"
+    },
+    {
+      "label": "swift-parse",
+      "queued_utc": "2026-10-28T14:59:23.880773+00:00",
+      "load": 115.2822265625,
+      "args": [
+        "--command",
+        "xcrun",
+        "swiftc",
+        "-frontend",
+        "-parse",
+        "tests/frontend/ReviewR219Fix8ViewProbe.swift"
+      ],
+      "foreground_budget": 20.0,
+      "stopped": "foreground deadline",
+      "returncode": -15,
+      "seconds": 20.071594458000618,
+      "owned_identities": {
+        "57989": "cb0de26a00000000b5740d0000000000"
+      },
+      "live_owned": [],
+      "pytest_phases": [],
+      "output": ""
+    },
+    {
+      "label": "swift-direct-parse",
+      "queued_utc": "2026-10-28T15:01:01.107690+00:00",
+      "load": 108.37646484375,
+      "args": [
+        "--command",
+        "/Library/Developer/CommandLineTools/usr/bin/swiftc",
+        "-frontend",
+        "-parse",
+        "tests/frontend/ReviewR219Fix8ViewProbe.swift"
+      ],
+      "foreground_budget": 20.0,
+      "returncode": 0,
+      "seconds": 16.423029000005045,
+      "owned_identities": {
+        "73230": "2d0ee26a00000000a8bb010000000000"
+      },
+      "live_owned": [],
+      "pytest_phases": [],
+      "output": ""
+    },
+    {
+      "label": "generated-swift-parse",
+      "queued_utc": "2026-10-28T15:07:27.381628+00:00",
+      "load": 81.60693359375,
+      "args": [
+        "--command",
+        "/Library/Developer/CommandLineTools/usr/bin/swiftc",
+        "-frontend",
+        "-parse",
+        "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-qtf13/SetupProbe.swift",
+        "/private/var/folders/9l/_wztzgbx7mgc7l1r0416cy7m0000gn/T/sf-qtf13/MutantProbe.swift"
+      ],
+      "foreground_budget": 20.0,
+      "stopped": "foreground deadline",
+      "returncode": -15,
+      "seconds": 20.06753645799472,
+      "owned_identities": {
+        "35003": "af0fe26a00000000a2f3050000000000"
+      },
+      "live_owned": [],
+      "output": ""
+    }
+  ],
+  "shards": {
+    "cold_setup_phases_from_review": [
+      401.2410662919974,
+      487.95611383300275
+    ],
+    "cached_file_wall_from_review": 62.52,
+    "cached_file_phases_from_review": 61.81704508301118,
+    "borrowed_view_ratio": 1.4882543255028835,
+    "setup_file_estimate": 818.2,
+    "new_fixture_mutant_allowance": 818.2,
+    "mutation_file_estimate": 1757.7,
+    "projected_shards": [
+      1962.4,
+      1962.4,
+      1962.4,
+      1962.4,
+      1962.3
+    ],
+    "guard_seconds": 2100,
+    "workflow_minutes": 45,
+    "note": "provisional cold-file allowances using measured review phases, not fresh complete cold-file or CI measurements"
+  },
+  "review_input_sha256": {
+    "2026-10-28-pr254-r11-validation.json": "2ad1e3f279e3760559b02c42b9652135006a0d3dc205a7adc05a4f869449db0c",
+    "review_pr254_r11_probes.py": "ccdc9256af15c80e83fe665599e2ca4a2df77582816d75da689d50975a42ef64",
+    "2026-10-28-pr254-r11-review.md": "4ec10232ce3b79752b2946676989f998f47eab7e5be23d89ab1bb34860f671d1"
+  },
+  "file_sha256": {
+    "tests/frontend/ReviewR219Fix8ViewProbe.swift": "818203e0d1b3d46c802b19b4561c467fccb0b61f5ce3c897962d5e6fbfa040b0",
+    "tests/frontend/test_review_r219_fix14_setup.py": "784850e58e53c06e82e0c1b31b281067279c75324cfbc4076259e759490dfa0b",
+    "tests/frontend/test_review_r219_fix8_mutations.py": "dc17d55ad163420d10b1bc064f414e6e2fcefc35d14d0a78c557afc3533f7037",
+    "tests/unit/test_ci_shard_plugin.py": "2642d2f9c9a359ef521b4aaaed3f1746dfbc746b23375582051374708f0e0826",
+    ".github/test-shards.json": "1346342b36a82ac89b6c5f77018053b6a57e80c1f0c4c7816600daf129463c13"
+  },
+  "cleanup": {
+    "scratch_bytes_before_builds": 18418322,
+    "remaining_owned_stdout_log_holders": [],
+    "scratch_removed": true,
+    "processes_in_assigned_cwd_before_cleanup": [],
+    "worktree_caches_removed": [
+      "tools/__pycache__"
+    ],
+    "scratch_allocated_bytes_before_cleanup": 21422080,
+    "completed_utc": "2026-10-28T15:11:47.433278+00:00",
+    "final_processes_in_assigned_cwd": []
+  },
+  "report_sha256": "1b5ee6296dbf13fbc7375fb88891b95f03c5dc8a87402e760e55b13c5b61cd35"
+}
