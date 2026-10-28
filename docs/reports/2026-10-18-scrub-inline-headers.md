@@ -1840,7 +1840,7 @@ An executed case (from the corpora below), `clean` at 96: the text is `x`, `X-Au
 - review r8's new joins and both regression sets;
 - the first 2,500 of each other set.
 
-It used `cw9.py`, `drive9.py` and `an9.py` in this round's scratch, four worker processes, outside the lock. Counts are of texts.
+It used `cw9.py`, `drive9.py` and `an9.py` (kept with the holds' logs and the mutants in `~/reviews/subfleet-hub/scrub-inline-2026-10-18/fix9-tools/`), four worker processes, outside the lock. Counts are of texts.
 
 | Limit | Cut through the changed branch | Now ≠ `truncate(scrub_secrets)` | Round 8 ≠ now | Now = release's `clean` (round 8) | Shows what a whole-text scrub takes out, now (round 8) | Shows what release's `clean` cut out, now (round 8) | Now shows what round 8 left out (and the reverse) |
 |---|---|---|---|---|---|---|---|
