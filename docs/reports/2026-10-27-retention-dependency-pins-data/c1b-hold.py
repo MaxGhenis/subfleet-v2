@@ -37,7 +37,7 @@ def child(label, args):
         def pytest_runtest_setup(self, item):
             if time.monotonic() - start > 1000:
                 pytest.exit('Hold budget: resume uncompleted nodes in another foreground hold', returncode=2)
-    rc = pytest.main(['-q', '-p', 'no:cacheprovider', '--durations=5', *args], plugins=[Evidence()])
+    rc = pytest.main(['-q', '-p', 'no:cacheprovider', '--durations=5', '--hypothesis-show-statistics', *args], plugins=[Evidence()])
     print('FINISHED ' + json.dumps({**stamp(), 'rc': rc, 'seconds': time.monotonic() - start,
                                     'rss': resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}), flush=True)
     return rc
@@ -81,6 +81,9 @@ def stop(proc):
 def main(label, args):
     if args[:1] == ['--nodes']:
         args = Path(args[1]).read_text().splitlines() + args[2:]
+        if not args:
+            print(label + ': consolidated into another batch; no pytest started', flush=True)
+            return 0
     marker = DATA / f'{label}-admitted.json'
     assert not marker.exists(), label
     env = os.environ.copy()

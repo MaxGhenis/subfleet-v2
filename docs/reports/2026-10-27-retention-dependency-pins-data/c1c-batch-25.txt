@@ -1,0 +1,1 @@
+tests/fake/test_admission_properties.py::test_c6_9_a_lane_pinned_task_competes_only_on_the_model_it_walks[pinned-task-waits]

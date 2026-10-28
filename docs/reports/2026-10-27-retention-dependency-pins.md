@@ -6,11 +6,26 @@ The lane started at approximately 14:51Z; new holds/steps stop at 17:49:00Z, con
 
 ## Continuation 1 recovery, 2026-10-28 (in progress)
 
-This replacement job started at 06:56Z; new holds and steps stop conservatively at 10:54Z. The lost job's salvaged files have been copied unchanged into this report's data folder. Its `c1-reconstruct.py` reproduces **761** unfinished nodes from **1,104** unique planned nodes and **343** completed planned nodes. `c1b-reconstruct.py` independently verifies every saved plan against pytest's saved collection and its keyword matcher, then accounts for complete per-phase salvaged results. Two more planned nodes completed in the lost continuation (`remaining-02` and `remaining-04`), leaving **759** nodes in `remaining-nodes.txt`. The original 761-node list is preserved as `c1-original-remaining-nodes.txt`. Batches 01 and 03 have only setup results and remain uncompleted.
+The preserved replacement attempt started at 06:56Z. This resumed process started at **07:47Z**; it stops starting holds and steps at **11:46Z**. The lost job's 27 salvaged files were verified byte for byte (the original node list is preserved separately). Its `c1-reconstruct.py` correctly reproduces **761** unfinished nodes from **1,104** unique planned nodes and **343** completed planned nodes. `c1b-reconstruct.py` independently verifies every saved plan against pytest's saved collection and keyword matcher. Two additional complete salvaged results leave **759** nodes in `remaining-nodes.txt`; `c1-original-remaining-nodes.txt` preserves the original 761. Lost batches 01 and 03 contain only setup results and count as incomplete.
 
-At unchanged head `6ca8f4b0bc36`, the salvage proves **80 passed, 3 skipped** for dependency units, the three guards and provider shell environment, and **37 passed** for dependency fakes and daemon launch. Those nodes are reused, not rerun. All three provider shell cases were collected and skipped with real provider executables absent from PATH, honoring the no-real-provider rule. The fake daemon-launch cases executed. Remaining coverage is running in foreground-only holds, at most two serial pytest processes under the host's two suite-lock slots. Each hold records collection, per-phase results, admission/end loads and Python peak RSS, with an interrupt before 19 minutes.
+The preserved replacement attempt completed another **27** nodes in three holds (20 + 6 + 1). Their complete setup/call/teardown evidence is reused. This process therefore starts with **732** unfinished nodes, saved in `c1c-start-remaining.txt`. Its batches and foreground driver resume only nodes without complete successful results.
 
-Shared metadata again refuses `index.lock` (`Operation not permitted`). Ordered commits therefore use private scratch Git metadata on `fix/retention-dependency-pins-217`; the workspace's `.git` file is unchanged. Delivery will include a verified incremental `rdp217c1.bundle`. No fetch, push, real CLI, live store or real provider is used. Scratch currently occupies approximately 23 MB, well below 2 GB.
+At unchanged code checkpoint `6ca8f4b0bc36`, the salvage also proves **80 passed, 3 skipped** for dependency units, all three guards and provider shell environment, and **37 passed** for dependency fakes and daemon launch. These are reused. All three provider shell cases were collected and skipped with real provider executables absent from PATH; fake daemon-launch cases executed. No real provider, CLI, store, fetch, push or timing run is used. Each hold has one serial pytest, with at most four such workers, its own lock request, complete phase results, admission/end loads and peak Python RSS. An interrupted node is never counted as complete.
+
+Shared metadata rejects `index.lock` with `Operation not permitted`. The preserved bundle's recovery checkpoint **`4319e7b0c`** is retained unchanged as an ancestor. Further ordered commits use private scratch Git metadata on `fix/retention-dependency-pins-217`; the workspace's `.git` file is unchanged. The delivery bundle is `rdp217c1.bundle`. This process owns only `sf-rdp217c1/recovery-0747` within the named scratch folder and will remove that subtree with guarded cleanup. Its initial scratch footprint was approximately 23 MB.
+
+| Continuation hold | Result | Lock | Admission load | Pytest time |
+|---|---|---|---:|---:|
+| c1 core-units | 80 passed, 3 skipped | locked | 115.3 | see salvaged log |
+| c1 core-fake | 37 passed | locked | 110.9 | see salvaged log |
+| c1 remaining-02 | 1 passed | locked | 62.7 | see salvaged log |
+| c1 remaining-04 | 1 passed | outside after 30-minute wait | 115.1 | see salvaged log |
+| c1b remaining-01 | 20 passed | locked | 50.3 | 158.1 s admission-to-finish |
+| c1b remaining-02 | 6 passed | locked | 122.7 | 107.5 s admission-to-finish |
+| c1b remaining-03 | 1 passed | locked | 136.9 | 274.2 s admission-to-finish |
+| c1c remaining-02 | 50 passed | locked | 104.6 | 262.39 s |
+
+The JSONL hold ledgers and matching collection/results/log files in the data folder are the detailed evidence. All other continuation holds remain in progress or unstarted at this checkpoint.
 
 ## Checkpoints and recovery
 
