@@ -9718,7 +9718,8 @@ class Daemon:
         then `finalizing` on verified empty, `_lost` for a loss without a
         receipt, and `quarantined` with `reason` for anything else. `census` is a
         deciding census its caller has just taken; `unlaunched` (start grace, no
-        start.json) KILLs the group at once (fix 1, P2)."""
+        start.json) KILLs the group at once (fix 1, P2), and so does a `starting`
+        attempt's cancel or wall stop whose last read finds no start.json (C-5.6)."""
         # Fresh request attribution matters for descendants and clients that
         # replaced the wall after the worker read its attempt row.
         a = self.store.get_attempt(a["attempt_id"])
@@ -9905,7 +9906,8 @@ class Daemon:
         identity, of the census taken before it, still in the group; a member
         found since gets a TERM of its own before any continue. The guardian is
         never continued: it ignores TERM by design, so a continue only resumes its
-        launch. An `unlaunched` attempt (start grace, no start.json) has its group
+        launch. An `unlaunched` attempt (a `starting` one whose last read found no
+        start.json: start grace, a cancel or the wall) has its group
         KILLed at once, so its guardian never starts the provider. Nothing outside
         the census is signalled, and nothing is continued that was not sent a TERM.
         The parent-chain additions and held parents of every census taken here,
