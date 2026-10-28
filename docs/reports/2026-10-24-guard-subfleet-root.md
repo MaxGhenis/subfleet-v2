@@ -24,12 +24,12 @@ print-and-exit forms, `~$USER`, `$"…"` and `/Volumes/<entry>/..`. Round r5 (20
 closes those of the hub's review r4 (REQUEST_CHANGES at `6afb5ce19`): a long word's cost, heredoc
 bodies, a depth bound beside xargs or `-exec`, a root before a closing backtick, bash's `.*` and `.?`,
 the data volume's alias before a mount, commands too long to read, `~{…}`, `~$NAME` and `~$(…)`,
-zsh's `=cmd`, pipes into a shell, `"$@"` scripts, `eval $(…)` and `<&0`. Nothing here touches the
-live guard; the hub installs it with the steps below.
+zsh's `=cmd`, pipes into a shell, `"$@"` scripts, `eval $(…)` and `<&0`. Rounds r6 and r7 (2026-10-28) close the
+findings of the hub's reviews r5 and r6 (below). Nothing here touches the live guard; the hub installs it with the steps below.
 
 ## What changed
 
-**The hook** (`private/guard/never-rules-hook.sh`, SHA-256 `6671496b…aea3` after r6; r5's was `0b00cc61…789b`, r4v's `1d8bc1e5…e58c`, r4's `4b382c29…79ec`, r3c's `7a5ad79d…1a1a`, r3b's
+**The hook** (`private/guard/never-rules-hook.sh`, SHA-256 `89b0efe1…aa5d` after r7; r6's was `6671496b…aea3`, r5's `0b00cc61…789b`, r4v's `1d8bc1e5…e58c`, r4's `4b382c29…79ec`, r3c's `7a5ad79d…1a1a`, r3b's
 was `f952fd3e…131e`, r3's `2c3fbc1a…d7cf`, r2's `dbe21e1d…041c`). Two alternations join the roots in `broad_re`:
 
 ```
@@ -67,7 +67,7 @@ region's header comments, and since r3c the prefilter's third term, `pw_cmd` in 
 (`dbe21e1d…`); then it undoes D-LANE-SCOPE1's text edits, the two `sed` edits and the `broad_re`
 line and gets the original reviewed bytes (`a60d1c51…`) back.
 
-**TRUST** (`955bc7fa…3d2f` after r6; r5's was `09ed48d3…17a8`, r4v's `3c7c8af8…f9bb`, r4's `807f0e8b…7fb4`, r3c's `68936faf…c91a`, r3b's `0d5dac0f…54d8`, r3's `12b5f31a…58a2`, r2's `aa09f53d…a2f0`). It is built on the installed TRUST of 2026-09-29 (`b3193b97…`, the
+**TRUST** (`b749db5a…e9eb` after r7; r6's was `955bc7fa…3d2f`, r5's `09ed48d3…17a8`, r4v's `3c7c8af8…f9bb`, r4's `807f0e8b…7fb4`, r3c's `68936faf…c91a`, r3b's `0d5dac0f…54d8`, r3's `12b5f31a…58a2`, r2's `aa09f53d…a2f0`). It is built on the installed TRUST of 2026-09-29 (`b3193b97…`, the
 `codex-cli 0.159.0` pin), not on the repository's copy at `abe117e67` (`0b9d688e…`, which still
 pins `codex-cli 0.153.3`; a TRUST built on it would refuse every Codex lane at preflight with
 VERSION, `subfleet/guard/preflight.py:649-650`). It has the same keys. `hook_sha256` is
@@ -1115,7 +1115,9 @@ no-ops).
    of `$`, `#` or `\` is denied before the prep, as too complex to judge (one awk pass counts the three).
 9. **Process substitutions and loops.** What a `<(…)` writes (`subout()`, the pipe model of r5's decision 11)
    goes to the command it is a word of: the script of a shell given no script (`bash <(…)`,
-   `bash < <(…)`) or of `source`/`.` (run in this shell), and what `cat` or any producer passes on. A `for`
+   `bash < <(…)`) or of `source`/`.` (run in this shell), and what `cat` or any producer passes on (*not true at
+   r6:* the prep splits the command at the `(` of its `<(…)`, so no pipe carried that pass-on; review r6's P3-4, and
+   r7's decision 3 makes it fire). A `for`
    loop variable stands for its words, and a variable a piped `while read` reads for the roots of what the
    pipe carries (find: its roots, `.` when it names none; any other command: its words), as `{}` does for
    `-exec`: a searcher operand that is only `$V`, `"$V"`, `${V}` or `"${V}"` is read as them. Any other
@@ -1235,6 +1237,186 @@ named test and the fence.
   r3c); S1, S1-r3, S2, S3 ×2, S5 and the cwd list. The lock admitted my holds 7 times in 2 h 45 m at load 63-192
   (two more ran outside it after 34 and 40 minutes queued); these are what I would run first.
 - Not runnable here: S4's two items (they need the operator's Claude hook) and `tests/frontend/test_core_live.py`.
+
+## r7: review r6's findings closed (2026-10-28)
+
+The hub's review r6 (REQUEST_CHANGES at `2bd5b3199`, all P3) found seven P3s; its own test-only commit
+`016a256be` (`test_review_r6_pins_r6s_unpinned_readings`: 26 denied forms, 8 allowed forms and the step budget's
+edge) stays and passes. r7 builds on `016a256be`. Every pin is review r6's input or the brief's, judged through the
+whole hook in the fixture (`test_r7_*`), and each command pin and control also runs in real `/bin/zsh -f` and
+`/bin/bash` 3.2 over the fixture with r6's stubs and the fixture's HOME (`test_r7_command_pins_agree_with_real_shells`).
+
+**Decisions as built.**
+
+1. **`parend` reads arithmetic** (review r6's P3-1, a loosening against r5, and P3-2). At a `((`, `arend()` reads
+   the span in `parend`'s new arithmetic mode (no heredocs; parentheses counted; quotes, `$(…)` and backticks
+   skipped as they are elsewhere) and calls it arithmetic when its inner `(` closes right before its outer one, as
+   bash and zsh decide between `$((…))` and `$( (…) )`. An arithmetic span is passed over whole, so a `<<` in it is
+   a shift and the span may cross lines; a `$(` in it is read in command mode, its heredocs included. A `$[…]` is
+   read the same way to its `]`. The prep's `arith()` asks `arend()` (r6's two `parend` calls read the span as
+   commands, so a multi-line span never found its `))`), and a `<<` inside an open `$[…]` (`abe`) is a shift too.
+   `let '…'` is a quoted word, which neither `parend` nor the prep reads for heredocs; it is pinned.
+2. **Heredoc body lines count against the step budget** (P3-3). `parend` reads a body a line at a time: each line's
+   end is found 512 bytes at a time (`lnend`, each window past the first a step) and kept in `LE` for the next
+   delimiter's read, so no read copies the rest of the command, and each line read is a step of the shared
+   20,000-step budget. The registration's pre-check (`index(substr(t, j), HDD)`, another copy of the rest per
+   delimiter) is gone: the scan decides, and `PF` still keeps a delimiter not found. The edge of review r6's
+   `$(:)` shape holds no body line, so it is unchanged and still exact (19,998 steps read, 20,001 too complex); the
+   body-line edges are pinned beside it (`R7_STEP_EDGE`: inside `"$(…)"` the prep reads a body three times, 18 steps
+   and 3 a line, so 6,660 lines are read and 6,661 are too complex; at the top of the command once, 1 and 1 a line,
+   so 19,999 are read and 20,000 are too complex).
+   - *Deviation, an addition:* the prep's own `hdbody()` counts its lines too. At the top of the command, 300
+     delimiters that are never found each read every later line (r6's decision 4 made an unterminated `<<` disable
+     only itself): r6 took 4.93 s of CPU (35.9 s of wall at load 64) on `rg foo src; cat <<N0 … <<N299` + 20,000
+     lines, against r5's 1.55 s and the installed hook's 0.55 s. It is now denied as too complex in 0.36 s.
+   - *Deviation in how:* the brief's "compute line starts once, as `prep` does with `LN`/`LP`" is built as line
+     ends found once per `parend` call, lazily, from bounded windows, not as a `split()` of the rest. `parend` runs
+     once per `$(` and often on a substring (a segment, a double-quoted string), so a split per call would cost
+     the rest of the command per `$(`, which a dense run of `$(cat <<A⏎A⏎)` would multiply; the windows cost each
+     line read at most its own length. Both meet the decision's intent (no copy of the rest, each line a step);
+     this is reasoning, not a measured counterexample: the split form was not built.
+3. **A filter passes its `<(…)` down a pipe** (P3-4), the brief's first choice. The prep splits a command at the
+   `(` of its `<(…)`, so r6 handed the substitution only to the part of the command before the `(` and no pipe
+   carried it. Now, at that split, a command that passes on what its process substitution writes (`cat`, `tee`,
+   `sort`, any filter: `simple()` reports it as `lastps`, from `st["lp"]`) leaves its production, with what came
+   into it, in `oc`; each later `<(…)` of the same command adds to it, and the pipe after the command's words
+   (after the substitution's `)`, `oe`) carries it into the next stage. The pass-on lines of r6 (`:2040`, `:2048`)
+   are what `lastps` reads, so they are live now and review r6's `rv6-psub-passon-dropped` is killed. *Review r6
+   names three P3-4 inputs* ("all four hooks" in it are the hooks compared); r7 pins them and a fourth of its own,
+   `sort <(…) | bash`, with a second `<(…)`, an earlier stage, a later filter and a nested `<(…)`.
+4. **"Known differences" names three more forms**, each with its reason and pinned open
+   (`test_r7_known_differences_name_the_open_forms`: allowed here, walked by a real shell, named by the doc): zsh's
+   `=(…)` (a temporary file name; no script reading follows a file name), `while read d; …; done < <(find …)` (the
+   `read` comes before the redirection that feeds it, after `done`), and nested loops (the inner `for` list is
+   taken as written). Decision 3's hand-off does not catch the fed loop: its `<(…)` belongs to `done`.
+5. **A loop variable reassigned after its loop** (P3-5), built in `LVAR` with two small counters rather than a new
+   map: the prep sets `vtop` before each simple command (the top of the command: no subshell, substitution or
+   backtick, no case pattern's `)` seen; after `;`, a newline, `&` or nothing, before `;`, a newline, `&&` or `||`),
+   and `simple()` counts the compound commands open at the top (`ld`: `for`, `select`, `case`, `while`, `until`,
+   `if`, `{` against `done`, `esac`, `fi`, `}`). A command made only of assignments, with no keyword before it,
+   `vtop` set and `ld` zero, ends a loop variable's reading: a literal value (no `$`, no backtick) is read in its
+   place, so `d=src` passes and `d=~/.subfleet` is denied; any other assignment leaves the loop's words. The
+   brief's three pins hold. The over-blocks left (an assignment in an `if` or a brace group or a nested script,
+   after a case pattern without its leading `(`, or of a value holding `$`) are listed under "stricter" and pinned
+   (`R7_LOOPVAR_STRICTER`, denied, walked by neither shell). `simple()` was at 49 of this awk's 50 arguments and
+   locals, so the new state is in `st` (`vt`, `ka`, `lp`) and `op` is reused.
+6. **`test_r4_hostile_words_fail_closed_fast` measures child CPU**, best of three, the same 2.0 s, with wall time,
+   the cap edge's CPU and the load reported.
+7. **TRUST and docs.** TRUST changes only `hook_sha256`. The overlay doc gains r7's paragraph, its "Known
+   differences" read after r7 (arithmetic `<<` and the filter's `<(…)` marked fixed by decisions 1 and 3, the body-line
+   counts and decision 5's over-blocks under stricter). In r6's section above, decision 9's sentence on `cat` and
+   other producers was false at r6 (review r6's P3-4); it is true from r7.
+
+**Nothing is looser than r6 but decision 5's narrowing.** Over S1's generated corpus (528 pairs), the fixed corpus,
+every r4 to r7 command list in the test and 48 probes of mine (1,108 pairs), this head against r6: 15 newly denied
+(all r7 pins) and 5 newly allowed, each one of decision 5's `R7_LOOPVAR_ALLOWED`, which neither shell walks.
+
+**Red runs at `016a256be`** (the fixture seam, home `/Users/tester`, load 64-79). The probe over the brief's pins: the
+three decision 1 inputs, the four decision 3 inputs and decision 5's first pin were allowed (8 of 14 pins; the controls
+were allowed), and review r6's 300-delimiter row was denied by reading (not as too complex) in 1.15 s of CPU. Then the
+new tests, called directly against `016a256be`'s hook with this round's test file: `test_r7_an_arithmetic_shift_crosses_lines`,
+`…_heredoc_bodies_count_against_the_step_budget`, `…_a_filter_passes_on_its_process_substitution`,
+`…_known_differences_name_the_open_forms`, `…_a_loop_variable_reassigned_after_its_loop_is_read_as_assigned` and
+`test_r7_scoped_searches_stay_allowed` (decision 5's first pin) each failed.
+
+**Holds** (one pytest each, `-k` selections of `test_guard_subfleet_root.py` unless named, home `/Users/tester`; a
+bounded copy of `suite_hold.sh`, the same locks and log plus a wait deadline, kept each call under the tool's cap):
+
+| Hold | Admitted (slot, load) | Selection | Result, pytest time |
+| --- | --- | --- | --- |
+| H1 | 19:08:01Z (A, 103) | `test_r7_*`, r6's decision tests, review r6's test | 17 passed, 42 s |
+| H2 | 19:09:08Z (A, 106) | r6's shells, hostile and dense rows; r5's timing; r4's hostile rows and 300-path cost | 6 passed, 57 s |
+| H3 | 19:11:10Z (B, 61) | r4's and r5's decision tests, reviews r4 and r5 | 21 passed, 22 s |
+| H4 | 19:12:53Z (B, 57) | r4's and r5's shells, r4's words | 3 passed, 108 s |
+| H5 | 19:15:48Z (B, 17) | r1/r2, TRUST, the fence, env spellings, known limits | 18 passed, 236 s |
+| H6 | about 19:22Z (B, queued at 67) | S1 | 1 passed, 771 s |
+| HA | 19:39:30Z (A, 53) | `test_guard_overlay.py`, `test_guard_trust.py` | 127 passed, 312 s |
+| HB | 19:52:23Z (B, 109) | the three guards | 63 passed, 159 s |
+
+S1 at this head: 779 commands (531 generated, 253 fixed, 308 env twins), the old hook denies 119 and this one 313;
+the 194 newly denied are all r3's intended moves, none unexplained.
+
+**Timing rows** (one run each, child CPU in seconds, at load 60-69; the first three are decision 2's):
+
+| Row | This head | r6 | r5 | Installed | Load |
+| --- | --- | --- | --- | --- | --- |
+| 300 delimiters, 20,000 lines (denied; too complex here) | 0.46 | 1.09 | 0.78 | 0.54 (allowed) | 66-69 |
+| 40 delimiters, 8,000 lines (denied; too complex here) | 0.27 | 0.47 | 0.39 | 0.31 (allowed) | 66 |
+| 300 missing delimiters, 20,000 lines, top level (denied; too complex here) | 0.36 | 4.93 | 1.55 | 0.55 (allowed) | 63-66 |
+| 60,000 `x` beside a crawl | 0.35 | | 0.41 | 0.28 | 63 |
+| 60,000 `x` beside `rg foo src` | 0.37 | | 0.34 | 0.30 | 63-64 |
+| 65,000 `x`, scoped | 0.36 | | 0.30 | 0.26 | 64 |
+| 30,000 `x` beside a crawl | 0.30 | | 0.28 | 0.19 | 64 |
+| `'60,000 x'`, scoped | 0.35 | | 0.30 | 0.25 | 64 |
+| `"60,000 x"`, scoped | 0.30 | | 0.29 | 0.25 | 62 |
+| `` `echo 60,000 x` ``, scoped | 0.35 | | 0.33 | 0.28 | 62 |
+| 4,000 words in a commit message, scoped | 0.31 | | 0.25 | 0.25 | 62 |
+| a 70,000-character word beside a crawl (too long) | 0.19 | | 0.17 | 0.34 | 61-62 |
+| 60,000 `$` / 60,000 `#` / 30,000 backslash pairs (too complex) | 0.21 / 0.24 / 0.24 | | not run | 0.30 / 0.30 / 0.31 | 61 |
+| 2,000 `$(` in `"…"` / 2,000 `(` before `<<` / 1,000 `((` (too complex) | 0.18 / 0.20 / 0.19 | | not run | 0.18 / 0.17 / 0.17 | 59-61 |
+| r4's 1,000 `{` / `/[`×1,000 / 10,000 commas / 2,040 components | 0.25 / 0.25 / 0.27 / 0.28 | | 0.25 / 0.23 / 0.25 / 0.27 | 0.18 / 0.17 / 0.18 / 0.20 | 59-62 |
+| r4's cap edge, 64 `{` / 64 `/[` in 4 KB (reported, not bounded) | 0.35 / 0.72 | | 0.32 / 0.68 | 0.20 / 0.19 | 60-62 |
+
+r5 was not run on r6's hostile and dense rows (r5 has no cap or budget for them; r6's red run stopped it past 30 s).
+In the same rows wall time was 0.33-4.51 s here, and r6's top-level row took 35.9 s of wall. The holds' own measures
+(H2, load ~100-109): the 300-path median child CPU 0.295 s against the installed hook's 0.203 s, **1.46×**; r4's
+hostile rows 0.22-0.24 s of CPU, best of three (decision 6's measure), the cap edge 0.30 and 0.65 s; decision 2's
+rows in H1 (load 94) 0.52, 0.28 and 0.38 s against the installed hook's 0.66, 0.33 and 0.61 s.
+
+**The real shells.** r7's 46 command runs (H1): the hook denies 31; zsh walked a root in 25 and bash in 26 (both in
+25), neither in 20, and every run agrees but decision 5's five listed over-blocks (denied by design, walked by neither).
+r6's 69 runs (H2) agree too: denied 38; zsh 33, bash 27, both 27, neither 36. Decision 4's four open forms: zsh walks
+all four, bash the two loops (bash reads `=(` as a syntax error).
+
+**Must-allow cases.** `test_r7_scoped_searches_stay_allowed` holds r6's 198 cases, review r6's 8 allowed forms and
+r7's 15 allowed forms; each decision's test holds its own controls. The routine lane commit and r6's 17 allowed lane
+commands are in it; the 18th lane command is still decision 7's denial.
+
+**Mutants** (`tools/guard_subfleet_root_mutations.py`, one `git archive` of HEAD each, the named test and the fence,
+under the lock; each batch's control passed every named test and the fence):
+
+| Decision | Mutant | Killing test | Batch (admitted, load) |
+| --- | --- | --- | --- |
+| 1 | `r7-arith-plain` | `test_r7_an_arithmetic_shift_crosses_lines` | M1 (19:55:59Z, 30) |
+| 2 | `r7-scan-uncounted` | `test_r7_heredoc_bodies_count_against_the_step_budget` | M2 (20:27:29Z, 58) |
+| 3 | `r7-passon-dropped` | `test_r7_a_filter_passes_on_its_process_substitution` | M1 |
+| 4 | `r7-known-form-unlisted` (the overlay doc's `=(…)` names dropped) | `test_r7_known_differences_name_the_open_forms` | M1 |
+| 5 | `r7-loopvar-unscoped`, `r7-loopvar-anywhere` | `test_r7_a_loop_variable_reassigned_after_its_loop_is_read_as_assigned` | M3 (20:47:12Z, 105) |
+| review r6 | `rv6-psub-passon-dropped` (rebuilt on r7's lines: the `cat` and filter pass-on dropped) | `test_r7_a_filter_passes_on_its_process_substitution` | M1 |
+| r6 4 | `r6-arith-unread` (retargeted), `r6-unterminated-disables-rest` | `test_r6_an_arithmetic_shift_starts_no_heredoc` | M4 (20:53:25Z, 102) |
+| r6 5 | `r6-dq-parend-plain` | `test_r6_a_substitution_in_double_quotes_reads_its_heredoc` | M4 |
+| r6 1 | `r6-body-unread` | `test_r6_an_unquoted_heredoc_bodys_substitutions_are_judged` | M5 (21:03:37Z, 120) |
+| r6 2 | `r6-xargs-shell-unread` | `test_r6_xargs_into_a_shell_whose_script_names_a_searcher` | M5 |
+| r6 3 | `r6-filter-heredoc-dropped` | `test_r6_any_producers_heredoc_piped_into_a_shell_is_its_script` | M5 |
+
+All eleven listed are killed. r7 retargets six older edits whose lines it touched, each to the same edit on its new
+text (`r5-heredoc-unread`, `r6-arith-unread`, `r6-budget-dropped`, `r4-keywords-dropped`, `r5-bound-hides-producer`,
+`rv4-function-keyword-dropped`; the tool commit's subject says five), and all 78 of the driver's edits match their file
+exactly once.
+
+**Unrun at this head:**
+- r6's other six mutants (`r6-equals-backtick-dropped`, `r6-span-backtick-dropped`, `r6-psub-unread`,
+  `r6-loop-words-dropped`, `r6-cap-dropped`, `r6-budget-dropped`, the last retargeted): the lock admitted none of my
+  five attempts from 21:16:49Z to 21:35Z at load 98-137. Each edit matches the hook exactly once, and each named test
+  passed at this head (H1, H2).
+- Of `test_guard_subfleet_root.py`'s 128 items, 66 ran (H1-H6, all passed). Unrun: S1-protection, S2, S3 ×2, the cwd
+  list, S5, S1-r3, and r3's, r3b's and r3c's tests (examples, the three properties, shells, mounts, folded code
+  points). r7 changes only the command prep (`parend`, `arend`, `lnend`, `hdbody`, `prep`, `simple`), not the
+  path-word pass those tests judge; review r6 ran all of them at `2bd5b3199` and they passed. Beside S1, this round's
+  differential covers the corpus they read: over S1's 528 generated pairs, the fixed corpus and every r4-r7 list, this
+  head and r6 differ only on r7's pins and decision 5's five narrowed forms.
+- Not runnable here: S4's two items (they need the operator's Claude hook) and `tests/frontend/test_core_live.py`.
+
+**Disclosures.**
+- Four runs passed the tool's 10-minute cap and were moved to its background mode, against this round's brief: the
+  first head-against-r6 differential (stopped and rerun in bounded chunks with a verdict cache), H6 (S1, a single item
+  that took 771 s at load 100-144, so it also passed the brief's 9-minute line; polled to completion in the
+  foreground) and the mutant batches M1 and M5 (polled to completion; each one's slow part was removing its exports).
+  No process of mine outlived its own run.
+- Everything else outside the lock was a probe: the red runs, the direct calls of r7's tests while building, the
+  differential, the step counts (an instrumented copy of the prep's awk in scratch that prints its step count) and the
+  timing rows.
+- The 18 lane commands are r6's reconstruction; review r5's list is not on disk.
 
 ## Invariants and how they were checked
 
@@ -1543,9 +1725,9 @@ could time out).
    shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST
    # a60d1c514d3a3bcec68c246a33c849c11fd37e1bdf60d886650cd9d6651390db  …/never-rules-hook.sh
    # b3193b97d712bda6a5cc0f2447907e674f7ed90911a82d7709de8298b42aaa06  …/TRUST
-   shasum -a 256 private/guard/never-rules-hook.sh private/guard/TRUST   # the reviewed pair (r6)
-   # 6671496ba743cfcd18decbec3f92594f0af5022614cae4a6a0acc76f838caea3  private/guard/never-rules-hook.sh
-   # 955bc7fa641afdf90ae76a29443404e268e5e316b0c486be7b2ee13599513d2f  private/guard/TRUST
+   shasum -a 256 private/guard/never-rules-hook.sh private/guard/TRUST   # the reviewed pair (r7)
+   # 89b0efe18b64ea939cf0c14b2b6e416162a66560759903a60e69592af961aa5d  private/guard/never-rules-hook.sh
+   # b749db5afabaf72482e22c53d0e9ae9bd3b4dd3df80efe174bf409453f36e9eb  private/guard/TRUST
    ```
 
 1. **Stage through the repository's staging path**, into a fresh state root on the same volume
@@ -1582,7 +1764,7 @@ could time out).
    EOF
    cmp private/guard/never-rules-hook.sh ~/.subfleet/guard/never-rules-hook.sh
    cmp private/guard/TRUST ~/.subfleet/guard/TRUST
-   shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST   # 6671496b…aea3, 955bc7fa…3d2f
+   shasum -a 256 ~/.subfleet/guard/never-rules-hook.sh ~/.subfleet/guard/TRUST   # 89b0efe1…aa5d, b749db5a…e9eb
    ls -la ~/.subfleet/guard
    ```
 
