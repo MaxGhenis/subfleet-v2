@@ -1,6 +1,16 @@
-"""C-26.4: generated relay-loss schedules and the stdout drain deadline."""
+"""C-26.4: generated relay-loss schedules and the stdout drain deadline.
 
+The schedules (fix r2) draw zero, one or more refused frames (`failed` or `closed`,
+with or without the relay's exit evidence), daemon restarts (a runner rebuilt from
+the relay log, its status and stdout, some replaying an owner-ended attempt), EOF
+before or after the other events, a writer that stays open for a while (a block
+of ticks), and readers slow enough that bytes are already on disk when a runner
+enters its exit drain.
+"""
+
+from collections import Counter
 from contextlib import contextmanager
+from dataclasses import dataclass
 import json
 from pathlib import Path
 import tempfile
@@ -9,6 +19,7 @@ from hypothesis import given, settings, strategies as st
 import pytest
 
 from subfleet.conversations import runner as runner_module
+from subfleet.conversations.runner import TurnRunner
 from subfleet.conversations.turn import Frame
 from subfleet.conversations.titles import CLAIMED
 from subfleet.relay import Ack
@@ -17,14 +28,56 @@ from tests.fake.test_turn_relay_exit_recovery import recovery as _recovery
 # This is the public recovery budget, pinned independently of the implementation.
 DRAIN_S = 30.0
 case = contextmanager(_recovery.__wrapped__)
+# A runner still going this long after it started has hung: it is stopped, and the
+# report assertion fails. The longest legal runner reads about 1.2 kB at 8 bytes a
+# fake second, then waits out `after_result_s` (135 s) and its late containment.
+ESCAPE_S = 1000.0
+
+
+class Restart(Exception):
+    """A daemon restart: the runner's thread ends with nothing reported."""
+
+
+@dataclass(frozen=True)
+class Schedule:
+    text: str
+    result: bool
+    chunks: tuple
+    events: tuple
+    evidence: bool          # `child_exited` replies and `status`; False: a version 1 relay with neither
+    read_chunk: int         # bytes per stdout read
+    read_cost: float        # fake seconds per stdout read
+    forced_receipt: bool    # nothing else could end the turn, so the guardian publishes last
+
+
+def _ends_without_a_receipt(events, result, evidence):
+    """Whether the last runner learns the turn ended without a receipt: from the
+    provider's result (its late containment), a refused frame after the last
+    restart, or at that restart from an owner-ended replay, a status naming the
+    child exited, or the log's unwritten frame (the first refusal was `failed`)."""
+    if result:
+        return True
+    restarts = [index for index, event in enumerate(events) if event[0] == "restart"]
+    refusals = [index for index, event in enumerate(events) if event[0] == "refusal"]
+    last = restarts[-1] if restarts else -1
+    if any(index > last for index in refusals):
+        return True
+    if last < 0:
+        return False
+    exited = events.index(("exit",)) < last
+    return exited and (events[last][2] or evidence) or bool(refusals) and events[refusals[0]][2] == "failed"
 
 
 @st.composite
 def schedules(draw):
     """All legal orders: bytes precede EOF; receipt publication follows exit.
 
-    Refusal may precede exit, follow it, or race receipt publication. A receipt
-    may never arrive. Byte splits include partial JSON lines and UTF-8 sequences.
+    Refusals, restarts, the exit, the receipt and EOF come in any order, EOF
+    included before all the others. A block of reads with the writer still open
+    and nothing new (ticks; at 0.5 s or more a read, longer than the bound) can
+    come anywhere. Byte splits include partial JSON lines and UTF-8 sequences. A
+    receipt may never arrive, unless nothing else could end the turn: a runner
+    with no proof treats the child as live (C-26.4).
     """
     # Display text is stripped at its edges by the existing scrubber. Keep
     # generated whitespace inside sentinels so loss checks compare exact text.
@@ -35,115 +88,254 @@ def schedules(draw):
         rows.append({"type": "result", "subtype": "success", "is_error": False, "result": text})
     data = b"".join((json.dumps(row, ensure_ascii=False) + "\n").encode() for row in rows)
     cuts = sorted(draw(st.sets(st.integers(1, len(data) - 1), max_size=5)))
-    chunks = [data[a:b] for a, b in zip([0, *cuts], [*cuts, len(data)])]
+    chunks = tuple(data[a:b] for a, b in zip([0, *cuts], [*cuts, len(data)]))
+    refusals = draw(st.lists(st.sampled_from(["failed", "closed"]), max_size=3))
+    restarts = draw(st.lists(st.booleans(), max_size=2))   # each: replay owner-ended, once the child exited
     publishes = draw(st.booleans())
-    names = ["exit", "refusal", "eof", *(["receipt"] if publishes else []), *range(len(chunks))]
+    names = [("exit",), ("eof",), *([("receipt",)] if publishes else []),
+             *(("refusal", index, kind) for index, kind in enumerate(refusals)),
+             *(("restart", index, ended) for index, ended in enumerate(restarts)),
+             *(("chunk", index) for index in range(len(chunks)))]
     order = list(draw(st.permutations(names)))
     # Topological sort of an arbitrary priority order preserves every possible
     # ordering of independent events without rejecting generated examples.
     pending, events, written = list(order), [], 0
     while pending:
         for event in pending:
-            if event == "receipt" and "exit" not in events:
+            if event == ("receipt",) and ("exit",) not in events:
                 continue
-            if isinstance(event, int) and event != written:
+            if event[0] == "chunk" and event[1] != written:
                 continue
-            if event == "eof" and not all(x in events for x in ["exit", "refusal", *range(len(chunks))]):
+            if event == ("eof",) and written < len(chunks):
                 continue
             pending.remove(event)
             events.append(event)
-            written += isinstance(event, int)
+            written += event[0] == "chunk"
             break
-    return text, result, chunks, events, draw(st.booleans())
+    evidence = draw(st.booleans())
+    forced = not publishes and not _ends_without_a_receipt(events, result, evidence)
+    if forced:
+        events.append(("receipt",))
+    at, linger = draw(st.integers(0, len(events))), draw(st.sampled_from([0, 70]))
+    events[at:at] = [("tick", index) for index in range(linger)]
+    return Schedule(text=text, result=result, chunks=chunks, events=tuple(events), evidence=evidence,
+                    read_chunk=draw(st.sampled_from([8, 64, 1 << 20])),
+                    read_cost=draw(st.sampled_from([0.01, 0.5, 1.0])), forced_receipt=forced)
 
 
-@settings(max_examples=100, deadline=None, derandomize=True, database=None)
-@given(schedule=schedules())
-def test_loss_interleavings_keep_one_outcome_and_all_stdout(schedule):
-    text, result, chunks, events, exit_evidence_available = schedule
+def _rebuild(r, old, *, ended):
+    """The runner a restarted daemon builds for the attempt (C-26.6)."""
+    return TurnRunner(store=r.store, attempt=old.attempt, spec=old.spec, conversation_id=r.cid,
+                      attempt_dir=r.adir, control_socket=old.control_socket, on_outcome=r.reported.append,
+                      on_contain=old.on_contain, clocks=old.clocks, clock=lambda: r.now[0], ended=ended)
+
+
+def _position(runner):
+    return runner.offset + len(runner.partial)
+
+
+def _play(s, seen):
+    """Run one schedule through the real runner, relay and decoder, check the four
+    properties, and count into `seen` what the schedule exercised."""
     with tempfile.TemporaryDirectory(prefix="relay-property-") as directory, pytest.MonkeyPatch.context() as patch:
         with case(Path(directory), patch) as r:
-            # Use the real relay and decoder, but schedule child exit ourselves.
+            stdout = r.adir / "stdout"
+            r.child.send_signal = lambda signum: None   # a live child takes the late SIGINT
             original_apply = r.server.apply
-            writes_after_loss = []
-            loss_unproved = []
+            runners, losses, drains, outcomes, frames_after_loss, kinds = [], {}, [], [], [], []
+            pending, eof, restart = list(s.events), [False], [None]
+            started, current = [r.now[0]], [r.runner]
+            exercised = Counter()
 
-            def exchange(payload, *, before_send=None):
-                frame = json.loads(payload)
-                if frame.get("op") != "status" and loss_unproved:
-                    writes_after_loss.append(frame)
-                if before_send:
-                    before_send()
-                return original_apply(frame)
+            def failed_write(data):
+                raise BrokenPipeError(32, "fake stdin reader gone")
 
-            patch.setattr(r.runner.relay, "_exchange", exchange)
-            r.runner._apply(r.runner.driver.start())
-            assert r.runner._read_stdout()  # initialize, message and settings all acknowledged
-            read = r.runner._read_stdout
-            pending = list(events)
-            eof = [False]
-            started = r.now[0]
-            terminal = []
-            write_outcome = r.runner._write_outcome
+            def connect(runner):
+                """Every exchange of this runner goes to the one real relay."""
+                def exchange(payload, *, before_send=None):
+                    frame = json.loads(payload)
+                    if frame.get("op") == "status" and not s.evidence:
+                        return {"ok": False, "error": "bad-frame"}   # version 1: no status
+                    if frame.get("op") != "status" and runner in losses:
+                        frames_after_loss.append((runners.index(runner), frame.get("tag")))
+                    if before_send:
+                        before_send()
+                    answer = original_apply(frame)
+                    if not s.evidence:
+                        answer.pop("child_exited", None)
+                    return answer
 
-            def record_terminal():
-                if not terminal:
-                    terminal.append((r.now[0], r.runner.driver.outcome))
-                else:
-                    assert r.runner.driver.outcome is terminal[0][1]
-                write_outcome()
+                patch.setattr(runner.relay, "_exchange", exchange)
 
-            patch.setattr(r.runner, "_write_outcome", record_terminal)
+            def watch(runner):
+                """Spies recording, from the model's own state, what the properties need."""
+                relay_lost, drain = runner._relay_lost, runner._drain_stdout
+                write_outcome, read = runner._write_outcome, runner._read_stdout
 
-            def scheduled_read():
-                r.now[0] += 0.01
-                if pending:
-                    event = pending.pop(0)
-                    if event == "exit":
-                        r.child.returncode = 1
-                    elif event == "refusal":
-                        proved = ((r.child.returncode is not None and exit_evidence_available)
-                                  or (r.adir / "exit.json").exists())
-                        loss_unproved.append(not proved)
-                        r.runner._relay_lost("scheduled refusal", child_exited=proved)
-                    elif event == "receipt":
-                        (r.adir / "exit.json").write_text('{"rc":0}')
-                    elif event == "eof":
-                        eof[0] = True
+                def lost(why, *, child_exited=False):
+                    if runner not in losses:
+                        # Proof as the model knows it, not as the runner decided.
+                        proved = ((r.child.returncode is not None and s.evidence)
+                                  or (r.adir / "exit.json").exists() or runner.ended)
+                        losses[runner] = (proved, r.now[0], runner.driver.outcome is None)
+                    relay_lost(why, child_exited=child_exited)
+
+                def drained():
+                    size = stdout.stat().st_size
+                    record = {"runner": runner, "entered": r.now[0], "size": size, "position": _position(runner),
+                              "caught_up": r.now[0] if _position(runner) >= size else None, "interrupted": True}
+                    drains.append(record)
+                    try:
+                        drain()
+                        record["interrupted"] = False
+                    finally:
+                        record.update(left=r.now[0], end=_position(runner), contained=runner.contained)
+
+                def wrote():
+                    outcomes.append((runner, r.now[0], runner.driver.outcome))
+                    write_outcome()
+
+                def scheduled_read():
+                    r.now[0] += s.read_cost
+                    if pending:
+                        play(pending.pop(0), runner)
+                    progressed = read()
+                    record = drains[-1] if drains else None
+                    if (record is not None and record["runner"] is runner and "left" not in record
+                            and record["caught_up"] is None and _position(runner) >= record["size"]):
+                        record["caught_up"] = r.now[0]   # measured here, not taken from the runner
+                    # Model a stdout writer still open between chunks. Production
+                    # tails a regular file; continuous writes exercise the same loop.
+                    return progressed or not eof[0]
+
+                patch.setattr(runner, "_relay_lost", lost)
+                patch.setattr(runner, "_drain_stdout", drained)
+                patch.setattr(runner, "_write_outcome", wrote)
+                patch.setattr(runner, "_read_stdout", scheduled_read)
+
+            def play(event, runner):
+                if event == ("exit",):
+                    r.child.returncode = 1
+                elif event == ("receipt",):
+                    (r.adir / "exit.json").write_text('{"rc":0}')
+                elif event == ("eof",):
+                    eof[0] = True
+                    exercised["eof-before-exit"] += r.child.returncode is None
+                elif event[0] == "tick":
+                    pass                                 # the writer is still open
+                elif event[0] == "chunk":
+                    with stdout.open("ab") as stream:
+                        stream.write(s.chunks[event[1]])
+                elif event[0] == "refusal":
+                    kinds.append(event[2])
+                    if event[2] == "failed":
+                        patch.setattr(r.server, "_write_line", failed_write)
                     else:
-                        with (r.adir / "stdout").open("ab") as stream:
-                            stream.write(chunks[event])
-                progressed = read()
-                # Model a stdout writer still open between chunks. Production
-                # tails a regular file; continuous writes exercise the same loop.
-                return progressed or not eof[0]
+                        r.server._closed = True         # a `closed` refusal logs nothing
+                    # The runner's next frame, whatever produced it, meets the refusal.
+                    runner.outbox.append(Frame(f"probe:{event[1]}", "write", "{}"))
+                    runner._send_outbox()
+                else:
+                    exercised["restarts"] += 1
+                    exercised["restart-after-closed"] += kinds[:1] == ["closed"]
+                    restart[0] = event[2] and r.child.returncode is not None
+                    raise Restart("SECRET7 simulated daemon restart")
 
             def advance(_):
                 r.now[0] += 1
-                # A live-child loss followed by a result retains the existing
-                # post-result cleanup clock. The terminal outcome is durable
-                # already; final notification follows containment's receipt.
-                if r.now[0] - started > DRAIN_S + r.runner.clocks.after_result_s + r.runner.clocks.contain_after_s:
-                    r.runner.stop()  # a failing implementation cannot hang the property
+                if r.now[0] - started[0] > ESCAPE_S:
+                    current[0].stop()   # a failing implementation cannot hang the property
 
             patch.setattr(runner_module.time, "sleep", advance)
-            patch.setattr(r.runner, "_read_stdout", scheduled_read)
-            r.runner._run()
-            assert r.reported == [r.runner]
-            r.runner._report()
-            assert r.reported == [r.runner]  # notification is idempotent
-            assert len(terminal) == 1
-            assert terminal[0][0] - started <= DRAIN_S + r.runner.clocks.contain_after_s
-            assert r.now[0] - started <= DRAIN_S + r.runner.clocks.after_result_s + r.runner.clocks.contain_after_s
-            # The mandatory unproved-exit control requires relay_failed even
-            # when the child actually exited but its reply/status proof is lost.
-            assert r.runner.relay_failed is loss_unproved[0]
-            assert writes_after_loss == []
-            assert r.runner.offset == (r.adir / "stdout").stat().st_size
-            assert r.runner.final_text == text
+            connect(r.runner)
+            r.runner._apply(r.runner.driver.start())
+            assert r.runner._read_stdout()  # initialize, message and settings all acknowledged
+            patch.setattr(runner_module, "READ_CHUNK", s.read_chunk)
+            while True:
+                runner = current[0]
+                runners.append(runner)
+                if runner is not r.runner:
+                    connect(runner)
+                watch(runner)
+                started[0], restart[0] = r.now[0], None
+                runner._run()
+                if restart[0] is None:
+                    break
+                current[0] = _rebuild(r, runner, ended=restart[0])
+
+            final, last = runners[-1], drains[-1] if drains else None
+            exercised["refusals"] = len(kinds)
+            exercised["backlog"] = sum(record["size"] > record["position"] for record in drains)
+            exercised["contained"] = sum(record["contained"] for record in drains)
+            exercised["owner-ended"] = sum(runner.ended for runner in runners)
+            seen.update(name for name, count in exercised.items() if count)
+            seen.update([f"refusals={min(len(kinds), 2)}", f"restarts={exercised['restarts']}",
+                         "receipt-forced" if s.forced_receipt else "receipt" if ("receipt",) in s.events
+                         else "receipt-never", "examples"])
+
+            # 1. Exactly one terminal outcome, within the bound.
+            assert r.reported == [final], {"runners": len(runners), "drains": drains, "now": r.now[0] - started[0]}
+            final._report()
+            assert r.reported == [final]  # notification is idempotent
             turn = json.loads((r.adir / "turn.json").read_text())
-            assert turn["final_text"] == text
-            assert r.runner.driver.outcome.reason == (None if result else "ended-without-result")
+            assert all(outcome is final.driver.outcome for runner, _, outcome in outcomes if runner is final)
+            assert all((outcome.state, outcome.reason) == (turn["state"], turn["reason"])
+                       for _, _, outcome in outcomes)
+            assert last is not None and last["runner"] is final and not last["interrupted"]
+            assert outcomes[-1][1] <= last["left"]
+            for record in drains:
+                if record["caught_up"] is not None:
+                    assert record["left"] - record["caught_up"] <= DRAIN_S + s.read_cost, record
+                if record["contained"]:
+                    # Never before the backlog on disk at entry was read in full,
+                    # and then only once a writer outlived the bound.
+                    assert record["end"] >= record["size"] and record["caught_up"] is not None, record
+                    assert record["left"] - record["caught_up"] >= DRAIN_S, record
+            proved, lost_at, before_outcome = losses.get(final, (True, None, False))
+            if not proved and before_outcome:
+                # An unproved loss is stopped as C-24.7 escalates: contained then,
+                # unless the provider's result comes first; then D-15's late stop.
+                clocks, step = final.clocks, s.read_cost + 1     # one loop pass: a read and a poll
+                result_at = next((at for runner, at, _ in outcomes if runner is final), None)
+                bound = lost_at + clocks.contain_after_s + step
+                if result_at is not None and result_at < bound:
+                    late = clocks.after_result_s + clocks.contain_after_s - clocks.sigint_after_s
+                    bound = max(bound, result_at + late + step)
+                assert last["entered"] <= bound
+            # 2. No frame after a runner's relay I/O ended.
+            assert frames_after_loss == []
+            # 3. relay_failed iff that runner's loss was unproved: the mandatory
+            # unproved-exit control requires it even when the child actually
+            # exited but its reply/status proof is lost.
+            for runner in runners:
+                assert runner.relay_failed is (runner in losses and not losses[runner][0])
+            # 4. Every stdout chunk on disk when the final drain began is in the
+            # outcome, and all of stdout unless a writer outlived the bound.
+            end, data = _position(final), stdout.read_bytes()
+            assert end == len(data) if not final.contained else end >= last["size"]
+            joined = b"".join(s.chunks)
+            init = data.index(b"\n") + 1
+            if end >= init + joined.index(b"\n") + 1:
+                assert final.final_text == turn["final_text"] == s.text
+            result_read = s.result and end >= init + len(joined)
+            assert final.driver.outcome.reason == turn["reason"] == (None if result_read else "ended-without-result")
+
+
+def test_loss_interleavings_keep_one_outcome_and_all_stdout():
+    seen = Counter()
+
+    @settings(max_examples=150, deadline=None, derandomize=True, database=None)
+    @given(schedule=schedules())
+    def check(schedule):
+        _play(schedule, seen)
+
+    check()
+    print("relay-exit schedules exercised:", json.dumps(dict(sorted(seen.items()))))
+    # The widened generator must reach what the properties are for: a restart
+    # (one after a `closed` refusal, which logs nothing) and a backlog on disk at
+    # a drain's entry, and a writer outliving the bound.
+    assert seen["restarts"] and seen["backlog"], dict(seen)
+    assert seen["restart-after-closed"] and seen["contained"], dict(seen)
 
 
 @pytest.mark.parametrize("reaches_eof", [True, False], ids=["before-bound", "at-bound"])
