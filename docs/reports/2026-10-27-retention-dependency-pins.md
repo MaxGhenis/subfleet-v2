@@ -1,8 +1,73 @@
 # Retention dependency pins: partial integration, 2026-10-27
 
-**Not ready to land.** Continuation 1 validates production checkpoint `6ca8f4b0bc36` (including release/217 at `46ab44d72`). The resumed corrections affect integration tests and their reference expectations. Step 2's remaining planned coverage is complete (including four fixture skips); the folded-pin verdict, spelling-gap red/green and new properties remain unbuilt. No production source, contract, timing or mutation changes are claimed in this continuation.
+**Not ready to land.** Continuation 2 starts from `be9109a8ed18`, which merged release/217 at `f1d2f116e` into the completed continuation 1 coverage. The dependency spelling gap is now closed by the existing folded design, with 16 genuine red cases and a 124-test green hold. The four new properties observed 100 / 100 / 100 / 24 generated passing examples. The imported folded-pin file has 34 passing cases, including 150 observed real-volume examples, and three obsolete firmlink-prefix assertions that remain unchanged under the import-only instruction. Full WIP subsumption is therefore **not established**. The 33 mutants, measurement and contract audit belong to continuation 3.
 
 Original build (2026-10-27): the lane started at approximately 14:51Z; new holds/steps stop at 17:49:00Z, conservatively before its three-hour start cutoff. Lock waits count toward that wall. The final update is 2026-10-27T18:08:30Z.
+
+## Continuation 2 correctness, 2026-10-28
+
+The lane began at approximately **17:02Z**. A conservative **21:01Z** cutoff stops new holds and steps before four hours. This is a serial build using Python 3.14.7, the locked dev environment, the supplied test-lock script and fixture-owned roots. No fetch, push, real provider, live store, production CLI, mutation sweep or performance measurement was started. Test runtime and host load below describe correctness holds, not query measurements. The contract is unchanged.
+
+Shared metadata rejected `index.lock` with `Operation not permitted`. Ordered commits use private scratch metadata on `fix/retention-dependency-pins-217`; the worktree's `.git` file remains unchanged. Delivery is the verified **`rdp217c2.bundle`**, requiring the already-present `be9109a8ed18` history. Final bundle verification and guarded scratch cleanup follow the report commit.
+
+### Folded-pin verdict
+
+`tests/unit/test_retention_folded_pin.py` was imported byte for byte from `454ed9528`, with no production WIP change. The complete hold produced **34 passed, 3 failed**. Hypothesis observed **500 passing / 197 invalid** string examples and **150 passing / 18 invalid** real-volume examples, with zero failing generated examples. The latter count is observed statistics, not the configured maximum.
+
+All three failures stop at the old assertion that a submitted job's `workdir` starts with `/System/Volumes/Data/` (TURN, READER and writer). Release's submit now explicitly records `folders.canonical(workdir)` at `subfleet/daemon.py`'s `recorded_workdir` assignment. A separate three-case rerun under a `/Users` workspace root produced the same three failures, so the result is not an assumption about the temporary root's spelling. These cases never reach the behavioral assertions after that obsolete precondition. The manually recorded firmlink case and every other imported case pass.
+
+Changing production to retain the prefix would undo release behavior and cannot fit the dependency-read/fold design. The brief permits import changes only, so the imported test remains unchanged; a narrow request to replace only the obsolete prefix assertion with canonical identity has no approval yet. **Full WIP subsumption is unproven**. Its `retention.py` implementation was not ported, and no pin defect requiring a second mechanism was observed. These three fixture-oracle failures remain explicit follow-up work.
+
+### Spelling gap: real red, then green
+
+The pending sketch was revalidated before use. Its first trial was not accepted as red evidence: eight output cases failed submit's existing parent-directory validation, and exact Git-storage evidence masked review-root aliases. The corrected fixture quarantines immediately after output-parent validation and before dependency recording; its output file and then its aliased parent are absent. Review-root replay respells its Git-storage evidence too. A separate premature launch collected no tests and contributes no coverage.
+
+The corrected **16-case red hold failed every case at `assert not _live(...)`**: case, ﬁ, ſ and K/Kelvin aliases, output and review root, before workspace preparation and in the reservation transaction. Production had not changed for this hold. After the fix, **124 tests passed**: all 16 gap cases, 17 dependency units, 28 dependency fakes and 63 guards. The gap cases assert the dependency role and original path, no premature workspace call, continued waiting on the next look, and admission after restoring the tree and releasing the fence.
+
+`dependencies.fences` now reads the indexed `worktree:` lease range once and compares normalized `folders.fold` keys, as retention's pins do. The reserving transaction calls the same query for all needs, preserving its own-key exclusion. Only retention holders count, nearest fences come first, and existing needs roles identify the hold. No new mechanism, intended xfail or contract exception was added.
+
+### Generated properties
+
+Each job set mixes live and terminal states, row and recorded folders, worktrees, review roots, output paths, boundary non-matches and linked-checkout storage read from a generated gitfile. Case and Unicode spellings include ﬁ, ſ, K/Kelvin and NFC/NFD. The independent oracle implements canonical caseless normalization and path boundaries directly, without production folding or dependency enumeration.
+
+| Property | Observed generated passing examples | Invalid | Progress assertion |
+|---|---:|---:|---|
+| Selection safety | 100 | 2 | Untargeted `free` retires in every case; live dependents' files remain intact. |
+| Differential | 100 | 2 | Pins and transactional dependents equal the brute-force reference; `free` actually retires. |
+| Monotonicity | 100 | 2 | Adding a live dependent preserves pins; ending the last dependent makes every owner retire. |
+| Fence | 24, plus 1 explicit example | 0 | Generated needs match the reference in one indexed query; `free` retires; actual submit waits and is admitted after release. |
+
+The first fence attempt failed in its explicit example before generation: a helper import inside the running property imported another `@given` declaration. Imports now run during collection; the health check was not suppressed. The successful run's **24 generated examples** and **one explicit example** are counted separately. No intended correctness violation is hidden by an xfail. Conservative folding on case-sensitive volumes is intentional.
+
+### Holds and coverage
+
+All 12 requested files were collected in the final guard hold before its keyword deselection. The independent evidence join finds **356 required nodes: 353 passed, 3 failed, 0 missing or incomplete**. The failures are exactly the three imported obsolete firmlink-prefix assertions above. Every spelling, new property, dependency, release-integration and guard node has a later passing outcome. Red trials and repeated guards are not summed as unique coverage.
+
+Start times below are the pytest process's recorded start inside each hold, on 2026-10-28 UTC; loads are `os.getloadavg()`'s 1-minute values captured then. The wrapper's `sysctl` display was sandbox-denied, so its blank load is not used. Runtime is the collector's elapsed time; startup/cleanup account for small differences from pytest's terminal duration. Every completed test hold stayed below 20 minutes. The empty launch and invalid sketch are listed for accounting, not accepted as red evidence.
+
+| Hold | Start UTC | Result | Lock | 1-min load | Recorded runtime |
+|---|---|---|---|---:|---:|
+| [c2-folded](2026-10-27-retention-dependency-pins-data/c2-folded.json) | 17:08:20 | 34 passed, 3 failed | locked | 95.2 | 562.5 s |
+| [c2-folded-firmlink](2026-10-27-retention-dependency-pins-data/c2-folded-firmlink.json) | 17:18:55 | 3 failed | locked | 124.0 | 151.6 s |
+| [c2-spelling-not-ready](2026-10-27-retention-dependency-pins-data/c2-spelling-not-ready.json) | 17:24:13 | 0 tests (exit 4) | locked | 52.0 | 17.0 s |
+| [c2-spelling-sketch](2026-10-27-retention-dependency-pins-data/c2-spelling-sketch.json) | 17:25:21 | 4 passed, 12 failed | locked | 48.7 | 110.0 s |
+| [c2-spelling-red](2026-10-27-retention-dependency-pins-data/c2-spelling-red.json) | 17:29:07 | 16 failed | locked | 91.4 | 108.3 s |
+| [c2-spelling-green](2026-10-27-retention-dependency-pins-data/c2-spelling-green.json) | 17:31:36 | 124 passed | locked | 54.6 | 646.3 s |
+| [c2-properties-selection](2026-10-27-retention-dependency-pins-data/c2-properties-selection.json) | 17:48:33 | 3 passed | locked | 108.9 | 714.6 s |
+| [c2-properties-fence-import](2026-10-27-retention-dependency-pins-data/c2-properties-fence-import.json) | 18:01:23 | 1 failed | locked | 88.1 | 41.7 s |
+| [c2-properties-fence](2026-10-27-retention-dependency-pins-data/c2-properties-fence.json) | 18:03:26 | 1 passed | locked | 95.4 | 136.7 s |
+| [c2-writer-rediscovery](2026-10-27-retention-dependency-pins-data/c2-writer-rediscovery.json) | 18:07:36 | 40 passed | locked | 56.4 | 215.6 s |
+| [c2-detached-basic](2026-10-27-retention-dependency-pins-data/c2-detached-basic.json) | 18:11:48 | 87 passed | locked | 56.4 | 432.3 s |
+| [c2-detached-generated](2026-10-27-retention-dependency-pins-data/c2-detached-generated.json) | 18:23:11 | 2 passed | locked | 48.7 | 281.3 s |
+| [c2-shared-basic](2026-10-27-retention-dependency-pins-data/c2-shared-basic.json) | 18:30:30 | 59 passed | locked | 92.0 | 707.1 s |
+| [c2-shared-generated](2026-10-27-retention-dependency-pins-data/c2-shared-generated.json) | 18:42:45 | 2 passed | locked | 21.4 | 326.3 s |
+| [c2-shared-reservation](2026-10-27-retention-dependency-pins-data/c2-shared-reservation.json) | 18:48:26 | 1 passed | locked | 58.5 | 564.9 s |
+| [c2-guards-plan](2026-10-27-retention-dependency-pins-data/c2-guards-plan.json) | 18:58:01 | 63 passed | locked | 63.3 | 112.8 s |
+
+The compact `c2-*.json` files retain node lists, outcomes and observed statistics. Earlier normal-exit holds retain calls and every non-passing phase; later holds retain all three phases. `c2-check-results.py` requires normal completion or passing teardown before crediting a node and independently joins the final collection to its latest outcome. Full passing logs, runner PIDs, claims and admission markers are not committed.
+
+The largest captured pytest RSS was **154.7 MiB**; the largest captured child RSS was **9.0 MiB**. Child RSS was not recorded in the first holds. Scratch was sampled at about 114 MiB during the run and **293.7 MiB at close**, plus the **2.4 MiB** owned firmlink fixture. The largest sampled combined footprint was about **296.1 MiB**, below 2 GB. Sixteen tracked owned process IDs were checked after the final hold; none remained present. No timing, mutation or contract-audit run was started. After the report commit, verify the ordered bundle, confirm the tracked drivers have ended and remove only this run's scratch and owned fixture root with the lane rules' guarded cleanup.
+
 
 ## Continuation 1 recovery, 2026-10-28 (coverage complete; later steps unbuilt)
 
@@ -141,24 +206,21 @@ The required contract helper refused C-6.5, C-6.11 and C-8.4. Its non-overlappin
 - retention hunk 4: retain both legacy dependencies and orphan-retention lease state.
 - retention_archive hunk 1: retain both canonical dependency recheck and release nested exclusive-lease recheck.
 
-## Unbuilt and unrun: continuation 2
+## Unbuilt and unrun: continuation 3
 
-All remaining step 2 nodes have completed. The correctness work below carries into continuation 2 alongside its original mutation, measurement and audit scope.
+- **33 mutants:** none ran in continuation 2. Run the 29 original definitions and four additions, adapt stale selectors to the final implementation, and report each killing test. The plan below is not kill evidence.
+- **Measurement:** install/revalidate the pending tool and run the requested 3,000/100 and 6,000/600 comparison once inside the test lock, with the host load. No query-time numbers are claimed by this continuation.
+- **Contract audit:** audit C-8.4 and the merged clauses and decision notes against the final code, including obsolete statements about exact dependency-fence lookups. This correctness round does not perform that audit or edit the contract.
+- **Imported firmlink fixture:** resolve the import-only constraint before replacing its obsolete prefix assertion, then rerun its TURN, READER and writer cases through their remaining behavioral assertions. The original cases ran and failed; those later assertions are still unrun. The WIP verdict remains qualified.
 
-- Step 3: `454ed9528`'s folded-pin test file was inspected but not added or run. The WIP is **unassessed**; **0 real-volume examples were observed** (150 is its configured maximum, not an observed count). Its retention implementation was not ported.
-- Spelling gap: write and run the required red output/review-root alias tests (including the absent output tail during quarantine), then fold the one dependency-fence query and transaction needs blockers, and record the green runs. No new red/green evidence exists yet; no intended xfail or contract exception has been added.
-- Step 4: the generated selection safety, independent differential, monotonicity and admission-fence properties were prepared only as an unexecuted sketch. No new property example counts are claimed. The selection sketch asserts that unpinned fixtures reach retirement, so it must not pass vacuously; its fixture still needs validation. The sketch also targets exact dependency-fence lookups when quarantine leaves an aliased output-path tail unspellable.
-- Step 5: **0/33 mutants ran**. The 29 original definitions and four additions are retained below as a plan, not as kill evidence. The copied runner adapts `early-look-folder-only` to the merged early-look structure; unit selectors use the new basename. No evidence file outside this workspace was changed. Its reusable snapshot was designed to reduce disk writes; that runner was not exercised.
-- Step 6: the measurement tool was prepared as text only, not installed under `tools/` or executed. The timing run must still run once inside the test lock. The contract makes no new numeric query-time claim.
-- Step 7: the full contract and decision-note audit remains unfinished. Closing documentation qualifies the still-exact dependency admission lookup and removes unsupported timing citations; this is not completion of the requested audit.
-- `tests/frontend/test_core_live.py` was not run: the lane rules reserve it for CI because the daemon's person-only probe blocks it. No full suite or Python 3.12 run was attempted.
+The full suite and Python 3.12 were not run on this lane. `tests/frontend/test_core_live.py` remains CI-only under the lane rules because its person-only probe cannot run here; these are CI scope, not extra local continuation 3 holds.
 
 | Scale | Old pin-query time | New pin-query time | Measurement load |
 |---|---:|---:|---:|
 | 3,000 jobs / 100 live | not measured | not measured | not measured |
 | 6,000 jobs / 600 live | not measured | not measured | not measured |
 
-The files under `pending/` are sketches with references to this run's scratch helpers; they require revalidation and adaptation before use. They are preserved to avoid losing preparation, and are not repository test/tool implementations.
+The pending property and spelling sketches are superseded by continuation 2's committed tests. Remaining mutation and measurement preparation still references old scratch helpers and requires revalidation and adaptation; it is not executed evidence.
 
 ## Mutation plan: all unrun
 

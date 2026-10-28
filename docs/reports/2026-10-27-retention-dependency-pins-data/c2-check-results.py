@@ -28,9 +28,11 @@ for record in records:
     outcomes = {}
     for node in record["collected"]:
         seen = phases[node]
+        complete = (seen.get("teardown") == "passed" if record.get("all_phases") else
+                    record["exitstatus"] in (0, 1))
         outcomes[node] = ("failed" if "failed" in seen.values() else
-                          "passed" if seen.get("call") == "passed" else
-                          "skipped" if "skipped" in seen.values() else "incomplete")
+                          "passed" if complete and seen.get("call") == "passed" else
+                          "skipped" if complete and "skipped" in seen.values() else "incomplete")
         latest[node] = {"outcome": outcomes[node], "hold": record["hold"]}
     examples = {}
     for node, stats in record["statistics"].items():
@@ -51,6 +53,8 @@ plan = set(json.loads(plan_file.read_text())["all_collected"]) if plan_file.exis
 summary = {"holds": holds, "planned": len(plan),
            "latest_counts": dict(collections.Counter(latest[node]["outcome"] for node in plan & latest.keys())),
            "unrun": sorted(plan - latest.keys()),
+           "max_pytest_rss_bytes": max((record["maxrss_bytes"] for record in records), default=0),
+           "max_captured_child_rss_bytes": max((record.get("child_maxrss_bytes", 0) for record in records), default=0),
            "unresolved": {node: latest[node] for node in sorted(plan & latest.keys())
                           if latest[node]["outcome"] not in ("passed", "skipped")}}
 if "--write" in sys.argv:
