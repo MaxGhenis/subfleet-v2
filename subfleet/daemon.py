@@ -4652,7 +4652,13 @@ class Daemon:
         member `_never_signalled`, or one an unverifiable census first recorded or that
         sits below one (`_tainted`). A census that cannot verify those (a legacy attempt
         boot: the group's boot never compares) ran a protocol on every `kill` that could
-        signal nothing, and its "next `kill`" never reported the last result."""
+        signal nothing, and its "next `kill`" never reported the last result.
+
+        Review r1 of #276, P2-1: so is a member whose source attributes it in any census (a
+        marked or parent-chain member, or a group member under a verified leader) but whose
+        identity this census could not read: `_signal_reasons` skips it only for want of
+        that identity, and a read that captures it signals it. Only those sources count
+        here: a leaderless group's member with no identity is still attributed by no read."""
         if Daemon._signal_reasons(self, a, census):
             return True
         if not census.unverifiable:
@@ -4660,6 +4666,10 @@ class Daemon:
         if not census.live_pids and not census.held_pids:
             return True
         never = Daemon._never_signalled(self, a)
+        unread = (census.marker_pids | census.chain_pids
+                  | (census.group_pids if census.leader_verified else frozenset())) - set(census.identities)
+        if unread - census.held_pids - never:
+            return True
         tainted = Daemon._tainted(json.loads(a.get("evidence_json") or "{}"), census, Daemon._attempt_boot(self, a))
         return bool((census.descendant_pids | census.responsible_pids) - census.held_pids - never - tainted)
 

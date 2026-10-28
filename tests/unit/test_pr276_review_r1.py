@@ -3,12 +3,14 @@ tests did not execute, on the simulated host (`tests/kill4_world.py`).
 
 1. P3-1 (`Daemon._may_signal`): a census member `_signal_reasons` skips only because this
    census could not read its identity is one a verifiable read could attribute. A finished
-   job whose escaped, marked runner is such a member answers `already finished` to `kill`
-   ("no source attributes it", while the marker source does) and no protocol runs; the rule
-   before P3-1 ran one, whose own census read the runner and TERMed it. Strict xfail until
-   the rule counts such members. The rule's other terms, responsibility members and
-   never-signalled members, are pinned on constructed censuses: a mutant that dropped
-   either passed every test of the branch.
+   job whose escaped, marked runner is such a member answered `already finished` to `kill`
+   ("no source attributes it", while the marker source does) and no protocol ran; the rule
+   before P3-1 ran one, whose own census read the runner and TERMed it (P2-1). The fix
+   counts a marked or parent-chain member, or a group member under a verified leader, whose
+   identity this census could not read; a leaderless group's member still never counts.
+   The rule's terms, responsibility members and never-signalled members included, are
+   pinned on constructed censuses: a mutant that dropped either passed every test of the
+   branch.
 2. Check 5 at the abandon's last read inside `_kill_attempt`: past the bound, a guardian
    whose `start.json` lands after the abandon is written is recorded once, and contained as
    launched (its group TERMed first). The branch's tests call `_abandon_start` directly, so
@@ -40,7 +42,6 @@ from tests.unit.test_quar_start1_landed import (D4_SHAPES, LAUNCH, STRANGER, clo
                                                 extended, extended_by_d4, landed, launched, record)
 
 RUNNER = 4500
-UNVERIFIED = "review r1 of #276: P3-1 skips a member whose identity this census could not read"
 MUTANTS = {
     # P3-1's fallback without responsibility members.
     "p3-1-responsibility-dropped": (Daemon, "_may_signal", [
@@ -48,6 +49,12 @@ MUTANTS = {
     # P3-1's fallback counting never-signalled members.
     "p3-1-never-ignored": (Daemon, "_may_signal", [(" - census.held_pids - never - tainted)",
                                                     " - census.held_pids - tainted)")]),
+    # P2-1's fix without parent-chain members.
+    "p2-1-chain-dropped": (Daemon, "_may_signal", [
+        ("(census.marker_pids | census.chain_pids", "(census.marker_pids")]),
+    # P2-1's fix counting the group's members without the leader check.
+    "p2-1-group-unchecked": (Daemon, "_may_signal", [
+        ("(census.group_pids if census.leader_verified else frozenset())", "census.group_pids")]),
     # Check 5: `_kill_attempt`'s handshake inlined, so its last read records no landing.
     "kill-attempt-handshake-unrecorded": (Daemon, "_kill_attempt", [
         ("unlaunched = self._abandon_start(a, unlaunched_detail())",
@@ -77,9 +84,7 @@ def unidentified_on_the_first_table(world, monkeypatch, pid: int) -> None:
     monkeypatch.setattr(procs, "snapshot", snapshot)
 
 
-@pytest.mark.parametrize("rule", [
-    pytest.param("p3-1", marks=pytest.mark.xfail(strict=True, raises=AssertionError, reason=UNVERIFIED)),
-    "before-p3-1"])
+@pytest.mark.parametrize("rule", ["p3-1", "before-p3-1"])
 def test_a_marked_runner_the_kills_census_could_not_identify_is_contained(daemon, world, monkeypatch, rule):
     """A finished job whose runner escaped (its own session, the attempt's markers) and
     whose kill's census read no start for it: unverifiable, the runner a marker member with
@@ -111,6 +116,25 @@ def test_a_marked_runner_the_kills_census_could_not_identify_is_contained(daemon
     assert not runner.alive and runner.ended_by == TERM, world.signals
 
 
+def test_confirm_dead_points_a_marked_runner_the_census_could_not_identify_to_kill(daemon, world, monkeypatch):
+    """C-5.7's `--confirm-dead` on the same finished job: its census holds the marked
+    runner with no identity, so the answer must say `kill` contains it, not that none of
+    them may be signalled; and the `kill` that follows does."""
+    runner = world.add(RUNNER, 1, RUNNER, marked=True)
+    daemon.store.update_attempt(ATTEMPT, state="succeeded")
+    daemon.store.update_job(JOB, state="succeeded")
+    daemon.term_grace_s, daemon.kill_settle_s = 2.0, 1.0
+    unidentified_on_the_first_table(world, monkeypatch, RUNNER)
+    answer = daemon.kill(protocol.KillArgs(job_id=JOB, confirm_dead=True))
+    assert answer["status"] == "not quarantined", answer
+    assert f"pid {RUNNER}" in answer["detail"] and f"`subfleet kill {JOB}` contains them" in answer["detail"], answer
+    assert "none of them may be signalled" not in answer["detail"], answer
+    assert runner.alive and not world.tried, world.tried
+    monkeypatch.setattr(daemon, "_schedule", lambda key, fn, *args, **kw: fn(*args))
+    assert daemon.kill(protocol.KillArgs(job_id=JOB))["status"] == "containment requested"
+    assert not runner.alive and runner.ended_by == TERM, world.signals
+
+
 def ident(pid: int) -> procs.ProcessIdentity:
     return procs.ProcessIdentity(pid, "boot", "Sat Sep  5 11:00:00 2026")
 
@@ -128,13 +152,27 @@ CENSUSES = {
     "unidentified-marker-member": (procs.Containment(
         marker_pids=frozenset({RUNNER}), unverifiable=True,
         errors=(f"identity inspection unavailable for pid {RUNNER}",)), True),
+    # A parent-chain ancestor whose identity could not be read: attributed in any census.
+    "unidentified-chain-member": (procs.Containment(
+        chain_pids=frozenset({RUNNER}), chain_reasons={RUNNER: f"pid {RUNNER}: ancestor of marked pid 4501"},
+        unverifiable=True, errors=(f"identity inspection unavailable for pid {RUNNER}",)), True),
+    # A member of the recorded group under a verified leader, its own identity unread (the
+    # term alone: a verified leader is itself a member `_signal_reasons` allows).
+    "unidentified-verified-group-member": (procs.Containment(
+        group_pids=frozenset({RUNNER}), leader_verified=True, unverifiable=True,
+        errors=(f"identity inspection unavailable for pid {RUNNER}",)), True),
+    # Only a leaderless group at the recorded pgid names it: no read attributes it, read or not.
+    "unidentified-leaderless-group-member": (procs.Containment(
+        group_pids=frozenset({RUNNER}), unverifiable=True,
+        errors=(f"identity inspection unavailable for pid {RUNNER}",)), False),
+    # Marked and unidentified, but the daemon's parent, which nothing ever signals.
+    "unidentified-never-signalled-marker-member": (procs.Containment(
+        marker_pids=frozenset({os.getppid()}), unverifiable=True,
+        errors=(f"identity inspection unavailable for pid {os.getppid()}",)), False),
 }
 
 
-@pytest.mark.parametrize("shape", [
-    "responsibility-member", "never-signalled-walk-member",
-    pytest.param("unidentified-marker-member",
-                 marks=pytest.mark.xfail(strict=True, raises=AssertionError, reason=UNVERIFIED))])
+@pytest.mark.parametrize("shape", list(CENSUSES))
 def test_an_unverifiable_census_runs_the_protocol_exactly_when_a_verifiable_read_could_attribute_a_member(
         daemon, shape):
     census, runs = CENSUSES[shape]
@@ -144,7 +182,9 @@ def test_an_unverifiable_census_runs_the_protocol_exactly_when_a_verifiable_read
 
 @pytest.mark.xfail(strict=True, raises=AssertionError, reason="the rule's own case must detect this mutant")
 @pytest.mark.parametrize(("mutant", "shape"), [("p3-1-responsibility-dropped", "responsibility-member"),
-                                               ("p3-1-never-ignored", "never-signalled-walk-member")])
+                                               ("p3-1-never-ignored", "never-signalled-walk-member"),
+                                               ("p2-1-chain-dropped", "unidentified-chain-member"),
+                                               ("p2-1-group-unchecked", "unidentified-leaderless-group-member")])
 def test_a_p3_1_term_mutant_fails_its_case(daemon, monkeypatch, mutant, shape):
     mutate(monkeypatch, mutant)
     test_an_unverifiable_census_runs_the_protocol_exactly_when_a_verifiable_read_could_attribute_a_member(
