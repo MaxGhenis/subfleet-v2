@@ -126,7 +126,7 @@ All five are killed by their named tests, which pass unmutated (`named_mutants.p
 ## Fix round r3
 
 Base `c3f06bd02` (round 2's `02720082d` plus review r3's regression file and report, committed by the hub). Built
-2026-10-28, 19:44Z to about 01:00Z, scratch `$(getconf DARWIN_USER_TEMP_DIR)sf-r271f3`. No fetch, push, GitHub
+2026-10-28, 19:44Z to 23:52Z, scratch `$(getconf DARWIN_USER_TEMP_DIR)sf-r271f3`. No fetch, push, GitHub
 call, real `subfleet` CLI, provider or live store. Harnesses for this round are in
 `docs/reports/2026-10-28-relay-exit-r3-fix/`.
 
