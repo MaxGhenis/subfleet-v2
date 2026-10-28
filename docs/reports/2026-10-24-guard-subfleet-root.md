@@ -1144,6 +1144,68 @@ the 90 r6 pins, 35 must-deny inputs were allowed and one control I first wrote (
 was denied, which is decision 7's counterexample above; the three hostile rows each ran past 30 s and were
 stopped.
 
+**Holds** (one pytest each, home `/Users/tester`, `-k` selections of `test_guard_subfleet_root.py` unless named):
+
+| Hold | Admitted (slot, load) | Selection | Result, pytest time |
+| --- | --- | --- | --- |
+| H1 | 07:22:25Z (B, 83) | `test_r6_*`, review r5's test | 12 passed, 1 failed (wall time on one dense row, below), 372 s |
+| H4 | 07:59:39Z (A, 119) | r4's decision tests, hostile rows and 300-path cost; review r4's test; the dense rows again | 13 passed, 337 s |
+| H2 | 08:07:06Z (B, 63) | r5's decision tests and timing | 10 passed, 1 failed (r5's timing row, wall time, below), 199 s |
+| H3 | 08:26:08Z (B, 84) | r5's shells; r5's timing rerun once | 2 passed, 206 s |
+| HA | 08:43:27Z (B, 64) | `test_guard_overlay.py`, `test_guard_trust.py` and the three guards | 189 passed, 1 failed (the overlay file's stale pin, fixed in `9deacad70`), 356 s |
+| HB | outside the lock, 09:12:57Z (load 181) | r1/r2, TRUST, the fence, env spellings, known limits; the overlay pin | 16 passed, 3 failed (two the hook's mode, one decision 9's closed limit; both fixed, below), 444 s |
+
+- **H1's failure was wall time:** `test_r6_dense_substitutions_fail_closed_fast`'s third row took 3.5 s against
+  the installed hook's 1.5 s at load 110. Interleaved right after, the three hooks took 0.19 (r6), 0.21 (r5)
+  and 0.15 s (installed) of child CPU on it, and wall time for the same CPU swung from 1.3 to 12.5 s. The test is
+  this round's own (the budget is a deviation), so `8b35ed657` bounds it as decision 10 bounds the 300-path test:
+  under 3 s of wall time or within twice the installed hook's child CPU. H4 ran it again: all three rows passed
+  (CPU 0.19/0.17, 0.16/0.17 and 0.17/0.16 s).
+- **H2's failure was load:** r5's timing row `'60,000 x', scoped` took 3.38 s against 1.09 s at load 94.
+  Interleaved, r6 and r5 took 0.33 and 0.31-0.36 s of CPU on it and the installed hook 0.23-0.28 s, and r5's own
+  hook once took 13.9 s of wall time. Rerun once in H3 at load 78, every row passed (below). The bound was not
+  loosened.
+- **HB ran outside the lock:** its waiter sat 34 minutes unadmitted (both slots held, load over 120), so, as the
+  lane rules allow, I stopped my own waiter and ran it directly. Its failures: this job's checkout wrote the hook
+  644 and `92f19a5fd` recorded it, so `load_guard` refused it (`36eda0c38` restores 100755; no mode differs from
+  `809346708` now); and r2's quoted for-loop limit is closed by decision 9 (`1f3ee53c5` moves it to
+  `R6_CLOSED_LIMITS`).
+
+**Timing rows** (one run each, the new hook then the installed one, `hooks["old"]`):
+
+| Row | Load | This head | Installed |
+| --- | --- | --- | --- |
+| 60,000 `x` beside `rg --files ~/.subfleet` (denied) | 78.7 | 1.20 s | 0.74 s |
+| 60,000 `x` beside `rg foo src` | 78.7 | 1.19 s | 0.84 s |
+| 65,000 `x`, scoped | 78.7 | 0.71 s | 0.39 s |
+| 30,000 `x` beside a crawl (denied) | 78.7 | 0.50 s | 0.38 s |
+| `'60,000 x'`, scoped | 78.7 | 0.54 s | 0.30 s |
+| `"60,000 x"`, scoped | 77.5 | 0.48 s | 0.34 s |
+| `` `echo 60,000 x` ``, scoped | 77.5 | 0.69 s | 0.36 s |
+| 4,000 words in a commit message, scoped | 77.5 | 0.95 s | 0.44 s |
+| a 70,000-character word beside a crawl (denied, too long) | 77.5 | 0.62 s | 1.00 s |
+| 60,000 `$` beside a crawl (denied, too complex) | 118.5 | 2.78 s | 1.25 s |
+| 60,000 `#` beside a crawl (denied, too complex) | 116.6 | 3.98 s | 4.69 s |
+| 30,000 backslash pairs beside a crawl (denied, too complex) | 110.8 | 2.28 s | 1.63 s |
+
+The first nine are H3's rerun, the last three H1's. **Decision 10's 300-path test** (H4, load 107.5): median
+child CPU 0.302 s against the installed hook's 0.195 s, **1.55×**; wall in the same run 2.02 s against 0.57 s
+(3.5×), the load the new measure steps around. r4's hostile rows in H4: 1,000 `{` 0.62 s, `/[`×1,000 1.40 s,
+10,000 commas 1.21 s, 2,040 components 1.12 s; the cap edge (reported, not bounded) 10.96 s and 24.92 s at load
+~107 (review r5's t1 measured 9.4 s for the second at load ~100; r6 does not touch the path-word pass that judges
+it, but this round could not separate its cost from the load).
+
+**The real shells.** r6's 68 command runs (H1): the hook denies 37; zsh walked a root in 33 and bash in 27 (both in
+27), neither in 35, and every run agrees but the listed exceptions (decision 7's three spans and decision 4's
+unterminated heredoc, denied by design). r5's 104 runs (H3) agree too: denied 70; zsh 62, bash 62, both 55,
+neither 35.
+
+**Must-allow cases.** `test_r6_scoped_searches_stay_allowed` holds 198 (176 distinct): r5's list (130), r5's
+allowed forms, the print-and-exit forms from the home, `/` and the scoped cwd, and 17 lane commands (an 18th, the
+markdown span, is decision 7's denial); each decision's test holds 31 allowed forms more, and decision 8's 5
+controls. None comes near decision 8's cap: the most of any one of `$`, `#` or `\` in a must-allow case is 2
+(``x=$(cat <<'EOF' …``, the PR-body heredoc's `##`, `` git commit -m "use \`rg\` / here" ``).
+
 ## Invariants and how they were checked
 
 `tests/unit/test_guard_subfleet_root.py` states each in its docstring and checks it.
