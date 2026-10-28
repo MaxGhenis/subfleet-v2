@@ -7838,7 +7838,7 @@ class Daemon:
                         # contested above, not a key it only needs free.
                         own = (folders.exclusive_key(write_target)
                                if job["sandbox"] == "workspace-write" and job["kind"] != "turn" else None)
-                        blockers.extend(key for _, path in needs for key in folders.retiring(read, path)
+                        blockers.extend(key for _, _, keys in dependencies.fences(read, needs) for key in keys
                                         if key != own)
                         revive_key = (revive_lease_key(job["caller_session"])
                                       if job["kind"] == "revive" and job["caller_session"] else None)

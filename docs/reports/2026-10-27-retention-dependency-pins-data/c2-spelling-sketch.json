@@ -1,0 +1,130 @@
+{
+  "hold": "c2-spelling-sketch",
+  "start": "2026-10-28T17:25:21.393080+00:00",
+  "load": [
+    48.7353515625,
+    86.36962890625,
+    101.08251953125
+  ],
+  "args": [
+    "tests/fake/test_retention_dependency_spelling.py",
+    "--tb=short"
+  ],
+  "collected": [
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-case]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-fi]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-long-s]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-kelvin]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-case]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-fi]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-long-s]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-kelvin]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-case]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-fi]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-long-s]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-kelvin]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-case]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-fi]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-long-s]",
+    "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-kelvin]"
+  ],
+  "results": [
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-case]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "E   ValueError: output directory must exist\nE   subfleet.protocol.ProtocolError: output directory must exist"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-fi]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "E   ValueError: output directory must exist\nE   subfleet.protocol.ProtocolError: output directory must exist"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-long-s]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "E   ValueError: output directory must exist\nE   subfleet.protocol.ProtocolError: output directory must exist"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-output-kelvin]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "E   ValueError: output directory must exist\nE   subfleet.protocol.ProtocolError: output directory must exist"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-case]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "E   AssertionError: assert ('/private/var...ndor/lib/.git' == '/private/var...SK/vendor/lib'\nE     \nE     Skipping 168 identical leading characters in diff, use -v to show\nE     - 05-120000-FIRST-DESK/vendor/lib\nE     + 05-120000-first-desk/vendor/lib/.git)"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-fi]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "E   AssertionError: assert ('/private/var...ndor/lib/.git' == '/private/var...sk/vendor/lib'\nE     \nE     Skipping 168 identical leading characters in diff, use -v to show\nE     - 05-120000-\ufb01rst-desk/vendor/lib\nE     ?           ^\nE     + 05-120000-first-desk/vendor/lib/.git\nE     ?           ^^                   +++++)"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-long-s]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "E   AssertionError: assert ('/private/var...ndor/lib/.git' == '/private/var...sk/vendor/lib'\nE     \nE     Skipping 171 identical leading characters in diff, use -v to show\nE     - 120000-fir\u017ft-desk/vendor/lib\nE     ?           ^\nE     + 120000-first-desk/vendor/lib/.git\nE     ?           ^                 +++++)"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[early-review-root-kelvin]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "E   AssertionError: assert ('/private/var...ndor/lib/.git' == '/private/var...s\u212a/vendor/lib'\nE     \nE     Skipping 177 identical leading characters in diff, use -v to show\nE     - -first-des\u212a/vendor/lib\nE     ?           ^\nE     + -first-desk/vendor/lib/.git\nE     ?           ^           +++++)"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-case]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "E   ValueError: output directory must exist\nE   subfleet.protocol.ProtocolError: output directory must exist"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-fi]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "E   ValueError: output directory must exist\nE   subfleet.protocol.ProtocolError: output directory must exist"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-long-s]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "E   ValueError: output directory must exist\nE   subfleet.protocol.ProtocolError: output directory must exist"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-output-kelvin]",
+      "phase": "call",
+      "outcome": "failed",
+      "failure": "E   ValueError: output directory must exist\nE   subfleet.protocol.ProtocolError: output directory must exist"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-case]",
+      "phase": "call",
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-fi]",
+      "phase": "call",
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-long-s]",
+      "phase": "call",
+      "outcome": "passed"
+    },
+    {
+      "node": "tests/fake/test_retention_dependency_spelling.py::test_recorded_dependency_alias_waits_for_the_fence_then_is_admitted[transaction-review-root-kelvin]",
+      "phase": "call",
+      "outcome": "passed"
+    }
+  ],
+  "statistics": {},
+  "exitstatus": 1,
+  "seconds": 110.02488008299406,
+  "maxrss_bytes": 162250752,
+  "note": "Sketch validation only: 8 output cases rejected before admission; exact Git storage masked review-root aliases. Not accepted as gap red evidence."
+}

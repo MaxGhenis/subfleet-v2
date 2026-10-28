@@ -209,20 +209,21 @@ def fenced(submitted: Mapping[str, Any], job: Mapping[str, Any]) -> list[tuple[s
 def fences(read: Read, places: Iterable[tuple[str | None, str]]) -> list[tuple[str | None, str, list[str]]]:
     """`(role, path, keys)` for each of `places` retention's fence holds: the
     `worktree:` keys retention holds on that path or a folder above it, nearest
-    first (`folders.retiring`), all read in one statement."""
+    first (`folders.retiring`), all read in one indexed range statement. Compare
+    `key`ed paths as retention's pins do: quarantine can leave recorded dependency
+    names unspellable, including the parent of an output not yet written."""
     places = [(role, path) for role, path in places if path]
-    wanted = {path: [folders.exclusive_key(each) for each in (path, *folders.above(path))] for _, path in places}
-    keys = sorted({each for found in wanted.values() for each in found})
-    if not keys:
+    if not places:
         return []
-    held = {}
-    for start in range(0, len(keys), 500):
-        part = keys[start:start + 500]
-        held.update(folders._row(row) for row in read(
-            f"SELECT lease_key, holder FROM leases WHERE lease_key IN ({','.join('?' * len(part))})", tuple(part)))
+    held = [(lease, key(lease[len(folders.EXCLUSIVE):]))
+            for lease, holder in map(folders._row, read(
+                "SELECT lease_key, holder FROM leases WHERE lease_key >= ? AND lease_key < ?",
+                (folders.EXCLUSIVE, folders.EXCLUSIVE[:-1] + ";")))
+            if str(holder or "").startswith(folders.RETENTION)]
     found = []
     for role, path in places:
-        mine = [each for each in wanted[path] if str(held.get(each) or "").startswith(folders.RETENTION)]
+        mine = sorted((lease for lease, tree in held if folders.within(key(path), tree)),
+                      key=lambda lease: (-lease.count("/"), lease))
         if mine:
             found.append((role, path, mine))
     return found
