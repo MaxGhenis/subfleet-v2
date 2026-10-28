@@ -2291,13 +2291,39 @@ final class RevealArrivals: @unchecked Sendable {
         // without a person-scroll notification or either animation control, and wait
         // for 50 ms without a document/clip change at zero. Leave the original callback
         // in the trace: its tolerance and timing are independent of this scene's barrier.
+        // Match scheduleLandingCheck() in ConversationOpeningPin.swift: a valid
+        // landing is within Theme.space.column + 1. Larger gaps belong to the
+        // product to recover within waitReady's existing budget, never the fixture.
+        let correctionTolerance = Double(Theme.space.column + 1)
+        var zeroEndFirstGap: Double?
+        var zeroEndCorrectedGaps: [Double] = []
         let zeroEnd = QuietMove(scroll: scroll, after: 0.05, within: 0.5) {
-            record.step("landed", target: target, ["landed": landed() ?? [:]])
+            record.step("landed", target: target, ["landed": landed() ?? [:],
+                "zero_end_first_gap": zeroEndFirstGap ?? 1e9,
+                "zero_end_corrected_gaps": zeroEndCorrectedGaps])
         }
         defer { zeroEnd.stop() }
-        await waitReady("send.zero_end", view: scene.host, state: { scene.readiness() }) {
+        await waitReady("send.zero_end", view: scene.host, state: {
+            scene.readiness().merging([
+                "zero_end_first_gap": zeroEndFirstGap ?? 1e9,
+                "zero_end_gap": record.position()["from_end"] ?? 1e9,
+                "zero_end_corrected_gaps": zeroEndCorrectedGaps,
+                "zero_end_correction_tolerance": correctionTolerance
+            ]) { _, new in new }
+        }) {
+            let gap = record.position()["from_end"] ?? 1e9
+            if zeroEndFirstGap == nil {
+                zeroEndFirstGap = gap
+                record.trace.append(["event": "zero_end_first_look", "at": record.at(),
+                                     "gap": gap, "position": record.position()])
+            }
             if record.steps.last?["step"] as? String == "landed" { return true }
-            if abs(record.position()["from_end"] ?? 1e9) > 0.5 { record.clipTo(fromEnd: 0) }
+            if abs(gap) > 0.5 && abs(gap) <= correctionTolerance {
+                zeroEndCorrectedGaps.append(gap)
+                record.trace.append(["event": "zero_end_correction", "at": record.at(),
+                                     "gap": gap, "position": record.position()])
+                record.clipTo(fromEnd: 0)
+            }
             return false
         }
         if landing == "quiet-regrow-late" {
