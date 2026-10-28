@@ -1,0 +1,37 @@
+{
+  "hold": "c2-properties-fence",
+  "start": "2026-10-28T18:03:26.703286+00:00",
+  "load": [
+    95.43115234375,
+    78.28173828125,
+    80.3837890625
+  ],
+  "args": [
+    "tests/unit/test_retention_dependency_properties.py",
+    "-k",
+    "submitted_dependencies",
+    "--tb=short"
+  ],
+  "collected": [
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted"
+  ],
+  "results": [
+    {
+      "node": "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted",
+      "phase": "call",
+      "outcome": "passed"
+    }
+  ],
+  "statistics": {
+    "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted": "tests/unit/test_retention_dependency_properties.py::test_submitted_dependencies_wait_in_any_spelling_then_are_admitted:\n\n  - during generate phase (87.46 seconds):\n    - Typical runtimes: ~ 2408-5666 ms, of which ~ 18-606 ms in data generation\n    - 24 passing, 0 failing, and 0 invalid test cases\n\n  - Stopped because settings.max_examples=24"
+  },
+  "exitstatus": 0,
+  "seconds": 136.7062549589973,
+  "maxrss_bytes": 129466368,
+  "child_maxrss_bytes": 9175040,
+  "queued": "2026-10-28T18:03:01.229207+00:00",
+  "outside_lock": false,
+  "lock": "locked",
+  "driver_rc": 0,
+  "queue_and_run_seconds": 166.2987669590002
+}
