@@ -5,8 +5,8 @@
   "lost_salvage_remaining": 759,
   "reused_replacement": 27,
   "process_start_remaining": 732,
-  "completed_this_process": 722,
-  "remaining": 10,
+  "completed_this_process": 728,
+  "remaining": 4,
   "unresolved_failures": [],
   "holds": [
     {
@@ -2024,6 +2024,58 @@
       },
       "counts": {
         "passed": 1
+      },
+      "partial": [],
+      "coverage": true
+    },
+    {
+      "label": "c1c-remaining-51",
+      "args": [
+        "tests/fake/test_admission_ramp.py::test_generated_R1_arbitrary_clocks_at_check_and_commit",
+        "tests/unit/test_retention_case_alias.py::test_a_folded_fence_holds_exactly_the_turns_whose_job_keeps_the_tree",
+        "tests/unit/test_retention_shared_folders.py::test_the_turn_folder_pin_is_exactly_an_owned_tree_a_turn_is_in"
+      ],
+      "queued": {
+        "utc": "2026-10-28T10:59:46.546621+00:00",
+        "load": [
+          152.75390625,
+          133.8369140625,
+          104.4345703125
+        ]
+      },
+      "outside_lock": true,
+      "rc": 0,
+      "wall_s": 2169.51,
+      "end": {
+        "utc": "2026-10-28T11:35:56.108342+00:00",
+        "load": [
+          90.1533203125,
+          93.46923828125,
+          82.734375
+        ]
+      },
+      "admitted": {
+        "utc": "2026-10-28T11:30:00.467282+00:00",
+        "load": [
+          98.60888671875,
+          77.1552734375,
+          74.16455078125
+        ],
+        "pid": 53537
+      },
+      "finished": {
+        "utc": "2026-10-28T11:35:54.660001+00:00",
+        "load": [
+          90.1533203125,
+          93.46923828125,
+          82.734375
+        ],
+        "rc": 0,
+        "seconds": 354.18666400000075,
+        "rss": 130187264
+      },
+      "counts": {
+        "passed": 3
       },
       "partial": [],
       "coverage": true

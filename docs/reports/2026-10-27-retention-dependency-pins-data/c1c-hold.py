@@ -142,6 +142,11 @@ def grouped_nodes(label, args):
 
 
 def main(label, args):
+    # The four-hour rule stops new holds. A hold queued before that cutoff
+    # retains its original 30-minute lock wait and sub-20-minute pytest cap.
+    if datetime.now(timezone.utc) >= datetime(2026, 10, 28, 11, 46, tzinfo=timezone.utc):
+        print(label + ': no new hold after the four-hour cutoff', flush=True)
+        return 2
     if args[:1] == ['--nodes']:
         args = Path(args[1]).read_text().splitlines() + args[2:]
         args = grouped_nodes(label, args)
@@ -201,9 +206,6 @@ def main(label, args):
                 outside = True
                 proc = launch(False)
                 admitted_at = time.monotonic()
-            if admitted_at is None and datetime.now(timezone.utc) >= datetime(2026, 10, 28, 11, 46, tzinfo=timezone.utc):
-                stop(proc)
-                break
             time.sleep(1)
     body = log.read_text()
     summary = [line for line in body.splitlines() if line.startswith('FINISHED ')]
