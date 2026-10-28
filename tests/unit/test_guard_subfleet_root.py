@@ -4812,7 +4812,7 @@ R6_ARITH_ALLOWED = ["echo $((1<<2))", "echo $((1<<2)); rg foo src", "x=$((1 << 3
 #: ... and decision 4's second half: a << whose body never ends disables only itself, so a later heredoc is still
 #: read. (No shell walks this one: the unterminated body swallows the rest, so nothing after it runs. Reading the
 #: rest as commands is r5's fail-closed reading of an unterminated heredoc.)
-R6_UNTERMINATED_DENIED = ["cat <<NOPE; " + R6_ARITH_PRE]
+R6_UNTERMINATED_DENIED = ["cat <<NOPE; " + R6_ARITH_PRE, "cat <<NOPE\n" + R6_ARITH_PRE]
 #: Decision 5 (review r5's P3-3): the standard commit idiom with a lone " in its body, then a crawl; and a crawl
 #: inside the substitution after its heredoc.
 R6_DQ_DENIED = [R6_DQ_HD + "\n/usr/bin/find / -name x",
@@ -5064,7 +5064,7 @@ R6_SHELL_EXCEPTIONS = {
     R6_SPAN_DENIED[0]: True, R6_SPAN_STILL_DENIED[0]: True, R6_SPAN_STILL_DENIED[1]: True,
     # decision 4's second half: the unterminated heredoc swallows the rest in both shells; the rest is read as
     # commands (r5's fail-closed reading)
-    R6_UNTERMINATED_DENIED[0]: True,
+    R6_UNTERMINATED_DENIED[0]: True, R6_UNTERMINATED_DENIED[1]: True,
 }
 
 
