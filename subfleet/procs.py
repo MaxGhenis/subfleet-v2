@@ -385,11 +385,22 @@ class Containment:
     #: targets as such; otherwise they hold the attempt unless another source,
     #: or an owned identity, attributes them.
     leader_verified: bool = False
+    #: D-QUAR-START1 (D4): the live processes whose marker read failed (`marker_unread`).
+    #: Each one's error is in `errors`, so the census is unverifiable exactly as before;
+    #: only start grace's extension reads them apart (`only_markers_unread`, C-4.2).
+    markers_unread: frozenset[int] = frozenset()
 
     @property
     def live_pids(self) -> frozenset[int]:
         return (self.group_pids | self.descendant_pids | self.marker_pids | self.responsible_pids
                 | self.chain_pids)
+
+    @property
+    def only_markers_unread(self) -> bool:
+        """Is every error of this census a failed marker read of a process in `markers_unread`?
+        Then the group, the walk, the responsibility source, the identities and every other
+        process's marker were read, and only whether those processes carry the marker is unknown."""
+        return bool(self.markers_unread) and set(self.errors) == {marker_unread(pid) for pid in self.markers_unread}
 
     @property
     def containment_empty(self) -> bool:
@@ -760,6 +771,16 @@ def responsible_for(root: int) -> frozenset[int]:
     raise InspectionError("responsibility listing did not settle")
 
 
+def marker_unread(pid: int) -> str:
+    """C-5.5: the error a census records when `pid`'s marker read fails, a buffer that may
+    be cut short or a refusal while the process is there and not exiting. Measured on the
+    shared host on 2026-10-27 (load 19 to 43), every refusal was of a newborn of this user
+    (bash, zsh, sh, python, claude, codex, cargo, git, ...), refused with EIO or EINVAL in
+    its first milliseconds and read whole, or gone, soon after; none filled the buffer, and
+    20 of 900 whole-host passes met one (`docs/reports/2026-10-27-quar-start1-census-under-load.md`)."""
+    return f"marker read unavailable for pid {pid}"
+
+
 def _kernel_sources(kernel_reader, candidates: list[int], marker: tuple[bytes, bytes | None] | None,
                     root: ResponsibleRoot | None, ours: Callable[[KernelProcess], bool]
                     ) -> tuple[set[int], dict[int, KernelProcess], list[str]]:
@@ -789,7 +810,7 @@ def _kernel_sources(kernel_reader, candidates: list[int], marker: tuple[bytes, b
             try:
                 found = kernel_reader.arguments(pid, buffer)
             except InspectionError:                # a buffer that may be cut short
-                errors.append(f"marker read unavailable for pid {pid}")
+                errors.append(marker_unread(pid))
             else:
                 if found is not None:
                     if procargs_marked(found, *marker):
@@ -804,7 +825,7 @@ def _kernel_sources(kernel_reader, candidates: list[int], marker: tuple[bytes, b
                     except InspectionError:
                         again = current
                     if again is not None and not again.exiting:
-                        errors.append(f"marker read unavailable for pid {pid}")
+                        errors.append(marker_unread(pid))
         if root is not None:
             try:
                 boss = kernel_reader.responsible(pid)
@@ -878,6 +899,7 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
     responsible: set[int] = set()
     responsible_records: dict[int, KernelProcess] = {}
     errors: list[str] = []
+    unread: set[int] = set()
     recycled: dict[int, dict[str, Any]] = {}
     checked: set[int] = set()
     recorded_identities = recorded_identities or {}
@@ -1205,6 +1227,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
         # Keep only pids and birth records; argument buffers never become evidence.
         found_marked, found_responsible, failed = _kernel_sources(
             kernel, candidates, wanted, source_root, ours)
+        refused = set(failed)
+        unread = {pid for pid in candidates if marker_unread(pid) in refused}
         if source_root is not None and listed and order != [False]:
             # A successor cannot acquire the pid until R is reaped. Every real
             # member read naming R therefore predates that successor. Apply
@@ -1306,7 +1330,8 @@ def containment(pgid: int | None, guardian_pid: int | None, child_pid: int | Non
                        frozenset(responsible), other_boot, chain_pids=frozenset(chain), chain_reasons=chain,
                        held_pids=frozenset(held), held_reasons=held, held_identities=held_identities,
                        held_fresh=frozenset(fresh & held.keys()),
-                       leader_verified=leader_verified and pgid in groups)
+                       leader_verified=leader_verified and pgid in groups,
+                       markers_unread=frozenset(unread))
 
 
 def _parent_chain(seen: ProcessTable, markers: set[int], members: set[int], rule: ParentChain,

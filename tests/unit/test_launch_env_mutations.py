@@ -251,7 +251,8 @@ def test_named_race_regression_kills_dropping_the_key_error_tolerance(tmp_path, 
 @pytest.mark.parametrize("provider", ["claude", "codex"])
 def test_named_withheld_regression_kills_testing_environ_first(provider, monkeypatch):
     """P3-3: the membership test reads the withheld value before rejecting it."""
-    monkeypatch.setattr(ProviderEnvironment, "additions", rewritten(ProviderEnvironment.additions, EnvironTestFirst()))
+    # D-ENV3: `additions` filters what `_additions` selects; the selection is the site.
+    monkeypatch.setattr(ProviderEnvironment, "_additions", rewritten(ProviderEnvironment._additions, EnvironTestFirst()))
     with pytest.raises(AssertionError, match="withheld lane variable"):
         withheld_oracle(provider, False)
 
