@@ -40,9 +40,13 @@ FLUSH_S = 0.25
 FLUSH_BYTES = 64 * 1024
 POLL_S = 0.05
 READ_CHUNK = 1 << 20
-# A proved exit may lose its receipt or leave descendants writing stdout. Allow
-# buffered output 30 s to drain (the default stop containment budget), then
-# request containment rather than keeping this turn in the drain loop forever.
+# A proved exit may lose its receipt or leave descendants writing stdout. The exit
+# drain reads all of stdout on disk when it begins; output written after that gets
+# this long from the read that catches up, then containment is requested rather
+# than keeping this turn in the drain loop forever (`_drain_stdout`, C-26.4).
+# Chosen equal to the default of policy `conversations.stop_contain_after_s`
+# (C-24.7, `CONTAIN_AFTER_S` below). It is a constant: it does not follow a
+# customised policy.
 EXIT_DRAIN_S = 30.0
 
 # Stop escalation (C-24.7, review IR-3, design D-13 revision 3), seconds after the stop request:
