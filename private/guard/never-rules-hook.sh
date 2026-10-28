@@ -1897,10 +1897,11 @@ pw_prep_awk="$pw_lib_awk"'
     return 0
   }
   # (this awk takes at most 50 arguments and locals in a call, so r6 keeps its own in st: st["ps"] what a process
-  # substitution writes, st["pr"] the roots a pipe carries; r7: st["lp"] whether this command passes on what its
-  # process substitution writes, kept as lastps)
+  # substitution writes, st["pr"] the roots a pipe carries; r7: st["vt"] the vtop of the prep, st["ka"] a keyword
+  # before the command word, st["lp"] whether this command passes on what its process substitution writes, kept as
+  # lastps)
   function simple(seg, depth, piped, noext, ctx, bt, hd,   ex, isfr, fw, xe, nt, i, n, c, j, t, b, hs, hb, out, w, tk, val, sp, qd, stdin, npos, hasE, rec, k, files, rd, hstr, st, pin, prod, pc, scr, ev, op, tg) {
-    pin = pipein; st["pr"] = piperoots; st["ps"] = pipeps
+    pin = pipein; st["pr"] = piperoots; st["ps"] = pipeps; st["vt"] = vtop; st["ka"] = 0
     nt = 0; i = 1; n = length(seg); sp[0] = ""
     while (i <= n) {
       # (runs of blanks and of plain characters are taken at once: one at a time is quadratic on a long word)
@@ -1942,12 +1943,28 @@ pw_prep_awk="$pw_lib_awk"'
     }
     t = 1
     if (t <= nt && tk[t] ~ /^\003.\003$/) t++
+    # (r7 decision 5: ld counts the compound commands open at the top of the command, st["ka"] a keyword before the
+    # command word)
     while (t <= nt) {
       if (rd[t]) { t++; continue }
-      if (!qd[t] && val[t] ~ /^(if|then|else|elif|while|until|do|done|fi|esac|coproc|!|\{|\})$/) { t++; continue }
-      if (!qd[t] && val[t] == "function" && t < nt) { t += 2; continue }
+      if (!qd[t] && val[t] ~ /^(if|then|else|elif|while|until|do|done|fi|esac|coproc|!|\{|\})$/) {
+        if (mode == "prep" && !depth) { if (val[t] ~ /^(if|while|until|\{)$/) ld++; else if (val[t] ~ /^(fi|done|esac|\})$/ && ld > 0) ld-- }
+        st["ka"] = 1; t++; continue
+      }
+      if (!qd[t] && val[t] == "function" && t < nt) { st["ka"] = 1; t += 2; continue }
       if (val[t] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { t++; continue }
       break
+    }
+    if (mode == "prep" && !depth && t <= nt && !qd[t] && val[t] ~ /^(for|select|case)$/) ld++
+    # r7 decision 5: a plain assignment where it lasts (st["vt"]), with no compound command open, ends the reading
+    # of a loop variable: from there the name stands for the word assigned, when that word is literal (no $ and
+    # no backtick); any other assignment leaves the reading of the loop in place
+    if (mode == "prep" && !depth && t > nt && !st["ka"] && !ld && st["vt"]) {
+      for (k = 1; k <= nt; k++) {
+        if (rd[k] || !match(tk[k], /^[A-Za-z_][A-Za-z0-9_]*=/)) continue
+        w = substr(tk[k], 1, RLENGTH - 1); op = substr(tk[k], RLENGTH + 1)
+        if ((w in LVAR) && op != "" && op !~ /[$`]/) LVAR[w] = op
+      }
     }
     # r5 decision 11: zsh reads =cmd in command position as cmd (its path), after a wrapper too
     if (t <= nt && !qd[t] && val[t] ~ /^=[A-Za-z_.\/]/) val[t] = substr(val[t], 2)
@@ -2231,9 +2248,9 @@ pw_prep_awk="$pw_lib_awk"'
     }
     return 0
   }
-  function prep(t, depth, noext, ctx,   n, i, c, seg, res, j, sep, piped, nextin, r, bt, x, k, sb, hz, hn, he, hl, nl, LN, LP, bto, pi, pd, na, AO, AD, AV, HZ, psb, nextroots, ri, abe, oe, oo, oc, ow, pps) {
+  function prep(t, depth, noext, ctx,   n, i, c, seg, res, j, sep, piped, nextin, r, bt, x, k, sb, hz, hn, he, hl, nl, LN, LP, bto, pi, pd, na, AO, AD, AV, HZ, psb, nextroots, ri, abe, oe, oo, oc, ow, pv, pn, pps) {
     n = length(t); i = 1; seg = ""; res = ""; piped = 0; nextin = ""; bt = 0; sb = ""; hz = 0; hn = 0; he = 0; nl = 0; bto = 0
-    pd = 0; na = 0; abe = 0; oe = 0; oo = 0; oc = ""; ow = 0
+    pd = 0; na = 0; abe = 0; oe = 0; oo = 0; oc = ""; ow = 0; pv = ""; pn = 0
     while (i <= n) {
       # (a command past the step budget is denied as too complex to judge: nothing more need be read)
       if (cplx) return res
@@ -2299,7 +2316,10 @@ pw_prep_awk="$pw_lib_awk"'
       sep = c
       if ((c == "|" || c == "&") && substr(t, i + 1, 1) == c) sep = c c
       else if (c == "|" && substr(t, i + 1, 1) == "&") sep = "|&"
-      # r5 decision 11: a pipe carries what every earlier stage writes
+      # r5 decision 11: a pipe carries what every earlier stage writes. r7 decision 5: vtop, a plain assignment
+      # here would last: the top of the command (not in a subshell, a substitution or a backtick, and no case
+      # pattern seen, pn), after ;, a newline, & or nothing, and before ;, a newline, && or ||
+      vtop = (!depth && !pd && !pn && !bto && (pv == "" || pv == ";" || pv == "\n" || pv == "&") && (sep == ";" || sep == "\n" || sep == "&&" || sep == "||"))
       pi = nextin; pipein = pi; ri = nextroots; piperoots = ri; pipeps = psb; pps = psb; r = simple(seg, depth, piped, noext, ctx, bt, sb); sb = ""; psb = ""
       nextin = (sep == "|" || sep == "|&") ? pi (pi == "" ? "" : "\n") lastprod : ""
       nextroots = (sep == "|" || sep == "|&") ? ri (ri == "" ? "" : " ") lastroots : ""
@@ -2309,17 +2329,19 @@ pw_prep_awk="$pw_lib_awk"'
       if (oo) { if (ow) oc = oc "\n" pps; else if (lastps) { oc = pi (pi == "" ? "" : "\n") lastprod; ow = 1 }; oo = 0 }
       else if (!oe && ow) { if (sep == "|" || sep == "|&") nextin = nextin (nextin == "" ? "" : "\n") oc; oc = ""; ow = 0 }
       if (i == oe) oe = 0
+      pv = sep
       # r5 decision 5: a space before a closing backtick too, so a root right before it ends there
       if (sep == "`") { if (bto) r = r " "; bto = !bto }
       res = res r sep; seg = ""
       # r6 decision 4: the open (( a << may sit in (pd the depth of ( as read here)
       if (sep == "(") { if (substr(t, i + 1, 1) == "(") { AO[++na] = i; AD[na] = pd }; pd++ }
-      else if (sep == ")") { pd--; while (na && AD[na] >= pd) na-- }
+      else if (sep == ")") { pd--; if (pd < 0) pn = 1; while (na && AD[na] >= pd) na-- }
       i += length(sep)
       if (sep == "\n") { if (he > i) { res = res substr(t, i, he - i); i = he }; hn = 0; he = 0 }
       piped = (sep == "|" || sep == "|&"); bt = (sep == "`")
     }
     pipein = nextin; piperoots = nextroots; pipeps = psb
+    vtop = (!depth && !pd && !pn && !bto && (pv == "" || pv == ";" || pv == "\n" || pv == "&"))
     return res simple(seg, depth, piped, noext, ctx, bt, sb)
   }
   BEGIN {
