@@ -333,6 +333,9 @@ SHAPES = [
     "db:\n  password:\n  api_key:\n  secret: {s}\n", "password =\ntoken\n=\napikey\n=\n{s}\n",
     'password="{s} Bearer\nabcdefgh1234" x\n', "api_key:\n  token:\n  {s}\n",
     "Authorization:\nAuthorization\n:\nx password\n=\n{s}\n",
+    # Values release's scrub shows and the head's hides (#239 round 9): the excerpts keep
+    # those gains, as the whole-text scrub does.
+    "token:--x_token {s}\n", "sent Cookie: --password\n{s} x\n",
 ]
 
 
@@ -373,6 +376,24 @@ def test_an_excerpt_never_shows_a_value_the_whole_scrub_removes(text, strip, lim
     if limit is not None:
         assert len(out) <= limit
     assert handoff.scrub_bounded(text, limit, strip_reminders=strip) == (out, _count)
+
+
+GAINED = "Zq5x123456"
+
+
+@pytest.mark.parametrize("shape", ["token:--x_token {s}\n", "sent Cookie: --password\n{s} x\n"],
+                         ids=["flag-after-a-key", "flag-after-a-cookie"])
+@pytest.mark.parametrize("at", [1_000, 299_000], ids=["head", "tail"])
+def test_an_excerpt_hides_what_only_the_head_s_scrub_hides(shape, at):
+    """C-23.14 (#239 round 9): an excerpt may hide more than the whole-text scrub, never
+    less. Here release's excerpt shows the value and the head's hides it, as the whole
+    text's scrub does, so the excerpt hides it too, in the head excerpt and in the tail."""
+    shape = shape.replace("{s}", GAINED)
+    text = around(at - len(shape), shape, 300_000)
+    assert GAINED in scrub_release.scrub_bounded(text, None)[0]
+    assert GAINED not in handoff.scrub_secrets(text, whole=True)[0]
+    out, count = handoff.scrub_bounded(text, None)
+    assert GAINED not in out and count >= scrub_release.scrub_bounded(text, None)[1]
 
 
 # --- the assembled brief is scrubbed whole (C-23.36) -----------------------------------
