@@ -2109,6 +2109,10 @@ pw_prep_awk="$pw_lib_awk"'
         if (x) {
           if (!match(seg, /(^|[[:space:]])[0-9]+$/) || substr(seg, RSTART) ~ /^[[:space:]]*0$/) sb = sb (sb == "" ? "" : "\n") HDB
           hl = x; hn = (x <= nl) ? LP[x] : n + 1; he = hn
+          # r6 decision 1: under a delimiter word with no quote and no backslash the shell runs the command
+          # substitutions of the body, so each $(...) and backtick span in it is judged as a command; the rest of
+          # the body stays data (HDW is kept across the reading of those scripts)
+          if (mode == "prep" && !noext && HDW !~ /[\\\047"]/) { x = HDW; spans(HDB, ctx, depth); HDW = x }
         } else hf = 1
         seg = seg HDW; i = j; continue
       }
