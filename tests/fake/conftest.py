@@ -54,7 +54,8 @@ class Harness:
         }]))
         (root / "home").mkdir()
 
-    def start(self, *options: str, open_files: int | None = None, rooted: bool = False) -> Harness:
+    def start(self, *options: str, open_files: int | None = None, rooted: bool = False,
+              isolated_group: bool = False) -> Harness:
         """Start the fake daemon; `open_files` pins its soft and hard RLIMIT_NOFILE (C-16.6)."""
         log = (self.root / f"harness-{len(self.logs)}.log").open("wb")
         self.logs.append(log)
@@ -63,7 +64,10 @@ class Harness:
         def limit():
             import resource
             resource.setrlimit(resource.RLIMIT_NOFILE, (open_files, open_files))
-        command = [sys.executable, "-m", "tests.fake.run_daemon", "--state-root", str(self.root), *options]
+        # The daemon stops once this test process is gone, whether or not this harness's
+        # teardown ran (`tests/fake/run_daemon.py`'s `ParentWatch`).
+        command = [sys.executable, "-m", "tests.fake.run_daemon", "--state-root", str(self.root),
+                   "--parent-pid", str(os.getpid()), *options]
         if rooted:
             # Model launchd's self-responsible daemon using only our own process.
             # The shell exec preserves its pid and sends diagnostics to our log.
@@ -75,7 +79,8 @@ class Harness:
                 cwd=str(REPO), env=env)
         else:
             self.process = subprocess.Popen(command, cwd=REPO, env=env, stdin=subprocess.DEVNULL,
-                stdout=log, stderr=log, preexec_fn=limit if open_files is not None else None)
+                stdout=log, stderr=log, preexec_fn=limit if open_files is not None else None,
+                start_new_session=isolated_group)
 
         def ready():
             if self.process.poll() is not None:
@@ -85,7 +90,10 @@ class Harness:
             except (OSError, ValueError):
                 return False
 
-        self.until(ready, timeout=5)
+        # Readiness ends as soon as the daemon answers; the limit only bounds a hung
+        # start. 5 s timed out before any test behaviour ran in every real-daemon
+        # case of a hold at load 105-118 (2026-10-23, 21 of 21 failures).
+        self.until(ready, timeout=60)
         return self
 
     def log_text(self) -> str:
@@ -181,12 +189,10 @@ class Harness:
             except subprocess.TimeoutExpired:
                 self.process.kill()
                 self.process.wait(timeout=2)
-        from subfleet.procs import same_process
-        for receipt in (self.root / "jobs").glob("*/a*/start.json"):
-            with suppress(OSError, ValueError, KeyError):
-                start = json.loads(receipt.read_text())
-                if same_process(start["guardian_pid"], start["boot_id"], start["proc_start"]):
-                    os.killpg(start["pgid"], signal.SIGKILL)
+        # Every guardian the store or a `start.json` records that is still alive by its
+        # recorded identity: a starting one (no `start.json`) as well (#250 fix round 2c).
+        from tests.fake.run_daemon import end_attempt_groups
+        end_attempt_groups(self.root)
         marker = self.root / "escaped.pid"
         if marker.exists():
             pid = int(marker.read_text())

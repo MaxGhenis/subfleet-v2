@@ -7,7 +7,7 @@ offers it, and a bounded list for a long queue (2026-09-28).
 The probe hosts `QueueTray` offscreen with rows built directly. SwiftUI builds
 no accessibility tree without an assistive client and a link button's AppKit
 title is empty, so a tray control is named by what its click fired (the closures
-log "withdraw:<id>" and "steer:<id>") and by its width, matched against link
+log "withdraw:<id>" and "steer:<id> into <turn>") and by its width, matched against link
 buttons the probe draws with each label the tray uses. The same limit hides the
 buttons' VoiceOver labels (`.accessibilityLabel`) and tooltips (`.help`); no test
 here checks them.
@@ -16,11 +16,15 @@ here checks them.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import subprocess
+import tempfile
+import uuid
 
 import pytest
 
-from tests.frontend.conftest import needs_swift
+from tests.frontend.conftest import needs_swift, run_probe, write_json
+from tests.frontend.daemon_harness import ServiceHarness, ServiceServer, make_live, record_state, steer_frames
 from tests.frontend.swift import ROOT, compile_probe
 
 pytestmark = needs_swift
@@ -113,7 +117,7 @@ def test_c29_7_a_row_being_withdrawn_offers_no_second_withdraw(trays, views):
 
 
 def test_c29_7_a_row_being_withdrawn_cannot_be_steered(trays):
-    """C-29.7: the head row the daemon offers to steer (canSteer, with a steer
+    """C-29.7: the head row the daemon offers to steer (`steerInto`, with a steer
     closure) has neither Steer nor Withdraw while its Withdraw is under way, so
     no click steers a message on its way out; the only button is the next
     row's Withdraw, in that row."""
@@ -302,16 +306,17 @@ def test_c29_7_a_status_caption_adds_a_line(views):
 
 
 def test_c29_7_steer_shows_only_where_the_daemon_offers_it(trays, views):
-    """C-29.7: a row with canSteer, given a steer closure, has a Steer button in
-    its own row whose click steers that row only; its Withdraw and the next row's
-    still withdraw. Without the closure, or with canSteer false, no row has Steer."""
+    """C-29.7: a row that names the turn it may be steered into (`steerInto`), given a
+    steer closure, has a Send now button in its own row whose click steers that row
+    only, into that turn; its Withdraw and the next row's still withdraw. Without the
+    closure, or with no turn named (none is live), no row has Send now."""
     labels = views["label_widths"]
     steer = trays["steer"]
     for shown in steer["passes"]:
         assert shown["buttons"] == 3
         assert all(len(click) == 1 for click in shown["clicks"])
-        assert sorted(fired(shown["clicks"])) == ["steer:q1", "withdraw:q1", "withdraw:q2"]
-        [index] = [i for i, click in enumerate(shown["clicks"]) if click == ["steer:q1"]]
+        assert sorted(fired(shown["clicks"])) == ["steer:q1 into host-a", "withdraw:q1", "withdraw:q2"]
+        [index] = [i for i, click in enumerate(shown["clicks"]) if click == ["steer:q1 into host-a"]]
         [head] = [i for i, click in enumerate(shown["clicks"]) if click == ["withdraw:q1"]]
         assert shown["widths"][index] == labels["Send now"]
         assert shown["tops"][index] == shown["tops"][head]
@@ -347,3 +352,113 @@ def test_queue_notice_seam_hosts_an_action_on_the_owning_tray_row(trays):
         by_action = {click[0]: top for top, click in zip(shown["tops"], shown["clicks"]) if click}
         assert by_action["retry:q1"] < by_action["withdraw:q2"]
     assert trays["notice"]["passes"][0]["height"] > trays["steer-no-closure"]["passes"][0]["height"]
+
+
+# --- "Send now" names the turn the person saw (#265 review r1, P2) ------------------------
+
+ENDED_WORDS = "Queued, not steered: the turn it was sent to had ended"
+
+
+def send_now(probe, *, b_ready: bool, offered_while: str) -> dict:
+    """The review's input through the real UI: `UIModel.open`, the queue tray built from the
+    model's layout as the conversation view builds it, and its Send now button, against the
+    daemon's own `message.steer` (`daemon_harness.ServiceServer`).
+
+    Host A runs; C is queued behind it, the tray's head. With `offered_while="A"` the tray
+    offers Send now while A runs and the button is kept; the model then reads the
+    conversation again after A completed (its second `conversation.open`), and successor B
+    starts just before the daemon reads the steer: the kept button is clicked after the
+    turn it was offered for ended. With `offered_while="B"` (the control), A completes and
+    B starts before that second read, and the tray offers Send now while B runs.
+    `b_ready`: B's runner can take a steer (else it is still catching up)."""
+    with tempfile.TemporaryDirectory(prefix="sf-tray-now-", dir="/tmp") as scratch:
+        root = Path(scratch)
+        harness = ServiceHarness(root / "daemon")
+        # The probe exits with the model's events long poll in flight, which the daemon
+        # counts as an abandoned connection; the harness's daemon stand-in has no counter.
+        harness.daemon._count_connection = lambda kind, detail=None: 0
+        server = ServiceServer(harness)
+        try:
+            cid = harness.create()["conversation_id"]
+            a = harness.submit(cid, "fix the parser")["message_id"]
+            make_live(harness, cid, a)
+            c = harness.submit(cid, "and check the tests", after=a)["message_id"]
+            b, runners = str(uuid.uuid4()), {}
+
+            def start_b() -> None:
+                harness.submit(cid, "the next turn", message_id=b, after=c)
+                runners[b] = make_live(harness, cid, b)
+                runners[b].replay_caught_up = b_ready
+
+            real_open, opens = harness.service.op_conversation_open, []
+
+            def conversation_open(args, peer):
+                opens.append(args.get("conversation_id"))
+                if len(opens) == 2:
+                    record_state(harness, a, "complete")
+                    if offered_while == "B":
+                        start_b()
+                return real_open(args, peer)
+            harness.service.op_conversation_open = conversation_open
+            if offered_while == "A":
+                real_steer = harness.service.op_message_steer
+
+                def message_steer(args, peer):
+                    if b not in runners:
+                        start_b()
+                    return real_steer(args, peer)
+                harness.service.op_message_steer = message_steer
+            caps = harness.call("capabilities")
+            caps = {**caps, "capabilities": [*caps["capabilities"], "steer.v1"], "steer_providers": ["claude"]}
+            spec = write_json(root / "spec.json", {
+                "socket": str(server.path), "app": str(root / "app"), "conversation_id": cid, "queued": c,
+                "capabilities": caps, "offer_after_reopen": offered_while == "B"})
+            out = run_probe(probe, "send-now", spec, timeout=180)
+            out["ids"] = {"a": a, "b": b, "c": c}
+            out["requests"] = [r["raw"]["args"] for r in server.requests if r["op"] == "message.steer"]
+            out["daemon"] = harness.call("message.status", message_ids=[c])["messages"][0]
+            out["b_frames"] = steer_frames(runners[b]) if b in runners else []
+            return out
+        finally:
+            server.close()
+            harness.close()
+
+
+@pytest.mark.parametrize("b_ready", [False, True], ids=["b-unready", "b-ready"])
+def test_c29_7_send_now_clicked_after_its_turn_ended_names_that_turn_and_c_stays_queued(
+        queue_tray_view_probe, b_ready):
+    """C-29.7 (#265 review r1, P2): Send now offered while host A runs, clicked after A
+    completed and successor B started, steers into A, the turn the person saw: the request
+    names A whether or not B can take a steer. The daemon answers `no-live-turn`, so C never
+    joins B, stays queued in the daemon and in the app, and its status line says why. It is
+    neither dropped nor failed."""
+    out = send_now(queue_tray_view_probe, b_ready=b_ready, offered_while="A")
+    a, b, c = out["ids"]["a"], out["ids"]["b"], out["ids"]["c"]
+    detail = json.dumps(out, sort_keys=True)
+    assert out["offered"]["live"] == a and out["offered"]["rows"] == [c] and out["offered"]["send_now"], detail
+    assert out["offered"]["steer_into"] == [a], detail                     # what the tray offered it for
+    assert out["live_at_click"] is None and out["clicked"], detail       # A ended; the app shows no live turn
+    assert out["offered_at_click"] is False, detail                       # nor would a fresh tray offer it
+    assert out["requests"] and all(r == {"message_id": c, "into": a} for r in out["requests"]), detail
+    assert out["daemon"]["state"] == "queued" and out["daemon"].get("steered_into") is None, detail
+    assert out["b_frames"] == [], detail                                  # B's runner was never given C
+    steer = out["steer"]
+    assert (steer["state"], steer["attempts"], steer["into"]) == ("refused", 1, a), detail
+    assert steer["failure"]["reason"] == "no-live-turn" and steer["receipt_state"] is None, detail
+    assert out["queued"]["state"] == "queued" and out["queued"]["status"] == ENDED_WORDS, detail
+    assert out["visible_windows"] == 0, detail
+
+
+def test_c29_7_send_now_offered_while_b_runs_names_b(queue_tray_view_probe):
+    """The control: Send now offered while B runs (A completed before the tray was drawn)
+    names B, and the daemon steers C into B."""
+    out = send_now(queue_tray_view_probe, b_ready=True, offered_while="B")
+    b, c = out["ids"]["b"], out["ids"]["c"]
+    detail = json.dumps(out, sort_keys=True)
+    assert out["offered"]["live"] == b and out["offered"]["rows"] == [c] and out["offered"]["send_now"], detail
+    assert out["offered"]["steer_into"] == [b], detail
+    assert out["requests"] == [{"message_id": c, "into": b}], detail
+    assert out["daemon"]["state"] == "steering" and out["daemon"]["steered_into"] == b, detail
+    assert out["b_frames"] == [c], detail
+    steer = out["steer"]
+    assert (steer["state"], steer["into"], steer["receipt_state"]) == ("acknowledged", b, "steering"), detail

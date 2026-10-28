@@ -64,14 +64,16 @@ from .client import (
     same_process,
     state_root,
 )
-from .contracts import (GIT_LOCATION_ENV, GIT_PATHSPEC_ENV, JOB_KINDS, REQUEST_ID_MAX, STOP_BACKSTOP_S,
-                        STOP_GRACE_S, JobState, Sandbox, WAIT_POLL_MAX_S, Exit)
+from .contracts import (GIT_LOCATION_ENV, GIT_PATHSPEC_ENV, HOLD_NOTE_MAX, JOB_KINDS,
+                        REQUEST_ID_MAX, STOP_BACKSTOP_S, STOP_GRACE_S, JobState, Sandbox, WAIT_POLL_MAX_S, Exit,
+                        hold_note, hold_note_of)
 from .offline import (KNOWN_SCHEMA_VERSION, Offline, OfflineUnavailable,
                       SchemaTooNew, age_adjusted_label)
 from .protocol import ProtocolError
 from .credentials import refused_rows, startup_lanes
 from .launch_env import build_environment, refused_reference
 from .policy import LANE_REFERENCE_FIX, PolicyError, check_lane_credentials, load_policy, startup_notes
+from .status_json import lane_verdict, timestamp
 from .store import notice_fingerprint
 from .home_paths import home_path
 
@@ -471,6 +473,12 @@ def format_status(data: dict[str, Any]) -> str:
     readings = [dict(row) for row in rows_of(data.get("readings"))]
     at = render.instant(data["now"]) if data.get("now") else datetime.now(timezone.utc)
     closures = rows_of(data.get("closures"))
+    # D-STATUS-SRC1: the closures in force, by lane. With no daemon the store's
+    # unreleased rows include ones that have ended.
+    in_force: dict[str, list[dict[str, Any]]] = {}
+    for closure in closures:
+        if _closure_in_force(closure, at):
+            in_force.setdefault(str(closure.get("lane_id")), []).append(closure)
     # `daemon.status` carries nonterminal jobs and live/quarantined attempts'
     # jobs; older daemons carry the whole ledger, so filter it here too. A turn job
     # is its conversation's (C-26.12): it is counted on its own line, never as
@@ -519,6 +527,10 @@ def format_status(data: dict[str, Any]) -> str:
             # D-ENV1: held, since every launch inherits its variable (a name, never a value).
             if lane.get("credential_kind") == "env" and refused_reference(lane.get("credential_ref")):
                 flags.append(f"credential-refused={lane['credential_ref']}")
+            # D-STATUS-SRC1: an operator's hold reads `held`, a provider's limit `limited`.
+            verdict = lane_verdict({**lane, "closures": in_force.get(str(lane.get("lane_id")), [])})
+            if verdict in ("held", "limited"):
+                flags.append(verdict)
             lines.append(
                 f"{str(lane.get('lane_id') or '-'):<12.12} "
                 f"{str(lane.get('provider') or '-'):<8.8} "
@@ -538,9 +550,8 @@ def format_status(data: dict[str, Any]) -> str:
         lines.append("")
         lines.append("closures")
         for closure in closures:
-            lines.append(f"  {closure.get('lane_id')} {closure.get('scope')} "
-                         f"until {closure.get('until_at')} "
-                         f"({closure.get('reason')}, {closure.get('clock_source')})")
+            lane = next((row for row in lanes if row.get("lane_id") == closure.get("lane_id")), closure)
+            lines.append("  " + render.closure_line(closure, home=render.lane_home(lane)))
     lines.append("")
     callers = rows_of(data.get("priority_callers"))
     if isinstance(data.get("disk"), dict):
@@ -568,6 +579,14 @@ def format_status(data: dict[str, Any]) -> str:
     if turns:
         lines.append(f"conversation turns: {len(turns)} live — {PROG} runs --kind turn")
     return "\n".join(lines)
+
+
+def _closure_in_force(closure: dict[str, Any], at: datetime) -> bool:
+    """Not released, and its end still ahead of `at` (an end that cannot be read is not)."""
+    try:
+        return not closure.get("released_at") and render.instant(closure["until_at"]) > at
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return False
 
 
 # --- daemon / offline plumbing ------------------------------------------------
@@ -2250,6 +2269,10 @@ def _format_lanes(result: dict[str, Any]) -> str:
             f"{('yes' if lane.get('enabled', True) else 'no'):<8} "
             f"{str(lane.get('identity_status') or '-'):<12.12} "     # C-10.6
             f"{lane.get('plan') or '-'}")
+        for closure in lane.get("closures", result.get("closures", ())):
+            if (closure.get("reason") == "operator-hold"
+                    and closure.get("lane_id", lane.get("lane_id")) == lane.get("lane_id")):
+                lines.append("  " + render.closure_text(closure, home=render.lane_home(lane)))
     return "\n".join(lines)
 
 
@@ -2282,9 +2305,16 @@ def cmd_lanes(args: argparse.Namespace) -> int:
         return fail(Exit.INVALID_INPUT, "lanes hold: --until is required")
     limits = bool(getattr(args, "limits", False))
     note = getattr(args, "note", None)
-    if limits and not (note or "").strip():
+    if action == "hold":
+        # C-9.6 (D-STATUS-SRC1): refused here, before the daemon is asked; the
+        # daemon applies the same rule to every hold it writes.
+        try:
+            note = hold_note(note)
+        except ValueError as refused:           # the rule broken, never the note (review r1 of #263)
+            return fail(Exit.INVALID_INPUT, f"lanes hold: {refused}")
+    elif limits and not (note or "").strip():
         return fail(Exit.INVALID_INPUT, "lanes release --limits: --note is required")
-    if note is not None and not limits:
+    elif note is not None and not limits:
         return fail(Exit.INVALID_INPUT, "lanes release: --note requires --limits")
     lanes_args = protocol.LanesArgs(
         # Older daemons ignore unknown fields. A distinct action prevents them
@@ -2317,6 +2347,26 @@ def cmd_lanes(args: argparse.Namespace) -> int:
         return fail(Exit.DAEMON_UNAVAILABLE,
                     "the daemon did not release guessed limits; it is older than this CLI",
                     RESTART_DAEMON)
+    if action == "hold" and note is not None and result.get("held") and "note" not in result:
+        # A daemon before D-STATUS-SRC1 holds the lane and drops the note.
+        return fail(Exit.DAEMON_UNAVAILABLE, "the daemon recorded the hold without its note; "
+                    "it is older than this CLI", RESTART_DAEMON)
+    if action == "hold":
+        if not result.get("held"):
+            return fail(Exit.DAEMON_UNAVAILABLE, "the daemon did not hold the lane; it is older than this CLI",
+                        RESTART_DAEMON)
+        closure = next((row for row in result.get("closures", ())
+                        if row.get("lane_id") == args.lane and row.get("scope") == "account"
+                        and row.get("reason") == "operator-hold"), None)
+        if closure is None:
+            return fail(Exit.NO_LANE, "the hold is not in force; the daemon returned no active stored hold")
+        if "kept" not in result:
+            # #263 returns the stored row but has no kept flag and echoes the
+            # requested note at the top level. The row remains the authority.
+            stored_note = hold_note_of(closure.get("source_event"))
+            result["kept"] = (render.instant(closure["until_at"]) != render.instant(timestamp(args.until.strip()))
+                              or stored_note != note)
+            result["note"] = stored_note
     if args.json:
         emit(result)
         return int(Exit.OK)
@@ -2335,7 +2385,13 @@ def cmd_lanes(args: argparse.Namespace) -> int:
         if not (result.get("held") or result.get("released")):
             return fail(Exit.DAEMON_UNAVAILABLE, f"the daemon did not {action} the lane; it is older than this CLI",
                         RESTART_DAEMON)
-        out(f"{action}: {result.get('held') or result.get('released')}")
+        if action == "hold":
+            lane = next((row for row in result.get("lanes", ()) if row.get("lane_id") == args.lane), closure)
+            out(render.closure_text(closure, home=render.lane_home(lane)))
+            if result.get("kept"):
+                out("the stored until and note were kept; this call's until and note were not applied")
+        else:
+            out(f"{action}: {result.get('released')}")
         if limits:
             out(f"guessed limits released: {len(result['limits_released'])}")
             if result.get("limits_reported"):
@@ -3609,6 +3665,8 @@ def build_parser() -> argparse.ArgumentParser:
     l_hold = lanes_sub.add_parser("hold")
     l_hold.add_argument("lane")
     l_hold.add_argument("--until", required=True, help="ISO 8601 UTC instant")
+    l_hold.add_argument("--note", help=f"why the lane is held, shown by status and the alerts: one line of "
+                        f"at most {HOLD_NOTE_MAX} printable characters")
     _add_json(l_hold, nested=True)
     l_release = lanes_sub.add_parser("release", help="release operator holds or guessed limits",
                                      description="Release operator holds, or use --limits --note TEXT to "

@@ -61,7 +61,10 @@ def test_c5_1_launch_uses_installed_guardian_and_keeps_credentials_in_environmen
     secret = "fixture-token-environment-only"
     def build(self, *args, **kwargs):
         launch = original(self, *args, **kwargs)
-        return dataclasses.replace(launch, env_add={**launch.env_add, "CLAUDE_CODE_OAUTH_TOKEN": secret})
+        # The harness lane is a Codex lane: its own vendor's token reaches the
+        # launch; a Claude token never does (D-ENV3).
+        return dataclasses.replace(launch, env_add={**launch.env_add, "CODEX_ACCESS_TOKEN": secret,
+                                                    "CLAUDE_CODE_OAUTH_TOKEN": secret})
     monkeypatch.setattr(FakeAdapter, "build_launch", build)
     for key in ("CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
         monkeypatch.setenv(key, "fixture-api-key")
@@ -69,7 +72,8 @@ def test_c5_1_launch_uses_installed_guardian_and_keeps_credentials_in_environmen
     command, options = calls[0]
     assert options["cwd"] == str(Path(module.__file__).resolve().parent.parent)
     assert command[command.index("--cwd") + 1] == str(harness.workdir)
-    assert options["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == secret
+    assert options["env"]["CODEX_ACCESS_TOKEN"] == secret
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in options["env"]
     assert options["env"]["SUBFLEET_ATTEMPT"] == a["attempt_id"]
     assert not set(("CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")) & options["env"].keys()
     assert secret not in json.dumps(command)

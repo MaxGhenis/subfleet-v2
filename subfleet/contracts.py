@@ -8,6 +8,7 @@ the store, the daemon, the adapters, and the CLI cannot drift apart.
 from __future__ import annotations
 
 import enum
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -270,6 +271,13 @@ TRANSIENT_RETRY_DELAY_S = 60
 #: the rest of an episode, against 0.2% four hours on (docs/reports/2026-10-13-model-capacity-steer.md).
 MODEL_CAPACITY_STEER_S = 900
 START_GRACE_S = 10
+#: D-QUAR-START1 (a), C-4.2: start grace's bound. At its expiry a guardian that is alive,
+#: running (not stopped) and verified by its recorded identity, and is the census's only
+#: member, is given more time, re-checked at the census's pacing (C-5.12), until this
+#: long after the deadline began (the launch). Python start-up, the launch gate and the
+#: identity reads all come before `start.json`; under load 60 to 100 on 2026-10-26 one
+#: guardian took about 31 s (`20261026-104634-ce1-review-r3/a1`).
+START_GRACE_MAX_S = 6 * START_GRACE_S
 TERM_GRACE_S = 15
 # C-5.6, C-5.9: how long a census may keep finding pids the kernel is still
 # tearing down (after SIGKILL, or after the guardian's exit receipt) before the
@@ -379,6 +387,83 @@ class Closure:  # C-9.6
     reason: ClosureReason
     clock_source: ClockSource
     source_event: str | None
+
+
+#: C-9.6 (D-STATUS-SRC1): an operator hold's `source_event` is `operator`, or
+#: `operator: <note>` when `lanes hold --note` gave one. The note rides in the
+#: field every closure already has, so the store's schema is unchanged; nothing
+#: compares a `source_event` with `operator`.
+HOLD_SOURCE = "operator"
+HOLD_NOTE_MAX = 160
+HOLD_NOTE_RULE = f"--note must be one line of 1 to {HOLD_NOTE_MAX} printable characters"
+#: C-9.6 (review r1 of #263): a note the C-23.14 scrubber would change is refused,
+#: not masked, as C-1.5 refuses such a request id and C-25.7 such a correlation id.
+#: Masking would change what the operator wrote, and the refusal never echoes it.
+HOLD_NOTE_CREDENTIAL_RULE = "--note must not carry a credential (the C-23.14 scrubber would change it)"
+#: What every reader shows for a stored note no writer here accepts (`hold_note_of`).
+HOLD_NOTE_WITHHELD = "[note withheld: it would carry a credential]"
+
+
+def hold_note(value: Any) -> str | None:
+    """`lanes hold --note`'s text as the hold records it; None when no note was given.
+
+    The text is stripped of the whitespace around it and must then be one line
+    of printable characters (`str.isprintable`: no newline, tab, control or
+    separator character other than the space), from 1 to `HOLD_NOTE_MAX` of
+    them, that the C-23.14 scrubber leaves whole, read from its start or from
+    just after any `-` or `_` (`ids.holds_credential`), both as written and as
+    JSON writes it (review r2 of #263, P3-1: the scrubber's URL rule finds no
+    word boundary before `https` in `ühttps://u:<password>@host` and leaves it
+    whole, but masks the password in `\\u00fchttps://…`, the form `status
+    --json` and `status.json` carry). Anything else raises ValueError naming
+    the rule it breaks, never the text, and the caller writes nothing. The
+    length is checked first, so a longer text is never read for a credential."""
+    if value is None:
+        return None
+    note = value.strip() if isinstance(value, str) else ""
+    if not note or len(note) > HOLD_NOTE_MAX or not note.isprintable():
+        raise ValueError(HOLD_NOTE_RULE)
+    from .ids import holds_credential       # ids imports this module
+    if holds_credential(note) or holds_credential(json.dumps(note)[1:-1]):
+        raise ValueError(HOLD_NOTE_CREDENTIAL_RULE)
+    return note
+
+
+def hold_source(note: str | None) -> str:
+    """The `source_event` of an operator hold carrying `note` (C-9.6)."""
+    return HOLD_SOURCE if note is None else f"{HOLD_SOURCE}: {note}"
+
+
+def hold_note_of(source_event: Any) -> str | None:
+    """The note an operator hold's `source_event` carries, or None (C-9.6).
+
+    Read strictly (review r2 of #263, P3-3): `operator` carries no note, and
+    `operator: <note>` carries the note when `hold_note` accepts it as it
+    stands. Any other source, which only a writer outside `lanes hold` can
+    leave (`operator:<note>`, `Operator: <note>`, a bare `sk-…`, a note with
+    a credential or of more than `HOLD_NOTE_MAX` characters), reads as
+    `HOLD_NOTE_WITHHELD`, so no reader (status, its JSON, the alerts, a
+    session notice) passes it on. A note over `HOLD_NOTE_MAX` is withheld
+    unread: `hold_note` refuses it on its length before the scrubber reads it,
+    work that grows with the square of the length (2,000 characters take
+    seconds). Call it for a hold's row only: any other closure's source
+    reads as withheld here."""
+    prefix = f"{HOLD_SOURCE}: "
+    written = source_event[len(prefix):] if isinstance(source_event, str) and source_event.startswith(prefix) else None
+    try:
+        note = hold_note(written)
+    except ValueError:
+        return HOLD_NOTE_WITHHELD
+    # Exactly what `lanes hold` writes for that note: a round trip, not a
+    # comparison with the word (C-9.6's guard).
+    return note if hold_source(note) == source_event else HOLD_NOTE_WITHHELD
+
+
+def hold_source_shown(source_event: Any) -> Any:
+    """A hold's `source_event` as a reader shows it: as stored, unless its note is
+    withheld (`hold_note_of`), when it is `operator: ` and the withheld text."""
+    note = hold_note_of(source_event)
+    return hold_source(note) if note == HOLD_NOTE_WITHHELD else source_event
 
 
 #: C-17.1, C-26.12: the kinds the job ledger holds (`jobs.kind`), as the code

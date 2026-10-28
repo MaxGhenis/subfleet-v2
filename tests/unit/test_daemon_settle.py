@@ -386,8 +386,8 @@ def test_c5_12_a_healthy_attempt_is_inspected_once_per_interval_from_the_shared_
     observed = [daemon_module.utcnow_ms()]
     monkeypatch.setattr(daemon_module, "utcnow_ms", lambda: observed[0])
     reads = []
-    daemon._process_table = shared(table_showing((4242, 1, 4242, "Ss"), (4243, 4242, 4242, "S"), (4300, 1, 4300, "S")),
-                                   reads)
+    table = table_showing((4242, 1, 4242, "Ss"), (4243, 4242, 4242, "S"), (4300, 1, 4300, "S"))
+    daemon._process_table = shared(table, reads)
     monkeypatch.setattr(daemon_module.procs, "liveness", lambda *args: pytest.fail("the table already answered"))
     monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: pytest.fail("no second table"))
     daemon._contain = never_census
@@ -400,6 +400,9 @@ def test_c5_12_a_healthy_attempt_is_inspected_once_per_interval_from_the_shared_
     assert [row["kind"] for row in daemon.store.list_events(JOB)].count("attempt.processes_recorded") == 1
     observed[0] = daemon_module._later(observed[0], 1)
     daemon._inspect_next[ATTEMPT] = 0                     # the interval ends
+    # A fresh ps read creates a distinct snapshot even when its rows match.
+    # Reusing the old snapshot must not advance either liveness or absence age.
+    daemon._process_table = shared(ProcessTable(dict(table.rows), "boot"), reads)
     daemon._process_attempt(ATTEMPT)
     assert reads == [1, 1]
     assert json.loads(attempt(daemon)["evidence_json"])["last_observed_alive_at"] == observed[0]
@@ -415,6 +418,48 @@ def test_c5_12_the_receipt_is_read_every_tick_whatever_the_inspection_interval(d
     publish_receipt(daemon, rc=0)
     daemon._process_attempt(ATTEMPT)
     assert attempt(daemon)["state"] == "finalizing"
+
+
+def test_d_kill3_inspection_records_walk_members_without_signal_authority(daemon, monkeypatch):
+    """C-5.5, C-5.12: the shared table remembers escaped descendants before exit.
+
+    Zombies remain parent-link anchors; strangers, zombie members and missing
+    births are not recorded. A second sighting writes nothing and preserves
+    the earlier walk member even after it is reparented to init.
+    """
+    table = table_showing((4242, 1, 4242, "Ss"), (4243, 4242, 4242, "S"),
+                          (4400, 4243, 4400, "Z"), (4401, 4400, 4401, "S"),
+                          (4402, 4243, 4402, "S"), (4500, 1, 4500, "S"))
+    table.rows[4402] = (4243, 4402, "S", "")
+    daemon._process_table = shared(table)
+    daemon._contain = never_census
+    monkeypatch.setattr(daemon_module.procs, "snapshot", lambda: pytest.fail("reuse the shared table"))
+    daemon._process_attempt(ATTEMPT)
+    evidence = json.loads(attempt(daemon)["evidence_json"])
+    assert evidence["counted_identities"] == {
+        "4401": {"pid": 4401, "boot_id": "boot", "proc_start": STARTED}}
+    assert set(evidence["owned_identities"]) == {"4242", "4243"}
+    events = daemon.store.list_events(JOB)
+    assert [(e["kind"], json.loads(e["data_json"])["pids"]) for e in events
+            if e["kind"] == "attempt.counted_recorded"] == [("attempt.counted_recorded", [4401])]
+    table.rows[4401] = (1, 4401, "S", STARTED)
+    daemon._inspect_next.clear()
+    daemon._process_attempt(ATTEMPT)
+    assert json.loads(attempt(daemon)["evidence_json"]) == evidence
+    assert len(daemon.store.list_events(JOB)) == len(events)
+
+
+@pytest.mark.parametrize("seed_key", ["owned_identities", "responsible_identities", "counted_identities"])
+@pytest.mark.parametrize("recycled", [False, True], ids=["matching", "recycled"])
+def test_d_kill3_inspection_walks_recorded_survivors_but_not_recycled_seeds(daemon, seed_key, recycled):
+    known = {"pid": 4401, "boot_id": "boot", "proc_start": STARTED}
+    daemon.store.update_attempt(ATTEMPT, evidence_json=json.dumps({seed_key: {"4401": known}}))
+    table = table_showing((4242, 1, 4242, "Ss"), (4401, 1, 4401, "S"), (4402, 4401, 4402, "S"))
+    if recycled:
+        table.rows[4401] = (1, 4401, "S", "Sun Sep  6 11:00:00 2026")
+    daemon._record_owned(attempt(daemon), table)
+    counted = json.loads(attempt(daemon)["evidence_json"]).get("counted_identities", {})
+    assert ("4402" in counted) is not recycled
 
 
 def test_c5_12_a_shared_table_never_pronounces_death(daemon, monkeypatch):
@@ -801,7 +846,8 @@ def test_c4_2_start_grace_reads_the_receipts_again_after_its_census(daemon, monk
                          [(EMPTY, "failed", "starting-no-receipt"), (GUARDIAN_ONLY, "quarantined", None)],
                          ids=["empty", "guardian-alive"])
 def test_c4_2_start_grace_without_a_receipt_still_decides_from_its_census(daemon, monkeypatch, census, state, detail):
-    """C-4.2 no receipt after the census: an empty census releases and retries, anything else quarantines."""
+    """C-4.2 no receipt after the census: an empty census releases and retries; anything else is contained
+    first (D-KILL4), and a census that never empties quarantines with start grace's reason."""
     with_launch(daemon, monkeypatch)
     daemon.store.update_attempt(ATTEMPT, state="starting")
     daemon.start_grace_s, daemon._starting_deadlines[ATTEMPT] = 10, 0.0
@@ -854,17 +900,24 @@ def test_c4_2_start_grace_takes_only_a_receipt_the_tick_would_take(daemon, monke
     adir, censuses = attempt_dir(daemon.root, JOB, 1), []
 
     def contain(a):
-        censuses.append(1)
+        # Which census this is: start grace's own, or one the kill protocol took after it.
+        started = daemon.store.one("SELECT 1 FROM events WHERE kind='attempt.kill_started'")
+        censuses.append("protocol" if started else "start grace")
         atomic_publish(adir / "start.json", empty.encode())
         atomic_publish(adir / "exit.json", empty.encode())
         return census
     daemon._contain = contain
     daemon._process_attempt(ATTEMPT)
     a = attempt(daemon)
-    assert censuses == [1]
     if census is EMPTY:
+        assert censuses == ["start grace"]
         assert a["state"] == "failed" and a["outcome_detail"] == "starting-no-receipt"
     else:
+        # D-KILL4: the one census start grace takes decides at once, to contain (fix 1: the
+        # kill protocol starts from that census); every other census is the protocol's own,
+        # in the same pass, none on a later tick.
+        assert censuses[0] == "start grace" and len(censuses) > 1
+        assert censuses == ["start grace"] + ["protocol"] * (len(censuses) - 1), censuses
         assert a["state"] == "quarantined"
         assert json.loads(a["quarantine_reason"])["reason"] == "start grace expired without a receipt"
 

@@ -91,7 +91,7 @@ class Probes:
     """`Daemon._execute_probe`, scripted: each probe takes the next outcome, then `ok`.
 
     An outcome may come with how long its probe ran, `(outcome, seconds)`; the
-    default is the whole minute, as a probe its deadline stopped runs. Nothing
+    default is its policy deadline, as a probe its deadline stopped runs. Nothing
     waits: the probe's reservation is moved that far into the past before it
     returns. `line` is who waited on a probe each time one was carried (I1).
     """
@@ -106,7 +106,7 @@ class Probes:
     def __call__(self, job, lane, model, holder):
         # A lane in `bad` is a slow one: every probe there runs to its deadline.
         outcome = CUT if lane.lane_id in self.bad else self.outcomes.pop(0) if self.outcomes else OK
-        outcome, ran_s = outcome if isinstance(outcome, tuple) else (outcome, 60)
+        outcome, ran_s = outcome if isinstance(outcome, tuple) else (outcome, self.service.policy["admission"]["probe_deadline_s"])
         self.vehicles.append((job["job_id"], lane.lane_id, MODELS[model["id"]]))
         self.line.append(list(getattr(self.service, "_probe_line", ())))   # none before the fix
         record = self.service._probe_record(holder)
@@ -491,7 +491,7 @@ def test_a_lock_wait_before_the_reservation_spends_neither_clock(routing_state, 
     monkeypatch.setattr(service, "_execute_probe", probe)
     service._admit()
     reserved = clock["now"]
-    assert deadlines == [(stamp(reserved), stamp(reserved + timedelta(seconds=60)))]
+    assert deadlines == [(stamp(reserved), stamp(reserved + timedelta(seconds=service.policy["admission"]["probe_deadline_s"])))]
     assert service.store.get_job(job_id)["next_check_at"] == stamp(reserved + timedelta(seconds=PROBE_RETRY_S))
 
 
